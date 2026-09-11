@@ -230,6 +230,25 @@ func TestGenerateOutlierPositionNearCluster(t *testing.T) {
 	assert.Greater(t, mean, 500*0.5, "выбросы не должны сидеть в самом центре, mean=%.0f", mean)
 }
 
+func TestClusterPointsGaussianDensity(t *testing.T) {
+	// Точки кластера должны быть плотнее к центру (гауссово распределение),
+	// а не равномерно по кругу.
+	g := NewGenerator(&Config{Seed: 9})
+	points := g.clusterPointsGaussian(0, 0, 1000, 20, 2000)
+	require.NotEmpty(t, points)
+
+	var sum float64
+	for _, p := range points {
+		assert.LessOrEqual(t, math.Hypot(p.X, p.Y), 1000.0, "точка за пределами кластера")
+		sum += math.Hypot(p.X, p.Y)
+	}
+	mean := sum / float64(len(points))
+	// Равномерное по кругу дало бы ~2/3 радиуса (667). Гауссово (std=500,
+	// усечённое по кругу) — заметно плотнее к центру.
+	assert.Less(t, mean, 1000*0.64, "точки должны быть плотнее к центру, mean=%.0f", mean)
+	assert.Greater(t, mean, 1000*0.35, "точки не должны слипаться в центре, mean=%.0f", mean)
+}
+
 func TestGenerateGalaxyWithRegionsDeterminism(t *testing.T) {
 	mk := func() *GalaxyResult {
 		return NewGenerator(&Config{

@@ -111,7 +111,7 @@ func (g *Generator) generateWorldsPoisson() *GalaxyResult {
 		remaining -= count
 
 		cx, cy := centers[i].X, centers[i].Y
-		clusterPointsList := g.poissonInCircleGaussian(cx, cy, clusterRadius, minDist, count)
+		clusterPointsList := g.clusterPointsGaussian(cx, cy, clusterRadius, minDist, count)
 		for _, p := range clusterPointsList {
 			// ГЛОБАЛЬНАЯ ПРОВЕРКА: точка должна быть внутри круга
 			if math.Hypot(p.X, p.Y) > halfSize {
@@ -208,105 +208,29 @@ func (g *Generator) generateClusterCenters(count int, halfSize float64, minSpaci
 	return centers
 }
 
-// ---------- АЛГОРИТМ ПУАССОНА В КРУГЕ С ГАУССОВЫМ РАЗБРОСОМ (БЕЗ ИЗМЕНЕНИЙ) ----------
-func (g *Generator) poissonInCircleGaussian(cx, cy, radius, minDist float64, count int) []struct{ X, Y float64 } {
+// ---------- ТОЧКИ КЛАСТЕРА С ГАУССОВОЙ ПЛОТНОСТЬЮ ----------
+
+// clusterPointsGaussian — точки кластера с гауссовой плотностью:
+// плотнее к центру, реже к краям (std = радиус/2, усечение по кругу).
+// Соблюдает minDist между точками (отбор отбрасыванием).
+func (g *Generator) clusterPointsGaussian(cx, cy, radius, minDist float64, count int) []struct{ X, Y float64 } {
 	if count <= 0 {
 		return nil
 	}
-
-	cellSize := minDist / math.Sqrt(2)
-	cols := int(math.Ceil(2*radius / cellSize))
-	rows := int(math.Ceil(2*radius / cellSize))
-	offsetX := cx - radius
-	offsetY := cy - radius
-
-	grid := make([][]int, cols*rows)
-	points := []struct{ X, Y float64 }{}
-	active := []int{}
-
-	firstX := cx + g.gaussian(radius/3)
-	firstY := cy + g.gaussian(radius/3)
-	if math.Hypot(firstX-cx, firstY-cy) > radius {
-		firstX = cx + (g.rng.Float64()-0.5)*radius
-		firstY = cy + (g.rng.Float64()-0.5)*radius
-		if math.Hypot(firstX-cx, firstY-cy) > radius {
-			firstX = cx
-			firstY = cy
+	std := radius / 2.0
+	points := make([]struct{ X, Y float64 }, 0, count)
+	maxAttempts := count * 50
+	for len(points) < count && maxAttempts > 0 {
+		maxAttempts--
+		x := cx + g.gaussian(std)
+		y := cy + g.gaussian(std)
+		if math.Hypot(x-cx, y-cy) > radius {
+			continue
+		}
+		if g.isPointValid(x, y, minDist, points) {
+			points = append(points, struct{ X, Y float64 }{X: x, Y: y})
 		}
 	}
-	points = append(points, struct{ X, Y float64 }{X: firstX, Y: firstY})
-	active = append(active, 0)
-
-	col := int(math.Floor((firstX - offsetX) / cellSize))
-	row := int(math.Floor((firstY - offsetY) / cellSize))
-	if col >= 0 && col < cols && row >= 0 && row < rows {
-		grid[row*cols+col] = append(grid[row*cols+col], 0)
-	}
-
-	k := 30
-	for len(active) > 0 && len(points) < count {
-		ai := g.rng.Intn(len(active))
-		pi := active[ai]
-		px, py := points[pi].X, points[pi].Y
-
-		found := false
-		for attempt := 0; attempt < k; attempt++ {
-			dist := minDist + g.rng.Float64()*minDist
-			angle := g.rng.Float64() * 2 * math.Pi
-			nx := px + math.Cos(angle)*dist
-			ny := py + math.Sin(angle)*dist
-
-			if math.Hypot(nx-cx, ny-cy) > radius {
-				continue
-			}
-
-			colN := int(math.Floor((nx - offsetX) / cellSize))
-			rowN := int(math.Floor((ny - offsetY) / cellSize))
-			if colN < 0 || colN >= cols || rowN < 0 || rowN >= rows {
-				continue
-			}
-
-			ok := true
-			for dr := -1; dr <= 1; dr++ {
-				for dc := -1; dc <= 1; dc++ {
-					rr := rowN + dr
-					cc := colN + dc
-					if rr < 0 || rr >= rows || cc < 0 || cc >= cols {
-						continue
-					}
-					cellIdx := rr*cols + cc
-					for _, pIdx := range grid[cellIdx] {
-						dx := points[pIdx].X - nx
-						dy := points[pIdx].Y - ny
-						if dx*dx+dy*dy < minDist*minDist {
-							ok = false
-							break
-						}
-					}
-					if !ok {
-						break
-					}
-				}
-				if !ok {
-					break
-				}
-			}
-
-			if ok {
-				points = append(points, struct{ X, Y float64 }{X: nx, Y: ny})
-				newIdx := len(points) - 1
-				grid[rowN*cols+colN] = append(grid[rowN*cols+colN], newIdx)
-				active = append(active, newIdx)
-				found = true
-				break
-			}
-		}
-
-		if !found {
-			active = append(active[:ai], active[ai+1:]...)
-		}
-	}
-
 	return points
 }
 

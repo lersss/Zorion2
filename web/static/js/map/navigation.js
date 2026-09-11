@@ -6,12 +6,9 @@ import { draw } from './map_render.js';
 // Мир должен быть в state.worlds (его кладёт туда loadUserData
 // через /worlds/{id}). Если не найден — молча выходим.
 export function centerOnAgent() {
-    if (!state.currentWorldId) {
-        console.warn('centerOnAgent: currentWorldId не задан');
-        return;
-    }
-
-    // Если игрок в полёте — центрируем на текущей позиции по пути
+    // Если игрок в полёте — центрируем на текущей позиции по пути.
+    // Ветка не зависит от currentWorldId: у нового игрока мир может быть NULL,
+    // но полёт уже идёт и корабль есть.
     if (state.isFlying && state.flyFrom && state.flyTo && state.flyStartTime !== undefined && state.flyDuration > 0) {
         const elapsed = (Date.now() - state.flyStartTime) / 1000;
         const progress = Math.min(elapsed / state.flyDuration, 1);
@@ -32,6 +29,11 @@ export function centerOnAgent() {
             elements.zoomInfo.textContent = Math.round(state.scale * 100) + '%';
         }
         draw();
+        return;
+    }
+
+    if (!state.currentWorldId) {
+        console.warn('centerOnAgent: currentWorldId не задан');
         return;
     }
 

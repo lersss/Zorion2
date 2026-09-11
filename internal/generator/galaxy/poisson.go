@@ -14,10 +14,9 @@ func (g *Generator) randomPointInCircle(radius float64) (x, y float64) {
 	return r * math.Cos(angle), r * math.Sin(angle)
 }
 
-// generateOutlierPosition — позиция выброса: случайный кластерный центр +
-// гауссово смещение (std = ClusterRadius). Так выбросы чаще оказываются
-// ближе к кластерам и реже — у их границ / краёв галактики.
-// Если кластеров нет — старый равномерный способ.
+// generateOutlierPosition — позиция выброса: гауссово смещение от случайного
+// кластерного центра (std = 3×ClusterRadius), чтобы выбросы тяготели к кластерам,
+// но заполняли пустоты между ними. Если кластеров нет — равномерный способ.
 func (g *Generator) generateOutlierPosition(
 	regions []*models.Region,
 	halfSize, minDist float64,
@@ -30,7 +29,7 @@ func (g *Generator) generateOutlierPosition(
 
 	idx := g.rng.Intn(len(regions))
 	cx, cy := regions[idx].CenterX, regions[idx].CenterY
-	std := regions[idx].Radius
+	std := regions[idx].Radius * 3.0
 	if std <= 0 {
 		std = 80.0
 	}
@@ -211,13 +210,13 @@ func (g *Generator) generateClusterCenters(count int, halfSize float64, minSpaci
 // ---------- ТОЧКИ КЛАСТЕРА С ГАУССОВОЙ ПЛОТНОСТЬЮ ----------
 
 // clusterPointsGaussian — точки кластера с гауссовой плотностью:
-// плотнее к центру, реже к краям (std = радиус/2, усечение по кругу).
+// плотнее к центру, реже к краям (std = радиус×0.7, усечение по кругу).
 // Соблюдает minDist между точками (отбор отбрасыванием).
 func (g *Generator) clusterPointsGaussian(cx, cy, radius, minDist float64, count int) []struct{ X, Y float64 } {
 	if count <= 0 {
 		return nil
 	}
-	std := radius / 2.0
+	std := radius * 0.7
 	points := make([]struct{ X, Y float64 }, 0, count)
 	maxAttempts := count * 50
 	for len(points) < count && maxAttempts > 0 {

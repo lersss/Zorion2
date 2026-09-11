@@ -223,11 +223,12 @@ func TestGenerateOutlierPositionNearCluster(t *testing.T) {
 	}
 	require.Greater(t, placed, n/2, "слишком много неудачных попыток")
 
-	// Гауссово распределение со std = ClusterRadius (500): среднее расстояние
-	// (Рэлеевское) ≈ 500 × sqrt(π/2) ≈ 626. Равномерный разброс дал бы ~2/3 R.
+	// Гауссово распределение со std = 3×ClusterRadius (1500): среднее расстояние
+	// (Рэлеевское) ≈ 1500 × sqrt(π/2) ≈ 1880. Выбросы заполняют пустоты между
+	// кластерами, но не разлетаются по всей галактике (не равномерно).
 	mean := sum / float64(placed)
-	assert.Less(t, mean, 500*2.0, "выбросы должны быть ближе к кластерам, mean=%.0f", mean)
-	assert.Greater(t, mean, 500*0.5, "выбросы не должны сидеть в самом центре, mean=%.0f", mean)
+	assert.Less(t, mean, 500*5.0, "выбросы не должны разлетаться, mean=%.0f", mean)
+	assert.Greater(t, mean, 500*2.5, "выбросы должны заполнять пустоты между кластерами, mean=%.0f", mean)
 }
 
 func TestClusterPointsGaussianDensity(t *testing.T) {

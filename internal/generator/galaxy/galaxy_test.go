@@ -180,6 +180,19 @@ func TestGenerateGalaxyWithRegionsRandomHasNone(t *testing.T) {
 	assert.Empty(t, res.Regions)
 }
 
+func TestTooManyClustersDoNotPanic(t *testing.T) {
+	// Запрошено больше кластеров, чем влезает в MapSize при ClusterSpacing ≥ 2×R.
+	// Раньше цикл шёл по clusterCount, а не по фактическим центрам → index out of range.
+	g := NewGenerator(&Config{
+		Seed: 1, WorldCount: 10000, MapSize: 3000, MinDist: 100,
+		ClusterCount: 200, ClusterSpacing: 4000, ClusterRadius: 2000,
+		OutlierPercent: 0.2, WorldSpread: 0,
+	})
+	res := g.GenerateGalaxyWithRegions()
+	require.NotPanics(t, func() { _ = res })
+	require.Less(t, len(res.Regions), 200, "не все кластеры должны влезть при малом MapSize")
+}
+
 func TestClusterSpacingEnforcedNonOverlap(t *testing.T) {
 	// ClusterSpacing (100) меньше 2×ClusterRadius (1000) — генератор должен
 	// форсировать расстояние между центрами кластеров, чтобы их территории

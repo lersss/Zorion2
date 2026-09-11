@@ -5,6 +5,35 @@ import { loadWorlds } from './worlds.js';
 import { pollJob, pollIntervals } from './poll.js';
 import { notifyError, notifyInfo } from '../ui/toast.js';
 
+// Пресеты генерации вселенной (проверены: 100k миров, 200 кластеров).
+const UNIVERSE_PRESETS = {
+    dense: {   // плотная галактика
+        worlds: 100000, clusters: 200, mapSize: 40000, minDist: 120,
+        clusterRadius: 2000, clusterSpacing: 4000, outlierPercent: 20
+    },
+    sparse: {  // просторная: большая галактика, миры дальше друг от друга
+        worlds: 100000, clusters: 200, mapSize: 50000, minDist: 150,
+        clusterRadius: 2000, clusterSpacing: 4000, outlierPercent: 20
+    },
+    compact: { // тесная: компактная галактика, миры близко, больше выбросов
+        worlds: 100000, clusters: 200, mapSize: 36000, minDist: 100,
+        clusterRadius: 1600, clusterSpacing: 3200, outlierPercent: 25
+    },
+};
+
+// applyPreset — заполняет поля формы из выбранного пресета.
+export function applyPreset() {
+    const p = UNIVERSE_PRESETS[document.getElementById('genPreset').value];
+    if (!p) return;
+    document.getElementById('genWorlds').value = p.worlds;
+    document.getElementById('genClusters').value = p.clusters;
+    document.getElementById('genMapSize').value = p.mapSize;
+    document.getElementById('genMinDist').value = p.minDist;
+    document.getElementById('genClusterRadius').value = p.clusterRadius;
+    document.getElementById('genClusterSpacing').value = p.clusterSpacing;
+    document.getElementById('genOutlierPercent').value = p.outlierPercent;
+}
+
 export async function generateUniverse() {
     const worlds = parseInt(document.getElementById('genWorlds').value);
     const clusters = parseInt(document.getElementById('genClusters').value);

@@ -98,8 +98,11 @@ func (g *Generator) generateWorldsPoisson() *GalaxyResult {
 	if perCluster < 1 {
 		perCluster = 1
 	}
+	// Если центров кластеров поставилось меньше, чем запрошено
+	// (не хватило места при ClusterSpacing ≥ 2×ClusterRadius) — идём
+	// по фактически созданным, а не по clusterCount (иначе index out of range).
 	remaining := clusterPoints
-	for i := 0; i < clusterCount && remaining > 0; i++ {
+	for i := 0; i < len(centers) && remaining > 0; i++ {
 		count := perCluster + g.rng.Intn(perCluster/2) - perCluster/4
 		if count < 1 {
 			count = 1

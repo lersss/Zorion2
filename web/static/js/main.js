@@ -54,6 +54,26 @@ async function initMap() {
 
     if (elements.loading) elements.loading.style.display = 'none';
     stopStatus();
+
+    // Вьюпорт из sessionStorage мог указывать на пустоту (например, после
+    // перегенерации вселенной координаты сменились). Если в кадре нет ни
+    // одного мира — центрируемся на галактику и перезаписываем вьюпорт.
+    if (!state.clusters || state.clusters.length === 0) {
+        if (state.galaxyRadius) {
+            state.scale = state.minZoom || 0.001;
+            state.offsetX = state.canvasWidth / 2;
+            state.offsetY = state.canvasHeight / 2;
+            sessionStorage.setItem('viewport', JSON.stringify({
+                offsetX: state.offsetX, offsetY: state.offsetY, scale: state.scale,
+            }));
+            if (elements.zoomInfo) {
+                elements.zoomInfo.textContent = formatZoom(state.scale, state.minZoom);
+            }
+            loadClusters();
+        } else if (state.currentWorldId) {
+            centerOnAgent();
+        }
+    }
 }
 
 function init() {

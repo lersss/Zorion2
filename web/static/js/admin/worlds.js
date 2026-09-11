@@ -9,6 +9,30 @@ export async function loadWorlds(page) {
     currentLimit = parseInt(document.getElementById('limitSelect').value, 10) || 50;
     currentSearch = document.getElementById('searchInput').value;
 
+    const tbody = document.getElementById('worldsBody');
+    if (!tbody) return;
+
+    // Лоадер со счётчиком — строка таблицы на всю ширину.
+    const start = Date.now();
+    const loaderRow = document.createElement('tr');
+    loaderRow.innerHTML = `
+        <td colspan="5" style="text-align:center; color:#94a3b8; padding:32px;">
+            <div style="display:flex; flex-direction:column; align-items:center; gap:8px;">
+                <div class="zorion-loader-spinner" style="width:28px; height:28px; border:3px solid rgba(74,158,255,0.25); border-top-color:#4a9eff; border-radius:50%; animation:zorionSpin 0.8s linear infinite;"></div>
+                <div>
+                    <span>Загрузка миров...</span>
+                    <span class="loader-time" style="font-variant-numeric:tabular-nums; color:#7a8aa0; margin-left:8px;">0 с</span>
+                </div>
+            </div>
+        </td>`;
+    tbody.innerHTML = '';
+    tbody.appendChild(loaderRow);
+
+    const timeEl = loaderRow.querySelector('.loader-time');
+    const timer = setInterval(() => {
+        timeEl.textContent = Math.round((Date.now() - start) / 1000) + ' с';
+    }, 250);
+
     try {
         const url = `/admin/worlds?page=${currentPage}&limit=${currentLimit}&search=${encodeURIComponent(currentSearch)}`;
         const res = await fetchWithAuth(url);
@@ -16,6 +40,7 @@ export async function loadWorlds(page) {
         const data = await res.json();
 
         const tbody = document.getElementById('worldsBody');
+        clearInterval(timer);
         tbody.innerHTML = '';
 
         // Защита от отсутствия data.data
@@ -81,6 +106,7 @@ export async function loadWorlds(page) {
             pagination.appendChild(next);
         }
     } catch (e) {
+        clearInterval(timer);
         console.error(e);
         document.getElementById('worldsBody').innerHTML = '<tr><td colspan="5" style="text-align:center;color:#f87171;">Ошибка загрузки</td></tr>';
     }

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <linearGradient id="g-lavr-hull" x1="1" y1="0" x2="0" y2="0">
+    <stop offset="0" stop-color="#bbf7d0"/><stop offset="0.55" stop-color="#22c55e"/><stop offset="1" stop-color="#15803d"/>
+  </linearGradient>
+    <radialGradient id="g-lavr-cab" cx="0.5" cy="0.35" r="0.7">
+    <stop offset="0" stop-color="#ffffff"/><stop offset="0.5" stop-color="#4ade80"/><stop offset="1" stop-color="#15803d"/>
+  </radialGradient>
+  </defs>
+  <ellipse cx="105" cy="116" rx="88" ry="24" fill="rgba(0,0,0,0.28)"/>
+  <path d="M 126 95 L 78 60 L 64 60 L 130 95 Z" fill="#22c55e" stroke="#0b1220" stroke-width="2" stroke-linejoin="round" opacity="0.95"/><circle cx="76" cy="56" r="3" fill="#ef4444" stroke="#0b1220" stroke-width="0.8"/><path d="M 126 105 L 78 140 L 64 140 L 130 105 Z" fill="#22c55e" stroke="#0b1220" stroke-width="2" stroke-linejoin="round" opacity="0.95"/><circle cx="76" cy="144" r="3" fill="#22c55e" stroke="#0b1220" stroke-width="0.8"/>
+  <path d="M10.0 89.0 L55.0 86.0 L110.0 88.0 L160.0 92.0 L195.0 98.0 L195.0 102.0 L160.0 108.0 L110.0 112.0 L55.0 114.0 L10.0 111.0 Z" fill="url(#g-lavr-hull)" stroke="#0b1220" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M 116 92 L 88 92" fill="none" stroke="#0b1220" stroke-width="1.5" opacity="0.35"/><path d="M 116 108 L 88 108" fill="none" stroke="#0b1220" stroke-width="1.5" opacity="0.35"/>
+  <ellipse cx="150" cy="100" rx="8" ry="4" fill="url(#g-lavr-cab)" stroke="#0b1220" stroke-width="2"/>
+  <rect x="6" y="93" width="10" height="14" rx="2.5" fill="#0f172a" stroke="#0b1220" stroke-width="1.5"/>
+     <rect x="8" y="95" width="6" height="10" rx="1.5" fill="#4ade80" opacity="0.85"/>
+    <rect x="24" y="93" width="10" height="14" rx="2.5" fill="#0f172a" stroke="#0b1220" stroke-width="1.5"/>
+     <rect x="26" y="95" width="6" height="10" rx="1.5" fill="#4ade80" opacity="0.85"/>
+</svg>

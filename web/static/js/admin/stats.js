@@ -1,5 +1,6 @@
 // web/static/js/admin/stats.js
 import { fetchWithAuth } from './auth.js';
+import { showLoader } from '../loader.js';
 
 // Перевод Кельвинов в Цельсии
 function kelvinToCelsius(k) {
@@ -18,14 +19,15 @@ export async function loadStats() {
 
 export async function loadPlanetStats() {
     const container = document.getElementById('planetStatsContainer');
-    container.innerHTML = '<p style="color:#94a3b8;">⏳ Загрузка статистики...</p>';
+    const stop = showLoader(container, 'Загрузка статистики...');
     try {
         const res = await fetchWithAuth('/admin/stats/planets');
         if (!res.ok) throw new Error('Failed to fetch stats');
         const stats = await res.json();
+        stop();
         renderPlanetStats(stats, container);
     } catch (e) {
-        container.innerHTML = `<p style="color:#f87171;">❌ Ошибка загрузки: ${e.message}</p>`;
+        stop(`<p style="color:#f87171;">❌ Ошибка загрузки: ${e.message}</p>`);
     }
 }
 

@@ -1,6 +1,6 @@
 // web/static/js/map/data.js
 import { state, elements } from './config.js';
-import { draw } from './map_render.js';
+import { draw, setShipIcon } from './map_render.js';
 import { filterState } from '../filters.js';
 
 // Размер ячейки кластеризации на экране, в пикселях.
@@ -130,8 +130,8 @@ function buildUrl(bounds, cell) {
 
 // ==================== ПОЛЬЗОВАТЕЛЬ ====================
 
-export async function loadUserData() {
-    if (currentWorldIdLoaded) return;
+export async function loadUserData(force = false) {
+    if (currentWorldIdLoaded && !force) return;
     try {
         const token = localStorage.getItem('token');
         if (!token) {
@@ -150,6 +150,10 @@ export async function loadUserData() {
             return;
         }
         const user = await res.json();
+
+        if (user.ship_icon) {
+            setShipIcon(user.ship_icon);
+        }
 
         if (user.current_world_id) {
             state.currentWorldId = user.current_world_id;
@@ -174,7 +178,7 @@ export async function loadUserData() {
 }
 
 // fetchWorldByID — загружает один мир по ID через /worlds/{id}.
-async function fetchWorldByID(id, token) {
+export async function fetchWorldByID(id, token) {
     try {
         const res = await fetch('/worlds/' + encodeURIComponent(id), {
             headers: { 'Authorization': 'Bearer ' + token }

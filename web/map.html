@@ -16,37 +16,83 @@
             <button onclick="location.href='/assignments'">📋 Контракты</button>
         </div>
     </div>
-    <!-- --- НОВАЯ КОМПАКТНАЯ ПАНЕЛЬ ФИЛЬТРОВ (без кнопки "Применить") --- -->
-    <div id="filters-bar" style="display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; padding: 2px 12px; background: #0f172a; border-bottom: 1px solid #1e293b; font-size: 0.7rem; color: #94a3b8;">
-        <label><input type="checkbox" id="filter-has-planets"> Планеты</label>
-        <label><input type="checkbox" id="filter-life"> Жизнь</label>
-        <label><input type="checkbox" id="filter-habitable"> Обитаемые</label>
-        <select id="filter-planet-type" style="background:#1e293b; color:#e0e0e0; border:1px solid #334155; border-radius:4px; padding:2px 4px;">
-            <option value="">Тип</option>
-            <option value="землеподобная">Землеподобная</option>
-            <option value="газовый гигант">Газовый гигант</option>
-            <option value="пустынная">Пустынная</option>
-            <option value="ледяная">Ледяная</option>
-            <option value="вулканическая">Вулканическая</option>
-            <option value="океаническая">Океаническая</option>
-        </select>
-        <select id="filter-resource" style="background:#1e293b; color:#e0e0e0; border:1px solid #334155; border-radius:4px; padding:2px 4px;">
-            <option value="">Ресурсы</option>
-            <option value="минералы">Минералы</option>
-            <option value="энергия">Энергия</option>
-            <option value="органика">Органика</option>
-            <option value="редкие">Редкие</option>
-        </select>
-        <span id="filter-count" style="color:#4a9eff; font-weight:bold; margin-left:2px;"></span>
-        <button id="reset-filters" style="background:#334155; border:none; color:#e0e0e0; padding:2px 10px; border-radius:4px; cursor:pointer;">Сбросить</button>
-        <div id="filter-spinner" style="display:none; width:14px; height:14px; border:2px solid #4a9eff; border-top-color:transparent; border-radius:50%; animation: spin 0.8s linear infinite;"></div>
+    <!-- --- ФИЛЬТРЫ КАРТЫ --- -->
+    <div id="filters-bar">
+        <div class="filter-group filter-flags">
+            <span class="filter-group-label">Флаги</span>
+            <label class="filter-chip" title="Только миры с планетами">
+                <input type="checkbox" id="filter-has-planets">
+                <span class="chip-icon">🪐</span>
+                <span class="chip-text">Планеты</span>
+            </label>
+            <label class="filter-chip" title="Только миры с жизнью">
+                <input type="checkbox" id="filter-life">
+                <span class="chip-icon">🧬</span>
+                <span class="chip-text">Жизнь</span>
+            </label>
+            <label class="filter-chip" title="Только обитаемые миры">
+                <input type="checkbox" id="filter-habitable">
+                <span class="chip-icon">🏠</span>
+                <span class="chip-text">Обитаемые</span>
+            </label>
+        </div>
+
+        <div class="filter-divider" aria-hidden="true"></div>
+
+        <div class="filter-group filter-selects">
+            <span class="filter-group-label">Тип планеты</span>
+            <select id="filter-planet-type" title="Фильтр по типу планеты">
+                <option value="">— Все типы —</option>
+                <option value="землеподобная">🌍 Землеподобная</option>
+                <option value="газовый гигант">☁️ Газовый гигант</option>
+                <option value="пустынная">🏜️ Пустынная</option>
+                <option value="ледяная">❄️ Ледяная</option>
+                <option value="вулканическая">🌋 Вулканическая</option>
+                <option value="океаническая">🌊 Океаническая</option>
+                <option value="радиоактивная">☢️ Радиоактивная</option>
+                <option value="стеклянная">💎 Стеклянная</option>
+                <option value="металлическая">⚙️ Металлическая</option>
+                <option value="органик">🌿 Органик</option>
+                <option value="скалистая">🪨 Скалистая</option>
+            </select>
+
+            <span class="filter-group-label">Ресурс</span>
+            <select id="filter-resource" title="Фильтр по категории ресурсов">
+                <option value="">— Все ресурсы —</option>
+                <option value="mineral">🪨 Минералы</option>
+                <option value="organic">🌿 Органика</option>
+                <option value="rare">⭐ Редкие</option>
+                <option value="fuel">🔥 Топливо</option>
+                <option value="water">💧 Вода</option>
+                <option value="gas">💨 Газы</option>
+            </select>
+        </div>
+
+        <div class="filter-divider" aria-hidden="true"></div>
+
+        <div class="filter-group filter-actions">
+            <span id="filter-count" class="filter-count" aria-live="polite"></span>
+            <button id="reset-filters" class="btn-reset" title="Сбросить все фильтры">
+                <span class="btn-icon">↺</span>
+                <span class="btn-text">Сбросить</span>
+            </button>
+            <div id="filter-spinner" class="filter-spinner" aria-hidden="true"></div>
+        </div>
     </div>
-    <style>
-        @keyframes spin { to { transform: rotate(360deg); } }
-        #filters-bar label { display: inline-flex; align-items: center; gap: 2px; cursor: pointer; }
-        #filters-bar input[type="checkbox"] { margin: 0; }
-        #filters-bar select { font-size: 0.7rem; padding: 1px 4px; }
-    </style>
+    <div id="flight-panel">
+        <div class="fp-head">
+            <span class="fp-title">🚀 Перелёт</span>
+            <span id="flightTime">—</span>
+        </div>
+        <div class="fp-route">
+            <span id="flightFrom">—</span>
+            <span class="fp-arrow">→</span>
+            <span id="flightTo">—</span>
+        </div>
+        <div class="fp-bar">
+            <div id="flightBar"></div>
+        </div>
+    </div>
     <div id="canvas-wrapper">
         <canvas id="mapCanvas"></canvas>
         <div id="loading">⏳ Загрузка данных...</div>
@@ -58,9 +104,9 @@
         </div>
         <div id="status-bar">Загрузка...</div>
         <div id="zoom-controls">
-            <button id="zoomInBtn" title="Приблизить">➕</button>
-            <button id="zoomOutBtn" title="Отдалить">➖</button>
-            <button id="centerBtn" title="Найти меня">🎯</button>
+            <button id="zoomInBtn" data-tooltip="Приблизить">➕</button>
+            <button id="zoomOutBtn" data-tooltip="Отдалить">➖</button>
+            <button id="centerBtn" data-tooltip="Найти меня / следить за кораблём в полёте">🎯</button>
             <div id="zoom-info">100%</div>
         </div>
     </div>

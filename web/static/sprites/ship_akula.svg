@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <linearGradient id="g-akula-hull" x1="1" y1="0" x2="0" y2="0">
+    <stop offset="0" stop-color="#8ed6ff"/><stop offset="0.55" stop-color="#3b82f6"/><stop offset="1" stop-color="#1d4ed8"/>
+  </linearGradient>
+    <radialGradient id="g-akula-cab" cx="0.5" cy="0.35" r="0.7">
+    <stop offset="0" stop-color="#ffffff"/><stop offset="0.5" stop-color="#60a5fa"/><stop offset="1" stop-color="#1d4ed8"/>
+  </radialGradient>
+  </defs>
+  <ellipse cx="105" cy="116" rx="92" ry="25" fill="rgba(0,0,0,0.28)"/>
+  <path d="M 132 94 L 92 58 L 74 58 L 138 94 Z" fill="#3b82f6" stroke="#0b1220" stroke-width="2" stroke-linejoin="round" opacity="0.95"/><circle cx="88" cy="54" r="3" fill="#ef4444" stroke="#0b1220" stroke-width="0.8"/><path d="M 132 106 L 92 142 L 74 142 L 138 106 Z" fill="#3b82f6" stroke="#0b1220" stroke-width="2" stroke-linejoin="round" opacity="0.95"/><circle cx="88" cy="146" r="3" fill="#22c55e" stroke="#0b1220" stroke-width="0.8"/>
+  <path d="M20.0 87.0 L70.0 82.0 L125.0 86.0 L175.0 92.0 L196.0 98.0 L196.0 102.0 L175.0 108.0 L125.0 114.0 L70.0 118.0 L20.0 113.0 Z" fill="url(#g-akula-hull)" stroke="#0b1220" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M 120 91 L 96 91" fill="none" stroke="#0b1220" stroke-width="1.5" opacity="0.35"/><path d="M 120 109 L 96 109" fill="none" stroke="#0b1220" stroke-width="1.5" opacity="0.35"/>
+  <ellipse cx="166" cy="100" rx="9" ry="4.5" fill="url(#g-akula-cab)" stroke="#0b1220" stroke-width="2"/>
+  <rect x="10" y="92" width="14" height="16" rx="2.5" fill="#0f172a" stroke="#0b1220" stroke-width="1.5"/>
+     <rect x="12" y="94" width="10" height="12" rx="1.5" fill="#60a5fa" opacity="0.85"/>
+    <rect x="30" y="95" width="10" height="10" rx="2.5" fill="#0f172a" stroke="#0b1220" stroke-width="1.5"/>
+     <rect x="32" y="97" width="6" height="6" rx="1.5" fill="#60a5fa" opacity="0.85"/>
+</svg>

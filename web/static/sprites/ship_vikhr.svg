@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <linearGradient id="g-vikhr-hull" x1="1" y1="0" x2="0" y2="0">
+    <stop offset="0" stop-color="#fde68a"/><stop offset="0.55" stop-color="#f59e0b"/><stop offset="1" stop-color="#b45309"/>
+  </linearGradient>
+    <radialGradient id="g-vikhr-cab" cx="0.5" cy="0.35" r="0.7">
+    <stop offset="0" stop-color="#ffffff"/><stop offset="0.5" stop-color="#fbbf24"/><stop offset="1" stop-color="#b45309"/>
+  </radialGradient>
+  </defs>
+  <ellipse cx="105" cy="116" rx="88" ry="23" fill="rgba(0,0,0,0.28)"/>
+  <path d="M 124 95 L 72 58 L 58 58 L 128 95 Z" fill="#f59e0b" stroke="#0b1220" stroke-width="2" stroke-linejoin="round" opacity="0.95"/><circle cx="70" cy="54" r="3" fill="#ef4444" stroke="#0b1220" stroke-width="0.8"/><path d="M 124 105 L 72 142 L 58 142 L 128 105 Z" fill="#f59e0b" stroke="#0b1220" stroke-width="2" stroke-linejoin="round" opacity="0.95"/><circle cx="70" cy="146" r="3" fill="#22c55e" stroke="#0b1220" stroke-width="0.8"/>
+  <path d="M12.0 90.0 L55.0 86.0 L105.0 89.0 L155.0 93.0 L190.0 98.2 L190.0 101.8 L155.0 107.0 L105.0 111.0 L55.0 114.0 L12.0 110.0 Z" fill="url(#g-vikhr-hull)" stroke="#0b1220" stroke-width="2.5" stroke-linejoin="round"/>
+  
+  <ellipse cx="160" cy="100" rx="8" ry="4" fill="url(#g-vikhr-cab)" stroke="#0b1220" stroke-width="2"/>
+  <rect x="6" y="93" width="10" height="14" rx="2.5" fill="#0f172a" stroke="#0b1220" stroke-width="1.5"/>
+     <rect x="8" y="95" width="6" height="10" rx="1.5" fill="#fbbf24" opacity="0.85"/>
+    <rect x="24" y="93" width="10" height="14" rx="2.5" fill="#0f172a" stroke="#0b1220" stroke-width="1.5"/>
+     <rect x="26" y="95" width="6" height="10" rx="1.5" fill="#fbbf24" opacity="0.85"/>
+    <rect x="42" y="95" width="8" height="10" rx="2.5" fill="#0f172a" stroke="#0b1220" stroke-width="1.5"/>
+     <rect x="44" y="97" width="4" height="6" rx="1.5" fill="#fbbf24" opacity="0.85"/>
+</svg>

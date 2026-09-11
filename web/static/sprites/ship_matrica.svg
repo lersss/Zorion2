@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <linearGradient id="g-matrica-hull" x1="1" y1="0" x2="0" y2="0">
+    <stop offset="0" stop-color="#fecdd3"/><stop offset="0.55" stop-color="#f43f5e"/><stop offset="1" stop-color="#be123c"/>
+  </linearGradient>
+    <radialGradient id="g-matrica-cab" cx="0.5" cy="0.35" r="0.7">
+    <stop offset="0" stop-color="#ffffff"/><stop offset="0.5" stop-color="#fb7185"/><stop offset="1" stop-color="#be123c"/>
+  </radialGradient>
+  </defs>
+  <ellipse cx="105" cy="116" rx="88" ry="24" fill="rgba(0,0,0,0.28)"/>
+  <path d="M 118 93 L 48 48 L 40 48 L 122 93 Z" fill="#f43f5e" stroke="#0b1220" stroke-width="2" stroke-linejoin="round" opacity="0.95"/><circle cx="46" cy="44" r="3" fill="#ef4444" stroke="#0b1220" stroke-width="0.8"/><path d="M 118 107 L 48 152 L 40 152 L 122 107 Z" fill="#f43f5e" stroke="#0b1220" stroke-width="2" stroke-linejoin="round" opacity="0.95"/><circle cx="46" cy="156" r="3" fill="#22c55e" stroke="#0b1220" stroke-width="0.8"/>
+  <path d="M16.0 89.0 L60.0 85.0 L100.0 88.0 L145.0 92.0 L182.0 98.0 L182.0 102.0 L145.0 108.0 L100.0 112.0 L60.0 115.0 L16.0 111.0 Z" fill="url(#g-matrica-hull)" stroke="#0b1220" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M 120 92 L 150 92" fill="none" stroke="#0b1220" stroke-width="1.5" opacity="0.35"/><path d="M 120 108 L 150 108" fill="none" stroke="#0b1220" stroke-width="1.5" opacity="0.35"/>
+  <ellipse cx="158" cy="100" rx="8" ry="4" fill="url(#g-matrica-cab)" stroke="#0b1220" stroke-width="2"/>
+  <rect x="8" y="92" width="12" height="16" rx="2.5" fill="#0f172a" stroke="#0b1220" stroke-width="1.5"/>
+     <rect x="10" y="94" width="8" height="12" rx="1.5" fill="#fb7185" opacity="0.85"/>
+    <rect x="28" y="95" width="8" height="10" rx="2.5" fill="#0f172a" stroke="#0b1220" stroke-width="1.5"/>
+     <rect x="30" y="97" width="4" height="6" rx="1.5" fill="#fb7185" opacity="0.85"/>
+</svg>

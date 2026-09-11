@@ -4,13 +4,14 @@ import { drawSystem } from './modal_render.js';
 import { initEvents } from './events.js';
 import { clearTextureCache } from './textures.js';
 import { getStarColor, getStarSize } from './utils.js';
-import { renderRightPanel } from './panel.js';
+import { renderRightPanel, renderStarCard } from './panel.js';
+import { notifyError } from '../ui/toast.js';
 
 // openSystemModal — открывает модалку системы по ID мира.
 export function openSystemModal(worldId, worldName, spectralClass) {
     const token = localStorage.getItem('token');
     if (!token) {
-        alert('Не авторизован. Пожалуйста, войдите в систему.');
+        notifyError('Не авторизован. Пожалуйста, войдите в систему.');
         return;
     }
 
@@ -20,7 +21,7 @@ export function openSystemModal(worldId, worldName, spectralClass) {
     .then(response => {
         if (!response.ok) {
             if (response.status === 401 || response.status === 403) {
-                alert('Сессия истекла. Пожалуйста, войдите заново.');
+                notifyError('Сессия истекла. Пожалуйста, войдите заново.');
                 return;
             }
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -29,21 +30,22 @@ export function openSystemModal(worldId, worldName, spectralClass) {
     })
     .then(data => {
         console.log('Planets data:', data);
-        renderModal(worldName, spectralClass, data.planets);
+        renderModal(worldId, worldName || data.world_name, spectralClass || data.spectral_class, data);
     })
     .catch(error => {
         console.error('Error loading planets:', error);
-        alert('Ошибка загрузки планет: ' + error.message);
+        notifyError('Ошибка загрузки планет: ' + error.message);
     });
 }
 
 // ==================== МОДАЛКА ====================
 
-function renderModal(worldName, spectralClass, planets) {
+function renderModal(worldId, worldName, spectralClass, data) {
     if (document.getElementById('system-modal-overlay')) return;
 
     resetState();
 
+    const planets = Array.isArray(data && data.planets) ? data.planets : [];
     const starColor = getStarColor(spectralClass);
     const starRadius = getStarSize(spectralClass);
 
@@ -69,10 +71,8 @@ function renderModal(worldName, spectralClass, planets) {
         color: #e0e0e0;
         border-radius: 16px;
         padding: 20px;
-        width: 90%;
-        max-width: 1100px;
-        height: 85vh;
-        max-height: 800px;
+        width: 80vw;
+        height: 80vh;
         display: flex;
         flex-direction: column;
         box-shadow: 0 8px 32px rgba(0,0,0,0.5);
@@ -180,14 +180,16 @@ function renderModal(worldName, spectralClass, planets) {
     modalState.canvas = canvas;
     modalState.canvasWrapper = canvasWrapper;
     modalState.spectralClass = spectralClass;
+    modalState.worldId = worldId;
+    modalState.worldName = worldName;
+    modalState.worldTemperature = (data && data.temperature) || 0;
+    modalState.worldCoordX = (data && data.coord_x) || 0;
+    modalState.worldCoordY = (data && data.coord_y) || 0;
     modalState.selectedPlanetIndex = null;
+    modalState.selectedObject = null;
     modalState.planets = planets;
 
     clearTextureCache();
-
-    requestAnimationFrame(() => {
-        drawSystem(canvas, spectralClass, planets, starRadius, starColor, width, height);
-    });
 
     renderRightPanel(planets, null);
 
@@ -196,6 +198,11 @@ function renderModal(worldName, spectralClass, planets) {
     // Глобальная функция для events.js (клик по планете)
     window.updateRightPanel = (selectedIndex) => {
         renderRightPanel(planets, selectedIndex);
+    };
+
+    // Глобальная функция для events.js (клик по звезде)
+    window.showStarCard = () => {
+        renderStarCard();
     };
 
     // Клик по строке таблицы
@@ -223,11 +230,20 @@ function renderModal(worldName, spectralClass, planets) {
     resizeObserver.observe(canvasWrapper);
 
     modalState._escListener = handleKeydown;
+
+    // ---- АНИМАЦИЯ: rAF-цикл вращения планет ----
+    modalState.animStart = performance.now();
+    function tick() {
+        if (!document.getElementById('system-modal-overlay')) return;
+        drawSystem(canvas, spectralClass, planets, starRadius, starColor, modalState.canvasWidth, modalState.canvasHeight);
+        modalState._rafId = requestAnimationFrame(tick);
+    }
+    modalState._rafId = requestAnimationFrame(tick);
 }
 
 // ==================== ЗАКРЫТИЕ ====================
 
-function closeModal() {
+export function closeModal() {
     const overlay = document.getElementById('system-modal-overlay');
     if (overlay) overlay.remove();
     resetState();
@@ -235,7 +251,10 @@ function closeModal() {
         document.removeEventListener('keydown', modalState._escListener);
         delete modalState._escListener;
     }
+    const ctxMenu = document.getElementById('star-context-menu');
+    if (ctxMenu) ctxMenu.remove();
     delete window.updateRightPanel;
+    delete window.showStarCard;
 }
 
 // ==================== СТИЛЬ АНИМАЦИИ ====================

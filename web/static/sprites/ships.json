@@ -1,0 +1,107 @@
+[
+  {
+    "id": "strela",
+    "name": "Стрела",
+    "file": "ship_strela.svg"
+  },
+  {
+    "id": "gonchik",
+    "name": "Гончик",
+    "file": "ship_gonchik.svg"
+  },
+  {
+    "id": "mantikora",
+    "name": "Мантикора",
+    "file": "ship_mantikora.svg"
+  },
+  {
+    "id": "fregat",
+    "name": "Фрегат",
+    "file": "ship_fregat.svg"
+  },
+  {
+    "id": "nosorog",
+    "name": "Носорог",
+    "file": "ship_nosorog.svg"
+  },
+  {
+    "id": "zmei",
+    "name": "Змей",
+    "file": "ship_zmei.svg"
+  },
+  {
+    "id": "matrica",
+    "name": "Матрица",
+    "file": "ship_matrica.svg"
+  },
+  {
+    "id": "talon",
+    "name": "Талон",
+    "file": "ship_talon.svg"
+  },
+  {
+    "id": "klin",
+    "name": "Клин",
+    "file": "ship_klin.svg"
+  },
+  {
+    "id": "shkval",
+    "name": "Шквал",
+    "file": "ship_shkval.svg"
+  },
+  {
+    "id": "barbican",
+    "name": "Барбикейн",
+    "file": "ship_barbican.svg"
+  },
+  {
+    "id": "chas",
+    "name": "Час",
+    "file": "ship_chas.svg"
+  },
+  {
+    "id": "astra",
+    "name": "Астра",
+    "file": "ship_astra.svg"
+  },
+  {
+    "id": "grail",
+    "name": "Грааль",
+    "file": "ship_grail.svg"
+  },
+  {
+    "id": "orel",
+    "name": "Орёл",
+    "file": "ship_orel.svg"
+  },
+  {
+    "id": "mirage",
+    "name": "Мираж",
+    "file": "ship_mirage.svg"
+  },
+  {
+    "id": "tytan",
+    "name": "Титан",
+    "file": "ship_tytan.svg"
+  },
+  {
+    "id": "vikhr",
+    "name": "Вихрь",
+    "file": "ship_vikhr.svg"
+  },
+  {
+    "id": "skol",
+    "name": "Скол",
+    "file": "ship_skol.svg"
+  },
+  {
+    "id": "akula",
+    "name": "Акула",
+    "file": "ship_akula.svg"
+  },
+  {
+    "id": "lavr",
+    "name": "Лавр",
+    "file": "ship_lavr.svg"
+  }
+]

@@ -4,6 +4,7 @@
 // Использует fetchWithAuth из auth.js — единый способ авторизации в админке.
 
 import { fetchWithAuth } from './auth.js';
+import { showLoader } from '../loader.js';
 
 const API_URL = '/admin/audit';
 
@@ -21,11 +22,7 @@ export async function runAudit() {
         return;
     }
 
-    container.innerHTML = `
-        <div style="text-align: center; padding: 40px; color: #888;">
-            ⏳ Проверяем планеты...
-        </div>
-    `;
+    const stop = showLoader(container, 'Проверяем планеты...');
 
     try {
         const res = await fetchWithAuth(API_URL);
@@ -37,14 +34,15 @@ export async function runAudit() {
         const result = await res.json();
         lastResult = result;
         showAllSamples = false;
+        stop();
         renderAudit(container, result);
     } catch (err) {
         console.error('audit error:', err);
-        container.innerHTML = `
+        stop(`
             <div style="padding: 20px; color: #e74c3c;">
                 ❌ Ошибка аудита: ${err.message}
             </div>
-        `;
+        `);
     }
 }
 

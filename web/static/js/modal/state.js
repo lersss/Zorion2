@@ -9,7 +9,8 @@ export const modalState = {
     dragStartOffsetX: 0,
     dragStartOffsetY: 0,
     hoveredObject: null,
-    selectedPlanetIndex: null, // <-- добавили
+    selectedObject: null,      // { type: 'star' } | { type: 'planet', index }
+    selectedPlanetIndex: null,
     canvasWidth: 0,
     canvasHeight: 0,
     starRadius: 60,
@@ -17,7 +18,16 @@ export const modalState = {
     planets: [],
     canvas: null,
     canvasWrapper: null,
-    spectralClass: 'G'
+    spectralClass: 'G',
+    worldId: null,
+    worldName: '',
+    worldTemperature: 0,
+    worldCoordX: 0,
+    worldCoordY: 0,
+    animStart: 0,
+    _rafId: null,
+    dragMoved: false,
+    suppressNextClick: false
 };
 
 export function resetState() {
@@ -26,5 +36,12 @@ export function resetState() {
     modalState.offsetY = 0;
     modalState.isDragging = false;
     modalState.hoveredObject = null;
-    modalState.selectedPlanetIndex = null; // <-- сбрасываем
+    modalState.selectedObject = null;
+    modalState.selectedPlanetIndex = null;
+    modalState.dragMoved = false;
+    modalState.suppressNextClick = false;
+    if (modalState._rafId !== null) {
+        cancelAnimationFrame(modalState._rafId);
+        modalState._rafId = null;
+    }
 }

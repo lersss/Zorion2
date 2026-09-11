@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <linearGradient id="g-fregat-hull" x1="1" y1="0" x2="0" y2="0">
+    <stop offset="0" stop-color="#e2e8f0"/><stop offset="0.55" stop-color="#94a3b8"/><stop offset="1" stop-color="#64748b"/>
+  </linearGradient>
+    <radialGradient id="g-fregat-cab" cx="0.5" cy="0.35" r="0.7">
+    <stop offset="0" stop-color="#ffffff"/><stop offset="0.5" stop-color="#cbd5e1"/><stop offset="1" stop-color="#64748b"/>
+  </radialGradient>
+  </defs>
+  <ellipse cx="105" cy="116" rx="95" ry="26" fill="rgba(0,0,0,0.28)"/>
+  <path d="M 108 90 L 44 40 L 30 40 L 112 90 Z" fill="#94a3b8" stroke="#0b1220" stroke-width="2" stroke-linejoin="round" opacity="0.95"/><circle cx="40" cy="36" r="3" fill="#ef4444" stroke="#0b1220" stroke-width="0.8"/><path d="M 108 110 L 44 160 L 30 160 L 112 110 Z" fill="#94a3b8" stroke="#0b1220" stroke-width="2" stroke-linejoin="round" opacity="0.95"/><circle cx="40" cy="164" r="3" fill="#22c55e" stroke="#0b1220" stroke-width="0.8"/>
+  <path d="M12.0 88.0 L45.0 83.0 L90.0 80.0 L135.0 85.0 L178.0 97.0 L178.0 103.0 L135.0 115.0 L90.0 120.0 L45.0 117.0 L12.0 112.0 Z" fill="url(#g-fregat-hull)" stroke="#0b1220" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M 120 88 L 150 88" fill="none" stroke="#0b1220" stroke-width="1.5" opacity="0.35"/><path d="M 120 112 L 150 112" fill="none" stroke="#0b1220" stroke-width="1.5" opacity="0.35"/><path d="M 150 92 L 170 92" fill="none" stroke="#0b1220" stroke-width="1.5" opacity="0.35"/><path d="M 150 108 L 170 108" fill="none" stroke="#0b1220" stroke-width="1.5" opacity="0.35"/>
+  <ellipse cx="168" cy="100" rx="9" ry="5" fill="url(#g-fregat-cab)" stroke="#0b1220" stroke-width="2"/>
+  <rect x="6" y="94" width="10" height="12" rx="2.5" fill="#0f172a" stroke="#0b1220" stroke-width="1.5"/>
+     <rect x="8" y="96" width="6" height="8" rx="1.5" fill="#cbd5e1" opacity="0.85"/>
+    <rect x="22" y="94" width="10" height="12" rx="2.5" fill="#0f172a" stroke="#0b1220" stroke-width="1.5"/>
+     <rect x="24" y="96" width="6" height="8" rx="1.5" fill="#cbd5e1" opacity="0.85"/>
+    <rect x="38" y="96" width="8" height="8" rx="2.5" fill="#0f172a" stroke="#0b1220" stroke-width="1.5"/>
+     <rect x="40" y="98" width="4" height="4" rx="1.5" fill="#cbd5e1" opacity="0.85"/>
+</svg>

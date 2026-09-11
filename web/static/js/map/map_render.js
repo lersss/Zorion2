@@ -5,6 +5,20 @@ import { CONFIG } from '../config.js';
 
 const { map: mapCfg } = CONFIG;
 
+// Спрайт корабля (носик — вправо, совпадает с поворотом в drawFlight).
+const shipImg = new Image();
+let currentShipIcon = 'ship_strela.svg';
+shipImg.src = '/static/sprites/' + currentShipIcon;
+
+// setShipIcon — меняет спрайт корабля по имени файла иконки.
+export function setShipIcon(fileName) {
+    if (!fileName || typeof fileName !== 'string') return;
+    if (!/^[a-z0-9_\-]+\.svg$/i.test(fileName)) return;
+    if (fileName === currentShipIcon) return;
+    currentShipIcon = fileName;
+    shipImg.src = '/static/sprites/' + fileName;
+}
+
 // Размеры звёзд по спектральному классу — вынесено из циклов.
 export const SPECTRAL_SIZE = {
     'O': 21, 'B': 19.5, 'A': 18,
@@ -72,8 +86,9 @@ export function draw() {
         }
     }
 
-    // --- Подписи одиночных миров при достаточном зуме ---
-    if (scale > mapCfg.nameDisplayThreshold) {
+    // --- Подписи одиночных миров ---
+    // Показываем при достаточном зуме ИЛИ когда объектов мало (место есть).
+    if (scale > mapCfg.nameDisplayThreshold || singles.length <= mapCfg.nameAlwaysShowLimit) {
         drawNames(ctx, singles, scale);
     }
 
@@ -196,13 +211,14 @@ function drawCluster(ctx, c, x, y) {
 }
 
 function drawNames(ctx, singles, scale) {
+    const fontSize = Math.max(18, mapCfg.nameFontSize * scale);
     ctx.fillStyle = '#94a3b8';
-    ctx.font = `${Math.max(8, mapCfg.nameFontSize * scale)}px system-ui`;
+    ctx.font = `${fontSize}px system-ui`;
     ctx.textAlign = 'center';
 
     for (const s of singles) {
         const radius = clusterScreenRadius(s.c);
-        ctx.fillText(s.c.sname || '—', s.x, s.y + radius + mapCfg.nameFontSize * scale);
+        ctx.fillText(s.c.sname || '—', s.x, s.y + radius + fontSize);
     }
 }
 
@@ -219,30 +235,64 @@ function drawFlight(ctx, scale, flyFrom, flyTo, flyStartTime, flyDuration) {
     const x = fromPos.x + (toPos.x - fromPos.x) * progress;
     const y = fromPos.y + (toPos.y - fromPos.y) * progress;
 
+    const angle = Math.atan2(toPos.y - fromPos.y, toPos.x - fromPos.x);
+
+    // Пунктирная линия — от носа корабля к цели, а не от звезды.
+    const shipSize = mapCfg.shipSize * scale;
+    const noseOffset = shipSize * 1.1;
+    const noseX = x + Math.cos(angle) * noseOffset;
+    const noseY = y + Math.sin(angle) * noseOffset;
     ctx.beginPath();
-    ctx.moveTo(fromPos.x, fromPos.y);
+    ctx.moveTo(noseX, noseY);
     ctx.lineTo(toPos.x, toPos.y);
-    ctx.strokeStyle = 'rgba(251,191,36,0.3)';
+    ctx.strokeStyle = 'rgba(251,191,36,0.45)';
     ctx.lineWidth = 2;
-    ctx.setLineDash([6, 6]);
+    ctx.setLineDash([6, 5]);
     ctx.stroke();
     ctx.setLineDash([]);
 
     ctx.save();
-    const angle = Math.atan2(toPos.y - fromPos.y, toPos.x - fromPos.x);
     ctx.translate(x, y);
     ctx.rotate(angle);
-    const shipSize = mapCfg.shipSize * scale;
+
+    // Анимированное пламя двигателя.
+    const flicker = 0.75 + 0.25 * Math.sin(elapsed * 25);
+    const flameLen = shipSize * 1.1 * flicker;
+    const flameGrad = ctx.createLinearGradient(-shipSize * 0.8, 0, -shipSize * 0.8 - flameLen, 0);
+    flameGrad.addColorStop(0, 'rgba(147,197,253,0.9)');
+    flameGrad.addColorStop(0.35, 'rgba(59,130,246,0.6)');
+    flameGrad.addColorStop(1, 'rgba(59,130,246,0)');
     ctx.beginPath();
-    ctx.moveTo(shipSize, 0);
-    ctx.lineTo(-shipSize * 0.7, -shipSize * 0.5);
-    ctx.lineTo(-shipSize * 0.7, shipSize * 0.5);
+    ctx.moveTo(-shipSize * 0.8, -shipSize * 0.28);
+    ctx.lineTo(-shipSize * 0.8 - flameLen, 0);
+    ctx.lineTo(-shipSize * 0.8, shipSize * 0.28);
     ctx.closePath();
-    ctx.fillStyle = '#60a5fa';
+    ctx.fillStyle = flameGrad;
     ctx.fill();
-    ctx.strokeStyle = '#1e293b';
-    ctx.lineWidth = 1;
-    ctx.stroke();
+
+    // Спрайт корабля (если загрузился) либо примитив-фолбэк.
+    if (shipImg.complete && shipImg.naturalWidth > 0) {
+        const w = shipSize * 3.2;
+        const h = shipSize * 3.2;
+        ctx.drawImage(shipImg, -w / 2, -h / 2, w, h);
+    } else {
+        const bodyGrad = ctx.createLinearGradient(0, -shipSize * 0.55, 0, shipSize * 0.55);
+        bodyGrad.addColorStop(0, '#bfdbfe');
+        bodyGrad.addColorStop(0.5, '#3b82f6');
+        bodyGrad.addColorStop(1, '#1d4ed8');
+        ctx.beginPath();
+        ctx.moveTo(shipSize * 1.05, 0);
+        ctx.lineTo(-shipSize * 0.6, -shipSize * 0.55);
+        ctx.lineTo(-shipSize * 0.35, 0);
+        ctx.lineTo(-shipSize * 0.6, shipSize * 0.55);
+        ctx.closePath();
+        ctx.fillStyle = bodyGrad;
+        ctx.fill();
+        ctx.strokeStyle = '#0f172a';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+    }
+
     ctx.restore();
 }
 

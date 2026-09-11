@@ -1,12 +1,14 @@
 // web/static/js/main.js
 import { state, elements } from './map/config.js';
 import { resizeCanvas } from './map/map_render.js';
-import { handleCanvasClick, initFlyBtn, initPanZoom, initHover } from './map/events.js';
+import { handleCanvasClick, initFlyBtn, initPanZoom, initHover, initContextMenu } from './map/events.js';
 import { animationLoop } from './map/animation.js';
 import { centerOnAgent } from './map/navigation.js';
 import { applyFiltersFromUI, resetFilters, filterState } from './filters.js';
 import { loadClusters, loadUserData } from './map/data.js';
 import { draw } from './map/map_render.js';
+import { showTextLoader } from './loader.js';
+import { notifyError } from './ui/toast.js';
 
 // --- Восстановление вьюпорта из sessionStorage ---
 function restoreViewport() {
@@ -44,11 +46,12 @@ async function initMap() {
 
     // 3. Первая загрузка кластеров
     if (elements.loading) elements.loading.style.display = 'block';
-    if (elements.statusBar) elements.statusBar.textContent = '⏳ Загрузка карты...';
+    let stopStatus = showTextLoader(elements.statusBar, '⏳ Загрузка карты...');
 
     await loadClusters();
 
     if (elements.loading) elements.loading.style.display = 'none';
+    stopStatus();
 }
 
 function init() {
@@ -57,6 +60,7 @@ function init() {
     initFlyBtn();
     initPanZoom();
     initHover();
+    initContextMenu();
 
     // --- Автоматическое применение фильтров ---
     const filterInputs = document.querySelectorAll('#filters-bar input, #filters-bar select');
@@ -67,7 +71,15 @@ function init() {
 
         const spinner = document.getElementById('filter-spinner');
         const countEl = document.getElementById('filter-count');
-        if (spinner) spinner.style.display = 'inline-block';
+        let filterStop = null;
+        if (spinner) {
+            spinner.classList.add('visible');
+            const filterStart = Date.now();
+            spinner.title = '0 с';
+            filterStop = setInterval(() => {
+                spinner.title = Math.round((Date.now() - filterStart) / 1000) + ' с';
+            }, 250);
+        }
         if (countEl) countEl.textContent = '...';
 
         try {
@@ -86,7 +98,8 @@ function init() {
             console.error('Filter apply error:', e);
             if (countEl) countEl.textContent = '❌';
         } finally {
-            if (spinner) spinner.style.display = 'none';
+            if (filterStop) clearInterval(filterStop);
+            if (spinner) spinner.classList.remove('visible');
         }
     }
 
@@ -109,7 +122,15 @@ function init() {
 
             const spinner = document.getElementById('filter-spinner');
             const countEl = document.getElementById('filter-count');
-            if (spinner) spinner.style.display = 'inline-block';
+            let filterStop = null;
+            if (spinner) {
+                spinner.classList.add('visible');
+                const filterStart = Date.now();
+                spinner.title = '0 с';
+                filterStop = setInterval(() => {
+                    spinner.title = Math.round((Date.now() - filterStart) / 1000) + ' с';
+                }, 250);
+            }
             if (countEl) countEl.textContent = '...';
 
             try {
@@ -119,7 +140,8 @@ function init() {
                 console.error('Reset filter error:', e);
                 if (countEl) countEl.textContent = '❌';
             } finally {
-                if (spinner) spinner.style.display = 'none';
+                if (filterStop) clearInterval(filterStop);
+                if (spinner) spinner.classList.remove('visible');
             }
         });
     }

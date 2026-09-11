@@ -6,6 +6,7 @@ import { scheduleReload } from './data.js';
 import { centerOnAgent } from './navigation.js';
 import { CONFIG } from '../config.js';
 import { openSystemModal } from '../modal/index.js';
+import { startFlight } from './flight.js';
 
 const { map: mapCfg } = CONFIG;
 
@@ -42,6 +43,7 @@ function findClusterAt(mouseX, mouseY) {
             found = { cluster: c, screenX: px, screenY: py };
         }
     }
+    console.log('[PCM-DEBUG] findClusterAt(', mouseX.toFixed(1), mouseY.toFixed(1), ') ->', found ? `cnt=${found.cluster.cnt} sid=${found.cluster.sid} sname=${found.cluster.sname}` : 'null', '| clusters loaded:', clusters.length);
     return found;
 }
 
@@ -59,6 +61,7 @@ export function initHover() {
         if (state.hoveredWorldId !== newHoveredId) {
             state.hoveredWorldId = newHoveredId;
             elements.canvas.style.cursor = hit ? 'pointer' : 'crosshair';
+            showTooltip(hit ? hit.cluster : null);
             draw();
         } else if (hit) {
             elements.canvas.style.cursor = 'pointer';
@@ -69,9 +72,27 @@ export function initHover() {
         if (state.hoveredWorldId !== null) {
             state.hoveredWorldId = null;
             elements.canvas.style.cursor = 'crosshair';
+            showTooltip(null);
             draw();
         }
     });
+}
+
+// showTooltip — заполняет и показывает тултип для одиночного мира, скрывает иначе.
+function showTooltip(cluster) {
+    if (!cluster || cluster.cnt !== 1) {
+        elements.tooltip.classList.remove('active');
+        return;
+    }
+    const name = cluster.sname || '—';
+    const spec = cluster.sspec || 'G';
+    const level = cluster.level !== undefined && cluster.level !== null ? cluster.level : '—';
+
+    elements.tooltipName.textContent = name;
+    elements.tooltipType.textContent = 'Тип: ' + (cluster.stype || spec);
+    elements.tooltipLevel.textContent = 'Уровень: ' + level;
+    elements.tooltipFlyBtn.dataset.worldId = cluster.sid;
+    elements.tooltip.classList.add('active');
 }
 
 // ==================== CLICK ====================
@@ -122,52 +143,113 @@ export function handleCanvasClick(e) {
     }
 }
 
-// ==================== КНОПКА "ЛЕТЕТЬ" ====================
+// ==================== КНОПКА "ЛЕТЕТЬ" И КОНТЕКСТНОЕ МЕНЮ ====================
 
 export function initFlyBtn() {
     elements.tooltipFlyBtn.addEventListener('click', async function (e) {
         e.stopPropagation();
         const worldId = this.dataset.worldId;
-        if (!worldId) return;
         const token = localStorage.getItem('token');
-        if (!token) {
-            alert('Не авторизован');
-            return;
-        }
-        if (state.isFlying) {
-            alert('Уже в полёте');
-            return;
-        }
-        try {
-            const res = await fetch('/travel', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': 'Bearer ' + token
-                },
-                body: JSON.stringify({ world_id: worldId })
-            });
-            const text = await res.text();
-            if (!res.ok) {
-                alert('Ошибка: ' + text);
-                return;
-            }
-            const data = JSON.parse(text);
-            const fromWorld = state.worlds.find(w => w.id === data.from);
-            const toWorld = state.worlds.find(w => w.id === data.to);
-            if (fromWorld && toWorld) {
-                state.flyFrom = fromWorld;
-                state.flyTo = toWorld;
-                state.flyDuration = data.duration;
-                state.flyStartTime = Date.now();
-                state.isFlying = true;
-                elements.tooltip.classList.remove('active');
-                draw();
-            }
-        } catch (e) {
-            alert('Ошибка: ' + e.message);
+        await startFlight(worldId, token);
+    });
+}
+
+// ==================== КОНТЕКСТНОЕ МЕНЮ (ПКМ по миру на карте) ====================
+
+export function initContextMenu() {
+    // ПКМ по канвасу — по миру.
+    elements.canvas.addEventListener('contextmenu', (e) => {
+        console.log('[PCM-DEBUG] contextmenu на канвасе, preventDefault?', e.target === elements.canvas);
+        const rect = elements.canvas.getBoundingClientRect();
+        const mouseX = (e.clientX - rect.left) * (elements.canvas.width / rect.width);
+        const mouseY = (e.clientY - rect.top) * (elements.canvas.height / rect.height);
+
+        const hit = findClusterAt(mouseX, mouseY);
+        if (hit && hit.cluster.cnt === 1) {
+            e.preventDefault();
+            console.log('[PCM-DEBUG] Показываем меню для', hit.cluster.sid, hit.cluster.sname);
+            showWorldMenu(e.clientX, e.clientY, hit.cluster.sid, hit.cluster.sname || 'Мир');
+        } else {
+            console.log('[PCM-DEBUG] hit null или cnt!=1, меню скрываем');
+            hideWorldMenu();
         }
     });
+
+    // ПКМ по тултипу: активный тултип перехватывает pointer-events,
+    // без этого браузерное меню откроется вместо нашего.
+    elements.tooltip.addEventListener('contextmenu', (e) => {
+        console.log('[PCM-DEBUG] contextmenu на тултипе, dataset.worldId =', elements.tooltipFlyBtn.dataset.worldId);
+        const worldId = elements.tooltipFlyBtn.dataset.worldId;
+        if (!worldId) return;
+        e.preventDefault();
+        showWorldMenu(e.clientX, e.clientY, worldId, elements.tooltipName.textContent || 'Мир');
+    });
+
+    // Левая кнопка вне меню — скрывает. ПКМ — отдаём канвасу/тултипу.
+    document.addEventListener('mousedown', (e) => {
+        console.log('[PCM-DEBUG] mousedown button=', e.button, 'target=', e.target.tagName, e.target.id || e.target.className || '');
+        if (e.button !== 2 && !e.target.closest('#map-context-menu')) hideWorldMenu();
+    });
+}
+
+function showWorldMenu(x, y, worldId, name) {
+    hideWorldMenu();
+
+    const menu = document.createElement('div');
+    menu.id = 'map-context-menu';
+    menu.style.cssText = `
+        position: fixed;
+        left: ${x}px;
+        top: ${y}px;
+        background: #1a1a2e;
+        border: 1px solid #334155;
+        border-radius: 8px;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+        padding: 4px;
+        min-width: 180px;
+        z-index: 1100;
+        font-size: 0.9rem;
+        color: #e0e0e0;
+        user-select: none;
+    `;
+
+    const title = document.createElement('div');
+    title.style.cssText = `
+        padding: 6px 10px;
+        font-size: 0.75rem;
+        color: #888;
+        border-bottom: 1px solid #2a2a44;
+        margin-bottom: 4px;
+    `;
+    title.textContent = name;
+    menu.appendChild(title);
+
+    const flyBtn = document.createElement('div');
+    flyBtn.style.cssText = `
+        padding: 8px 10px;
+        cursor: pointer;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    `;
+    flyBtn.innerHTML = `🚀 <span>Перелететь</span>`;
+    flyBtn.addEventListener('mouseenter', () => { flyBtn.style.background = '#2a2a44'; });
+    flyBtn.addEventListener('mouseleave', () => { flyBtn.style.background = 'none'; });
+    flyBtn.addEventListener('click', async () => {
+        hideWorldMenu();
+        const token = localStorage.getItem('token');
+        await startFlight(worldId, token);
+        draw();
+    });
+    menu.appendChild(flyBtn);
+
+    document.body.appendChild(menu);
+}
+
+function hideWorldMenu() {
+    const menu = document.getElementById('map-context-menu');
+    if (menu) menu.remove();
 }
 
 // ==================== PAN / ZOOM ====================
@@ -181,6 +263,7 @@ export function initPanZoom() {
             state.dragStartOffsetX = state.offsetX;
             state.dragStartOffsetY = state.offsetY;
             elements.canvas.style.cursor = 'grabbing';
+            stopFollow();
         }
     });
 
@@ -209,6 +292,7 @@ export function initPanZoom() {
 
     elements.canvas.addEventListener('wheel', (e) => {
         e.preventDefault();
+        stopFollow();
         const rect = elements.canvas.getBoundingClientRect();
         const mouseX = (e.clientX - rect.left) * (elements.canvas.width / rect.width);
         const mouseY = (e.clientY - rect.top) * (elements.canvas.height / rect.height);
@@ -257,5 +341,23 @@ export function initPanZoom() {
         scheduleReload();
     });
 
-    document.getElementById('centerBtn').addEventListener('click', centerOnAgent);
+    document.getElementById('centerBtn').addEventListener('click', () => {
+        state.followShip = true;
+        centerOnAgent();
+        setCenterBtnActive(state.isFlying);
+    });
+
+    // Любое взаимодействие с картой (панорамирование/зум) отключает слежение
+    function stopFollow() {
+        if (state.followShip) {
+            state.followShip = false;
+            setCenterBtnActive(false);
+        }
+    }
+
+    // Визуально отмечает активную кнопку «Найти меня»
+    function setCenterBtnActive(active) {
+        const btn = document.getElementById('centerBtn');
+        if (btn) btn.classList.toggle('active', active);
+    }
 }

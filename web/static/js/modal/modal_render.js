@@ -2,6 +2,7 @@
 import { modalState } from './state.js';
 import { drawMiniMap } from './minimap.js';
 import { getPlanetTexture } from './textures.js';
+import { computeLayout, getOrbitRadius, getPlanetPose, getPlanetSize } from './layout.js';
 
 export async function drawSystem(canvas, spectralClass, planets, starRadius, starColor, width, height) {
     const dpr = window.devicePixelRatio || 1;
@@ -13,27 +14,9 @@ export async function drawSystem(canvas, spectralClass, planets, starRadius, sta
     const ctx = canvas.getContext('2d');
     ctx.scale(dpr, dpr);
 
-    const cx = width / 2;
-    const cy = height / 2;
-    const maxRadius = Math.min(width, height) * 0.4;
-
-    const maxStarRadius = maxRadius * 0.25;
-    const finalStarRadius = Math.min(starRadius, maxStarRadius);
-
-    const planetCount = planets ? planets.length : 0;
-    let sizeMultiplier = 1;
-    let orbitSpacingMultiplier = 1;
-    if (planetCount > 8 && planetCount <= 12) {
-        sizeMultiplier = 0.85;
-        orbitSpacingMultiplier = 0.9;
-    } else if (planetCount > 12) {
-        sizeMultiplier = 0.7;
-        orbitSpacingMultiplier = 0.8;
-    }
-
-    const maxOrbit = planets ? planets.reduce((max, p) => Math.max(max, p.orbit_index), 0) : 0;
-    const availableRadius = maxRadius - finalStarRadius * 1.8;
-    const step = (maxOrbit > 0) ? (availableRadius / (maxOrbit + 1)) * orbitSpacingMultiplier : availableRadius / 3;
+    const layout = computeLayout(planets, starRadius, width, height);
+    const { cx, cy, finalStarRadius, step, maxOrbit, sizeMultiplier } = layout;
+    const timeMs = performance.now() - (modalState.animStart || performance.now());
 
     ctx.save();
     ctx.translate(modalState.offsetX, modalState.offsetY);
@@ -42,8 +25,7 @@ export async function drawSystem(canvas, spectralClass, planets, starRadius, sta
     // ---- СЛОЙ 1: ОРБИТЫ ----
     if (planets && planets.length > 0) {
         planets.forEach((p, idx) => {
-            const randomOffset = (idx * 1.7) % 0.2 - 0.1;
-            const orbitRadius = finalStarRadius * 1.8 + (p.orbit_index + 1) * step * (1 + randomOffset);
+            const orbitRadius = getOrbitRadius(layout, p, idx);
             ctx.save();
             ctx.strokeStyle = '#444';
             ctx.lineWidth = 1;
@@ -68,12 +50,6 @@ export async function drawSystem(canvas, spectralClass, planets, starRadius, sta
     // ---- СЛОЙ 3: ПЛАНЕТЫ (АСИНХРОННАЯ ЗАГРУЗКА ТЕКСТУР) ----
     if (planets && planets.length > 0) {
         const loadPromises = planets.map(async (p, idx) => {
-            const randomOffset = (idx * 1.7) % 0.2 - 0.1;
-            const orbitRadius = finalStarRadius * 1.8 + (p.orbit_index + 1) * step * (1 + randomOffset);
-            const angle = (idx * 1.3 + 0.7) % (2 * Math.PI);
-            const px = cx + orbitRadius * Math.cos(angle);
-            const py = cy + orbitRadius * Math.sin(angle);
-
             let texture = null;
             try {
                 texture = await getPlanetTexture(p, spectralClass, sizeMultiplier);
@@ -81,8 +57,9 @@ export async function drawSystem(canvas, spectralClass, planets, starRadius, sta
                 console.warn('Failed to load texture for planet', p.id, e);
             }
 
+            const pose = getPlanetPose(layout, p, idx, timeMs);
             const drawRadius = (10 + (p.size || 10) * 0.6) * sizeMultiplier;
-            return { x: px, y: py, radius: drawRadius, texture, idx };
+            return { x: pose.x, y: pose.y, radius: drawRadius, texture, idx };
         });
 
         const loaded = await Promise.all(loadPromises);
@@ -171,5 +148,5 @@ export async function drawSystem(canvas, spectralClass, planets, starRadius, sta
     ctx.restore(); // сброс трансформации
 
     // ---- МИНИ-КАРТА (поверх всего) ----
-    drawMiniMap(ctx, cx, cy, maxRadius, finalStarRadius, planets, width, height);
+    drawMiniMap(ctx, cx, cy, finalStarRadius, step, maxOrbit, planets, width, height);
 }

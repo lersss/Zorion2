@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <linearGradient id="g-gonchik-hull" x1="1" y1="0" x2="0" y2="0">
+    <stop offset="0" stop-color="#a5f3fc"/><stop offset="0.55" stop-color="#22d3ee"/><stop offset="1" stop-color="#0e7490"/>
+  </linearGradient>
+    <radialGradient id="g-gonchik-cab" cx="0.5" cy="0.35" r="0.7">
+    <stop offset="0" stop-color="#ffffff"/><stop offset="0.5" stop-color="#67e8f9"/><stop offset="1" stop-color="#0e7490"/>
+  </radialGradient>
+  </defs>
+  <ellipse cx="105" cy="116" rx="88" ry="24" fill="rgba(0,0,0,0.28)"/>
+  <path d="M 132 95 L 90 62 L 66 62 L 136 95 Z" fill="#22d3ee" stroke="#0b1220" stroke-width="2" stroke-linejoin="round" opacity="0.95"/><circle cx="80" cy="58" r="3" fill="#ef4444" stroke="#0b1220" stroke-width="0.8"/><path d="M 132 105 L 90 138 L 66 138 L 136 105 Z" fill="#22d3ee" stroke="#0b1220" stroke-width="2" stroke-linejoin="round" opacity="0.95"/><circle cx="80" cy="142" r="3" fill="#22c55e" stroke="#0b1220" stroke-width="0.8"/>
+  <path d="M18.0 90.0 L60.0 84.0 L110.0 87.0 L158.0 91.0 L190.0 98.0 L190.0 102.0 L158.0 109.0 L110.0 113.0 L60.0 116.0 L18.0 110.0 Z" fill="url(#g-gonchik-hull)" stroke="#0b1220" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M 115 90 L 88 90" fill="none" stroke="#0b1220" stroke-width="1.5" opacity="0.35"/><path d="M 115 110 L 88 110" fill="none" stroke="#0b1220" stroke-width="1.5" opacity="0.35"/>
+  <ellipse cx="150" cy="100" rx="8" ry="4" fill="url(#g-gonchik-cab)" stroke="#0b1220" stroke-width="2"/>
+  <rect x="10" y="93" width="12" height="14" rx="2.5" fill="#0f172a" stroke="#0b1220" stroke-width="1.5"/>
+     <rect x="12" y="95" width="8" height="10" rx="1.5" fill="#67e8f9" opacity="0.85"/>
+</svg>

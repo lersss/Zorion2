@@ -22,6 +22,7 @@ export const state = {
     scale: 1,
     canvasWidth: 0,
     canvasHeight: 0,
+    followShip: false,   // активно следить за кораблём во время полёта
 };
 
 export const elements = {

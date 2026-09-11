@@ -224,12 +224,20 @@
             if (maxReward > 0) url += 'max_reward=' + maxReward + '&';
             if (search) url += 'search=' + encodeURIComponent(search) + '&';
 
+            // Лоадер со счётчиком
+            const listEl = document.getElementById('contractsList');
+            const start = Date.now();
+            listEl.innerHTML = '<div class="empty-message">Загрузка контрактов... <span id="contractsLoaderTime" style="font-variant-numeric:tabular-nums;">0 с</span></div>';
+            const timeEl = document.getElementById('contractsLoaderTime');
+            const timer = setInterval(() => { timeEl.textContent = Math.round((Date.now() - start) / 1000) + ' с'; }, 250);
+
             try {
                 const res = await fetch(url, {
                     headers: { 'Authorization': 'Bearer ' + token }
                 });
                 if (!res.ok) throw new Error('Ошибка загрузки контрактов');
                 const contracts = await res.json();
+                clearInterval(timer);
                 renderContracts(contracts);
             } catch (e) {
                 document.getElementById('contractsList').innerHTML = '<div class="empty-message">❌ Ошибка загрузки: ' + e.message + '</div>';

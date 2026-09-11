@@ -12,6 +12,7 @@ export const CONFIG = {
         minRadius: 1.5,        // было 2 — чуть меньше, чтобы при отдалении не слипались
         baseRadius: 8,
         nameDisplayThreshold: 0.5,
+        nameAlwaysShowLimit: 30,   // если одиночных звёзд на экране не больше — подписи не скрываются
         gridDisplayThreshold: 10,
         starColors: {
             'O': '#9bb0ff',

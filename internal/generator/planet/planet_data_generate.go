@@ -96,8 +96,26 @@ func (g *Generator) generatePlanet(
 	}
 
 	// --- СТАНДАРТНАЯ ГЕНЕРАЦИЯ ЧЕРЕЗ АРХЕТИП ---
-	archetype := GenerateArchetype(spectralClass, g.rng)
+	return g.generateStandardPlanet(
+		worldID, worldName, orbitIndex, spectralClass, systemAge,
+		GenerateArchetype(spectralClass, g.rng), nil,
+	)
+}
+
+// generateStandardPlanet — планета по явному архетипу (стандартный путь).
+// forcePopulation, если задан, переопределяет население (для прототипа).
+func (g *Generator) generateStandardPlanet(
+	worldID, worldName string,
+	orbitIndex int,
+	spectralClass string,
+	systemAge float64,
+	archetype *Archetype,
+	forcePopulation *int64,
+) *PlanetData {
 	props := GenerateProperties(archetype, orbitIndex, spectralClass, systemAge, g.rng)
+	if forcePopulation != nil {
+		props.Population = *forcePopulation
+	}
 
 	name := names.GeneratePlanetName(g.rng, g.usedNames)
 	if name == "" {
@@ -188,6 +206,17 @@ func (g *Generator) generatePlanet(
 		Data:       dataJSON,
 		Resources:  resources,
 	}
+}
+
+// GeneratePrototypePlanet — землеподобная планета для прототипа поселения:
+// умеренный архетип, население 10, жизнь и вода. Внутренняя орбита (1).
+func (g *Generator) GeneratePrototypePlanet(worldID, worldName, spectralClass string) *PlanetData {
+	population := int64(10)
+	return g.generateStandardPlanet(
+		worldID, worldName, 1, spectralClass,
+		determineSystemAge(spectralClass, g.rng),
+		g.archetypeTemperate(), &population,
+	)
 }
 
 // ==================== ОКЕАНИЧЕСКАЯ ПЛАНЕТА ====================

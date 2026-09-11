@@ -114,7 +114,7 @@ async function loadRegions() {
 
         const regions = await res.json();
         state.regions = Array.isArray(regions) ? regions : [];
-        if (state.regions.length >= 2) {
+        if (state.regions.length >= 1) {
             state.galaxyRadius = galaxyRadiusFromRegions(state.regions);
             updateFitZoom();
         }

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
 	"zorion/internal/generator"
 	"zorion/internal/generator/faction"
 	"zorion/internal/generator/galaxy"
@@ -307,6 +308,78 @@ func (h *AdminHandlers) GeneratePlanets(w http.ResponseWriter, r *http.Request) 
 
 	w.WriteHeader(http.StatusAccepted)
 	w.Write([]byte(`{"status":"started"}`))
+}
+
+// ==================== GENERATE PROTOTYPE PLANET ====================
+
+// GeneratePrototypePlanet — тестовая галактика для прототипа поселения:
+// землеподобная планета (население 10) с поселением 1 уровня для первого мира.
+// Ничего не очищает и не удаляет — состояние вселенной в руках оператора.
+func (h *AdminHandlers) GeneratePrototypePlanet(w http.ResponseWriter, r *http.Request) {
+	worlds, err := h.worldRepo.GetAll()
+	if err != nil {
+		http.Error(w, "Failed to fetch worlds: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if len(worlds) == 0 {
+		http.Error(w, "Вселенная пуста — сначала сгенерируй миры", http.StatusBadRequest)
+		return
+	}
+	world := worlds[0]
+
+	planetGen := planet.NewGenerator(h.db, 0)
+	pd := planetGen.GeneratePrototypePlanet(world.ID, world.Name, world.SpectralClass)
+
+	tx, err := h.db.Begin()
+	if err != nil {
+		http.Error(w, "Failed to start transaction: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback()
+
+	now := time.Now()
+	if _, err := tx.Exec(`
+		INSERT INTO planets (id, world_id, name, orbit_index, data, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		pd.ID, pd.WorldID, pd.Name, pd.OrbitIndex, string(pd.Data), now, now,
+	); err != nil {
+		http.Error(w, "Failed to insert planet: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	const population = 10
+	capacity := population * 2
+	if capacity < 1000 {
+		capacity = 1000
+	}
+	settlementID := uuid.New().String()
+	if _, err := tx.Exec(`
+		INSERT INTO settlements (id, planet_id, level, population, capacity, stability, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		settlementID, pd.ID, 1, population, capacity, 85, now, now,
+	); err != nil {
+		http.Error(w, "Failed to insert settlement: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		http.Error(w, "Failed to commit: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("🪐 GeneratePrototypePlanet: мир %s, планета %s, поселение %d чел.",
+		world.Name, pd.Name, population)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":        "ok",
+		"world_id":      world.ID,
+		"world_name":    world.Name,
+		"planet_id":     pd.ID,
+		"planet_name":   pd.Name,
+		"settlement_id": settlementID,
+		"population":    population,
+	})
 }
 
 // ==================== GENERATE FACTIONS ====================

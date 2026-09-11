@@ -61,6 +61,7 @@
                         <option value="dense">Классическая (100k / 200, плотная)</option>
                         <option value="sparse">Просторная (100k / 200, разреженная)</option>
                         <option value="compact">Компактная (100k / 200, тесная)</option>
+                        <option value="prototype">Прототип (1 мир)</option>
                     </select>
                 </div>
             </div>
@@ -86,6 +87,12 @@
         <div class="card">
             <h2>🌍 Генерация планет</h2>
             <div class="compact-row">
+                <div><label>Пресет</label>
+                    <select id="planetPreset">
+                        <option value="standard">— Все миры —</option>
+                        <option value="prototype">Прототип: земная планета + поселение</option>
+                    </select>
+                </div>
                 <button class="btn success" onclick="generatePlanets()">Сгенерировать планеты</button>
                 <button class="btn danger" onclick="cancelGeneration('generate_planets')" id="cancelPlanetsBtn" style="display:none;">Остановить</button>
             </div>

@@ -19,6 +19,10 @@ const UNIVERSE_PRESETS = {
         worlds: 100000, clusters: 200, mapSize: 36000, minDist: 100,
         clusterRadius: 1600, clusterSpacing: 3200, outlierPercent: 25
     },
+    prototype: { // тестовая галактика: один мир для прототипа поселения
+        worlds: 1, clusters: 1, mapSize: 800, minDist: 100,
+        clusterRadius: 80, clusterSpacing: 160, outlierPercent: 0
+    },
 };
 
 // applyPreset — заполняет поля формы из выбранного пресета.
@@ -85,6 +89,11 @@ export async function generateUniverse() {
 }
 
 export async function generatePlanets() {
+    const preset = document.getElementById('planetPreset').value;
+    if (preset === 'prototype') {
+        await generatePrototypePlanet();
+        return;
+    }
     if (!confirm('Сгенерировать планеты для всех миров?')) return;
     document.getElementById('planetResult').textContent = '⏳ Генерация запущена...';
     document.getElementById('planetProgress').style.display = 'block';
@@ -159,6 +168,26 @@ export async function generateResources() {
         document.getElementById('resourceResult').textContent = '❌ ' + e.message;
         document.getElementById('resourceProgress').style.display = 'none';
         document.getElementById('cancelResourcesBtn').style.display = 'none';
+    }
+}
+
+// generatePrototypePlanet — тестовая галактика: землеподобная планета
+// с поселением 1 уровня (~10 человек) для первого мира.
+async function generatePrototypePlanet() {
+    if (!confirm('Сгенерировать землеподобную планету с поселением (прототип)?')) return;
+    document.getElementById('planetResult').textContent = '⏳ Генерация...';
+    try {
+        const res = await fetchWithAuth('/admin/generate-prototype-planet', { method: 'POST' });
+        const text = await res.text();
+        if (!res.ok) {
+            document.getElementById('planetResult').textContent = '❌ Ошибка: ' + text;
+            return;
+        }
+        const data = JSON.parse(text);
+        document.getElementById('planetResult').textContent =
+            `✅ Мир «${data.world_name}» → планета «${data.planet_name}» с поселением (${data.population} чел.)`;
+    } catch (e) {
+        document.getElementById('planetResult').textContent = '❌ ' + e.message;
     }
 }
 

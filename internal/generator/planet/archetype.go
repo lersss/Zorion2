@@ -113,38 +113,89 @@ func GenerateArchetype(spectralClass string, rng *rand.Rand) *Archetype {
 		}
 	}
 
-	hydro := pickOrFallback(selectedClimate.AllowedHydrospheres, rng, "сухая")
-	atmo := pickOrFallback(selectedClimate.AllowedAtmospheres, rng, "разреженная")
-	bio := pickOrFallback(selectedClimate.AllowedBiospheres, rng, "стерильная")
+	return buildArchetype(selectedClimate, rng)
+}
 
-	baseSurface := copyWeights(selectedClimate.BaseSurface)
-	baseSubterrain := copyWeights(selectedClimate.BaseSubterrain)
+// buildArchetype — формирует архетип из конфига климата.
+func buildArchetype(c *ClimateConfig, rng *rand.Rand) *Archetype {
+	hydro := pickOrFallback(c.AllowedHydrospheres, rng, "сухая")
+	atmo := pickOrFallback(c.AllowedAtmospheres, rng, "разреженная")
+	bio := pickOrFallback(c.AllowedBiospheres, rng, "стерильная")
 
-	massMin := selectedClimate.MassMin
-	massMax := selectedClimate.MassMax
+	baseSurface := copyWeights(c.BaseSurface)
+	baseSubterrain := copyWeights(c.BaseSubterrain)
+
+	massMin := c.MassMin
 	if massMin <= 0 {
 		massMin = 0.1
 	}
+	massMax := c.MassMax
 	if massMax <= massMin {
 		massMax = massMin + 1.0
 	}
 
 	return &Archetype{
-		ID:             selectedClimate.ID,
-		Name:           selectedClimate.Name,
-		Climate:        selectedClimate.ID,
+		ID:             c.ID,
+		Name:           c.Name,
+		Climate:        c.ID,
 		BaseSurface:    baseSurface,
 		BaseSubterrain: baseSubterrain,
 		Hydrosphere:    hydro,
 		Atmosphere:     atmo,
 		Biosphere:      bio,
-		TemperatureMin: selectedClimate.TemperatureMin,
-		TemperatureMax: selectedClimate.TemperatureMax,
-		WaterChance:    selectedClimate.WaterChance,
-		LifeChance:     selectedClimate.LifeChance,
+		TemperatureMin: c.TemperatureMin,
+		TemperatureMax: c.TemperatureMax,
+		WaterChance:    c.WaterChance,
+		LifeChance:     c.LifeChance,
 		MassMin:        massMin,
 		MassMax:        massMax,
 	}
+}
+
+// archetypeTemperate — архетип «Умеренный» из конфига (или fallback)
+// с гарантированно землеподобными параметрами для прототипа поселения:
+// океаны, азотно-кислородная атмосфера, растительная биосфера, жизнь 100%.
+func (g *Generator) archetypeTemperate() *Archetype {
+	a := fallbackArchetype()
+	if archetypeCache != nil {
+		for i := range archetypeCache.Climates {
+			c := &archetypeCache.Climates[i]
+			if c.ID != "temperate" {
+				continue
+			}
+			massMin := c.MassMin
+			if massMin <= 0 {
+				massMin = 0.1
+			}
+			massMax := c.MassMax
+			if massMax <= massMin {
+				massMax = massMin + 1.0
+			}
+			a = &Archetype{
+				ID:             c.ID,
+				Name:           c.Name,
+				Climate:        c.ID,
+				BaseSurface:    copyWeights(c.BaseSurface),
+				BaseSubterrain: copyWeights(c.BaseSubterrain),
+				TemperatureMin: c.TemperatureMin,
+				TemperatureMax: c.TemperatureMax,
+				WaterChance:    c.WaterChance,
+				LifeChance:     c.LifeChance,
+				MassMin:        massMin,
+				MassMax:        massMax,
+			}
+			break
+		}
+	}
+	// Гарантия землеподобия: вода, жизнь, обитаемость и умеренная температура.
+	a.Hydrosphere = "океаны"
+	a.Atmosphere = "азотно-кислородная"
+	a.Biosphere = "растительная"
+	a.WaterChance = 1.0
+	a.LifeChance = 1.0
+	a.TemperatureMin = 270
+	a.TemperatureMax = 310
+	return a
 }
 
 // fallbackArchetype — используется, если JSON не загрузился.

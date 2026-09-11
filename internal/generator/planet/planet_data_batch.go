@@ -50,17 +50,6 @@ func (g *Generator) copyInGoods(tx *sql.Tx, rows []interface{}) error {
 		rows, 7)
 }
 
-// copyInResources — вставляет пачку ресурсов через COPY. rowWidth = 15.
-func (g *Generator) copyInResources(tx *sql.Tx, rows []interface{}) error {
-	return copyInRows(tx, "resources",
-		[]string{
-			"id", "planet_id", "name", "category", "hardness", "elasticity", "conductivity",
-			"heat_resistance", "chemical_activity", "density", "biocompatibility",
-			"energy_density", "volatility", "created_at", "updated_at",
-		},
-		rows, 15)
-}
-
 // ==================== ОБЩАЯ ФУНКЦИЯ ====================
 
 // copyInRows — общая реализация для всех таблиц.

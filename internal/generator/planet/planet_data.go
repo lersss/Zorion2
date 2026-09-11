@@ -3,12 +3,12 @@ package planet
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"math/rand"
 	"time"
 
 	"github.com/google/uuid"
+	"zorion/internal/models"
 	"zorion/internal/repository"
 	"zorion/internal/resource"
 )
@@ -20,15 +20,18 @@ type PlanetData struct {
 	Name       string
 	OrbitIndex int
 	Data       []byte
+	// Resources — сгенерированные ресурсы планеты.
+	// Хранятся только в памяти (сводка — в JSON data["resources"]);
+	// таблица planet_resources удалена миграцией 000016.
+	Resources []*models.PlanetResource
 }
 
 // Generator — генератор планет для мира
 type Generator struct {
-	db           *sql.DB
-	rng          *rand.Rand
-	ecoRepo      *repository.EconomyRepository
-	resourceRepo *repository.ResourceRepository
-	usedNames    map[string]bool
+	db        *sql.DB
+	rng       *rand.Rand
+	ecoRepo   *repository.EconomyRepository
+	usedNames map[string]bool
 }
 
 // NewGenerator — создаёт генератор. Если seed = 0 — берётся time.Now().
@@ -37,11 +40,10 @@ func NewGenerator(db *sql.DB, seed int64) *Generator {
 		seed = time.Now().UnixNano()
 	}
 	return &Generator{
-		db:           db,
-		rng:          rand.New(rand.NewSource(seed)),
-		ecoRepo:      repository.NewEconomyRepository(db),
-		resourceRepo: repository.NewResourceRepository(db),
-		usedNames:    make(map[string]bool),
+		db:        db,
+		rng:       rand.New(rand.NewSource(seed)),
+		ecoRepo:   repository.NewEconomyRepository(db),
+		usedNames: make(map[string]bool),
 	}
 }
 
@@ -80,8 +82,6 @@ func (g *Generator) GeneratePlanetsForWorld(worldID, worldName, spectralClass st
 		); err != nil {
 			return 0, err
 		}
-
-		g.collectResources(planet.ID, planet.Data, spectralClass, &batch.resourceRows)
 	}
 
 	if err := g.flushBatch(tx, batch); err != nil {
@@ -179,8 +179,6 @@ func (g *Generator) generateWorldIntoBuffer(w WorldInfo, buf *batchBuffers) int 
 			// Не валим весь батч из-за одной планеты.
 			continue
 		}
-
-		g.collectResources(planet.ID, planet.Data, w.SpectralClass, &buf.resourceRows)
 	}
 
 	return planetCount
@@ -213,7 +211,6 @@ type batchBuffers struct {
 	settlementRows []interface{}
 	factoryRows    []interface{}
 	goodsRows      []interface{}
-	resourceRows   []interface{}
 }
 
 func newBatchBuffers(planetCount int) *batchBuffers {
@@ -225,7 +222,6 @@ func newBatchBuffers(planetCount int) *batchBuffers {
 		settlementRows: make([]interface{}, 0, planetCount),
 		factoryRows:    make([]interface{}, 0, planetCount*2),
 		goodsRows:      make([]interface{}, 0, planetCount*4),
-		resourceRows:   make([]interface{}, 0, planetCount*4),
 	}
 }
 
@@ -258,7 +254,6 @@ func (b *batchBuffers) reset() {
 	b.settlementRows = b.settlementRows[:0]
 	b.factoryRows = b.factoryRows[:0]
 	b.goodsRows = b.goodsRows[:0]
-	b.resourceRows = b.resourceRows[:0]
 }
 
 // ==================== ФЛАШ В БД ====================
@@ -277,9 +272,6 @@ func (g *Generator) flushBatch(tx *sql.Tx, b *batchBuffers) error {
 	}
 	if err := g.copyInGoods(tx, flatten(b.goodsRows)); err != nil {
 		return fmt.Errorf("copy goods: %w", err)
-	}
-	if err := g.copyInResources(tx, flatten(b.resourceRows)); err != nil {
-		return fmt.Errorf("copy resources: %w", err)
 	}
 	return nil
 }
@@ -304,70 +296,21 @@ func flatten(rows []interface{}) []interface{} {
 
 // ==================== РЕСУРСЫ ====================
 
-func (g *Generator) collectResources(
+// attachResources — генерирует ресурсы планеты и кладёт summary в data.
+//
+// На вход — уже собранный map планеты. Добавляет в него ключ "resources"
+// (категория → богатство 0..1, английские коды) и возвращает ресурсы.
+func attachResources(
+	data map[string]interface{},
 	planetID string,
-	dataJSON []byte,
+	dominant string,
+	subterrain map[string]float64,
 	spectralClass string,
-	rows *[]interface{},
-) {
-	var data map[string]interface{}
-	if err := json.Unmarshal(dataJSON, &data); err != nil {
-		return
-	}
-
-	if isGasGiant(data) {
-		return
-	}
-
-	dominant := getString(data, "surface_dominant")
-	if dominant == "" {
-		dominant = SurfaceRocks
-	}
-
-	subterrain := extractSubterrainComposition(data)
-
-	resources := resource.GenerateResources(
-		planetID,
-		dominant,
-		subterrain,
-		spectralClass,
-		g.rng,
-	)
-
-	now := time.Now()
-	for _, res := range resources {
-		*rows = append(*rows, []interface{}{
-			res.ID,
-			res.PlanetID,
-			res.Name,
-			res.Category,
-			res.Hardness,
-			res.Elasticity,
-			res.Conductivity,
-			res.HeatResistance,
-			res.ChemicalActivity,
-			res.Density,
-			res.Biocompatibility,
-			res.EnergyDensity,
-			res.Volatility,
-			now,
-			now,
-		})
-	}
-}
-
-func extractSubterrainComposition(data map[string]interface{}) map[string]float64 {
-	result := map[string]float64{}
-	raw, ok := data["subterrain_composition"].(map[string]interface{})
-	if !ok {
-		return result
-	}
-	for k, v := range raw {
-		if f, ok := v.(float64); ok {
-			result[k] = f
-		}
-	}
-	return result
+	rng *rand.Rand,
+) []*models.PlanetResource {
+	resources := resource.GenerateResources(planetID, dominant, subterrain, spectralClass, rng)
+	data["resources"] = resource.Summary(resources)
+	return resources
 }
 
 // ==================== ХЕЛПЕРЫ ДЛЯ JSON ====================

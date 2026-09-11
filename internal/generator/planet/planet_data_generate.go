@@ -170,6 +170,14 @@ func (g *Generator) generatePlanet(
 		"description": GenerateDescription(descCtx),
 	}
 
+	// Ресурсы генерируются здесь же: summary попадает в JSON планеты
+	// (data["resources"]), сами ресурсы живут только в памяти.
+	resources := attachResources(
+		data, planetID, dominant,
+		map[string]float64(props.SubterrainComposition),
+		spectralClass, g.rng,
+	)
+
 	dataJSON, _ := json.Marshal(data)
 
 	return &PlanetData{
@@ -178,6 +186,7 @@ func (g *Generator) generatePlanet(
 		Name:       name,
 		OrbitIndex: orbitIndex,
 		Data:       dataJSON,
+		Resources:  resources,
 	}
 }
 
@@ -292,6 +301,13 @@ func (g *Generator) generateOceanicPlanet(
 		"core":                   coreToJSON(core),
 		"description":            GenerateDescription(descCtx),
 	}
+
+	resources := attachResources(
+		data, planetID, SurfaceOceans,
+		map[string]float64(subterrainComp),
+		spectralClass, g.rng,
+	)
+
 	dataJSON, _ := json.Marshal(data)
 
 	return &PlanetData{
@@ -300,6 +316,7 @@ func (g *Generator) generateOceanicPlanet(
 		Name:       name,
 		OrbitIndex: orbitIndex,
 		Data:       dataJSON,
+		Resources:  resources,
 	}
 }
 
@@ -416,6 +433,13 @@ func (g *Generator) generateRadioactivePlanet(
 		"core":                   coreToJSON(core),
 		"description":            GenerateDescription(descCtx),
 	}
+
+	resources := attachResources(
+		data, planetID, dominantSurface,
+		map[string]float64(subterrainComp),
+		spectralClass, g.rng,
+	)
+
 	dataJSON, _ := json.Marshal(data)
 
 	return &PlanetData{
@@ -424,6 +448,7 @@ func (g *Generator) generateRadioactivePlanet(
 		Name:       name,
 		OrbitIndex: orbitIndex,
 		Data:       dataJSON,
+		Resources:  resources,
 	}
 }
 

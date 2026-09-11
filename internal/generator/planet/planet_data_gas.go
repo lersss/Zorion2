@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"zorion/internal/names"
+	"zorion/internal/resource"
 )
 
 // generateGasGiant — газовый гигант. У него нет композиции поверхности
@@ -68,16 +69,12 @@ func (g *Generator) generateGasGiant(
 		satellitesJSON = append(satellitesJSON, satelliteToMap(sat))
 	}
 
-	resources := map[string]float64{
-		"энергия": 0.7 + g.rng.Float64()*0.3,
-		"редкие":  0.5 + g.rng.Float64()*0.5,
-		"газы":    0.9 + g.rng.Float64()*0.1,
-	}
-
+	// --- РЕСУРСЫ: 1 из атмосферы (газ или топливо) ---
 	planetID := uuid.New().String()
 
-	// У газового гиганта нет композиции поверхности — передаём nil.
-	// Теги, зависящие от surface (например, cryovolcanic), не сработают.
+	resources := resource.GenerateGasGiantResource(planetID, g.rng)
+	resourceSummary := resource.Summary(resources)
+
 	descCtx := DescriptionContext{
 		PlanetID:     planetID,
 		Type:         TypeGasGiant,
@@ -116,7 +113,7 @@ func (g *Generator) generateGasGiant(
 		"climate":           "hot",
 		"system_age":        systemAge,
 		"is_gas_giant":      true,
-		"resources":         resources,
+		"resources":         resourceSummary,
 		"satellites":        satellitesJSON,
 		"surface_dominant":  "газовый_гигант",
 		"type":              TypeGasGiant,
@@ -131,6 +128,7 @@ func (g *Generator) generateGasGiant(
 		Name:       name,
 		OrbitIndex: orbitIndex,
 		Data:       dataJSON,
+		Resources:  resources,
 	}
 }
 

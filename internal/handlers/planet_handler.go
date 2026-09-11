@@ -40,12 +40,12 @@ func (h *AdminHandlers) GetPlanetsByWorld(w http.ResponseWriter, r *http.Request
 	}
 
 	response := struct {
-		WorldName     string           `json:"world_name"`
-		SpectralClass string           `json:"spectral_class"`
-		Temperature   float64          `json:"temperature"`
-		CoordX        float64          `json:"coord_x"`
-		CoordY        float64          `json:"coord_y"`
-		Planets       []models.Planet  `json:"planets"`
+		WorldName     string          `json:"world_name"`
+		SpectralClass string          `json:"spectral_class"`
+		Temperature   float64         `json:"temperature"`
+		CoordX        float64         `json:"coord_x"`
+		CoordY        float64         `json:"coord_y"`
+		Planets       []models.Planet `json:"planets"`
 	}{
 		WorldName:     worldName,
 		SpectralClass: spectralClass,

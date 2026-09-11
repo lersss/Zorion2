@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"zorion/internal/resource"
 )
 
 // collectEconomy — генерирует поселения, заводы и товары для планеты
@@ -108,10 +109,10 @@ type factoryRecipe struct {
 }
 
 var factoryRecipes = map[string]factoryRecipe{
-	"минералы": {"добывающий", "металл"},
-	"энергия":  {"добывающий", "энергоноситель"},
-	"органика": {"перерабатывающий", "еда"},
-	"редкие":   {"перерабатывающий", "компоненты"},
+	resource.CategoryMineral: {"добывающий", "металл"},
+	resource.CategoryFuel:    {"добывающий", "энергоноситель"},
+	resource.CategoryOrganic: {"перерабатывающий", "еда"},
+	resource.CategoryRare:    {"перерабатывающий", "компоненты"},
 }
 
 // buildFactories — строки заводов для категории ресурса.

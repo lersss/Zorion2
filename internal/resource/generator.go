@@ -81,6 +81,22 @@ func GenerateResources(
 	return result
 }
 
+// GenerateGasGiantResource — создаёт один ресурс для газового гиганта.
+// Гигант не имеет поверхности/недр — берём из атмосферы: газ или топливо.
+func GenerateGasGiantResource(planetID string, rng *rand.Rand) []*models.PlanetResource {
+	category := CategoryGas
+	if rng.Intn(2) == 1 {
+		category = CategoryFuel
+	}
+
+	existingNames := make(map[string]bool)
+	res := generateResource(planetID, category, true, rng, existingNames)
+	if res == nil {
+		return nil
+	}
+	return []*models.PlanetResource{res}
+}
+
 // minSubterrainShare — минимальная доля типа недр, чтобы он давал ресурсы.
 // Например, если тип занимает 5% недр — ресурсы из него не генерируются.
 const minSubterrainShare = 5.0

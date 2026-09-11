@@ -82,10 +82,10 @@ func (g *Generator) generateFaction(planetID, planetName string, planetData map[
 	factionType := g.randomFactionType()
 
 	resources := map[string]float64{
-		"minerals": g.randomResource(planetData, "минералы"),
-		"energy":   g.randomResource(planetData, "энергия"),
-		"organics": g.randomResource(planetData, "органика"),
-		"rare":     g.randomResource(planetData, "редкие"),
+		"minerals": g.randomResource(planetData, "mineral"),
+		"energy":   g.randomResource(planetData, "fuel"),
+		"organics": g.randomResource(planetData, "organic"),
+		"rare":     g.randomResource(planetData, "rare"),
 	}
 
 	color := g.randomColor()

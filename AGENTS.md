@@ -110,11 +110,11 @@ web/                     — HTML + static/{css,js,sprites}
 
 ## 5. БД и миграции
 
-**Состояние (2026-09-11):** 8 users, 100 000 worlds, 138 884 planets.
+**Состояние (2026-09-11):** 8 users, 100 000 worlds, 318 701 planets.
 
-Таблицы: `worlds`, `planets` (JSONB `data`), `locations`, `users`, `assignments`, `factions`, `events`, `production_units`, `settlements`, `factories`, `goods_batches`, `planet_resources`, `compatibility_matrix`.
+Таблицы: `worlds`, `planets` (JSONB `data`), `locations`, `users`, `assignments`, `factions`, `events`, `production_units`, `settlements`, `factories`, `goods_batches`, `planet_resources`, `compatibility_matrix`, `regions`.
 
-**Миграции 001–014 применены** (009 и 011 проверены в БД напрямую 2026-09-11; 000014 — индексы `LOWER(name)` для поиска — применена при перезапуске сервера в ту же сессию), кроме `005_economy_tables.sql` — пропущена, пустая. **000008 применена частично:** `idx_planets_world_id` в БД есть, GIN `idx_planets_data` — нет.
+**Миграции 001–015 применены** (000014 — индексы `LOWER(name)`; 000015 — таблица `regions` для карты), кроме `005_economy_tables.sql` — пропущена, пустая. **000008 применена частично:** `idx_planets_world_id` в БД есть, GIN `idx_planets_data` — нет.
 
 **Миграции применяются автоматически** при старте: `cmd/server/main.go` вызывает `migrations.Apply(db)`, учёт в таблице `schema_migrations`. Руками накатывать больше не нужно.
 
@@ -162,4 +162,6 @@ web/                     — HTML + static/{css,js,sprites}
 - **После массовой генерации вселенной нужен `VACUUM (ANALYZE) planets`.** Без него карта видимости холодная, `Index Only Scan` фильтров карты даёт тысячи heap fetches: `has_life` 306 мс вместо 63. В миграцию не положить — `VACUUM` не работает внутри транзакции.
 - **`config/descriptions/README.md` содержит чужой текст** — описывает формат `config/anomalies/`. Не ориентируйся на него.
 - **`.env` есть в истории git** (добавлен `5253b8c`, удалён `44e3cfc`). Содержит дев-креды, включая `admin123`.
+- **`GeneratePlanets` не очищает старые планеты** — повторный запуск дублирует (было 638k планет вместо 319k). Перед перегенерацией нужен `DELETE FROM planets` (FK на `settlements`/`factories`/`goods_batches`/`resources`/`factions`/`planet_resources` — все `ON DELETE CASCADE`, безопасно). Баг B11, пока не починен.
+- **Кэш статистики отдаёт устаревшее после перегенерации** — `GenerateUniverse` кэширует «0 планет», `GeneratePlanets` пересчитывает только в конце (~20 сек на 318k планет). В окне пересчёта вкладка статистики показывает старые «0». Кнопка «Обновить» (`?refresh=1`) сбрасывает кэш. Фикс инвалидации в начале генерации — предложен, не сделан.
 - **`internal/core/`, `pkg/`** — черновики, не подключены. Не трогай без причины.

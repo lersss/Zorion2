@@ -40,8 +40,8 @@ const (
 	// если клиент пришлёт микроскопический cell.
 	maxCellCols = 250
 
-	// Максимум кластеров в ответе (страховка на случай, если что-то
-	// пойдёт не так и ячеек окажется больше, чем мы ожидаем).
+	// Максимум записей в ответе (кластеры 5+ + одиночные звёзды).
+	// Страховка на случай, если что-то пойдёт не так и записей окажется больше.
 	maxClusterReturn = 20000
 )
 
@@ -141,6 +141,10 @@ func (h *AdminHandlers) FilterWorldsHandler(w http.ResponseWriter, r *http.Reque
 	}
 
 	// Основной запрос: фильтрация → группировка по ячейкам.
+	//
+	// Кластеризуются только ячейки с 5+ мирами. Ячейки с 1–4 мирами
+	// возвращаются отдельными звёздами (cnt=1 с данными мира) — пузыри
+	// «2–4» только мусорят карту.
 	sqlQuery := `
 		WITH filtered AS (
 			SELECT id, name, coord_x, coord_y, spectral_class
@@ -148,18 +152,53 @@ func (h *AdminHandlers) FilterWorldsHandler(w http.ResponseWriter, r *http.Reque
 			WHERE coord_x BETWEEN $1 AND $2
 			  AND coord_y BETWEEN $3 AND $4
 			  ` + filterSQL + `
+		),
+		cells AS (
+			SELECT
+				FLOOR(coord_x / $5)::bigint AS cell_x,
+				FLOOR(coord_y / $5)::bigint AS cell_y,
+				COUNT(*)::int               AS cnt
+			FROM filtered
+			GROUP BY 1, 2
+		),
+		clusters AS (
+			SELECT
+				c.cell_x,
+				c.cell_y,
+				c.cnt,
+				AVG(f.coord_x)::float8                       AS avg_x,
+				AVG(f.coord_y)::float8                       AS avg_y,
+				(ARRAY_AGG(f.id ORDER BY f.id))[1]           AS sample_id,
+				(ARRAY_AGG(f.name ORDER BY f.id))[1]         AS sample_name,
+				(ARRAY_AGG(f.spectral_class ORDER BY f.id))[1] AS sample_spectral
+			FROM cells c
+			JOIN filtered f
+			  ON FLOOR(f.coord_x / $5)::bigint = c.cell_x
+			 AND FLOOR(f.coord_y / $5)::bigint = c.cell_y
+			WHERE c.cnt >= 5
+			GROUP BY c.cell_x, c.cell_y, c.cnt
+		),
+		singles AS (
+			SELECT
+				f.id                                  AS sample_id,
+				f.name                                AS sample_name,
+				f.spectral_class                      AS sample_spectral,
+				f.coord_x                             AS avg_x,
+				f.coord_y                             AS avg_y,
+				c.cell_x,
+				c.cell_y
+			FROM cells c
+			JOIN filtered f
+			  ON FLOOR(f.coord_x / $5)::bigint = c.cell_x
+			 AND FLOOR(f.coord_y / $5)::bigint = c.cell_y
+			WHERE c.cnt < 5
 		)
-		SELECT
-			FLOOR(coord_x / $5)::bigint                AS cell_x,
-			FLOOR(coord_y / $5)::bigint                AS cell_y,
-			COUNT(*)::int                              AS cnt,
-			AVG(coord_x)::float8                       AS avg_x,
-			AVG(coord_y)::float8                       AS avg_y,
-			(ARRAY_AGG(id ORDER BY id))[1]             AS sample_id,
-			(ARRAY_AGG(name ORDER BY id))[1]           AS sample_name,
-			(ARRAY_AGG(spectral_class ORDER BY id))[1] AS sample_spectral
-		FROM filtered
-		GROUP BY cell_x, cell_y
+		SELECT cell_x, cell_y, 1::int AS cnt, avg_x, avg_y, sample_id, sample_name, sample_spectral
+		FROM singles
+		UNION ALL
+		SELECT cell_x, cell_y, cnt, avg_x, avg_y, sample_id, sample_name, sample_spectral
+		FROM clusters
+		ORDER BY cell_x, cell_y
 		LIMIT ` + strconv.Itoa(maxClusterReturn)
 
 	// --- Запрос ---

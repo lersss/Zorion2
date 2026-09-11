@@ -42,12 +42,79 @@ func NewGenerator(cfg *Config) *Generator {
 	}
 }
 
+// GalaxyResult — результат генерации: миры и регионы галактики.
+type GalaxyResult struct {
+	Worlds  []*models.World
+	Regions []*models.Region
+}
+
 // GenerateGalaxy генерирует все миры
 func (g *Generator) GenerateGalaxy() []*models.World {
+	return g.GenerateGalaxyWithRegions().Worlds
+}
+
+// GenerateGalaxyWithRegions генерирует миры и регионы.
+// Регионы строятся только для кластерной генерации (ClusterCount > 0):
+// каждый кластерный центр становится регионом. Выбросы и добивка
+// приписываются ближайшему региону.
+func (g *Generator) GenerateGalaxyWithRegions() *GalaxyResult {
 	if g.cfg.ClusterCount > 0 {
 		return g.generateWorldsPoisson()
 	}
-	return g.generateWorldsRandom(g.cfg.MinDist)
+	return &GalaxyResult{Worlds: g.generateWorldsRandom(g.cfg.MinDist)}
+}
+
+// ==================== РЕГИОНЫ ====================
+
+// regionColors — палитра цветов регионов (туманности на тёмной карте).
+var regionColors = []string{
+	"#7c6cff", "#ff6b9d", "#4dd6b3", "#f5a623", "#5ac8fa",
+	"#ff8a5c", "#b388ff", "#69f0ae", "#ffd740", "#40c4ff",
+	"#f06292", "#81c784", "#ffb74d", "#9575cd", "#4db6ac",
+	"#e57373", "#7986cb", "#aed581",
+}
+
+// buildRegions — создаёт регион вокруг каждого кластерного центра.
+func (g *Generator) buildRegions(centers []struct{ X, Y float64 }) []*models.Region {
+	regions := make([]*models.Region, 0, len(centers))
+	radius := g.cfg.ClusterRadius
+	if radius <= 0 {
+		radius = 80.0
+	}
+	now := time.Now()
+	for i, c := range centers {
+		regions = append(regions, &models.Region{
+			ID:        uuid.New().String(),
+			Name:      names.GenerateRegionName(g.rng, g.usedNames),
+			CenterX:   c.X,
+			CenterY:   c.Y,
+			Radius:    radius,
+			Color:     regionColors[i%len(regionColors)],
+			WorldCount: 0,
+			CreatedAt: now,
+			UpdatedAt: now,
+		})
+	}
+	return regions
+}
+
+// nearestRegionIndex — индекс ближайшего региона к точке (для выбросов и добивки).
+func (g *Generator) nearestRegionIndex(x, y float64, regions []*models.Region) int {
+	if len(regions) == 0 {
+		return -1
+	}
+	best := 0
+	bestDist := math.Inf(1)
+	for i, r := range regions {
+		dx := r.CenterX - x
+		dy := r.CenterY - y
+		d := dx*dx + dy*dy
+		if d < bestDist {
+			bestDist = d
+			best = i
+		}
+	}
+	return best
 }
 
 // ==================== СПЕКТРАЛЬНЫЕ КЛАССЫ ====================

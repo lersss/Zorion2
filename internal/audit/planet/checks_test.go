@@ -146,7 +146,7 @@ func TestParseSatellites(t *testing.T) {
 		map[string]interface{}{
 			"id": "s1", "name": "Луна-1", "mass": 0.5, "size": 0.4,
 			"temperature": 250.0, "water_percent": 10.0,
-			"atmosphere": "разряженная", "habitable": false, "life": false,
+			"atmosphere": "разреженная", "habitable": false, "life": false,
 		},
 		"не карта", // мусорный элемент должен быть пропущен
 		map[string]interface{}{
@@ -162,7 +162,7 @@ func TestParseSatellites(t *testing.T) {
 	assert.Equal(t, "Луна-1", v.Satellites[0].Name)
 	assert.Equal(t, 0.5, v.Satellites[0].Mass)
 	assert.Equal(t, 250.0, v.Satellites[0].Temperature)
-	assert.Equal(t, "разряженная", v.Satellites[0].Atmosphere)
+	assert.Equal(t, "разреженная", v.Satellites[0].Atmosphere)
 
 	assert.Equal(t, "s2", v.Satellites[1].ID)
 	assert.True(t, v.Satellites[1].Habitable)

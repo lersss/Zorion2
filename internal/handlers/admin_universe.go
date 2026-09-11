@@ -14,6 +14,7 @@ import (
 	"zorion/internal/generator/faction"
 	"zorion/internal/generator/galaxy"
 	"zorion/internal/generator/planet"
+	"zorion/internal/models"
 )
 
 var statusManager = generator.NewStatusManager()
@@ -48,7 +49,7 @@ func recoverErr(r interface{}) string {
 // с ошибкой "cannot truncate a table referenced in a foreign key
 // constraint". Тогда добавь её в этот список.
 
-const truncateTables = `worlds, locations, planets, assignments, production_units, factions, settlements, factories, goods_batches, planet_resources, resources`
+const truncateTables = `worlds, locations, planets, assignments, production_units, factions, settlements, factories, goods_batches, planet_resources, resources, regions`
 
 // clearUniverseTx — очистка внутри уже начатой транзакции.
 // Вызывающий делает Begin/Commit/Rollback.
@@ -73,6 +74,23 @@ func clearUniverseTx(ctx context.Context, tx *sql.Tx) error {
 		return fmt.Errorf("re-add fk: %w", err)
 	}
 
+	return nil
+}
+
+// insertRegionsTx — сохраняет регионы в уже начатой транзакции.
+func insertRegionsTx(ctx context.Context, tx *sql.Tx, regions []*models.Region) error {
+	if len(regions) == 0 {
+		return nil
+	}
+	for _, r := range regions {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO regions (id, name, center_x, center_y, radius, color, world_count, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+			r.ID, r.Name, r.CenterX, r.CenterY, r.Radius, r.Color, r.WorldCount, r.CreatedAt, r.UpdatedAt,
+		); err != nil {
+			return fmt.Errorf("insert region %s: %w", r.Name, err)
+		}
+	}
 	return nil
 }
 
@@ -149,8 +167,9 @@ func (h *AdminHandlers) GenerateUniverse(w http.ResponseWriter, r *http.Request)
 			WorldSpread:    20.0,
 		}
 		gen := galaxy.NewGenerator(&cfg)
-		worlds := gen.GenerateGalaxy()
-		log.Printf("✅ Generated %d worlds", len(worlds))
+		result := gen.GenerateGalaxyWithRegions()
+		worlds := result.Worlds
+		log.Printf("✅ Generated %d worlds, %d regions", len(worlds), len(result.Regions))
 
 		tx, err := h.db.BeginTx(ctx, nil)
 		if err != nil {
@@ -197,6 +216,12 @@ func (h *AdminHandlers) GenerateUniverse(w http.ResponseWriter, r *http.Request)
 			statusManager.Progress(generator.JobGenerateUniverse, i+1)
 		}
 
+		if err := insertRegionsTx(ctx, tx, result.Regions); err != nil {
+			log.Printf("❌ GenerateUniverse: failed to insert regions: %v", err)
+			statusManager.Fail(generator.JobGenerateUniverse, err.Error())
+			return
+		}
+
 		if err := tx.Commit(); err != nil {
 			log.Printf("❌ GenerateUniverse: failed to commit: %v", err)
 			statusManager.Fail(generator.JobGenerateUniverse, err.Error())
@@ -204,6 +229,7 @@ func (h *AdminHandlers) GenerateUniverse(w http.ResponseWriter, r *http.Request)
 		}
 		log.Printf("✅ GenerateUniverse: completed, %d worlds saved", len(worlds))
 		statusManager.Done(generator.JobGenerateUniverse)
+		h.recomputePlanetStats()
 	}()
 
 	w.WriteHeader(http.StatusAccepted)
@@ -277,6 +303,7 @@ func (h *AdminHandlers) GeneratePlanets(w http.ResponseWriter, r *http.Request) 
 			float64(totalPlanets)/elapsed.Seconds(),
 		)
 		statusManager.Done(generator.JobGeneratePlanets)
+		h.recomputePlanetStats()
 	}()
 
 	w.WriteHeader(http.StatusAccepted)
@@ -423,6 +450,7 @@ func (h *AdminHandlers) ClearUniverse(w http.ResponseWriter, r *http.Request) {
 	h.db.QueryRow("SELECT COUNT(*) FROM users").Scan(&usersAfter)
 
 	log.Printf("✅ ClearUniverse: очищено за %v (users=%d)", time.Since(tStart).Round(time.Millisecond), usersAfter)
+	h.invalidatePlanetStats()
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`{"status":"cleared"}`))
 }

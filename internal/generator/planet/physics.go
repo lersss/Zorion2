@@ -89,7 +89,7 @@ func albedoFactor(albedo float64) float64 {
 // greenhouseByAtmosphere — множитель температуры от типа атмосферы.
 // Значения подобраны эмпирически: Марс 1.0, Земля 1.1, Венера 2.5.
 var greenhouseByAtmosphere = map[string]float64{
-	"разряженная":         1.00,
+	"разреженная":         1.00,
 	"":                    1.00,
 	"азотная":             1.05,
 	"азотно-кислородная":  1.10,

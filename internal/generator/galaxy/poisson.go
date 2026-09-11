@@ -14,8 +14,42 @@ func (g *Generator) randomPointInCircle(radius float64) (x, y float64) {
 	return r * math.Cos(angle), r * math.Sin(angle)
 }
 
+// generateOutlierPosition — позиция выброса: случайный кластерный центр +
+// гауссово смещение (std = ClusterRadius). Так выбросы чаще оказываются
+// ближе к кластерам и реже — у их границ / краёв галактики.
+// Если кластеров нет — старый равномерный способ.
+func (g *Generator) generateOutlierPosition(
+	regions []*models.Region,
+	halfSize, minDist float64,
+	allPoints []struct{ X, Y float64 },
+) (float64, float64, bool) {
+	if len(regions) == 0 {
+		x, y := g.randomPointInCircle(halfSize)
+		return x, y, g.isPointValid(x, y, minDist, allPoints)
+	}
+
+	idx := g.rng.Intn(len(regions))
+	cx, cy := regions[idx].CenterX, regions[idx].CenterY
+	std := regions[idx].Radius
+	if std <= 0 {
+		std = 80.0
+	}
+
+	for attempt := 0; attempt < 30; attempt++ {
+		x := cx + g.gaussian(std)
+		y := cy + g.gaussian(std)
+		if math.Hypot(x, y) > halfSize {
+			continue
+		}
+		if g.isPointValid(x, y, minDist, allPoints) {
+			return x, y, true
+		}
+	}
+	return 0, 0, false
+}
+
 // ---------- ГЕНЕРАЦИЯ МИРОВ МЕТОДОМ ПУАССОНА ----------
-func (g *Generator) generateWorldsPoisson() []*models.World {
+func (g *Generator) generateWorldsPoisson() *GalaxyResult {
 	targetCount := g.cfg.WorldCount
 	halfSize := g.cfg.MapSize
 	clusterCount := g.cfg.ClusterCount
@@ -29,11 +63,23 @@ func (g *Generator) generateWorldsPoisson() []*models.World {
 		clusterSpacing = minDist
 	}
 
+	clusterRadius := g.cfg.ClusterRadius
+	if clusterRadius <= 0 {
+		clusterRadius = 80.0
+	}
+	// Кластеры не должны наслаиваться друг на друга: территории кластеров
+	// (круги радиуса ClusterRadius) не пересекаются, если расстояние между
+	// центрами >= 2×радиус. Иначе регионы выглядят «смазанными».
+	if clusterSpacing < 2*clusterRadius {
+		clusterSpacing = 2 * clusterRadius
+	}
+
 	if clusterCount <= 0 {
-		return g.generateWorldsRandom(minDist)
+		return &GalaxyResult{Worlds: g.generateWorldsRandom(minDist)}
 	}
 
 	centers := g.generateClusterCenters(clusterCount, halfSize, clusterSpacing)
+	regions := g.buildRegions(centers)
 
 	outlierPercent := g.cfg.OutlierPercent
 	if outlierPercent <= 0 {
@@ -46,7 +92,8 @@ func (g *Generator) generateWorldsPoisson() []*models.World {
 	clusterPoints := targetCount - outlierCount
 
 	allPoints := make([]struct{ X, Y float64 }, 0, targetCount)
-	dropped := 0 // счётчик отброшенных точек
+	pointRegion := make([]int, 0, targetCount) // индекс региона (или -1)
+	dropped := 0                               // счётчик отброшенных точек
 
 	perCluster := clusterPoints / clusterCount
 	if perCluster < 1 {
@@ -64,11 +111,7 @@ func (g *Generator) generateWorldsPoisson() []*models.World {
 		remaining -= count
 
 		cx, cy := centers[i].X, centers[i].Y
-		radius := g.cfg.ClusterRadius
-		if radius <= 0 {
-			radius = 80.0
-		}
-		clusterPointsList := g.poissonInCircleGaussian(cx, cy, radius, minDist, count)
+		clusterPointsList := g.poissonInCircleGaussian(cx, cy, clusterRadius, minDist, count)
 		for _, p := range clusterPointsList {
 			// ГЛОБАЛЬНАЯ ПРОВЕРКА: точка должна быть внутри круга
 			if math.Hypot(p.X, p.Y) > halfSize {
@@ -77,6 +120,7 @@ func (g *Generator) generateWorldsPoisson() []*models.World {
 			}
 			if g.isPointValid(p.X, p.Y, minDist, allPoints) {
 				allPoints = append(allPoints, p)
+				pointRegion = append(pointRegion, i)
 			}
 		}
 	}
@@ -88,22 +132,25 @@ func (g *Generator) generateWorldsPoisson() []*models.World {
 		x, y := g.randomPointInCircle(halfSize)
 		if g.isPointValid(x, y, minDist, allPoints) {
 			allPoints = append(allPoints, struct{ X, Y float64 }{X: x, Y: y})
+			pointRegion = append(pointRegion, g.nearestRegionIndex(x, y, regions))
 		}
 	}
 	if len(allPoints) < clusterPoints {
 		log.Printf("⚠️ Generated only %d cluster points out of %d (not enough space)", len(allPoints), clusterPoints)
 	}
 
-	// Выбросы – уже внутри круга (randomPointInCircle)
+	// Выбросы – чаще ближе к кластерам, реже у их границ.
 	outlierGenerated := 0
 	maxAttempts := outlierCount * 200
 	for outlierGenerated < outlierCount && maxAttempts > 0 {
 		maxAttempts--
-		x, y := g.randomPointInCircle(halfSize)
-		if g.isPointValid(x, y, minDist, allPoints) {
-			allPoints = append(allPoints, struct{ X, Y float64 }{X: x, Y: y})
-			outlierGenerated++
+		x, y, ok := g.generateOutlierPosition(regions, halfSize, minDist, allPoints)
+		if !ok {
+			continue
 		}
+		allPoints = append(allPoints, struct{ X, Y float64 }{X: x, Y: y})
+		pointRegion = append(pointRegion, g.nearestRegionIndex(x, y, regions))
+		outlierGenerated++
 	}
 	if outlierGenerated < outlierCount {
 		log.Printf("⚠️ Generated only %d outliers out of %d (not enough space)", outlierGenerated, outlierCount)
@@ -119,8 +166,11 @@ func (g *Generator) generateWorldsPoisson() []*models.World {
 	worlds := make([]*models.World, len(allPoints))
 	for i, p := range allPoints {
 		worlds[i] = g.generateWorld(struct{ X, Y float64 }{X: p.X, Y: p.Y})
+		if idx := pointRegion[i]; idx >= 0 && idx < len(regions) {
+			regions[idx].WorldCount++
+		}
 	}
-	return worlds
+	return &GalaxyResult{Worlds: worlds, Regions: regions}
 }
 
 // ---------- ГЕНЕРАЦИЯ ЦЕНТРОВ КЛАСТЕРОВ (БЕЗ ИЗМЕНЕНИЙ) ----------

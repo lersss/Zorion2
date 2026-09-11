@@ -101,7 +101,7 @@
 - `has_subsurface_ocean` — `hydrosphere == "подлёдная"` **или** (`temperature < 250` **и** `water_percent > 30`)
 
 ### Атмосфера
-- `no_atmosphere` — `atmosphere == "разряженная"`
+- `no_atmosphere` — `atmosphere == "разреженная"`
 - `dense_atmosphere` — `atmosphere == "плотная"` **или** `"парниковая"`
 - `toxic_atmosphere` — `atmosphere == "ядовитая"`
 
@@ -195,8 +195,7 @@ config/descriptions/
 4. **API-эндпоинт** для описаний отдельно — не нужен, пока `data.description` достаточно.
 
 **Что НЕ здесь:**
-- 2do уровня проекта (`ADMIN_PASSWORD`, `compatibility_matrix`, опечатка `"разряженная"`,
-  CI, баги) — в `STATUS.md`, разделы 3 и 6.
+- 2do уровня проекта (`ADMIN_PASSWORD`, `compatibility_matrix`, CI, баги) — в `STATUS.md`, разделы 3 и 6.
 - Долгосрочный бэклог — в `docs/gamedesign/08_roadmap.md`.
 
 ---

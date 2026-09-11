@@ -235,7 +235,7 @@ func (pg *PlanetGenerator) GeneratePlanet(radius int, opts ...func(*GenerateOpti
 
 	visualType := pg.determineVisualType(climate, surface, hydrosphere, temperature, rng)
 
-	hasAtmosphere := (atmosphere != "разряженная" && atmosphere != "")
+	hasAtmosphere := (atmosphere != "разреженная" && atmosphere != "")
 
 	hasRings := false
 	if options.HasRings != nil {

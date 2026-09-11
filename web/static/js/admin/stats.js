@@ -17,11 +17,12 @@ export async function loadStats() {
     } catch (e) { console.error(e); }
 }
 
-export async function loadPlanetStats() {
+export async function loadPlanetStats(refresh = false) {
     const container = document.getElementById('planetStatsContainer');
     const stop = showLoader(container, 'Загрузка статистики...');
     try {
-        const res = await fetchWithAuth('/admin/stats/planets');
+        const url = refresh ? '/admin/stats/planets?refresh=1' : '/admin/stats/planets';
+        const res = await fetchWithAuth(url);
         if (!res.ok) throw new Error('Failed to fetch stats');
         const stats = await res.json();
         stop();

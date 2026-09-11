@@ -80,7 +80,7 @@ func computeSatelliteWater(temp float64, rng *rand.Rand) float64 {
 // У спутников атмосфера — редкость. Если есть — соответствует температуре.
 func pickSatelliteAtmosphere(temp float64, rng *rand.Rand) string {
 	if rng.Float64() < 0.4 {
-		return "разряженная"
+		return "разреженная"
 	}
 	switch {
 	case temp > 500:
@@ -92,7 +92,7 @@ func pickSatelliteAtmosphere(temp float64, rng *rand.Rand) string {
 		opts := []string{"метановая", "азотная", "туманная"}
 		return opts[rng.Intn(len(opts))]
 	default:
-		opts := []string{"разряженная", "метановая", "азотная"}
+		opts := []string{"разреженная", "метановая", "азотная"}
 		return opts[rng.Intn(len(opts))]
 	}
 }

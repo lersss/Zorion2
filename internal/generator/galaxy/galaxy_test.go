@@ -134,12 +134,119 @@ func TestGenerateWorldsPoissonProperties(t *testing.T) {
 		ClusterCount: 3, ClusterSpacing: 900, ClusterRadius: 150,
 		OutlierPercent: 0.08, WorldSpread: 0,
 	})
-	worlds := g.generateWorldsPoisson()
+	result := g.generateWorldsPoisson()
+	worlds := result.Worlds
 
 	// Вместимости достаточно — добивка должна довести почти до цели.
 	require.GreaterOrEqual(t, len(worlds), 30, "недостаточно миров")
 	assert.LessOrEqual(t, len(worlds), 40)
 	assertWorldsValid(t, worlds, 2000, 150)
+}
+
+func TestGenerateWorldsPoissonRegions(t *testing.T) {
+	g := NewGenerator(&Config{
+		Seed: 7, WorldCount: 40, MapSize: 2000, MinDist: 150,
+		ClusterCount: 3, ClusterSpacing: 900, ClusterRadius: 150,
+		OutlierPercent: 0.08, WorldSpread: 0,
+	})
+	result := g.generateWorldsPoisson()
+
+	// Регион на каждый кластерный центр.
+	require.Len(t, result.Regions, 3)
+
+	names := map[string]bool{}
+	for _, r := range result.Regions {
+		assert.NotEmpty(t, r.ID)
+		assert.NotEmpty(t, r.Name)
+		assert.False(t, names[r.Name], "дубль имени региона: %s", r.Name)
+		names[r.Name] = true
+		assert.Greater(t, r.Radius, 0.0)
+		assert.NotEmpty(t, r.Color)
+	}
+
+	// Каждый мир приписан к региону.
+	total := 0
+	for _, r := range result.Regions {
+		total += r.WorldCount
+	}
+	assert.Equal(t, len(result.Worlds), total, "миры должны быть распределены по регионам")
+}
+
+func TestGenerateGalaxyWithRegionsRandomHasNone(t *testing.T) {
+	// Без кластеров регионов нет.
+	g := NewGenerator(&Config{Seed: 5, WorldCount: 20, MapSize: 2000, MinDist: 200, WorldSpread: 0})
+	res := g.GenerateGalaxyWithRegions()
+	require.NotEmpty(t, res.Worlds)
+	assert.Empty(t, res.Regions)
+}
+
+func TestClusterSpacingEnforcedNonOverlap(t *testing.T) {
+	// ClusterSpacing (100) меньше 2×ClusterRadius (1000) — генератор должен
+	// форсировать расстояние между центрами кластеров, чтобы их территории
+	// не наслаивались друг на друга.
+	g := NewGenerator(&Config{
+		Seed: 42, WorldCount: 200, MapSize: 5000, MinDist: 150,
+		ClusterCount: 8, ClusterSpacing: 100, ClusterRadius: 500,
+		OutlierPercent: 0.05, WorldSpread: 0,
+	})
+	result := g.generateWorldsPoisson()
+	require.NotEmpty(t, result.Regions)
+
+	for i := 0; i < len(result.Regions); i++ {
+		for j := i + 1; j < len(result.Regions); j++ {
+			d := math.Hypot(
+				result.Regions[i].CenterX-result.Regions[j].CenterX,
+				result.Regions[i].CenterY-result.Regions[j].CenterY,
+			)
+			assert.GreaterOrEqual(t, d, 2*500-0.01, "центры кластеров слишком близко — территории пересекаются")
+		}
+	}
+}
+
+func TestGenerateOutlierPositionNearCluster(t *testing.T) {
+	// Выбросы должны тяготеть к кластерным центрам (гауссово смещение),
+	// а не разбрасываться равномерно по галактике.
+	g := NewGenerator(&Config{Seed: 3, MapSize: 100000, ClusterRadius: 500})
+	centers := []struct{ X, Y float64 }{{X: 0, Y: 0}}
+	regions := g.buildRegions(centers)
+
+	const n = 10000
+	var sum float64
+	placed := 0
+	for i := 0; i < n; i++ {
+		x, y, ok := g.generateOutlierPosition(regions, 100000, 150, nil)
+		if !ok {
+			continue
+		}
+		sum += math.Hypot(x, y)
+		placed++
+	}
+	require.Greater(t, placed, n/2, "слишком много неудачных попыток")
+
+	// Гауссово распределение со std = ClusterRadius (500): среднее расстояние
+	// (Рэлеевское) ≈ 500 × sqrt(π/2) ≈ 626. Равномерный разброс дал бы ~2/3 R.
+	mean := sum / float64(placed)
+	assert.Less(t, mean, 500*2.0, "выбросы должны быть ближе к кластерам, mean=%.0f", mean)
+	assert.Greater(t, mean, 500*0.5, "выбросы не должны сидеть в самом центре, mean=%.0f", mean)
+}
+
+func TestGenerateGalaxyWithRegionsDeterminism(t *testing.T) {
+	mk := func() *GalaxyResult {
+		return NewGenerator(&Config{
+			Seed: 99, WorldCount: 15, MapSize: 1500, MinDist: 200,
+			ClusterCount: 2, ClusterSpacing: 800, ClusterRadius: 150, WorldSpread: 5,
+		}).GenerateGalaxyWithRegions()
+	}
+	a, b := mk(), mk()
+	assert.Equal(t, worldSignatures(a.Worlds), worldSignatures(b.Worlds), "миры должны совпадать")
+	require.Len(t, a.Regions, len(b.Regions))
+	for i := range a.Regions {
+		ar, br := a.Regions[i], b.Regions[i]
+		assert.Equal(t, ar.Name, br.Name)
+		assert.Equal(t, ar.Color, br.Color)
+		assert.Equal(t, ar.CenterX, br.CenterX)
+		assert.Equal(t, ar.WorldCount, br.WorldCount)
+	}
 }
 
 func TestGenerateClusterCentersSpacing(t *testing.T) {

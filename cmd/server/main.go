@@ -124,6 +124,9 @@ func main() {
 	// API фильтрации миров
 	http.HandleFunc("/api/worlds/filter", auth.AuthMiddleware(adminHandlers.FilterWorldsHandler))
 
+	// API регионов (для карты на малом зуме)
+	http.HandleFunc("/api/regions", auth.AuthMiddleware(adminHandlers.GetRegionsHandler))
+
 	// API поиска объектов (звезда/планета/спутник) по имени
 	http.HandleFunc("/api/entities/search", auth.AuthMiddleware(adminHandlers.SearchEntitiesHandler))
 

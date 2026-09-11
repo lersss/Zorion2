@@ -4,6 +4,7 @@ import { draw } from './map/map_render.js';
 import { loadClusters, handleUnauthorized } from './map/data.js';
 import { openSystemModal } from './modal/index.js';
 import { notifyError } from './ui/toast.js';
+import { formatZoom } from './map/utils.js';
 
 const SEARCH_DEBOUNCE_MS = 250;
 const MAX_RESULTS = 20;
@@ -147,7 +148,7 @@ function focusOnStar(res) {
     state.followShip = false;
 
     if (elements.zoomInfo) {
-        elements.zoomInfo.textContent = Math.round(state.scale * 100) + '%';
+        elements.zoomInfo.textContent = formatZoom(state.scale, state.minZoom);
     }
 
     draw();

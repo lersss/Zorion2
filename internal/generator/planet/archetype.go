@@ -114,7 +114,7 @@ func GenerateArchetype(spectralClass string, rng *rand.Rand) *Archetype {
 	}
 
 	hydro := pickOrFallback(selectedClimate.AllowedHydrospheres, rng, "сухая")
-	atmo := pickOrFallback(selectedClimate.AllowedAtmospheres, rng, "разряженная")
+	atmo := pickOrFallback(selectedClimate.AllowedAtmospheres, rng, "разреженная")
 	bio := pickOrFallback(selectedClimate.AllowedBiospheres, rng, "стерильная")
 
 	baseSurface := copyWeights(selectedClimate.BaseSurface)

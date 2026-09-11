@@ -208,7 +208,7 @@ func addSubsurfaceOceanTag(tags map[string]bool, ctx DescriptionContext) {
 
 func addAtmosphereTags(tags map[string]bool, atmosphere string) {
 	switch atmosphere {
-	case "разряженная":
+	case "разреженная":
 		tags["no_atmosphere"] = true
 	case "плотная", "парниковая":
 		tags["dense_atmosphere"] = true

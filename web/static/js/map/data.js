@@ -1,6 +1,6 @@
 // web/static/js/map/data.js
 import { state, elements } from './config.js';
-import { draw, setShipIcon } from './map_render.js';
+import { draw, setShipIcon, galaxyRadiusFromRegions, updateFitZoom } from './map_render.js';
 import { filterState } from '../filters.js';
 
 // Размер ячейки кластеризации на экране, в пикселях.
@@ -79,6 +79,8 @@ export async function loadClusters() {
         }
 
         if (elements.loading) elements.loading.style.display = 'none';
+
+        await loadRegions();
     } catch (err) {
         console.error('loadClusters error:', err);
         if (elements.statusBar) elements.statusBar.textContent = '❌ Ошибка: ' + err.message;
@@ -91,6 +93,34 @@ export async function loadClusters() {
     }
 
     draw();
+}
+
+// loadRegions — подгружает все регионы галактики.
+// Нужны все центры: диаграмма Вороного на фронте зависит от соседей.
+// Запрос дешёвый (регионов сотни).
+async function loadRegions() {
+    try {
+        const token = localStorage.getItem('token');
+        if (!token) throw new Error('No token');
+
+        const res = await fetch('/api/regions', {
+            headers: { 'Authorization': 'Bearer ' + token }
+        });
+        if (res.status === 401 || res.status === 403) {
+            handleUnauthorized();
+            return;
+        }
+        if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+
+        const regions = await res.json();
+        state.regions = Array.isArray(regions) ? regions : [];
+        if (state.regions.length >= 2) {
+            state.galaxyRadius = galaxyRadiusFromRegions(state.regions);
+            updateFitZoom();
+        }
+    } catch (err) {
+        console.error('loadRegions error:', err);
+    }
 }
 
 // ==================== ГРАНИЦЫ VIEWPORT ====================

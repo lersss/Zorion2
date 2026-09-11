@@ -4,6 +4,9 @@ import { CONFIG } from '../config.js';
 export const state = {
     worlds: [],           // кэш отдельных миров (для tooltip/fly/nav)
     clusters: [],         // текущие кластеры для рендера (с сервера)
+    regions: [],          // регионы галактики (для малого зума, с сервера)
+    galaxyRadius: 0,      // радиус галактики в мировых координатах (из регионов)
+    minZoom: 0,           // вычисляется: масштаб, при котором галактика помещается в экран
     currentWorldId: null,
     isFlying: false,
     flyFrom: null,

@@ -10,6 +10,7 @@ import { draw } from './map/map_render.js';
 import { showTextLoader } from './loader.js';
 import { notifyError } from './ui/toast.js';
 import { initEntitySearch } from './search.js';
+import { formatZoom } from './map/utils.js';
 
 // --- Восстановление вьюпорта из sessionStorage ---
 function restoreViewport() {
@@ -21,7 +22,7 @@ function restoreViewport() {
             state.offsetY = vp.offsetY || 0;
             state.scale = vp.scale || 1;
             if (elements.zoomInfo) {
-                elements.zoomInfo.textContent = Math.round(state.scale * 100) + '%';
+                elements.zoomInfo.textContent = formatZoom(state.scale, state.minZoom);
             }
             return true;
         }

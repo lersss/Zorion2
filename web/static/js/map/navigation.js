@@ -1,6 +1,8 @@
 // web/static/js/map/navigation.js
 import { state, elements } from './config.js';
 import { draw } from './map_render.js';
+import { formatZoom } from './utils.js';
+import { CONFIG } from '../config.js';
 
 // centerOnAgent — центрирует карту на текущем мире игрока.
 // Мир должен быть в state.worlds (его кладёт туда loadUserData
@@ -26,7 +28,7 @@ export function centerOnAgent() {
         state.scale = targetScale;
 
         if (elements.zoomInfo) {
-            elements.zoomInfo.textContent = Math.round(state.scale * 100) + '%';
+            elements.zoomInfo.textContent = formatZoom(state.scale, state.minZoom || CONFIG.map.minZoom);
         }
         draw();
         return;
@@ -54,7 +56,7 @@ export function centerOnAgent() {
     state.scale = targetScale;
 
     if (elements.zoomInfo) {
-        elements.zoomInfo.textContent = Math.round(state.scale * 100) + '%';
+        elements.zoomInfo.textContent = formatZoom(state.scale, state.minZoom || CONFIG.map.minZoom);
     }
     draw();
 }

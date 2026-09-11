@@ -315,6 +315,44 @@ func TestGenerateSurfaceCompositionCold(t *testing.T) {
 	}
 }
 
+func TestBiosphereNicheDominance(t *testing.T) {
+	requireDefaultCompat(t)
+	rng := rand.New(rand.NewSource(42))
+	// База умеренного архетипа (после ребаланса).
+	base := Composition{
+		SurfaceRocks:      13,
+		SurfaceSands:      5,
+		SurfaceLakes:      10,
+		SurfaceOceans:     13,
+		SurfaceMeadows:    16,
+		SurfaceForests:    20,
+		SurfaceJungles:    12,
+		SurfaceSwamps:     7,
+		SurfaceCraters:    4,
+	}
+
+	cases := []struct {
+		temp, water float64
+		want        string
+	}{
+		{320, 80, SurfaceJungles},  // тёплый влажный → джунгли
+		{300, 65, SurfaceSwamps},   // обильная вода, умеренное тепло → болота
+		{280, 35, SurfaceMeadows},  // умеренная вода → луга
+		{310, 25, SurfaceMeadows},  // умеренная вода, теплее → луга
+	}
+	for _, tc := range cases {
+		c := GenerateSurfaceComposition(base, tc.temp, tc.water, rng)
+		assert.Equal(t, tc.want, c.DominantForm(),
+			"temp=%.0f water=%.0f → %v (доминанта %q)", tc.temp, tc.water, c, c.DominantForm())
+	}
+
+	// Вне ниш (вода 45–55%) биосфера не должна форсироваться — доминируют
+	// леса/океаны/скалы естественным образом, но не луга/джунгли/болота.
+	outside := GenerateSurfaceComposition(base, 270, 50, rng)
+	assert.NotContains(t, []string{SurfaceJungles, SurfaceSwamps, SurfaceMeadows},
+		outside.DominantForm(), "вне ниш биосфера не должна доминировать: %v", outside)
+}
+
 func TestGenerateSurfaceCompositionEmptyBase(t *testing.T) {
 	assert.Equal(t, Composition{}, GenerateSurfaceComposition(nil, 300, 50, rand.New(rand.NewSource(1))))
 }

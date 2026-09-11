@@ -61,8 +61,13 @@ type Anomaly struct {
 }
 
 // GetPlanetStatsHandler — HTTP-обработчик статистики.
+// Отдаёт закэшированный результат, считает только при пустом кэше.
+// `?refresh=1` сбрасывает кэш и пересчитывает заново.
 func (h *AdminHandlers) GetPlanetStatsHandler(w http.ResponseWriter, r *http.Request) {
-	stats, err := h.calculatePlanetStats()
+	if r.URL.Query().Get("refresh") == "1" {
+		h.invalidatePlanetStats()
+	}
+	stats, err := h.getPlanetStats()
 	if err != nil {
 		log.Printf("❌ Failed to calculate planet stats: %v", err)
 		http.Error(w, "Failed to calculate stats", http.StatusInternalServerError)
@@ -70,6 +75,57 @@ func (h *AdminHandlers) GetPlanetStatsHandler(w http.ResponseWriter, r *http.Req
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(stats)
+}
+
+// getPlanetStats — возвращает закэшированную статистику.
+// При пустом кэше считает один раз под полным локом (single-flight)
+// и кладёт результат в кэш.
+func (h *AdminHandlers) getPlanetStats() (*PlanetStats, error) {
+	h.planetStatsMu.RLock()
+	cached := h.planetStats
+	h.planetStatsMu.RUnlock()
+	if cached != nil {
+		return cached, nil
+	}
+
+	h.planetStatsMu.Lock()
+	defer h.planetStatsMu.Unlock()
+	if h.planetStats != nil {
+		return h.planetStats, nil
+	}
+
+	stats, err := h.calculatePlanetStats()
+	if err != nil {
+		return nil, err
+	}
+	h.planetStats = stats
+	return stats, nil
+}
+
+// setPlanetStats — кладёт готовую статистику в кэш (после генерации).
+func (h *AdminHandlers) setPlanetStats(stats *PlanetStats) {
+	h.planetStatsMu.Lock()
+	h.planetStats = stats
+	h.planetStatsMu.Unlock()
+}
+
+// invalidatePlanetStats — сбрасывает кэш после изменения вселенной.
+func (h *AdminHandlers) invalidatePlanetStats() {
+	h.planetStatsMu.Lock()
+	h.planetStats = nil
+	h.planetStatsMu.Unlock()
+}
+
+// recomputePlanetStats — пересчитывает статистику и кладёт в кэш.
+// Вызывается после успешной генерации. При ошибке кэш сбрасывается.
+func (h *AdminHandlers) recomputePlanetStats() {
+	stats, err := h.calculatePlanetStats()
+	if err != nil {
+		log.Printf("❌ Failed to recompute planet stats: %v", err)
+		h.invalidatePlanetStats()
+		return
+	}
+	h.setPlanetStats(stats)
 }
 
 // calculatePlanetStats — основной расчёт статистики.

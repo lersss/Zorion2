@@ -36,7 +36,32 @@ export function resizeCanvas() {
     state.canvasHeight = wrapper.clientHeight;
     elements.canvas.width = state.canvasWidth;
     elements.canvas.height = state.canvasHeight;
+    updateFitZoom();
     draw();
+}
+
+// galaxyRadiusFromRegions — радиус галактики из центров регионов
+// (самый дальний центр + запас 15%).
+export function galaxyRadiusFromRegions(regions) {
+    let maxR = 1;
+    for (const r of regions) {
+        const d = Math.hypot(r.x, r.y);
+        if (d > maxR) maxR = d;
+    }
+    return maxR * 1.15;
+}
+
+// updateFitZoom — ставит minZoom так, чтобы вся галактика помещалась в экран.
+// Вызывается после загрузки регионов и при ресайзе.
+export function updateFitZoom() {
+    if (!state.galaxyRadius) return;
+    const minDim = Math.min(state.canvasWidth, state.canvasHeight);
+    const fit = (minDim * 0.95) / (2 * state.galaxyRadius);
+    state.minZoom = Math.max(fit, 0.00001);
+    // Если текущий масштаб ниже нового минимума (например, из сохранённого вьюпорта) — поднимаем.
+    if (state.scale < state.minZoom) {
+        state.scale = state.minZoom;
+    }
 }
 
 // ==================== РАЗМЕР КЛАСТЕРА НА ЭКРАНЕ ====================
@@ -66,6 +91,28 @@ export function draw() {
 
     drawGrid(ctx, canvasWidth, canvasHeight, scale, offsetX, offsetY);
 
+    // --- Регионы галактики: на малом зуме вместо кружков с количеством ---
+    // Уровни детализации по зума:
+    //  scale < regionNamesZoom            — регионы с названиями, без звёзд;
+    //  regionNamesZoom..regionDisplayThreshold — названия/цвета затухают, звёзды появляются;
+    //  scale >= regionDisplayThreshold    — только звёзды.
+    const regionThreshold = mapCfg.regionDisplayThreshold;
+    const namesZoom = mapCfg.regionNamesZoom;
+    let regionAlpha = 0;
+    let drawStars = false;
+    if (scale < namesZoom) {
+        regionAlpha = 1;
+    } else if (scale < regionThreshold) {
+        const k = (scale - namesZoom) / (regionThreshold - namesZoom);
+        regionAlpha = 1 - k;
+        drawStars = true;
+    } else {
+        drawStars = true;
+    }
+    if (regionAlpha > 0) {
+        drawRegions(ctx, canvasWidth, canvasHeight, scale, offsetX, offsetY, regionAlpha, true);
+    }
+
     // --- Отрисовка кластеров ---
     const visibleClusters = clusters || [];
     const singles = [];
@@ -77,6 +124,11 @@ export function draw() {
         // Пропускаем то, что вне экрана
         if (!isFiniteNumber(px) || !isFiniteNumber(py)) continue;
         if (px < -50 || py < -50 || px > canvasWidth + 50 || py > canvasHeight + 50) continue;
+
+        if (!drawStars) {
+            // На малом зуме (чистые регионы) звёзды не рисуем.
+            continue;
+        }
 
         if (c.cnt === 1) {
             drawSingleStar(ctx, c, px, py, scale, currentWorldId, hoveredWorldId, focusWorldId);
@@ -91,6 +143,9 @@ export function draw() {
     if (scale > mapCfg.nameDisplayThreshold || singles.length <= mapCfg.nameAlwaysShowLimit) {
         drawNames(ctx, singles, scale);
     }
+
+    // --- Имя звезды под курсором (даже когда общие названия скрыты) ---
+    drawHoveredStarName(ctx, scale, offsetX, offsetY);
 
     // --- Анимация полёта ---
     if (isFlying && flyFrom && flyTo) {
@@ -234,9 +289,270 @@ function drawNames(ctx, singles, scale) {
     ctx.textAlign = 'center';
 
     for (const s of singles) {
+        // Название hover-звезды рисуем отдельно (пилюлей над ней).
+        if (s.c.sid === state.hoveredWorldId) continue;
         const radius = clusterScreenRadius(s.c);
         ctx.fillText(s.c.sname || '—', s.x, s.y + radius + fontSize);
     }
+}
+
+// drawHoveredStarName — рисует имя звезды под курсором над ней.
+// Работает на любом зуме (даже когда общие названия скрыты): берёт звезду
+// из state.clusters и рисует подпись-«пилюлю» выше точки.
+function drawHoveredStarName(ctx, scale, offsetX, offsetY) {
+    const hoveredId = state.hoveredWorldId;
+    if (!hoveredId) return;
+
+    const clusters = state.clusters || [];
+    let c = null;
+    for (const cl of clusters) {
+        if (cl.cnt === 1 && cl.sid === hoveredId) { c = cl; break; }
+    }
+    if (!c) return;
+
+    const x = c.x * scale + offsetX;
+    const y = c.y * scale + offsetY;
+    if (!isFiniteNumber(x) || !isFiniteNumber(y)) return;
+
+    const name = c.sname || '—';
+    const r = clusterScreenRadius(c);
+    const fontSize = Math.max(11, Math.round(mapCfg.nameFontSize + 2));
+    ctx.font = `600 ${fontSize}px system-ui`;
+    const w = Math.max(40, ctx.measureText(name).width + 16);
+    const h = fontSize + 8;
+    const top = y - r - 6 - h;
+
+    ctx.fillStyle = 'rgba(10,15,32,0.88)';
+    roundRectPath(ctx, x - w / 2, top, w, h, 6);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(148,163,184,0.55)';
+    ctx.lineWidth = 1;
+    roundRectPath(ctx, x - w / 2, top, w, h, 6);
+    ctx.stroke();
+
+    ctx.fillStyle = '#e2e8f0';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(name, x, top + h / 2);
+    ctx.textBaseline = 'alphabetic';
+}
+
+// roundRectPath — скруглённый прямоугольник (путь для fill/stroke).
+function roundRectPath(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+}
+
+// ==================== РЕГИОНЫ (малый зум) ====================
+
+// Кэш ячеек Вороного: пересчитываются только при изменении списка регионов.
+let voronoiCells = null;
+let voronoiKey = '';
+
+// drawRegions — рисует регионы как ячейки Вороного: каждый регион покрывает
+// территорию, ближе к его центру, чем к любому другому. Ячейки не пересекаются
+// и замощают всю галактику (нет ни дыр, ни перекрытий).
+// alpha — множитель прозрачности (0..1) для плавного затухания у порога зума;
+// showNames — рисовать ли названия (убираются, когда регионов на экране мало).
+function drawRegions(ctx, canvasWidth, canvasHeight, scale, offsetX, offsetY, alpha = 1, showNames = true) {
+    const regions = state.regions || [];
+    if (regions.length < 2) return;
+
+    const cells = ensureVoronoi(regions);
+    const fontSize = mapCfg.regionFontSize;
+    const labels = [];
+
+    for (const cell of cells) {
+        const poly = cell.poly;
+        if (poly.length < 3) continue;
+
+        // Быстрый cull: bounding box ячейки на экране.
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const v of poly) {
+            const sx = v.x * scale + offsetX;
+            const sy = v.y * scale + offsetY;
+            if (sx < minX) minX = sx;
+            if (sx > maxX) maxX = sx;
+            if (sy < minY) minY = sy;
+            if (sy > maxY) maxY = sy;
+        }
+        if (maxX < -50 || maxY < -50 || minX > canvasWidth + 50 || minY > canvasHeight + 50) continue;
+
+        // Заливка ячейки.
+        ctx.beginPath();
+        for (let j = 0; j < poly.length; j++) {
+            const sx = poly[j].x * scale + offsetX;
+            const sy = poly[j].y * scale + offsetY;
+            if (j === 0) ctx.moveTo(sx, sy);
+            else ctx.lineTo(sx, sy);
+        }
+        ctx.closePath();
+        ctx.fillStyle = hexToRgba(cell.color, 0.20 * alpha);
+        ctx.fill();
+        ctx.strokeStyle = hexToRgba(cell.color, 0.6 * alpha);
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        if (!showNames) continue;
+
+        // Подпись собираем отдельно — чтобы избежать наложений названий.
+        const lx = cell.x * scale + offsetX;
+        const ly = cell.y * scale + offsetY;
+        if (!isFiniteNumber(lx) || !isFiniteNumber(ly)) continue;
+        const cellSize = Math.hypot(maxX - minX, maxY - minY);
+        labels.push({ name: cell.name, x: lx, y: ly, size: cellSize });
+    }
+
+    if (showNames) drawRegionLabels(ctx, labels, alpha, fontSize);
+}
+
+// drawRegionLabels — размещает названия регионов без наложений:
+// крупные ячейки получают приоритет, пересекающиеся подписи пропускаются.
+function drawRegionLabels(ctx, labels, alpha, fontSize) {
+    if (labels.length === 0) return;
+
+    labels.sort((a, b) => b.size - a.size);
+    const placed = [];
+    ctx.font = `600 ${fontSize}px system-ui`;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = `rgba(226,232,240,${0.9 * alpha})`;
+
+    for (const lb of labels) {
+        const w = lb.name.length * fontSize * 0.62 + 8;
+        const h = fontSize + 6;
+        const rect = { x: lb.x - w / 2, y: lb.y + fontSize - h, w, h };
+
+        let ok = true;
+        for (const p of placed) {
+            if (rect.x < p.x + p.w && rect.x + rect.w > p.x &&
+                rect.y < p.y + p.h && rect.y + rect.h > p.y) {
+                ok = false;
+                break;
+            }
+        }
+        if (!ok) continue;
+
+        placed.push(rect);
+        ctx.fillText(lb.name, lb.x, lb.y + fontSize);
+    }
+}
+
+// regionAtPoint — имя региона, в котором лежит точка (мировые координаты).
+function regionAtPoint(regions, x, y) {
+    if (!regions || regions.length < 2) return null;
+    const cells = ensureVoronoi(regions);
+    for (const cell of cells) {
+        if (pointInPolygon(x, y, cell.poly)) return cell.name;
+    }
+    return null;
+}
+
+// pointInPolygon — принадлежность точки полигону (ray casting).
+function pointInPolygon(x, y, poly) {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const xi = poly[i].x, yi = poly[i].y;
+        const xj = poly[j].x, yj = poly[j].y;
+        if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) {
+            inside = !inside;
+        }
+    }
+    return inside;
+}
+
+// ensureVoronoi — строит ячейки Вороного, только если список регионов изменился.
+function ensureVoronoi(regions) {
+    const key = regions.map(r => r.id).join(',');
+    if (voronoiKey === key && voronoiCells) return voronoiCells;
+    voronoiCells = buildVoronoi(regions);
+    voronoiKey = key;
+    return voronoiCells;
+}
+
+// buildVoronoi — диаграмма Вороного по центрам регионов.
+// Ячейка сайта = пересечение полуплоскостей всех остальных сайтов
+// (точки, которым этот сайт ближе любого соседа), обрезанное по
+// окружности галактики.
+function buildVoronoi(regions) {
+    // Окружность галактики: радиус по самому дальнему центру + запас.
+    let maxR = 1;
+    for (const r of regions) {
+        const d = Math.hypot(r.x, r.y);
+        if (d > maxR) maxR = d;
+    }
+    const galaxyR = maxR * 1.15;
+    const bbox = [];
+    const N = 64;
+    for (let k = 0; k < N; k++) {
+        const a = (2 * Math.PI * k) / N;
+        bbox.push({ x: galaxyR * Math.cos(a), y: galaxyR * Math.sin(a) });
+    }
+
+    const cells = [];
+    for (let i = 0; i < regions.length; i++) {
+        const s = regions[i];
+        let poly = bbox.map(p => ({ x: p.x, y: p.y }));
+
+        for (let j = 0; j < regions.length; j++) {
+            if (i === j) continue;
+            const t = regions[j];
+            const dx = t.x - s.x;
+            const dy = t.y - s.y;
+            const c = (t.x * t.x + t.y * t.y - s.x * s.x - s.y * s.y) / 2;
+            poly = clipHalfPlane(poly, dx, dy, c);
+            if (poly.length < 3) break;
+        }
+
+        if (poly.length >= 3) {
+            cells.push({ id: s.id, name: s.name, x: s.x, y: s.y, color: s.color, poly });
+        }
+    }
+    return cells;
+}
+
+// clipHalfPlane — отсечение полигона полуплоскостью dx*x + dy*y <= c
+// (алгоритм Сазерленда—Ходжмана).
+function clipHalfPlane(poly, dx, dy, c) {
+    const out = [];
+    for (let i = 0; i < poly.length; i++) {
+        const cur = poly[i];
+        const prev = poly[(i + poly.length - 1) % poly.length];
+        const curIn = dx * cur.x + dy * cur.y <= c;
+        const prevIn = dx * prev.x + dy * prev.y <= c;
+
+        if (curIn) {
+            if (!prevIn) out.push(halfPlaneIntersect(prev, cur, dx, dy, c));
+            out.push(cur);
+        } else if (prevIn) {
+            out.push(halfPlaneIntersect(prev, cur, dx, dy, c));
+        }
+    }
+    return out;
+}
+
+// halfPlaneIntersect — точка пересечения отрезка [a, b] с линией dx*x + dy*y = c.
+function halfPlaneIntersect(a, b, dx, dy, c) {
+    const ad = dx * a.x + dy * a.y - c;
+    const bd = dx * b.x + dy * b.y - c;
+    const t = ad / (ad - bd);
+    return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+}
+
+// hexToRgba — '#aabbcc' + alpha → 'rgba(r,g,b,alpha)'.
+function hexToRgba(hex, alpha) {
+    let h = String(hex || '').replace('#', '');
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    const n = parseInt(h, 16);
+    if (isNaN(n)) return `rgba(124,108,255,${alpha})`;
+    const r = (n >> 16) & 255;
+    const g = (n >> 8) & 255;
+    const b = n & 255;
+    return `rgba(${r},${g},${b},${alpha})`;
 }
 
 // ==================== ПОЛЁТ ====================
@@ -330,7 +646,16 @@ function updateStatusBar(statusBar, clusters, isFlying, flyStartTime, flyDuratio
         totalWorlds += c.cnt;
         if (c.cnt === 1) singles++;
     }
-    statusBar.textContent = `${totalWorlds} миров в кадре (${singles} одиночных, ${totalClusters - singles} кластеров)`;
+    let text = `${totalWorlds} миров в кадре (${singles} одиночных, ${totalClusters - singles} кластеров)`;
+
+    // Имя региона под центром экрана — видно даже когда подписи пропали.
+    const cx = (state.canvasWidth / 2 - state.offsetX) / state.scale;
+    const cy = (state.canvasHeight / 2 - state.offsetY) / state.scale;
+    const regionName = regionAtPoint(state.regions, cx, cy);
+    if (regionName) {
+        text += ` · Регион: ${regionName}`;
+    }
+    statusBar.textContent = text;
 }
 
 // ==================== УТИЛИТЫ ====================

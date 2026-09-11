@@ -136,6 +136,37 @@ func applySurfaceWaterModifiers(c map[string]float64, waterPercent float64) {
 	}
 }
 
+// ==================== ПОВЕРХНОСТЬ: БИОСФЕРНЫЕ НИШИ ====================
+
+// applyBiosphereModifiers — делает конкретную биосферную форму доминирующей
+// в её климатической нише (иначе «леса» выигрывают всегда из-за веса):
+//
+//	джунгли — тёплые влажные миры (вода > 60%, T > 300);
+//	болота   — обильная вода при умеренном тепле (вода > 55%, T 270–330);
+//	луга     — умеренная вода (20–45%), мягкая температура (T 250–330);
+//	леса     — остаются дефолтным биомом (умеренная ниша без усиления).
+func applyBiosphereModifiers(c map[string]float64, temperature, waterPercent float64) {
+	switch {
+	case waterPercent > 60 && temperature > 300:
+		// Джунгли
+		multiplyIfExists(c, SurfaceJungles, 3.0)
+		multiplyIfExists(c, SurfaceForests, 0.7)
+		multiplyIfExists(c, SurfaceMeadows, 0.6)
+		multiplyIfExists(c, SurfaceSwamps, 0.6)
+
+	case waterPercent > 55 && temperature >= 270 && temperature <= 330:
+		// Болота
+		multiplyIfExists(c, SurfaceSwamps, 3.2)
+		multiplyIfExists(c, SurfaceForests, 0.7)
+		multiplyIfExists(c, SurfaceOceans, 0.55)
+
+	case waterPercent >= 20 && waterPercent <= 45 && temperature >= 250 && temperature <= 330:
+		// Луга
+		multiplyIfExists(c, SurfaceMeadows, 2.4)
+		multiplyIfExists(c, SurfaceForests, 0.7)
+	}
+}
+
 // ==================== НЕДРА: ТЕМПЕРАТУРА ====================
 
 // applySubterrainTempModifiers — корректировки недр по температуре.

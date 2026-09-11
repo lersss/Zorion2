@@ -1,6 +1,6 @@
 // web/static/js/map/events.js
 import { state, elements } from './config.js';
-import { isFiniteNumber } from './utils.js';
+import { isFiniteNumber, formatZoom } from './utils.js';
 import { draw, clusterScreenRadius } from './map_render.js';
 import { scheduleReload } from './data.js';
 import { centerOnAgent } from './navigation.js';
@@ -291,8 +291,18 @@ export function initPanZoom() {
         const mouseX = (e.clientX - rect.left) * (elements.canvas.width / rect.width);
         const mouseY = (e.clientY - rect.top) * (elements.canvas.height / rect.height);
 
-        const delta = e.deltaY > 0 ? mapCfg.wheelSensitivity : 1 / mapCfg.wheelSensitivity;
-        const newScale = Math.min(Math.max(state.scale * delta, mapCfg.minZoom), mapCfg.maxZoom);
+        const minZ = state.minZoom || mapCfg.minZoom;
+        let delta = e.deltaY > 0 ? mapCfg.wheelSensitivity : 1 / mapCfg.wheelSensitivity;
+        if (e.deltaY > 0 && state.scale > minZ) {
+            // Ускорение отдаления при приближении к «Галактика»:
+            // чем ближе к минимуму, тем крупнее шаг, чтобы не крутить колесо десятки раз.
+            const ratio = state.scale / minZ;
+            if (ratio < 60) {
+                const t = Math.max(0, 1 - ratio / 60);
+                delta = Math.pow(mapCfg.wheelSensitivity, 1 + 2.5 * t);
+            }
+        }
+        const newScale = Math.min(Math.max(state.scale * delta, minZ), mapCfg.maxZoom);
         if (newScale === state.scale) return;
 
         const worldX = (mouseX - state.offsetX) / state.scale;
@@ -301,7 +311,7 @@ export function initPanZoom() {
         state.offsetX = mouseX - worldX * state.scale;
         state.offsetY = mouseY - worldY * state.scale;
 
-        if (elements.zoomInfo) elements.zoomInfo.textContent = Math.round(state.scale * 100) + '%';
+        if (elements.zoomInfo) elements.zoomInfo.textContent = formatZoom(state.scale, minZ);
         draw();
         saveViewport();
         scheduleReload();
@@ -315,7 +325,7 @@ export function initPanZoom() {
         state.scale = Math.min(state.scale * mapCfg.zoomStep, mapCfg.maxZoom);
         state.offsetX = centerX - worldX * state.scale;
         state.offsetY = centerY - worldY * state.scale;
-        if (elements.zoomInfo) elements.zoomInfo.textContent = Math.round(state.scale * 100) + '%';
+        if (elements.zoomInfo) elements.zoomInfo.textContent = formatZoom(state.scale, state.minZoom || mapCfg.minZoom);
         draw();
         saveViewport();
         scheduleReload();
@@ -326,10 +336,14 @@ export function initPanZoom() {
         const centerY = state.canvasHeight / 2;
         const worldX = (centerX - state.offsetX) / state.scale;
         const worldY = (centerY - state.offsetY) / state.scale;
-        state.scale = Math.max(state.scale / mapCfg.zoomStep, mapCfg.minZoom);
+        const minZ = state.minZoom || mapCfg.minZoom;
+        // Быстрый скачок к «Галактика», когда уже близко к минимуму.
+        let next = state.scale / mapCfg.zoomStep;
+        if (next < minZ * 4) next = minZ;
+        state.scale = Math.max(next, minZ);
         state.offsetX = centerX - worldX * state.scale;
         state.offsetY = centerY - worldY * state.scale;
-        if (elements.zoomInfo) elements.zoomInfo.textContent = Math.round(state.scale * 100) + '%';
+        if (elements.zoomInfo) elements.zoomInfo.textContent = formatZoom(state.scale, minZ);
         draw();
         saveViewport();
         scheduleReload();

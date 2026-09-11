@@ -113,7 +113,7 @@ web/                     — HTML + static/{css,js,sprites}
 
 Таблицы: `worlds`, `planets` (JSONB `data`), `locations`, `users`, `assignments`, `factions`, `events`, `production_units`, `settlements`, `factories`, `goods_batches`, `planet_resources`, `compatibility_matrix`.
 
-**Миграции 001–011 применены** (009 и 011 проверены в БД напрямую 2026-09-11), кроме `005_economy_tables.sql` — пропущена, пустая.
+**Миграции 001–012 применены** (009 и 011 проверены в БД напрямую 2026-09-11), кроме `005_economy_tables.sql` — пропущена, пустая.
 
 **Открытое решение:** `migrations/migrations.go` содержит `Apply(db)`, но `cmd/server/main.go` его **не вызывает** — автоприменение написано и не подключено. Пока миграции применяются руками через psql/DBeaver. Решить: подключать или убрать.
 
@@ -156,7 +156,6 @@ web/                     — HTML + static/{css,js,sprites}
 
 - **`TRUNCATE ... CASCADE` запрещён.** Работает на уровне таблиц, а не строк, и игнорирует `ON DELETE SET NULL`. Однажды снёс таблицу `users` с паролями целиком. Только `TRUNCATE` без CASCADE + явный список + временное снятие FK. См. `internal/handlers/admin_universe.go`, `clearUniverseTx`, разбор в `ARCHITECTURE.md` §4.1.
 - **`/admin/stats` кэшируется.** Отдал 318 257 планет при 319 573 в БД. Для точных цифр — SQL, не эндпоинт.
-- **У `worlds` единственный индекс `worlds_pkey`.** Фильтр карты идёт `Seq Scan` по 100k строк, 95% отбрасывается. Держится на page cache. См. `STATUS.md` B7.
 - **`config/descriptions/README.md` содержит чужой текст** — описывает формат `config/anomalies/`. Не ориентируйся на него.
 - **`.env` есть в истории git** (добавлен `5253b8c`, удалён `44e3cfc`). Содержит дев-креды, включая `admin123`.
 - **`internal/core/`, `pkg/`** — черновики, не подключены. Не трогай без причины.

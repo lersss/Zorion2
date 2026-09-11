@@ -113,7 +113,7 @@ web/                     — HTML + static/{css,js,sprites}
 
 Таблицы: `worlds`, `planets` (JSONB `data`), `locations`, `users`, `assignments`, `factions`, `events`, `production_units`, `settlements`, `factories`, `goods_batches`, `planet_resources`, `compatibility_matrix`.
 
-**Миграции 001–012 применены** (009 и 011 проверены в БД напрямую 2026-09-11), кроме `005_economy_tables.sql` — пропущена, пустая.
+**Миграции 001–013 применены** (009 и 011 проверены в БД напрямую 2026-09-11), кроме `005_economy_tables.sql` — пропущена, пустая. **000008 применена частично:** `idx_planets_world_id` в БД есть, GIN `idx_planets_data` — нет.
 
 **Открытое решение:** `migrations/migrations.go` содержит `Apply(db)`, но `cmd/server/main.go` его **не вызывает** — автоприменение написано и не подключено. Пока миграции применяются руками через psql/DBeaver. Решить: подключать или убрать.
 

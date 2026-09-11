@@ -6,6 +6,10 @@ import (
 	"math/rand"
 )
 
+// satelliteWaterProbability — доля «гидрных» спутников (с водой/ледяной корой).
+// Редкое явление: ≤5%. Остальные — сухие каменистые тела.
+const satelliteWaterProbability = 0.04
+
 // ==================== ФИЗИКА СПУТНИКОВ ====================
 
 // computeSatelliteTemp — температура спутника.
@@ -190,6 +194,81 @@ func generateTypicalSatelliteSurface(
 	return Composition(c).Normalize().NonZero()
 }
 
+// generateDrySatelliteSurface — поверхность «сухого» спутника (подавляющее
+// большинство спутников, ≥95%). Ни воды, ни льда, ни криовулканизма:
+// камень, реголит, кратеры; при высокой температуре — вулканизм и лава.
+func generateDrySatelliteSurface(
+	temp float64,
+	rng *rand.Rand,
+) Composition {
+	c := map[string]float64{
+		SurfaceRegolith:       35,
+		SurfaceCraters:        30,
+		SurfaceTectonicRifts:  0,
+		SurfaceVolcanicFields: 0,
+		SurfaceLavaFields:     0,
+	}
+
+	switch {
+	case temp > 700:
+		c[SurfaceLavaFields] = 30
+		c[SurfaceVolcanicFields] = 20
+		c[SurfaceRegolith] = 20
+		c[SurfaceCraters] = 15
+	case temp > 500:
+		c[SurfaceVolcanicFields] = 30
+		c[SurfaceRegolith] = 30
+		c[SurfaceCraters] = 25
+	case temp > 350:
+		c[SurfaceRegolith] = 35
+		c[SurfaceCraters] = 30
+		c[SurfaceTectonicRifts] = 15
+		c[SurfaceVolcanicFields] = 10
+	default:
+		c[SurfaceRegolith] = 40
+		c[SurfaceCraters] = 35
+		c[SurfaceTectonicRifts] = 15
+	}
+
+	for k, v := range c {
+		c[k] = v * (0.8 + rng.Float64()*0.4)
+	}
+
+	c = resolveConflicts("surface", c, c, rng)
+
+	return Composition(c).Normalize().NonZero()
+}
+
+// generateDrySatelliteSubterrain — недра «сухого» спутника: без подземных
+// льдов и грунтовых вод. Камень, руды, металлические и кристаллические жилы.
+func generateDrySatelliteSubterrain(
+	temp float64,
+	rng *rand.Rand,
+) Composition {
+	c := map[string]float64{
+		SubterrainEmptyRock:     30,
+		SubterrainMagmaticRocks: 15,
+		SubterrainOreVeins:      15,
+		SubterrainMetalCores:    10,
+		SubterrainCrystalVeins:  10,
+	}
+
+	if temp > 500 {
+		c[SubterrainMagmaChambers] = 20
+		c[SubterrainMagmaticRocks] = 25
+		c[SubterrainMetalCores] = 15
+		c[SubterrainRadioactiveZones] = 10
+	}
+
+	for k, v := range c {
+		c[k] = v * (0.8 + rng.Float64()*0.4)
+	}
+
+	c = resolveConflicts("subterrain", c, c, rng)
+
+	return Composition(c).Normalize().NonZero()
+}
+
 // generateSatellitePlanetarySurface — «планетарный» спутник (Титан-подобный)
 // с обычными планетными формами поверхности.
 func generateSatellitePlanetarySurface(
@@ -334,10 +413,23 @@ func determineSatelliteLife(
 	return rng.Float64() < 0.15
 }
 
-// satelliteDescription — описание спутника.
+// satelliteDescription — описание спутника. Сухие спутники (≤5% с водой)
+// описываются как каменистые; гидрные — как ледяные/водные.
 func satelliteDescription(temp, waterPercent float64, life bool) string {
 	if life {
 		return "Спутник с подлёдным океаном и признаками микробной жизни."
+	}
+	if waterPercent < 5 {
+		switch {
+		case temp > 700:
+			return "Раскалённый спутник с активным вулканизмом и лавовыми потоками."
+		case temp > 400:
+			return "Горячий спутник, недра которого пронизаны магмой и лавовыми каналами."
+		case temp > 250:
+			return "Умеренный каменистый спутник с реголитовой поверхностью и кратерами."
+		default:
+			return "Холодный каменистый спутник, покрытый реголитом и кратерными полями."
+		}
 	}
 	switch {
 	case temp > 700:

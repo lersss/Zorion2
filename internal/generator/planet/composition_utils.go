@@ -1,7 +1,10 @@
 // internal/generator/planet/composition_utils.go
 package planet
 
-import "math"
+import (
+	"math"
+	"math/rand"
+)
 
 // multiplyIfExists — умножает вес формы, если она есть в map.
 // Результат ограничивается снизу нулём.
@@ -56,4 +59,26 @@ func copyWeights(src map[string]float64) map[string]float64 {
 		dst[k] = v
 	}
 	return dst
+}
+
+// primitivePlanetProbability — доля «примитивных» планет: 1–2 типа поверхности и недр.
+const primitivePlanetProbability = 0.035
+
+// simpleSatelliteProbability — потолок доли «простых» спутников: 1–2 типа поверхности и недр.
+// «До 20%» — фактическая доля ниже порога, т.к. часть тел и так имеет ≤2 форм.
+const simpleSatelliteProbability = 0.20
+
+// simplifyComposition — «примитивное» тело: оставляет 1–2 главные формы.
+// Одна форма — 100%. Две формы — титульная 60–85%, вторичная — остальное.
+// Результат уже в процентах (сумма = 100).
+func simplifyComposition(c Composition, rng *rand.Rand) Composition {
+	forms := c.SortedForms()
+	if len(forms) <= 2 {
+		return c
+	}
+	if rng.Float64() < 0.5 {
+		main := (0.6 + rng.Float64()*0.25) * 100
+		return Composition{forms[0]: main, forms[1]: 100 - main}
+	}
+	return Composition{forms[0]: 100}
 }

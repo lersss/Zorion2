@@ -93,6 +93,12 @@ func GenerateProperties(
 		rng,
 	)
 
+	// ~3–4% планет — «примитивные» тела: 1–2 типа поверхности и недр.
+	if rng.Float64() < primitivePlanetProbability {
+		surfaceComp = simplifyComposition(surfaceComp, rng)
+		subterrainComp = simplifyComposition(subterrainComp, rng)
+	}
+
 	// 9. Жизнь и обитаемость
 	life := generateLife(archetype, waterPercent, temp, rng)
 	habitable := generateHabitable(life, waterPercent, temp, archetype.Atmosphere)

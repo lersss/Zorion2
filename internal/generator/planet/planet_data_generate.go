@@ -221,6 +221,12 @@ func (g *Generator) generateOceanicPlanet(
 		SubterrainEmptyRock:        10,
 	}.Normalize().NonZero()
 
+	// ~3–4% планет — «примитивные» тела: 1–2 типа поверхности и недр.
+	if g.rng.Float64() < primitivePlanetProbability {
+		surfaceComp = simplifyComposition(surfaceComp, g.rng)
+		subterrainComp = simplifyComposition(subterrainComp, g.rng)
+	}
+
 	density := densityForPlanet(mass, surfaceComp, g.rng)
 	size := computeRadius(mass, density)
 	moons := int(size / 5)
@@ -350,6 +356,12 @@ func (g *Generator) generateRadioactivePlanet(
 		SubterrainMagmaticRocks:    15,
 		SubterrainOreVeins:         15,
 	}.Normalize().NonZero()
+
+	// ~3–4% планет — «примитивные» тела: 1–2 типа поверхности и недр.
+	if g.rng.Float64() < primitivePlanetProbability {
+		surfaceComp = simplifyComposition(surfaceComp, g.rng)
+		subterrainComp = simplifyComposition(subterrainComp, g.rng)
+	}
 
 	density := 1.2 + g.rng.Float64()*0.6
 	size := computeRadius(mass, density)

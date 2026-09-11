@@ -66,20 +66,41 @@ func (g *Generator) generateSatellite(
 	// 2. Температура: нагрев от гиганта + приливный + звезда
 	temp := computeSatelliteTemp(giantTemp, orbitIndex)
 
-	// 3. Вода (от температуры)
-	waterPercent := computeSatelliteWater(temp, g.rng)
+	// 3. Тип спутника. Подавляющее большинство — сухие каменистые тела
+	// (реголит, кратеры). Водные/ледяные (< 5%) — редкое исключение
+	// (Европа, Титан), у которых хватает летучих.
+	hydroRich := g.rng.Float64() < satelliteWaterProbability
 
-	// 4. Атмосфера
+	// 4. Вода — только у редких гидрных спутников
+	waterPercent := 0.0
+	if hydroRich {
+		waterPercent = computeSatelliteWater(temp, g.rng)
+	}
+
+	// 5. Атмосфера
 	atmosphere := pickSatelliteAtmosphere(temp, g.rng)
 
-	// 5. Композиция поверхности
-	surfaceComp := generateSatelliteSurface(temp, waterPercent, g.rng)
+	// 6. Композиция поверхности и недр: у сухих спутников нет льда и воды
+	var surfaceComp, subterrainComp Composition
+	if hydroRich {
+		surfaceComp = generateSatelliteSurface(temp, waterPercent, g.rng)
+		subterrainComp = generateSatelliteSubterrain(temp, surfaceComp, g.rng)
+	} else {
+		surfaceComp = generateDrySatelliteSurface(temp, g.rng)
+		subterrainComp = generateDrySatelliteSubterrain(temp, g.rng)
+	}
 
-	// 6. Композиция недр
-	subterrainComp := generateSatelliteSubterrain(temp, surfaceComp, g.rng)
+	// До 20% спутников — «простые» тела: 1–2 типа поверхности и недр.
+	if g.rng.Float64() < simpleSatelliteProbability {
+		surfaceComp = simplifyComposition(surfaceComp, g.rng)
+		subterrainComp = simplifyComposition(subterrainComp, g.rng)
+	}
 
-	// 7. Жизнь
-	life := determineSatelliteLife(temp, waterPercent, g.rng)
+	// 7. Жизнь — только на редких гидрных спутниках
+	life := false
+	if hydroRich {
+		life = determineSatelliteLife(temp, waterPercent, g.rng)
+	}
 
 	// 8. Обитаемость
 	habitable := life && temp > 250 && temp < 350 && atmosphere != "ядовитая"

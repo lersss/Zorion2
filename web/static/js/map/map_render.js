@@ -77,6 +77,12 @@ export function clusterScreenRadius(c) {
     return Math.max(10, Math.min(30, 8 + Math.log2(c.cnt) * 3));
 }
 
+// clusterDotRadius — радиус точки-звезды кластера: растёт с числом звёзд,
+// но не превращается в пузырь (потолок ~5px).
+function clusterDotRadius(count) {
+    return Math.max(1.2, Math.min(5, 1.2 + Math.log2(count) * 0.4));
+}
+
 // ==================== DRAW ====================
 
 export function draw() {
@@ -247,39 +253,29 @@ function drawSingleStar(ctx, c, x, y, scale, currentWorldId, hoveredWorldId, foc
 }
 
 function drawCluster(ctx, c, x, y) {
-    const radius = clusterScreenRadius(c);
     const count = c.cnt;
+    const color = getStarColor(c.sspec || 'G');
+    const radius = clusterDotRadius(count);
 
-    // Цвет: от голубого (мало) к фиолетовому (много)
-    const t = Math.min(1, Math.log10(count) / 3);
-    const r = Math.round(74 + t * 100);
-    const g = Math.round(158 - t * 80);
-    const b = Math.round(255 - t * 40);
-    const fillColor = `rgba(${r},${g},${b},0.85)`;
-    const strokeColor = `rgba(${r},${g},${b},1)`;
+    // Свечение: крупные кластеры — яркие «звёзды» с ореолом.
+    const glow = radius * 2.5;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, glow);
+    g.addColorStop(0, hexToRgba(color, 0.35));
+    g.addColorStop(1, hexToRgba(color, 0));
+    ctx.beginPath();
+    ctx.arc(x, y, glow, 0, Math.PI * 2);
+    ctx.fillStyle = g;
+    ctx.fill();
 
+    // Ядро звезды + белый блик в центре.
     ctx.beginPath();
     ctx.arc(x, y, radius, 0, Math.PI * 2);
-    ctx.fillStyle = fillColor;
+    ctx.fillStyle = color;
     ctx.fill();
-    ctx.strokeStyle = strokeColor;
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
     ctx.beginPath();
-    ctx.arc(x, y, Math.max(1, radius - 3), 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-
-    const label = formatCount(count);
-    const fontSize = Math.max(10, Math.min(14, radius));
-    ctx.fillStyle = '#0f172a';
-    ctx.font = `bold ${fontSize}px system-ui`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(label, x, y);
-    ctx.textBaseline = 'alphabetic';
+    ctx.arc(x, y, Math.max(0.6, radius * 0.4), 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    ctx.fill();
 }
 
 function drawNames(ctx, singles, scale) {
@@ -666,11 +662,4 @@ export function hashString(s) {
         hash = (hash * 31 + s.charCodeAt(i)) & 0xFFFFFFFF;
     }
     return hash;
-}
-
-function formatCount(n) {
-    if (n < 1000) return String(n);
-    if (n < 10000) return (n / 1000).toFixed(1) + 'k';
-    if (n < 1000000) return Math.round(n / 1000) + 'k';
-    return (n / 1000000).toFixed(1) + 'M';
 }

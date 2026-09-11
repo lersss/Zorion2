@@ -145,9 +145,17 @@ func (h *AdminHandlers) FilterWorldsHandler(w http.ResponseWriter, r *http.Reque
 	// Кластеризуются только ячейки с 5+ мирами. Ячейки с 1–4 мирами
 	// возвращаются отдельными звёздами (cnt=1 с данными мира) — пузыри
 	// «2–4» только мусорят карту.
+	// Позиция кластера — реальные координаты самой крупной звезды в ячейке
+	// (а не центроид): точки не выстраиваются по сетке ячеек, а их цвет
+	// отвечает цвету крупнейшей звезды.
 	sqlQuery := `
 		WITH filtered AS (
-			SELECT id, name, coord_x, coord_y, spectral_class
+			SELECT id, name, coord_x, coord_y, spectral_class,
+				CASE spectral_class
+					WHEN 'O' THEN 1 WHEN 'B' THEN 2 WHEN 'A' THEN 3
+					WHEN 'F' THEN 4 WHEN 'G' THEN 5 WHEN 'K' THEN 6
+					WHEN 'M' THEN 7 WHEN 'L' THEN 8 WHEN 'T' THEN 9
+					WHEN 'Y' THEN 10 ELSE 99 END AS srank
 			FROM worlds w
 			WHERE coord_x BETWEEN $1 AND $2
 			  AND coord_y BETWEEN $3 AND $4
@@ -166,11 +174,11 @@ func (h *AdminHandlers) FilterWorldsHandler(w http.ResponseWriter, r *http.Reque
 				c.cell_x,
 				c.cell_y,
 				c.cnt,
-				AVG(f.coord_x)::float8                       AS avg_x,
-				AVG(f.coord_y)::float8                       AS avg_y,
+				(ARRAY_AGG(f.coord_x ORDER BY f.srank, f.id))[1]::float8 AS avg_x,
+				(ARRAY_AGG(f.coord_y ORDER BY f.srank, f.id))[1]::float8 AS avg_y,
 				(ARRAY_AGG(f.id ORDER BY f.id))[1]           AS sample_id,
 				(ARRAY_AGG(f.name ORDER BY f.id))[1]         AS sample_name,
-				(ARRAY_AGG(f.spectral_class ORDER BY f.id))[1] AS sample_spectral
+				(ARRAY_AGG(f.spectral_class ORDER BY f.srank, f.id))[1] AS sample_spectral
 			FROM cells c
 			JOIN filtered f
 			  ON FLOOR(f.coord_x / $5)::bigint = c.cell_x
@@ -226,15 +234,16 @@ func (h *AdminHandlers) FilterWorldsHandler(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		// Sample* — только для cnt=1, чтобы не раздувать payload.
+		// Spectral — для всех: цвет точки кластера на карте (самая крупная звезда).
+		if sampleSpec != nil {
+			c.SampleSpectral = *sampleSpec
+		}
 		if c.Count == 1 {
 			if sampleID != nil {
 				c.SampleID = *sampleID
 			}
 			if sampleName != nil {
 				c.SampleName = *sampleName
-			}
-			if sampleSpec != nil {
-				c.SampleSpectral = *sampleSpec
 			}
 		}
 		clusters = append(clusters, c)

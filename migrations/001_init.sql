@@ -8,6 +8,17 @@ CREATE TABLE IF NOT EXISTS worlds (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Таблица планет
+CREATE TABLE IF NOT EXISTS planets (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    world_id UUID NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    orbit_index INTEGER NOT NULL,
+    data JSONB NOT NULL DEFAULT '{}',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- Таблица локаций (вместо планет)
 CREATE TABLE IF NOT EXISTS locations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

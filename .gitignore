@@ -27,3 +27,6 @@ Thumbs.db
 *.bak
 *.tmp
 *.log.bak
+
+# Дампы диалогов с ассистентами — не исходники
+dialogues/

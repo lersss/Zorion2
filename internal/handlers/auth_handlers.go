@@ -2,10 +2,12 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 	"golang.org/x/crypto/bcrypt"
 
 	"zorion/internal/auth"
@@ -80,6 +82,12 @@ func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 	}
 	// Устанавливаем текущий мир в nil — позже будет установлен при первом полёте
 	if err := h.userRepo.Create(user); err != nil {
+		var pgErr *pq.Error
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			// Гонка: имя заняли между pre-check'ом и INSERT'ом
+			writeJSONError(w, "Имя пользователя уже занято", http.StatusConflict)
+			return
+		}
 		log.Printf("register failed: %v", err)
 		writeJSONError(w, "Не удалось создать пользователя", http.StatusInternalServerError)
 		return

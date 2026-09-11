@@ -3,6 +3,7 @@ import { fetchWithAuth } from './auth.js';
 import { loadStats } from './stats.js';
 import { loadWorlds } from './worlds.js';
 import { pollJob, pollIntervals } from './poll.js';
+import { notifyError, notifyInfo } from '../ui/toast.js';
 
 export async function generateUniverse() {
     const worlds = parseInt(document.getElementById('genWorlds').value);
@@ -137,7 +138,7 @@ export async function cancelGeneration(jobType) {
     try {
         const res = await fetchWithAuth(`/admin/generate-cancel?job=${jobType}`, { method: 'POST' });
         if (res.ok) {
-            alert('Остановка запрошена');
+            notifyInfo('Остановка запрошена');
             const btnId = jobType === 'generate_universe' ? 'cancelUniverseBtn' :
                           jobType === 'generate_planets' ? 'cancelPlanetsBtn' :
                           jobType === 'generate_factions' ? 'cancelFactionsBtn' :
@@ -145,10 +146,10 @@ export async function cancelGeneration(jobType) {
             document.getElementById(btnId).style.display = 'none';
         } else {
             const text = await res.text();
-            alert('Ошибка: ' + text);
+            notifyError('Ошибка: ' + text);
         }
     } catch (e) {
-        alert('Ошибка: ' + e.message);
+        notifyError('Ошибка: ' + e.message);
     }
 }
 

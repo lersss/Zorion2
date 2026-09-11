@@ -1,6 +1,7 @@
 // web/static/js/admin/worlds.js
 import { fetchWithAuth } from './auth.js';
 import { loadStats } from './stats.js';
+import { notifyError, notifySuccess } from '../ui/toast.js';
 
 let currentPage = 1, currentLimit = 50, currentSearch = '';
 
@@ -121,15 +122,15 @@ export async function deleteWorld(id) {
             body: JSON.stringify({ id })
         });
         if (res.ok) {
-            alert('Мир удалён');
+            notifySuccess('Мир удалён');
             loadStats();
             loadWorlds(currentPage);
         } else {
             const text = await res.text();
-            alert('Ошибка: ' + text);
+            notifyError('Ошибка: ' + text);
         }
     } catch (e) {
-        alert('Ошибка: ' + e.message);
+        notifyError('Ошибка: ' + e.message);
     }
 }
 

@@ -43,7 +43,6 @@ function findClusterAt(mouseX, mouseY) {
             found = { cluster: c, screenX: px, screenY: py };
         }
     }
-    console.log('[PCM-DEBUG] findClusterAt(', mouseX.toFixed(1), mouseY.toFixed(1), ') ->', found ? `cnt=${found.cluster.cnt} sid=${found.cluster.sid} sname=${found.cluster.sname}` : 'null', '| clusters loaded:', clusters.length);
     return found;
 }
 
@@ -159,7 +158,6 @@ export function initFlyBtn() {
 export function initContextMenu() {
     // ПКМ по канвасу — по миру.
     elements.canvas.addEventListener('contextmenu', (e) => {
-        console.log('[PCM-DEBUG] contextmenu на канвасе, preventDefault?', e.target === elements.canvas);
         const rect = elements.canvas.getBoundingClientRect();
         const mouseX = (e.clientX - rect.left) * (elements.canvas.width / rect.width);
         const mouseY = (e.clientY - rect.top) * (elements.canvas.height / rect.height);
@@ -167,10 +165,8 @@ export function initContextMenu() {
         const hit = findClusterAt(mouseX, mouseY);
         if (hit && hit.cluster.cnt === 1) {
             e.preventDefault();
-            console.log('[PCM-DEBUG] Показываем меню для', hit.cluster.sid, hit.cluster.sname);
             showWorldMenu(e.clientX, e.clientY, hit.cluster.sid, hit.cluster.sname || 'Мир');
         } else {
-            console.log('[PCM-DEBUG] hit null или cnt!=1, меню скрываем');
             hideWorldMenu();
         }
     });
@@ -178,7 +174,6 @@ export function initContextMenu() {
     // ПКМ по тултипу: активный тултип перехватывает pointer-events,
     // без этого браузерное меню откроется вместо нашего.
     elements.tooltip.addEventListener('contextmenu', (e) => {
-        console.log('[PCM-DEBUG] contextmenu на тултипе, dataset.worldId =', elements.tooltipFlyBtn.dataset.worldId);
         const worldId = elements.tooltipFlyBtn.dataset.worldId;
         if (!worldId) return;
         e.preventDefault();
@@ -187,7 +182,6 @@ export function initContextMenu() {
 
     // Левая кнопка вне меню — скрывает. ПКМ — отдаём канвасу/тултипу.
     document.addEventListener('mousedown', (e) => {
-        console.log('[PCM-DEBUG] mousedown button=', e.button, 'target=', e.target.tagName, e.target.id || e.target.className || '');
         if (e.button !== 2 && !e.target.closest('#map-context-menu')) hideWorldMenu();
     });
 }

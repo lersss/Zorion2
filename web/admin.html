@@ -15,6 +15,7 @@
         <button class="tab-btn active" data-tab="tab-main">Основное</button>
         <button class="tab-btn" data-tab="tab-stats">📊 Статистика</button>
         <button class="tab-btn" data-tab="tab-audit">🔍 Аудит</button>
+        <button class="tab-btn" data-tab="tab-tests">🧪 Тесты</button>
         <button class="tab-btn" data-tab="tab-worlds">🌍 Миры</button>
     </div>
 
@@ -132,6 +133,24 @@
             </div>
             <div id="audit-content" style="margin-top:16px;">
                 <p style="color:#94a3b8;">Нажмите «Запустить аудит» для проверки.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Вкладка: Тесты -->
+    <div id="tab-tests" class="tab-pane">
+        <div class="card">
+            <h2>🧪 Автоматические тесты</h2>
+            <p style="color:#94a3b8; font-size:0.85rem; margin-top:-6px;">
+                Запуск <code style="color:#cbd5e1;">go test -json ./...</code> на сервере.
+                Показывается сводка: зелёные пакеты, упавшие тесты и их сообщения.
+            </p>
+            <div class="compact-row" style="margin-top:10px;">
+                <button class="btn success" id="runTestsBtn">▶ Запустить тесты</button>
+                <button class="btn secondary" id="lastTestsBtn">🔄 Показать последние</button>
+            </div>
+            <div id="tests-content" style="margin-top:16px;">
+                <p style="color:#94a3b8;">Нажмите «Запустить тесты» для выполнения.</p>
             </div>
         </div>
     </div>

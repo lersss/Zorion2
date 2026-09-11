@@ -1,6 +1,7 @@
 // web/static/js/admin/tabs.js
 import { loadPlanetStats } from './stats.js';
 import { runAudit } from './audit.js';
+import { bindTestsButtons } from './tests.js';
 
 let auditBound = false;
 
@@ -21,6 +22,9 @@ export function initTabs() {
             }
             if (tabId === 'tab-audit') {
                 bindAuditButton();
+            }
+            if (tabId === 'tab-tests') {
+                bindTestsButtons();
             }
         });
     });

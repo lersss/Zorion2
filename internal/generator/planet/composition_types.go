@@ -81,3 +81,14 @@ func (c Composition) ShareOf(form string) float64 {
 func (c Composition) Has(form string) bool {
 	return c[form] > 0.01
 }
+
+// BiosphereSum — сумма долей биосферных форм (жизнь-носителей).
+func (c Composition) BiosphereSum() float64 {
+	total := 0.0
+	for form, v := range c {
+		if isBiosphereForm(form) {
+			total += v
+		}
+	}
+	return total
+}

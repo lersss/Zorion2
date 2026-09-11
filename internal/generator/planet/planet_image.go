@@ -127,15 +127,16 @@ func WithMaxCacheSize(size int) func(*PlanetGenerator) {
 // ---------- Опции для генерации ----------
 
 type GenerateOptions struct {
-	Radius      int
-	StarType    string
-	ClimateID   string
-	Surface     string
-	Hydrosphere string
-	Atmosphere  string
-	Biosphere   string
-	HasRings    *bool
-	Seed        int64
+	Radius        int
+	StarType      string
+	ClimateID     string
+	Surface       string
+	Hydrosphere   string
+	Atmosphere    string
+	Biosphere     string
+	HasRings      *bool
+	Seed          int64
+	Lit           bool
 }
 
 func WithRadius(r int) func(*GenerateOptions) {
@@ -248,7 +249,7 @@ func (pg *PlanetGenerator) GeneratePlanet(radius int, opts ...func(*GenerateOpti
 	}
 
 	size := pg.canvasSize
-	img := pg.generateTexture(visualType, size, rng, options)
+	img := pg.generateTexture(visualType, size, rng, options, temperature)
 	applyPostProcessing(img, size, visualType, hasAtmosphere, rng)
 	if hasRings {
 		drawRings(img, size, rng)
@@ -381,7 +382,7 @@ func (pg *PlanetGenerator) determineVisualType(climate *Climate, surface, hydros
 	return "rocky"
 }
 
-func (pg *PlanetGenerator) generateTexture(visualType string, size int, rng *rand.Rand, opts *GenerateOptions) *image.RGBA {
+func (pg *PlanetGenerator) generateTexture(visualType string, size int, rng *rand.Rand, opts *GenerateOptions, temperature float64) *image.RGBA {
 	img := image.NewRGBA(image.Rect(0, 0, size, size))
 	radius := float64(size)/2 - 2
 	cx, cy := float64(size)/2, float64(size)/2
@@ -398,7 +399,7 @@ func (pg *PlanetGenerator) generateTexture(visualType string, size int, rng *ran
 	case "rocky":
 		generateRocky(img, size, rng)
 	case "earth":
-		generateEarth(img, size, rng)
+		generateEarth(img, size, rng, temperature)
 	case "ice":
 		generateIce(img, size, rng)
 	case "lava":

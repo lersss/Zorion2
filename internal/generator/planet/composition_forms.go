@@ -42,6 +42,34 @@ var AllSurfaceForms = []string{
 	SurfaceCoralReefs,
 }
 
+// ==================== ФОРМЫ ПОВЕРХНОСТИ СПУТНИКОВ ====================
+//
+// Отдельный набор форм для спутников газовых гигантов: вместо
+// планетарных форм (океаны, леса, дюны...) — реголит, ледяная кора,
+// криовулканы и т.п. Некоторые формы переиспользуются: кратеры,
+// мёрзлые газы, вулканические и лавовые поля.
+const (
+	SurfaceRegolith        = "реголит"
+	SurfaceIceCrust        = "ледяная_кора"
+	SurfaceCryovolcanoes   = "криовулканы"
+	SurfaceTectonicRifts   = "тектонические_разломы"
+	SurfaceGeyserFields    = "гейзерные_поля"
+)
+
+// AllSatelliteSurfaceForms — все спутниковые формы поверхности
+// (для валидации, перебора, UI).
+var AllSatelliteSurfaceForms = []string{
+	SurfaceRegolith,
+	SurfaceIceCrust,
+	SurfaceCryovolcanoes,
+	SurfaceTectonicRifts,
+	SurfaceGeyserFields,
+	SurfaceCraters,
+	SurfaceFrozenGases,
+	SurfaceVolcanicFields,
+	SurfaceLavaFields,
+}
+
 // ==================== ТИПЫ НЕДР (17) ====================
 
 const (

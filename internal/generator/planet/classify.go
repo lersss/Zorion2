@@ -49,6 +49,9 @@ const (
 	// Порог температуры для ледяной: если доминируют ледники
 	// и температура ниже этой отметки — ледяная.
 	iceTempMax = 250.0
+
+	// Порог для органик: сумма биосферных форм (луга, леса, джунгли, болота, рифы).
+	biosphereSumThreshold = 25.0
 )
 
 // PlanetClassificationInput — входные данные для классификации.
@@ -119,8 +122,8 @@ func ClassifyGameDesignType(in PlanetClassificationInput) string {
 		return TypeMetal
 	}
 
-	// 10. Органик — доминирует биосферная форма
-	if isBiosphereForm(in.Surface.DominantForm()) {
+	// 10. Органик — сумма биосферных форм >= 25% (луга, леса, джунгли, болота, рифы)
+	if in.Surface.BiosphereSum() >= biosphereSumThreshold {
 		return TypeOrganic
 	}
 

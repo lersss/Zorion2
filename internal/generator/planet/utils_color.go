@@ -44,3 +44,9 @@ func hslToRgb(h, s, l int) (uint8, uint8, uint8) {
 	}
 	return uint8(r * 255), uint8(g * 255), uint8(b * 255)
 }
+
+// hslPal — удобный вариант hslToRgb с возвратом [3]float64 для арифметики.
+func hslPal(h, s, l int) [3]float64 {
+	r, g, b := hslToRgb(h, s, l)
+	return [3]float64{float64(r), float64(g), float64(b)}
+}

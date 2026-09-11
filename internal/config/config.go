@@ -44,8 +44,7 @@ func Load() *Config {
 
 	adminPassword := os.Getenv("ADMIN_PASSWORD")
 	if adminPassword == "" {
-		adminPassword = "admin123" // пароль по умолчанию, если не задан
-		log.Println("⚠️ ADMIN_PASSWORD not set, using default: admin123")
+		log.Fatal("ADMIN_PASSWORD not set — задайте переменную окружения (пароль доступа в админку)")
 	}
 
 	// JWT_SECRET — обязательная переменная окружения.

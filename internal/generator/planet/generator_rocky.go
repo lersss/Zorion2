@@ -11,26 +11,33 @@ import (
 func generateRocky(img *image.RGBA, size int, rng *rand.Rand) {
 	radius := float64(size)/2 - 2
 	cx, cy := float64(size)/2, float64(size)/2
-	baseR := uint8(100 + rng.Intn(60))
-	baseG := uint8(80 + rng.Intn(50))
-	baseB := uint8(60 + rng.Intn(40))
+	vn := newValueNoise(rng.Int63())
 
-	craterCount := 3 + rng.Intn(8)
+	// Палитра: тёмный реголит → светлая порода → светлые возвышенности
+	low := hslPal(20+rng.Intn(12), 30+rng.Intn(15), 18+rng.Intn(8))
+	mid := hslPal(24+rng.Intn(14), 25+rng.Intn(15), 32+rng.Intn(12))
+	high := hslPal(32+rng.Intn(20), 20+rng.Intn(15), 48+rng.Intn(15))
+	// Региональный оттенок (марсианские красные поля, серые равнины и т.п.)
+	tintHue := rng.Intn(360)
+	tintR, tintG, tintB := hslToRgb(tintHue, 55, 50)
+
+	// Кратеры: распределяем ближе к центру диска, чтобы не свешивались за край
 	type crater struct {
 		x, y, r float64
-		depth   float64
 	}
+	craterCount := 3 + rng.Intn(6)
 	craters := make([]crater, craterCount)
 	for i := 0; i < craterCount; i++ {
 		angle := rng.Float64() * 2 * math.Pi
-		dist := rng.Float64() * radius * 0.8
+		dist := math.Sqrt(rng.Float64()) * radius * 0.8
 		craters[i] = crater{
-			x:     cx + math.Cos(angle)*dist,
-			y:     cy + math.Sin(angle)*dist,
-			r:     2 + rng.Float64()*6,
-			depth: 0.3 + rng.Float64()*0.5,
+			x: cx + math.Cos(angle)*dist,
+			y: cy + math.Sin(angle)*dist,
+			r: 3 + rng.Float64()*radius*0.2,
 		}
 	}
+
+	scale := 3.5
 	for y := 0; y < size; y++ {
 		for x := 0; x < size; x++ {
 			dx := float64(x) - cx
@@ -39,29 +46,66 @@ func generateRocky(img *image.RGBA, size int, rng *rand.Rand) {
 			if dist > radius {
 				continue
 			}
-			noise1 := math.Sin(float64(x)*0.2+float64(y)*0.3)*10 + math.Cos(float64(x)*0.4-float64(y)*0.5)*8
-			noise2 := math.Sin(float64(x)*0.7+float64(y)*0.9)*5
-			r := float64(baseR) + noise1 + noise2
-			g := float64(baseG) + noise1*0.8 + noise2*0.6
-			b := float64(baseB) + noise1*0.5 + noise2*0.4
+
+			sx, sy, sz := spherePoint(dx, dy, radius, scale)
+			sx, sy, sz = vn.warp(sx, sy, sz, 1.1)
+
+			// Основной рельеф + крупные регионы + мелкая детализация
+			e := vn.fbm(sx, sy, sz, 5, 2.1, 0.5)
+			region := vn.fbm(sx*0.45, sy*0.45, sz*0.45, 3, 2.0, 0.5)
+			det := vn.fbm(sx*7+31, sy*7-17, sz*7+5, 3, 2.3, 0.5)
+
+			var r, g, b float64
+			if e < 0.5 {
+				t := e / 0.5
+				r = low[0] + (mid[0]-low[0])*t
+				g = low[1] + (mid[1]-low[1])*t
+				b = low[2] + (mid[2]-low[2])*t
+			} else {
+				t := (e - 0.5) / 0.5
+				r = mid[0] + (high[0]-mid[0])*t
+				g = mid[1] + (high[1]-mid[1])*t
+				b = mid[2] + (high[2]-mid[2])*t
+			}
+
+			// Региональный оттенок (только где он выше порога)
+			tintMix := (region - 0.45) * 0.5
+			if tintMix < 0 {
+				tintMix = 0
+			}
+			if tintMix > 0.45 {
+				tintMix = 0.45
+			}
+			r = r*(1-tintMix) + float64(tintR)*tintMix
+			g = g*(1-tintMix) + float64(tintG)*tintMix
+			b = b*(1-tintMix) + float64(tintB)*tintMix
+
+			// Мелкая зернистость поверхности
+			var dm float64 = (det - 0.5) * 0.1
+			r += dm * 255
+			g += dm * 255
+			b += dm * 255
+
+			// Кратеры: тёмное дно + светлый обод
 			for _, cr := range craters {
 				ddx := float64(x) - cr.x
 				ddy := float64(y) - cr.y
-				d := math.Sqrt(ddx*ddx + ddy*ddy)
-				if d < cr.r {
-					factor := 1 - d/cr.r
-					darken := factor * cr.depth * 30
-					r -= darken
-					g -= darken
-					b -= darken
-					if d > cr.r*0.7 {
-						rim := (d - cr.r*0.7) / (cr.r * 0.3) * 10
-						r += rim
-						g += rim
-						b += rim
+				dc := math.Sqrt(ddx*ddx + ddy*ddy)
+				if dc < cr.r {
+					t := dc / cr.r
+					shade := (1 - t) * 0.4
+					r -= shade * float64(mid[0])
+					g -= shade * float64(mid[1])
+					b -= shade * float64(mid[2])
+					rim := 1 - math.Abs(t-0.85)*8
+					if rim > 0 {
+						r += rim * 30
+						g += rim * 30
+						b += rim * 30
 					}
 				}
 			}
+
 			clamp := func(v float64) uint8 {
 				if v < 0 {
 					return 0

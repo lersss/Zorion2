@@ -53,7 +53,7 @@ func NewGenerator(db *sql.DB, seed int64) *Generator {
 //
 // Для массовой генерации (100k миров) — использовать GeneratePlanetsForWorlds,
 // там батчи по многим мирам в одной транзакции.
-func (g *Generator) GeneratePlanetsForWorld(worldID, spectralClass string, temperature int) (int, error) {
+func (g *Generator) GeneratePlanetsForWorld(worldID, worldName, spectralClass string, temperature int) (int, error) {
 	planetCount := g.determinePlanetCount(spectralClass)
 	if planetCount == 0 {
 		return 0, nil
@@ -71,7 +71,7 @@ func (g *Generator) GeneratePlanetsForWorld(worldID, spectralClass string, tempe
 
 	for i := 0; i < planetCount; i++ {
 		orbitIndex := i + 1
-		planet := g.generatePlanet(worldID, orbitIndex, spectralClass, systemAge)
+		planet := g.generatePlanet(worldID, worldName, orbitIndex, spectralClass, systemAge)
 		batch.addPlanet(planet)
 
 		if err := g.collectEconomy(
@@ -100,6 +100,7 @@ func (g *Generator) GeneratePlanetsForWorld(worldID, spectralClass string, tempe
 // WorldInfo — минимальные данные мира, нужные для генерации планет.
 type WorldInfo struct {
 	ID            string
+	Name          string
 	SpectralClass string
 	Temperature   int
 }
@@ -168,7 +169,7 @@ func (g *Generator) generateWorldIntoBuffer(w WorldInfo, buf *batchBuffers) int 
 
 	for i := 0; i < planetCount; i++ {
 		orbitIndex := i + 1
-		planet := g.generatePlanet(w.ID, orbitIndex, w.SpectralClass, systemAge)
+		planet := g.generatePlanet(w.ID, w.Name, orbitIndex, w.SpectralClass, systemAge)
 		buf.addPlanet(planet)
 
 		if err := g.collectEconomy(

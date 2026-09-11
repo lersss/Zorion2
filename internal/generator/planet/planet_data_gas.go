@@ -17,6 +17,7 @@ import (
 // греется в основном за счёт сжатия и внутренних процессов.
 func (g *Generator) generateGasGiant(
 	worldID string,
+	worldName string,
 	orbitIndex int,
 	spectralClass string,
 	systemAge float64,
@@ -60,7 +61,7 @@ func (g *Generator) generateGasGiant(
 
 	// --- СПУТНИКИ ---
 	satelliteCount := 3 + g.rng.Intn(8)
-	satellites := g.generateSatellites(satelliteCount, size, temp, spectralClass)
+	satellites := g.generateSatellites(satelliteCount, worldName, size, temp, spectralClass)
 
 	satellitesJSON := make([]map[string]interface{}, 0, len(satellites))
 	for _, sat := range satellites {

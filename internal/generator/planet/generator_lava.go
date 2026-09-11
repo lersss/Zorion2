@@ -11,33 +11,15 @@ import (
 func generateLava(img *image.RGBA, size int, rng *rand.Rand) {
 	radius := float64(size)/2 - 2
 	cx, cy := float64(size)/2, float64(size)/2
-	baseR := uint8(20 + rng.Intn(20))
-	baseG := uint8(10 + rng.Intn(10))
-	baseB := uint8(10 + rng.Intn(10))
+	vn := newValueNoise(rng.Int63())
 
-	lavaCount := 4 + rng.Intn(6)
-	lavas := make([][]struct{ x, y float64 }, lavaCount)
-	for i := 0; i < lavaCount; i++ {
-		startAngle := rng.Float64() * 2 * math.Pi
-		startDist := rng.Float64() * radius * 0.9
-		x1 := cx + math.Cos(startAngle)*startDist
-		y1 := cy + math.Sin(startAngle)*startDist
-		points := []struct{ x, y float64 }{{x1, y1}}
-		curX, curY := x1, y1
-		for j := 0; j < 4+rng.Intn(3); j++ {
-			angle := math.Atan2(curY-cy, curX-cx) + (rng.Float64()-0.5)*1.5
-			dist := math.Sqrt((curX-cx)*(curX-cx) + (curY-cy)*(curY-cy))
-			newDist := dist + (rng.Float64()-0.5)*radius*0.3
-			newX := cx + math.Cos(angle)*newDist
-			newY := cy + math.Sin(angle)*newDist
-			if math.Sqrt((newX-cx)*(newX-cx)+(newY-cy)*(newY-cy)) > radius {
-				break
-			}
-			points = append(points, struct{ x, y float64 }{newX, newY})
-			curX, curY = newX, newY
-		}
-		lavas[i] = points
-	}
+	// Палитра: чёрный базальт → тёмная кора → светящаяся лава
+	basalt := hslPal(15+rng.Intn(10), 20+rng.Intn(10), 10+rng.Intn(6))
+	crack := hslPal(25+rng.Intn(15), 30+rng.Intn(15), 22+rng.Intn(10))
+	lavaDark := hslPal(15+rng.Intn(10), 100, 45+rng.Intn(10))
+	lavaBright := hslPal(40+rng.Intn(15), 100, 60+rng.Intn(12))
+
+	scale := 3.0
 	for y := 0; y < size; y++ {
 		for x := 0; x < size; x++ {
 			dx := float64(x) - cx
@@ -46,52 +28,57 @@ func generateLava(img *image.RGBA, size int, rng *rand.Rand) {
 			if dist > radius {
 				continue
 			}
-			r := float64(baseR)
-			g := float64(baseG)
-			b := float64(baseB)
-			lavaGlow := 0.0
-			for _, pts := range lavas {
-				for i := 0; i < len(pts)-1; i++ {
-					p1, p2 := pts[i], pts[i+1]
-					dx1 := float64(x) - p1.x
-					dy1 := float64(y) - p1.y
-					dx2 := p2.x - p1.x
-					dy2 := p2.y - p1.y
-					len2 := dx2*dx2 + dy2*dy2
-					if len2 == 0 {
-						continue
-					}
-					t := (dx1*dx2 + dy1*dy2) / len2
-					if t < 0 {
-						t = 0
-					}
-					if t > 1 {
-						t = 1
-					}
-					projX := p1.x + t*dx2
-					projY := p1.y + t*dy2
-					d := math.Sqrt((float64(x)-projX)*(float64(x)-projX) + (float64(y)-projY)*(float64(y)-projY))
-					if d < 2.5 {
-						factor := 1 - d/2.5
-						if factor > lavaGlow {
-							lavaGlow = factor
-						}
-					}
+
+			sx, sy, sz := spherePoint(dx, dy, radius, scale)
+			sx, sy, sz = vn.warp(sx, sy, sz, 1.1)
+
+			// Базальтовая кора с рельефом
+			base := vn.fbm(sx, sy, sz, 5, 2.1, 0.5)
+			// Трещины и жгуты лавы
+			flow := vn.ridged(sx*2.0+7, sy*2.0-13, sz*2.0+29, 5, 2.1, 0.5)
+			// Мелкая зернистость
+			det := vn.fbm(sx*8+31, sy*8+7, sz*8-19, 3, 2.3, 0.5)
+
+			var r, g, b float64
+			if base < 0.45 {
+				t := base / 0.45
+				r = basalt[0] + (crack[0]-basalt[0])*t
+				g = basalt[1] + (crack[1]-basalt[1])*t
+				b = basalt[2] + (crack[2]-basalt[2])*t
+			} else {
+				t := (base - 0.45) / 0.55
+				r = crack[0] + (basalt[0]-crack[0])*t
+				g = crack[1] + (basalt[1]-crack[1])*t
+				b = crack[2] + (basalt[2]-crack[2])*t
+			}
+
+			// Зернистость
+			var dm float64 = (det - 0.5) * 0.06
+			r += dm * 255
+			g += dm * 255
+			b += dm * 255
+
+			// Лава в трещинах — жгуты с ярким сердцем и свечением по краям
+			if flow > 0.30 {
+				t := (flow - 0.30) / 0.70
+				core := t*t*(3-2*t)*0.9 + 0.1
+				if core > 1 {
+					core = 1
+				}
+				if core < 0.5 {
+					ct := core / 0.5
+					r = r*(1-core) + (lavaDark[0]+(lavaBright[0]-lavaDark[0])*ct)*core
+					g = g*(1-core) + (lavaDark[1]+(lavaBright[1]-lavaDark[1])*ct)*core
+					b = b*(1-core) + (lavaDark[2]+(lavaBright[2]-lavaDark[2])*ct)*core
+				} else {
+					// Свечение вокруг, если рядом — добавим ореол
+					halo := math.Max(0, 1-core) * 0.4
+					r += lavaDark[0] * halo
+					g += lavaDark[1] * halo
+					b += lavaDark[2] * halo
 				}
 			}
-			if lavaGlow > 0 {
-				lavaR := 255.0
-				lavaG := 150.0 + rng.Float64()*50
-				lavaB := 20.0 + rng.Float64()*30
-				mix := lavaGlow*0.9 + 0.1
-				r = r*(1-mix) + lavaR*mix
-				g = g*(1-mix) + lavaG*mix
-				b = b*(1-mix) + lavaB*mix
-			}
-			noise := math.Sin(float64(x)*0.5+float64(y)*0.6)*5 + math.Cos(float64(x)*0.8-float64(y)*0.4)*4
-			r += noise
-			g += noise
-			b += noise
+
 			clamp := func(v float64) uint8 {
 				if v < 0 {
 					return 0

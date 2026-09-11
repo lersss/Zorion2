@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -48,23 +49,23 @@ type AuthResponse struct {
 func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 	var req RegisterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		writeJSONError(w, "Некорректное тело запроса", http.StatusBadRequest)
 		return
 	}
 	if req.Username == "" || req.Password == "" {
-		http.Error(w, "Username and password required", http.StatusBadRequest)
+		writeJSONError(w, "Имя пользователя и пароль обязательны", http.StatusBadRequest)
 		return
 	}
 
 	existing, _ := h.userRepo.GetByUsername(req.Username)
 	if existing != nil {
-		http.Error(w, "Username already taken", http.StatusConflict)
+		writeJSONError(w, "Имя пользователя уже занято", http.StatusConflict)
 		return
 	}
 
 	hashed, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		writeJSONError(w, "Внутренняя ошибка сервера", http.StatusInternalServerError)
 		return
 	}
 
@@ -72,19 +73,21 @@ func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 		ID:           uuid.New().String(),
 		Username:     req.Username,
 		PasswordHash: string(hashed),
+		ShipIcon:     "ship_strela.svg",
 	}
 	if req.Email != "" {
 		user.Email = &req.Email
 	}
 	// Устанавливаем текущий мир в nil — позже будет установлен при первом полёте
 	if err := h.userRepo.Create(user); err != nil {
-		http.Error(w, "Failed to create user", http.StatusInternalServerError)
+		log.Printf("register failed: %v", err)
+		writeJSONError(w, "Не удалось создать пользователя", http.StatusInternalServerError)
 		return
 	}
 
 	token, err := auth.GenerateToken(user.ID)
 	if err != nil {
-		http.Error(w, "Failed to generate token", http.StatusInternalServerError)
+		writeJSONError(w, "Не удалось сгенерировать токен", http.StatusInternalServerError)
 		return
 	}
 
@@ -106,28 +109,28 @@ func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandlers) Login(w http.ResponseWriter, r *http.Request) {
 	var req LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		writeJSONError(w, "Некорректное тело запроса", http.StatusBadRequest)
 		return
 	}
 	if req.Username == "" || req.Password == "" {
-		http.Error(w, "Username and password required", http.StatusBadRequest)
+		writeJSONError(w, "Имя пользователя и пароль обязательны", http.StatusBadRequest)
 		return
 	}
 
 	user, err := h.userRepo.GetByUsername(req.Username)
 	if err != nil || user == nil {
-		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
+		writeJSONError(w, "Неверный логин или пароль", http.StatusUnauthorized)
 		return
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
-		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
+		writeJSONError(w, "Неверный логин или пароль", http.StatusUnauthorized)
 		return
 	}
 
 	token, err := auth.GenerateToken(user.ID)
 	if err != nil {
-		http.Error(w, "Failed to generate token", http.StatusInternalServerError)
+		writeJSONError(w, "Не удалось сгенерировать токен", http.StatusInternalServerError)
 		return
 	}
 
@@ -149,17 +152,17 @@ func (h *AuthHandlers) Login(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandlers) GetMe(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(auth.UserIDKey).(string)
 	if !ok || userID == "" {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, "Не авторизован", http.StatusUnauthorized)
 		return
 	}
 
 	user, err := h.userRepo.GetByID(userID)
 	if err != nil {
-		http.Error(w, "User not found", http.StatusInternalServerError)
+		writeJSONError(w, "Пользователь не найден", http.StatusInternalServerError)
 		return
 	}
 	if user == nil {
-		http.Error(w, "User not found", http.StatusNotFound)
+		writeJSONError(w, "Пользователь не найден", http.StatusNotFound)
 		return
 	}
 
@@ -177,8 +180,65 @@ func (h *AuthHandlers) GetMe(w http.ResponseWriter, r *http.Request) {
 		"email":              user.Email,
 		"current_world_id":   user.CurrentWorldID,
 		"current_world_name": currentWorldName,
+		"ship_icon":          user.ShipIcon,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+type ShipIconRequest struct {
+	ShipIcon string `json:"ship_icon"`
+}
+
+// UpdateShipIcon сохраняет выбранную иконку корабля пользователя.
+func (h *AuthHandlers) UpdateShipIcon(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(auth.UserIDKey).(string)
+	if !ok || userID == "" {
+		writeJSONError(w, "Не авторизован", http.StatusUnauthorized)
+		return
+	}
+
+	var req ShipIconRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, "Некорректное тело запроса", http.StatusBadRequest)
+		return
+	}
+	if req.ShipIcon == "" || !validShipIcon(req.ShipIcon) {
+		writeJSONError(w, "Некорректное имя иконки корабля", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.userRepo.UpdateShipIcon(userID, req.ShipIcon); err != nil {
+		writeJSONError(w, "Не удалось сохранить иконку", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"ship_icon": req.ShipIcon})
+}
+
+// validShipIcon допускает только безопасное имя SVG-файла спрайта.
+func validShipIcon(name string) bool {
+	if len(name) > 64 {
+		return false
+	}
+	for _, c := range name {
+		if (c >= 'a' && c <= 'z') ||
+			(c >= '0' && c <= '9') ||
+			c == '_' || c == '-' || c == '.' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+// writeJSONError возвращает ошибку в формате JSON {"error": "..."}.
+// Фронтенд парсит ответ как JSON (res.json()), поэтому ошибки должны быть JSON,
+// а не plain-text (http.Error), иначе fetch бросит исключение при парсинге.
+func writeJSONError(w http.ResponseWriter, msg string, status int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }

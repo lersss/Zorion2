@@ -82,13 +82,22 @@ func (h *TravelHandlers) StartTravel(w http.ResponseWriter, r *http.Request) {
 	fromWorldID := ""
 	if user.CurrentWorldID != nil {
 		fromWorldID = *user.CurrentWorldID
-	} else {
+		// Битый current_world_id (мир удалён при перегенерации вселенной) —
+		// сбрасываем и берём первый доступный мир.
+		fromWorld, err := h.worldRepo.GetByID(fromWorldID)
+		if err != nil || fromWorld == nil {
+			fromWorldID = ""
+		}
+	}
+	if fromWorldID == "" {
 		worlds, err := h.worldRepo.GetAll()
 		if err != nil || len(worlds) == 0 {
 			http.Error(w, "No worlds available", http.StatusInternalServerError)
 			return
 		}
 		fromWorldID = worlds[0].ID
+		// Возвращаем пользователю валидный текущий мир.
+		_ = h.userRepo.UpdateCurrentWorld(userID, fromWorldID)
 	}
 
 	if fromWorldID == req.WorldID {

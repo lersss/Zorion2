@@ -27,13 +27,18 @@ type Config struct {
 type Generator struct {
 	cfg *Config
 	rng *rand.Rand
+
+	// usedNames — имена, уже занятые в текущей вселенной (для уникальности);
+	// инициализируется в NewGenerator, чтобы дубли не появлялись между вызовами.
+	usedNames map[string]bool
 }
 
 // NewGenerator создаёт новый генератор
 func NewGenerator(cfg *Config) *Generator {
 	return &Generator{
-		cfg: cfg,
-		rng: rand.New(rand.NewSource(cfg.Seed)),
+		cfg:       cfg,
+		rng:       rand.New(rand.NewSource(cfg.Seed)),
+		usedNames: make(map[string]bool),
 	}
 }
 
@@ -132,7 +137,7 @@ func (g *Generator) generateWorld(center struct{ X, Y float64 }) *models.World {
 		// в будущем можно отбрасывать.
 	}
 
-	usedNames := make(map[string]bool)
+	usedNames := g.usedNames
 
 	// Сначала спектр, потом температура — они связаны
 	spectralClass := randomSpectralClass(g.rng)

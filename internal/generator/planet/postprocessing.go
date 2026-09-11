@@ -75,17 +75,27 @@ func applyPostProcessing(img *image.RGBA, size int, visualType string, hasAtmosp
 				continue
 			}
 			normDx, normDy, normDz := dx/normLen, dy/normLen, z/normLen
-			diffuse := normDx*nx + normDy*ny + normDz*nz
-			if diffuse < 0 {
-				diffuse = 0
-			}
-			if diffuse > 1 {
-				diffuse = 1
-			}
-			shadow := 1 - shadowStrength*(1-diffuse)
-			r := float64(c.R) * shadow
-			g := float64(c.G) * shadow
-			b := float64(c.B) * shadow
+diffuse := normDx*nx + normDy*ny + normDz*nz
+		if diffuse < 0 {
+			diffuse = 0
+		}
+		if diffuse > 1 {
+			diffuse = 1
+		}
+
+		// Мягкий терминатор: плавное затухание вместо резкого перехода 0/1
+		diffuse = softStep(diffuse)
+		shadow := 1 - shadowStrength*(1-diffuse)
+
+		// Рассеяние света у края диска (свет заходит на теневую сторону)
+		if hasAtmosphere {
+			edgeFactor := math.Max(0, normDist-0.55) / 0.45
+			scatter := 0.35 * edgeFactor
+			shadow = shadow + scatter*(1-shadow)
+		}
+		r := float64(c.R) * shadow
+		g := float64(c.G) * shadow
+		b := float64(c.B) * shadow
 
 			spec := math.Max(0, 2*diffuse*normDz-nz)
 			specIntensity := math.Pow(spec, 20) * highlightStrength * 2
@@ -119,4 +129,17 @@ func applyPostProcessing(img *image.RGBA, size int, visualType string, hasAtmosp
 			img.SetRGBA(x, y, color.RGBA{clamp(r), clamp(g), clamp(b), 255})
 		}
 	}
+}
+
+// softStep — плавный S-образный переход 0→1 на [0,1].
+func softStep(t float64) float64 {
+	// Растягиваем интервал перехода: почти 0 при t<0.15, почти 1 при t>0.85
+	t = (t - 0.15) / 0.7
+	if t <= 0 {
+		return 0
+	}
+	if t >= 1 {
+		return 1
+	}
+	return t * t * (3 - 2*t)
 }

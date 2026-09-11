@@ -25,10 +25,15 @@ func (h *AdminHandlers) GetPlanetsByWorld(w http.ResponseWriter, r *http.Request
 		http.Error(w, "Failed to fetch planets: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	if planets == nil {
+		planets = []models.Planet{}
+	}
 
-	// Получить информацию о мире (название, спектр)
+	// Получить информацию о мире (название, спектр, температура, координаты)
 	var worldName, spectralClass string
-	err = h.db.QueryRow("SELECT name, spectral_class FROM worlds WHERE id = $1", worldID).Scan(&worldName, &spectralClass)
+	var worldTemp, coordX, coordY float64
+	err = h.db.QueryRow("SELECT name, spectral_class, temperature, coord_x, coord_y FROM worlds WHERE id = $1", worldID).
+		Scan(&worldName, &spectralClass, &worldTemp, &coordX, &coordY)
 	if err != nil {
 		http.Error(w, "Failed to fetch world info: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -37,10 +42,16 @@ func (h *AdminHandlers) GetPlanetsByWorld(w http.ResponseWriter, r *http.Request
 	response := struct {
 		WorldName     string           `json:"world_name"`
 		SpectralClass string           `json:"spectral_class"`
+		Temperature   float64          `json:"temperature"`
+		CoordX        float64          `json:"coord_x"`
+		CoordY        float64          `json:"coord_y"`
 		Planets       []models.Planet  `json:"planets"`
 	}{
 		WorldName:     worldName,
 		SpectralClass: spectralClass,
+		Temperature:   worldTemp,
+		CoordX:        coordX,
+		CoordY:        coordY,
 		Planets:       planets,
 	}
 

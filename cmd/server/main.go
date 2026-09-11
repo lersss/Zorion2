@@ -105,6 +105,7 @@ func main() {
 	http.HandleFunc("/worlds/", auth.AuthMiddleware(worldHandlers.GetWorld))
 	http.HandleFunc("/travel", auth.AuthMiddleware(travelHandlers.StartTravel))
 	http.HandleFunc("/me", auth.AuthMiddleware(authHandlers.GetMe))
+	http.HandleFunc("/me/ship-icon", auth.AuthMiddleware(authHandlers.UpdateShipIcon))
 
 	// API контрактов
 	http.HandleFunc("/api/contracts", auth.AuthMiddleware(contractHandlers.GetContracts))

@@ -28,6 +28,7 @@ type Satellite struct {
 // generateSatellites — генерирует N спутников для газового гиганта.
 func (g *Generator) generateSatellites(
 	count int,
+	starName string,
 	giantSize float64,
 	giantTemp float64,
 	spectralClass string,
@@ -38,6 +39,7 @@ func (g *Generator) generateSatellites(
 	for i := 0; i < count; i++ {
 		sat := g.generateSatellite(
 			i+1,
+			starName,
 			giantSize,
 			giantTemp,
 			spectralClass,
@@ -51,6 +53,7 @@ func (g *Generator) generateSatellites(
 // generateSatellite — один спутник.
 func (g *Generator) generateSatellite(
 	orbitIndex int,
+	starName string,
 	giantSize float64,
 	giantTemp float64,
 	spectralClass string,
@@ -70,13 +73,13 @@ func (g *Generator) generateSatellite(
 	atmosphere := pickSatelliteAtmosphere(temp, g.rng)
 
 	// 5. Композиция поверхности
-	surfaceComp := generateSatelliteSurface(temp, waterPercent, orbitIndex, g.rng)
+	surfaceComp := generateSatelliteSurface(temp, waterPercent, g.rng)
 
 	// 6. Композиция недр
 	subterrainComp := generateSatelliteSubterrain(temp, surfaceComp, g.rng)
 
 	// 7. Жизнь
-	life := determineSatelliteLife(temp, waterPercent, surfaceComp, g.rng)
+	life := determineSatelliteLife(temp, waterPercent, g.rng)
 
 	// 8. Обитаемость
 	habitable := life && temp > 250 && temp < 350 && atmosphere != "ядовитая"
@@ -89,7 +92,7 @@ func (g *Generator) generateSatellite(
 	}
 
 	// 10. Имя
-	name := names.GeneratePlanetName(g.rng, usedNames)
+	name := names.GenerateSatelliteName(starName, g.rng, usedNames)
 	if name == "" {
 		name = "Спутник-" + uuidShort()
 	}

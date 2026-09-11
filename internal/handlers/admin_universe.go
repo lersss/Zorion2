@@ -241,6 +241,7 @@ func (h *AdminHandlers) GeneratePlanets(w http.ResponseWriter, r *http.Request) 
 	for _, w := range worlds {
 		worldInfos = append(worldInfos, planet.WorldInfo{
 			ID:            w.ID,
+			Name:          w.Name,
 			SpectralClass: w.SpectralClass,
 			Temperature:   w.Temperature,
 		})

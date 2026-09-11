@@ -96,9 +96,104 @@ func pickSatelliteAtmosphere(temp float64, rng *rand.Rand) string {
 // ==================== КОМПОЗИЦИИ СПУТНИКОВ ====================
 
 // generateSatelliteSurface — композиция поверхности спутника.
+//
+// Большинство спутников (~98.5%) получает «спутниковые» формы поверхности:
+// реголит, ударные кратеры, ледяная кора, криовулканы, разломы, гейзеры.
+// С вероятностью ~1.5% спутник — планетарного типа (Титан-подобный) и
+// получает обычные планетные формы поверхности (океаны, озёра, ледники...).
 func generateSatelliteSurface(
 	temp, waterPercent float64,
-	orbitIndex int,
+	rng *rand.Rand,
+) Composition {
+	if rng.Float64() < 0.015 {
+		return generateSatellitePlanetarySurface(temp, waterPercent, rng)
+	}
+	return generateTypicalSatelliteSurface(temp, waterPercent, rng)
+}
+
+// generateTypicalSatelliteSurface — «спутниковая» поверхность по температуре.
+func generateTypicalSatelliteSurface(
+	temp, waterPercent float64,
+	rng *rand.Rand,
+) Composition {
+	c := map[string]float64{
+		SurfaceRegolith:       30,
+		SurfaceCraters:        25,
+		SurfaceIceCrust:       0,
+		SurfaceFrozenGases:    0,
+		SurfaceCryovolcanoes:  0,
+		SurfaceGeyserFields:   0,
+		SurfaceTectonicRifts:  0,
+		SurfaceVolcanicFields: 0,
+		SurfaceLavaFields:     0,
+	}
+
+	switch {
+	case temp > 700:
+		c[SurfaceLavaFields] = 25
+		c[SurfaceVolcanicFields] = 20
+		c[SurfaceRegolith] = 20
+		c[SurfaceCraters] = 15
+		delete(c, SurfaceIceCrust)
+		delete(c, SurfaceFrozenGases)
+		delete(c, SurfaceCryovolcanoes)
+		delete(c, SurfaceGeyserFields)
+		delete(c, SurfaceTectonicRifts)
+	case temp > 500:
+		c[SurfaceVolcanicFields] = 30
+		c[SurfaceRegolith] = 30
+		c[SurfaceCraters] = 25
+		delete(c, SurfaceIceCrust)
+		delete(c, SurfaceFrozenGases)
+		delete(c, SurfaceCryovolcanoes)
+		delete(c, SurfaceGeyserFields)
+	case temp > 350:
+		c[SurfaceRegolith] = 35
+		c[SurfaceCraters] = 30
+		c[SurfaceTectonicRifts] = 15
+		c[SurfaceVolcanicFields] = 10
+		delete(c, SurfaceIceCrust)
+		delete(c, SurfaceFrozenGases)
+		delete(c, SurfaceCryovolcanoes)
+		delete(c, SurfaceGeyserFields)
+		delete(c, SurfaceLavaFields)
+	case temp > 200:
+		c[SurfaceIceCrust] = 30
+		c[SurfaceCraters] = 25
+		c[SurfaceRegolith] = 15
+		c[SurfaceTectonicRifts] = 12
+		c[SurfaceCryovolcanoes] = 8
+		delete(c, SurfaceLavaFields)
+		delete(c, SurfaceVolcanicFields)
+		if waterPercent > 30 {
+			c[SurfaceGeyserFields] = 12 // подлёдный океан → гейзеры
+		}
+	default:
+		c[SurfaceIceCrust] = 40
+		c[SurfaceFrozenGases] = 20
+		c[SurfaceCraters] = 20
+		c[SurfaceRegolith] = 10
+		delete(c, SurfaceLavaFields)
+		delete(c, SurfaceVolcanicFields)
+		if waterPercent >= 20 {
+			c[SurfaceGeyserFields] = 8
+		}
+	}
+
+	// Рандом ±20%
+	for k, v := range c {
+		c[k] = v * (0.8 + rng.Float64()*0.4)
+	}
+
+	c = resolveConflicts("surface", c, c, rng)
+
+	return Composition(c).Normalize().NonZero()
+}
+
+// generateSatellitePlanetarySurface — «планетарный» спутник (Титан-подобный)
+// с обычными планетными формами поверхности.
+func generateSatellitePlanetarySurface(
+	temp, waterPercent float64,
 	rng *rand.Rand,
 ) Composition {
 	c := map[string]float64{
@@ -171,6 +266,10 @@ func generateSatelliteSurface(
 }
 
 // generateSatelliteSubterrain — композиция недр спутника.
+//
+// Вода в недрах коррелирует с поверхностью: океаны/озёра (планетарные
+// спутники), гейзерные поля и криовулканы (подлёдный океан) → подземные
+// воды; ледяная кора → подземные льды.
 func generateSatelliteSubterrain(
 	temp float64,
 	surface Composition,
@@ -198,8 +297,13 @@ func generateSatelliteSubterrain(
 		c[SubterrainCrystalVeins] = 15
 	}
 
-	if surface.ShareOf(SurfaceOceans)+surface.ShareOf(SurfaceLakes) > 20 {
-		c[SubterrainGroundwater] = 25
+	waterish := surface.ShareOf(SurfaceOceans) + surface.ShareOf(SurfaceLakes) +
+		surface.ShareOf(SurfaceGeyserFields) + surface.ShareOf(SurfaceCryovolcanoes)
+	switch {
+	case waterish > 15:
+		c[SubterrainGroundwater] = 30
+	case surface.Has(SurfaceIceCrust):
+		c[SubterrainGroundIce] = c[SubterrainGroundIce] + 20
 	}
 
 	for k, v := range c {
@@ -219,7 +323,6 @@ func generateSatelliteSubterrain(
 // Шанс 15% — жизнь на спутниках редкость.
 func determineSatelliteLife(
 	temp, waterPercent float64,
-	surface Composition,
 	rng *rand.Rand,
 ) bool {
 	if waterPercent < 20 {
@@ -238,14 +341,14 @@ func satelliteDescription(temp, waterPercent float64, life bool) string {
 	}
 	switch {
 	case temp > 700:
-		return "Раскалённый спутник с активным вулканизмом."
+		return "Раскалённый спутник с активным вулканизмом и лавовыми потоками."
 	case temp > 400:
-		return "Горячий спутник, поверхность покрыта лавой и вулканами."
+		return "Горячий спутник, недра которого пронизаны магмой и лавовыми каналами."
 	case temp > 250:
-		return "Умеренный спутник с жидкой водой и плотной атмосферой."
+		return "Умеренный спутник с реголитовой поверхностью и следами воды."
 	case temp > 180:
-		return "Ледяной спутник с подповерхностным океаном."
+		return "Ледяной спутник с коркой льда и подповерхностным океаном."
 	default:
-		return "Холодный спутник, покрытый льдом и мёрзлыми газами."
+		return "Холодный спутник с ледяной корой и мёрзлыми газами."
 	}
 }

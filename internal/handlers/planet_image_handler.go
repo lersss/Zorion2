@@ -78,7 +78,7 @@ func getPlanetGenerator() (*planet.PlanetGenerator, error) {
 	planetGenOnce.Do(func() {
 		const climateFile = "config/planet_archetypes.json"
 		pg, err := planet.NewPlanetGenerator(climateFile,
-			planet.WithCanvasSize(128), // <-- увеличен размер текстуры
+			planet.WithCanvasSize(256), // <-- увеличена базовая текстура (детализация при зуме)
 			planet.WithCacheEnabled(true),
 			planet.WithMaxCacheSize(1000),
 		)

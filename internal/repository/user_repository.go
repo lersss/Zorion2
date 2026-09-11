@@ -2,6 +2,7 @@ package repository
 
 import (
 	"database/sql"
+	"fmt"
 	"time"
 
 	"zorion/internal/models"
@@ -18,8 +19,8 @@ func NewUserRepository(db *sql.DB) *UserRepository {
 // Create создаёт нового пользователя
 func (r *UserRepository) Create(user *models.User) error {
 	query := `
-		INSERT INTO users (id, username, password_hash, email, agent_id, current_world_id, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO users (id, username, password_hash, email, agent_id, current_world_id, ship_icon, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`
 	now := time.Now()
 	_, err := r.db.Exec(query,
@@ -29,11 +30,12 @@ func (r *UserRepository) Create(user *models.User) error {
 		user.Email,
 		user.AgentID,
 		user.CurrentWorldID,
+		user.ShipIcon,
 		now,
 		now,
 	)
 	if err != nil {
-		return err
+		return fmt.Errorf("create user: %w", err)
 	}
 	user.CreatedAt = now
 	user.UpdatedAt = now
@@ -42,7 +44,7 @@ func (r *UserRepository) Create(user *models.User) error {
 
 // GetByUsername возвращает пользователя по логину
 func (r *UserRepository) GetByUsername(username string) (*models.User, error) {
-	query := `SELECT id, username, password_hash, email, agent_id, current_world_id, created_at, updated_at FROM users WHERE username = $1`
+	query := `SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, created_at, updated_at FROM users WHERE username = $1`
 	row := r.db.QueryRow(query, username)
 
 	var u models.User
@@ -53,6 +55,7 @@ func (r *UserRepository) GetByUsername(username string) (*models.User, error) {
 		&u.Email,
 		&u.AgentID,
 		&u.CurrentWorldID,
+		&u.ShipIcon,
 		&u.CreatedAt,
 		&u.UpdatedAt,
 	)
@@ -67,7 +70,7 @@ func (r *UserRepository) GetByUsername(username string) (*models.User, error) {
 
 // GetByID возвращает пользователя по ID
 func (r *UserRepository) GetByID(id string) (*models.User, error) {
-	query := `SELECT id, username, password_hash, email, agent_id, current_world_id, created_at, updated_at FROM users WHERE id = $1`
+	query := `SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, created_at, updated_at FROM users WHERE id = $1`
 	row := r.db.QueryRow(query, id)
 
 	var u models.User
@@ -78,6 +81,7 @@ func (r *UserRepository) GetByID(id string) (*models.User, error) {
 		&u.Email,
 		&u.AgentID,
 		&u.CurrentWorldID,
+		&u.ShipIcon,
 		&u.CreatedAt,
 		&u.UpdatedAt,
 	)
@@ -94,5 +98,12 @@ func (r *UserRepository) GetByID(id string) (*models.User, error) {
 func (r *UserRepository) UpdateCurrentWorld(userID, worldID string) error {
 	query := `UPDATE users SET current_world_id = $1, updated_at = NOW() WHERE id = $2`
 	_, err := r.db.Exec(query, worldID, userID)
+	return err
+}
+
+// UpdateShipIcon обновляет выбранную иконку корабля
+func (r *UserRepository) UpdateShipIcon(userID, icon string) error {
+	query := `UPDATE users SET ship_icon = $1, updated_at = NOW() WHERE id = $2`
+	_, err := r.db.Exec(query, icon, userID)
 	return err
 }

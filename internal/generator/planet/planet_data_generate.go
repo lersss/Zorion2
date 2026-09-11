@@ -68,6 +68,7 @@ func gasGiantChance(spectralClass string) float64 {
 
 func (g *Generator) generatePlanet(
 	worldID string,
+	worldName string,
 	orbitIndex int,
 	spectralClass string,
 	systemAge float64,
@@ -75,7 +76,7 @@ func (g *Generator) generatePlanet(
 	// --- ГАЗОВЫЙ ГИГАНТ ---
 	if orbitIndex >= 3 {
 		if g.rng.Float64() < gasGiantChance(spectralClass) {
-			return g.generateGasGiant(worldID, orbitIndex, spectralClass, systemAge)
+			return g.generateGasGiant(worldID, worldName, orbitIndex, spectralClass, systemAge)
 		}
 	}
 

@@ -196,7 +196,7 @@ config/descriptions/
 
 **Что НЕ здесь:**
 - 2do уровня проекта (`ADMIN_PASSWORD`, `compatibility_matrix`, CI, баги) — в `STATUS.md`, разделы 3 и 6.
-- Долгосрочный бэклог — в `docs/gamedesign/08_roadmap.md`.
+- Долгосрочный бэклог — в `docs/gamedesign/99_roadmap.md`.
 
 ---
 

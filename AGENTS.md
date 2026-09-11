@@ -146,10 +146,14 @@ web/                     — HTML + static/{css,js,sprites}
 | `docs/gamedesign/02_worlds.md` | Генерация миров, спектры |
 | `docs/gamedesign/03_planets.md` | Архетипы, масса, ядро, температура, 11 типов |
 | `docs/gamedesign/04_composition.md` | 16 форм, 17 типов недр, спутники, матрица |
-| `docs/gamedesign/05_economy.md` | Ресурсы, товары, заводы, энергия |
+| `docs/gamedesign/05_economy.md` | **Точка входа в экономику:** каркас, товары, качество, телеметрия, статус, открытые вопросы |
 | `docs/gamedesign/06_factions.md` | Фракции, войны, контракты |
 | `docs/gamedesign/07_ui.md` | Карта, карточка планеты, админка |
-| `docs/gamedesign/08_roadmap.md` | Долгосрочный бэклог |
+| `docs/gamedesign/09_resources.md` | Вещества, свойства, категории, имена, география веществ |
+| `docs/gamedesign/10_exploration.md` | Месторождения и истощение, разведка и добыча, мини-игры, информация и связь |
+| `docs/gamedesign/11_markets.md` | Заводы, энергия, содержание построек, биржа, контракты, охрана |
+| `docs/gamedesign/12_society.md` | Роли игроков, владение, война, упадок |
+| `docs/gamedesign/99_roadmap.md` | Долгосрочный бэклог |
 | `docs/DESCRIPTIONS_WORK.md` | Описания планет, список тегов |
 | `CHANGELOG.md` | **Агентам не нужен.** Только при релизе |
 

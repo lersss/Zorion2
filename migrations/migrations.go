@@ -25,12 +25,30 @@ var fs embed.FS
 // Apply создаёт таблицу учёта schema_migrations и применяет все
 // неприменённые миграции в порядке возрастания версии.
 func Apply(db *sql.DB) error {
+	tracked, err := relationExists(db, "schema_migrations")
+	if err != nil {
+		return err
+	}
+
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
 		version    TEXT PRIMARY KEY,
 		name       TEXT NOT NULL,
 		applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	)`); err != nil {
 		return fmt.Errorf("create schema_migrations: %w", err)
+	}
+
+	// Учёта не было, но схема уже на месте — миграции накатывали вручную.
+	// Отмечаем их применёнными, ничего не выполняя: 003, 006, 000009 и 000011
+	// не идемпотентны и упали бы на существующих таблицах.
+	if !tracked {
+		legacy, err := relationExists(db, "worlds")
+		if err != nil {
+			return err
+		}
+		if legacy {
+			return baseline(db)
+		}
 	}
 
 	applied, err := readApplied(db)
@@ -49,6 +67,48 @@ func Apply(db *sql.DB) error {
 		}
 	}
 
+	return nil
+}
+
+// relationExists проверяет наличие таблицы в схеме public.
+func relationExists(db *sql.DB, name string) (bool, error) {
+	var exists bool
+	if err := db.QueryRow(
+		`SELECT to_regclass('public.' || $1) IS NOT NULL`, name,
+	).Scan(&exists); err != nil {
+		return false, fmt.Errorf("check relation %s: %w", name, err)
+	}
+	return exists, nil
+}
+
+// baseline отмечает все миграции применёнными, не выполняя их. Срабатывает
+// один раз — когда база, которую накатывали вручную, впервые переходит
+// на автоматический учёт.
+func baseline(db *sql.DB) error {
+	all, err := listPending(map[string]bool{})
+	if err != nil {
+		return err
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	for _, m := range all {
+		if _, err := tx.Exec(
+			`INSERT INTO schema_migrations (version, name) VALUES ($1, $2)`,
+			m.version, m.name,
+		); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("baseline %s: %w", m.name, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	log.Printf("⚠️  Схема уже существовала, учёта миграций не было: %d миграций "+
+		"отмечены применёнными БЕЗ выполнения. Сверь схему БД с файлами.", len(all))
 	return nil
 }
 

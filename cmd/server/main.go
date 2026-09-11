@@ -17,6 +17,7 @@ import (
 	"zorion/internal/models"
 	"zorion/internal/repository"
 	"zorion/internal/travel"
+	"zorion/migrations"
 )
 
 var db *sql.DB
@@ -45,6 +46,11 @@ func main() {
 		log.Fatalf("❌ PostgreSQL не отвечает: %v", err)
 	}
 	log.Println("✅ PostgreSQL подключен")
+
+	if err = migrations.Apply(db); err != nil {
+		log.Fatalf("❌ Ошибка применения миграций: %v", err)
+	}
+	log.Println("✅ Миграции актуальны")
 
 	opt, err := redis.ParseURL(cfg.RedisURL)
 	if err != nil {

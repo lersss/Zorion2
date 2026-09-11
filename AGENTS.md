@@ -29,7 +29,7 @@
 
 ## 1. Стек и запуск
 
-Go 1.21+ · PostgreSQL 15+ · Redis 7+ · Vanilla JS (ES-модули) + Canvas 2D · JWT HS256 · gorilla/websocket · testify · Docker/Amvera.
+Go 1.21+ · PostgreSQL 15+ · Redis 7+ · Vanilla JS (ES-модули) + Canvas 2D · JWT HS256 · gorilla/websocket · testify · go-sqlmock (dev-тесты БД) · Docker/Amvera.
 
 **Локально Go есть** (проверено: `go1.27.0 windows/amd64`). PostgreSQL в `C:\pgsql\pgsql\bin`, слушает `127.0.0.1:5432`. Redis на `6379`.
 
@@ -104,16 +104,17 @@ web/                     — HTML + static/{css,js,sprites}
 9. **Имена файлов в разных папках не должны совпадать** (исключения: `main.go`, `go.mod`, `index.html`). Известная коллизия: `web/static/js/config.js` и `web/static/js/map/config.js`.
 10. **Над проектом могут работать несколько агентов.** Перед правкой перечитывай файл — твоё представление о дереве устаревает. Git ведёт только один агент.
 11. **Как писать код — `docs/AGENT_RULES.md`:** думать до кода, минимальное решение, хирургические правки, работа от критерия успеха. Файл подгружается автоматически через `opencode.json`, открывать вручную не нужно.
+12. **Test-driven development: на каждую фичу — автоматический тест.** Тест пишется вместе с фичей (допустимо и раньше кода): до фичи красный, после — зелёный.
 
 ---
 
 ## 5. БД и миграции
 
-**Состояние (2026-09-11):** 7 users, 100 000 worlds, 319 573 planets, 1389 МБ.
+**Состояние (2026-09-11):** 8 users, 100 000 worlds, 138 884 planets.
 
 Таблицы: `worlds`, `planets` (JSONB `data`), `locations`, `users`, `assignments`, `factions`, `events`, `production_units`, `settlements`, `factories`, `goods_batches`, `planet_resources`, `compatibility_matrix`.
 
-**Миграции 001–013 применены** (009 и 011 проверены в БД напрямую 2026-09-11), кроме `005_economy_tables.sql` — пропущена, пустая. **000008 применена частично:** `idx_planets_world_id` в БД есть, GIN `idx_planets_data` — нет.
+**Миграции 001–014 применены** (009 и 011 проверены в БД напрямую 2026-09-11; 000014 — индексы `LOWER(name)` для поиска — применена при перезапуске сервера в ту же сессию), кроме `005_economy_tables.sql` — пропущена, пустая. **000008 применена частично:** `idx_planets_world_id` в БД есть, GIN `idx_planets_data` — нет.
 
 **Миграции применяются автоматически** при старте: `cmd/server/main.go` вызывает `migrations.Apply(db)`, учёт в таблице `schema_migrations`. Руками накатывать больше не нужно.
 
@@ -126,8 +127,8 @@ web/                     — HTML + static/{css,js,sprites}
 | Группа | Авторизация | Примеры |
 |---|---|---|
 | Публичные | — | `/health`, `/status`, `/register`, `/login`, `/api/planet-image` |
-| Игровые | `Authorization: Bearer <JWT>` | `/me`, `/worlds`, `/worlds/{id}`, `/api/worlds/{id}/planets`, `/api/worlds/filter`, `/api/contracts`, `/travel`, `/ws` |
-| Админка | `X-Admin-Password` | `/admin/worlds`, `/admin/generate*`, `/admin/clear`, `/admin/stats`, `/admin/audit`, `/admin/compatibility` |
+| Игровые | `Authorization: Bearer <JWT>` | `/me`, `/worlds`, `/worlds/{id}`, `/api/worlds/{id}/planets`, `/api/worlds/filter`, `/api/entities/search`, `/api/contracts`, `/travel`, `/ws` |
+| Админка | `X-Admin-Password` | `/admin/worlds`, `/admin/generate*`, `/admin/clear`, `/admin/stats`, `/admin/audit`, `/admin/compatibility`, `/admin/tests` |
 
 Точные пути смотри в `internal/handlers/`.
 

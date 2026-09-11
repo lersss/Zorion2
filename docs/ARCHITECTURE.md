@@ -198,10 +198,11 @@ web/static/js/
 ├── config.js              — глобальный CONFIG (настройки карты, UI)
 ├── main.js                — точка входа карты, init
 ├── filters.js             — панель фильтров
-├── modal/                 — модалка системы (tabs, panel, index)
+├── search.js              — поиск объектов (фокус на карте: центр+зум, кольцо, модалка)
+├── modal/                 — модалка системы (tabs, panel, index, state, events)
 └── map/
     ├── config.js          — state и elements
-    ├── data.js            — загрузка кластеров, /me, loadUserData
+    ├── data.js            — загрузка кластеров, /me, loadUserData, handleUnauthorized
     ├── events.js          — hover, click, pan, zoom
     ├── map_render.js      — draw, отрисовка кластеров и одиночных звёзд
     ├── navigation.js      — centerOnAgent
@@ -214,6 +215,15 @@ web/static/js/
 - Сервер делает `GROUP BY` по ячейкам, отдаёт 100–5000 кластеров.
 - Клиент рисует кружки с числами (кластеры) и звёзды (одиночные миры).
 - При zoom/pan — debounced перезапрос (180 мс).
+
+**Поиск объектов (`web/static/js/search.js`):**
+- `GET /api/entities/search?q=...&limit=...` (JWT) — точный поиск без учёта регистра
+  по трём таблицам: `worlds` (звезда), `planets` (+join `worlds`), спутники
+  (`CROSS JOIN LATERAL jsonb_array_elements(p.data->'satellites')`). См.
+  `internal/handlers/search_handler.go`.
+- Фокус: центрирование + зум 6× + зелёное кольцо на звезде (`state.focusWorldId`).
+  Планета → модалка системы с выбором планеты; спутник → модалка с автовыбором
+  спутника (`openSystemModal(worldId, name, spectral, {planetId?, satelliteId?})`).
 
 **Известная коллизия имён:** `web/static/js/config.js` и `web/static/js/map/config.js`.
 Правило «имена файлов в разных папках не должны совпадать» зафиксировано

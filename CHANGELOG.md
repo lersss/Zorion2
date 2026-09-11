@@ -8,6 +8,45 @@
 
 ## [Unreleased]
 
+### Сессия 2026-09-11 — автотесты + поиск по названию
+
+**Исправлено**
+- **Флак `TestVerifyTamperedSignature`** (`internal/auth`). Отказ ~1 из 10–20 прогонов:
+  замена последнего символа base64url-подписи HS256 меняла только биты
+  padding — байты подписи оставались теми же, и проверка проходила. Теперь
+  портится символ из середины сегмента подписи (`sig[10]`). Проверено: 0/30 прогонов.
+
+**Добавлено**
+- **Автотесты на существующий код** (неделя тестов; полный `go test ./...` зелёный):
+  - `internal/generator/planet` — `physics_test.go` + `composition_test.go`:
+    классификация форм, температура/архетипы, `simplify` состава (coverage 39,4%).
+  - `internal/generator/galaxy` — `galaxy_test.go`: спектральные веса/температуры,
+    дистрибуция классов (100k семплов), свойства генерации (круг, minDist,
+    уникальные имена), детерминизм, cluster centers.
+  - `internal/repository` — `planet_repo_test.go`: JSON-хелперы
+    (`getStr/getFloat/getBool/getFloatMap`, `parseCore`, `parseSatellites`,
+    `populatePlanetFromJSON`).
+  - `internal/handlers` — поиск и парсер go-test JSON.
+- **Поиск объектов на карте** (фокус на объект):
+  - API `GET /api/entities/search?q=...&limit=...` (JWT): звёзды/планеты/спутники
+    по **точному имени без учёта регистра** (`LOWER(name) = LOWER($1)`).
+    `internal/handlers/search_handler.go`; спутники — `CROSS JOIN LATERAL
+    jsonb_array_elements(p.data->'satellites')`. Ответ
+    `{results:[{kind, id, name, world_id, world_name, spectral, coord_x, coord_y, planet_id?, type?}]}`.
+  - Миграция `000014` — индексы `LOWER(name)` на `worlds`/`planets`
+    (быстрый точный поиск по 138k+ планет).
+  - Фронт: поле «Название объекта…» в фильтре-баре (`web/map.html`,
+    `web/static/js/search.js`, debounce 250 мс). Фокус: центрирование + зум 6×
+    + зелёное кольцо на звезде (`state.focusWorldId`); планета → модалка системы
+    с выбором планеты; спутник → модалка с автовыбором спутника
+    (`openSystemModal(..., {planetId?, satelliteId?})`).
+  - Dev-зависимость `github.com/DATA-DOG/go-sqlmock` v1.5.2 — юнит-тесты
+    запросов к БД (текст SQL, параметры, парсинг строк) без реальной Postgres.
+- Проверка на живой БД: все три ветки поиска (мир `ababis`, планета `balgelros`,
+  спутник `abalcor-nhe7`) находят объект; без токена — 401.
+
+---
+
 ### Сессия 2026-09-11
 
 **Исправлено**

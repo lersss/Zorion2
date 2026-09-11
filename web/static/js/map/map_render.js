@@ -41,14 +41,14 @@ export function resizeCanvas() {
 }
 
 // galaxyRadiusFromRegions — радиус галактики из центров регионов
-// (самый дальний центр + запас 15%).
+// (самый дальний центр + запас 2%).
 export function galaxyRadiusFromRegions(regions) {
     let maxR = 1;
     for (const r of regions) {
         const d = Math.hypot(r.x, r.y);
         if (d > maxR) maxR = d;
     }
-    return maxR * 1.15;
+    return maxR * 1.02;
 }
 
 // updateFitZoom — ставит minZoom так, чтобы вся галактика помещалась в экран.
@@ -481,7 +481,7 @@ function buildVoronoi(regions) {
         const d = Math.hypot(r.x, r.y);
         if (d > maxR) maxR = d;
     }
-    const galaxyR = maxR * 1.15;
+    const galaxyR = maxR * 1.02;
     const bbox = [];
     const N = 64;
     for (let k = 0; k < N; k++) {

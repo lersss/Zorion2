@@ -18,6 +18,16 @@
     </div>
     <!-- --- ФИЛЬТРЫ КАРТЫ --- -->
     <div id="filters-bar">
+        <div class="filter-group filter-search">
+            <span class="filter-group-label">Поиск</span>
+            <div class="search-wrap">
+                <input type="text" id="entity-search" placeholder="Название объекта…" autocomplete="off" spellcheck="false">
+                <div id="entity-search-results" class="search-dropdown" hidden></div>
+            </div>
+        </div>
+
+        <div class="filter-divider" aria-hidden="true"></div>
+
         <div class="filter-group filter-flags">
             <span class="filter-group-label">Флаги</span>
             <label class="filter-chip" title="Только миры с планетами">

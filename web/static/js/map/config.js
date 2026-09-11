@@ -23,6 +23,7 @@ export const state = {
     canvasWidth: 0,
     canvasHeight: 0,
     followShip: false,   // активно следить за кораблём во время полёта
+    focusWorldId: null,  // мир, найденный поиском (рисуется кольцом)
 };
 
 export const elements = {

@@ -124,6 +124,9 @@ func main() {
 	// API фильтрации миров
 	http.HandleFunc("/api/worlds/filter", auth.AuthMiddleware(adminHandlers.FilterWorldsHandler))
 
+	// API поиска объектов (звезда/планета/спутник) по имени
+	http.HandleFunc("/api/entities/search", auth.AuthMiddleware(adminHandlers.SearchEntitiesHandler))
+
 	// API изображения планет
 	http.HandleFunc("/api/planet-image", handlers.PlanetImageHandler)
 
@@ -145,6 +148,9 @@ func main() {
 
 	// Аудит
 	http.HandleFunc("/admin/audit", auth.AdminAuth(adminHandlers.GetAuditHandler))
+
+	// Тесты
+	http.HandleFunc("/admin/tests", auth.AdminAuth(adminHandlers.GetTestsHandler))
 
 	// Матрица совместимости
 	http.HandleFunc("/admin/compatibility", auth.AdminAuth(compatHandlers.HandleMatrix))

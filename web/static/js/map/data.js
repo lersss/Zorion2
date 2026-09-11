@@ -18,7 +18,7 @@ let currentWorldIdLoaded = false;
 
 // handleUnauthorized — универсальный обработчик 401/403.
 // Чистит токен и редиректит на логин (защита от зацикливания).
-function handleUnauthorized() {
+export function handleUnauthorized() {
     localStorage.removeItem('token');
     if (window.location.pathname !== '/login-page') {
         window.location.href = '/login-page';

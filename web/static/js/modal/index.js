@@ -8,7 +8,9 @@ import { renderRightPanel, renderStarCard } from './panel.js';
 import { notifyError } from '../ui/toast.js';
 
 // openSystemModal — открывает модалку системы по ID мира.
-export function openSystemModal(worldId, worldName, spectralClass) {
+// focusOpts: { planetId?, satelliteId? } — после открытия выбирает объект
+// (планету или спутник) в правой панели.
+export function openSystemModal(worldId, worldName, spectralClass, focusOpts) {
     const token = localStorage.getItem('token');
     if (!token) {
         notifyError('Не авторизован. Пожалуйста, войдите в систему.');
@@ -31,11 +33,58 @@ export function openSystemModal(worldId, worldName, spectralClass) {
     .then(data => {
         console.log('Planets data:', data);
         renderModal(worldId, worldName || data.world_name, spectralClass || data.spectral_class, data);
+        if (focusOpts) {
+            if (focusOpts.satelliteId) {
+                selectSatelliteInModal(focusOpts.satelliteId);
+            } else if (focusOpts.planetId) {
+                selectPlanetInModal(focusOpts.planetId);
+            }
+        }
     })
     .catch(error => {
         console.error('Error loading planets:', error);
         notifyError('Ошибка загрузки планет: ' + error.message);
     });
+}
+
+// selectPlanetInModal — выбирает планету по id в правой панели модалки.
+export function selectPlanetInModal(planetId) {
+    const planets = modalState.planets || [];
+    const idx = planets.findIndex(p => p.id === planetId);
+    if (idx < 0) return;
+
+    modalState.selectedPlanetIndex = idx;
+    renderRightPanel(planets, idx);
+    drawSystem(
+        modalState.canvas, modalState.spectralClass, planets,
+        modalState.starRadius, modalState.starColor,
+        modalState.canvasWidth, modalState.canvasHeight
+    );
+}
+
+// selectSatelliteInModal — выбирает спутник по id: открывает карточку
+// родительской планеты и программно кликает по спутнику во вкладке «Общее».
+export function selectSatelliteInModal(satelliteId) {
+    const planets = modalState.planets || [];
+    const planetIdx = planets.findIndex(p =>
+        Array.isArray(p.satellites) && p.satellites.some(s => s.id === satelliteId)
+    );
+    if (planetIdx < 0) return;
+    const planet = planets[planetIdx];
+    const satIdx = planet.satellites.findIndex(s => s.id === satelliteId);
+    if (satIdx < 0) return;
+
+    modalState.selectedPlanetIndex = planetIdx;
+    renderRightPanel(planets, planetIdx);
+    drawSystem(
+        modalState.canvas, modalState.spectralClass, planets,
+        modalState.starRadius, modalState.starColor,
+        modalState.canvasWidth, modalState.canvasHeight
+    );
+
+    const tabContent = document.getElementById('tab-content');
+    const li = tabContent && tabContent.querySelector(`[data-sat-idx="${satIdx}"]`);
+    if (li) li.click();
 }
 
 // ==================== МОДАЛКА ====================

@@ -58,7 +58,7 @@ export function draw() {
     const {
         canvasWidth, canvasHeight, currentWorldId, hoveredWorldId,
         isFlying, flyStartTime, flyDuration, flyFrom, flyTo,
-        scale, offsetX, offsetY, clusters
+        scale, offsetX, offsetY, clusters, focusWorldId
     } = state;
     const { ctx, statusBar } = elements;
 
@@ -79,7 +79,7 @@ export function draw() {
         if (px < -50 || py < -50 || px > canvasWidth + 50 || py > canvasHeight + 50) continue;
 
         if (c.cnt === 1) {
-            drawSingleStar(ctx, c, px, py, scale, currentWorldId, hoveredWorldId);
+            drawSingleStar(ctx, c, px, py, scale, currentWorldId, hoveredWorldId, focusWorldId);
             singles.push({ c, x: px, y: py });
         } else {
             drawCluster(ctx, c, px, py);
@@ -128,7 +128,7 @@ function drawGrid(ctx, canvasWidth, canvasHeight, scale, offsetX, offsetY) {
 
 // ==================== ОТРИСОВКА ЭЛЕМЕНТОВ ====================
 
-function drawSingleStar(ctx, c, x, y, scale, currentWorldId, hoveredWorldId) {
+function drawSingleStar(ctx, c, x, y, scale, currentWorldId, hoveredWorldId, focusWorldId) {
     const radius = clusterScreenRadius(c);
     const color = getStarColor(c.sspec || 'G');
 
@@ -140,6 +140,23 @@ function drawSingleStar(ctx, c, x, y, scale, currentWorldId, hoveredWorldId) {
     ctx.strokeStyle = '#0f172a';
     ctx.lineWidth = 1;
     ctx.stroke();
+
+    if (c.sid === focusWorldId) {
+        ctx.save();
+        ctx.strokeStyle = 'rgba(74, 222, 128, 0.9)';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6, 4]);
+        ctx.beginPath();
+        ctx.arc(x, y, radius + 7, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.shadowColor = 'rgba(74, 222, 128, 0.5)';
+        ctx.shadowBlur = 14;
+        ctx.beginPath();
+        ctx.arc(x, y, radius + 7, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+    }
 
     if (c.sid === currentWorldId) {
         try {

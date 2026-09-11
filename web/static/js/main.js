@@ -9,6 +9,7 @@ import { loadClusters, loadUserData } from './map/data.js';
 import { draw } from './map/map_render.js';
 import { showTextLoader } from './loader.js';
 import { notifyError } from './ui/toast.js';
+import { initEntitySearch } from './search.js';
 
 // --- Восстановление вьюпорта из sessionStorage ---
 function restoreViewport() {
@@ -61,6 +62,7 @@ function init() {
     initPanZoom();
     initHover();
     initContextMenu();
+    initEntitySearch();
 
     // --- Автоматическое применение фильтров ---
     const filterInputs = document.querySelectorAll('#filters-bar input, #filters-bar select');

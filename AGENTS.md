@@ -158,6 +158,7 @@ web/                     — HTML + static/{css,js,sprites}
 | `docs/gamedesign/12_society.md` | Роли игроков, владение, война, упадок |
 | `docs/gamedesign/13_settlements.md` | Поселения, труд, потребности, стабильность, гибель |
 | `docs/gamedesign/14_money.md` | Деньги: эмиссия, приватность балансов, расчёты |
+| `docs/gamedesign/15_monetization.md` | Реальные деньги: подряды, ввод и вывод |
 | `docs/gamedesign/99_roadmap.md` | Долгосрочный бэклог |
 | `docs/DESCRIPTIONS_WORK.md` | Описания планет, список тегов |
 | `CHANGELOG.md` | **Агентам не нужен.** Только при релизе |

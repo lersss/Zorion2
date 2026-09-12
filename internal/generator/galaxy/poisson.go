@@ -14,6 +14,25 @@ func (g *Generator) randomPointInCircle(radius float64) (x, y float64) {
 	return r * math.Cos(angle), r * math.Sin(angle)
 }
 
+// galaxyEdgeThinning — модуль разрежения к краю галактики: вероятность
+// принять точку линейно падает от 1 в центре до (1 − galaxyEdgeThinning)
+// на границе MapSize. Меньше — слабее разрежение, 0 — выключено.
+const galaxyEdgeThinning = 0.7
+
+// galaxyEdgeAccept — приём точки по плотности к краям: чем ближе точка
+// к внешней границе MapSize, тем ниже вероятность её принять. Центром
+// галактики считается начало координат (как и в остальных проверках —
+// hypot(x, y) > MapSize). При MapSize <= 0 (юнит-тесты форм кластеров)
+// разрежение выключено.
+func (g *Generator) galaxyEdgeAccept(x, y float64) bool {
+	halfSize := g.cfg.MapSize
+	if halfSize <= 0 {
+		return true
+	}
+	u := math.Hypot(x, y) / halfSize
+	return g.rng.Float64() >= galaxyEdgeThinning*u
+}
+
 // generateOutlierPosition — позиция выброса: гауссово смещение от случайного
 // кластерного центра (std = 3×ClusterRadius), чтобы выбросы тяготели к кластерам,
 // но заполняли пустоты между ними. Если кластеров нет — равномерный способ.
@@ -38,6 +57,9 @@ func (g *Generator) generateOutlierPosition(
 		x := cx + g.gaussian(std)
 		y := cy + g.gaussian(std)
 		if math.Hypot(x, y) > halfSize {
+			continue
+		}
+		if !g.galaxyEdgeAccept(x, y) {
 			continue
 		}
 		if g.isPointValid(x, y, minDist, allPoints) {
@@ -132,6 +154,9 @@ func (g *Generator) generateWorldsPoisson() *GalaxyResult {
 	for len(allPoints) < clusterPoints && attempts > 0 {
 		attempts--
 		x, y := g.randomPointInCircle(halfSize)
+		if !g.galaxyEdgeAccept(x, y) {
+			continue
+		}
 		if g.isPointValid(x, y, minDist, allPoints) {
 			allPoints = append(allPoints, struct{ X, Y float64 }{X: x, Y: y})
 			pointRegion = append(pointRegion, g.nearestRegionIndex(x, y, regions))
@@ -238,6 +263,9 @@ func (g *Generator) clusterPointsCircle(cx, cy, radius, minDist float64, count i
 		if !g.clusterEdgeAccept(cx, cy, x, y, radius) {
 			continue
 		}
+		if !g.galaxyEdgeAccept(x, y) {
+			continue
+		}
 		if g.isPointValid(x, y, minDist, points) {
 			points = append(points, struct{ X, Y float64 }{X: x, Y: y})
 		}
@@ -273,6 +301,9 @@ func (g *Generator) clusterPointsBlob(cx, cy, radius, minDist float64, count int
 		x := s.x + g.gaussian(s.std)
 		y := s.y + g.gaussian(s.std)
 		if !g.clusterEdgeAccept(cx, cy, x, y, radius) {
+			continue
+		}
+		if !g.galaxyEdgeAccept(x, y) {
 			continue
 		}
 		if g.isPointValid(x, y, minDist, points) {
@@ -324,6 +355,9 @@ func (g *Generator) generateWorldsRandom(minDist float64) []*models.World {
 	for len(points) < targetCount && maxAttempts > 0 {
 		maxAttempts--
 		x, y := g.randomPointInCircle(halfSize)
+		if !g.galaxyEdgeAccept(x, y) {
+			continue
+		}
 		if g.isPointValid(x, y, minDist, points) {
 			points = append(points, struct{ X, Y float64 }{X: x, Y: y})
 		}

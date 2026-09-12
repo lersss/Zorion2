@@ -117,6 +117,28 @@ func TestGenerateWorldsRandomProperties(t *testing.T) {
 	assertWorldsValid(t, worlds, 2000, 120)
 }
 
+func TestWorldsSparserTowardGalaxyEdge(t *testing.T) {
+	// Разрежение к краю галактики: внутренняя половина радиуса (площадь
+	// 1/4 диска) должна собрать заметно больше 25% миров. Равномерное
+	// распределение дало бы ~25%, с линейным спадом приёма p = 1−0.7·(r/R) —
+	// ~36% (независимое прореживание пуассоновского поля не зависит от
+	// порядка добавления и мин. расстояния).
+	g := NewGenerator(&Config{
+		Seed: 42, WorldCount: 5000, MapSize: 4000, MinDist: 40, WorldSpread: 0,
+	})
+	worlds := g.generateWorldsRandom(40)
+	require.Greater(t, len(worlds), 4500, "вместимости должно хватать")
+
+	var inner int
+	for _, w := range worlds {
+		if math.Hypot(w.CoordX, w.CoordY) <= 2000 {
+			inner++
+		}
+	}
+	innerFraction := float64(inner) / float64(len(worlds))
+	assert.Greater(t, innerFraction, 0.33, "края должны быть разрежены, внутренняя половина собрала %.2f", innerFraction)
+}
+
 func TestGenerateWorldsRandomCountLimitedBySpace(t *testing.T) {
 	// Маленький круг и огромный minDist — миры физически не влезут.
 	g := NewGenerator(&Config{

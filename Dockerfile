@@ -4,7 +4,7 @@ WORKDIR /app
 COPY . .
 RUN go mod tidy
 RUN go mod download
-RUN go build -o /app/server ./cmd/server
+RUN CGO_ENABLED=0 go build -o /app/server ./cmd/server
 
 # Финальный образ
 FROM alpine:latest

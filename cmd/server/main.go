@@ -24,6 +24,15 @@ import (
 var db *sql.DB
 var rdb *redis.Client
 
+// noCache — запрещает браузеру использовать кэш без перевалидации.
+// Без этого ES-модули (карта, админка) залипают в кэше и правки JS не видно.
+func noCache(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache")
+		next.ServeHTTP(w, r)
+	})
+}
+
 func main() {
 	cfg := config.Load()
 	log.Printf("🚀 Запуск сервера Zorion на порту %s", cfg.ServerPort)
@@ -166,12 +175,12 @@ func main() {
 	http.HandleFunc("/admin/compatibility", auth.AdminAuth(compatHandlers.HandleMatrix))
 	http.HandleFunc("/admin/compatibility/reset", auth.AdminAuth(compatHandlers.ResetMatrix))
 
-	http.HandleFunc("/admin", func(w http.ResponseWriter, r *http.Request) {
+	http.Handle("/admin", noCache(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./web/admin.html")
-	})
+	})))
 
 	// Статика
-	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("./web/static"))))
+	http.Handle("/static/", noCache(http.StripPrefix("/static/", http.FileServer(http.Dir("./web/static")))))
 
 	// Страницы
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -179,23 +188,23 @@ func main() {
 			http.ServeFile(w, r, "./web/index.html")
 			return
 		}
-		http.FileServer(http.Dir("./web")).ServeHTTP(w, r)
+		noCache(http.FileServer(http.Dir("./web"))).ServeHTTP(w, r)
 	})
-	http.HandleFunc("/assignments", func(w http.ResponseWriter, r *http.Request) {
+	http.Handle("/assignments", noCache(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./web/assignments.html")
-	})
-	http.HandleFunc("/login-page", func(w http.ResponseWriter, r *http.Request) {
+	})))
+	http.Handle("/login-page", noCache(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./web/login.html")
-	})
-	http.HandleFunc("/register-page", func(w http.ResponseWriter, r *http.Request) {
+	})))
+	http.Handle("/register-page", noCache(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./web/register.html")
-	})
-	http.HandleFunc("/map", func(w http.ResponseWriter, r *http.Request) {
+	})))
+	http.Handle("/map", noCache(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./web/map.html")
-	})
-	http.HandleFunc("/contracts", func(w http.ResponseWriter, r *http.Request) {
+	})))
+	http.Handle("/contracts", noCache(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./web/contracts.html")
-	})
+	})))
 
 	log.Println("🚀 Сервер Zorion запущен и работает")
 	log.Fatal(http.ListenAndServe(":"+cfg.ServerPort, nil))

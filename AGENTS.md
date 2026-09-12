@@ -151,19 +151,26 @@ web/                     — HTML + static/{css,js,sprites}
 | `STATUS.md` | Всегда вместе с этим файлом |
 | `docs/AGENT_RULES.md` | **Открывать не нужно** — подгружается автоматически (`opencode.json`) |
 | `docs/ARCHITECTURE.md` | Конкурентность, карта кода, разбор инцидентов |
+| `docs/gamedesign/01_concept.md` | Общая концепция, принципы, стек |
 | `docs/gamedesign/02_worlds.md` | Генерация миров, спектры |
 | `docs/gamedesign/03_planets.md` | Архетипы, масса, ядро, температура, 11 типов |
 | `docs/gamedesign/04_composition.md` | 16 форм, 17 типов недр, спутники, матрица |
 | `docs/gamedesign/05_economy.md` | **Точка входа в экономику:** каркас, товары, качество, телеметрия, статус, открытые вопросы |
-| `docs/gamedesign/06_factions.md` | Фракции, войны, контракты |
+| `docs/gamedesign/06_factions.md` | Фракции, NPC-агенты, войны, контракты |
 | `docs/gamedesign/07_ui.md` | Карта, карточка планеты, админка |
 | `docs/gamedesign/09_resources.md` | Вещества, свойства, категории, имена, география веществ |
 | `docs/gamedesign/10_exploration.md` | Месторождения и истощение, разведка и добыча, мини-игры, информация и связь |
-| `docs/gamedesign/11_markets.md` | Заводы, энергия, содержание построек, биржа, контракты, охрана |
-| `docs/gamedesign/12_society.md` | Роли игроков, владение, война, упадок |
-| `docs/gamedesign/13_settlements.md` | Поселения, труд, потребности, стабильность, гибель |
+| `docs/gamedesign/11_production.md` | Производство и энергия: заводы, энергия, содержание построек |
+| `docs/gamedesign/11_markets.md` | Рынки: локальная биржа, NPC-контрагенты |
+| `docs/gamedesign/11_contracts.md` | Контракты: общие правила, охрана, операция, перелёт |
+| `docs/gamedesign/12_society.md` | Роли игроков и присутствие |
+| `docs/gamedesign/13_settlements.md` | Поселения: устройство и труд. Спрос как отправная точка |
 | `docs/gamedesign/14_money.md` | Деньги: эмиссия, приватность балансов, расчёты |
 | `docs/gamedesign/15_monetization.md` | Реальные деньги: подряды, ввод и вывод |
+| `docs/gamedesign/16_territory.md` | Территория, владение, война |
+| `docs/gamedesign/17_decay.md` | Упадок, кризисы, профиль региона |
+| `docs/gamedesign/18_needs.md` | Потребности, стабильность, гибель поселения |
+| `docs/gamedesign/19_robots.md` | Автоматические заводы |
 | `docs/gamedesign/99_roadmap.md` | Долгосрочный бэклог |
 | `docs/DESCRIPTIONS_WORK.md` | Описания планет, список тегов |
 | `CHANGELOG.md` | **Агентам не нужен.** Только при релизе |

@@ -88,7 +88,7 @@ config/descriptions/                     — библиотека описани
 migrations/                              — SQL-миграции (numbered, up/down)
 web/                                     — фронтенд (HTML, CSS, JS, ES-модули)
 web/static/js/map/                       — модули карты (canvas, кластеризация)
-docs/gamedesign/                         — GDD (9 файлов)
+docs/gamedesign/                         — GDD (семейство доков, см. `AGENTS.md` §7)
 ```
 
 ---

@@ -189,6 +189,12 @@ func (pg *PlanetGenerator) GeneratePlanet(radius int, opts ...func(*GenerateOpti
 	if seed == 0 {
 		seed = pg.nextInt63()
 	}
+
+	if pg.enableCache {
+		if p, ok := pg.cacheGet(generateKey(seed, options)); ok {
+			return p, nil
+		}
+	}
 	rng := rand.New(rand.NewSource(seed))
 
 	// Дальше работаем ТОЛЬКО с локальным rng и локальными переменными.
@@ -273,7 +279,7 @@ func (pg *PlanetGenerator) GeneratePlanet(radius int, opts ...func(*GenerateOpti
 	planet := &CachedPlanet{Image: finalImg, Meta: meta}
 
 	if pg.enableCache {
-		key := hashParams(meta, options)
+		key := generateKey(seed, options)
 		pg.cachePut(key, planet)
 	}
 	return planet, nil
@@ -302,8 +308,7 @@ func (pg *PlanetGenerator) cachePut(key string, planet *CachedPlanet) {
 }
 
 // cacheGet — безопасное чтение из кэша.
-// Пока не используется в GeneratePlanet (там всегда генерируем заново),
-// но оставлено на будущее, когда добавим hit-проверку.
+// Вызывается в GeneratePlanet до генерации; хит возвращает готовую текстуру.
 func (pg *PlanetGenerator) cacheGet(key string) (*CachedPlanet, bool) {
 	pg.mu.Lock()
 	defer pg.mu.Unlock()
@@ -412,15 +417,19 @@ func (pg *PlanetGenerator) generateTexture(visualType string, size int, rng *ran
 	return img
 }
 
-func hashParams(meta PlanetMeta, opts *GenerateOptions) string {
-	return fmt.Sprintf("%d-%s-%s-%s-%s-%s-%v-%v",
-		meta.Seed,
-		meta.Type,
-		meta.Surface,
-		meta.Hydrosphere,
-		meta.Atmosphere,
-		meta.Biosphere,
-		meta.HasAtmosphere,
-		meta.HasRings,
-	)
+// generateKey — ключ кэша по детерминированным входам (seed + options).
+// Производные мета-поля (тип, кольца, атмосфера, температура) однозначно
+// определяются этими входами, поэтому одинаковый ключ = одинаковый результат.
+func generateKey(seed int64, opts *GenerateOptions) string {
+	rings := 2
+	if opts.HasRings != nil {
+		if *opts.HasRings {
+			rings = 1
+		} else {
+			rings = 0
+		}
+	}
+	return fmt.Sprintf("%d|%d|%s|%s|%s|%s|%s|%s|%d",
+		seed, opts.Radius, opts.StarType, opts.ClimateID, opts.Surface,
+		opts.Hydrosphere, opts.Atmosphere, opts.Biosphere, rings)
 }

@@ -249,7 +249,7 @@ func TestGenerateOutlierPositionNearCluster(t *testing.T) {
 	var sum float64
 	placed := 0
 	for i := 0; i < n; i++ {
-		x, y, ok := g.generateOutlierPosition(regions, 100000, 150, nil)
+		x, y, ok := g.generateOutlierPosition(regions, 100000, 150, newSpatialGrid(-100000, -100000, 100000, 100000, 150))
 		if !ok {
 			continue
 		}

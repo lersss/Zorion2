@@ -39,11 +39,11 @@ func (g *Generator) galaxyEdgeAccept(x, y float64) bool {
 func (g *Generator) generateOutlierPosition(
 	regions []*models.Region,
 	halfSize, minDist float64,
-	allPoints []struct{ X, Y float64 },
+	grid *spatialGrid,
 ) (float64, float64, bool) {
 	if len(regions) == 0 {
 		x, y := g.randomPointInCircle(halfSize)
-		return x, y, g.isPointValid(x, y, minDist, allPoints)
+		return x, y, !grid.HasNear(x, y, minDist)
 	}
 
 	idx := g.rng.Intn(len(regions))
@@ -62,7 +62,7 @@ func (g *Generator) generateOutlierPosition(
 		if !g.galaxyEdgeAccept(x, y) {
 			continue
 		}
-		if g.isPointValid(x, y, minDist, allPoints) {
+		if !grid.HasNear(x, y, minDist) {
 			return x, y, true
 		}
 	}
@@ -115,6 +115,7 @@ func (g *Generator) generateWorldsPoisson() *GalaxyResult {
 	allPoints := make([]struct{ X, Y float64 }, 0, targetCount)
 	pointRegion := make([]int, 0, targetCount) // индекс региона (или -1)
 	dropped := 0                               // счётчик отброшенных точек
+	grid := newSpatialGrid(-halfSize, -halfSize, halfSize, halfSize, minDist)
 
 	perCluster := clusterPoints / clusterCount
 	if perCluster < 1 {
@@ -138,16 +139,17 @@ func (g *Generator) generateWorldsPoisson() *GalaxyResult {
 		clusterPointsList := g.clusterPoints(cx, cy, clusterRadius, minDist, count)
 		for _, p := range clusterPointsList {
 			// ГЛОБАЛЬНАЯ ПРОВЕРКА: точка должна быть внутри круга
-			if math.Hypot(p.X, p.Y) > halfSize {
-				dropped++
-				continue
-			}
-			if g.isPointValid(p.X, p.Y, minDist, allPoints) {
-				allPoints = append(allPoints, p)
-				pointRegion = append(pointRegion, i)
-			}
+if math.Hypot(p.X, p.Y) > halfSize {
+			dropped++
+			continue
+		}
+		if !grid.HasNear(p.X, p.Y, minDist) {
+			allPoints = append(allPoints, p)
+			grid.Add(p.X, p.Y)
+			pointRegion = append(pointRegion, i)
 		}
 	}
+}
 
 	// Добивка кластерных точек – только внутри круга
 	attempts := clusterPoints * 200
@@ -157,8 +159,9 @@ func (g *Generator) generateWorldsPoisson() *GalaxyResult {
 		if !g.galaxyEdgeAccept(x, y) {
 			continue
 		}
-		if g.isPointValid(x, y, minDist, allPoints) {
+		if !grid.HasNear(x, y, minDist) {
 			allPoints = append(allPoints, struct{ X, Y float64 }{X: x, Y: y})
+			grid.Add(x, y)
 			pointRegion = append(pointRegion, g.nearestRegionIndex(x, y, regions))
 		}
 	}
@@ -171,11 +174,12 @@ func (g *Generator) generateWorldsPoisson() *GalaxyResult {
 	maxAttempts := outlierCount * 200
 	for outlierGenerated < outlierCount && maxAttempts > 0 {
 		maxAttempts--
-		x, y, ok := g.generateOutlierPosition(regions, halfSize, minDist, allPoints)
+		x, y, ok := g.generateOutlierPosition(regions, halfSize, minDist, grid)
 		if !ok {
 			continue
 		}
 		allPoints = append(allPoints, struct{ X, Y float64 }{X: x, Y: y})
+		grid.Add(x, y)
 		pointRegion = append(pointRegion, g.nearestRegionIndex(x, y, regions))
 		outlierGenerated++
 	}
@@ -347,10 +351,98 @@ func (g *Generator) isPointValid(x, y, minDist float64, points []struct{ X, Y fl
 	return true
 }
 
+// ---------- СЕТОЧНЫЙ ИНДЕКС ДЛЯ ПРОВЕРКИ MinDist ----------
+
+// spatialGrid — равномерная сетка со стороной ячейки = minDist. Позволяет
+// проверять minDist-конфликты за O(1): точка может конфликтовать только с
+// точками в своей ячейке и соседних (|dx| < minDist ⇒ максимум на одну ячейку
+// в обе стороны), поэтому смотрим окно 3×3.
+//
+// Линейный проход (isPointValid по всему списку) давал O(n²): при плотных
+// запросах «добивка» и выбросы упирались в полный скан всех точек на каждую
+// неудачную попытку — генерация 100k миров зависала на десятки минут.
+type spatialGrid struct {
+	x0, y0 float64
+	cell   float64
+	cols   int
+	rows   int
+	cells  [][]int // [row*cols+col] — индексы точек в xs/ys
+	xs     []float64
+	ys     []float64
+}
+
+func newSpatialGrid(x0, y0, x1, y1, cell float64) *spatialGrid {
+	cols := int((x1-x0)/cell) + 2
+	rows := int((y1-y0)/cell) + 2
+	if cols < 1 {
+		cols = 1
+	}
+	if rows < 1 {
+		rows = 1
+	}
+	return &spatialGrid{
+		x0: x0, y0: y0, cell: cell,
+		cols: cols, rows: rows,
+		cells: make([][]int, cols*rows),
+		xs:    make([]float64, 0, 1024),
+		ys:    make([]float64, 0, 1024),
+	}
+}
+
+func (g *spatialGrid) cellOf(x, y float64) (c, r int) {
+	c = int((x - g.x0) / g.cell)
+	if c < 0 {
+		c = 0
+	} else if c >= g.cols {
+		c = g.cols - 1
+	}
+	r = int((y - g.y0) / g.cell)
+	if r < 0 {
+		r = 0
+	} else if r >= g.rows {
+		r = g.rows - 1
+	}
+	return c, r
+}
+
+// Add добавляет точку в сетку.
+func (g *spatialGrid) Add(x, y float64) {
+	i := len(g.xs)
+	g.xs = append(g.xs, x)
+	g.ys = append(g.ys, y)
+	c, r := g.cellOf(x, y)
+	g.cells[r*g.cols+c] = append(g.cells[r*g.cols+c], i)
+}
+
+// HasNear — есть ли уже добавленная точка на расстоянии < minDist от (x, y).
+func (g *spatialGrid) HasNear(x, y, minDist float64) bool {
+	c, r := g.cellOf(x, y)
+	d2 := minDist * minDist
+	for cc := c - 1; cc <= c+1; cc++ {
+		if cc < 0 || cc >= g.cols {
+			continue
+		}
+		for rr := r - 1; rr <= r+1; rr++ {
+			if rr < 0 || rr >= g.rows {
+				continue
+			}
+			for _, i := range g.cells[rr*g.cols+cc] {
+				dx := g.xs[i] - x
+				dy := g.ys[i] - y
+				if dx*dx+dy*dy < d2 {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 func (g *Generator) generateWorldsRandom(minDist float64) []*models.World {
 	targetCount := g.cfg.WorldCount
 	halfSize := g.cfg.MapSize
 	points := make([]struct{ X, Y float64 }, 0, targetCount)
+	grid := newSpatialGrid(-halfSize, -halfSize, halfSize, halfSize, minDist)
 	maxAttempts := targetCount * 200
 	for len(points) < targetCount && maxAttempts > 0 {
 		maxAttempts--
@@ -358,8 +450,9 @@ func (g *Generator) generateWorldsRandom(minDist float64) []*models.World {
 		if !g.galaxyEdgeAccept(x, y) {
 			continue
 		}
-		if g.isPointValid(x, y, minDist, points) {
+		if !grid.HasNear(x, y, minDist) {
 			points = append(points, struct{ X, Y float64 }{X: x, Y: y})
+			grid.Add(x, y)
 		}
 	}
 	if len(points) < targetCount {

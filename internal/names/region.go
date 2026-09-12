@@ -13,18 +13,14 @@ import (
 // (нет "врвр", "нн" на стыке и т.п.). Оба списка курируются вручную,
 // поэтому комбинации звучат по-человечески.
 //
-// Пространство: ~80 корней × 7 окончаний = 560 базовых имён, ещё больше —
-// с префиксами-типами («Сектор …», «Туманность …»). Этого хватает на сотни
-// регионов в одной галактике. Уникальность — через usedNames.
+// Пространство: ~80 корней × 7 окончаний = 560 базовых имён. Этого хватает
+// на сотни регионов в одной галактике. Уникальность — через usedNames.
+// Префиксы-типы («Сектор …», «Туманность …») намеренно не используются:
+// двухсловные названия громоздкие и не влезают в границы региона на карте.
 func GenerateRegionName(rng *rand.Rand, usedNames map[string]bool) string {
 	for attempt := 0; attempt < 100; attempt++ {
 		name := regionRoots[rng.Intn(len(regionRoots))] +
 			regionEndings[rng.Intn(len(regionEndings))]
-
-		// ~30% регионов получают префикс-тип.
-		if rng.Float64() < 0.3 {
-			name = regionPrefixes[rng.Intn(len(regionPrefixes))] + " " + name
-		}
 
 		if usedNames[name] {
 			continue
@@ -33,11 +29,6 @@ func GenerateRegionName(rng *rand.Rand, usedNames map[string]bool) string {
 		return name
 	}
 	return "Сектор-" + randomSuffix(rng)
-}
-
-// regionPrefixes — типы регионов.
-var regionPrefixes = []string{
-	"Сектор", "Туманность", "Пояс", "Рубеж", "Область",
 }
 
 // regionEndings — окончания, начинающиеся с гласной.
@@ -66,13 +57,10 @@ func IsEuphoniousRegionName(name string) bool {
 	if name == "" {
 		return false
 	}
-	// "Сектор X" и т.п. — проверяем только второе слово.
-	words := strings.Fields(name)
-	base := words[len(words)-1]
-	if len([]rune(base)) < 5 || len([]rune(base)) > 20 {
+	if len([]rune(name)) < 5 || len([]rune(name)) > 20 {
 		return false
 	}
-	return !containsAny(base, []string{"рр", "нн", "лл", "мм", "зз", "сс", "ии", "вв"})
+	return !containsAny(name, []string{"рр", "нн", "лл", "мм", "зз", "сс", "ии", "вв"})
 }
 
 func containsAny(s string, subs []string) bool {

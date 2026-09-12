@@ -3,7 +3,6 @@ package names
 
 import (
 	"math/rand"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -46,26 +45,13 @@ func TestRegionNameCombinationSpace(t *testing.T) {
 		"комбинаций корней и окончаний не хватает на 500 регионов")
 }
 
-func TestRegionNamePrefixAndBase(t *testing.T) {
-	rng := rand.New(rand.NewSource(5))
+func TestRegionNameIsSingleWord(t *testing.T) {
+	// Двойные названия («Сектор Астерия») сняты — они громоздкие и не
+	// влезают в границы региона на карте. Каждое имя — одно слово.
+	rng := rand.New(rand.NewSource(11))
 	used := make(map[string]bool)
-	withPrefix := false
-	withoutPrefix := false
-	for i := 0; i < 200 && (!withPrefix || !withoutPrefix); i++ {
+	for i := 0; i < 300; i++ {
 		n := GenerateRegionName(rng, used)
-		isPrefixed := false
-		for _, p := range regionPrefixes {
-			if strings.HasPrefix(n, p+" ") {
-				isPrefixed = true
-				break
-			}
-		}
-		if isPrefixed {
-			withPrefix = true
-		} else {
-			withoutPrefix = true
-		}
+		assert.NotContains(t, n, " ", "имя региона не должно содержать пробелов: %s", n)
 	}
-	assert.True(t, withPrefix, "ни одного имени с префиксом-типом за 200 попыток")
-	assert.True(t, withoutPrefix, "ни одного имени без префикса за 200 попыток")
 }

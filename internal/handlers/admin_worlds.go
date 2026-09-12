@@ -63,6 +63,7 @@ func (h *AdminHandlers) DeleteWorld(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.invalidatePlanetStats()
+	h.mapCache.LoadAsync(h.db)
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`{"status":"deleted"}`))
 }
@@ -89,6 +90,7 @@ func (h *AdminHandlers) CreateWorld(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.invalidatePlanetStats()
+	h.mapCache.LoadAsync(h.db)
 	w.WriteHeader(http.StatusCreated)
 	w.Write([]byte(`{"status":"created","id":"` + id + `"}`))
 }

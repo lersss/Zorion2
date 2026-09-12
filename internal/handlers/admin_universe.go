@@ -230,6 +230,7 @@ func (h *AdminHandlers) GenerateUniverse(w http.ResponseWriter, r *http.Request)
 		log.Printf("✅ GenerateUniverse: completed, %d worlds saved", len(worlds))
 		statusManager.Done(generator.JobGenerateUniverse)
 		h.recomputePlanetStats()
+		h.mapCache.LoadAsync(h.db)
 	}()
 
 	w.WriteHeader(http.StatusAccepted)
@@ -304,6 +305,7 @@ func (h *AdminHandlers) GeneratePlanets(w http.ResponseWriter, r *http.Request) 
 		)
 		statusManager.Done(generator.JobGeneratePlanets)
 		h.recomputePlanetStats()
+		h.mapCache.LoadAsync(h.db)
 	}()
 
 	w.WriteHeader(http.StatusAccepted)
@@ -366,6 +368,8 @@ func (h *AdminHandlers) GeneratePrototypePlanet(w http.ResponseWriter, r *http.R
 		http.Error(w, "Failed to commit: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	h.mapCache.LoadAsync(h.db)
 
 	log.Printf("🪐 GeneratePrototypePlanet: мир %s, планета %s, поселение %d чел.",
 		world.Name, pd.Name, population)
@@ -523,6 +527,7 @@ func (h *AdminHandlers) ClearUniverse(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("✅ ClearUniverse: очищено за %v (users=%d)", time.Since(tStart).Round(time.Millisecond), usersAfter)
 	h.invalidatePlanetStats()
+	h.mapCache.LoadAsync(h.db)
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`{"status":"cleared"}`))
 }

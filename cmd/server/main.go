@@ -14,6 +14,7 @@ import (
 	"zorion/internal/config"
 	"zorion/internal/generator/planet"
 	"zorion/internal/handlers"
+	"zorion/internal/mapcache"
 	"zorion/internal/models"
 	"zorion/internal/repository"
 	"zorion/internal/travel"
@@ -96,8 +97,13 @@ func main() {
 	travelHandlers := handlers.NewTravelHandlers(worldRepo, userRepo, travelManager)
 	wsHandler := handlers.NewWebSocketHandler(wsHub)
 	contractHandlers := handlers.NewContractHandlers(assignmentRepo, userRepo)
-	adminHandlers := handlers.NewAdminHandlers(worldRepo, db)
+	mapCache := mapcache.NewManager()
+	adminHandlers := handlers.NewAdminHandlers(worldRepo, db, mapCache)
 	compatHandlers := handlers.NewCompatibilityHandlers(db)
+
+	// Снапшот карты подхватывается в фоне — сервер отвечает сразу,
+	// карта заполняется за пару секунд после старта.
+	mapCache.LoadAsync(db)
 
 	// API открытые
 	http.HandleFunc("/health", healthHandler)

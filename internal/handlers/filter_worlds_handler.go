@@ -10,13 +10,15 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"zorion/internal/mapcache"
 )
 
 // ==================== ТИПЫ ====================
 
 // worldCluster — один кластер миров для карты.
 // CellX/CellY — идентификатор ячейки (для отладки).
-// X/Y — центроид кластера в мировых координатах.
+// X/Y — координаты кластера в мировых координатах.
 // Count — сколько миров в ячейке.
 // Sample* — данные представителя для cnt=1 (для tooltip и цвета).
 type worldCluster struct {
@@ -39,17 +41,13 @@ const (
 	// Максимум ячеек по ширине viewport — защита от DoS,
 	// если клиент пришлёт микроскопический cell.
 	maxCellCols = 250
-
-	// Максимум записей в ответе (кластеры 5+ + одиночные звёзды).
-	// Страховка на случай, если что-то пойдёт не так и записей окажется больше.
-	maxClusterReturn = 20000
 )
 
 // ==================== ХЕНДЛЕР ====================
 
 // FilterWorldsHandler — возвращает кластеры миров для видимой области карты.
-// Клиент присылает границы viewport'а и размер ячейки — сервер делает
-// GROUP BY и отдаёт компактный набор кластеров вместо всех миров.
+// Клиент присылает границы viewport'а и размер ячейки. Кластеризация
+// выполняется в Go по снапшоту mapcache — Postgres из хот-пата карты убран.
 func (h *AdminHandlers) FilterWorldsHandler(w http.ResponseWriter, r *http.Request) {
 	tStart := time.Now()
 
@@ -109,151 +107,40 @@ func (h *AdminHandlers) FilterWorldsHandler(w http.ResponseWriter, r *http.Reque
 	planetType := q.Get("planet_type")
 	resourceCategory := q.Get("resource_category")
 
-	// --- Сборка SQL ---
-	// $1 = xMin, $2 = xMax, $3 = yMin, $4 = yMax, $5 = cell
-	args := []interface{}{xMin, xMax, yMin, yMax, cell}
-	argN := 6
-
-	filterSQL := ""
-	if hasPlanets {
-		filterSQL += ` AND EXISTS (SELECT 1 FROM planets p WHERE p.world_id = w.id)`
-	}
-	if hasLife {
-		filterSQL += ` AND EXISTS (SELECT 1 FROM planets p WHERE p.world_id = w.id AND (p.data->>'life')::boolean = true)`
-	}
-	if hasHabitable {
-		filterSQL += ` AND EXISTS (SELECT 1 FROM planets p WHERE p.world_id = w.id AND (p.data->>'habitable')::boolean = true)`
-	}
-	if planetType != "" {
-		filterSQL += ` AND EXISTS (SELECT 1 FROM planets p WHERE p.world_id = w.id AND LOWER(p.data->>'type') = $` + strconv.Itoa(argN) + `)`
-		args = append(args, strings.ToLower(planetType))
-		argN++
-	}
-	if resourceCategory != "" {
-		filterSQL += ` AND EXISTS (
-			SELECT 1 FROM planets p
-			WHERE p.world_id = w.id
-			  AND p.data->'resources'->>$` + strconv.Itoa(argN) + ` IS NOT NULL
-			  AND (p.data->'resources'->>$` + strconv.Itoa(argN) + `)::float > 0.3
-		)`
-		args = append(args, resourceCategory)
-		argN++
-	}
-
-	// Основной запрос: фильтрация → группировка по ячейкам.
-	//
-	// Кластеризуются только ячейки с 5+ мирами. Ячейки с 1–4 мирами
-	// возвращаются отдельными звёздами (cnt=1 с данными мира) — пузыри
-	// «2–4» только мусорят карту.
-	// Позиция кластера — реальные координаты самой крупной звезды в ячейке
-	// (а не центроид): точки не выстраиваются по сетке ячеек, а их цвет
-	// отвечает цвету крупнейшей звезды.
-	sqlQuery := `
-		WITH filtered AS (
-			SELECT id, name, coord_x, coord_y, spectral_class,
-				CASE spectral_class
-					WHEN 'O' THEN 1 WHEN 'B' THEN 2 WHEN 'A' THEN 3
-					WHEN 'F' THEN 4 WHEN 'G' THEN 5 WHEN 'K' THEN 6
-					WHEN 'M' THEN 7 WHEN 'L' THEN 8 WHEN 'T' THEN 9
-					WHEN 'Y' THEN 10 ELSE 99 END AS srank
-			FROM worlds w
-			WHERE coord_x BETWEEN $1 AND $2
-			  AND coord_y BETWEEN $3 AND $4
-			  ` + filterSQL + `
-		),
-		cells AS (
-			SELECT
-				FLOOR(coord_x / $5)::bigint AS cell_x,
-				FLOOR(coord_y / $5)::bigint AS cell_y,
-				COUNT(*)::int               AS cnt
-			FROM filtered
-			GROUP BY 1, 2
-		),
-		clusters AS (
-			SELECT
-				c.cell_x,
-				c.cell_y,
-				c.cnt,
-				(ARRAY_AGG(f.coord_x ORDER BY f.srank, f.id))[1]::float8 AS avg_x,
-				(ARRAY_AGG(f.coord_y ORDER BY f.srank, f.id))[1]::float8 AS avg_y,
-				(ARRAY_AGG(f.id ORDER BY f.id))[1]           AS sample_id,
-				(ARRAY_AGG(f.name ORDER BY f.id))[1]         AS sample_name,
-				(ARRAY_AGG(f.spectral_class ORDER BY f.srank, f.id))[1] AS sample_spectral
-			FROM cells c
-			JOIN filtered f
-			  ON FLOOR(f.coord_x / $5)::bigint = c.cell_x
-			 AND FLOOR(f.coord_y / $5)::bigint = c.cell_y
-			WHERE c.cnt >= 5
-			GROUP BY c.cell_x, c.cell_y, c.cnt
-		),
-		singles AS (
-			SELECT
-				f.id                                  AS sample_id,
-				f.name                                AS sample_name,
-				f.spectral_class                      AS sample_spectral,
-				f.coord_x                             AS avg_x,
-				f.coord_y                             AS avg_y,
-				c.cell_x,
-				c.cell_y
-			FROM cells c
-			JOIN filtered f
-			  ON FLOOR(f.coord_x / $5)::bigint = c.cell_x
-			 AND FLOOR(f.coord_y / $5)::bigint = c.cell_y
-			WHERE c.cnt < 5
-		)
-		SELECT cell_x, cell_y, 1::int AS cnt, avg_x, avg_y, sample_id, sample_name, sample_spectral
-		FROM singles
-		UNION ALL
-		SELECT cell_x, cell_y, cnt, avg_x, avg_y, sample_id, sample_name, sample_spectral
-		FROM clusters
-		ORDER BY cell_x, cell_y
-		LIMIT ` + strconv.Itoa(maxClusterReturn)
-
-	// --- Запрос ---
+	// --- Кластеризация из снапшота карты (без SQL) ---
 	tQuery := time.Now()
-	rows, err := h.db.QueryContext(r.Context(), sqlQuery, args...)
-	if err != nil {
-		log.Printf("❌ FilterWorlds query error: %v", err)
-		http.Error(w, "Database error", http.StatusInternalServerError)
-		return
-	}
-	defer rows.Close()
+	clusters := h.mapCache.Snapshot().Query(
+		xMin, xMax, yMin, yMax, cell,
+		mapcache.Filter{
+			HasPlanets:       hasPlanets,
+			HasLife:          hasLife,
+			HasHabitable:     hasHabitable,
+			PlanetType:       planetType,
+			ResourceCategory: resourceCategory,
+		},
+	)
 	queryDur := time.Since(tQuery)
 
-	// --- Чтение ---
-	clusters := make([]worldCluster, 0, 512)
-	for rows.Next() {
-		var c worldCluster
-		var sampleID, sampleName, sampleSpec *string
-		if err := rows.Scan(
-			&c.CellX, &c.CellY, &c.Count, &c.X, &c.Y,
-			&sampleID, &sampleName, &sampleSpec,
-		); err != nil {
-			log.Printf("❌ FilterWorlds scan error: %v", err)
-			http.Error(w, "Scan error", http.StatusInternalServerError)
-			return
+	// --- Преобразование в формат ответа ---
+	tScan := time.Now()
+	out := make([]worldCluster, 0, len(clusters))
+	for _, c := range clusters {
+		oc := worldCluster{
+			CellX:          c.CellX,
+			CellY:          c.CellY,
+			Count:          c.Count,
+			X:              c.X,
+			Y:              c.Y,
+			SampleSpectral: c.SampleSpectral,
 		}
 		// Sample* — только для cnt=1, чтобы не раздувать payload.
-		// Spectral — для всех: цвет точки кластера на карте (самая крупная звезда).
-		if sampleSpec != nil {
-			c.SampleSpectral = *sampleSpec
-		}
 		if c.Count == 1 {
-			if sampleID != nil {
-				c.SampleID = *sampleID
-			}
-			if sampleName != nil {
-				c.SampleName = *sampleName
-			}
+			oc.SampleID = c.SampleID
+			oc.SampleName = c.SampleName
 		}
-		clusters = append(clusters, c)
+		out = append(out, oc)
 	}
-	if err = rows.Err(); err != nil {
-		log.Printf("❌ FilterWorlds rows error: %v", err)
-		http.Error(w, "Rows error", http.StatusInternalServerError)
-		return
-	}
-	scanDur := time.Since(tQuery) - queryDur
+	scanDur := time.Since(tScan)
 
 	// --- Ответ ---
 	w.Header().Set("Content-Type", "application/json")
@@ -269,7 +156,7 @@ func (h *AdminHandlers) FilterWorldsHandler(w http.ResponseWriter, r *http.Reque
 	}
 
 	tEncode := time.Now()
-	if err := json.NewEncoder(writer).Encode(clusters); err != nil {
+	if err := json.NewEncoder(writer).Encode(out); err != nil {
 		// Заголовки уже улетели — http.Error нельзя. Просто логируем.
 		log.Printf("⚠️ FilterWorlds encode error (клиент отвалился?): %v", err)
 		return
@@ -279,7 +166,7 @@ func (h *AdminHandlers) FilterWorldsHandler(w http.ResponseWriter, r *http.Reque
 	log.Printf(
 		"🗺️  FilterWorlds: bounds=(%.0f,%.0f)-(%.0f,%.0f) cell=%.2f → %d кластеров, query=%v scan=%v encode=%v total=%v gzip=%v",
 		xMin, yMin, xMax, yMax, cell,
-		len(clusters),
+		len(out),
 		queryDur.Round(time.Millisecond),
 		scanDur.Round(time.Millisecond),
 		encodeDur.Round(time.Millisecond),

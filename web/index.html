@@ -12,14 +12,10 @@
         h1 { font-size: 2rem; margin-bottom: 0.5rem; }
         .info p { margin-bottom: 0.3rem; color: #cbd5e1; }
         .info strong { color: #f0f4fa; }
-        select { width: 100%; padding: 0.7rem; border-radius: 0.6rem; border: 1px solid #334155; background: #0f172a; color: #f0f4fa; margin: 1rem 0; }
         button { background: #3b82f6; border: none; color: white; padding: 0.6rem 1.2rem; border-radius: 2rem; cursor: pointer; transition: 0.2s; margin-right: 0.5rem; }
         button:hover { background: #2563eb; }
         .btn-secondary { background: #475569; }
         .btn-secondary:hover { background: #334155; }
-        #travelStatus { margin-top: 1rem; color: #60a5fa; }
-        .error { color: #f87171; }
-        .success { color: #4ade80; }
     </style>
 </head>
 <body>
@@ -42,22 +38,9 @@
             <div id="ship-sel" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(64px, 1fr)); gap:8px; margin-top:10px;"></div>
             <div id="ship-status" style="margin-top:10px; font-size:0.8rem; color:#94a3b8;"></div>
         </div>
-
-        <div class="card">
-            <h2>🧭 Перемещение</h2>
-            <label for="worldSelect" style="display:block;margin-bottom:0.5rem;">Выберите мир для полёта:</label>
-            <select id="worldSelect">
-                <option value="">Загрузка миров...</option>
-            </select>
-            <button onclick="startTravel()">🚀 Лететь</button>
-            <div id="travelStatus"></div>
-        </div>
     </div>
 
     <script>
-        let worlds = [];
-        let currentWorldId = null;
-
         async function loadUser() {
             const token = localStorage.getItem('token');
             if (!token) return;
@@ -67,94 +50,8 @@
                 });
                 if (!res.ok) throw new Error('Failed to load user');
                 const data = await res.json();
-                currentWorldId = data.current_world_id;
                 document.getElementById('currentWorld').textContent = data.current_world_name || '—';
             } catch (e) {
-                console.error(e);
-            }
-        }
-
-        async function loadWorlds() {
-            const token = localStorage.getItem('token');
-            if (!token) {
-                document.getElementById('worldSelect').innerHTML = '<option value="">Не авторизован</option>';
-                return;
-            }
-            try {
-                const res = await fetch('/worlds', {
-                    headers: { 'Authorization': 'Bearer ' + token }
-                });
-                if (!res.ok) throw new Error('Ошибка загрузки миров');
-                worlds = await res.json();
-
-                const select = document.getElementById('worldSelect');
-                select.innerHTML = '';
-                if (worlds.length === 0) {
-                    select.innerHTML = '<option value="">Нет миров</option>';
-                    return;
-                }
-                worlds.forEach(w => {
-                    const option = document.createElement('option');
-                    option.value = w.id;
-                    option.textContent = w.name + ' (x:' + w.coord_x + ', y:' + w.coord_y + ')';
-                    select.appendChild(option);
-                });
-                if (currentWorldId) {
-                    select.value = currentWorldId;
-                }
-            } catch (e) {
-                document.getElementById('worldSelect').innerHTML = '<option value="">Ошибка загрузки</option>';
-                console.error(e);
-            }
-        }
-
-        async function startTravel() {
-            const select = document.getElementById('worldSelect');
-            const worldId = select.value;
-            if (!worldId) {
-                document.getElementById('travelStatus').innerHTML = '<span class="error">❌ Выберите мир для полёта</span>';
-                return;
-            }
-
-            const token = localStorage.getItem('token');
-            if (!token) {
-                document.getElementById('travelStatus').innerHTML = '<span class="error">❌ Вы не авторизованы</span>';
-                return;
-            }
-
-            const statusEl = document.getElementById('travelStatus');
-            statusEl.innerHTML = '⏳ Отправка запроса...';
-
-            try {
-                const res = await fetch('/travel', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': 'Bearer ' + token
-                    },
-                    body: JSON.stringify({ world_id: worldId })
-                });
-                const text = await res.text();
-                if (!res.ok) {
-                    statusEl.innerHTML = '<span class="error">❌ Ошибка: ' + text + '</span>';
-                    return;
-                }
-                const data = JSON.parse(text);
-                statusEl.innerHTML = `<span class="success">🚀 Полёт начат! Длительность: ${data.duration} секунд. Прибытие через ${data.duration} сек.</span>`;
-                let remaining = data.duration;
-                const interval = setInterval(() => {
-                    remaining--;
-                    if (remaining <= 0) {
-                        clearInterval(interval);
-                        statusEl.innerHTML = `<span class="success">✅ Прибытие! (обновите страницу)</span>`;
-                        loadUser();
-                        loadWorlds();
-                    } else {
-                        statusEl.innerHTML = `🚀 В полёте... осталось ${remaining} сек.`;
-                    }
-                }, 1000);
-            } catch (e) {
-                statusEl.innerHTML = '<span class="error">❌ Ошибка сети</span>';
                 console.error(e);
             }
         }
@@ -254,7 +151,7 @@
             await Promise.all([loadShips(), loadShipIcon()]);
         }
 
-        loadUser().then(loadWorlds);
+        loadUser();
         initShipSelector();
     </script>
 </body>

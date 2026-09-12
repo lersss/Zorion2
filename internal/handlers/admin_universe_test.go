@@ -62,6 +62,25 @@ func TestPlanetStatsInvalidate(t *testing.T) {
 	require.Nil(t, h.planetStats, "после invalidatePlanetStats кэш должен быть пуст")
 }
 
+// TestClearPlanets — B11: перед генерацией планет старые строки удаляются,
+// возвращается их число. Если SQL-последовательность изменится — тест упадёт.
+func TestClearPlanets(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectQuery(`SELECT COUNT(*) FROM planets`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(42))
+	mock.ExpectExec(`DELETE FROM planets`).
+		WillReturnResult(sqlmock.NewResult(0, 42))
+
+	h := &AdminHandlers{db: db}
+	n, err := h.clearPlanets()
+	require.NoError(t, err)
+	require.Equal(t, 42, n)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestTruncateTablesCoverMigrationFK(t *testing.T) {
 	migs := readMigrations(t)
 

@@ -290,6 +290,17 @@ func (h *AdminHandlers) GeneratePlanets(w http.ResponseWriter, r *http.Request) 
 		tStart := time.Now()
 		log.Printf("🌍 GeneratePlanets: starting for %d worlds (batch=500, COPY)", len(worldInfos))
 
+		// B11: старые планеты удаляются до генерации, иначе повторный запуск
+		// дублирует данные (было 638k вместо 319k планет). Дочерние записи
+		// (поселения, заводы, ресурсы) удаляются каскадно (ON DELETE CASCADE).
+		oldCount, err := h.clearPlanets()
+		if err != nil {
+			log.Printf("❌ GeneratePlanets: delete old planets: %v", err)
+			statusManager.Fail(generator.JobGeneratePlanets, err.Error())
+			return
+		}
+		log.Printf("🗑️ GeneratePlanets: удалено старых планет: %d", oldCount)
+
 		planetGen := planet.NewGenerator(h.db, 0)
 
 		progressFn := func(processed int) {
@@ -315,6 +326,19 @@ func (h *AdminHandlers) GeneratePlanets(w http.ResponseWriter, r *http.Request) 
 
 	w.WriteHeader(http.StatusAccepted)
 	w.Write([]byte(`{"status":"started"}`))
+}
+
+// clearPlanets — удаляет все планеты и возвращает число удалённых.
+// Безопасно благодаря ON DELETE CASCADE на дочерних таблицах.
+func (h *AdminHandlers) clearPlanets() (int, error) {
+	var oldCount int
+	if err := h.db.QueryRow(`SELECT COUNT(*) FROM planets`).Scan(&oldCount); err != nil {
+		return 0, err
+	}
+	if _, err := h.db.Exec(`DELETE FROM planets`); err != nil {
+		return 0, err
+	}
+	return oldCount, nil
 }
 
 // ==================== GENERATE PROTOTYPE PLANET ====================

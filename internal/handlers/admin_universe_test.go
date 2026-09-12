@@ -49,6 +49,19 @@ func TestClearUniverseTx(t *testing.T) {
 // Инвариант: каждая существующая таблица, созданная миграциями и ссылающаяся
 // на усекаемую таблицу, обязана быть в truncateTables. users исключена
 // намеренно — её FK снимается отдельно в clearUniverseTx.
+// TestPlanetStatsInvalidate — защита механизма сброса кэша статистики:
+// GeneratePlanets вызывает invalidatePlanetStats в начале генерации,
+// чтобы вкладка статистики не показывала устаревшее в окне пересчёта.
+func TestPlanetStatsInvalidate(t *testing.T) {
+	h := &AdminHandlers{}
+
+	h.setPlanetStats(&PlanetStats{TotalPlanets: 7})
+	require.NotNil(t, h.planetStats, "кэш должен быть заполнен после setPlanetStats")
+
+	h.invalidatePlanetStats()
+	require.Nil(t, h.planetStats, "после invalidatePlanetStats кэш должен быть пуст")
+}
+
 func TestTruncateTablesCoverMigrationFK(t *testing.T) {
 	migs := readMigrations(t)
 

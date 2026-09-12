@@ -262,6 +262,11 @@ func (h *AdminHandlers) GeneratePlanets(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Кэш статистики к этому моменту почти наверняка устарел (например,
+	// «0 планет» после GenerateUniverse). Сбрасываем до генерации, чтобы
+	// вкладка статистики не показывала прошлое состояние в окне пересчёта.
+	h.invalidatePlanetStats()
+
 	// Конвертируем []*models.World в []planet.WorldInfo — лёгкий тип,
 	// чтобы генератор не зависел от models.
 	worldInfos := make([]planet.WorldInfo, 0, len(worlds))

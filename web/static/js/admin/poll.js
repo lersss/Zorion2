@@ -35,6 +35,12 @@ export async function pollJob(jobType, progressId, resultId, cancelBtnId) {
             if (status === 'done') {
                 resultEl.textContent = `✅ Готово! (${total} объектов)`;
                 if (jobType === 'generate_universe') {
+                    // Недобор миров — штатная ситуация: при плотном запросе
+                    // кластеры и «добивка» упираются в лимит попыток.
+                    // processed = реально создано миров, total = запрошено.
+                    resultEl.textContent = progress < total
+                        ? `⚠️ Готово, но НЕДОБОР! Миров создано: ${progress} из ${total}`
+                        : `✅ Готово! Миров создано: ${progress}`;
                     loadStats();
                     loadWorlds(1);
                 } else if (jobType === 'generate_planets') {

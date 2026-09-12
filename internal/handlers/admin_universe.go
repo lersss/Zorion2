@@ -105,6 +105,7 @@ func (h *AdminHandlers) GenerateUniverse(w http.ResponseWriter, r *http.Request)
 		ClusterRadius  float64 `json:"cluster_radius"`
 		ClusterSpacing float64 `json:"cluster_spacing"`
 		OutlierPercent int     `json:"outlier_percent"`
+		Shape          string  `json:"shape"` // "blob" (по умолчанию) | "circle"
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
@@ -134,9 +135,12 @@ func (h *AdminHandlers) GenerateUniverse(w http.ResponseWriter, r *http.Request)
 	if req.OutlierPercent > 50 {
 		req.OutlierPercent = 50
 	}
+	if req.Shape == "" {
+		req.Shape = "blob"
+	}
 
-	log.Printf("🌌 GenerateUniverse: mapSize=%.1f, minDist=%.1f, clusterRadius=%.1f, clusterSpacing=%.1f, outlierPercent=%d%%",
-		req.MapSize, req.MinDist, req.ClusterRadius, req.ClusterSpacing, req.OutlierPercent)
+	log.Printf("🌌 GenerateUniverse: mapSize=%.1f, minDist=%.1f, clusterRadius=%.1f, clusterSpacing=%.1f, outlierPercent=%d%%, shape=%q",
+		req.MapSize, req.MinDist, req.ClusterRadius, req.ClusterSpacing, req.OutlierPercent, req.Shape)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -165,6 +169,7 @@ func (h *AdminHandlers) GenerateUniverse(w http.ResponseWriter, r *http.Request)
 			ClusterSpacing: req.ClusterSpacing,
 			OutlierPercent: float64(req.OutlierPercent) / 100.0,
 			WorldSpread:    20.0,
+			Shape:          req.Shape,
 		}
 		gen := galaxy.NewGenerator(&cfg)
 		result := gen.GenerateGalaxyWithRegions()

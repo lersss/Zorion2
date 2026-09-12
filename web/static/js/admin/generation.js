@@ -46,6 +46,7 @@ export async function generateUniverse() {
     const clusterRadius = parseInt(document.getElementById('genClusterRadius').value);
     const clusterSpacing = parseInt(document.getElementById('genClusterSpacing').value);
     const outlierPercent = parseInt(document.getElementById('genOutlierPercent').value);
+    const shape = document.getElementById('genShape').value === 'circle' ? 'circle' : 'blob';
     if (isNaN(worlds) || isNaN(clusters) || worlds <= 0 || clusters <= 0 || isNaN(mapSize) || mapSize <= 0 || isNaN(minDist) || minDist <= 0 || isNaN(clusterRadius) || clusterRadius <= 0 || isNaN(clusterSpacing) || clusterSpacing <= 0 || isNaN(outlierPercent) || outlierPercent < 0) {
         document.getElementById('genResult').textContent = '❌ Введите корректные числа';
         return;
@@ -69,7 +70,8 @@ export async function generateUniverse() {
                 min_dist: minDist,
                 cluster_radius: clusterRadius,
                 cluster_spacing: clusterSpacing,
-                outlier_percent: outlierPercent
+                outlier_percent: outlierPercent,
+                shape: shape
             })
         });
         if (!res.ok) {

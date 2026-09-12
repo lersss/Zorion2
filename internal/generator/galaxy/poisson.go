@@ -113,7 +113,7 @@ func (g *Generator) generateWorldsPoisson() *GalaxyResult {
 		remaining -= count
 
 		cx, cy := centers[i].X, centers[i].Y
-		clusterPointsList := g.clusterPointsGaussian(cx, cy, clusterRadius, minDist, count)
+		clusterPointsList := g.clusterPoints(cx, cy, clusterRadius, minDist, count)
 		for _, p := range clusterPointsList {
 			// ГЛОБАЛЬНАЯ ПРОВЕРКА: точка должна быть внутри круга
 			if math.Hypot(p.X, p.Y) > halfSize {
@@ -210,12 +210,21 @@ func (g *Generator) generateClusterCenters(count int, halfSize float64, minSpaci
 	return centers
 }
 
-// ---------- ТОЧКИ КЛАСТЕРА С ГАУССОВОЙ ПЛОТНОСТЬЮ ----------
+// ---------- ТОЧКИ КЛАСТЕРА ПО ФОРМЕ ----------
 
-// clusterPointsGaussian — точки кластера с гауссовой плотностью:
-// плотнее к центру, реже к краям (std = радиус×0.7, усечение по кругу).
+// clusterPoints — точки кластера выбранной формы (см. Config.Shape).
 // Соблюдает minDist между точками (отбор отбрасыванием).
-func (g *Generator) clusterPointsGaussian(cx, cy, radius, minDist float64, count int) []struct{ X, Y float64 } {
+func (g *Generator) clusterPoints(cx, cy, radius, minDist float64, count int) []struct{ X, Y float64 } {
+	if g.cfg.clusterShape() == "circle" {
+		return g.clusterPointsCircle(cx, cy, radius, minDist, count)
+	}
+	return g.clusterPointsBlob(cx, cy, radius, minDist, count)
+}
+
+// clusterPointsCircle — круглая форма кластера: гауссова плотность,
+// плотнее к центру (std = радиус×0.7), с размытой границей (см. clusterEdgeAccept).
+// Соблюдает minDist между точками (отбор отбрасыванием).
+func (g *Generator) clusterPointsCircle(cx, cy, radius, minDist float64, count int) []struct{ X, Y float64 } {
 	if count <= 0 {
 		return nil
 	}
@@ -226,7 +235,7 @@ func (g *Generator) clusterPointsGaussian(cx, cy, radius, minDist float64, count
 		maxAttempts--
 		x := cx + g.gaussian(std)
 		y := cy + g.gaussian(std)
-		if math.Hypot(x-cx, y-cy) > radius {
+		if !g.clusterEdgeAccept(cx, cy, x, y, radius) {
 			continue
 		}
 		if g.isPointValid(x, y, minDist, points) {
@@ -234,6 +243,58 @@ func (g *Generator) clusterPointsGaussian(cx, cy, radius, minDist float64, count
 		}
 	}
 	return points
+}
+
+// clusterPointsBlob — бесформенная форма кластера: точки тянутся вокруг
+// 2–4 перекрывающихся гауссовых очагов со случайными смещениями и масштабами.
+// Кластер получается вытянутым и асимметричным, без круговой симметрии.
+// Соблюдает minDist между точками (отбор отбрасыванием).
+func (g *Generator) clusterPointsBlob(cx, cy, radius, minDist float64, count int) []struct{ X, Y float64 } {
+	if count <= 0 {
+		return nil
+	}
+	// Очаги смещаются от центра до 60% радиуса — не вылетают за территорию
+	// кластера; их std — 0.25–0.5 радиуса (перекрываются, облако бесшовное).
+	nSeeds := 2 + g.rng.Intn(3)
+	seeds := make([]struct{ x, y, std float64 }, nSeeds)
+	for i := range seeds {
+		d := g.rng.Float64() * radius * 0.6
+		a := 2 * math.Pi * g.rng.Float64()
+		seeds[i].x = cx + d*math.Cos(a)
+		seeds[i].y = cy + d*math.Sin(a)
+		seeds[i].std = radius * (0.25 + g.rng.Float64()*0.25)
+	}
+
+	points := make([]struct{ X, Y float64 }, 0, count)
+	maxAttempts := count * 60
+	for len(points) < count && maxAttempts > 0 {
+		maxAttempts--
+		s := seeds[g.rng.Intn(nSeeds)]
+		x := s.x + g.gaussian(s.std)
+		y := s.y + g.gaussian(s.std)
+		if !g.clusterEdgeAccept(cx, cy, x, y, radius) {
+			continue
+		}
+		if g.isPointValid(x, y, minDist, points) {
+			points = append(points, struct{ X, Y float64 }{X: x, Y: y})
+		}
+	}
+	return points
+}
+
+// clusterEdgeAccept — размытая граница кластера вместо жёсткого обреза:
+// внутри радиуса принимаем всегда, на кольце R…1.25R — с линейно убывающей
+// вероятностью, дальше — никогда. Убирает видимое «кольцо» из звёзд у края.
+func (g *Generator) clusterEdgeAccept(cx, cy, x, y, radius float64) bool {
+	r := math.Hypot(x-cx, y-cy)
+	if r <= radius {
+		return true
+	}
+	const tail = 0.25
+	if r > radius*(1+tail) {
+		return false
+	}
+	return g.rng.Float64() < 1-(r-radius)/(radius*tail)
 }
 
 // ---------- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ----------

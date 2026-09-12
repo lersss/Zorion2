@@ -3,6 +3,7 @@ package galaxy
 import (
 	"math"
 	"math/rand"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -21,6 +22,18 @@ type Config struct {
 	ClusterRadius  float64
 	OutlierPercent float64
 	WorldSpread    float64
+	// Shape — форма звёздных кластеров: "blob" (бесформенное облако из
+	// перекрывающихся очагов, по умолчанию) или "circle" (классический круг).
+	// Любое пустое/неизвестное значение трактуется как "blob".
+	Shape string
+}
+
+// clusterShape — нормализованная форма кластеров.
+func (c *Config) clusterShape() string {
+	if strings.ToLower(strings.TrimSpace(c.Shape)) == "circle" {
+		return "circle"
+	}
+	return "blob"
 }
 
 // Generator создаёт миры и галактику

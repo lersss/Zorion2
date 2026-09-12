@@ -73,6 +73,12 @@
                 <div><label>Радиус кластера</label><input type="number" id="genClusterRadius" value="1200" step="5"></div>
                 <div><label>Расст. между кластерами</label><input type="number" id="genClusterSpacing" value="200" step="10"></div>
                 <div><label>Выбросы %</label><input type="number" id="genOutlierPercent" value="30" step="1"></div>
+                <div><label>Форма кластера</label>
+                    <select id="genShape">
+                        <option value="blob">Бесформенное облако</option>
+                        <option value="circle">Круг</option>
+                    </select>
+                </div>
                 <button class="btn success" onclick="generateUniverse()">Сгенерировать</button>
                 <button class="btn danger" onclick="cancelGeneration('generate_universe')" id="cancelUniverseBtn" style="display:none;">Остановить</button>
             </div>

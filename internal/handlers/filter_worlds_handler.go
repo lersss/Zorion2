@@ -30,6 +30,7 @@ type worldCluster struct {
 	SampleID       string  `json:"sid,omitempty"`
 	SampleName     string  `json:"sname,omitempty"`
 	SampleSpectral string  `json:"sspec,omitempty"`
+	SampleTemp     float64 `json:"stemp,omitempty"`
 }
 
 // ==================== ЛИМИТЫ ====================
@@ -132,6 +133,7 @@ func (h *AdminHandlers) FilterWorldsHandler(w http.ResponseWriter, r *http.Reque
 			X:              c.X,
 			Y:              c.Y,
 			SampleSpectral: c.SampleSpectral,
+			SampleTemp:     c.SampleTemp,
 		}
 		// Sample* — только для cnt=1, чтобы не раздувать payload.
 		if c.Count == 1 {

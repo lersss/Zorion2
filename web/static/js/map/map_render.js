@@ -1,6 +1,6 @@
 // web/static/js/map/map_render.js
 import { state, elements } from './config.js';
-import { isFiniteNumber, worldToCanvas, getStarColor } from './utils.js';
+import { isFiniteNumber, worldToCanvas, getStarColor, getStarShade } from './utils.js';
 import { CONFIG } from '../config.js';
 
 const { map: mapCfg } = CONFIG;
@@ -191,7 +191,7 @@ function drawGrid(ctx, canvasWidth, canvasHeight, scale, offsetX, offsetY) {
 
 function drawSingleStar(ctx, c, x, y, scale, currentWorldId, hoveredWorldId, focusWorldId) {
     const radius = clusterScreenRadius(c);
-    const color = getStarColor(c.sspec || 'G');
+    const color = getStarShade(c.sspec || 'G', c.stemp);
 
     ctx.globalAlpha = 1;
     ctx.beginPath();
@@ -254,14 +254,15 @@ function drawSingleStar(ctx, c, x, y, scale, currentWorldId, hoveredWorldId, foc
 
 function drawCluster(ctx, c, x, y) {
     const count = c.cnt;
-    const color = getStarColor(c.sspec || 'G');
+    const color = getStarShade(c.sspec || 'G', c.stemp);
     const radius = clusterDotRadius(count);
 
-    // Свечение: крупные кластеры — яркие «звёзды» с ореолом.
+    // Свечение: по базовому hex класса (градация не нужна на ореоле),
+    // крупные кластеры — яркие «звёзды» с ореолом.
     const glow = radius * 2.5;
     const g = ctx.createRadialGradient(x, y, 0, x, y, glow);
-    g.addColorStop(0, hexToRgba(color, 0.35));
-    g.addColorStop(1, hexToRgba(color, 0));
+    g.addColorStop(0, hexToRgba(getStarColor(c.sspec || 'G'), 0.35));
+    g.addColorStop(1, hexToRgba(getStarColor(c.sspec || 'G'), 0));
     ctx.beginPath();
     ctx.arc(x, y, glow, 0, Math.PI * 2);
     ctx.fillStyle = g;

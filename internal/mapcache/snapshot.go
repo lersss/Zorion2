@@ -25,6 +25,7 @@ type World struct {
 	Name         string
 	X, Y         float64
 	Spectral     string
+	Temp         float64
 	HasPlanets   bool
 	HasLife      bool
 	HasHabitable bool
@@ -99,7 +100,7 @@ func (m *Manager) LoadAsync(db *sql.DB) {
 
 func loadWorlds(ctx context.Context, db *sql.DB) ([]World, error) {
 	rows, err := db.QueryContext(ctx, `
-		SELECT id, name, coord_x, coord_y, spectral_class FROM worlds
+		SELECT id, name, coord_x, coord_y, spectral_class, temperature FROM worlds
 	`)
 	if err != nil {
 		return nil, err
@@ -109,7 +110,7 @@ func loadWorlds(ctx context.Context, db *sql.DB) ([]World, error) {
 	var worlds []World
 	for rows.Next() {
 		var w World
-		if err := rows.Scan(&w.ID, &w.Name, &w.X, &w.Y, &w.Spectral); err != nil {
+		if err := rows.Scan(&w.ID, &w.Name, &w.X, &w.Y, &w.Spectral, &w.Temp); err != nil {
 			return nil, err
 		}
 		worlds = append(worlds, w)

@@ -22,16 +22,16 @@ func newSnapshot(worlds ...World) *Snapshot {
 // отдельной точкой.
 func TestQueryClustersAndSingles(t *testing.T) {
 	worlds := []World{
-		{ID: "a", Name: "A", X: 1, Y: 1, Spectral: "M"},
-		{ID: "b", Name: "B", X: 2, Y: 2, Spectral: "G"},
-		{ID: "c", Name: "C", X: 3, Y: 3, Spectral: "O"},
-		{ID: "d", Name: "D", X: 4, Y: 4, Spectral: "M"},
-		{ID: "e", Name: "E", X: 5, Y: 5, Spectral: "M"},
-		{ID: "f", Name: "F", X: 6, Y: 6, Spectral: "M"},
+		{ID: "a", Name: "A", X: 1, Y: 1, Spectral: "M", Temp: 3000},
+		{ID: "b", Name: "B", X: 2, Y: 2, Spectral: "G", Temp: 5600},
+		{ID: "c", Name: "C", X: 3, Y: 3, Spectral: "O", Temp: 42000},
+		{ID: "d", Name: "D", X: 4, Y: 4, Spectral: "M", Temp: 2500},
+		{ID: "e", Name: "E", X: 5, Y: 5, Spectral: "M", Temp: 3400},
+		{ID: "f", Name: "F", X: 6, Y: 6, Spectral: "M", Temp: 2900},
 		// ячейка (1,0): три разреженные звезды
-		{ID: "g", Name: "G1", X: 11, Y: 1, Spectral: "K"},
-		{ID: "h", Name: "H", X: 12, Y: 2, Spectral: "K"},
-		{ID: "i", Name: "I", X: 13, Y: 3, Spectral: "K"},
+		{ID: "g", Name: "G1", X: 11, Y: 1, Spectral: "K", Temp: 4000},
+		{ID: "h", Name: "H", X: 12, Y: 2, Spectral: "K", Temp: 4500},
+		{ID: "i", Name: "I", X: 13, Y: 3, Spectral: "K", Temp: 3900},
 	}
 	res := newSnapshot(worlds...).Query(-100, 100, -100, 100, 10, Filter{})
 	require.Len(t, res, 4)
@@ -44,6 +44,7 @@ func TestQueryClustersAndSingles(t *testing.T) {
 	assert.Equal(t, 3.0, c0.X, "позиция кластера — координаты звезды O")
 	assert.Equal(t, 3.0, c0.Y)
 	assert.Equal(t, "O", c0.SampleSpectral)
+	assert.Equal(t, 42000.0, c0.SampleTemp, "температура кластера — температура самой яркой звезды")
 	assert.Empty(t, c0.SampleID, "у кластера нет данных отдельной звезды")
 
 	// Три одиночки ячейки (1,0), отсортированы по id.
@@ -53,10 +54,12 @@ func TestQueryClustersAndSingles(t *testing.T) {
 		assert.Equal(t, int64(0), c.CellY)
 		assert.Equal(t, 1, c.Count)
 		assert.Equal(t, "K", c.SampleSpectral)
+		assert.NotZero(t, c.SampleTemp, "у одиночки есть температура звезды")
 		assert.NotEmpty(t, c.SampleID, "у одиночки есть данные звезды")
 		assert.NotEmpty(t, c.SampleName)
 	}
 	assert.Equal(t, "g", res[1].SampleID)
+	assert.Equal(t, 4000.0, res[1].SampleTemp)
 	assert.Equal(t, "h", res[2].SampleID)
 	assert.Equal(t, "i", res[3].SampleID)
 }
@@ -217,10 +220,10 @@ func TestLoadAndSwap(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectQuery(`
-		SELECT id, name, coord_x, coord_y, spectral_class FROM worlds
-	`).WillReturnRows(sqlmock.NewRows([]string{"id", "name", "coord_x", "coord_y", "spectral_class"}).
-		AddRow("w1", "Alpha", 1.0, 2.0, "G").
-		AddRow("w2", "Beta", 10.0, 20.0, "O"))
+		SELECT id, name, coord_x, coord_y, spectral_class, temperature FROM worlds
+	`).WillReturnRows(sqlmock.NewRows([]string{"id", "name", "coord_x", "coord_y", "spectral_class", "temperature"}).
+		AddRow("w1", "Alpha", 1.0, 2.0, "G", 5600).
+		AddRow("w2", "Beta", 10.0, 20.0, "O", 42000))
 
 	mock.ExpectQuery(`
 		SELECT world_id, data->>'life', data->>'habitable', data->>'type', data->'resources'
@@ -253,6 +256,7 @@ func TestLoadAndSwap(t *testing.T) {
 	assert.True(t, w1.HasPlanets)
 	assert.True(t, w1.HasLife)
 	assert.True(t, w1.HasHabitable)
+	assert.Equal(t, 5600.0, w1.Temp)
 	assert.True(t, w1.PlanetTypes["газовый гигант"], "тип планеты хранится в нижнем регистре")
 	assert.True(t, w1.PlanetTypes["океан"])
 	assert.NotZero(t, w1.Resources&resourceBit("fuel"))
@@ -274,7 +278,7 @@ func TestLoadAndSwapError(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectQuery(`
-		SELECT id, name, coord_x, coord_y, spectral_class FROM worlds
+		SELECT id, name, coord_x, coord_y, spectral_class, temperature FROM worlds
 	`).WillReturnError(assert.AnError)
 
 	m := NewManager()

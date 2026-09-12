@@ -29,6 +29,7 @@ type Cluster struct {
 	SampleID       string
 	SampleName     string
 	SampleSpectral string
+	SampleTemp     float64
 }
 
 // spectralRank — «яркость» спектрального класса для выбора представителя
@@ -54,6 +55,7 @@ type cellAgg struct {
 	bestX    float64
 	bestY    float64
 	bestSpec string
+	bestTemp float64
 	// Индексы миров для разреженных ячеек (cnt < 5): каждый мир ячейки
 	// возвращается отдельной точкой в ответе.
 	sparse []int
@@ -120,6 +122,7 @@ func (s *Snapshot) Query(xMin, xMax, yMin, yMax, cell float64, f Filter) []Clust
 			a.bestX = w.X
 			a.bestY = w.Y
 			a.bestSpec = w.Spectral
+			a.bestTemp = w.Temp
 		}
 		if a.cnt < 5 {
 			a.sparse = append(a.sparse, i)
@@ -144,6 +147,7 @@ func (s *Snapshot) Query(xMin, xMax, yMin, yMax, cell float64, f Filter) []Clust
 				X:              a.bestX,
 				Y:              a.bestY,
 				SampleSpectral: a.bestSpec,
+				SampleTemp:     a.bestTemp,
 			})
 			continue
 		}
@@ -161,6 +165,7 @@ func (s *Snapshot) Query(xMin, xMax, yMin, yMax, cell float64, f Filter) []Clust
 				SampleID:       w.ID,
 				SampleName:     w.Name,
 				SampleSpectral: w.Spectral,
+				SampleTemp:     w.Temp,
 			})
 		}
 	}

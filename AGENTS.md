@@ -117,7 +117,7 @@ web/                     — HTML + static/{css,js,sprites}
 
 Таблицы: `worlds`, `planets` (JSONB `data`), `locations`, `users`, `assignments`, `factions`, `events`, `production_units`, `settlements`, `factories`, `goods_batches`, `planet_resources`, `compatibility_matrix`, `regions`.
 
-**Миграции 001–015 применены** (000014 — индексы `LOWER(name)`; 000015 — таблица `regions` для карты), кроме `005_economy_tables.sql` — пропущена, пустая. **000008 применена частично:** `idx_planets_world_id` в БД есть, GIN `idx_planets_data` — нет.
+**Миграции 001–015 применены** (000014 — индексы `LOWER(name)`; 000015 — таблица `regions` для карты), кроме `005_economy_tables.sql` — пропущена, пустая; таблицы экономики (`settlements`, `factories`, `goods_batches`) создаёт `000018_create_economy_tables.sql` (были только вручную в dev, на чистой БД их не хватало). **000008 применена частично:** `idx_planets_world_id` в БД есть, GIN `idx_planets_data` — нет.
 
 **Миграции применяются автоматически** при старте: `cmd/server/main.go` вызывает `migrations.Apply(db)`, учёт в таблице `schema_migrations`. Руками накатывать больше не нужно.
 

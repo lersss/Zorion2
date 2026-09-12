@@ -16,19 +16,22 @@ function capitalize(s) {
 }
 
 // renderRightPanel — рисует правую панель модалки:
-// список планет (selectedIndex === null) или карточку планеты.
+// карточку звезды со списком планет (selectedIndex === null/undefined)
+// или карточку выбранной планеты.
 export function renderRightPanel(planets, selectedIndex) {
     const panel = document.getElementById('right-panel');
     if (!panel) return;
 
     if (selectedIndex === null || selectedIndex === undefined) {
-        renderList(panel, planets);
+        renderStarCard();
     } else {
         renderCard(panel, planets, selectedIndex);
     }
 }
 
-// renderStarCard — рисует карточку звезды в правой панели.
+// renderStarCard — рисует карточку звезды в правой панели: инфо по звезде
+// и рядом компактный список планет системы. Это вид системы по умолчанию
+// (при открытии и при снятии выделения планеты).
 export function renderStarCard() {
     const panel = document.getElementById('right-panel');
     if (!panel) return;
@@ -36,7 +39,7 @@ export function renderStarCard() {
     const name = modalState.worldName || 'Звезда';
     const spec = modalState.spectralClass || 'G';
     const color = modalState.starColor || '#fff4a3';
-    const planetsCount = (modalState.planets || []).length;
+    const planets = (modalState.planets || []).slice();
 
     const temp = modalState.worldTemperature;
     const coordX = modalState.worldCoordX;
@@ -49,26 +52,39 @@ export function renderStarCard() {
             <h3 style="margin: 0; font-size: 1.35rem; color: ${color}; cursor: default;">${capitalize(name)} <span style="font-size:0.9rem; color:#888; font-weight:normal;">(${spec})</span></h3>
             <span style="background:#2a2a4a; color:#aaa; padding:4px 12px; border-radius:12px; font-size:0.9rem;">Звезда ${spec}</span>
         </div>
-        <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px; padding:10px; background:#0d0d1a; border-radius:8px;">
-            <div style="width:44px; height:44px; border-radius:50%; background: radial-gradient(circle at 35% 35%, #fff, ${color}); box-shadow:0 0 18px ${color};"></div>
-            <div>
-                <div style="font-size:1.05rem; color:#cbd5e1;"><strong>Спектральный класс:</strong> ${spec}</div>
-                <div style="font-size:1.05rem; color:#88b0e0;"><strong>Тип:</strong> ${specInfo.type}</div>
-                <div style="font-size:1.05rem; color:#cbd5e1;"><strong>Планет в системе:</strong> ${planetsCount}</div>
+        <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:flex-start;">
+            <div style="flex:1; min-width:170px;">
+                <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px; padding:10px; background:#0d0d1a; border-radius:8px;">
+                    <div style="width:44px; height:44px; border-radius:50%; background: radial-gradient(circle at 35% 35%, #fff, ${color}); box-shadow:0 0 18px ${color};"></div>
+                    <div>
+                        <div style="font-size:1.05rem; color:#cbd5e1;"><strong>Спектральный класс:</strong> ${spec}</div>
+                        <div style="font-size:1.05rem; color:#88b0e0;"><strong>Тип:</strong> ${specInfo.type}</div>
+                        <div style="font-size:1.05rem; color:#cbd5e1;"><strong>Планет в системе:</strong> ${planets.length}</div>
+                    </div>
+                </div>
+                <div style="font-size:1rem; line-height:1.7;">
+                    <p style="margin:4px 0;"><strong>Температура:</strong> ${temp ? temp.toFixed(0) + ' K' + ' (' + (temp - 273.15).toFixed(0) + ' °C)' : '—'}</p>
+                    <p style="margin:4px 0;"><strong>Цвет:</strong> ${specInfo.color}</p>
+                    <p style="margin:4px 0;"><strong>Относительный радиус:</strong> ${specInfo.radius}</p>
+                    <p style="margin:4px 0;"><strong>Светимость:</strong> ${specInfo.luminosity}</p>
+                    <p style="margin:4px 0;"><strong>Координаты:</strong> (${coordX ? coordX.toFixed(2) : '—'}; ${coordY ? coordY.toFixed(2) : '—'})</p>
+                    <p style="margin:4px 0;"><strong>Возраст:</strong> ${specInfo.age}</p>
+                    <p style="margin:8px 0; color:#888; font-size:0.95rem;">${specInfo.description}</p>
+                    <p style="margin:6px 0; color:#666;">🔄 Кликните по планете (в списке или на канвасе), чтобы открыть её характеристики. Клик по пустому месту — к звезде.</p>
+                </div>
+            </div>
+            <div style="flex:1; min-width:170px; background:#0d0d1a; border-radius:8px; padding:10px;">
+                <h4 style="margin:0 0 8px 0; font-size:1rem; color:#aaa;">Планеты (${planets.length})</h4>
+                ${planetsTable(planets)}
             </div>
         </div>
-        <div style="font-size:1rem; line-height:1.7;">
-            <p style="margin:4px 0;"><strong>Температура:</strong> ${temp ? temp.toFixed(0) + ' K' + ' (' + (temp - 273.15).toFixed(0) + ' °C)' : '—'}</p>
-            <p style="margin:4px 0;"><strong>Цвет:</strong> ${specInfo.color}</p>
-            <p style="margin:4px 0;"><strong>Относительный радиус:</strong> ${specInfo.radius}</p>
-            <p style="margin:4px 0;"><strong>Светимость:</strong> ${specInfo.luminosity}</p>
-            <p style="margin:4px 0;"><strong>Координаты:</strong> (${coordX ? coordX.toFixed(2) : '—'}; ${coordY ? coordY.toFixed(2) : '—'})</p>
-            <p style="margin:4px 0;"><strong>Возраст:</strong> ${specInfo.age}</p>
-            <p style="margin:8px 0; color:#888; font-size:0.95rem;">${specInfo.description}</p>
-            <p style="margin:6px 0;">🔄 Кликните по планете, чтобы открыть её характеристики.</p>
-            <p style="margin:6px 0; color:#666;">Клик по пустому пространству снимает выделение.</p>
-        </div>
     `;
+
+    // Кликабельные строки планет — обработчики вешаем после вставки.
+    panel.querySelectorAll('tr[data-index]').forEach(tr => {
+        tr.addEventListener('mouseenter', () => { tr.style.background = '#1f1f3a'; });
+        tr.addEventListener('mouseleave', () => { tr.style.background = 'transparent'; });
+    });
 }
 
 // getSpectralInfo — справочник по спектральному классу для карточки звезды.
@@ -88,44 +104,37 @@ function getSpectralInfo(spec) {
     return map[spec] || { type: 'Неизвестно', color: '—', radius: '—', luminosity: '—', age: '—', description: 'Данные отсутствуют.' };
 }
 
-// ---------- СПИСОК ПЛАНЕТ ----------
+// ---------- СПИСОК ПЛАНЕТ (в карточке звезды) ----------
 
-function renderList(panel, planets) {
-    panel.innerHTML = `
-        <h3 style="margin: 0 0 8px 0; font-size: 1.2rem; color: #aaa;">Планеты</h3>
-        <table style="width:100%; border-collapse: collapse; font-size: 0.95rem;">
+// planetsTable — компактная таблица планет для карточки звезды.
+// Строки data-index — по ним работает общий клик в index.js.
+function planetsTable(planets) {
+    if (!planets || planets.length === 0) {
+        return '<div style="color:#666; font-size:0.9rem;">Нет планет</div>';
+    }
+    let html = `
+        <table style="width:100%; border-collapse: collapse; font-size: 0.9rem;">
             <thead>
                 <tr>
-                    <th style="text-align:left; color:#888; border-bottom:1px solid #333;">#</th>
-                    <th style="text-align:left; color:#888; border-bottom:1px solid #333;">Тип</th>
-                    <th style="text-align:left; color:#888; border-bottom:1px solid #333;">Размер</th>
-                    <th style="text-align:left; color:#888; border-bottom:1px solid #333;">T</th>
+                    <th style="text-align:left; color:#888; border-bottom:1px solid #333; padding:2px 4px;">Планета</th>
+                    <th style="text-align:left; color:#888; border-bottom:1px solid #333; padding:2px 4px;">Тип</th>
+                    <th style="text-align:left; color:#888; border-bottom:1px solid #333; padding:2px 4px;">Раз.</th>
+                    <th style="text-align:left; color:#888; border-bottom:1px solid #333; padding:2px 4px;">T</th>
                 </tr>
             </thead>
-            <tbody id="planet-list-body"></tbody>
-        </table>
+            <tbody>
     `;
-
-    const tbody = panel.querySelector('#planet-list-body');
-    if (!planets || planets.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:#666;">Нет планет</td></tr>`;
-        return;
-    }
-
     planets.forEach((p, idx) => {
-        const tr = document.createElement('tr');
-        tr.dataset.index = idx;
-        tr.style.cssText = `border-bottom: 1px solid #1a1a2e; cursor: pointer;`;
-        tr.innerHTML = `
-            <td>${capitalize(p.name || (idx + 1))}</td>
-            <td>${p.type || 'неизвестно'}</td>
-            <td>${p.size ? p.size.toFixed(2) : '-'}</td>
-            <td>${p.temperature ? kelvinToCelsius(p.temperature) + ' °C' : '-'}</td>
+        html += `
+            <tr data-index="${idx}" style="border-bottom: 1px solid #1a1a2e; cursor: pointer;">
+                <td style="padding:2px 4px;">${capitalize(p.name || (idx + 1))}</td>
+                <td style="padding:2px 4px;">${p.type || '?'}</td>
+                <td style="padding:2px 4px;">${p.size ? p.size.toFixed(1) : '-'}</td>
+                <td style="padding:2px 4px;">${p.temperature ? kelvinToCelsius(p.temperature) + '°' : '-'}</td>
+            </tr>
         `;
-        tr.addEventListener('mouseenter', () => { tr.style.background = '#1f1f3a'; });
-        tr.addEventListener('mouseleave', () => { tr.style.background = 'transparent'; });
-        tbody.appendChild(tr);
     });
+    return html + '</tbody></table>';
 }
 
 // ---------- КАРТОЧКА ПЛАНЕТЫ ----------
@@ -133,7 +142,7 @@ function renderList(panel, planets) {
 function renderCard(panel, planets, selectedIndex) {
     const planet = planets[selectedIndex];
     if (!planet) {
-        renderList(panel, planets);
+        renderStarCard();
         return;
     }
 
@@ -172,6 +181,7 @@ function renderCard(panel, planets, selectedIndex) {
     if (backBtn) {
         backBtn.addEventListener('click', () => {
             modalState.selectedPlanetIndex = null;
+            modalState.selectedObject = null;
             renderRightPanel(planets, null);
             const canvas = document.getElementById('system-canvas');
             if (canvas) {

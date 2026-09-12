@@ -1,0 +1,57 @@
+[
+  {
+    "id": "exponential_clean",
+    "name": "Чистая экспонента",
+    "params": { "alpha": 0, "k_base": 0.008 }
+  },
+  {
+    "id": "linear",
+    "name": "Линейная",
+    "params": {}
+  },
+  {
+    "id": "parabolic",
+    "name": "Параболическая",
+    "params": { "alpha": 2, "k_base": 1.25 }
+  },
+  {
+    "id": "steep_power",
+    "name": "Крутая степенная",
+    "params": { "alpha": 0.05, "k_base": 0.024 }
+  },
+  {
+    "id": "delay_short",
+    "name": "Задержка малая",
+    "params": { "t0": 30 }
+  },
+  {
+    "id": "delay_long",
+    "name": "Задержка большая",
+    "params": { "t0": 365 }
+  },
+  {
+    "id": "ncrit_constant",
+    "name": "Порог скученности константой",
+    "params": {}
+  },
+  {
+    "id": "ncrit_proportional",
+    "name": "Порог пропорционален p0",
+    "params": { "n_crit_mode": "proportional", "n_crit": 0.5 }
+  },
+  {
+    "id": "ncrit_planet",
+    "name": "Порог от планеты",
+    "params": { "n_crit_mode": "planet", "n_crit": 10000 }
+  },
+  {
+    "id": "hg_linked",
+    "name": "h и g связаны",
+    "params": {}
+  },
+  {
+    "id": "hg_separate",
+    "name": "h и g раздельно",
+    "params": { "hg_mode": "separate" }
+  }
+]

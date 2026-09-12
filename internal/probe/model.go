@@ -74,21 +74,22 @@ func DefaultCurveParams() CurveParams {
 
 // Curve — вычисленная кривая одного поселения.
 type Curve struct {
-	PlanetID string  `json:"planet_id"`
-	WorldID  string  `json:"world_id"`
-	Class    string  `json:"class"`
-	HTemp    float64 `json:"h_temp"`
-	HAtmo    float64 `json:"h_atmo"`
-	HWater   float64 `json:"h_water"`
-	HPlanet  float64 `json:"h_planet"`
-	P0       float64 `json:"p0"`
-	K        float64 `json:"k"`
-	NCrit    float64 `json:"n_crit"`
-	T        float64 `json:"t"`
-	Alpha    float64 `json:"alpha"`
-	NDead    float64 `json:"n_dead"`
-	T0       float64 `json:"t0"`
-	Lifetime float64 `json:"lifetime"`
+	PlanetID   string  `json:"planet_id"`
+	PlanetName string  `json:"planet_name"`
+	WorldID    string  `json:"world_id"`
+	Class      string  `json:"class"`
+	HTemp      float64 `json:"h_temp"`
+	HAtmo      float64 `json:"h_atmo"`
+	HWater     float64 `json:"h_water"`
+	HPlanet    float64 `json:"h_planet"`
+	P0         float64 `json:"p0"`
+	K          float64 `json:"k"`
+	NCrit      float64 `json:"n_crit"`
+	T          float64 `json:"t"`
+	Alpha      float64 `json:"alpha"`
+	NDead      float64 `json:"n_dead"`
+	T0         float64 `json:"t0"`
+	Lifetime   float64 `json:"lifetime"`
 }
 
 // hTemp — 1 внутри комфортной зоны, линейно убывает до 0.1 за границей.
@@ -177,7 +178,7 @@ func (cp CurveParams) NCritValue(p0, hPlanet float64) float64 {
 }
 
 // ComputeCurve — кривая поселения на планете. rnd — локальный rand на вызов.
-func (cp CurveParams) ComputeCurve(planetID, worldID, class string, temp, waterPercent float64, atmosphere string, rnd *rand.Rand) Curve {
+func (cp CurveParams) ComputeCurve(planetID, worldID, planetName, class string, temp, waterPercent float64, atmosphere string, rnd *rand.Rand) Curve {
 	hTemp, hAtmo, hWater, hPlanet := cp.Habitability(temp, waterPercent, atmosphere)
 
 	p0 := cp.PBase * hPlanet * (0.7 + rnd.Float64()*0.6)
@@ -198,9 +199,10 @@ func (cp CurveParams) ComputeCurve(planetID, worldID, class string, temp, waterP
 	}
 
 	return Curve{
-		PlanetID: planetID,
-		WorldID:  worldID,
-		Class:    class,
+		PlanetID:   planetID,
+		PlanetName: planetName,
+		WorldID:    worldID,
+		Class:      class,
 		HTemp:    hTemp,
 		HAtmo:    hAtmo,
 		HWater:   hWater,

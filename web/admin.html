@@ -17,6 +17,7 @@
         <button class="tab-btn" data-tab="tab-audit">🔍 Аудит</button>
         <button class="tab-btn" data-tab="tab-tests">🧪 Тесты</button>
         <button class="tab-btn" data-tab="tab-worlds">🌍 Миры</button>
+        <button class="tab-btn" data-tab="tab-probe">💀 Проба</button>
     </div>
 
     <!-- Вкладка: Основное -->
@@ -201,6 +202,80 @@
                     </tbody>
                 </table>
             </div>
+        </div>
+    </div>
+
+    <!-- Вкладка: Проба смертности -->
+    <div id="tab-probe" class="tab-pane">
+        <div class="card">
+            <h2>💀 Проба смертности поселений</h2>
+            <p style="color:#94a3b8; font-size:0.85rem; margin-top:-6px;">
+                Батчевый расчёт кривой p(t) по всем планетам. БД не меняет.
+                Прогон идемпотентен: тот же seed — тот же результат.
+            </p>
+            <div class="compact-row" style="flex-wrap:wrap; margin-bottom:8px;">
+                <div><label>Пресет</label>
+                    <select id="probePreset">
+                        <option value="">— Пользовательский —</option>
+                    </select>
+                </div>
+                <div><label>Seed</label><input type="number" id="probeSeed" value="42"></div>
+                <div><label>Выборка</label><input type="number" id="probeSample" value="0" title="0 — все планеты"></div>
+                <div><label>Горизонт, сут</label><input type="number" id="probeHorizon" value="7300"></div>
+            </div>
+            <div class="compact-row" style="flex-wrap:wrap; margin-bottom:8px;">
+                <div><label>P_base</label><input type="number" id="pPBase" value="500000" step="1000"></div>
+                <div><label>k_base</label><input type="number" id="pKBase" value="0.05" step="0.001"></div>
+                <div><label>α</label><input type="number" id="pAlpha" value="1" step="0.05" min="0" max="2"></div>
+                <div><label>N_crit mode</label>
+                    <select id="pNCritMode">
+                        <option value="constant">constant</option>
+                        <option value="proportional">proportional</option>
+                        <option value="planet">planet</option>
+                    </select>
+                </div>
+                <div><label>N_crit</label><input type="number" id="pNCrit" value="10000"></div>
+                <div><label>N_dead</label><input type="number" id="pNDead" value="100"></div>
+                <div><label>T0, сут</label><input type="number" id="pT0" value="0"></div>
+                <div><label>hg_mode</label>
+                    <select id="pHgMode">
+                        <option value="linked">linked</option>
+                        <option value="separate">separate</option>
+                    </select>
+                </div>
+            </div>
+            <div class="compact-row" style="flex-wrap:wrap; margin-bottom:8px;">
+                <div><label>T_min</label><input type="number" id="pTMin" value="200"></div>
+                <div><label>T_max</label><input type="number" id="pTMax" value="350"></div>
+                <div><label>atmo[0]</label><input type="number" id="pAtmo0" value="1" step="0.1"></div>
+                <div><label>atmo[1]</label><input type="number" id="pAtmo1" value="0.5" step="0.1"></div>
+                <div><label>atmo[2]</label><input type="number" id="pAtmo2" value="0.2" step="0.1"></div>
+                <div><label>Вода &gt;</label><input type="number" id="pWaterThr" value="10"></div>
+                <div><label>Штраф воды</label><input type="number" id="pWaterPen" value="0.5" step="0.1"></div>
+            </div>
+            <div class="compact-row">
+                <button class="btn success" onclick="runProbe()">▶ Запустить прогон</button>
+                <button class="btn danger" onclick="cancelProbe()" id="probeCancelBtn" style="display:none;">Остановить</button>
+            </div>
+            <div id="probeResult" class="result"></div>
+            <div id="probeProgress" class="progress-container">
+                <span class="progress-text" id="probeProgressText">0 из 0</span>
+                <progress id="probeProgressBar" class="progress-bar" value="0" max="100"></progress>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>📈 Результаты</h2>
+            <div class="compact-row" style="margin-bottom:8px;">
+                <div><label>Сравнить с</label>
+                    <select id="probeCompare" onchange="compareProbe(this.value)">
+                        <option value="">— нет —</option>
+                    </select>
+                </div>
+                <button class="btn" onclick="loadResults()">🔄 Обновить</button>
+            </div>
+            <div id="probeResultsList"><p style="color:#94a3b8;">Загрузка...</p></div>
+            <div id="probeView"></div>
         </div>
     </div>
 

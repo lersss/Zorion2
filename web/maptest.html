@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Maptest · Проба смертности</title>
+    <link rel="stylesheet" href="/static/css/admin.css">
+    <style>
+        body { background: #0f172a; color: #e0e0e0; }
+        .maptest-top { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+        .maptest-top select, .maptest-top button { padding: 6px 10px; background: #1a1a2e; color: #e0e0e0; border: 1px solid #2a2a4a; border-radius: 6px; }
+        #mtCanvas { width: 100%; height: calc(100vh - 120px); display: block; background: #0a0f1e; border: 1px solid #2a2a4a; border-radius: 8px; cursor: grab; }
+        #mtCanvas.dragging { cursor: grabbing; }
+        .mt-chip { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; color: #94a3b8; }
+        .mt-hint { color: #64748b; font-size: 0.8rem; }
+    </style>
+</head>
+<body>
+<div style="padding: 12px 20px;">
+    <h1 style="margin: 0 0 10px;">🛰 Maptest — проба смертности на карте</h1>
+
+    <div class="maptest-top">
+        <label class="mt-chip">Результат прогона
+            <select id="mtResult" onchange="mtLoadResult()">
+                <option value="">— выбери прогон —</option>
+            </select>
+        </label>
+        <button onclick="mtFitAll()">⛶ Показать всё</button>
+        <button onclick="mtReload()">🔄 Перезагрузить</button>
+        <label class="mt-chip"><input type="checkbox" id="mtHabitable" onchange="mtRedraw()"> 🏠 обитаемые</label>
+        <label class="mt-chip"><input type="checkbox" id="mtClassColor" checked onchange="mtRedraw()"> 🎨 по классам</label>
+        <button class="btn btn-small" onclick="mtSeek(0)">⏮</button>
+        <button class="btn btn-small" onclick="mtStep(-1)">◀</button>
+        <button class="btn btn-small" id="mtPlayBtn" onclick="mtToggle()">▶ Играть</button>
+        <select id="mtSpeed" onchange="mtSpeed(this.value)" style="width:80px;">
+            <option value="1">×1</option>
+            <option value="10">×10</option>
+            <option value="100">×100</option>
+        </select>
+        <input type="range" id="mtSlider" min="0" max="7300" value="0" style="flex:1; min-width:160px;" oninput="mtSeek(parseFloat(this.value))">
+        <span id="mtTime" style="color:#94a3b8; font-size:0.85rem; white-space:nowrap;">0 сут</span>
+        <span id="mtCount" class="mt-hint"></span>
+    </div>
+
+    <canvas id="mtCanvas"></canvas>
+</div>
+
+<script type="module">
+    import { initMaptest } from '/static/js/maptest/main.js';
+    initMaptest();
+</script>
+</body>
+</html>

@@ -165,8 +165,8 @@ func TestComputeCurveDeterministic(t *testing.T) {
 	cp := DefaultCurveParams()
 	r1 := rand.New(rand.NewSource(42))
 	r2 := rand.New(rand.NewSource(42))
-	c1 := cp.ComputeCurve("p1", "w1", ClassEarthlike, 280, 60, AtmoNitrogenOxygen, r1)
-	c2 := cp.ComputeCurve("p1", "w1", ClassEarthlike, 280, 60, AtmoNitrogenOxygen, r2)
+	c1 := cp.ComputeCurve("p1", "w1", "P1", ClassEarthlike, 280, 60, AtmoNitrogenOxygen, r1)
+	c2 := cp.ComputeCurve("p1", "w1", "P1", ClassEarthlike, 280, 60, AtmoNitrogenOxygen, r2)
 	if c1.P0 != c2.P0 || c1.Lifetime != c2.Lifetime {
 		t.Fatalf("один seed — одна кривая: %v vs %v", c1, c2)
 	}

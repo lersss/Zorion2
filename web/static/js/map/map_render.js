@@ -372,7 +372,14 @@ function drawRegions(ctx, canvasWidth, canvasHeight, scale, offsetX, offsetY, al
     if (regions.length < 2) return;
 
     const cells = ensureVoronoi(regions);
-    const fontSize = mapCfg.regionFontSize;
+    // Названия регионов масштабируются с зумом: на фите галактики (state.minZoom)
+    // они равны regionFontSize, дальше растут пропорционально приближению, пока
+    // не упрутся в regionMaxFontSize (на большом зуме регионы почти исчезли).
+    const regionRefZoom = state.minZoom || mapCfg.regionNamesZoom;
+    const fontSize = Math.round(Math.min(
+        mapCfg.regionMaxFontSize,
+        Math.max(mapCfg.regionFontSize, mapCfg.regionFontSize * (scale / regionRefZoom)),
+    ));
     const labels = [];
 
     for (const cell of cells) {

@@ -18,6 +18,7 @@ export const CONFIG = {
         gridDisplayThreshold: 10,
         regionDisplayThreshold: 0.6,   // регионы полностью исчезают только когда уже появились названия звёзд (0.5)
         regionFontSize: 13,
+        regionMaxFontSize: 48,         // потолок: названия регионов растут с зумом от fit-размера
         regionMinPxRadius: 40,         // минимальный радиус пятна региона на экране
         regionNamesZoom: 0.02,         // ниже этого зума показываются названия регионов
         starColors: {

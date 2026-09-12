@@ -50,16 +50,6 @@ func (s *Snapshot) Len() int {
 	return len(s.worlds)
 }
 
-// Worlds — копия миров снапшота (для инструментов вроде пробы смертности).
-func (s *Snapshot) Worlds() []World {
-	if s == nil {
-		return nil
-	}
-	out := make([]World, len(s.worlds))
-	copy(out, s.worlds)
-	return out
-}
-
 // Manager хранит текущий снапшот карты и умеет его пересобирать из БД.
 type Manager struct {
 	ptr atomic.Pointer[Snapshot]

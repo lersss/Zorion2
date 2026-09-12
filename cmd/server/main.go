@@ -16,7 +16,6 @@ import (
 	"zorion/internal/handlers"
 	"zorion/internal/mapcache"
 	"zorion/internal/models"
-	"zorion/internal/probe"
 	"zorion/internal/repository"
 	"zorion/internal/travel"
 	"zorion/migrations"
@@ -93,11 +92,6 @@ func main() {
 	}
 	log.Println("✅ Описания планет загружены")
 
-	// Пресеты пробы смертности. Ошибка не фатальна — работают крутилки.
-	if err := probe.LoadPresets("config/settlement_probe/presets.json"); err != nil {
-		log.Printf("⚠️ Пресеты пробы смертности не загружены: %v", err)
-	}
-
 	worldRepo := repository.NewWorldRepository(db)
 	locationRepo := repository.NewLocationRepository(db)
 	assignmentRepo := repository.NewAssignmentRepository(db)
@@ -113,8 +107,7 @@ func main() {
 	wsHandler := handlers.NewWebSocketHandler(wsHub)
 	contractHandlers := handlers.NewContractHandlers(assignmentRepo, userRepo)
 	mapCache := mapcache.NewManager()
-	probeRunner := probe.NewRunner(db, "probe_results")
-	adminHandlers := handlers.NewAdminHandlers(worldRepo, db, mapCache, probeRunner)
+	adminHandlers := handlers.NewAdminHandlers(worldRepo, db, mapCache)
 	compatHandlers := handlers.NewCompatibilityHandlers(db)
 
 	// Снапшот карты подхватывается в фоне — сервер отвечает сразу,
@@ -182,13 +175,6 @@ func main() {
 	http.HandleFunc("/admin/compatibility", auth.AdminAuth(compatHandlers.HandleMatrix))
 	http.HandleFunc("/admin/compatibility/reset", auth.AdminAuth(compatHandlers.ResetMatrix))
 
-	// Проба смертности поселений
-	http.HandleFunc("/admin/probe/run", auth.AdminAuth(adminHandlers.ProbeRun))
-	http.HandleFunc("/admin/probe/presets", auth.AdminAuth(adminHandlers.ProbePresets))
-	http.HandleFunc("/admin/probe/results", auth.AdminAuth(adminHandlers.ProbeResults))
-	http.HandleFunc("/admin/probe/results/", auth.AdminAuth(adminHandlers.ProbeResult))
-	http.HandleFunc("/admin/probe/playback", auth.AdminAuth(adminHandlers.ProbePlayback))
-
 	http.Handle("/admin", noCache(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./web/admin.html")
 	})))
@@ -218,9 +204,6 @@ func main() {
 	})))
 	http.Handle("/contracts", noCache(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./web/contracts.html")
-	})))
-	http.Handle("/maptest", noCache(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "./web/maptest.html")
 	})))
 
 	log.Println("🚀 Сервер Zorion запущен и работает")

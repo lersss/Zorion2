@@ -17,7 +17,6 @@
         <button class="tab-btn" data-tab="tab-audit">🔍 Аудит</button>
         <button class="tab-btn" data-tab="tab-tests">🧪 Тесты</button>
         <button class="tab-btn" data-tab="tab-worlds">🌍 Миры</button>
-        <button class="tab-btn" data-tab="tab-probe">💀 Проба</button>
     </div>
 
     <!-- Вкладка: Основное -->
@@ -202,95 +201,6 @@
                     </tbody>
                 </table>
             </div>
-        </div>
-    </div>
-
-    <!-- Вкладка: Проба смертности -->
-    <div id="tab-probe" class="tab-pane">
-        <div class="card">
-            <h2>💀 Проба смертности поселений</h2>
-            <p style="color:#94a3b8; font-size:0.85rem; margin-top:-6px;">
-                Батчевый расчёт кривой p(t) по всем планетам. БД не меняет.
-                Прогон идемпотентен: тот же seed — тот же результат.
-            </p>
-            <div class="compact-row" style="flex-wrap:wrap; margin-bottom:8px;">
-                <div><label>Пресет</label>
-                    <select id="probePreset">
-                        <option value="">— Пользовательский —</option>
-                    </select>
-                </div>
-                <div><label>Seed</label><input type="number" id="probeSeed" value="42"></div>
-                <div><label>Выборка</label><input type="number" id="probeSample" value="0" title="0 — все планеты"></div>
-                <div><label>Горизонт, сут</label><input type="number" id="probeHorizon" value="7300"></div>
-            </div>
-            <div class="compact-row" style="flex-wrap:wrap; margin-bottom:8px;">
-                <div><label>Стартовое население</label><input type="number" id="pPBase" value="500000" step="1000"></div>
-                <div><label>Скорость смертности</label><input type="number" id="pKBase" value="0.05" step="0.001"></div>
-                <div><label>Форма кривой</label><input type="number" id="pAlpha" value="1" step="0.05" min="0" max="2"></div>
-                <div><label>Режим порога</label>
-                    <select id="pNCritMode">
-                        <option value="constant">Константа</option>
-                        <option value="proportional">Пропорционален p0</option>
-                        <option value="planet">От планеты</option>
-                    </select>
-                </div>
-                <div><label>Порог скученности</label><input type="number" id="pNCrit" value="10000"></div>
-                <div><label>Порог гибели</label><input type="number" id="pNDead" value="100"></div>
-                <div><label>Задержка, сут</label><input type="number" id="pT0" value="0"></div>
-                <div><label>Связь старта и темпа</label>
-                    <select id="pHgMode">
-                        <option value="linked">Связаны</option>
-                        <option value="separate">Раздельно</option>
-                    </select>
-                </div>
-            </div>
-            <div class="compact-row" style="flex-wrap:wrap; margin-bottom:8px;">
-                <div><label>Зона комфорта, от</label><input type="number" id="pTMin" value="200"></div>
-                <div><label>Зона комфорта, до</label><input type="number" id="pTMax" value="350"></div>
-                <div><label>Атм. азотно-кислородная</label><input type="number" id="pAtmo0" value="1" step="0.1"></div>
-                <div><label>Атм. углекислая</label><input type="number" id="pAtmo1" value="0.5" step="0.1"></div>
-                <div><label>Атм. ядовитая</label><input type="number" id="pAtmo2" value="0.2" step="0.1"></div>
-                <div><label>Порог воды, %</label><input type="number" id="pWaterThr" value="10"></div>
-                <div><label>Штраф воды</label><input type="number" id="pWaterPen" value="0.5" step="0.1"></div>
-            </div>
-            <div class="compact-row">
-                <button class="btn success" onclick="runProbe()">▶ Запустить прогон</button>
-                <button class="btn danger" onclick="cancelProbe()" id="probeCancelBtn" style="display:none;">Остановить</button>
-            </div>
-            <div id="probeResult" class="result"></div>
-            <div id="probeProgress" class="progress-container">
-                <span class="progress-text" id="probeProgressText">0 из 0</span>
-                <progress id="probeProgressBar" class="progress-bar" value="0" max="100"></progress>
-            </div>
-        </div>
-
-        <div class="card">
-            <h2>📈 Результаты</h2>
-            <div class="compact-row" style="margin-bottom:8px;">
-                <div><label>Сравнить с</label>
-                    <select id="probeCompare" onchange="compareProbe(this.value)">
-                        <option value="">— нет —</option>
-                    </select>
-                </div>
-                <button class="btn" onclick="loadResults()">🔄 Обновить</button>
-            </div>
-            <div id="probeResultsList"><p style="color:#94a3b8;">Загрузка...</p></div>
-            <div id="probeView"></div>
-        </div>
-
-        <div class="card">
-            <h2>🔗 Эндпоинты пробы</h2>
-            <table class="stats-table">
-                <thead><tr><th>Метод</th><th>Путь</th><th>Что</th></tr></thead>
-                <tbody>
-                    <tr><td>POST</td><td><code>/admin/probe/run</code></td><td>запуск прогона (пресет + оверрайды)</td></tr>
-                    <tr><td>GET</td><td><code>/admin/probe/presets</code></td><td>список пресетов</td></tr>
-                    <tr><td>GET</td><td><code>/admin/probe/results</code></td><td>список прогонов</td></tr>
-                    <tr><td>GET</td><td><code>/admin/probe/results/{id}</code></td><td>результат; <code>?stats=1</code>, <code>?curves=N</code></td></tr>
-                    <tr><td>GET</td><td><code>/admin/probe/playback?file=…</code></td><td>кривые + координаты миров (для Maptest)</td></tr>
-                    <tr><td>GET</td><td><a href="/maptest" style="color:#60a5fa;">/maptest</a></td><td>Maptest: playback смертности на карте</td></tr>
-                </tbody>
-            </table>
         </div>
     </div>
 

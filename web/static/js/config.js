@@ -7,6 +7,8 @@ export const CONFIG = {
         minDistForClick: 30,
         shipSize: 12,
         nameFontSize: 10,
+        nameMinFontSize: 11,   // минимум подписи звезды (читаемость на малом зуме)
+        nameMaxFontSize: 40,   // потолок: на большом зуме без роста до бесконечности
         gridStep: 5,
         padding: 80,
         minRadius: 1.5,        // было 2 — чуть меньше, чтобы при отдалении не слипались

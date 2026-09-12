@@ -283,7 +283,15 @@ function drawCluster(ctx, c, x, y) {
 }
 
 function drawNames(ctx, singles, scale) {
-    const fontSize = Math.max(18, mapCfg.nameFontSize * scale);
+    // Подписи масштабируются с зумом: растут при приближении, сжимаются при
+    // отдалении (fontSize = nameFontSize × scale). Раньше жёсткий минимум 18px
+    // держал размер постоянным в широком диапазоне зума. Пороги:
+    // nameMinFontSize — читаемый минимум, nameMaxFontSize — чтобы на большом
+    // зуме название не лезло за пределы экрана.
+    const fontSize = Math.round(Math.min(
+        mapCfg.nameMaxFontSize,
+        Math.max(mapCfg.nameMinFontSize, mapCfg.nameFontSize * scale),
+    ));
     ctx.fillStyle = '#94a3b8';
     ctx.font = `${fontSize}px system-ui`;
     ctx.textAlign = 'center';

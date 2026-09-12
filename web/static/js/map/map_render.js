@@ -97,11 +97,14 @@ export function draw() {
 
     drawGrid(ctx, canvasWidth, canvasHeight, scale, offsetX, offsetY);
 
-    // --- Регионы галактики: на малом зуме вместо кружков с количеством ---
-    // Уровни детализации по зума:
+// --- Регионы галактики: на малом зуме вместо кружков с количеством ---
+    // Уровни детализации по зумам:
     //  scale < regionNamesZoom            — регионы с названиями, без звёзд;
-    //  regionNamesZoom..regionDisplayThreshold — названия/цвета затухают, звёзды появляются;
+    //  regionNamesZoom..regionDisplayThreshold — названия/цвета плавно затухают от
+    //      полной прозрачности у minZoom до 0 к появлению названий звёзд (0.5);
     //  scale >= regionDisplayThreshold    — только звёзды.
+    // Раньше окно затухания было 0.02..0.05 (при fit-зуме мин. — ~0.05), и регионы
+    // исчезали заведомо раньше названий миров, оставляя огромный «немой» диапазон.
     const regionThreshold = mapCfg.regionDisplayThreshold;
     const namesZoom = mapCfg.regionNamesZoom;
     let regionAlpha = 0;

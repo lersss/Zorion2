@@ -14,7 +14,7 @@ export const CONFIG = {
         nameDisplayThreshold: 0.5,
         nameAlwaysShowLimit: 30,   // если одиночных звёзд на экране не больше — подписи не скрываются
         gridDisplayThreshold: 10,
-        regionDisplayThreshold: 0.05,  // при зуме ниже — вместо шариков видны регионы
+        regionDisplayThreshold: 0.6,   // регионы полностью исчезают только когда уже появились названия звёзд (0.5)
         regionFontSize: 13,
         regionMinPxRadius: 40,         // минимальный радиус пятна региона на экране
         regionNamesZoom: 0.02,         // ниже этого зума показываются названия регионов

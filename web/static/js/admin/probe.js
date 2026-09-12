@@ -30,10 +30,16 @@ let compareResultId = null;
 let modeData = null;   // stats-ответ текущего результата
 let currentMode = 'mass';
 let liveState = null;  // {resultId, curves, horizon, cursor, speed, playing, timer}
+let presetList = [];   // id → пресет из /admin/probe/presets
 
 export function initProbe() {
     loadPresets();
     loadResults();
+}
+
+function presetName(id) {
+    const p = presetList.find(x => x.id === id);
+    return p ? p.name : id;
 }
 
 // ==================== ПРЕСЕТЫ И КРУТИЛКИ ====================
@@ -41,11 +47,11 @@ export function initProbe() {
 export async function loadPresets() {
     try {
         const res = await fetchWithAuth('/admin/probe/presets');
-        const presets = await res.json();
+        presetList = await res.json();
         const sel = document.getElementById('probePreset');
         sel.innerHTML = '<option value="">— Пользовательский —</option>' +
-            presets.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
-        sel.addEventListener('change', () => applyPresetToDials(presets));
+            presetList.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+        sel.addEventListener('change', () => applyPresetToDials(presetList));
     } catch (e) {
         notifyError('Не удалось загрузить пресеты: ' + e.message);
     }
@@ -170,12 +176,12 @@ export async function loadResults() {
             container.innerHTML = '<p style="color:#94a3b8;">Прогонов ещё нет.</p>';
             return;
         }
-        container.innerHTML = '<table class="stats-table"><thead><tr>' +
+container.innerHTML = '<table class="stats-table"><thead><tr>' +
             '<th>ID</th><th>Пресет</th><th>Создан</th><th>Поселений</th>' +
             '<th>Медиана, сут</th><th>Вымерли</th><th></th></tr></thead>' +
             '<tbody>' + list.map(it => `<tr>
                 <td>${it.id}</td>
-                <td>${it.preset_id}</td>
+                <td>${presetName(it.preset_id)}</td>
                 <td>${it.created_at}</td>
                 <td>${it.total}</td>
                 <td>${fmtNum(it.median_days)}</td>
@@ -183,10 +189,11 @@ export async function loadResults() {
                 <td><button class="btn btn-small" onclick="showProbeResult('${it.id}')">Показать</button></td>
             </tr>`).join('') + '</tbody></table>';
 
+        // Селект «Сравнить с» — все прогоны.
         const cmp = document.getElementById('probeCompare');
         if (cmp) {
             cmp.innerHTML = '<option value="">— нет —</option>' +
-                list.map(it => `<option value="${it.id}">${it.preset_id} (${fmtNum(it.median_days)} сут)</option>`).join('');
+                list.map(it => `<option value="${it.id}">${presetName(it.preset_id)} (${fmtNum(it.median_days)} сут)</option>`).join('');
         }
     } catch (e) {
         container.innerHTML = `<p style="color:#f87171;">❌ ${e.message}</p>`;
@@ -277,7 +284,7 @@ function buildScalars(data) {
         ['Min, сут', fmtNum(s.min_days)],
         ['Max, сут', fmtNum(s.max_days)],
         ['Вымерли за прогон', (s.extinct_fraction * 100).toFixed(1) + '%'],
-        ['Пресет', data.preset_id],
+        ['Пресет', presetName(data.preset_id)],
     ];
     wrap.innerHTML = cards.map(c => `<div class="stat-card"><strong>${c[0]}:</strong> ${c[1]}</div>`).join('');
     return wrap;
@@ -456,8 +463,8 @@ function drawLiveFrame() {
             const pop = liveP(c, st.cursor);
             return `<div class="stat-card" style="min-width:200px; border-left:3px solid ${PALETTE[i % PALETTE.length]};">
                 <div style="font-weight:600;">${esc(c.planet_name)}</div>
-                <div style="color:#94a3b8; font-size:0.8rem;">${esc(c.class)} · h=${c.h_planet.toFixed(2)}</div>
-                <div style="margin-top:6px;">p0: ${fmtNum(c.p0)}</div>
+                <div style="color:#94a3b8; font-size:0.8rem;">${esc(c.class)} · пригодность=${c.h_planet.toFixed(2)}</div>
+                <div style="margin-top:6px;">Стартовое: ${fmtNum(c.p0)}</div>
                 <div>время жизни: ${fmtNum(c.lifetime)} сут</div>
                 <div>сейчас: <strong>${fmtNum(pop)}</strong> (${alive ? '<span style="color:#34d399;">живо</span>' : '<span style="color:#f87171;">вымерло</span>'})</div>
             </div>`;

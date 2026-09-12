@@ -37,7 +37,7 @@ Go 1.21+ · PostgreSQL 15+ · Redis 7+ · Vanilla JS (ES-модули) + Canvas 
 $env:DATABASE_URL = "postgres://zorion:zorion123@127.0.0.1:5432/zorion?sslmode=disable"
 $env:REDIS_URL    = "redis://localhost:6379"
 $env:JWT_SECRET   = "минимум-32-символа"
-$env:ADMIN_PASSWORD = "надёжный-пароль"
+$env:ADMIN_PASSWORD = "admin123"
 $env:TICK_INTERVAL_SEC = "3"
 go run cmd/server/main.go
 ```

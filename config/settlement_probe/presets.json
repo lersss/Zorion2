@@ -5,14 +5,39 @@
     "params": { "alpha": 0, "k_base": 0.008 }
   },
   {
+    "id": "exponential_slow",
+    "name": "Экспонента медленная",
+    "params": { "alpha": 0, "k_base": 0.002 }
+  },
+  {
+    "id": "exponential_fast",
+    "name": "Экспонента быстрая",
+    "params": { "alpha": 0, "k_base": 0.02 }
+  },
+  {
     "id": "linear",
     "name": "Линейная",
     "params": {}
   },
   {
+    "id": "power_mild",
+    "name": "Степенная α=0.2",
+    "params": { "alpha": 0.2, "k_base": 0.011 }
+  },
+  {
+    "id": "power_half",
+    "name": "Степенная α=0.5",
+    "params": { "alpha": 0.5, "k_base": 0.014 }
+  },
+  {
     "id": "parabolic",
     "name": "Параболическая",
     "params": { "alpha": 2, "k_base": 1.25 }
+  },
+  {
+    "id": "power_concave",
+    "name": "Вогнутая α=1.5",
+    "params": { "alpha": 1.5, "k_base": 0.236 }
   },
   {
     "id": "steep_power",
@@ -25,9 +50,24 @@
     "params": { "t0": 30 }
   },
   {
+    "id": "delay_medium",
+    "name": "Задержка средняя",
+    "params": { "t0": 180 }
+  },
+  {
     "id": "delay_long",
     "name": "Задержка большая",
     "params": { "t0": 365 }
+  },
+  {
+    "id": "slow_decay",
+    "name": "Медленное угасание",
+    "params": { "k_base": 0.012 }
+  },
+  {
+    "id": "fast_decay",
+    "name": "Быстрое угасание",
+    "params": { "k_base": 0.2 }
   },
   {
     "id": "ncrit_constant",
@@ -43,6 +83,21 @@
     "id": "ncrit_planet",
     "name": "Порог от планеты",
     "params": { "n_crit_mode": "planet", "n_crit": 10000 }
+  },
+  {
+    "id": "low_crit",
+    "name": "Низкий порог скученности",
+    "params": { "n_crit": 1000, "k_base": 0.5 }
+  },
+  {
+    "id": "high_crit",
+    "name": "Высокий порог скученности",
+    "params": { "n_crit": 100000 }
+  },
+  {
+    "id": "small_settlements",
+    "name": "Малые поселения",
+    "params": { "p_base": 20000, "k_base": 0.002 }
   },
   {
     "id": "hg_linked",

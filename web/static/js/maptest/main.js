@@ -19,6 +19,7 @@ let playing = false;
 let timer = null;
 let scale = 1, ox = 0, oy = 0;
 let dragging = false, lastX = 0, lastY = 0;
+let presetNames = {};
 
 let canvas = null;
 let ctx = null;
@@ -51,6 +52,11 @@ export function mtRedraw() { redraw(); }
 
 async function loadResults() {
     try {
+        const pres = await fetch('/admin/probe/presets', { headers: authHeaders() });
+        if (pres.ok) {
+            const plist = await pres.json();
+            presetNames = Object.fromEntries(plist.map(p => [p.id, p.name]));
+        }
         const res = await fetch('/admin/probe/results', { headers: authHeaders() });
         if (res.status === 401) {
             document.getElementById('mtCount').textContent = '⚠ Неверный пароль.';
@@ -59,7 +65,7 @@ async function loadResults() {
         const list = await res.json();
         const sel = document.getElementById('mtResult');
         sel.innerHTML = '<option value="">— выбери прогон —</option>' + list.map(it =>
-            `<option value="${it.id}">${it.preset_id} · медиана ${fmt(it.median_days)} сут</option>`).join('');
+            `<option value="${it.id}">${presetNames[it.preset_id] || it.preset_id} · медиана ${fmt(it.median_days)} сут</option>`).join('');
         if (list.length) {
             sel.value = list[0].id;
             await mtLoadResult();

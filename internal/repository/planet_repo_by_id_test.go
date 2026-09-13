@@ -25,28 +25,16 @@ func TestGetPlanetByID(t *testing.T) {
 		WHERE id = $1
 	`).WithArgs("p1").WillReturnRows(planetRows)
 
-	settlementRows := sqlmock.NewRows([]string{"id", "planet_id", "population", "stability", "created_at", "updated_at"}).
-		AddRow("s1", "p1", 1_000_000, 60, now, now)
+	settlementRows := sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at"}).
+		AddRow("s1", "p1", 1_000_000, float64(1_000_000), 60, now, now, now)
 	mock.ExpectQuery(`
-		SELECT id, planet_id, population, stability, created_at, updated_at
+		SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at
 		FROM settlements WHERE planet_id = ANY($1) ORDER BY created_at ASC
 	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(settlementRows)
 
 	// Открытие карточки планеты триггерит пересчёт населения от среды
-	// (18a_population_death.md); computed_at = now, чтобы Δt ≈ 0.
-	mock.ExpectBegin()
-	mock.ExpectQuery(`
-		SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at
-		FROM settlements WHERE id = $1 FOR UPDATE`).
-		WithArgs("s1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at"}).
-			AddRow("s1", "p1", 1_000_000, float64(1_000_000), 60, now, now, now))
-	mock.ExpectExec(`
-		UPDATE settlements SET population = $1, population_exact = $2, computed_at = $3, updated_at = NOW()
-		WHERE id = $4`).
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "s1").
-		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectCommit()
+	// (18a_population_death.md); computed_at = now, т.е. Δt < MinPersistInterval —
+	// «простой визит»: пересчёт только в памяти, записей в БД нет.
 
 	planet, err := NewPlanetRepository(db).GetPlanetByID("p1")
 	require.NoError(t, err)

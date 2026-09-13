@@ -34,7 +34,7 @@ func (r *EconomyRepository) GetSettlementsByPlanetIDs(planetIDs []string) (map[s
 		return map[string][]models.Settlement{}, nil
 	}
 
-	query := `SELECT id, planet_id, population, stability, created_at, updated_at
+	query := `SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at
 	          FROM settlements WHERE planet_id = ANY($1) ORDER BY created_at ASC`
 	rows, err := r.db.Query(query, pqStringArray(planetIDs))
 	if err != nil {
@@ -47,7 +47,8 @@ func (r *EconomyRepository) GetSettlementsByPlanetIDs(planetIDs []string) (map[s
 		var s models.Settlement
 		if err := rows.Scan(
 			&s.ID, &s.PlanetID, &s.Population,
-			&s.Stability, &s.CreatedAt, &s.UpdatedAt,
+			&s.PopulationExact, &s.Stability, &s.ComputedAt,
+			&s.CreatedAt, &s.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -56,34 +57,55 @@ func (r *EconomyRepository) GetSettlementsByPlanetIDs(planetIDs []string) (map[s
 	return result, rows.Err()
 }
 
-// RecomputeSettlementPopulation пересчитывает и сохраняет население
-// поселения от среды планеты (docs/gamedesign/18a_population_death.md) на
-// момент now. Блокировка строки в транзакции — конкурентная безопасность:
-// два одновременных обращения к одному поселению не должны исказить
-// population_exact (AGENTS.md §0, 13_tiers_impl.md §13.13.4).
-func (r *EconomyRepository) RecomputeSettlementPopulation(id string, input settlement.PlanetInput, now time.Time) (models.Settlement, error) {
+// RecomputeSettlementPopulation продвигает население поселения на момент now.
+// Чек-точка для пересчёта уже загружена в s (population_exact, computed_at).
+// Два пути (docs/gamedesign/18a_population_death.md, решение игрока
+// 2026-09-13 — модель «правда на сервере, синк по событию»):
+//   - «простой визит» (Δt < MinPersistInterval): население считается только
+//     в памяти. Пересчёт — чистая функция от чек-точки (p0·exp(−λ·Δt)), запись
+//     на хот-пате чтения не нужна, никаких запросов к БД, кроме уже сделанного.
+//   - «событие» (Δt ≥ MinPersistInterval): чек-точка продвигается в БД
+//     (транзакция, SELECT ... FOR UPDATE — конкурентная безопасность, два
+//     одновременных события не исказят population_exact, AGENTS.md §0,
+//     13_tiers_impl.md §13.13.4), чтобы сохранённое население не устаревало
+//     для читателей без пересчёта (admin-stats, генератор фракций).
+// В обоих путях в ответ попадает актуальное население и чек-точка на момент
+// now, а decay_lambda/n_dead — для косметической экстраполяции на клиенте.
+func (r *EconomyRepository) RecomputeSettlementPopulation(s *models.Settlement, input settlement.PlanetInput, now time.Time) (models.Settlement, error) {
+	lambda := settlement.TotalLambda(input, settlement.DefaultScale)
+
+	if now.Sub(s.ComputedAt) < settlement.MinPersistInterval {
+		next := settlement.Recompute(input, settlement.DefaultScale, s.PopulationExact, s.ComputedAt, now)
+		s.Population = int(math.Round(next))
+		s.PopulationExact = next
+		s.ComputedAt = now
+		s.DecayLambda = lambda
+		s.NDead = settlement.NDead
+		return *s, nil
+	}
+
 	tx, err := r.db.Begin()
 	if err != nil {
 		return models.Settlement{}, err
 	}
 	defer tx.Rollback()
 
-	var s models.Settlement
+	var stored models.Settlement
 	err = tx.QueryRow(`
 		SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at
-		FROM settlements WHERE id = $1 FOR UPDATE`, id,
-	).Scan(&s.ID, &s.PlanetID, &s.Population, &s.PopulationExact, &s.Stability, &s.ComputedAt, &s.CreatedAt, &s.UpdatedAt)
+		FROM settlements WHERE id = $1 FOR UPDATE`, s.ID,
+	).Scan(&stored.ID, &stored.PlanetID, &stored.Population, &stored.PopulationExact, &stored.Stability, &stored.ComputedAt, &stored.CreatedAt, &stored.UpdatedAt)
 	if err != nil {
 		return models.Settlement{}, err
 	}
 
-	newExact := settlement.Recompute(input, settlement.DefaultScale, s.PopulationExact, s.ComputedAt, now)
+	newExact := settlement.Recompute(input, settlement.DefaultScale, stored.PopulationExact, stored.ComputedAt, now)
 	newPopulation := int(math.Round(newExact))
 
 	if _, err := tx.Exec(`
 		UPDATE settlements SET population = $1, population_exact = $2, computed_at = $3, updated_at = NOW()
 		WHERE id = $4`,
-		newPopulation, newExact, now, id,
+		newPopulation, newExact, now, stored.ID,
 	); err != nil {
 		return models.Settlement{}, err
 	}
@@ -92,10 +114,12 @@ func (r *EconomyRepository) RecomputeSettlementPopulation(id string, input settl
 		return models.Settlement{}, err
 	}
 
-	s.Population = newPopulation
-	s.PopulationExact = newExact
-	s.ComputedAt = now
-	return s, nil
+	stored.Population = newPopulation
+	stored.PopulationExact = newExact
+	stored.ComputedAt = now
+	stored.DecayLambda = lambda
+	stored.NDead = settlement.NDead
+	return stored, nil
 }
 
 // pqStringArray — []string в тип для `= ANY($1)`. lib/pq сам кодирует

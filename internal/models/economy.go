@@ -8,7 +8,9 @@ type Settlement struct {
 	Population      int       `json:"population"`
 	PopulationExact float64   `json:"population_exact"` // точное состояние для пересчёта, округляется в Population на выдаче (18a_population_death.md)
 	Stability       int       `json:"stability"`
-	ComputedAt      time.Time `json:"computed_at"` // точка отсчёта Δt для ленивого пересчёта
+	ComputedAt      time.Time `json:"computed_at"`            // точка отсчёта Δt для ленивого пересчёта
+	DecayLambda     float64   `json:"decay_lambda,omitempty"` // доля убыли в час, для косметической экстраполяции на клиенте (18a)
+	NDead           float64   `json:"n_dead,omitempty"`       // порог обнуления, тот же NDead — для той же экстраполяции
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
 }

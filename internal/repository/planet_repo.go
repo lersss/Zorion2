@@ -103,7 +103,9 @@ func (r *PlanetRepository) GetPlanetByID(id string) (*models.Planet, error) {
 // население от среды на текущий момент (docs/gamedesign/18a_population_death.md
 // — открытие карточки планеты игроком триггерит ленивый пересчёт,
 // 13_tiers_impl.md §13.13.3), вычисляет население планеты как сумму
-// пересчитанного и обитаемость как наличие поселения.
+// пересчитанного и обитаемость как наличие поселения. Частые просмотры
+// (Δt < MinPersistInterval) пересчитывают только в памяти; запись в БД
+// происходит лишь по «событию» — при содержательно прошедшем времени.
 // Планеты без поселений: население 0, необитаемы.
 func (r *PlanetRepository) attachSettlements(planets []models.Planet) error {
 	if len(planets) == 0 {
@@ -126,7 +128,7 @@ func (r *PlanetRepository) attachSettlements(planets []models.Planet) error {
 		settlements := byPlanet[planets[i].ID]
 		input := planetMortalityInput(planets[i])
 		for j := range settlements {
-			updated, err := econRepo.RecomputeSettlementPopulation(settlements[j].ID, input, now)
+			updated, err := econRepo.RecomputeSettlementPopulation(&settlements[j], input, now)
 			if err != nil {
 				return fmt.Errorf("failed to recompute settlement %s: %w", settlements[j].ID, err)
 			}

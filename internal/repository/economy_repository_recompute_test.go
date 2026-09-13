@@ -8,9 +8,20 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"zorion/internal/economy/settlement"
+	"zorion/internal/models"
 )
 
-func TestRecomputeSettlementPopulationComfortableUnchanged(t *testing.T) {
+func loadSettlement(id string, population int, computedAt time.Time) *models.Settlement {
+	return &models.Settlement{
+		ID: id, PlanetID: "p1", Population: population,
+		PopulationExact: float64(population), Stability: 60,
+		ComputedAt: computedAt, CreatedAt: computedAt, UpdatedAt: computedAt,
+	}
+}
+
+// «Событие» (Δt >= MinPersistInterval): чек-точка продвигается в БД.
+// На комфортной планете λ = 0, население не меняется, лямбда уходит в ответ.
+func TestRecomputeSettlementPopulationEventComfortableUnchanged(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
 	require.NoError(t, err)
 	defer db.Close()
@@ -33,14 +44,17 @@ func TestRecomputeSettlementPopulationComfortableUnchanged(t *testing.T) {
 	mock.ExpectCommit()
 
 	input := settlement.PlanetInput{TemperatureK: 275, GravityG: 1.0, CoreRadioactivity: 5}
-	got, err := NewEconomyRepository(db).RecomputeSettlementPopulation("s1", input, now)
+	got, err := NewEconomyRepository(db).RecomputeSettlementPopulation(loadSettlement("s1", 1_000_000, since), input, now)
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 	require.Equal(t, 1_000_000, got.Population)
 	require.Equal(t, float64(1_000_000), got.PopulationExact)
+	require.Equal(t, float64(0), got.DecayLambda, "комфортная планета не должна убивать")
+	require.Equal(t, float64(100), got.NDead)
 }
 
-func TestRecomputeSettlementPopulationHotDecreases(t *testing.T) {
+// «Событие» на жаркой планете: население убывает, чек-точка продвигается.
+func TestRecomputeSettlementPopulationEventHotDecreases(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
 	defer db.Close()
@@ -58,9 +72,51 @@ func TestRecomputeSettlementPopulationHotDecreases(t *testing.T) {
 	mock.ExpectCommit()
 
 	input := settlement.PlanetInput{TemperatureK: 900, GravityG: 1.0, CoreRadioactivity: 5}
-	got, err := NewEconomyRepository(db).RecomputeSettlementPopulation("s1", input, now)
+	got, err := NewEconomyRepository(db).RecomputeSettlementPopulation(loadSettlement("s1", 1_000_000, since), input, now)
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 	require.Less(t, got.Population, 1_000_000, "на жаркой планете население должно уменьшиться")
 	require.Greater(t, got.Population, 0)
+	require.Greater(t, got.DecayLambda, float64(0))
+}
+
+// «Простой визит» (Δt < MinPersistInterval): население пересчитывается только
+// в памяти — никаких запросов к БД после уже загруженной чек-точки.
+func TestRecomputeSettlementPopulationVisitNoWrite(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	since := time.Now().Add(-1 * time.Minute)
+	now := time.Now()
+
+	input := settlement.PlanetInput{TemperatureK: 900, GravityG: 1.0, CoreRadioactivity: 5}
+	got, err := NewEconomyRepository(db).RecomputeSettlementPopulation(loadSettlement("s1", 1_000_000, since), input, now)
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet(), "визит не должен трогать БД")
+
+	require.Less(t, got.Population, 1_000_000, "на жаркой планете население должно уменьшиться")
+	require.Greater(t, got.Population, 0)
+	require.Greater(t, got.DecayLambda, float64(0))
+	require.Equal(t, now.Unix(), got.ComputedAt.Unix(), "в ответе — чек-точка на момент пересчёта")
+	require.Equal(t, float64(100), got.NDead)
+}
+
+// «Простой визит» на комфортной планете: население не меняется, ёмкость
+// строки не нужна — путь без транзакции вообще не открывается.
+func TestRecomputeSettlementPopulationVisitComfortableUnchanged(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	since := time.Now().Add(-1 * time.Minute)
+	now := time.Now()
+
+	input := settlement.PlanetInput{TemperatureK: 275, GravityG: 1.0, CoreRadioactivity: 5}
+	got, err := NewEconomyRepository(db).RecomputeSettlementPopulation(loadSettlement("s1", 1_000_000, since), input, now)
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	require.Equal(t, 1_000_000, got.Population)
+	require.Equal(t, float64(0), got.DecayLambda)
 }

@@ -47,6 +47,40 @@ export function openSystemModal(worldId, worldName, spectralClass, focusOpts) {
     });
 }
 
+// refreshPlanets — перечитывает планеты текущей открытой системы (без
+// пересоздания модалки, без сброса вкладки/камеры). Используется кнопкой
+// «Обновить» в карточке планеты: пересчёт населения от среды происходит на
+// сервере при каждом чтении (docs/gamedesign/18a_population_death.md), эта
+// функция просто вытягивает уже пересчитанный результат.
+export function refreshPlanets() {
+    const token = localStorage.getItem('token');
+    const worldId = modalState.worldId;
+    if (!token || !worldId) return;
+
+    fetch(`/api/worlds/${worldId}/planets`, {
+        headers: { 'Authorization': 'Bearer ' + token }
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        modalState.planets = Array.isArray(data && data.planets) ? data.planets : [];
+        const idx = modalState.selectedPlanetIndex;
+        if (idx !== null && idx !== undefined && modalState.planets[idx]) {
+            renderRightPanel(modalState.planets, idx);
+        } else {
+            renderRightPanel(modalState.planets, null);
+        }
+    })
+    .catch(error => {
+        console.error('Error refreshing planets:', error);
+        notifyError('Ошибка обновления: ' + error.message);
+    });
+}
+
 // selectPlanetInModal — выбирает планету по id в правой панели модалки.
 export function selectPlanetInModal(planetId) {
     const planets = modalState.planets || [];

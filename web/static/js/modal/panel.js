@@ -149,7 +149,10 @@ function renderCard(panel, planets, selectedIndex) {
     panel.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
             <h3 style="margin: 0; font-size: 1.2rem; color: #aaa;">${capitalize(planet.name) || `Планета #${selectedIndex + 1}`}${planet.population ? ` (${planet.population.toLocaleString('ru-RU')})` : ''}</h3>
-            <button id="back-to-list-btn" style="background: #2a2a4a; border: none; color: #aaa; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 0.95rem;">← Назад</button>
+            <div style="display:flex; gap:8px;">
+                <button id="refresh-planet-btn" title="Пересчитать население от среды и перезагрузить данные" style="background: #2a2a4a; border: none; color: #aaa; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 0.95rem;">🔄 Обновить</button>
+                <button id="back-to-list-btn" style="background: #2a2a4a; border: none; color: #aaa; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 0.95rem;">← Назад</button>
+            </div>
         </div>
         <div style="display: flex; gap: 8px; margin-bottom: 12px; border-bottom: 1px solid #333; padding-bottom: 8px;">
             <button class="tab-btn" data-tab="general" style="background: none; border: none; color: #888; padding: 4px 12px; cursor: pointer; font-size: 0.95rem; border-radius: 4px;">Общее</button>
@@ -164,6 +167,7 @@ function renderCard(panel, planets, selectedIndex) {
     const tabContent = panel.querySelector('#tab-content');
 
     function switchTab(tab) {
+        modalState.activeTab = tab;
         tabBtns.forEach(btn => {
             btn.style.color = btn.dataset.tab === tab ? '#fff' : '#888';
             btn.style.background = btn.dataset.tab === tab ? '#2a2a4a' : 'none';
@@ -175,7 +179,22 @@ function renderCard(panel, planets, selectedIndex) {
         btn.addEventListener('click', () => switchTab(btn.dataset.tab));
     });
 
-    switchTab('general');
+    // Открытие карточки — с «Общее»; обновление данных (см. refreshPlanets в
+    // index.js) не трогает вкладку, на которой стоял игрок.
+    switchTab(modalState.activeTab || 'general');
+
+    // Обновить — перечитывает планеты мира заново, без пересоздания модалки
+    // и без сброса текущей вкладки. Пересчёт населения от среды происходит
+    // на сервере при каждом чтении (18a_population_death.md), кнопка просто
+    // вытягивает свежий результат. Динамический import вместо прямого —
+    // index.js импортирует panel.js, статический импорт обратно дал бы цикл
+    // модулей.
+    const refreshBtn = panel.querySelector('#refresh-planet-btn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', () => {
+            import('./index.js').then(mod => mod.refreshPlanets());
+        });
+    }
 
     const backBtn = panel.querySelector('#back-to-list-btn');
     if (backBtn) {

@@ -27,7 +27,8 @@ export const modalState = {
     animStart: 0,
     _rafId: null,
     dragMoved: false,
-    suppressNextClick: false
+    suppressNextClick: false,
+    activeTab: 'general' // текущая вкладка карточки планеты, чтобы «Обновить» не сбрасывал на «Общее»
 };
 
 export function resetState() {
@@ -40,6 +41,7 @@ export function resetState() {
     modalState.selectedPlanetIndex = null;
     modalState.dragMoved = false;
     modalState.suppressNextClick = false;
+    modalState.activeTab = 'general';
     if (modalState._rafId !== null) {
         cancelAnimationFrame(modalState._rafId);
         modalState._rafId = null;

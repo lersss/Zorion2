@@ -109,8 +109,8 @@ func (g *Generator) GenerateSettlements(ctx context.Context, model *Model, progr
 	defer tx.Rollback()
 
 	if err := copyInRows(tx, "settlements",
-		[]string{"id", "planet_id", "population", "stability"},
-		flatten(settlementRows), 4); err != nil {
+		[]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at"},
+		flatten(settlementRows), 6); err != nil {
 		return 0, fmt.Errorf("copy settlements: %w", err)
 	}
 	if err := copyInRows(tx, "factories",
@@ -134,12 +134,17 @@ func (g *Generator) GenerateSettlements(ctx context.Context, model *Model, progr
 
 // buildSettlement — строка поселения для вставки в БД.
 // Тир (level) — расчётная величина (13_tiers.md), при генерации не задаётся.
+// population_exact и computed_at — точное состояние для пересчёта смерти от
+// среды (18a_population_death.md), стартует равным population на момент
+// генерации.
 func buildSettlement(planetID string, population, stability int) []interface{} {
 	return []interface{}{
 		uuid.New().String(),
 		planetID,
 		population,
+		float64(population),
 		stability,
+		time.Now(),
 	}
 }
 

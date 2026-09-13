@@ -3,6 +3,7 @@ package settlement
 import (
 	"math"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -161,8 +162,10 @@ func TestModelValidate(t *testing.T) {
 
 func TestBuildSettlement(t *testing.T) {
 	row := buildSettlement("p1", 500000, 60)
-	assert.Equal(t, 4, len(row), "id, planet_id, population, stability — тир не хранится")
+	assert.Equal(t, 6, len(row), "id, planet_id, population, population_exact, stability, computed_at — тир не хранится")
 	assert.Equal(t, "p1", row[1])
 	assert.Equal(t, 500000, row[2])
-	assert.Equal(t, 60, row[3])
+	assert.Equal(t, float64(500000), row[3], "population_exact стартует равным population")
+	assert.Equal(t, 60, row[4])
+	assert.IsType(t, time.Time{}, row[5])
 }

@@ -73,7 +73,7 @@ func TestRunHypothesisJobPipeline(t *testing.T) {
 			WillReturnResult(sqlmock.NewResult(0, 1))
 	}
 	for i := 0; i < 2; i++ {
-		mock.ExpectExec(`INSERT INTO settlements \(id, planet_id, population, stability`).
+		mock.ExpectExec(`INSERT INTO settlements \(id, planet_id, population, population_exact, stability, computed_at`).
 			WillReturnResult(sqlmock.NewResult(0, 1))
 	}
 	mock.ExpectCommit()

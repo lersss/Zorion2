@@ -155,12 +155,13 @@ func (h *AdminHandlers) runHypothesisJob(ctx context.Context, spec planet.TwinSp
 				continue
 			}
 			now := time.Now()
+			population := group.Settlement.Population.Value(rng)
 			if _, err := tx.ExecContext(ctx, `
-				INSERT INTO settlements (id, planet_id, population, stability, created_at, updated_at)
-				VALUES ($1, $2, $3, $4, $5, $6)`,
+				INSERT INTO settlements (id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 				uuid.New().String(), p.ID,
-				group.Settlement.Population.Value(rng),
-				rng.Intn(41)+40, now, now,
+				population, float64(population),
+				rng.Intn(41)+40, now, now, now,
 			); err != nil {
 				return 0, "", err
 			}

@@ -18,9 +18,9 @@ func NewEconomyRepository(db *sql.DB) *EconomyRepository {
 
 // Settlement
 func (r *EconomyRepository) CreateSettlement(s *models.Settlement) error {
-	query := `INSERT INTO settlements (id, planet_id, population, stability, created_at, updated_at)
-	          VALUES ($1, $2, $3, $4, NOW(), NOW())`
-	_, err := r.db.Exec(query, s.ID, s.PlanetID, s.Population, s.Stability)
+	query := `INSERT INTO settlements (id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at)
+	          VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), NOW())`
+	_, err := r.db.Exec(query, s.ID, s.PlanetID, s.Population, float64(s.Population), s.Stability)
 	return err
 }
 

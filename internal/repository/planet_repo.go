@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"time"
 
+	"zorion/internal/economy/settlement"
 	"zorion/internal/models"
 )
 
@@ -97,8 +99,11 @@ func (r *PlanetRepository) GetPlanetByID(id string) (*models.Planet, error) {
 	return &planets[0], nil
 }
 
-// attachSettlements — подтягивает поселения планет, вычисляет население
-// как сумму их населения и обитаемость как наличие поселения.
+// attachSettlements — подтягивает поселения планет, пересчитывает их
+// население от среды на текущий момент (docs/gamedesign/18a_population_death.md
+// — открытие карточки планеты игроком триггерит ленивый пересчёт,
+// 13_tiers_impl.md §13.13.3), вычисляет население планеты как сумму
+// пересчитанного и обитаемость как наличие поселения.
 // Планеты без поселений: население 0, необитаемы.
 func (r *PlanetRepository) attachSettlements(planets []models.Planet) error {
 	if len(planets) == 0 {
@@ -115,8 +120,18 @@ func (r *PlanetRepository) attachSettlements(planets []models.Planet) error {
 		return fmt.Errorf("failed to load settlements: %w", err)
 	}
 
+	econRepo := NewEconomyRepository(r.db)
+	now := time.Now()
 	for i := range planets {
 		settlements := byPlanet[planets[i].ID]
+		input := planetMortalityInput(planets[i])
+		for j := range settlements {
+			updated, err := econRepo.RecomputeSettlementPopulation(settlements[j].ID, input, now)
+			if err != nil {
+				return fmt.Errorf("failed to recompute settlement %s: %w", settlements[j].ID, err)
+			}
+			settlements[j] = updated
+		}
 		planets[i].Settlements = settlements
 		planets[i].Habitable = len(settlements) > 0
 		for _, s := range settlements {
@@ -124,6 +139,21 @@ func (r *PlanetRepository) attachSettlements(planets []models.Planet) error {
 		}
 	}
 	return nil
+}
+
+// planetMortalityInput — физика планеты для пересчёта смерти населения от
+// среды. Радиоактивность — 0, если у планеты нет ядра (например, спутник
+// газового гиганта пока не учитывается на этом срезе).
+func planetMortalityInput(p models.Planet) settlement.PlanetInput {
+	radioactivity := 0.0
+	if p.Core != nil {
+		radioactivity = p.Core.Radioactivity
+	}
+	return settlement.PlanetInput{
+		TemperatureK:      p.Temperature,
+		GravityG:          p.Gravity,
+		CoreRadioactivity: radioactivity,
+	}
 }
 
 // ==================== ПАРСИНГ ====================

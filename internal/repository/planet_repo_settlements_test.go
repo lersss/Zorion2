@@ -37,6 +37,28 @@ func TestGetPlanetsByWorldIDWithSettlements(t *testing.T) {
 		FROM settlements WHERE planet_id = ANY($1) ORDER BY created_at ASC
 	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(settlementRows)
 
+	// Открытие карточки системы триггерит пересчёт каждого поселения p1
+	// (18a_population_death.md); computed_at = now, чтобы Δt ≈ 0 и население
+	// не менялось для простоты этого теста — он про группировку, не про физику.
+	for _, row := range []struct {
+		id         string
+		population int
+	}{{"s1", 5_000_000}, {"s2", 8_000_000}} {
+		mock.ExpectBegin()
+		mock.ExpectQuery(`
+		SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at
+		FROM settlements WHERE id = $1 FOR UPDATE`).
+			WithArgs(row.id).
+			WillReturnRows(sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at"}).
+				AddRow(row.id, "p1", row.population, float64(row.population), 60, now, now, now))
+		mock.ExpectExec(`
+		UPDATE settlements SET population = $1, population_exact = $2, computed_at = $3, updated_at = NOW()
+		WHERE id = $4`).
+			WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), row.id).
+			WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectCommit()
+	}
+
 	planets, err := NewPlanetRepository(db).GetPlanetsByWorldID("w1")
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())

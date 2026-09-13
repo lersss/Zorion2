@@ -67,6 +67,20 @@ func TestMortalityPreviewComfortablePlanetHasZeroLambda(t *testing.T) {
 		sqlmock.NewRows([]string{"id", "planet_id", "population", "stability", "created_at", "updated_at"}).
 			AddRow("s1", "p1", 1_000_000, 60, now, now),
 	)
+	// Просмотр планеты триггерит пересчёт населения (18a_population_death.md).
+	mock.ExpectBegin()
+	mock.ExpectQuery(`
+		SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at
+		FROM settlements WHERE id = $1 FOR UPDATE`).
+		WithArgs("s1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at"}).
+			AddRow("s1", "p1", 1_000_000, float64(1_000_000), 60, now, now, now))
+	mock.ExpectExec(`
+		UPDATE settlements SET population = $1, population_exact = $2, computed_at = $3, updated_at = NOW()
+		WHERE id = $4`).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "s1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
 
 	h := &AdminHandlers{db: db}
 	req := httptest.NewRequest(http.MethodGet, "/admin/mortality-preview?planet_id=p1", nil)

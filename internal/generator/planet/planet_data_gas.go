@@ -104,7 +104,6 @@ func (g *Generator) generateGasGiant(
 		"water_percent":     0.0,
 		"life":              false,
 		"political_system":  "нет",
-		"conflict_level":    0.0,
 		"moons":             satelliteCount,
 		"development_level": 0.0,
 		"climate":           "hot",

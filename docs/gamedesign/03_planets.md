@@ -269,7 +269,6 @@ T_final  = T_green + internal_heat + tidal_heat
 | `gravity` | 0.29–3.18 g (M/R²) | ✅ (открыто 2026-09-13) |
 | `density` | 0.15–1.8 (в ед. Земли) | ✅ (подсказка до 8 — поправить) |
 | `moons` | 0–10 | ✅ |
-| `conflict_level` | 0–1 (только у обитаемых) | ✅ |
 | `development_level` | 0–1 (только у обитаемых) | ✅ |
 | `system_age` | 0.1–13 млрд лет | ✅ |
 

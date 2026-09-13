@@ -20,7 +20,6 @@ type Properties struct {
 	Settleable            bool
 	Life                  bool
 	Political             string
-	ConflictLevel         float64
 	Development           float64
 	SurfaceComposition    Composition
 	SubterrainComposition Composition
@@ -115,10 +114,8 @@ func GenerateProperties(
 		political = systems[rng.Intn(len(systems))]
 	}
 
-	conflict := 0.0
 	devLevel := 0.0
 	if settleable {
-		conflict = rng.Float64()
 		devLevel = 0.1 + rng.Float64()*0.9
 	}
 
@@ -133,7 +130,6 @@ func GenerateProperties(
 		Settleable:            settleable,
 		Life:                  life,
 		Political:             political,
-		ConflictLevel:         conflict,
 		Development:           devLevel,
 		SurfaceComposition:    surfaceComp,
 		SubterrainComposition: subterrainComp,

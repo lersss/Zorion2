@@ -30,7 +30,7 @@ func testTwinSpec() planet.TwinSpec {
 			"biosphere": "растительная", "life": true,
 			"type": "землеподобная", "surface_dominant": "океаны",
 			"climate": "temperate", "system_age": 1.0,
-			"moons": 1, "conflict_level": 0.1, "development_level": 0.5,
+			"moons": 1, "development_level": 0.5,
 			"surface_composition":    map[string]interface{}{"океаны": 60.0, "скалы": 40.0},
 			"subterrain_composition": map[string]interface{}{"породы": 100.0},
 		},

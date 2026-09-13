@@ -66,10 +66,6 @@ var fieldSpecs = []FieldSpec{
 		Min: floatPtr(0), Max: floatPtr(30),
 	},
 	{
-		Key: "conflict_level", Label: "Уровень конфликтности", Type: FieldNumber,
-		Min: floatPtr(0), Max: floatPtr(1),
-	},
-	{
 		Key: "development_level", Label: "Развитие", Type: FieldNumber,
 		Min: floatPtr(0), Max: floatPtr(1),
 	},

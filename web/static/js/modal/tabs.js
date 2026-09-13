@@ -1,4 +1,5 @@
 // web/static/js/modal/tabs.js
+import { populationAt, planetPopulationAt } from './extrapolate.js';
 
 // ---------- УТИЛИТЫ ----------
 
@@ -192,8 +193,9 @@ function renderGeneral(planet) {
     html += `<p style="margin:8px 0 4px 0; color:#888; font-size:0.9rem; text-transform:uppercase;">Жизнь</p>`;
     html += `<p style="margin:4px 0;"><strong>Обитаемость:</strong> ${planet.habitable ? '✅ Да' : '— Нет'}</p>`;
     html += `<p style="margin:4px 0;"><strong>Жизнь:</strong> ${planet.life ? '✅ Да' : '— Нет'}</p>`;
-    if (planet.population) {
-        html += `<p style="margin:4px 0;"><strong>Население:</strong> ${formatNumber(planet.population)}</p>`;
+    const populationNow = planetPopulationAt(planet, Date.now());
+    if (populationNow > 0) {
+        html += `<p style="margin:4px 0;"><strong>Население:</strong> <span data-pop-planet>${formatNumber(populationNow)}</span></p>`;
     }
 
     // Описание
@@ -337,7 +339,7 @@ function renderSettlements(planet) {
                     <strong>Поселение ${i + 1}</strong>
                 </div>
                 <div style="color:#ccc; margin-top:6px;">
-                    <div>Население: <strong>${formatNumber(s.population)}</strong></div>
+                    <div>Население: <strong id="pop-${s.id}">${formatNumber(populationAt(s, Date.now()))}</strong></div>
                     <div>Стабильность: <strong>${s.stability != null ? s.stability + '%' : '—'}</strong></div>
                 </div>
             </div>`;

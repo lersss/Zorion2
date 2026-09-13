@@ -6,6 +6,7 @@ import { clearTextureCache } from './textures.js';
 import { getStarColor, getStarSize } from './utils.js';
 import { renderRightPanel, renderStarCard } from './panel.js';
 import { notifyError } from '../ui/toast.js';
+import { repaintPopulationNumbers } from './extrapolate.js';
 
 // openSystemModal — открывает модалку системы по ID мира.
 // focusOpts: { planetId?, satelliteId? } — после открытия выбирает объект
@@ -321,10 +322,23 @@ function renderModal(worldId, worldName, spectralClass, data) {
     modalState._escListener = handleKeydown;
 
     // ---- АНИМАЦИЯ: rAF-цикл вращения планет ----
+    // Попутно — косметическая тень населения (extrapolate.js): раз в секунду
+    // перерисовываем числа от локального счёта, чтобы между синками с сервером
+    // население «жило». rAF в фоновой вкладке замирает — первый кадр после
+    // возврата сразу даёт свежее число без запроса.
     modalState.animStart = performance.now();
+    let lastPopRepaint = 0;
     function tick() {
         if (!document.getElementById('system-modal-overlay')) return;
         drawSystem(canvas, spectralClass, planets, starRadius, starColor, modalState.canvasWidth, modalState.canvasHeight);
+        const popIdx = modalState.selectedPlanetIndex;
+        if (popIdx !== null && popIdx !== undefined && modalState.planets[popIdx]) {
+            const frameMs = performance.now();
+            if (frameMs - lastPopRepaint >= 1000) {
+                lastPopRepaint = frameMs;
+                repaintPopulationNumbers(modalState.planets[popIdx]);
+            }
+        }
         modalState._rafId = requestAnimationFrame(tick);
     }
     modalState._rafId = requestAnimationFrame(tick);

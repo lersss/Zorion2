@@ -2,6 +2,7 @@
 import { modalState } from './state.js';
 import { drawSystem } from './modal_render.js';
 import { renderTabContent } from './tabs.js';
+import { planetPopulationAt } from './extrapolate.js';
 
 // Перевод Кельвинов в Цельсии (для таблицы планет)
 function kelvinToCelsius(k) {
@@ -182,6 +183,11 @@ function populationTrendArrow(planet) {
     return ' <span style="color:#888;" title="Без изменений">—</span>';
 }
 
+// formatPopulation — "1 234 567"
+function formatPopulation(n) {
+    return n.toLocaleString('ru-RU');
+}
+
 function renderCard(panel, planets, selectedIndex) {
     const planet = planets[selectedIndex];
     if (!planet) {
@@ -191,7 +197,7 @@ function renderCard(panel, planets, selectedIndex) {
 
     panel.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <h3 style="margin: 0; font-size: 1.2rem; color: #aaa;">${capitalize(planet.name) || `Планета #${selectedIndex + 1}`}${planet.population ? ` (${planet.population.toLocaleString('ru-RU')}${populationTrendArrow(planet)})` : ''}</h3>
+            <h3 style="margin: 0; font-size: 1.2rem; color: #aaa;">${capitalize(planet.name) || `Планета #${selectedIndex + 1}`}${planet.population ? ` (<span id="planet-pop-num">${formatPopulation(planetPopulationAt(planet, Date.now()))}</span>${populationTrendArrow(planet)})` : ''}</h3>
             <div style="display:flex; gap:8px;">
                 <button id="refresh-planet-btn" title="Пересчитать население от среды и перезагрузить данные" style="background: #2a2a4a; border: none; color: #aaa; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 0.95rem;">🔄 Обновить</button>
                 <button id="back-to-list-btn" style="background: #2a2a4a; border: none; color: #aaa; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 0.95rem;">← Назад</button>

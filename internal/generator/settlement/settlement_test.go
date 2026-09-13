@@ -1,6 +1,7 @@
 package settlement
 
 import (
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -128,6 +129,8 @@ func TestModelValidate(t *testing.T) {
 		DefaultModel(),
 		{Mode: ModeSimple, Chance: 0.5, Population: Population{Kind: "random", Min: 1, Max: 10}},
 		{Mode: ModeSimple, Chance: 1, Population: Population{Kind: "fixed", Fixed: 1}},
+		// Ровно верхняя граница integer-колонки допустима.
+		{Mode: ModeSimple, Chance: 1, Population: Population{Kind: "random", Min: 1, Max: math.MaxInt32}},
 	}
 	for _, m := range valid {
 		require.NoError(t, m.Validate(), "%+v должен быть валидным", m)
@@ -144,6 +147,10 @@ func TestModelValidate(t *testing.T) {
 			Rules: []FieldRule{{Field: "atmosphere", In: []string{"ядовитая"}, NotIn: []string{"плотная"}}}},
 		{Mode: ModeComplex, Chance: 1, Population: Population{Kind: "fixed", Fixed: 1},
 			Rules: []FieldRule{{Field: "atmosphere", In: []string{"не из списка"}}}},
+		// Население выше 2^31-1 не влезает в integer-колонку settlements.population
+		// (было: "pq: value ... is out of range for type integer").
+		{Mode: ModeSimple, Chance: 1, Population: Population{Kind: "random", Min: 1, Max: 3_000_000_000}},
+		{Mode: ModeSimple, Chance: 1, Population: Population{Kind: "fixed", Fixed: 3_000_000_000}},
 	}
 	for _, m := range invalid {
 		require.Error(t, m.Validate(), "%+v должен быть невалидным", m)

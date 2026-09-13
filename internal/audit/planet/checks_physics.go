@@ -195,9 +195,12 @@ func checkFrozenGasesInHeat(v *View) []audit.Issue {
 }
 
 // checkOceansInHeat — океаны при температуре выше точки кипения.
+//
+// Срабатывает только на глобальные океаны (доля > 1% поверхности): локальный
+// оазис на ≤1% объясним и «невозможным» не считается.
 func checkOceansInHeat(v *View) []audit.Issue {
 	share := v.Surface["океаны"]
-	if share < 1 || v.Temperature <= 400 {
+	if share <= 1 || v.Temperature <= 400 {
 		return nil
 	}
 	return []audit.Issue{newIssueWithDetails(v, "oceans_in_heat", audit.SeverityHigh,

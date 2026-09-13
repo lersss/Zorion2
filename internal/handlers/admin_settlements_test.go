@@ -60,7 +60,7 @@ func TestGenerateSettlementsNotCanceledOnResponse(t *testing.T) {
 	deadline := time.Now().Add(2 * time.Second)
 	status := ""
 	for time.Now().Before(deadline) {
-		_, _, status, _ = statusManager.GetStatus(generator.JobGenerateSettlements)
+		_, _, status, _, _ = statusManager.GetStatus(generator.JobGenerateSettlements)
 		if status != "running" {
 			break
 		}

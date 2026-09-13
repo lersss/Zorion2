@@ -503,7 +503,7 @@ func (h *AdminHandlers) GenerateStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jt := generator.JobType(job)
-	total, processed, status, errMsg := statusManager.GetStatus(jt)
+	total, processed, status, errMsg, report := statusManager.GetStatus(jt)
 	resp := map[string]interface{}{
 		"total":     total,
 		"processed": processed,
@@ -511,6 +511,9 @@ func (h *AdminHandlers) GenerateStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	if errMsg != "" {
 		resp["error"] = errMsg
+	}
+	if report != "" {
+		resp["report"] = report
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)

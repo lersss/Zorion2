@@ -468,6 +468,160 @@ table tr:hover { background: #1a1a2e; }
     font-family: inherit;
 }
 
+/* Превью гипотез */
+.hyp-preview {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 10px;
+    margin-top: 12px;
+}
+.hyp-group {
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    padding: 10px 12px;
+}
+.hyp-group-name {
+    font-weight: 600;
+    color: #f1f5f9;
+    font-size: 0.9rem;
+    margin-bottom: 4px;
+}
+.hyp-group-count {
+    color: #94a3b8;
+    font-size: 0.8rem;
+    margin-bottom: 6px;
+}
+.hyp-line {
+    color: #cbd5e1;
+    font-size: 0.82rem;
+    line-height: 1.5;
+}
+.hyp-line input[type="number"],
+.hyp-line input[type="text"] {
+    background: #0f172a;
+    border: 1px solid #334155;
+    color: #e0e0e0;
+    padding: 4px 6px;
+    border-radius: 5px;
+    font-size: 0.82rem;
+    max-width: 130px;
+}
+.hyp-fine-hint {
+    color: #64748b;
+    font-size: 0.75rem;
+    margin-left: 6px;
+}
+.hyp-field-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    margin-top: 6px;
+    flex-wrap: wrap;
+}
+.hyp-field-row select,
+.hyp-field-row input[type="number"],
+.hyp-field-row input[type="text"] {
+    background: #0f172a;
+    border: 1px solid #334155;
+    color: #e0e0e0;
+    padding: 4px 6px;
+    border-radius: 5px;
+    font-size: 0.82rem;
+}
+.hyp-field-map-label {
+    color: #94a3b8;
+    font-size: 0.82rem;
+    min-width: 120px;
+}
+.hyp-comp {
+    margin-top: 8px;
+    padding: 6px;
+    background: #0d1117;
+    border: 1px solid #1e293b;
+    border-radius: 6px;
+}
+.hyp-comp-title {
+    color: #94a3b8;
+    font-size: 0.78rem;
+    margin-bottom: 4px;
+}
+.hyp-comp-pairs {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.hyp-comp-pair {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+.hyp-comp-form,
+.hyp-comp-pct {
+    background: #0f172a;
+    border: 1px solid #334155;
+    color: #e0e0e0;
+    padding: 3px 6px;
+    border-radius: 5px;
+    font-size: 0.82rem;
+}
+.hyp-comp-form {
+    flex: 1;
+    min-width: 120px;
+}
+.hyp-comp-pct {
+    width: 70px;
+}
+.hyp-comp-add {
+    margin-top: 2px;
+    align-self: flex-start;
+    padding: 2px 10px;
+}
+.hyp-axis-row {
+    border-left: 2px solid #4a9eff;
+    padding-left: 6px;
+}
+.hyp-axis-tag {
+    color: #4a9eff;
+    font-size: 0.72rem;
+    white-space: nowrap;
+}
+.hyp-fine {
+    margin-top: 10px;
+}
+.hyp-fine summary {
+    cursor: pointer;
+    color: #94a3b8;
+    font-size: 0.8rem;
+    user-select: none;
+    padding: 4px 0;
+}
+.hyp-fine summary:hover {
+    color: #e0e0e0;
+}
+.hyp-field-json {
+    display: none;
+}
+.hyp-field-select {
+    max-width: 200px;
+}
+.hyp-field-copy {
+    padding: 2px 8px;
+    background: none;
+    border: 1px solid #334155;
+    color: #94a3b8;
+    cursor: pointer;
+    border-radius: 5px;
+    font-size: 0.85rem;
+}
+.hyp-field-copy:hover {
+    color: #e0e0e0;
+    border-color: #4a9eff;
+}
+.hyp-field-del {
+    padding: 2px 8px;
+}
+
 /* Вкладки */
 .admin-tabs {
     display: flex;

@@ -45,6 +45,9 @@ export async function pollJob(jobType, progressId, resultId, cancelBtnId) {
                     loadWorlds(1);
                 } else if (jobType === 'generate_planets') {
                     loadStats();
+                } else if (jobType === 'hypothesis') {
+                    resultEl.textContent = data.report || `✅ Эксперимент завершён: ${progress} планет`;
+                    loadStats();
                 }
             } else if (status === 'canceled') {
                 resultEl.textContent = `⏹️ Остановлено пользователем`;

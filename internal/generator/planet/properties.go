@@ -178,16 +178,42 @@ func computeRadius(mass, density float64) float64 {
 
 // ==================== ВОДА, ЖИЗНЬ, СПУТНИКИ ====================
 
+// Пороги физических состояний воды для гейта гидросфер:
+//
+//	heatThreshold — граница «жары» (совпадает с порогом аудита
+//	                oceans_in_heat): выше жидкой воды не бывает;
+//	freezingPoint — точка замерзания воды.
+const (
+	heatThreshold = 400.0
+	freezingPoint = 273.0
+)
+
 func generateWater(archetype *Archetype, temp float64, rng *rand.Rand) float64 {
 	switch archetype.Hydrosphere {
 	case "океаны":
-		return 70 + rng.Float64()*25
+		// Жидкие океаны — только до порога «жары» (тот же, что у аудита
+		// oceans_in_heat). Выше — воды нет: пара, а не океан.
+		if temp <= heatThreshold {
+			return 70 + rng.Float64()*25
+		}
+		return 0
 	case "озёра":
-		return 20 + rng.Float64()*40
+		if temp <= heatThreshold {
+			return 20 + rng.Float64()*40
+		}
+		return 0
 	case "ледяной покров":
-		return 5 + rng.Float64()*20
+		// Лёд — только ниже точки замерзания.
+		if temp < freezingPoint {
+			return 5 + rng.Float64()*20
+		}
+		return 0
 	case "подлёдная":
-		return 50 + rng.Float64()*40
+		// Подлёдный океан — только под замёрзшей поверхностью.
+		if temp < freezingPoint {
+			return 50 + rng.Float64()*40
+		}
+		return 0
 	case "кислотная":
 		return 0
 	case "сухая":

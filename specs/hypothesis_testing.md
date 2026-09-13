@@ -1,6 +1,6 @@
 # Спека: «Проверка гипотез» — параметрический генератор планет и вкладка экспериментов
 
-**Статус:** черновик для новой сессии
+**Статус:** реализовано 2026-09-13
 **Автор:** сессия 2026-09-13 (дизайн-согласование с игроком)
 **Дополняет:** `docs/gamedesign/13_tiers.md` (потолки населения), `STATUS.md` §3 п.4 (прототип поселения)
 **Открывать также:** `internal/generator/settlement/{preset,model,generator}.go`, `internal/generator/planet/{planet_data_generate,properties,core,physics,archetype}.go`
@@ -290,4 +290,37 @@ POST /admin/hypothesis/run
 
 ---
 
-*Черновик. После реализации — обновить это поле статуса и дописать раздел «что закрылось» (аналогично `13_tiers_impl.md` §13.13.6).*
+## 9. Что закрылось при реализации (2026-09-13)
+
+Реализовано по §6:
+
+1. **Параметрический генератор планет** — `internal/generator/planet/parametric.go`
+   (`AxisSpec`, `ParamSpec`, `GroupSpec`, `WorldSpec`, `SettlementSpec`, хелперы
+   осей `numberAxis`/`boolAxis`/`stringAxis`), `parametric_exec.go`
+   (`GeneratePropertiesControlled` — каскад с пинами, `applyArchetypePins`,
+   `generateControlledPlanet`, `tagExperiment`). Разрыв «возраст → температура»
+   сделан пином температуры (перезаписывает итог каскада), ядро с заданным
+   возрастом на поверхность не влияет.
+2. **Миры под группу** — `parametric_world.go` (`BuildControlledWorlds`,
+   `GenerateControlledRun`), экспорт `galaxy.RandomSpectralClass`/`RandomTemperature`.
+3. **Конвейр** — `internal/handlers/admin_hypothesis.go` (`RunHypothesis`,
+   `runHypothesisJob`), джоб `JobHypothesis`, маршрут
+   `/admin/hypothesis/run`; статус — `/admin/generate-status?job=hypothesis`.
+4. **Фронт** — вкладка «🔬 Гипотезы» в `web/admin.html`, `hypothesisPresets.js`,
+   `hypothesis.js`.
+5. **DoD**: `go build`/`go vet`/`go test ./...` зелёные; ручной прогон
+   «Горячие ядра» на dev-БД: young/old по 300 планет, температуры равны
+   273–303 K, `system_age` 0.12–1.94 / 6.19–12.94; 480 поселений, заводов и
+   товаров 0; тег `_experiment.{id,group}` в `data`.
+
+Открытые вопросы из §7 не закрыты (см. там). Расхождение с планом:
+
+- Спец-пути океанических и радиоактивных планет в параметрическом режиме не
+  используются (жёсткие константы не уважают план осей); газовые гиганты —
+  только включением/выключением `is_gas_giant`.
+- Ось `gravity` напрямую не пинится (она производная массы/размера) — гипотеза
+  «Аккуратный миллиард» варьирует `mass`, что даёт честную разницу g.
+- Фронт не отдаёт план осей на сервер: пресеты живут в коде с обеих сторон,
+  запрос несёт только `{"hypothesis":"<id>"}`.
+
+*Реализация спеки завершена 2026-09-13. История — в git.*

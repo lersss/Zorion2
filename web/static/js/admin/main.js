@@ -9,6 +9,7 @@ import {
     cancelGeneration, clearUniverse, clearSettlements, applyPreset 
 } from './generation.js';
 import { setPassword } from './auth.js';
+import { populateHypothesisPresets, renderHypothesisForm, runHypothesis } from './hypothesis.js';
 
 // Глобальные функции для onclick в HTML
 window.setPassword = setPassword;
@@ -32,10 +33,13 @@ window.loadSettlementFields = loadSettlementFields;
 window.setSettleMode = setSettleMode;
 window.setSettlePopKind = setSettlePopKind;
 window.applySettlementPreset = applySettlementPreset;
+window.renderHypothesisForm = renderHypothesisForm;
+window.runHypothesis = runHypothesis;
 
 export function initAdmin() {
     initTabs();
     loadSettlementFields();
+    populateHypothesisPresets();
     loadStats();
     loadWorlds(1);
 }

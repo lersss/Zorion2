@@ -35,6 +35,7 @@ func Run[T any](
 		TotalEntities:    len(views),
 		IssuesByCode:     make(map[string]int),
 		IssuesBySeverity: make(map[string]int),
+		HighIssuesByCode: make(map[string]int),
 		SampleIssues:     make([]Issue, 0, SampleLimit),
 	}
 
@@ -44,6 +45,7 @@ func Run[T any](
 	}
 
 	entitiesWithIssues := make(map[string]bool)
+	entitiesWithHigh := make(map[string]bool)
 
 	for _, view := range views {
 		for _, rule := range rules {
@@ -54,6 +56,12 @@ func Run[T any](
 				result.TotalIssues++
 				entitiesWithIssues[issue.EntityID] = true
 
+				if issue.Severity == SeverityHigh {
+					// High — глобальное противоречие («невозможная» планета).
+					entitiesWithHigh[issue.EntityID] = true
+					result.HighIssuesByCode[issue.Code]++
+				}
+
 				if len(result.SampleIssues) < SampleLimit {
 					result.SampleIssues = append(result.SampleIssues, issue)
 				}
@@ -62,6 +70,7 @@ func Run[T any](
 	}
 
 	result.EntitiesWithIssue = len(entitiesWithIssues)
+	result.EntitiesWithHighIssue = len(entitiesWithHigh)
 	result.Truncated = result.TotalIssues > SampleLimit
 	result.DurationMs = time.Since(start).Milliseconds()
 

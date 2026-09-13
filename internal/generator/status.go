@@ -13,6 +13,7 @@ const (
 	JobGeneratePlanets  JobType = "generate_planets"
 	JobGenerateFactions JobType = "generate_factions"
 	JobGenerateSettlements JobType = "generate_settlements"
+	JobHypothesis JobType = "hypothesis"
 )
 
 type JobStatus struct {
@@ -21,6 +22,7 @@ type JobStatus struct {
 	Processed  int
 	Status     string
 	Error      string
+	Report     string
 	CancelFunc context.CancelFunc
 }
 
@@ -141,12 +143,24 @@ func (sm *StatusManager) Cancel(job JobType) {
 	s.CancelFunc = nil
 }
 
-func (sm *StatusManager) GetStatus(job JobType) (total, processed int, status, err string) {
+// SetReport — сохраняет отчёт о завершении задачи (например, число
+// невозможных планет). Показывается фронту через GenerateStatus.
+func (sm *StatusManager) SetReport(job JobType, report string) {
 	s := sm.Get(job)
 	if s == nil {
-		return 0, 0, "idle", ""
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Report = report
+}
+
+func (sm *StatusManager) GetStatus(job JobType) (total, processed int, status, err, report string) {
+	s := sm.Get(job)
+	if s == nil {
+		return 0, 0, "idle", "", ""
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.Total, s.Processed, s.Status, s.Error
+	return s.Total, s.Processed, s.Status, s.Error, s.Report
 }

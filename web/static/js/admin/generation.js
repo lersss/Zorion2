@@ -200,6 +200,12 @@ async function generatePrototypePlanet() {
 // Формат элемента: {key, label, type, unit, min, max, values}.
 let settlementFields = [];
 
+// getSettlementFields — реестр полей planet.data для форм «тонкой настройки»
+// (близнецы в гипотезах используют тот же реестр, что правила поселений).
+export function getSettlementFields() {
+    return settlementFields;
+}
+
 // settleMode и settlePopKind — текущий выбор сегментов.
 let settleMode = 'complex';
 let settlePopKind = 'random';
@@ -222,6 +228,9 @@ export async function loadSettlementFields() {
             return;
         }
         settlementFields = await res.json();
+        // Событие для вкладки «Гипотезы»: форма близнецов рисует оси/baked-поля
+        // по реестру — до загрузки они пусты.
+        document.dispatchEvent(new CustomEvent('settlement-fields-loaded'));
         populateSettlementPresets();
         applySettlementPreset(DEFAULT_PRESET_ID);
         renderSettlementModel();
@@ -587,6 +596,7 @@ export async function cancelGeneration(jobType) {
                           jobType === 'generate_planets' ? 'cancelPlanetsBtn' :
                           jobType === 'generate_factions' ? 'cancelFactionsBtn' :
                           jobType === 'generate_settlements' ? 'cancelSettlementsBtn' :
+                          jobType === 'hypothesis' ? 'cancelHypothesisBtn' :
                           'cancelResourcesBtn';
             document.getElementById(btnId).style.display = 'none';
         } else {

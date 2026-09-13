@@ -38,16 +38,20 @@ type AuditResult struct {
 	EntityType string `json:"entity_type"` // "planet" / "star" / ...
 
 	// Итоги
-	TotalEntities     int   `json:"total_entities"`
-	EntitiesWithIssue int   `json:"entities_with_issues"`
-	TotalIssues       int   `json:"total_issues"`
-	DurationMs        int64 `json:"duration_ms"`
+	TotalEntities          int   `json:"total_entities"`
+	EntitiesWithIssue      int   `json:"entities_with_issues"`
+	EntitiesWithHighIssue  int   `json:"entities_with_high_issues"`
+	TotalIssues            int   `json:"total_issues"`
+	DurationMs             int64 `json:"duration_ms"`
 
 	// Агрегаты по коду проблемы
 	IssuesByCode map[string]int `json:"issues_by_code"`
 
 	// Агрегаты по уровню критичности
 	IssuesBySeverity map[string]int `json:"issues_by_severity"`
+
+	// Агрегаты по коду для High-проблем («невозможные» планеты).
+	HighIssuesByCode map[string]int `json:"high_issues_by_code"`
 
 	// Примеры проблем (до SampleLimit)
 	SampleIssues []Issue `json:"sample_issues"`

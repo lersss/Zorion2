@@ -17,6 +17,7 @@
         <button class="tab-btn" data-tab="tab-audit">🔍 Аудит</button>
         <button class="tab-btn" data-tab="tab-tests">🧪 Тесты</button>
         <button class="tab-btn" data-tab="tab-settlements">🏘️ Поселения</button>
+        <button class="tab-btn" data-tab="tab-hypothesis">🔬 Гипотезы</button>
         <button class="tab-btn" data-tab="tab-worlds">🌍 Миры</button>
     </div>
 
@@ -279,6 +280,38 @@
                 <button class="btn danger" onclick="clearSettlements()">Удалить все поселения</button>
             </div>
             <div id="clearSettlementsResult" class="result"></div>
+        </div>
+    </div>
+
+    <!-- Вкладка: Гипотезы -->
+    <div id="tab-hypothesis" class="tab-pane">
+        <div class="card">
+            <h2>🔬 Проверка гипотез</h2>
+            <p class="hint">
+                Параметрический генератор строит планеты «снизу вверх» по плану
+                осей, разрывая природные корреляции (например, «возраст →
+                температура»). Каждая гипотеза — две группы («эксперимент» и
+                «контроль») с одинаковыми осями, кроме одной варьируемой.
+                Эксперимент перетирает текущую вселенную.
+            </p>
+
+            <div class="settle-field">
+                <label>Гипотеза</label>
+                <select id="hypothesisSelect" class="settle-preset-select" onchange="renderHypothesisForm()"></select>
+                <div id="hypothesisInfo" class="preset-info"></div>
+            </div>
+
+            <div id="hypothesisGroups" class="hyp-preview"></div>
+
+            <div class="generate-row">
+                <button class="btn success" onclick="runHypothesis()">▶ Запустить эксперимент</button>
+                <button class="btn danger" onclick="cancelGeneration('hypothesis')" id="cancelHypothesisBtn" style="display:none;">Остановить</button>
+            </div>
+            <div id="hypothesisResult" class="result"></div>
+            <div id="hypothesisProgress" class="progress-container">
+                <span class="progress-text" id="hypothesisProgressText">0 из 0</span>
+                <progress id="hypothesisProgressBar" class="progress-bar" value="0" max="100"></progress>
+            </div>
         </div>
     </div>
 

@@ -188,6 +188,12 @@ func randomSpectralClass(rng *rand.Rand) string {
 	return "M" // fallback
 }
 
+// RandomSpectralClass — экспорт randomSpectralClass для внешних генераторов
+// (параметрическая генерация «Проверка гипотез»).
+func RandomSpectralClass(rng *rand.Rand) string {
+	return randomSpectralClass(rng)
+}
+
 // randomTemperature — температура звезды, согласованная со спектром.
 //
 // Каждый класс имеет свой диапазон. Это гарантирует, что G-звезда
@@ -201,6 +207,11 @@ func randomTemperature(spectralClass string, rng *rand.Rand) int {
 	}
 	// fallback — G-звезда
 	return 5200 + rng.Intn(800)
+}
+
+// RandomTemperature — экспорт randomTemperature для внешних генераторов.
+func RandomTemperature(spectralClass string, rng *rand.Rand) int {
+	return randomTemperature(spectralClass, rng)
 }
 
 // ==================== ГЕНЕРАЦИЯ МИРА ====================

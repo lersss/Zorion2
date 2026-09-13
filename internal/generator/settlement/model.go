@@ -13,6 +13,7 @@ package settlement
 
 import (
 	"fmt"
+	"math"
 	"math/rand"
 )
 
@@ -90,9 +91,15 @@ func (m *Model) Validate() error {
 		if p.Fixed <= 0 {
 			return fmt.Errorf("population.fixed: должно быть > 0, получил %d", p.Fixed)
 		}
+		if p.Fixed > math.MaxInt32 {
+			return fmt.Errorf("population.fixed: %d больше допустимого для integer-колонки settlements.population (2^31-1)", p.Fixed)
+		}
 	case "random":
 		if p.Min <= 0 || p.Max < p.Min {
 			return fmt.Errorf("population.random: нужно 0 < min <= max, получил %d..%d", p.Min, p.Max)
+		}
+		if p.Max > math.MaxInt32 {
+			return fmt.Errorf("population.random: максимум %d больше допустимого для integer-колонки settlements.population (2^31-1)", p.Max)
 		}
 	default:
 		return fmt.Errorf("population.kind: ожидается \"fixed\" или \"random\", получил %q", p.Kind)
@@ -191,6 +198,12 @@ func (p Population) value(rng *rand.Rand) int {
 		return p.Fixed
 	}
 	return p.Min + rng.Intn(p.Max-p.Min+1)
+}
+
+// Value — население по стратегии модели (для внешних потребителей,
+// например параметрической генерации «Проверка гипотез»).
+func (p Population) Value(rng *rand.Rand) int {
+	return p.value(rng)
 }
 
 func floatPtr(f float64) *float64 { return &f }

@@ -188,6 +188,17 @@ func computeSurfaceTemp(in SurfaceTempInput) float64 {
 	return clamp(tFinal, TempAbsoluteMin, TempAbsoluteMax)
 }
 
+// ==================== ГРАВИТАЦИЯ ====================
+
+// computeGravity — поверхностная гравитация в земных g.
+// g = M / R², где M — масса в земных, R — радиус в земных радиусах.
+func computeGravity(mass, size float64) float64 {
+	if size <= 0 {
+		size = 1
+	}
+	return mass / (size * size)
+}
+
 // ==================== ХЕЛПЕРЫ ====================
 
 // orbitRadiusByIndex — радиус орбиты по индексу (0.4 × 1.7^index).

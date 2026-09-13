@@ -75,67 +75,6 @@ func loadCurrent() *Preset {
 	return current
 }
 
-// ApplyOverrides — возвращает копию текущего пресета с переопределёнными
-// полями пригодности (ключи — как в JSON пресета). Пустая карта — без изменений.
-func ApplyOverrides(body map[string]interface{}) (*Preset, error) {
-	p := Current().copy()
-	for k, v := range body {
-		switch k {
-		case "минимальная_вода":
-			f, err := toFloat(v)
-			if err != nil {
-				return nil, fmt.Errorf("поле %s: %w", k, err)
-			}
-			p.Suitability.MinWater = f
-		case "минимальная_температура":
-			f, err := toFloat(v)
-			if err != nil {
-				return nil, fmt.Errorf("поле %s: %w", k, err)
-			}
-			p.Suitability.MinTemperature = f
-		case "максимальная_температура":
-			f, err := toFloat(v)
-			if err != nil {
-				return nil, fmt.Errorf("поле %s: %w", k, err)
-			}
-			p.Suitability.MaxTemperature = f
-		case "запрещённые_атмосферы":
-			list, err := toStringSlice(v)
-			if err != nil {
-				return nil, fmt.Errorf("поле %s: %w", k, err)
-			}
-			p.Suitability.ForbiddenAtmospheres = list
-		case "исключить_газовых_гигантов":
-			b, err := toBool(v)
-			if err != nil {
-				return nil, fmt.Errorf("поле %s: %w", k, err)
-			}
-			p.Suitability.ExcludeGasGiants = b
-		case "исключить_радиоактивные":
-			b, err := toBool(v)
-			if err != nil {
-				return nil, fmt.Errorf("поле %s: %w", k, err)
-			}
-			p.Suitability.ExcludeRadioactive = b
-		case "заселять_только_с_жизнью":
-			b, err := toBool(v)
-			if err != nil {
-				return nil, fmt.Errorf("поле %s: %w", k, err)
-			}
-			p.Suitability.OnlyWithLife = b
-		case "шанс_заселения":
-			f, err := toFloat(v)
-			if err != nil {
-				return nil, fmt.Errorf("поле %s: %w", k, err)
-			}
-			p.Suitability.Chance = f
-		default:
-			return nil, fmt.Errorf("неизвестный параметр %q", k)
-		}
-	}
-	return p, nil
-}
-
 // Current — текущий пресет (дефолтный, если не загружен).
 func Current() *Preset {
 	return loadCurrent()
@@ -198,39 +137,4 @@ func DefaultPreset() *Preset {
 			Chance:               1.0,
 		},
 	}
-}
-
-// ==================== ХЕЛПЕРЫ ====================
-
-func toFloat(v interface{}) (float64, error) {
-	switch t := v.(type) {
-	case float64:
-		return t, nil
-	case int:
-		return float64(t), nil
-	}
-	return 0, fmt.Errorf("ожидалось число, получил %T", v)
-}
-
-func toBool(v interface{}) (bool, error) {
-	if b, ok := v.(bool); ok {
-		return b, nil
-	}
-	return false, fmt.Errorf("ожидалось true/false, получил %T", v)
-}
-
-func toStringSlice(v interface{}) ([]string, error) {
-	raw, ok := v.([]interface{})
-	if !ok {
-		return nil, fmt.Errorf("ожидался список, получил %T", v)
-	}
-	out := make([]string, 0, len(raw))
-	for _, item := range raw {
-		s, ok := item.(string)
-		if !ok {
-			return nil, fmt.Errorf("ожидалась строка, получил %T", item)
-		}
-		out = append(out, s)
-	}
-	return out, nil
 }

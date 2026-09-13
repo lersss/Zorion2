@@ -12,28 +12,30 @@ import (
 	"zorion/internal/generator/settlement"
 )
 
-// GenerateSettlements — массовая генерация поселений по пресету пригодности.
+// SettlementFields — реестр полей planet.data для формы правил модели
+// генерации поселений (типы, экстремумы, допустимые значения).
+func (h *AdminHandlers) SettlementFields(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(settlement.FieldRegistry())
+}
+
+// GenerateSettlements — массовая генерация поселений по модели генерации.
 //
-// Тело запроса (JSON) опционально переопределяет параметры пресета:
-// {"минимальная_вода": 5, "шанс_заселения": 0.5}. Пустое тело — пресет
-// из файла config/settlement_preset.json.
+// Тело запроса (JSON) — объект Model:
+// {"mode":"complex","chance":0.5,"population":{"kind":"random","min":100000,
+//  "max":1000000000},"rules":[{"field":"temperature","min":200,"max":350}]}.
+// Пустое тело — модель по умолчанию (DefaultModel).
 func (h *AdminHandlers) GenerateSettlements(w http.ResponseWriter, r *http.Request) {
-	var overrides map[string]interface{}
+	model := settlement.DefaultModel()
 	if r.Body != nil {
 		dec := json.NewDecoder(r.Body)
-		if err := dec.Decode(&overrides); err != nil && err != io.EOF {
+		if err := dec.Decode(model); err != nil && err != io.EOF {
 			http.Error(w, "Bad JSON body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 	}
-
-	// Свежий пресет из файла (ручные правки подхватываются) + переопределения.
-	if err := settlement.LoadPreset("config/settlement_preset.json"); err != nil {
-		log.Printf("⚠️ settlement preset: %v, использую дефолты", err)
-	}
-	preset, err := settlement.ApplyOverrides(overrides)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if err := model.Validate(); err != nil {
+		http.Error(w, "Bad model: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -74,7 +76,7 @@ func (h *AdminHandlers) GenerateSettlements(w http.ResponseWriter, r *http.Reque
 		}
 		log.Printf("🏘️ GenerateSettlements: start")
 		gen := settlement.NewGenerator(h.db, 0)
-		count, err := gen.GenerateSettlements(ctx, preset, func(processed int) {
+		count, err := gen.GenerateSettlements(ctx, model, func(processed int) {
 			statusManager.Progress(generator.JobGenerateSettlements, processed)
 		})
 		if err != nil {
@@ -92,4 +94,30 @@ func (h *AdminHandlers) GenerateSettlements(w http.ResponseWriter, r *http.Reque
 	w.Write([]byte(`{"status":"started"}`))
 }
 
+// ClearSettlements — удаляет ВСЕ поселения, оставляя планеты на месте.
+//
+// Заводы и партии товаров не трогаются: с поселениями они по логике не
+// связаны (FK заводов на planets, не на поселения) и создаются отдельно
+// (решение игрока 2026-09-13).
+func (h *AdminHandlers) ClearSettlements(w http.ResponseWriter, r *http.Request) {
+	if statusManager.IsRunning(generator.JobGenerateSettlements) {
+		http.Error(w, "Generation is running, cancel it first", http.StatusConflict)
+		return
+	}
 
+	var before int
+	if err := h.db.QueryRow(`SELECT COUNT(*) FROM settlements`).Scan(&before); err != nil {
+		log.Printf("❌ ClearSettlements: count error: %v", err)
+		http.Error(w, "Failed to count settlements", http.StatusInternalServerError)
+		return
+	}
+	if _, err := h.db.Exec(`DELETE FROM settlements`); err != nil {
+		log.Printf("❌ ClearSettlements: delete error: %v", err)
+		http.Error(w, "Failed to clear settlements", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("🗑️ ClearSettlements: удалено поселений: %d", before)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]int{"deleted": before})
+}

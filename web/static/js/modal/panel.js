@@ -63,7 +63,7 @@ export function renderStarCard() {
                     </div>
                 </div>
                 <div style="font-size:1rem; line-height:1.7;">
-                    <p style="margin:4px 0;"><strong>Температура:</strong> ${temp ? temp.toFixed(0) + ' K' + ' (' + (temp - 273.15).toFixed(0) + ' °C)' : '—'}</p>
+                    <p style="margin:4px 0;"><strong>Температура:</strong> ${temp ? (temp - 273.15).toFixed(0) + ' °C' + ' (' + temp.toFixed(0) + ' K)' : '—'}</p>
                     <p style="margin:4px 0;"><strong>Цвет:</strong> ${specInfo.color}</p>
                     <p style="margin:4px 0;"><strong>Относительный радиус:</strong> ${specInfo.radius}</p>
                     <p style="margin:4px 0;"><strong>Светимость:</strong> ${specInfo.luminosity}</p>

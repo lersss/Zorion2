@@ -13,6 +13,9 @@ export function setPassword() {
         notifySuccess('Пароль сохранён');
         loadStats();
         loadWorlds(1);
+        // Поля поселений могли не загрузиться на старте (пароля ещё не было) —
+        // перегружаем их по паролю.
+        if (window.loadSettlementFields) window.loadSettlementFields();
     }
 }
 

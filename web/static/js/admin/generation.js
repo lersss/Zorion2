@@ -4,6 +4,7 @@ import { loadStats } from './stats.js';
 import { loadWorlds } from './worlds.js';
 import { pollJob, pollIntervals } from './poll.js';
 import { notifyError, notifyInfo } from '../ui/toast.js';
+import { SETTLEMENT_PRESETS } from './settlementPresets.js';
 
 // Пресеты генерации вселенной (проверены: 100k миров, 200 кластеров).
 const UNIVERSE_PRESETS = {
@@ -193,11 +194,360 @@ async function generatePrototypePlanet() {
     }
 }
 
-export async function generateSettlements() {
-    if (!confirm('Сгенерировать поселения по параметрам пригодности?')) return;
+// ---------- ГЕНЕРАЦИЯ ПОСЕЛЕНИЙ (модель) ----------
 
-    const forbiddenAtmos = document.getElementById('settleForbiddenAtmos').value
-        .split(',').map(s => s.trim()).filter(Boolean);
+// settlementFields — реестр полей planet.data (грузится при инициализации).
+// Формат элемента: {key, label, type, unit, min, max, values}.
+let settlementFields = [];
+
+// settleMode и settlePopKind — текущий выбор сегментов.
+let settleMode = 'complex';
+let settlePopKind = 'random';
+// settlementDirty — форма поселений менялась руками; перед перезаписью
+// пресетом это требует подтверждения.
+let settlementDirty = false;
+// lastPresetID — последний успешно применённый пресет (для возврата селекта).
+let lastPresetID = null;
+
+// loadSettlementFields — подгружает реестр полей с сервера для формы правил.
+export async function loadSettlementFields() {
+    bindSettlementDirty();
+    try {
+        const res = await fetchWithAuth('/admin/settlement-fields');
+        // Пустой пароль (ещё не введён в админку) даёт 401 спокойно, на нём
+        // не ругаемся — после ввода пароля функцию вызовут ещё раз.
+        if (res.status === 401) return;
+        if (!res.ok) {
+            notifyError('Не удалось загрузить поля: HTTP ' + res.status);
+            return;
+        }
+        settlementFields = await res.json();
+        populateSettlementPresets();
+        applySettlementPreset(DEFAULT_PRESET_ID);
+        renderSettlementModel();
+    } catch (e) {
+        if (e.message === 'Unauthorized') return;
+        notifyError('Не удалось загрузить поля: ' + e.message);
+    }
+}
+
+// DEFAULT_PRESET_ID — пресет, который применяется по умолчанию при загрузке.
+const DEFAULT_PRESET_ID = 'greenbelt';
+
+// bindSettlementDirty — помечает форму как изменённую руками при любом
+// пользовательском изменении контролов поселений (пресет-селект исключён).
+let settlementDirtyBound = false;
+function bindSettlementDirty() {
+    if (settlementDirtyBound) return;
+    settlementDirtyBound = true;
+    const mark = e => {
+        const t = e.target;
+        if (!t || !t.closest) return;
+        // Смена самого пресета — не ручная правка формы.
+        if (t.id === 'settlePreset') return;
+        if (t.closest('#settleRulesBlock, #settleSimpleBlock, #settlePopInputs, #settleHistory, #settleHypothesis')) {
+            settlementDirty = true;
+        }
+    };
+    document.addEventListener('input', mark);
+    document.addEventListener('change', mark);
+}
+
+// populateSettlementPresets — наполняет выпадающий список пресетов.
+function populateSettlementPresets() {
+    const sel = document.getElementById('settlePreset');
+    sel.innerHTML = SETTLEMENT_PRESETS.map(p =>
+        `<option value="${p.id}">${p.name}</option>`).join('');
+}
+
+// applySettlementPreset — заполняет форму (правила, шанс, население, историю)
+// из выбранного пресета. Вызывается при смене пресета в селекте и при загрузке.
+export function applySettlementPreset() {
+    const sel = document.getElementById('settlePreset');
+    const preset = SETTLEMENT_PRESETS.find(p => p.id === sel.value);
+    if (!preset) return;
+
+    // Вручную правленная форма — спросить перед перезаписью, иначе молча.
+    if (settlementDirty) {
+        const ok = confirm(`Форма изменена вручную. Применить пресет «${preset.name}» и перезаписать?`);
+        if (!ok) {
+            if (lastPresetID) sel.value = lastPresetID;
+            return;
+        }
+    }
+
+    lastPresetID = preset.id;
+    settlementDirty = false;
+
+    // Режим — всегда сложная модель с правилами.
+    setSettleMode('complex');
+
+    // Шанс в процентах.
+    document.getElementById('settleChanceRange').value = preset.chance;
+    document.getElementById('settleChance').value = preset.chance;
+
+    // Население: переключаем стратегию, затем заполняем конкретные поля.
+    setSettlePopKind(preset.population.kind);
+    if (preset.population.kind === 'fixed') {
+        document.getElementById('settlePopFixedValue').value = fmtDigits(preset.population.fixed);
+    } else {
+        document.getElementById('settlePopMin').value = fmtDigits(preset.population.min);
+        document.getElementById('settlePopMax').value = fmtDigits(preset.population.max);
+    }
+
+    // Правила: пересобираем список с нуля.
+    const list = document.getElementById('settleRulesList');
+    list.innerHTML = '';
+    preset.rules.forEach(def => list.appendChild(addRuleRow(def)));
+
+    // История заселения и гипотеза дельты в текстовые поля.
+    document.getElementById('settleHistory').value = preset.history;
+    if (preset.hypothesis) {
+        document.getElementById('settleHypothesis').value = preset.hypothesis;
+    }
+
+    // Описание принципа под селектом.
+    renderSettlementPresetInfo(preset);
+}
+
+// renderSettlementPresetInfo — подсказка с геймдизайнерским принципом пресета.
+function renderSettlementPresetInfo(preset) {
+    const box = document.getElementById('settlePresetInfo');
+    if (preset && preset.principle) {
+        box.textContent = preset.principle;
+    } else {
+        box.textContent = '';
+    }
+}
+
+// setSettleMode — переключение режима модели (simple / complex).
+export function setSettleMode(mode) {
+    settleMode = mode;
+    document.querySelectorAll('#settleModeSeg .seg-btn').forEach(b =>
+        b.classList.toggle('active', b.dataset.mode === mode));
+    renderSettlementModel();
+}
+
+// setSettlePopKind — переключение стратегии населения (random / fixed).
+export function setSettlePopKind(kind) {
+    settlePopKind = kind;
+    document.querySelectorAll('#settlePopSeg .seg-btn').forEach(b =>
+        b.classList.toggle('active', b.dataset.kind === kind));
+    renderSettlementModel();
+}
+
+// addRuleRow — строка правила с уже заполненными значениями (для пресетов).
+function addRuleRow(def = {}) {
+    const row = document.createElement('div');
+    row.className = 'settle-rule-row';
+    const options = settlementFields.map(f => {
+        const unit = f.unit ? ' · ' + f.unit : '';
+        return `<option value="${f.key}">${f.label}${unit}</option>`;
+    }).join('');
+    row.innerHTML = `
+        <select class="settle-rule-field">
+            <option value="">— поле —</option>
+            ${options}
+        </select>
+        <div class="settle-rule-inputs"></div>
+        <button class="btn danger settle-rule-del" onclick="this.parentElement.remove()" title="Удалить правило">✕</button>`;
+    const field = row.querySelector('.settle-rule-field');
+    field.value = def.field || '';
+    field.addEventListener('change', () => renderSettlementRuleInputs(row, field.value));
+    if (def.field) {
+        renderSettlementRuleInputs(row, def.field);
+        fillRuleValues(row, def);
+    }
+    return row;
+}
+
+// fillRuleValues — проставляет значения в только что отрисованные поля правила.
+function fillRuleValues(row, def) {
+    const spec = fieldSpec(def.field);
+    if (!spec) return;
+    if (spec.type === 'bool') {
+        const seg = row.querySelector('.seg');
+        const want = def.is === false ? 'false' : 'true';
+        seg.querySelectorAll('.seg-btn').forEach(b =>
+            b.classList.toggle('active', b.dataset.val === want));
+    } else if (spec.type === 'number') {
+        const min = row.querySelector('.settle-rule-min');
+        const max = row.querySelector('.settle-rule-max');
+        if (min && def.min != null) min.value = fmtDigits(def.min);
+        if (max && def.max != null) max.value = fmtDigits(def.max);
+    } else if (spec.type === 'string') {
+        const chips = row.querySelectorAll('.chip input');
+        const allowed = def.notIn && def.notIn.length
+            ? (spec.values || []).filter(v => !def.notIn.includes(v))
+            : (def.in || spec.values || []);
+        chips.forEach(inp => { inp.checked = allowed.includes(inp.value); });
+    }
+}
+
+// fieldSpec — описание поля по ключу.
+function fieldSpec(key) {
+    return settlementFields.find(f => f.key === key);
+}
+
+// renderSettlementModel — показывает/скрывает блоки и рисует инпуты населения.
+export function renderSettlementModel() {
+    document.getElementById('settleRulesBlock').style.display = settleMode === 'complex' ? 'block' : 'none';
+    document.getElementById('settleSimpleBlock').style.display = settleMode === 'simple' ? 'block' : 'none';
+    renderSettlementPopulation();
+}
+
+// renderSettlementPopulation — инпуты диапазона / фиксированного значения.
+function renderSettlementPopulation() {
+    const box = document.getElementById('settlePopInputs');
+    if (settlePopKind === 'fixed') {
+        box.innerHTML = `<div class="pop-line">
+            <label>Число жителей
+                <input type="text" inputmode="numeric" id="settlePopFixedValue" value="100 000">
+            </label>
+        </div>`;
+    } else {
+        box.innerHTML = `<div class="pop-line">
+            <label>Мин
+                <input type="text" inputmode="numeric" id="settlePopMin" value="100 000">
+            </label>
+            <label>Макс
+                <input type="text" inputmode="numeric" id="settlePopMax" value="1 000 000 000">
+            </label>
+        </div>`;
+    }
+}
+
+// fmtDigits — разряды через пробел (только целая часть).
+function fmtDigits(v) {
+    if (v == null) return '';
+    const s = String(v);
+    const neg = s.startsWith('-');
+    const body = neg ? s.slice(1) : s;
+    const [int, ...rest] = body.split('.');
+    const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+    return (neg ? '-' : '') + grouped + (rest.length ? '.' + rest.join('.') : '');
+}
+
+// parseDigits — читает число из поля с пробелами в разрядах (запятая → точка).
+function parseDigits(s) {
+    if (s == null) return NaN;
+    return parseFloat(String(s).replace(/\s/g, '').replace(',', '.'));
+}
+
+// addSettlementRule — добавляет строку правила «поле → условие» в список.
+export function addSettlementRule() {
+    const list = document.getElementById('settleRulesList');
+    list.appendChild(addRuleRow());
+}
+
+// renderSettlementRuleInputs — рисует условие правила по типу поля:
+// number → min/max (от/до, подсказка диапазона генерации),
+// string → чипы значений (равно выбранным),
+// bool → сегмент «равно true / false».
+function renderSettlementRuleInputs(row, key) {
+    const spec = fieldSpec(key);
+    const box = row.querySelector('.settle-rule-inputs');
+    if (!spec) { box.innerHTML = ''; return; }
+
+    if (spec.type === 'bool') {
+        box.innerHTML = `<div class="seg seg-sm">
+            <button type="button" class="seg-btn" data-val="true">равно true</button>
+            <button type="button" class="seg-btn" data-val="false">равно false</button>
+        </div>`;
+        box.querySelector('.seg').addEventListener('click', e => {
+            const btn = e.target.closest('.seg-btn');
+            if (!btn) return;
+            box.querySelectorAll('.seg-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+        });
+        return;
+    }
+
+    if (spec.type === 'number') {
+        const lo = spec.min != null ? fmtDigits(spec.min) : '—';
+        const hi = spec.max != null ? fmtDigits(spec.max) : '—';
+        const range = (spec.min != null || spec.max != null)
+            ? `Генерация: ${lo}…${hi}${spec.unit ? ' ' + spec.unit : ''}`
+            : '';
+        box.innerHTML = `<div class="num-range">
+            <label>от <input type="text" inputmode="decimal" class="settle-rule-min" placeholder="любое"></label>
+            <label>до <input type="text" inputmode="decimal" class="settle-rule-max" placeholder="любое"></label>
+            ${spec.unit ? `<span class="unit">${spec.unit}</span>` : ''}
+        </div>`;
+        if (range) {
+            const tip = document.createElement('div');
+            tip.className = 'rule-hint';
+            tip.textContent = range;
+            box.appendChild(tip);
+        }
+        return;
+    }
+
+    // string: чипы допустимых значений с галочками.
+    const vals = spec.values || [];
+    box.innerHTML = `<div class="chip-wrap">
+        <span class="chip-label">равно:</span>
+        <div class="chip-row">${vals.map(v =>
+            `<label class="chip"><input type="checkbox" value="${v}"><span>${v}</span></label>`
+        ).join('')}</div>
+    </div>`;
+}
+
+// buildSettlementModel — собирает объект модели из формы.
+function buildSettlementModel() {
+    const population = settlePopKind === 'fixed'
+        ? { kind: 'fixed', fixed: parseInt(parseDigits(document.getElementById('settlePopFixedValue').value)) }
+        : {
+            kind: 'random',
+            min: parseInt(parseDigits(document.getElementById('settlePopMin').value)),
+            max: parseInt(parseDigits(document.getElementById('settlePopMax').value)),
+        };
+
+    const rules = [];
+    if (settleMode === 'complex') {
+        document.querySelectorAll('#settleRulesList .settle-rule-row').forEach(row => {
+            const key = row.querySelector('.settle-rule-field').value;
+            const spec = fieldSpec(key);
+            if (!key || !spec) return;
+            const rule = { field: key };
+            if (spec.type === 'bool') {
+                const active = row.querySelector('.seg-btn.active');
+                if (active) rule.is = active.dataset.val === 'true';
+            } else if (spec.type === 'number') {
+                const minV = parseDigits(row.querySelector('.settle-rule-min').value);
+                const maxV = parseDigits(row.querySelector('.settle-rule-max').value);
+                // Температура в форме в °C, в данных планет — в Кельвинах.
+                if (key === 'temperature') {
+                    if (!isNaN(minV)) rule.min = minV + 273;
+                    if (!isNaN(maxV)) rule.max = maxV + 273;
+                } else {
+                    if (!isNaN(minV)) rule.min = minV;
+                    if (!isNaN(maxV)) rule.max = maxV;
+                }
+            } else if (spec.type === 'string') {
+                const vals = Array.from(row.querySelectorAll('.chip input:checked'))
+                    .map(o => o.value);
+                if (vals.length) rule.in = vals;
+            }
+            if (rule.min != null || rule.max != null || rule.in || rule.is != null) {
+                rules.push(rule);
+            }
+        });
+    }
+
+    return {
+        mode: settleMode,
+        // В UI шанс вводится в процентах (0–100), в модели — доля 0–1.
+        chance: parseFloat(document.getElementById('settleChance').value) / 100,
+        population,
+        rules,
+    };
+}
+
+export async function generateSettlements() {
+    if (!confirm('Сгенерировать поселения по модели?')) return;
+
+    const body = buildSettlementModel();
 
     document.getElementById('settlementResult').textContent = '⏳ Генерация запущена...';
     document.getElementById('settlementProgress').style.display = 'block';
@@ -209,16 +559,7 @@ export async function generateSettlements() {
         const res = await fetchWithAuth('/admin/generate-settlements', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                минимальная_вода: parseFloat(document.getElementById('settleMinWater').value),
-                минимальная_температура: parseFloat(document.getElementById('settleMinTemp').value),
-                максимальная_температура: parseFloat(document.getElementById('settleMaxTemp').value),
-                запрещённые_атмосферы: forbiddenAtmos,
-                шанс_заселения: parseFloat(document.getElementById('settleChance').value),
-                заселять_только_с_жизнью: document.getElementById('settleOnlyLife').checked,
-                исключить_газовых_гигантов: document.getElementById('settleExcludeGas').checked,
-                исключить_радиоактивные: document.getElementById('settleExcludeRadio').checked,
-            })
+            body: JSON.stringify(body),
         });
         if (!res.ok) {
             const text = await res.text();
@@ -254,6 +595,24 @@ export async function cancelGeneration(jobType) {
         }
     } catch (e) {
         notifyError('Ошибка: ' + e.message);
+    }
+}
+
+export async function clearSettlements() {
+    if (!confirm('Удалить ВСЕ поселения? Планеты не пострадают.')) return;
+    const box = document.getElementById('clearSettlementsResult');
+    box.textContent = '⏳ Очистка...';
+    try {
+        const res = await fetchWithAuth('/admin/clear-settlements', { method: 'POST' });
+        const text = await res.text();
+        if (!res.ok) {
+            box.textContent = '❌ Ошибка: ' + text;
+            return;
+        }
+        const data = JSON.parse(text);
+        box.textContent = '✅ Удалено поселений: ' + data.deleted;
+    } catch (e) {
+        box.textContent = '❌ ' + e.message;
     }
 }
 

@@ -3,6 +3,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -72,7 +73,7 @@ func TestGenerateSettlementsNotCanceledOnResponse(t *testing.T) {
 		"горутина должна реально выполнить запрос к планетам")
 }
 
-// GenerateSettlements отклоняет битое JSON-тело переопределений.
+// GenerateSettlements отклоняет битое JSON-тело модели.
 func TestGenerateSettlementsBadOverrideBody(t *testing.T) {
 	db, _, err := sqlmock.New()
 	require.NoError(t, err)
@@ -86,4 +87,73 @@ func TestGenerateSettlementsBadOverrideBody(t *testing.T) {
 
 	h.GenerateSettlements(rec, req)
 	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// GenerateSettlements отклоняет невалидную модель (например, битый диапазон
+// населения) до запросов в БД.
+func TestGenerateSettlementsInvalidModel(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	h := &AdminHandlers{db: db, mapCache: mapcache.NewManager()}
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/generate-settlements",
+		strings.NewReader(`{"mode":"simple","chance":0.5,"population":{"kind":"random","min":100,"max":10}}`))
+	rec := httptest.NewRecorder()
+
+	h.GenerateSettlements(rec, req)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.NoError(t, mock.ExpectationsWereMet(), "невалидная модель не должна трогать БД")
+}
+
+// SettlementFields отдаёт реестр полей planet.data для формы правил.
+func TestSettlementFields(t *testing.T) {
+	h := &AdminHandlers{}
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/settlement-fields", nil)
+	rec := httptest.NewRecorder()
+
+	h.SettlementFields(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var fields []struct {
+		Key  string `json:"key"`
+		Type string `json:"type"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fields))
+	require.NotEmpty(t, fields)
+	require.Contains(t, "temperature atmosphere is_gas_giant radioactive life water_percent type",
+		fields[0].Key, "реестр должен начинаться с известных полей")
+	for _, f := range fields {
+		require.NotEmpty(t, f.Key)
+		require.NotEmpty(t, f.Type)
+	}
+}
+
+// ClearSettlements удаляет все поселения и возвращает число удалённых.
+func TestClearSettlements(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectQuery(`SELECT COUNT(*) FROM settlements`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(3))
+	mock.ExpectExec(`DELETE FROM settlements`).
+		WillReturnResult(sqlmock.NewResult(0, 3))
+
+	h := &AdminHandlers{db: db}
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/clear-settlements", nil)
+	rec := httptest.NewRecorder()
+
+	h.ClearSettlements(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Deleted int `json:"deleted"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Equal(t, 3, resp.Deleted)
+	require.NoError(t, mock.ExpectationsWereMet())
 }

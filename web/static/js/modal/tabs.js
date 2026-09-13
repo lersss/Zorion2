@@ -335,10 +335,9 @@ function renderSettlements(planet) {
             <div style="margin: 6px 0; padding: 10px; background:#1a1a2e; border-radius:4px;">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <strong>Поселение ${i + 1}</strong>
-                    <span style="color:#888; font-size:0.85rem;">Уровень ${s.level ?? '—'}</span>
                 </div>
                 <div style="color:#ccc; margin-top:6px;">
-                    <div>Население: <strong>${formatNumber(s.population)}</strong> <span style="color:#666; font-size:0.85rem;">/ ёмкость ${formatNumber(s.capacity)}</span></div>
+                    <div>Население: <strong>${formatNumber(s.population)}</strong></div>
                     <div>Стабильность: <strong>${s.stability != null ? s.stability + '%' : '—'}</strong></div>
                 </div>
             </div>`;

@@ -15,7 +15,7 @@ import (
 )
 
 // Generator — генератор поселений. Проходит по таблице planets и создаёт
-// поселения на планетах, подходящих под пресет пригодности.
+// поселения на планетах, подходящих под модель генерации.
 type Generator struct {
 	db  *sql.DB
 	rng *rand.Rand
@@ -32,12 +32,14 @@ func NewGenerator(db *sql.DB, seed int64) *Generator {
 	}
 }
 
-// GenerateSettlements — создаёт поселения (и заводы с товарами) на всех
-// планетах, проходящих пресет пригодности. Возвращает число поселений.
+// GenerateSettlements — создаёт поселения (и заводы с товарами) на планетах,
+// проходящих модель генерации. Возвращает число поселений.
 //
 // progressFn вызывается после каждой планеты (для статус-бара). Может быть nil.
-func (g *Generator) GenerateSettlements(ctx context.Context, preset *Preset, progressFn func(processed int)) (int, error) {
-	suit := preset.Suitability
+func (g *Generator) GenerateSettlements(ctx context.Context, model *Model, progressFn func(processed int)) (int, error) {
+	if err := model.Validate(); err != nil {
+		return 0, err
+	}
 
 	rows, err := g.db.QueryContext(ctx, `SELECT id, data FROM planets`)
 	if err != nil {
@@ -65,23 +67,16 @@ func (g *Generator) GenerateSettlements(ctx context.Context, preset *Preset, pro
 			continue
 		}
 
-		if !suit.suitable(
-			getFloat(data, "water_percent"),
-			getFloat(data, "temperature"),
-			getString(data, "atmosphere"),
-			getBool(data, "life"),
-			isGasGiant(data),
-			getBool(data, "radioactive"),
-		) {
+		if !model.Matches(data) {
 			continue
 		}
-		if g.rng.Float64() >= suit.Chance {
+		if g.rng.Float64() >= model.Chance {
 			continue
 		}
 
 		// 1. Поселение
 		settlementRows = append(settlementRows,
-			buildSettlement(id, generateSettlementPopulation(g.rng), g.rng.Intn(41)+40))
+			buildSettlement(id, model.Population.value(g.rng), g.rng.Intn(41)+40))
 
 		// 2. Заводы (по ресурсам)
 		for category, value := range extractResources(data) {
@@ -114,8 +109,8 @@ func (g *Generator) GenerateSettlements(ctx context.Context, preset *Preset, pro
 	defer tx.Rollback()
 
 	if err := copyInRows(tx, "settlements",
-		[]string{"id", "planet_id", "level", "population", "capacity", "stability"},
-		flatten(settlementRows), 6); err != nil {
+		[]string{"id", "planet_id", "population", "stability"},
+		flatten(settlementRows), 4); err != nil {
 		return 0, fmt.Errorf("copy settlements: %w", err)
 	}
 	if err := copyInRows(tx, "factories",
@@ -137,36 +132,13 @@ func (g *Generator) GenerateSettlements(ctx context.Context, preset *Preset, pro
 
 // ==================== ПОСЕЛЕНИЯ ====================
 
-// generateSettlementPopulation — случайное население поселения.
-func generateSettlementPopulation(rng interface {
-	Float64() float64
-}) int {
-	basePop := int64(1000000 + rng.Float64()*999000000)
-	dev := 0.1 + rng.Float64()*0.9
-	return int(float64(basePop) * dev)
-}
-
 // buildSettlement — строка поселения для вставки в БД.
+// Тир (level) — расчётная величина (13_tiers.md), при генерации не задаётся.
 func buildSettlement(planetID string, population, stability int) []interface{} {
-	level := 1
-	if population > 1000000 {
-		level = 2
-	}
-	if population > 10000000 {
-		level = 3
-	}
-
-	capacity := population * 2
-	if capacity < 1000 {
-		capacity = 1000
-	}
-
 	return []interface{}{
 		uuid.New().String(),
 		planetID,
-		level,
 		population,
-		capacity,
 		stability,
 	}
 }

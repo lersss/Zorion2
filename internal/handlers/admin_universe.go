@@ -384,15 +384,11 @@ func (h *AdminHandlers) GeneratePrototypePlanet(w http.ResponseWriter, r *http.R
 	}
 
 	const population = 10
-	capacity := population * 2
-	if capacity < 1000 {
-		capacity = 1000
-	}
 	settlementID := uuid.New().String()
 	if _, err := tx.Exec(`
-		INSERT INTO settlements (id, planet_id, level, population, capacity, stability, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-		settlementID, pd.ID, 1, population, capacity, 85, now, now,
+		INSERT INTO settlements (id, planet_id, population, stability, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6)`,
+		settlementID, pd.ID, population, 85, now, now,
 	); err != nil {
 		http.Error(w, "Failed to insert settlement: "+err.Error(), http.StatusInternalServerError)
 		return

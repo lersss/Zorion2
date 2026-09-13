@@ -134,6 +134,19 @@ func TestComputeSurfaceTempArchetypeClamp(t *testing.T) {
 	assert.Equal(t, TempAbsoluteMin, computeSurfaceTemp(cold))
 }
 
+// ==================== ГРАВИТАЦИЯ ====================
+
+func TestComputeGravity(t *testing.T) {
+	// Земля: M=1, R=1 → 1g.
+	assert.Equal(t, 1.0, computeGravity(1, 1))
+	// M=4, R=2 → 1g (та же поверхностная гравитация).
+	assert.Equal(t, 1.0, computeGravity(4, 2))
+	// Меньше радиус при той же массе → сильнее.
+	assert.Equal(t, 4.0, computeGravity(4, 1))
+	// R ≤ 0 → защита от деления на ноль (R=1).
+	assert.Equal(t, 9.0, computeGravity(9, 0))
+}
+
 // ==================== ОРБИТЫ И СВЕТИМОСТЬ ====================
 
 func TestOrbitRadiusByIndex(t *testing.T) {

@@ -22,7 +22,7 @@ func TestGenerateSettlementsNoSuitable(t *testing.T) {
 		AddRow("p2", `{"water_percent":70,"temperature":400,"atmosphere":"азотно-кислородная","life":true}`))
 
 	g := NewGenerator(db, 1)
-	count, err := g.GenerateSettlements(context.Background(), DefaultPreset(), nil)
+	count, err := g.GenerateSettlements(context.Background(), DefaultModel(), nil)
 	require.NoError(t, err)
 	assert.Equal(t, 0, count)
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -39,8 +39,8 @@ func TestGenerateSettlementsChanceZero(t *testing.T) {
 	`).WillReturnRows(sqlmock.NewRows([]string{"id", "data"}).
 		AddRow("p1", `{"water_percent":70,"temperature":288,"atmosphere":"азотно-кислородная","life":true}`))
 
-	p := DefaultPreset()
-	p.Suitability.Chance = 0.0
+	p := DefaultModel()
+	p.Chance = 0.0
 
 	g := NewGenerator(db, 1)
 	count, err := g.GenerateSettlements(context.Background(), p, nil)
@@ -51,6 +51,26 @@ func TestGenerateSettlementsChanceZero(t *testing.T) {
 
 // Пригодная планета без жизни заселяется (жизнь не обязательна).
 func TestSuitableLifeNotRequired(t *testing.T) {
-	p := DefaultPreset()
-	assert.True(t, p.Suitability.suitable(70, 288, "азотно-кислородная", false, false, false))
+	m := DefaultModel()
+	data := map[string]interface{}{
+		"water_percent": 70.0,
+		"temperature":   288.0,
+		"atmosphere":    "азотно-кислородная",
+		"life":          false,
+		"radioactive":   false,
+	}
+	assert.True(t, m.Matches(data))
+}
+
+// Невалидная модель — ошибка до запросов в БД.
+func TestGenerateSettlementsInvalidModel(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
+	require.NoError(t, err)
+	defer db.Close()
+
+	m := &Model{Mode: ModeComplex, Chance: 0, Population: Population{Kind: "random", Min: 100, Max: 10}}
+	g := NewGenerator(db, 1)
+	_, err = g.GenerateSettlements(context.Background(), m, nil)
+	require.Error(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
 }

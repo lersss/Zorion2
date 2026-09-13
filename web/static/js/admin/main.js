@@ -4,8 +4,9 @@ import { loadStats, loadPlanetStats } from './stats.js';
 import { loadWorlds, deleteWorld, createWorld } from './worlds.js';
 import { 
     generateUniverse, generatePlanets, generateFactions, generateResources,
-    generateSettlements,
-    cancelGeneration, clearUniverse, applyPreset 
+    generateSettlements, loadSettlementFields, renderSettlementModel,
+    addSettlementRule, setSettleMode, setSettlePopKind, applySettlementPreset,
+    cancelGeneration, clearUniverse, clearSettlements, applyPreset 
 } from './generation.js';
 import { setPassword } from './auth.js';
 
@@ -23,10 +24,18 @@ window.generateSettlements = generateSettlements;
 window.generateResources = generateResources;
 window.cancelGeneration = cancelGeneration;
 window.clearUniverse = clearUniverse;
+window.clearSettlements = clearSettlements;
 window.loadPlanetStats = loadPlanetStats;
+window.renderSettlementModel = renderSettlementModel;
+window.addSettlementRule = addSettlementRule;
+window.loadSettlementFields = loadSettlementFields;
+window.setSettleMode = setSettleMode;
+window.setSettlePopKind = setSettlePopKind;
+window.applySettlementPreset = applySettlementPreset;
 
 export function initAdmin() {
     initTabs();
+    loadSettlementFields();
     loadStats();
     loadWorlds(1);
 }

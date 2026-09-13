@@ -18,9 +18,9 @@ func NewEconomyRepository(db *sql.DB) *EconomyRepository {
 
 // Settlement
 func (r *EconomyRepository) CreateSettlement(s *models.Settlement) error {
-	query := `INSERT INTO settlements (id, planet_id, level, population, capacity, stability, created_at, updated_at)
-	          VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())`
-	_, err := r.db.Exec(query, s.ID, s.PlanetID, s.Level, s.Population, s.Capacity, s.Stability)
+	query := `INSERT INTO settlements (id, planet_id, population, stability, created_at, updated_at)
+	          VALUES ($1, $2, $3, $4, NOW(), NOW())`
+	_, err := r.db.Exec(query, s.ID, s.PlanetID, s.Population, s.Stability)
 	return err
 }
 
@@ -31,7 +31,7 @@ func (r *EconomyRepository) GetSettlementsByPlanetIDs(planetIDs []string) (map[s
 		return map[string][]models.Settlement{}, nil
 	}
 
-	query := `SELECT id, planet_id, level, population, capacity, stability, created_at, updated_at
+	query := `SELECT id, planet_id, population, stability, created_at, updated_at
 	          FROM settlements WHERE planet_id = ANY($1) ORDER BY created_at ASC`
 	rows, err := r.db.Query(query, pqStringArray(planetIDs))
 	if err != nil {
@@ -43,8 +43,8 @@ func (r *EconomyRepository) GetSettlementsByPlanetIDs(planetIDs []string) (map[s
 	for rows.Next() {
 		var s models.Settlement
 		if err := rows.Scan(
-			&s.ID, &s.PlanetID, &s.Level, &s.Population,
-			&s.Capacity, &s.Stability, &s.CreatedAt, &s.UpdatedAt,
+			&s.ID, &s.PlanetID, &s.Population,
+			&s.Stability, &s.CreatedAt, &s.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}

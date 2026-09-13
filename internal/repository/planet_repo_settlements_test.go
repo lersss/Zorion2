@@ -28,12 +28,12 @@ func TestGetPlanetsByWorldIDWithSettlements(t *testing.T) {
 		ORDER BY orbit_index ASC
 	`).WithArgs("w1").WillReturnRows(planetRows)
 
-	settlementRows := sqlmock.NewRows([]string{"id", "planet_id", "level", "population", "capacity", "stability", "created_at", "updated_at"}).
-		AddRow("s1", "p1", 1, 5_000_000, 10_000_000, 60, now, now).
-		AddRow("s2", "p1", 2, 8_000_000, 16_000_000, 70, now, now)
+	settlementRows := sqlmock.NewRows([]string{"id", "planet_id", "population", "stability", "created_at", "updated_at"}).
+		AddRow("s1", "p1", 5_000_000, 60, now, now).
+		AddRow("s2", "p1", 8_000_000, 70, now, now)
 
 	mock.ExpectQuery(`
-		SELECT id, planet_id, level, population, capacity, stability, created_at, updated_at
+		SELECT id, planet_id, population, stability, created_at, updated_at
 		FROM settlements WHERE planet_id = ANY($1) ORDER BY created_at ASC
 	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(settlementRows)
 
@@ -56,13 +56,13 @@ func TestGetSettlementsByPlanetIDs(t *testing.T) {
 	defer db.Close()
 
 	now := time.Now()
-	rows := sqlmock.NewRows([]string{"id", "planet_id", "level", "population", "capacity", "stability", "created_at", "updated_at"}).
-		AddRow("s1", "p1", 1, 100, 1000, 50, now, now).
-		AddRow("s2", "p2", 1, 200, 1000, 60, now, now).
-		AddRow("s3", "p1", 1, 300, 1000, 70, now, now)
+	rows := sqlmock.NewRows([]string{"id", "planet_id", "population", "stability", "created_at", "updated_at"}).
+		AddRow("s1", "p1", 100, 50, now, now).
+		AddRow("s2", "p2", 200, 60, now, now).
+		AddRow("s3", "p1", 300, 70, now, now)
 
 	mock.ExpectQuery(`
-		SELECT id, planet_id, level, population, capacity, stability, created_at, updated_at
+		SELECT id, planet_id, population, stability, created_at, updated_at
 		FROM settlements WHERE planet_id = ANY($1) ORDER BY created_at ASC
 	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(rows)
 

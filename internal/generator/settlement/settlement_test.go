@@ -41,42 +41,121 @@ func TestDefaultPresetEqualsGenerateHabitableMinusLife(t *testing.T) {
 	assert.False(t, p.Suitability.suitable(9.9, 200, "кислородная", false, false, false))
 }
 
-// ==================== ПРЕСЕТ / ПЕРЕОПРЕДЕЛЕНИЯ ====================
+// ==================== МОДЕЛЬ: МАТЧИНГ ПРАВИЛ ====================
 
-func TestApplyOverrides(t *testing.T) {
-	p, err := ApplyOverrides(map[string]interface{}{
-		"минимальная_вода": float64(5),
-		"шанс_заселения":   float64(0.5),
-	})
-	require.NoError(t, err)
-	assert.Equal(t, 5.0, p.Suitability.MinWater)
-	assert.Equal(t, 0.5, p.Suitability.Chance)
-	assert.Equal(t, 200.0, p.Suitability.MinTemperature, "остальные поля не тронуты")
-	assert.Equal(t, 350.0, p.Suitability.MaxTemperature)
+func TestModelMatchesNumberRange(t *testing.T) {
+	m := &Model{Mode: ModeComplex, Chance: 1,
+		Population: Population{Kind: "fixed", Fixed: 100},
+		Rules: []FieldRule{
+			{Field: "temperature", Min: floatPtr(200), Max: floatPtr(300)},
+		}}
+
+	assert.True(t, m.Matches(map[string]interface{}{"temperature": 250.0}))
+	assert.True(t, m.Matches(map[string]interface{}{"temperature": 300.0}))
+	assert.False(t, m.Matches(map[string]interface{}{"temperature": 199.0}))
+	assert.False(t, m.Matches(map[string]interface{}{"temperature": 301.0}))
+	assert.False(t, m.Matches(map[string]interface{}{"temperature": "не число"}), "битое значение не проходит")
 }
 
-func TestApplyOverridesUnknownKey(t *testing.T) {
-	_, err := ApplyOverrides(map[string]interface{}{"чего": float64(1)})
-	require.Error(t, err)
+func TestModelMatchesStringInNotIn(t *testing.T) {
+	m := &Model{Mode: ModeComplex, Chance: 1,
+		Population: Population{Kind: "fixed", Fixed: 100},
+		Rules: []FieldRule{
+			{Field: "atmosphere", NotIn: []string{"ядовитая"}},
+		}}
+
+	assert.True(t, m.Matches(map[string]interface{}{"atmosphere": "азотно-кислородная"}))
+	assert.False(t, m.Matches(map[string]interface{}{"atmosphere": "ядовитая"}))
+	assert.True(t, m.Matches(map[string]interface{}{"atmosphere": ""}), "пустое значение не ядовитая")
 }
 
-func TestApplyOverridesBadValue(t *testing.T) {
-	_, err := ApplyOverrides(map[string]interface{}{"минимальная_вода": "не число"})
-	require.Error(t, err)
+func TestModelMatchesBool(t *testing.T) {
+	m := &Model{Mode: ModeComplex, Chance: 1,
+		Population: Population{Kind: "fixed", Fixed: 100},
+		Rules: []FieldRule{
+			{Field: "life", Is: boolPtr(true)},
+		}}
+
+	assert.True(t, m.Matches(map[string]interface{}{"life": true}))
+	assert.False(t, m.Matches(map[string]interface{}{"life": false}))
+	assert.False(t, m.Matches(map[string]interface{}{}), "отсутствие ключа — false")
+}
+
+func TestModelMatchesIsGasGiantFromSurface(t *testing.T) {
+	m := &Model{Mode: ModeComplex, Chance: 1,
+		Population: Population{Kind: "fixed", Fixed: 100},
+		Rules: []FieldRule{
+			{Field: "is_gas_giant", Is: boolPtr(false)},
+		}}
+
+	// is_gas_giant отсутствует, но surface_dominant указывает на гиганта.
+	assert.False(t, m.Matches(map[string]interface{}{"surface_dominant": "газовый_гигант"}))
+	assert.True(t, m.Matches(map[string]interface{}{"surface_dominant": "скалы"}))
+}
+
+func TestModelSimpleIgnoresRules(t *testing.T) {
+	// В simple-режиме правила не применяются — все планеты подходят
+	// (отбор только по шансу).
+	m := &Model{Mode: ModeSimple, Chance: 1,
+		Population: Population{Kind: "fixed", Fixed: 100},
+		Rules: []FieldRule{
+			{Field: "temperature", Min: floatPtr(9999)},
+		}}
+	assert.True(t, m.Matches(map[string]interface{}{"temperature": 100.0}))
+}
+
+// ==================== МОДЕЛЬ: НАСЕЛЕНИЕ ====================
+
+func TestPopulationFixed(t *testing.T) {
+	g := NewGenerator(nil, 3)
+	assert.Equal(t, 42, Population{Kind: "fixed", Fixed: 42}.value(g.rng))
+}
+
+func TestPopulationRandomWithinBounds(t *testing.T) {
+	g := NewGenerator(nil, 3)
+	p := Population{Kind: "random", Min: 100, Max: 1000}
+	for i := 0; i < 100; i++ {
+		v := p.value(g.rng)
+		assert.GreaterOrEqual(t, v, 100)
+		assert.LessOrEqual(t, v, 1000)
+	}
+}
+
+// ==================== МОДЕЛЬ: ВАЛИДАЦИЯ ====================
+
+func TestModelValidate(t *testing.T) {
+	valid := []*Model{
+		DefaultModel(),
+		{Mode: ModeSimple, Chance: 0.5, Population: Population{Kind: "random", Min: 1, Max: 10}},
+		{Mode: ModeSimple, Chance: 1, Population: Population{Kind: "fixed", Fixed: 1}},
+	}
+	for _, m := range valid {
+		require.NoError(t, m.Validate(), "%+v должен быть валидным", m)
+	}
+
+	invalid := []*Model{
+		{Mode: "unknown", Chance: 1, Population: Population{Kind: "fixed", Fixed: 1}},
+		{Mode: ModeSimple, Chance: 2, Population: Population{Kind: "fixed", Fixed: 1}},
+		{Mode: ModeSimple, Chance: 1, Population: Population{Kind: "fixed", Fixed: 0}},
+		{Mode: ModeSimple, Chance: 1, Population: Population{Kind: "random", Min: 10, Max: 1}},
+		{Mode: ModeComplex, Chance: 1, Population: Population{Kind: "fixed", Fixed: 1},
+			Rules: []FieldRule{{Field: "несуществующее_поле"}}},
+		{Mode: ModeComplex, Chance: 1, Population: Population{Kind: "fixed", Fixed: 1},
+			Rules: []FieldRule{{Field: "atmosphere", In: []string{"ядовитая"}, NotIn: []string{"плотная"}}}},
+		{Mode: ModeComplex, Chance: 1, Population: Population{Kind: "fixed", Fixed: 1},
+			Rules: []FieldRule{{Field: "atmosphere", In: []string{"не из списка"}}}},
+	}
+	for _, m := range invalid {
+		require.Error(t, m.Validate(), "%+v должен быть невалидным", m)
+	}
 }
 
 // ==================== ПОСТРОЕНИЕ ПОСЕЛЕНИЯ ====================
 
-func TestGenerateSettlementPopulationPositive(t *testing.T) {
-	g := NewGenerator(nil, 3)
-	for i := 0; i < 100; i++ {
-		assert.Greater(t, generateSettlementPopulation(g.rng), 0)
-	}
-}
-
-func TestBuildSettlementLevelByPopulation(t *testing.T) {
-	assert.Equal(t, 1, buildSettlement("p1", 10, 50)[2].(int))
-	assert.Equal(t, 2, buildSettlement("p1", 5_000_000, 50)[2].(int))
-	assert.Equal(t, 3, buildSettlement("p1", 50_000_000, 50)[2].(int))
-	assert.GreaterOrEqual(t, buildSettlement("p1", 10, 50)[4].(int), 1000, "ёмкость не меньше минимума")
+func TestBuildSettlement(t *testing.T) {
+	row := buildSettlement("p1", 500000, 60)
+	assert.Equal(t, 4, len(row), "id, planet_id, population, stability — тир не хранится")
+	assert.Equal(t, "p1", row[1])
+	assert.Equal(t, 500000, row[2])
+	assert.Equal(t, 60, row[3])
 }

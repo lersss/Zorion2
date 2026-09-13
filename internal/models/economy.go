@@ -5,9 +5,7 @@ import "time"
 type Settlement struct {
 	ID         string    `json:"id"`
 	PlanetID   string    `json:"planet_id"`
-	Level      int       `json:"level"`
 	Population int       `json:"population"`
-	Capacity   int       `json:"capacity"`
 	Stability  int       `json:"stability"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`

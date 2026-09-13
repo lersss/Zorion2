@@ -16,6 +16,7 @@
         <button class="tab-btn" data-tab="tab-stats">📊 Статистика</button>
         <button class="tab-btn" data-tab="tab-audit">🔍 Аудит</button>
         <button class="tab-btn" data-tab="tab-tests">🧪 Тесты</button>
+        <button class="tab-btn" data-tab="tab-settlements">🏘️ Поселения</button>
         <button class="tab-btn" data-tab="tab-worlds">🌍 Миры</button>
     </div>
 
@@ -123,28 +124,6 @@
             </div>
         </div>
 
-        <!-- Генерация поселений -->
-        <div class="card">
-            <h2>🏘️ Генерация поселений</h2>
-            <div class="compact-row">
-                <div><label>Мин. вода %</label><input type="number" id="settleMinWater" value="10" step="1"></div>
-                <div><label>Мин. T K</label><input type="number" id="settleMinTemp" value="200" step="5"></div>
-                <div><label>Макс. T K</label><input type="number" id="settleMaxTemp" value="350" step="5"></div>
-                <div><label>Запрещ. атмосферы</label><input type="text" id="settleForbiddenAtmos" value="ядовитая"></div>
-                <div><label>Шанс заселения</label><input type="number" id="settleChance" value="1.0" step="0.1" min="0" max="1"></div>
-                <div><label><input type="checkbox" id="settleOnlyLife"> Только с жизнью</label></div>
-                <div><label><input type="checkbox" id="settleExcludeGas" checked> Без газовых</label></div>
-                <div><label><input type="checkbox" id="settleExcludeRadio" checked> Без радиоакт.</label></div>
-                <button class="btn success" onclick="generateSettlements()">Сгенерировать поселения</button>
-                <button class="btn danger" onclick="cancelGeneration('generate_settlements')" id="cancelSettlementsBtn" style="display:none;">Остановить</button>
-            </div>
-            <div id="settlementResult" class="result"></div>
-            <div id="settlementProgress" class="progress-container">
-                <span class="progress-text" id="settlementProgressText">0 из 0</span>
-                <progress id="settlementProgressBar" class="progress-bar" value="0" max="100"></progress>
-            </div>
-        </div>
-
         <!-- Очистка -->
         <div class="card">
             <h2>🗑️ Очистка вселенной</h2>
@@ -197,6 +176,109 @@
             <div id="tests-content" style="margin-top:16px;">
                 <p style="color:#94a3b8;">Нажмите «Запустить тесты» для выполнения.</p>
             </div>
+        </div>
+    </div>
+
+    <!-- Вкладка: Поселения -->
+    <div id="tab-settlements" class="tab-pane">
+        <div class="card">
+            <h2>🏘️ Генерация поселений</h2>
+            <p class="hint">
+                Модель генерации: <b>simple</b> — обход всех планет без условий
+                (только шанс + население); <b>complex</b> — правила по полям
+                планеты (все выполняются вместе). Поля и их значения подгружаются
+                с сервера.
+            </p>
+
+            <div class="settle-block">
+                <div class="settle-row">
+                    <div class="settle-field">
+                        <label>Модель</label>
+                        <div class="seg" id="settleModeSeg">
+                            <button type="button" class="seg-btn active" data-mode="complex" onclick="setSettleMode('complex')">По полям (AND)</button>
+                            <button type="button" class="seg-btn" data-mode="simple" onclick="setSettleMode('simple')">Простая</button>
+                        </div>
+                    </div>
+                    <div class="settle-field">
+                        <label>Шанс заселения, %</label>
+                        <div class="chance-row">
+                            <input type="range" id="settleChanceRange" min="0" max="100" step="1" value="100"
+                                   oninput="document.getElementById('settleChance').value=this.value">
+                            <input type="number" id="settleChance" value="100" min="0" max="100" step="1"
+                                   oninput="document.getElementById('settleChanceRange').value=this.value">
+                            <span class="unit">%</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Сложная модель: пресеты и правила -->
+                <div id="settleRulesBlock">
+                    <div class="preset-row">
+                        <div class="settle-field">
+                            <label>Пресет заселения</label>
+                            <div class="preset-controls">
+                                <select id="settlePreset" class="settle-preset-select" onchange="applySettlementPreset()"></select>
+                            </div>
+                            <div id="settlePresetInfo" class="preset-info"></div>
+                        </div>
+                    </div>
+                    <div class="rules-head">
+                        <span>Правила по полям планеты <span class="and-badge">AND</span></span>
+                        <button class="btn secondary" onclick="addSettlementRule()">＋ Добавить правило</button>
+                    </div>
+                    <div id="settleRulesList"></div>
+                </div>
+
+                <!-- Простая модель -->
+                <div id="settleSimpleBlock" class="settle-note" style="display:none;">
+                    Простая модель заселяет <i>все</i> планеты с шансом выше.
+                    Тир и ёмкость не задаются — вычисляются.
+                </div>
+            </div>
+
+            <!-- История заселения (лор) -->
+            <div class="settle-field" style="margin-top:14px;">
+                <label>История заселения (лор, 1 абзац)</label>
+                <textarea id="settleHistory" class="settle-history" rows="4" placeholder="Куда и почему двинулось человечество — заполняется из пресета, можно поправить вручную."></textarea>
+            </div>
+
+            <!-- Гипотеза дельты -->
+            <div class="settle-field" style="margin-top:10px;">
+                <label>Гипотеза (что проверяем дельтой)</label>
+                <textarea id="settleHypothesis" class="settle-history" rows="4" placeholder="Какое поведение населения должна подтвердить симуляция — заполняется из пресета, можно поправить вручную."></textarea>
+            </div>
+
+            <!-- Население -->
+            <div class="settle-field" style="margin-top:14px;">
+                <label>Население</label>
+                <div class="seg" id="settlePopSeg">
+                    <button type="button" class="seg-btn active" data-kind="random" onclick="setSettlePopKind('random')">Случайное</button>
+                    <button type="button" class="seg-btn" data-kind="fixed" onclick="setSettlePopKind('fixed')">Фиксированное</button>
+                </div>
+                <div id="settlePopInputs" style="margin-top:8px;"></div>
+            </div>
+
+            <div class="generate-row">
+                <button class="btn success" onclick="generateSettlements()">Сгенерировать поселения</button>
+                <button class="btn danger" onclick="cancelGeneration('generate_settlements')" id="cancelSettlementsBtn" style="display:none;">Остановить</button>
+            </div>
+            <div id="settlementResult" class="result"></div>
+            <div id="settlementProgress" class="progress-container">
+                <span class="progress-text" id="settlementProgressText">0 из 0</span>
+                <progress id="settlementProgressBar" class="progress-bar" value="0" max="100"></progress>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>🗑️ Очистка поселений</h2>
+            <p class="hint">
+                Удаляет только поселения. Планеты, заводы и партии товаров
+                не трогаются — заводы создаются отдельно.
+            </p>
+            <div class="compact-row">
+                <button class="btn danger" onclick="clearSettlements()">Удалить все поселения</button>
+            </div>
+            <div id="clearSettlementsResult" class="result"></div>
         </div>
     </div>
 

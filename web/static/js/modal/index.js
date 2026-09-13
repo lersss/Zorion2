@@ -67,6 +67,12 @@ export function refreshPlanets() {
         return response.json();
     })
     .then(data => {
+        // Запоминаем прежнее население по id планеты — стрелочка тренда
+        // в panel.js (populationTrendArrow) сравнивает с этим на следующий рендер.
+        const previous = modalState.previousPopulation || {};
+        (modalState.planets || []).forEach(p => { previous[p.id] = p.population; });
+        modalState.previousPopulation = previous;
+
         modalState.planets = Array.isArray(data && data.planets) ? data.planets : [];
         const idx = modalState.selectedPlanetIndex;
         if (idx !== null && idx !== undefined && modalState.planets[idx]) {

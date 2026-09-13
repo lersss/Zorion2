@@ -29,10 +29,42 @@ export function renderRightPanel(planets, selectedIndex) {
     }
 }
 
+// Ключ из web/static/js/admin/main.js (переключатель в админке) — держать
+// строку синхронной при переименовании.
+const AUTO_REFRESH_PLANET_KEY = 'debugAutoRefreshPlanet';
+
+// stopAutoRefresh — гасит таймер автообновления карточки планеты (отладка).
+// Вызывается при уходе с карточки конкретной планеты (в карточку звезды) или
+// при закрытии модалки — вне карточки планеты обновлять нечего.
+function stopAutoRefresh() {
+    if (modalState.autoRefreshTimer !== null) {
+        clearInterval(modalState.autoRefreshTimer);
+        modalState.autoRefreshTimer = null;
+    }
+}
+
+// syncAutoRefreshTimer — запускает таймер, если включён переключатель в
+// админке и он ещё не запущен. Не привязан к конкретной планете: каждый тик
+// вызывает refreshPlanets(), которая обновляет то, что выбрано в модалке
+// на момент тика, — переключение между планетами внутри модалки не требует
+// перезапуска таймера.
+function syncAutoRefreshTimer() {
+    const enabled = localStorage.getItem(AUTO_REFRESH_PLANET_KEY) === '1';
+    if (!enabled) {
+        stopAutoRefresh();
+        return;
+    }
+    if (modalState.autoRefreshTimer !== null) return;
+    modalState.autoRefreshTimer = setInterval(() => {
+        import('./index.js').then(mod => mod.refreshPlanets());
+    }, 3000);
+}
+
 // renderStarCard — рисует карточку звезды в правой панели: инфо по звезде
 // и рядом компактный список планет системы. Это вид системы по умолчанию
 // (при открытии и при снятии выделения планеты).
 export function renderStarCard() {
+    stopAutoRefresh();
     const panel = document.getElementById('right-panel');
     if (!panel) return;
 
@@ -139,6 +171,17 @@ function planetsTable(planets) {
 
 // ---------- КАРТОЧКА ПЛАНЕТЫ ----------
 
+// populationTrendArrow — ↓/↑/— рядом с числом населения относительно
+// прошлого known-значения (modalState.previousPopulation, обновляется в
+// refreshPlanets, index.js). Нет прошлого значения — стрелка не рисуется.
+function populationTrendArrow(planet) {
+    const prev = modalState.previousPopulation[planet.id];
+    if (typeof prev !== 'number' || typeof planet.population !== 'number') return '';
+    if (planet.population < prev) return ' <span style="color:#f66;" title="Население убывает">↓</span>';
+    if (planet.population > prev) return ' <span style="color:#6f6;" title="Население растёт">↑</span>';
+    return ' <span style="color:#888;" title="Без изменений">—</span>';
+}
+
 function renderCard(panel, planets, selectedIndex) {
     const planet = planets[selectedIndex];
     if (!planet) {
@@ -148,7 +191,7 @@ function renderCard(panel, planets, selectedIndex) {
 
     panel.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <h3 style="margin: 0; font-size: 1.2rem; color: #aaa;">${capitalize(planet.name) || `Планета #${selectedIndex + 1}`}${planet.population ? ` (${planet.population.toLocaleString('ru-RU')})` : ''}</h3>
+            <h3 style="margin: 0; font-size: 1.2rem; color: #aaa;">${capitalize(planet.name) || `Планета #${selectedIndex + 1}`}${planet.population ? ` (${planet.population.toLocaleString('ru-RU')}${populationTrendArrow(planet)})` : ''}</h3>
             <div style="display:flex; gap:8px;">
                 <button id="refresh-planet-btn" title="Пересчитать население от среды и перезагрузить данные" style="background: #2a2a4a; border: none; color: #aaa; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 0.95rem;">🔄 Обновить</button>
                 <button id="back-to-list-btn" style="background: #2a2a4a; border: none; color: #aaa; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 0.95rem;">← Назад</button>
@@ -195,6 +238,8 @@ function renderCard(panel, planets, selectedIndex) {
             import('./index.js').then(mod => mod.refreshPlanets());
         });
     }
+
+    syncAutoRefreshTimer();
 
     const backBtn = panel.querySelector('#back-to-list-btn');
     if (backBtn) {

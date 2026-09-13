@@ -36,10 +36,24 @@ window.applySettlementPreset = applySettlementPreset;
 window.renderHypothesisForm = renderHypothesisForm;
 window.runHypothesis = runHypothesis;
 
+// Ключ в localStorage читает web/static/js/modal/panel.js (карточка планеты
+// в игровых страницах) — держать строку синхронной при переименовании.
+const AUTO_REFRESH_PLANET_KEY = 'debugAutoRefreshPlanet';
+
+function initAutoRefreshToggle() {
+    const checkbox = document.getElementById('autoRefreshPlanetToggle');
+    if (!checkbox) return;
+    checkbox.checked = localStorage.getItem(AUTO_REFRESH_PLANET_KEY) === '1';
+    checkbox.addEventListener('change', () => {
+        localStorage.setItem(AUTO_REFRESH_PLANET_KEY, checkbox.checked ? '1' : '0');
+    });
+}
+
 export function initAdmin() {
     initTabs();
     loadSettlementFields();
     populateHypothesisPresets();
     loadStats();
     loadWorlds(1);
+    initAutoRefreshToggle();
 }

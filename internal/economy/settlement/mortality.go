@@ -5,42 +5,51 @@ package settlement
 
 import "math"
 
-// ToleranceProfile описывает переносимость температуры формой жизни. Это
-// данные, а не константы в теле функций: разные профили — для разных форм
-// жизни, которых пока в игре нет (docs/gamedesign/18a_population_death.md,
-// «Профиль устойчивости»).
-type ToleranceProfile struct {
-	ComfortMinK float64 // нижняя граница комфорта, K
-	ComfortMaxK float64 // верхняя граница комфорта, K
-	SaturateAtK float64 // отклонение от края комфорта (K), после которого тяжесть = 1
+// TwoSidedProfile описывает переносимость величины, для которой одинаково
+// плохо и завышенное, и заниженное значение — температура, гравитация (18a,
+// «Профиль устойчивости»). Радиоактивность одностороння, сюда не подходит.
+// Это данные, а не константы в теле функций: разные профили — для разных форм
+// жизни, которых пока в игре нет.
+type TwoSidedProfile struct {
+	ComfortMin float64 // нижняя граница комфорта
+	ComfortMax float64 // верхняя граница комфорта
+	SaturateAt float64 // отклонение от края комфорта, после которого тяжесть = 1
 }
 
-// HumanProfile — черновой профиль человека. Числа не финальны, калибруются
-// через internal/generator/planet/twin.go.
-var HumanProfile = ToleranceProfile{
-	ComfortMinK: 200,
-	ComfortMaxK: 350,
-	SaturateAtK: 300,
+// HumanTemperatureProfile — черновой профиль человека по температуре, в K.
+// Числа не финальны, калибруются через internal/generator/planet/twin.go.
+var HumanTemperatureProfile = TwoSidedProfile{
+	ComfortMin: 200,
+	ComfortMax: 350,
+	SaturateAt: 300,
 }
 
-// TemperatureSeverity считает тяжесть отклонения температуры от комфорта: 0
-// внутри комфортного диапазона, 1 на насыщении и дальше. Двусторонняя: перегрев
-// и переохлаждение равноценны при одинаковом отклонении (18a, «Профиль
-// устойчивости» — гравитация устроена так же, радиоактивность — односторонняя).
-func TemperatureSeverity(profile ToleranceProfile, temperatureK float64) float64 {
+// HumanGravityProfile — черновой профиль человека по гравитации, в g (1 = как
+// на Земле). Числа не финальны, калибруются через
+// internal/generator/planet/twin.go.
+var HumanGravityProfile = TwoSidedProfile{
+	ComfortMin: 0.8,
+	ComfortMax: 1.2,
+	SaturateAt: 4,
+}
+
+// TwoSidedSeverity считает тяжесть отклонения величины от комфорта: 0 внутри
+// комфортного диапазона, 1 на насыщении и дальше. Двусторонняя: превышение и
+// недостаток равноценны при одинаковом отклонении.
+func TwoSidedSeverity(profile TwoSidedProfile, value float64) float64 {
 	var deviation float64
 	switch {
-	case temperatureK < profile.ComfortMinK:
-		deviation = profile.ComfortMinK - temperatureK
-	case temperatureK > profile.ComfortMaxK:
-		deviation = temperatureK - profile.ComfortMaxK
+	case value < profile.ComfortMin:
+		deviation = profile.ComfortMin - value
+	case value > profile.ComfortMax:
+		deviation = value - profile.ComfortMax
 	default:
 		return 0
 	}
-	if profile.SaturateAtK <= 0 {
+	if profile.SaturateAt <= 0 {
 		return 1
 	}
-	severity := deviation / profile.SaturateAtK
+	severity := deviation / profile.SaturateAt
 	if severity > 1 {
 		return 1
 	}

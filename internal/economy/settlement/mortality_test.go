@@ -6,36 +6,74 @@ import (
 )
 
 func TestTemperatureSeverityInsideComfort(t *testing.T) {
-	profile := HumanProfile
-	for _, temp := range []float64{profile.ComfortMinK, 275, profile.ComfortMaxK} {
-		if got := TemperatureSeverity(profile, temp); got != 0 {
-			t.Errorf("TemperatureSeverity(%v) = %v, хочу 0 внутри комфорта", temp, got)
+	profile := HumanTemperatureProfile
+	for _, temp := range []float64{profile.ComfortMin, 275, profile.ComfortMax} {
+		if got := TwoSidedSeverity(profile, temp); got != 0 {
+			t.Errorf("TwoSidedSeverity(%v) = %v, хочу 0 внутри комфорта", temp, got)
 		}
 	}
 }
 
 func TestTemperatureSeveritySymmetric(t *testing.T) {
-	profile := HumanProfile
-	below := TemperatureSeverity(profile, profile.ComfortMinK-50)
-	above := TemperatureSeverity(profile, profile.ComfortMaxK+50)
+	profile := HumanTemperatureProfile
+	below := TwoSidedSeverity(profile, profile.ComfortMin-50)
+	above := TwoSidedSeverity(profile, profile.ComfortMax+50)
 	if below != above {
 		t.Errorf("тяжесть несимметрична: холод=%v, жара=%v при одинаковом отклонении", below, above)
 	}
 }
 
 func TestTemperatureSeverityMonotonic(t *testing.T) {
-	profile := HumanProfile
-	near := TemperatureSeverity(profile, profile.ComfortMaxK+10)
-	far := TemperatureSeverity(profile, profile.ComfortMaxK+100)
+	profile := HumanTemperatureProfile
+	near := TwoSidedSeverity(profile, profile.ComfortMax+10)
+	far := TwoSidedSeverity(profile, profile.ComfortMax+100)
 	if !(near < far) {
 		t.Errorf("тяжесть не растёт с отклонением: near=%v far=%v", near, far)
 	}
 }
 
 func TestTemperatureSeveritySaturates(t *testing.T) {
-	profile := HumanProfile
-	atSaturation := TemperatureSeverity(profile, profile.ComfortMaxK+profile.SaturateAtK)
-	beyond := TemperatureSeverity(profile, profile.ComfortMaxK+profile.SaturateAtK*10)
+	profile := HumanTemperatureProfile
+	atSaturation := TwoSidedSeverity(profile, profile.ComfortMax+profile.SaturateAt)
+	beyond := TwoSidedSeverity(profile, profile.ComfortMax+profile.SaturateAt*10)
+	if atSaturation != 1 || beyond != 1 {
+		t.Errorf("нет насыщения на 1: на границе=%v, далеко за ней=%v", atSaturation, beyond)
+	}
+}
+
+func TestGravitySeverityInsideComfort(t *testing.T) {
+	profile := HumanGravityProfile
+	for _, g := range []float64{profile.ComfortMin, 1.0, profile.ComfortMax} {
+		if got := TwoSidedSeverity(profile, g); got != 0 {
+			t.Errorf("TwoSidedSeverity(%v) = %v, хочу 0 внутри комфорта", g, got)
+		}
+	}
+}
+
+func TestGravitySeveritySymmetric(t *testing.T) {
+	profile := HumanGravityProfile
+	below := TwoSidedSeverity(profile, profile.ComfortMin-0.3)
+	above := TwoSidedSeverity(profile, profile.ComfortMax+0.3)
+	if below != above {
+		t.Errorf("тяжесть несимметрична: недогрузка=%v, перегрузка=%v при одинаковом отклонении", below, above)
+	}
+}
+
+func TestGravitySeverityZeroGIsNotBelowComfortMin(t *testing.T) {
+	// Невесомость (0g) — валидное, но не бесконечно плохое значение: тяжесть
+	// не должна вылезать за пределы [0, 1] даже когда отклонение ограничено
+	// снизу нулевой гравитацией.
+	profile := HumanGravityProfile
+	got := TwoSidedSeverity(profile, 0)
+	if got < 0 || got > 1 {
+		t.Errorf("TwoSidedSeverity(0) = %v, хочу в [0, 1]", got)
+	}
+}
+
+func TestGravitySeveritySaturates(t *testing.T) {
+	profile := HumanGravityProfile
+	atSaturation := TwoSidedSeverity(profile, profile.ComfortMax+profile.SaturateAt)
+	beyond := TwoSidedSeverity(profile, profile.ComfortMax+profile.SaturateAt*10)
 	if atSaturation != 1 || beyond != 1 {
 		t.Errorf("нет насыщения на 1: на границе=%v, далеко за ней=%v", atSaturation, beyond)
 	}

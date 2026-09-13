@@ -63,6 +63,40 @@ func (r *PlanetRepository) GetPlanetsByWorldID(worldID string) ([]models.Planet,
 	return planets, nil
 }
 
+// GetPlanetByID — возвращает одну планету с полной структурой. Планета не
+// найдена — (nil, nil), а не ошибка (соглашение проекта, см. WorldRepository.GetByID).
+func (r *PlanetRepository) GetPlanetByID(id string) (*models.Planet, error) {
+	query := `
+		SELECT id, world_id, name, orbit_index, data, created_at, updated_at
+		FROM planets
+		WHERE id = $1
+	`
+	var p models.Planet
+	var dataJSON []byte
+	err := r.db.QueryRow(query, id).Scan(
+		&p.ID, &p.WorldID, &p.Name, &p.OrbitIndex,
+		&dataJSON, &p.CreatedAt, &p.UpdatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to query planet: %w", err)
+	}
+
+	var data map[string]interface{}
+	if err := json.Unmarshal(dataJSON, &data); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal planet data: %w", err)
+	}
+	populatePlanetFromJSON(&p, data)
+
+	planets := []models.Planet{p}
+	if err := r.attachSettlements(planets); err != nil {
+		return nil, err
+	}
+	return &planets[0], nil
+}
+
 // attachSettlements — подтягивает поселения планет, вычисляет население
 // как сумму их населения и обитаемость как наличие поселения.
 // Планеты без поселений: население 0, необитаемы.

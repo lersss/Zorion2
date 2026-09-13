@@ -56,6 +56,39 @@ func TwoSidedSeverity(profile TwoSidedProfile, value float64) float64 {
 	return severity
 }
 
+// OneSidedProfile описывает переносимость величины, для которой плохо только
+// превышение порога, а недостаток безопасен — радиоактивность (18a, «Профиль
+// устойчивости»). Температура и гравитация двусторонние, см. TwoSidedProfile.
+type OneSidedProfile struct {
+	Threshold  float64 // ниже и на пороге — безопасно, тяжесть = 0
+	SaturateAt float64 // превышение порога, после которого тяжесть = 1
+}
+
+// HumanRadioactivityProfile — черновой профиль человека по фону ядра планеты
+// (core.radioactivity, шкала 0..100). Числа не финальны, калибруются через
+// internal/generator/planet/twin.go.
+var HumanRadioactivityProfile = OneSidedProfile{
+	Threshold:  20,
+	SaturateAt: 60,
+}
+
+// OneSidedSeverity считает тяжесть превышения порога: 0 на пороге и ниже, 1 на
+// насыщении и дальше.
+func OneSidedSeverity(profile OneSidedProfile, value float64) float64 {
+	if value <= profile.Threshold {
+		return 0
+	}
+	deviation := value - profile.Threshold
+	if profile.SaturateAt <= 0 {
+		return 1
+	}
+	severity := deviation / profile.SaturateAt
+	if severity > 1 {
+		return 1
+	}
+	return severity
+}
+
 // Scale — общий масштаб скорости смерти, один на все факторы среды (18a,
 // «Масштаб»): у каждого фактора своя форма тяжести, но перевод тяжести в
 // реальные часы — общий.

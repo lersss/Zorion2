@@ -79,6 +79,33 @@ func TestGravitySeveritySaturates(t *testing.T) {
 	}
 }
 
+func TestRadioactivitySeverityAtOrBelowThresholdIsZero(t *testing.T) {
+	profile := HumanRadioactivityProfile
+	for _, value := range []float64{0, profile.Threshold / 2, profile.Threshold} {
+		if got := OneSidedSeverity(profile, value); got != 0 {
+			t.Errorf("OneSidedSeverity(%v) = %v, хочу 0 на пороге и ниже", value, got)
+		}
+	}
+}
+
+func TestRadioactivitySeverityMonotonic(t *testing.T) {
+	profile := HumanRadioactivityProfile
+	near := OneSidedSeverity(profile, profile.Threshold+5)
+	far := OneSidedSeverity(profile, profile.Threshold+50)
+	if !(near < far) {
+		t.Errorf("тяжесть не растёт с превышением порога: near=%v far=%v", near, far)
+	}
+}
+
+func TestRadioactivitySeveritySaturates(t *testing.T) {
+	profile := HumanRadioactivityProfile
+	atSaturation := OneSidedSeverity(profile, profile.Threshold+profile.SaturateAt)
+	beyond := OneSidedSeverity(profile, profile.Threshold+profile.SaturateAt*10)
+	if atSaturation != 1 || beyond != 1 {
+		t.Errorf("нет насыщения на 1: на границе=%v, далеко за ней=%v", atSaturation, beyond)
+	}
+}
+
 func TestLambdaZeroSeverityIsZero(t *testing.T) {
 	if got := Lambda(0, DefaultScale); got != 0 {
 		t.Errorf("Lambda(0, ...) = %v, хочу 0", got)

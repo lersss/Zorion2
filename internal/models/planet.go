@@ -21,6 +21,7 @@ type Planet struct {
 	Mass         float64 `json:"mass"`          // масса, в земных
 	Density      float64 `json:"density"`       // в единицах Земли
 	Temperature  float64 `json:"temperature"`   // K
+	Gravity      float64 `json:"gravity"`       // в земных (g)
 	WaterPercent float64 `json:"water_percent"` // 0–100
 
 	// Атмосфера и биосфера

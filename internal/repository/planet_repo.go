@@ -106,6 +106,7 @@ func populatePlanetFromJSON(p *models.Planet, data map[string]interface{}) {
 	p.Mass = getFloat(data, "mass")
 	p.Density = getFloat(data, "density")
 	p.Temperature = getFloat(data, "temperature")
+	p.Gravity = getFloat(data, "gravity")
 	p.WaterPercent = getFloat(data, "water_percent")
 
 	// Атмосфера и биосфера

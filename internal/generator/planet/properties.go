@@ -57,7 +57,7 @@ func GenerateProperties(
 	)
 
 	// 5. Ядро
-	core := GenerateCore(mass, archetype.Climate, preliminarySubterrain, systemAge, rng)
+	core := GenerateCore(mass, archetype.ArchetypeID, preliminarySubterrain, systemAge, rng)
 
 	// 6. Температура
 	luminosity := luminosityBySpectral(spectralClass)
@@ -103,7 +103,7 @@ func GenerateProperties(
 	life := generateLife(archetype, waterPercent, temp, rng)
 	settleable := settlement.Suitable(temp, waterPercent, archetype.Atmosphere, life, false, false)
 
-	moons := determineMoons(size, archetype.Climate, rng)
+	moons := determineMoons(size, archetype.ArchetypeID, rng)
 
 	political := "нет"
 	if settleable {
@@ -245,12 +245,12 @@ func generateLife(archetype *Archetype, waterPercent, temp float64, rng *rand.Ra
 	return rng.Float64() < archetype.LifeChance
 }
 
-func determineMoons(size float64, climate string, rng *rand.Rand) int {
+func determineMoons(size float64, archetypeID string, rng *rand.Rand) int {
 	base := 0
-	switch climate {
-	case "hot", "extreme":
+	switch archetypeID {
+	case "жаркий", "экстремальный":
 		base = int(size)
-	case "cold":
+	case "холодный":
 		base = int(size * 1.5)
 	default:
 		base = int(size * 1.2)

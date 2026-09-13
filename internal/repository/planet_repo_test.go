@@ -172,7 +172,7 @@ func TestParseSatellitesEdgeCases(t *testing.T) {
 
 func TestPopulatePlanetFromJSONFull(t *testing.T) {
 	data := map[string]interface{}{
-		"type": "углеродная", "surface_dominant": "высокие горы", "climate": "умеренный",
+		"type": "углеродная", "surface_dominant": "высокие горы", "archetype": "умеренный",
 		"size": 1.2, "mass": 0.9, "density": 1.1, "temperature": 288.5,
 		"water_percent": 40.0,
 		"atmosphere":    "азотно-кислородная", "hydrosphere": "моря", "biosphere": "развитая",
@@ -195,7 +195,7 @@ func TestPopulatePlanetFromJSONFull(t *testing.T) {
 
 	assert.Equal(t, "углеродная", p.Type)
 	assert.Equal(t, "высокие горы", p.SurfaceDominant)
-	assert.Equal(t, "умеренный", p.Climate)
+	assert.Equal(t, "умеренный", p.Archetype)
 	assert.Equal(t, 1.2, p.Size)
 	assert.Equal(t, 0.9, p.Mass)
 	assert.Equal(t, 1.1, p.Density)
@@ -246,7 +246,7 @@ func TestPopulatePlanetFromJSONEmpty(t *testing.T) {
 func TestPopulatePlanetFromJSONRealSerialized(t *testing.T) {
 	// Путь, как в БД: data JSON → map → populate.
 	raw := `{
-		"type":"землеподобная","surface_dominant":"океаны","climate":"мягкий",
+		"type":"землеподобная","surface_dominant":"океаны","archetype":"мягкий",
 		"size":1.0,"mass":1.0,"density":1.0,"temperature":288.0,"water_percent":70.0,
 		"atmosphere":"азотно-кислородная","hydrosphere":"океаны","biosphere":"развитая",
 		"habitable":true,"life":true,

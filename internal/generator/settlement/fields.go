@@ -74,6 +74,12 @@ var fieldSpecs = []FieldSpec{
 		Min: floatPtr(0.1), Max: floatPtr(13),
 	},
 	{
+		Key: "archetype", Label: "Архетип", Type: FieldString,
+		Values: []string{
+			"жаркий", "умеренный", "холодный", "экстремальный", "изменчивый",
+		},
+	},
+	{
 		Key: "atmosphere", Label: "Атмосфера", Type: FieldString,
 		Values: []string{
 			"разреженная", "азотная", "азотно-кислородная", "туманная",

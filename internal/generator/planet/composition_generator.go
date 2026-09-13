@@ -28,7 +28,7 @@ func GenerateSurfaceComposition(
 	// 3. Корректировки по воде
 	applySurfaceWaterModifiers(c, waterPercent)
 
-	// 3а. Биосферные ниши: луга/джунгли/болота получают доминирование в своём климате
+	// 3а. Биосферные ниши: луга/джунгли/болота получают доминирование в своём архетипе
 	applyBiosphereModifiers(c, temperature, waterPercent)
 
 	// 4. Рандом ±20%

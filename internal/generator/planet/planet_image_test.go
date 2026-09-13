@@ -9,7 +9,7 @@ import (
 func testPlanetGenerator() *PlanetGenerator {
 	return &PlanetGenerator{
 		climates: []Climate{{
-			ID:                  "temperate",
+			ID:                  "умеренный",
 			Name:                "Умеренный",
 			TemperatureMin:      200,
 			TemperatureMax:      300,
@@ -30,11 +30,11 @@ func testPlanetGenerator() *PlanetGenerator {
 func TestGeneratePlanetCacheHit(t *testing.T) {
 	pg := testPlanetGenerator()
 
-	a, err := pg.GeneratePlanet(20, WithSeed(42), WithClimateID("temperate"))
+	a, err := pg.GeneratePlanet(20, WithSeed(42), WithClimateID("умеренный"))
 	if err != nil {
 		t.Fatalf("first generate: %v", err)
 	}
-	b, err := pg.GeneratePlanet(20, WithSeed(42), WithClimateID("temperate"))
+	b, err := pg.GeneratePlanet(20, WithSeed(42), WithClimateID("умеренный"))
 	if err != nil {
 		t.Fatalf("second generate: %v", err)
 	}
@@ -52,11 +52,11 @@ func TestGeneratePlanetCacheHit(t *testing.T) {
 func TestGeneratePlanetCacheMissOnDifferentSeed(t *testing.T) {
 	pg := testPlanetGenerator()
 
-	a, err := pg.GeneratePlanet(20, WithSeed(1), WithClimateID("temperate"))
+	a, err := pg.GeneratePlanet(20, WithSeed(1), WithClimateID("умеренный"))
 	if err != nil {
 		t.Fatalf("seed=1: %v", err)
 	}
-	b, err := pg.GeneratePlanet(20, WithSeed(2), WithClimateID("temperate"))
+	b, err := pg.GeneratePlanet(20, WithSeed(2), WithClimateID("умеренный"))
 	if err != nil {
 		t.Fatalf("seed=2: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestGeneratePlanetCacheMissOnDifferentSeed(t *testing.T) {
 }
 
 func TestGenerateKeyConsistency(t *testing.T) {
-	opts := &GenerateOptions{Radius: 20, StarType: "G", ClimateID: "temperate"}
+	opts := &GenerateOptions{Radius: 20, StarType: "G", ClimateID: "умеренный"}
 
 	k1 := generateKey(7, opts)
 	k2 := generateKey(7, opts)

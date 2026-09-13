@@ -164,8 +164,8 @@ function renderGeneral(planet) {
     if (planet.biosphere) {
         html += `<p style="margin:4px 0;"><strong>Биосфера:</strong> ${planet.biosphere}</p>`;
     }
-    if (planet.climate) {
-        html += `<p style="margin:4px 0;"><strong>Климат:</strong> ${planet.climate}</p>`;
+    if (planet.archetype || planet.climate) {
+        html += `<p style="margin:4px 0;"><strong>Архетип:</strong> ${planet.archetype || planet.climate}</p>`;
     }
     html += `<p style="margin:4px 0;"><strong>Вода:</strong> ${planet.water_percent ? planet.water_percent.toFixed(1) + '%' : '—'}</p>`;
 

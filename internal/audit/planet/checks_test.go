@@ -32,7 +32,7 @@ func baseData() map[string]interface{} {
 
 		"type":             "землеподобная",
 		"surface_dominant": "скалы",
-		"climate":          "умеренный",
+		"archetype":        "умеренный",
 		"atmosphere":       "азотно-кислородная",
 		"hydrosphere":      "гидросфера",
 		"biosphere":        "углеродная",
@@ -108,7 +108,7 @@ func TestParseBase(t *testing.T) {
 
 	assert.Equal(t, "землеподобная", v.Type)
 	assert.Equal(t, "скалы", v.SurfaceDominant)
-	assert.Equal(t, "умеренный", v.Climate)
+	assert.Equal(t, "умеренный", v.Archetype)
 	assert.Equal(t, "азотно-кислородная", v.Atmosphere)
 
 	assert.False(t, v.IsGasGiant)

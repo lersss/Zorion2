@@ -16,7 +16,7 @@ import (
 type Archetype struct {
 	ID             string
 	Name           string
-	Climate        string
+	ArchetypeID    string
 	BaseSurface    map[string]float64
 	BaseSubterrain map[string]float64
 	Hydrosphere    string
@@ -30,7 +30,7 @@ type Archetype struct {
 	MassMax        float64
 }
 
-// ClimateConfig — конфиг климата из JSON.
+// ClimateConfig — конфиг одного архетипа из JSON.
 type ClimateConfig struct {
 	ID                  string             `json:"id"`
 	Name                string             `json:"name"`
@@ -78,7 +78,7 @@ func LoadArchetypes(path string) error {
 	return nil
 }
 
-// GenerateArchetype — выбирает климат по весу спектрального класса
+// GenerateArchetype — выбирает архетип по весу спектрального класса
 // и формирует архетип с базовыми весами композиции.
 func GenerateArchetype(spectralClass string, rng *rand.Rand) *Archetype {
 	if archetypeCache == nil || len(archetypeCache.Climates) == 0 {
@@ -116,7 +116,7 @@ func GenerateArchetype(spectralClass string, rng *rand.Rand) *Archetype {
 	return buildArchetype(selectedClimate, rng)
 }
 
-// buildArchetype — формирует архетип из конфига климата.
+// buildArchetype — формирует архетип из конфига архетипа.
 func buildArchetype(c *ClimateConfig, rng *rand.Rand) *Archetype {
 	hydro := pickOrFallback(c.AllowedHydrospheres, rng, "сухая")
 	atmo := pickOrFallback(c.AllowedAtmospheres, rng, "разреженная")
@@ -137,7 +137,7 @@ func buildArchetype(c *ClimateConfig, rng *rand.Rand) *Archetype {
 	return &Archetype{
 		ID:             c.ID,
 		Name:           c.Name,
-		Climate:        c.ID,
+		ArchetypeID:    c.ID,
 		BaseSurface:    baseSurface,
 		BaseSubterrain: baseSubterrain,
 		Hydrosphere:    hydro,
@@ -160,7 +160,7 @@ func (g *Generator) archetypeTemperate() *Archetype {
 	if archetypeCache != nil {
 		for i := range archetypeCache.Climates {
 			c := &archetypeCache.Climates[i]
-			if c.ID != "temperate" {
+			if c.ID != "умеренный" {
 				continue
 			}
 			massMin := c.MassMin
@@ -174,7 +174,7 @@ func (g *Generator) archetypeTemperate() *Archetype {
 			a = &Archetype{
 				ID:             c.ID,
 				Name:           c.Name,
-				Climate:        c.ID,
+				ArchetypeID:    c.ID,
 				BaseSurface:    copyWeights(c.BaseSurface),
 				BaseSubterrain: copyWeights(c.BaseSubterrain),
 				TemperatureMin: c.TemperatureMin,
@@ -201,9 +201,9 @@ func (g *Generator) archetypeTemperate() *Archetype {
 // fallbackArchetype — используется, если JSON не загрузился.
 func fallbackArchetype() *Archetype {
 	return &Archetype{
-		ID:      "fallback",
-		Name:    "Землеподобная (fallback)",
-		Climate: "temperate",
+		ID:          "fallback",
+		Name:        "Землеподобная (fallback)",
+		ArchetypeID: "умеренный",
 		BaseSurface: map[string]float64{
 			SurfaceRocks:   0.3,
 			SurfaceSands:   0.15,

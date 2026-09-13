@@ -27,7 +27,7 @@ type Planet struct {
 	Atmosphere  string `json:"atmosphere"`
 	Hydrosphere string `json:"hydrosphere"`
 	Biosphere   string `json:"biosphere"`
-	Climate     string `json:"climate"`
+	Archetype   string `json:"archetype"`
 
 	// Жизнь
 	Habitable bool `json:"habitable"`

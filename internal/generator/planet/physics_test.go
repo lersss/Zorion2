@@ -295,14 +295,14 @@ func TestDetermineCoreMassPercentRanges(t *testing.T) {
 	}
 }
 
-func TestDetermineCoreActivityByClimate(t *testing.T) {
+func TestDetermineCoreActivityByArchetype(t *testing.T) {
 	rng := rand.New(rand.NewSource(4))
 	for i := 0; i < 100; i++ {
-		a := determineCoreActivity("extreme", nil, rng)
-		assertInDeltaRange(t, 70, 100, a, "extreme")
+		a := determineCoreActivity("экстремальный", nil, rng)
+		assertInDeltaRange(t, 70, 100, a, "экстремальный")
 
-		a = determineCoreActivity("cold", nil, rng)
-		assertInDeltaRange(t, 5, 25, a, "cold")
+		a = determineCoreActivity("холодный", nil, rng)
+		assertInDeltaRange(t, 5, 25, a, "холодный")
 
 		a = determineCoreActivity("unknown", nil, rng)
 		assertInDeltaRange(t, 20, 50, a, "unknown (дефолт)")
@@ -313,9 +313,9 @@ func TestDetermineCoreActivityMagmaBoost(t *testing.T) {
 	rng := rand.New(rand.NewSource(5))
 	sub := Composition{SubterrainMagmaChambers: 10, SubterrainMagmaticRocks: 20}
 	for i := 0; i < 100; i++ {
-		a := determineCoreActivity("cold", sub, rng)
+		a := determineCoreActivity("холодный", sub, rng)
 		// Базовые 5–25 + 10×1.5 + 20×0.5 = +25 → 30–50.
-		assertInDeltaRange(t, 30, 50, a, "cold с магматическими структурами")
+		assertInDeltaRange(t, 30, 50, a, "холодный с магматическими структурами")
 	}
 }
 

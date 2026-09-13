@@ -51,12 +51,12 @@ function getClimateId(planet) {
     const temp = planet.temperature || 0;
     const water = planet.water_percent || 0;
 
-    if (type.includes('вулканическая') || type.includes('лавовая')) return 'extreme';
-    if (type.includes('пустынная') && temp > 300) return 'hot';
-    if (type.includes('ледяная') || temp < 200) return 'cold';
-    if (type.includes('океаническая') || water > 60) return 'temperate';
-    if (temp > 350) return 'hot';
-    if (temp > 200) return 'temperate';
-    if (temp > 100) return 'cold';
-    return 'variable';
+    if (type.includes('вулканическая') || type.includes('лавовая')) return 'экстремальный';
+    if (type.includes('пустынная') && temp > 300) return 'жаркий';
+    if (type.includes('ледяная') || temp < 200) return 'холодный';
+    if (type.includes('океаническая') || water > 60) return 'умеренный';
+    if (temp > 350) return 'жаркий';
+    if (temp > 200) return 'умеренный';
+    if (temp > 100) return 'холодный';
+    return 'изменчивый';
 }

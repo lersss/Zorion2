@@ -38,7 +38,7 @@ type View struct {
 	// Типы и флаги
 	Type            string
 	SurfaceDominant string
-	Climate         string
+	Archetype       string
 	Atmosphere      string
 	Hydrosphere     string
 	Biosphere       string
@@ -150,7 +150,7 @@ func Parse(data map[string]interface{}) *View {
 	// Типы и флаги
 	v.Type = aStr(data, "type")
 	v.SurfaceDominant = aStr(data, "surface_dominant")
-	v.Climate = aStr(data, "climate")
+	v.Archetype = aStr(data, "archetype")
 	v.Atmosphere = aStr(data, "atmosphere")
 	v.Hydrosphere = aStr(data, "hydrosphere")
 	v.Biosphere = aStr(data, "biosphere")

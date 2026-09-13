@@ -20,9 +20,9 @@ func TestGeneratePrototypePlanet(t *testing.T) {
 		var data map[string]interface{}
 		require.NoError(t, json.Unmarshal(pd.Data, &data))
 
-		// Землеподобная: жизнь, пригодность, вода, умеренный климат.
+		// Землеподобная: жизнь, пригодность, вода, умеренный архетип.
 		assert.Equal(t, true, data["life"], "на прототипе должна быть жизнь")
-		assert.Equal(t, "temperate", data["climate"], "климат — умеренный")
+		assert.Equal(t, "умеренный", data["archetype"], "архетип — умеренный")
 
 		// Обитаемость не хранится в data — она вычисляется из поселений.
 		_, hasHabitable := data["habitable"]

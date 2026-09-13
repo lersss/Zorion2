@@ -99,7 +99,7 @@ func populatePlanetFromJSON(p *models.Planet, data map[string]interface{}) {
 	// Идентификация и типы
 	p.Type = getStr(data, "type")
 	p.SurfaceDominant = getStr(data, "surface_dominant")
-	p.Climate = getStr(data, "climate")
+	p.Archetype = getStr(data, "archetype")
 
 	// Физика
 	p.Size = getFloat(data, "size")

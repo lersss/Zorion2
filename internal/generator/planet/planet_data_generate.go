@@ -168,7 +168,7 @@ func (g *Generator) generateStandardPlanet(
 		"political_system":  props.Political,
 		"moons":             props.Moons,
 		"development_level": props.Development,
-		"climate":           archetype.Climate,
+		"archetype": archetype.ArchetypeID,
 		"system_age":        systemAge,
 
 		"surface_composition":    composeToJSON(props.SurfaceComposition),
@@ -260,7 +260,7 @@ func (g *Generator) generateOceanicPlanet(
 	size := computeRadius(mass, density)
 	moons := int(size / 5)
 
-	core := GenerateCore(mass, "temperate", subterrainComp, systemAge, g.rng)
+	core := GenerateCore(mass, "умеренный", subterrainComp, systemAge, g.rng)
 
 	political := "нет"
 	if settlement.Suitable(temp, waterPercent, atmosphere, life, false, false) {
@@ -304,7 +304,7 @@ func (g *Generator) generateOceanicPlanet(
 		"political_system":       political,
 		"moons":                  moons,
 		"development_level":      0.0,
-		"climate":                "temperate",
+		"archetype":              "умеренный",
 		"system_age":             systemAge,
 		"surface_composition":    composeToJSON(surfaceComp),
 		"subterrain_composition": composeToJSON(subterrainComp),
@@ -396,7 +396,7 @@ func (g *Generator) generateRadioactivePlanet(
 	size := computeRadius(mass, density)
 	moons := int(size / 8)
 
-	core := GenerateCore(mass, "extreme", subterrainComp, systemAge, g.rng)
+	core := GenerateCore(mass, "экстремальный", subterrainComp, systemAge, g.rng)
 
 	planetID := uuid.New().String()
 
@@ -431,7 +431,7 @@ func (g *Generator) generateRadioactivePlanet(
 		"political_system":       "нет",
 		"moons":                  moons,
 		"development_level":      0.0,
-		"climate":                "extreme",
+		"archetype":              "экстремальный",
 		"system_age":             systemAge,
 		"radioactive":            true,
 		"surface_composition":    composeToJSON(surfaceComp),

@@ -43,14 +43,14 @@ const (
 // GenerateCore — создаёт ядро для планеты.
 func GenerateCore(
 	mass float64,
-	climate string,
+	archetypeID string,
 	subterrain Composition,
 	systemAge float64,
 	rng *rand.Rand,
 ) Core {
 	coreType := determineCoreType(mass, rng)
 	massPercent := determineCoreMassPercent(mass, rng)
-	activity := determineCoreActivity(climate, subterrain, rng)
+	activity := determineCoreActivity(archetypeID, subterrain, rng)
 	radioactivity := determineCoreRadioactivity(subterrain, rng)
 
 	return Core{
@@ -116,25 +116,25 @@ func determineCoreMassPercent(mass float64, rng *rand.Rand) float64 {
 // determineCoreActivity — активность ядра.
 //
 // Зависит от:
-//   - климата (hot/extreme → активнее);
+//   - архетипа (экстремальный/жаркий → активнее);
 //   - доли магматических камер в недрах;
 //   - доли магматических пород.
 func determineCoreActivity(
-	climate string,
+	archetypeID string,
 	subterrain Composition,
 	rng *rand.Rand,
 ) float64 {
 	var base float64
-	switch climate {
-	case "extreme":
+	switch archetypeID {
+	case "экстремальный":
 		base = 70 + rng.Float64()*30
-	case "hot":
+	case "жаркий":
 		base = 40 + rng.Float64()*30
-	case "temperate":
+	case "умеренный":
 		base = 30 + rng.Float64()*30
-	case "variable":
+	case "изменчивый":
 		base = 20 + rng.Float64()*30
-	case "cold":
+	case "холодный":
 		base = 5 + rng.Float64()*20
 	default:
 		base = 20 + rng.Float64()*30

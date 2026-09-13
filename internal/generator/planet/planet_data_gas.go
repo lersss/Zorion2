@@ -58,7 +58,7 @@ func (g *Generator) generateGasGiant(
 
 	// --- ЯДРО ---
 	emptySubterrain := Composition{}
-	core := GenerateCore(mass, "hot", emptySubterrain, systemAge, g.rng)
+	core := GenerateCore(mass, "жаркий", emptySubterrain, systemAge, g.rng)
 
 	// --- СПУТНИКИ ---
 	satelliteCount := 3 + g.rng.Intn(8)
@@ -106,7 +106,7 @@ func (g *Generator) generateGasGiant(
 		"political_system":  "нет",
 		"moons":             satelliteCount,
 		"development_level": 0.0,
-		"climate":           "hot",
+		"archetype":         "жаркий",
 		"system_age":        systemAge,
 		"is_gas_giant":      true,
 		"resources":         resourceSummary,

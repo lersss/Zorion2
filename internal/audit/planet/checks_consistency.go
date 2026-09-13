@@ -35,13 +35,13 @@ func checkLifeWithoutTemperature(v *View) []audit.Issue {
 
 // ==================== TYPE ↔ SURFACE_DOMINANT ====================
 
-// checkEarthlikeConsistency — землеподобная должна иметь скалы и воду.
+// checkEarthlikeConsistency — землеподобная должна иметь горы и воду.
 func checkEarthlikeConsistency(v *View) []audit.Issue {
 	if v.Type != "землеподобная" {
 		return nil
 	}
 	var issues []audit.Issue
-	if v.Surface["скалы"] < 1 {
+	if v.Surface["горы"] < 1 {
 		issues = append(issues, newIssue(v, "earthlike_without_rocks", audit.SeverityMedium,
 			"Землеподобная без скал в композиции"))
 	}

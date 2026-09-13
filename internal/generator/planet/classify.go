@@ -80,7 +80,7 @@ func ClassifyGameDesignType(in PlanetClassificationInput) string {
 		return TypeRadioactive
 	}
 
-	// 3. Землеподобная: пригодна под поселение + жизнь + скалы + вода
+	// 3. Землеподобная: пригодна под поселение + жизнь + горы + вода
 	if in.Settleable && in.Life &&
 		in.Surface.Has(SurfaceRocks) &&
 		(in.Surface.Has(SurfaceOceans) || in.Surface.Has(SurfaceLakes)) {

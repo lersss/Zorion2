@@ -47,13 +47,22 @@ export async function runTests(refresh) {
 
 function renderTests(container, result) {
     container.innerHTML = '';
-
+    setTestsAvailable(result.available !== false);
     container.appendChild(buildSummary(result));
     container.appendChild(buildMessage(result));
 
     if (result.packages && result.packages.length > 0) {
         container.appendChild(buildPackagesTable(result));
     }
+}
+
+// setTestsAvailable — кнопки запуска бессмысленны там, где нет исходников
+// (прод): при available=false отключаем их, чтобы не дёргать бесполезный прогон.
+function setTestsAvailable(available) {
+    ['runTestsBtn', 'lastTestsBtn'].forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn) btn.disabled = !available;
+    });
 }
 
 function buildSummary(result) {

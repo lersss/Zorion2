@@ -117,6 +117,9 @@ func TestTwinSpecValidate(t *testing.T) {
 			Groups: []TwinGroup{{ID: "g", PlanetsPerWorld: 1,
 				Settlement: SettlementSpec{Chance: 1.0,
 					Population: settlement.Population{Kind: "random", Min: 1, Max: 3_000_000_000}}}}},
+		{ID: "x", Base: map[string]interface{}{"temperature": 288.0},
+			Groups: []TwinGroup{{ID: "g", PlanetsPerWorld: 1,
+				Settlement: SettlementSpec{Chance: 1.0, SettlementsPerPlanet: -1}}}},
 	}
 	for _, s := range invalid {
 		if err := s.Validate(); err == nil {

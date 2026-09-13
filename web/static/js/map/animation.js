@@ -1,7 +1,7 @@
 // web/static/js/map/animation.js
 import { state, elements } from './config.js';
 import { draw } from './map_render.js';
-import { loadClusters, loadUserData } from './data.js';
+import { loadClusters, loadUserData, maybeReloadClusters } from './data.js';
 import { centerOnAgent } from './navigation.js';
 import { updateFlightPanel, hideFlightPanel } from './flight.js';
 
@@ -30,6 +30,9 @@ export function animationLoop() {
                 if (centerBtn) centerBtn.classList.add('active');
             }
             draw();
+            // B17: вьюпорт движется, а мышиных событий нет — подгружаем
+            // кластеры под новый район напрямую (с ограничением частоты).
+            maybeReloadClusters();
         }
     }
     requestAnimationFrame(animationLoop);

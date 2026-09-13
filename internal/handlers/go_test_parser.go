@@ -22,6 +22,7 @@ type testEvent struct {
 // TestSummary — человекочитаемая сводка одного прогона тестов.
 type TestSummary struct {
 	Status        string           `json:"status"`              // success | fail | error
+	Available     bool             `json:"available"`           // false — исходники не развёрнуты (прод)
 	Message       string           `json:"message,omitempty"`   // только при status=error
 	DurationMs    int64            `json:"duration_ms"`
 	GoVersion     string           `json:"go_version,omitempty"`
@@ -134,7 +135,7 @@ func parseGoTestJSON(r io.Reader) (*TestSummary, error) {
 		return nil, err
 	}
 
-	sum := &TestSummary{Status: "success"}
+	sum := &TestSummary{Status: "success", Available: true}
 	for _, name := range order {
 		p := pkgs[name]
 		p.finish()

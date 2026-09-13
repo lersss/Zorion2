@@ -31,15 +31,16 @@ func testTwinSpec() planet.TwinSpec {
 			"type": "землеподобная", "surface_dominant": "океаны",
 			"archetype": "умеренный", "system_age": 1.0,
 			"moons": 1, "development_level": 0.5,
-			"surface_composition":    map[string]interface{}{"океаны": 60.0, "скалы": 40.0},
+			"surface_composition":    map[string]interface{}{"океаны": 60.0, "горы": 40.0},
 			"subterrain_composition": map[string]interface{}{"породы": 100.0},
 		},
 		Groups: []planet.TwinGroup{{
 			ID: "g", Name: "g", PlanetsPerWorld: 2,
 			Overrides: map[string]interface{}{"system_age": 1.0},
 			Settlement: planet.SettlementSpec{
-				Chance:     1.0,
-				Population: settlement.Population{Kind: "fixed", Fixed: 12345},
+				Chance:              1.0,
+				SettlementsPerPlanet: 2,
+				Population:           settlement.Population{Kind: "fixed", Fixed: 12345},
 			},
 		}},
 	}
@@ -65,14 +66,14 @@ func TestRunHypothesisJobPipeline(t *testing.T) {
 	mock.ExpectExec(`ALTER TABLE users ADD CONSTRAINT users_current_world_id_fkey`).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
-	// 2. Звезда группы (1), планеты (2), поселения (2 — шанс 1.0).
+	// 2. Звезда группы (1), планеты (2), поселения (4 — шанс 1.0 × 2 на планету).
 	mock.ExpectExec(`INSERT INTO worlds \(id, name, coord_x, coord_y, spectral_class, temperature`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	for i := 0; i < 2; i++ {
 		mock.ExpectExec(`INSERT INTO planets \(id, world_id, name, orbit_index, data`).
 			WillReturnResult(sqlmock.NewResult(0, 1))
 	}
-	for i := 0; i < 2; i++ {
+	for i := 0; i < 4; i++ {
 		mock.ExpectExec(`INSERT INTO settlements \(id, planet_id, population, population_exact, stability, computed_at`).
 			WillReturnResult(sqlmock.NewResult(0, 1))
 	}
@@ -94,8 +95,8 @@ func TestRunHypothesisJobPipeline(t *testing.T) {
 
 	settled, report, err := h.runHypothesisJob(context.Background(), testTwinSpec())
 	require.NoError(t, err)
-	require.Equal(t, 2, settled,
-		"шанс заселения 1.0 на 2 планетах → 2 поселения")
+	require.Equal(t, 4, settled,
+		"шанс заселения 1.0 на 2 планетах × 2 поселения на планету → 4 поселения")
 	require.Contains(t, report, "невозможных: 0",
 		"умеренный шаблон (temp 288 K) не должен давать невозможных планет")
 	require.NoError(t, mock.ExpectationsWereMet(),
@@ -181,7 +182,7 @@ func TestCountImpossiblePlanets(t *testing.T) {
 		"archetype": "умеренный", "atmosphere": "азотно-кислородная",
 		"hydrosphere": "океаны", "biosphere": "растительная",
 		"life": false, "is_gas_giant": false, "radioactive": false,
-		"surface_composition":    map[string]interface{}{"океаны": 80.0, "скалы": 20.0},
+		"surface_composition":    map[string]interface{}{"океаны": 80.0, "горы": 20.0},
 		"subterrain_composition": map[string]interface{}{"породы": 100.0},
 	})
 	// Умеренная океаническая — не невозможная.
@@ -193,7 +194,7 @@ func TestCountImpossiblePlanets(t *testing.T) {
 		"archetype": "умеренный", "atmosphere": "азотно-кислородная",
 		"hydrosphere": "океаны", "biosphere": "растительная",
 		"life": false, "is_gas_giant": false, "radioactive": false,
-		"surface_composition":    map[string]interface{}{"океаны": 80.0, "скалы": 20.0},
+		"surface_composition":    map[string]interface{}{"океаны": 80.0, "горы": 20.0},
 		"subterrain_composition": map[string]interface{}{"породы": 100.0},
 	})
 

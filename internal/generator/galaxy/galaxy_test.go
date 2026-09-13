@@ -153,13 +153,13 @@ func TestGenerateWorldsRandomCountLimitedBySpace(t *testing.T) {
 func TestGenerateWorldsPoissonProperties(t *testing.T) {
 	g := NewGenerator(&Config{
 		Seed: 7, WorldCount: 40, MapSize: 2000, MinDist: 150,
-		ClusterCount: 3, ClusterSpacing: 900, ClusterRadius: 150,
+		ClusterCount: 3, ClusterSpacing: 900, ClusterRadius: 400,
 		OutlierPercent: 0.08, WorldSpread: 0,
 	})
 	result := g.generateWorldsPoisson()
 	worlds := result.Worlds
 
-	// Вместимости достаточно — добивка должна довести почти до цели.
+	// Вместимости кластеров достаточно — миры добираются до цели.
 	require.GreaterOrEqual(t, len(worlds), 30, "недостаточно миров")
 	assert.LessOrEqual(t, len(worlds), 40)
 	assertWorldsValid(t, worlds, 2000, 150)
@@ -168,7 +168,7 @@ func TestGenerateWorldsPoissonProperties(t *testing.T) {
 func TestGenerateWorldsPoissonRegions(t *testing.T) {
 	g := NewGenerator(&Config{
 		Seed: 7, WorldCount: 40, MapSize: 2000, MinDist: 150,
-		ClusterCount: 3, ClusterSpacing: 900, ClusterRadius: 150,
+		ClusterCount: 3, ClusterSpacing: 900, ClusterRadius: 400,
 		OutlierPercent: 0.08, WorldSpread: 0,
 	})
 	result := g.generateWorldsPoisson()
@@ -264,6 +264,47 @@ func TestGenerateOutlierPositionNearCluster(t *testing.T) {
 	mean := sum / float64(placed)
 	assert.Less(t, mean, 500*5.0, "выбросы не должны разлетаться, mean=%.0f", mean)
 	assert.Greater(t, mean, 500*2.5, "выбросы должны заполнять пустоты между кластерами, mean=%.0f", mean)
+}
+
+func TestFillUpStaysWithinRegion(t *testing.T) {
+	// Регрессия B16: «добивка» кластерных точек (когда кластер недобрал своих
+	// 400 звёзд) раньше кидала точку случайно по всей галактике — остатки
+	// разлетались далеко от центра кластера, и карта выглядела равномерной.
+	// Теперь добивка генерирует точку внутри территории своего региона
+	// (в пределах 1.25×ClusterRadius от центра).
+	const (
+		clusters = 40
+		radius   = 2000.0
+		worlds   = 20000
+	)
+	g := NewGenerator(&Config{
+		Seed: 11, WorldCount: worlds, MapSize: 20000, MinDist: 150,
+		ClusterCount: clusters, ClusterSpacing: 4000, ClusterRadius: radius,
+		OutlierPercent: 0.2, WorldSpread: 0,
+	})
+	res := g.GenerateGalaxyWithRegions()
+	require.Len(t, res.Worlds, worlds, "кластеры должны добирать точки в своих регионах")
+	require.Len(t, res.Regions, clusters)
+
+	// Не-выбросы обязаны лежать внутри территории своего региона
+	// (≤ 1.25×R от ближайшего центра; территории не пересекаются, так как
+	// clusterSpacing ≥ 2×ClusterRadius). Дальше могут уходить только выбросы.
+	limit := radius * 1.26
+	far := 0
+	for _, w := range res.Worlds {
+		d := math.Inf(1)
+		for _, r := range res.Regions {
+			if dd := math.Hypot(w.CoordX-r.CenterX, w.CoordY-r.CenterY); dd < d {
+				d = dd
+			}
+		}
+		if d > limit {
+			far++
+		}
+	}
+	maxOutliers := int(float64(worlds) * 0.2)
+	assert.LessOrEqual(t, far, maxOutliers+2,
+		"вне территорий регионов — только выбросы (≤%d), а не точки добивки", maxOutliers)
 }
 
 func TestClusterPointsCircleDensity(t *testing.T) {

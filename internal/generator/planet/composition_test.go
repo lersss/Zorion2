@@ -80,7 +80,7 @@ func TestClassifyRadioactive(t *testing.T) {
 }
 
 func TestClassifyEarthlike(t *testing.T) {
-	// Пригодна под поселение + жизнь + скалы + вода (океаны ИЛИ озёра).
+	// Пригодна под поселение + жизнь + горы + вода (океаны ИЛИ озёра).
 	in := PlanetClassificationInput{
 		Settleable: true, Life: true,
 		Surface: Composition{SurfaceRocks: 60, SurfaceOceans: 40},
@@ -347,7 +347,7 @@ func TestBiosphereNicheDominance(t *testing.T) {
 	}
 
 	// Вне ниш (вода 45–55%) биосфера не должна форсироваться — доминируют
-	// леса/океаны/скалы естественным образом, но не луга/джунгли/болота.
+	// леса/океаны/горы естественным образом, но не луга/джунгли/болота.
 	outside := GenerateSurfaceComposition(base, 270, 50, rng)
 	assert.NotContains(t, []string{SurfaceJungles, SurfaceSwamps, SurfaceMeadows},
 		outside.DominantForm(), "вне ниш биосфера не должна доминировать: %v", outside)

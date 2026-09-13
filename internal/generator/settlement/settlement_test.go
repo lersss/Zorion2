@@ -92,7 +92,7 @@ func TestModelMatchesIsGasGiantFromSurface(t *testing.T) {
 
 	// is_gas_giant отсутствует, но surface_dominant указывает на гиганта.
 	assert.False(t, m.Matches(map[string]interface{}{"surface_dominant": "газовый_гигант"}))
-	assert.True(t, m.Matches(map[string]interface{}{"surface_dominant": "скалы"}))
+	assert.True(t, m.Matches(map[string]interface{}{"surface_dominant": "горы"}))
 }
 
 func TestModelSimpleIgnoresRules(t *testing.T) {

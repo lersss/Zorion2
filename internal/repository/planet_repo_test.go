@@ -60,7 +60,7 @@ func TestGetBool(t *testing.T) {
 func TestGetFloatMap(t *testing.T) {
 	data := map[string]interface{}{
 		"compositions": map[string]interface{}{
-			"скалы":     60.0,
+			"горы":     60.0,
 			"океаны":    30.5,
 			"не-число":  "ошибка",
 			"пропущено": float64(9),
@@ -68,7 +68,7 @@ func TestGetFloatMap(t *testing.T) {
 	}
 
 	m := getFloatMap(data, "compositions")
-	assert.InDelta(t, 60.0, m["скалы"], 0.0001)
+	assert.InDelta(t, 60.0, m["горы"], 0.0001)
 	assert.InDelta(t, 30.5, m["океаны"], 0.0001)
 	_, ok := m["не-число"]
 	assert.False(t, ok, "значения-не числа отбрасываются")
@@ -250,7 +250,7 @@ func TestPopulatePlanetFromJSONRealSerialized(t *testing.T) {
 		"size":1.0,"mass":1.0,"density":1.0,"temperature":288.0,"water_percent":70.0,
 		"atmosphere":"азотно-кислородная","hydrosphere":"океаны","biosphere":"развитая",
 		"habitable":true,"life":true,
-		"surface_composition":{"океаны":70.0,"скалы":20.0,"льды":10.0},
+		"surface_composition":{"океаны":70.0,"горы":20.0,"льды":10.0},
 		"core":{"type":"железное","mass_percent":32.5,"activity":55.0,"radioactivity":5.0,"age":4.5,"is_active":true,"is_metallic":true},
 		"moons":1,"system_age":4.6
 	}`

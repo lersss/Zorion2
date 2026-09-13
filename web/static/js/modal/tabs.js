@@ -1,5 +1,6 @@
 // web/static/js/modal/tabs.js
 import { populationAt, planetPopulationAt } from './extrapolate.js';
+import { modalState } from './state.js';
 
 // ---------- УТИЛИТЫ ----------
 
@@ -37,7 +38,7 @@ function capitalize(s) {
 
 // Иконки по форме/типу
 const FORM_ICONS = {
-    'скалы': '🪨', 'пески_пустыни': '🏜️', 'кратеры': '⚫',
+    'горы': '🪨', 'пески_пустыни': '🏜️', 'кратеры': '⚫',
     'стеклянные_поля': '🔮', 'металлические_поля': '⚙️',
     'лавовые_поля': '🌋', 'вулканические_поля': '🗻',
     'ледники': '❄️', 'мёрзлые_газы': '💠',
@@ -63,7 +64,7 @@ const SUBTERRAIN_ICONS = {
 
 // Цвета для полосок композиции
 const FORM_COLORS = {
-    'скалы': '#8b7355', 'пески_пустыни': '#d4a373', 'кратеры': '#4a4a4a',
+    'горы': '#8b7355', 'пески_пустыни': '#d4a373', 'кратеры': '#4a4a4a',
     'стеклянные_поля': '#a8d8ea', 'металлические_поля': '#9e9e9e',
     'лавовые_поля': '#e74c3c', 'вулканические_поля': '#c0392b',
     'ледники': '#d0e8f2', 'мёрзлые_газы': '#b0d4e3',
@@ -325,6 +326,17 @@ function renderResources(planet) {
 
 // ---------- ПОСЕЛЕНИЯ ----------
 
+// settlementTrendArrow — ↓/↑/— рядом с населением поселения относительно
+// прошлого known-значения (modalState.previousSettlementPop, обновляется в
+// refreshPlanets, index.js) — аналог populationTrendArrow из panel.js.
+function settlementTrendArrow(s) {
+    const prev = modalState.previousSettlementPop[s.id];
+    if (typeof prev !== 'number' || typeof s.population !== 'number') return '';
+    if (s.population < prev) return ' <span style="color:#f66;" title="Население убывает">↓</span>';
+    if (s.population > prev) return ' <span style="color:#6f6;" title="Население растёт">↑</span>';
+    return ' <span style="color:#888;" title="Без изменений">—</span>';
+}
+
 function renderSettlements(planet) {
     const list = planet.settlements;
     if (!list || list.length === 0) {
@@ -339,7 +351,7 @@ function renderSettlements(planet) {
                     <strong>Поселение ${i + 1}</strong>
                 </div>
                 <div style="color:#ccc; margin-top:6px;">
-                    <div>Население: <strong id="pop-${s.id}">${formatNumber(populationAt(s, Date.now()))}</strong></div>
+                    <div>Население: <strong id="pop-${s.id}">${formatNumber(populationAt(s, Date.now()))}</strong>${settlementTrendArrow(s)}</div>
                     <div>Стабильность: <strong>${s.stability != null ? s.stability + '%' : '—'}</strong></div>
                 </div>
             </div>`;

@@ -147,25 +147,32 @@ func (h *AdminHandlers) runHypothesisJob(ctx context.Context, spec planet.TwinSp
 			}
 		}
 
-		// Поселения группы: шанс + стратегия населения, напрямую в settlements.
-		// Заводы и товары не создаются (спека §2 «Не-цели»).
+		// Поселения группы: шанс + стратегия населения + число поселений на
+		// планету, напрямую в settlements. Заводы и товары не создаются
+		// (спека §2 «Не-цели»).
 		rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+		perPlanet := group.Settlement.SettlementsPerPlanet
+		if perPlanet <= 0 {
+			perPlanet = 1
+		}
 		for _, p := range planets {
 			if rng.Float64() > group.Settlement.Chance {
 				continue
 			}
-			now := time.Now()
-			population := group.Settlement.Population.Value(rng)
-			if _, err := tx.ExecContext(ctx, `
-				INSERT INTO settlements (id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-				uuid.New().String(), p.ID,
-				population, float64(population),
-				rng.Intn(41)+40, now, now, now,
-			); err != nil {
-				return 0, "", err
+			for n := 0; n < perPlanet; n++ {
+				now := time.Now()
+				population := group.Settlement.Population.Value(rng)
+				if _, err := tx.ExecContext(ctx, `
+					INSERT INTO settlements (id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at)
+					VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+					uuid.New().String(), p.ID,
+					population, float64(population),
+					rng.Intn(41)+40, now, now, now,
+				); err != nil {
+					return 0, "", err
+				}
+				settled++
 			}
-			settled++
 		}
 	}
 

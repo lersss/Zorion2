@@ -31,6 +31,7 @@ export const modalState = {
     activeTab: 'general', // текущая вкладка карточки планеты, чтобы «Обновить» не сбрасывал на «Общее»
     autoRefreshTimer: null, // id setInterval автообновления карточки планеты (отладка, admin.html)
     previousPopulation: {}  // planetId -> население на прошлый refresh, для стрелочки тренда
+    previousSettlementPop: {}  // settlementId -> население на прошлый refresh, вкладка «Поселения»
 };
 
 export function resetState() {
@@ -45,6 +46,7 @@ export function resetState() {
     modalState.suppressNextClick = false;
     modalState.activeTab = 'general';
     modalState.previousPopulation = {};
+    modalState.previousSettlementPop = {};
     if (modalState._rafId !== null) {
         cancelAnimationFrame(modalState._rafId);
         modalState._rafId = null;

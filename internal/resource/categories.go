@@ -80,7 +80,7 @@ func GetCategory(code string) Category {
 // surfaceToCategories — какие категории ресурсов может дать каждая форма
 // поверхности. Используется для генерации ресурсов.
 var surfaceToCategories = map[string][]string{
-	"скалы":              {CategoryMineral, CategoryRare},
+	"горы":              {CategoryMineral, CategoryRare},
 	"пески_пустыни":      {CategoryMineral},
 	"кратеры":            {CategoryMineral, CategoryRare},
 	"стеклянные_поля":    {CategoryRare, CategoryMineral},

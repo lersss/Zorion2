@@ -4,7 +4,7 @@ package planet
 // ==================== ФОРМЫ ПОВЕРХНОСТИ (16) ====================
 
 const (
-	SurfaceRocks          = "скалы"
+	SurfaceRocks          = "горы"
 	SurfaceSands          = "пески_пустыни"
 	SurfaceCraters        = "кратеры"
 	SurfaceGlassFields    = "стеклянные_поля"

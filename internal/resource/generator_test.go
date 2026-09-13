@@ -95,7 +95,7 @@ func TestGenerateResources_AllCategoriesValid(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		res := GenerateResources(
 			"planet-1",
-			"скалы",
+			"горы",
 			map[string]float64{"рудные_жилы": 60, "пустая_порода": 40},
 			"G",
 			rng,
@@ -157,7 +157,7 @@ func TestGenerateResources_KnownSplit(t *testing.T) {
 	rng := rand.New(rand.NewSource(5))
 	res := GenerateResources(
 		"planet-1",
-		"скалы",
+		"горы",
 		map[string]float64{"рудные_жилы": 100},
 		"G",
 		rng,

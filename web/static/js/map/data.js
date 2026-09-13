@@ -9,10 +9,26 @@ export const CLUSTER_CELL_PX = 40;
 // Задержка перед перезапросом после zoom/pan.
 const RELOAD_DEBOUNCE_MS = 180;
 
+// Минимальный интервал между полётными перезапросами кластеров (B17):
+// во время полёта рендер-цикл крутится каждый кадр, без гарда 600 мс
+// запросы шли бы до ~5/с на игрока.
+const FLIGHT_RELOAD_INTERVAL_MS = 600;
+
+// Порог «край вьюпорта вышел за загруженную область»: 25% размера вьюпорта
+// по оси — рендер-цикл запрашивает новый район, когда с края открылось
+// заметное поле.
+const FLIGHT_RELOAD_MARGIN_RATIO = 0.25;
+
 let loadingData = false;
 let pendingReload = false;
 let reloadTimer = null;
 let currentWorldIdLoaded = false;
+let lastFlightReloadAt = 0;
+
+// lastFetchedBounds — границы вьюпорта, для которых загружены кластеры.
+// Полётный цикл сравнивает с ними текущий вьюпорт, чтобы не дёргать API
+// на каждом кадре (B17).
+let lastFetchedBounds = null;
 
 // ==================== АВТОРИЗАЦИЯ ====================
 
@@ -33,6 +49,28 @@ export function scheduleReload() {
         reloadTimer = null;
         loadClusters().catch(err => console.error('scheduleReload:', err));
     }, RELOAD_DEBOUNCE_MS);
+}
+
+// maybeReloadClusters — полётный перезапрос кластеров (B17): рендер-цикл во
+// время полёта двигает вьюпорт, но мышиные события (и scheduleReload) не
+// приходят, поэтому звёзды за краем не появлялись. Вызывает loadClusters
+// НАПРЯМУЮ (мимо общего reloadTimer), чтобы не отодвигать дебаунс релоадов
+// от пана/зума игрока. Ограничено сверху: 25% края + интервалом 600 мс.
+export function maybeReloadClusters() {
+    if (loadingData) return;
+    const bounds = getViewportBounds();
+    const w = bounds.xMax - bounds.xMin;
+    const h = bounds.yMax - bounds.yMin;
+    const need = !lastFetchedBounds ||
+        bounds.xMin < lastFetchedBounds.xMin - FLIGHT_RELOAD_MARGIN_RATIO * w ||
+        bounds.xMax > lastFetchedBounds.xMax + FLIGHT_RELOAD_MARGIN_RATIO * w ||
+        bounds.yMin < lastFetchedBounds.yMin - FLIGHT_RELOAD_MARGIN_RATIO * h ||
+        bounds.yMax > lastFetchedBounds.yMax + FLIGHT_RELOAD_MARGIN_RATIO * h;
+    if (!need) return;
+    const now = Date.now();
+    if (now - lastFlightReloadAt < FLIGHT_RELOAD_INTERVAL_MS) return;
+    lastFlightReloadAt = now;
+    loadClusters().catch(err => console.error('maybeReloadClusters:', err));
 }
 
 // ==================== ЗАГРУЗКА КЛАСТЕРОВ ====================
@@ -63,6 +101,7 @@ export async function loadClusters() {
 
         const clusters = await res.json();
         state.clusters = Array.isArray(clusters) ? clusters : [];
+        lastFetchedBounds = bounds;
 
         for (const c of state.clusters) {
             if (c.cnt === 1 && c.sid) {

@@ -151,11 +151,35 @@ if math.Hypot(p.X, p.Y) > halfSize {
 	}
 }
 
-	// Добивка кластерных точек – только внутри круга
+	// Добивка кластерных точек – внутри территории своего региона: точка
+	// генерируется гауссом вокруг центра случайного региона (std = радиус)
+	// и принимается в пределах 1.25×радиус от центра (как обычные точки
+	// кластера). Раньше точки кидались случайно по всей галактике — звезды
+	// "добивки" разлетались далеко от кластеров и размазывали их по карте.
 	attempts := clusterPoints * 200
 	for len(allPoints) < clusterPoints && attempts > 0 {
 		attempts--
-		x, y := g.randomPointInCircle(halfSize)
+		if len(regions) == 0 {
+			x, y := g.randomPointInCircle(halfSize)
+			if !g.galaxyEdgeAccept(x, y) {
+				continue
+			}
+			if !grid.HasNear(x, y, minDist) {
+				allPoints = append(allPoints, struct{ X, Y float64 }{X: x, Y: y})
+				grid.Add(x, y)
+				pointRegion = append(pointRegion, -1)
+			}
+			continue
+		}
+		r := regions[g.rng.Intn(len(regions))]
+		x := r.CenterX + g.gaussian(r.Radius)
+		y := r.CenterY + g.gaussian(r.Radius)
+		if math.Hypot(x, y) > halfSize {
+			continue
+		}
+		if !g.clusterEdgeAccept(r.CenterX, r.CenterY, x, y, r.Radius) {
+			continue
+		}
 		if !g.galaxyEdgeAccept(x, y) {
 			continue
 		}

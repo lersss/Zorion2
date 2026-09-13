@@ -58,7 +58,7 @@ func baseCountForSurface(surfaceDominant string) int {
 		return 6
 	case "леса", "джунгли", "болота", "коралловые_рифы":
 		return 6
-	case "скалы", "пески_пустыни", "кратеры":
+	case "горы", "пески_пустыни", "кратеры":
 		return 5
 	case "лавовые_поля", "вулканические_поля":
 		return 6

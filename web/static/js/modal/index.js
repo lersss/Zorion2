@@ -7,6 +7,7 @@ import { getStarColor, getStarSize } from './utils.js';
 import { renderRightPanel, renderStarCard } from './panel.js';
 import { notifyError } from '../ui/toast.js';
 import { repaintPopulationNumbers } from './extrapolate.js';
+import { handleUnauthorized } from '../map/data.js';
 
 // openSystemModal — открывает модалку системы по ID мира.
 // focusOpts: { planetId?, satelliteId? } — после открытия выбирает объект
@@ -14,7 +15,7 @@ import { repaintPopulationNumbers } from './extrapolate.js';
 export function openSystemModal(worldId, worldName, spectralClass, focusOpts) {
     const token = localStorage.getItem('token');
     if (!token) {
-        notifyError('Не авторизован. Пожалуйста, войдите в систему.');
+        handleUnauthorized();
         return;
     }
 
@@ -24,7 +25,7 @@ export function openSystemModal(worldId, worldName, spectralClass, focusOpts) {
     .then(response => {
         if (!response.ok) {
             if (response.status === 401 || response.status === 403) {
-                notifyError('Сессия истекла. Пожалуйста, войдите заново.');
+                handleUnauthorized();
                 return;
             }
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -73,6 +74,16 @@ export function refreshPlanets() {
         const previous = modalState.previousPopulation || {};
         (modalState.planets || []).forEach(p => { previous[p.id] = p.population; });
         modalState.previousPopulation = previous;
+
+        // То же для поселений — стрелочка тренда во вкладке «Поселения»
+        // (settlementTrendArrow, tabs.js).
+        const previousSettlements = modalState.previousSettlementPop || {};
+        (modalState.planets || []).forEach(p => {
+            (Array.isArray(p.settlements) ? p.settlements : []).forEach(s => {
+                if (s && typeof s.population === 'number') previousSettlements[s.id] = s.population;
+            });
+        });
+        modalState.previousSettlementPop = previousSettlements;
 
         modalState.planets = Array.isArray(data && data.planets) ? data.planets : [];
         const idx = modalState.selectedPlanetIndex;

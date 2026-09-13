@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -47,11 +48,14 @@ func (h *AdminHandlers) GetTestsHandler(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
-// runGoTests — запускает `go test -json ./...` в каталоге сервера,
+// runGoTests — запускает `go test -json ./...` в корне модуля,
 // разбирает вывод и возвращает человекочитаемую сводку.
 func runGoTests() *TestSummary {
-	if _, err := os.Stat("go.mod"); err != nil {
-		return errTestSummary("Каталог сервера не содержит go.mod. Запустите сервер из корня проекта, чтобы вкладка «Тесты» работала.")
+	modDir := findGoModDir()
+	if modDir == "" {
+		// На проде исходники не развёрнуты (бинарь копируется отдельно) —
+		// тесты физически не могут работать, это честный быстрый ответ.
+		return errTestSummary("Исходники Go не развёрнуты (go.mod не найден). Вкладка «Тесты» доступна только там, где есть код проекта — локально или в CI.")
 	}
 
 	start := time.Now()
@@ -59,7 +63,7 @@ func runGoTests() *TestSummary {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "go", "test", "-json", "./...")
-	cmd.Dir = "."
+	cmd.Dir = modDir
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -100,11 +104,44 @@ func runGoTests() *TestSummary {
 	return sum
 }
 
+// findGoModDir — ищет каталог с go.mod: подъёмом от рабочего каталога, затем
+// от каталога исполняемого файла. Возвращает "" если модуль не найден
+// (например, на проде: бинарь и web копируются без исходников).
+func findGoModDir() string {
+	var roots []string
+	if wd, err := os.Getwd(); err == nil {
+		roots = append(roots, wd)
+	}
+	if exe, err := os.Executable(); err == nil {
+		roots = append(roots, filepath.Dir(exe))
+	}
+
+	seen := make(map[string]bool)
+	for _, root := range roots {
+		for dir := root; ; {
+			if seen[dir] {
+				break
+			}
+			seen[dir] = true
+			if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+				return dir
+			}
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				break
+			}
+			dir = parent
+		}
+	}
+	return ""
+}
+
 // errTestSummary — сводка с ошибкой запуска (без выполнения go test).
 func errTestSummary(message string) *TestSummary {
 	return &TestSummary{
-		Status:    "error",
-		Message:   message,
+		Status:     "error",
+		Available:  false,
+		Message:    message,
 		DurationMs: 0,
 	}
 }

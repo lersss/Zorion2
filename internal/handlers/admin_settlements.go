@@ -75,6 +75,19 @@ func (h *AdminHandlers) GenerateSettlements(w http.ResponseWriter, r *http.Reque
 		default:
 		}
 		log.Printf("🏘️ GenerateSettlements: start")
+
+		// B18: старые поселения/заводы/товары удаляются до генерации, иначе
+		// повторный запуск дублирует данные (аналогично clearPlanets в B11).
+		// Заводы и товары по логике от поселений не зависят — каскада нет,
+		// чистим все три таблицы явно.
+		oldCount, err := h.clearSettlementsLayer()
+		if err != nil {
+			log.Printf("❌ GenerateSettlements: delete old records: %v", err)
+			statusManager.Fail(generator.JobGenerateSettlements, err.Error())
+			return
+		}
+		log.Printf("🗑️ GenerateSettlements: удалено старых записей: %d", oldCount)
+
 		gen := settlement.NewGenerator(h.db, 0)
 		count, err := gen.GenerateSettlements(ctx, model, func(processed int) {
 			statusManager.Progress(generator.JobGenerateSettlements, processed)
@@ -120,4 +133,24 @@ func (h *AdminHandlers) ClearSettlements(w http.ResponseWriter, r *http.Request)
 	log.Printf("🗑️ ClearSettlements: удалено поселений: %d", before)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]int{"deleted": before})
+}
+
+// clearSettlementsLayer — удаляет поселения, заводы и партии товаров
+// (слой экономики, создаваемый GenerateSettlements). Возвращает суммарное
+// число удалённых записей. Заводы и товары не зависят от поселений
+// (FK заводов/товаров на planets), поэтому все три таблицы чистим явно.
+func (h *AdminHandlers) clearSettlementsLayer() (int, error) {
+	tables := []string{"settlements", "factories", "goods_batches"}
+	deleted := 0
+	for _, table := range tables {
+		var n int
+		if err := h.db.QueryRow(`SELECT COUNT(*) FROM ` + table).Scan(&n); err != nil {
+			return 0, err
+		}
+		if _, err := h.db.Exec(`DELETE FROM ` + table); err != nil {
+			return 0, err
+		}
+		deleted += n
+	}
+	return deleted, nil
 }

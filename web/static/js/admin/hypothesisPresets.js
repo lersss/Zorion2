@@ -32,7 +32,7 @@ const CANONICAL = {
     development_level: 0.5,
     archetype: 'умеренный',
     system_age: 1,
-    surface_composition: { океаны: 60, скалы: 25, леса: 15 },
+    surface_composition: { океаны: 60, горы: 25, леса: 15 },
     subterrain_composition: {
         пустые_породы: 30, осадочные_породы: 25, рудные_жилы: 20,
         грунтовые_воды: 15, магматические_породы: 10,
@@ -63,9 +63,9 @@ const BARREN = {
     development_level: 0.2,
     archetype: 'изменчивый',
     system_age: 1,
-    surface_composition: { скалы: 80, пески_пустыни: 20 },
+    surface_composition: { горы: 80, пески_пустыни: 20 },
     subterrain_composition: { пустые_породы: 60, магматические_породы: 40 },
-    surface_dominant: 'скалы',
+    surface_dominant: 'горы',
     type: 'скалистая (базовая)',
     core: {
         type: 'силикатное', mass_percent: 25, activity: 20,
@@ -147,8 +147,8 @@ export const HYPOTHESIS_PRESETS = [
             {
                 id: 'сухость', name: 'Сухость', axisValue: 2,
                 overrides: {
-                    surface_composition: { скалы: 70, пески_пустыни: 30 },
-                    surface_dominant: 'скалы',
+                    surface_composition: { горы: 70, пески_пустыни: 30 },
+                    surface_dominant: 'горы',
                     type: 'скалистая (базовая)',
                 },
                 planetsPerWorld: 1, chance: 100, population: fixedPop(100000000),
@@ -286,8 +286,8 @@ export const HYPOTHESIS_PRESETS = [
                 id: 'стерильная', name: 'Стерильная', axisValue: 'стерильная',
                 overrides: {
                     life: false,
-                    surface_composition: { скалы: 70, пески_пустыни: 30 },
-                    surface_dominant: 'скалы',
+                    surface_composition: { горы: 70, пески_пустыни: 30 },
+                    surface_dominant: 'горы',
                     type: 'скалистая (базовая)',
                 },
                 planetsPerWorld: 1, chance: 100, population: fixedPop(1000000000),
@@ -341,8 +341,8 @@ export const HYPOTHESIS_PRESETS = [
                 overrides: {
                     size: 1.0, mass: 1.0, density: 1.0, gravity: 1.0,
                     atmosphere: 'азотно-кислородная',
-                    surface_composition: { скалы: 70, пески_пустыни: 30 },
-                    surface_dominant: 'скалы',
+                    surface_composition: { горы: 70, пески_пустыни: 30 },
+                    surface_dominant: 'горы',
                     type: 'скалистая (базовая)',
                 },
                 planetsPerWorld: 1, chance: 100, population: fixedPop(500000000),

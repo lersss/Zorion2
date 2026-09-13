@@ -43,6 +43,9 @@ type ControlledWorld struct {
 type SettlementSpec struct {
 	// Chance — шанс заселения планеты (0..1).
 	Chance float64 `json:"chance"`
+	// SettlementsPerPlanet — сколько поселений создаётся на заселённую
+	// планету; 0 = по умолчанию 1.
+	SettlementsPerPlanet int `json:"settlements_per_planet"`
 	// Population — стратегия населения (fixed/random), как в модели генерации.
 	Population settlement.Population `json:"population"`
 }
@@ -91,6 +94,9 @@ func (s *TwinSpec) Validate() error {
 		}
 		if g.Settlement.Chance < 0 || g.Settlement.Chance > 1 {
 			return fmt.Errorf("groups[%d].settlement.chance: должно быть от 0 до 1, получил %v", i, g.Settlement.Chance)
+		}
+		if g.Settlement.SettlementsPerPlanet < 0 {
+			return fmt.Errorf("groups[%d].settlement.settlements_per_planet: не может быть отрицательным, получил %d", i, g.Settlement.SettlementsPerPlanet)
 		}
 		p := g.Settlement.Population
 		switch p.Kind {

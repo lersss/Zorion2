@@ -31,7 +31,7 @@ func baseData() map[string]interface{} {
 		"water_percent": 40.0,
 
 		"type":             "землеподобная",
-		"surface_dominant": "скалы",
+		"surface_dominant": "горы",
 		"archetype":        "умеренный",
 		"atmosphere":       "азотно-кислородная",
 		"hydrosphere":      "гидросфера",
@@ -42,7 +42,7 @@ func baseData() map[string]interface{} {
 		"life":         true,
 
 		"surface_composition": map[string]interface{}{
-			"скалы":  60.0,
+			"горы":  60.0,
 			"океаны": 40.0,
 		},
 		"subterrain_composition": map[string]interface{}{
@@ -107,7 +107,7 @@ func TestParseBase(t *testing.T) {
 	assert.Equal(t, 40.0, v.WaterPercent)
 
 	assert.Equal(t, "землеподобная", v.Type)
-	assert.Equal(t, "скалы", v.SurfaceDominant)
+	assert.Equal(t, "горы", v.SurfaceDominant)
 	assert.Equal(t, "умеренный", v.Archetype)
 	assert.Equal(t, "азотно-кислородная", v.Atmosphere)
 
@@ -115,7 +115,7 @@ func TestParseBase(t *testing.T) {
 	assert.False(t, v.IsRadioactive)
 	assert.True(t, v.Life)
 
-	assert.Equal(t, map[string]float64{"скалы": 60, "океаны": 40}, v.Surface)
+	assert.Equal(t, map[string]float64{"горы": 60, "океаны": 40}, v.Surface)
 	assert.Equal(t, map[string]float64{"пустые_породы": 60, "магматические": 40}, v.Subterrain)
 
 	require.NotNil(t, v.Core)
@@ -230,7 +230,7 @@ func TestMassSizeDensity(t *testing.T) {
 
 func TestSurfaceSum(t *testing.T) {
 	d := baseData()
-	d["surface_composition"] = map[string]interface{}{"скалы": 30.0, "океаны": 55.0}
+	d["surface_composition"] = map[string]interface{}{"горы": 30.0, "океаны": 55.0}
 	issues := runCheck(checkSurfaceSum, d)
 	assertSingle(t, issues, "surface_sum_not_100", audit.SeverityHigh)
 	assert.Equal(t, 85.0, issues[0].Details["sum"])
@@ -252,7 +252,7 @@ func TestSubterrainSum(t *testing.T) {
 
 func TestNegativeShares(t *testing.T) {
 	d := baseData()
-	d["surface_composition"] = map[string]interface{}{"скалы": 105.0, "странность": -5.0}
+	d["surface_composition"] = map[string]interface{}{"горы": 105.0, "странность": -5.0}
 	issues := runCheck(checkNegativeShares, d)
 	assertSingle(t, issues, "negative_surface_share", audit.SeverityHigh)
 	assert.Equal(t, "странность", issues[0].Details["form"])
@@ -271,55 +271,55 @@ func TestNegativeShares(t *testing.T) {
 func TestJunglesInCold(t *testing.T) {
 	d := baseData()
 	d["temperature"] = 150.0
-	d["surface_composition"] = map[string]interface{}{"джунгли": 40.0, "скалы": 60.0}
+	d["surface_composition"] = map[string]interface{}{"джунгли": 40.0, "горы": 60.0}
 	assertSingle(t, runCheck(checkJunglesInCold, d), "jungles_in_cold", audit.SeverityLow)
 
 	d = baseData()
 	d["temperature"] = 290.0
-	d["surface_composition"] = map[string]interface{}{"джунгли": 40.0, "скалы": 60.0}
+	d["surface_composition"] = map[string]interface{}{"джунгли": 40.0, "горы": 60.0}
 	assert.Empty(t, runCheck(checkJunglesInCold, d))
 }
 
 func TestLavaInCold(t *testing.T) {
 	d := baseData()
 	d["temperature"] = 300.0
-	d["surface_composition"] = map[string]interface{}{"лавовые_поля": 30.0, "скалы": 70.0}
+	d["surface_composition"] = map[string]interface{}{"лавовые_поля": 30.0, "горы": 70.0}
 	assertSingle(t, runCheck(checkLavaInCold, d), "lava_in_cold", audit.SeverityHigh)
 
 	d = baseData()
 	d["temperature"] = 600.0
-	d["surface_composition"] = map[string]interface{}{"лавовые_поля": 30.0, "скалы": 70.0}
+	d["surface_composition"] = map[string]interface{}{"лавовые_поля": 30.0, "горы": 70.0}
 	assert.Empty(t, runCheck(checkLavaInCold, d))
 }
 
 func TestGlaciersInHeat(t *testing.T) {
 	d := baseData()
 	d["temperature"] = 350.0
-	d["surface_composition"] = map[string]interface{}{"ледники": 30.0, "скалы": 70.0}
+	d["surface_composition"] = map[string]interface{}{"ледники": 30.0, "горы": 70.0}
 	assertSingle(t, runCheck(checkGlaciersInHeat, d), "glaciers_in_heat", audit.SeverityMedium)
 
 	d = baseData()
 	d["temperature"] = 250.0
-	d["surface_composition"] = map[string]interface{}{"ледники": 30.0, "скалы": 70.0}
+	d["surface_composition"] = map[string]interface{}{"ледники": 30.0, "горы": 70.0}
 	assert.Empty(t, runCheck(checkGlaciersInHeat, d))
 }
 
 func TestFrozenGasesInHeat(t *testing.T) {
 	d := baseData()
 	d["temperature"] = 300.0
-	d["surface_composition"] = map[string]interface{}{"мёрзлые_газы": 20.0, "скалы": 80.0}
+	d["surface_composition"] = map[string]interface{}{"мёрзлые_газы": 20.0, "горы": 80.0}
 	assertSingle(t, runCheck(checkFrozenGasesInHeat, d), "frozen_gases_in_heat", audit.SeverityMedium)
 
 	d = baseData()
 	d["temperature"] = 200.0
-	d["surface_composition"] = map[string]interface{}{"мёрзлые_газы": 20.0, "скалы": 80.0}
+	d["surface_composition"] = map[string]interface{}{"мёрзлые_газы": 20.0, "горы": 80.0}
 	assert.Empty(t, runCheck(checkFrozenGasesInHeat, d))
 }
 
 func TestOceansInHeat(t *testing.T) {
 	d := baseData()
 	d["temperature"] = 500.0
-	d["surface_composition"] = map[string]interface{}{"океаны": 40.0, "скалы": 60.0}
+	d["surface_composition"] = map[string]interface{}{"океаны": 40.0, "горы": 60.0}
 	assertSingle(t, runCheck(checkOceansInHeat, d), "oceans_in_heat", audit.SeverityHigh)
 
 	d = baseData()
@@ -341,7 +341,7 @@ func TestOceansWithoutWater(t *testing.T) {
 func TestBiosphereWithoutWater(t *testing.T) {
 	d := baseData()
 	d["water_percent"] = 3.0
-	d["surface_composition"] = map[string]interface{}{"леса": 30.0, "джунгли": 20.0, "скалы": 50.0}
+	d["surface_composition"] = map[string]interface{}{"леса": 30.0, "джунгли": 20.0, "горы": 50.0}
 	issues := runCheck(checkBiosphereWithoutWater, d)
 	assert.ElementsMatch(t, []string{"biosphere_without_water", "biosphere_without_water"}, codes(issues))
 	for _, i := range issues {
@@ -350,7 +350,7 @@ func TestBiosphereWithoutWater(t *testing.T) {
 
 	d = baseData()
 	d["water_percent"] = 15.0
-	d["surface_composition"] = map[string]interface{}{"леса": 30.0, "джунгли": 20.0, "скалы": 50.0}
+	d["surface_composition"] = map[string]interface{}{"леса": 30.0, "джунгли": 20.0, "горы": 50.0}
 	assert.Empty(t, runCheck(checkBiosphereWithoutWater, d))
 }
 
@@ -524,14 +524,14 @@ func TestEarthlikeConsistency(t *testing.T) {
 func TestOceanicConsistency(t *testing.T) {
 	d := baseData()
 	d["type"] = "океаническая"
-	d["surface_composition"] = map[string]interface{}{"скалы": 100.0}
+	d["surface_composition"] = map[string]interface{}{"горы": 100.0}
 	d["water_percent"] = 50.0
 	issues := runCheck(checkOceanicConsistency, d)
 	assert.ElementsMatch(t, []string{"oceanic_without_oceans", "oceanic_low_water"}, codes(issues))
 
 	d = baseData()
 	d["type"] = "океаническая"
-	d["surface_composition"] = map[string]interface{}{"океаны": 80.0, "скалы": 20.0}
+	d["surface_composition"] = map[string]interface{}{"океаны": 80.0, "горы": 20.0}
 	d["water_percent"] = 80.0
 	assert.Empty(t, runCheck(checkOceanicConsistency, d))
 }
@@ -540,14 +540,14 @@ func TestIceConsistency(t *testing.T) {
 	d := baseData()
 	d["type"] = "ледяная"
 	d["temperature"] = 300.0
-	d["surface_composition"] = map[string]interface{}{"скалы": 100.0}
+	d["surface_composition"] = map[string]interface{}{"горы": 100.0}
 	assertSingle(t, runCheck(checkIceConsistency, d), "ice_not_cold", audit.SeverityHigh)
 
 	// Либо холодно, либо есть ледники — достаточно одного.
 	d = baseData()
 	d["type"] = "ледяная"
 	d["temperature"] = 200.0
-	d["surface_composition"] = map[string]interface{}{"скалы": 100.0}
+	d["surface_composition"] = map[string]interface{}{"горы": 100.0}
 	assert.Empty(t, runCheck(checkIceConsistency, d))
 
 	d = baseData()
@@ -571,19 +571,19 @@ func TestGasGiantConsistency(t *testing.T) {
 func TestVolcanicConsistency(t *testing.T) {
 	d := baseData()
 	d["type"] = "вулканическая"
-	d["surface_composition"] = map[string]interface{}{"скалы": 100.0}
+	d["surface_composition"] = map[string]interface{}{"горы": 100.0}
 	assertSingle(t, runCheck(checkVolcanicConsistency, d), "volcanic_without_lava", audit.SeverityMedium)
 
 	d = baseData()
 	d["type"] = "вулканическая"
-	d["surface_composition"] = map[string]interface{}{"лавовые_поля": 70.0, "скалы": 30.0}
+	d["surface_composition"] = map[string]interface{}{"лавовые_поля": 70.0, "горы": 30.0}
 	assert.Empty(t, runCheck(checkVolcanicConsistency, d))
 }
 
 func TestDesertConsistency(t *testing.T) {
 	d := baseData()
 	d["type"] = "пустынная"
-	d["surface_composition"] = map[string]interface{}{"скалы": 100.0}
+	d["surface_composition"] = map[string]interface{}{"горы": 100.0}
 	assertSingle(t, runCheck(checkDesertConsistency, d), "desert_without_sands", audit.SeverityMedium)
 
 	d = baseData()

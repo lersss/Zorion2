@@ -57,6 +57,12 @@ export function renderHypothesisForm() {
             </div>
 
             <div class="hyp-line">
+                <label>Поселений на планету
+                    <input type="number" id="hypSPP_${i}" value="${g.settlementsPerPlanet ?? 1}" min="1">
+                </label>
+            </div>
+
+            <div class="hyp-line">
                 <label>Население</label>
                 <div class="seg seg-sm" id="hypPopSeg_${i}">
                     <button type="button" class="seg-btn ${g.population.kind === 'random' ? 'active' : ''}"
@@ -204,7 +210,7 @@ const compLabels = { surface_composition: 'Поверхность', subterrain_c
 
 // SURFACE_FORMS / SUBTERRAIN_FORMS — зеркало composition_forms.go (16 / 17).
 const SURFACE_FORMS = [
-    'скалы', 'пески_пустыни', 'кратеры', 'стеклянные_поля', 'металлические_поля',
+    'горы', 'пески_пустыни', 'кратеры', 'стеклянные_поля', 'металлические_поля',
     'лавовые_поля', 'вулканические_поля', 'ледники', 'мёрзлые_газы', 'океаны',
     'озёра_реки', 'луга_степи', 'леса', 'джунгли', 'болота', 'коралловые_рифы',
 ];
@@ -420,6 +426,7 @@ function buildTwinSpec() {
             settlement: {
                 // Шанс в близнецах не настраивается — берём из пресета.
                 chance: (g.chance ?? 100) / 100,
+                settlements_per_planet: parseInt(document.getElementById(`hypSPP_${i}`).value),
                 population,
             },
         };

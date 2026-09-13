@@ -4,7 +4,7 @@
 
 import { state, elements } from './config.js';
 import { draw } from './map_render.js';
-import { fetchWorldByID } from './data.js';
+import { fetchWorldByID, handleUnauthorized } from './data.js';
 import { notifyError, notifySuccess } from '../ui/toast.js';
 
 // ensureWorld — берёт мир из кэша или подгружает по ID (даже вне текущего кадра).
@@ -78,7 +78,7 @@ export async function startFlight(worldId, token) {
         return false;
     }
     if (!token) {
-        notifyError('Не авторизован');
+        handleUnauthorized();
         return false;
     }
     try {

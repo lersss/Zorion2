@@ -40,6 +40,15 @@ func TestGenerateSettlementsNotCanceledOnResponse(t *testing.T) {
 	// завершается быстро без записи в БД.
 	mock.ExpectQuery(`SELECT COUNT(*) FROM planets`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	// B18: очистка старого слоя экономики перед генерацией (3 × count + delete).
+	for _, table := range []string{"settlements", "factories", "goods_batches"} {
+		mock.ExpectQuery(`SELECT COUNT(*) FROM ` + table).
+			WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+		mock.ExpectExec(`DELETE FROM ` + table).
+			WillReturnResult(sqlmock.NewResult(0, 0))
+	}
+
 	mock.ExpectQuery(`SELECT id, data FROM planets`).
 		WillDelayFor(300 * time.Millisecond).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "data"}).

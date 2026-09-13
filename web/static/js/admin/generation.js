@@ -10,11 +10,11 @@ import { SETTLEMENT_PRESETS } from './settlementPresets.js';
 const UNIVERSE_PRESETS = {
     dense: {   // плотная галактика
         worlds: 100000, clusters: 200, mapSize: 40000, minDist: 120,
-        clusterRadius: 2000, clusterSpacing: 4000, outlierPercent: 20
+        clusterRadius: 2500, clusterSpacing: 5000, outlierPercent: 20
     },
     sparse: {  // просторная: большая галактика, миры дальше друг от друга
         worlds: 100000, clusters: 200, mapSize: 50000, minDist: 150,
-        clusterRadius: 2000, clusterSpacing: 4000, outlierPercent: 20
+        clusterRadius: 2500, clusterSpacing: 5000, outlierPercent: 20
     },
     compact: { // тесная: компактная галактика, миры близко, больше выбросов
         worlds: 100000, clusters: 200, mapSize: 36000, minDist: 100,

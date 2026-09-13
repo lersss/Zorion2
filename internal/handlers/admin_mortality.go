@@ -63,6 +63,7 @@ func (h *AdminHandlers) MortalityPreview(w http.ResponseWriter, r *http.Request)
 		Radioactivity float64            `json:"core_radioactivity"`
 		Severity      map[string]float64 `json:"severity"`
 		LambdaPerHour float64            `json:"lambda_per_hour"`
+		Uninhabitable bool               `json:"uninhabitable"`
 		P0            float64            `json:"p0"`
 		Projection    map[string]float64 `json:"projection"`
 	}{
@@ -75,7 +76,8 @@ func (h *AdminHandlers) MortalityPreview(w http.ResponseWriter, r *http.Request)
 			"gravity":       settlement.TwoSidedSeverity(settlement.HumanGravityProfile, planet.Gravity),
 			"radioactivity": settlement.OneSidedSeverity(settlement.HumanRadioactivityProfile, radioactivity),
 		},
-		LambdaPerHour: lambda,
+		LambdaPerHour: settlement.ClampLambda(lambda),
+		Uninhabitable: settlement.Uninhabitable(input),
 		P0:            p0,
 		Projection:    settlement.Projection(p0, lambda),
 	}

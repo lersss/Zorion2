@@ -79,7 +79,7 @@ func (r *EconomyRepository) RecomputeSettlementPopulation(s *models.Settlement, 
 		s.Population = int(math.Round(next))
 		s.PopulationExact = next
 		s.ComputedAt = now
-		s.DecayLambda = lambda
+		s.DecayLambda = settlement.ClampLambda(lambda)
 		s.NDead = settlement.NDead
 		return *s, nil
 	}
@@ -117,7 +117,7 @@ func (r *EconomyRepository) RecomputeSettlementPopulation(s *models.Settlement, 
 	stored.Population = newPopulation
 	stored.PopulationExact = newExact
 	stored.ComputedAt = now
-	stored.DecayLambda = lambda
+	stored.DecayLambda = settlement.ClampLambda(lambda)
 	stored.NDead = settlement.NDead
 	return stored, nil
 }

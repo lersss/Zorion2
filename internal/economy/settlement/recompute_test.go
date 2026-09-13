@@ -10,7 +10,9 @@ func comfortableInput() PlanetInput {
 }
 
 func hotInput() PlanetInput {
-	return PlanetInput{TemperatureK: 900, GravityG: 1.0, CoreRadioactivity: 5}
+	// 500 K — горячая сторона с конечной λ (жёсткий ноль на T ≥ 700 K,
+	// 99.2.12, H4): тесты «убывает, но не мгновенно» остаются честными.
+	return PlanetInput{TemperatureK: 500, GravityG: 1.0, CoreRadioactivity: 5}
 }
 
 func TestRecomputeNoTimePassedIsUnchanged(t *testing.T) {

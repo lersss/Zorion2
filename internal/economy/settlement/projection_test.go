@@ -1,6 +1,9 @@
 package settlement
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 func TestTotalLambdaZeroInComfort(t *testing.T) {
 	input := PlanetInput{
@@ -14,10 +17,12 @@ func TestTotalLambdaZeroInComfort(t *testing.T) {
 }
 
 func TestTotalLambdaSumsFactors(t *testing.T) {
+	// «Жаркий» фактор — 450 K, где λ конечна: 900 K теперь за жёстким нулём
+	// (T ≥ 700 K) и дала бы +Inf вместо суммы (99.2.12, H4).
 	comfortable := PlanetInput{TemperatureK: 275, GravityG: 1.0, CoreRadioactivity: 5}
-	onlyHot := PlanetInput{TemperatureK: 900, GravityG: 1.0, CoreRadioactivity: 5}
+	onlyHot := PlanetInput{TemperatureK: 450, GravityG: 1.0, CoreRadioactivity: 5}
 	onlyRadioactive := PlanetInput{TemperatureK: 275, GravityG: 1.0, CoreRadioactivity: 90}
-	both := PlanetInput{TemperatureK: 900, GravityG: 1.0, CoreRadioactivity: 90}
+	both := PlanetInput{TemperatureK: 450, GravityG: 1.0, CoreRadioactivity: 90}
 
 	lambdaComfortable := TotalLambda(comfortable, DefaultScale)
 	lambdaHot := TotalLambda(onlyHot, DefaultScale)
@@ -58,5 +63,29 @@ func TestProjectionDecreasesOverCheckpoints(t *testing.T) {
 			t.Errorf("население выросло на контрольной точке %q: было %v, стало %v", cp.Label, prev, got)
 		}
 		prev = got
+	}
+}
+
+func TestTotalLambdaHardZeroDominatesSum(t *testing.T) {
+	// Жёсткий ноль доминирует над сложением факторов (99.2.12, H4):
+	// комфортные гравитация/радиация + T = 800 K → +Inf, а не конечная сумма.
+	input := PlanetInput{
+		TemperatureK:      800,
+		GravityG:          1.0,
+		CoreRadioactivity: 5,
+	}
+	if got := TotalLambda(input, DefaultScale); !math.IsInf(got, 1) {
+		t.Errorf("TotalLambda(800 K) = %v, хочу +Inf", got)
+	}
+}
+
+func TestProjectionHardZeroIsZero(t *testing.T) {
+	// Projection(p0, +Inf) = 0 на всех чекпоинтах: exp(−Inf·h) = 0
+	// (99.2.12, §Изменения в коде — projection.go без изменений).
+	proj := Projection(1000, math.Inf(1))
+	for _, cp := range StandardCheckpoints {
+		if proj[cp.Label] != 0 {
+			t.Errorf("Projection[%q] при +Inf = %v, хочу 0", cp.Label, proj[cp.Label])
+		}
 	}
 }

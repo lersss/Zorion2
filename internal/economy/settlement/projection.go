@@ -1,5 +1,7 @@
 package settlement
 
+import "math"
+
 // PlanetInput — физические значения планеты, нужные для смерти населения от
 // среды (docs/gamedesign/18a_population_death.md).
 type PlanetInput struct {
@@ -10,8 +12,14 @@ type PlanetInput struct {
 
 // TotalLambda считает суммарную скорость убыли населения по всем трём
 // факторам среды для профиля человека. Факторы складываются, а не берётся
-// худший — несколько угроз убивают быстрее одной (18a, «Механизм»).
+// худший — несколько угроз убивают быстрее одной (18a, «Механизм»). Хотя бы
+// один фактор в жёстком нуле → +Inf: население там невозможно, +Inf +
+// конечное = +Inf, сложение сохраняется (99.2.12, H4).
 func TotalLambda(input PlanetInput, scale Scale) float64 {
+	if hardZero(HumanTemperatureProfile, input.TemperatureK) ||
+		hardZero(HumanGravityProfile, input.GravityG) {
+		return math.Inf(1)
+	}
 	temperature := Lambda(TwoSidedSeverity(HumanTemperatureProfile, input.TemperatureK), scale)
 	gravity := Lambda(TwoSidedSeverity(HumanGravityProfile, input.GravityG), scale)
 	radioactivity := Lambda(OneSidedSeverity(HumanRadioactivityProfile, input.CoreRadioactivity), scale)

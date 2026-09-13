@@ -71,7 +71,9 @@ func TestRecomputeSettlementPopulationEventHotDecreases(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	input := settlement.PlanetInput{TemperatureK: 900, GravityG: 1.0, CoreRadioactivity: 5}
+	// 500 K — горячая сторона с конечной λ: 900 K теперь за жёстким нулём
+	// (T ≥ 700 K, 99.2.12, H4) и дала бы население 0, а не «убыло, но живо».
+	input := settlement.PlanetInput{TemperatureK: 500, GravityG: 1.0, CoreRadioactivity: 5}
 	got, err := NewEconomyRepository(db).RecomputeSettlementPopulation(loadSettlement("s1", 1_000_000, since), input, now)
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -90,7 +92,7 @@ func TestRecomputeSettlementPopulationVisitNoWrite(t *testing.T) {
 	since := time.Now().Add(-1 * time.Minute)
 	now := time.Now()
 
-	input := settlement.PlanetInput{TemperatureK: 900, GravityG: 1.0, CoreRadioactivity: 5}
+	input := settlement.PlanetInput{TemperatureK: 500, GravityG: 1.0, CoreRadioactivity: 5}
 	got, err := NewEconomyRepository(db).RecomputeSettlementPopulation(loadSettlement("s1", 1_000_000, since), input, now)
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet(), "визит не должен трогать БД")

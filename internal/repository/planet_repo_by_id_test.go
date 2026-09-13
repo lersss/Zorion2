@@ -17,7 +17,7 @@ func TestGetPlanetByID(t *testing.T) {
 
 	now := time.Now()
 	planetRows := sqlmock.NewRows([]string{"id", "world_id", "name", "orbit_index", "data", "created_at", "updated_at"}).
-		AddRow("p1", "w1", "Жаркая", 1, `{"temperature":900,"gravity":1.2}`, now, now)
+		AddRow("p1", "w1", "Жаркая", 1, `{"temperature":500,"gravity":1.2}`, now, now)
 
 	mock.ExpectQuery(`
 		SELECT id, world_id, name, orbit_index, data, created_at, updated_at
@@ -35,6 +35,9 @@ func TestGetPlanetByID(t *testing.T) {
 	// Открытие карточки планеты триггерит пересчёт населения от среды
 	// (18a_population_death.md); computed_at = now, т.е. Δt < MinPersistInterval —
 	// «простой визит»: пересчёт только в памяти, записей в БД нет.
+	// Температура 500 K — в живой зоне (жёсткий ноль на T ≥ 700 K, 99.2.12):
+	// за микросекунды Δt убыль копеечная, население не зависит от скорости
+	// прогона (900 K обнуляла бы население при Δt > 0 — тест флакал).
 
 	planet, err := NewPlanetRepository(db).GetPlanetByID("p1")
 	require.NoError(t, err)
@@ -42,7 +45,7 @@ func TestGetPlanetByID(t *testing.T) {
 
 	require.NotNil(t, planet)
 	assert.Equal(t, "p1", planet.ID)
-	assert.InDelta(t, 900, planet.Temperature, 0.0001)
+	assert.InDelta(t, 500, planet.Temperature, 0.0001)
 	assert.InDelta(t, 1.2, planet.Gravity, 0.0001)
 	assert.Equal(t, int64(1_000_000), planet.Population)
 }

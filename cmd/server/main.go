@@ -176,6 +176,7 @@ func main() {
 	http.HandleFunc("/admin/generate-cancel", auth.AdminAuth(adminHandlers.CancelGeneration))
 	http.HandleFunc("/admin/clear-settlements", auth.AdminAuth(adminHandlers.ClearSettlements))
 	http.HandleFunc("/admin/hypothesis/run", auth.AdminAuth(adminHandlers.RunHypothesis))
+	http.HandleFunc("/admin/mortality-preview", auth.AdminAuth(adminHandlers.MortalityPreview))
 
 	// Аудит
 	http.HandleFunc("/admin/audit", auth.AdminAuth(adminHandlers.GetAuditHandler))

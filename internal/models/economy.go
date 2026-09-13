@@ -3,12 +3,14 @@ package models
 import "time"
 
 type Settlement struct {
-	ID         string    `json:"id"`
-	PlanetID   string    `json:"planet_id"`
-	Population int       `json:"population"`
-	Stability  int       `json:"stability"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ID              string    `json:"id"`
+	PlanetID        string    `json:"planet_id"`
+	Population      int       `json:"population"`
+	PopulationExact float64   `json:"population_exact"` // точное состояние для пересчёта, округляется в Population на выдаче (18a_population_death.md)
+	Stability       int       `json:"stability"`
+	ComputedAt      time.Time `json:"computed_at"` // точка отсчёта Δt для ленивого пересчёта
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 type Factory struct {

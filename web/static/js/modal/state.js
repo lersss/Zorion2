@@ -30,7 +30,7 @@ export const modalState = {
     suppressNextClick: false,
     activeTab: 'general', // текущая вкладка карточки планеты, чтобы «Обновить» не сбрасывал на «Общее»
     autoRefreshTimer: null, // id setInterval автообновления карточки планеты (отладка, admin.html)
-    previousPopulation: {}  // planetId -> население на прошлый refresh, для стрелочки тренда
+    previousPopulation: {},  // planetId -> население на прошлый refresh, для стрелочки тренда
     previousSettlementPop: {}  // settlementId -> население на прошлый refresh, вкладка «Поселения»
 };
 

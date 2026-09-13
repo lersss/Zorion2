@@ -131,8 +131,9 @@ func mergePlanetSummaries(ctx context.Context, db *sql.DB, worlds []World) error
 	}
 
 	rows, err := db.QueryContext(ctx, `
-		SELECT world_id, data->>'life', data->>'habitable', data->>'type', data->'resources'
-		FROM planets
+		SELECT p.world_id, p.data->>'life', p.data->>'type', p.data->'resources',
+		       EXISTS(SELECT 1 FROM settlements s WHERE s.planet_id = p.id)
+		FROM planets p
 	`)
 	if err != nil {
 		return err
@@ -141,9 +142,10 @@ func mergePlanetSummaries(ctx context.Context, db *sql.DB, worlds []World) error
 
 	for rows.Next() {
 		var worldID string
-		var life, habitable, typ sql.NullString
+		var life, typ sql.NullString
 		var resJSON []byte
-		if err := rows.Scan(&worldID, &life, &habitable, &typ, &resJSON); err != nil {
+		var settled sql.NullBool
+		if err := rows.Scan(&worldID, &life, &typ, &resJSON, &settled); err != nil {
 			return err
 		}
 		i, ok := idx[worldID]
@@ -155,7 +157,7 @@ func mergePlanetSummaries(ctx context.Context, db *sql.DB, worlds []World) error
 		if life.String == "true" {
 			w.HasLife = true
 		}
-		if habitable.String == "true" {
+		if settled.Bool {
 			w.HasHabitable = true
 		}
 		if typ.Valid && typ.String != "" {

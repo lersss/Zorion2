@@ -51,9 +51,6 @@ func AllRules() []audit.Rule[View] {
 		// === Жизнь и обитаемость ===
 		{Check: checkLifeWithoutWater},
 		{Check: checkLifeWithoutTemperature},
-		{Check: checkHabitableWithoutLife},
-		{Check: checkPopulationWithoutHabitable},
-		{Check: checkPopulationOnGasGiant},
 
 		// === Type ↔ composition ===
 		{Check: checkEarthlikeConsistency},

@@ -226,13 +226,14 @@ func TestLoadAndSwap(t *testing.T) {
 		AddRow("w2", "Beta", 10.0, 20.0, "O", 42000))
 
 	mock.ExpectQuery(`
-		SELECT world_id, data->>'life', data->>'habitable', data->>'type', data->'resources'
-		FROM planets
-	`).WillReturnRows(sqlmock.NewRows([]string{"world_id", "life", "habitable", "type", "resources"}).
-		AddRow("w1", "true", "true", "Газовый гигант", []byte(`{"fuel":0.55,"water":0.4}`)).
-		AddRow("w1", "true", "true", "океан", []byte(`{}`)).
-		AddRow("w2", nil, nil, nil, nil).
-		AddRow("unknown", "true", "true", "пустыня", []byte(`{"mineral":0.4}`)))
+		SELECT p.world_id, p.data->>'life', p.data->>'type', p.data->'resources',
+		       EXISTS(SELECT 1 FROM settlements s WHERE s.planet_id = p.id)
+		FROM planets p
+	`).WillReturnRows(sqlmock.NewRows([]string{"world_id", "life", "type", "resources", "settled"}).
+		AddRow("w1", "true", "Газовый гигант", []byte(`{"fuel":0.55,"water":0.4}`), true).
+		AddRow("w1", "true", "океан", []byte(`{}`), false).
+		AddRow("w2", nil, nil, nil, false).
+		AddRow("unknown", "true", "пустыня", []byte(`{"mineral":0.4}`), false))
 
 	m := NewManager()
 	require.NoError(t, m.LoadAndSwap(context.Background(), db))

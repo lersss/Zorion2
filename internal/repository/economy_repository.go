@@ -3,6 +3,8 @@ package repository
 import (
 	"database/sql"
 
+	"github.com/lib/pq"
+
 	"zorion/internal/models"
 )
 
@@ -20,6 +22,41 @@ func (r *EconomyRepository) CreateSettlement(s *models.Settlement) error {
 	          VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())`
 	_, err := r.db.Exec(query, s.ID, s.PlanetID, s.Level, s.Population, s.Capacity, s.Stability)
 	return err
+}
+
+// GetSettlementsByPlanetIDs — возвращает поселения планет,
+// сгруппированные по planet_id. Пустой список — планета без поселений.
+func (r *EconomyRepository) GetSettlementsByPlanetIDs(planetIDs []string) (map[string][]models.Settlement, error) {
+	if len(planetIDs) == 0 {
+		return map[string][]models.Settlement{}, nil
+	}
+
+	query := `SELECT id, planet_id, level, population, capacity, stability, created_at, updated_at
+	          FROM settlements WHERE planet_id = ANY($1) ORDER BY created_at ASC`
+	rows, err := r.db.Query(query, pqStringArray(planetIDs))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := map[string][]models.Settlement{}
+	for rows.Next() {
+		var s models.Settlement
+		if err := rows.Scan(
+			&s.ID, &s.PlanetID, &s.Level, &s.Population,
+			&s.Capacity, &s.Stability, &s.CreatedAt, &s.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		result[s.PlanetID] = append(result[s.PlanetID], s)
+	}
+	return result, rows.Err()
+}
+
+// pqStringArray — []string в тип для `= ANY($1)`. lib/pq сам кодирует
+// []string как text[], но требует тип pq.Array.
+func pqStringArray(ids []string) interface{} {
+	return pq.Array(ids)
 }
 
 // Factory

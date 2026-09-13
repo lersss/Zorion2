@@ -1,6 +1,8 @@
 // internal/generator/planet/descriptions_tags.go
 package planet
 
+import "zorion/internal/generator/settlement"
+
 // ==================== ВЫЧИСЛЕНИЕ ТЕГОВ ====================
 //
 // Теги используются для фильтрации записей из библиотеки описаний.
@@ -57,7 +59,7 @@ func computeTags(ctx DescriptionContext) map[string]bool {
 	tags := make(map[string]bool, 24)
 
 	addMoonTags(tags, ctx.Moons)
-	addBiosphereTags(tags, ctx.Life, ctx.Population)
+	addBiosphereTags(tags, ctx.Life, inhabited(ctx))
 	addOrbitTags(tags, ctx.OrbitIndex)
 	addTemperatureTags(tags, ctx.Temperature)
 	addAgeTags(tags, ctx.Core.Age)
@@ -86,13 +88,22 @@ func addMoonTags(tags map[string]bool, moons int) {
 
 // ==================== БИОСФЕРА ====================
 
-func addBiosphereTags(tags map[string]bool, life bool, population int64) {
+// inhabited — есть ли на планете население. Считается по пресету
+// пригодности генератора поселений: где поселение появится — там
+// население. Биологическая жизнь не обязательна.
+func inhabited(ctx DescriptionContext) bool {
+	return settlement.Suitable(
+		ctx.WaterPercent, ctx.Temperature, ctx.Atmosphere, ctx.Life, ctx.IsGasGiant, false,
+	)
+}
+
+func addBiosphereTags(tags map[string]bool, life, inhabited bool) {
 	if life {
 		tags["has_biosphere"] = true
 	} else {
 		tags["no_biosphere"] = true
 	}
-	if population > 0 {
+	if inhabited {
 		tags["inhabited"] = true
 	}
 }

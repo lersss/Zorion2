@@ -67,7 +67,7 @@
 ### Биосфера
 - `no_biosphere` — `life == false`
 - `has_biosphere` — `life == true`
-- `inhabited` — `population > 0`
+- `inhabited` — есть поселение (`life == true && habitable == true`)
 
 ### Орбита
 - `inner_orbit` — `orbit_index <= 2`

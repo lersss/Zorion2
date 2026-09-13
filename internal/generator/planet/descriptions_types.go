@@ -54,9 +54,7 @@ type DescriptionContext struct {
 	Moons        int
 
 	// Биосфера
-	Life       bool
-	Habitable  bool
-	Population int64
+	Life bool
 
 	// Композиция и ядро
 	Surface Composition

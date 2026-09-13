@@ -20,16 +20,20 @@ func TestGeneratePrototypePlanet(t *testing.T) {
 		var data map[string]interface{}
 		require.NoError(t, json.Unmarshal(pd.Data, &data))
 
-		// Землеподобная: жизнь, обитаемость, вода, умеренный климат.
+		// Землеподобная: жизнь, пригодность, вода, умеренный климат.
 		assert.Equal(t, true, data["life"], "на прототипе должна быть жизнь")
-		assert.Equal(t, true, data["habitable"], "прототип должен быть обитаем")
 		assert.Equal(t, "temperate", data["climate"], "климат — умеренный")
+
+		// Обитаемость не хранится в data — она вычисляется из поселений.
+		_, hasHabitable := data["habitable"]
+		assert.False(t, hasHabitable, "habitable не должен лежать в data планеты")
 
 		water, ok := data["water_percent"].(float64)
 		require.True(t, ok, "water_percent должен быть числом")
 		assert.Greater(t, water, float64(0), "вода обязательна")
 
-		// Население ровно 10 человек.
-		assert.Equal(t, float64(10), data["population"], "население прототипа — 10")
+		// Население в data не хранится — оно вычисляется из поселений.
+		_, hasPopulation := data["population"]
+		assert.False(t, hasPopulation, "population не должен лежать в data планеты")
 	}
 }

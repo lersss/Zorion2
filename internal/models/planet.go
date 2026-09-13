@@ -30,8 +30,10 @@ type Planet struct {
 	Climate     string `json:"climate"`
 
 	// Жизнь
-	Habitable  bool  `json:"habitable"`
-	Life       bool  `json:"life"`
+	Habitable bool `json:"habitable"`
+	Life      bool `json:"life"`
+
+	// Население — вычисляется из поселений (SUM settlements.population).
 	Population int64 `json:"population"`
 
 	// Композиции (форма → процент)
@@ -44,6 +46,9 @@ type Planet struct {
 	// Спутники газовых гигантов
 	IsGasGiant bool              `json:"is_gas_giant,omitempty"`
 	Satellites []PlanetSatellite `json:"satellites,omitempty"`
+
+	// Поселения планеты (источник населения)
+	Settlements []Settlement `json:"settlements,omitempty"`
 
 	// Прочее
 	Description string    `json:"description,omitempty"`

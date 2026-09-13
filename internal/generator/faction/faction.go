@@ -28,8 +28,11 @@ func NewGenerator(db *sql.DB, seed int64) *Generator {
 
 func (g *Generator) GenerateFactions() (int, error) {
 	rows, err := g.db.Query(`
-		SELECT id, name, data FROM planets 
-		WHERE data->>'population' IS NOT NULL AND (data->>'population')::int > 0
+		SELECT p.id, p.name, p.data FROM planets p
+		WHERE EXISTS (
+			SELECT 1 FROM settlements s
+			WHERE s.planet_id = p.id AND s.population > 0
+		)
 	`)
 	if err != nil {
 		return 0, err

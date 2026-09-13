@@ -57,7 +57,39 @@ func (r *PlanetRepository) GetPlanetsByWorldID(worldID string) ([]models.Planet,
 	if err = rows.Err(); err != nil {
 		return nil, fmt.Errorf("rows iteration error: %w", err)
 	}
+	if err := r.attachSettlements(planets); err != nil {
+		return nil, err
+	}
 	return planets, nil
+}
+
+// attachSettlements — подтягивает поселения планет, вычисляет население
+// как сумму их населения и обитаемость как наличие поселения.
+// Планеты без поселений: население 0, необитаемы.
+func (r *PlanetRepository) attachSettlements(planets []models.Planet) error {
+	if len(planets) == 0 {
+		return nil
+	}
+
+	ids := make([]string, 0, len(planets))
+	for _, p := range planets {
+		ids = append(ids, p.ID)
+	}
+
+	byPlanet, err := NewEconomyRepository(r.db).GetSettlementsByPlanetIDs(ids)
+	if err != nil {
+		return fmt.Errorf("failed to load settlements: %w", err)
+	}
+
+	for i := range planets {
+		settlements := byPlanet[planets[i].ID]
+		planets[i].Settlements = settlements
+		planets[i].Habitable = len(settlements) > 0
+		for _, s := range settlements {
+			planets[i].Population += int64(s.Population)
+		}
+	}
+	return nil
 }
 
 // ==================== ПАРСИНГ ====================
@@ -82,9 +114,7 @@ func populatePlanetFromJSON(p *models.Planet, data map[string]interface{}) {
 	p.Biosphere = getStr(data, "biosphere")
 
 	// Жизнь
-	p.Habitable = getBool(data, "habitable")
 	p.Life = getBool(data, "life")
-	p.Population = int64(getFloat(data, "population"))
 
 	// Композиции
 	p.SurfaceComposition = getFloatMap(data, "surface_composition")

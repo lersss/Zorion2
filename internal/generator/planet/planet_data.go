@@ -9,7 +9,6 @@ import (
 
 	"github.com/google/uuid"
 	"zorion/internal/models"
-	"zorion/internal/repository"
 	"zorion/internal/resource"
 )
 
@@ -30,7 +29,6 @@ type PlanetData struct {
 type Generator struct {
 	db        *sql.DB
 	rng       *rand.Rand
-	ecoRepo   *repository.EconomyRepository
 	usedNames map[string]bool
 }
 
@@ -42,7 +40,6 @@ func NewGenerator(db *sql.DB, seed int64) *Generator {
 	return &Generator{
 		db:        db,
 		rng:       rand.New(rand.NewSource(seed)),
-		ecoRepo:   repository.NewEconomyRepository(db),
 		usedNames: make(map[string]bool),
 	}
 }
@@ -75,13 +72,6 @@ func (g *Generator) GeneratePlanetsForWorld(worldID, worldName, spectralClass st
 		orbitIndex := i + 1
 		planet := g.generatePlanet(worldID, worldName, orbitIndex, spectralClass, systemAge)
 		batch.addPlanet(planet)
-
-		if err := g.collectEconomy(
-			planet.ID, planet.Data, spectralClass,
-			&batch.settlementRows, &batch.factoryRows, &batch.goodsRows,
-		); err != nil {
-			return 0, err
-		}
 	}
 
 	if err := g.flushBatch(tx, batch); err != nil {
@@ -171,14 +161,6 @@ func (g *Generator) generateWorldIntoBuffer(w WorldInfo, buf *batchBuffers) int 
 		orbitIndex := i + 1
 		planet := g.generatePlanet(w.ID, w.Name, orbitIndex, w.SpectralClass, systemAge)
 		buf.addPlanet(planet)
-
-		if err := g.collectEconomy(
-			planet.ID, planet.Data, w.SpectralClass,
-			&buf.settlementRows, &buf.factoryRows, &buf.goodsRows,
-		); err != nil {
-			// Не валим весь батч из-за одной планеты.
-			continue
-		}
 	}
 
 	return planetCount
@@ -207,10 +189,7 @@ func (g *Generator) flushAndCommit(buf *batchBuffers) error {
 // ==================== БАТЧ-БУФЕР ====================
 
 type batchBuffers struct {
-	planetRows     []interface{}
-	settlementRows []interface{}
-	factoryRows    []interface{}
-	goodsRows      []interface{}
+	planetRows []interface{}
 }
 
 func newBatchBuffers(planetCount int) *batchBuffers {
@@ -218,10 +197,7 @@ func newBatchBuffers(planetCount int) *batchBuffers {
 		planetCount = 100
 	}
 	return &batchBuffers{
-		planetRows:     make([]interface{}, 0, planetCount),
-		settlementRows: make([]interface{}, 0, planetCount),
-		factoryRows:    make([]interface{}, 0, planetCount*2),
-		goodsRows:      make([]interface{}, 0, planetCount*4),
+		planetRows: make([]interface{}, 0, planetCount),
 	}
 }
 
@@ -251,9 +227,6 @@ func (b *batchBuffers) isEmpty() bool {
 // reset — очищает буферы, сохраняя выделенную память.
 func (b *batchBuffers) reset() {
 	b.planetRows = b.planetRows[:0]
-	b.settlementRows = b.settlementRows[:0]
-	b.factoryRows = b.factoryRows[:0]
-	b.goodsRows = b.goodsRows[:0]
 }
 
 // ==================== ФЛАШ В БД ====================
@@ -263,15 +236,6 @@ func (b *batchBuffers) reset() {
 func (g *Generator) flushBatch(tx *sql.Tx, b *batchBuffers) error {
 	if err := g.copyInPlanets(tx, flatten(b.planetRows)); err != nil {
 		return fmt.Errorf("copy planets: %w", err)
-	}
-	if err := g.copyInSettlements(tx, flatten(b.settlementRows)); err != nil {
-		return fmt.Errorf("copy settlements: %w", err)
-	}
-	if err := g.copyInFactories(tx, flatten(b.factoryRows)); err != nil {
-		return fmt.Errorf("copy factories: %w", err)
-	}
-	if err := g.copyInGoods(tx, flatten(b.goodsRows)); err != nil {
-		return fmt.Errorf("copy goods: %w", err)
 	}
 	return nil
 }

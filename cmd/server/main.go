@@ -13,6 +13,7 @@ import (
 	"zorion/internal/auth"
 	"zorion/internal/config"
 	"zorion/internal/generator/planet"
+	"zorion/internal/generator/settlement"
 	"zorion/internal/handlers"
 	"zorion/internal/mapcache"
 	"zorion/internal/models"
@@ -92,6 +93,13 @@ func main() {
 	}
 	log.Println("✅ Описания планет загружены")
 
+	// Загрузка пресета генерации поселений. При ошибке — дефолты.
+	if err := settlement.LoadPreset("config/settlement_preset.json"); err != nil {
+		log.Printf("⚠️ Пресет поселений: %v, использую дефолты", err)
+	} else {
+		log.Println("✅ Пресет поселений загружен")
+	}
+
 	worldRepo := repository.NewWorldRepository(db)
 	locationRepo := repository.NewLocationRepository(db)
 	assignmentRepo := repository.NewAssignmentRepository(db)
@@ -163,6 +171,7 @@ func main() {
 	http.HandleFunc("/admin/generate-planets", auth.AdminAuth(adminHandlers.GeneratePlanets))
 	http.HandleFunc("/admin/generate-prototype-planet", auth.AdminAuth(adminHandlers.GeneratePrototypePlanet))
 	http.HandleFunc("/admin/generate-factions", auth.AdminAuth(adminHandlers.GenerateFactions))
+	http.HandleFunc("/admin/generate-settlements", auth.AdminAuth(adminHandlers.GenerateSettlements))
 	http.HandleFunc("/admin/generate-cancel", auth.AdminAuth(adminHandlers.CancelGeneration))
 
 	// Аудит

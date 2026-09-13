@@ -3,31 +3,42 @@ import { loadPlanetStats } from './stats.js';
 import { runAudit } from './audit.js';
 import { bindTestsButtons } from './tests.js';
 
+// Активная вкладка сохраняется между обновлениями страницы.
+const STORAGE_KEY = 'adminActiveTab';
+
 let auditBound = false;
 
 export function initTabs() {
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.addEventListener('click', function () {
-            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-            this.classList.add('active');
-
-            const tabId = this.dataset.tab;
-            document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
-            const pane = document.getElementById(tabId);
-            if (pane) pane.classList.add('active');
-
-            // Действия при активации вкладки
-            if (tabId === 'tab-stats') {
-                loadPlanetStats();
-            }
-            if (tabId === 'tab-audit') {
-                bindAuditButton();
-            }
-            if (tabId === 'tab-tests') {
-                bindTestsButtons();
-            }
+            activateTab(this.dataset.tab);
         });
     });
+
+    const saved = localStorage.getItem(STORAGE_KEY);
+    activateTab(saved || 'tab-main');
+}
+
+// activateTab — переключение вкладки + ленивая инициализация + сохранение.
+function activateTab(tabId) {
+    if (!document.getElementById(tabId)) {
+        tabId = 'tab-main';
+    }
+    document.querySelectorAll('.tab-btn').forEach(b =>
+        b.classList.toggle('active', b.dataset.tab === tabId));
+    document.querySelectorAll('.tab-pane').forEach(p =>
+        p.classList.toggle('active', p.id === tabId));
+    localStorage.setItem(STORAGE_KEY, tabId);
+
+    if (tabId === 'tab-stats') {
+        loadPlanetStats();
+    }
+    if (tabId === 'tab-audit') {
+        bindAuditButton();
+    }
+    if (tabId === 'tab-tests') {
+        bindTestsButtons();
+    }
 }
 
 // bindAuditButton — вешает обработчик на кнопку "Запустить аудит".

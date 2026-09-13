@@ -33,35 +33,6 @@ func checkLifeWithoutTemperature(v *View) []audit.Issue {
 	return nil
 }
 
-// checkHabitableWithoutLife — обитаемость без жизни.
-func checkHabitableWithoutLife(v *View) []audit.Issue {
-	if !v.Habitable || v.Life {
-		return nil
-	}
-	return []audit.Issue{newIssue(v, "habitable_without_life", audit.SeverityMedium,
-		"Планета помечена как обитаемая, но life=false")}
-}
-
-// checkPopulationWithoutHabitable — население на необитаемой планете.
-func checkPopulationWithoutHabitable(v *View) []audit.Issue {
-	if v.Population <= 0 || v.Habitable {
-		return nil
-	}
-	return []audit.Issue{newIssueWithDetails(v, "population_without_habitable", audit.SeverityHigh,
-		fmt.Sprintf("Население %d при habitable=false", v.Population),
-		map[string]interface{}{"population": v.Population})}
-}
-
-// checkPopulationOnGasGiant — население на газовом гиганте.
-func checkPopulationOnGasGiant(v *View) []audit.Issue {
-	if v.Population <= 0 || !v.IsGasGiant {
-		return nil
-	}
-	return []audit.Issue{newIssueWithDetails(v, "population_on_gas_giant", audit.SeverityHigh,
-		fmt.Sprintf("Население %d на газовом гиганте", v.Population),
-		map[string]interface{}{"population": v.Population})}
-}
-
 // ==================== TYPE ↔ SURFACE_DOMINANT ====================
 
 // checkEarthlikeConsistency — землеподобная должна иметь скалы и воду.

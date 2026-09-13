@@ -80,30 +80,30 @@ func TestClassifyRadioactive(t *testing.T) {
 }
 
 func TestClassifyEarthlike(t *testing.T) {
-	// Обитаема + жизнь + скалы + вода (океаны ИЛИ озёра).
+	// Пригодна под поселение + жизнь + скалы + вода (океаны ИЛИ озёра).
 	in := PlanetClassificationInput{
-		Habitable: true, Life: true,
+		Settleable: true, Life: true,
 		Surface: Composition{SurfaceRocks: 60, SurfaceOceans: 40},
 	}
 	assert.Equal(t, TypeEarthlike, ClassifyGameDesignType(in))
 
 	// Озёра тоже достаточно.
 	in = PlanetClassificationInput{
-		Habitable: true, Life: true,
+		Settleable: true, Life: true,
 		Surface: Composition{SurfaceRocks: 80, SurfaceLakes: 20},
 	}
 	assert.Equal(t, TypeEarthlike, ClassifyGameDesignType(in))
 
 	// Землеподобность приоритетнее океаничности даже при огромных океанах.
 	in = PlanetClassificationInput{
-		Habitable: true, Life: true, WaterPercent: 90,
+		Settleable: true, Life: true, WaterPercent: 90,
 		Surface: Composition{SurfaceRocks: 30, SurfaceOceans: 70},
 	}
 	assert.Equal(t, TypeEarthlike, ClassifyGameDesignType(in))
 
 	// Без жизни или скал — НЕ землеподобная.
 	in = PlanetClassificationInput{
-		Habitable: true, Life: false,
+		Settleable: true, Life: false,
 		Surface: Composition{SurfaceRocks: 60, SurfaceOceans: 40},
 	}
 	assert.NotEqual(t, TypeEarthlike, ClassifyGameDesignType(in))

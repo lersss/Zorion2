@@ -144,7 +144,13 @@ func (h *AdminHandlers) calculatePlanetStats() (*PlanetStats, error) {
 	}
 	stats.TotalPlanets = len(planets)
 
+	settlementPop, err := h.loadSettlementPopulation()
+	if err != nil {
+		return nil, err
+	}
+
 	aggregator := newStatsAggregator(worlds)
+	aggregator.popByPlanet = settlementPop
 	aggregator.process(planets, stats)
 	aggregator.applyAverages(stats)
 	applyFormAverages(stats)

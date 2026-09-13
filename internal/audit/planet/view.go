@@ -45,9 +45,7 @@ type View struct {
 
 	IsGasGiant    bool
 	IsRadioactive bool
-	Habitable     bool
 	Life          bool
-	Population    int64
 
 	// Композиции
 	Surface    map[string]float64
@@ -159,9 +157,7 @@ func Parse(data map[string]interface{}) *View {
 
 	v.IsGasGiant = aBool(data, "is_gas_giant")
 	v.IsRadioactive = aBool(data, "radioactive")
-	v.Habitable = aBool(data, "habitable")
 	v.Life = aBool(data, "life")
-	v.Population = int64(aFloat(data, "population"))
 
 	// Композиции
 	v.Surface = aFloatMap(data, "surface_composition")

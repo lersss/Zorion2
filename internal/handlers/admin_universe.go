@@ -424,12 +424,15 @@ func (h *AdminHandlers) GeneratePrototypePlanet(w http.ResponseWriter, r *http.R
 
 func (h *AdminHandlers) GenerateFactions(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.db.Query(`
-		SELECT COUNT(*) FROM planets 
-		WHERE data->>'population' IS NOT NULL AND (data->>'population')::int > 0
+		SELECT COUNT(*) FROM planets p
+		WHERE EXISTS (
+			SELECT 1 FROM settlements s
+			WHERE s.planet_id = p.id AND s.population > 0
+		)
 	`)
 	if err != nil {
 		log.Printf("❌ GenerateFactions: count error: %v", err)
-		http.Error(w, "Failed to count habitable planets", http.StatusInternalServerError)
+		http.Error(w, "Failed to count settled planets", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()

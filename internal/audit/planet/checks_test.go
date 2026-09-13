@@ -39,9 +39,7 @@ func baseData() map[string]interface{} {
 
 		"is_gas_giant": false,
 		"radioactive":  false,
-		"habitable":    true,
 		"life":         true,
-		"population":   5000.0,
 
 		"surface_composition": map[string]interface{}{
 			"скалы":  60.0,
@@ -115,9 +113,7 @@ func TestParseBase(t *testing.T) {
 
 	assert.False(t, v.IsGasGiant)
 	assert.False(t, v.IsRadioactive)
-	assert.True(t, v.Habitable)
 	assert.True(t, v.Life)
-	assert.Equal(t, int64(5000), v.Population)
 
 	assert.Equal(t, map[string]float64{"скалы": 60, "океаны": 40}, v.Surface)
 	assert.Equal(t, map[string]float64{"пустые_породы": 60, "магматические": 40}, v.Subterrain)
@@ -512,35 +508,6 @@ func TestLifeWithoutTemperature(t *testing.T) {
 
 	d = baseData()
 	assert.Empty(t, runCheck(checkLifeWithoutTemperature, d))
-}
-
-func TestHabitableWithoutLife(t *testing.T) {
-	d := baseData()
-	d["life"] = false
-	assertSingle(t, runCheck(checkHabitableWithoutLife, d), "habitable_without_life", audit.SeverityMedium)
-
-	d = baseData()
-	assert.Empty(t, runCheck(checkHabitableWithoutLife, d))
-}
-
-func TestPopulationWithoutHabitable(t *testing.T) {
-	d := baseData()
-	d["habitable"] = false
-	assertSingle(t, runCheck(checkPopulationWithoutHabitable, d), "population_without_habitable", audit.SeverityHigh)
-
-	d = baseData()
-	d["population"] = 0.0
-	assert.Empty(t, runCheck(checkPopulationWithoutHabitable, d))
-}
-
-func TestPopulationOnGasGiant(t *testing.T) {
-	d := baseData()
-	d["type"] = "газовый гигант"
-	d["is_gas_giant"] = true
-	assertSingle(t, runCheck(checkPopulationOnGasGiant, d), "population_on_gas_giant", audit.SeverityHigh)
-
-	d = baseData()
-	assert.Empty(t, runCheck(checkPopulationOnGasGiant, d))
 }
 
 // ==================== TYPE ↔ КОМПОЗИЦИЯ ====================

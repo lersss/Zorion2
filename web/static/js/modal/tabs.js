@@ -321,14 +321,32 @@ function renderResources(planet) {
     return html;
 }
 
-// ---------- ЗАГЛУШКИ ----------
+// ---------- ПОСЕЛЕНИЯ ----------
 
-function renderSettlementsStub() {
-    return `<p style="color: #666; text-align: center; padding: 20px 0;">
-        🏗️ Данные о поселениях будут доступны позже<br>
-        <span style="font-size: 0.85rem;">(после реализации экономической симуляции)</span>
-    </p>`;
+function renderSettlements(planet) {
+    const list = planet.settlements;
+    if (!list || list.length === 0) {
+        return `<p style="color: #666; text-align: center; padding: 20px 0;">🏙️ На планете нет поселений</p>`;
+    }
+
+    let html = `<p style="color:#888; font-size:0.9rem; text-transform:uppercase;">Поселения (${list.length})</p>`;
+    list.forEach((s, i) => {
+        html += `
+            <div style="margin: 6px 0; padding: 10px; background:#1a1a2e; border-radius:4px;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <strong>Поселение ${i + 1}</strong>
+                    <span style="color:#888; font-size:0.85rem;">Уровень ${s.level ?? '—'}</span>
+                </div>
+                <div style="color:#ccc; margin-top:6px;">
+                    <div>Население: <strong>${formatNumber(s.population)}</strong> <span style="color:#666; font-size:0.85rem;">/ ёмкость ${formatNumber(s.capacity)}</span></div>
+                    <div>Стабильность: <strong>${s.stability != null ? s.stability + '%' : '—'}</strong></div>
+                </div>
+            </div>`;
+    });
+    return html;
 }
+
+// ---------- ЗАГЛУШКИ ----------
 
 function renderFactionsStub() {
     return `<p style="color: #666; text-align: center; padding: 20px 0;">
@@ -350,7 +368,7 @@ export function renderTabContent(tab, planet, container) {
             container.innerHTML = renderResources(planet);
             break;
         case 'settlements':
-            container.innerHTML = renderSettlementsStub();
+            container.innerHTML = renderSettlements(planet);
             break;
         case 'factions':
             container.innerHTML = renderFactionsStub();

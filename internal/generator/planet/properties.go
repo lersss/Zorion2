@@ -4,6 +4,8 @@ package planet
 import (
 	"math"
 	"math/rand"
+
+	"zorion/internal/generator/settlement"
 )
 
 // Properties — физические параметры конкретной планеты.
@@ -15,9 +17,8 @@ type Properties struct {
 	Temperature           float64
 	WaterPercent          float64
 	Moons                 int
-	Habitable             bool
+	Settleable            bool
 	Life                  bool
-	Population            int64
 	Political             string
 	ConflictLevel         float64
 	Development           float64
@@ -99,21 +100,14 @@ func GenerateProperties(
 		subterrainComp = simplifyComposition(subterrainComp, rng)
 	}
 
-	// 9. Жизнь и обитаемость
+	// 9. Жизнь и пригодность под поселение
 	life := generateLife(archetype, waterPercent, temp, rng)
-	habitable := generateHabitable(life, waterPercent, temp, archetype.Atmosphere)
+	settleable := settlement.Suitable(temp, waterPercent, archetype.Atmosphere, life, false, false)
 
 	moons := determineMoons(size, archetype.Climate, rng)
 
-	var population int64 = 0
-	if life && habitable {
-		basePop := int64(1000000 + rng.Float64()*999000000)
-		dev := 0.1 + rng.Float64()*0.9
-		population = int64(float64(basePop) * dev)
-	}
-
 	political := "нет"
-	if population > 0 {
+	if settleable {
 		systems := []string{
 			"демократия", "диктатура", "теократия",
 			"корпоратократия", "анархия", "ИИ-управление",
@@ -123,7 +117,7 @@ func GenerateProperties(
 
 	conflict := 0.0
 	devLevel := 0.0
-	if population > 0 {
+	if settleable {
 		conflict = rng.Float64()
 		devLevel = 0.1 + rng.Float64()*0.9
 	}
@@ -136,9 +130,8 @@ func GenerateProperties(
 		Temperature:           temp,
 		WaterPercent:          waterPercent,
 		Moons:                 moons,
-		Habitable:             habitable,
+		Settleable:            settleable,
 		Life:                  life,
-		Population:            population,
 		Political:             political,
 		ConflictLevel:         conflict,
 		Development:           devLevel,
@@ -228,22 +221,6 @@ func generateLife(archetype *Archetype, waterPercent, temp float64, rng *rand.Ra
 		return false
 	}
 	return rng.Float64() < archetype.LifeChance
-}
-
-func generateHabitable(life bool, waterPercent, temp float64, atmosphere string) bool {
-	if !life {
-		return false
-	}
-	if waterPercent <= 10 {
-		return false
-	}
-	if temp <= 200 || temp >= 350 {
-		return false
-	}
-	if atmosphere == "ядовитая" {
-		return false
-	}
-	return true
 }
 
 func determineMoons(size float64, climate string, rng *rand.Rand) int {

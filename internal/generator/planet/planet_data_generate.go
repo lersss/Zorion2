@@ -6,6 +6,7 @@ import (
 	"math/rand"
 
 	"github.com/google/uuid"
+	"zorion/internal/generator/settlement"
 	"zorion/internal/names"
 )
 
@@ -98,24 +99,19 @@ func (g *Generator) generatePlanet(
 	// --- СТАНДАРТНАЯ ГЕНЕРАЦИЯ ЧЕРЕЗ АРХЕТИП ---
 	return g.generateStandardPlanet(
 		worldID, worldName, orbitIndex, spectralClass, systemAge,
-		GenerateArchetype(spectralClass, g.rng), nil,
+		GenerateArchetype(spectralClass, g.rng),
 	)
 }
 
 // generateStandardPlanet — планета по явному архетипу (стандартный путь).
-// forcePopulation, если задан, переопределяет население (для прототипа).
 func (g *Generator) generateStandardPlanet(
 	worldID, worldName string,
 	orbitIndex int,
 	spectralClass string,
 	systemAge float64,
 	archetype *Archetype,
-	forcePopulation *int64,
 ) *PlanetData {
 	props := GenerateProperties(archetype, orbitIndex, spectralClass, systemAge, g.rng)
-	if forcePopulation != nil {
-		props.Population = *forcePopulation
-	}
 
 	name := names.GeneratePlanetName(g.rng, g.usedNames)
 	if name == "" {
@@ -134,7 +130,7 @@ func (g *Generator) generateStandardPlanet(
 		Surface:       props.SurfaceComposition,
 		Temperature:   props.Temperature,
 		WaterPercent:  props.WaterPercent,
-		Habitable:     props.Habitable,
+		Settleable:    props.Settleable,
 		Life:          props.Life,
 	})
 
@@ -153,8 +149,6 @@ func (g *Generator) generateStandardPlanet(
 		Density:      props.Density,
 		Moons:        props.Moons,
 		Life:         props.Life,
-		Habitable:    props.Habitable,
-		Population:   props.Population,
 		Surface:      props.SurfaceComposition,
 		Core:         props.Core,
 		IsGasGiant:   false,
@@ -169,9 +163,7 @@ func (g *Generator) generateStandardPlanet(
 		"biosphere":         archetype.Biosphere,
 		"temperature":       props.Temperature,
 		"water_percent":     props.WaterPercent,
-		"habitable":         props.Habitable,
 		"life":              props.Life,
-		"population":        props.Population,
 		"political_system":  props.Political,
 		"conflict_level":    props.ConflictLevel,
 		"moons":             props.Moons,
@@ -209,13 +201,13 @@ func (g *Generator) generateStandardPlanet(
 }
 
 // GeneratePrototypePlanet — землеподобная планета для прототипа поселения:
-// умеренный архетип, население 10, жизнь и вода. Внутренняя орбита (1).
+// умеренный архетип, жизнь и вода. Внутренняя орбита (1).
+// Население задаётся отдельной вставкой поселения в admin_universe.go.
 func (g *Generator) GeneratePrototypePlanet(worldID, worldName, spectralClass string) *PlanetData {
-	population := int64(10)
 	return g.generateStandardPlanet(
 		worldID, worldName, 1, spectralClass,
 		determineSystemAge(spectralClass, g.rng),
-		g.archetypeTemperate(), &population,
+		g.archetypeTemperate(),
 	)
 }
 
@@ -240,7 +232,6 @@ func (g *Generator) generateOceanicPlanet(
 	temp := 273 + g.rng.Float64()*100
 	waterPercent := 70 + g.rng.Float64()*29
 	life := g.rng.Float64() < 0.7
-	habitable := life
 
 	surfaceComp := Composition{
 		SurfaceOceans:     60 + g.rng.Float64()*15,
@@ -271,12 +262,8 @@ func (g *Generator) generateOceanicPlanet(
 
 	core := GenerateCore(mass, "temperate", subterrainComp, systemAge, g.rng)
 
-	var population int64 = 0
 	political := "нет"
-	if life {
-		basePop := int64(1000000 + g.rng.Float64()*999000000)
-		dev := 0.1 + g.rng.Float64()*0.9
-		population = int64(float64(basePop) * dev)
+	if settlement.Suitable(temp, waterPercent, atmosphere, life, false, false) {
 		systems := []string{
 			"демократия", "диктатура", "теократия",
 			"корпоратократия", "анархия", "ИИ-управление",
@@ -298,8 +285,6 @@ func (g *Generator) generateOceanicPlanet(
 		Density:      density,
 		Moons:        moons,
 		Life:         life,
-		Habitable:    habitable,
-		Population:   population,
 		Surface:      surfaceComp,
 		Core:         core,
 		IsGasGiant:   false,
@@ -314,9 +299,7 @@ func (g *Generator) generateOceanicPlanet(
 		"biosphere":              "растительная",
 		"temperature":            temp,
 		"water_percent":          waterPercent,
-		"habitable":              habitable,
 		"life":                   life,
-		"population":             population,
 		"political_system":       political,
 		"conflict_level":         0.0,
 		"moons":                  moons,
@@ -429,8 +412,6 @@ func (g *Generator) generateRadioactivePlanet(
 		Density:      density,
 		Moons:        moons,
 		Life:         life,
-		Habitable:    false,
-		Population:   0,
 		Surface:      surfaceComp,
 		Core:         core,
 		IsGasGiant:   false,
@@ -445,9 +426,7 @@ func (g *Generator) generateRadioactivePlanet(
 		"biosphere":              "стерильная",
 		"temperature":            temp,
 		"water_percent":          waterPercent,
-		"habitable":              false,
 		"life":                   life,
-		"population":             0,
 		"political_system":       "нет",
 		"conflict_level":         0.0,
 		"moons":                  moons,

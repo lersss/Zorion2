@@ -12,6 +12,7 @@ type worldInfo struct {
 
 // planetRecord — одна планета из БД в виде map.
 type planetRecord struct {
+	ID      string
 	WorldID string
 	Data    map[string]interface{}
 }
@@ -37,7 +38,7 @@ func (h *AdminHandlers) loadWorlds() ([]worldInfo, error) {
 
 // loadPlanets — загружает все планеты с распарсенным JSON.
 func (h *AdminHandlers) loadPlanets() ([]planetRecord, error) {
-	rows, err := h.db.Query(`SELECT world_id, data FROM planets`)
+	rows, err := h.db.Query(`SELECT id, world_id, data FROM planets`)
 	if err != nil {
 		return nil, err
 	}
@@ -45,16 +46,36 @@ func (h *AdminHandlers) loadPlanets() ([]planetRecord, error) {
 
 	result := []planetRecord{}
 	for rows.Next() {
-		var worldID string
+		var id, worldID string
 		var dataJSON []byte
-		if err := rows.Scan(&worldID, &dataJSON); err != nil {
+		if err := rows.Scan(&id, &worldID, &dataJSON); err != nil {
 			continue
 		}
 		var data map[string]interface{}
 		if err := json.Unmarshal(dataJSON, &data); err != nil {
 			continue
 		}
-		result = append(result, planetRecord{WorldID: worldID, Data: data})
+		result = append(result, planetRecord{ID: id, WorldID: worldID, Data: data})
 	}
 	return result, nil
+}
+
+// loadSettlementPopulation — население по каждой планете (SUM settlements.population).
+func (h *AdminHandlers) loadSettlementPopulation() (map[string]int64, error) {
+	rows, err := h.db.Query(`SELECT planet_id, SUM(population) FROM settlements GROUP BY planet_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := map[string]int64{}
+	for rows.Next() {
+		var planetID string
+		var population int64
+		if err := rows.Scan(&planetID, &population); err != nil {
+			continue
+		}
+		result[planetID] = population
+	}
+	return result, rows.Err()
 }

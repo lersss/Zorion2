@@ -176,7 +176,7 @@ func TestPopulatePlanetFromJSONFull(t *testing.T) {
 		"size": 1.2, "mass": 0.9, "density": 1.1, "temperature": 288.5,
 		"water_percent": 40.0,
 		"atmosphere":    "азотно-кислородная", "hydrosphere": "моря", "biosphere": "развитая",
-		"habitable": true, "life": true, "population": float64(5_000_000),
+		"habitable": true, "life": true,
 		"surface_composition": map[string]interface{}{"высокие горы": 45.0, "моря": 40.0, "льды": 15.0},
 		"subterrain_composition": map[string]interface{}{"гранит": 50.0},
 		"core": map[string]interface{}{
@@ -204,9 +204,9 @@ func TestPopulatePlanetFromJSONFull(t *testing.T) {
 	assert.Equal(t, "азотно-кислородная", p.Atmosphere)
 	assert.Equal(t, "моря", p.Hydrosphere)
 	assert.Equal(t, "развитая", p.Biosphere)
-	assert.True(t, p.Habitable)
+	assert.False(t, p.Habitable, "обитаемость не берётся из JSON — вычисляется из поселений")
 	assert.True(t, p.Life)
-	assert.Equal(t, int64(5_000_000), p.Population)
+	assert.Equal(t, int64(0), p.Population, "население не берётся из JSON — вычисляется из поселений")
 
 	assert.InDelta(t, 45.0, p.SurfaceComposition["высокие горы"], 0.0001)
 	assert.InDelta(t, 40.0, p.SurfaceComposition["моря"], 0.0001)
@@ -249,7 +249,7 @@ func TestPopulatePlanetFromJSONRealSerialized(t *testing.T) {
 		"type":"землеподобная","surface_dominant":"океаны","climate":"мягкий",
 		"size":1.0,"mass":1.0,"density":1.0,"temperature":288.0,"water_percent":70.0,
 		"atmosphere":"азотно-кислородная","hydrosphere":"океаны","biosphere":"развитая",
-		"habitable":true,"life":true,"population":8500000000,
+		"habitable":true,"life":true,
 		"surface_composition":{"океаны":70.0,"скалы":20.0,"льды":10.0},
 		"core":{"type":"железное","mass_percent":32.5,"activity":55.0,"radioactivity":5.0,"age":4.5,"is_active":true,"is_metallic":true},
 		"moons":1,"system_age":4.6
@@ -265,9 +265,9 @@ func TestPopulatePlanetFromJSONRealSerialized(t *testing.T) {
 	assert.Equal(t, "океаны", p.SurfaceDominant)
 	assert.Equal(t, 288.0, p.Temperature)
 	assert.Equal(t, 70.0, p.WaterPercent)
-	assert.True(t, p.Habitable)
+	assert.False(t, p.Habitable, "обитаемость не берётся из JSON — вычисляется из поселений")
 	assert.True(t, p.Life)
-	assert.Equal(t, int64(8_500_000_000), p.Population)
+	assert.Equal(t, int64(0), p.Population, "население не берётся из JSON — вычисляется из поселений")
 	assert.NotNil(t, p.Core)
 	assert.True(t, p.Core.IsMetallic)
 	assert.Equal(t, 32.5, p.Core.MassPercent)

@@ -19,9 +19,11 @@ func extractComposition(data map[string]interface{}, key string) planet.Composit
 }
 
 // buildClassificationInput — собирает вход для ClassifyGameDesignType.
+// settleable — планета имеет поселение (пригодность для классификации).
 func buildClassificationInput(
 	data map[string]interface{},
 	surface planet.Composition,
+	settleable bool,
 ) planet.PlanetClassificationInput {
 	return planet.PlanetClassificationInput{
 		IsGasGiant:    isGasGiant(data),
@@ -29,7 +31,7 @@ func buildClassificationInput(
 		Surface:       surface,
 		Temperature:   getFloat(data, "temperature"),
 		WaterPercent:  getFloat(data, "water_percent"),
-		Habitable:     getBool(data, "habitable"),
+		Settleable:    settleable,
 		Life:          getBool(data, "life"),
 	}
 }

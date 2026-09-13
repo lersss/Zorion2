@@ -61,7 +61,7 @@ type PlanetClassificationInput struct {
 	Surface       Composition
 	Temperature   float64
 	WaterPercent  float64
-	Habitable     bool
+	Settleable    bool
 	Life          bool
 }
 
@@ -80,8 +80,8 @@ func ClassifyGameDesignType(in PlanetClassificationInput) string {
 		return TypeRadioactive
 	}
 
-	// 3. Землеподобная: обитаема + жизнь + скалы + вода
-	if in.Habitable && in.Life &&
+	// 3. Землеподобная: пригодна под поселение + жизнь + скалы + вода
+	if in.Settleable && in.Life &&
 		in.Surface.Has(SurfaceRocks) &&
 		(in.Surface.Has(SurfaceOceans) || in.Surface.Has(SurfaceLakes)) {
 		return TypeEarthlike

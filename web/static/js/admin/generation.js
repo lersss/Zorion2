@@ -193,6 +193,49 @@ async function generatePrototypePlanet() {
     }
 }
 
+export async function generateSettlements() {
+    if (!confirm('Сгенерировать поселения по параметрам пригодности?')) return;
+
+    const forbiddenAtmos = document.getElementById('settleForbiddenAtmos').value
+        .split(',').map(s => s.trim()).filter(Boolean);
+
+    document.getElementById('settlementResult').textContent = '⏳ Генерация запущена...';
+    document.getElementById('settlementProgress').style.display = 'block';
+    document.getElementById('settlementProgressBar').value = 0;
+    document.getElementById('settlementProgressText').textContent = 'Подготовка...';
+    document.getElementById('cancelSettlementsBtn').style.display = 'inline-block';
+
+    try {
+        const res = await fetchWithAuth('/admin/generate-settlements', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                минимальная_вода: parseFloat(document.getElementById('settleMinWater').value),
+                минимальная_температура: parseFloat(document.getElementById('settleMinTemp').value),
+                максимальная_температура: parseFloat(document.getElementById('settleMaxTemp').value),
+                запрещённые_атмосферы: forbiddenAtmos,
+                шанс_заселения: parseFloat(document.getElementById('settleChance').value),
+                заселять_только_с_жизнью: document.getElementById('settleOnlyLife').checked,
+                исключить_газовых_гигантов: document.getElementById('settleExcludeGas').checked,
+                исключить_радиоактивные: document.getElementById('settleExcludeRadio').checked,
+            })
+        });
+        if (!res.ok) {
+            const text = await res.text();
+            document.getElementById('settlementResult').textContent = '❌ Ошибка: ' + text;
+            document.getElementById('settlementProgress').style.display = 'none';
+            document.getElementById('cancelSettlementsBtn').style.display = 'none';
+            return;
+        }
+        if (pollIntervals['settlements']) clearInterval(pollIntervals['settlements']);
+        pollIntervals['settlements'] = setInterval(() => pollJob('generate_settlements', 'settlementProgress', 'settlementResult', 'cancelSettlementsBtn'), 1500);
+    } catch (e) {
+        document.getElementById('settlementResult').textContent = '❌ ' + e.message;
+        document.getElementById('settlementProgress').style.display = 'none';
+        document.getElementById('cancelSettlementsBtn').style.display = 'none';
+    }
+}
+
 export async function cancelGeneration(jobType) {
     if (!confirm(`Остановить генерацию?`)) return;
     try {
@@ -202,6 +245,7 @@ export async function cancelGeneration(jobType) {
             const btnId = jobType === 'generate_universe' ? 'cancelUniverseBtn' :
                           jobType === 'generate_planets' ? 'cancelPlanetsBtn' :
                           jobType === 'generate_factions' ? 'cancelFactionsBtn' :
+                          jobType === 'generate_settlements' ? 'cancelSettlementsBtn' :
                           'cancelResourcesBtn';
             document.getElementById(btnId).style.display = 'none';
         } else {

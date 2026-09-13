@@ -123,6 +123,28 @@
             </div>
         </div>
 
+        <!-- Генерация поселений -->
+        <div class="card">
+            <h2>🏘️ Генерация поселений</h2>
+            <div class="compact-row">
+                <div><label>Мин. вода %</label><input type="number" id="settleMinWater" value="10" step="1"></div>
+                <div><label>Мин. T K</label><input type="number" id="settleMinTemp" value="200" step="5"></div>
+                <div><label>Макс. T K</label><input type="number" id="settleMaxTemp" value="350" step="5"></div>
+                <div><label>Запрещ. атмосферы</label><input type="text" id="settleForbiddenAtmos" value="ядовитая"></div>
+                <div><label>Шанс заселения</label><input type="number" id="settleChance" value="1.0" step="0.1" min="0" max="1"></div>
+                <div><label><input type="checkbox" id="settleOnlyLife"> Только с жизнью</label></div>
+                <div><label><input type="checkbox" id="settleExcludeGas" checked> Без газовых</label></div>
+                <div><label><input type="checkbox" id="settleExcludeRadio" checked> Без радиоакт.</label></div>
+                <button class="btn success" onclick="generateSettlements()">Сгенерировать поселения</button>
+                <button class="btn danger" onclick="cancelGeneration('generate_settlements')" id="cancelSettlementsBtn" style="display:none;">Остановить</button>
+            </div>
+            <div id="settlementResult" class="result"></div>
+            <div id="settlementProgress" class="progress-container">
+                <span class="progress-text" id="settlementProgressText">0 из 0</span>
+                <progress id="settlementProgressBar" class="progress-bar" value="0" max="100"></progress>
+            </div>
+        </div>
+
         <!-- Очистка -->
         <div class="card">
             <h2>🗑️ Очистка вселенной</h2>

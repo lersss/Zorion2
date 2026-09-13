@@ -20,6 +20,9 @@ type statsAggregator struct {
 	waterCount int
 	popCount   int
 
+	// Население по планете (SUM settlements.population), заполняется перед process.
+	popByPlanet map[string]int64
+
 	// Ядра
 	totalCoreMassPercent   float64
 	totalCoreActivity      float64
@@ -90,8 +93,10 @@ func (a *statsAggregator) processOne(p planetRecord, stats *PlanetStats) {
 	// Ядро
 	a.accumulateCore(p.Data, stats)
 
-	// Геймдизайнерский тип
-	in := buildClassificationInput(p.Data, surface)
+	// Геймдизайнерский тип. Пригодность (обитаемость) — производная:
+	// планета с поселением считается обитаемой.
+	_, hasSettlement := a.popByPlanet[p.ID]
+	in := buildClassificationInput(p.Data, surface, hasSettlement)
 	gdType := planet.ClassifyGameDesignType(in)
 	stats.GameDesignTypes[gdType]++
 
@@ -99,12 +104,12 @@ func (a *statsAggregator) processOne(p planetRecord, stats *PlanetStats) {
 	if getBool(p.Data, "life") {
 		stats.LifeCount++
 	}
-	if getBool(p.Data, "habitable") {
+	if hasSettlement {
 		stats.HabitableCount++
 	}
 
 	// Средние
-	a.accumulateAverages(p.Data)
+	a.accumulateAverages(p.ID, p.Data)
 }
 
 // accumulateCore — обрабатывает поле core из JSON планеты.
@@ -142,7 +147,7 @@ func (a *statsAggregator) accumulateCore(data map[string]interface{}, stats *Pla
 }
 
 // accumulateAverages — накапливает суммы и счётчики для средних.
-func (a *statsAggregator) accumulateAverages(data map[string]interface{}) {
+func (a *statsAggregator) accumulateAverages(planetID string, data map[string]interface{}) {
 	if size, ok := data["size"].(float64); ok {
 		a.totalSize += size
 		a.sizeCount++
@@ -159,8 +164,8 @@ func (a *statsAggregator) accumulateAverages(data map[string]interface{}) {
 		a.totalWater += water
 		a.waterCount++
 	}
-	if pop, ok := data["population"].(float64); ok {
-		a.totalPopulation += int64(pop)
+	if pop, ok := a.popByPlanet[planetID]; ok {
+		a.totalPopulation += pop
 		a.popCount++
 	}
 }

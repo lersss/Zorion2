@@ -29,27 +29,6 @@ func (g *Generator) copyInPlanets(tx *sql.Tx, rows []interface{}) error {
 		rows, 7)
 }
 
-// copyInSettlements — вставляет пачку поселений через COPY. rowWidth = 6.
-func (g *Generator) copyInSettlements(tx *sql.Tx, rows []interface{}) error {
-	return copyInRows(tx, "settlements",
-		[]string{"id", "planet_id", "level", "population", "capacity", "stability"},
-		rows, 6)
-}
-
-// copyInFactories — вставляет пачку заводов через COPY. rowWidth = 8.
-func (g *Generator) copyInFactories(tx *sql.Tx, rows []interface{}) error {
-	return copyInRows(tx, "factories",
-		[]string{"id", "planet_id", "name", "type", "input_resource", "output_product", "quality", "status"},
-		rows, 8)
-}
-
-// copyInGoods — вставляет пачку партий товаров через COPY. rowWidth = 7.
-func (g *Generator) copyInGoods(tx *sql.Tx, rows []interface{}) error {
-	return copyInRows(tx, "goods_batches",
-		[]string{"id", "planet_id", "product_name", "quantity", "quality", "producer_id", "produced_at"},
-		rows, 7)
-}
-
 // ==================== ОБЩАЯ ФУНКЦИЯ ====================
 
 // copyInRows — общая реализация для всех таблиц.

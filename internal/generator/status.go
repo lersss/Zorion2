@@ -12,6 +12,7 @@ const (
 	JobGenerateUniverse JobType = "generate_universe"
 	JobGeneratePlanets  JobType = "generate_planets"
 	JobGenerateFactions JobType = "generate_factions"
+	JobGenerateSettlements JobType = "generate_settlements"
 )
 
 type JobStatus struct {

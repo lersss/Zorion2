@@ -3,6 +3,7 @@ package handlers
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -78,6 +79,43 @@ func TestClearPlanets(t *testing.T) {
 	n, err := h.clearPlanets()
 	require.NoError(t, err)
 	require.Equal(t, 42, n)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestAssignCurrentWorldsTx — B27: автоназначение текущего мира после
+// генерации. Skycomposer без мира получает ближайший к центру мир; UPDATE
+// ограничен ролью skycomposer и IS NULL (player и уже заданные миры не
+// трогаются — это условие WHERE). Пустая вселенная — no-op без UPDATE.
+func TestAssignCurrentWorldsTx(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
+	require.NoError(t, err)
+	defer db.Close()
+
+	// 1. Миры есть: ближайший к (0,0) найден, назначен skycomposer-ам без мира.
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT id FROM worlds ORDER BY (coord_x * coord_x + coord_y * coord_y) LIMIT 1`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("11111111-1111-1111-1111-111111111111"))
+	mock.ExpectExec(`UPDATE users SET current_world_id = $1 WHERE role = 'skycomposer' AND current_world_id IS NULL`).
+		WithArgs("11111111-1111-1111-1111-111111111111").
+		WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectCommit()
+
+	tx, err := db.Begin()
+	require.NoError(t, err)
+	require.NoError(t, assignCurrentWorldsTx(context.Background(), tx))
+	require.NoError(t, tx.Commit())
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	// 2. Миров нет — ничего не назначаем (UPDATE не выполняется).
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT id FROM worlds ORDER BY (coord_x * coord_x + coord_y * coord_y) LIMIT 1`).
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectCommit()
+
+	tx2, err := db.Begin()
+	require.NoError(t, err)
+	require.NoError(t, assignCurrentWorldsTx(context.Background(), tx2))
+	require.NoError(t, tx2.Commit())
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

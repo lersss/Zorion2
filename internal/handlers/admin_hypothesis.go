@@ -176,6 +176,10 @@ func (h *AdminHandlers) runHypothesisJob(ctx context.Context, spec planet.TwinSp
 		}
 	}
 
+	if err := assignCurrentWorldsTx(ctx, tx); err != nil {
+		return 0, "", err
+	}
+
 	if err := tx.Commit(); err != nil {
 		return 0, "", err
 	}

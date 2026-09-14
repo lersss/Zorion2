@@ -77,6 +77,25 @@ func clearUniverseTx(ctx context.Context, tx *sql.Tx) error {
 	return nil
 }
 
+// assignCurrentWorldsTx — назначает skycomposer-ам без текущего мира
+// ближайший к центру галактики мир. Вызывается внутри транзакции
+// генерации вселенной/близнецов после вставки миров, до commit.
+// Миров нет — no-op; у остальных ролей и уже заданных миров не трогаем.
+func assignCurrentWorldsTx(ctx context.Context, tx *sql.Tx) error {
+	var worldID string
+	err := tx.QueryRowContext(ctx, `SELECT id FROM worlds ORDER BY (coord_x * coord_x + coord_y * coord_y) LIMIT 1`).Scan(&worldID)
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("select closest world: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE users SET current_world_id = $1 WHERE role = 'skycomposer' AND current_world_id IS NULL`, worldID); err != nil {
+		return fmt.Errorf("assign current world: %w", err)
+	}
+	return nil
+}
+
 // insertRegionsTx — сохраняет регионы в уже начатой транзакции.
 func insertRegionsTx(ctx context.Context, tx *sql.Tx, regions []*models.Region) error {
 	if len(regions) == 0 {
@@ -223,6 +242,12 @@ func (h *AdminHandlers) GenerateUniverse(w http.ResponseWriter, r *http.Request)
 
 		if err := insertRegionsTx(ctx, tx, result.Regions); err != nil {
 			log.Printf("❌ GenerateUniverse: failed to insert regions: %v", err)
+			statusManager.Fail(generator.JobGenerateUniverse, err.Error())
+			return
+		}
+
+		if err := assignCurrentWorldsTx(ctx, tx); err != nil {
+			log.Printf("❌ GenerateUniverse: failed to assign current worlds: %v", err)
 			statusManager.Fail(generator.JobGenerateUniverse, err.Error())
 			return
 		}

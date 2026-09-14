@@ -77,6 +77,13 @@ func TestRunHypothesisJobPipeline(t *testing.T) {
 		mock.ExpectExec(`INSERT INTO settlements \(id, planet_id, population, population_exact, stability, computed_at`).
 			WillReturnResult(sqlmock.NewResult(0, 1))
 	}
+
+	// 2.5. B27: автоназначение мира skycomposer-ам после генерации.
+	mock.ExpectQuery(`SELECT id FROM worlds ORDER BY \(coord_x \* coord_x \+ coord_y \* coord_y\) LIMIT 1`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("11111111-1111-1111-1111-111111111111"))
+	mock.ExpectExec(`UPDATE users SET current_world_id = \$1 WHERE role = 'skycomposer' AND current_world_id IS NULL`).
+		WithArgs("11111111-1111-1111-1111-111111111111").
+		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectCommit()
 
 	// 3. Пересчёт статистики (recomputePlanetStats) — 3 запроса.

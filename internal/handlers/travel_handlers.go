@@ -43,6 +43,20 @@ type TravelResponse struct {
 	To       string `json:"to"`
 }
 
+// calcTravelDuration вычисляет длительность полёта по расстоянию между мирами:
+// dist * 0.3 секунд, минимум 3 секунды, потолок 20 секунд (решение создателя 2026-09-14).
+func calcTravelDuration(dist float64) time.Duration {
+	speedFactor := 0.3
+	duration := time.Duration(dist*speedFactor) * time.Second
+	if duration < 3*time.Second {
+		duration = 3 * time.Second
+	}
+	if duration > 20*time.Second {
+		duration = 20 * time.Second
+	}
+	return duration
+}
+
 func (h *TravelHandlers) StartTravel(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(auth.UserIDKey).(string)
 	if !ok || userID == "" {
@@ -119,14 +133,7 @@ func (h *TravelHandlers) StartTravel(w http.ResponseWriter, r *http.Request) {
 	dy := fromWorld.CoordY - targetWorld.CoordY
 	dist := math.Sqrt(dx*dx + dy*dy)
 
-	speedFactor := 0.3
-	duration := time.Duration(dist*speedFactor) * time.Second
-	if duration < 3*time.Second {
-		duration = 3 * time.Second
-	}
-	if duration > 60*time.Second {
-		duration = 60 * time.Second
-	}
+	duration := calcTravelDuration(dist)
 
 	onArrival := func(uid, worldID string) {
 		if err := h.userRepo.UpdateCurrentWorld(uid, worldID); err != nil {

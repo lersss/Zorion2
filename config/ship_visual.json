@@ -1,0 +1,86 @@
+{
+  "palette": [
+    "#cbd5e1",
+    "#94a3b8",
+    "#64748b",
+    "#f87171",
+    "#f97316",
+    "#facc15",
+    "#4ade80",
+    "#14b8a6",
+    "#38bdf8",
+    "#3b82f6",
+    "#a78bfa",
+    "#f472b6"
+  ],
+  "accents": {
+    "glass": "#e0f2fe",
+    "glow": "#60a5fa",
+    "fire_red": "#ef4444",
+    "fire_green": "#22c55e",
+    "nozzle": "#1f2937",
+    "stroke": "#0b1220"
+  },
+  "accentRules": {
+    "nose": ["glass"],
+    "hull": ["glass"],
+    "wings": ["fire_red", "fire_green"],
+    "engine": ["nozzle", "glow"],
+    "tail": []
+  },
+  "style": {
+    "strokeWidth": 3,
+    "cornerRadius": 6,
+    "innerRadius": 3,
+    "minRadius": 2,
+    "segmentsMin": 4,
+    "segmentsMax": 8,
+    "maxArcs": 1,
+    "fillRatio": 0.55,
+    "accentOffset": 3,
+    "accentRadius": 6,
+    "maxAccentArea": 90,
+    "maxAccentTotal": 240,
+    "angles": [20, 25, 30]
+  },
+  "categories": {
+    "hull": {
+      "zone": { "x": [45, 155], "y": [70, 130] },
+      "width": { "min": 60, "max": 110 },
+      "height": { "min": 42, "max": 60 },
+      "minX": 65,
+      "maxX": 130
+    },
+    "nose": {
+      "zone": { "x": [125, 200], "y": [70, 130] },
+      "base": { "min": 24, "max": 40 },
+      "length": { "min": 55, "max": 70 },
+      "tipMaxX": { "min": 185, "max": 197 },
+      "tipMinX": 130
+    },
+    "wings": {
+      "zone": { "x": [55, 145], "y": [0, 80] },
+      "chord": { "min": 6, "max": 38 },
+      "reach": { "min": 15, "max": 50 },
+      "span": { "min": 20, "max": 65 },
+      "maxXPart": 150,
+      "reachY": 79
+    },
+    "engine": {
+      "zone": { "x": [0, 70], "y": [75, 125] },
+      "base": { "min": 22, "max": 40 },
+      "length": { "min": 30, "max": 60 },
+      "baseMaxX": 65,
+      "minLeft": 3
+    },
+    "tail": {
+      "zone": { "x": [25, 110], "y": [0, 85] },
+      "base": { "min": 18, "max": 40 },
+      "height": { "min": 15, "max": 55 },
+      "span": { "min": 20, "max": 60 },
+      "maxX": 65,
+      "reachY": 79
+    }
+  },
+  "layerOrder": ["hull", "wings", "nose", "engine", "tail"]
+}

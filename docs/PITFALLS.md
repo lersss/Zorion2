@@ -125,6 +125,24 @@
   не работает»: пароль у учётки остался прежний. Лечится созданием/повышением
   отдельной учётки через раздел «Пользователи» (или SQL на dev).
 
+- **Windows-шелл: кодировка cp866/cp1251 ломает вывод psql и curl.** В
+  PowerShell 5.1 на русской Windows вывод `psql.exe` / `curl.exe` кодируется
+  в cp866/cp1251 — при выводе в stdout ломаются русские буквы, а при передаче
+  аргументов через `cmd /c` PowerShell экранирует кавычки и `*` не как bash,
+  а как glob-шаблон Windows. Неисправимо на уровне оформления — это среда.
+  **Как работать:**
+  - **psql:** писать SQL-запросы во временный `.sql`-файл (`Set-Content -Encoding
+    UTF8`) и вызывать `cmd /c "C:\pgsql\pgsql\bin\psql.exe -h 127.0.0.1 -U
+    zorion -d zorion -f C:\path\q.sql"` — НЕ передавать `-c` с unicode-текстом
+    в PowerShell (psql получает разбитые аргументы). Пароль — через
+    `$env:PGPASSWORD="zorion123"` перед вызовом.
+  - **HTTP-запросы к dev-серверу:** использовать `Invoke-RestMethod` (не
+    `Invoke-WebRequest` в PSReadLine, он может падать). Для авторизации:
+    `POST /login` → токен → заголовок `Authorization: Bearer $token`.
+  - **curl:** в PowerShell алиас `curl` — это `Invoke-WebRequest`, НЕ реальный
+    `curl.exe`. Для нативного curl: `cmd /c "curl.exe http://..."` или
+    `& "C:\Windows\System32\curl.exe" ...`.
+
 - **gorilla/websocket: чтение с истёкшим дедлайном необратимо ломает
   соединение.** `Conn.ReadMessage` при ошибке (в т.ч. i/o timeout по
   `SetReadDeadline`) фиксирует `readErr` — все последующие `ReadMessage` на
@@ -143,3 +161,11 @@
   расширены), см. `internal/auth/middleware.go`. При добавлении новых
   WS-ручек учитывать: либо query-токен, либо subprotocol (Bearer с пробелом
   в subprotocol невалиден — токен передавать без префикса).
+
+- **SVG-спрайт схемы корабля: `currentColor` без `style="color:"` на корневом
+  `<svg>` рисуется чёрным.** Детали кораблей (спека 99.2.15) — `fill="currentColor"`;
+  при композиции цвет кладётся ТОЛЬКО в `style="color:{color}"` корневого
+  `<svg>` (`web/static/js/map/ship_render.js`, `composeShipSVG`) — иначе
+  в data-URL-картинке спрайт полностью чёрный (нет «одного цвета корабля»,
+  И1). Акценты с явным `fill` (кабина/сопло/огни) от этого не зависят.
+  Тот же приём на клиенте админки (`web/static/js/admin/ships.js`).

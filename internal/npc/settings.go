@@ -12,12 +12,13 @@ import (
 // в проекте нет, отдельная таблица ради пяти чисел для v1 не вводится.
 // Конкурентность: тик читает, админ-ручка пишет — RWMutex (AGENTS.md §0).
 type Settings struct {
-	mu                  sync.RWMutex
-	tickInterval        time.Duration // npcTickInterval, default 5s
-	batchSize           int           // npcBatchSize, default 2000
-	speedFactor         float64       // npcSpeedFactor, default 0.3 (скорость игрока)
-	notifyInterval      time.Duration // npcNotifyInterval, default 5s (этап 5)
-	notificationMaxBatch int          // npcNotificationMaxBatch, default 100 (этап 5)
+	mu                   sync.RWMutex
+	tickInterval         time.Duration // npcTickInterval, default 5s
+	batchSize            int           // npcBatchSize, default 2000
+	speedFactor          float64       // npcSpeedFactor, default 0.3 (скорость игрока)
+	notifyInterval       time.Duration // npcNotifyInterval, default 5s (этап 5)
+	notificationMaxBatch int           // npcNotificationMaxBatch, default 100 (этап 5)
+	notifyGlobalEnabled  bool          // глобальный рубильник пушей (спека 26a.1 §7.2), default false
 }
 
 // DefaultSettings — дефолты спеки §2.4.
@@ -28,6 +29,7 @@ func DefaultSettings() *Settings {
 		speedFactor:          0.3,
 		notifyInterval:       5 * time.Second,
 		notificationMaxBatch: 100,
+		notifyGlobalEnabled:  false,
 	}
 }
 
@@ -90,4 +92,21 @@ func (s *Settings) SetBatchSize(n int) {
 	if n > 0 {
 		s.batchSize = n
 	}
+}
+
+// NotifyGlobalEnabled — глобальный рубильник пушей (спека 26a.1 §7.2).
+// Default false; после рестарта — снова false (персистентная «включённость»
+// пушей не нужна и опасна: забыл включённой → флуд после рестарта).
+func (s *Settings) NotifyGlobalEnabled() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.notifyGlobalEnabled
+}
+
+// SetNotifyGlobalEnabled — включение/выключение рубильника из админки
+// (§7.5, PATCH /admin/npc/settings).
+func (s *Settings) SetNotifyGlobalEnabled(v bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.notifyGlobalEnabled = v
 }

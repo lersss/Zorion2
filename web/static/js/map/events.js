@@ -7,7 +7,7 @@ import { centerOnAgent } from './navigation.js';
 import { CONFIG } from '../config.js';
 import { openSystemModal } from '../modal/index.js';
 import { startFlight } from './flight.js';
-import { findNPCAgentAt, showNPCPanel, hideNPCPanel } from './npc_agents.js';
+import { findNPCAgentAt, showNPCTooltip, hideNPCTooltip, clearNPCHighlight } from './npc_agents.js';
 
 const { map: mapCfg } = CONFIG;
 
@@ -55,6 +55,22 @@ export function initHover() {
         const mouseX = (e.clientX - rect.left) * (elements.canvas.width / rect.width);
         const mouseY = (e.clientY - rect.top) * (elements.canvas.height / rect.height);
 
+        // Тултип агента по наведению (спека 26a.1, правка создателя): иконка
+        // агента поверх звёзд — приоритет над тултипом мира. Увёл мышь с
+        // иконки — тултип скрыт (наведение ≠ клик; pointer-events: none —
+        // клики/драг карты не перехватываются).
+        const agent = findNPCAgentAt(mouseX, mouseY);
+        if (agent) {
+            showNPCTooltip(agent, e.clientX, e.clientY);
+            if (state.hoveredWorldId !== null) {
+                state.hoveredWorldId = null;
+                elements.tooltip.classList.remove('active');
+                draw(); // убрать hover-кольцо звезды под тултипом агента
+            }
+            return;
+        }
+        hideNPCTooltip();
+
         const hit = findClusterAt(mouseX, mouseY);
         const newHoveredId = hit && hit.cluster.cnt === 1 ? hit.cluster.sid : null;
 
@@ -69,6 +85,7 @@ export function initHover() {
     });
 
     elements.canvas.addEventListener('mouseleave', () => {
+        hideNPCTooltip();
         if (state.hoveredWorldId !== null) {
             state.hoveredWorldId = null;
             elements.canvas.style.cursor = 'crosshair';
@@ -109,20 +126,14 @@ export function handleCanvasClick(e) {
     const mouseX = (e.clientX - rect.left) * (elements.canvas.width / rect.width);
     const mouseY = (e.clientY - rect.top) * (elements.canvas.height / rect.height);
 
-    // Приоритет — NPC-агент (маленькая иконка поверх звёзд): мини-панель.
-    const agent = findNPCAgentAt(mouseX, mouseY);
-    if (agent) {
-        showNPCPanel(agent, e.clientX, e.clientY);
-        elements.tooltip.classList.remove('active');
-        return;
-    }
-
+    // Данные агента — тултип по наведению (initHover), клик по иконке
+    // проходит к звёздам (модалка мира под агентом).
     const hit = findClusterAt(mouseX, mouseY);
 
     if (!hit) {
         elements.tooltip.classList.remove('active');
         state.selectedWorldId = null;
-        hideNPCPanel();
+        clearNPCHighlight(); // клик по пустому месту сбрасывает подсветку агента (спека 26a.1 §6.2)
         return;
     }
 
@@ -193,7 +204,6 @@ export function initContextMenu() {
     // Левая кнопка вне меню — скрывает. ПКМ — отдаём канвасу/тултипу.
     document.addEventListener('mousedown', (e) => {
         if (e.button !== 2 && !e.target.closest('#map-context-menu')) hideWorldMenu();
-        if (e.button !== 2 && !e.target.closest('#npc-agent-panel')) hideNPCPanel();
     });
 }
 

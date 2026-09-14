@@ -2,6 +2,7 @@
 import { fetchWithAuth } from './auth.js';
 import { loadStats } from './stats.js';
 import { loadWorlds } from './worlds.js';
+import { loadNPC, loadNPCMetrics } from './npc.js';
 
 export const pollIntervals = {};
 
@@ -48,6 +49,14 @@ export async function pollJob(jobType, progressId, resultId, cancelBtnId) {
                 } else if (jobType === 'hypothesis') {
                     resultEl.textContent = data.report || `✅ Эксперимент завершён: ${progress} планет`;
                     loadStats();
+                } else if (jobType === 'generate_npc') {
+                    // Массовая генерация NPC (спека 26a.1 §9): отчёт джоба +
+                    // обновить таблицу (первая страница) и метрики.
+                    resultEl.textContent = data.report || `✅ Создано агентов: ${progress}`;
+                    const bulkBtn = document.getElementById('npcBulkBtn');
+                    if (bulkBtn) bulkBtn.disabled = false;
+                    loadNPC();
+                    loadNPCMetrics();
                 }
             } else if (status === 'canceled') {
                 resultEl.textContent = `⏹️ Остановлено пользователем`;

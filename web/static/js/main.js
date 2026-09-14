@@ -12,7 +12,7 @@ import { showTextLoader } from './loader.js';
 import { notifyError } from './ui/toast.js';
 import { initEntitySearch } from './search.js';
 import { formatZoom } from './map/utils.js';
-import { startNPCLoop } from './map/npc_agents.js';
+import { startNPCLoop, initNPCSearch } from './map/npc_agents.js';
 
 // --- Восстановление вьюпорта из sessionStorage ---
 function restoreViewport() {
@@ -90,6 +90,9 @@ function init() {
 
     // --- NPC-агенты на карте (спека 20a.1 §7): опрос позиций + WS ---
     startNPCLoop();
+
+    // --- Поиск агента на карте (спека 26a.1 §6.2): поле в #zoom-controls ---
+    initNPCSearch();
 
     // --- Автоматическое применение фильтров ---
     const filterInputs = document.querySelectorAll('#filters-bar input, #filters-bar select');

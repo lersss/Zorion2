@@ -57,7 +57,8 @@ export function centerOnAgent() {
 
 // centerViewport — ставит центр экрана в мировую точку (x, y),
 // сохраняя текущий зум (минимум 1.0), и перерисовывает карту.
-function centerViewport(x, y) {
+// Экспортирован для поиска агентов (спека 26a.1 §6.2).
+export function centerViewport(x, y) {
     const targetScale = Math.max(state.scale, 1.0);
     state.offsetX = state.canvasWidth / 2 - x * targetScale;
     state.offsetY = state.canvasHeight / 2 - y * targetScale;
@@ -67,6 +68,17 @@ function centerViewport(x, y) {
         elements.zoomInfo.textContent = formatZoom(state.scale, state.minZoom || CONFIG.map.minZoom);
     }
     draw();
+}
+
+// focusAgent — центр на агенте из state.npcPositions + подсветка иконки
+// (спека 26a.1 §6.2: ореол вокруг иконки в drawNPCAgents). false — агента
+// нет в снапшоте позиций (позиция неизвестна).
+export function focusAgent(id) {
+    const p = (state.npcPositions || []).find(p => p.id === id);
+    if (!p || typeof p.x !== 'number' || typeof p.y !== 'number') return false;
+    state.highlightedNpcId = id;
+    centerViewport(p.x, p.y);
+    return true;
 }
 
 // centerOnNearestStar — фоллбэк «Найти меня»: центрирует вьюпорт на

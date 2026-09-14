@@ -23,15 +23,17 @@ func (h *AdminNPCHandlers) HandleSettings(w http.ResponseWriter, r *http.Request
 	}
 }
 
-// settingsResponse — текущие лимиты менеджера (§2.4).
+// settingsResponse — текущие лимиты менеджера (§2.4) + глобальный рубильник
+// пушей (спека 26a.1 §7.5).
 func (h *AdminNPCHandlers) settingsResponse() map[string]interface{} {
 	s := h.manager.Settings()
 	return map[string]interface{}{
-		"speed_factor":            s.SpeedFactor(),
-		"tick_interval_sec":       s.TickInterval().Seconds(),
-		"batch_size":              s.BatchSize(),
-		"notify_interval_sec":     s.NotifyInterval().Seconds(),
-		"notification_max_batch":  s.NotificationMaxBatch(),
+		"speed_factor":           s.SpeedFactor(),
+		"tick_interval_sec":      s.TickInterval().Seconds(),
+		"batch_size":             s.BatchSize(),
+		"notify_interval_sec":    s.NotifyInterval().Seconds(),
+		"notification_max_batch": s.NotificationMaxBatch(),
+		"notify_enabled_global":  s.NotifyGlobalEnabled(),
 	}
 }
 
@@ -40,20 +42,21 @@ func (h *AdminNPCHandlers) GetSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 // PatchSettings — PATCH /admin/npc/settings: {speed_factor?, tick_interval_sec?,
-// batch_size?}. Значения — из админки, применяются сразу к менеджеру.
-// notify_interval/notification_max_batch — только чтение (используются
-// на этапе 5, WS-уведомления).
+// batch_size?, notify_enabled_global?}. Значения — из админки, применяются
+// сразу к менеджеру. notify_interval/notification_max_batch — только чтение
+// (используются на этапе 5, WS-уведомления).
 func (h *AdminNPCHandlers) PatchSettings(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		SpeedFactor     *float64 `json:"speed_factor"`
-		TickIntervalSec *float64 `json:"tick_interval_sec"`
-		BatchSize       *int     `json:"batch_size"`
+		SpeedFactor          *float64 `json:"speed_factor"`
+		TickIntervalSec      *float64 `json:"tick_interval_sec"`
+		BatchSize            *int     `json:"batch_size"`
+		NotifyEnabledGlobal  *bool    `json:"notify_enabled_global"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSONError(w, "Некорректное тело запроса", http.StatusBadRequest)
 		return
 	}
-	if req.SpeedFactor == nil && req.TickIntervalSec == nil && req.BatchSize == nil {
+	if req.SpeedFactor == nil && req.TickIntervalSec == nil && req.BatchSize == nil && req.NotifyEnabledGlobal == nil {
 		writeJSONError(w, "Нет полей для обновления", http.StatusBadRequest)
 		return
 	}
@@ -79,6 +82,9 @@ func (h *AdminNPCHandlers) PatchSettings(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		s.SetBatchSize(*req.BatchSize)
+	}
+	if req.NotifyEnabledGlobal != nil {
+		s.SetNotifyGlobalEnabled(*req.NotifyEnabledGlobal)
 	}
 	writeJSONStatus(w, http.StatusOK, h.settingsResponse())
 }

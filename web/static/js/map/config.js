@@ -27,9 +27,11 @@ export const state = {
     canvasHeight: 0,
     followShip: false,   // активно следить за кораблём во время полёта
     focusWorldId: null,  // мир, найденный поиском (рисуется кольцом)
+    highlightedNpcId: null, // подсвеченный агент поиска (ореол, спека 26a.1 §6.2)
     npcPositions: [],    // NPC-агенты для карты (спека 20a.1 §7): {id,name,x,y,status,...}
     userId: null,        // id игрока (для дефолтной схемы корабля, спека 99.2.15 §8)
     userShipIcon: '',    // legacy ship_icon (мост: идёт в seed дефолтной схемы)
+    userRole: '',        // роль пользователя ('admin'/'skycomposer' → FPS-счётчик на карте)
 };
 
 export const elements = {

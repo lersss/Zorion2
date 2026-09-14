@@ -87,6 +87,14 @@ h2 {
     font-size: 0.85rem;
     min-height: 1.2em;
 }
+.metrics-row {
+    font-size: 0.9rem;
+    color: #cbd5e1;
+    line-height: 1.6;
+}
+.metrics-row b { color: #e2e8f0; }
+.metrics-row .warn-text { color: #fbbf24; }   /* лаги: очередь/полные батчи */
+.metrics-row .warn-text.alert { color: #f87171; }
 .progress-container {
     display: none;
     margin-top: 8px;

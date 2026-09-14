@@ -356,8 +356,13 @@
         </div>
     </div>
 
-    <!-- Вкладка: NPC (спека 20a.1 §6) -->
+    <!-- Вкладка: NPC (спека 20a.1 §6; спека 26a.1 §9: метрики, массовая генерация, рубильник) -->
     <div id="tab-npc" class="tab-pane">
+        <div class="card">
+            <h2>📊 Метрики NPC</h2>
+            <div id="npcMetricsRow" class="metrics-row">Загрузка...</div>
+        </div>
+
         <div class="card">
             <h2>⚙️ Настройки NPC</h2>
             <p class="hint">
@@ -369,8 +374,33 @@
                 <div><label>Скорость полёта (с/ед.)</label><input type="number" id="npcSpeedFactor" step="0.05" min="0.01"></div>
                 <div><label>Интервал тика (с)</label><input type="number" id="npcTickInterval" step="1" min="1"></div>
                 <div><label>Batch (агентов/тик)</label><input type="number" id="npcBatchSize" step="100" min="1"></div>
+                <div><label><input type="checkbox" id="npcNotifyGlobal"> Пуши прибытий (глобально)</label></div>
                 <button class="btn success" onclick="saveNPCSettings()">Сохранить</button>
             </div>
+            <p class="hint">
+                Глобальный рубильник уведомлений выключен по умолчанию
+                (после рестарта — снова выключен). Per-agent переключатели в
+                таблице работают только при включённой галке (спека 26a.1 §7).
+            </p>
+        </div>
+
+        <div class="card">
+            <h2>⚡ Массовая генерация</h2>
+            <p class="hint">
+                Создаёт ровно N агентов со сгенерированными англоязычными именами
+                «Имя Фамилия», стартовый мир — случайный по галактике, статус idle.
+                Имена уникальны между пачками. Пачка пишется одной транзакцией.
+            </p>
+            <div class="compact-row">
+                <div><label>Количество (≥ 1)</label><input type="number" id="npcBulkCount" min="1" step="1" value="1000"></div>
+                <button class="btn success" id="npcBulkBtn" onclick="generateBulk()">Сгенерировать N агентов</button>
+                <button class="btn danger" onclick="clearAllAgents()">🗑️ Удалить всех агентов</button>
+            </div>
+            <div id="npcBulkProgress" style="display:none; margin-top:8px;">
+                <progress id="npcBulkProgressBar" max="100" value="0" style="width:100%"></progress>
+                <div id="npcBulkProgressText">Подготовка...</div>
+            </div>
+            <div id="npcBulkResult" class="result"></div>
         </div>
 
         <div class="card">
@@ -395,6 +425,10 @@
                     <tr><td colspan="7" style="text-align:center;color:#94a3b8;">Загрузка...</td></tr>
                 </tbody>
             </table>
+            <div style="margin-top:8px;">
+                <button class="btn secondary" id="npcMoreBtn" onclick="loadMoreNPC()" style="display:none;">Показать ещё</button>
+                <span id="npcShownCount" style="margin-left:8px;color:#94a3b8;"></span>
+            </div>
         </div>
     </div>
 
@@ -444,6 +478,8 @@
 
         <!-- Профиль пользователя -->
         <div class="card" id="userProfileCard" style="display:none;"></div>
+    </div>
+
     <!-- Вкладка: Корабли (спека 99.2.15 §6) -->
     <div id="tab-ships" class="tab-pane">
         <div class="card">

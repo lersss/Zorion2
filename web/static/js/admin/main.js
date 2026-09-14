@@ -16,7 +16,8 @@ import {
 import { populateHypothesisPresets, renderHypothesisForm, runHypothesis } from './hypothesis.js';
 import {
     initNPC, loadNPC, loadNPCSettings, saveNPCSettings,
-    createAgent, toggleNotify, deleteAgent
+    createAgent, toggleNotify, deleteAgent, generateBulk, loadMoreNPC, loadNPCMetrics,
+    clearAllAgents
 } from './npc.js';
 import {
     initShips, loadShips, generateShips, regenerateCategory,
@@ -59,6 +60,10 @@ window.createAgent = createAgent;
 window.toggleNotify = toggleNotify;
 window.deleteAgent = deleteAgent;
 window.loadNPC = loadNPC;
+window.loadMoreNPC = loadMoreNPC;
+window.generateBulk = generateBulk;
+window.loadNPCMetrics = loadNPCMetrics;
+window.clearAllAgents = clearAllAgents;
 window.initShips = initShips;
 window.loadShips = loadShips;
 window.generateShips = generateShips;

@@ -4,7 +4,10 @@
 package handlers
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,6 +17,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/require"
 
+	"zorion/internal/generator"
 	"zorion/internal/mapcache"
 	"zorion/internal/models"
 	"zorion/internal/npc"
@@ -58,7 +62,8 @@ const agentID = "11111111-1111-1111-1111-111111111111"
 func TestAdminNPCListSuccess(t *testing.T) {
 	h, mock := newAdminNPCHarness(t)
 
-	mock.ExpectQuery(`SELECT id, name, status, current_world_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at FROM npc_agents`).
+	mock.ExpectQuery(`SELECT id, name, status, current_world_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at FROM npc_agents ORDER BY created_at DESC, id DESC LIMIT \$1`).
+		WithArgs(200). // дефолтный limit (спека 26a.1 §5.2)
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "name", "status", "current_world_id", "from_world_id", "target_world_id", "depart_at", "arrive_at", "notify_enabled", "last_observed_at", "created_at", "updated_at",
 		}).AddRow(agentID, "Наблюдатель-1", "flying", "w1", "w1", "w2", now(), now().Add(time.Minute), true, nil, now(), now()))
@@ -73,12 +78,113 @@ func TestAdminNPCListSuccess(t *testing.T) {
 			Name   string `json:"name"`
 			Status string `json:"status"`
 		} `json:"agents"`
+		NextCursor interface{} `json:"next_cursor"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Len(t, resp.Agents, 1)
 	require.Equal(t, "Наблюдатель-1", resp.Agents[0].Name)
 	require.Equal(t, "flying", resp.Agents[0].Status)
+	require.Nil(t, resp.NextCursor, "строк меньше limit — страниц больше нет (спека §5.2)")
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Пагинация: вторая страница по cursor, next_cursor при полной странице.
+func TestAdminNPCListPagination(t *testing.T) {
+	h, mock := newAdminNPCHarness(t)
+
+	created := now()
+	// Первая страница: ровно limit строк → next_cursor не null.
+	mock.ExpectQuery(`SELECT id, name, status, current_world_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at FROM npc_agents ORDER BY created_at DESC, id DESC LIMIT \$1`).
+		WithArgs(1).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "name", "status", "current_world_id", "from_world_id", "target_world_id", "depart_at", "arrive_at", "notify_enabled", "last_observed_at", "created_at", "updated_at",
+		}).AddRow("a2", "Cyrus Venn", "idle", "w2", nil, nil, nil, nil, false, nil, created.Add(time.Minute), created.Add(time.Minute)))
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/npc?limit=1", nil)
+	rec := execJSON(h.HandleCollection, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var first struct {
+		Agents     []struct{ ID string `json:"id"` } `json:"agents"`
+		NextCursor *string                            `json:"next_cursor"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &first))
+	require.Len(t, first.Agents, 1)
+	require.NotNil(t, first.NextCursor, "полная страница — есть следующая")
+	cursor := *first.NextCursor
+
+	// Вторая страница: WHERE (created_at, id) < ($1, $2); строк меньше
+	// лимита — конец списка (next_cursor = null).
+	mock.ExpectQuery(`SELECT id, name, status, current_world_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at FROM npc_agents WHERE \(created_at, id\) < \(\$1, \$2\) ORDER BY created_at DESC, id DESC LIMIT \$3`).
+		WithArgs(created.Add(time.Minute), "a2", 2).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "name", "status", "current_world_id", "from_world_id", "target_world_id", "depart_at", "arrive_at", "notify_enabled", "last_observed_at", "created_at", "updated_at",
+		}).AddRow("a1", "Marion Hale", "idle", "w1", nil, nil, nil, nil, false, nil, created, created))
+
+	req2 := httptest.NewRequest(http.MethodGet, "/admin/npc?limit=2&cursor="+cursor, nil)
+	rec2 := execJSON(h.HandleCollection, req2)
+	require.Equal(t, http.StatusOK, rec2.Code)
+	var second struct {
+		Agents     []struct{ ID string `json:"id"` } `json:"agents"`
+		NextCursor *string                            `json:"next_cursor"`
+	}
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &second))
+	require.Len(t, second.Agents, 1)
+	require.Nil(t, second.NextCursor, "строк меньше limit — конец списка")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// limit вне диапазона (0 / >1000) — 400 (спека §5.2).
+func TestAdminNPCListInvalidLimit(t *testing.T) {
+	h, _ := newAdminNPCHarness(t)
+
+	for _, q := range []string{"limit=0", "limit=-1", "limit=abc", "limit=1001"} {
+		req := httptest.NewRequest(http.MethodGet, "/admin/npc?"+q, nil)
+		rec := execJSON(h.HandleCollection, req)
+		require.Equal(t, http.StatusBadRequest, rec.Code, "limit=%s", q)
+	}
+}
+
+// Невалидный cursor — 400 (спека §5.2).
+func TestAdminNPCListInvalidCursor(t *testing.T) {
+	h, _ := newAdminNPCHarness(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/npc?cursor=!!!not-base64!!!", nil)
+	rec := execJSON(h.HandleCollection, req)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// ==================== POST /admin/npc/generate (спека 26a.1 §4) ====================
+
+// npcGridWorlds — WorldSource с реальным снапшотом (загружен через
+// mapcache.LoadAndSwap) — для тестов массовой генерации (сетка строится
+// из снапшота, спека 26a.1 §4.4).
+type npcGridWorlds struct{ m *mapcache.Manager }
+
+func (g npcGridWorlds) Snapshot() *mapcache.Snapshot { return g.m.Snapshot() }
+
+// newBulkHarness — sqlmock-БД + хендлеры NPC с менеджером, у которого сетка
+// из двух миров (снапшот загружается через mapcache.LoadAndSwap).
+func newBulkHarness(t *testing.T) (*AdminNPCHandlers, *sql.DB, sqlmock.Sqlmock) {
+	t.Helper()
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	t.Cleanup(func() { db.Close() })
+
+	mapCache := mapcache.NewManager()
+	mock.ExpectQuery(`SELECT id, name, coord_x, coord_y, spectral_class, temperature FROM worlds`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "coord_x", "coord_y", "spectral_class", "temperature"}).
+			AddRow("w1", "Alpha", 1.0, 2.0, "G", 5600).
+			AddRow("w2", "Beta", 10.0, 20.0, "O", 42000))
+	mock.ExpectQuery(`SELECT p.world_id, p.data->>'life', p.data->>'type', p.data->'resources'`).
+		WillReturnRows(sqlmock.NewRows([]string{"world_id", "life", "type", "resources", "settled"}))
+	require.NoError(t, mapCache.LoadAndSwap(context.Background(), db))
+
+	manager := npc.NewManager(npcFakeStore{}, npcGridWorlds{mapCache}, npc.DefaultSettings())
+	return NewAdminNPCHandlers(
+		repository.NewNPCRepository(db),
+		repository.NewWorldRepository(db),
+		manager,
+	), db, mock
 }
 
 // ==================== POST /admin/npc ====================
@@ -92,7 +198,7 @@ func TestAdminNPCCreateWithStartWorld(t *testing.T) {
 			"id", "name", "coord_x", "coord_y", "spectral_class", "temperature", "created_at", "updated_at",
 		}).AddRow("22222222-2222-2222-2222-222222222222", "Sirius", 0, 0, "A", 10000, now(), now()))
 	mock.ExpectExec(`INSERT INTO npc_agents \(id, name, status, current_world_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at\) VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, \$9, \$10, NOW\(\), NOW\(\)\)`).
-		WithArgs(sqlmock.AnyArg(), "Наблюдатель-1", "idle", "22222222-2222-2222-2222-222222222222", nil, nil, nil, nil, true, nil).
+		WithArgs(sqlmock.AnyArg(), "Наблюдатель-1", "idle", "22222222-2222-2222-2222-222222222222", nil, nil, nil, nil, false, nil).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	body := `{"name":"Наблюдатель-1","start_world_id":"22222222-2222-2222-2222-222222222222"}`
@@ -234,6 +340,274 @@ func TestAdminNPCPatchNoFields(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
+// ==================== POST /admin/npc/generate (спека 26a.1 §4) ====================
+
+// count < 1, не-целое, пустое тело — 400 (лимита сверху нет: спека §4.3).
+func TestAdminNPCGenerateInvalidCount(t *testing.T) {
+	h, _, _ := newBulkHarness(t)
+
+	for _, body := range []string{
+		`{"count":0}`, `{"count":-1}`, `{"count":"abc"}`, `{}`, `{"count":1.5}`,
+	} {
+		req := httptest.NewRequest(http.MethodPost, "/admin/npc/generate", strings.NewReader(body))
+		rec := execJSON(h.HandleObject, req)
+		require.Equal(t, http.StatusBadRequest, rec.Code, "body=%s", body)
+	}
+}
+
+// Нет сетки миров (снапшот карты не готов / галактика пуста) — 400
+// «Нет миров для старта» (спека §4.3).
+func TestAdminNPCGenerateNoWorlds(t *testing.T) {
+	h, _ := newAdminNPCHarness(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/npc/generate", strings.NewReader(`{"count":5}`))
+	rec := execJSON(h.HandleObject, req)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// 409 — джоб generate_npc уже крутится (TryStart, защита от двойного клика).
+func TestAdminNPCGenerateConflict(t *testing.T) {
+	h, _, _ := newBulkHarness(t)
+
+	_, cancel := context.WithCancel(context.Background())
+	require.True(t, statusManager.TryStart(generator.JobGenerateNPC, 5, cancel))
+	defer statusManager.Cancel(generator.JobGenerateNPC)
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/npc/generate", strings.NewReader(`{"count":5}`))
+	rec := execJSON(h.HandleObject, req)
+	require.Equal(t, http.StatusConflict, rec.Code)
+}
+
+// Успех: 202 → джоб доходит до done с отчётом «Создано агентов: N за X.X с»;
+// BulkInsert — одной COPY-транзакцией (спека §4.1, §4.2).
+func TestAdminNPCGenerateSuccess(t *testing.T) {
+	h, _, mock := newBulkHarness(t)
+
+	// Джоб: seed имён (ListNames) + COPY-вставка одной транзакцией.
+	mock.ExpectQuery(`SELECT name FROM npc_agents`).
+		WillReturnRows(sqlmock.NewRows([]string{"name"}).AddRow("Старый Агент"))
+	mock.ExpectBegin()
+	mock.ExpectPrepare(`COPY "npc_agents"`)
+	mock.ExpectExec(`COPY "npc_agents" \("id", "name", "status", "current_world_id", "notify_enabled", "created_at", "updated_at"\) FROM STDIN`).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "idle", sqlmock.AnyArg(), false, sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`COPY "npc_agents" \("id", "name", "status", "current_world_id", "notify_enabled", "created_at", "updated_at"\) FROM STDIN`).
+		WillReturnResult(sqlmock.NewResult(0, 0)) // flush
+	mock.ExpectCommit()
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/npc/generate", strings.NewReader(`{"count":1}`))
+	rec := execJSON(h.HandleObject, req)
+	require.Equal(t, http.StatusAccepted, rec.Code)
+
+	// Ждём завершения джоба (паттерн admin_settlements_test).
+	deadline := time.Now().Add(2 * time.Second)
+	status := ""
+	for time.Now().Before(deadline) {
+		_, _, status, _, _ = statusManager.GetStatus(generator.JobGenerateNPC)
+		if status != "running" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	require.Equal(t, "done", status, "джоб должен завершиться успешно")
+	_, _, _, _, report := statusManager.GetStatus(generator.JobGenerateNPC)
+	require.Contains(t, report, "Создано агентов: 1")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// ==================== GET /admin/npc/metrics (спека 26a.1 §8) ====================
+
+func TestAdminNPCMetrics(t *testing.T) {
+	h, mock := newAdminNPCHarness(t)
+
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM npc_agents`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(12345))
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM npc_agents WHERE status = \$1`).
+		WithArgs("idle").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(3000))
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM npc_agents WHERE status = \$1`).
+		WithArgs("flying").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(9000))
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM npc_agents WHERE status = 'flying' AND arrive_at <= \$1`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(500))
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/npc/metrics", nil)
+	rec := execJSON(h.HandleObject, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		AgentsTotal     int `json:"agents_total"`
+		AgentsIdle      int `json:"agents_idle"`
+		AgentsFlying    int `json:"agents_flying"`
+		OverdueArrivals int `json:"overdue_arrivals"`
+		Scheduler       struct {
+			TicksTotal  int64 `json:"ticks_total"`
+			FullBatches int64 `json:"full_batches"`
+		} `json:"scheduler"`
+		LastBulk interface{} `json:"last_bulk"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Equal(t, 12345, resp.AgentsTotal)
+	require.Equal(t, 3000, resp.AgentsIdle)
+	require.Equal(t, 9000, resp.AgentsFlying)
+	require.Equal(t, 500, resp.OverdueArrivals, "живой COUNT очереди на тик (вариант «а», спека §8.1)")
+	require.Nil(t, resp.LastBulk, "пачки не было — last_bulk null")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// ==================== GET /api/npc/search (спека 26a.1 §6.1) ====================
+
+// По имени — ILIKE; агента нет в PositionCache — x/y = null (клиент
+// центрирует только при наличии, спека §6.2).
+func TestAdminNPCSearchByName(t *testing.T) {
+	h, mock := newAdminNPCHarness(t)
+
+	mock.ExpectQuery(`SELECT id, name, status, current_world_id, target_world_id FROM npc_agents WHERE name ILIKE \$1 LIMIT \$2`).
+		WithArgs("%hale%", 20).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "status", "current_world_id", "target_world_id"}).
+			AddRow("a1", "Marion Hale", "flying", "w1", "w2"))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/npc/search?q=hale", nil)
+	rec := execJSON(h.SearchAgent, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Results []struct {
+			ID      string  `json:"id"`
+			Name    string  `json:"name"`
+			Status  string  `json:"status"`
+			X       *float64 `json:"x"`
+			Y       *float64 `json:"y"`
+			WorldID string  `json:"world_id"`
+		} `json:"results"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Results, 1)
+	require.Equal(t, "a1", resp.Results[0].ID)
+	require.Equal(t, "w2", resp.Results[0].WorldID, "летящий — world_id = цель полёта")
+	require.Nil(t, resp.Results[0].X, "агента нет в snapshot — x/y null")
+	require.Nil(t, resp.Results[0].Y)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Валидный UUID в q — точное совпадение по id (PK, 0–1 результат, спека §6.1).
+func TestAdminNPCSearchByUUID(t *testing.T) {
+	h, mock := newAdminNPCHarness(t)
+
+	mock.ExpectQuery(`SELECT id, name, status, current_world_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at FROM npc_agents WHERE id = \$1`).
+		WithArgs(agentID).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "name", "status", "current_world_id", "from_world_id", "target_world_id", "depart_at", "arrive_at", "notify_enabled", "last_observed_at", "created_at", "updated_at",
+		}).AddRow(agentID, "Marion Hale", "idle", "w1", nil, nil, nil, nil, false, nil, now(), now()))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/npc/search?q="+agentID, nil)
+	rec := execJSON(h.SearchAgent, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Results []struct {
+			ID      string `json:"id"`
+			WorldID string `json:"world_id"`
+		} `json:"results"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Results, 1)
+	require.Equal(t, agentID, resp.Results[0].ID)
+	require.Equal(t, "w1", resp.Results[0].WorldID, "idle — world_id = текущий мир")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// UUID не найден — пустой results (не ошибка).
+func TestAdminNPCSearchByUUIDNotFound(t *testing.T) {
+	h, mock := newAdminNPCHarness(t)
+
+	mock.ExpectQuery(`SELECT id, name, status, current_world_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at FROM npc_agents WHERE id = \$1`).
+		WithArgs(agentID).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "name", "status", "current_world_id", "from_world_id", "target_world_id", "depart_at", "arrive_at", "notify_enabled", "last_observed_at", "created_at", "updated_at",
+		}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/npc/search?q="+agentID, nil)
+	rec := execJSON(h.SearchAgent, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp struct {
+		Results []interface{} `json:"results"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Empty(t, resp.Results)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// q пуст/слишком длинный — 400 (спека §6.1).
+func TestAdminNPCSearchInvalidQ(t *testing.T) {
+	h, _ := newAdminNPCHarness(t)
+
+	long := strings.Repeat("a", 101)
+	for _, q := range []string{"q=", "q=%20%20%20", "q=" + long} {
+		req := httptest.NewRequest(http.MethodGet, "/api/npc/search?"+q, nil)
+		rec := execJSON(h.SearchAgent, req)
+		require.Equal(t, http.StatusBadRequest, rec.Code, "q=%q", q)
+	}
+}
+
+// ==================== POST /admin/npc/clear (правка 2026-09-15) ====================
+
+// Успех: один DELETE без WHERE → {"deleted": N}.
+func TestAdminNPCClearAllSuccess(t *testing.T) {
+	h, mock := newAdminNPCHarness(t)
+
+	mock.ExpectExec(`DELETE FROM npc_agents`).
+		WillReturnResult(sqlmock.NewResult(0, 7))
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/npc/clear", nil)
+	rec := execJSON(h.HandleObject, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp struct {
+		Deleted int64 `json:"deleted"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Equal(t, int64(7), resp.Deleted)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// 409 — идёт джоб генерации (паттерн ClearUniverse: живые прогоны, пишущие
+// в одни таблицы, не пересекаются — AGENTS.md §23).
+func TestAdminNPCClearAllConflict(t *testing.T) {
+	h, _ := newAdminNPCHarness(t)
+
+	_, cancel := context.WithCancel(context.Background())
+	require.True(t, statusManager.TryStart(generator.JobGenerateNPC, 5, cancel))
+	defer statusManager.Cancel(generator.JobGenerateNPC)
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/npc/clear", nil)
+	rec := execJSON(h.HandleObject, req)
+	require.Equal(t, http.StatusConflict, rec.Code)
+}
+
+// Ошибка БД — 500.
+func TestAdminNPCClearAllDBError(t *testing.T) {
+	h, mock := newAdminNPCHarness(t)
+
+	mock.ExpectExec(`DELETE FROM npc_agents`).
+		WillReturnError(errors.New("boom"))
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/npc/clear", nil)
+	rec := execJSON(h.HandleObject, req)
+	require.Equal(t, http.StatusInternalServerError, rec.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Не-POST — 405.
+func TestAdminNPCClearAllMethodNotAllowed(t *testing.T) {
+	h, _ := newAdminNPCHarness(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/npc/clear", nil)
+	rec := execJSON(h.HandleObject, req)
+	require.Equal(t, http.StatusMethodNotAllowed, rec.Code)
+}
+
 // ==================== НАСТРОЙКИ /admin/npc/settings ====================
 
 func TestAdminNPCSettingsGet(t *testing.T) {
@@ -244,28 +618,32 @@ func TestAdminNPCSettingsGet(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	var resp struct {
-		SpeedFactor float64 `json:"speed_factor"`
-		BatchSize   int     `json:"batch_size"`
+		SpeedFactor         float64 `json:"speed_factor"`
+		BatchSize           int     `json:"batch_size"`
+		NotifyEnabledGlobal bool    `json:"notify_enabled_global"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.InDelta(t, 0.3, resp.SpeedFactor, 0.0001, "дефолт = скорость игрока, спека §2.4")
 	require.Equal(t, 2000, resp.BatchSize)
+	require.False(t, resp.NotifyEnabledGlobal, "глобальный рубильник выключен по умолчанию (спека 26a.1 §7.2)")
 }
 
 func TestAdminNPCSettingsPatch(t *testing.T) {
 	h, _ := newAdminNPCHarness(t)
 
-	req := httptest.NewRequest(http.MethodPatch, "/admin/npc/settings", strings.NewReader(`{"speed_factor":0.5,"batch_size":500}`))
+	req := httptest.NewRequest(http.MethodPatch, "/admin/npc/settings", strings.NewReader(`{"speed_factor":0.5,"batch_size":500,"notify_enabled_global":true}`))
 	rec := execJSON(h.HandleObject, req)
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	var resp struct {
-		SpeedFactor float64 `json:"speed_factor"`
-		BatchSize   int     `json:"batch_size"`
+		SpeedFactor         float64 `json:"speed_factor"`
+		BatchSize           int     `json:"batch_size"`
+		NotifyEnabledGlobal bool    `json:"notify_enabled_global"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.InDelta(t, 0.5, resp.SpeedFactor, 0.0001)
 	require.Equal(t, 500, resp.BatchSize)
+	require.True(t, resp.NotifyEnabledGlobal, "рубильник применяется сразу (спека 26a.1 §7.5)")
 }
 
 func TestAdminNPCSettingsPatchInvalid(t *testing.T) {

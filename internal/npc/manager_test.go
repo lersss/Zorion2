@@ -258,7 +258,9 @@ func TestManagerPositionsRefreshed(t *testing.T) {
 
 // ==================== УВЕДОМЛЕНИЯ ====================
 
-// Уведомление шлётся только при notify_enabled (спека §5).
+// Уведомление шлётся только при notify_enabled (спека §5) И включённом
+// глобальном рубильнике (спека 26a.1 §7.3 — здесь рубильник включён,
+// проверяется per-agent флаг).
 func TestManagerNotifyOnlyWhenEnabled(t *testing.T) {
 	store := &fakeStore{agents: []models.NPCAgent{
 		{ID: "a1", Status: models.NPCAgentStatusFlying, CurrentWorldID: "w1",
@@ -272,6 +274,7 @@ func TestManagerNotifyOnlyWhenEnabled(t *testing.T) {
 	m := newTestManager(store)
 	m.SetNotifier(notifier)
 	m.settings.SetBatchSize(1)
+	m.settings.SetNotifyGlobalEnabled(true) // рубильник включён — гейт по per-agent
 
 	m.tick() // бюджет 1: прибытие a1 (notify=true)
 	m.tick() // прибытие a2 (notify=false)
@@ -321,4 +324,110 @@ func TestManagerWorldName(t *testing.T) {
 	m.gridPtr.Store(grid)
 	require.Equal(t, "Sirius", m.WorldName("w1"))
 	require.Equal(t, "", m.WorldName("nope"), "нет мира — пустое имя")
+}
+
+// ==================== МЕТРИКИ (спека 26a.1 §8) ====================
+
+// Метрики тика: после тика ticks_total/last_tick_at/last_tick_ms заполнены;
+// прибытия заняли весь batch — full_batches растёт (очередь не разобрана).
+// last_bulk = null, пока пачка не запускалась.
+func TestManagerTickMetrics(t *testing.T) {
+	store := &fakeStore{agents: []models.NPCAgent{
+		{ID: "a1", Status: models.NPCAgentStatusFlying, CurrentWorldID: "w1",
+			TargetWorldID: ptrStr("w2"), ArriveAt: ptrTime(time.Now().Add(-time.Second))},
+	}}
+	m := newTestManager(store)
+	m.settings.SetBatchSize(1)
+
+	m.tick()
+
+	mm := m.Metrics()
+	require.Equal(t, int64(1), mm.Scheduler.TicksTotal)
+	require.NotZero(t, mm.Scheduler.LastTickAt, "last_tick_at — время последнего тика")
+	require.GreaterOrEqual(t, mm.Scheduler.LastTickMs, float64(0))
+	require.Equal(t, int64(1), mm.Scheduler.FullBatches,
+		"прибытия заняли весь batchSize — очередь не разобрана за тик")
+	require.Nil(t, mm.LastBulk, "пачки массовой генерации не было — last_bulk null")
+
+	m.RecordBulk(100, 2300*time.Millisecond)
+	mm = m.Metrics()
+	require.NotNil(t, mm.LastBulk)
+	require.Equal(t, int64(100), mm.LastBulk.Count)
+	require.Equal(t, int64(2300), mm.LastBulk.DurationMs)
+	require.NotZero(t, mm.LastBulk.FinishedAt)
+}
+
+// RandomWorlds — n случайных миров из сетки (спека 26a.1 §4.4): O(1) на
+// агента по предвычисленному allIDs; false — сетки нет.
+func TestManagerRandomWorlds(t *testing.T) {
+	grid := buildGrid([]mapcache.World{{ID: "w1", X: 0, Y: 0}, {ID: "w2", X: 100, Y: 0}})
+	m := newTestManager(&fakeStore{})
+
+	_, ok := m.RandomWorlds(3)
+	require.False(t, ok, "сетки нет — миров нет")
+
+	m.gridPtr.Store(grid)
+	out, ok := m.RandomWorlds(5)
+	require.True(t, ok)
+	require.Len(t, out, 5)
+	for _, id := range out {
+		require.Contains(t, []string{"w1", "w2"}, id)
+	}
+}
+
+// ==================== МАССОВОЕ УДАЛЕНИЕ (правка 2026-09-15) ====================
+
+// OnAgentsDeleted — после массового удаления очищается in-memory: позиции
+// для карты (между DELETE и следующим тиком нет «призраков») и last_bulk
+// (пачки больше нет).
+func TestManagerOnAgentsDeleted(t *testing.T) {
+	m := newTestManager(&fakeStore{})
+
+	// Позиции были (карта показывала агентов) и метрика пачки есть.
+	m.positions.Replace([]InterpolatedPosition{{ID: "a1", X: 1, Y: 2}})
+	m.RecordBulk(100, time.Second)
+	require.NotNil(t, m.Metrics().LastBulk, "метрика пачки была")
+
+	m.OnAgentsDeleted()
+
+	require.Nil(t, m.Positions(), "позиции очищены — карта без призраков")
+	require.Nil(t, m.Metrics().LastBulk, "last_bulk сброшен")
+}
+
+// ==================== ГЛОБАЛЬНЫЙ РУБИЛЬНИК ПУШЕЙ (спека 26a.1 §7.3) ====================
+
+// Уведомление ⇔ notifyGlobalEnabled И agent.notify_enabled. Рубильник
+// выключен по умолчанию: даже notify_enabled=true не шлёт; после включения —
+// только включённые агенты.
+func TestManagerNotifyGlobalGate(t *testing.T) {
+	store := &fakeStore{agents: []models.NPCAgent{
+		{ID: "a1", Status: models.NPCAgentStatusFlying, CurrentWorldID: "w1",
+			TargetWorldID: ptrStr("w2"), ArriveAt: ptrTime(time.Now().Add(-time.Second)),
+			NotifyEnabled: true},
+		{ID: "a2", Status: models.NPCAgentStatusFlying, CurrentWorldID: "w1",
+			TargetWorldID: ptrStr("w3"), ArriveAt: ptrTime(time.Now().Add(-time.Second)),
+			NotifyEnabled: false},
+	}}
+	notifier := &recordingNotifier{}
+	m := newTestManager(store)
+	m.SetNotifier(notifier)
+	m.settings.SetBatchSize(1)
+
+	// Рубильник off (дефолт) — уведомлений нет даже у включённых.
+	m.tick()
+	m.tick()
+	require.Equal(t, 0, notifier.calls, "рубильник выключен — уведомлений нет")
+
+	// Включили: шлёт только notify_enabled=true.
+	store.agents[0].Status = models.NPCAgentStatusFlying
+	store.agents[0].CurrentWorldID = "w1"
+	store.agents[0].ArriveAt = ptrTime(time.Now().Add(-time.Second))
+	store.agents[1].Status = models.NPCAgentStatusFlying
+	store.agents[1].CurrentWorldID = "w1"
+	store.agents[1].ArriveAt = ptrTime(time.Now().Add(-time.Second))
+	m.settings.SetNotifyGlobalEnabled(true)
+
+	m.tick() // a1: notify=true → шлёт
+	m.tick() // a2: notify=false → не шлёт
+	require.Equal(t, 1, notifier.calls, "при включённом рубильнике шлёт только включённых")
 }

@@ -166,6 +166,11 @@ export function draw() {
     }
 
     updateStatusBar(statusBar, visibleClusters, isFlying, flyStartTime, flyDuration);
+
+    // FPS-плашка рисуется ПОСЛЕ всей отрисовки: любой вызов draw() (полёт,
+    // события мыши, отдельный rAF-цикл NPC-агентов на близком зуме) чистит
+    // канвас целиком — рисуем плашку последней, чтобы её не стирало.
+    drawFpsOverlay(ctx, canvasWidth, canvasHeight);
 }
 
 // ==================== СЕТКА ====================
@@ -688,4 +693,48 @@ export function hashString(s) {
         hash = (hash * 31 + s.charCodeAt(i)) & 0xFFFFFFFF;
     }
     return hash;
+}
+
+// ==================== FPS-СЧЁТЧИК ====================
+// Только для admin/skycomposer (инструмент создателя, идея 28a). EMA-сглаживание
+// по времени между кадрами; рисование — в конце draw() (см. вызов выше), чтобы
+// плашку не стирал clearRect ни одного из источников перерисовки. Для player —
+// мгновенный return: ноль вычислений и отрисовки.
+const FPS_ROLES = ['admin', 'skycomposer'];
+const FPS_EMA_ALPHA = 0.1;
+let fpsEMA = 60;
+let fpsLastFrameAt = 0;
+
+export function updateFpsCounter() {
+    if (!FPS_ROLES.includes(state.userRole)) return;
+    const now = performance.now();
+    if (fpsLastFrameAt > 0) {
+        const dt = now - fpsLastFrameAt;
+        if (dt > 0) {
+            const inst = 1000 / dt;
+            fpsEMA = fpsEMA * (1 - FPS_EMA_ALPHA) + inst * FPS_EMA_ALPHA;
+        }
+    }
+    fpsLastFrameAt = now;
+}
+
+// drawFpsOverlay — маленькая полупрозрачная плашка «N FPS» в левом нижнем углу.
+function drawFpsOverlay(ctx, canvasWidth, canvasHeight) {
+    if (!FPS_ROLES.includes(state.userRole)) return;
+    const text = Math.round(fpsEMA) + ' FPS';
+    const fontSize = 12;
+    const pad = 8;
+    ctx.font = `600 ${fontSize}px system-ui`;
+    const w = ctx.measureText(text).width + 14;
+    const h = fontSize + 10;
+    const x = pad;
+    const y = canvasHeight - h - pad;
+
+    ctx.fillStyle = 'rgba(10,15,32,0.55)';
+    ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = 'rgba(226,232,240,0.7)';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, x + 7, y + h / 2);
+    ctx.textBaseline = 'alphabetic';
 }

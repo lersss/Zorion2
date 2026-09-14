@@ -1,4 +1,4 @@
-// internal/repository/npc_repository_test.go
+﻿// internal/repository/npc_repository_test.go
 // Тесты репозитория NPC-агентов (спека 20a.1, этап 1): курсорные выборки
 // (ListBatch / ListDueArrivals), batch-смены состояния (UpdateStatusBatch),
 // Insert / Delete. Хелпер now() — общий с user_repository_test.go.
@@ -6,6 +6,7 @@ package repository
 
 import (
 	"database/sql"
+	"errors"
 	"testing"
 	"time"
 
@@ -288,21 +289,231 @@ func TestNPCUpdateStatusBatchEmpty(t *testing.T) {
 // ==================== INSERT ====================
 
 // Создание агента: пустой Status в модели → idle (спека §8: «ставит его
-// в status='idle' на стартовый мир»).
+// в status='idle' на стартовый мир»). notify_enabled = false — дефолт новых
+// агентов (спека 26a.1 §7.4: пуши — только через глобальный рубильник).
 func TestNPCInsertDefaultsIdle(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
 	defer db.Close()
 
 	mock.ExpectExec(`INSERT INTO npc_agents \(id, name, status, current_world_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at\) VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, \$9, \$10, NOW\(\), NOW\(\)\)`).
-		WithArgs("a1", "Наблюдатель-1", "idle", "w1", nil, nil, nil, nil, true, nil).
+		WithArgs("a1", "Наблюдатель-1", "idle", "w1", nil, nil, nil, nil, false, nil).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	agent := &models.NPCAgent{ID: "a1", Name: "Наблюдатель-1", CurrentWorldID: "w1"}
 	require.NoError(t, NewNPCRepository(db).Insert(agent))
 	require.NoError(t, mock.ExpectationsWereMet())
 	require.Equal(t, models.NPCAgentStatusIdle, agent.Status, "модель должна получить статус idle")
-	require.True(t, agent.NotifyEnabled, "создание всегда с уведомлениями (спека §8)")
+	require.False(t, agent.NotifyEnabled, "дефолт новых агентов — notify_enabled=false (спека 26a.1 §7.4)")
+}
+
+// ==================== BULK INSERT (COPY) ====================
+
+// BulkInsert — пачка одной COPY-операцией (pq.CopyIn, спека 26a.1 §4.2):
+// одна транзакция, статус idle, notify_enabled=false. Колонки — только
+// создание; кортеж полёта не входит (DEFAULT NULL).
+func TestNPCBulkInsert(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectPrepare(`COPY "npc_agents" \("id", "name", "status", "current_world_id", "notify_enabled", "created_at", "updated_at"\) FROM STDIN`)
+	mock.ExpectExec(`COPY "npc_agents" \("id", "name", "status", "current_world_id", "notify_enabled", "created_at", "updated_at"\) FROM STDIN`).
+		WithArgs("a1", "Marion Hale", "idle", "w1", false, sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`COPY "npc_agents" \("id", "name", "status", "current_world_id", "notify_enabled", "created_at", "updated_at"\) FROM STDIN`).
+		WithArgs("a2", "Cyrus Venn", "idle", "w2", false, sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`COPY "npc_agents" \("id", "name", "status", "current_world_id", "notify_enabled", "created_at", "updated_at"\) FROM STDIN`).
+		WillReturnResult(sqlmock.NewResult(0, 0)) // flush без аргументов
+	mock.ExpectCommit()
+
+	agents := []models.NPCAgent{
+		{ID: "a1", Name: "Marion Hale", CurrentWorldID: "w1", NotifyEnabled: true}, // принудительно true — COPY должен писать false
+		{ID: "a2", Name: "Cyrus Venn", CurrentWorldID: "w2"},
+	}
+	require.NoError(t, NewNPCRepository(db).BulkInsert(agents))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Ошибка в середине COPY → rollback: ни одна строка не вставлена.
+func TestNPCBulkInsertRollback(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectPrepare(`COPY "npc_agents" \("id", "name", "status", "current_world_id", "notify_enabled", "created_at", "updated_at"\) FROM STDIN`)
+	mock.ExpectExec(`COPY "npc_agents" \("id", "name", "status", "current_world_id", "notify_enabled", "created_at", "updated_at"\) FROM STDIN`).
+		WithArgs("a1", "Marion Hale", "idle", "w1", false, sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`COPY "npc_agents" \("id", "name", "status", "current_world_id", "notify_enabled", "created_at", "updated_at"\) FROM STDIN`).
+		WithArgs("a2", "Cyrus Venn", "idle", "w2", false, sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnError(errors.New("boom"))
+	mock.ExpectRollback()
+
+	agents := []models.NPCAgent{
+		{ID: "a1", Name: "Marion Hale", CurrentWorldID: "w1"},
+		{ID: "a2", Name: "Cyrus Venn", CurrentWorldID: "w2"},
+	}
+	err = NewNPCRepository(db).BulkInsert(agents)
+	require.Error(t, err, "ошибка в середине COPY → ошибка транзакции")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Пустой список — без обращения к БД.
+func TestNPCBulkInsertEmpty(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
+	require.NoError(t, err)
+	defer db.Close()
+
+	require.NoError(t, NewNPCRepository(db).BulkInsert(nil))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// ==================== LIST NAMES (seed уникальности) ====================
+
+// ListNames — все имена агентов (спека 26a.1 §3.2: seed перед пачкой,
+// уникальность между пачками). Одна колонка.
+func TestNPCListNames(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectQuery(`SELECT name FROM npc_agents`).
+		WillReturnRows(sqlmock.NewRows([]string{"name"}).
+			AddRow("Marion Hale").AddRow("Cyrus Venn"))
+
+	names, err := NewNPCRepository(db).ListNames()
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+	require.Equal(t, []string{"Marion Hale", "Cyrus Venn"}, names)
+}
+
+// ==================== LIST PAGE (keyset-пагинация) ====================
+
+// Первая страница: без WHERE, ORDER BY created_at DESC, id DESC, LIMIT.
+// next_cursor — opaque-строка точки последней записи (декодируется обратно).
+func TestNPCListPageFirst(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	created := now()
+	mock.ExpectQuery(`SELECT id, name, status, current_world_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at FROM npc_agents ORDER BY created_at DESC, id DESC LIMIT \$1`).
+		WithArgs(2).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "name", "status", "current_world_id", "from_world_id", "target_world_id", "depart_at", "arrive_at", "notify_enabled", "last_observed_at", "created_at", "updated_at",
+		}).
+			AddRow("a2", "Cyrus Venn", "idle", "w2", nil, nil, nil, nil, false, nil, created.Add(time.Minute), created.Add(time.Minute)).
+			AddRow("a1", "Marion Hale", "idle", "w1", nil, nil, nil, nil, false, nil, created, created))
+
+	agents, next, err := NewNPCRepository(db).ListPage(2, "")
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+	require.Len(t, agents, 2)
+	require.Equal(t, "a2", agents[0].ID, "свежие сверху (created_at DESC)")
+	require.NotEmpty(t, next, "страница полная — есть следующая")
+
+	// Курсор — точка последней записи страницы: created_at + id.
+	ct, id, err := decodeCursor(next)
+	require.NoError(t, err)
+	require.Equal(t, created, ct)
+	require.Equal(t, "a1", id)
+}
+
+// Вторая страница: WHERE (created_at, id) < ($1, $2); последняя строка —
+// next_cursor = "" (страниц больше нет).
+func TestNPCListPageSecondAndEnd(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	created := now()
+	cursor := encodeCursor(created, "a1")
+	mock.ExpectQuery(`SELECT id, name, status, current_world_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at FROM npc_agents WHERE \(created_at, id\) < \(\$1, \$2\) ORDER BY created_at DESC, id DESC LIMIT \$3`).
+		WithArgs(created, "a1", 2).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "name", "status", "current_world_id", "from_world_id", "target_world_id", "depart_at", "arrive_at", "notify_enabled", "last_observed_at", "created_at", "updated_at",
+		}).
+			AddRow("a0", "Old One", "idle", "w0", nil, nil, nil, nil, false, nil, created.Add(-time.Minute), created.Add(-time.Minute)))
+
+	agents, next, err := NewNPCRepository(db).ListPage(2, cursor)
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+	require.Len(t, agents, 1)
+	require.Equal(t, "a0", agents[0].ID)
+	require.Empty(t, next, "строк меньше лимита — конец списка")
+}
+
+// Невалидный cursor — ErrInvalidCursor (хендлер отдаёт 400).
+func TestNPCListPageInvalidCursor(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
+	require.NoError(t, err)
+	defer db.Close()
+
+	_, _, err = NewNPCRepository(db).ListPage(10, "!!!not-base64!!!")
+	require.ErrorIs(t, err, ErrInvalidCursor)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// ==================== СЧЁТЧИКИ МЕТРИК ====================
+
+func TestNPCCounts(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM npc_agents`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(12345))
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM npc_agents WHERE status = \$1`).
+		WithArgs("idle").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(3000))
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM npc_agents WHERE status = \$1`).
+		WithArgs("flying").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(9000))
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM npc_agents WHERE status = 'flying' AND arrive_at <= \$1`).
+		WithArgs(now()).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(500))
+
+	repo := NewNPCRepository(db)
+	total, err := repo.CountTotal()
+	require.NoError(t, err)
+	require.Equal(t, 12345, total)
+	idle, err := repo.CountByStatus(models.NPCAgentStatusIdle)
+	require.NoError(t, err)
+	require.Equal(t, 3000, idle)
+	flying, err := repo.CountByStatus(models.NPCAgentStatusFlying)
+	require.NoError(t, err)
+	require.Equal(t, 9000, flying)
+	overdue, err := repo.CountOverdue(now())
+	require.NoError(t, err)
+	require.Equal(t, 500, overdue)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// ==================== ПОИСК ПО ИМЕНИ ====================
+
+func TestNPCSearchByName(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectQuery(`SELECT id, name, status, current_world_id, target_world_id FROM npc_agents WHERE name ILIKE \$1 LIMIT \$2`).
+		WithArgs("%hale%", 20).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "status", "current_world_id", "target_world_id"}).
+			AddRow("a1", "Marion Hale", "flying", "w1", "w2").
+			AddRow("a2", "Hale Bell", "idle", "w3", nil))
+
+	agents, err := NewNPCRepository(db).SearchByName("hale", 20)
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+	require.Len(t, agents, 2)
+	require.Equal(t, "a1", agents[0].ID)
+	require.NotNil(t, agents[0].TargetWorldID, "летящий — цель полёта")
+	require.Equal(t, "w2", *agents[0].TargetWorldID)
+	require.Nil(t, agents[1].TargetWorldID, "idle — цели нет")
 }
 
 // ==================== DELETE ====================
@@ -317,6 +528,37 @@ func TestNPCDelete(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	require.NoError(t, NewNPCRepository(db).Delete("a1"))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// DeleteAll — массовое удаление: один DELETE без WHERE (спека 26a.1, правка
+// создателя 2026-09-15: атомарно и быстро, НЕ одиночные DELETE по id).
+func TestNPCDeleteAll(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectExec(`DELETE FROM npc_agents`).
+		WillReturnResult(sqlmock.NewResult(0, 7))
+
+	deleted, err := NewNPCRepository(db).DeleteAll()
+	require.NoError(t, err)
+	require.Equal(t, int64(7), deleted, "число удалённых строк")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Пустая таблица — 0 удалено, не ошибка.
+func TestNPCDeleteAllEmpty(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectExec(`DELETE FROM npc_agents`).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	deleted, err := NewNPCRepository(db).DeleteAll()
+	require.NoError(t, err)
+	require.Equal(t, int64(0), deleted)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

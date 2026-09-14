@@ -243,9 +243,11 @@ func main() {
 	http.HandleFunc("/admin/users/", auth.SkycomposerAuth(adminUsersHandlers.HandleUser))
 
 	// NPC-агенты (спека 20a.1 §8): админка (AdminAuth) + позиции для карты (JWT)
+	// + поиск агента на карте (спека 26a.1 §6: игровая ручка, JWT).
 	http.HandleFunc("/admin/npc", auth.AdminAuth(npcAdminHandlers.HandleCollection))
 	http.HandleFunc("/admin/npc/", auth.AdminAuth(npcAdminHandlers.HandleObject))
 	http.HandleFunc("/api/npc/positions", auth.AuthMiddleware(npcAdminHandlers.Positions))
+	http.HandleFunc("/api/npc/search", auth.AuthMiddleware(npcAdminHandlers.SearchAgent))
 
 	// Корабли (спека 99.2.15 §10): каталог для клиента (из памяти, O(1)) +
 	// «теневой» генератор в админке. Порядок паттернов: точные пути

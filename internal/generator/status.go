@@ -14,6 +14,10 @@ const (
 	JobGenerateFactions JobType = "generate_factions"
 	JobGenerateSettlements JobType = "generate_settlements"
 	JobHypothesis JobType = "hypothesis"
+	// JobGenerateNPC — массовая генерация NPC-агентов (спека 26a.1 §4.1):
+	// асинхронный джоб, статус/прогресс/отчёт через существующие ручки
+	// /admin/generate-status и poll.js.
+	JobGenerateNPC JobType = "generate_npc"
 )
 
 type JobStatus struct {

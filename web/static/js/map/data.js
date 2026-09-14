@@ -221,6 +221,7 @@ export async function loadUserData(force = false) {
         const user = await res.json();
 
         if (user.id) state.userId = user.id;
+        if (user.role) state.userRole = user.role;
         if (user.ship_icon) {
             setShipIcon(user.ship_icon);
         }

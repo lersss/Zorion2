@@ -2,10 +2,14 @@ package repository
 
 import (
 	"database/sql"
+	"encoding/base64"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/lib/pq"
 
 	"zorion/internal/models"
 )
@@ -205,14 +209,13 @@ func applyAgentUpdate(tx *sql.Tx, u models.AgentStatusUpdate) error {
 
 // Insert создаёт агента (спека 20a.1 §8): статус idle на стартовом мире,
 // дальше подхватывает планировщик. Пустой Status в модели → idle.
+// notify_enabled = false — дефолт новых агентов (спека 26a.1 §7.4: пуши —
+// только через глобальный рубильник; был true до 26a).
 func (r *NPCRepository) Insert(a *models.NPCAgent) error {
 	if a.Status == "" {
 		a.Status = models.NPCAgentStatusIdle
 	}
-	// Создание всегда с уведомлениями (спека §8: POST {name, start_world_id?} —
-	// поля уведомлений нет; выключение per-agent — через PATCH). Совпадает с
-	// DEFAULT true в БД; PATCH — отдельный метод.
-	a.NotifyEnabled = true
+	a.NotifyEnabled = false
 	query := `INSERT INTO npc_agents (id, name, status, current_world_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())`
 	_, err := r.db.Exec(query,
 		a.ID, a.Name, a.Status, a.CurrentWorldID,
@@ -243,4 +246,192 @@ func (r *NPCRepository) Delete(id string) error {
 		return sql.ErrNoRows
 	}
 	return nil
+}
+
+// DeleteAll — массовое удаление всех агентов: один DELETE без WHERE
+// (правка создателя 2026-09-15: атомарно и быстро, НЕ одиночные DELETE
+// по id). Возвращает число удалённых строк.
+func (r *NPCRepository) DeleteAll() (int64, error) {
+	res, err := r.db.Exec(`DELETE FROM npc_agents`)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+// ==================== МАССОВАЯ ГЕНЕРАЦИЯ (спека 26a.1 §4) ====================
+
+// BulkInsert — массовое создание агентов одной COPY-операцией (спека §4.2,
+// pq.CopyIn, паттерн planet_data_batch.go: в 5–10 раз быстрее multi-row,
+// без лимита 65535 параметров). Одна транзакция — «всё или ничего».
+// notify_enabled = false для всех (§7.4: пуши — только через глобальный
+// рубильник). Повторный запуск с тем же count — новая пачка.
+func (r *NPCRepository) BulkInsert(agents []models.NPCAgent) error {
+	if len(agents) == 0 {
+		return nil
+	}
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Колонки создания; кортеж полёта не входит — DEFAULT NULL (спека §4.2).
+	stmt, err := tx.Prepare(pq.CopyIn("npc_agents",
+		"id", "name", "status", "current_world_id", "notify_enabled", "created_at", "updated_at"))
+	if err != nil {
+		return fmt.Errorf("prepare copy npc_agents: %w", err)
+	}
+
+	now := time.Now()
+	for _, a := range agents {
+		if _, err := stmt.Exec(a.ID, a.Name, models.NPCAgentStatusIdle, a.CurrentWorldID, false, now, now); err != nil {
+			stmt.Close()
+			return fmt.Errorf("copy npc_agents row: %w", err)
+		}
+	}
+	// Финальный Exec без аргументов — flush.
+	if _, err := stmt.Exec(); err != nil {
+		stmt.Close()
+		return fmt.Errorf("copy npc_agents flush: %w", err)
+	}
+	if err := stmt.Close(); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// ListNames — все имена агентов (спека §3.2: seed уникальности перед пачкой —
+// гарантия между пачками). Одна колонка, один запрос.
+func (r *NPCRepository) ListNames() ([]string, error) {
+	rows, err := r.db.Query(`SELECT name FROM npc_agents`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var names []string
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			return nil, err
+		}
+		names = append(names, n)
+	}
+	return names, rows.Err()
+}
+
+// ==================== ПАГИНАЦИЯ СПИСКА (спека 26a.1 §5) ====================
+
+// ErrInvalidCursor — cursor не является валидной opaque-строкой (хендлер
+// отвечает 400).
+var ErrInvalidCursor = errors.New("невалидный cursor")
+
+// encodeCursor — opaque-курсор: base64url(created_atRFC3339Nano + "," + id)
+// точки последней записи страницы (спека §5.2).
+func encodeCursor(t time.Time, id string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(t.UTC().Format(time.RFC3339Nano) + "," + id))
+}
+
+func decodeCursor(cursor string) (time.Time, string, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(cursor)
+	if err != nil {
+		return time.Time{}, "", ErrInvalidCursor
+	}
+	parts := strings.SplitN(string(raw), ",", 2)
+	if len(parts) != 2 {
+		return time.Time{}, "", ErrInvalidCursor
+	}
+	t, err := time.Parse(time.RFC3339Nano, parts[0])
+	if err != nil {
+		return time.Time{}, "", ErrInvalidCursor
+	}
+	return t, parts[1], nil
+}
+
+// ListPage — страница агентов keyset-курсором по (created_at, id) (спека
+// §5.2): свежие сверху, курсор — точка последней записи предыдущей страницы.
+// cursor = "" — первая страница (без WHERE). Возвращает next_cursor ("" —
+// страниц больше нет). O(страница) по индексу (created_at DESC, id DESC).
+func (r *NPCRepository) ListPage(limit int, cursor string) ([]models.NPCAgent, string, error) {
+	query := `SELECT ` + npcAgentColumns + ` FROM npc_agents`
+	var args []interface{}
+	if cursor != "" {
+		t, id, err := decodeCursor(cursor)
+		if err != nil {
+			return nil, "", err
+		}
+		query += ` WHERE (created_at, id) < ($1, $2)`
+		args = append(args, t, id)
+	}
+	query += ` ORDER BY created_at DESC, id DESC LIMIT $` + strconv.Itoa(len(args)+1)
+	args = append(args, limit)
+
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+	agents, err := scanNPCAgents(rows)
+	if err != nil {
+		return nil, "", err
+	}
+
+	var next string
+	if len(agents) == limit {
+		last := agents[len(agents)-1]
+		next = encodeCursor(last.CreatedAt, last.ID)
+	}
+	return agents, next, nil
+}
+
+// ==================== СЧЁТЧИКИ МЕТРИК (спека 26a.1 §8) ====================
+
+func (r *NPCRepository) CountTotal() (int, error) {
+	var n int
+	err := r.db.QueryRow(`SELECT COUNT(*) FROM npc_agents`).Scan(&n)
+	return n, err
+}
+
+// CountByStatus — число агентов в статусе (индекс (status, id) из 000026).
+func (r *NPCRepository) CountByStatus(status models.NPCAgentStatus) (int, error) {
+	var n int
+	err := r.db.QueryRow(`SELECT COUNT(*) FROM npc_agents WHERE status = $1`, status).Scan(&n)
+	return n, err
+}
+
+// CountOverdue — очередь на тик: прибытия, которые уже должны были обработаны
+// (живой COUNT при запросе метрик, спека §8.1 «вариант (а)»: flying И
+// arrive_at <= now — главный индикатор лагов планировщика).
+func (r *NPCRepository) CountOverdue(now time.Time) (int, error) {
+	var n int
+	err := r.db.QueryRow(`SELECT COUNT(*) FROM npc_agents WHERE status = 'flying' AND arrive_at <= $1`, now).Scan(&n)
+	return n, err
+}
+
+// ==================== ПОИСК ПО ИМЕНИ (спека 26a.1 §6.1) ====================
+
+// SearchByName — регистронезависимый поиск агентов по имени (ILIKE '%q%').
+// На 100к — seq scan ~10–50 мс; для разового поиска на карте приемлемо,
+// pg_trgm-индекс — кандидат 26b (§11, ограничение 4).
+func (r *NPCRepository) SearchByName(q string, limit int) ([]models.NPCAgent, error) {
+	rows, err := r.db.Query(
+		`SELECT id, name, status, current_world_id, target_world_id FROM npc_agents WHERE name ILIKE $1 LIMIT $2`,
+		"%"+q+"%", limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []models.NPCAgent
+	for rows.Next() {
+		var a models.NPCAgent
+		var target sql.NullString
+		if err := rows.Scan(&a.ID, &a.Name, &a.Status, &a.CurrentWorldID, &target); err != nil {
+			return nil, err
+		}
+		if target.Valid {
+			a.TargetWorldID = &target.String
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
 }

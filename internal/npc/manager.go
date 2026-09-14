@@ -4,6 +4,7 @@ import (
 	"log"
 	"math"
 	"math/rand"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -42,6 +43,31 @@ func (s *MapCacheSource) Snapshot() *mapcache.Snapshot {
 	return s.m.Snapshot()
 }
 
+// SchedulerMetrics — метрики тика планировщика (спека 26a.1 §8.1):
+// last_tick_ms — занятость тика (при 100к ListAll может быть секунды),
+// full_batches — кумулятивный счётчик перегрузок (прибытия заняли весь batch).
+type SchedulerMetrics struct {
+	LastTickMs  float64   `json:"last_tick_ms"`
+	LastTickAt  time.Time `json:"last_tick_at"`
+	TicksTotal  int64     `json:"ticks_total"`
+	FullBatches int64     `json:"full_batches"`
+}
+
+// BulkMetrics — отчёт последней пачки массовой генерации (§8.1, пишет
+// RecordBulk по завершении джоба).
+type BulkMetrics struct {
+	Count      int64     `json:"count"`
+	DurationMs int64     `json:"duration_ms"`
+	FinishedAt time.Time `json:"finished_at"`
+}
+
+// ManagerMetrics — метрики менеджера для /admin/npc/metrics (§8.2).
+// LastBulk = nil → в JSON «last_bulk»: null (пачки ещё не было).
+type ManagerMetrics struct {
+	Scheduler SchedulerMetrics `json:"scheduler"`
+	LastBulk  *BulkMetrics     `json:"last_bulk"`
+}
+
 // Manager — фоновый планировщик NPC-агентов (спека 20a.1 §3.1).
 // Одна горутина, тик каждые npcTickInterval. Единственный писатель
 // состояния агентов (спека §9 И1): смены состояния — batch-транзакциями
@@ -62,10 +88,23 @@ type Manager struct {
 
 	// Сетка миров: перестраивается только при смене снапшота mapcache
 	// (после перегенерации вселенной), не на каждом тике (И2).
-	// atomic.Pointer: сетку читает и хендлер (RandomWorld) из другой
-	// горутины (AGENTS.md §0); после построения сетка immutable.
+	// atomic.Pointer: сетку читает и хендлер (RandomWorld/RandomWorlds) из
+	// другой горутины (AGENTS.md §0); после построения сетка immutable.
+	// gridMu сериализует перестройку (tick + хендлер массовой генерации).
 	gridPtr      atomic.Pointer[worldGrid]
+	gridMu       sync.Mutex
 	gridSnapshot *mapcache.Snapshot
+
+	// Метрики поведения (спека 26a.1 §8): атомарные счётчики тика и
+	// последней пачки массовой генерации; in-memory — при рестарте
+	// сбрасываются (для инструмента замеров ок, §2 Р4-B).
+	lastTickMs     atomic.Int64 // длительность последнего тика, мс
+	lastTickAt     atomic.Int64 // unix-нано последнего тика (0 — тика не было)
+	ticksTotal     atomic.Int64
+	fullBatches    atomic.Int64 // раз прибытия заняли весь batchSize (очередь не разобрана)
+	bulkCount      atomic.Int64 // последняя пачка: число агентов
+	bulkDurationMs atomic.Int64 // последняя пачка: длительность, мс
+	bulkFinishedAt atomic.Int64 // последняя пачка: unix-нано завершения (0 — пачки не было)
 
 	stop chan struct{}
 	done chan struct{}
@@ -117,18 +156,30 @@ func (m *Manager) Settings() *Settings {
 
 // RandomWorld — случайный мир галактики для стартовой позиции агента
 // (спека §8: стартовый мир, если не указан). Источник — сетка миров
-// (atomic.Pointer — чтение из хендлера, AGENTS.md §0). false — снапшот
-// карты не готов или галактика пуста.
+// (atomic.Pointer — чтение из хендлера, AGENTS.md §0): предвычисленный
+// allIDs, O(1) без построения слайса на каждый вызов (спека 26a.1 §4.4).
+// false — снапшот карты не готов или галактика пуста.
 func (m *Manager) RandomWorld() (string, bool) {
 	g := m.gridPtr.Load()
-	if g == nil || len(g.byID) == 0 {
+	if g == nil || len(g.allIDs) == 0 {
 		return "", false
 	}
-	ids := make([]string, 0, len(g.byID))
-	for id := range g.byID {
-		ids = append(ids, id)
+	return g.allIDs[rand.Intn(len(g.allIDs))], true
+}
+
+// RandomWorlds — n случайных миров галактики для стартовых позиций пачки
+// (спека 26a.1 §4.1, §4.4): O(1) на агента по предвычисленному allIDs,
+// повторы допустимы. false — снапшот не готов или галактика пуста.
+// Вызывается из хендлера (другая горутина) — перестройка сетки под gridMu.
+func (m *Manager) RandomWorlds(n int) ([]string, bool) {
+	m.refreshGrid()
+	g := m.gridPtr.Load()
+	if g == nil || len(g.allIDs) == 0 {
+		return nil, false
 	}
-	return ids[rand.Intn(len(ids))], true
+	// Локальный rand — общие *rand.Rand не потокобезопасны (§0).
+	rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
+	return g.randomWorlds(rnd, n)
 }
 
 // WorldName — имя мира по id (спека §5: уведомления {"world": {id, name}}).
@@ -172,7 +223,17 @@ func (m *Manager) safeTick() {
 //  1. прибытия (приоритет): flying с arrive_at <= now → idle + last_observed_at;
 //  2. старты из остатка бюджета: idle → flying (маршрут §3.2);
 //  3. пересчёт позиций всех агентов для карты (§2.2.B).
+//
+// Метрики (спека 26a.1 §8.1): длительность тика, full_batches — прибытия
+// заняли весь batchSize (очередь не разобрана за тик).
 func (m *Manager) tick() {
+	start := time.Now()
+	defer func() {
+		m.lastTickMs.Store(time.Since(start).Milliseconds())
+		m.lastTickAt.Store(start.UnixNano())
+		m.ticksTotal.Add(1)
+	}()
+
 	m.refreshGrid()
 
 	now := time.Now()
@@ -189,6 +250,8 @@ func (m *Manager) tick() {
 		m.arrivalCursor = arrivals[len(arrivals)-1].ID
 		if len(arrivals) < batchSize {
 			m.arrivalCursor = "" // конец круга — следующий тик начнёт с начала
+		} else {
+			m.fullBatches.Add(1) // прибытия заняли весь бюджет — очередь не разобрана
 		}
 	} else {
 		m.arrivalCursor = ""
@@ -220,7 +283,9 @@ func (m *Manager) processArrivals(arrivals []models.NPCAgent, now time.Time) {
 			CurrentWorldID: *a.TargetWorldID, // цель полёта становится текущим миром
 			LastObservedAt: &now,
 		})
-		if a.NotifyEnabled {
+		// Гейт отправки (спека 26a.1 §7.3): уведомление ⇔ глобальный рубильник
+		// И per-agent флаг. Логика тика не меняется — только условие.
+		if m.settings.NotifyGlobalEnabled() && a.NotifyEnabled {
 			m.notifier.NotifyArrival(a, now)
 		}
 	}
@@ -295,7 +360,11 @@ func (m *Manager) processStarts(budget int, now time.Time) {
 
 // refreshGrid — перестраивает сетку миров только при смене снапшота
 // mapcache (после генерации вселенной), не на каждом тике (спека §9 И2).
+// gridMu сериализует перестройку: сетку строит и тик, и хендлер массовой
+// генерации (RandomWorlds) — gridSnapshot иначе был бы data race (§0).
 func (m *Manager) refreshGrid() {
+	m.gridMu.Lock()
+	defer m.gridMu.Unlock()
 	snap := m.worlds.Snapshot()
 	if snap == nil {
 		return // снапшот карты ещё не готов
@@ -326,4 +395,48 @@ func (m *Manager) refreshPositions(now time.Time) {
 		positions = append(positions, p)
 	}
 	m.positions.Replace(positions)
+}
+
+// ==================== МЕТРИКИ (спека 26a.1 §8) ====================
+
+// RecordBulk — метрика завершённой пачки массовой генерации (§8.1:
+// пишет джоб по завершении; last_bulk виден в админке и в отчёте джоба).
+func (m *Manager) RecordBulk(count int, duration time.Duration) {
+	m.bulkCount.Store(int64(count))
+	m.bulkDurationMs.Store(duration.Milliseconds())
+	m.bulkFinishedAt.Store(time.Now().UnixNano())
+}
+
+// OnAgentsDeleted — очистка in-memory состояния после массового удаления
+// агентов (правка 2026-09-15): позиции для карты — чтобы между DELETE и
+// следующим тиком (5с) снапшот не показывал «призраков» удалённых; метрика
+// last_bulk сбрасывается (пачки больше нет). Счётчики планировщика
+// (тики/полные батчи) не трогаем — это метрики работы, не данных.
+func (m *Manager) OnAgentsDeleted() {
+	m.positions.Replace(nil)
+	m.bulkCount.Store(0)
+	m.bulkDurationMs.Store(0)
+	m.bulkFinishedAt.Store(0)
+}
+
+// Metrics — срез метрик для /admin/npc/metrics (§8.2): in-memory счётчики
+// тика и последней пачки. LastBulk = nil, пока пачка не запускалась
+// (с рестарта — снова nil: метрики in-memory, для инструмента замеров ок).
+func (m *Manager) Metrics() ManagerMetrics {
+	mm := ManagerMetrics{
+		Scheduler: SchedulerMetrics{
+			LastTickMs:  float64(m.lastTickMs.Load()),
+			LastTickAt:  time.Unix(0, m.lastTickAt.Load()),
+			TicksTotal:  m.ticksTotal.Load(),
+			FullBatches: m.fullBatches.Load(),
+		},
+	}
+	if m.bulkFinishedAt.Load() != 0 {
+		mm.LastBulk = &BulkMetrics{
+			Count:      m.bulkCount.Load(),
+			DurationMs: m.bulkDurationMs.Load(),
+			FinishedAt: time.Unix(0, m.bulkFinishedAt.Load()),
+		}
+	}
+	return mm
 }

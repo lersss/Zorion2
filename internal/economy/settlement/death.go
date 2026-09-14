@@ -11,70 +11,72 @@ import (
 )
 
 // DeathTime считает момент пересечения порога NDead из живой чек-точки
-// (99.2.12, R-модель): p(t) = pop·(1−R)^t·exp(−λ_др·t) = NDead →
-// t = ln(pop/NDead)/|ln(1−R) + λ_др/3600| сек; R — рекурсивная компонента
-// жары за секунду, λ_др — прочие факторы (холод/гравитация/радиоактивность),
-// /ч. При λ_др = +Inf (холодный жёсткий ноль, временно) t = 0 → computed_at.
-// Время — реальное (игровое = реальному, 1:1). ok=false — запись не
-// создаётся (дата невычислима): чек-точка уже мёртвая (population_exact
-// <= NDead, бэкфилл отменён) или изменения нет вовсе (R = 0 и λ_др = 0).
-func DeathTime(populationExact float64, r float64, lambda float64, computedAt time.Time) (time.Time, bool) {
+// (99.2.12/99.2.13, R-модель): p(t) = pop·(1−r)^t = NDead →
+// t = ln(pop/NDead)/|ln(1−r)| сек; r — полная рекурсивная компонента
+// (ChangeComponents, за секунду). При r ≥ 1 (мгновенная гибель, гвард)
+// t = 0 → computed_at. Время — реальное (игровое = реальному, 1:1).
+// Возрастной потолок MaxLifespanSeconds (120 лет от created_at, 99.2.12) —
+// компонента-ограничение: никакая смерть не позже ceiling =
+// created_at + MaxLifespanSeconds, поэтому t = min(формула, ceiling)
+// (сравнение до конвертации в time.Duration — формула natural даёт ~460 лет
+// и переполнила бы int64 нс, уводя дату в 1613 г). При r ≤ 0 убыли от среды
+// нет, смерть возможна только по потолку: возраст на момент now (синка)
+// ≥ 120 лет → t = ceiling; возраст < 120 → ok=false (не вымирают).
+// ok=false также когда чек-точка уже мёртвая (population_exact <= NDead,
+// бэкфилл отменён).
+func DeathTime(populationExact float64, r float64, computedAt time.Time, now time.Time, createdAt time.Time) (time.Time, bool) {
 	if populationExact <= NDead {
 		return time.Time{}, false
 	}
-	if r <= 0 && lambda <= 0 {
-		return time.Time{}, false
-	}
-	if math.IsInf(lambda, 1) {
+	ceiling := createdAt.Add(time.Duration(MaxLifespanSeconds) * time.Second)
+	if r >= 1 {
 		return computedAt, true
 	}
-	rate := math.Abs(math.Log(1-r)) + lambda/3600
-	tSec := math.Log(populationExact/NDead) / rate
+	if r <= 0 {
+		if now.Sub(createdAt).Seconds() >= MaxLifespanSeconds {
+			return ceiling, true
+		}
+		return time.Time{}, false
+	}
+	tSec := math.Log(populationExact/NDead) / math.Abs(math.Log(1-r))
+	if tSec >= ceiling.Sub(computedAt).Seconds() {
+		return ceiling, true
+	}
 	return computedAt.Add(time.Duration(tSec * float64(time.Second))), true
 }
 
-// DeathCause — код причины гибели (18a, §«Причина»; 99.2.12, R-модель):
-// жара (R > 0) — «heat» (её компонента изменения — рекурсия, не λ); холодный
-// жёсткий ноль (λ = +Inf) — «cold»; гравитация в жёстком нуле — high/low.
-// Иначе — доминирующий фактор по вкладу в λ (холодная зона/гравитация/
-// радиоактивность). При равенстве вкладов — порядок холод → гравитация →
-// радиоактивность. Коды: heat/cold/gravity_high/gravity_low/radiation.
-func DeathCause(input PlanetInput, scale Scale) string {
-	if math.IsInf(ColdChangeRate(input.TemperatureK, scale), 1) {
-		return "cold"
-	}
-	if hardZero(HumanGravityProfile, input.GravityG) {
-		if input.GravityG > HumanGravityProfile.ComfortMax {
-			return "gravity_high"
-		}
-		return "gravity_low"
-	}
-	if RecursiveChangeRate(input.TemperatureK) > 0 {
-		return "heat"
-	}
+// DeathCause — код причины гибели (18a, §«Причина»; 99.2.13, R-модель):
+// доминирующая рекурсивная компонента по вкладу — жары (HeatTemperatureChangeRate),
+// холода (ColdChangeRate), гравитации верхней/нижней ветки
+// (GravityChangeRate), радиации (RadiationChangeRate). При равенстве вкладов —
+// порядок температура → гравитация → радиация (решение создателя 2026-09-14).
+// Если все вклады среды ≤ 0 (полный комфорт, поселение вымирает от
+// естественной убыли NaturalComponent) — причина "natural".
+// Коды: heat/cold/gravity_high/gravity_low/radiation/natural.
+func DeathCause(input PlanetInput) string {
+	cold := ColdChangeRate(input.TemperatureK)
+	heat := HeatTemperatureChangeRate(input.TemperatureK)
 
-	tempSev := TwoSidedSeverity(HumanTemperatureProfile, input.TemperatureK)
-	gravitySev := TwoSidedSeverity(HumanGravityProfile, input.GravityG)
-	radioSev := OneSidedSeverity(HumanRadioactivityProfile, input.CoreRadioactivity)
+	var gHigh, gLow float64
+	if input.GravityG > 1.2 {
+		gHigh = gravityHighC * math.Pow(input.GravityG-1.2, 1.54)
+	}
+	if input.GravityG < 0.8 {
+		gLow = gravityLowC * math.Pow(0.8-input.GravityG, 3.3)
+	}
+	rad := RadiationChangeRate(input.CoreRadioactivity)
+
+	if heat <= 0 && cold <= 0 && gHigh <= 0 && gLow <= 0 && rad <= 0 {
+		return "natural"
+	}
 
 	type contrib struct {
 		code string
 		val  float64
 	}
-	var cold, gHigh, gLow float64
-	if input.TemperatureK < HumanTemperatureProfile.ComfortMin {
-		cold = SeverityRate(tempSev, scale)
-	}
-	switch {
-	case input.GravityG > HumanGravityProfile.ComfortMax:
-		gHigh = SeverityRate(gravitySev, scale)
-	case input.GravityG < HumanGravityProfile.ComfortMin:
-		gLow = SeverityRate(gravitySev, scale)
-	}
-	rad := SeverityRate(radioSev, scale)
-
 	best := contrib{code: "cold", val: cold}
 	for _, c := range []contrib{
+		{code: "heat", val: heat},
 		{code: "gravity_high", val: gHigh},
 		{code: "gravity_low", val: gLow},
 		{code: "radiation", val: rad},

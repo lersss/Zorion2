@@ -349,7 +349,8 @@ const EXTINCT_CAUSE_TEXT = {
     'cold': 'Сильный холод',
     'gravity_high': 'Высокая гравитация',
     'gravity_low': 'Низкая гравитация',
-    'radiation': 'Радиоактивный фон'
+    'radiation': 'Радиоактивный фон',
+    'natural': 'Естественная убыль'
 };
 
 // settlementLogRows — строки лога поселения «Вымерло · дата · причина»,

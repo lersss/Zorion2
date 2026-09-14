@@ -70,22 +70,21 @@ func (r *EconomyRepository) GetSettlementsByPlanetIDs(planetIDs []string) (map[s
 //     13_tiers_impl.md §13.13.4), чтобы сохранённое население не устаревало
 //     для читателей без пересчёта (admin-stats, генератор фракций).
 // В обоих путях в ответ попадает актуальное население и чек-точка на момент
-// now, а lambda_per_hour/r_per_sec/n_dead — для косметической экстраполяции
-// на клиенте.
+// now, а r_per_sec/n_dead — для косметической экстраполяции на клиенте
+// (λ-механизм убран, 99.2.13: всё изменение в r_per_sec).
 // Если «событие» впервые видит обвал (чек-точка живая, population_exact >
 // NDead, и next = 0), той же транзакцией создаётся запись лога «Вымерло»
 // (18a §«Лог поселения»): INSERT ... ON CONFLICT DO NOTHING — анти-дубль на
 // уровне БД (uq_settlement_log_extinct). Мёртвая чек-точка (population_exact
 // ≤ NDead) запись не создаёт — бэкфилл отменён.
 func (r *EconomyRepository) RecomputeSettlementPopulation(s *models.Settlement, input settlement.PlanetInput, now time.Time) (models.Settlement, error) {
-	rPerSec, lambdaPerHour := settlement.ChangeComponents(input, settlement.DefaultScale)
+	rPerSec := settlement.ChangeComponents(input)
 
 	if now.Sub(s.ComputedAt) < settlement.MinPersistInterval {
-		next := settlement.Recompute(input, settlement.DefaultScale, s.PopulationExact, s.ComputedAt, now, s.CreatedAt)
+		next := settlement.Recompute(input, s.PopulationExact, s.ComputedAt, now, s.CreatedAt)
 		s.Population = int(math.Round(next))
 		s.PopulationExact = next
 		s.ComputedAt = now
-		s.LambdaPerHour = settlement.ClampLambda(lambdaPerHour)
 		s.RPerSec = rPerSec
 		s.NDead = settlement.NDead
 		return *s, nil
@@ -106,7 +105,7 @@ func (r *EconomyRepository) RecomputeSettlementPopulation(s *models.Settlement, 
 		return models.Settlement{}, err
 	}
 
-	newExact := settlement.Recompute(input, settlement.DefaultScale, stored.PopulationExact, stored.ComputedAt, now, stored.CreatedAt)
+	newExact := settlement.Recompute(input, stored.PopulationExact, stored.ComputedAt, now, stored.CreatedAt)
 	newPopulation := int(math.Round(newExact))
 
 	if _, err := tx.Exec(`
@@ -122,9 +121,9 @@ func (r *EconomyRepository) RecomputeSettlementPopulation(s *models.Settlement, 
 	// INSERT ... ON CONFLICT DO NOTHING: второй одновременный синк упирается
 	// в uq_settlement_log_extinct и ничего не пишет (18a §«Анти-дубль и синк»).
 	if stored.PopulationExact > settlement.NDead && newExact == 0 {
-		deathAt, ok := settlement.DeathTime(stored.PopulationExact, rPerSec, lambdaPerHour, stored.ComputedAt)
+		deathAt, ok := settlement.DeathTime(stored.PopulationExact, rPerSec, stored.ComputedAt, now, stored.CreatedAt)
 		if ok {
-			cause := settlement.DeathCause(input, settlement.DefaultScale)
+			cause := settlement.DeathCause(input)
 			if _, err := tx.Exec(`
 				INSERT INTO settlement_log (settlement_id, type, occurred_at, cause)
 				VALUES ($1, 'extinct', $2, $3)
@@ -143,7 +142,6 @@ func (r *EconomyRepository) RecomputeSettlementPopulation(s *models.Settlement, 
 	stored.Population = newPopulation
 	stored.PopulationExact = newExact
 	stored.ComputedAt = now
-	stored.LambdaPerHour = settlement.ClampLambda(lambdaPerHour)
 	stored.RPerSec = rPerSec
 	stored.NDead = settlement.NDead
 	return stored, nil

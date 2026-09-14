@@ -60,7 +60,7 @@ go test -race ./...
 > (`CGO_ENABLED=0`). Локально DoD = `go build` + `go vet` + `go test ./...`;
 > `-race` вернётся вместе с CI после 1.0. Решение создателя 2026-09-12, см. `STATUS.md` §4.
 
-Сборка бинаря: `go build -o zorion-server.exe cmd/server/main.go`
+Сборка бинаря: `go build -o zorion-server.exe ./cmd/server` (пакет, а не файл — в `cmd/server` несколько файлов: `main.go` + `bootstrap.go`; сборка одного файла `cmd/server/main.go` даёт `undefined: bootstrapSkycomposer`)
 
 ---
 

@@ -326,15 +326,49 @@ function renderResources(planet) {
 
 // ---------- ПОСЕЛЕНИЯ ----------
 
-// settlementTrendArrow — ↓/↑/— рядом с населением поселения относительно
-// прошлого known-значения (modalState.previousSettlementPop, обновляется в
-// refreshPlanets, index.js) — аналог populationTrendArrow из panel.js.
+// settlementTrendArrow — ↓/↑/— рядом с населением поселения. Направление из
+// ТЕКУЩИХ данных объекта (99.2.12): признак снижения (r_per_sec > 0 — жара,
+// или lambda_per_hour > 0 — холод/гравитация/радиация) → ↓ сразу; дельта
+// двух серверных снапшотов (modalState.previousSettlementPop, refreshPlanets)
+// — запасной вариант для роста и равновесия. При конфликте живой сигнал
+// снижения приоритетен (роста в модели нет — не врём).
 function settlementTrendArrow(s) {
+    const declining = (typeof s.r_per_sec === 'number' && s.r_per_sec > 0) ||
+        (typeof s.lambda_per_hour === 'number' && s.lambda_per_hour > 0);
+    if (declining) return ' <span style="color:#f66;" title="Население убывает">↓</span>';
     const prev = modalState.previousSettlementPop[s.id];
     if (typeof prev !== 'number' || typeof s.population !== 'number') return '';
     if (s.population < prev) return ' <span style="color:#f66;" title="Население убывает">↓</span>';
     if (s.population > prev) return ' <span style="color:#6f6;" title="Население растёт">↑</span>';
     return ' <span style="color:#888;" title="Без изменений">—</span>';
+}
+
+// Код причины «Вымерло» → человеческий текст (18a_population_death.md, §«Причина»)
+const EXTINCT_CAUSE_TEXT = {
+    'heat': 'Экстремальная жара',
+    'cold': 'Сильный холод',
+    'gravity_high': 'Высокая гравитация',
+    'gravity_low': 'Низкая гравитация',
+    'radiation': 'Радиоактивный фон'
+};
+
+// settlementLogRows — строки лога поселения «Вымерло · дата · причина»,
+// последние 3 записи, сортировка по дате убывающая. При 0 записей — пусто
+// (блок скрыт). Запись появляется только после серверного синка, отдавшего
+// log (extrapolate.js запись не рисует — 18a §«UI»).
+function settlementLogRows(s) {
+    if (!s.log || !Array.isArray(s.log) || s.log.length === 0) return '';
+    const rows = s.log
+        .slice()
+        .sort((a, b) => Date.parse(b.occurred_at) - Date.parse(a.occurred_at))
+        .slice(0, 3);
+    let html = `<div style="color:#888; font-size:0.9rem; text-transform:uppercase; margin-top:8px;">Лог</div>`;
+    rows.forEach(e => {
+        const when = e.occurred_at ? new Date(e.occurred_at).toLocaleString('ru-RU') : '—';
+        const cause = EXTINCT_CAUSE_TEXT[e.cause] || e.cause || '';
+        html += `<div style="color:#ccc; margin-top:4px;">💀 Вымерло · ${when} · ${cause}</div>`;
+    });
+    return html;
 }
 
 function renderSettlements(planet) {
@@ -354,6 +388,7 @@ function renderSettlements(planet) {
                     <div>Население: <strong id="pop-${s.id}">${formatNumber(populationAt(s, Date.now()))}</strong>${settlementTrendArrow(s)}</div>
                     <div>Стабильность: <strong>${populationAt(s, Date.now()) === 0 ? '—' : (s.stability != null ? s.stability + '%' : '—')}</strong></div>
                 </div>
+                ${settlementLogRows(s)}
             </div>`;
     });
     return html;

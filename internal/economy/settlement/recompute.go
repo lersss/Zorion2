@@ -19,16 +19,27 @@ var NDead = 100.0
 var MinPersistInterval = 30 * time.Minute
 
 // Recompute считает новое точное население поселения на момент now по
-// физике планеты и точному населению на момент since. Ниже NDead —
-// население обнуляется, а не продолжает таять дробно.
-func Recompute(input PlanetInput, scale Scale, populationExact float64, since time.Time, now time.Time) float64 {
-	deltaHours := now.Sub(since).Hours()
-	if deltaHours <= 0 {
+// физике планеты, точному населению на момент since и возрасту поселения
+// (created_at; 99.2.12): изменение = сумма компонент (рекурсивная жара + λ
+// прочих факторов, ChangeComponents) с возрастным потолком — при
+// age = now − created_at ≥ MaxLifespanSeconds (120 лет) население = 0
+// (компонента-ограничение). Инвариант: два последовательных пересчёта дают
+// тот же результат, что один (потолок и экспонента — функции абсолютного
+// возраста/времени, а не числа пересчётов). Ниже NDead — население
+// обнуляется, а не продолжает таять дробно (механизм 18_needs, к температуре
+// не привязан; порог температуры — p < 1 внутри Population).
+func Recompute(input PlanetInput, scale Scale, populationExact float64, since time.Time, now time.Time, createdAt time.Time) float64 {
+	deltaSeconds := now.Sub(since).Seconds()
+	if deltaSeconds <= 0 {
 		return populationExact
 	}
 
-	lambda := TotalLambda(input, scale)
-	next := Population(populationExact, lambda, deltaHours)
+	if now.Sub(createdAt).Seconds() >= MaxLifespanSeconds {
+		return 0
+	}
+
+	r, lambdaPerHour := ChangeComponents(input, scale)
+	next := Population(populationExact, r, lambdaPerHour, deltaSeconds)
 	if next < NDead {
 		return 0
 	}

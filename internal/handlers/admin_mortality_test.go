@@ -4,6 +4,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -69,6 +70,18 @@ func TestMortalityPreviewComfortablePlanetHasZeroLambda(t *testing.T) {
 		sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at"}).
 			AddRow("s1", "p1", 1_000_000, float64(1_000_000), 60, now, now, now),
 	)
+	// attachSettlements читает лог поселения (18a §«Лог поселения») — пусто.
+	mock.ExpectQuery(`
+		SELECT id, settlement_id, type, occurred_at, cause, created_at
+		FROM (
+			SELECT id, settlement_id, type, occurred_at, cause, created_at,
+			       ROW_NUMBER() OVER (PARTITION BY settlement_id ORDER BY occurred_at DESC) AS rn
+			FROM settlement_log
+			WHERE settlement_id = ANY($1)
+		) sub
+		WHERE rn <= 3
+		ORDER BY occurred_at DESC
+	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"id", "settlement_id", "type", "occurred_at", "cause", "created_at"}))
 
 	h := &AdminHandlers{db: db}
 	req := httptest.NewRequest(http.MethodGet, "/admin/mortality-preview?planet_id=p1", nil)
@@ -125,46 +138,69 @@ func TestMortalityPreviewP0Override(t *testing.T) {
 }
 
 func TestMortalityPreviewUninhabitable(t *testing.T) {
-	// Планета за жёстким нулём (T ≥ 700 K, 99.2.12, H4): lambda_per_hour
-	// конечен (кламп +Inf в MaxSerializedLambda — json.Marshal(+Inf) падает),
-	// uninhabitable == true, все точки projection == 0.
-	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
-	require.NoError(t, err)
-	defer db.Close()
-
-	now := time.Now()
-	mock.ExpectQuery(`
-		SELECT id, world_id, name, orbit_index, data, created_at, updated_at
-		FROM planets
-		WHERE id = $1
-	`).WithArgs("p1").WillReturnRows(
-		sqlmock.NewRows([]string{"id", "world_id", "name", "orbit_index", "data", "created_at", "updated_at"}).
-			AddRow("p1", "w1", "Раскалённая", 1, `{"temperature":800,"gravity":1.0}`, now, now),
-	)
-	mock.ExpectQuery(`
-		SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at
-		FROM settlements WHERE planet_id = ANY($1) ORDER BY created_at ASC
-	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(
-		sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at"}),
-	)
-
-	h := &AdminHandlers{db: db}
-	req := httptest.NewRequest(http.MethodGet, "/admin/mortality-preview?planet_id=p1&p0=1000000", nil)
-	rec := httptest.NewRecorder()
-
-	h.MortalityPreview(rec, req)
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, mock.ExpectationsWereMet())
-
-	var resp struct {
-		LambdaPerHour float64            `json:"lambda_per_hour"`
-		Uninhabitable bool               `json:"uninhabitable"`
-		Projection    map[string]float64 `json:"projection"`
+	// R-модель (99.2.12): жара — витринный порог «t_смерти(p0) < 1 ч»
+	// (для p0 = 10⁶ порог R > 1 − exp(−ln(p0)/3600) ≈ 3.8·10⁻³): +310 °C
+	// (R ≈ 0.0042, t ≈ 55 мин) — uninhabitable true, λ = 0 (жара в R_per_sec),
+	// проекция — хвост, не 0; +250 °C (R ≈ 0.0022, t ≈ 1.7 ч) — false;
+	// холод T ≤ 100 K — по-прежнему λ = +Inf → кламп (MaxSerializedLambda),
+	// проекция 0.
+	cases := []struct {
+		name           string
+		temp           float64
+		uninhabitable  bool
+		lambda         float64 // ожидаемый lambda_per_hour (клампнутый)
+		r              float64 // ожидаемый r_per_sec
+		projectionZero bool   // все точки projection == 0 (только λ = +Inf)
+	}{
+		{"жара 583.15 K (+310 °C)", 583.15, true, 0, 0.00416, false},
+		{"жара 523.15 K (+250 °C)", 523.15, false, 0, 0.00223, false},
+		{"холод 50 K", 50, true, settlement.MaxSerializedLambda, 0, true},
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	require.Equal(t, settlement.MaxSerializedLambda, resp.LambdaPerHour, "lambda_per_hour должен быть клампнут, а не +Inf")
-	require.True(t, resp.Uninhabitable, "планета за жёстким нулём должна помечаться uninhabitable")
-	for _, cp := range settlement.StandardCheckpoints {
-		require.Equal(t, float64(0), resp.Projection[cp.Label], "все точки projection должны быть 0")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
+			require.NoError(t, err)
+			defer db.Close()
+
+			now := time.Now()
+			mock.ExpectQuery(`
+				SELECT id, world_id, name, orbit_index, data, created_at, updated_at
+				FROM planets
+				WHERE id = $1
+			`).WithArgs("p1").WillReturnRows(
+				sqlmock.NewRows([]string{"id", "world_id", "name", "orbit_index", "data", "created_at", "updated_at"}).
+					AddRow("p1", "w1", "Необитаемая", 1, fmt.Sprintf(`{"temperature":%v,"gravity":1.0}`, tc.temp), now, now),
+			)
+			mock.ExpectQuery(`
+				SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at
+				FROM settlements WHERE planet_id = ANY($1) ORDER BY created_at ASC
+			`).WithArgs(sqlmock.AnyArg()).WillReturnRows(
+				sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at"}),
+			)
+
+			h := &AdminHandlers{db: db}
+			req := httptest.NewRequest(http.MethodGet, "/admin/mortality-preview?planet_id=p1&p0=1000000", nil)
+			rec := httptest.NewRecorder()
+
+			h.MortalityPreview(rec, req)
+			require.Equal(t, http.StatusOK, rec.Code)
+			require.NoError(t, mock.ExpectationsWereMet())
+
+			var resp struct {
+				LambdaPerHour float64            `json:"lambda_per_hour"`
+				Uninhabitable bool               `json:"uninhabitable"`
+				RPerSec       float64            `json:"r_per_sec"`
+				Projection    map[string]float64 `json:"projection"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.Equal(t, tc.uninhabitable, resp.Uninhabitable)
+			require.InDelta(t, tc.lambda, resp.LambdaPerHour, 0.001, "lambda_per_hour")
+			require.InDelta(t, tc.r, resp.RPerSec, 0.001, "r_per_sec")
+			if tc.projectionZero {
+				for _, cp := range settlement.StandardCheckpoints {
+					require.Equal(t, float64(0), resp.Projection[cp.Label], "все точки projection должны быть 0")
+				}
+			}
+		})
 	}
 }

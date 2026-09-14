@@ -18,7 +18,7 @@ func TestGetPlanetsByWorldIDWithSettlements(t *testing.T) {
 
 	now := time.Now()
 	planetRows := sqlmock.NewRows([]string{"id", "world_id", "name", "orbit_index", "data", "created_at", "updated_at"}).
-		AddRow("p1", "w1", "Обитаемая", 1, `{"life":true,"habitable":true}`, now, now).
+		AddRow("p1", "w1", "Обитаемая", 1, `{"life":true,"habitable":true,"temperature":288,"gravity":1.0}`, now, now).
 		AddRow("p2", "w1", "Пустырь", 2, `{"life":false,"habitable":false}`, now, now)
 
 	mock.ExpectQuery(`
@@ -37,9 +37,24 @@ func TestGetPlanetsByWorldIDWithSettlements(t *testing.T) {
 		FROM settlements WHERE planet_id = ANY($1) ORDER BY created_at ASC
 	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(settlementRows)
 
+	// attachSettlements читает лог поселений (18a §«Лог поселения») — пусто.
+	mock.ExpectQuery(`
+		SELECT id, settlement_id, type, occurred_at, cause, created_at
+		FROM (
+			SELECT id, settlement_id, type, occurred_at, cause, created_at,
+			       ROW_NUMBER() OVER (PARTITION BY settlement_id ORDER BY occurred_at DESC) AS rn
+			FROM settlement_log
+			WHERE settlement_id = ANY($1)
+		) sub
+		WHERE rn <= 3
+		ORDER BY occurred_at DESC
+	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"id", "settlement_id", "type", "occurred_at", "cause", "created_at"}))
+
 	// Открытие карточки системы триггерит пересчёт населения (18a_population_death.md);
 	// computed_at = now, т.е. Δt < MinPersistInterval — «простой визит»: пересчёт
-	// только в памяти, записей в БД нет. Тест про группировку, не про физику.
+	// только в памяти, записей в БД нет. Планета p1 — комфортная (288 K, R=0, λ=0):
+	// население не меняется (0 K дала бы жёсткий ноль холода и обнулила тест —
+	// см. флак из-за кванта time.Now). Тест про группировку, не про физику.
 
 	planets, err := NewPlanetRepository(db).GetPlanetsByWorldID("w1")
 	require.NoError(t, err)

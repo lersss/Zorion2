@@ -1,13 +1,14 @@
 // Package settlement считает экономику поселения по запросу (ленивый
-// пересчёт), без тика. Здесь — только смерть населения от физической среды
-// планеты (docs/gamedesign/18a_population_death.md).
+// пересчёт), без тика. Здесь — только изменение населения от физической
+// среды планеты (docs/gamedesign/18a_population_death.md): дельта может быть
+// убылью или ростом (сумма компонент, 99.2.12).
 package settlement
 
 import "math"
 
-// SeverityShape — форма кривой тяжести профиля (99.2.12, H2): линейная
-// (severity = dev/Sat, кап на 1) или квадратичная (severity = (dev/Sat)²,
-// без капа — градиент до жёсткого нуля задают поля HardZero*).
+// SeverityShape — форма кривой тяжести профиля (99.2.12): линейная
+// (severity = dev/Sat, кап на 1) или полюсная квадратичная
+// (severity = (dev/Sat)² / (1 − (dev/H)²), полюс при dev = HardZero — вариант B).
 type SeverityShape int
 
 const (
@@ -23,24 +24,26 @@ const (
 type TwoSidedProfile struct {
 	ComfortMin   float64      // нижняя граница комфорта
 	ComfortMax   float64      // верхняя граница комфорта
-	SaturateCold float64      // отклонение вниз от ComfortMin, после которого тяжесть = 1
-	SaturateHot  float64      // отклонение вверх от ComfortMax, после которого тяжесть = 1
+	SaturateCold float64      // отклонение вниз от ComfortMin, масштаб кривой (dev/Sat)
+	SaturateHot  float64      // отклонение вверх от ComfortMax, масштаб кривой (dev/Sat)
 	HardZeroCold float64      // отклонение вниз до жёсткого нуля; 0 = не задан
 	HardZeroHot  float64      // отклонение вверх до жёсткого нуля; 0 = не задан
 	Shape        SeverityShape // форма кривой тяжести
 }
 
-// HumanTemperatureProfile — профиль человека по температуре, в K (99.2.12):
-// квадратичная форма, асимметрия жары/холода (SatHot = 200, SatCold = 350),
-// жёсткий ноль жары на T ≥ 700 K (dev 350 от ComfortMax). Холодный жёсткий
-// ноль не задан — все холодные планеты генератора (мин 50 K) принципиально
-// обитаемы.
+// HumanTemperatureProfile — профиль человека по температуре для ХОЛОДНОЙ
+// стороны (99.2.12): полюсная кривая B sev = (dev/Sat)²/(1−(dev/H)²), полюс
+// холода на T ≤ 100 K (эталон «−200 °C → минуты»; временно, до перевода
+// холода на R-модель). Жара больше НЕ severity — рекурсивная компонента
+// изменения HeatChangeRate (см. ChangeComponents); горячие поля профиля не
+// используются.
 var HumanTemperatureProfile = TwoSidedProfile{
 	ComfortMin:   200,
 	ComfortMax:   350,
 	SaturateCold: 350,
-	SaturateHot:  200,
-	HardZeroHot:  350,
+	SaturateHot:  60,
+	HardZeroCold: 100,
+	HardZeroHot:  100,
 	Shape:        ShapeQuadratic,
 }
 
@@ -56,27 +59,41 @@ var HumanGravityProfile = TwoSidedProfile{
 }
 
 // TwoSidedSeverity считает тяжесть отклонения величины от комфорта: 0 внутри
-// комфортного диапазона, 1 на насыщении своей стороны (99.2.12). Линейные
-// профили капятся на 1, квадратичные растут без капа — жёсткий ноль там
-// обрабатывает TotalLambda, а не тяжесть. Возвращает только конечную тяжесть.
+// комфортного диапазона. Линейные профили капятся на 1; полюсные
+// (квадратичные, вариант B) растут без капа и стремятся к +∞ у жёсткого нуля:
+// sev = (dev/Sat)² / (1 − (dev/H)²), H = HardZero стороны (99.2.12).
+// Guard: при dev ≥ HardZero возвращает +Inf ДО вычисления severity — иначе
+// знаменатель неположителен (ноль при dev = H, отрицателен при dev > H →
+// λ < 0 → население растёт). Линейные профили имеют HardZero = 0 — guard не
+// срабатывает.
 func TwoSidedSeverity(profile TwoSidedProfile, value float64) float64 {
 	var deviation float64
 	var saturateAt float64
+	var hardZeroH float64
 	switch {
 	case value < profile.ComfortMin:
 		deviation = profile.ComfortMin - value
 		saturateAt = profile.SaturateCold
+		hardZeroH = profile.HardZeroCold
 	case value > profile.ComfortMax:
 		deviation = value - profile.ComfortMax
 		saturateAt = profile.SaturateHot
+		hardZeroH = profile.HardZeroHot
 	default:
 		return 0
 	}
 	if saturateAt <= 0 {
 		return 1
 	}
+	if profile.Shape == ShapeQuadratic && hardZeroH > 0 && deviation >= hardZeroH {
+		return math.Inf(1)
+	}
 	severity := deviation / saturateAt
 	if profile.Shape == ShapeQuadratic {
+		// Полюсная форма B: sev = (dev/Sat)² / (1 − (dev/H)²), полюс при dev = H.
+		if hardZeroH > 0 {
+			return severity * severity / (1 - (deviation/hardZeroH)*(deviation/hardZeroH))
+		}
 		return severity * severity
 	}
 	if severity > 1 {
@@ -87,7 +104,7 @@ func TwoSidedSeverity(profile TwoSidedProfile, value float64) float64 {
 
 // hardZero — истина, когда отклонение достигло жёсткого нуля стороны профиля
 // (dev ≥ HardZero_стороны; 0 = не задан). Периметр проверки один: на него
-// смотрят TotalLambda и Uninhabitable (99.2.12, H4).
+// смотрят OtherChangeRate и Uninhabitable (99.2.12, H4).
 func hardZero(profile TwoSidedProfile, value float64) bool {
 	switch {
 	case value < profile.ComfortMin:
@@ -103,7 +120,7 @@ func hardZero(profile TwoSidedProfile, value float64) bool {
 // устойчивости»). Температура и гравитация двусторонние, см. TwoSidedProfile.
 type OneSidedProfile struct {
 	Threshold  float64      // ниже и на пороге — безопасно, тяжесть = 0
-	SaturateAt float64      // превышение порога, после которого тяжесть = 1
+	SaturateAt float64      // превышение порога, масштаб кривой (dev/Sat)
 	HardZeroAt float64      // превышение порога до жёсткого нуля; 0 = не задан
 	Shape      SeverityShape // форма кривой тяжести
 }
@@ -117,9 +134,12 @@ var HumanRadioactivityProfile = OneSidedProfile{
 	Shape:      ShapeLinear,
 }
 
-// OneSidedSeverity считает тяжесть превышения порога: 0 на пороге и ниже, 1 на
-// насыщении и дальше (для линейной формы — с капом на 1; квадратичная растёт
-// без капа, 99.2.12).
+// OneSidedSeverity считает тяжесть превышения порога: 0 на пороге и ниже.
+// Линейная форма — с капом на 1; полюсная квадратичная растёт без капа к +∞
+// у жёсткого нуля: sev = (dev/Sat)²/(1 − (dev/H)²), H = HardZeroAt (99.2.12,
+// вариант B). Guard при dev ≥ HardZeroAt → +Inf ДО вычисления severity
+// (знаменатель неположителен за полюсом; линейные профили имеют HardZero = 0 —
+// guard не срабатывает).
 func OneSidedSeverity(profile OneSidedProfile, value float64) float64 {
 	if value <= profile.Threshold {
 		return 0
@@ -128,8 +148,15 @@ func OneSidedSeverity(profile OneSidedProfile, value float64) float64 {
 	if profile.SaturateAt <= 0 {
 		return 1
 	}
+	if profile.Shape == ShapeQuadratic && profile.HardZeroAt > 0 && deviation >= profile.HardZeroAt {
+		return math.Inf(1)
+	}
 	severity := deviation / profile.SaturateAt
 	if profile.Shape == ShapeQuadratic {
+		// Полюсная форма B: sev = (dev/Sat)² / (1 − (dev/H)²), полюс при dev = H.
+		if profile.HardZeroAt > 0 {
+			return severity * severity / (1 - (deviation/profile.HardZeroAt)*(deviation/profile.HardZeroAt))
+		}
 		return severity * severity
 	}
 	if severity > 1 {
@@ -138,11 +165,11 @@ func OneSidedSeverity(profile OneSidedProfile, value float64) float64 {
 	return severity
 }
 
-// Scale — общий масштаб скорости смерти, один на все факторы среды (18a,
-// «Масштаб»): у каждого фактора своя форма тяжести, но перевод тяжести в
-// реальные часы — общий.
+// Scale — общий масштаб перевода тяжести в скорость изменения населения,
+// один на все факторы среды (18a, «Масштаб»): у каждого фактора своя форма
+// тяжести, но перевод тяжести в реальные часы — общий.
 type Scale struct {
-	MaxRatePerHour float64 // скорость убыли населения (доля в час) при тяжести = 1
+	MaxRatePerHour float64 // скорость изменения населения (доля в час) при тяжести = 1
 }
 
 // DefaultScale — масштаб скорости: 0.1 принят калибровкой температуры
@@ -150,8 +177,10 @@ type Scale struct {
 // калибровка под новый масштаб — отдельный блок (риски спеки).
 var DefaultScale = Scale{MaxRatePerHour: 0.1}
 
-// Lambda переводит тяжесть (0..1) в скорость убыли населения (долю в час).
-func Lambda(severity float64, scale Scale) float64 {
+// SeverityRate переводит тяжесть (0..1) в λ-компоненту изменения населения
+// (доля за час; отрицательная при росте — сейчас тяжесть ≥ 0, рост добавится
+// будущими слагаемыми, см. ChangeComponents).
+func SeverityRate(severity float64, scale Scale) float64 {
 	return severity * scale.MaxRatePerHour
 }
 
@@ -169,29 +198,64 @@ func ClampLambda(lambda float64) float64 {
 	return lambda
 }
 
-// Uninhabitable — истина, когда планета за жёстким нулём хотя бы одного
-// фактора: население там невозможно (99.2.12, H4). Для JSON-границ: +Inf в
-// ответ не уедет, а админский предпросмотр скажет «поселение невозможно».
-func Uninhabitable(input PlanetInput) bool {
-	return hardZero(HumanTemperatureProfile, input.TemperatureK) ||
-		hardZero(HumanGravityProfile, input.GravityG)
+// Uninhabitable — истина, когда планета «необитаема» (99.2.12, R-модель):
+// жара — витринный порог «t_смерти(p0) < 1 ч» (поселение с текущим
+// населением вымирает за час: R > 1 − exp(−ln(p0)/3600)) — механика гладкая,
+// порог только для витрины; холод — по-прежнему λ = +Inf при T ≤ 100 K
+// (временно); гравитация — жёсткий ноль профиля. Компоненты изменения
+// населения — в change_components.go.
+func Uninhabitable(input PlanetInput, p0 float64) bool {
+	if hardZero(HumanGravityProfile, input.GravityG) {
+		return true
+	}
+	if math.IsInf(ColdChangeRate(input.TemperatureK, DefaultScale), 1) {
+		return true
+	}
+	if p0 < 1 {
+		return false
+	}
+	r := RecursiveChangeRate(input.TemperatureK)
+	return r > 1-math.Exp(-math.Log(p0)/3600)
 }
 
-// Population считает точное (дробное) население через deltaHours реального
-// времени при постоянной суммарной скорости распада lambda. Округление — не
-// здесь: только при показе игроку (18a, «Точность и округление»), иначе
-// результат зависел бы от того, как часто поселение пересчитывают.
-// Guard: +Inf убивает мгновенно (0 при Δt > 0), неположительный Δt не двигает
-// чек-точку (иначе exp(−Inf·0) = NaN) — 99.2.12, H4.
-func Population(p0 float64, lambda float64, deltaHours float64) float64 {
+// DeathMomentSeconds — момент смерти в секундах от создания (99.2.12,
+// §«Момент смерти», R-модель): p0·(1−R)^t = 1 → t = ln(p0)/|ln(1−R)|;
+// дата = created_at + t. p0 ≤ 1 → 0 (уже мёртвые); r ≤ 0 → +Inf (не
+// вымирают); r ≥ 1 → 0 (гибель 100% за секунду).
+func DeathMomentSeconds(p0, r float64) float64 {
+	if p0 <= 1 {
+		return 0
+	}
+	switch {
+	case r >= 1:
+		return 0
+	case r <= 0:
+		return math.Inf(1)
+	}
+	return math.Log(p0) / math.Abs(math.Log(1-r))
+}
+
+// Population считает точное (дробное) население через deltaSeconds реального
+// времени (99.2.12, R-модель): изменение = сумма компонент —
+// p = p_чек·(1−r)^Δt_сек·exp(−λ_др·Δt_ч), где r — рекурсивная компонента
+// (жара, HeatChangeRate), λ_др — прочие факторы (холод/гравитация/
+// радиоактивность, OtherChangeRate). Отрицательная компонента = рост:
+// r < 0 → (1−r) > 1. Округление — только при показе игроку (18a, «Точность
+// и округление»). Guard: +Inf (холод) → 0; Δt ≤ 0 → p0; порог p < 1 → 0
+// (поселение мёртвое).
+func Population(p0 float64, r float64, lambdaOther float64, deltaSeconds float64) float64 {
 	if p0 <= 0 {
 		return 0
 	}
-	if deltaHours <= 0 {
+	if deltaSeconds <= 0 {
 		return p0
 	}
-	if math.IsInf(lambda, 1) {
+	if math.IsInf(lambdaOther, 1) {
 		return 0
 	}
-	return p0 * math.Exp(-lambda*deltaHours)
+	p := p0 * math.Pow(1-r, deltaSeconds) * math.Exp(-lambdaOther*deltaSeconds/3600)
+	if p < 1 {
+		return 0
+	}
+	return p
 }

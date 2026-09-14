@@ -172,10 +172,21 @@ function planetsTable(planets) {
 
 // ---------- КАРТОЧКА ПЛАНЕТЫ ----------
 
-// populationTrendArrow — ↓/↑/— рядом с числом населения относительно
-// прошлого known-значения (modalState.previousPopulation, обновляется в
-// refreshPlanets, index.js). Нет прошлого значения — стрелка не рисуется.
+// populationTrendArrow — ↓/↑/— рядом с числом населения. Направление из
+// ТЕКУЩИХ данных объекта, а не только из дельты серверных снапшотов
+// (99.2.12): признак снижения (любое поселение с r_per_sec > 0 — жара,
+// или lambda_per_hour > 0 — холод/гравитация/радиация) → ↓ сразу при
+// открытии карточки; дельта двух снапшотов (modalState.previousPopulation,
+// refreshPlanets) — запасной вариант для роста и равновесия. При конфликте
+// живой сигнал снижения приоритетен (роста в модели нет — не врём).
 function populationTrendArrow(planet) {
+    if (planet.settlements && planet.settlements.length) {
+        const declining = planet.settlements.some(s => s && (
+            (typeof s.r_per_sec === 'number' && s.r_per_sec > 0) ||
+            (typeof s.lambda_per_hour === 'number' && s.lambda_per_hour > 0)
+        ));
+        if (declining) return ' <span style="color:#f66;" title="Население убывает">↓</span>';
+    }
     const prev = modalState.previousPopulation[planet.id];
     if (typeof prev !== 'number' || typeof planet.population !== 'number') return '';
     if (planet.population < prev) return ' <span style="color:#f66;" title="Население убывает">↓</span>';

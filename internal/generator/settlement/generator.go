@@ -136,7 +136,7 @@ func (g *Generator) GenerateSettlements(ctx context.Context, model *Model, progr
 // Тир (level) — расчётная величина (13_tiers.md), при генерации не задаётся.
 // population_exact и computed_at — точное состояние для пересчёта смерти от
 // среды (18a_population_death.md), стартует равным population на момент
-// генерации.
+// генерации (w-сброса нет — R-модель, 99.2.12).
 func buildSettlement(planetID string, population, stability int) []interface{} {
 	return []interface{}{
 		uuid.New().String(),

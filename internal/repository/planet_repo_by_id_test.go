@@ -17,7 +17,7 @@ func TestGetPlanetByID(t *testing.T) {
 
 	now := time.Now()
 	planetRows := sqlmock.NewRows([]string{"id", "world_id", "name", "orbit_index", "data", "created_at", "updated_at"}).
-		AddRow("p1", "w1", "Жаркая", 1, `{"temperature":500,"gravity":1.2}`, now, now)
+		AddRow("p1", "w1", "Жаркая", 1, `{"temperature":400,"gravity":1.2}`, now, now)
 
 	mock.ExpectQuery(`
 		SELECT id, world_id, name, orbit_index, data, created_at, updated_at
@@ -32,12 +32,25 @@ func TestGetPlanetByID(t *testing.T) {
 		FROM settlements WHERE planet_id = ANY($1) ORDER BY created_at ASC
 	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(settlementRows)
 
+	// attachSettlements читает лог поселения (18a §«Лог поселения») — пусто.
+	mock.ExpectQuery(`
+		SELECT id, settlement_id, type, occurred_at, cause, created_at
+		FROM (
+			SELECT id, settlement_id, type, occurred_at, cause, created_at,
+			       ROW_NUMBER() OVER (PARTITION BY settlement_id ORDER BY occurred_at DESC) AS rn
+			FROM settlement_log
+			WHERE settlement_id = ANY($1)
+		) sub
+		WHERE rn <= 3
+		ORDER BY occurred_at DESC
+	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"id", "settlement_id", "type", "occurred_at", "cause", "created_at"}))
+
 	// Открытие карточки планеты триггерит пересчёт населения от среды
 	// (18a_population_death.md); computed_at = now, т.е. Δt < MinPersistInterval —
 	// «простой визит»: пересчёт только в памяти, записей в БД нет.
-	// Температура 500 K — в живой зоне (жёсткий ноль на T ≥ 700 K, 99.2.12):
-	// за микросекунды Δt убыль копеечная, население не зависит от скорости
-	// прогона (900 K обнуляла бы население при Δt > 0 — тест флакал).
+	// Температура 400 K (+127 °C) — жара с R ≈ 2.7·10⁻⁴/сек (R-модель,
+	// 99.2.12, обнуления нет): за микросекунды Δt убыль копеечная, население
+	// не зависит от скорости прогона.
 
 	planet, err := NewPlanetRepository(db).GetPlanetByID("p1")
 	require.NoError(t, err)
@@ -45,7 +58,7 @@ func TestGetPlanetByID(t *testing.T) {
 
 	require.NotNil(t, planet)
 	assert.Equal(t, "p1", planet.ID)
-	assert.InDelta(t, 500, planet.Temperature, 0.0001)
+	assert.InDelta(t, 400, planet.Temperature, 0.0001)
 	assert.InDelta(t, 1.2, planet.Gravity, 0.0001)
 	assert.Equal(t, int64(1_000_000), planet.Population)
 }

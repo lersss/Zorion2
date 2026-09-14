@@ -70,16 +70,23 @@ func (r *EconomyRepository) GetSettlementsByPlanetIDs(planetIDs []string) (map[s
 //     13_tiers_impl.md §13.13.4), чтобы сохранённое население не устаревало
 //     для читателей без пересчёта (admin-stats, генератор фракций).
 // В обоих путях в ответ попадает актуальное население и чек-точка на момент
-// now, а decay_lambda/n_dead — для косметической экстраполяции на клиенте.
+// now, а lambda_per_hour/r_per_sec/n_dead — для косметической экстраполяции
+// на клиенте.
+// Если «событие» впервые видит обвал (чек-точка живая, population_exact >
+// NDead, и next = 0), той же транзакцией создаётся запись лога «Вымерло»
+// (18a §«Лог поселения»): INSERT ... ON CONFLICT DO NOTHING — анти-дубль на
+// уровне БД (uq_settlement_log_extinct). Мёртвая чек-точка (population_exact
+// ≤ NDead) запись не создаёт — бэкфилл отменён.
 func (r *EconomyRepository) RecomputeSettlementPopulation(s *models.Settlement, input settlement.PlanetInput, now time.Time) (models.Settlement, error) {
-	lambda := settlement.TotalLambda(input, settlement.DefaultScale)
+	rPerSec, lambdaPerHour := settlement.ChangeComponents(input, settlement.DefaultScale)
 
 	if now.Sub(s.ComputedAt) < settlement.MinPersistInterval {
-		next := settlement.Recompute(input, settlement.DefaultScale, s.PopulationExact, s.ComputedAt, now)
+		next := settlement.Recompute(input, settlement.DefaultScale, s.PopulationExact, s.ComputedAt, now, s.CreatedAt)
 		s.Population = int(math.Round(next))
 		s.PopulationExact = next
 		s.ComputedAt = now
-		s.DecayLambda = settlement.ClampLambda(lambda)
+		s.LambdaPerHour = settlement.ClampLambda(lambdaPerHour)
+		s.RPerSec = rPerSec
 		s.NDead = settlement.NDead
 		return *s, nil
 	}
@@ -99,7 +106,7 @@ func (r *EconomyRepository) RecomputeSettlementPopulation(s *models.Settlement, 
 		return models.Settlement{}, err
 	}
 
-	newExact := settlement.Recompute(input, settlement.DefaultScale, stored.PopulationExact, stored.ComputedAt, now)
+	newExact := settlement.Recompute(input, settlement.DefaultScale, stored.PopulationExact, stored.ComputedAt, now, stored.CreatedAt)
 	newPopulation := int(math.Round(newExact))
 
 	if _, err := tx.Exec(`
@@ -110,6 +117,25 @@ func (r *EconomyRepository) RecomputeSettlementPopulation(s *models.Settlement, 
 		return models.Settlement{}, err
 	}
 
+	// Обвал с живой чек-точки: население обнулилось целиком (next < NDead →
+	// 0) — дата смерти вычислима, пишем «Вымерло» в лог той же транзакцией.
+	// INSERT ... ON CONFLICT DO NOTHING: второй одновременный синк упирается
+	// в uq_settlement_log_extinct и ничего не пишет (18a §«Анти-дубль и синк»).
+	if stored.PopulationExact > settlement.NDead && newExact == 0 {
+		deathAt, ok := settlement.DeathTime(stored.PopulationExact, rPerSec, lambdaPerHour, stored.ComputedAt)
+		if ok {
+			cause := settlement.DeathCause(input, settlement.DefaultScale)
+			if _, err := tx.Exec(`
+				INSERT INTO settlement_log (settlement_id, type, occurred_at, cause)
+				VALUES ($1, 'extinct', $2, $3)
+				ON CONFLICT DO NOTHING`,
+				stored.ID, deathAt, cause,
+			); err != nil {
+				return models.Settlement{}, err
+			}
+		}
+	}
+
 	if err := tx.Commit(); err != nil {
 		return models.Settlement{}, err
 	}
@@ -117,9 +143,51 @@ func (r *EconomyRepository) RecomputeSettlementPopulation(s *models.Settlement, 
 	stored.Population = newPopulation
 	stored.PopulationExact = newExact
 	stored.ComputedAt = now
-	stored.DecayLambda = settlement.ClampLambda(lambda)
+	stored.LambdaPerHour = settlement.ClampLambda(lambdaPerHour)
+	stored.RPerSec = rPerSec
 	stored.NDead = settlement.NDead
 	return stored, nil
+}
+
+// GetSettlementLogBySettlementIDs возвращает последние 3 записи лога на
+// поселение, сгруппированные по settlement_id, сортировка по дате убывающая
+// (18a §«UI»). Пустой список id — пустой результат, без запроса.
+func (r *EconomyRepository) GetSettlementLogBySettlementIDs(ids []string) (map[string][]models.SettlementLogEntry, error) {
+	if len(ids) == 0 {
+		return map[string][]models.SettlementLogEntry{}, nil
+	}
+
+	query := `
+		SELECT id, settlement_id, type, occurred_at, cause, created_at
+		FROM (
+			SELECT id, settlement_id, type, occurred_at, cause, created_at,
+			       ROW_NUMBER() OVER (PARTITION BY settlement_id ORDER BY occurred_at DESC) AS rn
+			FROM settlement_log
+			WHERE settlement_id = ANY($1)
+		) sub
+		WHERE rn <= 3
+		ORDER BY occurred_at DESC`
+	rows, err := r.db.Query(query, pqStringArray(ids))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := map[string][]models.SettlementLogEntry{}
+	for rows.Next() {
+		var e models.SettlementLogEntry
+		var cause sql.NullString
+		if err := rows.Scan(
+			&e.ID, &e.SettlementID, &e.Type, &e.OccurredAt, &cause, &e.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		if cause.Valid {
+			e.Cause = &cause.String
+		}
+		result[e.SettlementID] = append(result[e.SettlementID], e)
+	}
+	return result, rows.Err()
 }
 
 // pqStringArray — []string в тип для `= ANY($1)`. lib/pq сам кодирует

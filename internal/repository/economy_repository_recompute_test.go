@@ -49,7 +49,7 @@ func TestRecomputeSettlementPopulationEventComfortableUnchanged(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 	require.Equal(t, 1_000_000, got.Population)
 	require.Equal(t, float64(1_000_000), got.PopulationExact)
-	require.Equal(t, float64(0), got.DecayLambda, "комфортная планета не должна убивать")
+	require.Equal(t, float64(0), got.LambdaPerHour, "комфортная планета не должна убивать")
 	require.Equal(t, float64(100), got.NDead)
 }
 
@@ -71,15 +71,15 @@ func TestRecomputeSettlementPopulationEventHotDecreases(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	// 500 K — горячая сторона с конечной λ: 900 K теперь за жёстким нулём
-	// (T ≥ 700 K, 99.2.12, H4) и дала бы население 0, а не «убыло, но живо».
-	input := settlement.PlanetInput{TemperatureK: 500, GravityG: 1.0, CoreRadioactivity: 5}
+	// 365 K (+92 °C) — жара с R ≈ 7.3·10⁻⁵/сек (R-модель, 99.2.12):
+	// население «убыло, но живо» (за сутки ≥ NDead).
+	input := settlement.PlanetInput{TemperatureK: 365, GravityG: 1.0, CoreRadioactivity: 5}
 	got, err := NewEconomyRepository(db).RecomputeSettlementPopulation(loadSettlement("s1", 1_000_000, since), input, now)
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 	require.Less(t, got.Population, 1_000_000, "на жаркой планете население должно уменьшиться")
 	require.Greater(t, got.Population, 0)
-	require.Greater(t, got.DecayLambda, float64(0))
+	require.Greater(t, got.RPerSec, float64(0), "жара — в R_per_sec, не в lambda_per_hour")
 }
 
 // «Простой визит» (Δt < MinPersistInterval): население пересчитывается только
@@ -92,14 +92,14 @@ func TestRecomputeSettlementPopulationVisitNoWrite(t *testing.T) {
 	since := time.Now().Add(-1 * time.Minute)
 	now := time.Now()
 
-	input := settlement.PlanetInput{TemperatureK: 500, GravityG: 1.0, CoreRadioactivity: 5}
+	input := settlement.PlanetInput{TemperatureK: 365, GravityG: 1.0, CoreRadioactivity: 5}
 	got, err := NewEconomyRepository(db).RecomputeSettlementPopulation(loadSettlement("s1", 1_000_000, since), input, now)
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet(), "визит не должен трогать БД")
 
 	require.Less(t, got.Population, 1_000_000, "на жаркой планете население должно уменьшиться")
 	require.Greater(t, got.Population, 0)
-	require.Greater(t, got.DecayLambda, float64(0))
+	require.Greater(t, got.RPerSec, float64(0), "жара — в R_per_sec, не в lambda_per_hour")
 	require.Equal(t, now.Unix(), got.ComputedAt.Unix(), "в ответе — чек-точка на момент пересчёта")
 	require.Equal(t, float64(100), got.NDead)
 }
@@ -120,5 +120,5 @@ func TestRecomputeSettlementPopulationVisitComfortableUnchanged(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 
 	require.Equal(t, 1_000_000, got.Population)
-	require.Equal(t, float64(0), got.DecayLambda)
+	require.Equal(t, float64(0), got.LambdaPerHour)
 }

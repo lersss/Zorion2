@@ -138,7 +138,7 @@ recompute(settlement, now):
 > `population_exact` в БД продвигаются лишь когда Δt ≥ `MinPersistInterval`
 > (30 мин, «событие» — транзакция под `SELECT ... FOR UPDATE`, §13.13.4).
 > Частое чтение не создаёт ни записи, ни гонок; между синками клиент
-> косметически экстраполирует по `decay_lambda`/`n_dead`
+> косметически экстраполирует по `lambda_per_hour`/`r_per_sec`/`n_dead`
 > (`web/static/js/modal/extrapolate.js`).
 
 > **Поселение без заводов не считается никогда.** Занятых нет, кошелька нет; тир

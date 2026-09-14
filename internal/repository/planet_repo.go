@@ -124,6 +124,7 @@ func (r *PlanetRepository) attachSettlements(planets []models.Planet) error {
 
 	econRepo := NewEconomyRepository(r.db)
 	now := time.Now()
+	settlementIDs := make([]string, 0, len(planets))
 	for i := range planets {
 		settlements := byPlanet[planets[i].ID]
 		input := planetMortalityInput(planets[i])
@@ -133,11 +134,24 @@ func (r *PlanetRepository) attachSettlements(planets []models.Planet) error {
 				return fmt.Errorf("failed to recompute settlement %s: %w", settlements[j].ID, err)
 			}
 			settlements[j] = updated
+			settlementIDs = append(settlementIDs, settlements[j].ID)
 		}
 		planets[i].Settlements = settlements
 		planets[i].Habitable = len(settlements) > 0
 		for _, s := range settlements {
 			planets[i].Population += int64(s.Population)
+		}
+	}
+
+	// Лог поселения (записи «Вымерло»): один запрос на все поселения, последние
+	// 3 записи на поселение (18a §«UI», settlements[].log).
+	logBySettlement, err := econRepo.GetSettlementLogBySettlementIDs(settlementIDs)
+	if err != nil {
+		return fmt.Errorf("failed to load settlement log: %w", err)
+	}
+	for i := range planets {
+		for j := range planets[i].Settlements {
+			planets[i].Settlements[j].Log = logBySettlement[planets[i].Settlements[j].ID]
 		}
 	}
 	return nil

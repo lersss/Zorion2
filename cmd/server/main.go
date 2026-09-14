@@ -15,6 +15,7 @@ import (
 	"zorion/internal/config"
 	"zorion/internal/generator/planet"
 	"zorion/internal/generator/settlement"
+	"zorion/internal/generator/ship"
 	"zorion/internal/handlers"
 	"zorion/internal/mapcache"
 	"zorion/internal/models"
@@ -114,10 +115,30 @@ func main() {
 		log.Println("✅ Пресет поселений загружен")
 	}
 
+	// Конфиг визуала кораблей (спека 99.2.15 §2): палитра, акценты, зоны,
+	// стиль, порядок слоёв. Критичен для генератора — без него сервер не
+	// стартует (как описания планет).
+	shipCfg, err := ship.LoadConfig("config/ship_visual.json")
+	if err != nil {
+		log.Fatalf("❌ Не удалось загрузить ship_visual.json: %v", err)
+	}
+	log.Println("✅ Конфиг визуала кораблей загружен")
+
 	worldRepo := repository.NewWorldRepository(db)
 	locationRepo := repository.NewLocationRepository(db)
 	assignmentRepo := repository.NewAssignmentRepository(db)
 	userRepo := repository.NewUserRepository(db)
+
+	// Каталог деталей кораблей в памяти (спека 99.2.15 §3.4): immutable
+	// snapshot + atomic.Pointer; загрузка при старте, перезагрузка после
+	// генерации в админке. Пустой каталог — клиент рисует фолбэк (И4).
+	shipRepo := repository.NewShipRepository(db)
+	shipCatalog := repository.NewShipCatalog(shipCfg.Palette, shipCfg.LayerOrder)
+	if err := shipCatalog.Load(context.Background(), db); err != nil {
+		log.Printf("⚠️ Каталог деталей кораблей не загружен: %v (клиент покажет фолбэк)", err)
+	} else {
+		log.Println("✅ Каталог деталей кораблей загружен")
+	}
 
 	travelManager := travel.NewManager()
 	wsHub := handlers.NewWebSocketHub()
@@ -225,6 +246,18 @@ func main() {
 	http.HandleFunc("/admin/npc", auth.AdminAuth(npcAdminHandlers.HandleCollection))
 	http.HandleFunc("/admin/npc/", auth.AdminAuth(npcAdminHandlers.HandleObject))
 	http.HandleFunc("/api/npc/positions", auth.AuthMiddleware(npcAdminHandlers.Positions))
+
+	// Корабли (спека 99.2.15 §10): каталог для клиента (из памяти, O(1)) +
+	// «теневой» генератор в админке. Порядок паттернов: точные пути
+	// /generate и /regenerate-category длиннее поддерева /admin/ship-parts/,
+	// поэтому попадают на свои ручки.
+	shipHandlers := handlers.NewShipHandlers(shipCatalog)
+	adminShipPartsHandlers := handlers.NewAdminShipPartsHandlers(shipRepo, shipCatalog)
+	http.HandleFunc("/api/ship-parts", auth.AuthMiddleware(shipHandlers.GetCatalog))
+	http.HandleFunc("/admin/ship-parts", auth.AdminAuth(adminShipPartsHandlers.List))
+	http.HandleFunc("/admin/ship-parts/generate", auth.AdminAuth(adminShipPartsHandlers.Generate))
+	http.HandleFunc("/admin/ship-parts/regenerate-category", auth.AdminAuth(adminShipPartsHandlers.RegenerateCategory))
+	http.HandleFunc("/admin/ship-parts/", auth.AdminAuth(adminShipPartsHandlers.HandleObject))
 
 	http.Handle("/admin", noCache(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./web/admin.html")

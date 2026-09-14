@@ -9,6 +9,7 @@ import { isFiniteNumber } from './utils.js';
 import { CONFIG } from '../config.js';
 import { notifyInfo } from '../ui/toast.js';
 import { handleUnauthorized } from './data.js';
+import { getShipSprite } from './ship_render.js';
 // draw — циклический импорт map_render.js (map_render импортирует
 // drawNPCAgents из этого модуля): ES-модули допускают цикл, доступ к draw
 // только в рантайме (loadNPCPositions), после инициализации обоих модулей.
@@ -19,9 +20,9 @@ const { map: mapCfg } = CONFIG;
 // Период опроса позиций — согласованно с npcTickInterval (5с, спека §7).
 const POSITIONS_POLL_MS = 5000;
 
-// Цвет иконки агента — розово-фиолетовый ромб, не пересекается с палитрой звёзд.
-const AGENT_COLOR = '#f472b6';
-const AGENT_IDLE_COLOR = '#a78bfa';
+// lastNpcPos — прошлые позиции агентов для поворота спрайта по вектору
+// движения (спека 99.2.15 §5.2; в позициях курса нет — берём из дельт).
+const lastNpcPos = new Map(); // id -> {x, y, angle}
 
 let npcLoopStarted = false;
 
@@ -117,9 +118,23 @@ function npcScreenRadius() {
     return Math.max(3.5, 4.5 * state.scale);
 }
 
+// npcAngle — курс агента: вектор движения между последними опросами позиций
+// (идл-агент не движется — курс сохраняется).
+function npcAngle(p) {
+    const last = lastNpcPos.get(p.id);
+    let angle = last ? last.angle : 0;
+    if (last && (p.x !== last.x || p.y !== last.y)) {
+        angle = Math.atan2(p.y - last.y, p.x - last.x);
+    }
+    lastNpcPos.set(p.id, { x: p.x, y: p.y, angle });
+    return angle;
+}
+
 // drawNPCAgents — иконки агентов. Вызывается из draw() в map_render.js.
 // Видимость: когда видны имена звёзд (тот же порог nameDisplayThreshold,
-// спека §7: на галактическом обзоре агенты скрыты).
+// спека §7: на галактическом обзоре агенты скрыты). Вместо ромба — мини-спрайт
+// схемы агента (assemblyFromSeed(id), спека 99.2.15 §5.2), повёрнутый по
+// вектору движения; каталог пуст/спрайт не загружен — фолбэк-ромб (И4).
 export function drawNPCAgents(ctx, canvasWidth, canvasHeight) {
     if (state.scale <= mapCfg.nameDisplayThreshold) return;
     const positions = state.npcPositions || [];
@@ -143,18 +158,28 @@ export function drawNPCAgents(ctx, canvasWidth, canvasHeight) {
         // Экранный cull как у звёзд.
         if (px < -50 || py < -50 || px > canvasWidth + 50 || py > canvasHeight + 50) continue;
 
-        // Ромб: idle — фиолетовый, flying — розовый.
-        ctx.beginPath();
-        ctx.moveTo(px, py - size);
-        ctx.lineTo(px + size, py);
-        ctx.lineTo(px, py + size);
-        ctx.lineTo(px - size, py);
-        ctx.closePath();
-        ctx.fillStyle = p.status === 'flying' ? AGENT_COLOR : AGENT_IDLE_COLOR;
-        ctx.fill();
-        ctx.strokeStyle = '#0f172a';
-        ctx.lineWidth = 1;
-        ctx.stroke();
+        const sprite = getShipSprite(p.id);
+        if (sprite && sprite.complete && sprite.naturalWidth > 0) {
+            ctx.save();
+            ctx.translate(px, py);
+            ctx.rotate(npcAngle(p));
+            ctx.drawImage(sprite, -size, -size, size * 2, size * 2);
+            ctx.restore();
+        } else {
+            // Фолбэк-ромб (И4): каталог пуст / спрайт ещё грузится.
+            npcAngle(p);
+            ctx.beginPath();
+            ctx.moveTo(px, py - size);
+            ctx.lineTo(px + size, py);
+            ctx.lineTo(px, py + size);
+            ctx.lineTo(px - size, py);
+            ctx.closePath();
+            ctx.fillStyle = '#f472b6';
+            ctx.fill();
+            ctx.strokeStyle = '#0f172a';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+        }
 
         ctx.fillStyle = '#f1f5f9';
         ctx.fillText(p.name || '—', px, py + size + fontSize);

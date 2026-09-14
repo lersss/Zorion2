@@ -4,6 +4,7 @@ import { runAudit } from './audit.js';
 import { bindTestsButtons } from './tests.js';
 import { loadUsers } from './users.js';
 import { initNPC } from './npc.js';
+import { initShips } from './ships.js';
 
 // Активная вкладка сохраняется между обновлениями страницы.
 const STORAGE_KEY = 'adminActiveTab';
@@ -47,6 +48,9 @@ function activateTab(tabId) {
     }
     if (tabId === 'tab-npc') {
         initNPC();
+    }
+    if (tabId === 'tab-ships') {
+        initShips();
     }
 }
 

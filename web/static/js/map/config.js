@@ -28,6 +28,8 @@ export const state = {
     followShip: false,   // активно следить за кораблём во время полёта
     focusWorldId: null,  // мир, найденный поиском (рисуется кольцом)
     npcPositions: [],    // NPC-агенты для карты (спека 20a.1 §7): {id,name,x,y,status,...}
+    userId: null,        // id игрока (для дефолтной схемы корабля, спека 99.2.15 §8)
+    userShipIcon: '',    // legacy ship_icon (мост: идёт в seed дефолтной схемы)
 };
 
 export const elements = {

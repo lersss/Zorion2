@@ -18,6 +18,10 @@ import {
     initNPC, loadNPC, loadNPCSettings, saveNPCSettings,
     createAgent, toggleNotify, deleteAgent
 } from './npc.js';
+import {
+    initShips, loadShips, generateShips, regenerateCategory,
+    deleteShipPart, selectShipPart
+} from './ships.js';
 
 // Глобальные функции для onclick в HTML
 window.adminLogin = adminLogin;
@@ -55,6 +59,12 @@ window.createAgent = createAgent;
 window.toggleNotify = toggleNotify;
 window.deleteAgent = deleteAgent;
 window.loadNPC = loadNPC;
+window.initShips = initShips;
+window.loadShips = loadShips;
+window.generateShips = generateShips;
+window.regenerateCategory = regenerateCategory;
+window.deleteShipPart = deleteShipPart;
+window.selectShipPart = selectShipPart;
 
 // Ключ в localStorage читает web/static/js/modal/panel.js (карточка планеты
 // в игровых страницах) — держать строку синхронной при переименовании.

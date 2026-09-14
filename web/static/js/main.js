@@ -7,6 +7,7 @@ import { centerOnAgent } from './map/navigation.js';
 import { applyFiltersFromUI, resetFilters, filterState } from './filters.js';
 import { loadClusters, loadUserData } from './map/data.js';
 import { draw } from './map/map_render.js';
+import { loadShipCatalog } from './map/ship_render.js';
 import { showTextLoader } from './loader.js';
 import { notifyError } from './ui/toast.js';
 import { initEntitySearch } from './search.js';
@@ -35,8 +36,9 @@ function restoreViewport() {
 async function initMap() {
     resizeCanvas();
 
-    // 1. Пользователь (current_world_id)
-    await loadUserData();
+    // 1. Пользователь (current_world_id) + каталог деталей кораблей
+    //    (спека 99.2.15 §5: схемы полёта и иконок агентов; без него — фолбэк).
+    await Promise.all([loadUserData(), loadShipCatalog()]);
 
     // 2. Восстановление вьюпорта
     const restored = restoreViewport();

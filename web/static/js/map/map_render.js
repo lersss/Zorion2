@@ -3,21 +3,21 @@ import { state, elements } from './config.js';
 import { isFiniteNumber, worldToCanvas, getStarColor, getStarShade } from './utils.js';
 import { CONFIG } from '../config.js';
 import { drawNPCAgents } from './npc_agents.js';
+import { getShipSprite } from './ship_render.js';
 
 const { map: mapCfg } = CONFIG;
 
-// Спрайт корабля (носик — вправо, совпадает с поворотом в drawFlight).
-const shipImg = new Image();
-let currentShipIcon = 'ship_strela.svg';
-shipImg.src = '/static/sprites/' + currentShipIcon;
+// Спрайт корабля (спека 99.2.15 §5.2): глобальный shipImg заменён на
+// getShipSprite(seed) из каталога деталей. Полёт игрока использует дефолт
+// от id ⊕ legacy icon (users.ship_visual придёт на этапе 5); спрайт грузится
+// асинхронно — до загрузки рисуется фолбэк-примитив.
 
-// setShipIcon — меняет спрайт корабля по имени файла иконки.
+// setShipIcon — мост с legacy-блоком (спека §8): имя legacy-спрайта больше
+// не грузится как картинка, а идёт в seed дефолтной сборки схемы игрока.
 export function setShipIcon(fileName) {
     if (!fileName || typeof fileName !== 'string') return;
     if (!/^[a-z0-9_\-]+\.svg$/i.test(fileName)) return;
-    if (fileName === currentShipIcon) return;
-    currentShipIcon = fileName;
-    shipImg.src = '/static/sprites/' + fileName;
+    state.userShipIcon = fileName;
 }
 
 // Размеры звёзд по спектральному классу — вынесено из циклов.
@@ -622,11 +622,14 @@ function drawFlight(ctx, scale, flyFrom, flyTo, flyStartTime, flyDuration) {
     ctx.fillStyle = flameGrad;
     ctx.fill();
 
-    // Спрайт корабля (если загрузился) либо примитив-фолбэк.
-    if (shipImg.complete && shipImg.naturalWidth > 0) {
+    // Спрайт корабля: схема игрока (дефолт от id ⊕ legacy icon, спека §8)
+    // из кэша каталога; каталог пуст/спрайт не загружен → примитив-фолбэк.
+    const playerSeed = state.userId ? (state.userId + '|' + (state.userShipIcon || '')) : '';
+    const sprite = playerSeed ? getShipSprite(playerSeed) : null;
+    if (sprite && sprite.complete && sprite.naturalWidth > 0) {
         const w = shipSize * 3.2;
         const h = shipSize * 3.2;
-        ctx.drawImage(shipImg, -w / 2, -h / 2, w, h);
+        ctx.drawImage(sprite, -w / 2, -h / 2, w, h);
     } else {
         const bodyGrad = ctx.createLinearGradient(0, -shipSize * 0.55, 0, shipSize * 0.55);
         bodyGrad.addColorStop(0, '#bfdbfe');

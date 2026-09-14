@@ -5,6 +5,7 @@
 package repository
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 
@@ -104,6 +105,13 @@ func (r *ShipRepository) SaveShipVisual(userID string, v *models.ShipVisual) err
 		data, userID,
 	)
 	return err
+}
+
+// ReloadCatalog — перезагрузка каталога деталей в память из БД после
+// генерации/удаления в админке (спека §3.4, И7). При ошибке старый snapshot
+// остаётся в силе.
+func (r *ShipRepository) ReloadCatalog(ctx context.Context, catalog *ShipCatalog) error {
+	return catalog.Load(ctx, r.db)
 }
 
 // GetShipVisual читает схему игрока; nil, nil — «ещё не собирал» (NULL).

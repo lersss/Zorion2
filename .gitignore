@@ -9,6 +9,7 @@
 # Бинарники Go
 zorion
 zorion.exe
+zorion-server.exe
 *.exe
 *.test
 *.out

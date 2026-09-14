@@ -5,7 +5,7 @@
 > `docs/INDEX.md` (этот файл не дублирует её). Правило доков: **один факт —
 > одно место.** Начало сессии: команда `/start` (`.opencode/command/start.md`).
 
-**Обновлено:** 2026-09-14
+**Обновлено:** 2026-09-15
 **Module path:** `zorion`
 **Remote:** `github.com/lersss/Zorion2`
 
@@ -35,12 +35,14 @@ Go 1.21+ · PostgreSQL 15+ · Redis 7+ · Vanilla JS (ES-модули) + Canvas 
 $env:DATABASE_URL = "postgres://zorion:zorion123@127.0.0.1:5432/zorion?sslmode=disable"
 $env:REDIS_URL    = "redis://localhost:6379"
 $env:JWT_SECRET   = "минимум-32-символа"
-$env:ADMIN_PASSWORD = "admin123"
 $env:TICK_INTERVAL_SEC = "3"
 go run cmd/server/main.go
 ```
 
 `JWT_SECRET` обязателен — без него `log.Fatal`.
+
+Админка — по JWT-ролям (`admin`/`skycomposer`), глобального пароля нет (роли, bootstrap,
+раздел «Пользователи» — `docs/gamedesign/20_admin_roles.md` и спека `99.2.14`).
 
 ---
 
@@ -126,6 +128,7 @@ web/                     — HTML + static/{css,js,sprites}
 21. **Диспетчер `@dispatcher`** (модель `big-pickle`, `.opencode/agents/dispatcher.md`). **Единственный писатель горячих доков** (`STATUS.md`, `docs/INDEX.md`, `docs/gamedesign/99_roadmap.md`, `docs/gamedesign/faq_counter.md`, `CHANGELOG.md`, `AGENTS.md`, `.opencode/CONTEXT.md`) и **единственный git-владелец** (п.10). Разносит дельты команд (раздел «Разнос по докам» в идеях) механически, в паузу. Вызывается **только создателем**: «@dispatcher, разнеси дельты». Менеджерам команд порождать его запрещено (несколько инстанций = конфликты правок).
 22. **Один писатель у каждого документа.** Читать может любой; писать — только владелец (роль `@dispatcher` для горячих доков, остальные зоны — в `docs/INDEX.md` и `docs/COORDINATION.md`). Нужна правка чужого документа — передай её владельцу (менеджер — дельтой в свою идею), сам не прави. Никто, кроме `@dispatcher`, не пишет горячие доки напрямую.
 23. **Админка — параллельная работа по вкладкам.** Фичи режутся по вкладкам (10 вкладок; фича = своя вкладка + свой JS в `web/static/js/admin/*.js` + свои Go-хендлеры). Код админки — обычная параллельная работа. **Запрет один:** живые прогоны, пишущие в БД (Генерация…, Гипотезы, Очистка), не запускать поверх чужого работающего джоба — перед стартом посмотреть статус генерации; крутится чужой — ждать (джобы пишут в одни таблицы и не знают о соседе). Решение создателя 2026-09-15.
+24. **Графический дизайнер `@gdesigner`** (модель `big-pickle`, `.opencode/agents/gdesigner.md`). Визуальный дизайн игры: стилистика, палитры, формы, конфиги генераторов визуала, ТЗ на ассеты и улучшение вида. На старте визуальной задачи ПРЕДЛАГАЕТ 2–4 варианта стилистики — создатель выбирает. Работает по гейтам, код не пишет, не коммитит (вызывается через @manager).
 
 ---
 
@@ -135,7 +138,7 @@ web/                     — HTML + static/{css,js,sprites}
 |---|---|---|
 | Публичные | — | `/health`, `/status`, `/register`, `/login`, `/api/planet-image` |
 | Игровые | `Authorization: Bearer <JWT>` | `/me`, `/worlds`, `/worlds/{id}`, `/api/worlds/{id}/planets`, `/api/worlds/filter`, `/api/entities/search`, `/api/contracts`, `/travel`, `/ws` |
-| Админка | `X-Admin-Password` | `/admin/worlds`, `/admin/generate*`, `/admin/clear`, `/admin/stats`, `/admin/audit`, `/admin/compatibility`, `/admin/tests` |
+| Админка | JWT-роли `admin`/`skycomposer` | `/admin/worlds`, `/admin/generate*`, `/admin/clear`, `/admin/stats`, `/admin/audit`, `/admin/compatibility`, `/admin/tests` |
 
 Точные пути смотри в `internal/handlers/`.
 

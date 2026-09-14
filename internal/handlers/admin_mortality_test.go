@@ -61,7 +61,7 @@ func TestMortalityPreviewComfortablePlanetHasZeroLambda(t *testing.T) {
 		WHERE id = $1
 	`).WithArgs("p1").WillReturnRows(
 		sqlmock.NewRows([]string{"id", "world_id", "name", "orbit_index", "data", "created_at", "updated_at"}).
-			AddRow("p1", "w1", "Уютная", 1, `{"temperature":275,"gravity":1.0}`, now, now),
+			AddRow("p1", "w1", "Уютная", 1, `{"temperature":288,"gravity":1.0}`, now, now),
 	)
 	mock.ExpectQuery(`
 		SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at
@@ -114,7 +114,7 @@ func TestMortalityPreviewP0Override(t *testing.T) {
 		WHERE id = $1
 	`).WithArgs("p1").WillReturnRows(
 		sqlmock.NewRows([]string{"id", "world_id", "name", "orbit_index", "data", "created_at", "updated_at"}).
-			AddRow("p1", "w1", "Без поселений", 1, `{"temperature":275,"gravity":1.0}`, now, now),
+			AddRow("p1", "w1", "Без поселений", 1, `{"temperature":288,"gravity":1.0}`, now, now),
 	)
 	mock.ExpectQuery(`
 		SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at
@@ -138,23 +138,23 @@ func TestMortalityPreviewP0Override(t *testing.T) {
 }
 
 func TestMortalityPreviewUninhabitable(t *testing.T) {
-	// R-модель (99.2.12): жара — витринный порог «t_смерти(p0) < 1 ч»
-	// (для p0 = 10⁶ порог R > 1 − exp(−ln(p0)/3600) ≈ 3.8·10⁻³): +310 °C
-	// (R ≈ 0.0042, t ≈ 55 мин) — uninhabitable true, λ = 0 (жара в R_per_sec),
-	// проекция — хвост, не 0; +250 °C (R ≈ 0.0022, t ≈ 1.7 ч) — false;
-	// холод T ≤ 100 K — по-прежнему λ = +Inf → кламп (MaxSerializedLambda),
-	// проекция 0.
+	// R-модель (99.2.12/99.2.13): витринный порог «t_смерти(p0) < 1 ч» по
+	// полному r (ChangeComponents) — для p0 = 10⁶ порог r > 1 − exp(−ln(p0)/3600)
+	// ≈ 3.8·10⁻³: +310 °C (r ≈ 0.0042, t ≈ 55 мин) — uninhabitable true,
+	// lambda_per_hour = 0 (λ-механизм убран, всё в r_per_sec), проекция 0;
+	// +250 °C (r ≈ 0.0022, t ≈ 1.7 ч) — false; холод 50 K (r ≈ 0.0206,
+	// t ≈ 11 мин) — true, без +Inf (жёсткие нули убраны, 99.2.13).
 	cases := []struct {
 		name           string
 		temp           float64
 		uninhabitable  bool
-		lambda         float64 // ожидаемый lambda_per_hour (клампнутый)
+		lambda         float64 // ожидаемый lambda_per_hour (всегда 0)
 		r              float64 // ожидаемый r_per_sec
-		projectionZero bool   // все точки projection == 0 (только λ = +Inf)
+		projectionZero bool   // все точки projection == 0 (фактически вымерло к 1 ч)
 	}{
-		{"жара 583.15 K (+310 °C)", 583.15, true, 0, 0.00416, false},
+		{"жара 583.15 K (+310 °C)", 583.15, true, 0, 0.00416, true},
 		{"жара 523.15 K (+250 °C)", 523.15, false, 0, 0.00223, false},
-		{"холод 50 K", 50, true, settlement.MaxSerializedLambda, 0, true},
+		{"холод 50 K", 50, true, 0, 0.0206, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

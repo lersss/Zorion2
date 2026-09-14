@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -263,24 +264,37 @@ func extractResources(data map[string]interface{}) map[string]float64 {
 }
 
 func getString(data map[string]interface{}, key string) string {
-	if v, ok := data[key].(string); ok {
-		return v
-	}
-	return ""
+	v, _ := valueAtPath(data, key)
+	s, _ := v.(string)
+	return s
 }
 
 func getFloat(data map[string]interface{}, key string) float64 {
-	if v, ok := data[key].(float64); ok {
-		return v
-	}
-	return 0
+	v, _ := valueAtPath(data, key)
+	f, _ := v.(float64)
+	return f
 }
 
 func getBool(data map[string]interface{}, key string) bool {
-	if v, ok := data[key].(bool); ok {
-		return v
+	v, _ := valueAtPath(data, key)
+	b, _ := v.(bool)
+	return b
+}
+
+// valueAtPath — значение по dot-ключу ("core.radioactivity" → data["core"]
+// ["radioactivity"]). Плоские ключи читаются как раньше; отсутствующий
+// промежуточный map даёт отсутствующее значение.
+func valueAtPath(data map[string]interface{}, key string) (interface{}, bool) {
+	i := strings.IndexByte(key, '.')
+	if i < 0 {
+		v, ok := data[key]
+		return v, ok
 	}
-	return false
+	head, tail := key[:i], key[i+1:]
+	if child, ok := data[head].(map[string]interface{}); ok {
+		return valueAtPath(child, tail)
+	}
+	return nil, false
 }
 
 // ==================== БАТЧ-ВСТАВКА ====================

@@ -55,7 +55,7 @@ func (h *AdminHandlers) MortalityPreview(w http.ResponseWriter, r *http.Request)
 		GravityG:          planet.Gravity,
 		CoreRadioactivity: radioactivity,
 	}
-	rPerSec, lambdaPerHour := settlement.ChangeComponents(input, settlement.DefaultScale)
+	rPerSec := settlement.ChangeComponents(input)
 	tDeath := settlement.DeathMomentSeconds(p0, rPerSec)
 	var tDeathHours *float64
 	if !math.IsInf(tDeath, 1) {
@@ -64,36 +64,31 @@ func (h *AdminHandlers) MortalityPreview(w http.ResponseWriter, r *http.Request)
 	}
 
 	response := struct {
-		PlanetID        string             `json:"planet_id"`
-		TemperatureK    float64            `json:"temperature_k"`
-		GravityG        float64            `json:"gravity_g"`
-		Radioactivity   float64            `json:"core_radioactivity"`
-		Severity        map[string]float64 `json:"severity"`
-		RPerSec         float64            `json:"r_per_sec"`
-		TDeathHours     *float64           `json:"t_death_hours,omitempty"`
-		LambdaPerHour   float64            `json:"lambda_per_hour"`
-		Uninhabitable   bool               `json:"uninhabitable"`
-		P0              float64            `json:"p0"`
-		Projection      map[string]float64 `json:"projection"`
+		PlanetID      string             `json:"planet_id"`
+		TemperatureK  float64            `json:"temperature_k"`
+		GravityG      float64            `json:"gravity_g"`
+		Radioactivity float64            `json:"core_radioactivity"`
+		RPerSec       float64            `json:"r_per_sec"`
+		TDeathHours   *float64           `json:"t_death_hours,omitempty"`
+		LambdaPerHour float64            `json:"lambda_per_hour"`
+		Uninhabitable bool               `json:"uninhabitable"`
+		P0            float64            `json:"p0"`
+		Projection    map[string]float64 `json:"projection"`
 	}{
 		PlanetID:      planet.ID,
 		TemperatureK:  planet.Temperature,
 		GravityG:      planet.Gravity,
 		Radioactivity: radioactivity,
-		// Изменение населения = сумма компонент (99.2.12): рекурсивная —
-		// жара (r_per_sec, t_смерти), λ-компоненты — прочие факторы
-		// (lambda_per_hour); severity температуры не применяется; +Inf
-		// (холод ≤ 100 K, временный полюс) клампится на границе.
-		Severity: map[string]float64{
-			"gravity":       settlement.TwoSidedSeverity(settlement.HumanGravityProfile, planet.Gravity),
-			"radioactivity": settlement.OneSidedSeverity(settlement.HumanRadioactivityProfile, radioactivity),
-		},
+		// Изменение населения = полная рекурсивная компонента r (99.2.12/99.2.13):
+		// R_ест + R_жара + R_холод + R_гравитация + R_радиация — всё в
+		// r_per_sec; λ-механизм убран (lambda_per_hour = 0), severity не
+		// применяется (компоненты гладкие, жёстких нулей нет).
 		RPerSec:       rPerSec,
 		TDeathHours:   tDeathHours,
-		LambdaPerHour: settlement.ClampLambda(lambdaPerHour),
+		LambdaPerHour: 0,
 		Uninhabitable: settlement.Uninhabitable(input, p0),
 		P0:            p0,
-		Projection:    settlement.Projection(p0, rPerSec, lambdaPerHour),
+		Projection:    settlement.Projection(p0, rPerSec),
 	}
 
 	w.Header().Set("Content-Type", "application/json")

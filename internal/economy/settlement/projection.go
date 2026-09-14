@@ -25,14 +25,13 @@ var StandardCheckpoints = []Checkpoint{
 	{Label: "1 год", Hours: 24 * 365},
 }
 
-// Projection считает население на стандартных точках времени при постоянных
-// компонентах изменения r (рекурсивная, жара) и λ (прочие факторы) —
-// предпросмотр «что будет», без ожидания реального времени и без изменения
-// состояния поселения.
-func Projection(p0 float64, r float64, lambda float64) map[string]float64 {
+// Projection считает население на стандартных точках времени при постоянной
+// рекурсивной компоненте r (ChangeComponents) — предпросмотр «что будет», без
+// ожидания реального времени и без изменения состояния поселения.
+func Projection(p0 float64, r float64) map[string]float64 {
 	result := make(map[string]float64, len(StandardCheckpoints))
 	for _, cp := range StandardCheckpoints {
-		result[cp.Label] = Population(p0, r, lambda, cp.Hours*3600)
+		result[cp.Label] = Population(p0, r, cp.Hours*3600)
 	}
 	return result
 }

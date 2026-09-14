@@ -7,7 +7,9 @@ import (
 )
 
 func comfortableInput() PlanetInput {
-	return PlanetInput{TemperatureK: 275, GravityG: 1.0, CoreRadioactivity: 5}
+	// 288 K (14.85 °C) — комфорт-ноль: холод 0 (T ≥ 288), рампа естественной
+	// не включена (T < 15 °C), жара 0 — R_total = 0 (99.2.13).
+	return PlanetInput{TemperatureK: 288, GravityG: 1.0, CoreRadioactivity: 5}
 }
 
 func hotInput() PlanetInput {
@@ -18,7 +20,7 @@ func hotInput() PlanetInput {
 
 func TestRecomputeNoTimePassedIsUnchanged(t *testing.T) {
 	now := time.Now()
-	got := Recompute(hotInput(), DefaultScale, 1000, now, now, now)
+	got := Recompute(hotInput(), 1000, now, now, now)
 	if got != 1000 {
 		t.Errorf("Recompute без прошедшего времени = %v, хочу 1000", got)
 	}
@@ -28,7 +30,7 @@ func TestRecomputeClockWentBackwardsIsUnchanged(t *testing.T) {
 	now := time.Now()
 	earlier := now.Add(-time.Hour)
 	// since = now, now = earlier: отрицательный Δt не должен ничего менять.
-	got := Recompute(hotInput(), DefaultScale, 1000, now, earlier, now)
+	got := Recompute(hotInput(), 1000, now, earlier, now)
 	if got != 1000 {
 		t.Errorf("Recompute с отрицательным Δt = %v, хочу 1000 (без изменений)", got)
 	}
@@ -37,7 +39,7 @@ func TestRecomputeClockWentBackwardsIsUnchanged(t *testing.T) {
 func TestRecomputeComfortableIsUnchanged(t *testing.T) {
 	since := time.Now().Add(-24 * 365 * time.Hour) // год назад
 	now := time.Now()
-	got := Recompute(comfortableInput(), DefaultScale, 1_000_000, since, now, since)
+	got := Recompute(comfortableInput(), 1_000_000, since, now, since)
 	if got != 1_000_000 {
 		t.Errorf("Recompute в комфорте изменил население: %v", got)
 	}
@@ -46,7 +48,7 @@ func TestRecomputeComfortableIsUnchanged(t *testing.T) {
 func TestRecomputeHotPlanetDecreases(t *testing.T) {
 	since := time.Now().Add(-24 * time.Hour)
 	now := time.Now()
-	got := Recompute(hotInput(), DefaultScale, 1_000_000, since, now, since)
+	got := Recompute(hotInput(), 1_000_000, since, now, since)
 	if !(got < 1_000_000 && got > 0) {
 		t.Errorf("Recompute на горячей планете = %v, хочу строго между 0 и 1_000_000", got)
 	}
@@ -55,7 +57,7 @@ func TestRecomputeHotPlanetDecreases(t *testing.T) {
 func TestRecomputeBelowNDeadCollapsesToZero(t *testing.T) {
 	since := time.Now().Add(-24 * 365 * 10 * time.Hour) // 10 лет — заведомо ниже порога
 	now := time.Now()
-	got := Recompute(hotInput(), DefaultScale, 1000, since, now, since)
+	got := Recompute(hotInput(), 1000, since, now, since)
 	if got != 0 {
 		t.Errorf("Recompute ниже NDead = %v, хочу 0 (разовый обвал)", got)
 	}
@@ -71,7 +73,7 @@ func TestNaturalLife(t *testing.T) {
 	createdAt := time.Now().Add(-50 * 365.25 * 24 * time.Hour)
 	now := time.Now()
 	delta := now.Sub(createdAt).Seconds()
-	got := Recompute(natural30, DefaultScale, 1_000_000, createdAt, now, createdAt)
+	got := Recompute(natural30, 1_000_000, createdAt, now, createdAt)
 	want := 1_000_000 * math.Pow(1-NaturalChangeRate, delta)
 	if math.Abs(got-want) > 1 {
 		t.Errorf("Recompute(50 лет) = %v, хочу ≈ %v (≈0.37·p0, СПЖ 50 лет)", got, want)
@@ -83,7 +85,7 @@ func TestNaturalLife(t *testing.T) {
 	// (раньше было «~1000 лет», пересмотрено на «полное ≤ 120», 99.2.12).
 	for _, p0 := range []float64{1e3, 1e9} {
 		old := time.Now().Add(-120 * 365.25 * 24 * time.Hour)
-		if got := Recompute(natural30, DefaultScale, p0, old, time.Now(), old); got != 0 {
+		if got := Recompute(natural30, p0, old, time.Now(), old); got != 0 {
 			t.Errorf("полное вымирание при 30 °C (p0=%v) = %v, хочу 0 (потолок 120 лет)", p0, got)
 		}
 	}
@@ -92,11 +94,11 @@ func TestNaturalLife(t *testing.T) {
 func TestNaturalCap(t *testing.T) {
 	// Возрастной потолок: age ≥ 120 лет → население 0; age < 120 → живёт.
 	old := time.Now().Add(-130 * 365.25 * 24 * time.Hour)
-	if got := Recompute(comfortableInput(), DefaultScale, 1e6, old, time.Now(), old); got != 0 {
+	if got := Recompute(comfortableInput(), 1e6, old, time.Now(), old); got != 0 {
 		t.Errorf("возраст 130 лет = %v, хочу 0 (потолок 120 лет)", got)
 	}
 	age110 := time.Now().Add(-110 * 365.25 * 24 * time.Hour)
-	if got := Recompute(comfortableInput(), DefaultScale, 1e6, age110, time.Now(), age110); got <= 0 {
+	if got := Recompute(comfortableInput(), 1e6, age110, time.Now(), age110); got <= 0 {
 		t.Errorf("возраст 110 лет = %v, хочу > 0", got)
 	}
 }
@@ -108,9 +110,9 @@ func TestNaturalInvariance(t *testing.T) {
 	t1 := createdAt.Add(50 * 365.25 * 24 * time.Hour)
 	t2 := createdAt.Add(100 * 365.25 * 24 * time.Hour)
 
-	one := Recompute(comfortableInput(), DefaultScale, 1e6, createdAt, t2, createdAt)
-	step1 := Recompute(comfortableInput(), DefaultScale, 1e6, createdAt, t1, createdAt)
-	two := Recompute(comfortableInput(), DefaultScale, step1, t1, t2, createdAt)
+	one := Recompute(comfortableInput(), 1e6, createdAt, t2, createdAt)
+	step1 := Recompute(comfortableInput(), 1e6, createdAt, t1, createdAt)
+	two := Recompute(comfortableInput(), step1, t1, t2, createdAt)
 	if math.Abs(one-two) > 1e-6 {
 		t.Errorf("инвариант нарушен: один пересчёт=%v, два=%v", one, two)
 	}

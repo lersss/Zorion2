@@ -59,6 +59,25 @@ func TestModelMatchesNumberRange(t *testing.T) {
 	assert.False(t, m.Matches(map[string]interface{}{"temperature": "не число"}), "битое значение не проходит")
 }
 
+// Правило по вложенному полю (core.radioactivity) читается по dot-пути.
+func TestModelMatchesNestedField(t *testing.T) {
+	m := &Model{Mode: ModeComplex, Chance: 1,
+		Population: Population{Kind: "fixed", Fixed: 100},
+		Rules: []FieldRule{
+			{Field: "core.radioactivity", Min: floatPtr(50), Max: floatPtr(100)},
+		}}
+
+	assert.True(t, m.Matches(map[string]interface{}{
+		"core": map[string]interface{}{"radioactivity": 80.0},
+	}))
+	assert.False(t, m.Matches(map[string]interface{}{
+		"core": map[string]interface{}{"radioactivity": 10.0},
+	}))
+	// Отсутствующий вложенный map — как отсутствующее значение (0 < 50).
+	assert.False(t, m.Matches(map[string]interface{}{}))
+	assert.False(t, m.Matches(map[string]interface{}{"core": "не map"}))
+}
+
 func TestModelMatchesStringInNotIn(t *testing.T) {
 	m := &Model{Mode: ModeComplex, Chance: 1,
 		Population: Population{Kind: "fixed", Fixed: 100},

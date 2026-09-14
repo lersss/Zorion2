@@ -2,7 +2,6 @@
 import { modalState } from './state.js';
 import { drawSystem } from './modal_render.js';
 import { computeLayout, getOrbitRadius, getPlanetAngle, getPlanetSize } from './layout.js';
-import { startFlight } from '../map/flight.js';
 import { closeModal } from './index.js';
 
 export function initEvents(canvas, spectralClass, planets, starRadius, starColor, width, height) {
@@ -208,23 +207,27 @@ function showStarMenu(x, y) {
     title.textContent = modalState.worldName || 'Система';
     menu.appendChild(title);
 
-    const btn = document.createElement('div');
-    btn.style.cssText = `
-        padding: 8px 10px;
-        cursor: pointer;
-        border-radius: 6px;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-    `;
-    btn.innerHTML = `🚀 <span>Перелететь</span>`;
-    btn.addEventListener('mouseenter', () => { btn.style.background = '#2a2a44'; });
-    btn.addEventListener('mouseleave', () => { btn.style.background = 'none'; });
-    btn.addEventListener('click', async () => {
-        hideStarMenu();
-        await startTravelToStar();
-    });
-    menu.appendChild(btn);
+    // «Перелететь» живёт только в игровой карте: из админки (authToken задан)
+    // полёт невозможен — #mapCanvas там нет, не показываем нерабочий пункт.
+    if (!modalState.authToken) {
+        const btn = document.createElement('div');
+        btn.style.cssText = `
+            padding: 8px 10px;
+            cursor: pointer;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        `;
+        btn.innerHTML = `🚀 <span>Перелететь</span>`;
+        btn.addEventListener('mouseenter', () => { btn.style.background = '#2a2a44'; });
+        btn.addEventListener('mouseleave', () => { btn.style.background = 'none'; });
+        btn.addEventListener('click', async () => {
+            hideStarMenu();
+            await startTravelToStar();
+        });
+        menu.appendChild(btn);
+    }
 
     document.body.appendChild(menu);
 }
@@ -236,7 +239,12 @@ function hideStarMenu() {
 
 async function startTravelToStar() {
     const worldId = modalState.worldId;
-    const token = localStorage.getItem('token');
+    // Модалку может открыть админка, где игрового токена нет: сначала
+    // берём токен, под которым открыта модалка, затем игровой. Импорт
+    // динамический: map/ тянется только по клику «Перелететь» и не роняет
+    // админку при загрузке (map/config.js требует canvas карты).
+    const token = modalState.authToken || localStorage.getItem('token');
+    const { startFlight } = await import('../map/flight.js');
     const ok = await startFlight(worldId, token);
     if (ok) {
         // Модалка закрывается — панель перелёта видна на карте в шапке.

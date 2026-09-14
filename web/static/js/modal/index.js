@@ -7,17 +7,34 @@ import { getStarColor, getStarSize } from './utils.js';
 import { renderRightPanel, renderStarCard } from './panel.js';
 import { notifyError } from '../ui/toast.js';
 import { repaintPopulationNumbers } from './extrapolate.js';
-import { handleUnauthorized } from '../map/data.js';
+
+// handleUnauthorized — локальная копия map/data.js: чистит игровой токен и
+// редиректит на логин. Не импортируем из ../map/ — тот тянет map/config.js,
+// который при загрузке требует #mapCanvas (его нет в админке) и роняет весь
+// import-граф. Единственное использование здесь — обработка 401/403.
+function handleUnauthorized() {
+    localStorage.removeItem('token');
+    if (window.location.pathname !== '/login-page') {
+        window.location.href = '/login-page';
+    }
+}
 
 // openSystemModal — открывает модалку системы по ID мира.
 // focusOpts: { planetId?, satelliteId? } — после открытия выбирает объект
 // (планету или спутник) в правой панели.
-export function openSystemModal(worldId, worldName, spectralClass, focusOpts) {
-    const token = localStorage.getItem('token');
+// authToken — необязательный токен для авторизации (админка «Миры»: там
+// используется adminToken, а игрового 'token' может не быть). undefined =
+// обычный игровой токен из localStorage.
+export function openSystemModal(worldId, worldName, spectralClass, focusOpts, authToken) {
+    const token = authToken || localStorage.getItem('token');
     if (!token) {
         handleUnauthorized();
         return;
     }
+
+    // Сохраняем токен в состоянии: refreshPlanets (кнопка «Обновить») и
+    // события используют его же, а не игровой localStorage (в админке его нет).
+    modalState.authToken = token;
 
     fetch(`/api/worlds/${worldId}/planets`, {
         headers: { 'Authorization': 'Bearer ' + token }
@@ -55,8 +72,8 @@ export function openSystemModal(worldId, worldName, spectralClass, focusOpts) {
 // сервере при каждом чтении (docs/gamedesign/18a_population_death.md), эта
 // функция просто вытягивает уже пересчитанный результат.
 export function refreshPlanets() {
-    const token = localStorage.getItem('token');
     const worldId = modalState.worldId;
+    const token = modalState.authToken || localStorage.getItem('token');
     if (!token || !worldId) return;
 
     fetch(`/api/worlds/${worldId}/planets`, {

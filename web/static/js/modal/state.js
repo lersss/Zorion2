@@ -24,6 +24,7 @@ export const modalState = {
     worldTemperature: 0,
     worldCoordX: 0,
     worldCoordY: 0,
+    authToken: null, // токен открытия модалки (админка); refreshPlanets использует его
     animStart: 0,
     _rafId: null,
     dragMoved: false,
@@ -45,6 +46,7 @@ export function resetState() {
     modalState.dragMoved = false;
     modalState.suppressNextClick = false;
     modalState.activeTab = 'general';
+    modalState.authToken = null;
     modalState.previousPopulation = {};
     modalState.previousSettlementPop = {};
     if (modalState._rafId !== null) {

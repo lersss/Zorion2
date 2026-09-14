@@ -1,7 +1,7 @@
 // web/static/js/admin/main.js
 import { initTabs } from './tabs.js';
 import { loadStats, loadPlanetStats } from './stats.js';
-import { loadWorlds, deleteWorld, createWorld } from './worlds.js';
+import { loadWorlds, deleteWorld, createWorld, initWorldsSorting } from './worlds.js';
 import {
     generateUniverse, generatePlanets, generateFactions, generateResources,
     generateSettlements, loadSettlementFields, renderSettlementModel,
@@ -95,5 +95,6 @@ function initAdminData() {
     populateHypothesisPresets();
     loadStats();
     loadWorlds(1);
+    initWorldsSorting();
     initAutoRefreshToggle();
 }

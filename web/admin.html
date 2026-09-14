@@ -340,12 +340,15 @@
                 </select>
                 <label style="color:#94a3b8; font-size:0.8rem;">записей</label>
             </div>
+            <div style="margin-bottom:8px; color:#e0e0e0; font-size:0.95rem; white-space:nowrap;">
+                Население галактики: <span id="galaxyPopulation">—</span><span id="galaxyTrendArrow" title="Тренд населения"></span>
+            </div>
             <div id="worldsContainer">
                 <div class="pagination" id="paginationControls"></div>
                 <table>
-                    <thead><tr><th>ID</th><th>Название</th><th>X</th><th>Y</th><th>Действие</th></tr></thead>
+                    <thead><tr><th>ID</th><th>Название</th><th>X</th><th>Y</th><th id="sort-population-th" style="cursor:pointer;" title="Сортировать по населению">Население</th><th>Действие</th></tr></thead>
                     <tbody id="worldsBody">
-                        <tr><td colspan="5" style="text-align:center;color:#94a3b8;">Загрузка...</td></tr>
+                        <tr><td colspan="6" style="text-align:center;color:#94a3b8;">Загрузка...</td></tr>
                     </tbody>
                 </table>
             </div>

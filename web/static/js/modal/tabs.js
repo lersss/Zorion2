@@ -352,7 +352,7 @@ function renderSettlements(planet) {
                 </div>
                 <div style="color:#ccc; margin-top:6px;">
                     <div>Население: <strong id="pop-${s.id}">${formatNumber(populationAt(s, Date.now()))}</strong>${settlementTrendArrow(s)}</div>
-                    <div>Стабильность: <strong>${s.stability != null ? s.stability + '%' : '—'}</strong></div>
+                    <div>Стабильность: <strong>${populationAt(s, Date.now()) === 0 ? '—' : (s.stability != null ? s.stability + '%' : '—')}</strong></div>
                 </div>
             </div>`;
     });

@@ -109,7 +109,7 @@ docs/gamedesign/                         — GDD (семейство доков,
 | Физика температуры | `internal/generator/planet/physics.go` |
 | Ядро планеты | `internal/generator/planet/core.go` |
 | Классификация | `internal/generator/planet/classify.go` |
-| Газовые гиганты | `internal/generator/planet/planet_data_gas.go` |
+| Газовые гиганты | `internal/generator/planet/planet_data_gas.go`, `gas_giant_physics.go` |
 | Аудит | `internal/audit/` + `internal/audit/planet/` |
 | Ресурсы | `internal/resource/` |
 | Имена | `internal/names/` |

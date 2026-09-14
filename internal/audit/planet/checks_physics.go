@@ -6,6 +6,7 @@ import (
 	"math"
 
 	"zorion/internal/audit"
+	genplanet "zorion/internal/generator/planet"
 )
 
 // ==================== ФИЗИКА: БАЗОВЫЕ ДИАПАЗОНЫ ====================
@@ -24,8 +25,26 @@ func checkTemperatureRange(v *View) []audit.Issue {
 }
 
 // checkMassSizeDensity — согласованность массы, размера, плотности.
+//
+// Для газовых гигантов — инвариант кривой M→R (gasGiantRadius): размер обязан
+// лежать на кривой с насыщением (наивная формула (M/ρ)^(1/3) для гигантов
+// отклонена, 99.2.15). Для обычных планет — как раньше: (M/ρ)^(1/3).
 func checkMassSizeDensity(v *View) []audit.Issue {
 	if v.Density <= 0 || v.Mass <= 0 {
+		return nil
+	}
+	if v.IsGasGiant {
+		expected := genplanet.GasGiantRadius(v.Mass)
+		diff := math.Abs(expected - v.Size)
+		if diff > 0.2 {
+			return []audit.Issue{newIssueWithDetails(v, "giant_radius_mismatch", audit.SeverityMedium,
+				fmt.Sprintf("R=%.3f, но кривая гиганта gasGiantRadius(M)=%.3f (отклонение %.3f)", v.Size, expected, diff),
+				map[string]interface{}{
+					"size":     v.Size,
+					"mass":     v.Mass,
+					"expected": expected,
+				})}
+		}
 		return nil
 	}
 	expected := math.Cbrt(v.Mass / v.Density)

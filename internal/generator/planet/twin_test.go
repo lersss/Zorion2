@@ -94,6 +94,53 @@ func TestGenerateTwins(t *testing.T) {
 	}
 }
 
+// Dot-override (core.radioactivity) сливается вложенно: остальные поля core
+// наследуются из base и не затираются.
+func TestCloneTwinDataDotOverride(t *testing.T) {
+	base := map[string]interface{}{
+		"temperature": 288.0,
+		"core": map[string]interface{}{
+			"type":         "металлическое",
+			"mass_percent": 30.0,
+			"activity":     60.0,
+			"radioactivity": 20.0,
+			"age":          1.0,
+		},
+	}
+	overrides := map[string]interface{}{
+		"core.radioactivity": 90.0,
+	}
+
+	result := cloneTwinData(base, overrides)
+
+	// base не затёрт.
+	if result["temperature"] != 288.0 {
+		t.Errorf("temperature потерян: %v", result["temperature"])
+	}
+
+	// core — вложенный map с обновлённым radioactivity.
+	core, ok := result["core"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("core потерял вложенность: %T %v", result["core"], result["core"])
+	}
+	if core["radioactivity"] != 90.0 {
+		t.Errorf("core.radioactivity = %v, ожидалось 90", core["radioactivity"])
+	}
+	// Остальные поля core не затёрты.
+	if core["type"] != "металлическое" {
+		t.Errorf("core.type потерян: %v", core["type"])
+	}
+	if core["mass_percent"] != 30.0 {
+		t.Errorf("core.mass_percent потерян: %v", core["mass_percent"])
+	}
+
+	// base не мутирован.
+	baseCore, _ := base["core"].(map[string]interface{})
+	if baseCore["radioactivity"] != 20.0 {
+		t.Errorf("base мутирован: core.radioactivity = %v", baseCore["radioactivity"])
+	}
+}
+
 // Невалидный spec отклоняется до генерации.
 func TestTwinSpecValidate(t *testing.T) {
 	valid := TwinSpec{ID: "x", Base: map[string]interface{}{"temperature": 288.0},
@@ -124,6 +171,55 @@ func TestTwinSpecValidate(t *testing.T) {
 	for _, s := range invalid {
 		if err := s.Validate(); err == nil {
 			t.Errorf("spec %+v должен быть невалидным", s)
+		}
+	}
+}
+
+// Числовые поля base/overrides сверяются с рамками реестра полей: вне рамок —
+// ошибка (защита от «непроизводимого генератором» объекта, например массы
+// коричневого карлика). Температура в данных — K, сверяется как (K−273) °C.
+func TestTwinSpecValidateFieldRanges(t *testing.T) {
+	valid := TwinSpec{ID: "x", Base: map[string]interface{}{"temperature": 288.0, "mass": 1.0},
+		Groups: []TwinGroup{{ID: "g", PlanetsPerWorld: 1,
+			Overrides: map[string]interface{}{"temperature": 500.0, "mass": 8.0, "gravity": 2.0}}}}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("валидный spec отклонён: %v", err)
+	}
+
+	// Границы включительно: 20 K = −253 °C, 2500 K = 2227 °C.
+	edge := TwinSpec{ID: "x", Base: map[string]interface{}{"temperature": 20.0},
+		Groups: []TwinGroup{{ID: "g", PlanetsPerWorld: 1,
+			Overrides: map[string]interface{}{"temperature": 2500.0}}}}
+	if err := edge.Validate(); err != nil {
+		t.Fatalf("граничные значения отклонены: %v", err)
+	}
+
+	cases := []struct {
+		name string
+		base map[string]interface{}
+		ov   map[string]interface{}
+	}{
+		{"масса 10000 — коричневый карлик", map[string]interface{}{"mass": 10000.0}, nil},
+		{"температура 19 K ниже минимума", map[string]interface{}{"temperature": 19.0}, nil},
+		{"температура 2501 K выше максимума", map[string]interface{}{"temperature": 2501.0}, nil},
+		{"плотность 0.05 ниже минимума", nil, map[string]interface{}{"density": 0.05}},
+		{"гравитация 40 выше максимума", nil, map[string]interface{}{"gravity": 40.0}},
+		{"спутников 30 выше максимума", nil, map[string]interface{}{"moons": 30}},
+		{"радиоактивность ядра 150 выше максимума",
+			map[string]interface{}{"core": map[string]interface{}{"radioactivity": 150.0}}, nil},
+		{"размер 12.6 выше плато", nil, map[string]interface{}{"size": 12.6}},
+	}
+	for _, tc := range cases {
+		spec := TwinSpec{ID: "x", Base: map[string]interface{}{"temperature": 288.0},
+			Groups: []TwinGroup{{ID: "g", PlanetsPerWorld: 1}}}
+		for k, v := range tc.base {
+			spec.Base[k] = v
+		}
+		if tc.ov != nil {
+			spec.Groups[0].Overrides = tc.ov
+		}
+		if err := spec.Validate(); err == nil {
+			t.Errorf("%s: должен быть отклонён", tc.name)
 		}
 	}
 }

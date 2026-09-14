@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"strings"
 
 	"github.com/google/uuid"
 	"zorion/internal/generator/galaxy"
@@ -82,12 +83,18 @@ func (s *TwinSpec) Validate() error {
 	if len(s.Base) == 0 {
 		return fmt.Errorf("base: пустой шаблон планеты")
 	}
+	if err := validateFieldRanges("base", s.Base); err != nil {
+		return err
+	}
 	if len(s.Groups) == 0 {
 		return fmt.Errorf("groups: нужна хотя бы одна группа")
 	}
 	for i, g := range s.Groups {
 		if g.ID == "" {
 			return fmt.Errorf("groups[%d]: id пустой", i)
+		}
+		if err := validateFieldRanges(fmt.Sprintf("groups[%d].overrides", i), g.Overrides); err != nil {
+			return err
 		}
 		if g.PlanetsPerWorld <= 0 {
 			return fmt.Errorf("groups[%d].planets_per_world: должно быть > 0, получил %d", i, g.PlanetsPerWorld)
@@ -192,16 +199,48 @@ func (g *Generator) buildTwinPlanet(spec TwinSpec, group TwinGroup, w *Controlle
 }
 
 // cloneTwinData — поверхностная копия шаблона + оверрайды. Вложенные map
-// разделяются (данные неизменяемы после клонирования).
+// разделяются (данные неизменяемы после клонирования). Dot-ключи в overrides
+// (например, "core.radioactivity") сливаются во вложенный map без затирания
+// остальных полей родителя.
 func cloneTwinData(base, overrides map[string]interface{}) map[string]interface{} {
 	out := make(map[string]interface{}, len(base)+len(overrides))
 	for k, v := range base {
 		out[k] = v
 	}
 	for k, v := range overrides {
+		if i := strings.IndexByte(k, '.'); i >= 0 {
+			applyNested(out, k, v)
+			continue
+		}
 		out[k] = v
 	}
 	return out
+}
+
+// applyNested — рекурсивно применяет dot-ключ к вложенному map. Создаёт
+// промежуточные map, если их нет. Пример: setNested(out, "core.radioactivity", 90)
+// → out["core"]["radioactivity"] = 90 (out["core"] наследуется из base).
+func applyNested(target map[string]interface{}, dotKey string, value interface{}) {
+	i := strings.IndexByte(dotKey, '.')
+	if i < 0 {
+		target[dotKey] = value
+		return
+	}
+	head, tail := dotKey[:i], dotKey[i+1:]
+
+	child, _ := target[head].(map[string]interface{})
+	if child == nil {
+		child = make(map[string]interface{})
+	} else {
+		// Копируем, чтобы не мутировать shared вложенный map base.
+		newChild := make(map[string]interface{}, len(child))
+		for k, v := range child {
+			newChild[k] = v
+		}
+		child = newChild
+	}
+	target[head] = child
+	applyNested(child, tail, value)
 }
 
 // tagExperiment — добавляет в data тег _experiment.{id,group} — единственную
@@ -218,4 +257,71 @@ func tagExperiment(p *PlanetData, experimentID, groupID string) *PlanetData {
 	dataJSON, _ := json.Marshal(data)
 	p.Data = dataJSON
 	return p
+}
+
+// validateFieldRanges — сверяет числовые поля map (base/overrides близнецов)
+// с рамками реестра полей (settlement/fields.go): защита от «непроизводимого
+// генератором» объекта (например, масса коричневого карлика). Температура в
+// данных планеты хранится в K, реестр — в °C: сверяем (K − 273). Значение
+// числового поля, которое не является числом, — тоже ошибка.
+func validateFieldRanges(loc string, data map[string]interface{}) error {
+	for _, spec := range settlement.FieldRegistry() {
+		if spec.Type != settlement.FieldNumber || spec.Min == nil || spec.Max == nil {
+			continue
+		}
+		val, found, err := numericFieldValue(data, spec.Key)
+		if err != nil {
+			return fmt.Errorf("%s.%s: %v", loc, spec.Key, err)
+		}
+		if !found {
+			continue
+		}
+		if spec.Key == "temperature" {
+			val -= 273
+		}
+		if val < *spec.Min || val > *spec.Max {
+			unit := ""
+			if spec.Unit != "" {
+				unit = " " + spec.Unit
+			}
+			return fmt.Errorf("%s.%s: %v вне допустимого диапазона [%v, %v]%s",
+				loc, spec.Key, val, *spec.Min, *spec.Max, unit)
+		}
+	}
+	return nil
+}
+
+// numericFieldValue — число по ключу; dot-ключи (core.radioactivity)
+// раскрываются во вложенный map. found=false — поля нет (пропускаем);
+// err — значение есть, но не число.
+func numericFieldValue(data map[string]interface{}, key string) (float64, bool, error) {
+	if i := strings.IndexByte(key, '.'); i >= 0 {
+		child, ok := data[key[:i]].(map[string]interface{})
+		if !ok {
+			return 0, false, nil
+		}
+		return numericFieldValue(child, key[i+1:])
+	}
+	v, ok := data[key]
+	if !ok {
+		return 0, false, nil
+	}
+	switch n := v.(type) {
+	case float64:
+		return n, true, nil
+	case float32:
+		return float64(n), true, nil
+	case int:
+		return float64(n), true, nil
+	case int64:
+		return float64(n), true, nil
+	case json.Number:
+		f, err := n.Float64()
+		if err != nil {
+			return 0, true, fmt.Errorf("значение %v не является числом", v)
+		}
+		return f, true, nil
+	default:
+		return 0, true, fmt.Errorf("значение %v (тип %T) не является числом", v, v)
+	}
 }

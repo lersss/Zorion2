@@ -38,32 +38,40 @@ func (s FieldSpec) HasValue(v string) bool {
 var fieldSpecs = []FieldSpec{
 	{
 		// Кельвины в данных планет, но форма работает в °C (K = °C + 273).
+		// 20…2500 K → −253…2227 °C (physics.go:10-11, TempAbsoluteMin/Max).
 		Key: "temperature", Label: "Температура", Type: FieldNumber, Unit: "°C",
-		Min: floatPtr(-223), Max: floatPtr(927),
+		Min: floatPtr(-253), Max: floatPtr(2227),
 	},
 	{
 		Key: "water_percent", Label: "Вода", Type: FieldNumber, Unit: "%",
 		Min: floatPtr(0), Max: floatPtr(100),
 	},
 	{
+		// Архетипы 0.1–8, гиганты до 13 MJ (GasGiantMassMax).
 		Key: "mass", Label: "Масса", Type: FieldNumber, Unit: "M⊕",
-		Min: floatPtr(0.1), Max: floatPtr(10),
+		Min: floatPtr(0.1), Max: floatPtr(4131),
 	},
 	{
+		// Плато насыщения гигантов (GasGiantRadiusMax); минимум 0.4 покрывает
+		// реальный минимум генератора 0.425.
 		Key: "size", Label: "Радиус", Type: FieldNumber, Unit: "R⊕",
-		Min: floatPtr(0.4), Max: floatPtr(12.6),
+		Min: floatPtr(0.4), Max: floatPtr(11.2),
 	},
 	{
+		// g = M/R²: 4131/11.2² = 32.9 (честные гиганты, без потолка).
 		Key: "gravity", Label: "Гравитация", Type: FieldNumber, Unit: "g",
-		Min: floatPtr(0.2), Max: floatPtr(4),
+		Min: floatPtr(0.29), Max: floatPtr(33),
 	},
 	{
-		Key: "density", Label: "Плотность", Type: FieldNumber, Unit: "g/cm³",
-		Min: floatPtr(0.5), Max: floatPtr(8),
+		// Единица — ρ⊕ (ед. Земли), НЕ g/cm³: генератор выдаёт ед. Земли.
+		// 15.9/5.9³ = 0.0774 … 4131/11.2³ = 2.9403 (рамки наружу).
+		Key: "density", Label: "Плотность", Type: FieldNumber, Unit: "ρ⊕",
+		Min: floatPtr(0.077), Max: floatPtr(2.95),
 	},
 	{
+		// Гиганты 3–10, стандартные ≤ 4 (determineMoons).
 		Key: "moons", Label: "Спутники", Type: FieldNumber,
-		Min: floatPtr(0), Max: floatPtr(30),
+		Min: floatPtr(0), Max: floatPtr(10),
 	},
 	{
 		Key: "development_level", Label: "Развитие", Type: FieldNumber,
@@ -72,6 +80,12 @@ var fieldSpecs = []FieldSpec{
 	{
 		Key: "system_age", Label: "Возраст системы", Type: FieldNumber, Unit: "млрд лет",
 		Min: floatPtr(0.1), Max: floatPtr(13),
+	},
+	{
+		// Вложенное поле: живёт как core.radioactivity в planet.data; dot-путь
+		// раскрывается до вложенного map при оверрайдах (twin.go cloneTwinData).
+		Key: "core.radioactivity", Label: "Радиоактивность ядра", Type: FieldNumber,
+		Min: floatPtr(0), Max: floatPtr(100),
 	},
 	{
 		Key: "archetype", Label: "Архетип", Type: FieldString,

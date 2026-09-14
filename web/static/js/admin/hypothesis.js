@@ -270,17 +270,31 @@ function renderCompositions(preset, g, i) {
 
 // renderAllPlanetFields — числовые/строковые поля планеты группы (шаблон base
 // + baked оверрайды поверх) в «других полях». Ось и композиции показаны
-// отдельно и сюда не дублируются; поля вне реестра (core, description и т.п.)
-// не показываются.
+// отдельно и сюда не дублируются; поля вне реестра (description и т.п.) не
+// показываются. Вложенные объекты (core) раскрываются в dot-ключи
+// (core.radioactivity и т.п.) — как их знает реестр полей.
 function renderAllPlanetFields(preset, g, i) {
     const box = document.getElementById(`hypFields_${i}`);
     const axis = axisKey();
     const effective = { ...(preset.base || {}), ...(g.overrides || {}) };
 
+    const entries = [];
     for (const [key, value] of Object.entries(effective)) {
+        if (key === 'core' && value && typeof value === 'object') {
+            for (const [sub, subVal] of Object.entries(value)) {
+                const dot = `${key}.${sub}`;
+                if (dot === axis) continue;
+                entries.push([dot, subVal]);
+            }
+            continue;
+        }
         if (key === axis) continue;
+        entries.push([key, value]);
+    }
+
+    for (const [key, value] of entries) {
         const spec = getSettlementFields().find(f => f.key === key);
-        if (!spec) continue; // композиции — в renderCompositions; core/description — вне тонкой настройки
+        if (!spec) continue; // композиции — в renderCompositions; description — вне тонкой настройки
 
         box.insertAdjacentHTML('beforeend', hypFieldRowHTML(i));
         const row = box.lastElementChild;
@@ -311,7 +325,14 @@ window.renderHypFieldValue = (i, sel) => {
         box.innerHTML = `<select class="hyp-field-input"><option value="">— значение —</option>${opts}</select>`;
     } else {
         const unit = spec.unit ? ` <span class="unit">${spec.unit}</span>` : '';
-        box.innerHTML = `<input type="number" step="any" class="hyp-field-input" placeholder="значение">${unit}`;
+        // step="any" обязателен: браузерный step=1 отклонил бы дробные значения
+        // (density 0.077, gravity 0.29, mass 15.9). min/max + тултип — рамки
+        // реестра (температура в °C — как и рамки).
+        let attrs = 'step="any"';
+        if (spec.min != null && spec.max != null) {
+            attrs += ` min="${spec.min}" max="${spec.max}" title="Допустимо: ${spec.min}…${spec.max}${spec.unit ? ' ' + spec.unit : ''}"`;
+        }
+        box.innerHTML = `<input type="number" ${attrs} class="hyp-field-input" placeholder="значение">${unit}`;
     }
 };
 
@@ -386,7 +407,8 @@ function collectHypOverrides(i) {
         overrides[key] = map;
     });
 
-    // Ось + числовые/строковые поля.
+    // Ось + числовые/строковые поля. Dot-ключи (core.radioactivity) собираются
+    // как вложенные объекты: { core: { radioactivity: X } }.
     document.querySelectorAll(`#hypAxis_${i} .hyp-field-row, #hypFields_${i} .hyp-field-row`).forEach(row => {
         const sel = row.querySelector('.hyp-field-select') || row.querySelector('.hyp-axis-select');
         const key = sel && sel.value;
@@ -394,16 +416,57 @@ function collectHypOverrides(i) {
         const spec = fields.find(f => f.key === key);
         const input = row.querySelector('.hyp-field-input');
         if (!input) return;
+        let val;
         if (spec.type === 'bool') {
-            overrides[key] = input.checked;
+            val = input.checked;
         } else if (spec.type === 'string') {
-            if (input.value) overrides[key] = input.value;
+            if (!input.value) return;
+            val = input.value;
         } else {
             const v = parseFloat(input.value);
-            if (!isNaN(v)) overrides[key] = key === 'temperature' ? v + 273 : v;
+            if (isNaN(v)) return;
+            val = key === 'temperature' ? v + 273 : v;
+        }
+        if (key.includes('.')) {
+            const parts = key.split('.');
+            let obj = overrides;
+            for (let i = 0; i < parts.length - 1; i++) {
+                if (typeof obj[parts[i]] !== 'object' || obj[parts[i]] === null) obj[parts[i]] = {};
+                obj = obj[parts[i]];
+            }
+            obj[parts[parts.length - 1]] = val;
+        } else {
+            overrides[key] = val;
         }
     });
     return overrides;
+}
+
+// collectHypRangeErrors — жёсткая проверка числовых значений групп против
+// рамок реестра (температура в форме — °C, как и рамки реестра). Возвращает
+// перечень «группа/поле/значение/рамка»; пусто — всё в рамках. Ошибка, а не
+// кламп: инструмент — проверка рамок, молчаливое исправление скрыло бы факт.
+function collectHypRangeErrors() {
+    const errors = [];
+    const fields = getSettlementFields();
+    currentPreset.groups.forEach((g, i) => {
+        const groupName = g.name || `группа ${i + 1}`;
+        document.querySelectorAll(`#hypAxis_${i} .hyp-field-row, #hypFields_${i} .hyp-field-row`).forEach(row => {
+            const sel = row.querySelector('.hyp-field-select') || row.querySelector('.hyp-axis-select');
+            const key = sel && sel.value;
+            if (!key) return;
+            const spec = fields.find(f => f.key === key);
+            if (!spec || spec.type !== 'number' || spec.min == null || spec.max == null) return;
+            const input = row.querySelector('.hyp-field-input');
+            if (!input || input.value === '') return;
+            const val = parseFloat(input.value);
+            if (isNaN(val)) return;
+            if (val < spec.min || val > spec.max) {
+                errors.push(`${groupName}/${key}: ${val} вне рамок [${spec.min}, ${spec.max}]${spec.unit ? ' ' + spec.unit : ''}`);
+            }
+        });
+    });
+    return errors;
 }
 
 // buildTwinSpec — собирает TwinSpec из формы.
@@ -440,6 +503,15 @@ export async function runHypothesis() {
     if (!preset) return;
 
     if (!confirm(`Запустить эксперимент «${preset.name}»?\n\nВселенная будет перетёрта (миры, планеты, поселения).`)) return;
+
+    // Жёсткая проверка рамок: значения вне рамок реестра — ошибка, POST не
+    // уходит (например, температура −50000 °C блокируется здесь и на сервере).
+    const rangeErrors = collectHypRangeErrors();
+    if (rangeErrors.length) {
+        document.getElementById('hypothesisResult').textContent = '❌ Значения вне рамок генератора:\n' + rangeErrors.join('\n');
+        document.getElementById('hypothesisProgress').style.display = 'none';
+        return;
+    }
 
     const spec = buildTwinSpec();
 

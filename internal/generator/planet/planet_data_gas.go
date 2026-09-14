@@ -3,7 +3,6 @@ package planet
 
 import (
 	"encoding/json"
-	"math"
 
 	"github.com/google/uuid"
 	"zorion/internal/names"
@@ -28,14 +27,14 @@ func (g *Generator) generateGasGiant(
 		name = "Газовый гигант-" + uuidShort()
 	}
 
-	// Масса: 50–300 M⊕ (Юпитер 318, Сатурн 95)
-	mass := 50 + g.rng.Float64()*250
+	// Масса: усечённое логнормальное (медиана 1 MJ = 317.8 M⊕, σ = 0.9 декады,
+	// диапазон 15.9–4131, пересэмплинг вместо клампа — gas_giant_physics.go).
+	mass := g.gasGiantMass()
 
-	// Плотность газового гиганта: 0.15–0.25 (в единицах Земли)
-	density := 0.15 + g.rng.Float64()*0.10
-
-	// Размер из массы и плотности
-	size := math.Pow(mass/density, 1.0/3.0)
+	// Размер — кривая с насыщением (НЕ (M/ρ)^(1/3)); плотность и гравитация —
+	// производные: ρ = M/R³, g = M/R².
+	size := GasGiantRadius(mass)
+	density := mass / (size * size * size)
 
 	atmospheres := []string{"водородно-гелиевая", "водородная", "гелиевая"}
 	atmosphere := atmospheres[g.rng.Intn(len(atmospheres))]

@@ -26,8 +26,8 @@ func TestFieldSpecFor(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, FieldNumber, s.Type)
 	assert.Equal(t, "°C", s.Unit)
-	assert.Equal(t, -223.0, *s.Min)
-	assert.Equal(t, 927.0, *s.Max)
+	assert.Equal(t, -253.0, *s.Min)
+	assert.Equal(t, 2227.0, *s.Max)
 
 	_, ok = FieldSpecFor("нет_такого_поля")
 	assert.False(t, ok)
@@ -46,4 +46,13 @@ func TestFieldSpecHasValue(t *testing.T) {
 		require.True(t, ok)
 		assert.NotEmpty(t, spec.Values, "%s должен иметь допустимые значения", key)
 	}
+}
+
+// core.radioactivity — числовое поле для близнецов (twin.go dot-override).
+func TestFieldSpecForCoreRadioactivity(t *testing.T) {
+	s, ok := FieldSpecFor("core.radioactivity")
+	require.True(t, ok, "core.radioactivity не найден в реестре")
+	assert.Equal(t, FieldNumber, s.Type)
+	assert.Equal(t, 0.0, *s.Min)
+	assert.Equal(t, 100.0, *s.Max)
 }

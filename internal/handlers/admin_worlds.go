@@ -3,12 +3,21 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"zorion/internal/models"
+	"zorion/internal/repository"
 )
 
+// GetAllWorlds — список миров для вкладки «Миры»: к пагинации по имени
+// добавляется живое население мира (сумма поселений, пересчитанных на
+// сейчас), итог по галактике с трендом и сортировка по населению в обе
+// стороны (sort=population&order=asc|desc — миры грузятся целиком и
+// сортируются по показанным значениям, а не по синхронному срезу).
 func (h *AdminHandlers) GetAllWorlds(w http.ResponseWriter, r *http.Request) {
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	if page < 1 {
@@ -19,23 +28,89 @@ func (h *AdminHandlers) GetAllWorlds(w http.ResponseWriter, r *http.Request) {
 		limit = 50
 	}
 	search := r.URL.Query().Get("search")
+	sortBy := r.URL.Query().Get("sort")
+	order := r.URL.Query().Get("order")
+	if order != "desc" {
+		order = "asc"
+	}
 
-	worlds, total, err := h.worldRepo.GetAllPaginated(page, limit, search)
+	report, err := repository.NewEconomyRepository(h.db).GalaxyPopulation(time.Now())
 	if err != nil {
-		http.Error(w, "Failed to fetch worlds: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Failed to fetch galaxy population: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
+	var worlds []*models.World
+	var total int
+	if sortBy == "population" {
+		all, err := h.worldRepo.GetAll()
+		if err != nil {
+			http.Error(w, "Failed to fetch worlds: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		if search != "" {
+			needle := strings.ToLower(search)
+			filtered := make([]*models.World, 0, len(all))
+			for _, world := range all {
+				if strings.Contains(strings.ToLower(world.Name), needle) {
+					filtered = append(filtered, world)
+				}
+			}
+			all = filtered
+		}
+		for _, world := range all {
+			world.Population = report.ByWorld[world.ID]
+			world.PopulationTrend = report.WorldTrend(world.ID)
+		}
+
+		sort.SliceStable(all, func(i, j int) bool {
+			if all[i].Population == all[j].Population {
+				return all[i].Name < all[j].Name
+			}
+			if order == "desc" {
+				return all[i].Population > all[j].Population
+			}
+			return all[i].Population < all[j].Population
+		})
+
+		total = len(all)
+		start := (page - 1) * limit
+		if start >= total {
+			worlds = []*models.World{}
+		} else {
+			end := start + limit
+			if end > total {
+				end = total
+			}
+			worlds = all[start:end]
+		}
+	} else {
+		worlds, total, err = h.worldRepo.GetAllPaginated(page, limit, search)
+		if err != nil {
+			http.Error(w, "Failed to fetch worlds: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		for _, world := range worlds {
+			world.Population = report.ByWorld[world.ID]
+			world.PopulationTrend = report.WorldTrend(world.ID)
+		}
+	}
+
 	response := struct {
-		Data  []*models.World `json:"data"`
-		Page  int             `json:"page"`
-		Limit int             `json:"limit"`
-		Total int             `json:"total"`
+		Data             []*models.World `json:"data"`
+		Page             int             `json:"page"`
+		Limit            int             `json:"limit"`
+		Total            int             `json:"total"`
+		GalaxyPopulation int64           `json:"galaxy_population"`
+		GalaxyTrend      string          `json:"galaxy_trend"`
 	}{
-		Data:  worlds,
-		Page:  page,
-		Limit: limit,
-		Total: total,
+		Data:             worlds,
+		Page:             page,
+		Limit:            limit,
+		Total:            total,
+		GalaxyPopulation: report.Total,
+		GalaxyTrend:      report.Trend,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)

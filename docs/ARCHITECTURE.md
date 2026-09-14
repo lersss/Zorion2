@@ -34,6 +34,10 @@
 |-----------|--------|
 | `PlanetGenerator.cache/cacheOrder/rand` | `sync.Mutex` |
 | `WebSocketHub.clients` + запись в conn | Глобальный `RWMutex` + per-connection мьютекс |
+| `NPCManager.positions` (snapshot карты) | `atomic.Pointer` (lock-free чтение) |
+| `NPCManager.settings` (лимиты §2.4) | `RWMutex` (тик читает, админ-ручка пишет) |
+| `NPCManager.gridPtr` (сетка миров) | `atomic.Pointer` (тик пишет, хендлер читает `RandomWorld`/`WorldName`) |
+| `NotificationBatch` (буфер прибытий) | `sync.Mutex` (тик менеджера добавляет, таймер WSNotifier отправляет) |
 | `TravelManager.flights` | `RWMutex` + проверка `current == flight` |
 | `StatusManager.jobs` | `RWMutex` + `TryStart` |
 | `CompatibilityMatrix` (кеш) | `RWMutex` |
@@ -113,9 +117,11 @@ docs/gamedesign/                         — GDD (семейство доков,
 | Фильтр миров для карты | `internal/handlers/filter_worlds_handler.go` |
 | Мир по ID | `internal/handlers/world_handlers.go` |
 | Очистка вселенной | `internal/handlers/admin_universe.go` |
+| Раздел «Пользователи» | `internal/handlers/admin_users.go` |
 | Модели | `internal/models/` |
 | Репозитории | `internal/repository/` |
-| JWT | `internal/auth/jwt.go`, `internal/auth/middleware.go` |
+| NPC-агенты (спека `20a.1`) | `internal/models/npc_agent.go`, `internal/repository/npc_repository.go` (этап 1: модель, курсорные batch-выборки, Insert/Delete/GetByID/Update); `internal/npc/` (этап 2: `manager.go` — планировщик, `worldgrid.go` — выбор маршрута по сетке миров, `position_cache.go` — snapshot позиций, `settings.go` — лимиты §2.4; этап 5: `notification_batch.go` — буфер прибытий с дросселем §2.2.C); ручки (этап 4): `internal/handlers/admin_npc.go` (CRUD), `npc_settings.go` (настройки менеджера), `npc_positions.go` (позиции для карты); уведомления (этап 5): `internal/handlers/ws_notifier.go` (batch → `WSHub.Broadcast`), `websocket_hub.go` (`Broadcast`) |
+| JWT + роли | `internal/auth/jwt.go`, `internal/auth/middleware.go`, `internal/auth/admin_auth.go` |
 | Миграции | `migrations/` |
 | Архетипы планет | `config/planet_archetypes.json` |
 | Матрица дефолтов | `config/compatibility_defaults.json` |
@@ -205,10 +211,15 @@ web/static/js/
     ├── data.js            — загрузка кластеров, /me, loadUserData, handleUnauthorized
     ├── events.js          — hover, click, pan, zoom
     ├── map_render.js      — draw, отрисовка кластеров и одиночных звёзд
+    ├── npc_agents.js      — NPC-агенты (спека 20a.1 §7): опрос /api/npc/positions,
+    │                        иконки (ромб, видимость с nameDisplayThreshold),
+    │                        клик → мини-панель, WS npc_arrivals_batch → тост
     ├── navigation.js      — centerOnAgent
     ├── animation.js       — animationLoop (только во время полёта)
     └── utils.js           — worldToCanvas, getStarColor
 ```
+
+Админка — `web/static/js/admin/`: вкладка «NPC» — `npc.js` (спека 20a.1 §6, регистрация в `tabs.js`/`main.js`).
 
 **Как работает карта (серверная кластеризация):**
 - Клиент присылает `x_min/x_max/y_min/y_max/cell` в `/api/worlds/filter`.

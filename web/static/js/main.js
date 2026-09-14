@@ -11,6 +11,7 @@ import { showTextLoader } from './loader.js';
 import { notifyError } from './ui/toast.js';
 import { initEntitySearch } from './search.js';
 import { formatZoom } from './map/utils.js';
+import { startNPCLoop } from './map/npc_agents.js';
 
 // --- Восстановление вьюпорта из sessionStorage ---
 function restoreViewport() {
@@ -84,6 +85,9 @@ function init() {
     initHover();
     initContextMenu();
     initEntitySearch();
+
+    // --- NPC-агенты на карте (спека 20a.1 §7): опрос позиций + WS ---
+    startNPCLoop();
 
     // --- Автоматическое применение фильтров ---
     const filterInputs = document.querySelectorAll('#filters-bar input, #filters-bar select');

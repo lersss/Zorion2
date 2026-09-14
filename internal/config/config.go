@@ -9,12 +9,13 @@ import (
 )
 
 type Config struct {
-	ServerPort    string
-	DBURL         string
-	RedisURL      string
-	TickInterval  time.Duration
-	AdminPassword string
-	JWTSecret     string
+	ServerPort                   string
+	DBURL                        string
+	RedisURL                     string
+	TickInterval                 time.Duration
+	JWTSecret                    string
+	SkycomposerBootstrapUsername string
+	SkycomposerBootstrapPassword string
 }
 
 func Load() *Config {
@@ -42,11 +43,6 @@ func Load() *Config {
 		log.Fatalf("invalid TICK_INTERVAL_SEC: %v", err)
 	}
 
-	adminPassword := os.Getenv("ADMIN_PASSWORD")
-	if adminPassword == "" {
-		log.Fatal("ADMIN_PASSWORD not set — задайте переменную окружения (пароль доступа в админку)")
-	}
-
 	// JWT_SECRET — обязательная переменная окружения.
 	// Без неё сервер не стартует: безопасность важнее удобства разработки.
 	jwtSecret := os.Getenv("JWT_SECRET")
@@ -54,12 +50,18 @@ func Load() *Config {
 		log.Fatal("JWT_SECRET not set — задайте переменную окружения (минимум 32 байта)")
 	}
 
+	// Bootstrap первого skycomposer (спека 99.2.14 §5): env необязательны,
+	// срабатывают только пока в БД нет ни одной учётки с ролью skycomposer.
+	skyUsername := os.Getenv("SKYCOMPOSER_BOOTSTRAP_USERNAME")
+	skyPassword := os.Getenv("SKYCOMPOSER_BOOTSTRAP_PASSWORD")
+
 	return &Config{
-		ServerPort:    port,
-		DBURL:         dbURL,
-		RedisURL:      redisURL,
-		TickInterval:  time.Duration(sec) * time.Second,
-		AdminPassword: adminPassword,
-		JWTSecret:     jwtSecret,
+		ServerPort:                   port,
+		DBURL:                        dbURL,
+		RedisURL:                     redisURL,
+		TickInterval:                 time.Duration(sec) * time.Second,
+		JWTSecret:                    jwtSecret,
+		SkycomposerBootstrapUsername: skyUsername,
+		SkycomposerBootstrapPassword: skyPassword,
 	}
 }

@@ -2,6 +2,7 @@
 import { state, elements } from './config.js';
 import { isFiniteNumber, worldToCanvas, getStarColor, getStarShade } from './utils.js';
 import { CONFIG } from '../config.js';
+import { drawNPCAgents } from './npc_agents.js';
 
 const { map: mapCfg } = CONFIG;
 
@@ -155,6 +156,9 @@ export function draw() {
 
     // --- Имя звезды под курсором (даже когда общие названия скрыты) ---
     drawHoveredStarName(ctx, scale, offsetX, offsetY);
+
+    // --- NPC-агенты (спека 20a.1 §7): иконки поверх звёзд ---
+    drawNPCAgents(ctx, canvasWidth, canvasHeight);
 
     // --- Анимация полёта ---
     if (isFlying && flyFrom && flyTo) {

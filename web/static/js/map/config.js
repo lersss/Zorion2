@@ -27,6 +27,7 @@ export const state = {
     canvasHeight: 0,
     followShip: false,   // активно следить за кораблём во время полёта
     focusWorldId: null,  // мир, найденный поиском (рисуется кольцом)
+    npcPositions: [],    // NPC-агенты для карты (спека 20a.1 §7): {id,name,x,y,status,...}
 };
 
 export const elements = {

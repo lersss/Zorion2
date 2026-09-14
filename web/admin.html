@@ -20,6 +20,8 @@
         <button class="tab-btn" data-tab="tab-settlements">🏘️ Поселения</button>
         <button class="tab-btn" data-tab="tab-hypothesis">🔬 Гипотезы</button>
         <button class="tab-btn" data-tab="tab-worlds">🌍 Миры</button>
+        <button class="tab-btn" data-tab="tab-npc">👁️ NPC</button>
+        <button class="tab-btn" data-tab="tab-users" id="tab-users-btn" style="display:none;">👥 Пользователи</button>
     </div>
 
     <!-- Вкладка: Основное -->
@@ -30,15 +32,6 @@
                 <div class="stat-item">Миры: <span id="statsWorlds">—</span></div>
                 <div class="stat-item">Планеты: <span id="statsPlanets">—</span></div>
                 <button class="btn secondary" onclick="loadStats()">Обновить</button>
-            </div>
-        </div>
-
-        <!-- Пароль -->
-        <div class="card">
-            <div class="password-form">
-                <label style="color:#94a3b8; font-size:0.85rem;">Пароль администратора:</label>
-                <input type="password" id="adminPassword" placeholder="Введите пароль">
-                <button class="btn" onclick="setPassword()">Сохранить</button>
             </div>
         </div>
     </div>
@@ -359,6 +352,114 @@
         </div>
     </div>
 
+    <!-- Вкладка: NPC (спека 20a.1 §6) -->
+    <div id="tab-npc" class="tab-pane">
+        <div class="card">
+            <h2>⚙️ Настройки NPC</h2>
+            <p class="hint">
+                Базовая скорость полёта (дефолт = скорость игрока, 0.3 с/ед.),
+                интервал тика планировщика и размер batch. Применяются сразу;
+                после рестарта сервера — снова дефолты.
+            </p>
+            <div class="compact-row">
+                <div><label>Скорость полёта (с/ед.)</label><input type="number" id="npcSpeedFactor" step="0.05" min="0.01"></div>
+                <div><label>Интервал тика (с)</label><input type="number" id="npcTickInterval" step="1" min="1"></div>
+                <div><label>Batch (агентов/тик)</label><input type="number" id="npcBatchSize" step="100" min="1"></div>
+                <button class="btn success" onclick="saveNPCSettings()">Сохранить</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>➕ Создать агента</h2>
+            <p class="hint">
+                Стартовый мир — UUID (пусто = случайный мир). Агент автономен:
+                после создания сам летает по галактике и наблюдает миры.
+            </p>
+            <div class="compact-row">
+                <div><label>Имя</label><input type="text" id="npcAgentName" placeholder="Наблюдатель-7"></div>
+                <div><label>Стартовый мир (uuid, опц.)</label><input type="text" id="npcStartWorld" placeholder="00000000-0000-0000-0000-000000000000"></div>
+                <button class="btn success" onclick="createAgent()">Создать</button>
+            </div>
+            <div id="npcCreateResult" class="result"></div>
+        </div>
+
+        <div class="card">
+            <h2>👁️ Агенты <button class="btn secondary" style="margin-left:8px;" onclick="loadNPC()">🔄 Обновить</button></h2>
+            <table>
+                <thead><tr><th>Имя</th><th>Статус</th><th>Текущий мир</th><th>Целевой мир</th><th>Наблюдение</th><th>Уведомления</th><th></th></tr></thead>
+                <tbody id="npcBody">
+                    <tr><td colspan="7" style="text-align:center;color:#94a3b8;">Загрузка...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Вкладка: Пользователи (только skycomposer, спека 99.2.14 §8) -->
+    <div id="tab-users" class="tab-pane">
+        <div class="card">
+            <h2>👥 Пользователи</h2>
+            <div class="search-form">
+                <input type="text" id="usersSearchInput" placeholder="Поиск по логину/email..." onchange="loadUsers(1)">
+                <select id="usersRoleFilter" onchange="loadUsers(1)">
+                    <option value="">Все роли</option>
+                    <option value="player">player</option>
+                    <option value="admin">admin</option>
+                    <option value="skycomposer">skycomposer</option>
+                </select>
+                <button class="btn" onclick="loadUsers(1)">Поиск</button>
+                <button class="btn secondary" onclick="toggleCreateUserForm()">＋ Создать пользователя</button>
+            </div>
+            <div class="pagination" id="usersPagination"></div>
+            <table>
+                <thead><tr><th>ID</th><th>Логин</th><th>Email</th><th>Роль</th><th>Создан</th><th>Обновлён</th><th></th></tr></thead>
+                <tbody id="usersBody">
+                    <tr><td colspan="7" style="text-align:center;color:#94a3b8;">Загрузка...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Форма создания пользователя -->
+        <div class="card" id="createUserCard" style="display:none;">
+            <h2>➕ Создать пользователя</h2>
+            <div class="compact-row">
+                <div><label>Логин</label><input type="text" id="newUserUsername"></div>
+                <div><label>Пароль</label><input type="password" id="newUserPassword"></div>
+                <div><label>Email</label><input type="text" id="newUserEmail"></div>
+                <div><label>Роль</label>
+                    <select id="newUserRole">
+                        <option value="player">player</option>
+                        <option value="admin">admin</option>
+                        <option value="skycomposer">skycomposer</option>
+                    </select>
+                </div>
+                <button class="btn success" onclick="createUser()">Создать</button>
+                <button class="btn secondary" onclick="toggleCreateUserForm()">Отмена</button>
+            </div>
+            <div id="createUserResult" class="result"></div>
+        </div>
+
+        <!-- Профиль пользователя -->
+        <div class="card" id="userProfileCard" style="display:none;"></div>
+    </div>
+
+</div>
+
+<!-- Оверлей логина в админку (спека 99.2.14 §4): обычный POST /login,
+     токен хранится в localStorage['adminToken'] отдельно от игрового. -->
+<div id="adminLoginOverlay" style="display:none; position:fixed; inset:0; background:rgba(2,6,23,0.95); z-index:9999; align-items:center; justify-content:center;">
+    <div class="card" style="width:340px; padding:24px;">
+        <h2 style="margin-bottom:4px;">🔐 Вход в админку</h2>
+        <p style="color:#94a3b8; font-size:0.85rem; margin-bottom:14px;">
+            Войдите под учёткой с ролью администратора или skycomposer.
+        </p>
+        <div style="display:flex; flex-direction:column; gap:10px;">
+            <input type="text" id="adminLoginUsername" placeholder="Логин">
+            <input type="password" id="adminLoginPassword" placeholder="Пароль"
+                   onkeydown="if (event.key === 'Enter') adminLogin()">
+            <button class="btn" onclick="adminLogin()">Войти</button>
+            <div id="adminLoginError" style="color:#f87171; font-size:0.85rem;"></div>
+        </div>
+    </div>
 </div>
 
 <script type="module">

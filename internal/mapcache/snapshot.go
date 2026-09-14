@@ -50,6 +50,16 @@ func (s *Snapshot) Len() int {
 	return len(s.worlds)
 }
 
+// Worlds — все миры снапшота. Snapshot immutable: срез возвращается без
+// копии, читатели не должны его мутировать. Используется NPCManager для
+// выбора маршрута агентов (спека 20a.1 §3.2) и координат позиций (§2.2.B).
+func (s *Snapshot) Worlds() []World {
+	if s == nil {
+		return nil
+	}
+	return s.worlds
+}
+
 // Manager хранит текущий снапшот карты и умеет его пересобирать из БД.
 type Manager struct {
 	ptr atomic.Pointer[Snapshot]

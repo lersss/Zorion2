@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	_ "github.com/lib/pq"
+	"github.com/joho/godotenv"
 	"github.com/redis/go-redis/v9"
 
 	"zorion/internal/auth"
@@ -17,6 +18,7 @@ import (
 	"zorion/internal/handlers"
 	"zorion/internal/mapcache"
 	"zorion/internal/models"
+	"zorion/internal/npc"
 	"zorion/internal/repository"
 	"zorion/internal/travel"
 	"zorion/migrations"
@@ -35,6 +37,15 @@ func noCache(next http.Handler) http.Handler {
 }
 
 func main() {
+	// Go не читает .env автоматически. Загружаем его ДО config.Load(),
+	// чтобы JWT_SECRET/DBURL/REDIS_URL брались единообразно из файла и рестарты
+	// не меняли секрет. Уже заданные переменные окружения имеют приоритет
+	// (godotenv их не перетирает). Отсутствие .env — не ошибка: прод задаёт
+	// env иначе (Docker/Amvera).
+	if err := godotenv.Load(); err != nil {
+		log.Printf("⚠️ .env не загружен (%v) — использую переменные окружения", err)
+	}
+
 	cfg := config.Load()
 	log.Printf("🚀 Запуск сервера Zorion на порту %s", cfg.ServerPort)
 	log.Printf("⏱️  Интервал тика: %v", cfg.TickInterval)
@@ -62,6 +73,9 @@ func main() {
 		log.Fatalf("❌ Ошибка применения миграций: %v", err)
 	}
 	log.Println("✅ Миграции актуальны")
+
+	// Bootstrap первого skycomposer — после миграций, до старта HTTP (спека 99.2.14 §5).
+	bootstrapSkycomposer(db, cfg.SkycomposerBootstrapUsername, cfg.SkycomposerBootstrapPassword)
 
 	opt, err := redis.ParseURL(cfg.RedisURL)
 	if err != nil {
@@ -121,6 +135,20 @@ func main() {
 	// Снапшот карты подхватывается в фоне — сервер отвечает сразу,
 	// карта заполняется за пару секунд после старта.
 	mapCache.LoadAsync(db)
+
+	// NPC-агенты (спека 20a.1): фоновый планировщик, одна горутина,
+	// тик каждые npcTickInterval. Стартует после загрузки карты —
+	// сетка миров строится из снапшота mapcache.
+	npcRepo := repository.NewNPCRepository(db)
+	npcManager := npc.NewManager(npcRepo, npc.NewMapCacheSource(mapCache), npc.DefaultSettings())
+	// Уведомления (этап 5): WSNotifier подменяет заглушку LogNotifier ДО
+	// старта тика, чтобы первые прибытия не терялись.
+	npcAdminHandlers := handlers.NewAdminNPCHandlers(npcRepo, worldRepo, npcManager)
+	wsNotifier := handlers.NewWSNotifier(wsHub, npcManager,
+		npcManager.Settings().NotifyInterval(), npcManager.Settings().NotificationMaxBatch())
+	npcManager.SetNotifier(wsNotifier)
+	wsNotifier.Start()
+	npcManager.Start()
 
 	// API открытые
 	http.HandleFunc("/health", healthHandler)
@@ -187,6 +215,16 @@ func main() {
 	// Матрица совместимости
 	http.HandleFunc("/admin/compatibility", auth.AdminAuth(compatHandlers.HandleMatrix))
 	http.HandleFunc("/admin/compatibility/reset", auth.AdminAuth(compatHandlers.ResetMatrix))
+
+	// Раздел «Пользователи» — только Skycomposer (спека 99.2.14 §6, И3)
+	adminUsersHandlers := handlers.NewAdminUsersHandlers(userRepo, worldRepo)
+	http.HandleFunc("/admin/users", auth.SkycomposerAuth(adminUsersHandlers.HandleCollection))
+	http.HandleFunc("/admin/users/", auth.SkycomposerAuth(adminUsersHandlers.HandleUser))
+
+	// NPC-агенты (спека 20a.1 §8): админка (AdminAuth) + позиции для карты (JWT)
+	http.HandleFunc("/admin/npc", auth.AdminAuth(npcAdminHandlers.HandleCollection))
+	http.HandleFunc("/admin/npc/", auth.AdminAuth(npcAdminHandlers.HandleObject))
+	http.HandleFunc("/api/npc/positions", auth.AuthMiddleware(npcAdminHandlers.Positions))
 
 	http.Handle("/admin", noCache(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./web/admin.html")

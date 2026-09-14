@@ -7,6 +7,7 @@ import { centerOnAgent } from './navigation.js';
 import { CONFIG } from '../config.js';
 import { openSystemModal } from '../modal/index.js';
 import { startFlight } from './flight.js';
+import { findNPCAgentAt, showNPCPanel, hideNPCPanel } from './npc_agents.js';
 
 const { map: mapCfg } = CONFIG;
 
@@ -108,11 +109,20 @@ export function handleCanvasClick(e) {
     const mouseX = (e.clientX - rect.left) * (elements.canvas.width / rect.width);
     const mouseY = (e.clientY - rect.top) * (elements.canvas.height / rect.height);
 
+    // Приоритет — NPC-агент (маленькая иконка поверх звёзд): мини-панель.
+    const agent = findNPCAgentAt(mouseX, mouseY);
+    if (agent) {
+        showNPCPanel(agent, e.clientX, e.clientY);
+        elements.tooltip.classList.remove('active');
+        return;
+    }
+
     const hit = findClusterAt(mouseX, mouseY);
 
     if (!hit) {
         elements.tooltip.classList.remove('active');
         state.selectedWorldId = null;
+        hideNPCPanel();
         return;
     }
 
@@ -183,6 +193,7 @@ export function initContextMenu() {
     // Левая кнопка вне меню — скрывает. ПКМ — отдаём канвасу/тултипу.
     document.addEventListener('mousedown', (e) => {
         if (e.button !== 2 && !e.target.closest('#map-context-menu')) hideWorldMenu();
+        if (e.button !== 2 && !e.target.closest('#npc-agent-panel')) hideNPCPanel();
     });
 }
 

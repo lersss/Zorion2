@@ -2,11 +2,14 @@
 import { loadPlanetStats } from './stats.js';
 import { runAudit } from './audit.js';
 import { bindTestsButtons } from './tests.js';
+import { loadUsers } from './users.js';
+import { initNPC } from './npc.js';
 
 // Активная вкладка сохраняется между обновлениями страницы.
 const STORAGE_KEY = 'adminActiveTab';
 
 let auditBound = false;
+let usersBound = false;
 
 export function initTabs() {
     document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -39,6 +42,19 @@ function activateTab(tabId) {
     if (tabId === 'tab-tests') {
         bindTestsButtons();
     }
+    if (tabId === 'tab-users') {
+        bindUsersTab();
+    }
+    if (tabId === 'tab-npc') {
+        initNPC();
+    }
+}
+
+// bindUsersTab — ленивая загрузка списка пользователей (вкладка «Пользователи»).
+function bindUsersTab() {
+    if (usersBound) return;
+    loadUsers(1);
+    usersBound = true;
 }
 
 // bindAuditButton — вешает обработчик на кнопку "Запустить аудит".

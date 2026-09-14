@@ -78,3 +78,21 @@ func (h *WebSocketHub) SendToUser(userID string, message []byte) error {
 	}
 	return client.writeMessage(websocket.TextMessage, message)
 }
+
+// Broadcast — отправляет сообщение ВСЕМ подключённым клиентам (спека 20a.1
+// §5: broadcast всем, ролей пока нет; по ролям — после 99.2.14). Список
+// клиентов копируется под RLock, запись — вне глобального лока, каждая —
+// под per-connection мьютексом (AGENTS.md §0: одна горутина на запись).
+// Ошибки записи игнорируются: отвалившийся клиент будет удалён при чтении.
+func (h *WebSocketHub) Broadcast(message []byte) {
+	h.mu.RLock()
+	clients := make([]*wsClient, 0, len(h.clients))
+	for _, c := range h.clients {
+		clients = append(clients, c)
+	}
+	h.mu.RUnlock()
+
+	for _, c := range clients {
+		_ = c.writeMessage(websocket.TextMessage, message)
+	}
+}

@@ -70,12 +70,13 @@ func getJWTSecret() ([]byte, error) {
 // Claims — полезная нагрузка JWT.
 type Claims struct {
 	UserID string `json:"user_id"`
+	Role   string `json:"role"`
 	jwt.RegisteredClaims
 }
 
-// GenerateToken создаёт JWT для пользователя.
+// GenerateToken создаёт JWT для пользователя с его ролью.
 // TTL — 24 часа.
-func GenerateToken(userID string) (string, error) {
+func GenerateToken(userID, role string) (string, error) {
 	secret, err := getJWTSecret()
 	if err != nil {
 		return "", err
@@ -83,6 +84,7 @@ func GenerateToken(userID string) (string, error) {
 
 	claims := Claims{
 		UserID: userID,
+		Role:   role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -93,11 +95,15 @@ func GenerateToken(userID string) (string, error) {
 	return token.SignedString(secret)
 }
 
-// VerifyToken проверяет JWT и возвращает userID.
-func VerifyToken(tokenString string) (string, error) {
+// VerifyToken проверяет JWT и возвращает userID и роль.
+// Правило отсутствующей роли (спека 99.2.14 §3): если в валидном токене роль
+// не задана (старый токен с TTL 24 ч) — считать "player". Безопасный дефолт
+// наименьших прав: старый токен не получит доступ в админку, но продолжит
+// работать для игры.
+func VerifyToken(tokenString string) (string, string, error) {
 	secret, err := getJWTSecret()
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(t *jwt.Token) (interface{}, error) {
@@ -108,12 +114,16 @@ func VerifyToken(tokenString string) (string, error) {
 		return secret, nil
 	})
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	claims, ok := token.Claims.(*Claims)
 	if !ok || !token.Valid {
-		return "", errors.New("invalid token")
+		return "", "", errors.New("invalid token")
 	}
-	return claims.UserID, nil
+	role := claims.Role
+	if role == "" {
+		role = string(RolePlayer)
+	}
+	return claims.UserID, role, nil
 }

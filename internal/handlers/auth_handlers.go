@@ -44,6 +44,7 @@ type AuthResponse struct {
 		ID       string `json:"id"`
 		Username string `json:"username"`
 		Email    string `json:"email,omitempty"`
+		Role     string `json:"role"`
 	} `json:"user"`
 }
 
@@ -76,6 +77,7 @@ func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 		Username:     req.Username,
 		PasswordHash: string(hashed),
 		ShipIcon:     "ship_strela.svg",
+		Role:         models.RolePlayer,
 	}
 	if req.Email != "" {
 		user.Email = &req.Email
@@ -93,7 +95,7 @@ func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := auth.GenerateToken(user.ID)
+	token, err := auth.GenerateToken(user.ID, string(user.Role))
 	if err != nil {
 		writeJSONError(w, "Не удалось сгенерировать токен", http.StatusInternalServerError)
 		return
@@ -104,6 +106,7 @@ func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 	}
 	resp.User.ID = user.ID
 	resp.User.Username = user.Username
+	resp.User.Role = string(user.Role)
 	if user.Email != nil {
 		resp.User.Email = *user.Email
 	}
@@ -136,7 +139,7 @@ func (h *AuthHandlers) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := auth.GenerateToken(user.ID)
+	token, err := auth.GenerateToken(user.ID, string(user.Role))
 	if err != nil {
 		writeJSONError(w, "Не удалось сгенерировать токен", http.StatusInternalServerError)
 		return
@@ -147,6 +150,7 @@ func (h *AuthHandlers) Login(w http.ResponseWriter, r *http.Request) {
 	}
 	resp.User.ID = user.ID
 	resp.User.Username = user.Username
+	resp.User.Role = string(user.Role)
 	if user.Email != nil {
 		resp.User.Email = *user.Email
 	}
@@ -186,6 +190,7 @@ func (h *AuthHandlers) GetMe(w http.ResponseWriter, r *http.Request) {
 		"id":                 user.ID,
 		"username":           user.Username,
 		"email":              user.Email,
+		"role":               user.Role,
 		"current_world_id":   user.CurrentWorldID,
 		"current_world_name": currentWorldName,
 		"ship_icon":          user.ShipIcon,

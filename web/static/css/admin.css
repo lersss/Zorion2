@@ -79,6 +79,8 @@ h2 {
     cursor: pointer;
 }
 .btn-small:hover { background: #475569; }
+.btn-small.danger { background: #7f1d1d; }
+.btn-small.danger:hover { background: #991b1b; }
 
 .result {
     margin-top: 6px;

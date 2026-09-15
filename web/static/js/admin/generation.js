@@ -24,6 +24,46 @@ const UNIVERSE_PRESETS = {
         worlds: 1, clusters: 1, mapSize: 800, minDist: 100,
         clusterRadius: 80, clusterSpacing: 160, outlierPercent: 0
     },
+    swarm: {   // рой: компактная группа мелких миров
+        worlds: 300, clusters: 6, mapSize: 3000, minDist: 120,
+        clusterRadius: 620, clusterSpacing: 1300, outlierPercent: 15, shape: 'blob'
+    },
+    frontier: {   // пограничье: просторная галактика, много выбросов
+        worlds: 1000, clusters: 8, mapSize: 6500, minDist: 180,
+        clusterRadius: 1480, clusterSpacing: 3000, outlierPercent: 30, shape: 'blob'
+    },
+    constellation: {   // созвездие: много кластеров, круглая форма
+        worlds: 3000, clusters: 40, mapSize: 8000, minDist: 100,
+        clusterRadius: 650, clusterSpacing: 1350, outlierPercent: 10, shape: 'circle'
+    },
+    crossroads: {   // перекрёсток: средняя галактика, много миров
+        worlds: 10000, clusters: 30, mapSize: 13000, minDist: 110,
+        clusterRadius: 1470, clusterSpacing: 3000, outlierPercent: 20, shape: 'blob'
+    },
+    archipelago: {   // архипелаг: крупные острова-кластеры, круглая форма
+        worlds: 20000, clusters: 12, mapSize: 21000, minDist: 130,
+        clusterRadius: 3950, clusterSpacing: 8000, outlierPercent: 15, shape: 'circle'
+    },
+    outback: {   // глубинка: много кластеров, много выбросов
+        worlds: 30000, clusters: 80, mapSize: 34000, minDist: 160,
+        clusterRadius: 2250, clusterSpacing: 4600, outlierPercent: 30, shape: 'blob'
+    },
+    agglomeration: {   // скопление: очень много кластеров
+        worlds: 50000, clusters: 150, mapSize: 30000, minDist: 110,
+        clusterRadius: 1540, clusterSpacing: 3100, outlierPercent: 12, shape: 'blob'
+    },
+    fararm: {   // дальняя рука: огромная галактика, круглая форма
+        worlds: 75000, clusters: 40, mapSize: 47000, minDist: 150,
+        clusterRadius: 4800, clusterSpacing: 9700, outlierPercent: 18, shape: 'circle'
+    },
+    metropolis: {   // метрополия: максимум миров, много кластеров
+        worlds: 100000, clusters: 300, mapSize: 42000, minDist: 115,
+        clusterRadius: 1580, clusterSpacing: 3200, outlierPercent: 15, shape: 'blob'
+    },
+    outskirts: {   // окраина: огромная галактика, много выбросов
+        worlds: 100000, clusters: 60, mapSize: 50000, minDist: 140,
+        clusterRadius: 3760, clusterSpacing: 7600, outlierPercent: 35, shape: 'blob'
+    },
 };
 
 // applyPreset — заполняет поля формы из выбранного пресета.
@@ -37,6 +77,7 @@ export function applyPreset() {
     document.getElementById('genClusterRadius').value = p.clusterRadius;
     document.getElementById('genClusterSpacing').value = p.clusterSpacing;
     document.getElementById('genOutlierPercent').value = p.outlierPercent;
+    document.getElementById('genShape').value = p.shape || 'blob';
 }
 
 export async function generateUniverse() {

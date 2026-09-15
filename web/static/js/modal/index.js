@@ -254,6 +254,12 @@ function renderModal(worldId, worldName, spectralClass, data) {
         chips.push(`тип объекта: ${starTypeLabel(starType) || starType}`);
     }
     starModsBadges(data && data.stellar_mods).forEach(b => chips.push(b));
+    // Координаты мира — в шапку модалки (49b): раньше были строкой в карточке
+    // звезды после «Светимости», перенесены в чипы шапки (решение создателя
+    // 2026-09-16 — только координаты, светимость остаётся в карточке).
+    const coordX = (data && typeof data.coord_x === 'number') ? data.coord_x : null;
+    const coordY = (data && typeof data.coord_y === 'number') ? data.coord_y : null;
+    chips.push(`координаты: (${coordX !== null ? coordX.toFixed(2) : '—'}; ${coordY !== null ? coordY.toFixed(2) : '—'})`);
     chips.forEach(text => {
         const chip = document.createElement('span');
         chip.textContent = text;
@@ -357,8 +363,6 @@ function renderModal(worldId, worldName, spectralClass, data) {
     modalState.worldName = worldName;
     modalState.worldTemperature = (data && data.temperature) || 0;
     modalState.stellarMass = (data && data.stellar_mass) || null;
-    modalState.worldCoordX = (data && data.coord_x) || 0;
-    modalState.worldCoordY = (data && data.coord_y) || 0;
     modalState.selectedPlanetIndex = null;
     modalState.selectedObject = null;
     modalState.planets = planets;

@@ -34,8 +34,6 @@ export const modalState = {
     stellarMass: null,       // масса звезды в M☉ (29a §4м); null — не задана
     stellarMods: null,       // модификаторы звезды (41a): {subtype, disk_state, ...} — для ветки «аккреция» ЧД
     worldAge: null,          // возраст системы в млрд лет (41a); null — нет данных (старые миры/обычные звёзды)
-    worldCoordX: 0,
-    worldCoordY: 0,
     authToken: null, // токен открытия модалки (админка); refreshPlanets использует его
     animStart: 0,
     _rafId: null,

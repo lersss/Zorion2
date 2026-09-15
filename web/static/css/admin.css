@@ -25,6 +25,13 @@ h2 {
     padding: 16px 20px;
     margin-bottom: 16px;
 }
+/* Общий блок «Конфиг генерации» (39c): объединяет карточки весов/средних/масс. */
+.gen-config {
+    border: 2px solid #3d3d6e;
+}
+.gen-config > .card {
+    background: #16162a;
+}
 .compact-row {
     display: flex;
     flex-wrap: wrap;

@@ -13,17 +13,20 @@ import (
 	"zorion/internal/auth"
 	"zorion/internal/models"
 	"zorion/internal/repository"
+	"zorion/internal/travel"
 )
 
 type AuthHandlers struct {
-	userRepo  *repository.UserRepository
-	worldRepo *repository.WorldRepository
+	userRepo      *repository.UserRepository
+	worldRepo     *repository.WorldRepository
+	travelManager *travel.Manager
 }
 
-func NewAuthHandlers(userRepo *repository.UserRepository, worldRepo *repository.WorldRepository) *AuthHandlers {
+func NewAuthHandlers(userRepo *repository.UserRepository, worldRepo *repository.WorldRepository, travelManager *travel.Manager) *AuthHandlers {
 	return &AuthHandlers{
-		userRepo:  userRepo,
-		worldRepo: worldRepo,
+		userRepo:      userRepo,
+		worldRepo:     worldRepo,
+		travelManager: travelManager,
 	}
 }
 
@@ -186,6 +189,18 @@ func (h *AuthHandlers) GetMe(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Активный полёт (идея 42a): сервер помнит его в travel.Manager, фронт
+	// восстанавливает состояние после рефреша. Полёта нет — null.
+	var flight interface{}
+	if f := h.travelManager.GetFlight(userID); f != nil {
+		flight = map[string]interface{}{
+			"from":       f.FromWorld,
+			"to":         f.ToWorld,
+			"start_time": f.StartTime.UnixMilli(),
+			"duration":   int(f.Duration.Seconds()),
+		}
+	}
+
 	response := map[string]interface{}{
 		"id":                 user.ID,
 		"username":           user.Username,
@@ -194,6 +209,7 @@ func (h *AuthHandlers) GetMe(w http.ResponseWriter, r *http.Request) {
 		"current_world_id":   user.CurrentWorldID,
 		"current_world_name": currentWorldName,
 		"ship_icon":          user.ShipIcon,
+		"flight":             flight,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

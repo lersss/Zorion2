@@ -9,18 +9,19 @@ import (
 )
 
 // worldColumns — колонки чтения миров (включая экзотические типы, 99.2.4 §3,
-// и массу, 29a §4м). COALESCE(spectral_class,'') — NULL-спектр экзотики не
-// роняет Scan.
-const worldColumns = `id, name, coord_x, coord_y, COALESCE(spectral_class,''), temperature, star_type, system_type, stellar_mods, stellar_mass, created_at, updated_at`
+// массу, 29a §4м, и возраст, 41a §3.4). COALESCE(spectral_class,'') — NULL-
+// спектр экзотики не роняет Scan.
+const worldColumns = `id, name, coord_x, coord_y, COALESCE(spectral_class,''), temperature, star_type, system_type, stellar_mods, stellar_mass, age, created_at, updated_at`
 
 // scanWorld — читает строку мира (worldColumns) в models.World.
 func scanWorld(scanner interface{ Scan(...interface{}) error }) (*models.World, error) {
 	var w models.World
 	var modsRaw sql.NullString
 	var massRaw sql.NullFloat64
+	var ageRaw sql.NullFloat64
 	err := scanner.Scan(
 		&w.ID, &w.Name, &w.CoordX, &w.CoordY, &w.SpectralClass, &w.Temperature,
-		&w.StarType, &w.SystemType, &modsRaw, &massRaw, &w.CreatedAt, &w.UpdatedAt,
+		&w.StarType, &w.SystemType, &modsRaw, &massRaw, &ageRaw, &w.CreatedAt, &w.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -32,6 +33,9 @@ func scanWorld(scanner interface{ Scan(...interface{}) error }) (*models.World, 
 	}
 	if massRaw.Valid {
 		w.StellarMass = &massRaw.Float64
+	}
+	if ageRaw.Valid {
+		w.Age = &ageRaw.Float64
 	}
 	return &w, nil
 }

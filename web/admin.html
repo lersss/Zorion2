@@ -128,12 +128,22 @@
                 </div>
             </div>
 
+            <!-- Конфиг генерации: общий блок (39c) — веса, средние, массы -->
+            <div class="card gen-config">
+                <h2>⚙️ Конфиг генерации</h2>
+                <p class="hint">
+                    Общий для блоков ниже: веса спектральных классов, веса типов
+                    систем, среднее количество планет, диапазоны массы звёзд.
+                    Кнопки «💾 Сохранить конфиг» / «🔄 Перечитать» — внизу блока.
+                </p>
+
             <!-- Блок весов спектральных классов O–Y (99.2.3 §4.1) -->
             <div class="card">
                 <h2>⚖️ Веса спектральных классов O–Y</h2>
                 <p class="hint">
                     Доли обычных звёзд. Рядом — процент от суммы обычных звёзд
-                    (вес/сумма×100). Сохранение — кнопкой «Сохранить конфиг» ниже.
+                    (вес/сумма×100). Сохранение — кнопкой «Сохранить конфиг» внизу
+                    общего блока «Конфиг генерации».
                 </p>
                 <div class="compact-row" id="spectralWeightsRow">
                     <div><label>O</label><input type="number" id="swO" step="0.1" min="0" oninput="recalcGenWeights()"><span class="weight-pct" id="swO_pct"></span></div>
@@ -198,11 +208,10 @@
                     <div><label>Дв. тесная (mean)</label><input type="number" id="pmBinaryCloseMean" step="0.05" min="0" max="8"></div>
                     <div><label>Кратная ×</label><input type="number" id="pmMultipleFactor" step="0.05" min="0" max="8"></div>
                 </div>
-                <div class="compact-row" style="margin-top:10px;">
-                    <button class="btn success" onclick="saveGenConfig()">💾 Сохранить конфиг</button>
-                    <button class="btn secondary" onclick="loadGenConfig()">🔄 Перечитать</button>
-                </div>
-                <div id="genConfigResult" class="result"></div>
+                <p class="hint" style="margin-top:10px;">
+                    Сохранение — кнопкой «💾 Сохранить конфиг» внизу общего блока
+                    «Конфиг генерации».
+                </p>
             </div>
 
             <!-- Диапазоны массы звёзд (29a §4м) -->
@@ -211,7 +220,8 @@
                 <p class="hint">
                     Диапазон массы по типу: равномерно в [мин, макс] (29a §4м).
                     Границы: мин &gt; 0, макс ≥ мин, макс ≤ 100 — иначе отклоняется
-                    сохранением (422). Сохранение — кнопкой «Сохранить конфиг» выше.
+                    сохранением (422). Сохранение — кнопкой «Сохранить конфиг»
+                    внизу общего блока «Конфиг генерации».
                 </p>
                 <div class="compact-row" id="massRangesRow">
                     <div><label>O мин/макс</label><input type="number" id="mrO_min" step="0.5" min="0.01"><input type="number" id="mrO_max" step="0.5" min="0.01"></div>
@@ -230,6 +240,12 @@
                     <div><label>Протозвезда мин/макс</label><input type="number" id="mrProtostar_min" step="0.05" min="0.01"><input type="number" id="mrProtostar_max" step="0.05" min="0.01"></div>
                     <div><label>Сверхгигант мин/макс</label><input type="number" id="mrExotic_min" step="1" min="1"><input type="number" id="mrExotic_max" step="1" min="1"></div>
                 </div>
+            </div>
+            <div class="compact-row" style="margin-top:12px;">
+                <button class="btn success" onclick="saveGenConfig()">💾 Сохранить конфиг</button>
+                <button class="btn secondary" onclick="loadGenConfig()">🔄 Перечитать</button>
+            </div>
+            <div id="genConfigResult" class="result"></div>
             </div>
 
             <!-- Генерация фракций перенесена в подвкладку «Фракции» (29a) -->

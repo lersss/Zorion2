@@ -5,6 +5,7 @@ description: Тестер баланса Zorion (адекватность гей
   создателя, для дизайн-фич с числами (калибровки, кривые, ресурсы).
 mode: subagent
 model: opencode/deepseek-v4-flash
+temperature: 0.1
 permission:
   edit: deny
   bash:

@@ -138,6 +138,39 @@ func TestProtostarHasNoPlanets(t *testing.T) {
 	assert.Zero(t, g.planetCountFor(w), "planetCountFor протозвезды = 0")
 }
 
+// ==================== НАСЛЕДОВАНИЕ ВОЗРАСТА (41a §4.2) ====================
+
+// TestExoticPlanetSystemAgeInherits — system_age планеты остатка наследует
+// возраст мира (w.Age); старые миры без возраста — фолбэк-ролл в [2, 13]
+// (вместо 2–10, решение создателя).
+func TestExoticPlanetSystemAgeInherits(t *testing.T) {
+	rng := rand.New(rand.NewSource(8))
+	g := &Generator{rng: rng, usedNames: map[string]bool{}}
+
+	// Наследование: w.Age → data["system_age"] планеты.
+	age := 7.5
+	w := WorldInfo{ID: "w", Name: "x", StarType: "black_hole", Age: &age}
+	for i := 0; i < 50; i++ {
+		p := g.buildExoticPlanet(w, 10, 50.0)
+		require.NotNil(t, p)
+		var data map[string]interface{}
+		require.NoError(t, json.Unmarshal(p.Data, &data))
+		assert.Equal(t, 7.5, data["system_age"], "system_age наследует возраст мира")
+	}
+
+	// Фолбэк старых миров (Age=nil): ролл в [2, 13].
+	w2 := WorldInfo{ID: "w2", Name: "x2", StarType: "neutron"}
+	for i := 0; i < 500; i++ {
+		p := g.buildExoticPlanet(w2, 1, 80.0)
+		require.NotNil(t, p)
+		var data map[string]interface{}
+		require.NoError(t, json.Unmarshal(p.Data, &data))
+		sa := data["system_age"].(float64)
+		assert.GreaterOrEqual(t, sa, 2.0, "фолбэк ≥ 2 млрд лет")
+		assert.LessOrEqual(t, sa, 13.0, "фолбэк ≤ 13 млрд лет")
+	}
+}
+
 // ==================== ЧИСЛО ПЛАНЕТ ПО ТИПУ (99.2.4 §5.2) ====================
 
 func TestPlanetCountForExoticMaxOne(t *testing.T) {

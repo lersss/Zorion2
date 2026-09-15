@@ -96,8 +96,8 @@ func assignCurrentWorldsTx(ctx context.Context, tx *sql.Tx) error {
 	return nil
 }
 
-// worldInsertValues — значения INSERT мира для spectral_class, stellar_mods
-// и stellar_mass.
+// worldInsertValues — значения INSERT мира для spectral_class, stellar_mods,
+// stellar_mass и age (41a §3.3).
 //
 // spectral_class: экзотика пишет NULL (99.2.4 §3), а не пустую строку.
 // stellar_mods: ВСЕГДА валидный JSONB — для пустых модификаторов "{}",
@@ -106,7 +106,8 @@ func assignCurrentWorldsTx(ctx context.Context, tx *sql.Tx) error {
 // (admin_hypothesis.go, world_repository.go, admin_worlds.go) колонку не
 // пишут — там дефолт NULL, не затронуты.
 // stellar_mass: NULL, если масса не сгенерирована (29a §4м).
-func worldInsertValues(w *models.World) (spectralClass interface{}, modsJSON []byte, stellarMass interface{}) {
+// age: NULL, если возраст не сгенерирован (41a: обычные звёзды, старые миры).
+func worldInsertValues(w *models.World) (spectralClass interface{}, modsJSON []byte, stellarMass interface{}, age interface{}) {
 	if w.SpectralClass == "" {
 		spectralClass = nil
 	} else {
@@ -125,7 +126,12 @@ func worldInsertValues(w *models.World) (spectralClass interface{}, modsJSON []b
 	} else {
 		stellarMass = nil
 	}
-	return spectralClass, modsJSON, stellarMass
+	if w.Age != nil {
+		age = *w.Age
+	} else {
+		age = nil
+	}
+	return spectralClass, modsJSON, stellarMass, age
 }
 
 // insertRegionsTx — сохраняет регионы в уже начатой транзакции.
@@ -259,8 +265,8 @@ func (h *AdminHandlers) GenerateUniverse(w http.ResponseWriter, r *http.Request)
 		}
 
 		stmt, err := tx.PrepareContext(ctx, `
-			INSERT INTO worlds (id, name, coord_x, coord_y, spectral_class, temperature, star_type, system_type, stellar_mods, stellar_mass, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+			INSERT INTO worlds (id, name, coord_x, coord_y, spectral_class, temperature, star_type, system_type, stellar_mods, stellar_mass, age, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		`)
 		if err != nil {
 			log.Printf("❌ GenerateUniverse: failed to prepare statement: %v", err)
@@ -277,12 +283,12 @@ func (h *AdminHandlers) GenerateUniverse(w http.ResponseWriter, r *http.Request)
 				return
 			default:
 			}
-			spectralClass, modsJSON, stellarMass := worldInsertValues(world)
+			spectralClass, modsJSON, stellarMass, age := worldInsertValues(world)
 			if _, err := stmt.ExecContext(ctx,
 				world.ID, world.Name, world.CoordX, world.CoordY,
 				spectralClass, world.Temperature,
 				world.StarType, world.SystemType,
-				modsJSON, stellarMass,
+				modsJSON, stellarMass, age,
 				world.CreatedAt, world.UpdatedAt,
 			); err != nil {
 				log.Printf("❌ GenerateUniverse: failed to insert world %s: %v", world.ID, err)
@@ -374,6 +380,7 @@ func (h *AdminHandlers) GeneratePlanets(w http.ResponseWriter, r *http.Request) 
 			StarType:      w.StarType,
 			SystemType:    w.SystemType,
 			Mods:          w.StellarMods,
+			Age:           w.Age,
 		})
 	}
 

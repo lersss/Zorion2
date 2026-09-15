@@ -4,6 +4,7 @@ description: Быстрый ревьюер кода Zorion. Смотрит ди�
   DoD. Работает быстро: не читает лишнего, не копает вглубь. Вызывай через @manager.
 mode: subagent
 model: opencode/deepseek-v4-flash
+temperature: 0.2
 permission:
   edit: deny
   bash:

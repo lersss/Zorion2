@@ -79,6 +79,7 @@ func (h *AdminHandlers) RegeneratePlanets(w http.ResponseWriter, r *http.Request
 			StarType:      w.StarType,
 			SystemType:    w.SystemType,
 			Mods:          w.StellarMods,
+			Age:           w.Age,
 		})
 	}
 	if len(selected) == 0 {

@@ -155,7 +155,7 @@ func main() {
 
 	testHandlers := handlers.NewTestHandlers(worldRepo, locationRepo, assignmentRepo)
 	worldHandlers := handlers.NewWorldHandlers(worldRepo, locationRepo, assignmentRepo)
-	authHandlers := handlers.NewAuthHandlers(userRepo, worldRepo)
+	authHandlers := handlers.NewAuthHandlers(userRepo, worldRepo, travelManager)
 	travelHandlers := handlers.NewTravelHandlers(worldRepo, userRepo, travelManager)
 	wsHandler := handlers.NewWebSocketHandler(wsHub)
 	contractHandlers := handlers.NewContractHandlers(assignmentRepo, userRepo)

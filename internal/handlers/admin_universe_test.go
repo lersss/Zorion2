@@ -24,20 +24,22 @@ import (
 // давать валидный JSONB "{}".
 func TestWorldInsertValuesStellarModsValidJSONB(t *testing.T) {
 	// Обычная одиночная звезда (StellarMods == nil, 85%+ миров).
-	spectral, modsJSON, mass := worldInsertValues(&models.World{SpectralClass: "G", StarType: "star"})
+	spectral, modsJSON, mass, age := worldInsertValues(&models.World{SpectralClass: "G", StarType: "star"})
 	require.Equal(t, "G", spectral)
 	require.Equal(t, []byte("{}"), modsJSON, "nil-модификаторы → валидный JSONB {}, не nil")
 	require.Nil(t, mass, "масса не задана → NULL")
+	require.Nil(t, age, "возраст не задан → NULL (41a: обычные звёзды)")
 
 	// Экзотика без модификаторов: спектр NULL, моды — "{}".
-	spectral, modsJSON, mass = worldInsertValues(&models.World{SpectralClass: "", StarType: "black_hole"})
+	spectral, modsJSON, mass, age = worldInsertValues(&models.World{SpectralClass: "", StarType: "black_hole"})
 	require.Nil(t, spectral)
 	require.Equal(t, []byte("{}"), modsJSON)
 	require.Nil(t, mass)
+	require.Nil(t, age)
 
 	// С модификаторами — маршалл проходит; с массой — значение, не NULL.
 	massVal := 30.0
-	spectral, modsJSON, mass = worldInsertValues(&models.World{
+	spectral, modsJSON, mass, age = worldInsertValues(&models.World{
 		SpectralClass: "O",
 		StellarMods:   &models.StellarMods{Phase: "I", Subtype: "lbv"},
 		StellarMass:   &massVal,
@@ -46,6 +48,18 @@ func TestWorldInsertValuesStellarModsValidJSONB(t *testing.T) {
 	require.Contains(t, string(modsJSON), `"lbv"`)
 	require.NotEqual(t, []byte("{}"), modsJSON)
 	require.Equal(t, 30.0, mass, "масса проходит в INSERT")
+	require.Nil(t, age)
+}
+
+// TestWorldInsertValuesAge — возраст мира в INSERT (41a §3.3): значение при
+// заполненном Age, NULL при nil (старые миры/обычные звёзды).
+func TestWorldInsertValuesAge(t *testing.T) {
+	ageVal := 4.2
+	_, _, _, age := worldInsertValues(&models.World{SpectralClass: "", StarType: "black_hole", Age: &ageVal})
+	require.Equal(t, 4.2, age, "возраст проходит в INSERT")
+
+	_, _, _, age = worldInsertValues(&models.World{SpectralClass: "", StarType: "black_hole"})
+	require.Nil(t, age, "nil-возраст → NULL в INSERT")
 }
 
 // TestClearUniverseTx — точная последовательность SQL очистки вселенной:

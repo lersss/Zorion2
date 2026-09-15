@@ -6,6 +6,7 @@ description: Диспетчер горячих доков Zorion. Единств
   «@dispatcher, разнеси дельты». Менеджерам команд порождать его запрещено.
 mode: subagent
 model: opencode/deepseek-v4-flash
+temperature: 0.1
 permission:
   edit: allow
   bash:

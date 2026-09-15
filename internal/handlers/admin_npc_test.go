@@ -192,11 +192,11 @@ func newBulkHarness(t *testing.T) (*AdminNPCHandlers, *sql.DB, sqlmock.Sqlmock) 
 func TestAdminNPCCreateWithStartWorld(t *testing.T) {
 	h, mock := newAdminNPCHarness(t)
 
-	mock.ExpectQuery(`SELECT id, name, coord_x, coord_y, COALESCE\(spectral_class,''\), temperature, star_type, system_type, stellar_mods, stellar_mass, created_at, updated_at FROM worlds WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, name, coord_x, coord_y, COALESCE\(spectral_class,''\), temperature, star_type, system_type, stellar_mods, stellar_mass, age, created_at, updated_at FROM worlds WHERE id = \$1`).
 		WithArgs("22222222-2222-2222-2222-222222222222").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "coord_x", "coord_y", "spectral_class", "temperature", "star_type", "system_type", "stellar_mods", "stellar_mass", "created_at", "updated_at",
-		}).AddRow("22222222-2222-2222-2222-222222222222", "Sirius", 0, 0, "A", 10000, "star", "single", nil, nil, now(), now()))
+			"id", "name", "coord_x", "coord_y", "spectral_class", "temperature", "star_type", "system_type", "stellar_mods", "stellar_mass", "age", "created_at", "updated_at",
+		}).AddRow("22222222-2222-2222-2222-222222222222", "Sirius", 0, 0, "A", 10000, "star", "single", nil, nil, nil, now(), now()))
 	mock.ExpectExec(`INSERT INTO npc_agents \(id, name, status, current_world_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at\) VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, \$9, \$10, NOW\(\), NOW\(\)\)`).
 		WithArgs(sqlmock.AnyArg(), "Наблюдатель-1", "idle", "22222222-2222-2222-2222-222222222222", nil, nil, nil, nil, false, nil).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -235,10 +235,10 @@ func TestAdminNPCCreateInvalidWorldID(t *testing.T) {
 func TestAdminNPCCreateWorldNotFound(t *testing.T) {
 	h, mock := newAdminNPCHarness(t)
 
-	mock.ExpectQuery(`SELECT id, name, coord_x, coord_y, COALESCE\(spectral_class,''\), temperature, star_type, system_type, stellar_mods, stellar_mass, created_at, updated_at FROM worlds WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, name, coord_x, coord_y, COALESCE\(spectral_class,''\), temperature, star_type, system_type, stellar_mods, stellar_mass, age, created_at, updated_at FROM worlds WHERE id = \$1`).
 		WithArgs("22222222-2222-2222-2222-222222222222").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "coord_x", "coord_y", "spectral_class", "temperature", "star_type", "system_type", "stellar_mods", "stellar_mass", "created_at", "updated_at",
+			"id", "name", "coord_x", "coord_y", "spectral_class", "temperature", "star_type", "system_type", "stellar_mods", "stellar_mass", "age", "created_at", "updated_at",
 		}))
 
 	body := `{"name":"A","start_world_id":"22222222-2222-2222-2222-222222222222"}`

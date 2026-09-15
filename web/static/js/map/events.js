@@ -389,6 +389,14 @@ export function initPanZoom() {
 
     document.getElementById('centerBtn').addEventListener('click', () => {
         state.followShip = true;
+        // Идея 42a: след слежения пишем только в полёте (вне полёта флаг
+        // бесполезен — иначе при следующем полёте + рефреше слежение
+        // включилось бы без нажатия). Вне полёта — зачищаем след.
+        if (state.isFlying) {
+            sessionStorage.setItem('followShip', '1');
+        } else {
+            sessionStorage.removeItem('followShip');
+        }
         centerOnAgent();
         setCenterBtnActive(state.isFlying);
     });
@@ -397,6 +405,7 @@ export function initPanZoom() {
     function stopFollow() {
         if (state.followShip) {
             state.followShip = false;
+            sessionStorage.removeItem('followShip');
             setCenterBtnActive(false);
         }
     }

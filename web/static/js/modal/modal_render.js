@@ -25,6 +25,10 @@ export async function drawSystem(canvas, spectralClass, planets, starRadius, sta
     const { cx, cy, mainX, mainY, finalStarRadius, step, maxOrbit, sizeMultiplier, stars } = layout;
     const timeMs = performance.now() - (modalState.animStart || performance.now());
 
+    // Компактные остатки (ЧД/нейтронная/WD, 40a): свечение главной звезды
+    // гасим — точка без ореола; обычные звёзды и протозвезда — как есть.
+    const compactRemnant = ['black_hole', 'neutron', 'white_dwarf'].includes(modalState.starType);
+
     ctx.save();
     ctx.translate(modalState.offsetX, modalState.offsetY);
     ctx.scale(modalState.zoom, modalState.zoom);
@@ -52,7 +56,7 @@ export async function drawSystem(canvas, spectralClass, planets, starRadius, sta
         ctx.save();
         if (s.kind === 'main') {
             ctx.shadowColor = s.color;
-            ctx.shadowBlur = 40;
+            ctx.shadowBlur = compactRemnant ? 0 : 40;
         } else {
             ctx.globalAlpha = 0.85;
             ctx.shadowColor = s.color;

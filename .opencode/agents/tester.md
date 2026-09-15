@@ -4,6 +4,7 @@ description: Ручной тестировщик Zorion. Проверяет ре
   @tester <что проверить>, когда нужен независимый прогон и второй взгляд на код.
 mode: subagent
 model: opencode/deepseek-v4-flash
+temperature: 0.2
 permission:
   edit: allow
   bash:

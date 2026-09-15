@@ -13,6 +13,7 @@ type World struct {
 	SystemType     string    `json:"system_type"`    // single/binary/multiple (99.2.4 §2)
 	StellarMods    *StellarMods `json:"stellar_mods,omitempty"` // модификаторы (99.2.4 §4.3)
 	StellarMass    *float64  `json:"stellar_mass,omitempty"` // масса звезды в M☉ (29a §4м); NULL у старых миров
+	Age            *float64  `json:"age,omitempty"` // возраст системы в млрд лет (41a); NULL у старых миров и обычных звёзд
 	Population     int64     `json:"population,omitempty"` // население мира (сумма поселений), заполняется в админке «Миры»
 	PopulationTrend string   `json:"population_trend,omitempty"` // тренд населения мира: decline/growth/stable (админка «Миры»)
 	CreatedAt      time.Time `json:"created_at"`

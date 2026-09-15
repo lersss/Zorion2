@@ -147,6 +147,7 @@ function focusOnStar(res) {
     state.offsetY = state.canvasHeight / 2 - y * state.scale;
     state.focusWorldId = res.world_id || null;
     state.followShip = false;
+    sessionStorage.removeItem('followShip');
 
     if (elements.zoomInfo) {
         elements.zoomInfo.textContent = formatZoom(state.scale, state.minZoom);

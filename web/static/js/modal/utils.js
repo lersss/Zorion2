@@ -47,9 +47,9 @@ export function getStarSize(spectralClass, starType) {
         'Y': 18
     };
     if (starType && starType !== 'star') {
-        // Экзотика — фиксированный малый размер (ЧД/НЗ — компактные, §8).
-        if (starType === 'black_hole' || starType === 'neutron') return 18;
-        if (starType === 'white_dwarf') return 24;
+        // Экзотика — фиксированный малый размер (ЧД/НЗ/WD — компактные, §8).
+        if (starType === 'black_hole' || starType === 'neutron') return 7;
+        if (starType === 'white_dwarf') return 11;
         return 20; // протозвезда
     }
     return sizes[spectralClass] || 60;

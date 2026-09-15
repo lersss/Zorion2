@@ -11,6 +11,7 @@ export function animationLoop() {
         if (elapsed >= state.flyDuration) {
             state.isFlying = false;
             state.followShip = false;
+            sessionStorage.removeItem('followShip');
             const centerBtn = document.getElementById('centerBtn');
             if (centerBtn) centerBtn.classList.remove('active');
             hideFlightPanel();

@@ -106,6 +106,9 @@ type WorldInfo struct {
 	StarType   string
 	SystemType string
 	Mods       *models.StellarMods
+	// Age — возраст системы в млрд лет (41a §4.2): планеты экзотики наследуют
+	// его в data["system_age"]; старые миры (nil) — фолбэк-ролл генератора.
+	Age *float64
 }
 
 // GeneratePlanetsForWorlds — генерирует планеты для списка миров.

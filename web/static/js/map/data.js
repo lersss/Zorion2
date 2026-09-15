@@ -314,6 +314,29 @@ export async function loadUserData(force = false) {
                 if (label) label.textContent = world.name;
             }
         }
+
+        // Восстановление полёта после рефреша (идея 42a): сервер помнит
+        // полёт в travel.Manager, /me отдаёт его в user.flight. Восстанавливаем
+        // state.* — панель (main.js) и animationLoop подхватят как обычный полёт.
+        if (user.flight) {
+            const [fromWorld, toWorld] = await Promise.all([
+                fetchWorldByID(user.flight.from, token),
+                fetchWorldByID(user.flight.to, token),
+            ]);
+            if (fromWorld && toWorld) {
+                if (!state.worlds.find(w => w.id === fromWorld.id)) state.worlds.push(fromWorld);
+                if (!state.worlds.find(w => w.id === toWorld.id)) state.worlds.push(toWorld);
+                state.flyFrom = fromWorld;
+                state.flyTo = toWorld;
+                state.flyStartTime = user.flight.start_time;
+                state.flyDuration = user.flight.duration;
+                state.isFlying = true;
+            } else {
+                // Мир from/to не загрузился (удалён при перегенерации) —
+                // полёт не восстанавливаем, оставляем как было.
+                console.warn('loadUserData: не удалось восстановить полёт — миры from/to не загрузились');
+            }
+        }
         currentWorldIdLoaded = true;
     } catch (e) {
         console.warn('loadUserData error:', e);

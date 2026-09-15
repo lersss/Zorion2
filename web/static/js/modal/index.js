@@ -216,10 +216,12 @@ function renderModal(worldId, worldName, spectralClass, data) {
         titleText = `${worldName} (${tLabel || starType})`;
     }
     title.textContent = titleText;
+    // Название — единым читаемым цветом (не цветом звезды): у ЧД/нейтронной
+    // цвет объекта тёмный (#2a1a4a) и текст на фоне модалки нечитаем (40b).
     title.style.cssText = `
         margin: 0;
         font-size: 1.5rem;
-        color: ${starColor};
+        color: #ececec;
     `;
     const closeBtn = document.createElement('button');
     closeBtn.innerHTML = '✕';
@@ -336,6 +338,8 @@ function renderModal(worldId, worldName, spectralClass, data) {
     modalState.starColor = starColor;
     modalState.systemType = (data && data.system_type) || 'single';
     const mods = (data && data.stellar_mods) || {};
+    modalState.stellarMods = mods;
+    modalState.worldAge = (typeof data.age === 'number') ? data.age : null;
     modalState.binaryType = mods.binary_type || '';
     modalState.companion = mods.companion || '';
     modalState.companionColor = getStarColor(mods.companion, 'star');

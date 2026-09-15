@@ -498,6 +498,20 @@ func (g *Generator) fillExoticWorld(w *models.World, category string) {
 		}
 	}
 	w.StellarMods = mods
+
+	// Возраст системы (41a §4.1): остатки (ЧД/НЗ/WD) — 2–13 млрд лет
+	// (галактический максимум, решение создателя 2026-09-15); протозвезда —
+	// 0.001–0.01 млрд лет (1–10 млн лет, §8.2 вариант А — до-ГП фаза).
+	// Сверхгиганты-экзотика (category "exotic", star_type='star') и обычные
+	// звёзды — NULL: возраст показывает фронтовый справочник по классу.
+	switch category {
+	case "black_hole", "neutron", "white_dwarf":
+		age := 2 + g.rng.Float64()*11
+		w.Age = &age
+	case "protostar":
+		age := 0.001 + g.rng.Float64()*0.009
+		w.Age = &age
+	}
 }
 
 // ==================== ПАРАМЕТРЫ ДВОЙНЫХ (35b §3) ====================

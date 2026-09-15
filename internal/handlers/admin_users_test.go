@@ -189,11 +189,11 @@ func TestAdminUsersGetProfileWithWorldName(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "username", "password_hash", "email", "agent_id", "current_world_id", "ship_icon", "role", "created_at", "updated_at",
 		}).AddRow("11111111-1111-1111-1111-111111111111", "bob", "hash", "b@x.io", nil, wid, "ship_strela.svg", "admin", now(), now()))
-	mock.ExpectQuery(`SELECT id, name, coord_x, coord_y, COALESCE\(spectral_class,''\), temperature, star_type, system_type, stellar_mods, stellar_mass, created_at, updated_at FROM worlds WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, name, coord_x, coord_y, COALESCE\(spectral_class,''\), temperature, star_type, system_type, stellar_mods, stellar_mass, age, created_at, updated_at FROM worlds WHERE id = \$1`).
 		WithArgs(wid).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "coord_x", "coord_y", "spectral_class", "temperature", "star_type", "system_type", "stellar_mods", "stellar_mass", "created_at", "updated_at",
-		}).AddRow(wid, "Земля", 0, 0, "G", 288, "star", "single", nil, nil, now(), now()))
+			"id", "name", "coord_x", "coord_y", "spectral_class", "temperature", "star_type", "system_type", "stellar_mods", "stellar_mass", "age", "created_at", "updated_at",
+		}).AddRow(wid, "Земля", 0, 0, "G", 288, "star", "single", nil, nil, nil, now(), now()))
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/users/11111111-1111-1111-1111-111111111111", nil)
 	rec := execJSON(h.HandleUser, req)

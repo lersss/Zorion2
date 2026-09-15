@@ -53,6 +53,68 @@ function companionBlock() {
     return html;
 }
 
+// exoticStarInfo — честные значения карточки экзотики (41a §5.1): таблица по
+// типу объекта; числа — из принятой спеки 99.2.4 §5.1. Ветка «аккреция» для ЧД
+// по stellar_mods (subtype/disk_state = accretion, решение §8.1 вариант б):
+// T диска — статический диапазон 10⁵–10⁷ K, сама ЧД не излучает.
+// Возвращает { temperature, color, radius, luminosity, age } — строки; для
+// не-экзотики — null (карточка идёт по getSpectralInfo).
+function exoticStarInfo() {
+    const starType = modalState.starType;
+    if (!starType || starType === 'star') return null;
+
+    const mods = modalState.stellarMods || {};
+    const accretion = mods.subtype === 'accretion' || mods.disk_state === 'accretion';
+    const temp = modalState.worldTemperature;
+    const mass = modalState.stellarMass;
+    const age = modalState.worldAge;
+
+    const info = { temperature: '—', color: '—', radius: '—', luminosity: '—', age: '—' };
+
+    switch (starType) {
+        case 'black_hole':
+            // Сама ЧД не излучает; аккреционный диск — голубовато-белый,
+            // диапазон 10⁵–10⁷ K / 10²–10³ L☉ (§5.1). T=0 в данных не показываем.
+            info.temperature = accretion ? 'диск: 10⁵–10⁷ K' : 'нет фотосферы (не излучает)';
+            info.color = accretion ? 'голубовато-белый (диск)' : 'чёрный (тень)';
+            info.luminosity = accretion ? 'диск: 10²–10³ L☉' : 'нет (не излучает)';
+            // Горизонт событий: 2.95 × M/M☉ км (шварцшильдовский радиус, §5.2).
+            if (typeof mass === 'number' && isFinite(mass) && mass > 0) {
+                info.radius = 'горизонт событий ≈ ' + Math.round(2.95 * mass) + ' км';
+            }
+            break;
+        case 'neutron':
+            info.temperature = (typeof temp === 'number' && temp > 0) ? temp.toLocaleString('ru-RU') + ' K' : '—';
+            info.color = 'голубой/белый';
+            info.radius = '≈10–15 км';
+            info.luminosity = '0.01–1 L☉';
+            break;
+        case 'white_dwarf':
+            info.temperature = (typeof temp === 'number' && temp > 0) ? temp.toLocaleString('ru-RU') + ' K' : '—';
+            info.color = 'белый/серебристый';
+            info.radius = '≈0.01 R☉ (≈7000 км)';
+            info.luminosity = '10⁻²–10⁻⁴ L☉';
+            break;
+        case 'protostar':
+            info.temperature = (typeof temp === 'number' && temp > 0) ? temp.toLocaleString('ru-RU') + ' K' : '—';
+            info.color = 'красно-оранжевый';
+            info.radius = 'порядка R☉ и больше (сжимается)';
+            info.luminosity = '1–10² L☉';
+            break;
+        default:
+            return info; // неизвестный экзотический тип — «—» по всем полям, без падения карточки
+    }
+
+    // Возраст (§5.2): ≥ 0.1 млрд — «N млрд лет»; < 0.1 (протозвезда) —
+    // «молодая: ≈N млн лет»; нет данных (старые миры) — «—».
+    if (typeof age === 'number') {
+        info.age = age >= 0.1
+            ? age.toFixed(1) + ' млрд лет'
+            : 'молодая: ≈' + Math.round(age * 1000) + ' млн лет';
+    }
+    return info;
+}
+
 // renderRightPanel — рисует правую панель модалки:
 // карточку звезды со списком планет (selectedIndex === null/undefined)
 // или карточку выбранной планеты.
@@ -114,6 +176,9 @@ export function renderStarCard() {
     const name = modalState.worldName || 'Звезда';
     const starType = modalState.starType || 'star';
     const exotic = starType && starType !== 'star';
+    // Компактные остатки (ЧД/нейтронная/WD, 40a): превью — сплошной цвет без
+    // белого ядра и свечения; протозвезда — как обычная звезда (градиент).
+    const compactRemnant = ['black_hole', 'neutron', 'white_dwarf'].includes(starType);
     // Реальное значение, без фолбека на 'G': у экзотики пустая строка.
     const spec = modalState.spectralClass || '';
     const color = modalState.starColor || '#fff4a3';
@@ -125,6 +190,7 @@ export function renderStarCard() {
 
     const typeLabel = exotic ? (starTypeLabel(starType) || starType) : '';
     const specInfo = exotic ? null : getSpectralInfo(spec);
+    const exoticInfo = exotic ? exoticStarInfo() : null;
     const headerSpec = exotic ? typeLabel : spec;
     const badgeText = exotic ? typeLabel : ('Звезда ' + spec);
     const specClassText = exotic ? '—' : spec;
@@ -132,13 +198,13 @@ export function renderStarCard() {
 
     panel.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <h3 style="margin: 0; font-size: 1.35rem; color: ${color}; cursor: default;">${capitalize(name)} <span style="font-size:0.9rem; color:#888; font-weight:normal;">(${headerSpec})</span></h3>
+            <h3 style="margin: 0; font-size: 1.35rem; color: #ececec; cursor: default;">${capitalize(name)} <span style="font-size:0.9rem; color:#888; font-weight:normal;">(${headerSpec})</span></h3>
             <span style="background:#2a2a4a; color:#aaa; padding:4px 12px; border-radius:12px; font-size:0.9rem;">${badgeText}</span>
         </div>
         <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:flex-start;">
             <div style="flex:1; min-width:170px;">
                 <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px; padding:10px; background:#0d0d1a; border-radius:8px;">
-                    <div style="width:44px; height:44px; border-radius:50%; background: radial-gradient(circle at 35% 35%, #fff, ${color}); box-shadow:0 0 18px ${color};"></div>
+                    <div style="width:44px; height:44px; border-radius:50%; background: ${compactRemnant ? color : `radial-gradient(circle at 35% 35%, #fff, ${color})`}; box-shadow: ${compactRemnant ? 'none' : `0 0 18px ${color}`};"></div>
                     <div>
                         <div style="font-size:1.05rem; color:#cbd5e1;"><strong>Спектральный класс:</strong> ${specClassText}</div>
                         <div style="font-size:1.05rem; color:#88b0e0;"><strong>Тип:</strong> ${typeText}</div>
@@ -146,16 +212,15 @@ export function renderStarCard() {
                     </div>
                 </div>
                 <div style="font-size:1rem; line-height:1.7;">
-                    <p style="margin:4px 0;"><strong>Температура:</strong> ${temp ? (temp - 273.15).toFixed(0) + ' °C' + ' (' + temp.toFixed(0) + ' K)' : '—'}</p>
+                    <p style="margin:4px 0;"><strong>Температура:</strong> ${exotic ? exoticInfo.temperature : (temp ? (temp - 273.15).toFixed(0) + ' °C' + ' (' + temp.toFixed(0) + ' K)' : '—')}</p>
                     <p style="margin:4px 0;"><strong>Масса:</strong> ${formatStellarMass(modalState.stellarMass)}</p>
                     ${companionBlock()}
-                    <p style="margin:4px 0;"><strong>Цвет:</strong> ${exotic ? '—' : specInfo.color}</p>
-                    <p style="margin:4px 0;"><strong>Относительный радиус:</strong> ${exotic ? '—' : specInfo.radius}</p>
-                    <p style="margin:4px 0;"><strong>Светимость:</strong> ${exotic ? '—' : specInfo.luminosity}</p>
+                    <p style="margin:4px 0;"><strong>Цвет:</strong> ${exotic ? exoticInfo.color : specInfo.color}</p>
+                    <p style="margin:4px 0;"><strong>Относительный радиус:</strong> ${exotic ? exoticInfo.radius : specInfo.radius}</p>
+                    <p style="margin:4px 0;"><strong>Светимость:</strong> ${exotic ? exoticInfo.luminosity : specInfo.luminosity}</p>
                     <p style="margin:4px 0;"><strong>Координаты:</strong> (${coordX ? coordX.toFixed(2) : '—'}; ${coordY ? coordY.toFixed(2) : '—'})</p>
-                    <p style="margin:4px 0;"><strong>Возраст:</strong> ${exotic ? '—' : specInfo.age}</p>
+                    <p style="margin:4px 0;"><strong>Возраст:</strong> ${exotic ? exoticInfo.age : specInfo.age}</p>
                     <p style="margin:8px 0; color:#888; font-size:0.95rem;">${exotic ? '' : specInfo.description}</p>
-                    <p style="margin:6px 0; color:#666;">🔄 Кликните по планете (в списке или на канвасе), чтобы открыть её характеристики. Клик по пустому месту — к звезде.</p>
                 </div>
             </div>
             <div style="flex:1; min-width:170px; background:#0d0d1a; border-radius:8px; padding:10px;">

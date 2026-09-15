@@ -230,6 +230,39 @@ func TestExoticStellarMassInRanges(t *testing.T) {
 	}
 }
 
+// TestExoticWorldAge — возраст экзотики (41a §4.1): остатки (ЧД/НЗ/WD)
+// получают 2–13 млрд лет, протозвезда — 0.001–0.01 млрд (1–10 млн лет,
+// решение §8.2 вариант А); обычные звёзды и сверхгиганты-экзотика (star+фаза I)
+// возраст НЕ заполняют (Age == nil — фронтовый справочник по классу).
+func TestExoticWorldAge(t *testing.T) {
+	g := NewGenerator(&Config{Seed: 31, WorldCount: 80000, MapSize: 80000, MinDist: 40, WorldSpread: 0})
+	worlds := g.generateWorldsRandom(40)
+
+	remnants, protostars, supergiants := 0, 0, 0
+	for _, w := range worlds {
+		switch w.StarType {
+		case "black_hole", "neutron", "white_dwarf":
+			remnants++
+			require.NotNil(t, w.Age, "остаток %s: возраст заполнен (41a)", w.StarType)
+			assert.GreaterOrEqual(t, *w.Age, 2.0, "остаток %s: возраст ≥ 2 млрд лет", w.StarType)
+			assert.LessOrEqual(t, *w.Age, 13.0, "остаток %s: возраст ≤ 13 млрд лет", w.StarType)
+		case "protostar":
+			protostars++
+			require.NotNil(t, w.Age, "протозвезда: возраст заполнен (41a §8.2 А)")
+			assert.GreaterOrEqual(t, *w.Age, 0.001, "протозвезда: 1–10 млн лет (≥ 0.001 млрд)")
+			assert.LessOrEqual(t, *w.Age, 0.01, "протозвезда: 1–10 млн лет (≤ 0.01 млрд)")
+		case "star":
+			if w.StellarMods != nil && w.StellarMods.Phase == "I" {
+				supergiants++
+			}
+			assert.Nil(t, w.Age, "обычная звезда/сверхгигант-экзотика: возраст не заполняем (41a)")
+		}
+	}
+	assert.Greater(t, remnants, 0, "в выборке должны быть остатки (4%)")
+	assert.Greater(t, protostars, 0, "в выборке должны быть протозвёзды (1%)")
+	assert.Greater(t, supergiants, 0, "в выборке должны быть сверхгиганты-экзотика (3%)")
+}
+
 // TestDefaultStellarMassRangesValid — дефолтные диапазоны валидны.
 func TestDefaultStellarMassRangesValid(t *testing.T) {
 	r := DefaultStellarMassRanges()

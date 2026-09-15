@@ -1,7 +1,7 @@
 export const CONFIG = {
     map: {
         minZoom: 0.001,        // было 0.02 — теперь можно отдалить до «всей галактики»
-        maxZoom: 10,
+        maxZoom: 20,
         zoomStep: 1.2,
         wheelSensitivity: 0.9,
         minDistForClick: 30,

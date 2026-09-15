@@ -37,8 +37,9 @@ func (h *AdminHandlers) GetPlanetsByWorld(w http.ResponseWriter, r *http.Request
 	var modsRaw []byte
 	var worldTemp, coordX, coordY float64
 	var massRaw sql.NullFloat64
-	err = h.db.QueryRow("SELECT name, COALESCE(spectral_class,''), star_type, system_type, stellar_mods, stellar_mass, temperature, coord_x, coord_y FROM worlds WHERE id = $1", worldID).
-		Scan(&worldName, &spectralClass, &starType, &systemType, &modsRaw, &massRaw, &worldTemp, &coordX, &coordY)
+	var ageRaw sql.NullFloat64
+	err = h.db.QueryRow("SELECT name, COALESCE(spectral_class,''), star_type, system_type, stellar_mods, stellar_mass, age, temperature, coord_x, coord_y FROM worlds WHERE id = $1", worldID).
+		Scan(&worldName, &spectralClass, &starType, &systemType, &modsRaw, &massRaw, &ageRaw, &worldTemp, &coordX, &coordY)
 	if err != nil {
 		http.Error(w, "Failed to fetch world info: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -54,6 +55,11 @@ func (h *AdminHandlers) GetPlanetsByWorld(w http.ResponseWriter, r *http.Request
 		stellarMass = &massRaw.Float64
 	}
 
+	var worldAge *float64
+	if ageRaw.Valid {
+		worldAge = &ageRaw.Float64
+	}
+
 	response := struct {
 		WorldName     string                 `json:"world_name"`
 		SpectralClass string                 `json:"spectral_class"`
@@ -64,6 +70,7 @@ func (h *AdminHandlers) GetPlanetsByWorld(w http.ResponseWriter, r *http.Request
 		SystemType    string                 `json:"system_type,omitempty"`
 		StellarMods   map[string]interface{} `json:"stellar_mods,omitempty"`
 		StellarMass   *float64               `json:"stellar_mass,omitempty"`
+		WorldAge      *float64               `json:"age,omitempty"`
 		Planets       []models.Planet        `json:"planets"`
 	}{
 		WorldName:     worldName,
@@ -75,6 +82,7 @@ func (h *AdminHandlers) GetPlanetsByWorld(w http.ResponseWriter, r *http.Request
 		SystemType:    systemType,
 		StellarMods:   mods,
 		StellarMass:   stellarMass,
+		WorldAge:      worldAge,
 		Planets:       planets,
 	}
 

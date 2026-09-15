@@ -703,9 +703,13 @@ function mrId(key, bound) {
     return 'mr' + camel[0].toUpperCase() + camel.slice(1) + '_' + bound;
 }
 
-// stId — id поля веса типа системы ('single' → 'stSingle').
+// stId — id поля веса типа системы ('black_hole' → 'stBlackHole').
+// snake_case → camelCase как в mrId/pmId: иначе 'black_hole' ищет
+// несуществующий 'stBlack_hole' (баг 39c: вес ЧД/белого карлика не
+// заполнялся/не сохранялся).
 function stId(key) {
-    return 'st' + key[0].toUpperCase() + key.slice(1);
+    const camel = key.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+    return 'st' + camel[0].toUpperCase() + camel.slice(1);
 }
 
 // pmId — id поля среднего ('black_hole' → 'pmBlackHole', 'O' → 'pmO').
@@ -720,7 +724,8 @@ export function recalcGenWeights() {
     let specSum = 0;
     const specVals = {};
     SPECTRAL_CLASSES.forEach(cls => {
-        const v = parseFloat(document.getElementById('sw' + cls).value) || 0;
+        const el = document.getElementById('sw' + cls);
+        const v = el ? (parseFloat(el.value) || 0) : 0;
         specVals[cls] = v;
         specSum += v;
     });
@@ -735,7 +740,8 @@ export function recalcGenWeights() {
     let sysSum = 0;
     const sysVals = {};
     SYSTEM_TYPES.forEach(([key]) => {
-        const v = parseFloat(document.getElementById(stId(key)).value) || 0;
+        const el = document.getElementById(stId(key));
+        const v = el ? (parseFloat(el.value) || 0) : 0;
         sysVals[key] = v;
         sysSum += v;
     });
@@ -800,23 +806,30 @@ export async function saveGenConfig() {
     const box = document.getElementById('genConfigResult');
     const spectral = {};
     SPECTRAL_CLASSES.forEach(cls => {
-        spectral[cls] = parseFloat(document.getElementById('sw' + cls).value) || 0;
+        const el = document.getElementById('sw' + cls);
+        spectral[cls] = el ? (parseFloat(el.value) || 0) : 0;
     });
     const system_types = {};
     SYSTEM_TYPES.forEach(([key]) => {
-        system_types[key] = parseFloat(document.getElementById(stId(key)).value) || 0;
+        const el = document.getElementById(stId(key));
+        system_types[key] = el ? (parseFloat(el.value) || 0) : 0;
     });
     const planet_means = {};
     PLANET_MEAN_KEYS.forEach(key => {
-        planet_means[key] = parseFloat(document.getElementById(pmId(key)).value) || 0;
+        const el = document.getElementById(pmId(key));
+        planet_means[key] = el ? (parseFloat(el.value) || 0) : 0;
     });
     // Диапазоны массы (29a §4м): {min, max} по типу.
     const stellar_mass_ranges = {};
     MASS_KEYS.forEach(key => {
-        const minV = parseFloat(document.getElementById(mrId(key, 'min')).value);
-        const maxV = parseFloat(document.getElementById(mrId(key, 'max')).value);
-        if (!isNaN(minV) && !isNaN(maxV)) {
-            stellar_mass_ranges[key] = { min: minV, max: maxV };
+        const elMin = document.getElementById(mrId(key, 'min'));
+        const elMax = document.getElementById(mrId(key, 'max'));
+        if (elMin && elMax) {
+            const minV = parseFloat(elMin.value);
+            const maxV = parseFloat(elMax.value);
+            if (!isNaN(minV) && !isNaN(maxV)) {
+                stellar_mass_ranges[key] = { min: minV, max: maxV };
+            }
         }
     });
 

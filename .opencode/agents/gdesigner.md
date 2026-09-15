@@ -6,6 +6,7 @@ description: Графический дизайнер Zorion. Визуальны�
   UI-стиль) или аудит + ТЗ на визуальные улучшения (обычно через @manager).
 mode: subagent
 model: opencode/mimo-v2.5-free
+temperature: 0.9
 permission:
   edit: allow
   bash:

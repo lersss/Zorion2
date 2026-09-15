@@ -62,7 +62,7 @@ export function drawMiniMap(ctx, cx, cy, finalStarRadius, step, maxOrbit, planet
         }
         ctx.beginPath();
         ctx.arc(sx, sy, sr, 0, 2 * Math.PI);
-        ctx.fillStyle = s.kind === 'main' ? '#fff4a3' : s.color;
+        ctx.fillStyle = s.color;
         ctx.fill();
     });
     ctx.restore();

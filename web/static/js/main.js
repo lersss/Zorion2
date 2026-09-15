@@ -4,6 +4,7 @@ import { resizeCanvas } from './map/map_render.js';
 import { handleCanvasClick, initFlyBtn, initPanZoom, initHover, initContextMenu } from './map/events.js';
 import { animationLoop } from './map/animation.js';
 import { centerOnAgent } from './map/navigation.js';
+import { showFlightPanel } from './map/flight.js';
 import { applyFiltersFromUI, resetFilters, filterState } from './filters.js';
 import { loadClusters, loadUserData } from './map/data.js';
 import { draw } from './map/map_render.js';
@@ -40,12 +41,23 @@ async function initMap() {
     //    (спека 99.2.15 §5: схемы полёта и иконок агентов; без него — фолбэк).
     await Promise.all([loadUserData(), loadShipCatalog()]);
 
-    // 2. Восстановление вьюпорта
-    const restored = restoreViewport();
-    if (!restored) {
-        // Первый заход — центрируемся на игроке, если знаем мир
-        if (state.currentWorldId) {
-            centerOnAgent();
+    // 2. Восстановление вьюпорта.
+    // Полёт, восстановленный из /me (идея 42a), имеет приоритет над
+    // сохранённым вьюпортом: камера возвращается к кораблю в текущей точке
+    // пути, а не к старой точке из sessionStorage.
+    if (state.isFlying && state.flyFrom && state.flyTo) {
+        showFlightPanel(state.flyFrom.name, state.flyTo.name);
+        // Идея 42a: если до рефреша слежение было включено — восстанавливаем.
+        // Класс active кнопке добавит animationLoop на первом кадре (animation.js).
+        if (sessionStorage.getItem('followShip') === '1') state.followShip = true;
+        centerOnAgent();
+    } else {
+        const restored = restoreViewport();
+        if (!restored) {
+            // Первый заход — центрируемся на игроке, если знаем мир
+            if (state.currentWorldId) {
+                centerOnAgent();
+            }
         }
     }
 
@@ -61,7 +73,10 @@ async function initMap() {
     // Вьюпорт из sessionStorage мог указывать на пустоту (например, после
     // перегенерации вселенной координаты сменились). Если в кадре нет ни
     // одного мира — центрируемся на галактику и перезаписываем вьюпорт.
-    if (!state.clusters || state.clusters.length === 0) {
+    // Во время полёта (идея 42a) камерой владеет полётная логика
+    // (centerOnAgent + maybeReloadClusters) — фоллбэк не трогаем, иначе
+    // после рефреша в полёте над пустой областью камера ушла бы с корабля.
+    if (!state.isFlying && (!state.clusters || state.clusters.length === 0)) {
         if (state.galaxyRadius) {
             state.scale = state.minZoom || 0.001;
             state.offsetX = state.canvasWidth / 2;

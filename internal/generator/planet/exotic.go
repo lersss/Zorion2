@@ -4,6 +4,7 @@ package planet
 import (
 	"encoding/json"
 	"math"
+	"math/rand"
 
 	"github.com/google/uuid"
 	"zorion/internal/names"
@@ -45,6 +46,16 @@ func (g *Generator) wdPlanetTemp() float64 {
 		t = 25
 	}
 	return t
+}
+
+// exoticSystemAge — возраст системы планеты остатка (41a §4.2): наследует
+// возраст мира (worlds.age); старые миры без возраста (nil) — фолбэк-ролл
+// в [2, 13] млрд лет (вместо 2–10, решение создателя 2026-09-15).
+func exoticSystemAge(age *float64, rng *rand.Rand) float64 {
+	if age != nil {
+		return *age
+	}
+	return 2 + rng.Float64()*11
 }
 
 // buildExoticPlanet — собирает JSON планеты остатка (мёртвое каменистое тело).
@@ -103,7 +114,7 @@ func (g *Generator) buildExoticPlanet(w WorldInfo, orbitIndex int, temp float64)
 		"moons":                  0,
 		"development_level":      0.0,
 		"archetype":              "холодный", // ярлык архетипа экзотики (§6.1)
-		"system_age":             determineSystemAge("", g.rng),
+		"system_age":             exoticSystemAge(w.Age, g.rng),
 		"surface_composition":    composeToJSON(surfaceComp),
 		"subterrain_composition": composeToJSON(subterrainComp),
 		"surface_dominant":       SurfaceRocks,

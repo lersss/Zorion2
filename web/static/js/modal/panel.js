@@ -173,7 +173,6 @@ export function renderStarCard() {
     const panel = document.getElementById('right-panel');
     if (!panel) return;
 
-    const name = modalState.worldName || 'Звезда';
     const starType = modalState.starType || 'star';
     const exotic = starType && starType !== 'star';
     // Компактные остатки (ЧД/нейтронная/WD, 40a): превью — сплошной цвет без
@@ -189,16 +188,13 @@ export function renderStarCard() {
     const typeLabel = exotic ? (starTypeLabel(starType) || starType) : '';
     const specInfo = exotic ? null : getSpectralInfo(spec);
     const exoticInfo = exotic ? exoticStarInfo() : null;
-    const headerSpec = exotic ? typeLabel : spec;
-    const badgeText = exotic ? typeLabel : ('Звезда ' + spec);
     const specClassText = exotic ? '—' : spec;
     const typeText = exotic ? typeLabel : specInfo.type;
 
+    // Название в карточке звезды не дублируем (49b): оно уже в шапке модалки
+    // рядом с координатами («Virquelif (99, -1775)»); заголовок h3 и бейдж
+    // «Звезда B» убраны (решение создателя 2026-09-16).
     panel.innerHTML = `
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <h3 style="margin: 0; font-size: 1.35rem; color: #ececec; cursor: default;">${capitalize(name)} <span style="font-size:0.9rem; color:#888; font-weight:normal;">(${headerSpec})</span></h3>
-            <span style="background:#2a2a4a; color:#aaa; padding:4px 12px; border-radius:12px; font-size:0.9rem;">${badgeText}</span>
-        </div>
         <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:flex-start;">
             <div style="flex:1; min-width:170px;">
                 <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px; padding:10px; background:#0d0d1a; border-radius:8px;">

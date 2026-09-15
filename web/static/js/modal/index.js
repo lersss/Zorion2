@@ -213,7 +213,7 @@ function renderModal(worldId, worldName, spectralClass, data) {
     // в чипах шапки и в карточке звезды.
     const coordX = (data && typeof data.coord_x === 'number') ? data.coord_x : null;
     const coordY = (data && typeof data.coord_y === 'number') ? data.coord_y : null;
-    const titleText = `${worldName} (${coordX !== null ? Math.trunc(coordX) : '—'}; ${coordY !== null ? Math.trunc(coordY) : '—'})`;
+    const titleText = `${worldName} (${coordX !== null ? Math.trunc(coordX) : '—'}, ${coordY !== null ? Math.trunc(coordY) : '—'})`;
     title.textContent = titleText;
     // Название — единым читаемым цветом (не цветом звезды): у ЧД/нейтронной
     // цвет объекта тёмный (#2a1a4a) и текст на фоне модалки нечитаем (40b).

@@ -72,7 +72,7 @@ function makeTile(alphaMin, alphaRange) {
 }
 
 // drawStarfield(ctx, w, h, scale, offsetX, offsetY, timeMs)
-// Рисует фон. Вызывается из draw() ПОСЛЕ clearRect, ДО drawGrid.
+// Рисует фон. Вызывается из draw() ПОСЛЕ clearRect, ДО регионов.
 export function drawStarfield(ctx, w, h, scale, offsetX, offsetY, timeMs) {
     // 1. Альфа-рамп
     if (scale < FADE_IN) return;

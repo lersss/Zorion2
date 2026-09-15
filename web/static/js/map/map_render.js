@@ -100,8 +100,6 @@ export function draw() {
 
     drawStarfield(ctx, canvasWidth, canvasHeight, scale, offsetX, offsetY, Date.now());
 
-    drawGrid(ctx, canvasWidth, canvasHeight, scale, offsetX, offsetY);
-
 // --- Регионы галактики: на малом зуме вместо кружков с количеством ---
     // Уровни детализации по зумам:
     //  scale < regionNamesZoom            — регионы с названиями, без звёзд;
@@ -175,32 +173,6 @@ export function draw() {
     // события мыши, отдельный rAF-цикл NPC-агентов на близком зуме) чистит
     // канвас целиком — рисуем плашку последней, чтобы её не стирало.
     drawFpsOverlay(ctx, canvasWidth, canvasHeight);
-}
-
-// ==================== СЕТКА ====================
-
-function drawGrid(ctx, canvasWidth, canvasHeight, scale, offsetX, offsetY) {
-    ctx.strokeStyle = '#1e293b';
-    ctx.lineWidth = 0.5;
-    const gridStep = mapCfg.gridStep * scale;
-    if (gridStep <= mapCfg.gridDisplayThreshold) return;
-
-    for (let x = -100; x <= 100; x += mapCfg.gridStep) {
-        const px = x * scale + offsetX;
-        if (!isFiniteNumber(px)) continue;
-        ctx.beginPath();
-        ctx.moveTo(px, 0);
-        ctx.lineTo(px, canvasHeight);
-        ctx.stroke();
-    }
-    for (let y = -100; y <= 100; y += mapCfg.gridStep) {
-        const py = y * scale + offsetY;
-        if (!isFiniteNumber(py)) continue;
-        ctx.beginPath();
-        ctx.moveTo(0, py);
-        ctx.lineTo(canvasWidth, py);
-        ctx.stroke();
-    }
 }
 
 // ==================== ОТРИСОВКА ЭЛЕМЕНТОВ ====================

@@ -9,13 +9,11 @@ export const CONFIG = {
         nameFontSize: 10,
         nameMinFontSize: 11,   // минимум подписи звезды (читаемость на малом зуме)
         nameMaxFontSize: 40,   // потолок: на большом зуме без роста до бесконечности
-        gridStep: 5,
         padding: 80,
         minRadius: 1.5,        // было 2 — чуть меньше, чтобы при отдалении не слипались
         baseRadius: 8,
         nameDisplayThreshold: 0.5,
         nameAlwaysShowLimit: 30,   // если одиночных звёзд на экране не больше — подписи не скрываются
-        gridDisplayThreshold: 10,
         regionDisplayThreshold: 0.6,   // регионы полностью исчезают только когда уже появились названия звёзд (0.5)
         regionFontSize: 13,
         regionMaxFontSize: 48,         // потолок: названия регионов растут с зумом от fit-размера

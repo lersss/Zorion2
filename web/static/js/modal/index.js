@@ -207,14 +207,13 @@ function renderModal(worldId, worldName, spectralClass, data) {
         margin-bottom: 12px;
     `;
     const title = document.createElement('h2');
-    // Экзотика: спектр NULL — показываем тип объекта («чёрная дыра» и т.п.),
-    // а не пустые скобки (99.2.4 §8). Без суффикса «— тёмная» в заголовке
-    // (решение 29a §4м): температура 0 K остаётся фактом в данных, пометка не нужна.
-    let titleText = `${worldName} (${spectralClass || '—'})`;
-    if (starType && starType !== 'star') {
-        const tLabel = starTypeLabel(starType);
-        titleText = `${worldName} (${tLabel || starType})`;
-    }
+    // Координаты мира — рядом с названием (49b, решение создателя 2026-09-16):
+    // спектральный класс из шапки убран, формат «Nemurzan (99; -1775)» — целые
+    // (дробь отброшена), без слова «координаты». Тип объекта (экзотика) виден
+    // в чипах шапки и в карточке звезды.
+    const coordX = (data && typeof data.coord_x === 'number') ? data.coord_x : null;
+    const coordY = (data && typeof data.coord_y === 'number') ? data.coord_y : null;
+    const titleText = `${worldName} (${coordX !== null ? Math.trunc(coordX) : '—'}; ${coordY !== null ? Math.trunc(coordY) : '—'})`;
     title.textContent = titleText;
     // Название — единым читаемым цветом (не цветом звезды): у ЧД/нейтронной
     // цвет объекта тёмный (#2a1a4a) и текст на фоне модалки нечитаем (40b).
@@ -254,12 +253,6 @@ function renderModal(worldId, worldName, spectralClass, data) {
         chips.push(`тип объекта: ${starTypeLabel(starType) || starType}`);
     }
     starModsBadges(data && data.stellar_mods).forEach(b => chips.push(b));
-    // Координаты мира — в шапку модалки (49b): раньше были строкой в карточке
-    // звезды после «Светимости», перенесены в чипы шапки (решение создателя
-    // 2026-09-16 — только координаты, светимость остаётся в карточке).
-    const coordX = (data && typeof data.coord_x === 'number') ? data.coord_x : null;
-    const coordY = (data && typeof data.coord_y === 'number') ? data.coord_y : null;
-    chips.push(`координаты: (${coordX !== null ? coordX.toFixed(2) : '—'}; ${coordY !== null ? coordY.toFixed(2) : '—'})`);
     chips.forEach(text => {
         const chip = document.createElement('span');
         chip.textContent = text;

@@ -95,7 +95,7 @@
             if (status) status.textContent = '⏳ Сохранение...';
             const token = localStorage.getItem('token');
             if (!token) {
-                if (status) status.textContent = '❌ Не авторизован';
+                if (window.location.pathname !== '/login-page') window.location.href = '/login-page';
                 return;
             }
             fetch('/me/ship-icon', {
@@ -107,6 +107,10 @@
                 body: JSON.stringify({ ship_icon: file })
             })
             .then(async res => {
+                if (res.status === 401 || res.status === 403) {
+                    if (window.location.pathname !== '/login-page') window.location.href = '/login-page';
+                    return;
+                }
                 if (!res.ok) {
                     let msg = 'Ошибка сохранения';
                     try { msg = (await res.json()).error || msg; } catch (_) {}

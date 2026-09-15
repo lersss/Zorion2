@@ -205,8 +205,7 @@
     <script>
         let token = localStorage.getItem('token');
         if (!token) {
-            alert('Вы не авторизованы. Перейдите на /login-page');
-            window.location.href = '/login-page';
+            if (window.location.pathname !== '/login-page') window.location.href = '/login-page';
         }
 
         // Загрузка контрактов с фильтрами
@@ -235,7 +234,13 @@
                 const res = await fetch(url, {
                     headers: { 'Authorization': 'Bearer ' + token }
                 });
-                if (!res.ok) throw new Error('Ошибка загрузки контрактов');
+                if (!res.ok) {
+                    if (res.status === 401 || res.status === 403) {
+                        if (window.location.pathname !== '/login-page') window.location.href = '/login-page';
+                        return;
+                    }
+                    throw new Error('Ошибка загрузки контрактов');
+                }
                 const contracts = await res.json();
                 clearInterval(timer);
                 renderContracts(contracts);
@@ -304,6 +309,10 @@
                     body: JSON.stringify({ contract_id: id })
                 });
                 if (!res.ok) {
+                    if (res.status === 401 || res.status === 403) {
+                        if (window.location.pathname !== '/login-page') window.location.href = '/login-page';
+                        return;
+                    }
                     const text = await res.text();
                     alert('Ошибка: ' + text);
                     return;
@@ -327,6 +336,10 @@
                     body: JSON.stringify({ contract_id: id })
                 });
                 if (!res.ok) {
+                    if (res.status === 401 || res.status === 403) {
+                        if (window.location.pathname !== '/login-page') window.location.href = '/login-page';
+                        return;
+                    }
                     const text = await res.text();
                     alert('Ошибка: ' + text);
                     return;

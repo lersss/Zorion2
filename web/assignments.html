@@ -33,7 +33,7 @@
     <script>
         const token = localStorage.getItem('token');
         if (!token) {
-            document.getElementById('assignmentsList').innerHTML = '<div class="error">❌ Вы не авторизованы. Перейдите на /login-page</div>';
+            if (window.location.pathname !== '/login-page') window.location.href = '/login-page';
         } else {
             loadAssignments();
         }
@@ -45,6 +45,10 @@
                 const meRes = await fetch('/me', {
                     headers: { 'Authorization': 'Bearer ' + token }
                 });
+                if (meRes.status === 401 || meRes.status === 403) {
+                    if (window.location.pathname !== '/login-page') window.location.href = '/login-page';
+                    return;
+                }
                 if (!meRes.ok) throw new Error('Не удалось получить данные пользователя');
                 const userData = await meRes.json();
                 if (!userData.current_world_id) {
@@ -56,6 +60,10 @@
                 const contractsRes = await fetch('/api/contracts', {
                     headers: { 'Authorization': 'Bearer ' + token }
                 });
+                if (contractsRes.status === 401 || contractsRes.status === 403) {
+                    if (window.location.pathname !== '/login-page') window.location.href = '/login-page';
+                    return;
+                }
                 if (!contractsRes.ok) throw new Error('Ошибка загрузки контрактов');
                 const contracts = await contractsRes.json();
 
@@ -100,6 +108,10 @@
                     body: JSON.stringify({ contract_id: id })
                 });
                 if (!res.ok) {
+                    if (res.status === 401 || res.status === 403) {
+                        if (window.location.pathname !== '/login-page') window.location.href = '/login-page';
+                        return;
+                    }
                     const text = await res.text();
                     alert('Ошибка: ' + text);
                     return;

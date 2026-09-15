@@ -135,7 +135,8 @@ function focusOnStar(res) {
         state.worlds.push({
             id: res.world_id,
             name: res.world_name || res.name,
-            spectral_class: res.spectral || 'G',
+            // Без фолбека на 'G': у экзотики спектр NULL (баг #1).
+            spectral_class: res.spectral || '',
             coord_x: x,
             coord_y: y,
         });

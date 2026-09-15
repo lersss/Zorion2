@@ -142,6 +142,7 @@ func (h *AdminNPCHandlers) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, "Не удалось создать агента", http.StatusInternalServerError)
 		return
 	}
+	h.manager.MarkDirty() // кэш позиций: следующий тик перезагрузит (идея 26c A2)
 	writeJSONStatus(w, http.StatusCreated, agent)
 }
 
@@ -245,6 +246,7 @@ func (h *AdminNPCHandlers) PatchAgent(w http.ResponseWriter, r *http.Request, id
 		writeJSONError(w, "Не удалось обновить агента", http.StatusInternalServerError)
 		return
 	}
+	h.manager.MarkDirty() // имя видно на карте — кэш позиций перезагрузится (идея 26c A2)
 
 	agent, err := h.npcRepo.GetByID(id)
 	if err != nil || agent == nil {
@@ -266,6 +268,7 @@ func (h *AdminNPCHandlers) DeleteAgent(w http.ResponseWriter, r *http.Request, i
 		writeJSONError(w, "Не удалось удалить агента", http.StatusInternalServerError)
 		return
 	}
+	h.manager.MarkDirty() // кэш позиций: следующий тик перезагрузит (идея 26c A2)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -356,6 +359,9 @@ func (h *AdminNPCHandlers) GenerateNPC(w http.ResponseWriter, r *http.Request) {
 			statusManager.Fail(generator.JobGenerateNPC, err.Error())
 			return
 		}
+		// Кэш позиций: массовая генерация — внешняя мутация, следующий тик
+		// перезагрузит кэш одним ListAll (идея 26c A2).
+		h.manager.MarkDirty()
 
 		// 4. Метрика пачки + отчёт джоба (§8.1: last_bulk, §4.1: отчёт).
 		duration := time.Since(start)

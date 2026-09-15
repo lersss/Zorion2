@@ -113,6 +113,8 @@ func (g *Generator) generateGasGiant(
 		"surface_dominant":  "газовый_гигант",
 		"type":              TypeGasGiant,
 		"core":              coreToJSON(core),
+		"orbit_center":      "main",
+		"orbit_radius_au":   orbitRadiusByIndex(orbitIndex),
 		"description":       GenerateDescription(descCtx),
 	}
 	dataJSON, _ := json.Marshal(data)

@@ -330,8 +330,8 @@ function renderResources(planet) {
 // ТЕКУЩИХ данных объекта (99.2.12): признак снижения (r_per_sec > 0 — жара,
 // или lambda_per_hour > 0 — холод/гравитация/радиация) → ↓ сразу; дельта
 // двух серверных снапшотов (modalState.previousSettlementPop, refreshPlanets)
-// — запасной вариант для роста и равновесия. При конфликте живой сигнал
-// снижения приоритетен (роста в модели нет — не врём).
+// — путь для роста и равновесия (рост реализован рождаемостью, 99.2.16).
+// При конфликте живой сигнал снижения приоритетен (не врём в сторону роста).
 function settlementTrendArrow(s) {
     const declining = (typeof s.r_per_sec === 'number' && s.r_per_sec > 0) ||
         (typeof s.lambda_per_hour === 'number' && s.lambda_per_hour > 0);

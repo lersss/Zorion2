@@ -14,7 +14,39 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/require"
+
+	"zorion/internal/models"
 )
+
+// TestWorldInsertValuesStellarModsValidJSONB — баг #1 (прогон @tester):
+// []byte(nil) для stellar_mods lib/pq передаёт как '' → "invalid input syntax
+// for type json", генерация вселенной падает. Пустые модификаторы обязаны
+// давать валидный JSONB "{}".
+func TestWorldInsertValuesStellarModsValidJSONB(t *testing.T) {
+	// Обычная одиночная звезда (StellarMods == nil, 85%+ миров).
+	spectral, modsJSON, mass := worldInsertValues(&models.World{SpectralClass: "G", StarType: "star"})
+	require.Equal(t, "G", spectral)
+	require.Equal(t, []byte("{}"), modsJSON, "nil-модификаторы → валидный JSONB {}, не nil")
+	require.Nil(t, mass, "масса не задана → NULL")
+
+	// Экзотика без модификаторов: спектр NULL, моды — "{}".
+	spectral, modsJSON, mass = worldInsertValues(&models.World{SpectralClass: "", StarType: "black_hole"})
+	require.Nil(t, spectral)
+	require.Equal(t, []byte("{}"), modsJSON)
+	require.Nil(t, mass)
+
+	// С модификаторами — маршалл проходит; с массой — значение, не NULL.
+	massVal := 30.0
+	spectral, modsJSON, mass = worldInsertValues(&models.World{
+		SpectralClass: "O",
+		StellarMods:   &models.StellarMods{Phase: "I", Subtype: "lbv"},
+		StellarMass:   &massVal,
+	})
+	require.Equal(t, "O", spectral)
+	require.Contains(t, string(modsJSON), `"lbv"`)
+	require.NotEqual(t, []byte("{}"), modsJSON)
+	require.Equal(t, 30.0, mass, "масса проходит в INSERT")
+}
 
 // TestClearUniverseTx — точная последовательность SQL очистки вселенной:
 // снятие current_world_id у users, снятие FK, TRUNCATE всех таблиц, возврат FK.

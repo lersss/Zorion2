@@ -29,9 +29,8 @@ func TestColdRCurve(t *testing.T) {
 }
 
 func TestColdRMonotonic(t *testing.T) {
-	// R_холод монотонно растёт при охлаждении; непрерывна в зоне сшивки
-	// ~150 K; нет NaN в умеренной зоне (T > 150 K: σ → 0, R = R_ум —
-	// знак σ фиксирован, 99.2.13).
+	// R_холод монотонно растёт при охлаждении (сегментная кривая из balancer
+	// store, 99.2.17: дефолты = формула в пределах допуска §9); нет NaN.
 	var prev float64
 	for i, tempK := range []float64{288, 273, 223, 173, 150, 123, 100, 73, 50, 23} {
 		r := ColdChangeRate(tempK)
@@ -43,15 +42,44 @@ func TestColdRMonotonic(t *testing.T) {
 		}
 		prev = r
 	}
-	// Непрерывность в точке сшивки: R_ум(150) = R_кр(150), σ(150) = 0.5.
-	rMod150 := coldModerateC * math.Pow(288-150, 0.63)
-	rCryo150 := coldCryoC*math.Pow(150-150, 2.2) + rMod150
-	if math.Abs(rMod150-rCryo150) > 1e-15 {
-		t.Errorf("R_ум(150) ≠ R_кр(150): %v vs %v", rMod150, rCryo150)
+}
+
+// TestHotPathNoAllocs — хот-пат (мини-R из Recompute на каждый просмотр
+// поселения, 36a Пункт 1) не должен копировать кривые на каждый вызов:
+// раньше каждая из 4 компонент звала GetCurve → RLock + 2 копии слайсов
+// (узлы + изгибы) = 8 аллокаций/проход. Теперь — ссылка на неизменную
+// кривую store, аллокаций нет.
+func TestHotPathNoAllocs(t *testing.T) {
+	allocs := testing.AllocsPerRun(1000, func() {
+		HeatTemperatureChangeRate(473.15)
+		ColdChangeRate(73)
+		GravityChangeRate(2)
+		RadiationChangeRate(80)
+	})
+	if allocs >= 1 {
+		t.Fatalf("хот-пат аллоцирует %.2f объектов/проход, хочу 0 (копии кривых устранены)", allocs)
 	}
-	sigma150 := 1 / (1 + math.Exp(coldSigmaK*(150-coldSigmaT)))
-	if math.Abs(sigma150-0.5) > 1e-12 {
-		t.Errorf("σ(150) = %v, хочу 0.5", sigma150)
+}
+
+// TestMiniRWatchdogs — сторожевые тесты формул (спека 99.2.17 §9): быстрое
+// красное, если кто-то вернёт аналитическую формулу вместо кривой (или
+// сломает конверсию единиц / имя компоненты). Допуск ±20% (кривая держит
+// формулу в 5%, TestSegmentApproximation; запас на округления).
+func TestMiniRWatchdogs(t *testing.T) {
+	cases := []struct {
+		name string
+		got  float64
+		want float64
+	}{
+		{"HeatTemperatureChangeRate(473.15 K = 200 °C)", HeatTemperatureChangeRate(473.15), 1.15e-3},
+		{"ColdChangeRate(73 K)", ColdChangeRate(73), 0.0117},
+		{"GravityChangeRate(2 g)", GravityChangeRate(2), 4.8e-5},
+		{"RadiationChangeRate(80 rad)", RadiationChangeRate(80), 1.3e-4},
+	}
+	for _, tc := range cases {
+		if math.Abs(tc.got-tc.want) > 0.2*tc.want {
+			t.Errorf("%s = %v, хочу ≈ %v (±20%%)", tc.name, tc.got, tc.want)
+		}
 	}
 }
 
@@ -135,35 +163,107 @@ func TestNoHardZeroOther(t *testing.T) {
 }
 
 func TestTotalRSum(t *testing.T) {
-	// Модульность (99.2.13): R_total = R_ест + R_жара + R_холод + R_гравитация
-	// + R_радиация — декомпозиция: каждый фактор добавляет свою компоненту.
-	base := PlanetInput{TemperatureK: 303.15, GravityG: 1.0, CoreRadioactivity: 5} // 30 °C: только R_ест
-	if got := ChangeComponents(base); math.Abs(got-NaturalChangeRate) > 1e-12 {
-		t.Errorf("комфорт по всем факторам: r = %v, хочу R_ест %v", got, NaturalChangeRate)
+	// Модульность (99.2.13 + 99.2.16): R_total = R_ест + R_рожд + R_жара +
+	// R_холод + R_гравитация + R_радиация — декомпозиция: каждый фактор
+	// добавляет свою компоненту. Рождаемость (дефолт k=2) при 30 °C даёт
+	// нетто (1−2)·NCR = −NCR (рост).
+	base := PlanetInput{TemperatureK: 303.15, GravityG: 1.0, CoreRadioactivity: 5} // 30 °C: только естественная пара
+	if got := ChangeComponents(base); math.Abs(got+NaturalChangeRate()) > 1e-12 {
+		t.Errorf("комфорт по всем факторам: r = %v, хочу −R_ест %v (k=2)", got, NaturalChangeRate())
 	}
 
 	withCold := base
-	withCold.TemperatureK = 173 // R_холод ≈ 3.50e-5
-	if got := ChangeComponents(withCold); math.Abs(got-(NaturalChangeRate+3.50e-5)) > 0.5*3.50e-5 {
-		t.Errorf("+холод: r = %v, хочу R_ест + R_холод", got)
+	withCold.TemperatureK = 173 // R_холод ≈ 3.50e-5; естественная пара = 0 (T < 15 °C)
+	if got := ChangeComponents(withCold); math.Abs(got-3.50e-5) > 0.5*3.50e-5 {
+		t.Errorf("+холод: r = %v, хочу R_холод", got)
 	}
 
 	withGravity := base
 	withGravity.GravityG = 3 // R_гравитация ≈ 1.2e-4
-	if got := ChangeComponents(withGravity); math.Abs(got-(NaturalChangeRate+1.2e-4)) > 0.5*1.2e-4 {
-		t.Errorf("+гравитация: r = %v, хочу R_ест + R_гравитация", got)
+	if got := ChangeComponents(withGravity); math.Abs(got+NaturalChangeRate()-1.2e-4) > 0.5*1.2e-4 {
+		t.Errorf("+гравитация: r = %v, хочу −R_ест + R_гравитация", got)
 	}
 
 	withRad := base
 	withRad.CoreRadioactivity = 80 // R_радиация ≈ 1.3e-4
-	if got := ChangeComponents(withRad); math.Abs(got-(NaturalChangeRate+1.3e-4)) > 0.5*1.3e-4 {
-		t.Errorf("+радиация: r = %v, хочу R_ест + R_радиация", got)
+	if got := ChangeComponents(withRad); math.Abs(got+NaturalChangeRate()-1.3e-4) > 0.5*1.3e-4 {
+		t.Errorf("+радиация: r = %v, хочу −R_ест + R_радиация", got)
 	}
 
-	all := PlanetInput{TemperatureK: 473.15, GravityG: 3, CoreRadioactivity: 80} // жара + холод? нет — жара
+	all := PlanetInput{TemperatureK: 473.15, GravityG: 3, CoreRadioactivity: 80} // жара ≈ 1.15e-3
 	wantAll := ChangeComponents(all)
-	if !(wantAll > NaturalChangeRate+1.2e-4+1.3e-4) {
+	if !(wantAll > 1.2e-4+1.3e-4) {
 		t.Errorf("сумма факторов должна быть больше каждого по отдельности: %v", wantAll)
+	}
+}
+
+func TestBirthComponent(t *testing.T) {
+	// Рампа рождаемости = рампа смертности (99.2.16 §2.2): 30 °C → −k·NCR;
+	// 295 K → −k·NCR·6.85/15; 288.15 K (15 °C) → 0; 288 K → 0.
+	k := BirthRateCoefficient()
+	if got := BirthComponent(303.15); math.Abs(got+k*NaturalChangeRate()) > 1e-12 {
+		t.Errorf("BirthComponent(30 °C) = %v, хочу −k·NCR %v", got, -k*NaturalChangeRate())
+	}
+	want295 := -k * NaturalChangeRate() * (295 - 273.15 - 15) / 15
+	if got := BirthComponent(295); math.Abs(got-want295) > 1e-12 {
+		t.Errorf("BirthComponent(295 K) = %v, хочу %v", got, want295)
+	}
+	if got := BirthComponent(288.15); got != 0 {
+		t.Errorf("BirthComponent(15 °C) = %v, хочу 0", got)
+	}
+	if got := BirthComponent(288); got != 0 {
+		t.Errorf("BirthComponent(288 K) = %v, хочу 0", got)
+	}
+}
+
+func TestNettoRatesByK(t *testing.T) {
+	// Нетто естественной пары при 30 °C (комфорт по прочим) (99.2.16 §2.3):
+	// k=0 → +NCR (чистая убыль); k=1 → 0 (равновесие); k=2 → −NCR (рост).
+	t.Cleanup(ResetPopulationSettings)
+	input := PlanetInput{TemperatureK: 303.15, GravityG: 1.0, CoreRadioactivity: 5}
+	for _, tc := range []struct {
+		k    float64
+		want float64
+	}{
+		{0, NaturalChangeRate()},
+		{1, 0},
+		{2, -NaturalChangeRate()},
+	} {
+		if err := SetBirthRateCoefficient(tc.k); err != nil {
+			t.Fatalf("SetBirthRateCoefficient(%v): %v", tc.k, err)
+		}
+		if got := ChangeComponents(input); math.Abs(got-tc.want) > 1e-12 {
+			t.Errorf("k=%v: r = %v, хочу %v", tc.k, got, tc.want)
+		}
+	}
+}
+
+func TestTotalRSumWithBirth(t *testing.T) {
+	// Модульность с рождаемостью (99.2.16 §6.2 п.11): r = Natural + Birth +
+	// heat + cold + grav + rad — рождаемость отдельный член, не вшита в
+	// смертность (декомпозиция 99.2.13 сохранена).
+	input := PlanetInput{TemperatureK: 365, GravityG: 1.0, CoreRadioactivity: 5} // 91.85 °C: жара ≈ 7.3e-5
+	got := ChangeComponents(input)
+	want := NaturalComponent(input.TemperatureK) + BirthComponent(input.TemperatureK) +
+		HeatTemperatureChangeRate(input.TemperatureK) + ColdChangeRate(input.TemperatureK) +
+		GravityChangeRate(input.GravityG) + RadiationChangeRate(input.CoreRadioactivity)
+	if math.Abs(got-want) > 1e-12 {
+		t.Errorf("r = %v, хочу сумму компонент %v", got, want)
+	}
+	// Рождаемость — отрицательный член: в комфорте (30 °C, k=2) нетто < 0.
+	if got := ChangeComponents(PlanetInput{TemperatureK: 303.15, GravityG: 1.0, CoreRadioactivity: 5}); got >= 0 {
+		t.Errorf("комфорт 30 °C при k=2: r = %v, хочу < 0 (рост)", got)
+	}
+}
+
+func TestNoBirthBelow15C(t *testing.T) {
+	// Ниже 15 °C рождаемость не включается (99.2.16 §2.2): там холод,
+	// естественной пары нет ни по смертности, ни по рождаемости.
+	if got := BirthComponent(288.15); got != 0 {
+		t.Errorf("BirthComponent(288.15 K) = %v, хочу 0", got)
+	}
+	if got := ChangeComponents(PlanetInput{TemperatureK: 288, GravityG: 1.0, CoreRadioactivity: 5}); got != 0 {
+		t.Errorf("ChangeComponents(288 K, k=2) = %v, хочу 0", got)
 	}
 }
 

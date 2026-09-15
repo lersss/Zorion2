@@ -6,7 +6,9 @@ import "encoding/json"
 // worldInfo — минимальная информация о мире, нужная статистике.
 type worldInfo struct {
 	ID            string
-	SpectralClass string
+	SpectralClass string // пусто у экзотики (NULL в БД, читается COALESCE)
+	StarType      string // star/white_dwarf/neutron/black_hole/protostar (99.2.4 §2)
+	SystemType    string // single/binary/multiple
 	Temperature   int
 }
 
@@ -18,8 +20,10 @@ type planetRecord struct {
 }
 
 // loadWorlds — загружает список миров.
+// COALESCE(spectral_class,'') — NULL-спектр экзотики не роняет строку
+// (99.2.4 §3): раньше Scan на NULL молча выкидывал мир из статистики.
 func (h *AdminHandlers) loadWorlds() ([]worldInfo, error) {
-	rows, err := h.db.Query(`SELECT id, spectral_class, temperature FROM worlds`)
+	rows, err := h.db.Query(`SELECT id, COALESCE(spectral_class,''), star_type, system_type, temperature FROM worlds`)
 	if err != nil {
 		return nil, err
 	}
@@ -28,7 +32,7 @@ func (h *AdminHandlers) loadWorlds() ([]worldInfo, error) {
 	result := []worldInfo{}
 	for rows.Next() {
 		var w worldInfo
-		if err := rows.Scan(&w.ID, &w.SpectralClass, &w.Temperature); err != nil {
+		if err := rows.Scan(&w.ID, &w.SpectralClass, &w.StarType, &w.SystemType, &w.Temperature); err != nil {
 			continue
 		}
 		result = append(result, w)

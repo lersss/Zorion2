@@ -7,12 +7,13 @@ import (
 	"log"
 	"net/http"
 
-	_ "github.com/lib/pq"
 	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 	"github.com/redis/go-redis/v9"
 
 	"zorion/internal/auth"
 	"zorion/internal/config"
+	economySettlement "zorion/internal/economy/settlement"
 	"zorion/internal/generator/planet"
 	"zorion/internal/generator/settlement"
 	"zorion/internal/generator/ship"
@@ -50,6 +51,15 @@ func main() {
 	cfg := config.Load()
 	log.Printf("🚀 Запуск сервера Zorion на порту %s", cfg.ServerPort)
 	log.Printf("⏱️  Интервал тика: %v", cfg.TickInterval)
+
+	// Пресеты кривых балансировщика (спека 99.2.17 §5/§8): файл читается
+	// при старте — активные кривые восстанавливаются; нет файла/битый —
+	// кривые = дефолты, пресеты сессионные (сервер не падает).
+	if err := economySettlement.LoadBalancerPresets(cfg.BalancerPresetsFile); err != nil {
+		log.Printf("⚠️ Балансировщик: пресеты кривых: %v (кривые = дефолты, пресеты сессионно)", err)
+	} else {
+		log.Println("✅ Пресеты кривых балансировщика загружены")
+	}
 
 	// Инициализация JWT-секрета. Делаем это ДО подключения к БД,
 	// чтобы упасть как можно раньше, если секрет не задан или короткий.
@@ -162,6 +172,9 @@ func main() {
 	// сетка миров строится из снапшота mapcache.
 	npcRepo := repository.NewNPCRepository(db)
 	npcManager := npc.NewManager(npcRepo, npc.NewMapCacheSource(mapCache), npc.DefaultSettings())
+	// Инвалидация кэша агентов при TRUNCATE npc_agents (ClearUniverse/
+	// GenerateUniverse, идея 26c A2): позиции и кэш сбросятся сразу.
+	adminHandlers.SetNPCManager(npcManager)
 	// Уведомления (этап 5): WSNotifier подменяет заглушку LogNotifier ДО
 	// старта тика, чтобы первые прибытия не терялись.
 	npcAdminHandlers := handlers.NewAdminNPCHandlers(npcRepo, worldRepo, npcManager)
@@ -226,6 +239,23 @@ func main() {
 	http.HandleFunc("/admin/clear-settlements", auth.AdminAuth(adminHandlers.ClearSettlements))
 	http.HandleFunc("/admin/hypothesis/run", auth.AdminAuth(adminHandlers.RunHypothesis))
 	http.HandleFunc("/admin/mortality-preview", auth.AdminAuth(adminHandlers.MortalityPreview))
+	http.HandleFunc("/admin/settlement-settings", auth.AdminAuth(adminHandlers.HandleSettlementSettings))
+
+	// Балансировщик компонент изменения населения (спека 99.2.17 §6):
+	// сегментные кривые R(X) — чтение/сохранение/сброс/серверная оцифровка/
+	// эталоны. In-memory store, дефолты при рестарте.
+	http.HandleFunc("/admin/balancer/curve", auth.AdminAuth(adminHandlers.HandleBalancerCurve))
+	http.HandleFunc("/admin/balancer/curve/reset", auth.AdminAuth(adminHandlers.HandleBalancerCurveReset))
+	http.HandleFunc("/admin/balancer/curve/sample", auth.AdminAuth(adminHandlers.HandleBalancerCurveSample))
+	http.HandleFunc("/admin/balancer/etalons", auth.AdminAuth(adminHandlers.HandleBalancerEtalons))
+	// Пресеты кривых (итерация 7, спека 99.2.17 §6).
+	http.HandleFunc("/admin/balancer/presets", auth.AdminAuth(adminHandlers.HandleBalancerPresets))
+	http.HandleFunc("/admin/balancer/presets/apply", auth.AdminAuth(adminHandlers.HandleBalancerPresetsApply))
+	http.HandleFunc("/admin/balancer/presets/reset-default", auth.AdminAuth(adminHandlers.HandleBalancerPresetsResetDefault))
+
+	// Конфиг генерации и пересчёт планет (99.2.3 §4.5/§5)
+	http.HandleFunc("/admin/generation/config", auth.AdminAuth(adminHandlers.HandleGenerationConfig))
+	http.HandleFunc("/admin/regenerate-planets", auth.AdminAuth(adminHandlers.RegeneratePlanets))
 
 	// Аудит
 	http.HandleFunc("/admin/audit", auth.AdminAuth(adminHandlers.GetAuditHandler))

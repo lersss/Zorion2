@@ -168,6 +168,48 @@ func TestParseSatellitesEdgeCases(t *testing.T) {
 	assert.Nil(t, parseSatellites(map[string]interface{}{"satellites": "не-массив"}))
 }
 
+// ==================== орбитальный контекст (35b §2.2) ====================
+
+// TestPopulatePlanetFromJSONOrbitContext — P-планета (orbit_center=barycenter,
+// orbit_radius_au=3a, circumbinary=true) и S-планета (orbit_center=main)
+// мапятся из data (whitelist).
+func TestPopulatePlanetFromJSONOrbitContext(t *testing.T) {
+	// P-планета: циркумбинарная, вокруг барицентра пары.
+	pData := map[string]interface{}{
+		"orbit_center":    "barycenter",
+		"orbit_radius_au": 0.9,
+		"circumbinary":    true,
+	}
+	p := models.Planet{}
+	populatePlanetFromJSON(&p, pData)
+	assert.Equal(t, "barycenter", p.OrbitCenter)
+	assert.InDelta(t, 0.9, p.OrbitRadiusAU, 1e-9)
+	assert.True(t, p.Circumbinary)
+
+	// S-планета: вокруг главной.
+	sData := map[string]interface{}{
+		"orbit_center":    "main",
+		"orbit_radius_au": 0.68,
+	}
+	s := models.Planet{}
+	populatePlanetFromJSON(&s, sData)
+	assert.Equal(t, "main", s.OrbitCenter)
+	assert.InDelta(t, 0.68, s.OrbitRadiusAU, 1e-9)
+	assert.False(t, s.Circumbinary, "S-планета не циркумбинарная")
+}
+
+// TestPopulatePlanetFromJSONOrbitFallbacks — старые миры без ключей
+// (35b §2.4): orbit_center → "main", circumbinary → false; радиус не трогаем
+// (фронт считает из orbit_index).
+func TestPopulatePlanetFromJSONOrbitFallbacks(t *testing.T) {
+	p := models.Planet{}
+	populatePlanetFromJSON(&p, map[string]interface{}{})
+
+	assert.Equal(t, "main", p.OrbitCenter, "нет ключа orbit_center → фолбэк main")
+	assert.False(t, p.Circumbinary, "нет ключа circumbinary → false")
+	assert.InDelta(t, 0.0, p.OrbitRadiusAU, 1e-9, "радиус не вычисляется — 0 без ключа")
+}
+
 // ==================== populatePlanetFromJSON ====================
 
 func TestPopulatePlanetFromJSONFull(t *testing.T) {

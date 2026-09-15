@@ -121,7 +121,7 @@ func (r *EconomyRepository) RecomputeSettlementPopulation(s *models.Settlement, 
 	// INSERT ... ON CONFLICT DO NOTHING: второй одновременный синк упирается
 	// в uq_settlement_log_extinct и ничего не пишет (18a §«Анти-дубль и синк»).
 	if stored.PopulationExact > settlement.NDead && newExact == 0 {
-		deathAt, ok := settlement.DeathTime(stored.PopulationExact, rPerSec, stored.ComputedAt, now, stored.CreatedAt)
+		deathAt, ok := settlement.DeathTime(stored.PopulationExact, rPerSec, stored.ComputedAt, stored.CreatedAt)
 		if ok {
 			cause := settlement.DeathCause(input)
 			if _, err := tx.Exec(`

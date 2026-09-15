@@ -3,6 +3,7 @@ import { modalState } from './state.js';
 import { drawSystem } from './modal_render.js';
 import { renderTabContent } from './tabs.js';
 import { planetPopulationAt } from './extrapolate.js';
+import { starTypeLabel } from './utils.js';
 
 // Перевод Кельвинов в Цельсии (для таблицы планет)
 function kelvinToCelsius(k) {
@@ -14,6 +15,42 @@ function kelvinToCelsius(k) {
 function capitalize(s) {
     if (!s) return s || '';
     return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+// formatStellarMass — масса звезды в M☉ (29a §4м): < 10 — 1 десятичный знак,
+// ≥ 10 — целое; null/не число — «—».
+function formatStellarMass(m) {
+    if (typeof m !== 'number' || !isFinite(m) || m <= 0) return '—';
+    return (m >= 10 ? Math.round(m) : m.toFixed(1)) + ' M☉';
+}
+
+// formatAU — разделение пары: ≥ 100 а.е. — целое, иначе два знака.
+function formatAU(au) {
+    if (typeof au !== 'number' || !isFinite(au) || au <= 0) return '—';
+    return au >= 100 ? Math.round(au) : au.toFixed(2);
+}
+
+// companionBlock — блок «Компаньон» карточки звезды (35b §6.3): спектр,
+// температура, масса, разделение; у кратных — перечень extra_companions[].
+// Старые миры без полей — строка по фолбэкам §2.4 («—» вместо отсутствующих).
+function companionBlock() {
+    const st = modalState.systemType;
+    if (st !== 'binary' && st !== 'multiple') return '';
+    const parts = [];
+    const spec = modalState.companion;
+    parts.push('спектр ' + (spec || '—'));
+    parts.push('T ' + (typeof modalState.companionTemp === 'number' ? modalState.companionTemp.toFixed(0) + ' K' : '—'));
+    if (typeof modalState.companionMass === 'number') parts.push('масса ' + formatStellarMass(modalState.companionMass));
+    if (typeof modalState.companionSepAU === 'number') parts.push(formatAU(modalState.companionSepAU) + ' а.е.');
+    let html = `<p style="margin:4px 0;"><strong>Компаньон:</strong> ${parts.join(', ')}</p>`;
+    (modalState.extraCompanions || []).forEach(ec => {
+        const row = [];
+        row.push('спектр ' + (ec.spectral_class || '—'));
+        if (typeof ec.temp === 'number') row.push('T ' + ec.temp.toFixed(0) + ' K');
+        if (typeof ec.sep_au === 'number') row.push(formatAU(ec.sep_au) + ' а.е.');
+        html += `<p style="margin:4px 0;"><strong>Внешний:</strong> ${row.join(', ')}</p>`;
+    });
+    return html;
 }
 
 // renderRightPanel — рисует правую панель модалки:
@@ -64,13 +101,21 @@ function syncAutoRefreshTimer() {
 // renderStarCard — рисует карточку звезды в правой панели: инфо по звезде
 // и рядом компактный список планет системы. Это вид системы по умолчанию
 // (при открытии и при снятии выделения планеты).
+//
+// Экзотика (ЧД/нейтронная/WD/протозвезда, star_type ≠ 'star'): спектрального
+// класса нет (NULL, баг #1 — фронт фолбечился на 'G' и врал «Жёлтый карлик»).
+// Показываем «Спектральный класс: —», тип — человекочитаемый (starTypeLabel),
+// без getSpectralInfo (радиус/светимость/возраст по Солнцу — враньё).
 export function renderStarCard() {
     stopAutoRefresh();
     const panel = document.getElementById('right-panel');
     if (!panel) return;
 
     const name = modalState.worldName || 'Звезда';
-    const spec = modalState.spectralClass || 'G';
+    const starType = modalState.starType || 'star';
+    const exotic = starType && starType !== 'star';
+    // Реальное значение, без фолбека на 'G': у экзотики пустая строка.
+    const spec = modalState.spectralClass || '';
     const color = modalState.starColor || '#fff4a3';
     const planets = (modalState.planets || []).slice();
 
@@ -78,31 +123,38 @@ export function renderStarCard() {
     const coordX = modalState.worldCoordX;
     const coordY = modalState.worldCoordY;
 
-    const specInfo = getSpectralInfo(spec);
+    const typeLabel = exotic ? (starTypeLabel(starType) || starType) : '';
+    const specInfo = exotic ? null : getSpectralInfo(spec);
+    const headerSpec = exotic ? typeLabel : spec;
+    const badgeText = exotic ? typeLabel : ('Звезда ' + spec);
+    const specClassText = exotic ? '—' : spec;
+    const typeText = exotic ? typeLabel : specInfo.type;
 
     panel.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <h3 style="margin: 0; font-size: 1.35rem; color: ${color}; cursor: default;">${capitalize(name)} <span style="font-size:0.9rem; color:#888; font-weight:normal;">(${spec})</span></h3>
-            <span style="background:#2a2a4a; color:#aaa; padding:4px 12px; border-radius:12px; font-size:0.9rem;">Звезда ${spec}</span>
+            <h3 style="margin: 0; font-size: 1.35rem; color: ${color}; cursor: default;">${capitalize(name)} <span style="font-size:0.9rem; color:#888; font-weight:normal;">(${headerSpec})</span></h3>
+            <span style="background:#2a2a4a; color:#aaa; padding:4px 12px; border-radius:12px; font-size:0.9rem;">${badgeText}</span>
         </div>
         <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:flex-start;">
             <div style="flex:1; min-width:170px;">
                 <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px; padding:10px; background:#0d0d1a; border-radius:8px;">
                     <div style="width:44px; height:44px; border-radius:50%; background: radial-gradient(circle at 35% 35%, #fff, ${color}); box-shadow:0 0 18px ${color};"></div>
                     <div>
-                        <div style="font-size:1.05rem; color:#cbd5e1;"><strong>Спектральный класс:</strong> ${spec}</div>
-                        <div style="font-size:1.05rem; color:#88b0e0;"><strong>Тип:</strong> ${specInfo.type}</div>
+                        <div style="font-size:1.05rem; color:#cbd5e1;"><strong>Спектральный класс:</strong> ${specClassText}</div>
+                        <div style="font-size:1.05rem; color:#88b0e0;"><strong>Тип:</strong> ${typeText}</div>
                         <div style="font-size:1.05rem; color:#cbd5e1;"><strong>Планет в системе:</strong> ${planets.length}</div>
                     </div>
                 </div>
                 <div style="font-size:1rem; line-height:1.7;">
                     <p style="margin:4px 0;"><strong>Температура:</strong> ${temp ? (temp - 273.15).toFixed(0) + ' °C' + ' (' + temp.toFixed(0) + ' K)' : '—'}</p>
-                    <p style="margin:4px 0;"><strong>Цвет:</strong> ${specInfo.color}</p>
-                    <p style="margin:4px 0;"><strong>Относительный радиус:</strong> ${specInfo.radius}</p>
-                    <p style="margin:4px 0;"><strong>Светимость:</strong> ${specInfo.luminosity}</p>
+                    <p style="margin:4px 0;"><strong>Масса:</strong> ${formatStellarMass(modalState.stellarMass)}</p>
+                    ${companionBlock()}
+                    <p style="margin:4px 0;"><strong>Цвет:</strong> ${exotic ? '—' : specInfo.color}</p>
+                    <p style="margin:4px 0;"><strong>Относительный радиус:</strong> ${exotic ? '—' : specInfo.radius}</p>
+                    <p style="margin:4px 0;"><strong>Светимость:</strong> ${exotic ? '—' : specInfo.luminosity}</p>
                     <p style="margin:4px 0;"><strong>Координаты:</strong> (${coordX ? coordX.toFixed(2) : '—'}; ${coordY ? coordY.toFixed(2) : '—'})</p>
-                    <p style="margin:4px 0;"><strong>Возраст:</strong> ${specInfo.age}</p>
-                    <p style="margin:8px 0; color:#888; font-size:0.95rem;">${specInfo.description}</p>
+                    <p style="margin:4px 0;"><strong>Возраст:</strong> ${exotic ? '—' : specInfo.age}</p>
+                    <p style="margin:8px 0; color:#888; font-size:0.95rem;">${exotic ? '' : specInfo.description}</p>
                     <p style="margin:6px 0; color:#666;">🔄 Кликните по планете (в списке или на канвасе), чтобы открыть её характеристики. Клик по пустому месту — к звезде.</p>
                 </div>
             </div>
@@ -178,7 +230,8 @@ function planetsTable(planets) {
 // или lambda_per_hour > 0 — холод/гравитация/радиация) → ↓ сразу при
 // открытии карточки; дельта двух снапшотов (modalState.previousPopulation,
 // refreshPlanets) — запасной вариант для роста и равновесия. При конфликте
-// живой сигнал снижения приоритетен (роста в модели нет — не врём).
+// живой сигнал снижения приоритетен (99.2.16: рост есть — рождаемость; живой
+// сигнал показывает только убыль, рост читается дельтой снапшотов).
 function populationTrendArrow(planet) {
     if (planet.settlements && planet.settlements.length) {
         const declining = planet.settlements.some(s => s && (

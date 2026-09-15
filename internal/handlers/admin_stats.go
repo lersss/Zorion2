@@ -14,7 +14,13 @@ type PlanetStats struct {
 	TotalPlanets      int                       `json:"total_planets"`
 	PlanetsByType     map[string]int            `json:"planets_by_type"`
 	PlanetsBySpectral map[string]map[string]int `json:"planets_by_spectral"`
-	GameDesignTypes   map[string]int            `json:"game_design_types"`
+	// PlanetsByStarType — планеты экзотических систем по типу объекта
+	// (black_hole/neutron/white_dwarf/protostar). У обычных звёзд планеты
+	// считаются в PlanetsBySpectral, сюда не дублируются (99.2.4 §7).
+	PlanetsByStarType map[string]map[string]int `json:"planets_by_star_type"`
+	// SystemTypeDistribution — распределение миров по типу системы.
+	SystemTypeDistribution map[string]int `json:"system_type_distribution"`
+	GameDesignTypes        map[string]int `json:"game_design_types"`
 
 	// Поверхность
 	SurfaceFormCounts map[string]int     `json:"surface_form_counts"`
@@ -138,6 +144,16 @@ func (h *AdminHandlers) calculatePlanetStats() (*PlanetStats, error) {
 	}
 	stats.TotalWorlds = len(worlds)
 
+	// Распределение миров по типу системы (одиночные/двойные/кратные, 99.2.4 §7).
+	stats.SystemTypeDistribution = map[string]int{}
+	for _, w := range worlds {
+		st := w.SystemType
+		if st == "" {
+			st = "single"
+		}
+		stats.SystemTypeDistribution[st]++
+	}
+
 	planets, err := h.loadPlanets()
 	if err != nil {
 		return nil, err
@@ -166,7 +182,9 @@ func newPlanetStats() *PlanetStats {
 	return &PlanetStats{
 		PlanetsByType:     make(map[string]int),
 		PlanetsBySpectral: make(map[string]map[string]int),
+		PlanetsByStarType: make(map[string]map[string]int),
 		GameDesignTypes:   make(map[string]int),
+		SystemTypeDistribution: make(map[string]int),
 		SurfaceFormCounts: make(map[string]int),
 		SurfaceFormShares: make(map[string]float64),
 		SurfaceFormAvg:    make(map[string]float64),

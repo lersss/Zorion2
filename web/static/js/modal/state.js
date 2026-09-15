@@ -15,13 +15,23 @@ export const modalState = {
     canvasHeight: 0,
     starRadius: 60,
     starColor: '#fff4a3',
+    systemType: 'single',      // single/binary/multiple (35a)
+    binaryType: '',            // wide/close (35a)
+    companion: '',             // спектр компаньона (35b §6.6)
+    companionColor: '',        // цвет компаньона по спектру (35a)
+    companionMass: null,       // масса компаньона M☉ (35b)
+    companionTemp: null,       // температура компаньона K (35b)
+    companionSepAU: null,      // разделение пары а.е. (35b)
+    extraCompanions: [],       // внешние компаньоны кратных (35b)
     planets: [],
     canvas: null,
     canvasWrapper: null,
     spectralClass: 'G',
+    starType: 'star',            // star/white_dwarf/neutron/black_hole/protostar (99.2.4 §2)
     worldId: null,
     worldName: '',
     worldTemperature: 0,
+    stellarMass: null,       // масса звезды в M☉ (29a §4м); null — не задана
     worldCoordX: 0,
     worldCoordY: 0,
     authToken: null, // токен открытия модалки (админка); refreshPlanets использует его

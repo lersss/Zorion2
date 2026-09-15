@@ -24,17 +24,21 @@ export function getClimateId(planet) {
     return 'изменчивый';
 }
 
-export function getStarColor(spectralClass) {
+export function getStarColor(spectralClass, starType) {
     const colors = {
         'O': '#9bb0ff', 'B': '#aabfff', 'A': '#cad7ff',
         'F': '#f8f7ff', 'G': '#fff4a3', 'K': '#ffd2a1',
         'M': '#ffb47c', 'L': '#ff8c5a', 'T': '#d95c14',
-        'Y': '#9e4b2c'
+        'Y': '#9e4b2c',
+        // Экзотика (99.2.4 §8): свои цвета, ветка раньше ветки по классу.
+        'black_hole': '#2a1a4a', 'neutron': '#a0d8ef',
+        'white_dwarf': '#f0f0f0', 'protostar': '#ff7950',
     };
+    if (starType && colors[starType]) return colors[starType];
     return colors[spectralClass] || '#ffffff';
 }
 
-export function getStarSize(spectralClass) {
+export function getStarSize(spectralClass, starType) {
     const sizes = {
         'O': 120, 'B': 105, 'A': 90,
         'F': 75, 'G': 60,
@@ -42,5 +46,67 @@ export function getStarSize(spectralClass) {
         'L': 30, 'T': 24,
         'Y': 18
     };
+    if (starType && starType !== 'star') {
+        // Экзотика — фиксированный малый размер (ЧД/НЗ — компактные, §8).
+        if (starType === 'black_hole' || starType === 'neutron') return 18;
+        if (starType === 'white_dwarf') return 24;
+        return 20; // протозвезда
+    }
     return sizes[spectralClass] || 60;
+}
+
+// starTypeLabel — человекочитаемый тип объекта для модалки (99.2.4 §8).
+export function starTypeLabel(starType) {
+    const labels = {
+        'star': 'обычная звезда',
+        'white_dwarf': 'белый карлик',
+        'neutron': 'нейтронная звезда',
+        'black_hole': 'чёрная дыра',
+        'protostar': 'протозвезда',
+    };
+    return labels[starType] || '';
+}
+
+// systemTypeLabel — человекочитаемый тип системы для модалки (99.2.4 §8).
+export function systemTypeLabel(systemType) {
+    const labels = {
+        'single': 'одиночная',
+        'binary': 'двойная',
+        'multiple': 'кратная (3+)',
+    };
+    return labels[systemType] || '';
+}
+
+// starModsBadges — человекочитаемые строки модификаторов (99.2.4 §8):
+// фаза (гигант/сверхгигант), переменность (тип + период/амплитуда),
+// подтипы (пульсар/магнетар/микроквазар), параметры двойной.
+export function starModsBadges(mods) {
+    if (!mods || typeof mods !== 'object') return [];
+    const badges = [];
+    if (mods.phase === 'III') badges.push('гигант (фаза III)');
+    if (mods.phase === 'I') badges.push('сверхгигант (фаза I)');
+    if (mods.subtype === 'pulsar') badges.push('пульсар');
+    if (mods.subtype === 'magnetar') badges.push('магнетар');
+    if (mods.subtype === 'accretion') badges.push('микроквазар (аккреция)');
+    if (mods.subtype === 'lbv') badges.push('яркая голубая переменная (LBV)');
+    if (mods.subtype === 'wr') badges.push('звезда Вольфа–Райе (WR)');
+    if (mods.variable_type) {
+        const names = {
+            eclipsing: 'затменная', mira: 'мирида', cepheid: 'цефеида',
+            uv_ceti: 'вспыхивающая (UV Кита)', t_tauri: 'T Тельца',
+            nova: 'новая', dwarf_nova: 'карликовая новая',
+        };
+        let s = 'переменная: ' + (names[mods.variable_type] || mods.variable_type);
+        if (mods.variable_period_days) s += ', период ' + Number(mods.variable_period_days).toFixed(1) + ' сут';
+        if (mods.variable_amplitude) s += ', амплитуда ' + Number(mods.variable_amplitude).toFixed(2) + 'm';
+        badges.push(s);
+    }
+    if (mods.binary_type) {
+        badges.push(mods.binary_type === 'wide' ? 'двойная широкая (S-тип)' : 'двойная тесная (P-тип)');
+    }
+    if (mods.disk_state) {
+        const disks = { protoplanetary: 'протопланетный диск', accretion: 'аккреционный диск', debris: 'обломочный пояс' };
+        badges.push(disks[mods.disk_state] || 'диск');
+    }
+    return badges;
 }

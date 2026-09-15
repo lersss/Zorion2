@@ -6,7 +6,9 @@ import {
     generateUniverse, generatePlanets, generateFactions, generateResources,
     generateSettlements, loadSettlementFields, renderSettlementModel,
     addSettlementRule, setSettleMode, setSettlePopKind, applySettlementPreset,
-    cancelGeneration, clearUniverse, clearSettlements, applyPreset
+    cancelGeneration, clearUniverse, clearSettlements, applyPreset,
+    switchGenSubTab, showTab, loadGenConfig, saveGenConfig, recalcGenWeights,
+    regeneratePlanets
 } from './generation.js';
 import { ensureAdminAuth, setAfterLogin, getAdminRole, adminLogin } from './auth.js';
 import {
@@ -23,6 +25,7 @@ import {
     initShips, loadShips, generateShips, regenerateCategory,
     deleteShipPart, selectShipPart
 } from './ships.js';
+import { saveSettlementSettings, updateSettlementNetto } from './settlementSettings.js';
 
 // Глобальные функции для onclick в HTML
 window.adminLogin = adminLogin;
@@ -70,6 +73,14 @@ window.generateShips = generateShips;
 window.regenerateCategory = regenerateCategory;
 window.deleteShipPart = deleteShipPart;
 window.selectShipPart = selectShipPart;
+window.saveSettlementSettings = saveSettlementSettings;
+window.updateSettlementNetto = updateSettlementNetto;
+window.switchGenSubTab = switchGenSubTab;
+window.showTab = showTab;
+window.loadGenConfig = loadGenConfig;
+window.saveGenConfig = saveGenConfig;
+window.recalcGenWeights = recalcGenWeights;
+window.regeneratePlanets = regeneratePlanets;
 
 // Ключ в localStorage читает web/static/js/modal/panel.js (карточка планеты
 // в игровых страницах) — держать строку синхронной при переименовании.

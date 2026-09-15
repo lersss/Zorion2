@@ -4,6 +4,7 @@ import { isFiniteNumber, worldToCanvas, getStarColor, getStarShade } from './uti
 import { CONFIG } from '../config.js';
 import { drawNPCAgents } from './npc_agents.js';
 import { getShipSprite } from './ship_render.js';
+import { drawStarfield, initStarfield } from './starfield.js';
 
 const { map: mapCfg } = CONFIG;
 
@@ -37,6 +38,7 @@ export function resizeCanvas() {
     state.canvasHeight = wrapper.clientHeight;
     elements.canvas.width = state.canvasWidth;
     elements.canvas.height = state.canvasHeight;
+    initStarfield(); // фон «звёздное небо»: тайл при загрузке и при ресайзе (спека 30c.1)
     updateFitZoom();
     draw();
 }
@@ -95,6 +97,8 @@ export function draw() {
     const { ctx, statusBar } = elements;
 
     ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+
+    drawStarfield(ctx, canvasWidth, canvasHeight, scale, offsetX, offsetY, Date.now());
 
     drawGrid(ctx, canvasWidth, canvasHeight, scale, offsetX, offsetY);
 
@@ -203,7 +207,7 @@ function drawGrid(ctx, canvasWidth, canvasHeight, scale, offsetX, offsetY) {
 
 function drawSingleStar(ctx, c, x, y, scale, currentWorldId, hoveredWorldId, focusWorldId) {
     const radius = clusterScreenRadius(c);
-    const color = getStarShade(c.sspec || 'G', c.stemp);
+    const color = getStarShade(c.sspec || 'G', c.stemp, c.stype);
 
     ctx.globalAlpha = 1;
     ctx.beginPath();
@@ -213,6 +217,32 @@ function drawSingleStar(ctx, c, x, y, scale, currentWorldId, hoveredWorldId, foc
     ctx.strokeStyle = '#0f172a';
     ctx.lineWidth = 1;
     ctx.stroke();
+
+    // Точки-компаньоны двойных/кратных систем (35a): binary — одна точка,
+    // multiple — две, single — ничего. Цвет точки — по спектру компаньона
+    // (35b §6.4): binary — mods.companion, multiple — внутренний + внешний
+    // (extra_companions[*].spectral_class). Данные — smods из кластера
+    // (filter_worlds_handler, 35b §2.3).
+    const companionAngles = c.systype === 'binary' ? [Math.PI / 4] :
+                            c.systype === 'multiple' ? [Math.PI / 6, Math.PI * 5 / 6] : [];
+    if (companionAngles.length > 0) {
+        const mods = c.smods || {};
+        const extra = Array.isArray(mods.extra_companions) ? mods.extra_companions : [];
+        const companionSpecs = c.systype === 'multiple'
+            ? [mods.companion, extra[0] && extra[0].spectral_class]
+            : [mods.companion];
+        const dist = Math.max(3, radius * 1.5);
+        const cr = radius * 0.45;
+        ctx.globalAlpha = 0.6;
+        companionAngles.forEach((angleRad, i) => {
+            const dotColor = companionSpecs[i] ? getStarColor(companionSpecs[i], 'star') : color;
+            ctx.beginPath();
+            ctx.arc(x + Math.cos(angleRad) * dist, y + Math.sin(angleRad) * dist, cr, 0, Math.PI * 2);
+            ctx.fillStyle = dotColor;
+            ctx.fill();
+        });
+        ctx.globalAlpha = 1;
+    }
 
     if (c.sid === focusWorldId) {
         ctx.save();
@@ -266,15 +296,15 @@ function drawSingleStar(ctx, c, x, y, scale, currentWorldId, hoveredWorldId, foc
 
 function drawCluster(ctx, c, x, y) {
     const count = c.cnt;
-    const color = getStarShade(c.sspec || 'G', c.stemp);
+    const color = getStarShade(c.sspec || 'G', c.stemp, c.stype);
     const radius = clusterDotRadius(count);
 
     // Свечение: по базовому hex класса (градация не нужна на ореоле),
     // крупные кластеры — яркие «звёзды» с ореолом.
     const glow = radius * 2.5;
     const g = ctx.createRadialGradient(x, y, 0, x, y, glow);
-    g.addColorStop(0, hexToRgba(getStarColor(c.sspec || 'G'), 0.35));
-    g.addColorStop(1, hexToRgba(getStarColor(c.sspec || 'G'), 0));
+    g.addColorStop(0, hexToRgba(getStarColor(c.sspec || 'G', c.stype), 0.35));
+    g.addColorStop(1, hexToRgba(getStarColor(c.sspec || 'G', c.stype), 0));
     ctx.beginPath();
     ctx.arc(x, y, glow, 0, Math.PI * 2);
     ctx.fillStyle = g;
@@ -309,6 +339,8 @@ function drawNames(ctx, singles, scale) {
         // Название hover-звезды рисуем отдельно (пилюлей над ней).
         if (s.c.sid === state.hoveredWorldId) continue;
         const radius = clusterScreenRadius(s.c);
+        // Названия чистые, без суффиксов типа («дв.», «нейтр.») — тип виден
+        // цветом (экзотика — свой цвет) и в модалке (решение создателя).
         ctx.fillText(s.c.sname || '—', s.x, s.y + radius + fontSize);
     }
 }

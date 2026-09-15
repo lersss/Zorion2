@@ -26,6 +26,9 @@ type World struct {
 	X, Y         float64
 	Spectral     string
 	Temp         float64
+	StarType     string                 // star/white_dwarf/neutron/black_hole/protostar (99.2.4 §2)
+	SystemType   string                 // single/binary/multiple
+	StellarMods  map[string]interface{} // модификаторы (для бейджей карты/модалки, §8)
 	HasPlanets   bool
 	HasLife      bool
 	HasHabitable bool
@@ -110,7 +113,9 @@ func (m *Manager) LoadAsync(db *sql.DB) {
 
 func loadWorlds(ctx context.Context, db *sql.DB) ([]World, error) {
 	rows, err := db.QueryContext(ctx, `
-		SELECT id, name, coord_x, coord_y, spectral_class, temperature FROM worlds
+		SELECT id, name, coord_x, coord_y, COALESCE(spectral_class,''),
+		       temperature, star_type, system_type, stellar_mods
+		FROM worlds
 	`)
 	if err != nil {
 		return nil, err
@@ -120,8 +125,17 @@ func loadWorlds(ctx context.Context, db *sql.DB) ([]World, error) {
 	var worlds []World
 	for rows.Next() {
 		var w World
-		if err := rows.Scan(&w.ID, &w.Name, &w.X, &w.Y, &w.Spectral, &w.Temp); err != nil {
+		var modsRaw []byte
+		if err := rows.Scan(&w.ID, &w.Name, &w.X, &w.Y, &w.Spectral, &w.Temp,
+			&w.StarType, &w.SystemType, &modsRaw); err != nil {
 			return nil, err
+		}
+		if len(modsRaw) > 0 && string(modsRaw) != "null" {
+			var mods map[string]interface{}
+			if err := json.Unmarshal(modsRaw, &mods); err != nil {
+				return nil, err
+			}
+			w.StellarMods = mods
 		}
 		worlds = append(worlds, w)
 	}

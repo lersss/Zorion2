@@ -11,12 +11,11 @@ import (
 func TestDeathTimeR(t *testing.T) {
 	computedAt := time.Now().Add(-10 * 24 * time.Hour)
 	createdAt := computedAt.Add(-365 * 24 * time.Hour) // возраст ~1 год на чек-точке
-	now := time.Now()
 	input := hotInput() // 365 K, жара: r ≈ 7.3·10⁻⁵/сек
 	r := ChangeComponents(input)
-	want := computedAt.Add(time.Duration(
-		math.Log(1000/NDead)/math.Abs(math.Log(1-r)) * float64(time.Second)))
-	got, ok := DeathTime(1000, r, computedAt, now, createdAt)
+	want := time.Unix(computedAt.Unix()+int64(
+		math.Log(1000/NDead)/math.Abs(math.Log(1-r))), 0)
+	got, ok := DeathTime(1000, r, computedAt, createdAt)
 	if !ok {
 		t.Fatalf("DeathTime(живая чек-точка) = ok=false, хочу true")
 	}
@@ -28,7 +27,7 @@ func TestDeathTimeR(t *testing.T) {
 func TestDeathTimeGuardIsComputedAt(t *testing.T) {
 	// Гвард r ≥ 1 (экстремальные входы) → t_death = computed_at (мгновенно).
 	computedAt := time.Now().Add(-5 * time.Hour)
-	got, ok := DeathTime(1000, 1.5, computedAt, time.Now(), computedAt)
+	got, ok := DeathTime(1000, 1.5, computedAt, computedAt)
 	if !ok {
 		t.Fatalf("DeathTime(r ≥ 1) = ok=false, хочу true")
 	}
@@ -42,85 +41,92 @@ func TestDeathTimeDeadCheckpointNoEntry(t *testing.T) {
 	// запись не создаётся (бэкфилл отменён, решение создателя 2026-09-14).
 	r := ChangeComponents(hotInput())
 	now := time.Now()
-	if _, ok := DeathTime(NDead, r, now, now, now); ok {
+	if _, ok := DeathTime(NDead, r, now, now); ok {
 		t.Errorf("DeathTime при population_exact == NDead: ok=true, хочу false")
 	}
-	if _, ok := DeathTime(50, r, now, now, now); ok {
+	if _, ok := DeathTime(50, r, now, now); ok {
 		t.Errorf("DeathTime при population_exact < NDead: ok=true, хочу false")
 	}
 }
 
-func TestDeathTimeNoDecayYoungNoEntry(t *testing.T) {
-	// Нет изменения (r = 0) и возраст < 120 лет — не вымирают, записи нет.
+func TestDeathTimeNoDecayNoEntry(t *testing.T) {
+	// Нет изменения (r = 0) — равновесие: не вымирают, записи нет
+	// (99.2.16: потолка нет, инверсия прежней «смерти по потолку»).
 	createdAt := time.Now().Add(-50 * 365 * 24 * time.Hour)
 	now := time.Now()
-	if _, ok := DeathTime(1000, 0, now, now, createdAt); ok {
-		t.Errorf("DeathTime без изменения и без потолка: ok=true, хочу false")
+	if _, ok := DeathTime(1000, 0, now, createdAt); ok {
+		t.Errorf("DeathTime без изменения: ok=true, хочу false")
 	}
 }
 
-// natural-смерть (полный комфорт, r = NaturalChangeRate): формула даёт ~460 лет,
-// но потолок 120 лет раньше → дата = created_at + 120 лет. Регресс переполнения
-// time.Duration: формула natural (1.45·10¹⁰ сек) переполнила бы int64 нс и
-// ушла в 1613 г (тестер) — сравнение с потолком до конвертации.
-func TestDeathTimeNaturalCappedAtLifespan(t *testing.T) {
-	createdAt := time.Now().Add(-121 * 365 * 24 * time.Hour) // возраст 121 год
-	now := time.Now()
-	computedAt := now.Add(-1 * time.Hour)
-	input := PlanetInput{TemperatureK: 293.15, GravityG: 1.0, CoreRadioactivity: 5} // полный комфорт
+func TestDeathTimeEquilibriumNoEntry(t *testing.T) {
+	// Равновесие r=0 живёт вечно (99.2.16 §6.2 п.5): записи «Вымерло» нет
+	// при любом возрасте — потолка нет (инверсия TestDeathTimeZeroRAtLifespan).
+	computedAt := time.Now().Add(-1 * time.Hour)
+	createdAt := computedAt.Add(-130 * 365 * 24 * time.Hour) // возраст 130 лет
+	if _, ok := DeathTime(1_000_000, 0, computedAt, createdAt); ok {
+		t.Errorf("DeathTime(r=0, возраст 130) = ok=true, хочу false (равновесие не вымирает)")
+	}
+	// Равновесие по настройкам: k=1 в комфорте 30 °C → r = 0.
+	t.Cleanup(ResetPopulationSettings)
+	if err := SetBirthRateCoefficient(1); err != nil {
+		t.Fatalf("SetBirthRateCoefficient(1): %v", err)
+	}
+	input := PlanetInput{TemperatureK: 303.15, GravityG: 1.0, CoreRadioactivity: 5}
+	if r := ChangeComponents(input); r != 0 {
+		t.Fatalf("k=1, 30 °C: r = %v, хочу 0", r)
+	}
+	if _, ok := DeathTime(1_000_000, ChangeComponents(input), computedAt, createdAt); ok {
+		t.Errorf("DeathTime(k=1, 30 °C) = ok=true, хочу false")
+	}
+}
+
+// Медленная natural-убыль без среды (k=0, комфорт 303.15 K, pop 10⁹): дата
+// ≈ +800 лет через Unix-секунды. Регресс переполнения time.Duration
+// (перенесён из удалённого TestDeathTimeNaturalCappedAtLifespan, 99.2.16):
+// раньше computedAt.Add(...) падал/врал за ~292 года — теперь int64-секунд,
+// запись создаётся с честной датой.
+func TestDeathTimeSlowDecayCreatesEntry(t *testing.T) {
+	t.Cleanup(ResetPopulationSettings)
+	if err := SetBirthRateCoefficient(0); err != nil {
+		t.Fatalf("SetBirthRateCoefficient(0): %v", err)
+	}
+	computedAt := time.Now().Add(-1 * time.Hour)
+	input := PlanetInput{TemperatureK: 303.15, GravityG: 1.0, CoreRadioactivity: 5}
 	r := ChangeComponents(input)
 	if r <= 0 {
-		t.Fatalf("ожидали r = NaturalChangeRate > 0, получили %v", r)
+		t.Fatalf("k=0, комфорт: r = %v, хочу > 0 (чистая убыль)", r)
 	}
-	got, ok := DeathTime(1_000_000, r, computedAt, now, createdAt)
-	want := createdAt.Add(time.Duration(MaxLifespanSeconds) * time.Second)
+	got, ok := DeathTime(1_000_000_000, r, computedAt, computedAt)
 	if !ok {
-		t.Fatalf("DeathTime(natural, возраст 121 год) = ok=false, хочу true")
+		t.Fatalf("DeathTime(медленная убыль) = ok=false, хочу true")
 	}
-	if !got.Equal(want) {
-		t.Errorf("DeathTime = %v, хочу потолок %v", got, want)
+	tSec := math.Log(1_000_000_000/NDead) / math.Abs(math.Log(1-r))
+	want := time.Unix(computedAt.Unix()+int64(tSec), 0)
+	if math.Abs(got.Sub(want).Seconds()) > 1 {
+		t.Errorf("DeathTime = %v, хочу %v (±1 сек)", got, want)
 	}
-	if got.Year() < 2000 {
-		t.Errorf("DeathTime = %v — похоже на переполнение time.Duration (1613 г)", got)
+	// Годы — через Unix-секунды (не time.Duration: 800 лет переполнили бы int64 нс).
+	years := float64(got.Unix()-computedAt.Unix()) / (365.25 * 24 * 3600)
+	if years < 700 || years > 900 {
+		t.Errorf("дата смерти ≈ %v лет от чек-точки, хочу ≈ 800 (медленная убыль)", years)
 	}
 }
 
-// r = 0 (288 K: NaturalComponent = 0, рампа с 288.15 K) и возраст ≥ 120 лет —
-// смерть только по потолку (Recompute: age ≥ 120 → население = 0 для любого
-// p0) → запись есть, дата = created_at + 120 лет.
-func TestDeathTimeZeroRAtLifespan(t *testing.T) {
-	createdAt := time.Now().Add(-130 * 365 * 24 * time.Hour) // возраст 130 лет
-	now := time.Now()
-	computedAt := now.Add(-1 * time.Hour) // чек-точка ещё живая (возраст ~129 лет)
-	got, ok := DeathTime(1_000_000, 0, computedAt, now, createdAt)
-	want := createdAt.Add(time.Duration(MaxLifespanSeconds) * time.Second)
+// Умеренная убыль (99.2.16 §6.2 п.7): ok=true, дата ровно
+// computedAt + ln(pop/NDead)/|ln(1−r)| — без среза потолком сверху
+// (на смену TestDeathTimeFormulaCappedAtLifespan: потолка нет).
+func TestDeathTimeFastFormulaNoCeiling(t *testing.T) {
+	computedAt := time.Now().Add(-1 * time.Hour)
+	r := 1e-5
+	tSec := math.Log(1_000_000/NDead) / math.Abs(math.Log(1-r))
+	want := time.Unix(computedAt.Unix()+int64(tSec), 0)
+	got, ok := DeathTime(1_000_000, r, computedAt, computedAt)
 	if !ok {
-		t.Fatalf("DeathTime(r=0, возраст ≥ 120) = ok=false, хочу true (смерть по потолку)")
+		t.Fatalf("DeathTime(умеренная убыль) = ok=false, хочу true")
 	}
 	if !got.Equal(want) {
-		t.Errorf("DeathTime = %v, хочу потолок %v", got, want)
-	}
-}
-
-// Смешанный: жара + natural, смерть по формуле (быстрая), но не позже потолка:
-// t = min(формула, ceiling) = формула.
-func TestDeathTimeFormulaCappedAtLifespan(t *testing.T) {
-	createdAt := time.Now().Add(-121 * 365 * 24 * time.Hour) // возраст ≥ 120 (потолок достигнут)
-	now := time.Now()
-	computedAt := createdAt // чек-точка = создание (возраст 0 на чек-точке)
-	r := ChangeComponents(PlanetInput{TemperatureK: 400, GravityG: 1.0, CoreRadioactivity: 5})
-	want := computedAt.Add(time.Duration(
-		math.Log(1_000_000/NDead)/math.Abs(math.Log(1-r)) * float64(time.Second)))
-	got, ok := DeathTime(1_000_000, r, computedAt, now, createdAt)
-	ceiling := createdAt.Add(time.Duration(MaxLifespanSeconds) * time.Second)
-	if !ok {
-		t.Fatalf("DeathTime(жара, возраст ≥ 120) = ok=false, хочу true")
-	}
-	if !got.Equal(want) {
-		t.Errorf("DeathTime = %v, хочу формулу %v", got, want)
-	}
-	if got.After(ceiling) {
-		t.Errorf("DeathTime = %v позже потолка %v", got, ceiling)
+		t.Errorf("DeathTime = %v, хочу %v (формула без потолка)", got, want)
 	}
 }
 

@@ -6,7 +6,9 @@ package repository
 
 import (
 	"database/sql"
+	"database/sql/driver"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -206,20 +208,18 @@ func TestNPCListAll(t *testing.T) {
 
 // ==================== UPDATE STATUS (batch) ====================
 
-// Прибытие (flying → idle): цель становится текущим миром, ставится
-// last_observed_at — всё одной транзакцией.
+// Прибытия (flying → idle): цель становится текущим миром, ставится
+// last_observed_at — ОДИН multi-row UPDATE через VALUES-джойн (идея 26c, A1:
+// до 2000 одиночных Exec на тик → 1 запрос), всё одной транзакцией.
 func TestNPCUpdateStatusBatchArrival(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
 	defer db.Close()
 
 	mock.ExpectBegin()
-	mock.ExpectExec(`UPDATE npc_agents SET status = 'idle', current_world_id = \$1, last_observed_at = \$2, updated_at = NOW\(\) WHERE id = \$3`).
-		WithArgs("w2", now(), "a1").
-		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(`UPDATE npc_agents SET status = 'idle', current_world_id = \$1, last_observed_at = \$2, updated_at = NOW\(\) WHERE id = \$3`).
-		WithArgs("w5", now(), "a2").
-		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`UPDATE npc_agents SET status = 'idle'.*FROM \(VALUES.*AS v\(id, current_world_id, last_observed_at\) WHERE npc_agents\.id = v\.id`).
+		WithArgs("a1", "w2", now(), "a2", "w5", now()).
+		WillReturnResult(sqlmock.NewResult(0, 2))
 	mock.ExpectCommit()
 
 	updates := []models.AgentStatusUpdate{
@@ -230,15 +230,15 @@ func TestNPCUpdateStatusBatchArrival(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// Старт (idle → flying): заполняется кортеж полёта.
+// Старты (idle → flying): заполняется кортеж полёта — один multi-row UPDATE.
 func TestNPCUpdateStatusBatchStart(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
 	defer db.Close()
 
 	mock.ExpectBegin()
-	mock.ExpectExec(`UPDATE npc_agents SET status = 'flying', from_world_id = \$1, target_world_id = \$2, depart_at = \$3, arrive_at = \$4, updated_at = NOW\(\) WHERE id = \$5`).
-		WithArgs("w1", "w2", now(), now().Add(time.Minute), "a1").
+	mock.ExpectExec(`UPDATE npc_agents SET status = 'flying'.*FROM \(VALUES.*AS v\(id, from_world_id, target_world_id, depart_at, arrive_at\) WHERE npc_agents\.id = v\.id`).
+		WithArgs("a1", "w1", "w2", now(), now().Add(time.Minute)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
@@ -251,18 +251,19 @@ func TestNPCUpdateStatusBatchStart(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// Смешанный batch: прибытия и старты в одном тике, порядок сохранён.
+// Смешанный batch: прибытия и старты в одном тике — два multi-row UPDATE
+// (прибытия сначала, старты потом), одна транзакция.
 func TestNPCUpdateStatusBatchMixed(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
 	defer db.Close()
 
 	mock.ExpectBegin()
-	mock.ExpectExec(`UPDATE npc_agents SET status = 'idle', current_world_id = \$1, last_observed_at = \$2, updated_at = NOW\(\) WHERE id = \$3`).
-		WithArgs("w2", now(), "a1").
+	mock.ExpectExec(`UPDATE npc_agents SET status = 'idle'.*FROM \(VALUES.*AS v\(id, current_world_id, last_observed_at\) WHERE npc_agents\.id = v\.id`).
+		WithArgs("a1", "w2", now()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(`UPDATE npc_agents SET status = 'flying', from_world_id = \$1, target_world_id = \$2, depart_at = \$3, arrive_at = \$4, updated_at = NOW\(\) WHERE id = \$5`).
-		WithArgs("w3", "w4", now(), now().Add(time.Minute), "a3").
+	mock.ExpectExec(`UPDATE npc_agents SET status = 'flying'.*FROM \(VALUES.*AS v\(id, from_world_id, target_world_id, depart_at, arrive_at\) WHERE npc_agents\.id = v\.id`).
+		WithArgs("a3", "w3", "w4", now(), now().Add(time.Minute)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
@@ -276,6 +277,36 @@ func TestNPCUpdateStatusBatchMixed(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+// Большой batch (100 прибытий) — один multi-row UPDATE с 300 параметрами
+// (порядок аргументов: id, current_world_id, last_observed_at на строку).
+func TestNPCUpdateStatusBatchLarge(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	const n = 100
+	updates := make([]models.AgentStatusUpdate, 0, n)
+	expectedArgs := make([]driver.Value, 0, n*3)
+	for i := 0; i < n; i++ {
+		id := fmt.Sprintf("a%03d", i)
+		world := fmt.Sprintf("w%03d", i)
+		updates = append(updates, models.AgentStatusUpdate{
+			ID: id, Status: models.NPCAgentStatusIdle,
+			CurrentWorldID: world, LastObservedAt: &[]time.Time{now()}[0],
+		})
+		expectedArgs = append(expectedArgs, id, world, now())
+	}
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`UPDATE npc_agents SET status = 'idle'.*FROM \(VALUES.*AS v\(id, current_world_id, last_observed_at\) WHERE npc_agents\.id = v\.id`).
+		WithArgs(expectedArgs...).
+		WillReturnResult(sqlmock.NewResult(0, n))
+	mock.ExpectCommit()
+
+	require.NoError(t, NewNPCRepository(db).UpdateStatusBatch(updates))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 // Пустой batch — ни одной операции с БД.
 func TestNPCUpdateStatusBatchEmpty(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
@@ -283,6 +314,20 @@ func TestNPCUpdateStatusBatchEmpty(t *testing.T) {
 	defer db.Close()
 
 	require.NoError(t, NewNPCRepository(db).UpdateStatusBatch(nil))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Неизвестный статус — ошибка без обращения к БД (как в старом applyAgentUpdate).
+func TestNPCUpdateStatusBatchUnknownStatus(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
+	require.NoError(t, err)
+	defer db.Close()
+
+	updates := []models.AgentStatusUpdate{
+		{ID: "a1", Status: models.NPCAgentStatus("teleporting")},
+	}
+	err = NewNPCRepository(db).UpdateStatusBatch(updates)
+	require.Error(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

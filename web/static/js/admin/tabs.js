@@ -5,6 +5,9 @@ import { bindTestsButtons } from './tests.js';
 import { loadUsers } from './users.js';
 import { initNPC } from './npc.js';
 import { initShips } from './ships.js';
+import { initSettlementSettings } from './settlementSettings.js';
+import { initBalancer } from './balancer.js';
+import { applyGenSubTab } from './generation.js';
 
 // Активная вкладка сохраняется между обновлениями страницы.
 const STORAGE_KEY = 'adminActiveTab';
@@ -51,6 +54,16 @@ function activateTab(tabId) {
     }
     if (tabId === 'tab-ships') {
         initShips();
+    }
+    if (tabId === 'tab-balancer') {
+        initBalancer();
+    }
+    if (tabId === 'tab-main') {
+        initSettlementSettings();
+    }
+    if (tabId === 'tab-generation') {
+        // Подвкладки-дропдаун генерации (99.2.3 §2): восстановить сохранённую.
+        applyGenSubTab();
     }
 }
 

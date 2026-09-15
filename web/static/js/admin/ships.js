@@ -4,7 +4,7 @@
 // предпросмотр-гейт целостности сборки И9:
 //  1. деталь отдельно, крупно;
 //  2. сетка ≥ 12 случайных кораблей в ≥ 6 цветах палитры, каждый в двух
-//     масштабах — детальный 200×200 и игровой (~34 px, полёт shipSize*3.2);
+//     масштабах — детальный 200×200 и игровой (~9 px, полёт shipSize*3.2);
 //  3. стрип по категориям: все формы категории в сборке на трёх корпусах
 //     (нейтральный + min + max габарита);
 //  4. сэмплер worst-case: max-нос/крылья/двигатели/хвост × min-корпус.
@@ -240,11 +240,10 @@ function render() {
 function renderCategories() {
     const root = document.getElementById('shipsCategories');
     if (!root) return;
-    if (state.parts.length === 0) {
-        root.innerHTML = `<p class="hint">Каталог пуст. Сгенерируйте первые детали: кнопки «＋1»/«＋10» под заголовками категорий.</p>`;
-        return;
-    }
     let html = '';
+    if (state.parts.length === 0) {
+        html += `<p class="hint">Каталог пуст. Сгенерируйте первые детали кнопками «＋10» под заголовками категорий ниже.</p>`;
+    }
     for (const cat of state.layerOrder) {
         const list = state.byCategory.get(cat) || [];
         html += `
@@ -323,7 +322,7 @@ function renderPreview() {
                 <div class="ship-cell">
                     <div class="ship-two">
                         <div>${composeSVG(s.parts, s.color, 200)}</div>
-                        <div title="Масштаб карты (полёт shipSize*3.2 ≈ 34 px)">${composeSVG(s.parts, s.color, 34)}</div>
+                        <div title="Масштаб карты (полёт shipSize*3.2 ≈ 9 px)">${composeSVG(s.parts, s.color, 34)}</div>
                     </div>
                     <div class="cell-cap">цвет ${esc(s.color)}</div>
                 </div>`).join('')}

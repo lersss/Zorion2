@@ -44,6 +44,8 @@
 | `archetypeCache` | Только чтение после инициализации |
 | `jwtSecret` | `RWMutex` + `InitJWTSecret` |
 | `descriptionsManager` (описания планет) | `RWMutex` |
+| `balancerCurveStore` (кривые балансировщика, спека 99.2.17) | `RWMutex`: мини-R читают на КАЖДОМ вызове (GetCurve возвращает копию), админка пишет редко |
+| `balancerPresetState` (пресеты кривых, 99.2.17 итерация 7) | Та же `RWMutex` `balancerCurveStore.mu`: store и файл меняются согласованно; запись файла — атомарная (tmp + rename) под Lock |
 | `*sql.DB` (везде) | Потокобезопасен «из коробки» |
 
 ### Что ещё не защищено (известные долги)
@@ -102,27 +104,30 @@ docs/gamedesign/                         — GDD (семейство доков,
 | Что | Где |
 |-----|-----|
 | Точка входа | `cmd/server/main.go` |
-| Генераторы миров | `internal/generator/galaxy/` |
-| Генераторы планет | `internal/generator/planet/` |
+| Генераторы миров | `internal/generator/galaxy/` (спектральные веса, типы систем/объектов, модификаторы — спека `99.2.4`; параметры компаньонов — `35b` §3; сортировка «главная = самая массивная», пакет кратной на 3 — `35c`; масса — `29a` §4м) |
+| Генераторы планет | `internal/generator/planet/` (mean-модель числа планет §5.2; ветка экзотики — `exotic.go` §5.3; P-ветка циркумбинарных — `circumbinary.go` `35b` §4.1) |
+| Общие звёздные константы | `internal/astro/` (светимость по классу — единый источник для galaxy и planet; `35b` §3) |
 | Система описаний | `internal/generator/planet/descriptions_*.go` |
 | Композиция планет | `internal/generator/planet/composition_*.go` |
 | Физика температуры | `internal/generator/planet/physics.go` |
 | Ядро планеты | `internal/generator/planet/core.go` |
 | Классификация | `internal/generator/planet/classify.go` |
 | Газовые гиганты | `internal/generator/planet/planet_data_gas.go`, `gas_giant_physics.go` |
-| Аудит | `internal/audit/` + `internal/audit/planet/` |
+| Аудит | `internal/audit/` + `internal/audit/planet/` (45 правил; экзотика — `checks_exotic.go`) |
 | Ресурсы | `internal/resource/` |
 | Имена | `internal/names/` |
 | HTTP-хендлеры | `internal/handlers/` |
+| Конфиг генерации (99.2.3) | `internal/handlers/admin_generation_config.go` (`GET/PUT /admin/generation/config`), `admin_regenerate_planets.go` (`POST /admin/regenerate-planets`) |
 | Фильтр миров для карты | `internal/handlers/filter_worlds_handler.go` |
 | Мир по ID | `internal/handlers/world_handlers.go` |
 | Очистка вселенной | `internal/handlers/admin_universe.go` |
 | Раздел «Пользователи» | `internal/handlers/admin_users.go` |
-| Модели | `internal/models/` |
+| Модели | `internal/models/` (экзотика — `stellar_mods.go`; конфиг — `generation_config.go`) |
 | Репозитории | `internal/repository/` |
-| NPC-агенты (спека `20a.1`) | `internal/models/npc_agent.go`, `internal/repository/npc_repository.go` (этап 1: модель, курсорные batch-выборки, Insert/Delete/GetByID/Update); `internal/npc/` (этап 2: `manager.go` — планировщик, `worldgrid.go` — выбор маршрута по сетке миров, `position_cache.go` — snapshot позиций, `settings.go` — лимиты §2.4; этап 5: `notification_batch.go` — буфер прибытий с дросселем §2.2.C); ручки (этап 4): `internal/handlers/admin_npc.go` (CRUD), `npc_settings.go` (настройки менеджера), `npc_positions.go` (позиции для карты); уведомления (этап 5): `internal/handlers/ws_notifier.go` (batch → `WSHub.Broadcast`), `websocket_hub.go` (`Broadcast`) |
+| NPC-агенты (спека `20a.1`) | `internal/models/npc_agent.go`, `internal/repository/npc_repository.go` (этап 1: модель, курсорные batch-выборки, Insert/Delete/GetByID/Update); `internal/npc/` (этап 2: `manager.go` — планировщик, `agent_cache.go` — in-memory кэш агентов для позиций (идея 26c A2: один ListAll при старте/инвалидации, инкремент стартами/прибытиями тика, dirty-флаг от внешних мутаций), `worldgrid.go` — выбор маршрута по сетке миров, `position_cache.go` — snapshot позиций, `settings.go` — лимиты §2.4; этап 5: `notification_batch.go` — буфер прибытий с дросселем §2.2.C); ручки (этап 4): `internal/handlers/admin_npc.go` (CRUD), `npc_settings.go` (настройки менеджера), `npc_positions.go` (позиции для карты); уведомления (этап 5): `internal/handlers/ws_notifier.go` (batch → `WSHub.Broadcast`), `websocket_hub.go` (`Broadcast`) |
 | JWT + роли | `internal/auth/jwt.go`, `internal/auth/middleware.go`, `internal/auth/admin_auth.go` |
 | Визуал кораблей (спека `99.2.15`) | `config/ship_visual.json` (палитра/акценты/зоны/стиль); генератор — `internal/generator/ship/` (`generator.go` + `generator_{hull,nose,wings,engine,tail}.go`, `assembly.go` — `AssemblyFromSeed`); данные — `internal/models/{ship_part,ship_visual}.go`, `internal/repository/ship_repository.go` (CRUD `ship_parts` + `users.ship_visual`), `internal/repository/ship_catalog.go` (каталог в памяти: immutable snapshot + `atomic.Pointer`, §3.4); ручки — `internal/handlers/ship_handlers.go` (`GET /api/ship-parts` из памяти, O(1)), `internal/handlers/admin_ship_parts.go` (вкладка «Корабли»: генерация/удаление/перегенерация + данные предпросмотра И9); клиент — `web/static/js/map/ship_render.js` (сборка схемы + кэш спрайтов), `web/static/js/admin/ships.js` (вкладка) |
+| Балансировщик кривых R(X) (спека `99.2.17`) | модель/математика + дефолты — `internal/economy/settlement/balancer_curve.go` (bendTransform/evaluateCurve/default*Curve); in-memory store `RWMutex` — `internal/economy/settlement/balancer_store.go` (SegmentNode/ComponentCurve/GetCurve/SetCurve/ResetCurve/SampleCurve, дефолты при рестарте); пресеты кривых (итерация 7) — `internal/economy/settlement/balancer_presets.go` (JSON-файл `config/balancer_presets.json`, env `BALANCER_PRESETS_FILE`, атомарная запись tmp+rename, «сохранил = применил», default не удаляется); ручки — `internal/handlers/admin_balancer.go` (GET/PUT curve, reset, server sample, etalons, presets/apply/reset-default; валидация 422, 404); мини-R (`change_components.go`) читают store на каждом вызове; клиент — `web/static/js/admin/balancer.js` + `balancerCanvas.js` (вкладка «Балансировка», регистрация в `tabs.js`/`admin.html`) |
 | Миграции | `migrations/` |
 | Архетипы планет | `config/planet_archetypes.json` |
 | Матрица дефолтов | `config/compatibility_defaults.json` |
@@ -217,6 +222,7 @@ web/static/js/
     │                        клик → мини-панель, WS npc_arrivals_batch → тост
     ├── navigation.js      — centerOnAgent
     ├── animation.js       — animationLoop (только во время полёта)
+    ├── starfield.js       — фон «звёздное небо» (спека 30c.1): offscreen-тайл, параллакс
     └── utils.js           — worldToCanvas, getStarColor
 ```
 

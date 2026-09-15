@@ -2,10 +2,39 @@ package repository
 
 import (
 	"database/sql"
+	"encoding/json"
 	"time"
 
 	"zorion/internal/models"
 )
+
+// worldColumns — колонки чтения миров (включая экзотические типы, 99.2.4 §3,
+// и массу, 29a §4м). COALESCE(spectral_class,'') — NULL-спектр экзотики не
+// роняет Scan.
+const worldColumns = `id, name, coord_x, coord_y, COALESCE(spectral_class,''), temperature, star_type, system_type, stellar_mods, stellar_mass, created_at, updated_at`
+
+// scanWorld — читает строку мира (worldColumns) в models.World.
+func scanWorld(scanner interface{ Scan(...interface{}) error }) (*models.World, error) {
+	var w models.World
+	var modsRaw sql.NullString
+	var massRaw sql.NullFloat64
+	err := scanner.Scan(
+		&w.ID, &w.Name, &w.CoordX, &w.CoordY, &w.SpectralClass, &w.Temperature,
+		&w.StarType, &w.SystemType, &modsRaw, &massRaw, &w.CreatedAt, &w.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if modsRaw.Valid && modsRaw.String != "" {
+		if err := json.Unmarshal([]byte(modsRaw.String), &w.StellarMods); err != nil {
+			return nil, err
+		}
+	}
+	if massRaw.Valid {
+		w.StellarMass = &massRaw.Float64
+	}
+	return &w, nil
+}
 
 type WorldRepository struct {
 	DB *sql.DB
@@ -31,22 +60,21 @@ func (r *WorldRepository) Create(world *models.World) error {
 }
 
 func (r *WorldRepository) GetByID(id string) (*models.World, error) {
-	query := `SELECT id, name, coord_x, coord_y, spectral_class, temperature, created_at, updated_at FROM worlds WHERE id = $1`
+	query := `SELECT ` + worldColumns + ` FROM worlds WHERE id = $1`
 	row := r.DB.QueryRow(query, id)
 
-	var world models.World
-	err := row.Scan(&world.ID, &world.Name, &world.CoordX, &world.CoordY, &world.SpectralClass, &world.Temperature, &world.CreatedAt, &world.UpdatedAt)
+	w, err := scanWorld(row)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	return &world, nil
+	return w, nil
 }
 
 func (r *WorldRepository) GetAll() ([]*models.World, error) {
-	query := `SELECT id, name, coord_x, coord_y, spectral_class, temperature, created_at, updated_at FROM worlds ORDER BY name`
+	query := `SELECT ` + worldColumns + ` FROM worlds ORDER BY name`
 	rows, err := r.DB.Query(query)
 	if err != nil {
 		return nil, err
@@ -55,12 +83,11 @@ func (r *WorldRepository) GetAll() ([]*models.World, error) {
 
 	var worlds []*models.World
 	for rows.Next() {
-		var w models.World
-		err := rows.Scan(&w.ID, &w.Name, &w.CoordX, &w.CoordY, &w.SpectralClass, &w.Temperature, &w.CreatedAt, &w.UpdatedAt)
+		w, err := scanWorld(rows)
 		if err != nil {
 			return nil, err
 		}
-		worlds = append(worlds, &w)
+		worlds = append(worlds, w)
 	}
 	return worlds, nil
 }
@@ -83,7 +110,7 @@ func (r *WorldRepository) GetAllPaginated(page, limit int, search string) ([]*mo
 		return nil, 0, err
 	}
 
-	query := `SELECT id, name, coord_x, coord_y, spectral_class, temperature, created_at, updated_at FROM worlds`
+	query := `SELECT ` + worldColumns + ` FROM worlds`
 	if search != "" {
 		query += ` WHERE name ILIKE $` + string(rune(48+argIdx))
 		argIdx++
@@ -99,12 +126,11 @@ func (r *WorldRepository) GetAllPaginated(page, limit int, search string) ([]*mo
 
 	var worlds []*models.World
 	for rows.Next() {
-		var w models.World
-		err := rows.Scan(&w.ID, &w.Name, &w.CoordX, &w.CoordY, &w.SpectralClass, &w.Temperature, &w.CreatedAt, &w.UpdatedAt)
+		w, err := scanWorld(rows)
 		if err != nil {
 			return nil, 0, err
 		}
-		worlds = append(worlds, &w)
+		worlds = append(worlds, w)
 	}
 	return worlds, total, nil
 }

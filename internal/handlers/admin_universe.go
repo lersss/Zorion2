@@ -96,6 +96,38 @@ func assignCurrentWorldsTx(ctx context.Context, tx *sql.Tx) error {
 	return nil
 }
 
+// worldInsertValues — значения INSERT мира для spectral_class, stellar_mods
+// и stellar_mass.
+//
+// spectral_class: экзотика пишет NULL (99.2.4 §3), а не пустую строку.
+// stellar_mods: ВСЕГДА валидный JSONB — для пустых модификаторов "{}",
+// а не nil: lib/pq передаёт []byte(nil) как '' → "invalid input syntax for
+// type json" (баг #1, прогон @tester). Другие пути вставки worlds
+// (admin_hypothesis.go, world_repository.go, admin_worlds.go) колонку не
+// пишут — там дефолт NULL, не затронуты.
+// stellar_mass: NULL, если масса не сгенерирована (29a §4м).
+func worldInsertValues(w *models.World) (spectralClass interface{}, modsJSON []byte, stellarMass interface{}) {
+	if w.SpectralClass == "" {
+		spectralClass = nil
+	} else {
+		spectralClass = w.SpectralClass
+	}
+	if w.StellarMods == nil {
+		modsJSON = []byte("{}")
+	} else {
+		modsJSON, _ = json.Marshal(w.StellarMods)
+		if len(modsJSON) == 0 {
+			modsJSON = []byte("{}")
+		}
+	}
+	if w.StellarMass != nil {
+		stellarMass = *w.StellarMass
+	} else {
+		stellarMass = nil
+	}
+	return spectralClass, modsJSON, stellarMass
+}
+
 // insertRegionsTx — сохраняет регионы в уже начатой транзакции.
 func insertRegionsTx(ctx context.Context, tx *sql.Tx, regions []*models.Region) error {
 	if len(regions) == 0 {
@@ -161,6 +193,13 @@ func (h *AdminHandlers) GenerateUniverse(w http.ResponseWriter, r *http.Request)
 	log.Printf("🌌 GenerateUniverse: mapSize=%.1f, minDist=%.1f, clusterRadius=%.1f, clusterSpacing=%.1f, outlierPercent=%d%%, shape=%q",
 		req.MapSize, req.MinDist, req.ClusterRadius, req.ClusterSpacing, req.OutlierPercent, req.Shape)
 
+	// Взаимная блокировка: не стартуем, пока крутится пересчёт планет
+	// (джобы пишут в одни таблицы и не знают о соседе, AGENTS.md §23).
+	if statusManager.IsRunning(generator.JobRegeneratePlanets) {
+		http.Error(w, "Generation already running", http.StatusConflict)
+		return
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 
 	if !statusManager.TryStart(generator.JobGenerateUniverse, req.WorldCount, cancel) {
@@ -190,7 +229,17 @@ func (h *AdminHandlers) GenerateUniverse(w http.ResponseWriter, r *http.Request)
 			WorldSpread:    20.0,
 			Shape:          req.Shape,
 		}
-		gen := galaxy.NewGenerator(&cfg)
+		// Веса из generation_config (99.2.3 §4.4): дефолты, если в БД пусто.
+		weights := galaxy.DefaultWeights()
+		massRanges := galaxy.DefaultStellarMassRanges()
+		if loaded, err := h.loadGenerationConfig(); err == nil {
+			weights = loaded.StarWeights
+			if len(loaded.StellarMassRanges) > 0 {
+				massRanges = loaded.StellarMassRanges
+			}
+		}
+		gen := galaxy.NewGeneratorWithWeights(&cfg, weights)
+		gen.SetMassRanges(massRanges)
 		result := gen.GenerateGalaxyWithRegions()
 		worlds := result.Worlds
 		log.Printf("✅ Generated %d worlds, %d regions", len(worlds), len(result.Regions))
@@ -210,8 +259,8 @@ func (h *AdminHandlers) GenerateUniverse(w http.ResponseWriter, r *http.Request)
 		}
 
 		stmt, err := tx.PrepareContext(ctx, `
-			INSERT INTO worlds (id, name, coord_x, coord_y, spectral_class, temperature, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			INSERT INTO worlds (id, name, coord_x, coord_y, spectral_class, temperature, star_type, system_type, stellar_mods, stellar_mass, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		`)
 		if err != nil {
 			log.Printf("❌ GenerateUniverse: failed to prepare statement: %v", err)
@@ -228,9 +277,12 @@ func (h *AdminHandlers) GenerateUniverse(w http.ResponseWriter, r *http.Request)
 				return
 			default:
 			}
+			spectralClass, modsJSON, stellarMass := worldInsertValues(world)
 			if _, err := stmt.ExecContext(ctx,
 				world.ID, world.Name, world.CoordX, world.CoordY,
-				world.SpectralClass, world.Temperature,
+				spectralClass, world.Temperature,
+				world.StarType, world.SystemType,
+				modsJSON, stellarMass,
 				world.CreatedAt, world.UpdatedAt,
 			); err != nil {
 				log.Printf("❌ GenerateUniverse: failed to insert world %s: %v", world.ID, err)
@@ -261,6 +313,11 @@ func (h *AdminHandlers) GenerateUniverse(w http.ResponseWriter, r *http.Request)
 		statusManager.Done(generator.JobGenerateUniverse)
 		h.recomputePlanetStats()
 		h.mapCache.LoadAsync(h.db)
+		// TRUNCATE npc_agents (clearUniverseTx) — агентов больше нет: позиции
+		// и кэш агентов сбросить сразу (идея 26c A2, как ClearAllAgents).
+		if h.npcManager != nil {
+			h.npcManager.OnAgentsDeleted()
+		}
 	}()
 
 	w.WriteHeader(http.StatusAccepted)
@@ -285,6 +342,13 @@ func (h *AdminHandlers) GeneratePlanets(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Взаимная блокировка: не стартуем, пока крутится пересчёт планет
+	// (джобы пишут в одни таблицы и не знают о соседе, AGENTS.md §23).
+	if statusManager.IsRunning(generator.JobRegeneratePlanets) {
+		http.Error(w, "Generation already running", http.StatusConflict)
+		return
+	}
+
 	_, cancel := context.WithCancel(context.Background())
 	if !statusManager.TryStart(generator.JobGeneratePlanets, len(worlds), cancel) {
 		cancel()
@@ -298,7 +362,8 @@ func (h *AdminHandlers) GeneratePlanets(w http.ResponseWriter, r *http.Request) 
 	h.invalidatePlanetStats()
 
 	// Конвертируем []*models.World в []planet.WorldInfo — лёгкий тип,
-	// чтобы генератор не зависел от models.
+	// чтобы генератор не зависел от models. Экзотические типы и модификаторы
+	// несутся в WorldInfo для ветки generateExoticPlanet (99.2.4 §5.3).
 	worldInfos := make([]planet.WorldInfo, 0, len(worlds))
 	for _, w := range worlds {
 		worldInfos = append(worldInfos, planet.WorldInfo{
@@ -306,6 +371,9 @@ func (h *AdminHandlers) GeneratePlanets(w http.ResponseWriter, r *http.Request) 
 			Name:          w.Name,
 			SpectralClass: w.SpectralClass,
 			Temperature:   w.Temperature,
+			StarType:      w.StarType,
+			SystemType:    w.SystemType,
+			Mods:          w.StellarMods,
 		})
 	}
 
@@ -332,6 +400,11 @@ func (h *AdminHandlers) GeneratePlanets(w http.ResponseWriter, r *http.Request) 
 		log.Printf("🗑️ GeneratePlanets: удалено старых планет: %d", oldCount)
 
 		planetGen := planet.NewGenerator(h.db, 0)
+
+		// Средние числа планет из generation_config (99.2.3 §4.3): дефолты, если пусто.
+		if loaded, err := h.loadGenerationConfig(); err == nil {
+			planetGen.SetMeans(loaded.PlanetMeans)
+		}
 
 		progressFn := func(processed int) {
 			statusManager.Progress(generator.JobGeneratePlanets, processed)
@@ -549,7 +622,8 @@ func (h *AdminHandlers) GenerateStatus(w http.ResponseWriter, r *http.Request) {
 // FK от users снимается на время операции и возвращается назад.
 func (h *AdminHandlers) ClearUniverse(w http.ResponseWriter, r *http.Request) {
 	if statusManager.IsRunning(generator.JobGenerateUniverse) ||
-		statusManager.IsRunning(generator.JobGeneratePlanets) {
+		statusManager.IsRunning(generator.JobGeneratePlanets) ||
+		statusManager.IsRunning(generator.JobRegeneratePlanets) {
 		http.Error(w, "Generation is running, cancel it first", http.StatusConflict)
 		return
 	}
@@ -589,6 +663,11 @@ func (h *AdminHandlers) ClearUniverse(w http.ResponseWriter, r *http.Request) {
 	log.Printf("✅ ClearUniverse: очищено за %v (users=%d)", time.Since(tStart).Round(time.Millisecond), usersAfter)
 	h.invalidatePlanetStats()
 	h.mapCache.LoadAsync(h.db)
+	// TRUNCATE npc_agents — агентов больше нет: позиции и кэш агентов
+	// сбросить сразу (идея 26c A2, как ClearAllAgents).
+	if h.npcManager != nil {
+		h.npcManager.OnAgentsDeleted()
+	}
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`{"status":"cleared"}`))
 }

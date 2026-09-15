@@ -16,6 +16,12 @@ type Planet struct {
 	Type            string `json:"type"`             // для обратной совместимости
 	SurfaceDominant string `json:"surface_dominant"` // доминирующая форма
 
+	// Орбитальный контекст (35b §2.2): вокруг чего обращается планета.
+	// Заполняется из planets.data; старые миры без ключа — "main" (фолбэк §2.4).
+	OrbitCenter    string  `json:"orbit_center"`     // main / barycenter
+	OrbitRadiusAU  float64 `json:"orbit_radius_au"`  // фактический радиус, а.е. (S: orbitRadiusByIndex; P: 3×sep)
+	Circumbinary   bool    `json:"circumbinary"`     // P-планета вокруг барицентра пары
+
 	// Физика
 	Size         float64 `json:"size"`          // радиус, в земных
 	Mass         float64 `json:"mass"`          // масса, в земных

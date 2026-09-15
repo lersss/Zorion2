@@ -3,7 +3,7 @@ import { modalState, resetState } from './state.js';
 import { drawSystem } from './modal_render.js';
 import { initEvents } from './events.js';
 import { clearTextureCache } from './textures.js';
-import { getStarColor, getStarSize } from './utils.js';
+import { getStarColor, getStarSize, starTypeLabel, systemTypeLabel, starModsBadges } from './utils.js';
 import { renderRightPanel, renderStarCard } from './panel.js';
 import { notifyError } from '../ui/toast.js';
 import { repaintPopulationNumbers } from './extrapolate.js';
@@ -164,8 +164,9 @@ function renderModal(worldId, worldName, spectralClass, data) {
     resetState();
 
     const planets = Array.isArray(data && data.planets) ? data.planets : [];
-    const starColor = getStarColor(spectralClass);
-    const starRadius = getStarSize(spectralClass);
+    const starType = (data && data.star_type) || 'star';
+    const starColor = getStarColor(spectralClass, starType);
+    const starRadius = getStarSize(spectralClass, starType);
 
     // Оверлей
     const overlay = document.createElement('div');
@@ -206,7 +207,15 @@ function renderModal(worldId, worldName, spectralClass, data) {
         margin-bottom: 12px;
     `;
     const title = document.createElement('h2');
-    title.textContent = `${worldName} (${spectralClass})`;
+    // Экзотика: спектр NULL — показываем тип объекта («чёрная дыра» и т.п.),
+    // а не пустые скобки (99.2.4 §8). Без суффикса «— тёмная» в заголовке
+    // (решение 29a §4м): температура 0 K остаётся фактом в данных, пометка не нужна.
+    let titleText = `${worldName} (${spectralClass || '—'})`;
+    if (starType && starType !== 'star') {
+        const tLabel = starTypeLabel(starType);
+        titleText = `${worldName} (${tLabel || starType})`;
+    }
+    title.textContent = titleText;
     title.style.cssText = `
         margin: 0;
         font-size: 1.5rem;
@@ -227,6 +236,36 @@ function renderModal(worldId, worldName, spectralClass, data) {
     header.appendChild(closeBtn);
     modal.appendChild(header);
 
+    // Блок «Тип системы» + «Тип объекта» + модификаторы (99.2.4 §8).
+    const infoLine = document.createElement('div');
+    infoLine.style.cssText = `
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 10px;
+        font-size: 0.8rem;
+    `;
+    const chips = [];
+    const sysLabel = systemTypeLabel(data && data.system_type);
+    if (sysLabel) chips.push(`тип системы: ${sysLabel}`);
+    if (starType && starType !== 'star') {
+        chips.push(`тип объекта: ${starTypeLabel(starType) || starType}`);
+    }
+    starModsBadges(data && data.stellar_mods).forEach(b => chips.push(b));
+    chips.forEach(text => {
+        const chip = document.createElement('span');
+        chip.textContent = text;
+        chip.style.cssText = `
+            background: rgba(148,163,184,0.12);
+            border: 1px solid rgba(148,163,184,0.25);
+            border-radius: 10px;
+            padding: 2px 8px;
+            color: #cbd5e1;
+        `;
+        infoLine.appendChild(chip);
+    });
+    if (infoLine.children.length) modal.appendChild(infoLine);
+
     // Контент
     const content = document.createElement('div');
     content.style.cssText = `
@@ -239,7 +278,7 @@ function renderModal(worldId, worldName, spectralClass, data) {
     // Canvas
     const canvasWrapper = document.createElement('div');
     canvasWrapper.style.cssText = `
-        flex: 2;
+        flex: 1;
         min-width: 0;
         background: #0d0d1a;
         border-radius: 12px;
@@ -295,12 +334,25 @@ function renderModal(worldId, worldName, spectralClass, data) {
     modalState.canvasHeight = height;
     modalState.starRadius = starRadius;
     modalState.starColor = starColor;
+    modalState.systemType = (data && data.system_type) || 'single';
+    const mods = (data && data.stellar_mods) || {};
+    modalState.binaryType = mods.binary_type || '';
+    modalState.companion = mods.companion || '';
+    modalState.companionColor = getStarColor(mods.companion, 'star');
+    // Параметры компаньона (35b §6.6): масса/температура/разделение пары,
+    // внешние компаньоны кратных. Старые миры — поля отсутствуют → null/[].
+    modalState.companionMass = (typeof mods.companion_mass === 'number') ? mods.companion_mass : null;
+    modalState.companionTemp = (typeof mods.companion_temp === 'number') ? mods.companion_temp : null;
+    modalState.companionSepAU = (typeof mods.companion_sep_au === 'number') ? mods.companion_sep_au : null;
+    modalState.extraCompanions = Array.isArray(mods.extra_companions) ? mods.extra_companions : [];
     modalState.canvas = canvas;
     modalState.canvasWrapper = canvasWrapper;
     modalState.spectralClass = spectralClass;
+    modalState.starType = starType;
     modalState.worldId = worldId;
     modalState.worldName = worldName;
     modalState.worldTemperature = (data && data.temperature) || 0;
+    modalState.stellarMass = (data && data.stellar_mass) || null;
     modalState.worldCoordX = (data && data.coord_x) || 0;
     modalState.worldCoordY = (data && data.coord_y) || 0;
     modalState.selectedPlanetIndex = null;

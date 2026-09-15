@@ -171,10 +171,10 @@ func newBulkHarness(t *testing.T) (*AdminNPCHandlers, *sql.DB, sqlmock.Sqlmock) 
 	t.Cleanup(func() { db.Close() })
 
 	mapCache := mapcache.NewManager()
-	mock.ExpectQuery(`SELECT id, name, coord_x, coord_y, spectral_class, temperature FROM worlds`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "coord_x", "coord_y", "spectral_class", "temperature"}).
-			AddRow("w1", "Alpha", 1.0, 2.0, "G", 5600).
-			AddRow("w2", "Beta", 10.0, 20.0, "O", 42000))
+	mock.ExpectQuery(`SELECT id, name, coord_x, coord_y, COALESCE\(spectral_class,''\), temperature, star_type, system_type, stellar_mods FROM worlds`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "coord_x", "coord_y", "spectral_class", "temperature", "star_type", "system_type", "stellar_mods"}).
+			AddRow("w1", "Alpha", 1.0, 2.0, "G", 5600, "star", "single", nil).
+			AddRow("w2", "Beta", 10.0, 20.0, "O", 42000, "star", "single", nil))
 	mock.ExpectQuery(`SELECT p.world_id, p.data->>'life', p.data->>'type', p.data->'resources'`).
 		WillReturnRows(sqlmock.NewRows([]string{"world_id", "life", "type", "resources", "settled"}))
 	require.NoError(t, mapCache.LoadAndSwap(context.Background(), db))
@@ -192,11 +192,11 @@ func newBulkHarness(t *testing.T) (*AdminNPCHandlers, *sql.DB, sqlmock.Sqlmock) 
 func TestAdminNPCCreateWithStartWorld(t *testing.T) {
 	h, mock := newAdminNPCHarness(t)
 
-	mock.ExpectQuery(`SELECT id, name, coord_x, coord_y, spectral_class, temperature, created_at, updated_at FROM worlds WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, name, coord_x, coord_y, COALESCE\(spectral_class,''\), temperature, star_type, system_type, stellar_mods, stellar_mass, created_at, updated_at FROM worlds WHERE id = \$1`).
 		WithArgs("22222222-2222-2222-2222-222222222222").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "coord_x", "coord_y", "spectral_class", "temperature", "created_at", "updated_at",
-		}).AddRow("22222222-2222-2222-2222-222222222222", "Sirius", 0, 0, "A", 10000, now(), now()))
+			"id", "name", "coord_x", "coord_y", "spectral_class", "temperature", "star_type", "system_type", "stellar_mods", "stellar_mass", "created_at", "updated_at",
+		}).AddRow("22222222-2222-2222-2222-222222222222", "Sirius", 0, 0, "A", 10000, "star", "single", nil, nil, now(), now()))
 	mock.ExpectExec(`INSERT INTO npc_agents \(id, name, status, current_world_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at\) VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, \$9, \$10, NOW\(\), NOW\(\)\)`).
 		WithArgs(sqlmock.AnyArg(), "Наблюдатель-1", "idle", "22222222-2222-2222-2222-222222222222", nil, nil, nil, nil, false, nil).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -212,6 +212,7 @@ func TestAdminNPCCreateWithStartWorld(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, "idle", resp.Status, "создание ставит агента в idle (спека §8)")
+	require.True(t, h.manager.IsAgentsDirty(), "одиночное создание инвалидирует кэш агентов (идея 26c A2)")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -234,10 +235,10 @@ func TestAdminNPCCreateInvalidWorldID(t *testing.T) {
 func TestAdminNPCCreateWorldNotFound(t *testing.T) {
 	h, mock := newAdminNPCHarness(t)
 
-	mock.ExpectQuery(`SELECT id, name, coord_x, coord_y, spectral_class, temperature, created_at, updated_at FROM worlds WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, name, coord_x, coord_y, COALESCE\(spectral_class,''\), temperature, star_type, system_type, stellar_mods, stellar_mass, created_at, updated_at FROM worlds WHERE id = \$1`).
 		WithArgs("22222222-2222-2222-2222-222222222222").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "coord_x", "coord_y", "spectral_class", "temperature", "created_at", "updated_at",
+			"id", "name", "coord_x", "coord_y", "spectral_class", "temperature", "star_type", "system_type", "stellar_mods", "stellar_mass", "created_at", "updated_at",
 		}))
 
 	body := `{"name":"A","start_world_id":"22222222-2222-2222-2222-222222222222"}`
@@ -267,6 +268,7 @@ func TestAdminNPCDeleteSuccess(t *testing.T) {
 	req := httptest.NewRequest(http.MethodDelete, "/admin/npc/"+agentID, nil)
 	rec := execJSON(h.HandleObject, req)
 	require.Equal(t, http.StatusNoContent, rec.Code)
+	require.True(t, h.manager.IsAgentsDirty(), "одиночное удаление инвалидирует кэш агентов (идея 26c A2)")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -316,6 +318,7 @@ func TestAdminNPCPatchSuccess(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, "Новое имя", resp.Name)
 	require.False(t, resp.NotifyEnabled)
+	require.True(t, h.manager.IsAgentsDirty(), "PATCH (имя/пуши) инвалидирует кэш агентов — имя видно на карте (идея 26c A2)")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -412,6 +415,7 @@ func TestAdminNPCGenerateSuccess(t *testing.T) {
 	require.Equal(t, "done", status, "джоб должен завершиться успешно")
 	_, _, _, _, report := statusManager.GetStatus(generator.JobGenerateNPC)
 	require.Contains(t, report, "Создано агентов: 1")
+	require.True(t, h.manager.IsAgentsDirty(), "массовая генерация инвалидирует кэш агентов (идея 26c A2)")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -569,6 +573,7 @@ func TestAdminNPCClearAllSuccess(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, int64(7), resp.Deleted)
+	require.True(t, h.manager.IsAgentsDirty(), "массовое удаление инвалидирует кэш агентов (идея 26c A2)")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

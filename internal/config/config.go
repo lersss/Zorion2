@@ -16,6 +16,7 @@ type Config struct {
 	JWTSecret                    string
 	SkycomposerBootstrapUsername string
 	SkycomposerBootstrapPassword string
+	BalancerPresetsFile          string
 }
 
 func Load() *Config {
@@ -55,6 +56,14 @@ func Load() *Config {
 	skyUsername := os.Getenv("SKYCOMPOSER_BOOTSTRAP_USERNAME")
 	skyPassword := os.Getenv("SKYCOMPOSER_BOOTSTRAP_PASSWORD")
 
+	// Путь к JSON-файлу пресетов кривых балансировщика (спека 99.2.17 §5/§8):
+	// дефолт config/balancer_presets.json (папка конфигов проекта, файл в git);
+	// env необязательна — страховка на прод, где config/ может быть read-only.
+	pfile := os.Getenv("BALANCER_PRESETS_FILE")
+	if pfile == "" {
+		pfile = "config/balancer_presets.json"
+	}
+
 	return &Config{
 		ServerPort:                   port,
 		DBURL:                        dbURL,
@@ -63,5 +72,6 @@ func Load() *Config {
 		JWTSecret:                    jwtSecret,
 		SkycomposerBootstrapUsername: skyUsername,
 		SkycomposerBootstrapPassword: skyPassword,
+		BalancerPresetsFile:          pfile,
 	}
 }

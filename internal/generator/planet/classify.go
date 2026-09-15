@@ -15,6 +15,7 @@ const (
 	TypeMetal       = "металлическая"
 	TypeOrganic     = "органик"
 	TypeRocky       = "скалистая (базовая)"
+	TypeDead        = "мёртвая" // планеты экзотических объектов (99.2.4 §5.3)
 )
 
 // AllGameDesignTypes — все возможные типы (для UI, фильтров, статистики).
@@ -30,6 +31,7 @@ var AllGameDesignTypes = []string{
 	TypeRocky,
 	TypeRadioactive,
 	TypeGasGiant,
+	TypeDead,
 }
 
 // ==================== ПОРОГИ ====================

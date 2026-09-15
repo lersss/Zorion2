@@ -1,7 +1,7 @@
 // web/static/js/modal/events.js
 import { modalState } from './state.js';
 import { drawSystem } from './modal_render.js';
-import { computeLayout, getOrbitRadius, getPlanetAngle, getPlanetSize } from './layout.js';
+import { computeLayout, getOrbitRadius, getPlanetAngle, getPlanetSize, planetOrbitCenter } from './layout.js';
 import { closeModal } from './index.js';
 
 export function initEvents(canvas, spectralClass, planets, starRadius, starColor, width, height) {
@@ -16,14 +16,16 @@ export function initEvents(canvas, spectralClass, planets, starRadius, starColor
         const orbitRadius = getOrbitRadius(layout, p, idx);
         const angle = getPlanetAngle(p, orbitRadius, idx, getAnimTime());
         const radius = getPlanetSize(p, layout.sizeMultiplier);
-        const px = layout.cx + orbitRadius * Math.cos(angle);
-        const py = layout.cy + orbitRadius * Math.sin(angle);
+        const center = planetOrbitCenter(layout, p);
+        const px = center.x + orbitRadius * Math.cos(angle);
+        const py = center.y + orbitRadius * Math.sin(angle);
         return { px, py, radius, finalStarRadius: layout.finalStarRadius };
     }
 
     function hitTest(worldX, worldY) {
         const layout = computeLayout(planets, starRadius, width, height);
-        const distToStar = Math.hypot(worldX - layout.cx, worldY - layout.cy);
+        // Звезда — по позиции главной (в тесной паре она смещена от барицентра).
+        const distToStar = Math.hypot(worldX - layout.mainX, worldY - layout.mainY);
         if (distToStar < layout.finalStarRadius + 8) return 'star';
 
         for (let idx = 0; idx < planets.length; idx++) {

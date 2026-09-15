@@ -40,11 +40,12 @@ func TestProjectionGuardZero(t *testing.T) {
 	}
 }
 
-// Контрольная точка: комфорт по всем факторам (288–303 K, 1 g, rad ≤ 20) —
-// только естественная компонента (TestTotalRSum в change_components_test.go).
-func TestComfortTotalIsNaturalOnly(t *testing.T) {
+// Контрольная точка: комфорт по всем факторам (303.15 K, 1 g, rad ≤ 20) —
+// только естественная пара (99.2.16): рождаемость минус смертность, нетто
+// −NCR (рост при дефолте k=2) — прежнее «+NCR» пересмотрено.
+func TestComfortTotalIsNettoNatural(t *testing.T) {
 	input := PlanetInput{TemperatureK: 303.15, GravityG: 1.0, CoreRadioactivity: 20}
-	if got := ChangeComponents(input); math.Abs(got-NaturalChangeRate) > 1e-12 {
-		t.Errorf("комфорт по всем факторам: r = %v, хочу R_ест %v", got, NaturalChangeRate)
+	if got := ChangeComponents(input); math.Abs(got+NaturalChangeRate()) > 1e-12 {
+		t.Errorf("комфорт по всем факторам: r = %v, хочу −R_ест %v", got, NaturalChangeRate())
 	}
 }

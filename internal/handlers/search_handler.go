@@ -167,7 +167,7 @@ func searchWorldsByName(ctx context.Context, db *sql.DB, name string, limit int)
 		return nil, nil
 	}
 	rows, err := db.QueryContext(ctx, `
-		SELECT id, name, spectral_class, coord_x, coord_y
+		SELECT id, name, COALESCE(spectral_class,''), coord_x, coord_y
 		FROM worlds
 		WHERE LOWER(name) = $1
 		ORDER BY name
@@ -198,7 +198,7 @@ func searchPlanetsByName(ctx context.Context, db *sql.DB, name string, limit int
 		return nil, nil
 	}
 	rows, err := db.QueryContext(ctx, `
-		SELECT p.id, p.name, p.world_id, w.name, w.spectral_class, w.coord_x, w.coord_y,
+		SELECT p.id, p.name, p.world_id, w.name, COALESCE(w.spectral_class,''), w.coord_x, w.coord_y,
 		       COALESCE(p.data->>'type', '')
 		FROM planets p
 		JOIN worlds w ON w.id = p.world_id
@@ -229,7 +229,7 @@ func searchSatellitesByName(ctx context.Context, db *sql.DB, name string, limit 
 		return nil, nil
 	}
 	rows, err := db.QueryContext(ctx, `
-		SELECT sat->>'id', sat->>'name', p.id, p.world_id, w.name, w.spectral_class, w.coord_x, w.coord_y
+		SELECT sat->>'id', sat->>'name', p.id, p.world_id, w.name, COALESCE(w.spectral_class,''), w.coord_x, w.coord_y
 		FROM planets p
 		JOIN worlds w ON w.id = p.world_id
 		CROSS JOIN LATERAL jsonb_array_elements(p.data->'satellites') AS sat

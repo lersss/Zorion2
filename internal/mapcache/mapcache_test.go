@@ -220,10 +220,12 @@ func TestLoadAndSwap(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectQuery(`
-		SELECT id, name, coord_x, coord_y, spectral_class, temperature FROM worlds
-	`).WillReturnRows(sqlmock.NewRows([]string{"id", "name", "coord_x", "coord_y", "spectral_class", "temperature"}).
-		AddRow("w1", "Alpha", 1.0, 2.0, "G", 5600).
-		AddRow("w2", "Beta", 10.0, 20.0, "O", 42000))
+		SELECT id, name, coord_x, coord_y, COALESCE(spectral_class,''),
+		       temperature, star_type, system_type, stellar_mods
+		FROM worlds
+	`).WillReturnRows(sqlmock.NewRows([]string{"id", "name", "coord_x", "coord_y", "spectral_class", "temperature", "star_type", "system_type", "stellar_mods"}).
+		AddRow("w1", "Alpha", 1.0, 2.0, "G", 5600, "star", "single", nil).
+		AddRow("w2", "Beta", 10.0, 20.0, "O", 42000, "star", "single", nil))
 
 	mock.ExpectQuery(`
 		SELECT p.world_id, p.data->>'life', p.data->>'type', p.data->'resources',
@@ -264,12 +266,79 @@ func TestLoadAndSwap(t *testing.T) {
 	assert.NotZero(t, w1.Resources&resourceBit("water"))
 	assert.Zero(t, w1.Resources&resourceBit("mineral"))
 
+	// Экзотические типы из снапшота (99.2.4 §8): дефолты star/single.
+	assert.Equal(t, "star", w1.StarType)
+	assert.Equal(t, "single", w1.SystemType)
+	assert.Equal(t, "star", w2.StarType)
+	assert.Equal(t, "single", w2.SystemType)
+
 	// w2 имеет планету (строка присутствует), но все поля пусты.
 	assert.True(t, w2.HasPlanets)
 	assert.False(t, w2.HasLife)
 	assert.False(t, w2.HasHabitable)
 	assert.Nil(t, w2.PlanetTypes)
 	assert.Zero(t, w2.Resources)
+}
+
+// TestQuerySingleCarriesStellarMods — точка одиночного мира (cnt=1) несёт
+// stellar_mods (35b §6.4): фронт красит точки-компаньоны по спектрам.
+func TestQuerySingleCarriesStellarMods(t *testing.T) {
+	worlds := []World{
+		{
+			ID: "b1", Name: "Bin", X: 1, Y: 1, Spectral: "G", Temp: 5600,
+			StarType: "star", SystemType: "binary",
+			StellarMods: map[string]interface{}{
+				"companion": "M",
+			},
+		},
+		{ID: "s1", Name: "Single", X: 11, Y: 1, Spectral: "K", Temp: 4500},
+	}
+	res := newSnapshot(worlds...).Query(-100, 100, -100, 100, 10, Filter{})
+	require.Len(t, res, 2)
+
+	var single Cluster
+	for _, c := range res {
+		if c.SampleID == "b1" {
+			single = c
+		}
+	}
+	require.NotEmpty(t, single.SampleID, "двойная — разреженная ячейка, отдельная точка")
+	require.NotNil(t, single.SampleStellarMods, "модификаторы двойной приезжают в точку карты")
+	assert.Equal(t, "M", single.SampleStellarMods["companion"])
+}
+
+// TestLoadAndSwapExoticWorld — экзотический мир (ЧД) попадает в снапшот
+// с типом объекта и модификаторами; NULL-спектр не роняет строку.
+func TestLoadAndSwapExoticWorld(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectQuery(`
+		SELECT id, name, coord_x, coord_y, COALESCE(spectral_class,''),
+		       temperature, star_type, system_type, stellar_mods
+		FROM worlds
+	`).WillReturnRows(sqlmock.NewRows([]string{"id", "name", "coord_x", "coord_y", "spectral_class", "temperature", "star_type", "system_type", "stellar_mods"}).
+		AddRow("bh1", "ЧД-1", 5.0, 5.0, "", 0, "black_hole", "single", []byte(`{"subtype":"accretion","disk_state":"accretion"}`)))
+
+	mock.ExpectQuery(`
+		SELECT p.world_id, p.data->>'life', p.data->>'type', p.data->'resources',
+		       EXISTS(SELECT 1 FROM settlements s WHERE s.planet_id = p.id)
+		FROM planets p
+	`).WillReturnRows(sqlmock.NewRows([]string{"world_id", "life", "type", "resources", "settled"}))
+
+	m := NewManager()
+	require.NoError(t, m.LoadAndSwap(context.Background(), db))
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	worlds := m.Snapshot().Worlds()
+	require.Len(t, worlds, 1)
+	assert.Equal(t, "black_hole", worlds[0].StarType)
+	assert.Equal(t, "single", worlds[0].SystemType)
+	assert.Empty(t, worlds[0].Spectral, "NULL-спектр экзотики → пусто")
+	assert.Zero(t, worlds[0].Temp, "ЧД «тёмная»: T=0")
+	require.NotNil(t, worlds[0].StellarMods, "модификаторы грузятся из stellar_mods")
+	assert.Equal(t, "accretion", worlds[0].StellarMods["subtype"])
 }
 
 // TestLoadAndSwapError — при ошибке загрузки старый снапшот остаётся в силе.
@@ -279,7 +348,9 @@ func TestLoadAndSwapError(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectQuery(`
-		SELECT id, name, coord_x, coord_y, spectral_class, temperature FROM worlds
+		SELECT id, name, coord_x, coord_y, COALESCE(spectral_class,''),
+		       temperature, star_type, system_type, stellar_mods
+		FROM worlds
 	`).WillReturnError(assert.AnError)
 
 	m := NewManager()

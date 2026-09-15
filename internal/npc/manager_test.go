@@ -22,13 +22,14 @@ var errTest = errors.New("test error")
 // fakeStore — хранилище агентов в памяти с семантикой курсорных выборок
 // репозитория (ListDueArrivals/ListBatch фильтруют по id > after и limit).
 type fakeStore struct {
-	agents     []models.NPCAgent
-	idleCalls  int
-	dueCalls   int
-	updateBat  int
-	panic      bool // паника в ListDueArrivals (тест recover)
-	dueError   bool // ошибка в ListDueArrivals (мягкая деградация)
-	updateErr  bool
+	agents       []models.NPCAgent
+	idleCalls    int
+	dueCalls     int
+	updateBat    int
+	listAllCalls int // вызовы ListAll (идея 26c A2: кэш загружается один раз, не на тик)
+	panic        bool // паника в ListDueArrivals (тест recover)
+	dueError     bool // ошибка в ListDueArrivals (мягкая деградация)
+	updateErr    bool
 }
 
 func (f *fakeStore) ListDueArrivals(now time.Time, after string, limit int) ([]models.NPCAgent, error) {
@@ -87,8 +88,12 @@ func (f *fakeStore) UpdateStatusBatch(updates []models.AgentStatusUpdate) error 
 			f.agents[i].LastObservedAt = u.LastObservedAt
 		case models.NPCAgentStatusFlying: // старт
 			f.agents[i].Status = models.NPCAgentStatusFlying
-			f.agents[i].FromWorldID = &u.FromWorldID
-			f.agents[i].TargetWorldID = &u.TargetWorldID
+			// Локальные копии — та же защита от алиасинга переменной цикла
+			// (go 1.21), что и в инкременте кэша manager.go (фикс ревью 26c A2).
+			from := u.FromWorldID
+			target := u.TargetWorldID
+			f.agents[i].FromWorldID = &from
+			f.agents[i].TargetWorldID = &target
 			f.agents[i].DepartAt = u.DepartAt
 			f.agents[i].ArriveAt = u.ArriveAt
 		}
@@ -96,7 +101,10 @@ func (f *fakeStore) UpdateStatusBatch(updates []models.AgentStatusUpdate) error 
 	return nil
 }
 
-func (f *fakeStore) ListAll() ([]models.NPCAgent, error) { return f.agents, nil }
+func (f *fakeStore) ListAll() ([]models.NPCAgent, error) {
+	f.listAllCalls++
+	return f.agents, nil
+}
 
 // fakeWorlds — WorldSource без снапшота (grid подкладывается в тесте).
 type fakeWorlds struct{}
@@ -375,11 +383,181 @@ func TestManagerRandomWorlds(t *testing.T) {
 	}
 }
 
+// ==================== КЭШ ПОЗИЦИЙ (идея 26c A2) ====================
+
+// (а) Стартовая загрузка кэша: первый тик делает ОДИН ListAll, позиции
+// интерполируются из кэша (ListAll из тика ушёл).
+func TestManagerCacheLoadsOnFirstTick(t *testing.T) {
+	grid := buildGrid([]mapcache.World{{ID: "w1", X: 0, Y: 0}, {ID: "w2", X: 100, Y: 0}})
+	depart := time.Now().Add(-50 * time.Second)
+	arrive := time.Now().Add(50 * time.Second)
+	store := &fakeStore{agents: []models.NPCAgent{
+		{ID: "a1", Name: "A", Status: models.NPCAgentStatusFlying, CurrentWorldID: "w1",
+			FromWorldID: ptrStr("w1"), TargetWorldID: ptrStr("w2"),
+			DepartAt: &depart, ArriveAt: &arrive},
+	}}
+	m := newTestManager(store)
+	m.gridPtr.Store(grid)
+
+	require.Nil(t, m.agentCache, "кэш пуст до первого тика")
+	require.Equal(t, 0, store.listAllCalls, "ListAll не вызывается до тика")
+
+	m.tick()
+
+	require.Equal(t, 1, store.listAllCalls, "первый тик загружает кэш одним ListAll")
+	require.Contains(t, m.agentCache, "a1")
+	pos := m.Positions()
+	require.Len(t, pos, 1)
+	require.Equal(t, "a1", pos[0].ID)
+	require.InDelta(t, 50.0, pos[0].X, 0.5, "позиция интерполируется из кэша (середина пути)")
+}
+
+// (б) Инкрементальное обновление кэша при прибытии: idle в мире цели,
+// кортеж полёта сброшен (позиция = координаты current_world_id). Бюджет 1 —
+// весь уходит на прибытие, стартов нет (a1 не перезахватывается).
+func TestManagerCacheArrivalUpdatesCache(t *testing.T) {
+	grid := buildGrid([]mapcache.World{{ID: "w1", X: 0, Y: 0}, {ID: "w2", X: 100, Y: 0}})
+	depart := time.Now().Add(-50 * time.Second)
+	store := &fakeStore{agents: []models.NPCAgent{
+		{ID: "a1", Name: "A", Status: models.NPCAgentStatusFlying, CurrentWorldID: "w1",
+			FromWorldID: ptrStr("w1"), TargetWorldID: ptrStr("w2"),
+			DepartAt: &depart, ArriveAt: ptrTime(time.Now().Add(-time.Second))},
+	}}
+	m := newTestManager(store)
+	m.gridPtr.Store(grid)
+	m.settings.SetBatchSize(1)
+
+	m.tick()
+
+	require.Equal(t, 1, store.listAllCalls, "загрузка кэша — один ListAll, дальше инкремент")
+
+	a1 := m.agentCache["a1"]
+	require.Equal(t, models.NPCAgentStatusIdle, a1.Status, "прибытие обновило кэш без ListAll")
+	require.Equal(t, "w2", a1.CurrentWorldID, "цель полёта становится текущим миром")
+	require.Nil(t, a1.FromWorldID, "кортеж полёта сброшен — статус idle")
+	require.Nil(t, a1.TargetWorldID)
+	require.Nil(t, a1.DepartAt)
+	require.Nil(t, a1.ArriveAt)
+
+	pos := m.Positions()
+	require.Len(t, pos, 1)
+	require.InDelta(t, 100.0, pos[0].X, 0.001, "idle — координаты текущего мира (цель полёта)")
+}
+
+// (б) Инкрементальное обновление кэша при старте: flying с кортежем полёта
+// (интерполяция from → target по depart/arrive).
+func TestManagerCacheStartUpdatesCache(t *testing.T) {
+	grid := buildGrid([]mapcache.World{{ID: "w1", X: 0, Y: 0}, {ID: "w2", X: 100, Y: 0}})
+	store := &fakeStore{agents: []models.NPCAgent{
+		{ID: "a2", Name: "B", Status: models.NPCAgentStatusIdle, CurrentWorldID: "w1"},
+	}}
+	m := newTestManager(store)
+	m.gridPtr.Store(grid)
+	m.settings.SetBatchSize(1)
+
+	m.tick()
+
+	require.Equal(t, 1, store.listAllCalls, "загрузка кэша — один ListAll, дальше инкремент")
+
+	a2 := m.agentCache["a2"]
+	require.Equal(t, models.NPCAgentStatusFlying, a2.Status, "старт обновил кэш без ListAll")
+	require.Equal(t, "w1", *a2.FromWorldID)
+	require.Equal(t, "w2", *a2.TargetWorldID)
+	require.NotNil(t, a2.DepartAt)
+	require.NotNil(t, a2.ArriveAt)
+
+	pos := m.Positions()
+	require.Len(t, pos, 1)
+	require.InDelta(t, 0.0, pos[0].X, 1.0, "только стартовал — прогресс ~0, начало пути")
+}
+
+// Регрессия ревью (26c A2): алиасинг переменной цикла при go 1.21 —
+// &u.FromWorldID в инкременте кэша давал бы ВСЕМ стартовавшим в одном тике
+// from/target ПОСЛЕДНЕГО агента батча. Два агента из разных миров стартуют
+// в одном тике: у каждого в кэше и на карте должен быть СВОЙ from.
+func TestManagerStartCacheTuplesPerAgent(t *testing.T) {
+	grid := buildGrid([]mapcache.World{
+		{ID: "w1", X: 0, Y: 0}, {ID: "w2", X: 100, Y: 0}, {ID: "w3", X: 0, Y: 100},
+	})
+	store := &fakeStore{agents: []models.NPCAgent{
+		{ID: "a1", Name: "A", Status: models.NPCAgentStatusIdle, CurrentWorldID: "w1"},
+		{ID: "a2", Name: "B", Status: models.NPCAgentStatusIdle, CurrentWorldID: "w2"},
+	}}
+	m := newTestManager(store)
+	m.gridPtr.Store(grid)
+	m.settings.SetBatchSize(2)
+
+	m.tick() // оба стартуют в одном тике
+
+	a1 := m.agentCache["a1"]
+	a2 := m.agentCache["a2"]
+	require.Equal(t, models.NPCAgentStatusFlying, a1.Status, "a1 стартовал")
+	require.Equal(t, models.NPCAgentStatusFlying, a2.Status, "a2 стартовал")
+
+	// from у каждого — ЕГО стартовый мир, а не последний агент батча.
+	require.Equal(t, "w1", *a1.FromWorldID, "a1 летит из w1 — свой кортеж")
+	require.Equal(t, "w2", *a2.FromWorldID, "a2 летит из w2 — свой кортеж")
+	require.NotEqual(t, *a1.FromWorldID, *a2.FromWorldID, "from разных агентов не алиасятся")
+
+	// На карте: стартовавший летит ОТ своего мира (progress ≈ 0 → x = from.x).
+	byID := map[string]InterpolatedPosition{}
+	for _, p := range m.Positions() {
+		byID[p.ID] = p
+	}
+	require.InDelta(t, 0.0, byID["a1"].X, 1.0, "a1 стартовал от w1 (x=0), а не от последнего агента батча")
+	require.InDelta(t, 100.0, byID["a2"].X, 1.0, "a2 стартовал от w2 (x=100)")
+}
+
+// (в) MarkDirty (внешняя мутация — хендлер админки) → следующий тик
+// перезагружает кэш одним ListAll; новые данные видны в позициях.
+func TestManagerMarkDirtyReloadsCache(t *testing.T) {
+	grid := buildGrid([]mapcache.World{{ID: "w1", X: 0, Y: 0}, {ID: "w2", X: 100, Y: 0}})
+	depart := time.Now().Add(-50 * time.Second)
+	arrive := time.Now().Add(50 * time.Second)
+	store := &fakeStore{agents: []models.NPCAgent{
+		{ID: "a1", Name: "A", Status: models.NPCAgentStatusFlying, CurrentWorldID: "w1",
+			FromWorldID: ptrStr("w1"), TargetWorldID: ptrStr("w2"),
+			DepartAt: &depart, ArriveAt: &arrive},
+	}}
+	m := newTestManager(store)
+	m.gridPtr.Store(grid)
+
+	m.tick() // загрузка кэша
+	require.Equal(t, 1, store.listAllCalls)
+	require.Len(t, m.Positions(), 1)
+
+	// Внешняя мутация: a1 удалён, появился a3.
+	store.agents = []models.NPCAgent{
+		{ID: "a3", Name: "C", Status: models.NPCAgentStatusIdle, CurrentWorldID: "w1"},
+	}
+	m.MarkDirty()
+	require.True(t, m.IsAgentsDirty())
+
+	m.tick() // dirty → перезагрузка кэша одним ListAll
+	require.Equal(t, 2, store.listAllCalls, "dirty → ровно один ListAll на перезагрузку")
+	require.NotContains(t, m.agentCache, "a1")
+	require.Contains(t, m.agentCache, "a3")
+	pos := m.Positions()
+	require.Len(t, pos, 1)
+	require.Equal(t, "a3", pos[0].ID, "позиции после перезагрузки — из нового состояния")
+}
+
+// MarkDirty — только atomic-флаг: сам кэш не трогает (И1: единственный
+// писатель состояния агентов — тик; хендлеры — только dirty).
+func TestManagerMarkDirtyFlag(t *testing.T) {
+	m := newTestManager(&fakeStore{})
+
+	require.False(t, m.IsAgentsDirty())
+	m.MarkDirty()
+	require.True(t, m.IsAgentsDirty())
+}
+
 // ==================== МАССОВОЕ УДАЛЕНИЕ (правка 2026-09-15) ====================
 
 // OnAgentsDeleted — после массового удаления очищается in-memory: позиции
-// для карты (между DELETE и следующим тиком нет «призраков») и last_bulk
-// (пачки больше нет).
+// для карты (между DELETE и следующим тиком нет «призраков»), last_bulk
+// (пачки больше нет) и кэш агентов инвалидируется (dirty — следующий тик
+// перезагрузит его из БД, идея 26c A2).
 func TestManagerOnAgentsDeleted(t *testing.T) {
 	m := newTestManager(&fakeStore{})
 
@@ -392,6 +570,7 @@ func TestManagerOnAgentsDeleted(t *testing.T) {
 
 	require.Nil(t, m.Positions(), "позиции очищены — карта без призраков")
 	require.Nil(t, m.Metrics().LastBulk, "last_bulk сброшен")
+	require.True(t, m.IsAgentsDirty(), "кэш агентов инвалидирован — следующий тик перезагрузит из БД")
 }
 
 // ==================== ГЛОБАЛЬНЫЙ РУБИЛЬНИК ПУШЕЙ (спека 26a.1 §7.3) ====================

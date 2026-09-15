@@ -52,6 +52,10 @@ func AllRules() []audit.Rule[View] {
 		{Check: checkLifeWithoutWater},
 		{Check: checkLifeWithoutTemperature},
 
+		// === Экзотические системы (99.2.4 §6.2) ===
+		{Check: checkLifeInExoticSystem},
+		{Check: checkSettleableUnderExotic},
+
 		// === Type ↔ composition ===
 		{Check: checkEarthlikeConsistency},
 		{Check: checkOceanicConsistency},

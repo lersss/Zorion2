@@ -17,11 +17,11 @@
         <button class="tab-btn" data-tab="tab-stats">📊 Статистика</button>
         <button class="tab-btn" data-tab="tab-audit">🔍 Аудит</button>
         <button class="tab-btn" data-tab="tab-tests">🧪 Тесты</button>
-        <button class="tab-btn" data-tab="tab-settlements">🏘️ Поселения</button>
         <button class="tab-btn" data-tab="tab-hypothesis">🔬 Гипотезы</button>
         <button class="tab-btn" data-tab="tab-worlds">🌍 Миры</button>
         <button class="tab-btn" data-tab="tab-npc">👁️ NPC</button>
         <button class="tab-btn" data-tab="tab-ships">🚀 Корабли</button>
+        <button class="tab-btn" data-tab="tab-balancer">⚖️ Балансировка</button>
         <button class="tab-btn" data-tab="tab-users" id="tab-users-btn" style="display:none;">👥 Пользователи</button>
     </div>
 
@@ -35,100 +35,402 @@
                 <button class="btn secondary" onclick="loadStats()">Обновить</button>
             </div>
         </div>
+
+        <!-- Настройки населения (спека 99.2.16 §5.1): СПЖ + коэффициент рождаемости -->
+        <div class="card">
+            <h2>⚙️ Настройки населения</h2>
+            <p class="hint">
+                СПЖ (средняя продолжительность жизни) и коэффициент рождаемости k:
+                нетто-темп (1−k)/СПЖ, минус = рост. Применяются сразу.
+            </p>
+            <div class="compact-row">
+                <div><label>СПЖ (лет)</label><input type="number" id="settlementLifeExpectancy" min="1" max="500" step="1" value="50" oninput="updateSettlementNetto()"></div>
+                <div><label>Коэффициент рождаемости k</label><input type="number" id="settlementBirthRate" min="0" max="10" step="0.1" value="2" oninput="updateSettlementNetto()"></div>
+                <button class="btn success" onclick="saveSettlementSettings()">Сохранить</button>
+            </div>
+            <p class="hint" id="settlementNettoLabel">Нетто-темп: +2%/год (рост)</p>
+            <p class="hint">
+                Настройки в памяти: после рестарта сервера — дефолты (СПЖ 50 лет, k=2).
+            </p>
+        </div>
     </div>
 
-    <!-- Вкладка: Генерация -->
+    <!-- Вкладка: Генерация (подвкладки-дропдаун, спека 99.2.3 §2) -->
     <div id="tab-generation" class="tab-pane">
 
-        <!-- Создание мира -->
+        <!-- Дропдаун подвкладок -->
         <div class="card">
-            <h2>➕ Создать мир</h2>
+            <h2>🌌 Генерация</h2>
             <div class="compact-row">
-                <div><label>Название</label><input type="text" id="worldName" placeholder="Название"></div>
-                <div><label>X</label><input type="number" id="coordX" placeholder="0"></div>
-                <div><label>Y</label><input type="number" id="coordY" placeholder="0"></div>
-                <button class="btn" onclick="createWorld()">Создать</button>
-            </div>
-            <div id="createResult" class="result"></div>
-        </div>
-
-        <!-- Генерация вселенной -->
-        <div class="card">
-            <h2>🌌 Генерация вселенной</h2>
-            <div class="compact-row" style="margin-bottom:8px;">
-                <div><label>Пресет</label>
-                    <select id="genPreset" onchange="applyPreset()">
-                        <option value="">— Пользовательский —</option>
-                        <option value="dense">Классическая (100k / 200, плотная)</option>
-                        <option value="sparse">Просторная (100k / 200, разреженная)</option>
-                        <option value="compact">Компактная (100k / 200, тесная)</option>
-                        <option value="prototype">Прототип (1 мир)</option>
+                <div><label>Раздел</label>
+                    <select id="genSubTab" onchange="switchGenSubTab()">
+                        <option value="stars">Звёзды</option>
+                        <option value="planets">Планеты</option>
+                        <option value="settlements">Поселения</option>
+                        <option value="hypothesis">Гипотезы</option>
+                        <option value="npc">NPC-агенты</option>
+                        <option value="factions">Фракции</option>
                     </select>
                 </div>
             </div>
-            <div class="compact-row">
-                <div><label>Миры</label><input type="number" id="genWorlds" value="1000"></div>
-                <div><label>Кластеры</label><input type="number" id="genClusters" value="20"></div>
-                <div><label>MapSize</label><input type="number" id="genMapSize" value="8000" step="10"></div>
-                <div><label>minDist</label><input type="number" id="genMinDist" value="150" step="1"></div>
-                <div><label>Радиус кластера</label><input type="number" id="genClusterRadius" value="1200" step="5"></div>
-                <div><label>Расст. между кластерами</label><input type="number" id="genClusterSpacing" value="200" step="10"></div>
-                <div><label>Выбросы %</label><input type="number" id="genOutlierPercent" value="30" step="1"></div>
-                <div><label>Форма кластера</label>
-                    <select id="genShape">
-                        <option value="blob">Бесформенное облако</option>
-                        <option value="circle">Круг</option>
-                    </select>
+        </div>
+
+        <!-- Подвкладка: Звёзды -->
+        <div id="genSub-stars" class="gen-sub">
+
+            <!-- Создание мира -->
+            <div class="card">
+                <h2>➕ Создать мир</h2>
+                <div class="compact-row">
+                    <div><label>Название</label><input type="text" id="worldName" placeholder="Название"></div>
+                    <div><label>X</label><input type="number" id="coordX" placeholder="0"></div>
+                    <div><label>Y</label><input type="number" id="coordY" placeholder="0"></div>
+                    <button class="btn" onclick="createWorld()">Создать</button>
                 </div>
-                <button class="btn success" onclick="generateUniverse()">Сгенерировать</button>
-                <button class="btn danger" onclick="cancelGeneration('generate_universe')" id="cancelUniverseBtn" style="display:none;">Остановить</button>
+                <div id="createResult" class="result"></div>
             </div>
-            <div id="genResult" class="result"></div>
-            <div id="genProgress" class="progress-container">
-                <span class="progress-text" id="genProgressText">0 из 0</span>
-                <progress id="genProgressBar" class="progress-bar" value="0" max="100"></progress>
-            </div>
-        </div>
 
-        <!-- Генерация планет -->
-        <div class="card">
-            <h2>🌍 Генерация планет</h2>
-            <div class="compact-row">
-                <div><label>Пресет</label>
-                    <select id="planetPreset">
-                        <option value="standard">— Все миры —</option>
-                        <option value="prototype">Прототип: земная планета + поселение</option>
-                    </select>
+            <!-- Генерация вселенной -->
+            <div class="card">
+                <h2>🌌 Генерация вселенной</h2>
+                <div class="compact-row" style="margin-bottom:8px;">
+                    <div><label>Пресет</label>
+                        <select id="genPreset" onchange="applyPreset()">
+                            <option value="">— Пользовательский —</option>
+                            <option value="dense">Классическая (100k / 200, плотная)</option>
+                            <option value="sparse">Просторная (100k / 200, разреженная)</option>
+                            <option value="compact">Компактная (100k / 200, тесная)</option>
+                            <option value="prototype">Прототип (1 мир)</option>
+                        </select>
+                    </div>
                 </div>
-                <button class="btn success" onclick="generatePlanets()">Сгенерировать планеты</button>
-                <button class="btn danger" onclick="cancelGeneration('generate_planets')" id="cancelPlanetsBtn" style="display:none;">Остановить</button>
+                <div class="compact-row">
+                    <div><label>Миры</label><input type="number" id="genWorlds" value="1000"></div>
+                    <div><label>Кластеры</label><input type="number" id="genClusters" value="20"></div>
+                    <div><label>MapSize</label><input type="number" id="genMapSize" value="8000" step="10"></div>
+                    <div><label>minDist</label><input type="number" id="genMinDist" value="150" step="1"></div>
+                    <div><label>Радиус кластера</label><input type="number" id="genClusterRadius" value="1200" step="5"></div>
+                    <div><label>Расст. между кластерами</label><input type="number" id="genClusterSpacing" value="200" step="10"></div>
+                    <div><label>Выбросы %</label><input type="number" id="genOutlierPercent" value="30" step="1"></div>
+                    <div><label>Форма кластера</label>
+                        <select id="genShape">
+                            <option value="blob">Бесформенное облако</option>
+                            <option value="circle">Круг</option>
+                        </select>
+                    </div>
+                    <button class="btn success" onclick="generateUniverse()">Сгенерировать</button>
+                    <button class="btn danger" onclick="cancelGeneration('generate_universe')" id="cancelUniverseBtn" style="display:none;">Остановить</button>
+                </div>
+                <div id="genResult" class="result"></div>
+                <div id="genProgress" class="progress-container">
+                    <span class="progress-text" id="genProgressText">0 из 0</span>
+                    <progress id="genProgressBar" class="progress-bar" value="0" max="100"></progress>
+                </div>
             </div>
-            <div id="planetResult" class="result"></div>
-            <div id="planetProgress" class="progress-container">
-                <span class="progress-text" id="planetProgressText">0 из 0</span>
-                <progress id="planetProgressBar" class="progress-bar" value="0" max="100"></progress>
+
+            <!-- Блок весов спектральных классов O–Y (99.2.3 §4.1) -->
+            <div class="card">
+                <h2>⚖️ Веса спектральных классов O–Y</h2>
+                <p class="hint">
+                    Доли обычных звёзд. Рядом — процент от суммы обычных звёзд
+                    (вес/сумма×100). Сохранение — кнопкой «Сохранить конфиг» ниже.
+                </p>
+                <div class="compact-row" id="spectralWeightsRow">
+                    <div><label>O</label><input type="number" id="swO" step="0.1" min="0" oninput="recalcGenWeights()"><span class="weight-pct" id="swO_pct"></span></div>
+                    <div><label>B</label><input type="number" id="swB" step="0.1" min="0" oninput="recalcGenWeights()"><span class="weight-pct" id="swB_pct"></span></div>
+                    <div><label>A</label><input type="number" id="swA" step="0.1" min="0" oninput="recalcGenWeights()"><span class="weight-pct" id="swA_pct"></span></div>
+                    <div><label>F</label><input type="number" id="swF" step="0.1" min="0" oninput="recalcGenWeights()"><span class="weight-pct" id="swF_pct"></span></div>
+                    <div><label>G</label><input type="number" id="swG" step="0.1" min="0" oninput="recalcGenWeights()"><span class="weight-pct" id="swG_pct"></span></div>
+                    <div><label>K</label><input type="number" id="swK" step="0.1" min="0" oninput="recalcGenWeights()"><span class="weight-pct" id="swK_pct"></span></div>
+                    <div><label>M</label><input type="number" id="swM" step="0.1" min="0" oninput="recalcGenWeights()"><span class="weight-pct" id="swM_pct"></span></div>
+                    <div><label>L</label><input type="number" id="swL" step="0.1" min="0" oninput="recalcGenWeights()"><span class="weight-pct" id="swL_pct"></span></div>
+                    <div><label>T</label><input type="number" id="swT" step="0.1" min="0" oninput="recalcGenWeights()"><span class="weight-pct" id="swT_pct"></span></div>
+                    <div><label>Y</label><input type="number" id="swY" step="0.1" min="0" oninput="recalcGenWeights()"><span class="weight-pct" id="swY_pct"></span></div>
+                </div>
+                <p class="hint" id="spectralWeightsSum">Сумма: —</p>
+            </div>
+
+            <!-- Блок весов типов систем/объектов (99.2.3 §4.2) -->
+            <div class="card">
+                <h2>⚖️ Веса типов систем/объектов</h2>
+                <p class="hint">
+                    Одиночная / двойная / кратная + экзотика (99.2.4 §4.1).
+                    Рядом — процент от всех систем (вес/сумма×100).
+                </p>
+                <div class="compact-row" id="systemTypeWeightsRow">
+                    <div><label>Одиночная</label><input type="number" id="stSingle" step="0.1" min="0" oninput="recalcGenWeights()"><span class="weight-pct" id="stSingle_pct"></span></div>
+                    <div><label>Двойная</label><input type="number" id="stBinary" step="0.1" min="0" oninput="recalcGenWeights()"><span class="weight-pct" id="stBinary_pct"></span></div>
+                    <div><label>Кратная (3+)</label><input type="number" id="stMultiple" step="0.1" min="0" oninput="recalcGenWeights()"><span class="weight-pct" id="stMultiple_pct"></span></div>
+                    <div><label>Чёрная дыра</label><input type="number" id="stBlackHole" step="0.1" min="0" oninput="recalcGenWeights()"><span class="weight-pct" id="stBlackHole_pct"></span></div>
+                    <div><label>Нейтронная</label><input type="number" id="stNeutron" step="0.1" min="0" oninput="recalcGenWeights()"><span class="weight-pct" id="stNeutron_pct"></span></div>
+                    <div><label>Белый карлик</label><input type="number" id="stWhiteDwarf" step="0.1" min="0" oninput="recalcGenWeights()"><span class="weight-pct" id="stWhiteDwarf_pct"></span></div>
+                    <div><label>Протозвезда</label><input type="number" id="stProtostar" step="0.1" min="0" oninput="recalcGenWeights()"><span class="weight-pct" id="stProtostar_pct"></span></div>
+                    <div><label>Прочая экзотика</label><input type="number" id="stExotic" step="0.1" min="0" oninput="recalcGenWeights()"><span class="weight-pct" id="stExotic_pct"></span></div>
+                </div>
+                <p class="hint" id="systemTypeWeightsSum">Сумма: —</p>
+            </div>
+
+            <!-- Среднее число планет по типу звезды (99.2.3 §4.3) -->
+            <div class="card">
+                <h2>🪐 Среднее количество планет по типу звезды</h2>
+                <p class="hint">
+                    Mean-модель: n = floor(mean) + Бернулли(frac), потолок 8.
+                    Границы: 0 ≤ mean ≤ 8 — значение выше отклоняется сохранением
+                    (422). Экзотика: максимум генератора 1 («чаще 0»); протозвезда — 0.
+                </p>
+                <div class="compact-row" id="planetMeansRow">
+                    <div><label>O</label><input type="number" id="pmO" step="0.05" min="0" max="8"></div>
+                    <div><label>B</label><input type="number" id="pmB" step="0.05" min="0" max="8"></div>
+                    <div><label>A</label><input type="number" id="pmA" step="0.05" min="0" max="8"></div>
+                    <div><label>F</label><input type="number" id="pmF" step="0.05" min="0" max="8"></div>
+                    <div><label>G</label><input type="number" id="pmG" step="0.05" min="0" max="8"></div>
+                    <div><label>K</label><input type="number" id="pmK" step="0.05" min="0" max="8"></div>
+                    <div><label>M</label><input type="number" id="pmM" step="0.05" min="0" max="8"></div>
+                    <div><label>L</label><input type="number" id="pmL" step="0.05" min="0" max="8"></div>
+                    <div><label>T</label><input type="number" id="pmT" step="0.05" min="0" max="8"></div>
+                    <div><label>Y</label><input type="number" id="pmY" step="0.05" min="0" max="8"></div>
+                    <div><label>ЧД</label><input type="number" id="pmBlackHole" step="0.05" min="0" max="8"></div>
+                    <div><label>Нейтронная</label><input type="number" id="pmNeutron" step="0.05" min="0" max="8"></div>
+                    <div><label>Белый карлик</label><input type="number" id="pmWhiteDwarf" step="0.05" min="0" max="8"></div>
+                    <div><label>Протозвезда</label><input type="number" id="pmProtostar" step="0.05" min="0" max="8"></div>
+                    <div><label>Прочая экзотика</label><input type="number" id="pmExotic" step="0.05" min="0" max="8"></div>
+                    <div><label>Дв. широкая ×</label><input type="number" id="pmBinaryWideFactor" step="0.05" min="0" max="8"></div>
+                    <div><label>Дв. тесная (mean)</label><input type="number" id="pmBinaryCloseMean" step="0.05" min="0" max="8"></div>
+                    <div><label>Кратная ×</label><input type="number" id="pmMultipleFactor" step="0.05" min="0" max="8"></div>
+                </div>
+                <div class="compact-row" style="margin-top:10px;">
+                    <button class="btn success" onclick="saveGenConfig()">💾 Сохранить конфиг</button>
+                    <button class="btn secondary" onclick="loadGenConfig()">🔄 Перечитать</button>
+                </div>
+                <div id="genConfigResult" class="result"></div>
+            </div>
+
+            <!-- Диапазоны массы звёзд (29a §4м) -->
+            <div class="card">
+                <h2>⚖️ Масса звёзд (M☉)</h2>
+                <p class="hint">
+                    Диапазон массы по типу: равномерно в [мин, макс] (29a §4м).
+                    Границы: мин &gt; 0, макс ≥ мин, макс ≤ 100 — иначе отклоняется
+                    сохранением (422). Сохранение — кнопкой «Сохранить конфиг» выше.
+                </p>
+                <div class="compact-row" id="massRangesRow">
+                    <div><label>O мин/макс</label><input type="number" id="mrO_min" step="0.5" min="0.01"><input type="number" id="mrO_max" step="0.5" min="0.01"></div>
+                    <div><label>B мин/макс</label><input type="number" id="mrB_min" step="0.1" min="0.01"><input type="number" id="mrB_max" step="0.1" min="0.01"></div>
+                    <div><label>A мин/макс</label><input type="number" id="mrA_min" step="0.1" min="0.01"><input type="number" id="mrA_max" step="0.1" min="0.01"></div>
+                    <div><label>F мин/макс</label><input type="number" id="mrF_min" step="0.05" min="0.01"><input type="number" id="mrF_max" step="0.05" min="0.01"></div>
+                    <div><label>G мин/макс</label><input type="number" id="mrG_min" step="0.05" min="0.01"><input type="number" id="mrG_max" step="0.05" min="0.01"></div>
+                    <div><label>K мин/макс</label><input type="number" id="mrK_min" step="0.05" min="0.01"><input type="number" id="mrK_max" step="0.05" min="0.01"></div>
+                    <div><label>M мин/макс</label><input type="number" id="mrM_min" step="0.05" min="0.01"><input type="number" id="mrM_max" step="0.05" min="0.01"></div>
+                    <div><label>L мин/макс</label><input type="number" id="mrL_min" step="0.005" min="0.001"><input type="number" id="mrL_max" step="0.005" min="0.001"></div>
+                    <div><label>T мин/макс</label><input type="number" id="mrT_min" step="0.001" min="0.001"><input type="number" id="mrT_max" step="0.001" min="0.001"></div>
+                    <div><label>Y мин/макс</label><input type="number" id="mrY_min" step="0.001" min="0.001"><input type="number" id="mrY_max" step="0.001" min="0.001"></div>
+                    <div><label>ЧД мин/макс</label><input type="number" id="mrBlackHole_min" step="0.5" min="0.01"><input type="number" id="mrBlackHole_max" step="0.5" min="0.01"></div>
+                    <div><label>Нейтронная мин/макс</label><input type="number" id="mrNeutron_min" step="0.05" min="0.01"><input type="number" id="mrNeutron_max" step="0.05" min="0.01"></div>
+                    <div><label>Белый карлик мин/макс</label><input type="number" id="mrWhiteDwarf_min" step="0.05" min="0.01"><input type="number" id="mrWhiteDwarf_max" step="0.05" min="0.01"></div>
+                    <div><label>Протозвезда мин/макс</label><input type="number" id="mrProtostar_min" step="0.05" min="0.01"><input type="number" id="mrProtostar_max" step="0.05" min="0.01"></div>
+                    <div><label>Сверхгигант мин/макс</label><input type="number" id="mrExotic_min" step="1" min="1"><input type="number" id="mrExotic_max" step="1" min="1"></div>
+                </div>
+            </div>
+
+            <!-- Генерация фракций перенесена в подвкладку «Фракции» (29a) -->
+            <div class="card">
+                <h2>🗑️ Очистка вселенной</h2>
+                <button class="btn danger" onclick="clearUniverse()">Удалить все миры</button>
+                <div id="clearResult" class="result"></div>
             </div>
         </div>
 
-        <!-- Генерация фракций -->
-        <div class="card">
-            <h2>🏛️ Генерация фракций</h2>
-            <div class="compact-row">
-                <button class="btn success" onclick="generateFactions()">Сгенерировать фракции</button>
-                <button class="btn danger" onclick="cancelGeneration('generate_factions')" id="cancelFactionsBtn" style="display:none;">Остановить</button>
+        <!-- Подвкладка: Планеты -->
+        <div id="genSub-planets" class="gen-sub" style="display:none;">
+
+            <!-- Генерация планет по конфигу «Звёзд» -->
+            <div class="card">
+                <h2>🌍 Генерация планет</h2>
+                <p class="hint">
+                    Генерирует планеты для всех миров по средним из «Звёзд».
+                    Удаляет старые планеты перед генерацией.
+                </p>
+                <div class="compact-row">
+                    <div><label>Пресет</label>
+                        <select id="planetPreset">
+                            <option value="standard">— Все миры —</option>
+                            <option value="prototype">Прототип: земная планета + поселение</option>
+                        </select>
+                    </div>
+                    <button class="btn success" onclick="generatePlanets()">Сгенерировать планеты</button>
+                    <button class="btn danger" onclick="cancelGeneration('generate_planets')" id="cancelPlanetsBtn" style="display:none;">Остановить</button>
+                </div>
+                <div id="planetResult" class="result"></div>
+                <div id="planetProgress" class="progress-container">
+                    <span class="progress-text" id="planetProgressText">0 из 0</span>
+                    <progress id="planetProgressBar" class="progress-bar" value="0" max="100"></progress>
+                </div>
             </div>
-            <div id="factionResult" class="result"></div>
-            <div id="factionProgress" class="progress-container">
-                <span class="progress-text" id="factionProgressText">0 из 0</span>
-                <progress id="factionProgressBar" class="progress-bar" value="0" max="100"></progress>
+
+            <!-- Пересчёт планет (99.2.3 §5): ручной, без весов -->
+            <div class="card">
+                <h2>🔁 Пересчитать планеты</h2>
+                <p class="hint">
+                    НЕ создаёт миров: удаляет планеты выбранных миров и генерирует
+                    заново по равномерному счёту из полей (0–8). Средние из
+                    «Звёзд» не применяются — это ручной пересчёт.
+                </p>
+                <div class="compact-row">
+                    <div><label>Мин. планет</label><input type="number" id="regMinPlanets" value="0" min="0" max="8"></div>
+                    <div><label>Макс. планет</label><input type="number" id="regMaxPlanets" value="3" min="0" max="8"></div>
+                    <label style="align-self:center;"><input type="checkbox" id="regIncludeNormal" checked> обычные</label>
+                    <label style="align-self:center;"><input type="checkbox" id="regIncludeBinary" checked> двойные/кратные</label>
+                    <label style="align-self:center;"><input type="checkbox" id="regIncludeExotic" checked> экзотика</label>
+                    <button class="btn success" onclick="regeneratePlanets()">Пересчитать</button>
+                    <button class="btn danger" onclick="cancelGeneration('regenerate_planets')" id="cancelRegenerateBtn" style="display:none;">Остановить</button>
+                </div>
+                <div id="regenerateResult" class="result"></div>
+                <div id="regenerateProgress" class="progress-container">
+                    <span class="progress-text" id="regenerateProgressText">0 из 0</span>
+                    <progress id="regenerateProgressBar" class="progress-bar" value="0" max="100"></progress>
+                </div>
             </div>
         </div>
 
-        <!-- Очистка -->
-        <div class="card">
-            <h2>🗑️ Очистка вселенной</h2>
-            <button class="btn danger" onclick="clearUniverse()">Удалить все миры</button>
-            <div id="clearResult" class="result"></div>
+        <!-- Подвкладка: Поселения (форма перенесена из tab-settlements, 29a) -->
+        <div id="genSub-settlements" class="gen-sub" style="display:none;">
+            <div class="card">
+                <h2>🏘️ Генерация поселений</h2>
+                <p class="hint">
+                    Модель генерации: <b>simple</b> — обход всех планет без условий
+                    (только шанс + население); <b>complex</b> — правила по полям
+                    планеты (все выполняются вместе). Поля и их значения подгружаются
+                    с сервера.
+                </p>
+
+                <div class="settle-block">
+                    <div class="settle-row">
+                        <div class="settle-field">
+                            <label>Модель</label>
+                            <div class="seg" id="settleModeSeg">
+                                <button type="button" class="seg-btn active" data-mode="complex" onclick="setSettleMode('complex')">По полям (AND)</button>
+                                <button type="button" class="seg-btn" data-mode="simple" onclick="setSettleMode('simple')">Простая</button>
+                            </div>
+                        </div>
+                        <div class="settle-field">
+                            <label>Шанс заселения, %</label>
+                            <div class="chance-row">
+                                <input type="range" id="settleChanceRange" min="0" max="100" step="1" value="100"
+                                       oninput="document.getElementById('settleChance').value=this.value">
+                                <input type="number" id="settleChance" value="100" min="0" max="100" step="1"
+                                       oninput="document.getElementById('settleChanceRange').value=this.value">
+                                <span class="unit">%</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Сложная модель: пресеты и правила -->
+                    <div id="settleRulesBlock">
+                        <div class="preset-row">
+                            <div class="settle-field">
+                                <label>Пресет заселения</label>
+                                <div class="preset-controls">
+                                    <select id="settlePreset" class="settle-preset-select" onchange="applySettlementPreset()"></select>
+                                </div>
+                                <div id="settlePresetInfo" class="preset-info"></div>
+                            </div>
+                        </div>
+                        <div class="rules-head">
+                            <span>Правила по полям планеты <span class="and-badge">AND</span></span>
+                            <button class="btn secondary" onclick="addSettlementRule()">＋ Добавить правило</button>
+                        </div>
+                        <div id="settleRulesList"></div>
+                    </div>
+
+                    <!-- Простая модель -->
+                    <div id="settleSimpleBlock" class="settle-note" style="display:none;">
+                        Простая модель заселяет <i>все</i> планеты с шансом выше.
+                        Тир и ёмкость не задаются — вычисляются.
+                    </div>
+                </div>
+
+                <!-- История заселения (лор) -->
+                <div class="settle-field" style="margin-top:14px;">
+                    <label>История заселения (лор, 1 абзац)</label>
+                    <textarea id="settleHistory" class="settle-history" rows="4" placeholder="Куда и почему двинулось человечество — заполняется из пресета, можно поправить вручную."></textarea>
+                </div>
+
+                <!-- Гипотеза дельты -->
+                <div class="settle-field" style="margin-top:10px;">
+                    <label>Гипотеза (что проверяем дельтой)</label>
+                    <textarea id="settleHypothesis" class="settle-history" rows="4" placeholder="Какое поведение населения должна подтвердить симуляция — заполняется из пресета, можно поправить вручную."></textarea>
+                </div>
+
+                <!-- Население -->
+                <div class="settle-field" style="margin-top:14px;">
+                    <label>Население</label>
+                    <div class="seg" id="settlePopSeg">
+                        <button type="button" class="seg-btn active" data-kind="random" onclick="setSettlePopKind('random')">Случайное</button>
+                        <button type="button" class="seg-btn" data-kind="fixed" onclick="setSettlePopKind('fixed')">Фиксированное</button>
+                    </div>
+                    <div id="settlePopInputs" style="margin-top:8px;"></div>
+                </div>
+
+                <div class="generate-row">
+                    <button class="btn success" onclick="generateSettlements()">Сгенерировать поселения</button>
+                    <button class="btn danger" onclick="cancelGeneration('generate_settlements')" id="cancelSettlementsBtn" style="display:none;">Остановить</button>
+                </div>
+                <div id="settlementResult" class="result"></div>
+                <div id="settlementProgress" class="progress-container">
+                    <span class="progress-text" id="settlementProgressText">0 из 0</span>
+                    <progress id="settlementProgressBar" class="progress-bar" value="0" max="100"></progress>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>🗑️ Очистка поселений</h2>
+                <p class="hint">
+                    Удаляет только поселения. Планеты, заводы и партии товаров
+                    не трогаются — заводы создаются отдельно.
+                </p>
+                <div class="compact-row">
+                    <button class="btn danger" onclick="clearSettlements()">Удалить все поселения</button>
+                </div>
+                <div id="clearSettlementsResult" class="result"></div>
+            </div>
+        </div>
+
+        <!-- Подвкладка: Гипотезы (заглушка, 99.2.3 §2) -->
+        <div id="genSub-hypothesis" class="gen-sub" style="display:none;">
+            <div class="card">
+                <h2>🔬 Гипотезы — в разработке</h2>
+                <p class="hint">
+                    Проверка гипотез переезжает сюда из отдельной вкладки.
+                </p>
+                <button class="btn" onclick="showTab('tab-hypothesis')">Открыть текущий раздел гипотез</button>
+            </div>
+        </div>
+
+        <!-- Подвкладка: NPC-агенты (заглушка, 99.2.3 §2) -->
+        <div id="genSub-npc" class="gen-sub" style="display:none;">
+            <div class="card">
+                <h2>👁️ NPC-агенты — в разработке</h2>
+                <p class="hint">
+                    Генерация и настройки NPC переезжают сюда из отдельной вкладки.
+                </p>
+                <button class="btn" onclick="showTab('tab-npc')">Открыть текущий раздел NPC</button>
+            </div>
+        </div>
+
+        <!-- Подвкладка: Фракции (29a) -->
+        <div id="genSub-factions" class="gen-sub" style="display:none;">
+            <div class="card">
+                <h2>🏛️ Генерация фракций</h2>
+                <div class="compact-row">
+                    <button class="btn success" onclick="generateFactions()">Сгенерировать фракции</button>
+                    <button class="btn danger" onclick="cancelGeneration('generate_factions')" id="cancelFactionsBtn" style="display:none;">Остановить</button>
+                </div>
+                <div id="factionResult" class="result"></div>
+                <div id="factionProgress" class="progress-container">
+                    <span class="progress-text" id="factionProgressText">0 из 0</span>
+                    <progress id="factionProgressBar" class="progress-bar" value="0" max="100"></progress>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -179,108 +481,7 @@
         </div>
     </div>
 
-    <!-- Вкладка: Поселения -->
-    <div id="tab-settlements" class="tab-pane">
-        <div class="card">
-            <h2>🏘️ Генерация поселений</h2>
-            <p class="hint">
-                Модель генерации: <b>simple</b> — обход всех планет без условий
-                (только шанс + население); <b>complex</b> — правила по полям
-                планеты (все выполняются вместе). Поля и их значения подгружаются
-                с сервера.
-            </p>
-
-            <div class="settle-block">
-                <div class="settle-row">
-                    <div class="settle-field">
-                        <label>Модель</label>
-                        <div class="seg" id="settleModeSeg">
-                            <button type="button" class="seg-btn active" data-mode="complex" onclick="setSettleMode('complex')">По полям (AND)</button>
-                            <button type="button" class="seg-btn" data-mode="simple" onclick="setSettleMode('simple')">Простая</button>
-                        </div>
-                    </div>
-                    <div class="settle-field">
-                        <label>Шанс заселения, %</label>
-                        <div class="chance-row">
-                            <input type="range" id="settleChanceRange" min="0" max="100" step="1" value="100"
-                                   oninput="document.getElementById('settleChance').value=this.value">
-                            <input type="number" id="settleChance" value="100" min="0" max="100" step="1"
-                                   oninput="document.getElementById('settleChanceRange').value=this.value">
-                            <span class="unit">%</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Сложная модель: пресеты и правила -->
-                <div id="settleRulesBlock">
-                    <div class="preset-row">
-                        <div class="settle-field">
-                            <label>Пресет заселения</label>
-                            <div class="preset-controls">
-                                <select id="settlePreset" class="settle-preset-select" onchange="applySettlementPreset()"></select>
-                            </div>
-                            <div id="settlePresetInfo" class="preset-info"></div>
-                        </div>
-                    </div>
-                    <div class="rules-head">
-                        <span>Правила по полям планеты <span class="and-badge">AND</span></span>
-                        <button class="btn secondary" onclick="addSettlementRule()">＋ Добавить правило</button>
-                    </div>
-                    <div id="settleRulesList"></div>
-                </div>
-
-                <!-- Простая модель -->
-                <div id="settleSimpleBlock" class="settle-note" style="display:none;">
-                    Простая модель заселяет <i>все</i> планеты с шансом выше.
-                    Тир и ёмкость не задаются — вычисляются.
-                </div>
-            </div>
-
-            <!-- История заселения (лор) -->
-            <div class="settle-field" style="margin-top:14px;">
-                <label>История заселения (лор, 1 абзац)</label>
-                <textarea id="settleHistory" class="settle-history" rows="4" placeholder="Куда и почему двинулось человечество — заполняется из пресета, можно поправить вручную."></textarea>
-            </div>
-
-            <!-- Гипотеза дельты -->
-            <div class="settle-field" style="margin-top:10px;">
-                <label>Гипотеза (что проверяем дельтой)</label>
-                <textarea id="settleHypothesis" class="settle-history" rows="4" placeholder="Какое поведение населения должна подтвердить симуляция — заполняется из пресета, можно поправить вручную."></textarea>
-            </div>
-
-            <!-- Население -->
-            <div class="settle-field" style="margin-top:14px;">
-                <label>Население</label>
-                <div class="seg" id="settlePopSeg">
-                    <button type="button" class="seg-btn active" data-kind="random" onclick="setSettlePopKind('random')">Случайное</button>
-                    <button type="button" class="seg-btn" data-kind="fixed" onclick="setSettlePopKind('fixed')">Фиксированное</button>
-                </div>
-                <div id="settlePopInputs" style="margin-top:8px;"></div>
-            </div>
-
-            <div class="generate-row">
-                <button class="btn success" onclick="generateSettlements()">Сгенерировать поселения</button>
-                <button class="btn danger" onclick="cancelGeneration('generate_settlements')" id="cancelSettlementsBtn" style="display:none;">Остановить</button>
-            </div>
-            <div id="settlementResult" class="result"></div>
-            <div id="settlementProgress" class="progress-container">
-                <span class="progress-text" id="settlementProgressText">0 из 0</span>
-                <progress id="settlementProgressBar" class="progress-bar" value="0" max="100"></progress>
-            </div>
-        </div>
-
-        <div class="card">
-            <h2>🗑️ Очистка поселений</h2>
-            <p class="hint">
-                Удаляет только поселения. Планеты, заводы и партии товаров
-                не трогаются — заводы создаются отдельно.
-            </p>
-            <div class="compact-row">
-                <button class="btn danger" onclick="clearSettlements()">Удалить все поселения</button>
-            </div>
-            <div id="clearSettlementsResult" class="result"></div>
-        </div>
-    </div>
+    <!-- Вкладка: Поселения перенесена в Генерацию → подвкладка «Поселения» (29a) -->
 
     <!-- Вкладка: Гипотезы -->
     <div id="tab-hypothesis" class="tab-pane">
@@ -478,6 +679,66 @@
 
         <!-- Профиль пользователя -->
         <div class="card" id="userProfileCard" style="display:none;"></div>
+    </div>
+
+    <!-- Вкладка: Балансировка (спека 99.2.17 §7) -->
+    <div id="tab-balancer" class="tab-pane">
+        <div class="card">
+            <h2>⚖️ Балансировка компонент изменения населения</h2>
+            <p class="hint">
+                Кривая R(X) каждой компоненты — сегментная (узлы + изгибы). Узлы —
+                «ключевые изгибы» текущего поведения; ромбики ◆ на середине сегментов
+                задают форму перехода (вверх — выпуклая, вниз — вогнутая). Крестики × —
+                эталоны создателя (цели, не редактируются). Изменения применяются к
+                расчёту населения сразу после «Сохранить» (in-memory, дефолты при рестарте).
+            </p>
+            <div class="compact-row">
+                <div><label>Компонента</label>
+                    <select id="balancerComponent">
+                        <option value="heat">Жара (°C)</option>
+                        <option value="cold">Холод (°C)</option>
+                        <option value="gravity">Гравитация (g)</option>
+                        <option value="radiation">Радиация (rad)</option>
+                    </select>
+                </div>
+                <div><label>Шкала Y</label>
+                    <div class="seg seg-sm" id="balancerScaleSeg">
+                        <button type="button" class="seg-btn active" data-scale="log">лог</button>
+                        <button type="button" class="seg-btn" data-scale="linear">линейная</button>
+                    </div>
+                </div>
+                <button class="btn secondary" id="balancerFitBtn">По узлам</button>
+                <button class="btn secondary" id="balancerResetViewBtn">Сброс вида</button>
+                <button class="btn success" id="balancerSaveBtn">Сохранить</button>
+                <button class="btn secondary" id="balancerCancelBtn">Отмена</button>
+                <button class="btn danger" id="balancerResetBtn">Сброс на дефолты</button>
+            </div>
+            <div class="compact-row" style="margin-top:10px;">
+                <div><label>Пресеты</label>
+                    <select id="balancerPresetSelect"></select>
+                </div>
+                <button class="btn secondary" id="balancerPresetApplyBtn">Применить</button>
+                <button class="btn secondary" id="balancerPresetDeleteBtn">Удалить</button>
+                <button class="btn secondary" id="balancerPresetSaveBtn">Сохранить как…</button>
+                <button class="btn secondary" id="balancerPresetResetDefaultBtn">Вернуть заводской</button>
+            </div>
+            <p class="hint" style="margin-top:6px;">
+                Пресет — кривая одной компоненты под именем («Сохранить как» сразу применяет её к расчётам;
+                «default» — заводской, удалить нельзя). Активные пресеты переживают рестарт сервера.
+            </p>
+            <canvas id="balancerCanvas" width="1000" height="480"
+                    style="width:100%; background:#0f172a; border:1px solid #2a2a4a; border-radius:8px; margin-top:12px; cursor:default;"></canvas>
+            <p class="hint" style="margin-top:8px;">
+                Колесо — зум по Y (точка под курсором не плывёт); зажим ЛКМ на пустом месте — пан по X и Y;
+                drag узла — перемещение; вертикальный drag ромбика ◆ — изгиб сегмента;
+                Shift+клик по кривой — добавить узел; ПКМ по узлу — удалить; клик по стрелочке ▲/▼ за краем — прыжок к объекту.
+            </p>
+            <div id="balancerInfo" class="hint"></div>
+            <p class="hint">
+                СПЖ и коэффициент рождаемости настраиваются в Настройках населения
+                (вкладка «Основное») → <a href="#" id="balancerGoSettlement">открыть</a>.
+            </p>
+        </div>
     </div>
 
     <!-- Вкладка: Корабли (спека 99.2.15 §6) -->

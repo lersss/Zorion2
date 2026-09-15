@@ -30,6 +30,12 @@ type Cluster struct {
 	SampleName     string
 	SampleSpectral string
 	SampleTemp     float64
+	// Экзотические типы представителя (99.2.4 §8): для цвета/бейджей карты.
+	SampleStarType   string
+	SampleSystemType string
+	// SampleStellarMods — модификаторы представителя (35b §6.4): спектры
+	// компаньонов для цвета точек-компаньонов на карте.
+	SampleStellarMods map[string]interface{}
 }
 
 // spectralRank — «яркость» спектрального класса для выбора представителя
@@ -49,13 +55,16 @@ func rankOf(spectral string) int {
 type cellKey struct{ x, y int64 }
 
 type cellAgg struct {
-	cnt      int
-	bestRank int
-	bestID   string
-	bestX    float64
-	bestY    float64
-	bestSpec string
-	bestTemp float64
+	cnt            int
+	bestRank       int
+	bestID         string
+	bestX          float64
+	bestY          float64
+	bestSpec       string
+	bestTemp       float64
+	bestStarType   string
+	bestSystemType string
+	bestMods       map[string]interface{}
 	// Индексы миров для разреженных ячеек (cnt < 5): каждый мир ячейки
 	// возвращается отдельной точкой в ответе.
 	sparse []int
@@ -123,6 +132,9 @@ func (s *Snapshot) Query(xMin, xMax, yMin, yMax, cell float64, f Filter) []Clust
 			a.bestY = w.Y
 			a.bestSpec = w.Spectral
 			a.bestTemp = w.Temp
+			a.bestStarType = w.StarType
+			a.bestSystemType = w.SystemType
+			a.bestMods = w.StellarMods
 		}
 		if a.cnt < 5 {
 			a.sparse = append(a.sparse, i)
@@ -141,13 +153,15 @@ func (s *Snapshot) Query(xMin, xMax, yMin, yMax, cell float64, f Filter) []Clust
 		a := cells[k]
 		if a.cnt >= 5 {
 			out = append(out, Cluster{
-				CellX:          k.x,
-				CellY:          k.y,
-				Count:          a.cnt,
-				X:              a.bestX,
-				Y:              a.bestY,
-				SampleSpectral: a.bestSpec,
-				SampleTemp:     a.bestTemp,
+				CellX:            k.x,
+				CellY:            k.y,
+				Count:            a.cnt,
+				X:                a.bestX,
+				Y:                a.bestY,
+				SampleSpectral:   a.bestSpec,
+				SampleTemp:       a.bestTemp,
+				SampleStarType:   a.bestStarType,
+				SampleSystemType: a.bestSystemType,
 			})
 			continue
 		}
@@ -157,15 +171,18 @@ func (s *Snapshot) Query(xMin, xMax, yMin, yMax, cell float64, f Filter) []Clust
 		for _, wi := range a.sparse {
 			w := &s.worlds[wi]
 			out = append(out, Cluster{
-				CellX:          k.x,
-				CellY:          k.y,
-				Count:          1,
-				X:              w.X,
-				Y:              w.Y,
-				SampleID:       w.ID,
-				SampleName:     w.Name,
-				SampleSpectral: w.Spectral,
-				SampleTemp:     w.Temp,
+				CellX:            k.x,
+				CellY:            k.y,
+				Count:            1,
+				X:                w.X,
+				Y:                w.Y,
+				SampleID:         w.ID,
+				SampleName:       w.Name,
+				SampleSpectral:   w.Spectral,
+				SampleTemp:       w.Temp,
+				SampleStarType:   w.StarType,
+				SampleSystemType: w.SystemType,
+				SampleStellarMods: w.StellarMods,
 			})
 		}
 	}

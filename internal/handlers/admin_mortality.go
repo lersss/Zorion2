@@ -79,8 +79,8 @@ func (h *AdminHandlers) MortalityPreview(w http.ResponseWriter, r *http.Request)
 		TemperatureK:  planet.Temperature,
 		GravityG:      planet.Gravity,
 		Radioactivity: radioactivity,
-		// Изменение населения = полная рекурсивная компонента r (99.2.12/99.2.13):
-		// R_ест + R_жара + R_холод + R_гравитация + R_радиация — всё в
+		// Изменение населения = полная рекурсивная компонента r (99.2.12/99.2.13/99.2.16):
+		// R_ест + R_рожд + R_жара + R_холод + R_гравитация + R_радиация — всё в
 		// r_per_sec; λ-механизм убран (lambda_per_hour = 0), severity не
 		// применяется (компоненты гладкие, жёстких нулей нет).
 		RPerSec:       rPerSec,

@@ -87,8 +87,8 @@ func TestRunHypothesisJobPipeline(t *testing.T) {
 	mock.ExpectCommit()
 
 	// 3. Пересчёт статистики (recomputePlanetStats) — 3 запроса.
-	mock.ExpectQuery(`SELECT id, spectral_class, temperature FROM worlds`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "spectral_class", "temperature"}))
+	mock.ExpectQuery(`SELECT id, COALESCE\(spectral_class,''\), star_type, system_type, temperature FROM worlds`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "spectral_class", "star_type", "system_type", "temperature"}))
 	mock.ExpectQuery(`SELECT id, world_id, data FROM planets`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "world_id", "data"}))
 	mock.ExpectQuery(`SELECT planet_id, SUM\(population\) FROM settlements GROUP BY planet_id`).

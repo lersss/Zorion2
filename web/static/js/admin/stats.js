@@ -99,7 +99,7 @@ export function renderPlanetStats(stats, container) {
         <tbody id="bio-body"></tbody>
     </table>`;
 
-    // По спектральным классам
+    // По спектральным классам (только обычные звёзды, 99.2.4 §7)
     html += `<h3 style="margin-top:20px;">По спектральным классам</h3>`;
     html += `<table class="stats-table" id="spectral-table">
         <thead><tr>
@@ -108,6 +108,24 @@ export function renderPlanetStats(stats, container) {
             <th class="sortable" data-sort="total" data-order="asc">Всего</th>
         </tr></thead>
         <tbody id="spectral-body"></tbody>
+    </table>`;
+
+    // Экзотические системы (99.2.4 §7): планеты по типу объекта + распределение миров
+    html += `<h3 style="margin-top:20px;">Экзотические системы</h3>`;
+    html += `<table class="stats-table" id="exotic-table">
+        <thead><tr>
+            <th class="sortable" data-sort="exotic" data-order="asc">Тип объекта</th>
+            <th class="sortable" data-sort="types" data-order="asc">Типы планет (кол-во)</th>
+            <th class="sortable" data-sort="total" data-order="asc">Всего планет</th>
+        </tr></thead>
+        <tbody id="exotic-body"></tbody>
+    </table>`;
+    html += `<table class="stats-table" id="sysdist-table" style="margin-top:8px;">
+        <thead><tr>
+            <th class="sortable" data-sort="systype" data-order="asc">Тип системы</th>
+            <th class="sortable" data-sort="syscount" data-order="asc">Миров</th>
+        </tr></thead>
+        <tbody id="sysdist-body"></tbody>
     </table>`;
 
     // Аномалии
@@ -142,6 +160,22 @@ export function renderPlanetStats(stats, container) {
     spectralData.sort((a, b) => b.total - a.total);
     spectralBody.innerHTML = spectralData.map(d => `<tr><td>${d.spec}</td><td>${d.typesStr}</td><td>${d.total}</td></tr>`).join('');
 
+    // Экзотика: планеты по типу объекта (не сливаются в класс «G»/«по умолчанию»)
+    const exoticBody = document.getElementById('exotic-body');
+    let exoticData = Object.entries(stats.planets_by_star_type || {}).map(([st, types]) => {
+        const total = Object.values(types).reduce((sum, v) => sum + v, 0);
+        const typesStr = Object.entries(types).map(([t, c]) => `${t}: ${c}`).join(', ');
+        return { st, typesStr, total };
+    });
+    exoticData.sort((a, b) => b.total - a.total);
+    exoticBody.innerHTML = exoticData.map(d => `<tr><td>${d.st}</td><td>${d.typesStr}</td><td>${d.total}</td></tr>`).join('');
+
+    // Распределение миров по типу системы
+    const sysBody = document.getElementById('sysdist-body');
+    let sysData = Object.entries(stats.system_type_distribution || {}).map(([st, count]) => ({ st, count }));
+    sysData.sort((a, b) => b.count - a.count);
+    sysBody.innerHTML = sysData.map(d => `<tr><td>${d.st}</td><td>${d.count}</td></tr>`).join('');
+
     // Сортировка
     addSorting('gd-table', 'gd-body', { gdtype: 'text', gdcount: 'number' });
     addSorting('type-table', 'type-body', { type: 'text', count: 'number' });
@@ -149,6 +183,8 @@ export function renderPlanetStats(stats, container) {
     addSorting('atmo-table', 'atmo-body', { atmo: 'text', atmocount: 'number' });
     addSorting('bio-table', 'bio-body', { bio: 'text', biocount: 'number' });
     addSorting('spectral-table', 'spectral-body', { spectral: 'text', types: 'text', total: 'number' });
+    addSorting('exotic-table', 'exotic-body', { exotic: 'text', types: 'text', total: 'number' });
+    addSorting('sysdist-table', 'sysdist-body', { systype: 'text', syscount: 'number' });
 }
 
 function fillTable(bodyId, data) {

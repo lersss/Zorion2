@@ -31,6 +31,13 @@ type worldCluster struct {
 	SampleName     string  `json:"sname,omitempty"`
 	SampleSpectral string  `json:"sspec,omitempty"`
 	SampleTemp     float64 `json:"stemp,omitempty"`
+	// Экзотические типы представителя (99.2.4 §8): stype — тип объекта,
+	// systype — тип системы (для цвета/бейджей карты).
+	SampleStarType   string `json:"stype,omitempty"`
+	SampleSystemType string `json:"systype,omitempty"`
+	// SampleStellarMods — модификаторы представителя (35b §6.4): спектры
+	// компаньонов (smods) для цвета точек-компаньонов на карте.
+	SampleStellarMods map[string]interface{} `json:"smods,omitempty"`
 }
 
 // ==================== ЛИМИТЫ ====================
@@ -127,18 +134,21 @@ func (h *AdminHandlers) FilterWorldsHandler(w http.ResponseWriter, r *http.Reque
 	out := make([]worldCluster, 0, len(clusters))
 	for _, c := range clusters {
 		oc := worldCluster{
-			CellX:          c.CellX,
-			CellY:          c.CellY,
-			Count:          c.Count,
-			X:              c.X,
-			Y:              c.Y,
-			SampleSpectral: c.SampleSpectral,
-			SampleTemp:     c.SampleTemp,
+			CellX:            c.CellX,
+			CellY:            c.CellY,
+			Count:            c.Count,
+			X:                c.X,
+			Y:                c.Y,
+			SampleSpectral:   c.SampleSpectral,
+			SampleTemp:       c.SampleTemp,
+			SampleStarType:   c.SampleStarType,
+			SampleSystemType: c.SampleSystemType,
 		}
 		// Sample* — только для cnt=1, чтобы не раздувать payload.
 		if c.Count == 1 {
 			oc.SampleID = c.SampleID
 			oc.SampleName = c.SampleName
+			oc.SampleStellarMods = c.SampleStellarMods
 		}
 		out = append(out, oc)
 	}

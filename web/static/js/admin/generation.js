@@ -642,3 +642,251 @@ export async function clearUniverse() {
         document.getElementById('clearResult').textContent = '❌ ' + e.message;
     }
 }
+
+// ---------- ПОДВКЛАДКИ ГЕНЕРАЦИИ (99.2.3 §2) ----------
+
+// switchGenSubTab — переключение подвкладки раздела «Генерация».
+// Сохраняется в localStorage (tabs.js хранит подвкладку тоже).
+export function switchGenSubTab() {
+    const sel = document.getElementById('genSubTab');
+    const name = sel ? sel.value : 'stars';
+    document.querySelectorAll('#tab-generation .gen-sub').forEach(d => {
+        d.style.display = d.id === 'genSub-' + name ? 'block' : 'none';
+    });
+    if (name === 'stars') loadGenConfig();
+    localStorage.setItem('adminGenSubTab', name);
+}
+
+// applyGenSubTab — применяет сохранённую подвкладку (вызывается из tabs.js
+// при активации вкладки «Генерация»).
+export function applyGenSubTab() {
+    const saved = localStorage.getItem('adminGenSubTab') || 'stars';
+    const sel = document.getElementById('genSubTab');
+    if (sel) sel.value = saved;
+    switchGenSubTab();
+}
+
+// showTab — переход на другую вкладку админки (кнопки-заглушки подвкладок).
+export function showTab(tabId) {
+    const btn = document.querySelector(`.tab-btn[data-tab="${tabId}"]`);
+    if (btn) btn.click();
+}
+
+// ---------- КОНФИГ ГЕНЕРАЦИИ ЗВЁЗД (99.2.3 §4) ----------
+
+// SPECTRAL_CLASSES — порядок спектральных классов O–Y для форм весов.
+const SPECTRAL_CLASSES = ['O', 'B', 'A', 'F', 'G', 'K', 'M', 'L', 'T', 'Y'];
+
+// SYSTEM_TYPES — порядок типов систем/объектов для форм весов (99.2.4 §4.1).
+const SYSTEM_TYPES = [
+    ['single', 'Одиночная'], ['binary', 'Двойная'], ['multiple', 'Кратная (3+)'],
+    ['black_hole', 'Чёрная дыра'], ['neutron', 'Нейтронная'],
+    ['white_dwarf', 'Белый карлик'], ['protostar', 'Протозвезда'], ['exotic', 'Прочая экзотика'],
+];
+
+// PLANET_MEAN_KEYS — все редактируемые значения таблицы средних (99.2.3 §4.3).
+const PLANET_MEAN_KEYS = [
+    'O', 'B', 'A', 'F', 'G', 'K', 'M', 'L', 'T', 'Y',
+    'black_hole', 'neutron', 'white_dwarf', 'protostar', 'exotic',
+    'binary_wide_factor', 'binary_close_mean', 'multiple_factor',
+];
+
+// MASS_KEYS — типы с диапазоном массы (29a §4м): спектральные классы + экзотика.
+const MASS_KEYS = [
+    'O', 'B', 'A', 'F', 'G', 'K', 'M', 'L', 'T', 'Y',
+    'black_hole', 'neutron', 'white_dwarf', 'protostar', 'exotic',
+];
+
+// mrId — id поля диапазона массы ('black_hole', 'min' → 'mrBlackHole_min').
+function mrId(key, bound) {
+    const camel = key.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+    return 'mr' + camel[0].toUpperCase() + camel.slice(1) + '_' + bound;
+}
+
+// stId — id поля веса типа системы ('single' → 'stSingle').
+function stId(key) {
+    return 'st' + key[0].toUpperCase() + key.slice(1);
+}
+
+// pmId — id поля среднего ('black_hole' → 'pmBlackHole', 'O' → 'pmO').
+function pmId(key) {
+    const camel = key.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+    return 'pm' + camel[0].toUpperCase() + camel.slice(1);
+}
+
+// recalcGenWeights — автоподсчёт процентов (вес/сумма×100) для обоих блоков
+// весов: спектральные — от суммы обычных звёзд, типы — от суммы всех систем.
+export function recalcGenWeights() {
+    let specSum = 0;
+    const specVals = {};
+    SPECTRAL_CLASSES.forEach(cls => {
+        const v = parseFloat(document.getElementById('sw' + cls).value) || 0;
+        specVals[cls] = v;
+        specSum += v;
+    });
+    SPECTRAL_CLASSES.forEach(cls => {
+        const pct = specSum > 0 ? (specVals[cls] / specSum * 100) : 0;
+        const el = document.getElementById('sw' + cls + '_pct');
+        if (el) el.textContent = pct.toFixed(1) + '%';
+    });
+    const specSumEl = document.getElementById('spectralWeightsSum');
+    if (specSumEl) specSumEl.textContent = 'Сумма: ' + specSum.toFixed(1);
+
+    let sysSum = 0;
+    const sysVals = {};
+    SYSTEM_TYPES.forEach(([key]) => {
+        const v = parseFloat(document.getElementById(stId(key)).value) || 0;
+        sysVals[key] = v;
+        sysSum += v;
+    });
+    SYSTEM_TYPES.forEach(([key]) => {
+        const pct = sysSum > 0 ? (sysVals[key] / sysSum * 100) : 0;
+        const el = document.getElementById(stId(key) + '_pct');
+        if (el) el.textContent = pct.toFixed(1) + '%';
+    });
+    const sysSumEl = document.getElementById('systemTypeWeightsSum');
+    if (sysSumEl) sysSumEl.textContent = 'Сумма: ' + sysSum.toFixed(1);
+}
+
+// genConfigLoaded — защита от повторной загрузки конфига на каждый клик.
+let genConfigLoaded = false;
+
+// loadGenConfig — GET /admin/generation/config → заполняет формы весов и средних.
+export async function loadGenConfig() {
+    const box = document.getElementById('genConfigResult');
+    try {
+        const res = await fetchWithAuth('/admin/generation/config');
+        if (!res.ok) {
+            if (box) box.textContent = '❌ Не удалось загрузить конфиг: HTTP ' + res.status;
+            return;
+        }
+        const cfg = await res.json();
+        const spec = (cfg.star_weights && cfg.star_weights.spectral) || {};
+        SPECTRAL_CLASSES.forEach(cls => {
+            const el = document.getElementById('sw' + cls);
+            if (el && spec[cls] != null) el.value = spec[cls];
+        });
+        const sys = (cfg.star_weights && cfg.star_weights.system_types) || {};
+        SYSTEM_TYPES.forEach(([key]) => {
+            const el = document.getElementById(stId(key));
+            if (el && sys[key] != null) el.value = sys[key];
+        });
+        const pm = cfg.planet_means || {};
+        PLANET_MEAN_KEYS.forEach(key => {
+            const el = document.getElementById(pmId(key));
+            if (el && pm[key] != null) el.value = pm[key];
+        });
+        // Диапазоны массы (29a §4м): {min, max} по типу.
+        const mr = cfg.stellar_mass_ranges || {};
+        MASS_KEYS.forEach(key => {
+            const r = mr[key];
+            if (!r) return;
+            const elMin = document.getElementById(mrId(key, 'min'));
+            const elMax = document.getElementById(mrId(key, 'max'));
+            if (elMin && r.min != null) elMin.value = r.min;
+            if (elMax && r.max != null) elMax.value = r.max;
+        });
+        recalcGenWeights();
+        genConfigLoaded = true;
+        if (box) box.textContent = '✅ Конфиг загружен (дефолты или сохранённый)';
+    } catch (e) {
+        if (box) box.textContent = '❌ ' + e.message;
+    }
+}
+
+// saveGenConfig — PUT /admin/generation/config с валидацией на сервере
+// (веса: 409 при нулевой сумме; mean: 422 при > 8 — не клампится, 99.2.3 §4.5).
+export async function saveGenConfig() {
+    const box = document.getElementById('genConfigResult');
+    const spectral = {};
+    SPECTRAL_CLASSES.forEach(cls => {
+        spectral[cls] = parseFloat(document.getElementById('sw' + cls).value) || 0;
+    });
+    const system_types = {};
+    SYSTEM_TYPES.forEach(([key]) => {
+        system_types[key] = parseFloat(document.getElementById(stId(key)).value) || 0;
+    });
+    const planet_means = {};
+    PLANET_MEAN_KEYS.forEach(key => {
+        planet_means[key] = parseFloat(document.getElementById(pmId(key)).value) || 0;
+    });
+    // Диапазоны массы (29a §4м): {min, max} по типу.
+    const stellar_mass_ranges = {};
+    MASS_KEYS.forEach(key => {
+        const minV = parseFloat(document.getElementById(mrId(key, 'min')).value);
+        const maxV = parseFloat(document.getElementById(mrId(key, 'max')).value);
+        if (!isNaN(minV) && !isNaN(maxV)) {
+            stellar_mass_ranges[key] = { min: minV, max: maxV };
+        }
+    });
+
+    const body = JSON.stringify({ star_weights: { spectral, system_types }, planet_means, stellar_mass_ranges });
+    try {
+        const res = await fetchWithAuth('/admin/generation/config', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body,
+        });
+        if (!res.ok) {
+            const text = await res.text();
+            if (box) box.textContent = '❌ ' + (text || ('HTTP ' + res.status));
+            return;
+        }
+        genConfigLoaded = true;
+        if (box) box.textContent = '✅ Конфиг сохранён (применится при следующей генерации)';
+    } catch (e) {
+        if (box) box.textContent = '❌ ' + e.message;
+    }
+}
+
+// ---------- ПЕРЕСЧЁТ ПЛАНЕТ (99.2.3 §5) ----------
+
+// regeneratePlanets — POST /admin/regenerate-planets: ручной пересчёт планет
+// выбранных миров по равномерному счёту (0–8), без весов и средних.
+export async function regeneratePlanets() {
+    const minP = parseInt(document.getElementById('regMinPlanets').value);
+    const maxP = parseInt(document.getElementById('regMaxPlanets').value);
+    if (isNaN(minP) || isNaN(maxP) || minP < 0 || maxP > 8 || minP > maxP) {
+        document.getElementById('regenerateResult').textContent = '❌ Мин/макс планет: 0 ≤ мин ≤ макс ≤ 8';
+        return;
+    }
+    const body = {
+        min_planets: minP,
+        max_planets: maxP,
+        include_normal: document.getElementById('regIncludeNormal').checked,
+        include_binary: document.getElementById('regIncludeBinary').checked,
+        include_exotic: document.getElementById('regIncludeExotic').checked,
+    };
+    if (!body.include_normal && !body.include_binary && !body.include_exotic) {
+        document.getElementById('regenerateResult').textContent = '❌ Выберите хотя бы одну категорию миров';
+        return;
+    }
+    if (!confirm('Пересчитать планеты? Планеты выбранных миров будут перезаписаны.')) return;
+
+    document.getElementById('regenerateResult').textContent = '⏳ Пересчёт запущен...';
+    document.getElementById('regenerateProgress').style.display = 'block';
+    document.getElementById('regenerateProgressBar').value = 0;
+    document.getElementById('regenerateProgressText').textContent = 'Подготовка...';
+    document.getElementById('cancelRegenerateBtn').style.display = 'inline-block';
+
+    try {
+        const res = await fetchWithAuth('/admin/regenerate-planets', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+            const text = await res.text();
+            document.getElementById('regenerateResult').textContent = '❌ ' + text;
+            document.getElementById('regenerateProgress').style.display = 'none';
+            document.getElementById('cancelRegenerateBtn').style.display = 'none';
+            return;
+        }
+        if (pollIntervals['regenerate']) clearInterval(pollIntervals['regenerate']);
+        pollIntervals['regenerate'] = setInterval(() => pollJob('regenerate_planets', 'regenerateProgress', 'regenerateResult', 'cancelRegenerateBtn'), 1500);
+    } catch (e) {
+        document.getElementById('regenerateResult').textContent = '❌ ' + e.message;
+        document.getElementById('regenerateProgress').style.display = 'none';
+        document.getElementById('cancelRegenerateBtn').style.display = 'none';
+    }
+}

@@ -30,6 +30,7 @@ type Generator struct {
 	db        *sql.DB
 	rng       *rand.Rand
 	usedNames map[string]bool
+	means     PlanetMeans // среднее число планет по типу звезды (99.2.4 §5.2)
 }
 
 // NewGenerator — создаёт генератор. Если seed = 0 — берётся time.Now().
@@ -41,7 +42,13 @@ func NewGenerator(db *sql.DB, seed int64) *Generator {
 		db:        db,
 		rng:       rand.New(rand.NewSource(seed)),
 		usedNames: make(map[string]bool),
+		means:     DefaultPlanetMeans(),
 	}
+}
+
+// SetMeans — задаёт средние числа планет (конфиг админки, 99.2.3 §4.3).
+func (g *Generator) SetMeans(m PlanetMeans) {
+	g.means = m
 }
 
 // ==================== СТАРАЯ ФУНКЦИЯ ====================
@@ -93,6 +100,12 @@ type WorldInfo struct {
 	Name          string
 	SpectralClass string
 	Temperature   int
+	// Экзотические типы (99.2.4 §2): StarType — тип объекта (star/white_dwarf/
+	// neutron/black_hole/protostar), SystemType — тип системы (single/binary/
+	// multiple), Mods — модификаторы (фаза, переменность, подтипы, двойные).
+	StarType   string
+	SystemType string
+	Mods       *models.StellarMods
 }
 
 // GeneratePlanetsForWorlds — генерирует планеты для списка миров.
@@ -150,20 +163,67 @@ func (g *Generator) GeneratePlanetsForWorlds(
 // generateWorldIntoBuffer — генерирует планеты одного мира и складывает в буфер.
 // Возвращает число сгенерированных планет.
 func (g *Generator) generateWorldIntoBuffer(w WorldInfo, buf *batchBuffers) int {
-	planetCount := g.determinePlanetCount(w.SpectralClass)
-	if planetCount == 0 {
+	return g.generateWorldWithCountIntoBuffer(w, g.planetCountFor(w), buf)
+}
+
+// generateWorldWithCountIntoBuffer — планеты мира с явным счётом (для
+// пересчёта планет, 99.2.3 §5). Экзотика — ветка generateExoticPlanet,
+// тесные двойные (close, с разделением) — P-ветка generateCircumbinaryPlanet
+// (35b §4.1, отклонение от 99.2.4 §5.3), остальные обычные звёзды — общий
+// путь generatePlanet. Возвращает число фактически созданных планет.
+func (g *Generator) generateWorldWithCountIntoBuffer(w WorldInfo, count int, buf *batchBuffers) int {
+	if count <= 0 {
 		return 0
 	}
 
 	systemAge := determineSystemAge(w.SpectralClass, g.rng)
+	generated := 0
 
-	for i := 0; i < planetCount; i++ {
+	// P-ветка: тесная двойная с разделением (новые миры). Старые close-миры
+	// без companion_sep_au идут общим путём (фолбэк §2.4).
+	isCircumbinary := !isExoticObject(w.StarType) && w.Mods != nil &&
+		w.Mods.BinaryType == "close" && w.Mods.CompanionSepAU != nil
+
+	for i := 0; i < count; i++ {
 		orbitIndex := i + 1
+		if isExoticObject(w.StarType) {
+			// Орбиты остатков: ЧД — далёкие 10–12, WD — выжившие 5–8 (§5.3).
+			switch w.StarType {
+			case "black_hole":
+				orbitIndex = 10 + g.rng.Intn(3)
+			case "white_dwarf":
+				orbitIndex = 5 + g.rng.Intn(4)
+			}
+			planet := g.generateExoticPlanet(w, orbitIndex)
+			if planet != nil {
+				buf.addPlanet(planet)
+				generated++
+			}
+			continue
+		}
+		if isCircumbinary {
+			planet := g.generateCircumbinaryPlanet(w, systemAge)
+			if planet != nil {
+				buf.addPlanet(planet)
+				generated++
+			}
+			continue
+		}
 		planet := g.generatePlanet(w.ID, w.Name, orbitIndex, w.SpectralClass, systemAge)
 		buf.addPlanet(planet)
+		generated++
 	}
 
-	return planetCount
+	return generated
+}
+
+// isExoticObject — star_type ≠ star (остатки и протозвезда).
+func isExoticObject(starType string) bool {
+	switch starType {
+	case "star", "":
+		return false
+	}
+	return true
 }
 
 // flushAndCommit — флашит буфер в БД одной транзакцией.
@@ -184,6 +244,52 @@ func (g *Generator) flushAndCommit(buf *batchBuffers) error {
 	}
 	buf.reset()
 	return nil
+}
+
+// RegeneratePlanetsForWorlds — ручной пересчёт планет (99.2.3 §5): для каждого
+// мира число планет — равномерный счёт из [minCount, maxCount]. Средние из
+// конфига НЕ применяются (инструмент-«лекарство», не второй генератор).
+// Обычные звёзды — общий путь generatePlanet, экзотика — generateExoticPlanet
+// (99.2.4 §5.3). Удаление старых планет — обязанность вызывающего.
+func (g *Generator) RegeneratePlanetsForWorlds(
+	worlds []WorldInfo,
+	minCount, maxCount int,
+	batchSize int,
+	progressFn func(processed int),
+) (int, error) {
+	if batchSize <= 0 {
+		batchSize = 500
+	}
+	if len(worlds) == 0 {
+		return 0, nil
+	}
+
+	totalPlanets := 0
+
+	// Буфер накапливается между мирами и флашится раз в batchSize миров.
+	buf := newBatchBuffers(batchSize * 8)
+
+	for i, w := range worlds {
+		count := minCount
+		if maxCount > minCount {
+			count = minCount + g.rng.Intn(maxCount-minCount+1)
+		}
+		totalPlanets += g.generateWorldWithCountIntoBuffer(w, count, buf)
+
+		if progressFn != nil {
+			progressFn(i + 1)
+		}
+		if (i+1)%batchSize == 0 {
+			if err := g.flushAndCommit(buf); err != nil {
+				return totalPlanets, err
+			}
+		}
+	}
+
+	if err := g.flushAndCommit(buf); err != nil {
+		return totalPlanets, err
+	}
+	return totalPlanets, nil
 }
 
 // ==================== БАТЧ-БУФЕР ====================

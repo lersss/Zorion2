@@ -25,6 +25,10 @@ let reloadTimer = null;
 let currentWorldIdLoaded = false;
 let lastFlightReloadAt = 0;
 
+// Вейтеры, ждущие освобождения loadingData (фикс 33b): ветка прибытия
+// дожидается конца полётного перезапроса, чтобы loadClusters не потерялся.
+const loadIdleWaiters = [];
+
 // lastFetchedBounds — границы вьюпорта, для которых загружены кластеры.
 // Полётный цикл сравнивает с ними текущий вьюпорт, чтобы не дёргать API
 // на каждом кадре (B17).
@@ -56,9 +60,13 @@ export function scheduleReload() {
 // приходят, поэтому звёзды за краем не появлялись. Вызывает loadClusters
 // НАПРЯМУЮ (мимо общего reloadTimer), чтобы не отодвигать дебаунс релоадов
 // от пана/зума игрока. Ограничено сверху: 25% края + интервалом 600 мс.
+// Во время полёта запрашивает и сравнивает по одной расширенной зоне
+// (B26): текущий вьюпорт + полоса впереди по курсу ~1.5 с полёта
+// (скорость = dist(flyFrom, flyTo) / flyDuration), чтобы следующая зона
+// была загружена до прилёта, а не «под носом».
 export function maybeReloadClusters() {
     if (loadingData) return;
-    const bounds = getViewportBounds();
+    const bounds = getFlightBounds();
     const w = bounds.xMax - bounds.xMin;
     const h = bounds.yMax - bounds.yMin;
     const need = !lastFetchedBounds ||
@@ -70,12 +78,35 @@ export function maybeReloadClusters() {
     const now = Date.now();
     if (now - lastFlightReloadAt < FLIGHT_RELOAD_INTERVAL_MS) return;
     lastFlightReloadAt = now;
-    loadClusters().catch(err => console.error('maybeReloadClusters:', err));
+    loadClusters(bounds).catch(err => console.error('maybeReloadClusters:', err));
 }
 
 // ==================== ЗАГРУЗКА КЛАСТЕРОВ ====================
 
-export async function loadClusters() {
+// notifyLoadIdle — резолвит всех вейтеров waitForLoadIdle после
+// освобождения loadingData (фикс 33b).
+function notifyLoadIdle() {
+    while (loadIdleWaiters.length) {
+        loadIdleWaiters.pop()();
+    }
+}
+
+// waitForLoadIdle — ожидание освобождения loadingData (фикс 33b): ветка
+// прибытия ждёт конец полётного перезапроса, чтобы loadClusters() не увидел
+// loadingData = true и не потерял загрузку зоны прибытия через pendingReload.
+// timeoutMs — защита от зависшего fetch (в коде нет таймаутов fetch).
+export function waitForLoadIdle(timeoutMs = 2000) {
+    if (!loadingData) return Promise.resolve();
+    return new Promise(resolve => {
+        const timer = setTimeout(() => resolve(), timeoutMs);
+        loadIdleWaiters.push(() => {
+            clearTimeout(timer);
+            resolve();
+        });
+    });
+}
+
+export async function loadClusters(boundsOverride = null) {
     if (loadingData) {
         pendingReload = true;
         return;
@@ -86,7 +117,7 @@ export async function loadClusters() {
         const token = localStorage.getItem('token');
         if (!token) throw new Error('No token');
 
-        const bounds = getViewportBounds();
+        const bounds = boundsOverride || getViewportBounds();
         const cell = getCellSize();
         const url = buildUrl(bounds, cell);
 
@@ -109,7 +140,11 @@ export async function loadClusters() {
                     state.worlds.push({
                         id: c.sid,
                         name: c.sname || '—',
-                        spectral_class: c.sspec || 'G',
+                        // Без фолбека на 'G': у экзотики sspec пустой (NULL),
+                        // цвет берётся по star_type (баг #1).
+                        spectral_class: c.sspec || '',
+                        star_type: c.stype || 'star',
+                        system_type: c.systype || 'single',
                         coord_x: c.x,
                         coord_y: c.y,
                     });
@@ -125,13 +160,20 @@ export async function loadClusters() {
         if (elements.statusBar) elements.statusBar.textContent = '❌ Ошибка: ' + err.message;
     } finally {
         loadingData = false;
+        notifyLoadIdle();
         if (pendingReload) {
             pendingReload = false;
             scheduleReload();
         }
     }
 
-    draw();
+    // Хвостовая перерисовка после загрузки. На полётном перезапросе
+    // (maybeReloadClusters → boundsOverride задан) её НЕ делаем: полётный
+    // rAF-цикл сам рисует кадр, а draw() из сетевого колбэка вне цикла даёт
+    // лишнюю/нестабильную перерисовку. Вне полёта — как раньше.
+    if (!boundsOverride) {
+        draw();
+    }
 }
 
 // loadRegions — подгружает все регионы галактики.
@@ -155,7 +197,12 @@ async function loadRegions() {
         state.regions = Array.isArray(regions) ? regions : [];
         if (state.regions.length >= 1) {
             state.galaxyRadius = galaxyRadiusFromRegions(state.regions);
-            updateFitZoom();
+            // Во время полёта зум не трогаем: updateFitZoom() посреди пути
+            // мог скачком сдвинуть state.scale (перезапрос кластеров).
+            // Вне полёта работает как раньше.
+            if (!state.isFlying) {
+                updateFitZoom();
+            }
         }
     } catch (err) {
         console.error('loadRegions error:', err);
@@ -171,6 +218,31 @@ function getViewportBounds() {
         xMax: (state.canvasWidth - state.offsetX) * invScale,
         yMin: -state.offsetY * invScale,
         yMax: (state.canvasHeight - state.offsetY) * invScale,
+    };
+}
+
+// getFlightBounds — вьюпорт для полётного перезапроса (B26): объединение
+// текущего вьюпорта и смещённого вперёд по курсу flyFrom → flyTo на ~1.5 с
+// полёта (min/max по осям) — экран не пустеет, а полоса впереди по курсу
+// загружается до прилёта. Вне полёта (вызова нет — функция полётная) —
+// обычный вьюпорт без смещения.
+function getFlightBounds() {
+    const bounds = getViewportBounds();
+    if (!state.isFlying || !state.flyFrom || !state.flyTo || !(state.flyDuration > 0)) {
+        return bounds;
+    }
+    const dx = state.flyTo.coord_x - state.flyFrom.coord_x;
+    const dy = state.flyTo.coord_y - state.flyFrom.coord_y;
+    const speed = Math.hypot(dx, dy) / state.flyDuration;
+    const shift = speed * 1.5;
+    const dist = Math.hypot(dx, dy) || 1;
+    const shiftX = (dx / dist) * shift;
+    const shiftY = (dy / dist) * shift;
+    return {
+        xMin: Math.min(bounds.xMin, bounds.xMin + shiftX),
+        xMax: Math.max(bounds.xMax, bounds.xMax + shiftX),
+        yMin: Math.min(bounds.yMin, bounds.yMin + shiftY),
+        yMax: Math.max(bounds.yMax, bounds.yMax + shiftY),
     };
 }
 
@@ -268,7 +340,10 @@ export async function fetchWorldByID(id, token) {
         return {
             id: w.id,
             name: w.name || '—',
-            spectral_class: w.spectral_class || 'G',
+            // Без фолбека на 'G': у экзотики спектр NULL (баг #1).
+            spectral_class: w.spectral_class || '',
+            star_type: w.star_type || 'star',
+            system_type: w.system_type || 'single',
             coord_x: w.coord_x,
             coord_y: w.coord_y,
         };

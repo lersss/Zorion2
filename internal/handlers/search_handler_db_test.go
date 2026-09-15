@@ -1,4 +1,6 @@
 // Тесты поисковых запросов на sqlmock: параметры, порядок вызовов, парсинг.
+// Все запросы читают spectral_class через COALESCE — экзотика пишет NULL
+// (99.2.4 §3), Scan NULL в string падает (баг #1, прогон @tester).
 package handlers
 
 import (
@@ -27,7 +29,7 @@ func TestSearchWorldsByNameParsesRows(t *testing.T) {
 	rows := sqlmock.NewRows([]string{"id", "name", "spectral_class", "coord_x", "coord_y"}).
 		AddRow("w1", "Alpha", "G", 1.5, 2.5)
 
-	mock.ExpectQuery(`(?i)SELECT id, name, spectral_class, coord_x, coord_y FROM worlds WHERE LOWER\(name\) = \$1 ORDER BY name LIMIT \$2`).
+	mock.ExpectQuery(`(?i)SELECT id, name, COALESCE\(spectral_class,''\), coord_x, coord_y FROM worlds WHERE LOWER\(name\) = \$1 ORDER BY name LIMIT \$2`).
 		WithArgs("alpha", 10).
 		WillReturnRows(rows)
 
@@ -54,7 +56,7 @@ func TestSearchPlanetsByNameParsesRows(t *testing.T) {
 	rows := sqlmock.NewRows([]string{"id", "name", "world_id", "world_name", "spectral_class", "coord_x", "coord_y", "type"}).
 		AddRow("p1", "Alpha Prime", "w1", "Alpha", "G", 1.5, 2.5, "землеподобная")
 
-	mock.ExpectQuery(`(?i)SELECT p.id, p.name, p.world_id, w.name, w.spectral_class, w.coord_x, w.coord_y, COALESCE\(p.data->>'type', ''\) FROM planets p JOIN worlds w ON w.id = p.world_id WHERE LOWER\(p.name\) = \$1 ORDER BY p.name LIMIT \$2`).
+	mock.ExpectQuery(`(?i)SELECT p.id, p.name, p.world_id, w.name, COALESCE\(w.spectral_class,''\), w.coord_x, w.coord_y, COALESCE\(p.data->>'type', ''\) FROM planets p JOIN worlds w ON w.id = p.world_id WHERE LOWER\(p.name\) = \$1 ORDER BY p.name LIMIT \$2`).
 		WithArgs("alpha prime", 5).
 		WillReturnRows(rows)
 
@@ -82,7 +84,7 @@ func TestSearchSatellitesByNameParsesRows(t *testing.T) {
 	rows := sqlmock.NewRows([]string{"id", "name", "planet_id", "world_id", "world_name", "spectral_class", "coord_x", "coord_y"}).
 		AddRow("s1", "Titan", "p1", "w1", "Alpha", "G", 1.5, 2.5)
 
-	mock.ExpectQuery(`(?i)SELECT sat->>'id', sat->>'name', p.id, p.world_id, w.name, w.spectral_class, w.coord_x, w.coord_y FROM planets p JOIN worlds w ON w.id = p.world_id CROSS JOIN LATERAL jsonb_array_elements\(p.data->'satellites'\) AS sat WHERE LOWER\(sat->>'name'\) = \$1 ORDER BY sat->>'name' LIMIT \$2`).
+	mock.ExpectQuery(`(?i)SELECT sat->>'id', sat->>'name', p.id, p.world_id, w.name, COALESCE\(w.spectral_class,''\), w.coord_x, w.coord_y FROM planets p JOIN worlds w ON w.id = p.world_id CROSS JOIN LATERAL jsonb_array_elements\(p.data->'satellites'\) AS sat WHERE LOWER\(sat->>'name'\) = \$1 ORDER BY sat->>'name' LIMIT \$2`).
 		WithArgs("titan", 3).
 		WillReturnRows(rows)
 
@@ -108,14 +110,14 @@ func TestSearchByNameOrchestratesAndMerges(t *testing.T) {
 	defer db.Close()
 
 	// Миры: 2 результата → для планет остаётся лимит 5-2=3.
-	mock.ExpectQuery(`(?i)SELECT id, name, spectral_class, coord_x, coord_y FROM worlds`).
+	mock.ExpectQuery(`(?i)SELECT id, name, COALESCE\(spectral_class,''\), coord_x, coord_y FROM worlds`).
 		WithArgs("alpha", 5).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "spectral_class", "coord_x", "coord_y"}).
 			AddRow("w1", "Alpha", "G", 1.5, 2.5).
 			AddRow("w2", "Alpha Minor", "K", 3.0, 4.0))
 
 	// Планеты: 1 результат → для спутников остаётся лимит 3-1=2.
-	mock.ExpectQuery(`(?i)SELECT p.id, p.name, p.world_id, w.name, w.spectral_class, w.coord_x, w.coord_y, COALESCE`).
+	mock.ExpectQuery(`(?i)SELECT p.id, p.name, p.world_id, w.name, COALESCE\(w.spectral_class,''\), w.coord_x, w.coord_y, COALESCE`).
 		WithArgs("alpha", 3).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "world_id", "world_name", "spectral_class", "coord_x", "coord_y", "type"}).
 			AddRow("p1", "Alpha Prime", "w1", "Alpha", "G", 1.5, 2.5, ""))
@@ -143,7 +145,7 @@ func TestSearchByNamePropagatesQueryError(t *testing.T) {
 	mock, db := newSearchDB(t)
 	defer db.Close()
 
-	mock.ExpectQuery(`(?i)SELECT id, name, spectral_class, coord_x, coord_y FROM worlds`).
+	mock.ExpectQuery(`(?i)SELECT id, name, COALESCE\(spectral_class,''\), coord_x, coord_y FROM worlds`).
 		WithArgs("alpha", 5).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "spectral_class", "coord_x", "coord_y"}))
 
@@ -162,7 +164,7 @@ func TestSearchByNameStopsWhenLimitExhausted(t *testing.T) {
 	defer db.Close()
 
 	// Миров вернулось столько же, сколько limit — планеты и спутники не запрашиваются.
-	mock.ExpectQuery(`(?i)SELECT id, name, spectral_class, coord_x, coord_y FROM worlds`).
+	mock.ExpectQuery(`(?i)SELECT id, name, COALESCE\(spectral_class,''\), coord_x, coord_y FROM worlds`).
 		WithArgs("alpha", 3).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "spectral_class", "coord_x", "coord_y"}).
 			AddRow("w1", "Alpha", "G", 0, 0).
@@ -172,6 +174,70 @@ func TestSearchByNameStopsWhenLimitExhausted(t *testing.T) {
 	results, err := searchByName(context.Background(), db, "alpha", 3)
 	require.NoError(t, err)
 	require.Len(t, results, 3)
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// ==================== NULL-СПЕКТР ЭКЗОТИКИ (99.2.4 §3, баг #1) ====================
+//
+// Экзотика пишет NULL в spectral_class; Scan NULL в string падает → поиск давал
+// 500. Запросы обязаны читать COALESCE (паттерн planet_handler.go/world_repository.go).
+// sqlmock не применяет SQL-функции, поэтому строки возвращают пост-COALESCE
+// значение (''), а regex жёстко требует COALESCE в SQL — без него тест красный.
+
+func TestSearchWorldsByNameNullSpectralCoalesced(t *testing.T) {
+	mock, db := newSearchDB(t)
+	defer db.Close()
+
+	rows := sqlmock.NewRows([]string{"id", "name", "spectral_class", "coord_x", "coord_y"}).
+		AddRow("bh1", "ЧД-1", "", 1.5, 2.5) // пост-COALESCE: NULL → ''
+
+	mock.ExpectQuery(`(?i)SELECT id, name, COALESCE\(spectral_class,''\), coord_x, coord_y FROM worlds WHERE LOWER\(name\) = \$1 ORDER BY name LIMIT \$2`).
+		WithArgs("чд-1", 10).
+		WillReturnRows(rows)
+
+	results, err := searchWorldsByName(context.Background(), db, "чд-1", 10)
+	require.NoError(t, err, "NULL-спектр не должен ронять Scan (500)")
+	require.Len(t, results, 1)
+	assert.Equal(t, "", results[0].Spectral, "экзотика: пустой спектральный класс")
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestSearchPlanetsByNameNullSpectralCoalesced(t *testing.T) {
+	mock, db := newSearchDB(t)
+	defer db.Close()
+
+	rows := sqlmock.NewRows([]string{"id", "name", "world_id", "world_name", "spectral_class", "coord_x", "coord_y", "type"}).
+		AddRow("p1", "ЧД-планета", "bh1", "ЧД-1", "", 1.5, 2.5, "мёртвая")
+
+	mock.ExpectQuery(`(?i)SELECT p.id, p.name, p.world_id, w.name, COALESCE\(w.spectral_class,''\), w.coord_x, w.coord_y, COALESCE\(p.data->>'type', ''\) FROM planets p JOIN worlds w ON w.id = p.world_id WHERE LOWER\(p.name\) = \$1 ORDER BY p.name LIMIT \$2`).
+		WithArgs("чд-планета", 10).
+		WillReturnRows(rows)
+
+	results, err := searchPlanetsByName(context.Background(), db, "чд-планета", 10)
+	require.NoError(t, err, "NULL-спектр у планеты экзотики не должен давать 500")
+	require.Len(t, results, 1)
+	assert.Equal(t, "", results[0].Spectral)
+
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestSearchSatellitesByNameNullSpectralCoalesced(t *testing.T) {
+	mock, db := newSearchDB(t)
+	defer db.Close()
+
+	rows := sqlmock.NewRows([]string{"id", "name", "planet_id", "world_id", "world_name", "spectral_class", "coord_x", "coord_y"}).
+		AddRow("s1", "ЧД-спутник", "p1", "bh1", "ЧД-1", "", 1.5, 2.5)
+
+	mock.ExpectQuery(`(?i)SELECT sat->>'id', sat->>'name', p.id, p.world_id, w.name, COALESCE\(w.spectral_class,''\), w.coord_x, w.coord_y FROM planets p JOIN worlds w ON w.id = p.world_id CROSS JOIN LATERAL jsonb_array_elements\(p.data->'satellites'\) AS sat WHERE LOWER\(sat->>'name'\) = \$1 ORDER BY sat->>'name' LIMIT \$2`).
+		WithArgs("чд-спутник", 10).
+		WillReturnRows(rows)
+
+	results, err := searchSatellitesByName(context.Background(), db, "чд-спутник", 10)
+	require.NoError(t, err, "NULL-спектр у спутника экзотики не должен давать 500")
+	require.Len(t, results, 1)
+	assert.Equal(t, "", results[0].Spectral)
 
 	assert.NoError(t, mock.ExpectationsWereMet())
 }

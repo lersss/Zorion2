@@ -63,12 +63,23 @@ func (a *statsAggregator) processOne(p planetRecord, stats *PlanetStats) {
 	}
 	stats.PlanetsByType[dominant]++
 
-	// По спектральному классу
-	if w, ok := a.worldsByID[p.WorldID]; ok && w.SpectralClass != "" {
-		if _, ok := stats.PlanetsBySpectral[w.SpectralClass]; !ok {
-			stats.PlanetsBySpectral[w.SpectralClass] = make(map[string]int)
+	// По спектральному классу — только обычные звёзды (star); экзотика
+	// группируется по star_type отдельным блоком, в класс «G»/«по умолчанию»
+	// не сливается (99.2.4 §7).
+	if w, ok := a.worldsByID[p.WorldID]; ok {
+		if w.StarType == "" || w.StarType == "star" {
+			if w.SpectralClass != "" {
+				if _, ok := stats.PlanetsBySpectral[w.SpectralClass]; !ok {
+					stats.PlanetsBySpectral[w.SpectralClass] = make(map[string]int)
+				}
+				stats.PlanetsBySpectral[w.SpectralClass][dominant]++
+			}
+		} else {
+			if _, ok := stats.PlanetsByStarType[w.StarType]; !ok {
+				stats.PlanetsByStarType[w.StarType] = make(map[string]int)
+			}
+			stats.PlanetsByStarType[w.StarType][dominant]++
 		}
-		stats.PlanetsBySpectral[w.SpectralClass][dominant]++
 	}
 
 	// Гидросфера / атмосфера / биосфера

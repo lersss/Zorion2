@@ -1,7 +1,12 @@
 // internal/generator/planet/physics.go
 package planet
 
-import "math"
+import (
+	"math"
+	"math/rand"
+
+	"zorion/internal/astro"
+)
 
 // ==================== ФИЗИЧЕСКИЕ ГРАНИЦЫ ====================
 
@@ -209,14 +214,35 @@ func orbitRadiusByIndex(orbitIndex int) float64 {
 	return 0.4 * math.Pow(1.7, float64(orbitIndex))
 }
 
+// ==================== СВЕТИМОСТЬ ====================
+
 // luminosityBySpectral — светимость звезды по спектральному классу.
+// Единый источник таблицы — internal/astro (35b §3): galaxy сравнивает
+// светимости при сортировке «главная = ярче», planet считает температуры
+// по L. Fallback 1.0 («как Солнце») закреплён тестами physics_test.go.
 func luminosityBySpectral(spectralClass string) float64 {
-	table := map[string]float64{
-		"O": 1000, "B": 100, "A": 10, "F": 2, "G": 1,
-		"K": 0.1, "M": 0.01, "L": 0.001, "T": 0.0001, "Y": 0.00001,
+	return astro.LuminosityBySpectral(spectralClass)
+}
+
+// ==================== ЧИСЛО ПЛАНЕТ: MEAN-МОДЕЛЬ (99.2.4 §5.2) ====================
+
+// meanPlanetCount — число планет по среднему: n = floor(mean) + Бернулли(frac),
+// потолок max (по умолчанию 8 — Kepler-90). При mean < 1 даёт n ∈ {0, 1}
+// («чаще 0» сохраняется: P(0) = 1 − mean). Честное среднее E[n] = mean
+// выполняется только при mean ≤ max.
+func meanPlanetCount(rng *rand.Rand, mean float64, max int) int {
+	if mean <= 0 {
+		return 0
 	}
-	if l, ok := table[spectralClass]; ok && l > 0 {
-		return l
+	if max <= 0 {
+		max = 8
 	}
-	return 1.0
+	n := int(math.Floor(mean))
+	if frac := mean - math.Floor(mean); rng.Float64() < frac {
+		n++
+	}
+	if n > max {
+		n = max
+	}
+	return n
 }

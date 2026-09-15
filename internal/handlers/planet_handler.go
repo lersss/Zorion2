@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -29,29 +30,51 @@ func (h *AdminHandlers) GetPlanetsByWorld(w http.ResponseWriter, r *http.Request
 		planets = []models.Planet{}
 	}
 
-	// Получить информацию о мире (название, спектр, температура, координаты)
-	var worldName, spectralClass string
+	// Получить информацию о мире (название, спектр, тип объекта/системы,
+	// модификаторы, масса, температура, координаты). COALESCE — NULL-спектр
+	// экзотики не роняет строку (99.2.4 §3).
+	var worldName, spectralClass, starType, systemType string
+	var modsRaw []byte
 	var worldTemp, coordX, coordY float64
-	err = h.db.QueryRow("SELECT name, spectral_class, temperature, coord_x, coord_y FROM worlds WHERE id = $1", worldID).
-		Scan(&worldName, &spectralClass, &worldTemp, &coordX, &coordY)
+	var massRaw sql.NullFloat64
+	err = h.db.QueryRow("SELECT name, COALESCE(spectral_class,''), star_type, system_type, stellar_mods, stellar_mass, temperature, coord_x, coord_y FROM worlds WHERE id = $1", worldID).
+		Scan(&worldName, &spectralClass, &starType, &systemType, &modsRaw, &massRaw, &worldTemp, &coordX, &coordY)
 	if err != nil {
 		http.Error(w, "Failed to fetch world info: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
+	var mods map[string]interface{}
+	if len(modsRaw) > 0 && string(modsRaw) != "null" {
+		json.Unmarshal(modsRaw, &mods)
+	}
+
+	var stellarMass *float64
+	if massRaw.Valid {
+		stellarMass = &massRaw.Float64
+	}
+
 	response := struct {
-		WorldName     string          `json:"world_name"`
-		SpectralClass string          `json:"spectral_class"`
-		Temperature   float64         `json:"temperature"`
-		CoordX        float64         `json:"coord_x"`
-		CoordY        float64         `json:"coord_y"`
-		Planets       []models.Planet `json:"planets"`
+		WorldName     string                 `json:"world_name"`
+		SpectralClass string                 `json:"spectral_class"`
+		Temperature   float64                `json:"temperature"`
+		CoordX        float64                `json:"coord_x"`
+		CoordY        float64                `json:"coord_y"`
+		StarType      string                 `json:"star_type,omitempty"`
+		SystemType    string                 `json:"system_type,omitempty"`
+		StellarMods   map[string]interface{} `json:"stellar_mods,omitempty"`
+		StellarMass   *float64               `json:"stellar_mass,omitempty"`
+		Planets       []models.Planet        `json:"planets"`
 	}{
 		WorldName:     worldName,
 		SpectralClass: spectralClass,
 		Temperature:   worldTemp,
 		CoordX:        coordX,
 		CoordY:        coordY,
+		StarType:      starType,
+		SystemType:    systemType,
+		StellarMods:   mods,
+		StellarMass:   stellarMass,
 		Planets:       planets,
 	}
 

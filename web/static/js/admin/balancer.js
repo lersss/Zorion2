@@ -1,0 +1,866 @@
+// web/static/js/admin/balancer.js
+// Вкладка «Балансировка» (спека 99.2.17 §7): загрузка кривой/эталонов/
+// серверный sample, drag узлов и bend-ромбов, Shift+клик — добавить узел,
+// ПКМ — удалить, зум колесом по Y + пан пустого места, «По узлам»,
+// лог/линейная, стрелочки ▲/▼ за краем (клик — центрирование), кнопки
+// Сохранить/Отмена/Сброс, тултипы, информационная панель.
+// Масштабирование Y — чисто клиентская механика (§7 п.3): клиент хранит
+// view; после пана по X запрашивает повторный sample (клиент НЕ дублирует
+// evaluateCurve на постоянных данных — только на live-preview при drag).
+import { fetchWithAuth } from './auth.js';
+import { notifyError, notifySuccess } from '../ui/toast.js';
+import { render, hitTest, dataToScreen, screenToData, evaluateCurveClient, fmtR } from './balancerCanvas.js';
+
+// Диапазоны X компонент (для начального обзора и клампа X при drag).
+// Единицы: жара и холод — °C (решение создателя 2026-09-15), гравитация — g,
+// радиация — rad.
+const COMPONENTS = {
+    heat: { xMin: 30, xMax: 4000, unit: '°C' },
+    cold: { xMin: -273.15, xMax: 14.85, unit: '°C' },
+    gravity: { xMin: 0, xMax: 10, unit: 'g' },
+    radiation: { xMin: 0, xMax: 100, unit: 'rad' },
+};
+
+// X_LABELS — подпись единиц оси X внизу графика.
+const X_LABELS = {
+    heat: 'жара, °C',
+    cold: 'холод, °C',
+    gravity: 'гравитация, g',
+    radiation: 'радиация, rad',
+};
+
+// Ось Y — в процентах (R×100, решение создателя 2026-09-15): видимый
+// диапазон хранится в %, кламп [−100, +100]. Y_MIN — низ лог-шкалы:
+// R = 1e-14 доли = 1e-12%. Данные (nodes/sampled/etalons) остаются в долях R.
+const Y_MIN = 1e-12;
+const Y_MAX = 100;
+const SAMPLE_N = 250;
+
+let canvas = null;
+let bound = false;
+let dirty = false;
+
+const state = {
+    component: 'heat',
+    nodes: [],
+    bends: [],
+    baseNodes: [],
+    baseBends: [],
+    etalons: [],
+    sampled: [],
+    xs: [],
+    presets: [],       // пресеты текущей компоненты (итерация 7): [{name, updated_at}]
+    presetActive: '',  // имя активного пресета
+    view: { logY: true, yMin: Y_MIN, yMax: Y_MAX, xMin: 30, xMax: 4000 },
+};
+
+// drag — текущее перетаскивание (null, node, bend, pan).
+let drag = null;
+
+// dragInfo — живая подпись при drag (UX-правка 2026-09-15): значения видны
+// ВО ВРЕМЯ движения узла/ромбика. Заполняется в updateDragInfo (вызывается
+// из redraw), рисуется плашкой в canvas; null вне drag.
+let dragInfo = null;
+
+// sampleTimer — debounce повторного sample после пана по X.
+let sampleTimer = null;
+
+export function initBalancer() {
+    canvas = document.getElementById('balancerCanvas');
+    if (!canvas) return;
+    if (bound) return;
+    bound = true;
+
+    bindScale();
+    bindButtons();
+    bindPresets();
+    bindCanvas();
+    document.getElementById('balancerComponent').addEventListener('change', onComponentChange);
+    document.getElementById('balancerGoSettlement').addEventListener('click', (e) => {
+        e.preventDefault();
+        // Настройки населения — на вкладке «Основное» (tab-main).
+        activateMainTab();
+    });
+
+    loadComponent();
+}
+
+// activateMainTab — переключение на вкладку «Основное» (настройки населения).
+function activateMainTab() {
+    document.querySelectorAll('.tab-btn').forEach(b =>
+        b.classList.toggle('active', b.dataset.tab === 'tab-main'));
+    document.querySelectorAll('.tab-pane').forEach(p =>
+        p.classList.toggle('active', p.id === 'tab-main'));
+    localStorage.setItem('adminActiveTab', 'tab-main');
+}
+
+// ==================== Загрузка данных ====================
+
+async function loadComponent() {
+    state.component = document.getElementById('balancerComponent').value;
+    const r = COMPONENTS[state.component];
+    state.view.xMin = r.xMin;
+    state.view.xMax = r.xMax;
+    // Линейная шкала — по умолчанию; Y авто-фокусируется на узлы кривой
+    // (fitViewToNodes) после загрузки, НЕ от нижней границы лог-шкалы.
+    state.view.logY = false;
+    state.view.yMin = Y_MIN;
+    state.view.yMax = Y_MAX;
+    setScaleUI();
+    await Promise.all([loadCurve(), loadEtalons(), loadPresets()]);
+    dirty = false;
+    fitViewToNodes();
+    sampleVisible();
+}
+
+async function loadCurve() {
+    try {
+        const res = await fetchWithAuth(`/admin/balancer/curve?component=${state.component}`);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const c = await res.json();
+        state.nodes = c.nodes;
+        state.bends = c.bends;
+        state.baseNodes = c.nodes.map(n => ({ ...n }));
+        state.baseBends = c.bends.slice();
+    } catch (e) {
+        console.error('loadCurve:', e);
+        notifyError('Не удалось загрузить кривую');
+    }
+}
+
+async function loadEtalons() {
+    try {
+        const res = await fetchWithAuth(`/admin/balancer/etalons?component=${state.component}`);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const e = await res.json();
+        state.etalons = e.etalons;
+    } catch (err) {
+        console.error('loadEtalons:', err);
+        state.etalons = [];
+    }
+    updateInfo();
+}
+
+// ==================== Пресеты (итерация 7, спека §7 п.8) ====================
+
+// loadPresets — GET /admin/balancer/presets?component=… → список + активный.
+async function loadPresets() {
+    try {
+        const res = await fetchWithAuth(`/admin/balancer/presets?component=${state.component}`);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const p = await res.json();
+        state.presets = p.presets;
+        state.presetActive = p.active;
+    } catch (e) {
+        console.error('loadPresets:', e);
+        state.presets = [];
+        state.presetActive = '';
+    }
+    renderPresetSelect();
+}
+
+// renderPresetSelect — перезаполнение дропдауна пресетов; default —
+// без кнопки «Удалить» (заводской, удаляется только reset-default).
+function renderPresetSelect() {
+    const sel = document.getElementById('balancerPresetSelect');
+    if (!sel) return;
+    sel.innerHTML = '';
+    for (const p of state.presets) {
+        const opt = document.createElement('option');
+        opt.value = p.name;
+        const date = p.updated_at ? new Date(p.updated_at).toISOString().slice(0, 16) + ' UTC' : '';
+        opt.title = `обновлён: ${date}`;
+        opt.textContent = p.name === state.presetActive ? `${p.name} (активный)` : p.name;
+        sel.appendChild(opt);
+    }
+    if (!state.presets.length) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = '— нет пресетов —';
+        sel.appendChild(opt);
+    }
+    const del = document.getElementById('balancerPresetDeleteBtn');
+    if (del) {
+        const isDefault = sel.value === 'default';
+        del.disabled = isDefault;
+        del.title = isDefault ? 'default — заводской; используйте «Вернуть заводской»' : '';
+    }
+}
+
+// bindPresets — кнопки панели пресетов.
+function bindPresets() {
+    document.getElementById('balancerPresetSelect').addEventListener('change', renderPresetSelect);
+    document.getElementById('balancerPresetApplyBtn').addEventListener('click', applyPreset);
+    document.getElementById('balancerPresetDeleteBtn').addEventListener('click', deletePreset);
+    document.getElementById('balancerPresetSaveBtn').addEventListener('click', savePresetAs);
+    document.getElementById('balancerPresetResetDefaultBtn').addEventListener('click', resetDefaultPreset);
+}
+
+// savePresetAs — «Сохранить как…»: сначала PUT текущих экранных узлов
+// (пресет сохраняет ТО, ЧТО НА ЭКРАНЕ, включая несохранённые правки),
+// затем POST presets — «сохранил = сразу применил» (спек §7 п.8).
+async function savePresetAs() {
+    const sel = document.getElementById('balancerPresetSelect');
+    let name = sel && sel.value ? sel.value : '';
+    const input = prompt('Имя пресета (до 32 символов):', name);
+    if (input === null) return;
+    name = input.trim();
+    if (!name) {
+        notifyError('Имя пресета не может быть пустым');
+        return;
+    }
+    const exists = state.presets.some(p => p.name === name);
+    if (exists && !confirm(`Пресет «${name}» уже есть — перезаписать?`)) return;
+
+    // Экран → store: PUT тех же данных (несохранённые правки попадут в пресет).
+    if (dirty) {
+        const ok = await putCurrentCurve();
+        if (!ok) return;
+    }
+    try {
+        const res = await fetchWithAuth('/admin/balancer/presets', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ component: state.component, name }),
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            notifyError(err.error || 'Не удалось сохранить пресет');
+            return;
+        }
+        notifySuccess(`Пресет «${name}» сохранён и применён`);
+        await loadPresets();
+    } catch (e) {
+        console.error('savePresetAs:', e);
+        notifyError('Ошибка сохранения пресета');
+    }
+}
+
+// putCurrentCurve — PUT текущих экранных узлов/bends (вынесено из saveCurve
+// для повторного использования). true при успехе.
+async function putCurrentCurve() {
+    try {
+        const res = await fetchWithAuth('/admin/balancer/curve', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ component: state.component, nodes: state.nodes, bends: state.bends }),
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            notifyError(err.error || 'Не удалось сохранить кривую');
+            return false;
+        }
+        const c = await res.json();
+        state.nodes = c.nodes;
+        state.bends = c.bends;
+        state.baseNodes = c.nodes.map(n => ({ ...n }));
+        state.baseBends = c.bends.slice();
+        dirty = false;
+        return true;
+    } catch (e) {
+        console.error('putCurrentCurve:', e);
+        notifyError('Ошибка сохранения кривой');
+        return false;
+    }
+}
+
+// applyPreset — «Применить»: POST presets/apply → кривая перерисовывается.
+async function applyPreset() {
+    const sel = document.getElementById('balancerPresetSelect');
+    const name = sel ? sel.value : '';
+    if (!name) return;
+    try {
+        const res = await fetchWithAuth('/admin/balancer/presets/apply', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ component: state.component, name }),
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            notifyError(err.error || 'Не удалось применить пресет');
+            return;
+        }
+        notifySuccess(`Пресет «${name}» применён`);
+        dirty = false;
+        await loadCurve();
+        await loadPresets();
+        sampleVisible();
+    } catch (e) {
+        console.error('applyPreset:', e);
+        notifyError('Ошибка применения пресета');
+    }
+}
+
+// deletePreset — «Удалить»: DELETE (default — кнопка неактивна).
+async function deletePreset() {
+    const sel = document.getElementById('balancerPresetSelect');
+    const name = sel ? sel.value : '';
+    if (!name || name === 'default') return;
+    if (!confirm(`Удалить пресет «${name}»?`)) return;
+    try {
+        const res = await fetchWithAuth('/admin/balancer/presets', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ component: state.component, name }),
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            notifyError(err.error || 'Не удалось удалить пресет');
+            return;
+        }
+        notifySuccess(`Пресет «${name}» удалён`);
+        await loadPresets();
+    } catch (e) {
+        console.error('deletePreset:', e);
+        notifyError('Ошибка удаления пресета');
+    }
+}
+
+// resetDefaultPreset — «Вернуть заводской»: POST presets/reset-default.
+async function resetDefaultPreset() {
+    if (!confirm('Кривая и пресет default будут заменены кодовыми дефолтами. Продолжить?')) return;
+    try {
+        const res = await fetchWithAuth('/admin/balancer/presets/reset-default', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ component: state.component }),
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            notifyError(err.error || 'Не удалось вернуть заводской пресет');
+            return;
+        }
+        notifySuccess('Кривая возвращена на заводской дефолт');
+        dirty = false;
+        await loadCurve();
+        await loadPresets();
+        sampleVisible();
+    } catch (e) {
+        console.error('resetDefaultPreset:', e);
+        notifyError('Ошибка возврата заводского пресета');
+    }
+}
+
+// xsGrid — равномерная сетка X по видимому диапазону для sample.
+function xsGrid() {
+    const xs = [];
+    for (let i = 0; i < SAMPLE_N; i++) {
+        xs.push(state.view.xMin + (state.view.xMax - state.view.xMin) * i / (SAMPLE_N - 1));
+    }
+    return xs;
+}
+
+async function sampleVisible() {
+    const xs = xsGrid();
+    state.xs = xs;
+    try {
+        const res = await fetchWithAuth('/admin/balancer/curve/sample', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ component: state.component, xs }),
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const s = await res.json();
+        state.sampled = s.points;
+    } catch (e) {
+        console.error('sample:', e);
+    }
+    redraw();
+}
+
+function redraw() {
+    if (!canvas) return;
+    updateDragInfo();
+    render(canvas, state.view, {
+        nodes: state.nodes,
+        bends: state.bends,
+        sampled: state.sampled,
+        etalons: state.etalons,
+        xs: state.xs,
+        dirty: dirty,
+        dragInfo: dragInfo,
+        xLabel: X_LABELS[state.component],
+    });
+    updateSaveLabel();
+    updateInfo();
+}
+
+function updateSaveLabel() {
+    const btn = document.getElementById('balancerSaveBtn');
+    if (btn) btn.textContent = dirty ? 'Сохранить*' : 'Сохранить';
+}
+
+// ==================== Кнопки и шкала ====================
+
+function bindScale() {
+    const seg = document.getElementById('balancerScaleSeg');
+    seg.querySelectorAll('.seg-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            state.view.logY = btn.dataset.scale === 'log';
+            // Лог-шкала работает только для положительных: если автофокус
+            // увёл yMin ≤ 0 (линейный), в лог-режиме прижимаем к низу.
+            if (state.view.logY && state.view.yMin <= 0) state.view.yMin = Y_MIN;
+            setScaleUI();
+            redraw();
+        });
+    });
+}
+
+function setScaleUI() {
+    const seg = document.getElementById('balancerScaleSeg');
+    seg.querySelectorAll('.seg-btn').forEach(b =>
+        b.classList.toggle('active', b.dataset.scale === (state.view.logY ? 'log' : 'linear')));
+}
+
+function bindButtons() {
+    document.getElementById('balancerFitBtn').addEventListener('click', fitToNodes);
+    document.getElementById('balancerResetViewBtn').addEventListener('click', resetView);
+    document.getElementById('balancerSaveBtn').addEventListener('click', saveCurve);
+    document.getElementById('balancerCancelBtn').addEventListener('click', cancelCurve);
+    document.getElementById('balancerResetBtn').addEventListener('click', resetCurve);
+}
+
+// fitViewToNodes — авто-фокус оси Y (в %) на узлы кривой с запасом ±20%
+// (1 деление, если все узлы равны), кламп [−100, +100]. Чисто клиентская
+// арифметика (решение создателя 2026-09-15: линейная сфокусирована на
+// границах данных, не от нижней границы лог-шкалы).
+function fitViewToNodes() {
+    if (!state.nodes.length) return;
+    let mn = Infinity, mx = -Infinity;
+    for (const n of state.nodes) {
+        if (n.y < mn) mn = n.y;
+        if (n.y > mx) mx = n.y;
+    }
+    let lo = mn * 100;
+    let hi = mx * 100;
+    let pad = (hi - lo) * 0.2;
+    if (pad <= 0) pad = 1;
+    lo -= pad;
+    hi += pad;
+    if (lo < -100) lo = -100;
+    if (hi > 100) hi = 100;
+    if (lo >= hi) { lo = -100; hi = 100; }
+    state.view.yMin = lo;
+    state.view.yMax = hi;
+}
+
+// fitToNodes — кнопка «По узлам»: авто-фокус + перерисовка.
+function fitToNodes() {
+    fitViewToNodes();
+    redraw();
+}
+
+// resetView — кнопка «Сброс вида»: вернуть начальный обзор — полный
+// X-диапазон компоненты + авто-фокус Y на узлы (как при загрузке
+// компоненты). Переключатель лог/линейная НЕ трогаем — сбрасывается
+// только масштаб. X изменился → повторный sample.
+function resetView() {
+    const r = COMPONENTS[state.component];
+    state.view.xMin = r.xMin;
+    state.view.xMax = r.xMax;
+    fitViewToNodes(); // Y — авто-фокус на текущие узлы (кламп [−100, 100] %)
+    requestSample();
+    redraw();
+}
+
+async function saveCurve() {
+    try {
+        const res = await fetchWithAuth('/admin/balancer/curve', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ component: state.component, nodes: state.nodes, bends: state.bends }),
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            notifyError(err.error || 'Не удалось сохранить кривую');
+            return;
+        }
+        const c = await res.json();
+        state.nodes = c.nodes;
+        state.bends = c.bends;
+        state.baseNodes = c.nodes.map(n => ({ ...n }));
+        state.baseBends = c.bends.slice();
+        dirty = false;
+        notifySuccess('Кривая сохранена');
+        sampleVisible();
+    } catch (e) {
+        console.error('saveCurve:', e);
+        notifyError('Ошибка сохранения кривой');
+    }
+}
+
+async function cancelCurve() {
+    // Отмена = GET curve + перерисовка (выброс локальных правок).
+    await loadCurve();
+    dirty = false;
+    sampleVisible();
+    redraw();
+}
+
+async function resetCurve() {
+    if (!confirm(`Сбросить кривую «${state.component}» на дефолты?`)) return;
+    try {
+        const res = await fetchWithAuth('/admin/balancer/curve/reset', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ component: state.component }),
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            notifyError(err.error || 'Не удалось сбросить кривую');
+            return;
+        }
+        const c = await res.json();
+        state.nodes = c.nodes;
+        state.bends = c.bends;
+        state.baseNodes = c.nodes.map(n => ({ ...n }));
+        state.baseBends = c.bends.slice();
+        dirty = false;
+        notifySuccess('Кривая сброшена на дефолты');
+        fitViewToNodes(); // авто-фокус на дефолтные узлы (решение 2026-09-15)
+        sampleVisible();
+    } catch (e) {
+        console.error('resetCurve:', e);
+        notifyError('Ошибка сброса кривой');
+    }
+}
+
+// ==================== События мыши ====================
+
+function canvasCoords(e) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+        x: (e.clientX - rect.left) * canvas.width / rect.width,
+        y: (e.clientY - rect.top) * canvas.height / rect.height,
+    };
+}
+
+function bindCanvas() {
+    canvas.addEventListener('mousedown', onMouseDown);
+    canvas.addEventListener('mousemove', onMouseMove);
+    canvas.addEventListener('mouseup', onMouseUp);
+    canvas.addEventListener('mouseleave', () => { drag = null; redraw(); });
+    canvas.addEventListener('wheel', onWheel, { passive: false });
+    canvas.addEventListener('contextmenu', onContextMenu);
+    canvas.addEventListener('click', onClick);
+}
+
+function onMouseDown(e) {
+    const p = canvasCoords(e);
+    const hit = hitTest(canvas, state.view, {
+        nodes: state.nodes, bends: state.bends, etalons: state.etalons,
+    }, p.x, p.y);
+
+    if (e.button === 0) {
+        if (hit && hit.type === 'node') {
+            drag = { kind: 'node', index: hit.index, last: p };
+        } else if (hit && hit.type === 'bend') {
+            drag = { kind: 'bend', index: hit.index, last: p };
+        } else if (hit && hit.type === 'indicator') {
+            // Прыжок к объекту: центрируем Y на целевом объекте.
+            centerOnIndicator(hit);
+            return;
+        } else if (hit && hit.type === 'etalon') {
+            // Эталон не draggable — ничего.
+            drag = null;
+        } else {
+            // Пан пустого места.
+            const d = screenToData(canvas, state.view, p.x, p.y);
+            drag = { kind: 'pan', last: p, dataStart: d, viewStart: { ...state.view } };
+        }
+        if (drag) canvas.style.cursor = 'grabbing';
+    } else if (e.button === 2) {
+        // ПКМ — удаление узла (в onContextMenu).
+        return;
+    }
+}
+
+function onMouseMove(e) {
+    const p = canvasCoords(e);
+    if (!drag) {
+        updateTooltip(p);
+        return;
+    }
+    if (drag.kind === 'pan') {
+        const d = screenToData(canvas, state.view, p.x, p.y);
+        const v = drag.viewStart;
+        // Сдвиг окна: захваченная точка данных следует за курсором.
+        state.view.xMin = v.xMin - (d.x - drag.dataStart.x);
+        state.view.xMax = v.xMax - (d.x - drag.dataStart.x);
+        if (state.view.logY) {
+            const logShift = Math.log10(drag.dataStart.y) - Math.log10(Math.max(d.y, Y_MIN));
+            state.view.yMin = clampY(Math.pow(10, Math.log10(v.yMin) + logShift));
+            state.view.yMax = clampY(Math.pow(10, Math.log10(v.yMax) + logShift));
+        } else {
+            state.view.yMin = clampY(v.yMin - (d.y - drag.dataStart.y));
+            state.view.yMax = clampY(v.yMax - (d.y - drag.dataStart.y));
+        }
+        // X изменился → повторный sample (кривая пересчитывается серверно).
+        requestSample();
+        redraw();
+        return;
+    }
+    if (drag.kind === 'node') {
+        const d = screenToData(canvas, state.view, p.x, p.y);
+        // screenToData возвращает y в % — узел двигается в долях R (÷100).
+        moveNode(drag.index, d.x, d.y / 100);
+        dirty = true;
+        redraw();
+    } else if (drag.kind === 'bend') {
+        const d = screenToData(canvas, state.view, p.x, p.y);
+        moveBend(drag.index, d.y / 100);
+        dirty = true;
+        redraw();
+    }
+    drag.last = p;
+}
+
+function onMouseUp(e) {
+    if (drag && drag.kind === 'node') {
+        magnetToEtalon(drag.index);
+    }
+    drag = null;
+    canvas.style.cursor = '';
+    redraw();
+}
+
+// moveNode — перемещение узла (X кламп к соседям/диапазону, Y к [0, 0.999)).
+function moveNode(i, x, y) {
+    const r = COMPONENTS[state.component];
+    const prevX = i > 0 ? state.nodes[i - 1].x + 0.0001 : r.xMin;
+    const nextX = i < state.nodes.length - 1 ? state.nodes[i + 1].x - 0.0001 : r.xMax;
+    state.nodes[i].x = clamp(x, prevX, nextX);
+    state.nodes[i].y = clamp(y, 0, 0.9989);
+}
+
+// moveBend — вертикальный drag ромбика: m → k = 2·ln(1/m − 1), кламп ±10 (§7 п.5).
+function moveBend(i, yUser) {
+    const y0 = state.nodes[i].y;
+    const y1 = state.nodes[i + 1].y;
+    if (Math.abs(y1 - y0) < 1e-12) return; // плоский сегмент — изгиб не определён
+    let m = (yUser - y0) / (y1 - y0);
+    if (m <= 0.01) m = 0.01;
+    if (m >= 0.99) m = 0.99;
+    let k = 2 * Math.log(1 / m - 1);
+    if (k > 10) k = 10;
+    if (k < -10) k = -10;
+    state.bends[i] = k;
+}
+
+// magnetToEtalon — магнит эталона (3 px экранных): снаппится только y.
+function magnetToEtalon(i) {
+    const node = state.nodes[i];
+    const nsp = dataToScreen(canvas, state.view, node.x, node.y * 100);
+    for (const e of state.etalons) {
+        const esp = dataToScreen(canvas, state.view, e.x, e.y * 100);
+        if (Math.hypot(nsp.x - esp.x, nsp.y - esp.y) <= 3) {
+            if (Math.abs(node.y - e.y) > 1e-12) {
+                node.y = e.y;
+                notifySuccess(`Прилипло к эталону: ${e.label}`);
+            }
+            break;
+        }
+    }
+}
+
+// onClick — Shift+клик: добавить узел (x = клик, y = текущее значение кривой).
+function onClick(e) {
+    if (!e.shiftKey) return;
+    const p = canvasCoords(e);
+    const d = screenToData(canvas, state.view, p.x, p.y);
+    const r = COMPONENTS[state.component];
+    if (d.x < r.xMin || d.x > r.xMax) {
+        notifyError('Новый узел вне диапазона компоненты');
+        return;
+    }
+    if (state.nodes.length >= 16) {
+        notifyError('Максимум 16 узлов на компоненту');
+        return;
+    }
+    const y = evaluateCurveClient(state.nodes, state.bends, d.x);
+    // Вставка в сортированную позицию.
+    let idx = state.nodes.length;
+    for (let i = 0; i < state.nodes.length; i++) {
+        if (d.x < state.nodes[i].x) { idx = i; break; }
+    }
+    state.nodes.splice(idx, 0, { x: d.x, y: Math.max(0, Math.min(0.9989, y)) });
+    state.bends.splice(Math.max(0, idx - 1), 0, 0);
+    dirty = true;
+    redraw();
+}
+
+// onContextMenu — ПКМ по узлу: удалить (минимум 3).
+function onContextMenu(e) {
+    e.preventDefault();
+    const p = canvasCoords(e);
+    const hit = hitTest(canvas, state.view, {
+        nodes: state.nodes, bends: state.bends, etalons: state.etalons,
+    }, p.x, p.y);
+    if (!hit || hit.type !== 'node') return;
+    if (state.nodes.length <= 3) {
+        notifyError('Минимум 3 узла — удалить нельзя');
+        return;
+    }
+    state.nodes.splice(hit.index, 1);
+    state.bends.splice(hit.index, 1); // сегмент после удалённого узла
+    dirty = true;
+    redraw();
+}
+
+// onWheel — зум по Y (в %) вокруг позиции курсора; кламп [−100, 100].
+function onWheel(e) {
+    e.preventDefault();
+    const p = canvasCoords(e);
+    const d = screenToData(canvas, state.view, p.x, p.y);
+    const factor = e.deltaY < 0 ? 0.8 : 1.25; // вверх — приближение
+    if (state.view.logY) {
+        const yc = Math.log10(Math.max(d.y, Y_MIN));
+        const lyMin = Math.log10(state.view.yMin);
+        const lyMax = Math.log10(state.view.yMax);
+        let lo = yc - (yc - lyMin) * factor;
+        let hi = yc + (lyMax - yc) * factor;
+        if (hi - lo < 1e-12) return;
+        state.view.yMin = clampY(Math.pow(10, lo));
+        state.view.yMax = clampY(Math.pow(10, hi));
+    } else {
+        const yc = d.y;
+        let lo = yc - (yc - state.view.yMin) * factor;
+        let hi = yc + (state.view.yMax - yc) * factor;
+        if (hi - lo < 1e-9) return;
+        state.view.yMin = clampY(lo);
+        state.view.yMax = clampY(hi);
+    }
+    // X-зум синхронно с Y (решение создателя 2026-09-15): тот же factor,
+    // центр — позиция курсора (d.x). Кламп к диапазону компоненты (пан
+    // может увести окно за границы — зум не должен) + защита от схлопывания.
+    const r = COMPONENTS[state.component];
+    const minW = (r.xMax - r.xMin) * 1e-4;
+    const xLo = Math.max(d.x - (d.x - state.view.xMin) * factor, r.xMin);
+    const xHi = Math.min(d.x + (state.view.xMax - d.x) * factor, r.xMax);
+    if (xHi - xLo >= minW && (xLo !== state.view.xMin || xHi !== state.view.xMax)) {
+        state.view.xMin = xLo;
+        state.view.xMax = xHi;
+        requestSample(); // X изменился → серверная оцифровка на новом окне
+    }
+    redraw();
+}
+
+// centerOnIndicator — прыжок к объекту за краем: центрируем Y (в %) на нём.
+function centerOnIndicator(hit) {
+    const obj = hit.kind === 'node' ? state.nodes[hit.index] : state.etalons[hit.index];
+    if (!obj) return;
+    const target = obj.y * 100; // данные в долях → ось в %
+    if (state.view.logY) {
+        const spanDec = Math.log10(state.view.yMax) - Math.log10(state.view.yMin);
+        let c = Math.log10(Math.max(target, Y_MIN));
+        state.view.yMin = clampY(Math.pow(10, c - spanDec / 2));
+        state.view.yMax = clampY(Math.pow(10, c + spanDec / 2));
+    } else {
+        const span = state.view.yMax - state.view.yMin;
+        state.view.yMin = clampY(target - span / 2);
+        state.view.yMax = clampY(target + span / 2);
+    }
+    redraw();
+}
+
+function requestSample() {
+    clearTimeout(sampleTimer);
+    sampleTimer = setTimeout(sampleVisible, 150);
+}
+
+// ==================== Тултип и панель ====================
+
+function updateTooltip(p) {
+    const hit = hitTest(canvas, state.view, {
+        nodes: state.nodes, bends: state.bends, etalons: state.etalons,
+    }, p.x, p.y);
+    if (!hit) {
+        canvas.title = '';
+        return;
+    }
+    if (hit.type === 'node') {
+        const n = state.nodes[hit.index];
+        canvas.title = `X = ${fmtX(n.x)}, R = ${fmtR(n.y * 100)}, t₅₀ = ${tTime(n.y)}`;
+    } else if (hit.type === 'bend') {
+        canvas.title = `изгиб k = ${state.bends[hit.index].toFixed(2)}`;
+    } else if (hit.type === 'etalon') {
+        const e = state.etalons[hit.index];
+        canvas.title = `эталон: ${e.label} (R = ${fmtR(e.y * 100)})`;
+    } else if (hit.type === 'indicator') {
+        const obj = hit.kind === 'node' ? state.nodes[hit.index] : state.etalons[hit.index];
+        const edge = hit.dir === 'down' ? 'верхним' : 'нижним';
+        const what = hit.kind === 'node' ? `узел ${fmtX(obj.x)}` : `эталон ${obj.label || ''}`;
+        canvas.title = `${what}, R = ${fmtR(obj.y * 100)} — за ${edge} краем`;
+    }
+}
+
+// updateDragInfo — живая подпись при drag: актуальные значения видны во
+// время движения (нативный тултип на время drag не обновляется — ранний
+// return в onMouseMove, поэтому плашка рисуется в canvas). Форматы те же,
+// что в updateTooltip (fmtX/fmtR/tTime — не дублируем).
+function updateDragInfo() {
+    if (!drag) { dragInfo = null; return; }
+    if (drag.kind === 'node') {
+        const n = state.nodes[drag.index];
+        dragInfo = { kind: 'node', text: `X = ${fmtX(n.x)}, R = ${fmtR(n.y * 100)}, t₅₀ = ${tTime(n.y)}` };
+    } else if (drag.kind === 'bend') {
+        dragInfo = { kind: 'bend', text: `изгиб k = ${state.bends[drag.index].toFixed(2)}` };
+    } else {
+        dragInfo = null;
+    }
+}
+
+// updateInfo — информационная панель: для каждого эталона R_кривая/R_маркер,
+// t₅₀ и t₁₀₀₀ (guard: R ≤ 0 → «не вымирает», R ≥ 1 → «мгновенно»).
+function updateInfo() {
+    const el = document.getElementById('balancerInfo');
+    if (!el) return;
+    if (!state.etalons.length || !state.nodes.length) {
+        el.innerHTML = '';
+        return;
+    }
+    const rows = state.etalons.map(e => {
+        const rc = evaluateCurveClient(state.nodes, state.bends, e.x);
+        const ratio = e.y > 0 ? rc / e.y : null;
+        return `<div style="margin-bottom:4px;">` +
+            `<span style="color:#f87171;">×</span> <b>${e.label}</b> (${fmtX(e.x)}): ` +
+            `R_кривая = ${fmtR(rc * 100)}, R_маркер = ${fmtR(e.y * 100)}` +
+            (ratio !== null ? `, отношение = ${ratio.toFixed(2)}` : '') +
+            ` · t₅₀ = ${tTime(rc)}, t₁₀₀₀ = ${tTime(rc, 1000)}` +
+            `</div>`;
+    });
+    el.innerHTML = `<b>Эталоны (цели):</b><br>${rows.join('')}`;
+}
+
+// tTime — время вымирания (сек) для p0: ln(p0)/|ln(1−R)|. R ≤ 0 → «не
+// вымирает», R ≥ 1 → «мгновенно».
+function tTime(r, p0 = 2) {
+    if (r <= 0) return 'не вымирает';
+    if (r >= 1) return 'мгновенно';
+    return fmtDur(Math.log(p0) / Math.abs(Math.log(1 - r)));
+}
+
+function fmtDur(sec) {
+    if (sec < 90) return `${Math.round(sec)} сек`;
+    if (sec < 3600) return `${(sec / 60).toFixed(1)} мин`;
+    if (sec < 86400) return `${(sec / 3600).toFixed(1)} ч`;
+    return `${(sec / 86400).toFixed(1)} сут`;
+}
+
+function fmtX(x) {
+    return Math.abs(x) >= 1000 ? x.toFixed(0) : String(Number(x.toPrecision(4)));
+}
+
+function clamp(v, lo, hi) {
+    return Math.max(lo, Math.min(hi, v));
+}
+
+// clampY — кламп видимого диапазона Y (в %): [−100, +100] (решение 2026-09-15).
+function clampY(v) {
+    return clamp(v, -100, 100);
+}
+
+// onComponentChange — смена компоненты (из HTML change).
+function onComponentChange() {
+    loadComponent();
+}

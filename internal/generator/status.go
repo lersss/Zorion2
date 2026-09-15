@@ -18,6 +18,9 @@ const (
 	// асинхронный джоб, статус/прогресс/отчёт через существующие ручки
 	// /admin/generate-status и poll.js.
 	JobGenerateNPC JobType = "generate_npc"
+	// JobRegeneratePlanets — ручной пересчёт планет (99.2.3 §5): удаляет
+	// планеты выбранных миров и генерирует заново по полям формы.
+	JobRegeneratePlanets JobType = "regenerate_planets"
 )
 
 type JobStatus struct {

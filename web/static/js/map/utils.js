@@ -12,8 +12,12 @@ export function worldToCanvas(world) {
     };
 }
 
-export function getStarColor(spectralClass) {
+// getStarColor — цвет звезды. Экзотика (star_type ≠ star) — свой цвет
+// (99.2.4 §8), ветка по star_type раньше ветки по спектральному классу;
+// «прочая экзотика» (сверхгиганты, star_type='star') — по классу O–A.
+export function getStarColor(spectralClass, starType) {
     const colors = CONFIG.map.starColors;
+    if (starType && colors[starType]) return colors[starType];
     return colors[spectralClass] || colors.default;
 }
 
@@ -21,16 +25,20 @@ export function getStarColor(spectralClass) {
 // класса положение по температуре даёт лёгкий сдвиг светимости (положение в
 // диапазоне starTempRanges → ±половина spread по L в HSL). Звёзды одного
 // класса перестают быть одинаковыми. Без температуры — базовый цвет класса.
-export function getStarShade(spectralClass, temperature) {
+// Экзотика — фиксированный цвет: градация не нужна (у ЧД T=0, «тёмная»).
+export function getStarShade(spectralClass, temperature, starType) {
+    if (starType && CONFIG.map.starColors[starType]) {
+        return getStarColor(spectralClass, starType);
+    }
     const ranges = CONFIG.map.starTempRanges;
     const rng = ranges && ranges[spectralClass];
     if (!rng || typeof temperature !== 'number' || !isFinite(temperature)) {
-        return getStarColor(spectralClass);
+        return getStarColor(spectralClass, starType);
     }
     const span = rng[1] - rng[0];
-    if (!(span > 0)) return getStarColor(spectralClass);
+    if (!(span > 0)) return getStarColor(spectralClass, starType);
     const p = Math.min(Math.max((temperature - rng[0]) / span, 0), 1);
-    const { h, s, l } = hexToHsl(getStarColor(spectralClass));
+    const { h, s, l } = hexToHsl(getStarColor(spectralClass, starType));
     const spread = 0.16; // небольшой разбег по светимости внутри класса
     const nl = Math.min(Math.max(l + (p - 0.5) * spread, 0.10), 0.90);
     return `hsl(${Math.round(h)}, ${(s * 100).toFixed(1)}%, ${(nl * 100).toFixed(1)}%)`;

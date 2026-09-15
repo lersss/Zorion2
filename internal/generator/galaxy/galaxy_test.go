@@ -14,6 +14,275 @@ import (
 
 var validSpectralClasses = []string{"O", "B", "A", "F", "G", "K", "M", "L", "T", "Y"}
 
+// validStarTypes — допустимые типы объектов (99.2.4 §2).
+var validStarTypes = []string{"star", "white_dwarf", "neutron", "black_hole", "protostar"}
+
+// ==================== ЭКЗОТИЧЕСКИЕ ТИПЫ (99.2.4) ====================
+
+func TestDefaultWeightsSums(t *testing.T) {
+	w := DefaultWeights()
+	assert.InDelta(t, 100.0, sumMap(w.Spectral), 0.001, "спектральные веса должны давать 100")
+	assert.InDelta(t, 100.0, sumMap(w.SystemTypes), 0.001, "веса типов систем должны давать 100 (99.2.4 §4.1)")
+}
+
+func TestWeightedPickDistribution(t *testing.T) {
+	rng := rand.New(rand.NewSource(1))
+	weights := map[string]float64{"a": 1, "b": 3, "c": 6}
+	order := []string{"a", "b", "c"}
+	const n = 100_000
+	counts := map[string]int{}
+	for i := 0; i < n; i++ {
+		counts[weightedPick(rng, weights, order)]++
+	}
+	assert.InDelta(t, 0.10, float64(counts["a"])/n, 0.02)
+	assert.InDelta(t, 0.30, float64(counts["b"])/n, 0.02)
+	assert.InDelta(t, 0.60, float64(counts["c"])/n, 0.02)
+
+	// Нулевая сумма — первый ключ (защита от деления на ноль).
+	assert.Equal(t, "a", weightedPick(rng, map[string]float64{"a": 0, "b": 0}, order))
+}
+
+func TestRandomSystemTypeValidAndDistributed(t *testing.T) {
+	g := NewGenerator(&Config{Seed: 7})
+	counts := map[string]int{}
+	const n = 100_000
+	for i := 0; i < n; i++ {
+		st := g.randomSystemType()
+		assert.Contains(t, systemTypeOrder, st)
+		counts[st]++
+	}
+	def := DefaultWeights().SystemTypes
+	for _, k := range systemTypeOrder {
+		expected := def[k] / 100.0
+		assert.InDelta(t, expected, float64(counts[k])/n, expected*0.25, "доля категории %s", k)
+	}
+}
+
+func TestGenerateGalaxyHasExoticAndBinaryTypes(t *testing.T) {
+	// Достаточная выборка: экзотика ~8%, двойные ~5%, кратные ~2%.
+	g := NewGenerator(&Config{Seed: 42, WorldCount: 20000, MapSize: 40000, MinDist: 40, WorldSpread: 0})
+	worlds := g.generateWorldsRandom(40)
+	require.Greater(t, len(worlds), 15000)
+
+	counts := map[string]int{}
+	for _, w := range worlds {
+		counts[w.StarType+"|"+w.SystemType]++
+	}
+
+	assert.Greater(t, counts["star|binary"], 500, "двойные должны генерироваться (5%)")
+	assert.Greater(t, counts["star|multiple"], 150, "кратные должны генерироваться (2%)")
+	assert.Greater(t, counts["white_dwarf|single"], 150, "белые карлики должны генерироваться (2%)")
+	assert.Greater(t, counts["black_hole|single"], 50, "чёрные дыры должны генерироваться (1%)")
+	assert.Greater(t, counts["neutron|single"], 50, "нейтронные должны генерироваться (1%)")
+	assert.Greater(t, counts["protostar|single"], 50, "протозвёзды должны генерироваться (1%)")
+}
+
+func TestExoticWorldsHaveNoSpectralClass(t *testing.T) {
+	g := NewGenerator(&Config{Seed: 5, WorldCount: 30000, MapSize: 50000, MinDist: 40, WorldSpread: 0})
+	worlds := g.generateWorldsRandom(40)
+
+	exotic := 0
+	for _, w := range worlds {
+		if w.StarType == "star" {
+			continue
+		}
+		exotic++
+		if w.StarType == "protostar" {
+			// Протозвезда получает реальный класс K/M по температуре (решение
+			// создателя, баг #3) — проверяем в TestProtostarGetsSpectralClass.
+			continue
+		}
+		assert.Empty(t, w.SpectralClass, "у ЧД/НЗ/WD спектр NULL (99.2.4 §3)")
+		assert.Equal(t, "single", w.SystemType, "экзотика — отдельный объект, не структура")
+		if w.StarType == "black_hole" {
+			assert.Zero(t, w.Temperature, "изолированная ЧД «тёмная» (T=0, §4д.4)")
+		} else {
+			assert.Positive(t, w.Temperature)
+		}
+	}
+	assert.Greater(t, exotic, 0, "в выборке должны быть экзотические миры")
+}
+
+// TestProtostarGetsSpectralClass — баг #3 (решение создателя): протозвезда
+// (T 3000–4000 K, §5.1) обязана получить реальный спектральный класс по
+// температуре: T < 3700 → M, иначе K (диапазоны spectralWeights).
+func TestProtostarGetsSpectralClass(t *testing.T) {
+	g := NewGenerator(&Config{Seed: 17, WorldCount: 60000, MapSize: 60000, MinDist: 40, WorldSpread: 0})
+	worlds := g.generateWorldsRandom(40)
+
+	protostars := 0
+	for _, w := range worlds {
+		if w.StarType != "protostar" {
+			continue
+		}
+		protostars++
+		require.NotEmpty(t, w.SpectralClass, "у протозвезды есть спектральный класс (не NULL)")
+		assert.Contains(t, []string{"M", "K"}, w.SpectralClass,
+			"протозвезда T 3000–4000 K → класс M/K, получила %q", w.SpectralClass)
+		// Класс согласован с температурой (граница 3700 K).
+		if w.SpectralClass == "M" {
+			assert.Less(t, w.Temperature, 3700, "M-класс при T ≥ 3700 невозможен")
+		} else {
+			assert.GreaterOrEqual(t, w.Temperature, 3700, "K-класс при T < 3700 невозможен")
+		}
+		// Температура внутри диапазона класса.
+		lo, hi := temperatureRange(w.SpectralClass)
+		assert.GreaterOrEqual(t, w.Temperature, lo)
+		assert.Less(t, w.Temperature, hi)
+	}
+	assert.Greater(t, protostars, 0, "в выборке должны быть протозвёзды (1%)")
+}
+
+func TestExoticWorldTemperaturesInRanges(t *testing.T) {
+	g := NewGenerator(&Config{Seed: 9, WorldCount: 30000, MapSize: 50000, MinDist: 40, WorldSpread: 0})
+	worlds := g.generateWorldsRandom(40)
+
+	ranges := map[string][2]int{
+		"white_dwarf": {5000, 30000},
+		"neutron":     {100000, 1000000},
+		"protostar":   {3000, 4000},
+	}
+	for _, w := range worlds {
+		r, ok := ranges[w.StarType]
+		if !ok {
+			continue
+		}
+		assert.GreaterOrEqual(t, w.Temperature, r[0], "%s: T ниже диапазона", w.StarType)
+		assert.LessOrEqual(t, w.Temperature, r[1], "%s: T выше диапазона", w.StarType)
+	}
+}
+
+func TestSupergiantExoticIsStarPhaseI(t *testing.T) {
+	g := NewGenerator(&Config{Seed: 3, WorldCount: 60000, MapSize: 60000, MinDist: 40, WorldSpread: 0})
+	worlds := g.generateWorldsRandom(40)
+
+	found := 0
+	for _, w := range worlds {
+		if w.StarType != "star" || w.StellarMods == nil || w.StellarMods.Phase != "I" {
+			continue
+		}
+		if w.StellarMods.Subtype != "lbv" && w.StellarMods.Subtype != "wr" {
+			continue
+		}
+		found++
+		// «Прочая экзотика»: сверхгигант O–B–A (99.2.4 §4.4), масса 10–60 M☉
+		// в колонке stellar_mass (29a §4м — перенесена из stellar_mods).
+		assert.Contains(t, []string{"O", "B", "A"}, w.SpectralClass)
+		require.NotNil(t, w.StellarMass)
+		assert.GreaterOrEqual(t, *w.StellarMass, 10.0)
+		assert.LessOrEqual(t, *w.StellarMass, 60.0)
+	}
+	assert.Greater(t, found, 0, "в выборке должны быть сверхгиганты-экзотика (3%)")
+}
+
+// TestStellarMassInRanges — масса обычных звёзд по спектральному классу
+// внутри дефолтных диапазонов (29a §4м).
+func TestStellarMassInRanges(t *testing.T) {
+	g := NewGenerator(&Config{Seed: 23, WorldCount: 50000, MapSize: 60000, MinDist: 40, WorldSpread: 0})
+	worlds := g.generateWorldsRandom(40)
+
+	seen := map[string]int{}
+	for _, w := range worlds {
+		if w.StarType != "" && w.StarType != "star" {
+			continue
+		}
+		// Сверхгиганты-экзотика (O/B/A + фаза I): масса 10–60 из диапазона
+		// "exotic", а не из класса — проверены в TestSupergiantExoticIsStarPhaseI.
+		if w.StellarMods != nil && w.StellarMods.Phase == "I" &&
+			(w.SpectralClass == "O" || w.SpectralClass == "B" || w.SpectralClass == "A") {
+			continue
+		}
+		rng, ok := DefaultStellarMassRanges()[w.SpectralClass]
+		require.True(t, ok, "для класса %s задан диапазон массы", w.SpectralClass)
+		require.NotNil(t, w.StellarMass, "у обычной звезды %s есть масса", w.SpectralClass)
+		seen[w.SpectralClass]++
+		assert.GreaterOrEqual(t, *w.StellarMass, rng.Min, "%s: масса ниже минимума", w.SpectralClass)
+		assert.LessOrEqual(t, *w.StellarMass, rng.Max, "%s: масса выше максимума", w.SpectralClass)
+	}
+	for cls := range DefaultStellarMassRanges() {
+		if cls == "black_hole" || cls == "neutron" || cls == "white_dwarf" ||
+			cls == "protostar" || cls == "exotic" {
+			continue
+		}
+		assert.Greater(t, seen[cls], 0, "класс %s представлен в выборке", cls)
+	}
+}
+
+// TestExoticStellarMassInRanges — масса экзотики по типу внутри дефолтов (29a §4м).
+func TestExoticStellarMassInRanges(t *testing.T) {
+	g := NewGenerator(&Config{Seed: 29, WorldCount: 80000, MapSize: 80000, MinDist: 40, WorldSpread: 0})
+	worlds := g.generateWorldsRandom(40)
+
+	seen := map[string]int{}
+	for _, w := range worlds {
+		if w.StarType == "star" {
+			continue
+		}
+		rng, ok := DefaultStellarMassRanges()[w.StarType]
+		require.True(t, ok, "для типа %s задан диапазон массы", w.StarType)
+		require.NotNil(t, w.StellarMass, "у экзотики %s есть масса", w.StarType)
+		seen[w.StarType]++
+		assert.GreaterOrEqual(t, *w.StellarMass, rng.Min, "%s: масса ниже минимума", w.StarType)
+		assert.LessOrEqual(t, *w.StellarMass, rng.Max, "%s: масса выше максимума", w.StarType)
+	}
+	for _, st := range []string{"black_hole", "neutron", "white_dwarf", "protostar"} {
+		assert.Greater(t, seen[st], 0, "тип %s представлен в выборке", st)
+	}
+}
+
+// TestDefaultStellarMassRangesValid — дефолтные диапазоны валидны.
+func TestDefaultStellarMassRangesValid(t *testing.T) {
+	r := DefaultStellarMassRanges()
+	require.Len(t, r, 15, "15 типов: O–Y + 5 экзотики")
+	for k, m := range r {
+		assert.Greater(t, m.Min, 0.0, "%s: min > 0", k)
+		assert.GreaterOrEqual(t, m.Max, m.Min, "%s: max ≥ min", k)
+		assert.LessOrEqual(t, m.Max, 100.0, "%s: max ≤ 100", k)
+	}
+}
+
+func TestBinaryWorldsGetBinaryParams(t *testing.T) {
+	g := NewGenerator(&Config{Seed: 11, WorldCount: 40000, MapSize: 50000, MinDist: 40, WorldSpread: 0})
+	worlds := g.generateWorldsRandom(40)
+
+	binary := 0
+	for _, w := range worlds {
+		if w.SystemType != "binary" && w.SystemType != "multiple" {
+			continue
+		}
+		binary++
+		require.NotNil(t, w.StellarMods, "двойная/кратная обязана иметь модификаторы параметров системы")
+		assert.Contains(t, []string{"wide", "close"}, w.StellarMods.BinaryType,
+			"у двойных задан binary_type (99.2.4 §4.3)")
+		assert.NotEmpty(t, w.StellarMods.Companion, "у двойных задан спектр компаньона")
+	}
+	assert.Greater(t, binary, 500, "в выборке должны быть двойные/кратные")
+}
+
+func TestSingleStarsGetNoBinaryParams(t *testing.T) {
+	g := NewGenerator(&Config{Seed: 13, WorldCount: 20000, MapSize: 40000, MinDist: 40, WorldSpread: 0})
+	worlds := g.generateWorldsRandom(40)
+
+	for _, w := range worlds {
+		if w.SystemType != "single" {
+			continue
+		}
+		if w.StellarMods != nil {
+			assert.Empty(t, w.StellarMods.BinaryType, "у одиночной звезды нет параметров двойной")
+			assert.Empty(t, w.StellarMods.Companion)
+		}
+	}
+}
+
+// sumMap — сумма значений map.
+func sumMap(m map[string]float64) float64 {
+	s := 0.0
+	for _, v := range m {
+		s += v
+	}
+	return s
+}
+
 func TestTotalSpectralWeightIs100(t *testing.T) {
 	assert.Equal(t, 100.0, totalSpectralWeight)
 }
@@ -200,6 +469,23 @@ func TestGenerateGalaxyWithRegionsRandomHasNone(t *testing.T) {
 	res := g.GenerateGalaxyWithRegions()
 	require.NotEmpty(t, res.Worlds)
 	assert.Empty(t, res.Regions)
+}
+
+// TestGeneratePoissonSmallWorldCountNoPanic — регрессия 20b: малый
+// world_count (2–5) при дефолтном cluster_count (20) даёт perCluster=1 →
+// g.rng.Intn(perCluster/2)=Intn(0) → panic "invalid argument to Intn".
+// Генерация должна завершиться без паники.
+func TestGeneratePoissonSmallWorldCountNoPanic(t *testing.T) {
+	for wc := 2; wc <= 5; wc++ {
+		g := NewGenerator(&Config{
+			Seed: int64(wc), WorldCount: wc, MapSize: 2000, MinDist: 150,
+			ClusterCount: 20, ClusterSpacing: 900, ClusterRadius: 150,
+			OutlierPercent: 0.08, WorldSpread: 0,
+		})
+		require.NotPanics(t, func() {
+			_ = g.generateWorldsPoisson()
+		}, "world_count=%d", wc)
+	}
 }
 
 func TestTooManyClustersDoNotPanic(t *testing.T) {
@@ -543,11 +829,32 @@ func assertWorldsValid(t *testing.T, worlds []*models.World, circleRadius, minDi
 	points := make([]struct{ X, Y float64 }, 0, len(worlds))
 	for _, w := range worlds {
 		assert.LessOrEqual(t, math.Hypot(w.CoordX, w.CoordY), circleRadius, "мир за пределами галактики")
-		assert.Contains(t, validSpectralClasses, w.SpectralClass)
 
-		minT, maxT := temperatureRange(w.SpectralClass)
-		assert.GreaterOrEqual(t, w.Temperature, minT, "температура ниже диапазона класса %s", w.SpectralClass)
-		assert.Less(t, w.Temperature, maxT, "температура выше диапазона класса %s", w.SpectralClass)
+		if w.StarType != "" && w.StarType != "star" {
+			// Экзотика (99.2.4): свой тип объекта. Спектр NULL — только у
+			// ЧД/НЗ/WD; протозвезда получает реальный класс K/M по температуре
+			// (решение создателя, баг #3) и проверяется как обычная звезда.
+			assert.Contains(t, validStarTypes, w.StarType)
+			if w.StarType == "protostar" {
+				assert.Contains(t, validSpectralClasses, w.SpectralClass)
+				assert.Contains(t, []string{"M", "K"}, w.SpectralClass, "протозвезда — класс M/K")
+				minT, maxT := temperatureRange(w.SpectralClass)
+				assert.GreaterOrEqual(t, w.Temperature, minT, "температура ниже диапазона класса %s", w.SpectralClass)
+				assert.Less(t, w.Temperature, maxT, "температура выше диапазона класса %s", w.SpectralClass)
+			} else {
+				assert.Empty(t, w.SpectralClass, "у ЧД/НЗ/WD нет спектрального класса (NULL)")
+				if w.StarType == "black_hole" {
+					assert.Equal(t, 0, w.Temperature, "изолированная ЧД «тёмная»: T=0 (§4д.4)")
+				} else {
+					assert.Greater(t, w.Temperature, 0, "температура экзотики должна быть положительной")
+				}
+			}
+		} else {
+			assert.Contains(t, validSpectralClasses, w.SpectralClass)
+			minT, maxT := temperatureRange(w.SpectralClass)
+			assert.GreaterOrEqual(t, w.Temperature, minT, "температура ниже диапазона класса %s", w.SpectralClass)
+			assert.Less(t, w.Temperature, maxT, "температура выше диапазона класса %s", w.SpectralClass)
+		}
 
 		assert.False(t, names[w.Name], "дубль имени: %s", w.Name)
 		names[w.Name] = true

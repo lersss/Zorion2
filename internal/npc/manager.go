@@ -81,6 +81,14 @@ type Manager struct {
 
 	positions PositionCache
 
+	// Кэш агентов для интерполяции позиций (идея 26c A2, спека 20a.1 §2.2.B
+	// «позиции in-memory»): map[id]состояние, нужное для интерполяции.
+	// Загрузка — один ListAll при старте/инвалидации; дальше инкремент
+	// стартами и прибытиями тика. Доступ ТОЛЬКО из горутины тика (И1);
+	// хендлеры внешних мутаций ставят только agentsDirty (atomic).
+	agentCache  map[string]models.NPCAgent
+	agentsDirty atomic.Bool // внешняя мутация npc_agents → перезагрузка кэша тиком
+
 	// Курсоры кругового обхода (спека §2.2.A): хранятся в памяти,
 	// при старте сервера сбрасываются.
 	arrivalCursor string
@@ -236,6 +244,14 @@ func (m *Manager) tick() {
 
 	m.refreshGrid()
 
+	// Кэш агентов (идея 26c A2): загрузка при старте (первый тик) и
+	// перезагрузка после внешних мутаций (MarkDirty/OnAgentsDeleted).
+	// Единственный ListAll — здесь, а не на каждый тик; единственный
+	// писатель кэша — тик (И1), гонок нет.
+	if m.agentsDirty.Load() || m.agentCache == nil {
+		m.reloadAgentCache()
+	}
+
 	now := time.Now()
 	batchSize := m.settings.BatchSize()
 
@@ -294,6 +310,23 @@ func (m *Manager) processArrivals(arrivals []models.NPCAgent, now time.Time) {
 	}
 	if err := m.store.UpdateStatusBatch(updates); err != nil {
 		log.Printf("❌ NPCManager: UpdateStatusBatch (прибытия): %v", err)
+		return // БД не изменилась — кэш не трогаем (источник правды — БД)
+	}
+
+	// Кэш позиций (идея 26c A2): прибытие — idle в мире цели, кортеж полёта
+	// сбрасывается (позиция = координаты current_world_id).
+	for _, u := range updates {
+		a, ok := m.agentCache[u.ID]
+		if !ok {
+			continue // агента нет в кэше — не интерполируем
+		}
+		a.Status = models.NPCAgentStatusIdle
+		a.CurrentWorldID = u.CurrentWorldID
+		a.FromWorldID = nil
+		a.TargetWorldID = nil
+		a.DepartAt = nil
+		a.ArriveAt = nil
+		m.agentCache[u.ID] = a
 	}
 }
 
@@ -347,6 +380,27 @@ func (m *Manager) processStarts(budget int, now time.Time) {
 	if len(updates) > 0 {
 		if err := m.store.UpdateStatusBatch(updates); err != nil {
 			log.Printf("❌ NPCManager: UpdateStatusBatch (старты): %v", err)
+		} else {
+			// Кэш позиций (идея 26c A2): старт — flying с кортежем полёта
+			// (интерполяция from → target по depart/arrive). Обновляем только
+			// при успехе БД (источник правды — БД).
+			for _, u := range updates {
+				a, ok := m.agentCache[u.ID]
+				if !ok {
+					continue // агента нет в кэше — не интерполируем
+				}
+				a.Status = models.NPCAgentStatusFlying
+				// Локальные копии: переменная цикла u переиспользуется (go 1.21,
+				// per-iteration variables — с 1.22), &u.FromWorldID дал бы один
+				// указатель на всех стартовавших батча (фикс ревью 26c A2).
+				from := u.FromWorldID
+				target := u.TargetWorldID
+				a.FromWorldID = &from
+				a.TargetWorldID = &target
+				a.DepartAt = u.DepartAt
+				a.ArriveAt = u.ArriveAt
+				m.agentCache[u.ID] = a
+			}
 		}
 	}
 
@@ -378,16 +432,20 @@ func (m *Manager) refreshGrid() {
 
 // refreshPositions — пересчёт позиций всех агентов на момент now
 // (спека §2.2.B: 100k интерполяций на тик — тривиально для CPU);
-// источник правды — БД (ListAll), координаты миров — сетка.
+// источник правды — in-memory кэш агентов (идея 26c A2), координаты
+// миров — сетка. ListAll из горячего пути тика убран: кэш загружается
+// один раз (старт/инвалидация) и обновляется инкрементально.
 func (m *Manager) refreshPositions(now time.Time) {
-	agents, err := m.store.ListAll()
-	if err != nil {
-		log.Printf("❌ NPCManager: ListAll: %v", err)
+	// Внешняя мутация во время тика (dirty) — не пишем позиции из
+	// устаревшего кэша: хендлер уже сбросил Positions (OnAgentsDeleted),
+	// следующий тик перезагрузит кэш. Иначе на карту вернулись бы
+	// «призраки» удалённых.
+	if m.agentsDirty.Load() {
 		return
 	}
 	g := m.gridPtr.Load() // nil обрабатывается coordsOf (позиция не отдаётся)
-	positions := make([]InterpolatedPosition, 0, len(agents))
-	for _, a := range agents {
+	positions := make([]InterpolatedPosition, 0, len(m.agentCache))
+	for _, a := range m.agentCache {
 		p, ok := interpolatePosition(a, g, now)
 		if !ok {
 			continue // мира нет в сетке — позицию не отдаём
@@ -410,13 +468,30 @@ func (m *Manager) RecordBulk(count int, duration time.Duration) {
 // OnAgentsDeleted — очистка in-memory состояния после массового удаления
 // агентов (правка 2026-09-15): позиции для карты — чтобы между DELETE и
 // следующим тиком (5с) снапшот не показывал «призраков» удалённых; метрика
-// last_bulk сбрасывается (пачки больше нет). Счётчики планировщика
-// (тики/полные батчи) не трогаем — это метрики работы, не данных.
+// last_bulk сбрасывается (пачки больше нет); кэш агентов инвалидируется
+// (dirty — следующий тик перезагрузит его из БД, идея 26c A2). Счётчики
+// планировщика (тики/полные батчи) не трогаем — это метрики работы, не
+// данных. Сам кэш не мутируем (И1: единственный писатель — тик).
 func (m *Manager) OnAgentsDeleted() {
 	m.positions.Replace(nil)
 	m.bulkCount.Store(0)
 	m.bulkDurationMs.Store(0)
 	m.bulkFinishedAt.Store(0)
+	m.agentsDirty.Store(true)
+}
+
+// MarkDirty — инвалидация кэша агентов после внешней мутации npc_agents
+// (хендлеры админки, другие горутины — AGENTS.md §0): следующий тик
+// перезагрузит кэш одним ListAll. Только atomic-флаг (И1: единственный
+// писатель состояния — тик).
+func (m *Manager) MarkDirty() {
+	m.agentsDirty.Store(true)
+}
+
+// IsAgentsDirty — флаг инвалидации кэша агентов (внешняя мутация ждёт
+// перезагрузки тиком). Для диагностики и тестов.
+func (m *Manager) IsAgentsDirty() bool {
+	return m.agentsDirty.Load()
 }
 
 // Metrics — срез метрик для /admin/npc/metrics (§8.2): in-memory счётчики

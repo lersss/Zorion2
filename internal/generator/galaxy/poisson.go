@@ -126,7 +126,14 @@ func (g *Generator) generateWorldsPoisson() *GalaxyResult {
 	// по фактически созданным, а не по clusterCount (иначе index out of range).
 	remaining := clusterPoints
 	for i := 0; i < len(centers) && remaining > 0; i++ {
-		count := perCluster + g.rng.Intn(perCluster/2) - perCluster/4
+		count := perCluster
+		// Защита от Intn(0) (регрессия 20b): при perCluster=1 (малый world_count /
+		// большой cluster_count) разброс не применяем — Intn(perCluster/2)=Intn(0)
+		// паникует. При perCluster ≥ 2 поведение прежнее (Intn(1)=0 детерминирован,
+		// при perCluster ≥ 4 — настоящий разброс).
+		if perCluster >= 2 {
+			count = perCluster + g.rng.Intn(perCluster/2) - perCluster/4
+		}
 		if count < 1 {
 			count = 1
 		}

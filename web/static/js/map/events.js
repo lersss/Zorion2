@@ -106,10 +106,26 @@ function showTooltip(cluster) {
     const level = cluster.level !== undefined && cluster.level !== null ? cluster.level : '—';
 
     elements.tooltipName.textContent = name;
-    elements.tooltipType.textContent = 'Тип: ' + (cluster.stype || spec);
+    // Тип человекочитаемо: обычная звезда — спектральный класс («Тип: G»),
+    // экзотика — русское название типа («Тип: чёрная дыра», не raw stype).
+    elements.tooltipType.textContent = 'Тип: ' + tooltipStarType(cluster.stype, spec);
     elements.tooltipLevel.textContent = 'Уровень: ' + level;
     elements.tooltipFlyBtn.dataset.worldId = cluster.sid;
     elements.tooltip.classList.add('active');
+}
+
+// tooltipStarType — человекочитаемый тип звезды для тултипа (99.2.4 §2, §8).
+// stype === 'star' (или пусто) — спектральный класс; экзотика — русское имя.
+const STAR_TYPE_LABELS = {
+    black_hole: 'чёрная дыра',
+    neutron: 'нейтронная звезда',
+    white_dwarf: 'белый карлик',
+    protostar: 'протозвезда',
+};
+
+function tooltipStarType(stype, spec) {
+    if (!stype || stype === 'star') return spec;
+    return STAR_TYPE_LABELS[stype] || stype;
 }
 
 // ==================== CLICK ====================
@@ -140,9 +156,10 @@ export function handleCanvasClick(e) {
     const c = hit.cluster;
 
     if (c.cnt === 1) {
-        // Одиночный мир — открываем модалку
+        // Одиночный мир — открываем модалку. sspec без фолбека на 'G':
+        // у экзотики он пустой (NULL), фолбек врал бы «Жёлтый карлик» (баг #1).
         if (typeof openSystemModal === 'function') {
-            openSystemModal(c.sid, c.sname || '—', c.sspec || 'G');
+            openSystemModal(c.sid, c.sname || '—', c.sspec || '');
         }
         elements.tooltip.classList.remove('active');
         state.selectedWorldId = c.sid;

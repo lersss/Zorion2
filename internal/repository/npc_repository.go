@@ -168,43 +168,89 @@ func (r *NPCRepository) ListAll() ([]models.NPCAgent, error) {
 
 // UpdateStatusBatch применяет смены состояния агентов одной транзакцией
 // (спека 20a.1 §2.2.A: «Всё изменение одного агента — одной транзакцией»,
-// batch UPDATE вместо транзакции на каждого — §2.3). Каждая смена — один
-// UPDATE одной строки, атомарен сам по себе; транзакция на весь batch
-// даёт «всё или ничего» на тик. Пустой список — без обращения к БД.
+// batch UPDATE вместо транзакции на каждого — §2.3). Каждый тип смены
+// состояния (прибытие / старт) — ОДИН multi-row UPDATE через VALUES-джойн
+// (идея 26c, A1): до 2000 одиночных Exec на тик → 2 запроса. Транзакция
+// на весь batch даёт «всё или ничего» на тик. Пустой список — без
+// обращения к БД.
 func (r *NPCRepository) UpdateStatusBatch(updates []models.AgentStatusUpdate) error {
 	if len(updates) == 0 {
 		return nil
 	}
+
+	// Прибытие (flying → idle) и старт (idle → flying) пишут разные наборы
+	// колонок — две формы запроса (statusBatchArrivalQuery / statusBatchStartQuery).
+	// Внутри одного вызова id уникальны (планировщик шлёт отдельные батчи
+	// для прибытий и стартов), порядок форм между собой не значим.
+	arrivals := make([]models.AgentStatusUpdate, 0, len(updates))
+	starts := make([]models.AgentStatusUpdate, 0, len(updates))
+	for _, u := range updates {
+		switch u.Status {
+		case models.NPCAgentStatusIdle:
+			arrivals = append(arrivals, u)
+		case models.NPCAgentStatusFlying:
+			starts = append(starts, u)
+		default:
+			return fmt.Errorf("unknown npc agent status %q", u.Status)
+		}
+	}
+
 	tx, err := r.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	for _, u := range updates {
-		if err := applyAgentUpdate(tx, u); err != nil {
+	if len(arrivals) > 0 {
+		query, args := statusBatchArrivalQuery(arrivals)
+		if _, err := tx.Exec(query, args...); err != nil {
+			return err
+		}
+	}
+	if len(starts) > 0 {
+		query, args := statusBatchStartQuery(starts)
+		if _, err := tx.Exec(query, args...); err != nil {
 			return err
 		}
 	}
 	return tx.Commit()
 }
 
-// applyAgentUpdate — один UPDATE по типу смены состояния (спека 20a.1 §3.1,
-// §4): прибытие (flying → idle, без пересчёта населения) или старт
-// (idle → flying, заполняется кортеж полёта).
-func applyAgentUpdate(tx *sql.Tx, u models.AgentStatusUpdate) error {
-	switch u.Status {
-	case models.NPCAgentStatusIdle: // прибытие
-		_, err := tx.Exec(`UPDATE npc_agents SET status = 'idle', current_world_id = $1, last_observed_at = $2, updated_at = NOW() WHERE id = $3`,
-			u.CurrentWorldID, u.LastObservedAt, u.ID)
-		return err
-	case models.NPCAgentStatusFlying: // старт
-		_, err := tx.Exec(`UPDATE npc_agents SET status = 'flying', from_world_id = $1, target_world_id = $2, depart_at = $3, arrive_at = $4, updated_at = NOW() WHERE id = $5`,
-			u.FromWorldID, u.TargetWorldID, u.DepartAt, u.ArriveAt, u.ID)
-		return err
-	default:
-		return fmt.Errorf("unknown npc agent status %q", u.Status)
+// statusBatchArrivalQuery — multi-row UPDATE прибытия (flying → idle):
+// current_world_id = цель полёта, last_observed_at = now (спека 20a.1 §3.1,
+// §4: без пересчёта населения). VALUES-джойн: 2000 прибытий = 1 запрос.
+func statusBatchArrivalQuery(updates []models.AgentStatusUpdate) (string, []interface{}) {
+	var sb strings.Builder
+	sb.WriteString(`UPDATE npc_agents SET status = 'idle', current_world_id = v.current_world_id, last_observed_at = v.last_observed_at, updated_at = NOW() FROM (VALUES `)
+	args := make([]interface{}, 0, len(updates)*3)
+	for i, u := range updates {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		n := i * 3
+		sb.WriteString(fmt.Sprintf("($%d::uuid, $%d::uuid, $%d::timestamptz)", n+1, n+2, n+3))
+		args = append(args, u.ID, u.CurrentWorldID, u.LastObservedAt)
 	}
+	sb.WriteString(`) AS v(id, current_world_id, last_observed_at) WHERE npc_agents.id = v.id`)
+	return sb.String(), args
+}
+
+// statusBatchStartQuery — multi-row UPDATE старта (idle → flying):
+// заполняется кортеж полёта (from/target/depart/arrive, спека §3.2).
+func statusBatchStartQuery(updates []models.AgentStatusUpdate) (string, []interface{}) {
+	var sb strings.Builder
+	sb.WriteString(`UPDATE npc_agents SET status = 'flying', from_world_id = v.from_world_id, target_world_id = v.target_world_id, depart_at = v.depart_at, arrive_at = v.arrive_at, updated_at = NOW() FROM (VALUES `)
+	args := make([]interface{}, 0, len(updates)*5)
+	for i, u := range updates {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		n := i * 5
+		sb.WriteString(fmt.Sprintf("($%d::uuid, $%d::uuid, $%d::uuid, $%d::timestamptz, $%d::timestamptz)", n+1, n+2, n+3, n+4, n+5))
+		args = append(args, u.ID, u.FromWorldID, u.TargetWorldID, u.DepartAt, u.ArriveAt)
+	}
+	sb.WriteString(`) AS v(id, from_world_id, target_world_id, depart_at, arrive_at) WHERE npc_agents.id = v.id`)
+	return sb.String(), args
 }
 
 // Insert создаёт агента (спека 20a.1 §8): статус idle на стартовом мире,

@@ -197,6 +197,16 @@ func populatePlanetFromJSON(p *models.Planet, data map[string]interface{}) {
 	// Жизнь
 	p.Life = getBool(data, "life")
 
+	// Орбитальный контекст (35b §2.2): P/S-тип. Фолбэки §2.4: нет ключа —
+	// orbit_center="main", circumbinary=false; радиус не трогаем (фронт
+	// считает из orbit_index, если поле отсутствует).
+	p.OrbitCenter = getStr(data, "orbit_center")
+	if p.OrbitCenter == "" {
+		p.OrbitCenter = "main"
+	}
+	p.OrbitRadiusAU = getFloat(data, "orbit_radius_au")
+	p.Circumbinary = getBool(data, "circumbinary")
+
 	// Композиции
 	p.SurfaceComposition = getFloatMap(data, "surface_composition")
 	p.SubterrainComposition = getFloatMap(data, "subterrain_composition")

@@ -3,6 +3,7 @@ package planet
 
 import (
 	"encoding/json"
+	"fmt"
 	"math/rand"
 
 	"github.com/google/uuid"
@@ -11,16 +12,157 @@ import (
 )
 
 // determinePlanetCount — сколько планет у звезды данного класса.
+// Mean-модель (99.2.4 §5.2): n = floor(mean) + Бернулли(frac), потолок 8.
 func (g *Generator) determinePlanetCount(spectralClass string) int {
-	switch spectralClass {
-	case "O", "B", "A":
-		return g.rng.Intn(9)
-	case "F", "G":
-		return 2 + g.rng.Intn(7)
-	case "K", "M":
-		return g.rng.Intn(7)
-	default:
-		return g.rng.Intn(5)
+	return meanPlanetCount(g.rng, g.means.meanForClass(spectralClass), g.means.Max)
+}
+
+// planetCountFor — число планет для мира (99.2.4 §5.2): mean-модель по типу.
+// Обычные звёзды — mean по классу; двойные широкие ×0.9 (S-тип), тесные
+// mean 0.2 (P-тип); кратные ×0.9; остатки/прочая экзотика — свои mean
+// (максимум генератора 1, «чаще 0»); протозвезда — 0 (диск вместо планет).
+func (g *Generator) planetCountFor(w WorldInfo) int {
+	m := g.means
+	switch w.StarType {
+	case "star", "":
+		if w.Mods != nil && w.Mods.IsSupergiantExotic() {
+			// Прочая экзотика (сверхгиганты O–B–A, фаза I): mean 0.1, максимум 1.
+			return capRemnant(meanPlanetCount(g.rng, m.Exotic, m.Max))
+		}
+		mean := m.meanForClass(w.SpectralClass)
+		switch w.SystemType {
+		case "binary":
+			if w.Mods != nil && w.Mods.BinaryType == "close" {
+				// P-тип редок (Kepler-16/47): mean 0.2.
+				return meanPlanetCount(g.rng, m.BinaryCloseMean, m.Max)
+			}
+			// S-тип: планеты у главного компонента, ×0.9.
+			return meanPlanetCount(g.rng, mean*m.BinaryWideFactor, m.Max)
+		case "multiple":
+			// wide-семантика: S-тип у главного компонента, ×0.9.
+			return meanPlanetCount(g.rng, mean*m.MultipleFactor, m.Max)
+		default:
+			return meanPlanetCount(g.rng, mean, m.Max)
+		}
+	case "black_hole":
+		return capRemnant(meanPlanetCount(g.rng, m.BlackHole, m.Max))
+	case "neutron":
+		return capRemnant(meanPlanetCount(g.rng, m.Neutron, m.Max))
+	case "white_dwarf":
+		return capRemnant(meanPlanetCount(g.rng, m.WhiteDwarf, m.Max))
+	case "protostar":
+		return 0 // диск вместо планет (§5.3)
+	}
+	return 0
+}
+
+// capRemnant — «максимум генератора 1» у остатков (99.2.4 §5.2, решение §4к.1).
+func capRemnant(n int) int {
+	if n > 1 {
+		return 1
+	}
+	return n
+}
+
+// ==================== СРЕДНЕЕ ЧИСЛО ПЛАНЕТ (99.2.4 §5.2, конфиг 99.2.3 §4.3) ====================
+
+// PlanetMeans — среднее число планет по типу звезды. Механика целого счёта:
+// n = floor(mean) + Бернулли(frac), потолок 8 (Kepler-90). При mean < 1 —
+// n ∈ {0, 1} («чаще 0»), верхний предел остатков — 1 (решение §4к.1).
+//
+// Дефолты — физический реализм (ревизия астронома §4е, решения §4ж/§4и.3):
+// M ~2.5, K ~2, G/F ~1.75, A ~1, O/B ~0.3, L/T/Y ~1; экзотика: ЧД 0.1,
+// НЗ 0.05, WD 0.3, протозвезда 0 (диск), прочая экзотика 0.1; двойные
+// широкие ×0.9, тесные mean 0.2, кратные ×0.9.
+type PlanetMeans struct {
+	O float64 `json:"O"`
+	B float64 `json:"B"`
+	A float64 `json:"A"`
+	F float64 `json:"F"`
+	G float64 `json:"G"`
+	K float64 `json:"K"`
+	M float64 `json:"M"`
+	L float64 `json:"L"`
+	T float64 `json:"T"`
+	Y float64 `json:"Y"`
+
+	// Экзотика (максимум генератора 1, «чаще 0»).
+	BlackHole  float64 `json:"black_hole"`
+	Neutron    float64 `json:"neutron"`
+	WhiteDwarf float64 `json:"white_dwarf"`
+	Protostar  float64 `json:"protostar"`
+	Exotic     float64 `json:"exotic"` // прочая экзотика (сверхгиганты O–B–A, фаза I)
+
+	// Двойные/кратные: S-тип у главного компонента, P-тип редок.
+	BinaryWideFactor float64 `json:"binary_wide_factor"` // ×0.9
+	BinaryCloseMean  float64 `json:"binary_close_mean"`  // mean 0.2
+	MultipleFactor   float64 `json:"multiple_factor"`    // ×0.9
+
+	// Max — потолок числа планет (Kepler-90 = 8, решение §4е).
+	Max int `json:"max"`
+}
+
+// DefaultPlanetMeans — физические дефолты (99.2.4 §5.2).
+func DefaultPlanetMeans() PlanetMeans {
+	return PlanetMeans{
+		O: 0.3, B: 0.3, A: 1, F: 1.75, G: 1.75, K: 2, M: 2.5, L: 1, T: 1, Y: 1,
+		BlackHole: 0.1, Neutron: 0.05, WhiteDwarf: 0.3, Protostar: 0, Exotic: 0.1,
+		BinaryWideFactor: 0.9, BinaryCloseMean: 0.2, MultipleFactor: 0.9,
+		Max: 8,
+	}
+}
+
+// meanForClass — среднее по спектральному классу обычной звезды.
+func (m PlanetMeans) meanForClass(cls string) float64 {
+	switch cls {
+	case "O":
+		return m.O
+	case "B":
+		return m.B
+	case "A":
+		return m.A
+	case "F":
+		return m.F
+	case "G":
+		return m.G
+	case "K":
+		return m.K
+	case "M":
+		return m.M
+	case "L":
+		return m.L
+	case "T":
+		return m.T
+	case "Y":
+		return m.Y
+	}
+	return 0
+}
+
+// Validate — 0 ≤ mean ≤ 8 (99.2.3 §4.3): mean > 8 молча обрежет распределение
+// (E[n] ≠ mean), поэтому значение отклоняется валидацией, а не клампится.
+func (m PlanetMeans) Validate() error {
+	for name, v := range m.all() {
+		if v < 0 || v > 8 {
+			return fmt.Errorf("%s: mean %.2f вне [0, 8]", name, v)
+		}
+	}
+	return nil
+}
+
+// all — все редактируемые значения таблицы средних (для валидации).
+func (m PlanetMeans) all() map[string]float64 {
+	return map[string]float64{
+		"O": m.O, "B": m.B, "A": m.A, "F": m.F, "G": m.G,
+		"K": m.K, "M": m.M, "L": m.L, "T": m.T, "Y": m.Y,
+		"black_hole":         m.BlackHole,
+		"neutron":            m.Neutron,
+		"white_dwarf":        m.WhiteDwarf,
+		"protostar":          m.Protostar,
+		"exotic":             m.Exotic,
+		"binary_wide_factor": m.BinaryWideFactor,
+		"binary_close_mean":  m.BinaryCloseMean,
+		"multiple_factor":    m.MultipleFactor,
 	}
 }
 
@@ -168,8 +310,12 @@ func (g *Generator) generateStandardPlanet(
 		"political_system":  props.Political,
 		"moons":             props.Moons,
 		"development_level": props.Development,
-		"archetype": archetype.ArchetypeID,
+		"archetype":         archetype.ArchetypeID,
 		"system_age":        systemAge,
+
+		// Орбитальный контекст S-планеты (35b §2.2): вокруг главной.
+		"orbit_center":    "main",
+		"orbit_radius_au": orbitRadiusByIndex(orbitIndex),
 
 		"surface_composition":    composeToJSON(props.SurfaceComposition),
 		"subterrain_composition": composeToJSON(props.SubterrainComposition),
@@ -306,6 +452,8 @@ func (g *Generator) generateOceanicPlanet(
 		"development_level":      0.0,
 		"archetype":              "умеренный",
 		"system_age":             systemAge,
+		"orbit_center":           "main",
+		"orbit_radius_au":        orbitRadiusByIndex(orbitIndex),
 		"surface_composition":    composeToJSON(surfaceComp),
 		"subterrain_composition": composeToJSON(subterrainComp),
 		"surface_dominant":       SurfaceOceans,
@@ -434,6 +582,8 @@ func (g *Generator) generateRadioactivePlanet(
 		"archetype":              "экстремальный",
 		"system_age":             systemAge,
 		"radioactive":            true,
+		"orbit_center":           "main",
+		"orbit_radius_au":        orbitRadiusByIndex(orbitIndex),
 		"surface_composition":    composeToJSON(surfaceComp),
 		"subterrain_composition": composeToJSON(subterrainComp),
 		"surface_dominant":       dominantSurface,

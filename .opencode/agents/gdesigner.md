@@ -5,7 +5,7 @@ description: Графический дизайнер Zorion. Визуальны�
   одобрения. Вызывай @gdesigner, когда нужен внешний вид (корабли, планеты,
   UI-стиль) или аудит + ТЗ на визуальные улучшения (обычно через @manager).
 mode: subagent
-model: opencode/big-pickle
+model: opencode/mimo-v2.5-free
 permission:
   edit: allow
   bash:

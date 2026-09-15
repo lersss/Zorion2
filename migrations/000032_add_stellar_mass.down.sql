@@ -1,0 +1,1 @@
+ALTER TABLE worlds DROP COLUMN IF EXISTS stellar_mass;

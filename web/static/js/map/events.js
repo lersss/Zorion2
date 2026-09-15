@@ -193,21 +193,111 @@ export function initFlyBtn() {
 
 // ==================== КОНТЕКСТНОЕ МЕНЮ (ПКМ по миру на карте) ====================
 
+// coordsTooltipEl — тултип координат точки (ПКМ по пустому месту).
+// Создаётся лениво один раз; pointer-events: none — не перехватывает клики.
+// Минимальное время жизни 3 с (правка создателя 2026-09-16): после показа
+// тултип не исчезает, даже если мышь ушла, — прячется по таймеру, а не по
+// mousemove. Жёсткое скрытие (ЛКМ, ПКМ по звезде) — сразу, hideCoordsTooltip.
+const COORDS_TOOLTIP_MIN_MS = 3000;
+let coordsTooltipEl = null;
+let coordsShownAt = 0;
+let coordsHideTimer = null;
+
+function showCoordsTooltip(screenX, screenY, worldX, worldY) {
+    if (coordsHideTimer) { clearTimeout(coordsHideTimer); coordsHideTimer = null; }
+    if (!coordsTooltipEl) {
+        coordsTooltipEl = document.createElement('div');
+        coordsTooltipEl.id = 'coords-tooltip';
+        coordsTooltipEl.style.cssText = `
+            position: fixed;
+            pointer-events: none;
+            z-index: 1100;
+            background: #1a1a2e;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+            padding: 8px 10px;
+            font-size: 0.85rem;
+            color: #e0e0e0;
+            user-select: none;
+            white-space: nowrap;
+        `;
+        document.body.appendChild(coordsTooltipEl);
+    }
+    coordsTooltipEl.textContent = `Координаты: (${worldX}; ${worldY})`;
+    // Смещение от курсора (14px); у правого края — влево, чтобы не уходить за экран.
+    const left = screenX + 14 + coordsTooltipEl.offsetWidth > window.innerWidth
+        ? screenX - coordsTooltipEl.offsetWidth - 14
+        : screenX + 14;
+    coordsTooltipEl.style.left = Math.max(4, left) + 'px';
+    coordsTooltipEl.style.top = Math.max(4, screenY - 10) + 'px';
+    coordsShownAt = Date.now();
+}
+
+function hideCoordsTooltip() {
+    if (coordsHideTimer) { clearTimeout(coordsHideTimer); coordsHideTimer = null; }
+    if (coordsTooltipEl) coordsTooltipEl.remove();
+    coordsTooltipEl = null;
+}
+
+// hideCoordsTooltipGuarded — «мягкое» скрытие (мышь ушла/двинулась): не
+// раньше минимального времени жизни; позже — как обычное скрытие.
+function hideCoordsTooltipGuarded() {
+    if (!coordsTooltipEl || coordsHideTimer) return;
+    const remaining = COORDS_TOOLTIP_MIN_MS - (Date.now() - coordsShownAt);
+    if (remaining > 0) {
+        coordsHideTimer = setTimeout(() => {
+            coordsHideTimer = null;
+            if (coordsTooltipEl) hideCoordsTooltip();
+        }, remaining);
+        return;
+    }
+    hideCoordsTooltip();
+}
+
 export function initContextMenu() {
-    // ПКМ по канвасу — по миру.
+    // ПКМ (нажатие) по пустому месту — тултип координат сразу, на нажатии,
+    // а не на отпускании (contextmenu) — правка создателя 2026-09-16.
+    elements.canvas.addEventListener('mousedown', (e) => {
+        if (e.button !== 2) return;
+        const rect = elements.canvas.getBoundingClientRect();
+        const mouseX = (e.clientX - rect.left) * (elements.canvas.width / rect.width);
+        const mouseY = (e.clientY - rect.top) * (elements.canvas.height / rect.height);
+
+        const hit = findClusterAt(mouseX, mouseY);
+        if (hit && hit.cluster.cnt === 1) return; // звезда — меню мира на contextmenu
+        hideWorldMenu();
+        const worldX = Math.round((mouseX - state.offsetX) / state.scale);
+        const worldY = Math.round((mouseY - state.offsetY) / state.scale);
+        showCoordsTooltip(e.clientX, e.clientY, worldX, worldY);
+    });
+
+    // ПКМ по канвасу: браузерное меню подавляем всегда; по звезде — меню мира.
     elements.canvas.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
         const rect = elements.canvas.getBoundingClientRect();
         const mouseX = (e.clientX - rect.left) * (elements.canvas.width / rect.width);
         const mouseY = (e.clientY - rect.top) * (elements.canvas.height / rect.height);
 
         const hit = findClusterAt(mouseX, mouseY);
         if (hit && hit.cluster.cnt === 1) {
-            e.preventDefault();
+            hideCoordsTooltip();
             showWorldMenu(e.clientX, e.clientY, hit.cluster.sid, hit.cluster.sname || 'Мир');
         } else {
             hideWorldMenu();
+            // Страховка: тултип обычно показан уже по mousedown; если нажатие
+            // не дошло до канваса (наведено на тултип звезды) — показываем здесь.
+            if (!coordsTooltipEl) {
+                const worldX = Math.round((mouseX - state.offsetX) / state.scale);
+                const worldY = Math.round((mouseY - state.offsetY) / state.scale);
+                showCoordsTooltip(e.clientX, e.clientY, worldX, worldY);
+            }
         }
     });
+
+    // Мышь двинулась/ушла — «мягкое» скрытие: не раньше 3 с жизни тултипа.
+    elements.canvas.addEventListener('mousemove', () => hideCoordsTooltipGuarded());
+    elements.canvas.addEventListener('mouseleave', () => hideCoordsTooltipGuarded());
 
     // ПКМ по тултипу: активный тултип перехватывает pointer-events,
     // без этого браузерное меню откроется вместо нашего.
@@ -215,12 +305,15 @@ export function initContextMenu() {
         const worldId = elements.tooltipFlyBtn.dataset.worldId;
         if (!worldId) return;
         e.preventDefault();
+        hideCoordsTooltip(); // жёстко: ПКМ по тултипу звезды — новое действие (меню мира)
         showWorldMenu(e.clientX, e.clientY, worldId, elements.tooltipName.textContent || 'Мир');
     });
 
-    // Левая кнопка вне меню — скрывает. ПКМ — отдаём канвасу/тултипу.
+    // Левая кнопка вне меню — скрывает меню мира и тултип координат
+    // (жёстко: ЛКМ — новое действие). ПКМ — отдаём канвасу.
     document.addEventListener('mousedown', (e) => {
         if (e.button !== 2 && !e.target.closest('#map-context-menu')) hideWorldMenu();
+        if (e.button !== 2) hideCoordsTooltip();
     });
 }
 
@@ -288,7 +381,9 @@ function hideWorldMenu() {
 
 export function initPanZoom() {
     elements.canvas.addEventListener('mousedown', (e) => {
-        if (e.target === elements.canvas) {
+        // Драг — только левой кнопкой: ПКМ занят меню мира и тултипом
+        // координат (идея 47a), драг правой был дублем левой.
+        if (e.target === elements.canvas && e.button === 0) {
             state.isDragging = true;
             state.dragStartX = e.clientX;
             state.dragStartY = e.clientY;

@@ -76,10 +76,8 @@ func (h *AdminHandlers) GenerateSettlements(w http.ResponseWriter, r *http.Reque
 		}
 		log.Printf("🏘️ GenerateSettlements: start")
 
-		// B18: старые поселения/заводы/товары удаляются до генерации, иначе
-		// повторный запуск дублирует данные (аналогично clearPlanets в B11).
-		// Заводы и товары по логике от поселений не зависят — каскада нет,
-		// чистим все три таблицы явно.
+		// B18: старые поселения удаляются до генерации, иначе повторный
+		// запуск дублирует данные (аналогично clearPlanets в B11).
 		oldCount, err := h.clearSettlementsLayer()
 		if err != nil {
 			log.Printf("❌ GenerateSettlements: delete old records: %v", err)
@@ -108,10 +106,6 @@ func (h *AdminHandlers) GenerateSettlements(w http.ResponseWriter, r *http.Reque
 }
 
 // ClearSettlements — удаляет ВСЕ поселения, оставляя планеты на месте.
-//
-// Заводы и партии товаров не трогаются: с поселениями они по логике не
-// связаны (FK заводов на planets, не на поселения) и создаются отдельно
-// (решение игрока 2026-09-13).
 func (h *AdminHandlers) ClearSettlements(w http.ResponseWriter, r *http.Request) {
 	if statusManager.IsRunning(generator.JobGenerateSettlements) {
 		http.Error(w, "Generation is running, cancel it first", http.StatusConflict)
@@ -135,12 +129,10 @@ func (h *AdminHandlers) ClearSettlements(w http.ResponseWriter, r *http.Request)
 	json.NewEncoder(w).Encode(map[string]int{"deleted": before})
 }
 
-// clearSettlementsLayer — удаляет поселения, заводы и партии товаров
-// (слой экономики, создаваемый GenerateSettlements). Возвращает суммарное
-// число удалённых записей. Заводы и товары не зависят от поселений
-// (FK заводов/товаров на planets), поэтому все три таблицы чистим явно.
+// clearSettlementsLayer — удаляет поселения (слой экономики, создаваемый
+// GenerateSettlements). Возвращает число удалённых записей.
 func (h *AdminHandlers) clearSettlementsLayer() (int, error) {
-	tables := []string{"settlements", "factories", "goods_batches"}
+	tables := []string{"settlements"}
 	deleted := 0
 	for _, table := range tables {
 		var n int

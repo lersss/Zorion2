@@ -12,7 +12,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
-	"zorion/internal/resource"
 )
 
 // Generator — генератор поселений. Проходит по таблице planets и создаёт
@@ -33,8 +32,8 @@ func NewGenerator(db *sql.DB, seed int64) *Generator {
 	}
 }
 
-// GenerateSettlements — создаёт поселения (и заводы с товарами) на планетах,
-// проходящих модель генерации. Возвращает число поселений.
+// GenerateSettlements — создаёт поселения на планетах, проходящих модель
+// генерации. Возвращает число поселений.
 //
 // progressFn вызывается после каждой планеты (для статус-бара). Может быть nil.
 func (g *Generator) GenerateSettlements(ctx context.Context, model *Model, progressFn func(processed int)) (int, error) {
@@ -48,7 +47,7 @@ func (g *Generator) GenerateSettlements(ctx context.Context, model *Model, progr
 	}
 	defer rows.Close()
 
-	var settlementRows, factoryRows, goodsRows []interface{}
+	var settlementRows []interface{}
 	settled := 0
 	processed := 0
 
@@ -75,24 +74,9 @@ func (g *Generator) GenerateSettlements(ctx context.Context, model *Model, progr
 			continue
 		}
 
-		// 1. Поселение
+		// Поселение
 		settlementRows = append(settlementRows,
 			buildSettlement(id, model.Population.value(g.rng), g.rng.Intn(41)+40))
-
-		// 2. Заводы (по ресурсам)
-		for category, value := range extractResources(data) {
-			if value <= 0.3 {
-				continue
-			}
-			for _, f := range buildFactories(id, category, value, g.rng) {
-				factoryRows = append(factoryRows, f)
-			}
-		}
-
-		// 3. Товары
-		for _, gd := range buildGoods(id, g.rng) {
-			goodsRows = append(goodsRows, gd)
-		}
 		settled++
 	}
 	if err := rows.Err(); err != nil {
@@ -113,16 +97,6 @@ func (g *Generator) GenerateSettlements(ctx context.Context, model *Model, progr
 		[]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at"},
 		flatten(settlementRows), 6); err != nil {
 		return 0, fmt.Errorf("copy settlements: %w", err)
-	}
-	if err := copyInRows(tx, "factories",
-		[]string{"id", "planet_id", "name", "type", "input_resource", "output_product", "quality", "status"},
-		flatten(factoryRows), 8); err != nil {
-		return 0, fmt.Errorf("copy factories: %w", err)
-	}
-	if err := copyInRows(tx, "goods_batches",
-		[]string{"id", "planet_id", "product_name", "quantity", "quality", "producer_id", "produced_at"},
-		flatten(goodsRows), 7); err != nil {
-		return 0, fmt.Errorf("copy goods: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -149,95 +123,6 @@ func buildSettlement(planetID string, population, stability int) []interface{} {
 	}
 }
 
-// ==================== ЗАВОДЫ ====================
-
-// factoryRecipe — что производит завод по категории ресурса.
-type factoryRecipe struct {
-	factoryType string
-	output      string
-}
-
-var factoryRecipes = map[string]factoryRecipe{
-	resource.CategoryMineral: {"добывающий", "металл"},
-	resource.CategoryFuel:    {"добывающий", "энергоноситель"},
-	resource.CategoryOrganic: {"перерабатывающий", "еда"},
-	resource.CategoryRare:    {"перерабатывающий", "компоненты"},
-}
-
-// buildFactories — строки заводов для категории ресурса.
-// Количество заводов — 1 или 2 (случайно).
-func buildFactories(planetID, category string, value float64, rng interface {
-	Intn(int) int
-}) [][]interface{} {
-	recipe, ok := factoryRecipes[category]
-	if !ok {
-		return nil
-	}
-
-	count := 1 + rng.Intn(2)
-	result := make([][]interface{}, 0, count)
-	for i := 0; i < count; i++ {
-		quality := 30 + rng.Intn(41)
-		result = append(result, []interface{}{
-			uuid.New().String(),
-			planetID,
-			fmt.Sprintf("%s завод %d", recipe.output, i+1),
-			recipe.factoryType,
-			category,
-			recipe.output,
-			quality,
-			"active",
-		})
-	}
-	return result
-}
-
-// ==================== ТОВАРЫ ====================
-
-// buildGoods — строки партий товаров для вставки в БД.
-// Всегда есть еда + 1–3 случайных товара.
-func buildGoods(planetID string, rng interface {
-	Intn(int) int
-}) [][]interface{} {
-	result := [][]interface{}{}
-
-	// Еда всегда
-	result = append(result, buildGoodsRow(
-		planetID,
-		"еда",
-		100+rng.Intn(401),
-		30+rng.Intn(41),
-	))
-
-	// Случайные товары
-	possible := []string{"металл", "энергоноситель", "компоненты", "инструменты"}
-	count := 1 + rng.Intn(3)
-	for i := 0; i < count; i++ {
-		product := possible[rng.Intn(len(possible))]
-		result = append(result, buildGoodsRow(
-			planetID,
-			product,
-			50+rng.Intn(201),
-			30+rng.Intn(41),
-		))
-	}
-
-	return result
-}
-
-// buildGoodsRow — одна строка партии товара.
-func buildGoodsRow(planetID, product string, qty, quality int) []interface{} {
-	return []interface{}{
-		uuid.New().String(),
-		planetID,
-		product,
-		qty,
-		quality,
-		nil, // producer_id = NULL (свободное производство)
-		time.Now().Add(-24 * time.Hour),
-	}
-}
-
 // ==================== ХЕЛПЕРЫ JSON ====================
 
 // isGasGiant — является ли планета газовым гигантом.
@@ -246,21 +131,6 @@ func isGasGiant(data map[string]interface{}) bool {
 		return true
 	}
 	return getString(data, "surface_dominant") == "газовый_гигант"
-}
-
-// extractResources — вытаскивает ресурсы из JSON планеты.
-func extractResources(data map[string]interface{}) map[string]float64 {
-	result := map[string]float64{}
-	raw, ok := data["resources"].(map[string]interface{})
-	if !ok {
-		return result
-	}
-	for k, v := range raw {
-		if f, ok := v.(float64); ok {
-			result[k] = f
-		}
-	}
-	return result
 }
 
 func getString(data map[string]interface{}, key string) string {

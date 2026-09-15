@@ -43,13 +43,13 @@ func recoverErr(r interface{}) string {
 // (кроме users):
 //   worlds    ← locations, assignments, planets, npc_agents
 //   locations ← production_units
-//   planets   ← factions, settlements, factories, goods_batches
+//   planets   ← factions, settlements
 //
 // Если появится новая таблица с FK на любую из этих — TRUNCATE упадёт
 // с ошибкой "cannot truncate a table referenced in a foreign key
 // constraint". Тогда добавь её в этот список.
 
-const truncateTables = `worlds, locations, planets, assignments, production_units, factions, settlements, settlement_log, factories, goods_batches, regions, npc_agents`
+const truncateTables = `worlds, locations, planets, assignments, production_units, factions, settlements, settlement_log, regions, npc_agents`
 
 // clearUniverseTx — очистка внутри уже начатой транзакции.
 // Вызывающий делает Begin/Commit/Rollback.
@@ -397,7 +397,7 @@ func (h *AdminHandlers) GeneratePlanets(w http.ResponseWriter, r *http.Request) 
 
 		// B11: старые планеты удаляются до генерации, иначе повторный запуск
 		// дублирует данные (было 638k вместо 319k планет). Дочерние записи
-		// (поселения, заводы, ресурсы) удаляются каскадно (ON DELETE CASCADE).
+		// (поселения, ресурсы) удаляются каскадно (ON DELETE CASCADE).
 		oldCount, err := h.clearPlanets()
 		if err != nil {
 			log.Printf("❌ GeneratePlanets: delete old planets: %v", err)

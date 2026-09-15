@@ -47,9 +47,7 @@ func testTwinSpec() planet.TwinSpec {
 }
 
 // Тест 6: конвейр с очисткой → генерацией миров/планет → поселениями.
-// Поселения создаются напрямую (без заводов и товаров): любой insert в
-// factories/goods_batches был бы неожиданным для sqlmock → ошибка → провал
-// задачи. Кэш статистики пересчитывается после коммита.
+// Поселения создаются напрямую; кэш статистики пересчитывается после коммита.
 func TestRunHypothesisJobPipeline(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)

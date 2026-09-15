@@ -147,7 +147,7 @@ func worldCategory(starType, systemType string) string {
 }
 
 // clearPlanetsOf — удаляет планеты выбранных миров и возвращает число удалённых.
-// Дочерние записи (поселения, заводы, ресурсы) удаляются каскадно (ON DELETE CASCADE).
+// Дочерние записи (поселения, ресурсы) удаляются каскадно (ON DELETE CASCADE).
 // ВАЖНО: world_id = ANY($1) требует pq.Array — []string lib/pq не конвертирует
 // ("unsupported type []string", баг #2, прогон @tester); паттерн — как
 // pqStringArray в economy_repository.go.

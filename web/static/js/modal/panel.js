@@ -219,7 +219,7 @@ export function renderStarCard() {
                     <p style="margin:4px 0;"><strong>Относительный радиус:</strong> ${exotic ? exoticInfo.radius : specInfo.radius}</p>
                     <p style="margin:4px 0;"><strong>Светимость:</strong> ${exotic ? exoticInfo.luminosity : specInfo.luminosity}</p>
                     <p style="margin:4px 0;"><strong>Координаты:</strong> (${coordX ? coordX.toFixed(2) : '—'}; ${coordY ? coordY.toFixed(2) : '—'})</p>
-                    <p style="margin:4px 0;"><strong>Возраст:</strong> ${exotic ? exoticInfo.age : specInfo.age}</p>
+                    <p style="margin:4px 0;"><strong>${exotic ? 'Возраст' : 'Срок жизни'}:</strong> ${exotic ? exoticInfo.age : specInfo.age}</p>
                     <p style="margin:8px 0; color:#888; font-size:0.95rem;">${exotic ? '' : specInfo.description}</p>
                 </div>
             </div>

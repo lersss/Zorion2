@@ -26,15 +26,22 @@ type Config struct {
 	OutlierPercent float64
 	WorldSpread    float64
 	// Shape — форма звёздных кластеров: "blob" (бесформенное облако из
-	// перекрывающихся очагов, по умолчанию) или "circle" (классический круг).
+	// перекрывающихся очагов, по умолчанию), "circle" (классический круг),
+	// "ring" (кольцо), "bar" (перемычка), "spiral" (спиральный рукав),
+	// "dumbbell" (две доли), "stream" (цепочка очагов), "core_halo" (ядро и
+	// гало) или "random" (случайная форма на каждый кластер).
 	// Любое пустое/неизвестное значение трактуется как "blob".
 	Shape string
 }
 
-// clusterShape — нормализованная форма кластеров.
+// clusterShape — нормализованная форма кластеров: допустимые значения
+// {circle, blob, ring, bar, spiral, dumbbell, stream, core_halo, random};
+// пустое/неизвестное значение → "blob".
 func (c *Config) clusterShape() string {
-	if strings.ToLower(strings.TrimSpace(c.Shape)) == "circle" {
-		return "circle"
+	shape := strings.ToLower(strings.TrimSpace(c.Shape))
+	switch shape {
+	case "circle", "blob", "ring", "bar", "spiral", "dumbbell", "stream", "core_halo", "random":
+		return shape
 	}
 	return "blob"
 }

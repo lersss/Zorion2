@@ -103,6 +103,17 @@ func (g *Generator) generateWorldsPoisson() *GalaxyResult {
 	centers := g.generateClusterCenters(clusterCount, halfSize, clusterSpacing)
 	regions := g.buildRegions(centers)
 
+	// Форма и параметры формы на каждый кластерный центр (индекс == индекс
+	// центра/региона). Роллятся заранее, чтобы добивка генерировала точки
+	// в той же геометрии, что и основные точки кластера.
+	clusterShapes := make([]string, len(centers))
+	clusterParams := make([]clusterShapeParams, len(centers))
+	for i := range centers {
+		shape := g.rollClusterShape()
+		clusterShapes[i] = shape
+		clusterParams[i] = g.rollShapeParams(shape, clusterRadius)
+	}
+
 	outlierPercent := g.cfg.OutlierPercent
 	if outlierPercent <= 0 {
 		outlierPercent = 0.08
@@ -144,7 +155,7 @@ func (g *Generator) generateWorldsPoisson() *GalaxyResult {
 		remaining -= count
 
 		cx, cy := centers[i].X, centers[i].Y
-		clusterPointsList := g.clusterPoints(cx, cy, clusterRadius, minDist, count)
+		clusterPointsList := g.clusterPoints(clusterShapes[i], clusterParams[i], cx, cy, clusterRadius, minDist, count)
 		for _, p := range clusterPointsList {
 			// ГЛОБАЛЬНАЯ ПРОВЕРКА: точка должна быть внутри круга
 if math.Hypot(p.X, p.Y) > halfSize {
@@ -160,10 +171,11 @@ if math.Hypot(p.X, p.Y) > halfSize {
 }
 
 	// Добивка кластерных точек – внутри территории своего региона: точка
-	// генерируется гауссом вокруг центра случайного региона (std = радиус)
-	// и принимается в пределах 1.25×радиус от центра (как обычные точки
-	// кластера). Раньше точки кидались случайно по всей галактике — звезды
-	// "добивки" разлетались далеко от кластеров и размазывали их по карте.
+	// генерируется в форме региона (та же геометрия, что у основных точек
+	// кластера) и принимается в пределах 1.25×радиус от центра (как обычные
+	// точки кластера). Раньше точки кидались гауссом вокруг центра региона —
+	// для не-blob форм (spiral, ring, bar) остаток заливался гауссовым пятном
+	// и размазывал форму.
 	attempts := clusterPoints * 200
 	for len(allPoints) < clusterPoints && attempts > 0 {
 		attempts--
@@ -179,9 +191,9 @@ if math.Hypot(p.X, p.Y) > halfSize {
 			}
 			continue
 		}
-		r := regions[g.rng.Intn(len(regions))]
-		x := r.CenterX + g.gaussian(r.Radius)
-		y := r.CenterY + g.gaussian(r.Radius)
+		ri := g.rng.Intn(len(regions))
+		r := regions[ri]
+		x, y := g.shapeCandidate(clusterShapes[ri], r.CenterX, r.CenterY, r.Radius, clusterParams[ri])
 		if math.Hypot(x, y) > halfSize {
 			continue
 		}
@@ -283,29 +295,166 @@ func (g *Generator) generateClusterCenters(count int, halfSize float64, minSpaci
 
 // ---------- ТОЧКИ КЛАСТЕРА ПО ФОРМЕ ----------
 
-// clusterPoints — точки кластера выбранной формы (см. Config.Shape).
-// Соблюдает minDist между точками (отбор отбрасыванием).
-func (g *Generator) clusterPoints(cx, cy, radius, minDist float64, count int) []struct{ X, Y float64 } {
-	if g.cfg.clusterShape() == "circle" {
-		return g.clusterPointsCircle(cx, cy, radius, minDist, count)
+// clusterForms — формы для режима "random": на каждый кластер выбирается
+// одна из них через g.rng (детерминизм по seed сохраняется).
+var clusterForms = []string{"blob", "circle", "ring", "bar", "spiral", "dumbbell", "stream", "core_halo"}
+
+// rollClusterShape — форма кластера: нормализованная Config.Shape; при
+// "random" — случайная из clusterForms через g.rng.
+func (g *Generator) rollClusterShape() string {
+	shape := g.cfg.clusterShape()
+	if shape == "random" {
+		shape = clusterForms[g.rng.Intn(len(clusterForms))]
 	}
-	return g.clusterPointsBlob(cx, cy, radius, minDist, count)
+	return shape
+}
+
+// clusterShapeParams — параметры формы кластера, роллятся один раз на кластер
+// (rollShapeParams), чтобы основные точки и добивка ложились в одну геометрию:
+// поворот оси (bar/dumbbell), поворот кластера (spiral), радиус кольца (ring),
+// очаги (blob/stream). Для форм без параметров (circle/core_halo) — нулевой.
+type clusterShapeParams struct {
+	ringR float64
+	cosA  float64
+	sinA  float64
+	cosR  float64
+	sinR  float64
+	lobes []struct{ x, y float64 }
+	seeds []struct{ x, y, std float64 }
+}
+
+// rollShapeParams — роллит параметры формы один раз на кластер.
+func (g *Generator) rollShapeParams(shape string, radius float64) clusterShapeParams {
+	var p clusterShapeParams
+	switch shape {
+	case "blob":
+		// Очаги смещаются от центра до 60% радиуса — не вылетают за территорию
+		// кластера; их std — 0.25–0.5 радиуса (перекрываются, облако бесшовное).
+		n := 2 + g.rng.Intn(3)
+		p.seeds = make([]struct{ x, y, std float64 }, n)
+		for i := range p.seeds {
+			d := g.rng.Float64() * radius * 0.6
+			a := 2 * math.Pi * g.rng.Float64()
+			p.seeds[i].x = d * math.Cos(a)
+			p.seeds[i].y = d * math.Sin(a)
+			p.seeds[i].std = radius * (0.25 + g.rng.Float64()*0.25)
+		}
+	case "ring":
+		p.ringR = radius * (0.75 + g.rng.Float64()*0.05)
+	case "bar", "dumbbell":
+		angle := 2 * math.Pi * g.rng.Float64()
+		p.cosA, p.sinA = math.Cos(angle), math.Sin(angle)
+	case "spiral":
+		rot := 2 * math.Pi * g.rng.Float64()
+		p.cosR, p.sinR = math.Cos(rot), math.Sin(rot)
+	case "stream":
+		nLobes := 2 + g.rng.Intn(3)
+		step := radius * 0.45
+		rot := 2 * math.Pi * g.rng.Float64()
+		p.lobes = make([]struct{ x, y float64 }, nLobes)
+		dir := rot
+		x, y := 0.0, 0.0
+		for i := 0; i < nLobes; i++ {
+			p.lobes[i].x = x
+			p.lobes[i].y = y
+			dir += (g.rng.Float64() - 0.5) * 0.6 // изгиб ±0.3 рад на шаг
+			x += step * math.Cos(dir)
+			y += step * math.Sin(dir)
+		}
+	}
+	return p
+}
+
+// shapeCandidate — одна случайная точка формы кластера (без проверок
+// границ/minDist — их делают вызывающие). Параметры формы (поворот оси,
+// очаги, радиус кольца) берутся из params, роллятся один раз на кластер
+// (rollShapeParams), чтобы все точки кластера и добивка ложились в одну
+// геометрию. Неизвестная форма → blob.
+func (g *Generator) shapeCandidate(shape string, cx, cy, radius float64, params clusterShapeParams) (x, y float64) {
+	switch shape {
+	case "circle":
+		std := radius * 0.7
+		return cx + g.gaussian(std), cy + g.gaussian(std)
+	case "ring":
+		r := params.ringR + g.gaussian(radius*0.10)
+		a := 2 * math.Pi * g.rng.Float64()
+		return cx + r*math.Cos(a), cy + r*math.Sin(a)
+	case "bar":
+		u := g.gaussian(radius * 0.85)
+		v := g.gaussian(radius * 0.12)
+		return cx + u*params.cosA - v*params.sinA, cy + u*params.sinA + v*params.cosA
+	case "spiral":
+		const thetaMax = 2.5 * math.Pi
+		theta := thetaMax * g.rng.Float64()
+		r := radius * (theta / thetaMax)
+		// Нормаль к спирали — перпендикуляр к радиус-вектору.
+		nx, ny := -math.Sin(theta), math.Cos(theta)
+		off := g.gaussian(radius * 0.07)
+		x = r*math.Cos(theta) + off*nx
+		y = r*math.Sin(theta) + off*ny
+		// Поворот кластера на случайный угол.
+		x, y = x*params.cosR-y*params.sinR, x*params.sinR+y*params.cosR
+		return cx + x, cy + y
+	case "dumbbell":
+		sign := 1.0
+		if g.rng.Float64() < 0.5 {
+			sign = -1.0
+		}
+		u := sign*radius*0.65 + g.gaussian(radius*0.25)
+		v := g.gaussian(radius * 0.25)
+		return cx + u*params.cosA - v*params.sinA, cy + u*params.sinA + v*params.cosA
+	case "stream":
+		l := params.lobes[g.rng.Intn(len(params.lobes))]
+		return cx + l.x + g.gaussian(radius*0.18), cy + l.y + g.gaussian(radius*0.18)
+	case "core_halo":
+		std := radius * 0.55
+		if g.rng.Float64() < 0.75 {
+			std = radius * 0.18
+		}
+		return cx + g.gaussian(std), cy + g.gaussian(std)
+	default: // "blob" и неизвестное
+		s := params.seeds[g.rng.Intn(len(params.seeds))]
+		return cx + s.x + g.gaussian(s.std), cy + s.y + g.gaussian(s.std)
+	}
+}
+
+// clusterPoints — точки кластера выбранной формы (см. Config.Shape).
+// Форма и параметры формы передаются из generateWorldsPoisson (там же
+// роллятся), чтобы добивка генерировала точки в той же геометрии.
+// Соблюдает minDist между точками (отбор отбрасыванием).
+func (g *Generator) clusterPoints(shape string, params clusterShapeParams, cx, cy, radius, minDist float64, count int) []struct{ X, Y float64 } {
+	switch shape {
+	case "circle":
+		return g.clusterPointsCircle(cx, cy, radius, minDist, count, params)
+	case "ring":
+		return g.clusterPointsRing(cx, cy, radius, minDist, count, params)
+	case "bar":
+		return g.clusterPointsBar(cx, cy, radius, minDist, count, params)
+	case "spiral":
+		return g.clusterPointsSpiral(cx, cy, radius, minDist, count, params)
+	case "dumbbell":
+		return g.clusterPointsDumbbell(cx, cy, radius, minDist, count, params)
+	case "stream":
+		return g.clusterPointsStream(cx, cy, radius, minDist, count, params)
+	case "core_halo":
+		return g.clusterPointsCoreHalo(cx, cy, radius, minDist, count, params)
+	default: // "blob" и неизвестное
+		return g.clusterPointsBlob(cx, cy, radius, minDist, count, params)
+	}
 }
 
 // clusterPointsCircle — круглая форма кластера: гауссова плотность,
 // плотнее к центру (std = радиус×0.7), с размытой границей (см. clusterEdgeAccept).
 // Соблюдает minDist между точками (отбор отбрасыванием).
-func (g *Generator) clusterPointsCircle(cx, cy, radius, minDist float64, count int) []struct{ X, Y float64 } {
+func (g *Generator) clusterPointsCircle(cx, cy, radius, minDist float64, count int, params clusterShapeParams) []struct{ X, Y float64 } {
 	if count <= 0 {
 		return nil
 	}
-	std := radius * 0.7
 	points := make([]struct{ X, Y float64 }, 0, count)
 	maxAttempts := count * 50
 	for len(points) < count && maxAttempts > 0 {
 		maxAttempts--
-		x := cx + g.gaussian(std)
-		y := cy + g.gaussian(std)
+		x, y := g.shapeCandidate("circle", cx, cy, radius, params)
 		if !g.clusterEdgeAccept(cx, cy, x, y, radius) {
 			continue
 		}
@@ -323,29 +472,168 @@ func (g *Generator) clusterPointsCircle(cx, cy, radius, minDist float64, count i
 // 2–4 перекрывающихся гауссовых очагов со случайными смещениями и масштабами.
 // Кластер получается вытянутым и асимметричным, без круговой симметрии.
 // Соблюдает minDist между точками (отбор отбрасыванием).
-func (g *Generator) clusterPointsBlob(cx, cy, radius, minDist float64, count int) []struct{ X, Y float64 } {
+func (g *Generator) clusterPointsBlob(cx, cy, radius, minDist float64, count int, params clusterShapeParams) []struct{ X, Y float64 } {
 	if count <= 0 {
 		return nil
 	}
-	// Очаги смещаются от центра до 60% радиуса — не вылетают за территорию
-	// кластера; их std — 0.25–0.5 радиуса (перекрываются, облако бесшовное).
-	nSeeds := 2 + g.rng.Intn(3)
-	seeds := make([]struct{ x, y, std float64 }, nSeeds)
-	for i := range seeds {
-		d := g.rng.Float64() * radius * 0.6
-		a := 2 * math.Pi * g.rng.Float64()
-		seeds[i].x = cx + d*math.Cos(a)
-		seeds[i].y = cy + d*math.Sin(a)
-		seeds[i].std = radius * (0.25 + g.rng.Float64()*0.25)
-	}
-
 	points := make([]struct{ X, Y float64 }, 0, count)
 	maxAttempts := count * 60
 	for len(points) < count && maxAttempts > 0 {
 		maxAttempts--
-		s := seeds[g.rng.Intn(nSeeds)]
-		x := s.x + g.gaussian(s.std)
-		y := s.y + g.gaussian(s.std)
+		x, y := g.shapeCandidate("blob", cx, cy, radius, params)
+		if !g.clusterEdgeAccept(cx, cy, x, y, radius) {
+			continue
+		}
+		if !g.galaxyEdgeAccept(x, y) {
+			continue
+		}
+		if g.isPointValid(x, y, minDist, points) {
+			points = append(points, struct{ X, Y float64 }{X: x, Y: y})
+		}
+	}
+	return points
+}
+
+// clusterPointsRing — кольцо: точки на кольце среднего радиуса 0.75–0.8×radius
+// (роллится на кластер) с гауссовой толщиной (std = 0.10×radius) и равномерным
+// углом. Центр пустой. Геометрия укладывается в территорию кластера:
+// 0.8R + 3×0.10R = 1.10R ≤ 1.25R. Соблюдает minDist (отбор отбрасыванием).
+func (g *Generator) clusterPointsRing(cx, cy, radius, minDist float64, count int, params clusterShapeParams) []struct{ X, Y float64 } {
+	if count <= 0 {
+		return nil
+	}
+	points := make([]struct{ X, Y float64 }, 0, count)
+	maxAttempts := count * 60
+	for len(points) < count && maxAttempts > 0 {
+		maxAttempts--
+		x, y := g.shapeCandidate("ring", cx, cy, radius, params)
+		if !g.clusterEdgeAccept(cx, cy, x, y, radius) {
+			continue
+		}
+		if !g.galaxyEdgeAccept(x, y) {
+			continue
+		}
+		if g.isPointValid(x, y, minDist, points) {
+			points = append(points, struct{ X, Y float64 }{X: x, Y: y})
+		}
+	}
+	return points
+}
+
+// clusterPointsBar — перемычка: вытянута вдоль случайной оси (угол роллится
+// на кластер), std вдоль оси = 0.85×radius, поперёк = 0.12×radius. Генерация
+// в локальных координатах → поворот на угол; хвосты за 1.25×radius
+// отбрасываются clusterEdgeAccept'ом. Соблюдает minDist (отбор отбрасыванием).
+func (g *Generator) clusterPointsBar(cx, cy, radius, minDist float64, count int, params clusterShapeParams) []struct{ X, Y float64 } {
+	if count <= 0 {
+		return nil
+	}
+	points := make([]struct{ X, Y float64 }, 0, count)
+	maxAttempts := count * 60
+	for len(points) < count && maxAttempts > 0 {
+		maxAttempts--
+		x, y := g.shapeCandidate("bar", cx, cy, radius, params)
+		if !g.clusterEdgeAccept(cx, cy, x, y, radius) {
+			continue
+		}
+		if !g.galaxyEdgeAccept(x, y) {
+			continue
+		}
+		if g.isPointValid(x, y, minDist, points) {
+			points = append(points, struct{ X, Y float64 }{X: x, Y: y})
+		}
+	}
+	return points
+}
+
+// clusterPointsSpiral — спиральный рукав (один): r(θ) = radius×(θ/2.5π),
+// θ ∈ [0, 2.5π], ширина рукава (std по нормали к спирали) = 0.07×radius,
+// случайный поворот кластера. Соблюдает minDist (отбор отбрасыванием).
+func (g *Generator) clusterPointsSpiral(cx, cy, radius, minDist float64, count int, params clusterShapeParams) []struct{ X, Y float64 } {
+	if count <= 0 {
+		return nil
+	}
+	points := make([]struct{ X, Y float64 }, 0, count)
+	maxAttempts := count * 60
+	for len(points) < count && maxAttempts > 0 {
+		maxAttempts--
+		x, y := g.shapeCandidate("spiral", cx, cy, radius, params)
+		if !g.clusterEdgeAccept(cx, cy, x, y, radius) {
+			continue
+		}
+		if !g.galaxyEdgeAccept(x, y) {
+			continue
+		}
+		if g.isPointValid(x, y, minDist, points) {
+			points = append(points, struct{ X, Y float64 }{X: x, Y: y})
+		}
+	}
+	return points
+}
+
+// clusterPointsDumbbell — две доли: два гауссовых очага на ±0.65×radius от
+// центра вдоль случайной оси, std каждого = 0.25×radius, точки делятся ~50/50.
+// Соблюдает minDist (отбор отбрасыванием).
+func (g *Generator) clusterPointsDumbbell(cx, cy, radius, minDist float64, count int, params clusterShapeParams) []struct{ X, Y float64 } {
+	if count <= 0 {
+		return nil
+	}
+	points := make([]struct{ X, Y float64 }, 0, count)
+	maxAttempts := count * 60
+	for len(points) < count && maxAttempts > 0 {
+		maxAttempts--
+		x, y := g.shapeCandidate("dumbbell", cx, cy, radius, params)
+		if !g.clusterEdgeAccept(cx, cy, x, y, radius) {
+			continue
+		}
+		if !g.galaxyEdgeAccept(x, y) {
+			continue
+		}
+		if g.isPointValid(x, y, minDist, points) {
+			points = append(points, struct{ X, Y float64 }{X: x, Y: y})
+		}
+	}
+	return points
+}
+
+// clusterPointsStream — цепочка/поток: 2–4 очага вдоль плавной дуги от центра
+// (первый очаг в центре), std очага = 0.18×radius, шаг очагов = 0.45×radius,
+// случайный изгиб (±0.3 рад на шаг) и поворот. Очаги за 1.25×radius
+// отбрасываются clusterEdgeAccept'ом. Соблюдает minDist (отбор отбрасыванием).
+func (g *Generator) clusterPointsStream(cx, cy, radius, minDist float64, count int, params clusterShapeParams) []struct{ X, Y float64 } {
+	if count <= 0 {
+		return nil
+	}
+	points := make([]struct{ X, Y float64 }, 0, count)
+	maxAttempts := count * 60
+	for len(points) < count && maxAttempts > 0 {
+		maxAttempts--
+		x, y := g.shapeCandidate("stream", cx, cy, radius, params)
+		if !g.clusterEdgeAccept(cx, cy, x, y, radius) {
+			continue
+		}
+		if !g.galaxyEdgeAccept(x, y) {
+			continue
+		}
+		if g.isPointValid(x, y, minDist, points) {
+			points = append(points, struct{ X, Y float64 }{X: x, Y: y})
+		}
+	}
+	return points
+}
+
+// clusterPointsCoreHalo — ядро + гало: 75% точек — ядро (std = 0.18×radius),
+// 25% — гало (std = 0.55×radius), оба вокруг центра. Соблюдает minDist
+// (отбор отбрасыванием).
+func (g *Generator) clusterPointsCoreHalo(cx, cy, radius, minDist float64, count int, params clusterShapeParams) []struct{ X, Y float64 } {
+	if count <= 0 {
+		return nil
+	}
+	points := make([]struct{ X, Y float64 }, 0, count)
+	maxAttempts := count * 60
+	for len(points) < count && maxAttempts > 0 {
+		maxAttempts--
+		x, y := g.shapeCandidate("core_halo", cx, cy, radius, params)
 		if !g.clusterEdgeAccept(cx, cy, x, y, radius) {
 			continue
 		}

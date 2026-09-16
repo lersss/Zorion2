@@ -197,7 +197,7 @@ func (h *AdminHandlers) GenerateUniverse(w http.ResponseWriter, r *http.Request)
 		ClusterRadius  float64 `json:"cluster_radius"`
 		ClusterSpacing float64 `json:"cluster_spacing"`
 		OutlierPercent int     `json:"outlier_percent"`
-		Shape          string  `json:"shape"` // "blob" (по умолчанию) | "circle"
+		Shape          string  `json:"shape"` // "blob" (по умолчанию) | "circle" | "ring" | "bar" | "spiral" | "dumbbell" | "stream" | "core_halo" | "random"
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request", http.StatusBadRequest)

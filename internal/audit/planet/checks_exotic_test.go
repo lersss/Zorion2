@@ -15,10 +15,10 @@ import (
 )
 
 func TestAllRulesCount42(t *testing.T) {
-	// Счётчик правил: 40 базовых + 2 спец-правила экзотики = 42
-	// (99.2.4 §6.2: +life_in_exotic_system, +settleable_under_exotic;
-	// док-комментарий «43» в doc.go был устаревшим — фактически 40).
-	require.Len(t, AllRules(), 42, "число правил аудита планет")
+	// Счётчик правил: 40 базовых + 2 спец-правила экзотики + 2 правила
+	// физического каскада (99.2.20 §6.2: atmosphere_sum_not_100,
+	// liquid_water_mismatch) = 44.
+	require.Len(t, AllRules(), 44, "число правил аудита планет")
 }
 
 // exoticDeadPlanet — планета остатка по ветке §5.3: вода 0, жизнь 0,

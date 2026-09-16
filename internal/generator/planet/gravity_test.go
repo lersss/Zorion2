@@ -17,8 +17,7 @@ func TestDataContainsGravity(t *testing.T) {
 	for i := 0; i < 5000; i++ {
 		spec := classes[g.rng.Intn(len(classes))]
 		orbit := g.rng.Intn(10)
-		age := determineSystemAge(spec, g.rng)
-		pd := g.generatePlanet("w", "World", orbit, spec, age)
+		pd := g.generatePlanet("w", "World", orbit, stellarParamsFromClass(spec, 0, g.rng))
 
 		var data map[string]interface{}
 		require.NoError(t, json.Unmarshal(pd.Data, &data))

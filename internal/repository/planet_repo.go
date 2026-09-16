@@ -194,6 +194,15 @@ func populatePlanetFromJSON(p *models.Planet, data map[string]interface{}) {
 	p.Hydrosphere = getStr(data, "hydrosphere")
 	p.Biosphere = getStr(data, "biosphere")
 
+	// Атмосфера-объект и новые поля каскада (99.2.20 §4.1): старые планеты
+	// без ключей — нули/false (фолбэки §7).
+	p.AtmosphereData = getMap(data, "atmosphere_data")
+	p.LiquidWaterPossible = getBool(data, "liquid_water_possible")
+	p.OrbitalPeriod = getFloat(data, "orbital_period")
+	p.Eccentricity = getFloat(data, "eccentricity")
+	p.EscapeVelocity = getFloat(data, "escape_velocity")
+	p.TidalLock = getBool(data, "tidal_lock")
+
 	// Жизнь
 	p.Life = getBool(data, "life")
 
@@ -310,4 +319,13 @@ func getFloatMap(data map[string]interface{}, key string) map[string]float64 {
 		}
 	}
 	return result
+}
+
+// getMap — вложенный объект JSON (nil, если ключа нет или это не объект).
+func getMap(data map[string]interface{}, key string) map[string]interface{} {
+	raw, ok := data[key].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	return raw
 }

@@ -55,85 +55,6 @@ func TestComputeAlbedo(t *testing.T) {
 	assert.Equal(t, 0.3, computeAlbedo(Composition{"неизвестная_форма": 100}))
 }
 
-func TestAlbedoFactor(t *testing.T) {
-	// albedo 0 → (1)^0.25 = 1
-	assert.InDelta(t, 1.0, albedoFactor(0), 0.0001)
-
-	// albedo 0.65 — как у ледников → (0.35)^0.25 ≈ 0.769
-	assert.InDelta(t, math.Pow(0.35, 0.25), albedoFactor(0.65), 0.0001)
-
-	// Выход за границы срезается до [0, 0.9].
-	assert.InDelta(t, 1.0, albedoFactor(-100), 0.0001)
-	assert.InDelta(t, math.Pow(0.1, 0.25), albedoFactor(2.0), 0.0001)
-}
-
-// ==================== ПАРНИКОВЫЙ ЭФФЕКТ ====================
-
-func TestComputeGreenhouse(t *testing.T) {
-	assert.Equal(t, 1.0, computeGreenhouse(""))
-	assert.Equal(t, 1.1, computeGreenhouse("азотно-кислородная"))
-	assert.Equal(t, 1.5, computeGreenhouse("метановая"))
-	assert.Equal(t, 2.5, computeGreenhouse("парниковая"))
-	assert.Equal(t, 1.0, computeGreenhouse("что-то странное"))
-}
-
-// ==================== ИТОГОВАЯ ТЕМПЕРАТУРА ====================
-
-func TestComputeSurfaceTempBase(t *testing.T) {
-	// L=1, r=1, пустая поверхность (albedo 0.3), без атмосферы и нагрева:
-	// 278.7 × (1-0.3)^0.25 ≈ 254.9
-	temp := computeSurfaceTemp(SurfaceTempInput{
-		Luminosity: 1, OrbitRadius: 1,
-		Surface: Composition{}, Atmosphere: "",
-	})
-	assert.InDelta(t, 254.9, temp, 0.1)
-}
-
-func TestComputeSurfaceTempInternalHeat(t *testing.T) {
-	core := Core{Activity: 20, Radioactivity: 20, MassPercent: 30, Age: 0} // нагрев 80 K
-	in := SurfaceTempInput{
-		Luminosity: 1, OrbitRadius: 1,
-		Surface: Composition{}, Atmosphere: "", Core: core,
-	}
-
-	withHeat := computeSurfaceTemp(in)
-	skip := in
-	skip.SkipInternal = true
-
-	// Нагрев от ядра добавляет 80 K, без него — нет.
-	assert.InDelta(t, 254.9+80, withHeat, 0.1)
-	assert.InDelta(t, 254.9, computeSurfaceTemp(skip), 0.1)
-}
-
-func TestComputeSurfaceTempTidalHeat(t *testing.T) {
-	in := SurfaceTempInput{
-		Luminosity: 1, OrbitRadius: 1,
-		Surface: Composition{}, Atmosphere: "", TidalHeat: 50,
-	}
-	assert.InDelta(t, 254.9+50, computeSurfaceTemp(in), 0.1)
-}
-
-func TestComputeSurfaceTempArchetypeClamp(t *testing.T) {
-	base := SurfaceTempInput{Luminosity: 1, OrbitRadius: 1, Surface: Composition{}, Atmosphere: ""}
-
-	low := base
-	low.ArchetypeMin = 400 // подтягиваем вверх
-	assert.InDelta(t, 400, computeSurfaceTemp(low), 0.01)
-
-	high := base
-	high.ArchetypeMax = 100 // прижимаем вниз
-	assert.InDelta(t, 100, computeSurfaceTemp(high), 0.01)
-
-	// Абсолютные границы: архетип-клип не может выйти за них.
-	hot := base
-	hot.ArchetypeMin = 99999 // после архетип-клипа 99999 → абсолютный потолок
-	assert.Equal(t, TempAbsoluteMax, computeSurfaceTemp(hot))
-
-	cold := base
-	cold.ArchetypeMax = 1 // после архетип-клипа 1 → абсолютный пол
-	assert.Equal(t, TempAbsoluteMin, computeSurfaceTemp(cold))
-}
-
 // ==================== ГРАВИТАЦИЯ ====================
 
 func TestComputeGravity(t *testing.T) {
@@ -159,7 +80,7 @@ func TestOrbitRadiusByIndex(t *testing.T) {
 func TestLuminosityBySpectral(t *testing.T) {
 	assert.Equal(t, 1.0, luminosityBySpectral("G"))
 	assert.Equal(t, 0.01, luminosityBySpectral("M"))
-	assert.Equal(t, 100.0, luminosityBySpectral("B"))
+	assert.Equal(t, 1000.0, luminosityBySpectral("B"))
 	// Неизвестный класс → 1.0.
 	assert.Equal(t, 1.0, luminosityBySpectral("X"))
 }

@@ -9,59 +9,39 @@ import (
 	"zorion/internal/resource"
 )
 
-// generateGasGiant — газовый гигант. У него нет композиции поверхности
-// (только атмосфера), но есть спутники — каждый полноценная локация.
+// generateGasGiant — газовый гигант (99.2.20 §3.6 «Гиганты»). У него нет
+// композиции поверхности (только атмосфера), но есть спутники — каждый
+// полноценная локация.
 //
-// Ядро есть (металлическое, по массе), но при расчёте температуры
-// поверхности оно игнорируется (SkipInternal = true): газовый гигант
-// греется в основном за счёт сжатия и внутренних процессов.
+// Кривая M→R, распределение масс, ρ = M/R³, g = M/R² — без изменений
+// (99.2.15, эталон создателя). Температура — T⁴ + Кельвина–Гельмгольца
+// (F_KH): чинит известную особенность «гигант 13 MJ → 20 K» (Юпитер ≈ 118 K).
+// Старая формула tEq × greenhouse + 30 отброшена.
 func (g *Generator) generateGasGiant(
 	worldID string,
 	worldName string,
 	orbitIndex int,
-	spectralClass string,
-	systemAge float64,
+	sp StellarParams,
 ) *PlanetData {
 	name := names.GeneratePlanetName(g.rng, g.usedNames)
 	if name == "" {
 		name = "Газовый гигант-" + uuidShort()
 	}
 
-	// Масса: усечённое логнормальное (медиана 1 MJ = 317.8 M⊕, σ = 0.9 декады,
-	// диапазон 15.9–4131, пересэмплинг вместо клампа — gas_giant_physics.go).
-	mass := g.gasGiantMass()
-
-	// Размер — кривая с насыщением (НЕ (M/ρ)^(1/3)); плотность и гравитация —
-	// производные: ρ = M/R³, g = M/R².
-	size := GasGiantRadius(mass)
-	density := mass / (size * size * size)
-
-	atmospheres := []string{"водородно-гелиевая", "водородная", "гелиевая"}
-	atmosphere := atmospheres[g.rng.Intn(len(atmospheres))]
-
-	// --- ФИЗИЧЕСКАЯ ТЕМПЕРАТУРА ---
-	// Равновесная от звезды + внутренний нагрев от сжатия (не от ядра).
-	luminosity := luminosityBySpectral(spectralClass)
-	orbitRadius := orbitRadiusByIndex(orbitIndex)
-	tEq := computeEquilibriumTemp(luminosity, orbitRadius)
-
-	greenhouse := computeGreenhouse(atmosphere)
-	temp := tEq*greenhouse + 30
-
-	if temp > TempAbsoluteMax {
-		temp = TempAbsoluteMax
-	}
-	if temp < TempAbsoluteMin {
-		temp = TempAbsoluteMin
-	}
-
-	// --- ЯДРО ---
-	emptySubterrain := Composition{}
-	core := GenerateCore(mass, "жаркий", emptySubterrain, systemAge, g.rng)
+	orbitRadius := orbitRadiusScaled(orbitIndex, sp.Luminosity)
+	res := g.runCascadeGiant(cascadeInput{
+		Luminosity:    sp.Luminosity,
+		StellarMass:   sp.StellarMass,
+		AgeGyr:        sp.AgeGyr,
+		Metallicity:   sp.Metallicity,
+		TEff:          sp.TEff,
+		OrbitRadiusAU: orbitRadius,
+		OrbitIndex:    orbitIndex,
+	})
 
 	// --- СПУТНИКИ ---
 	satelliteCount := 3 + g.rng.Intn(8)
-	satellites := g.generateSatellites(satelliteCount, worldName, size, temp, spectralClass)
+	satellites := g.generateSatellites(satelliteCount, worldName, res.Size, res.TFinal, sp.SpectralClass)
 
 	satellitesJSON := make([]map[string]interface{}, 0, len(satellites))
 	for _, sat := range satellites {
@@ -78,44 +58,52 @@ func (g *Generator) generateGasGiant(
 		PlanetID:     planetID,
 		Type:         TypeGasGiant,
 		OrbitIndex:   orbitIndex,
-		Atmosphere:   atmosphere,
+		Atmosphere:   res.AtmosphereLabel,
 		Hydrosphere:  "сухая",
-		Temperature:  temp,
+		Temperature:  res.TFinal,
 		WaterPercent: 0.0,
-		Mass:         mass,
-		Density:      density,
+		Mass:         res.Mass,
+		Density:      res.Density,
 		Moons:        satelliteCount,
 		Life:         false,
 		Surface:      nil,
-		Core:         core,
+		Core:         res.Core,
 		IsGasGiant:   true,
 	}
 
 	data := map[string]interface{}{
-		"size":              size,
-		"mass":              mass,
-		"density":           density,
-		"gravity":           computeGravity(mass, size),
-		"atmosphere":        atmosphere,
+		"size":              res.Size,
+		"mass":              res.Mass,
+		"density":           res.Density,
+		"gravity":           res.Gravity,
+		"atmosphere":        res.AtmosphereLabel,
+		"atmosphere_data":   atmosphereDataToJSON(res.AtmosphereData),
 		"hydrosphere":       "сухая",
 		"biosphere":         "стерильная",
-		"temperature":       temp,
+		"temperature":       res.TFinal,
 		"water_percent":     0.0,
 		"life":              false,
 		"political_system":  "нет",
 		"moons":             satelliteCount,
 		"development_level": 0.0,
 		"archetype":         "жаркий",
-		"system_age":        systemAge,
+		"system_age":        sp.AgeGyr,
 		"is_gas_giant":      true,
 		"resources":         resourceSummary,
 		"satellites":        satellitesJSON,
 		"surface_dominant":  "газовый_гигант",
 		"type":              TypeGasGiant,
-		"core":              coreToJSON(core),
+		"core":              coreToJSON(res.Core),
 		"orbit_center":      "main",
-		"orbit_radius_au":   orbitRadiusByIndex(orbitIndex),
-		"description":       GenerateDescription(descCtx),
+		"orbit_radius_au":   orbitRadius,
+
+		// Новые поля каскада (99.2.20 §4.1).
+		"orbital_period":  res.OrbitalPeriod,
+		"eccentricity":    res.Eccentricity,
+		"escape_velocity": res.EscapeVelocity,
+		"tidal_lock":      res.TidalLock,
+
+		"description": GenerateDescription(descCtx),
 	}
 	dataJSON, _ := json.Marshal(data)
 

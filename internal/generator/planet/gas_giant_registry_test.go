@@ -84,6 +84,22 @@ func TestFieldRegistryCoversGenerator(t *testing.T) {
 		assert.LessOrEqual(t, *s.Min, tc.min, "%s min", tc.key)
 		assert.GreaterOrEqual(t, *s.Max, tc.max, "%s max", tc.key)
 	}
+
+	// Новые поля физического каскада (99.2.20 §6.4): рамки реестра покрывают
+	// фактические диапазоны генератора.
+	for _, tc := range []struct {
+		key      string
+		min, max float64
+	}{
+		{"atmosphere_data.pressure_atm", 0, 1000},
+		{"orbital_period", 0.0007, 127000},
+		{"escape_velocity", 4, 215},
+		{"eccentricity", 0.03, 0.3},
+	} {
+		s = requireSpec(tc.key)
+		assert.LessOrEqual(t, *s.Min, tc.min, "%s min", tc.key)
+		assert.GreaterOrEqual(t, *s.Max, tc.max, "%s max", tc.key)
+	}
 }
 
 // ==================== ПРЕСЕТЫ БЛИЗНЕЦОВ (§7.3) ====================

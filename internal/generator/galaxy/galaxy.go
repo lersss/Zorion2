@@ -735,7 +735,26 @@ func (g *Generator) rollStarMods(w *models.World, systemType, cls string) {
 		}
 	}
 
-	if mods.Phase != "" || mods.VariableType != "" || mods.BinaryType != "" || mods.Companion != "" {
+	// Металличность [Fe/H] (99.2.20 §3.1): ролл для всех обычных звёзд.
+	met := rollMetallicity(g.rng)
+	mods.Metallicity = &met
+
+	if mods.Phase != "" || mods.VariableType != "" || mods.BinaryType != "" || mods.Companion != "" || mods.Metallicity != nil {
 		w.StellarMods = mods
 	}
+}
+
+// rollMetallicity — металличность [Fe/H] обычной звезды (99.2.20 §3.1):
+// clamp(N(0, 0.3), −0.8, +0.5) — солнечная окрестность. Пишется в
+// StellarMods.Metallicity; старые миры (nil) — фолбэк 0 (солнечная).
+// Влияние на каскад: масштаб массы аккреции (§3.3).
+func rollMetallicity(rng *rand.Rand) float64 {
+	met := rng.NormFloat64() * 0.3
+	if met < -0.8 {
+		met = -0.8
+	}
+	if met > 0.5 {
+		met = 0.5
+	}
+	return met
 }

@@ -140,6 +140,34 @@ var fieldSpecs = []FieldSpec{
 	{
 		Key: "is_gas_giant", Label: "Газовый гигант", Type: FieldBool,
 	},
+	// === Новые поля физического каскада (99.2.20 §6.4) ===
+	// Рамки = границы генератора (инвариант «рамки == границы», 99.2.15 §7.2).
+	{
+		// Кламп P_surf ≤ 1000 атм (§3.6 п.5).
+		Key: "atmosphere_data.pressure_atm", Label: "Давление атмосферы", Type: FieldNumber, Unit: "атм",
+		Min: floatPtr(0), Max: floatPtr(1000),
+	},
+	{
+		Key: "liquid_water_possible", Label: "Возможна жидкая вода", Type: FieldBool,
+	},
+	{
+		// Генератор 0.0007–127 000 лет (Y-звезда орбита 1 → O-звезда орбита 8).
+		Key: "orbital_period", Label: "Орбитальный период", Type: FieldNumber, Unit: "лет",
+		Min: floatPtr(0.0001), Max: floatPtr(200000),
+	},
+	{
+		// Генератор 4–215 км/с (11.2×√(M/R): M=0.1, ρ=0.34 → 4.3; гигант 13 MJ → 215).
+		Key: "escape_velocity", Label: "Скорость убегания", Type: FieldNumber, Unit: "км/с",
+		Min: floatPtr(0.5), Max: floatPtr(250),
+	},
+	{
+		// Ролл 0.03–0.3 (§3.2).
+		Key: "eccentricity", Label: "Эксцентриситет", Type: FieldNumber,
+		Min: floatPtr(0), Max: floatPtr(0.3),
+	},
+	{
+		Key: "tidal_lock", Label: "Приливный захват", Type: FieldBool,
+	},
 }
 
 // FieldRegistry — список полей для формы правил.

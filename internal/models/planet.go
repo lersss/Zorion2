@@ -36,6 +36,15 @@ type Planet struct {
 	Biosphere   string `json:"biosphere"`
 	Archetype   string `json:"archetype"`
 
+	// Атмосфера-объект и флаг жидкой воды (99.2.20 §4.1): новые поля каскада.
+	// Старые планеты (до 45a) — без ключей: нули/false (фолбэки §7).
+	AtmosphereData      map[string]interface{} `json:"atmosphere_data,omitempty"`
+	LiquidWaterPossible bool                   `json:"liquid_water_possible,omitempty"`
+	OrbitalPeriod       float64                `json:"orbital_period,omitempty"`
+	Eccentricity        float64                `json:"eccentricity,omitempty"`
+	EscapeVelocity      float64                `json:"escape_velocity,omitempty"`
+	TidalLock           bool                   `json:"tidal_lock,omitempty"`
+
 	// Жизнь
 	Habitable bool `json:"habitable"`
 	Life      bool `json:"life"`

@@ -74,6 +74,10 @@ func AllRules() []audit.Rule[View] {
 		{Check: checkZeroSize},
 		{Check: checkZeroDensity},
 		{Check: checkEmptyName},
+
+		// === Физический каскад (99.2.20 §6.2): атмосфера-объект, флаг воды ===
+		{Check: checkAtmosphereSumNot100},
+		{Check: checkLiquidWaterMismatch},
 	}
 }
 

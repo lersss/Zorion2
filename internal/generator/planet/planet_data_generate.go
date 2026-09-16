@@ -7,7 +7,6 @@ import (
 	"math/rand"
 
 	"github.com/google/uuid"
-	"zorion/internal/generator/settlement"
 	"zorion/internal/names"
 )
 
@@ -207,73 +206,119 @@ func gasGiantChance(spectralClass string) float64 {
 	}
 }
 
+// ==================== ПАРАМЕТРЫ ЗВЕЗДЫ (99.2.20 §3.1) ====================
+
+// StellarParams — параметры звезды для каскада (слой 1).
+type StellarParams struct {
+	SpectralClass string
+	Luminosity    float64 // L☉
+	StellarMass   float64 // M☉
+	AgeGyr        float64 // млрд лет
+	Metallicity   float64 // [Fe/H]
+	TEff          float64 // K
+}
+
+// stellarParamsFromWorld — параметры звезды из WorldInfo с фолбэками:
+// масса — worlds.stellar_mass (фолбэк серединой диапазона класса),
+// возраст — worlds.age (фолбэк determineSystemAge), металличность —
+// StellarMods.Metallicity (фолбэк 0 — солнечная), T_eff — worlds.temperature.
+func stellarParamsFromWorld(w WorldInfo, rng *rand.Rand) StellarParams {
+	sp := StellarParams{
+		SpectralClass: w.SpectralClass,
+		Luminosity:    luminosityBySpectral(w.SpectralClass),
+		TEff:          float64(w.Temperature),
+	}
+	if w.StellarMass != nil && *w.StellarMass > 0 {
+		sp.StellarMass = *w.StellarMass
+	} else {
+		sp.StellarMass = fallbackStellarMass(w.SpectralClass)
+	}
+	if w.Age != nil && *w.Age > 0 {
+		sp.AgeGyr = *w.Age
+	} else {
+		sp.AgeGyr = determineSystemAge(w.SpectralClass, rng)
+	}
+	if w.Mods != nil && w.Mods.Metallicity != nil {
+		sp.Metallicity = *w.Mods.Metallicity
+	}
+	return sp
+}
+
+// stellarParamsFromClass — параметры звезды по классу (старые пути без
+// WorldInfo: GeneratePlanetsForWorld, прототип): все фолбэки.
+func stellarParamsFromClass(spectralClass string, temperature int, rng *rand.Rand) StellarParams {
+	return StellarParams{
+		SpectralClass: spectralClass,
+		Luminosity:    luminosityBySpectral(spectralClass),
+		StellarMass:   fallbackStellarMass(spectralClass),
+		AgeGyr:        determineSystemAge(spectralClass, rng),
+		Metallicity:   0,
+		TEff:          float64(temperature),
+	}
+}
+
 // ==================== ОБЫЧНАЯ ПЛАНЕТА ====================
 
-func (g *Generator) generatePlanet(
-	worldID string,
-	worldName string,
-	orbitIndex int,
-	spectralClass string,
-	systemAge float64,
-) *PlanetData {
+// generatePlanet — планета обычной звезды (99.2.20): газовый гигант на
+// дальней орбите (существующий триггер) или физический каскад. Подветки
+// океанических/радиоактивных растворены в каскаде (типы возникают из
+// физики: гидросфера «океаны» + вода > 60; core.radioactivity > 50).
+func (g *Generator) generatePlanet(worldID, worldName string, orbitIndex int, sp StellarParams) *PlanetData {
 	// --- ГАЗОВЫЙ ГИГАНТ ---
 	if orbitIndex >= 3 {
-		if g.rng.Float64() < gasGiantChance(spectralClass) {
-			return g.generateGasGiant(worldID, worldName, orbitIndex, spectralClass, systemAge)
+		if g.rng.Float64() < gasGiantChance(sp.SpectralClass) {
+			return g.generateGasGiant(worldID, worldName, orbitIndex, sp)
 		}
 	}
 
-	// --- ОКЕАНИЧЕСКАЯ ПЛАНЕТА (2.5%) ---
-	if g.rng.Float64() < 0.025 {
-		return g.generateOceanicPlanet(worldID, orbitIndex, spectralClass, systemAge)
-	}
-
-	// --- РАДИОАКТИВНАЯ ПЛАНЕТА (1.5%, для горячих 3%) ---
-	hotStars := map[string]bool{"O": true, "B": true, "A": true}
-	chance := 0.015
-	if hotStars[spectralClass] {
-		chance = 0.03
-	}
-	if g.rng.Float64() < chance {
-		return g.generateRadioactivePlanet(worldID, orbitIndex, spectralClass, systemAge)
-	}
-
-	// --- СТАНДАРТНАЯ ГЕНЕРАЦИЯ ЧЕРЕЗ АРХЕТИП ---
-	return g.generateStandardPlanet(
-		worldID, worldName, orbitIndex, spectralClass, systemAge,
-		GenerateArchetype(spectralClass, g.rng),
-	)
+	// --- СТАНДАРТНАЯ ГЕНЕРАЦИЯ ЧЕРЕЗ ФИЗИЧЕСКИЙ КАСКАД ---
+	return g.generateStandardPlanet(worldID, worldName, orbitIndex, sp, false)
 }
 
-// generateStandardPlanet — планета по явному архетипу (стандартный путь).
+// generateStandardPlanet — планета по физическому каскаду (стандартный путь).
+// forceLife — форсировать жизнь в каскаде (прототип поселения §6.9:
+// жизненный проход даёт азотно-кислородную атмосферу, консистентную
+// с контрактом инструмента).
 func (g *Generator) generateStandardPlanet(
 	worldID, worldName string,
 	orbitIndex int,
-	spectralClass string,
-	systemAge float64,
-	archetype *Archetype,
+	sp StellarParams,
+	forceLife bool,
 ) *PlanetData {
-	props := GenerateProperties(archetype, orbitIndex, spectralClass, systemAge, g.rng)
+	orbitRadius := orbitRadiusScaled(orbitIndex, sp.Luminosity)
+	res := g.runCascade(cascadeInput{
+		Luminosity:    sp.Luminosity,
+		StellarMass:   sp.StellarMass,
+		AgeGyr:        sp.AgeGyr,
+		Metallicity:   sp.Metallicity,
+		TEff:          sp.TEff,
+		OrbitRadiusAU: orbitRadius,
+		OrbitIndex:    orbitIndex,
+		ForceLife:     forceLife,
+	})
 
 	name := names.GeneratePlanetName(g.rng, g.usedNames)
 	if name == "" {
 		name = "Планета-" + uuidShort()
 	}
 
-	dominant := props.SurfaceComposition.DominantForm()
+	dominant := res.Surface.DominantForm()
 	if dominant == "" {
 		dominant = SurfaceRocks
 	}
 
-	// Геймдизайнерский тип по композиции
+	radioactive := res.Core.IsRadioactive()
+
+	// Геймдизайнерский тип по композиции (существующий механизм; типы
+	// «океаническая»/«радиоактивная» возникают из физики каскада).
 	gdType := ClassifyGameDesignType(PlanetClassificationInput{
 		IsGasGiant:    false,
-		IsRadioactive: false,
-		Surface:       props.SurfaceComposition,
-		Temperature:   props.Temperature,
-		WaterPercent:  props.WaterPercent,
-		Settleable:    props.Settleable,
-		Life:          props.Life,
+		IsRadioactive: radioactive,
+		Surface:       res.Surface,
+		Temperature:   res.TFinal,
+		WaterPercent:  res.WaterPercent,
+		Settleable:    res.Settleable,
+		Life:          res.Life,
 	})
 
 	// UUID генерируется ЗАРАНЕЕ — нужен для детерминированного выбора описания.
@@ -283,45 +328,54 @@ func (g *Generator) generateStandardPlanet(
 		PlanetID:     planetID,
 		Type:         gdType,
 		OrbitIndex:   orbitIndex,
-		Atmosphere:   props.Atmosphere,
-		Hydrosphere:  archetype.Hydrosphere,
-		Temperature:  props.Temperature,
-		WaterPercent: props.WaterPercent,
-		Mass:         props.Mass,
-		Density:      props.Density,
-		Moons:        props.Moons,
-		Life:         props.Life,
-		Surface:      props.SurfaceComposition,
-		Core:         props.Core,
+		Atmosphere:   res.AtmosphereLabel,
+		Hydrosphere:  res.Hydrosphere,
+		Temperature:  res.TFinal,
+		WaterPercent: res.WaterPercent,
+		Mass:         res.Mass,
+		Density:      res.Density,
+		Moons:        res.Moons,
+		Life:         res.Life,
+		Surface:      res.Surface,
+		Core:         res.Core,
 		IsGasGiant:   false,
 	}
 
 	data := map[string]interface{}{
-		"size":              props.Size,
-		"mass":              props.Mass,
-		"density":           props.Density,
-		"gravity":           computeGravity(props.Mass, props.Size),
-		"atmosphere":        props.Atmosphere,
-		"hydrosphere":       archetype.Hydrosphere,
-		"biosphere":         archetype.Biosphere,
-		"temperature":       props.Temperature,
-		"water_percent":     props.WaterPercent,
-		"life":              props.Life,
-		"political_system":  props.Political,
-		"moons":             props.Moons,
-		"development_level": props.Development,
-		"archetype":         archetype.ArchetypeID,
-		"system_age":        systemAge,
+		"size":              res.Size,
+		"mass":              res.Mass,
+		"density":           res.Density,
+		"gravity":           res.Gravity,
+		"atmosphere":        res.AtmosphereLabel,
+		"atmosphere_data":   atmosphereDataToJSON(res.AtmosphereData),
+		"hydrosphere":       res.Hydrosphere,
+		"biosphere":         res.Biosphere,
+		"temperature":       res.TFinal,
+		"water_percent":     res.WaterPercent,
+		"life":              res.Life,
+		"liquid_water_possible": res.LiquidWater,
+		"political_system":  res.Political,
+		"moons":             res.Moons,
+		"development_level": res.Development,
+		"archetype":         res.ArchetypeBand,
+		"system_age":        sp.AgeGyr,
 
 		// Орбитальный контекст S-планеты (35b §2.2): вокруг главной.
 		"orbit_center":    "main",
-		"orbit_radius_au": orbitRadiusByIndex(orbitIndex),
+		"orbit_radius_au": orbitRadius,
 
-		"surface_composition":    composeToJSON(props.SurfaceComposition),
-		"subterrain_composition": composeToJSON(props.SubterrainComposition),
+		// Новые поля каскада (99.2.20 §4.1).
+		"orbital_period":  res.OrbitalPeriod,
+		"eccentricity":    res.Eccentricity,
+		"escape_velocity": res.EscapeVelocity,
+		"tidal_lock":      res.TidalLock,
+
+		"surface_composition":    composeToJSON(res.Surface),
+		"subterrain_composition": composeToJSON(res.Subterrain),
 		"surface_dominant":       dominant,
 		"type":                   gdType,
-		"core":                   coreToJSON(props.Core),
+		"radioactive":            radioactive,
+		"core":                   coreToJSON(res.Core),
 
 		"description": GenerateDescription(descCtx),
 	}
@@ -330,8 +384,8 @@ func (g *Generator) generateStandardPlanet(
 	// (data["resources"]), сами ресурсы живут только в памяти.
 	resources := attachResources(
 		data, planetID, dominant,
-		map[string]float64(props.SubterrainComposition),
-		spectralClass, g.rng,
+		map[string]float64(res.Subterrain),
+		sp.SpectralClass, g.rng,
 	)
 
 	dataJSON, _ := json.Marshal(data)
@@ -346,281 +400,59 @@ func (g *Generator) generateStandardPlanet(
 	}
 }
 
-// GeneratePrototypePlanet — землеподобная планета для прототипа поселения:
-// умеренный архетип, жизнь и вода. Внутренняя орбита (1).
+// GeneratePrototypePlanet — землеподобная планета для прототипа поселения.
+// Контракт инструмента (99.2.20 §6.9): полоса «умеренный», T = 288 K,
+// флаг true, вода 80%, жизнь true — явные оверрайды после каскада
+// (прототипу разрешено форсировать физику; без форсирования орбита 1
+// G-звезды дала бы T_final ≈ 365 K — вне пресета [200, 350]).
+// forceLife=true в каскаде: жизненный проход даёт азотно-кислородную
+// атмосферу (atmosphere_data консистентен с life=true).
 // Население задаётся отдельной вставкой поселения в admin_universe.go.
 func (g *Generator) GeneratePrototypePlanet(worldID, worldName, spectralClass string) *PlanetData {
-	return g.generateStandardPlanet(
-		worldID, worldName, 1, spectralClass,
-		determineSystemAge(spectralClass, g.rng),
-		g.archetypeTemperate(),
-	)
-}
+	sp := stellarParamsFromClass(spectralClass, 0, g.rng)
+	pd := g.generateStandardPlanet(worldID, worldName, 1, sp, true)
 
-// ==================== ОКЕАНИЧЕСКАЯ ПЛАНЕТА ====================
-
-func (g *Generator) generateOceanicPlanet(
-	worldID string,
-	orbitIndex int,
-	spectralClass string,
-	systemAge float64,
-) *PlanetData {
-	name := names.GeneratePlanetName(g.rng, g.usedNames)
-	if name == "" {
-		name = "Океаническая-" + uuidShort()
+	var data map[string]interface{}
+	if err := json.Unmarshal(pd.Data, &data); err != nil {
+		return pd
 	}
-
-	atmospheres := []string{"азотно-кислородная", "плотная"}
-	atmosphere := atmospheres[g.rng.Intn(len(atmospheres))]
-
-	mass := 0.5 + g.rng.Float64()*2.5
-
-	temp := 273 + g.rng.Float64()*100
-	waterPercent := 70 + g.rng.Float64()*29
-	life := g.rng.Float64() < 0.7
-
-	surfaceComp := Composition{
-		SurfaceOceans:     60 + g.rng.Float64()*15,
-		SurfaceLakes:      5 + g.rng.Float64()*10,
-		SurfaceRocks:      5 + g.rng.Float64()*10,
-		SurfaceSands:      5 + g.rng.Float64()*10,
-		SurfaceCoralReefs: 3 + g.rng.Float64()*7,
-	}.Normalize().NonZero()
-
-	subterrainComp := Composition{
-		SubterrainSedimentaryRocks: 30,
-		SubterrainOilPockets:       15,
-		SubterrainSaltDomes:        10,
-		SubterrainGroundwater:      20,
-		SubterrainOreVeins:         15,
-		SubterrainEmptyRock:        10,
-	}.Normalize().NonZero()
-
-	// ~3–4% планет — «примитивные» тела: 1–2 типа поверхности и недр.
-	if g.rng.Float64() < primitivePlanetProbability {
-		surfaceComp = simplifyComposition(surfaceComp, g.rng)
-		subterrainComp = simplifyComposition(subterrainComp, g.rng)
-	}
-
-	density := densityForPlanet(mass, surfaceComp, g.rng)
-	size := computeRadius(mass, density)
-	moons := int(size / 5)
-
-	core := GenerateCore(mass, "умеренный", subterrainComp, systemAge, g.rng)
-
-	political := "нет"
-	if settlement.Suitable(temp, waterPercent, atmosphere, life, false, false) {
-		systems := []string{
-			"демократия", "диктатура", "теократия",
-			"корпоратократия", "анархия", "ИИ-управление",
-		}
-		political = systems[g.rng.Intn(len(systems))]
-	}
-
-	planetID := uuid.New().String()
-
-	descCtx := DescriptionContext{
-		PlanetID:     planetID,
-		Type:         TypeOceanic,
-		OrbitIndex:   orbitIndex,
-		Atmosphere:   atmosphere,
-		Hydrosphere:  "океаны",
-		Temperature:  temp,
-		WaterPercent: waterPercent,
-		Mass:         mass,
-		Density:      density,
-		Moons:        moons,
-		Life:         life,
-		Surface:      surfaceComp,
-		Core:         core,
-		IsGasGiant:   false,
-	}
-
-	data := map[string]interface{}{
-		"size":                   size,
-		"mass":                   mass,
-		"density":                density,
-		"gravity":                computeGravity(mass, size),
-		"atmosphere":             atmosphere,
-		"hydrosphere":            "океаны",
-		"biosphere":              "растительная",
-		"temperature":            temp,
-		"water_percent":          waterPercent,
-		"life":                   life,
-		"political_system":       political,
-		"moons":                  moons,
-		"development_level":      0.0,
-		"archetype":              "умеренный",
-		"system_age":             systemAge,
-		"orbit_center":           "main",
-		"orbit_radius_au":        orbitRadiusByIndex(orbitIndex),
-		"surface_composition":    composeToJSON(surfaceComp),
-		"subterrain_composition": composeToJSON(subterrainComp),
-		"surface_dominant":       SurfaceOceans,
-		"type":                   TypeOceanic,
-		"core":                   coreToJSON(core),
-		"description":            GenerateDescription(descCtx),
-	}
-
-	resources := attachResources(
-		data, planetID, SurfaceOceans,
-		map[string]float64(subterrainComp),
-		spectralClass, g.rng,
-	)
-
+	data["archetype"] = "умеренный"
+	data["temperature"] = 288.0
+	data["liquid_water_possible"] = true
+	data["water_percent"] = 80.0
+	data["life"] = true
+	data["political_system"] = "демократия"
+	data["development_level"] = 0.5
 	dataJSON, _ := json.Marshal(data)
-
-	return &PlanetData{
-		ID:         planetID,
-		WorldID:    worldID,
-		Name:       name,
-		OrbitIndex: orbitIndex,
-		Data:       dataJSON,
-		Resources:  resources,
-	}
-}
-
-// ==================== РАДИОАКТИВНАЯ ПЛАНЕТА ====================
-
-func (g *Generator) generateRadioactivePlanet(
-	worldID string,
-	orbitIndex int,
-	spectralClass string,
-	systemAge float64,
-) *PlanetData {
-	name := names.GeneratePlanetName(g.rng, g.usedNames)
-	if name == "" {
-		name = "Радиоактивная-" + uuidShort()
-	}
-
-	// Доминирующая форма поверхности: металлические или стеклянные поля.
-	dominantSurface := SurfaceMetalFields
-	if g.rng.Intn(2) == 0 {
-		dominantSurface = SurfaceGlassFields
-	}
-
-	atmospheres := []string{"плотная", "ядовитая"}
-	atmosphere := atmospheres[g.rng.Intn(len(atmospheres))]
-
-	mass := 0.5 + g.rng.Float64()*9.5
-
-	luminosity := luminosityBySpectral(spectralClass)
-	orbitRadius := orbitRadiusByIndex(orbitIndex)
-	baseTemp := computeEquilibriumTemp(luminosity, orbitRadius)
-
-	temp := baseTemp + 200 + g.rng.Float64()*200
-	if temp > 1200 {
-		temp = 1200
-	}
-
-	waterPercent := 0.0
-	if g.rng.Float64() < 0.1 {
-		waterPercent = g.rng.Float64() * 20
-	}
-	life := g.rng.Float64() < 0.05
-
-	surfaceComp := Composition{
-		dominantSurface:       50 + g.rng.Float64()*20,
-		SurfaceRocks:          15 + g.rng.Float64()*10,
-		SurfaceCraters:        10 + g.rng.Float64()*10,
-		SurfaceVolcanicFields: 5 + g.rng.Float64()*10,
-	}.Normalize().NonZero()
-
-	subterrainComp := Composition{
-		SubterrainRadioactiveZones: 30,
-		SubterrainMetalCores:       20,
-		SubterrainRareEarthVeins:   20,
-		SubterrainMagmaticRocks:    15,
-		SubterrainOreVeins:         15,
-	}.Normalize().NonZero()
-
-	// ~3–4% планет — «примитивные» тела: 1–2 типа поверхности и недр.
-	if g.rng.Float64() < primitivePlanetProbability {
-		surfaceComp = simplifyComposition(surfaceComp, g.rng)
-		subterrainComp = simplifyComposition(subterrainComp, g.rng)
-	}
-
-	density := 1.2 + g.rng.Float64()*0.6
-	size := computeRadius(mass, density)
-	moons := int(size / 8)
-
-	core := GenerateCore(mass, "экстремальный", subterrainComp, systemAge, g.rng)
-
-	planetID := uuid.New().String()
-
-	descCtx := DescriptionContext{
-		PlanetID:     planetID,
-		Type:         TypeRadioactive,
-		OrbitIndex:   orbitIndex,
-		Atmosphere:   atmosphere,
-		Hydrosphere:  "сухая",
-		Temperature:  temp,
-		WaterPercent: waterPercent,
-		Mass:         mass,
-		Density:      density,
-		Moons:        moons,
-		Life:         life,
-		Surface:      surfaceComp,
-		Core:         core,
-		IsGasGiant:   false,
-	}
-
-	data := map[string]interface{}{
-		"size":                   size,
-		"mass":                   mass,
-		"density":                density,
-		"gravity":                computeGravity(mass, size),
-		"atmosphere":             atmosphere,
-		"hydrosphere":            "сухая",
-		"biosphere":              "стерильная",
-		"temperature":            temp,
-		"water_percent":          waterPercent,
-		"life":                   life,
-		"political_system":       "нет",
-		"moons":                  moons,
-		"development_level":      0.0,
-		"archetype":              "экстремальный",
-		"system_age":             systemAge,
-		"radioactive":            true,
-		"orbit_center":           "main",
-		"orbit_radius_au":        orbitRadiusByIndex(orbitIndex),
-		"surface_composition":    composeToJSON(surfaceComp),
-		"subterrain_composition": composeToJSON(subterrainComp),
-		"surface_dominant":       dominantSurface,
-		"type":                   TypeRadioactive,
-		"core":                   coreToJSON(core),
-		"description":            GenerateDescription(descCtx),
-	}
-
-	resources := attachResources(
-		data, planetID, dominantSurface,
-		map[string]float64(subterrainComp),
-		spectralClass, g.rng,
-	)
-
-	dataJSON, _ := json.Marshal(data)
-
-	return &PlanetData{
-		ID:         planetID,
-		WorldID:    worldID,
-		Name:       name,
-		OrbitIndex: orbitIndex,
-		Data:       dataJSON,
-		Resources:  resources,
-	}
+	pd.Data = dataJSON
+	return pd
 }
 
 // ==================== УТИЛИТЫ ====================
 
-// coreToJSON — сериализует ядро для JSON-поля.
+// coreToJSON — сериализует ядро для JSON-поля (включая внутренний поток
+// heat_flux_w_m2, 99.2.20 §4.2).
 func coreToJSON(c Core) map[string]interface{} {
 	return map[string]interface{}{
-		"type":          c.Type,
-		"mass_percent":  c.MassPercent,
-		"activity":      c.Activity,
-		"radioactivity": c.Radioactivity,
-		"age":           c.Age,
-		"is_active":     c.IsActive(),
-		"is_metallic":   c.IsMetallic(),
+		"type":           c.Type,
+		"mass_percent":   c.MassPercent,
+		"activity":       c.Activity,
+		"radioactivity":  c.Radioactivity,
+		"age":            c.Age,
+		"is_active":      c.IsActive(),
+		"is_metallic":    c.IsMetallic(),
+		"heat_flux_w_m2": c.HeatFluxWm2,
+	}
+}
+
+// atmosphereDataToJSON — сериализует атмосферу-объект (99.2.20 §4.1).
+func atmosphereDataToJSON(a AtmosphereData) map[string]interface{} {
+	return map[string]interface{}{
+		"composition":            a.Composition,
+		"pressure_atm":           a.PressureAtm,
+		"mass_earth_atm":         a.MassEarthAtm,
+		"tau_ir":                 a.TauIR,
+		"scale_height_km":        a.ScaleHeightKm,
+		"mean_molecular_weight":  a.MeanMolecularWeight,
 	}
 }

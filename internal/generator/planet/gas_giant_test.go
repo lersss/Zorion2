@@ -97,7 +97,7 @@ func TestGasGiantMassDistribution(t *testing.T) {
 func TestGenerateGasGiantHonest(t *testing.T) {
 	g := NewGenerator(nil, 99)
 	for i := 0; i < 200; i++ {
-		pd := g.generateGasGiant("w", "World", 4, "G", 5.0)
+		pd := g.generateGasGiant("w", "World", 4, stellarParamsFromClass("G", 0, g.rng))
 		var data map[string]interface{}
 		require.NoError(t, json.Unmarshal(pd.Data, &data))
 

@@ -13,6 +13,26 @@ func applyRandomJitter(c map[string]float64, rng *rand.Rand) {
 	}
 }
 
+// ==================== ПОВЕРХНОСТЬ: ГЕЙТ ЖИДКОЙ ВОДЫ (99.2.20 §3.8) ====================
+
+// applyLiquidWaterGate — гейт флага жидкой воды: при flag false обнуляет
+// водные (океаны, озёра_реки) и биосферные (луга_степи, леса, джунгли,
+// болота, коралловые_рифы) формы в копии базовых весов. Вызывается до
+// температурных модификаторов (GenerateSurfaceComposition). Остаются
+// литосферные/вулканические/ледяные формы.
+func applyLiquidWaterGate(c map[string]float64, flag bool) {
+	if flag {
+		return
+	}
+	delete(c, SurfaceOceans)
+	delete(c, SurfaceLakes)
+	delete(c, SurfaceMeadows)
+	delete(c, SurfaceForests)
+	delete(c, SurfaceJungles)
+	delete(c, SurfaceSwamps)
+	delete(c, SurfaceCoralReefs)
+}
+
 // ==================== ПОВЕРХНОСТЬ: ТЕМПЕРАТУРА ====================
 
 // applySurfaceTempModifiers — корректирует веса поверхности по температуре.

@@ -18,8 +18,7 @@ func TestPlanetsSimpleRare(t *testing.T) {
 	for i := 0; i < 20000; i++ {
 		spec := classes[g.rng.Intn(len(classes))]
 		orbit := g.rng.Intn(9)
-		age := determineSystemAge(spec, g.rng)
-		pd := g.generatePlanet("w", "World", orbit, spec, age)
+		pd := g.generatePlanet("w", "World", orbit, stellarParamsFromClass(spec, 0, g.rng))
 
 		raw := map[string]interface{}{}
 		if err := json.Unmarshal(pd.Data, &raw); err != nil {

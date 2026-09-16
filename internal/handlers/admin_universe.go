@@ -381,6 +381,7 @@ func (h *AdminHandlers) GeneratePlanets(w http.ResponseWriter, r *http.Request) 
 			SystemType:    w.SystemType,
 			Mods:          w.StellarMods,
 			Age:           w.Age,
+			StellarMass:   w.StellarMass,
 		})
 	}
 

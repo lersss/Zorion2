@@ -4,15 +4,17 @@ package planet
 import (
 	"encoding/json"
 	"log"
-	"math/rand"
 	"os"
 	"path/filepath"
 )
 
-// Archetype — результат выбора архетипа для конкретной планеты.
+// Archetype — полоса композиции планеты (99.2.20 §5).
 //
-// Масса первична. Размер вычисляется из массы и плотности
-// (см. Properties, densityForPlanet).
+// Роли полей переопределены каскадом: base_surface/base_subterrain — базовые
+// веса композиции полосы; allowed_hydrospheres/atmospheres/biospheres —
+// списки выбора (гейтятся флагом); water_chance/life_chance — косметические
+// вероятности (гейтятся физикой); temperature_min/max, mass_min/max,
+// weight — НЕ используются (физика решает; рулетка отменена).
 type Archetype struct {
 	ID             string
 	Name           string
@@ -76,166 +78,4 @@ func LoadArchetypes(path string) error {
 	}
 	archetypeCache = &cfg
 	return nil
-}
-
-// GenerateArchetype — выбирает архетип по весу спектрального класса
-// и формирует архетип с базовыми весами композиции.
-func GenerateArchetype(spectralClass string, rng *rand.Rand) *Archetype {
-	if archetypeCache == nil || len(archetypeCache.Climates) == 0 {
-		return fallbackArchetype()
-	}
-
-	var selectedClimate *ClimateConfig
-	totalWeight := 0.0
-	for i := range archetypeCache.Climates {
-		if w, ok := archetypeCache.Climates[i].Weight[spectralClass]; ok {
-			totalWeight += w
-		}
-	}
-
-	if totalWeight == 0 {
-		idx := rng.Intn(len(archetypeCache.Climates))
-		selectedClimate = &archetypeCache.Climates[idx]
-	} else {
-		r := rng.Float64() * totalWeight
-		for i := range archetypeCache.Climates {
-			c := &archetypeCache.Climates[i]
-			if w, ok := c.Weight[spectralClass]; ok {
-				r -= w
-				if r <= 0 {
-					selectedClimate = c
-					break
-				}
-			}
-		}
-		if selectedClimate == nil {
-			selectedClimate = &archetypeCache.Climates[0]
-		}
-	}
-
-	return buildArchetype(selectedClimate, rng)
-}
-
-// buildArchetype — формирует архетип из конфига архетипа.
-func buildArchetype(c *ClimateConfig, rng *rand.Rand) *Archetype {
-	hydro := pickOrFallback(c.AllowedHydrospheres, rng, "сухая")
-	atmo := pickOrFallback(c.AllowedAtmospheres, rng, "разреженная")
-	bio := pickOrFallback(c.AllowedBiospheres, rng, "стерильная")
-
-	baseSurface := copyWeights(c.BaseSurface)
-	baseSubterrain := copyWeights(c.BaseSubterrain)
-
-	massMin := c.MassMin
-	if massMin <= 0 {
-		massMin = 0.1
-	}
-	massMax := c.MassMax
-	if massMax <= massMin {
-		massMax = massMin + 1.0
-	}
-
-	return &Archetype{
-		ID:             c.ID,
-		Name:           c.Name,
-		ArchetypeID:    c.ID,
-		BaseSurface:    baseSurface,
-		BaseSubterrain: baseSubterrain,
-		Hydrosphere:    hydro,
-		Atmosphere:     atmo,
-		Biosphere:      bio,
-		TemperatureMin: c.TemperatureMin,
-		TemperatureMax: c.TemperatureMax,
-		WaterChance:    c.WaterChance,
-		LifeChance:     c.LifeChance,
-		MassMin:        massMin,
-		MassMax:        massMax,
-	}
-}
-
-// archetypeTemperate — архетип «Умеренный» из конфига (или fallback)
-// с гарантированно землеподобными параметрами для прототипа поселения:
-// океаны, азотно-кислородная атмосфера, растительная биосфера, жизнь 100%.
-func (g *Generator) archetypeTemperate() *Archetype {
-	a := fallbackArchetype()
-	if archetypeCache != nil {
-		for i := range archetypeCache.Climates {
-			c := &archetypeCache.Climates[i]
-			if c.ID != "умеренный" {
-				continue
-			}
-			massMin := c.MassMin
-			if massMin <= 0 {
-				massMin = 0.1
-			}
-			massMax := c.MassMax
-			if massMax <= massMin {
-				massMax = massMin + 1.0
-			}
-			a = &Archetype{
-				ID:             c.ID,
-				Name:           c.Name,
-				ArchetypeID:    c.ID,
-				BaseSurface:    copyWeights(c.BaseSurface),
-				BaseSubterrain: copyWeights(c.BaseSubterrain),
-				TemperatureMin: c.TemperatureMin,
-				TemperatureMax: c.TemperatureMax,
-				WaterChance:    c.WaterChance,
-				LifeChance:     c.LifeChance,
-				MassMin:        massMin,
-				MassMax:        massMax,
-			}
-			break
-		}
-	}
-	// Гарантия землеподобия: вода, жизнь, обитаемость и умеренная температура.
-	a.Hydrosphere = "океаны"
-	a.Atmosphere = "азотно-кислородная"
-	a.Biosphere = "растительная"
-	a.WaterChance = 1.0
-	a.LifeChance = 1.0
-	a.TemperatureMin = 270
-	a.TemperatureMax = 310
-	return a
-}
-
-// fallbackArchetype — используется, если JSON не загрузился.
-func fallbackArchetype() *Archetype {
-	return &Archetype{
-		ID:          "fallback",
-		Name:        "Землеподобная (fallback)",
-		ArchetypeID: "умеренный",
-		BaseSurface: map[string]float64{
-			SurfaceRocks:   0.3,
-			SurfaceSands:   0.15,
-			SurfaceOceans:  0.2,
-			SurfaceLakes:   0.1,
-			SurfaceForests: 0.15,
-			SurfaceCraters: 0.1,
-		},
-		BaseSubterrain: map[string]float64{
-			SubterrainEmptyRock:        0.3,
-			SubterrainMagmaticRocks:    0.15,
-			SubterrainSedimentaryRocks: 0.15,
-			SubterrainOreVeins:         0.15,
-			SubterrainGroundwater:      0.15,
-			SubterrainCrystalVeins:     0.1,
-		},
-		Hydrosphere:    "океаны",
-		Atmosphere:     "азотно-кислородная",
-		Biosphere:      "растительная",
-		TemperatureMin: 200,
-		TemperatureMax: 350,
-		WaterChance:    0.7,
-		LifeChance:     0.4,
-		MassMin:        0.3,
-		MassMax:        2.0,
-	}
-}
-
-// pickOrFallback — случайный элемент из списка, либо fallback если пусто.
-func pickOrFallback(items []string, rng *rand.Rand, fallback string) string {
-	if len(items) == 0 {
-		return fallback
-	}
-	return items[rng.Intn(len(items))]
 }

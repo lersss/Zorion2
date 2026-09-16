@@ -65,7 +65,7 @@ func (g *Generator) GeneratePlanetsForWorld(worldID, worldName, spectralClass st
 		return 0, nil
 	}
 
-	systemAge := determineSystemAge(spectralClass, g.rng)
+	sp := stellarParamsFromClass(spectralClass, temperature, g.rng)
 
 	tx, err := g.db.Begin()
 	if err != nil {
@@ -77,7 +77,7 @@ func (g *Generator) GeneratePlanetsForWorld(worldID, worldName, spectralClass st
 
 	for i := 0; i < planetCount; i++ {
 		orbitIndex := i + 1
-		planet := g.generatePlanet(worldID, worldName, orbitIndex, spectralClass, systemAge)
+		planet := g.generatePlanet(worldID, worldName, orbitIndex, sp)
 		batch.addPlanet(planet)
 	}
 
@@ -109,6 +109,10 @@ type WorldInfo struct {
 	// Age — возраст системы в млрд лет (41a §4.2): планеты экзотики наследуют
 	// его в data["system_age"]; старые миры (nil) — фолбэк-ролл генератора.
 	Age *float64
+	// StellarMass — масса звезды в M☉ (29a §4м): вход каскада (Кеплер III,
+	// приливный захват, 99.2.20 §3.1); старые миры (nil) — фолбэк серединой
+	// диапазона класса.
+	StellarMass *float64
 }
 
 // GeneratePlanetsForWorlds — генерирует планеты для списка миров.
@@ -179,7 +183,6 @@ func (g *Generator) generateWorldWithCountIntoBuffer(w WorldInfo, count int, buf
 		return 0
 	}
 
-	systemAge := determineSystemAge(w.SpectralClass, g.rng)
 	generated := 0
 
 	// P-ветка: тесная двойная с разделением (новые миры). Старые close-миры
@@ -205,14 +208,14 @@ func (g *Generator) generateWorldWithCountIntoBuffer(w WorldInfo, count int, buf
 			continue
 		}
 		if isCircumbinary {
-			planet := g.generateCircumbinaryPlanet(w, systemAge)
+			planet := g.generateCircumbinaryPlanet(w)
 			if planet != nil {
 				buf.addPlanet(planet)
 				generated++
 			}
 			continue
 		}
-		planet := g.generatePlanet(w.ID, w.Name, orbitIndex, w.SpectralClass, systemAge)
+		planet := g.generatePlanet(w.ID, w.Name, orbitIndex, stellarParamsFromWorld(w, g.rng))
 		buf.addPlanet(planet)
 		generated++
 	}

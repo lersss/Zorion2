@@ -2,7 +2,6 @@ package planet
 
 import (
 	"encoding/json"
-	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -46,9 +45,9 @@ func planetJSON(t *testing.T, p *PlanetData) map[string]interface{} {
 
 // rockyCircumbinary — каменистая P-планета (гиганты P-типа разрешены и
 // имеют свою температуру/воду — тесты формулы/полос фильтруют их).
-func rockyCircumbinary(g *Generator, w WorldInfo, systemAge float64) map[string]interface{} {
+func rockyCircumbinary(g *Generator, w WorldInfo) map[string]interface{} {
 	for i := 0; i < 200; i++ {
-		p := g.generateCircumbinaryPlanet(w, systemAge)
+		p := g.generateCircumbinaryPlanet(w)
 		var data map[string]interface{}
 		if err := json.Unmarshal(p.Data, &data); err != nil {
 			panic(err)
@@ -65,7 +64,7 @@ func rockyCircumbinary(g *Generator, w WorldInfo, systemAge float64) map[string]
 func TestCircumbinaryPlanetFlags(t *testing.T) {
 	g := NewGenerator(nil, 42)
 	for _, a := range []float64{0.05, 0.39, 0.66, 0.9} {
-		p := g.generateCircumbinaryPlanet(closeWorld(a), 5.0)
+		p := g.generateCircumbinaryPlanet(closeWorld(a))
 		data := planetJSON(t, p)
 		assert.Equal(t, "barycenter", data["orbit_center"], "a=%.2f", a)
 		assert.InDelta(t, 3*a, data["orbit_radius_au"].(float64), 1e-9, "a=%.2f: r_P = 3a", a)
@@ -74,29 +73,30 @@ func TestCircumbinaryPlanetFlags(t *testing.T) {
 	}
 }
 
-// TestCircumbinaryTempFormula — T = 278.7×(L₁+L₂)^0.25/√(3a), без архетип-
-// клампов, в [20, 2500]. G+G при a∈[0.39, 0.66] — пригодная полоса
-// (T_eq 236–308 K, §8.2): честная формула, никаких клампов.
-func TestCircumbinaryTempFormula(t *testing.T) {
+// TestCircumbinaryTempCascade — температура P-планеты от каскада (99.2.20
+// §6.6): справочные температуры 99.2.18 §5.1 исторические, новые значения
+// даёт каскад. G+G в пригодной полосе (a ∈ [0.39, 0.66]) — умеренно-тёплые
+// миры (T_final в широкой полосе от тонкой до плотной CO₂-атмосферы),
+// без архетип-клампов; абсолютные границы [20, 2500] держатся всегда.
+func TestCircumbinaryTempCascade(t *testing.T) {
 	g := NewGenerator(nil, 7)
-	lTotal := 2.0 // G+G
 	for _, a := range []float64{0.39, 0.5, 0.65} {
-		expected := 278.7 * math.Pow(lTotal, 0.25) / math.Sqrt(3*a)
-		data := rockyCircumbinary(g, closeWorld(a), 5.0)
+		data := rockyCircumbinary(g, closeWorld(a))
 		got := data["temperature"].(float64)
-		assert.InDelta(t, expected, got, 1.0, "a=%.2f: T = формула", a)
-		assert.GreaterOrEqual(t, got, 236.0, "a=%.2f: пригодная полоса ≥ 236 K", a)
-		assert.LessOrEqual(t, got, 308.0, "a=%.2f: пригодная полоса ≤ 308 K", a)
+		assert.GreaterOrEqual(t, got, 200.0, "a=%.2f: пригодная полоса ≥ 200 K", a)
+		assert.LessOrEqual(t, got, 500.0, "a=%.2f: пригодная полоса ≤ 500 K", a)
+		assert.GreaterOrEqual(t, got, 20.0, "a=%.2f: в [20, 2500]", a)
+		assert.LessOrEqual(t, got, 2500.0, "a=%.2f: в [20, 2500]", a)
 	}
 }
 
 // TestCircumbinaryHotPairClampedTo2500 — worst O+O при a=0.05: честный расчёт
-// 4812 K → кламп к аудит-гейту 2500 (§4.1, §5.1).
+// каскада даёт T ≫ 2500 → кламп к аудит-гейту 2500 (§4.1, §5.1).
 func TestCircumbinaryHotPairClampedTo2500(t *testing.T) {
 	w := WorldInfo{
 		ID:            "w1",
 		Name:          "World",
-		SpectralClass: "O", // L = 1000
+		SpectralClass: "O", // L = 5·10⁴
 		Temperature:   35000,
 		StarType:      "star",
 		SystemType:    "binary",
@@ -110,19 +110,20 @@ func TestCircumbinaryHotPairClampedTo2500(t *testing.T) {
 	}
 	g := NewGenerator(nil, 3)
 	for i := 0; i < 50; i++ {
-		p := g.generateCircumbinaryPlanet(w, 0.5)
+		p := g.generateCircumbinaryPlanet(w)
 		data := planetJSON(t, p)
 		assert.Equal(t, 2500.0, data["temperature"].(float64), "O+O a=0.05 → кламп 2500")
 	}
 }
 
-// TestCircumbinaryNoArchetypeClamp — F+G при a=0.05: честный расчёт ≈ 947 K
-// (спека §5.1), не клампится архетипом (экстремальный дал бы ≤ 900).
+// TestCircumbinaryNoArchetypeClamp — F+G при a=0.05: каскад даёт T ≫ 900
+// (горячий CO₂-мир, кламп к абсолютному максимуму 2500) — архетип-клампов
+// нет (99.2.11 отменены, 99.2.20 §3.5).
 func TestCircumbinaryNoArchetypeClamp(t *testing.T) {
 	w := WorldInfo{
 		ID:            "w1",
 		Name:          "World",
-		SpectralClass: "F", // L = 2
+		SpectralClass: "F", // L = 3
 		Temperature:   6500,
 		StarType:      "star",
 		SystemType:    "binary",
@@ -135,11 +136,10 @@ func TestCircumbinaryNoArchetypeClamp(t *testing.T) {
 		},
 	}
 	g := NewGenerator(nil, 11)
-	data := rockyCircumbinary(g, w, 2.0)
+	data := rockyCircumbinary(g, w)
 	got := data["temperature"].(float64)
-	expected := 278.7 * math.Pow(3.0, 0.25) / math.Sqrt(0.15)
-	assert.InDelta(t, expected, got, 1.0, "F+G a=0.05: честная T ≈ 947 K, без архетип-клампов")
-	assert.Greater(t, got, 900.0, "выше потолка экстремального архетипа (900 K) — клампов нет")
+	assert.Greater(t, got, 900.0, "F+G a=0.05: T > 900 K — выше потолка экстремального архетипа, клампов нет")
+	assert.LessOrEqual(t, got, 2500.0, "в [20, 2500]")
 }
 
 // TestCircumbinaryGiantAllowed — гиганты P-типа разрешены (шанс
@@ -150,7 +150,7 @@ func TestCircumbinaryGiantAllowed(t *testing.T) {
 	const n = 400
 	for i := 0; i < n; i++ {
 		w := closeWorld(0.05 + g.rng.Float64()*0.85)
-		p := g.generateCircumbinaryPlanet(w, 3.0)
+		p := g.generateCircumbinaryPlanet(w)
 		data := planetJSON(t, p)
 		if data["is_gas_giant"] == true {
 			giants++
@@ -160,20 +160,19 @@ func TestCircumbinaryGiantAllowed(t *testing.T) {
 	assert.Greater(t, giants, 10, "гиганты P-типа должны встречаться (шанс 0.3–0.8)")
 }
 
-// TestCircumbinaryWaterLifeByBands — вода/жизнь по полосам от честной T:
-// G+G при a=0.5 (T ≈ 271 K) — вода всегда ≥ 30 (полный шанс полосы
-// 250 < T < 400), жизнь возможна (вода > 10, 200 < T < 400); на выборке
-// встречается жизнь.
+// TestCircumbinaryWaterLifeByBands — вода/жизнь по каскаду: G+G при a=0.5
+// (умеренно-тёплая полоса) — вода и жизнь возможны (гидросфера гейтится
+// флагом, жизнь требует жидкой воды/подлёдного океана).
 func TestCircumbinaryWaterLifeByBands(t *testing.T) {
 	g := NewGenerator(nil, 17)
-	waterMin := math.Inf(1)
+	withWater := 0
 	withLife := 0
 	const n = 200
 	for i := 0; i < n; i++ {
-		data := rockyCircumbinary(g, closeWorld(0.5), 5.0)
+		data := rockyCircumbinary(g, closeWorld(0.5))
 		water := data["water_percent"].(float64)
-		if water < waterMin {
-			waterMin = water
+		if water > 10 {
+			withWater++
 		}
 		if data["life"] == true {
 			withLife++
@@ -181,7 +180,7 @@ func TestCircumbinaryWaterLifeByBands(t *testing.T) {
 		assert.GreaterOrEqual(t, data["temperature"].(float64), 20.0, "в [20, 2500]")
 		assert.LessOrEqual(t, data["temperature"].(float64), 2500.0)
 	}
-	assert.GreaterOrEqual(t, waterMin, 30.0, "полоса 250<T<400: вода ≥ 30 (полный шанс)")
+	assert.Greater(t, withWater, 0, "в пригодной полосе вода возможна")
 	assert.Greater(t, withLife, 0, "жизнь возможна в полосе 200<T<400 (шанс > 0)")
 }
 
@@ -198,7 +197,7 @@ func TestCircumbinaryHotNoLife(t *testing.T) {
 	}
 	g := NewGenerator(nil, 5)
 	for i := 0; i < 50; i++ {
-		p := g.generateCircumbinaryPlanet(w, 0.5)
+		p := g.generateCircumbinaryPlanet(w)
 		data := planetJSON(t, p)
 		assert.Equal(t, false, data["life"], "при T=2500 жизнь невозможна")
 	}
@@ -273,18 +272,38 @@ func TestSCircumbinaryHookInBatch(t *testing.T) {
 
 // TestCircumbinarySettlablePossible — пригодные P-планеты возможны
 // (вариант A): G+G в пригодной полосе — settlement.Suitable проходит на
-// части выборки (признак — political_system ≠ «нет», стандартный путь
-// отдельный флаг settleable в JSON не пишет).
+// части выборки (признак — political_system ≠ «нет»).
 func TestCircumbinarySettlablePossible(t *testing.T) {
 	g := NewGenerator(nil, 29)
 	settleable := 0
 	const n = 400
 	for i := 0; i < n; i++ {
 		a := 0.39 + g.rng.Float64()*0.26 // [0.39, 0.65] — пригодная полоса
-		data := rockyCircumbinary(g, closeWorld(a), 5.0)
+		data := rockyCircumbinary(g, closeWorld(a))
 		if data["political_system"] != "нет" {
 			settleable++
 		}
 	}
 	assert.Greater(t, settleable, 0, "пригодные P-планеты возможны на G-подобных парах")
+}
+
+// TestCircumbinaryNewFields — новые поля каскада (99.2.20 §4.1) пишутся
+// P-планетам: atmosphere_data, liquid_water_possible, orbital_period,
+// eccentricity, escape_velocity, tidal_lock.
+func TestCircumbinaryNewFields(t *testing.T) {
+	g := NewGenerator(nil, 31)
+	data := rockyCircumbinary(g, closeWorld(0.5))
+	_, hasAtm := data["atmosphere_data"].(map[string]interface{})
+	assert.True(t, hasAtm, "atmosphere_data обязателен")
+	_, hasFlag := data["liquid_water_possible"].(bool)
+	assert.True(t, hasFlag, "liquid_water_possible обязателен")
+	period, ok := data["orbital_period"].(float64)
+	require.True(t, ok, "orbital_period обязателен")
+	assert.Greater(t, period, 0.0)
+	_, ok = data["eccentricity"].(float64)
+	assert.True(t, ok, "eccentricity обязателен")
+	_, ok = data["escape_velocity"].(float64)
+	assert.True(t, ok, "escape_velocity обязателен")
+	_, ok = data["tidal_lock"].(bool)
+	assert.True(t, ok, "tidal_lock обязателен")
 }

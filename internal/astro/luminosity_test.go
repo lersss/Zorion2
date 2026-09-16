@@ -6,13 +6,14 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestLuminosityBySpectral — таблица светимостей по классу (35b §3, единый
-// источник). Fallback для неизвестного класса — 1.0 («как Солнце»), закреплён
+// TestLuminosityBySpectral — таблица светимостей по классу (99.2.20 §3.1,
+// единый источник; исправлена по аудиту @Scientist: O/B занижены на 1–3
+// порядка). Fallback для неизвестного класса — 1.0 («как Солнце»), закреплён
 // тестами planet/physics_test.go (TestLuminosityBySpectral).
 func TestLuminosityBySpectral(t *testing.T) {
 	cases := map[string]float64{
-		"O": 1000, "B": 100, "A": 10, "F": 2, "G": 1,
-		"K": 0.1, "M": 0.01, "L": 0.001, "T": 0.0001, "Y": 0.00001,
+		"O": 5e4, "B": 1e3, "A": 20, "F": 3, "G": 1,
+		"K": 0.25, "M": 0.01, "L": 0.001, "T": 0.0001, "Y": 0.00001,
 	}
 	for cls, want := range cases {
 		assert.InDelta(t, want, LuminosityBySpectral(cls), 1e-12, "класс %s", cls)

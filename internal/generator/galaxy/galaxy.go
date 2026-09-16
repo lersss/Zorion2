@@ -63,6 +63,16 @@ type Generator struct {
 	// генератор — одна горутина) — поле безопасно.
 	profile          *regionprofile.Profile
 	profileIntensity regionprofile.Intensity
+
+	// raceID — доминантная раса региона текущего мира (99.2.22 §2.1): из
+	// regions.race_id (assignRacesToRegions выполняется до генерации миров);
+	// пусто — фоновый регион/легаси (подкрутки нет). Читается spectralClass
+	// (ручка 5: веса спектральных классов).
+	raceID string
+	// raceSoftness — мягкость подкрутки s ∈ [0, 1] (99.2.22 §4): слой 1
+	// непрерывный — спектральные веса eff = 1 + (config−1)·s. Дефолт 0.5
+	// (админка, generation_config).
+	raceSoftness float64
 }
 
 // NewGenerator создаёт новый генератор с дефолтными весами и массами.
@@ -92,6 +102,13 @@ func (g *Generator) SetMassRanges(r StellarMassRanges) {
 	if len(r) > 0 {
 		g.massRanges = r
 	}
+}
+
+// SetRaceSoftness — мягкость подкрутки под расу-дома s ∈ [0, 1] (99.2.22
+// §4.3, админка, generation_config): слой 1 непрерывный — спектральные веса
+// eff = 1 + (config−1)·s. Читается звёздным джобом.
+func (g *Generator) SetRaceSoftness(s float64) {
+	g.raceSoftness = s
 }
 
 // GalaxyResult — результат генерации: миры и регионы галактики.
@@ -308,11 +325,16 @@ func weightedPick(rng *rand.Rand, weights map[string]float64, order []string) st
 // spectralClass — класс мира: конфиг-веса, если заданы, иначе дефолт.
 // Профиль региона (59a §7): веса умножаются на spectral_mult (мягкий сдвиг,
 // все классы остаются возможны — weightedPick нормирует по сумме).
+// Раса-дома (99.2.22 §3.3 ручка 5): веса умножаются на race_mult
+// (home-классы ×1.6, умеренно-горячим O/B ×1.3; слой 1: eff = 1 + (config−1)·s).
 func (g *Generator) spectralClass() string {
 	if len(g.weights.Spectral) > 0 {
 		weights := g.weights.Spectral
 		if g.profile != nil {
 			weights = regionprofile.ApplyMultMap(weights, g.profile.Star.SpectralMult, g.profileIntensity)
+		}
+		if g.raceID != "" {
+			weights = applyRaceSpectralMult(weights, g.raceID, g.raceSoftness)
 		}
 		return weightedPick(g.rng, weights, spectralOrder)
 	}
@@ -426,9 +448,12 @@ func (g *Generator) randomMass(key string) (float64, bool) {
 //
 // profile — профиль региона точки (59a §10): мягкий сдвиг весов генерации;
 // nil — фоновый регион/случайная генерация (профиля нет).
-func (g *Generator) generateWorld(center struct{ X, Y float64 }, profile *regionprofile.Profile, intensity regionprofile.Intensity) *models.World {
+// raceID — доминантная раса региона точки (99.2.22 §2.1): подкрутка весов
+// спектральных классов; пусто — фоновый регион/легаси (подкрутки нет).
+func (g *Generator) generateWorld(center struct{ X, Y float64 }, profile *regionprofile.Profile, intensity regionprofile.Intensity, raceID string) *models.World {
 	g.profile = profile
 	g.profileIntensity = intensity
+	g.raceID = raceID
 
 	spread := g.cfg.WorldSpread
 	x := center.X + g.rng.NormFloat64()*spread

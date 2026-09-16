@@ -39,6 +39,20 @@ type Generator struct {
 	// однопоточная (один генератор — одна горутина) — поле безопасно.
 	profile          *regionprofile.Profile
 	profileIntensity regionprofile.Intensity
+
+	// raceID — доминантная раса региона текущего мира (99.2.22 §2.1):
+	// задаётся там же, где profile (из regions.race_id через
+	// NearestRegionIndex), читается подкруткой (race_tuning.go). Пусто —
+	// фоновый регион/легаси-вселенная без рас (подкрутки нет).
+	raceID string
+	// raceSoftness — мягкость подкрутки s ∈ [0, 1] (99.2.22 §4): слой 1
+	// непрерывный (число планет), слой 2 вероятностный (физические ручки).
+	// Дефолт 0.5 (админка, generation_config).
+	raceSoftness float64
+	// racePlanetCountMult — множитель числа планет в кластерах рас (99.2.22
+	// §3.3 ручка 6): mean × mult перед потолком 8. Дефолт 1.1, диапазон
+	// 0.7–1.3 (админка, generation_config).
+	racePlanetCountMult float64
 }
 
 // NewGenerator — создаёт генератор. Если seed = 0 — берётся time.Now().
@@ -57,6 +71,14 @@ func NewGenerator(db *sql.DB, seed int64) *Generator {
 // SetMeans — задаёт средние числа планет (конфиг админки, 99.2.3 §4.3).
 func (g *Generator) SetMeans(m PlanetMeans) {
 	g.means = m
+}
+
+// SetRaceTuning — параметры подкрутки под расу-дома (99.2.22 §4.3, админка,
+// generation_config): мягкость s ∈ [0, 1] и множитель числа планет в
+// кластерах рас (0.7–1.3). Читаются и звёздным, и планетным джобами.
+func (g *Generator) SetRaceTuning(softness, planetCountMult float64) {
+	g.raceSoftness = softness
+	g.racePlanetCountMult = planetCountMult
 }
 
 // ==================== СТАРАЯ ФУНКЦИЯ ====================
@@ -126,6 +148,11 @@ type WorldInfo struct {
 	Profile *regionprofile.Profile
 	// ProfileIntensity — интенсивность профиля 0/1/2: слабая/средняя/сильная.
 	ProfileIntensity regionprofile.Intensity
+	// RaceID — доминантная раса региона мира (99.2.22 §2.1): из
+	// regions.race_id через ту же NearestRegionIndex, что и Profile
+	// (консистентно с генератором поселений рас); пусто — фоновый
+	// регион/легаси-вселенная без рас (подкрутки нет).
+	RaceID string
 }
 
 // GeneratePlanetsForWorlds — генерирует планеты для списка миров.
@@ -189,6 +216,7 @@ func (g *Generator) generateWorldIntoBuffer(w WorldInfo, buf *batchBuffers) int 
 	// выставляются в generateWorldWithCountIntoBuffer.
 	g.profile = w.Profile
 	g.profileIntensity = w.ProfileIntensity
+	g.raceID = w.RaceID
 	return g.generateWorldWithCountIntoBuffer(w, g.planetCountFor(w), buf)
 }
 
@@ -205,6 +233,9 @@ func (g *Generator) generateWorldWithCountIntoBuffer(w WorldInfo, count int, buf
 	// Профиль региона мира (59a §10): применяется ко всем планетам мира.
 	g.profile = w.Profile
 	g.profileIntensity = w.ProfileIntensity
+	// Раса-дома региона мира (99.2.22 §2.1): применяется ко всем планетам
+	// мира (подкрутка входов каскада).
+	g.raceID = w.RaceID
 
 	generated := 0
 

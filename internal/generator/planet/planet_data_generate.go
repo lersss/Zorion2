@@ -58,13 +58,19 @@ func (g *Generator) planetCountFor(w WorldInfo) int {
 	return 0
 }
 
-// planetCountMult — эффективный множитель среднего числа планет (59a §8 P3):
-// 1.0 без профиля, иначе planet_count_mult с масштабом интенсивности.
+// planetCountMult — эффективный множитель среднего числа планет: 1.0 без
+// профиля и расы; иначе произведение planet_count_mult профиля (59a §8 P3,
+// с масштабом интенсивности) и множителя кластеров рас (99.2.22 §3.3 ручка 6,
+// слой 1: eff = 1 + (config−1)·s).
 func (g *Generator) planetCountMult() float64 {
-	if g.profile == nil {
-		return 1.0
+	mult := 1.0
+	if g.profile != nil {
+		mult *= g.profile.PlanetCountMult(g.profileIntensity)
 	}
-	return g.profile.PlanetCountMult(g.profileIntensity)
+	if g.raceID != "" && g.racePlanetCountMult > 0 {
+		mult *= 1 + (g.racePlanetCountMult-1)*g.raceSoftness
+	}
+	return mult
 }
 
 // resourceBias — эффективные веса категорий ресурсов (59a §8 P2):
@@ -320,29 +326,44 @@ func stellarParamsFromClass(spectralClass string, temperature int, rng *rand.Ran
 // океанических/радиоактивных растворены в каскаде (типы возникают из
 // физики: гидросфера «океаны» + вода > 60; core.radioactivity > 50).
 func (g *Generator) generatePlanet(worldID, worldName string, orbitIndex int, sp StellarParams) *PlanetData {
+	// --- ПОДКРУТКА ПОД РАСУ-ДОМА (99.2.22 §3.3–§4) ---
+	// Слой 2: ролл «планета подстроена» в фиксированной позиции (до каскада,
+	// early-exit при s ≤ 0 / s ≥ 1 — ролл не потребляет энтропию, «s = 0 →
+	// как есть» строго для того же seed). Возраст (ручка 4) применяется
+	// сразу к параметрам звезды; остальные ручки — в каскад.
+	tune := g.raceTunePlanet(sp, orbitRadiusScaled(orbitIndex, sp.Luminosity), true)
+	if tune != nil && tune.ageGyr > 0 {
+		sp.AgeGyr = tune.ageGyr
+	}
+
 	// --- ГАЗОВЫЙ ГИГАНТ ---
 	if orbitIndex >= 3 {
 		if g.rng.Float64() < g.gasGiantChanceShifted(sp.SpectralClass) {
-			return g.generateGasGiant(worldID, worldName, orbitIndex, sp)
+			return g.generateGasGiant(worldID, worldName, orbitIndex, sp, tune)
 		}
 	}
 
 	// --- СТАНДАРТНАЯ ГЕНЕРАЦИЯ ЧЕРЕЗ ФИЗИЧЕСКИЙ КАСКАД ---
-	return g.generateStandardPlanet(worldID, worldName, orbitIndex, sp, false)
+	return g.generateStandardPlanet(worldID, worldName, orbitIndex, sp, false, tune)
 }
 
 // generateStandardPlanet — планета по физическому каскаду (стандартный путь).
 // forceLife — форсировать жизнь в каскаде (прототип поселения §6.9:
 // жизненный проход даёт азотно-кислородную атмосферу, консистентную
-// с контрактом инструмента).
+// с контрактом инструмента). tune — подкрутка расы-дома (99.2.22): сдвиг
+// орбиты, бюджет летучих, состав, поверхность-альбедо; nil — без подкрутки.
 func (g *Generator) generateStandardPlanet(
 	worldID, worldName string,
 	orbitIndex int,
 	sp StellarParams,
 	forceLife bool,
+	tune *raceTune,
 ) *PlanetData {
 	orbitRadius := orbitRadiusScaled(orbitIndex, sp.Luminosity)
-	res := g.runCascade(cascadeInput{
+	if tune != nil && tune.orbitMult > 0 {
+		orbitRadius *= tune.orbitMult
+	}
+	in := cascadeInput{
 		Luminosity:    sp.Luminosity,
 		StellarMass:   sp.StellarMass,
 		AgeGyr:        sp.AgeGyr,
@@ -351,7 +372,15 @@ func (g *Generator) generateStandardPlanet(
 		OrbitRadiusAU: orbitRadius,
 		OrbitIndex:    orbitIndex,
 		ForceLife:     forceLife,
-	})
+	}
+	if tune != nil {
+		// Ручки 2–4, 7/7-холод: сдвиг входов каскада (99.2.22 §3.3).
+		in.FVolOverride = tune.fVol
+		in.SurfaceOverride = tune.surface
+		in.CompositionOverride = tune.composition
+		in.CompositionRegime = tune.compositionRegime
+	}
+	res := g.runCascade(in)
 
 	name := names.GeneratePlanetName(g.rng, g.usedNames)
 	if name == "" {
@@ -467,7 +496,7 @@ func (g *Generator) generateStandardPlanet(
 // Население задаётся отдельной вставкой поселения в admin_universe.go.
 func (g *Generator) GeneratePrototypePlanet(worldID, worldName, spectralClass string) *PlanetData {
 	sp := stellarParamsFromClass(spectralClass, 0, g.rng)
-	pd := g.generateStandardPlanet(worldID, worldName, 1, sp, true)
+	pd := g.generateStandardPlanet(worldID, worldName, 1, sp, true, nil)
 
 	var data map[string]interface{}
 	if err := json.Unmarshal(pd.Data, &data); err != nil {

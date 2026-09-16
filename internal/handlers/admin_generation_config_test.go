@@ -133,6 +133,16 @@ func TestPutGenerationConfigSaves(t *testing.T) {
 			ON CONFLICT (key) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`).
 		WithArgs("stellar_mass_ranges", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO generation_config (key, payload, updated_at)
+			VALUES ($1, $2, NOW())
+			ON CONFLICT (key) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`).
+		WithArgs("race_tuning_softness", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO generation_config (key, payload, updated_at)
+			VALUES ($1, $2, NOW())
+			ON CONFLICT (key) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`).
+		WithArgs("race_cluster_planet_count_mult", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
 	h := &AdminHandlers{db: db}
@@ -180,6 +190,16 @@ func TestPutGenerationConfigWithoutMaxDefaultsTo8(t *testing.T) {
 			VALUES ($1, $2, NOW())
 			ON CONFLICT (key) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`).
 		WithArgs("stellar_mass_ranges", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO generation_config (key, payload, updated_at)
+			VALUES ($1, $2, NOW())
+			ON CONFLICT (key) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`).
+		WithArgs("race_tuning_softness", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO generation_config (key, payload, updated_at)
+			VALUES ($1, $2, NOW())
+			ON CONFLICT (key) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`).
+		WithArgs("race_cluster_planet_count_mult", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
@@ -253,6 +273,16 @@ func TestPutGenerationConfigWithoutMassRangesDefaults(t *testing.T) {
 			VALUES ($1, $2, NOW())
 			ON CONFLICT (key) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`).
 		WithArgs("stellar_mass_ranges", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO generation_config (key, payload, updated_at)
+			VALUES ($1, $2, NOW())
+			ON CONFLICT (key) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`).
+		WithArgs("race_tuning_softness", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO generation_config (key, payload, updated_at)
+			VALUES ($1, $2, NOW())
+			ON CONFLICT (key) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`).
+		WithArgs("race_cluster_planet_count_mult", sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 

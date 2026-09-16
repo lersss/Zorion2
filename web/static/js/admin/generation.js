@@ -514,6 +514,20 @@ export async function loadGenConfig() {
             if (elMin && r.min != null) elMin.value = r.min;
             if (elMax && r.max != null) elMax.value = r.max;
         });
+        // Подкрутка под расу-дома (99.2.22 §4.3): мягкость s (0–100%) и
+        // множитель числа планет в кластерах рас (0.7–1.3).
+        const softness = document.getElementById('raceTuningSoftness');
+        if (softness && cfg.race_tuning_softness != null) {
+            softness.value = Math.round(cfg.race_tuning_softness * 100);
+            const rng = document.getElementById('raceTuningSoftnessRange');
+            if (rng) rng.value = softness.value;
+        }
+        const countMult = document.getElementById('racePlanetCount');
+        if (countMult && cfg.race_cluster_planet_count_mult != null) {
+            countMult.value = cfg.race_cluster_planet_count_mult;
+            const rng = document.getElementById('racePlanetCountRange');
+            if (rng) rng.value = countMult.value;
+        }
         recalcGenWeights();
         genConfigLoaded = true;
         if (box) box.textContent = '✅ Конфиг загружен (дефолты или сохранённый)';
@@ -554,8 +568,14 @@ export async function saveGenConfig() {
             }
         }
     });
+    // Подкрутка под расу-дома (99.2.22 §4.3): мягкость s (0–100%) и
+    // множитель числа планет в кластерах рас (0.7–1.3).
+    const softnessEl = document.getElementById('raceTuningSoftness');
+    const race_tuning_softness = softnessEl ? (parseFloat(softnessEl.value) || 0) / 100 : 0.5;
+    const countEl = document.getElementById('racePlanetCount');
+    const race_cluster_planet_count_mult = countEl ? (parseFloat(countEl.value) || 1.1) : 1.1;
 
-    const body = JSON.stringify({ star_weights: { spectral, system_types }, planet_means, stellar_mass_ranges });
+    const body = JSON.stringify({ star_weights: { spectral, system_types }, planet_means, stellar_mass_ranges, race_tuning_softness, race_cluster_planet_count_mult });
     try {
         const res = await fetchWithAuth('/admin/generation/config', {
             method: 'PUT',

@@ -315,6 +315,13 @@ type cascadeInput struct {
 	FVolOverride       float64     // доля летучих
 	WaterShareOverride float64     // доля воды в летучих
 	ForceLife          bool        // форсировать жизнь (прототип §6.9)
+
+	// Оверрайд состава атмосферы (99.2.22 §3.3 ручка 2): обогащение
+	// need-газов + разбавление парника. Применяется только если фактический
+	// режим (по T₁ с оверрайдом поверхности) совпадает с CompositionRegime
+	// (честный отказ при несовпадении — мир остаётся нетюнингованным).
+	CompositionOverride Composition // доли (0–1); пустое — нет оверрайда
+	CompositionRegime   string      // ожидаемый режим: "холодный"/"умеренный"/"горячий"
 }
 
 // cascadeResult — результат физического каскада.
@@ -415,6 +422,12 @@ func (g *Generator) runCascade(in cascadeInput) *cascadeResult {
 		pressure = 1000
 	}
 	comp := normalizeComposition(atmosphereComposition(regime, zone, waterShare, false, g.rng))
+	// Оверрайд состава (99.2.22 §3.3 ручка 2): применяется только если
+	// фактический режим (по T₁ с оверрайдом поверхности) совпадает с
+	// ожидаемым — иначе мир остаётся нетюнингованным (честный отказ).
+	if len(in.CompositionOverride) > 0 && regime == in.CompositionRegime {
+		comp = applyCompositionOverride(in.CompositionOverride, comp)
+	}
 	tau := tauIR(pressure, comp)
 	label := classifyAtmosphere(comp, pressure)
 	fc := cloudFraction(label, pressure)

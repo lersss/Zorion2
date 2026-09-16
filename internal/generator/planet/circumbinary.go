@@ -38,17 +38,27 @@ func (g *Generator) generateCircumbinaryPlanet(w WorldInfo) *PlanetData {
 		sp.StellarMass += fallbackStellarMass(w.Mods.Companion)
 	}
 
+	// Подкрутка расы-дома (99.2.22 §3.3): P-планеты — ручки 2–4, 7 (тот же
+	// каскад); ручка 1 (сдвиг орбиты) — НЕТ: r_P = 3·companion_sep_au
+	// фиксирован разделением пары (99.2.18), сдвиг сломал бы семантику
+	// циркумбинарной орбиты. Ролл — в фиксированной позиции (до каскада).
+	tune := g.raceTunePlanet(sp, rP, false)
+	if tune != nil && tune.ageGyr > 0 {
+		sp.AgeGyr = tune.ageGyr
+	}
+
 	// Гиганты P-типа разрешены: шанс от спектра главной, орбита — та же 3a.
 	if g.rng.Float64() < g.gasGiantChanceShifted(w.SpectralClass) {
-		return g.generateCircumbinaryGiant(w, rP, sp)
+		return g.generateCircumbinaryGiant(w, rP, sp, tune)
 	}
-	return g.generateCircumbinaryRocky(w, rP, sp)
+	return g.generateCircumbinaryRocky(w, rP, sp, tune)
 }
 
 // generateCircumbinaryRocky — каменистая P-планета через физический каскад
 // (99.2.20): L_total, r_P = 3a, полоса по T — как у S-планет.
-func (g *Generator) generateCircumbinaryRocky(w WorldInfo, rP float64, sp StellarParams) *PlanetData {
-	res := g.runCascade(cascadeInput{
+// tune — подкрутка расы-дома (99.2.22): ручки 2–4, 7; nil — без подкрутки.
+func (g *Generator) generateCircumbinaryRocky(w WorldInfo, rP float64, sp StellarParams, tune *raceTune) *PlanetData {
+	in := cascadeInput{
 		Luminosity:    sp.Luminosity,
 		StellarMass:   sp.StellarMass,
 		AgeGyr:        sp.AgeGyr,
@@ -56,7 +66,14 @@ func (g *Generator) generateCircumbinaryRocky(w WorldInfo, rP float64, sp Stella
 		TEff:          sp.TEff,
 		OrbitRadiusAU: rP,
 		OrbitIndex:    1,
-	})
+	}
+	if tune != nil {
+		in.FVolOverride = tune.fVol
+		in.SurfaceOverride = tune.surface
+		in.CompositionOverride = tune.composition
+		in.CompositionRegime = tune.compositionRegime
+	}
+	res := g.runCascade(in)
 
 	name := names.GeneratePlanetName(g.rng, g.usedNames)
 	if name == "" {
@@ -159,7 +176,8 @@ func (g *Generator) generateCircumbinaryRocky(w WorldInfo, rP float64, sp Stella
 
 // generateCircumbinaryGiant — газовый гигант P-типа (35b §4.1): масса по
 // распределению гигантов, температура от T⁴ + F_KH (99.2.20 §3.6).
-func (g *Generator) generateCircumbinaryGiant(w WorldInfo, rP float64, sp StellarParams) *PlanetData {
+// tune — подкрутка расы-дома (99.2.22): возраст (ручка 4); nil — без.
+func (g *Generator) generateCircumbinaryGiant(w WorldInfo, rP float64, sp StellarParams, tune *raceTune) *PlanetData {
 	res := g.runCascadeGiant(cascadeInput{
 		Luminosity:    sp.Luminosity,
 		StellarMass:   sp.StellarMass,

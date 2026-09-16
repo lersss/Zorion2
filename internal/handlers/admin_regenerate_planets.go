@@ -11,6 +11,7 @@ import (
 	"github.com/lib/pq"
 	"zorion/internal/generator"
 	"zorion/internal/generator/planet"
+	"zorion/internal/regionprofile"
 )
 
 // RegeneratePlanets — POST /admin/regenerate-planets (99.2.3 §5).
@@ -59,6 +60,16 @@ func (h *AdminHandlers) RegeneratePlanets(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Раса-дома региона (99.2.22 §2.1): перегенерация — штатный инструмент
+	// применения подкрутки к старым вселенным (спека §8 «Бэкфилл — нет;
+	// перегенерация POST /admin/regenerate-planets»). Привязка — та же
+	// NearestRegionIndex, что в GeneratePlanets (консистентно с profile).
+	regions, err := h.loadRegionsWithProfiles()
+	if err != nil {
+		http.Error(w, "Failed to load regions: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	selected := make([]planet.WorldInfo, 0, len(worlds))
 	for _, w := range worlds {
 		cat := worldCategory(w.StarType, w.SystemType)
@@ -71,7 +82,7 @@ func (h *AdminHandlers) RegeneratePlanets(w http.ResponseWriter, r *http.Request
 		if !req.IncludeExotic && cat == "exotic" {
 			continue
 		}
-		selected = append(selected, planet.WorldInfo{
+		wi := planet.WorldInfo{
 			ID:            w.ID,
 			Name:          w.Name,
 			SpectralClass: w.SpectralClass,
@@ -81,7 +92,11 @@ func (h *AdminHandlers) RegeneratePlanets(w http.ResponseWriter, r *http.Request
 			Mods:          w.StellarMods,
 			Age:           w.Age,
 			StellarMass:   w.StellarMass,
-		})
+		}
+		if idx := regionprofile.NearestRegionIndex(w.CoordX, w.CoordY, regions); idx >= 0 {
+			wi.RaceID = regions[idx].RaceID
+		}
+		selected = append(selected, wi)
 	}
 	if len(selected) == 0 {
 		w.WriteHeader(http.StatusOK)
@@ -114,6 +129,12 @@ func (h *AdminHandlers) RegeneratePlanets(w http.ResponseWriter, r *http.Request
 		log.Printf("🗑️ RegeneratePlanets: удалено старых планет: %d", oldCount)
 
 		planetGen := planet.NewGenerator(h.db, 0)
+		// Мягкость подкрутки под расу-дома (99.2.22 §4.3): слой 2 вероятностный —
+		// физические ручки. Множитель числа планет не применяется (пересчёт —
+		// равномерный счёт, не mean-модель).
+		if loaded, err := h.loadGenerationConfig(); err == nil {
+			planetGen.SetRaceTuning(loaded.RaceTuningSoftness, 1.0)
+		}
 		totalPlanets, err := planetGen.RegeneratePlanetsForWorlds(selected, req.MinPlanets, req.MaxPlanets, 500, func(processed int) {
 			statusManager.Progress(generator.JobRegeneratePlanets, processed)
 		})

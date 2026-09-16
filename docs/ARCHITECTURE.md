@@ -106,11 +106,11 @@ docs/gamedesign/                         — GDD (семейство доков,
 | Что | Где |
 |-----|-----|
 | Точка входа | `cmd/server/main.go` |
-| Генераторы миров | `internal/generator/galaxy/` (спектральные веса, типы систем/объектов, модификаторы — спека `99.2.4`; параметры компаньонов — `35b` §3; сортировка «главная = самая массивная», пакет кратной на 3 — `35c`; масса — `29a` §4м) |
-| Генераторы планет | `internal/generator/planet/` (mean-модель числа планет §5.2; ветка экзотики — `exotic.go` §5.3; P-ветка циркумбинарных — `circumbinary.go` `35b` §4.1) |
+| Генераторы миров | `internal/generator/galaxy/` (спектральные веса, типы систем/объектов, модификаторы — спека `99.2.4`; параметры компаньонов — `35b` §3; сортировка «главная = самая массивная», пакет кратной на 3 — `35c`; масса — `29a` §4м; подкрутка весов под расу-дома — `race_tuning.go`, `99.2.22` §3.4) |
+| Генераторы планет | `internal/generator/planet/` (mean-модель числа планет §5.2; ветка экзотики — `exotic.go` §5.3; P-ветка циркумбинарных — `circumbinary.go` `35b` §4.1; подкрутка входов каскада под расу-дома — `race_tuning.go`, `99.2.22` §3.3–§4: сдвиг орбиты/состава/давления/возраста/поверхности, двухслойная мягкость s) |
 | Общие звёздные константы | `internal/astro/` (светимость по классу — единый источник для galaxy и planet; `35b` §3) |
 | Профили регионов (59a) | `internal/regionprofile/` (каталог классов `config/region_profiles/`, интенсивность 0/1/2, `NearestRegionIndex` — привязка планет к региону); ролл в `buildRegions` (`galaxy.go`), применение к звёздам — `galaxy.go`, к планетам — `planet/` (число планет, гиганты, веса полосы, ресурсы); колонки `regions.profile`/`profile_intensity` (миграция `000036`) |
-| Расы (99.2.21) | `internal/races/` (каталог `config/races.json` — 50 карточек, валидация §16, `RaceSuitable` — пригодность планеты для расы, `HumansSuitable` — пригодность для людей, 65a); раздача территорий — `internal/generator/galaxy/races.go` (агломеративная кластеризация до 50 групп + shuffle через g.rng, `regions.race_id`, миграция `000038`); поселения рас — `internal/generator/settlement/races.go` (отдельный проход: доминанта кластера + подселение соседа на выбросах, `settlements.race_id`, миграция `000039`; параметры — `chance`/`neighbor_chance`/`population` из пресета `config/race_settlement.json`, `race_preset.go`, 65a); ручка — `internal/handlers/admin_race_settlements.go` (`POST /admin/generate-race-settlements`); пригодность для людей (Settleable, тег inhabited) — `races.HumansSuitable` вместо пресета поселений (65a, старый генератор `/admin/generate-settlements` скрыт) |
+| Расы (99.2.21) | `internal/races/` (каталог `config/races.json` — 50 карточек, валидация §16, `RaceSuitable` — пригодность планеты для расы, `HumansSuitable` — пригодность для людей, 65a; подкрутка генератора под расу-дома — `tuning.go`, `99.2.22` §3.3: вывод ручек из окон карточки, кэш при загрузке каталога); раздача территорий — `internal/generator/galaxy/races.go` (агломеративная кластеризация до 50 групп + shuffle через g.rng, `regions.race_id`, миграция `000038`); поселения рас — `internal/generator/settlement/races.go` (отдельный проход: доминанта кластера + подселение соседа на выбросах, `settlements.race_id`, миграция `000039`; параметры — `chance`/`neighbor_chance`/`population` из пресета `config/race_settlement.json`, `race_preset.go`, 65a); ручка — `internal/handlers/admin_race_settlements.go` (`POST /admin/generate-race-settlements`); пригодность для людей (Settleable, тег inhabited) — `races.HumansSuitable` вместо пресета поселений (65a, старый генератор `/admin/generate-settlements` скрыт) |
 | Система описаний | `internal/generator/planet/descriptions_*.go` |
 | Композиция планет | `internal/generator/planet/composition_*.go` |
 | Физика температуры | `internal/generator/planet/physics.go` |
@@ -121,7 +121,7 @@ docs/gamedesign/                         — GDD (семейство доков,
 | Ресурсы | `internal/resource/` |
 | Имена | `internal/names/` |
 | HTTP-хендлеры | `internal/handlers/` |
-| Конфиг генерации (99.2.3) | `internal/handlers/admin_generation_config.go` (`GET/PUT /admin/generation/config`), `admin_regenerate_planets.go` (`POST /admin/regenerate-planets`) |
+| Конфиг генерации (99.2.3) | `internal/handlers/admin_generation_config.go` (`GET/PUT /admin/generation/config`; ключи `star_weights`/`planet_means`/`stellar_mass_ranges` + подкрутка под расу-дома `race_tuning_softness`/`race_cluster_planet_count_mult`, `99.2.22` §4.3), `admin_regenerate_planets.go` (`POST /admin/regenerate-planets`) |
 | Фильтр миров для карты | `internal/handlers/filter_worlds_handler.go` |
 | Мир по ID | `internal/handlers/world_handlers.go` |
 | Очистка вселенной | `internal/handlers/admin_universe.go` |

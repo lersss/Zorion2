@@ -248,13 +248,18 @@ if math.Hypot(p.X, p.Y) > halfSize {
 		// (Profile пуст) или вне региона — профиля нет.
 		var profile *regionprofile.Profile
 		var intensity regionprofile.Intensity
+		raceID := ""
 		if idx := pointRegion[i]; idx >= 0 && idx < len(regions) {
 			if r := regions[idx]; r.Profile != "" {
 				profile = regionprofile.ByID(r.Profile)
 				intensity = regionprofile.Intensity(r.ProfileIntensity)
 			}
+			// Раса-дома региона точки (99.2.22 §2.1): подкрутка весов
+			// спектральных классов (assignRacesToRegions выполняется до
+			// генерации миров — раса доступна).
+			raceID = regions[idx].RaceID
 		}
-		worlds[i] = g.generateWorld(struct{ X, Y float64 }{X: p.X, Y: p.Y}, profile, intensity)
+		worlds[i] = g.generateWorld(struct{ X, Y float64 }{X: p.X, Y: p.Y}, profile, intensity, raceID)
 		if idx := pointRegion[i]; idx >= 0 && idx < len(regions) {
 			regions[idx].WorldCount++
 		}
@@ -794,8 +799,8 @@ func (g *Generator) generateWorldsRandom(minDist float64) []*models.World {
 	}
 	worlds := make([]*models.World, len(points))
 	for i, p := range points {
-		// Случайная генерация — регионов нет, профиля нет (59a §10).
-		worlds[i] = g.generateWorld(struct{ X, Y float64 }{X: p.X, Y: p.Y}, nil, 0)
+		// Случайная генерация — регионов нет, профиля и расы нет (59a §10).
+		worlds[i] = g.generateWorld(struct{ X, Y float64 }{X: p.X, Y: p.Y}, nil, 0, "")
 	}
 	return worlds
 }

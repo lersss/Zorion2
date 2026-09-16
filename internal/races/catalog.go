@@ -132,6 +132,11 @@ type Race struct {
 	// Bulge — производное выпирание окна (§3.1): "cold" | "hot" | "highP" |
 	// "lowP" | "none". Направление, куда раса реально подселится (§7.3).
 	Bulge string `json:"bulge"`
+
+	// tuning — кэш производного объекта подкрутки (99.2.22 §3.3): вычисляется
+	// при загрузке каталога (LoadCatalog), read-only после — блокировка не
+	// нужна (паттерн catalog). Прямые конструкции Race — вывод на лету.
+	tuning *Tuning
 }
 
 // catalog — загруженный каталог (read-only после LoadCatalog; загрузка при
@@ -159,6 +164,9 @@ func LoadCatalog(path string) error {
 		if err := r.Validate(); err != nil {
 			return fmt.Errorf("races catalog %s: раса %d (%s): %w", absPath, i+1, r.ID, err)
 		}
+		// Кэш производного объекта подкрутки (99.2.22 §3.3): вычисляется при
+		// загрузке каталога (до горутин), read-only после.
+		r.tuning = deriveTuning(r)
 	}
 	catalog = file.Races
 	return nil

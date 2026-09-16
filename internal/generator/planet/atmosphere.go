@@ -198,11 +198,12 @@ func tauIR(pressureAtm float64, comp map[string]float64) float64 {
 }
 
 // meanMolecularWeight — средняя молекулярная масса смеси (N₂ 28, O₂ 32,
-// CO₂ 44, H₂O 18, H₂ 2, He 4, CH₄ 16, SO₂ 64, NH₃ 17, Ar 40, N₂O 44).
+// CO₂ 44, H₂O 18, H₂ 2, He 4, CH₄ 16, SO₂ 64, NH₃ 17, Ar 40, N₂O 44,
+// H₂S 64 — добавлен подкруткой рас, 99.2.22 §3.3 ручка 2).
 func meanMolecularWeight(comp map[string]float64) float64 {
 	weights := map[string]float64{
 		"N2": 28, "O2": 32, "CO2": 44, "H2O": 18, "H2": 2,
-		"He": 4, "CH4": 16, "SO2": 64, "NH3": 17, "Ar": 40, "N2O": 44,
+		"He": 4, "CH4": 16, "SO2": 64, "NH3": 17, "Ar": 40, "N2O": 44, "H2S": 64,
 	}
 	mu := 0.0
 	for k, v := range comp {

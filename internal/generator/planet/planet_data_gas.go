@@ -17,11 +17,15 @@ import (
 // (99.2.15, эталон создателя). Температура — T⁴ + Кельвина–Гельмгольца
 // (F_KH): чинит известную особенность «гигант 13 MJ → 20 K» (Юпитер ≈ 118 K).
 // Старая формула tEq × greenhouse + 30 отброшена.
+//
+// tune — подкрутка расы-дома (99.2.22 §3.3): гиганты подстраиваются частично
+// (сдвиг орбиты + возраст; состав/поверхность — нет); nil — без подкрутки.
 func (g *Generator) generateGasGiant(
 	worldID string,
 	worldName string,
 	orbitIndex int,
 	sp StellarParams,
+	tune *raceTune,
 ) *PlanetData {
 	name := names.GeneratePlanetName(g.rng, g.usedNames)
 	if name == "" {
@@ -29,6 +33,9 @@ func (g *Generator) generateGasGiant(
 	}
 
 	orbitRadius := orbitRadiusScaled(orbitIndex, sp.Luminosity)
+	if tune != nil && tune.orbitMult > 0 {
+		orbitRadius *= tune.orbitMult
+	}
 	res := g.runCascadeGiant(cascadeInput{
 		Luminosity:    sp.Luminosity,
 		StellarMass:   sp.StellarMass,

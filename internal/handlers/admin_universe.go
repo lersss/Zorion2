@@ -275,14 +275,19 @@ func (h *AdminHandlers) GenerateUniverse(w http.ResponseWriter, r *http.Request)
 		// Веса из generation_config (99.2.3 §4.4): дефолты, если в БД пусто.
 		weights := galaxy.DefaultWeights()
 		massRanges := galaxy.DefaultStellarMassRanges()
+		softness := 0.5 // дефолт подкрутки под расу-дома (99.2.22 §4.3)
 		if loaded, err := h.loadGenerationConfig(); err == nil {
 			weights = loaded.StarWeights
 			if len(loaded.StellarMassRanges) > 0 {
 				massRanges = loaded.StellarMassRanges
 			}
+			softness = loaded.RaceTuningSoftness
 		}
 		gen := galaxy.NewGeneratorWithWeights(&cfg, weights)
 		gen.SetMassRanges(massRanges)
+		// Мягкость подкрутки под расу-дома (99.2.22 §4.3): слой 1 непрерывный —
+		// спектральные веса eff = 1 + (config−1)·s.
+		gen.SetRaceSoftness(softness)
 		result := gen.GenerateGalaxyWithRegions()
 		worlds := result.Worlds
 		log.Printf("✅ Generated %d worlds, %d regions", len(worlds), len(result.Regions))
@@ -407,8 +412,9 @@ func (h *AdminHandlers) GeneratePlanets(w http.ResponseWriter, r *http.Request) 
 	// Конвертируем []*models.World в []planet.WorldInfo — лёгкий тип,
 	// чтобы генератор не зависел от models. Экзотические типы и модификаторы
 	// несутся в WorldInfo для ветки generateExoticPlanet (99.2.4 §5.3).
-	// Профиль региона (59a §10): для каждого мира — ближайший регион по
-	// координатам (та же NearestRegionIndex, что в генерации звёзд).
+	// Профиль региона (59a §10) и раса-дома (99.2.22 §2.1): для каждого мира —
+	// ближайший регион по координатам (та же NearestRegionIndex, что в
+	// генерации звёзд; раса — из regions.race_id, консистентно с profile).
 	regions, err := h.loadRegionsWithProfiles()
 	if err != nil {
 		log.Printf("❌ GeneratePlanets: failed to load regions: %v", err)
@@ -433,6 +439,7 @@ func (h *AdminHandlers) GeneratePlanets(w http.ResponseWriter, r *http.Request) 
 				wi.Profile = regionprofile.ByID(r.Profile)
 				wi.ProfileIntensity = regionprofile.Intensity(r.ProfileIntensity)
 			}
+			wi.RaceID = regions[idx].RaceID
 		}
 		worldInfos = append(worldInfos, wi)
 	}
@@ -461,9 +468,11 @@ func (h *AdminHandlers) GeneratePlanets(w http.ResponseWriter, r *http.Request) 
 
 		planetGen := planet.NewGenerator(h.db, 0)
 
-		// Средние числа планет из generation_config (99.2.3 §4.3): дефолты, если пусто.
+		// Средние числа планет и подкрутка под расу-дома из generation_config
+		// (99.2.3 §4.3, 99.2.22 §4.3): дефолты, если пусто.
 		if loaded, err := h.loadGenerationConfig(); err == nil {
 			planetGen.SetMeans(loaded.PlanetMeans)
+			planetGen.SetRaceTuning(loaded.RaceTuningSoftness, loaded.RaceClusterPlanetCountMult)
 		}
 
 		progressFn := func(processed int) {

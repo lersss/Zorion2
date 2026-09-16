@@ -12,19 +12,32 @@ import (
 // GenerationConfigPayload — конфиг генерации (99.2.3 §3/§4): веса звёзд,
 // средние числа планет и диапазоны масс (29a §4м). Дефолты — из 99.2.4
 // (§4.1/§4.2/§5.2) и 29a §4м, источник один.
+// RaceTuningSoftness/RaceClusterPlanetCountMult — подкрутка под расу-дома
+// (99.2.22 §4.3): мягкость s и множитель числа планет в кластерах рас.
 type GenerationConfigPayload struct {
 	StarWeights       galaxy.Weights           `json:"star_weights"`
 	PlanetMeans       planet.PlanetMeans       `json:"planet_means"`
 	StellarMassRanges galaxy.StellarMassRanges `json:"stellar_mass_ranges"`
+
+	// RaceTuningSoftness — «Подкрутка под расу-дома» (0–1, дефолт 0.5):
+	// доля миров кластера, подстроенных под расу-дома (99.2.22 §4).
+	RaceTuningSoftness float64 `json:"race_tuning_softness"`
+	// RaceClusterPlanetCountMult — «Число планет в кластерах рас» (0.7–1.3,
+	// дефолт 1.1): mean × mult перед потолком 8 (99.2.22 §3.3 ручка 6).
+	RaceClusterPlanetCountMult float64 `json:"race_cluster_planet_count_mult"`
 }
 
 // DefaultGenerationConfig — дефолты конфига генерации
-// (99.2.4 §4.1/§4.2/§5.2 + 29a §4м).
+// (99.2.4 §4.1/§4.2/§5.2 + 29a §4м + 99.2.22 §4.3).
 func DefaultGenerationConfig() GenerationConfigPayload {
 	return GenerationConfigPayload{
 		StarWeights:       galaxy.DefaultWeights(),
 		PlanetMeans:       planet.DefaultPlanetMeans(),
 		StellarMassRanges: galaxy.DefaultStellarMassRanges(),
+		// 99.2.22 §4.3: «половина миров кластера подстроена под расу»;
+		// «Больше шансов на кластер» (ручка 6).
+		RaceTuningSoftness:         0.5,
+		RaceClusterPlanetCountMult: 1.1,
 	}
 }
 
@@ -76,6 +89,11 @@ func (h *AdminHandlers) PutGenerationConfig(w http.ResponseWriter, r *http.Reque
 			req.StellarMassRanges = galaxy.DefaultStellarMassRanges()
 		}
 	}
+	// Множитель числа планет в кластерах рас не слал фронт (старые клиенты) —
+	// не затирать нулём (0 вне диапазона 0.7–1.3): дефолт 1.1 (99.2.22 §4.3).
+	if req.RaceClusterPlanetCountMult == 0 {
+		req.RaceClusterPlanetCountMult = DefaultGenerationConfig().RaceClusterPlanetCountMult
+	}
 	if status, msg := validateGenerationConfig(&req); status != 0 {
 		http.Error(w, msg, status)
 		return
@@ -119,6 +137,10 @@ func (h *AdminHandlers) loadGenerationConfig() (GenerationConfigPayload, error) 
 					cfg.StellarMassRanges[k] = v
 				}
 			}
+		case "race_tuning_softness":
+			json.Unmarshal(payload, &cfg.RaceTuningSoftness)
+		case "race_cluster_planet_count_mult":
+			json.Unmarshal(payload, &cfg.RaceClusterPlanetCountMult)
 		}
 	}
 	return cfg, rows.Err()
@@ -139,6 +161,8 @@ func (h *AdminHandlers) saveGenerationConfig(cfg GenerationConfigPayload) error 
 		{"star_weights", cfg.StarWeights},
 		{"planet_means", cfg.PlanetMeans},
 		{"stellar_mass_ranges", cfg.StellarMassRanges},
+		{"race_tuning_softness", cfg.RaceTuningSoftness},
+		{"race_cluster_planet_count_mult", cfg.RaceClusterPlanetCountMult},
 	} {
 		payload, err := json.Marshal(item.v)
 		if err != nil {
@@ -188,6 +212,14 @@ func validateGenerationConfig(cfg *GenerationConfigPayload) (int, string) {
 		if r.Max > 100 {
 			return http.StatusUnprocessableEntity, k + ": max ≤ 100 M☉"
 		}
+	}
+	// Подкрутка под расу-дома (99.2.22 §4.3): мягкость s ∈ [0, 1];
+	// множитель числа планет в кластерах рас 0.7–1.3.
+	if cfg.RaceTuningSoftness < 0 || cfg.RaceTuningSoftness > 1 {
+		return http.StatusUnprocessableEntity, "race_tuning_softness: 0–1 (доля миров кластера, подстроенных под расу)"
+	}
+	if cfg.RaceClusterPlanetCountMult < 0.7 || cfg.RaceClusterPlanetCountMult > 1.3 {
+		return http.StatusUnprocessableEntity, "race_cluster_planet_count_mult: 0.7–1.3"
 	}
 	return 0, ""
 }

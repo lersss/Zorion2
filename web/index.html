@@ -34,13 +34,16 @@
         </div>
 
         <div class="card">
-            <h2>🚀 Иконка корабля</h2>
+            <h2>🚀 Корабль</h2>
             <div id="ship-sel" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(64px, 1fr)); gap:8px; margin-top:10px;"></div>
+            <div id="ship-palette" style="display:flex; gap:8px; margin-top:12px; align-items:center; flex-wrap:wrap;"></div>
             <div id="ship-status" style="margin-top:10px; font-size:0.8rem; color:#94a3b8;"></div>
         </div>
     </div>
 
-    <script>
+    <script type="module">
+        import { recolorShipSprite, getShipImage, setRedrawCallback, SHIP_COLOR_PALETTE } from '/static/js/map/ship_sprites.js';
+
         async function loadUser() {
             const token = localStorage.getItem('token');
             if (!token) return;
@@ -56,36 +59,120 @@
             }
         }
 
-        // ==================== ИКОНКА КОРАБЛЯ ====================
+        // ==================== КОРАБЛЬ (спека 61b §6.1) ====================
+        // Сетка 21 спрайта из /me.ship_options (реестр с сервера, И1),
+        // превью — recolorShipSprite(file, текущий цвет); палитра 9 цветов
+        // + «Оригинал» (NULL). Сохранение: PUT /me/ship-icon + PUT /me/ship-color.
+        // Палитра — единый источник на клиенте (ship_sprites.js, уточнение
+        // 2026-09-16): SHIP_COLOR_PALETTE, порядок совпадает с серверным.
 
-        let shipIcon = 'ship_strela.svg';
+        let shipOptions = []; // 21 {id, name, file} из /me
+        let shipIcon = '';    // выбранный PNG-файл
+        let shipColor = null; // выбранный цвет (null = «Оригинал»)
 
-        async function loadShips() {
+        // shipPreviewEl — миниатюра 52px: перекрашенный canvas (если цвет
+        // задан и спрайт загружен), иначе исходный Image, иначе пустой div
+        // (спрайт ещё грузится — onload перерисует сетку через scheduleRedraw).
+        function shipPreviewEl(file, color) {
+            const preview = recolorShipSprite(file, color);
+            if (preview) {
+                preview.style.cssText = 'width:52px; height:52px; pointer-events:none;';
+                return preview;
+            }
+            const img = getShipImage(file);
+            if (img) {
+                img.style.cssText = 'width:52px; height:52px; pointer-events:none;';
+                return img;
+            }
+            const div = document.createElement('div');
+            div.style.cssText = 'width:52px; height:52px;';
+            return div;
+        }
+
+        function renderShipGrid() {
             const sel = document.getElementById('ship-sel');
             if (!sel) return;
-            try {
-                const res = await fetch('/static/sprites/ships.json');
-                if (!res.ok) throw new Error('HTTP ' + res.status);
-                const ships = await res.json();
-                sel.innerHTML = '';
-                ships.forEach(s => {
-                    const tile = document.createElement('div');
-                    tile.dataset.file = s.file;
-                    tile.title = s.name;
-                    tile.style.cssText = `
-                        display:flex; flex-direction:column; align-items:center; gap:4px;
-                        padding:6px; border:2px solid #334155; border-radius:10px;
-                        background:#0f172a; cursor:pointer; transition:0.15s;
-                    `;
-                    tile.innerHTML = `<img src="/static/sprites/${s.file}" alt="${s.name}" style="width:52px; height:52px; pointer-events:none;">
-                        <span style="font-size:0.62rem; color:#94a3b8; text-align:center; line-height:1;">${s.name}</span>`;
-                    tile.addEventListener('click', () => selectShip(s.file));
-                    sel.appendChild(tile);
-                });
-                markSelectedShip();
-            } catch (e) {
-                console.error('loadShips error:', e);
-            }
+            sel.innerHTML = '';
+            shipOptions.forEach(s => {
+                const tile = document.createElement('div');
+                tile.dataset.file = s.file;
+                tile.title = s.name;
+                tile.style.cssText = `
+                    display:flex; flex-direction:column; align-items:center; gap:4px;
+                    padding:6px; border:2px solid #334155; border-radius:10px;
+                    background:#0f172a; cursor:pointer; transition:0.15s;
+                `;
+                tile.appendChild(shipPreviewEl(s.file, shipColor));
+                const span = document.createElement('span');
+                span.textContent = s.name;
+                span.style.cssText = 'font-size:0.62rem; color:#94a3b8; text-align:center; line-height:1;';
+                tile.appendChild(span);
+                tile.addEventListener('click', () => selectShip(s.file));
+                sel.appendChild(tile);
+            });
+            markSelectedShip();
+        }
+
+        function markSelectedShip() {
+            const sel = document.getElementById('ship-sel');
+            if (!sel) return;
+            sel.querySelectorAll('[data-file]').forEach(t => {
+                const selected = t.dataset.file === shipIcon;
+                t.style.borderColor = selected ? '#60a5fa' : '#334155';
+                t.style.background = selected ? '#1e3a8a' : '#0f172a';
+            });
+        }
+
+        function renderPalette() {
+            const pal = document.getElementById('ship-palette');
+            if (!pal) return;
+            pal.innerHTML = '';
+
+            // «Оригинал» (NULL) — спрайт без перекраски.
+            const orig = document.createElement('div');
+            orig.dataset.color = '';
+            orig.title = 'Оригинал (без перекраски)';
+            orig.textContent = 'Оригинал';
+            orig.style.cssText = `
+                padding:4px 10px; border-radius:14px; border:2px solid #334155;
+                background:#0f172a; color:#94a3b8; font-size:0.75rem;
+                cursor:pointer; transition:0.15s;
+            `;
+            orig.addEventListener('click', () => selectColor(null));
+            pal.appendChild(orig);
+
+            // 9 хроматических свотчей (спека §5.5).
+            SHIP_COLOR_PALETTE.forEach(c => {
+                const sw = document.createElement('div');
+                sw.dataset.color = c;
+                sw.title = c;
+                sw.style.cssText = `
+                    width:28px; height:28px; border-radius:50%;
+                    background:${c}; border:2px solid #334155;
+                    cursor:pointer; transition:0.15s;
+                `;
+                sw.addEventListener('click', () => selectColor(c));
+                pal.appendChild(sw);
+            });
+            markSelectedColor();
+        }
+
+        function markSelectedColor() {
+            const pal = document.getElementById('ship-palette');
+            if (!pal) return;
+            pal.querySelectorAll('[data-color]').forEach(t => {
+                const selected = (t.dataset.color || null) === shipColor;
+                t.style.borderColor = selected ? '#60a5fa' : '#334155';
+                t.style.outline = selected ? '2px solid #60a5fa' : 'none';
+                if (t.dataset.color === '') {
+                    t.style.background = selected ? '#1e3a8a' : '#0f172a';
+                    t.style.color = selected ? '#f0f4fa' : '#94a3b8';
+                }
+            });
+        }
+
+        function redirectToLogin() {
+            if (window.location.pathname !== '/login-page') window.location.href = '/login-page';
         }
 
         function selectShip(file) {
@@ -95,7 +182,7 @@
             if (status) status.textContent = '⏳ Сохранение...';
             const token = localStorage.getItem('token');
             if (!token) {
-                if (window.location.pathname !== '/login-page') window.location.href = '/login-page';
+                redirectToLogin();
                 return;
             }
             fetch('/me/ship-icon', {
@@ -108,7 +195,7 @@
             })
             .then(async res => {
                 if (res.status === 401 || res.status === 403) {
-                    if (window.location.pathname !== '/login-page') window.location.href = '/login-page';
+                    redirectToLogin();
                     return;
                 }
                 if (!res.ok) {
@@ -126,37 +213,69 @@
             });
         }
 
-        function markSelectedShip() {
-            const sel = document.getElementById('ship-sel');
-            if (!sel) return;
-            sel.querySelectorAll('[data-file]').forEach(t => {
-                t.style.borderColor = t.dataset.file === shipIcon ? '#60a5fa' : '#334155';
-                t.style.background = t.dataset.file === shipIcon ? '#1e3a8a' : '#0f172a';
+        function selectColor(color) {
+            shipColor = color;
+            renderShipGrid(); // перекрасить превью сетки (лениво, кэш)
+            markSelectedColor();
+            const status = document.getElementById('ship-status');
+            if (status) status.textContent = '⏳ Сохранение...';
+            const token = localStorage.getItem('token');
+            if (!token) {
+                redirectToLogin();
+                return;
+            }
+            fetch('/me/ship-color', {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + token
+                },
+                body: JSON.stringify({ ship_color: color })
+            })
+            .then(async res => {
+                if (res.status === 401 || res.status === 403) {
+                    redirectToLogin();
+                    return;
+                }
+                if (!res.ok) {
+                    let msg = 'Ошибка сохранения';
+                    try { msg = (await res.json()).error || msg; } catch (_) {}
+                    throw new Error(msg);
+                }
+                const data = await res.json();
+                shipColor = data.ship_color || null;
+                renderShipGrid();
+                markSelectedColor();
+                if (status) status.textContent = '✅ Цвет сохранён';
+            })
+            .catch(e => {
+                if (status) status.textContent = '❌ ' + e.message;
             });
         }
 
-        async function loadShipIcon() {
+        async function loadShipSelector() {
             const token = localStorage.getItem('token');
             if (!token) return;
             try {
                 const res = await fetch('/me', { headers: { 'Authorization': 'Bearer ' + token } });
                 if (!res.ok) return;
                 const data = await res.json();
-                if (data.ship_icon) {
-                    shipIcon = data.ship_icon;
-                    markSelectedShip();
-                }
+                shipOptions = Array.isArray(data.ship_options) ? data.ship_options : [];
+                if (data.ship_icon) shipIcon = data.ship_icon; // уже смапплено сервером
+                shipColor = data.ship_color || null;
+                renderShipGrid();
+                renderPalette();
             } catch (e) {
                 console.error(e);
             }
         }
 
-        async function initShipSelector() {
-            await Promise.all([loadShips(), loadShipIcon()]);
-        }
+        // Перерисовка превью после асинхронной загрузки спрайтов
+        // (onload → scheduleRedraw → этот колбэк; паттерн из ship_sprites.js).
+        setRedrawCallback(renderShipGrid);
 
         loadUser();
-        initShipSelector();
+        loadShipSelector();
     </script>
 </body>
 </html>

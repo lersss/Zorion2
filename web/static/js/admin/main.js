@@ -21,10 +21,6 @@ import {
     createAgent, toggleNotify, deleteAgent, generateBulk, loadMoreNPC, loadNPCMetrics,
     clearAllAgents
 } from './npc.js';
-import {
-    initShips, loadShips, generateShips, regenerateCategory,
-    deleteShipPart, selectShipPart
-} from './ships.js';
 import { saveSettlementSettings, updateSettlementNetto } from './settlementSettings.js';
 
 // Глобальные функции для onclick в HTML
@@ -67,12 +63,6 @@ window.loadMoreNPC = loadMoreNPC;
 window.generateBulk = generateBulk;
 window.loadNPCMetrics = loadNPCMetrics;
 window.clearAllAgents = clearAllAgents;
-window.initShips = initShips;
-window.loadShips = loadShips;
-window.generateShips = generateShips;
-window.regenerateCategory = regenerateCategory;
-window.deleteShipPart = deleteShipPart;
-window.selectShipPart = selectShipPart;
 window.saveSettlementSettings = saveSettlementSettings;
 window.updateSettlementNetto = updateSettlementNetto;
 window.switchGenSubTab = switchGenSubTab;

@@ -3,22 +3,25 @@ import { state, elements } from './config.js';
 import { isFiniteNumber, worldToCanvas, getStarColor, getStarShade } from './utils.js';
 import { CONFIG } from '../config.js';
 import { drawNPCAgents } from './npc_agents.js';
-import { getShipSprite } from './ship_render.js';
+import { recolorShipSprite } from './ship_sprites.js';
 import { drawStarfield, initStarfield } from './starfield.js';
 
 const { map: mapCfg } = CONFIG;
 
-// Спрайт корабля (спека 99.2.15 §5.2): глобальный shipImg заменён на
-// getShipSprite(seed) из каталога деталей. Полёт игрока использует дефолт
-// от id ⊕ legacy icon (users.ship_visual придёт на этапе 5); спрайт грузится
-// асинхронно — до загрузки рисуется фолбэк-примитив.
+// Спрайт корабля (спека 61b §6.1): цельный PNG из /me (state.userShipIcon,
+// уже смаппленное) + цвет перекраски (state.userShipColor) →
+// recolorShipSprite(icon, color). Спрайт грузится асинхронно — до загрузки
+// рисуется фолбэк-примитив (И4).
 
-// setShipIcon — мост с legacy-блоком (спека §8): имя legacy-спрайта больше
-// не грузится как картинка, а идёт в seed дефолтной сборки схемы игрока.
+// setShipIcon — мост из data.js: PNG-имя спрайта из /me (уже смаппленное).
 export function setShipIcon(fileName) {
     if (!fileName || typeof fileName !== 'string') return;
-    if (!/^[a-z0-9_\-]+\.svg$/i.test(fileName)) return;
     state.userShipIcon = fileName;
+}
+
+// setShipColor — цвет перекраски спрайта из /me (NULL = «Оригинал»).
+export function setShipColor(color) {
+    state.userShipColor = color || null;
 }
 
 // Размеры звёзд по спектральному классу — вынесено из циклов.
@@ -605,7 +608,12 @@ function hexToRgba(hex, alpha) {
 function drawFlight(ctx, scale, flyFrom, flyTo, flyStartTime, flyDuration) {
     const elapsed = (Date.now() - flyStartTime) / 1000;
     const progress = Math.min(elapsed / flyDuration, 1);
-    const fromPos = worldToCanvas(flyFrom);
+    // Стартовая точка сегмента (61a): при редиректе — точка P маршрута,
+    // не координаты мира отправления. Фолбэк на flyFrom, если не задана.
+    const fromPos = worldToCanvas({
+        coord_x: (typeof state.flyStartX === 'number') ? state.flyStartX : flyFrom.coord_x,
+        coord_y: (typeof state.flyStartY === 'number') ? state.flyStartY : flyFrom.coord_y,
+    });
     const toPos = worldToCanvas(flyTo);
     if (!isFiniteNumber(fromPos.x) || !isFiniteNumber(fromPos.y)) return;
     if (!isFiniteNumber(toPos.x) || !isFiniteNumber(toPos.y)) return;
@@ -648,11 +656,10 @@ function drawFlight(ctx, scale, flyFrom, flyTo, flyStartTime, flyDuration) {
     ctx.fillStyle = flameGrad;
     ctx.fill();
 
-    // Спрайт корабля: схема игрока (дефолт от id ⊕ legacy icon, спека §8)
-    // из кэша каталога; каталог пуст/спрайт не загружен → примитив-фолбэк.
-    const playerSeed = state.userId ? (state.userId + '|' + (state.userShipIcon || '')) : '';
-    const sprite = playerSeed ? getShipSprite(playerSeed) : null;
-    if (sprite && sprite.complete && sprite.naturalWidth > 0) {
+    // Спрайт корабля: цельный PNG игрока (спека 61b §6.1) с перекраской;
+    // спрайт не загружен/имя неизвестно → примитив-фолбэк (И4).
+    const sprite = recolorShipSprite(state.userShipIcon, state.userShipColor);
+    if (sprite) {
         const w = shipSize * 3.2;
         const h = shipSize * 3.2;
         ctx.drawImage(sprite, -w / 2, -h / 2, w, h);

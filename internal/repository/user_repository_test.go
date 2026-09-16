@@ -60,11 +60,11 @@ func TestGetByUsernameScansRole(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, role, created_at, updated_at FROM users WHERE username = \$1`).
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, role, created_at, updated_at FROM users WHERE username = \$1`).
 		WithArgs("bob").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "username", "password_hash", "email", "agent_id", "current_world_id", "ship_icon", "role", "created_at", "updated_at",
-		}).AddRow("u1", "bob", "hash", nil, nil, nil, "ship_strela.svg", "admin", now(), now()))
+			"id", "username", "password_hash", "email", "agent_id", "current_world_id", "ship_icon", "ship_color", "role", "created_at", "updated_at",
+		}).AddRow("u1", "bob", "hash", nil, nil, nil, "ship_strela.svg", nil, "admin", now(), now()))
 
 	u, err := NewUserRepository(db).GetByUsername("bob")
 	require.NoError(t, err)
@@ -112,8 +112,8 @@ func TestListUsersPagination(t *testing.T) {
 	mock.ExpectQuery(`FROM users WHERE \(username ILIKE.*ORDER BY created_at DESC, id LIMIT \$2 OFFSET \$3`).
 		WithArgs("bo", 20, 0).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "username", "password_hash", "email", "agent_id", "current_world_id", "ship_icon", "role", "created_at", "updated_at",
-		}).AddRow("u1", "bob", "hash", nil, nil, nil, "ship_strela.svg", "player", now(), now()))
+			"id", "username", "password_hash", "email", "agent_id", "current_world_id", "ship_icon", "ship_color", "role", "created_at", "updated_at",
+		}).AddRow("u1", "bob", "hash", nil, nil, nil, "ship_strela.svg", nil, "player", now(), now()))
 
 	users, err := NewUserRepository(db).List("bo", "", 1, 20)
 	require.NoError(t, err)
@@ -264,6 +264,37 @@ func TestUpdatePasswordNotFound(t *testing.T) {
 
 	err = NewUserRepository(db).UpdatePassword("nope", "newhash")
 	require.ErrorIs(t, err, sql.ErrNoRows)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// ==================== UPDATE SHIP COLOR (спека 61b §7) ====================
+
+// Цвет из палитры пишется в users.ship_color.
+func TestUpdateShipColorSuccess(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	color := "#ef4444"
+	mock.ExpectExec(`UPDATE users SET ship_color = \$1, updated_at = NOW\(\) WHERE id = \$2`).
+		WithArgs(color, "u1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	require.NoError(t, NewUserRepository(db).UpdateShipColor("u1", &color))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// NULL («Оригинал») пишется как NULL.
+func TestUpdateShipColorNull(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectExec(`UPDATE users SET ship_color = \$1, updated_at = NOW\(\) WHERE id = \$2`).
+		WithArgs(nil, "u1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	require.NoError(t, NewUserRepository(db).UpdateShipColor("u1", nil))
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

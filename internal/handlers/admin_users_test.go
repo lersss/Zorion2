@@ -64,8 +64,8 @@ func TestAdminUsersListSuccess(t *testing.T) {
 	mock.ExpectQuery(`FROM users WHERE \(username ILIKE.*ORDER BY created_at DESC, id LIMIT \$3 OFFSET \$4`).
 		WithArgs("bo", "admin", 20, 0).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "username", "password_hash", "email", "agent_id", "current_world_id", "ship_icon", "role", "created_at", "updated_at",
-		}).AddRow("11111111-1111-1111-1111-111111111111", "bob", "hash", nil, nil, nil, "ship_strela.svg", "admin", now(), now()))
+			"id", "username", "password_hash", "email", "agent_id", "current_world_id", "ship_icon", "ship_color", "role", "created_at", "updated_at",
+		}).AddRow("11111111-1111-1111-1111-111111111111", "bob", "hash", nil, nil, nil, "ship_strela.svg", nil, "admin", now(), now()))
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/users?query=bo&role=admin&page=1&limit=20", nil)
 	rec := execJSON(h.HandleCollection, req)
@@ -109,7 +109,7 @@ func TestAdminUsersListLimitCappedAt100(t *testing.T) {
 	mock.ExpectQuery(`FROM users ORDER BY created_at DESC, id LIMIT \$1 OFFSET \$2`).
 		WithArgs(100, 0).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "username", "password_hash", "email", "agent_id", "current_world_id", "ship_icon", "role", "created_at", "updated_at",
+			"id", "username", "password_hash", "email", "agent_id", "current_world_id", "ship_icon", "ship_color", "role", "created_at", "updated_at",
 		}))
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/users?limit=500", nil)
@@ -129,10 +129,10 @@ func TestAdminUsersListLimitCappedAt100(t *testing.T) {
 func TestAdminUsersCreateSuccess(t *testing.T) {
 	h, mock := newAdminUsersHarness(t)
 
-	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, role, created_at, updated_at FROM users WHERE username = \$1`).
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, role, created_at, updated_at FROM users WHERE username = \$1`).
 		WithArgs("newbie").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "username", "password_hash", "email", "agent_id", "current_world_id", "ship_icon", "role", "created_at", "updated_at",
+			"id", "username", "password_hash", "email", "agent_id", "current_world_id", "ship_icon", "ship_color", "role", "created_at", "updated_at",
 		}))
 	mock.ExpectExec(`INSERT INTO users`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -152,11 +152,11 @@ func TestAdminUsersCreateSuccess(t *testing.T) {
 func TestAdminUsersCreateTaken(t *testing.T) {
 	h, mock := newAdminUsersHarness(t)
 
-	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, role, created_at, updated_at FROM users WHERE username = \$1`).
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, role, created_at, updated_at FROM users WHERE username = \$1`).
 		WithArgs("newbie").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "username", "password_hash", "email", "agent_id", "current_world_id", "ship_icon", "role", "created_at", "updated_at",
-		}).AddRow("u9", "newbie", "hash", nil, nil, nil, "ship_strela.svg", "player", now(), now()))
+			"id", "username", "password_hash", "email", "agent_id", "current_world_id", "ship_icon", "ship_color", "role", "created_at", "updated_at",
+		}).AddRow("u9", "newbie", "hash", nil, nil, nil, "ship_strela.svg", nil, "player", now(), now()))
 
 	body := `{"username":"newbie","password":"secret"}`
 	req := httptest.NewRequest(http.MethodPost, "/admin/users", strings.NewReader(body))
@@ -184,11 +184,11 @@ func TestAdminUsersGetProfileWithWorldName(t *testing.T) {
 	h, mock := newAdminUsersHarness(t)
 
 	wid := "w1"
-	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, role, created_at, updated_at FROM users WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, role, created_at, updated_at FROM users WHERE id = \$1`).
 		WithArgs("11111111-1111-1111-1111-111111111111").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "username", "password_hash", "email", "agent_id", "current_world_id", "ship_icon", "role", "created_at", "updated_at",
-		}).AddRow("11111111-1111-1111-1111-111111111111", "bob", "hash", "b@x.io", nil, wid, "ship_strela.svg", "admin", now(), now()))
+			"id", "username", "password_hash", "email", "agent_id", "current_world_id", "ship_icon", "ship_color", "role", "created_at", "updated_at",
+		}).AddRow("11111111-1111-1111-1111-111111111111", "bob", "hash", "b@x.io", nil, wid, "ship_strela.svg", nil, "admin", now(), now()))
 	mock.ExpectQuery(`SELECT id, name, coord_x, coord_y, COALESCE\(spectral_class,''\), temperature, star_type, system_type, stellar_mods, stellar_mass, age, created_at, updated_at FROM worlds WHERE id = \$1`).
 		WithArgs(wid).
 		WillReturnRows(sqlmock.NewRows([]string{
@@ -210,16 +210,37 @@ func TestAdminUsersGetProfileWithWorldName(t *testing.T) {
 func TestAdminUsersGetProfileNotFound(t *testing.T) {
 	h, mock := newAdminUsersHarness(t)
 
-	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, role, created_at, updated_at FROM users WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, role, created_at, updated_at FROM users WHERE id = \$1`).
 		WithArgs("33333333-3333-3333-3333-333333333333").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "username", "password_hash", "email", "agent_id", "current_world_id", "ship_icon", "role", "created_at", "updated_at",
+			"id", "username", "password_hash", "email", "agent_id", "current_world_id", "ship_icon", "ship_color", "role", "created_at", "updated_at",
 		}))
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/users/33333333-3333-3333-3333-333333333333", nil)
 	rec := execJSON(h.HandleUser, req)
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Профиль админки отдаёт смаппленный ship_icon (спека 61b §4: тот же маппинг,
+// что в /me).
+func TestAdminUsersProfileMapsShipIcon(t *testing.T) {
+	h, mock := newAdminUsersHarness(t)
+
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, role, created_at, updated_at FROM users WHERE id = \$1`).
+		WithArgs("11111111-1111-1111-1111-111111111111").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "username", "password_hash", "email", "agent_id", "current_world_id", "ship_icon", "ship_color", "role", "created_at", "updated_at",
+		}).AddRow("11111111-1111-1111-1111-111111111111", "bob", "hash", nil, nil, nil, "ship_strela.svg", nil, "admin", now(), now()))
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/users/11111111-1111-1111-1111-111111111111", nil)
+	rec := execJSON(h.HandleUser, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "boomerang.png", resp["ship_icon"], "ship_strela.svg должен смаппиться в boomerang.png")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -237,11 +258,11 @@ func TestAdminUsersUpdateRoleSuccess(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 	// Перечитывание профиля для ответа.
-	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, role, created_at, updated_at FROM users WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, role, created_at, updated_at FROM users WHERE id = \$1`).
 		WithArgs("11111111-1111-1111-1111-111111111111").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "username", "password_hash", "email", "agent_id", "current_world_id", "ship_icon", "role", "created_at", "updated_at",
-		}).AddRow("11111111-1111-1111-1111-111111111111", "bob", "hash", nil, nil, nil, "ship_strela.svg", "admin", now(), now()))
+			"id", "username", "password_hash", "email", "agent_id", "current_world_id", "ship_icon", "ship_color", "role", "created_at", "updated_at",
+		}).AddRow("11111111-1111-1111-1111-111111111111", "bob", "hash", nil, nil, nil, "ship_strela.svg", nil, "admin", now(), now()))
 
 	req := httptest.NewRequest(http.MethodPatch, "/admin/users/11111111-1111-1111-1111-111111111111/role", strings.NewReader(`{"role":"admin"}`))
 	rec := execJSON(h.HandleUser, withUserID(req, "caller"))
@@ -424,7 +445,7 @@ func TestAdminUsersRouteAllowsSkycomposer(t *testing.T) {
 	mock.ExpectQuery(`FROM users ORDER BY created_at DESC, id LIMIT \$1 OFFSET \$2`).
 		WithArgs(20, 0).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "username", "password_hash", "email", "agent_id", "current_world_id", "ship_icon", "role", "created_at", "updated_at",
+			"id", "username", "password_hash", "email", "agent_id", "current_world_id", "ship_icon", "ship_color", "role", "created_at", "updated_at",
 		}))
 
 	handler := auth.SkycomposerAuth(h.HandleCollection)

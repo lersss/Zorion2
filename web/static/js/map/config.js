@@ -13,6 +13,8 @@ export const state = {
     flyTo: null,
     flyDuration: 0,
     flyStartTime: 0,
+    flyStartX: null,   // стартовая точка сегмента (61a): при редиректе — точка P
+    flyStartY: null,
     selectedWorldId: null,
     hoveredWorldId: null,
     isDragging: false,
@@ -30,7 +32,8 @@ export const state = {
     highlightedNpcId: null, // подсвеченный агент поиска (ореол, спека 26a.1 §6.2)
     npcPositions: [],    // NPC-агенты для карты (спека 20a.1 §7): {id,name,x,y,status,...}
     userId: null,        // id игрока (для дефолтной схемы корабля, спека 99.2.15 §8)
-    userShipIcon: '',    // legacy ship_icon (мост: идёт в seed дефолтной схемы)
+    userShipIcon: '',    // PNG-имя спрайта корабля из /me (спека 61b §6.1)
+    userShipColor: null, // цвет перекраски спрайта из /me (NULL = «Оригинал», спека 61b §6.1)
     userRole: '',        // роль пользователя ('admin'/'skycomposer' → FPS-счётчик на карте)
 };
 

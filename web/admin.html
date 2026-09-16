@@ -20,7 +20,6 @@
         <button class="tab-btn" data-tab="tab-hypothesis">🔬 Гипотезы</button>
         <button class="tab-btn" data-tab="tab-worlds">🌍 Миры</button>
         <button class="tab-btn" data-tab="tab-npc">👁️ NPC</button>
-        <button class="tab-btn" data-tab="tab-ships">🚀 Корабли</button>
         <button class="tab-btn" data-tab="tab-balancer">⚖️ Балансировка</button>
         <button class="tab-btn" data-tab="tab-users" id="tab-users-btn" style="display:none;">👥 Пользователи</button>
     </div>
@@ -769,28 +768,6 @@
                 СПЖ и коэффициент рождаемости настраиваются в Настройках населения
                 (вкладка «Основное») → <a href="#" id="balancerGoSettlement">открыть</a>.
             </p>
-        </div>
-    </div>
-
-    <!-- Вкладка: Корабли (спека 99.2.15 §6) -->
-    <div id="tab-ships" class="tab-pane">
-        <div class="card">
-            <h2>🚀 Детали кораблей <button class="btn secondary" style="margin-left:8px;" onclick="loadShips()">🔄 Обновить</button></h2>
-            <p class="hint">
-                «Теневой» генератор (спека 99.2.15 §6): детали — параметрические
-                SVG-фрагменты в холсте 200×200 (нос вправо), из них клиент собирает
-                схемы кораблей. Каталог в памяти перезагружается после генерации;
-                агенты получают схемы от seed автоматически.
-            </p>
-            <div id="shipsCategories"><p class="hint">Загрузка...</p></div>
-        </div>
-        <div class="card">
-            <h2>🔍 Деталь крупно</h2>
-            <div id="shipsDetail"><p class="hint">Выберите деталь в списке выше.</p></div>
-        </div>
-        <div class="card">
-            <h2>🛰️ Предпросмотр сборок — гейт целостности (И9)</h2>
-            <div id="shipsPreview"><p class="hint">Загрузка...</p></div>
         </div>
     </div>
 

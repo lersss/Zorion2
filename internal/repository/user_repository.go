@@ -59,7 +59,7 @@ func (r *UserRepository) Create(user *models.User) error {
 
 // GetByUsername возвращает пользователя по логину
 func (r *UserRepository) GetByUsername(username string) (*models.User, error) {
-	query := `SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, role, created_at, updated_at FROM users WHERE username = $1`
+	query := `SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, role, created_at, updated_at FROM users WHERE username = $1`
 	row := r.db.QueryRow(query, username)
 
 	var u models.User
@@ -71,6 +71,7 @@ func (r *UserRepository) GetByUsername(username string) (*models.User, error) {
 		&u.AgentID,
 		&u.CurrentWorldID,
 		&u.ShipIcon,
+		&u.ShipColor,
 		&u.Role,
 		&u.CreatedAt,
 		&u.UpdatedAt,
@@ -86,7 +87,7 @@ func (r *UserRepository) GetByUsername(username string) (*models.User, error) {
 
 // GetByID возвращает пользователя по ID
 func (r *UserRepository) GetByID(id string) (*models.User, error) {
-	query := `SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, role, created_at, updated_at FROM users WHERE id = $1`
+	query := `SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, role, created_at, updated_at FROM users WHERE id = $1`
 	row := r.db.QueryRow(query, id)
 
 	var u models.User
@@ -98,6 +99,7 @@ func (r *UserRepository) GetByID(id string) (*models.User, error) {
 		&u.AgentID,
 		&u.CurrentWorldID,
 		&u.ShipIcon,
+		&u.ShipColor,
 		&u.Role,
 		&u.CreatedAt,
 		&u.UpdatedAt,
@@ -125,8 +127,16 @@ func (r *UserRepository) UpdateShipIcon(userID, icon string) error {
 	return err
 }
 
+// UpdateShipColor обновляет цвет перекраски спрайта корабля (спека 61b §7):
+// color == nil — «Оригинал» (NULL), иначе hex из палитры.
+func (r *UserRepository) UpdateShipColor(userID string, color *string) error {
+	query := `UPDATE users SET ship_color = $1, updated_at = NOW() WHERE id = $2`
+	_, err := r.db.Exec(query, color, userID)
+	return err
+}
+
 // userSelect — общие колонки для листинга.
-const userSelect = `SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, role, created_at, updated_at FROM users`
+const userSelect = `SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, role, created_at, updated_at FROM users`
 
 // Count возвращает число пользователей под фильтрами раздела «Пользователи»
 // (§6.1): подстрока по username/email (case-insensitive) + фильтр роли.
@@ -165,6 +175,7 @@ func (r *UserRepository) List(query, role string, page, limit int) ([]*models.Us
 			&u.AgentID,
 			&u.CurrentWorldID,
 			&u.ShipIcon,
+			&u.ShipColor,
 			&u.Role,
 			&u.CreatedAt,
 			&u.UpdatedAt,

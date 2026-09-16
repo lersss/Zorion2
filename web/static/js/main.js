@@ -8,7 +8,7 @@ import { showFlightPanel } from './map/flight.js';
 import { applyFiltersFromUI, resetFilters, filterState } from './filters.js';
 import { loadClusters, loadUserData } from './map/data.js';
 import { draw } from './map/map_render.js';
-import { loadShipCatalog } from './map/ship_render.js';
+import { setRedrawCallback, preloadShipSprites } from './map/ship_sprites.js';
 import { showTextLoader } from './loader.js';
 import { notifyError } from './ui/toast.js';
 import { initEntitySearch } from './search.js';
@@ -37,9 +37,12 @@ function restoreViewport() {
 async function initMap() {
     resizeCanvas();
 
-    // 1. Пользователь (current_world_id) + каталог деталей кораблей
-    //    (спека 99.2.15 §5: схемы полёта и иконок агентов; без него — фолбэк).
-    await Promise.all([loadUserData(), loadShipCatalog()]);
+    // 1. Пользователь (current_world_id, ship_icon/ship_color, реестр спрайтов).
+    await loadUserData();
+    // Прогрев кэша перекраски 21×9 (уточнение 61b 2026-09-16): после /me
+    // известен порядок реестра; прогрев идёт по мере onload спрайтов,
+    // старт карты не блокирует.
+    preloadShipSprites();
 
     // 2. Восстановление вьюпорта.
     // Полёт, восстановленный из /me (идея 42a), имеет приоритет над
@@ -97,6 +100,9 @@ async function initMap() {
 function init() {
     elements.canvas.addEventListener('click', handleCanvasClick);
     window.addEventListener('resize', resizeCanvas);
+    // Перерисовка карты после асинхронной загрузки спрайтов кораблей
+    // (спека 61b §5.6: onload спрайта → scheduleRedraw → draw).
+    setRedrawCallback(draw);
     initFlyBtn();
     initPanZoom();
     initHover();

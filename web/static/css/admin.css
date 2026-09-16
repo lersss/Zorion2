@@ -228,36 +228,6 @@ table tr:hover { background: #1a1a2e; }
 .anomaly-medium { color: #fbbf24; }
 .anomaly-low { color: #fcd34d; }
 
-/* --- Вкладка «Корабли» (спека 99.2.15 §6): плитки деталей и предпросмотр И9 --- */
-.ship-tiles { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-.ship-tile {
-    background: #0f172a;
-    border: 1px solid #334155;
-    border-radius: 8px;
-    padding: 8px;
-    text-align: center;
-    cursor: pointer;
-    width: 104px;
-}
-.ship-tile:hover { border-color: #60a5fa; }
-.ship-tile .tile-name { font-size: 0.78rem; color: #e2e8f0; margin-top: 4px; }
-.ship-tile .tile-id { font-size: 0.62rem; color: #64748b; word-break: break-all; margin-top: 2px; }
-.ship-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
-    gap: 10px;
-    margin-top: 10px;
-}
-.ship-cell { background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 10px; text-align: center; }
-.ship-cell .cell-cap { font-size: 0.7rem; color: #94a3b8; margin-top: 6px; }
-.ship-two { display: flex; align-items: center; justify-content: center; gap: 10px; }
-.strip-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; overflow-x: auto; padding-bottom: 4px; }
-.strip-label { flex: 0 0 170px; font-size: 0.75rem; color: #94a3b8; }
-.strip-ships { display: flex; gap: 6px; }
-.strip-ship { flex: 0 0 auto; background: #0f172a; border: 1px solid #1e293b; border-radius: 6px; padding: 4px; }
-.wc-row { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
-.wc-label { flex: 0 0 230px; font-size: 0.8rem; color: #e2e8f0; }
-
 /* ---------- Поселения: вкладка генерации ---------- */
 .hint {
     color: #94a3b8;

@@ -4,7 +4,6 @@ import { runAudit } from './audit.js';
 import { bindTestsButtons } from './tests.js';
 import { loadUsers } from './users.js';
 import { initNPC } from './npc.js';
-import { initShips } from './ships.js';
 import { initSettlementSettings } from './settlementSettings.js';
 import { initBalancer } from './balancer.js';
 import { applyGenSubTab } from './generation.js';
@@ -51,9 +50,6 @@ function activateTab(tabId) {
     }
     if (tabId === 'tab-npc') {
         initNPC();
-    }
-    if (tabId === 'tab-ships') {
-        initShips();
     }
     if (tabId === 'tab-balancer') {
         initBalancer();

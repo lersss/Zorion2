@@ -10,7 +10,7 @@ import { isFiniteNumber } from './utils.js';
 import { CONFIG } from '../config.js';
 import { notifyInfo } from '../ui/toast.js';
 import { handleUnauthorized } from './data.js';
-import { getShipSprite } from './ship_render.js';
+import { recolorShipSprite, spriteForAgent } from './ship_sprites.js';
 import { focusAgent } from './navigation.js';
 // draw — циклический импорт map_render.js (map_render импортирует
 // drawNPCAgents из этого модуля): ES-модули допускают цикл, доступ к draw
@@ -229,8 +229,9 @@ function npcAngle(p, pos) {
 // drawNPCAgents — иконки агентов. Вызывается из draw() в map_render.js.
 // Видимость: когда видны имена звёзд (тот же порог nameDisplayThreshold,
 // спека §7: на галактическом обзоре агенты скрыты). Вместо ромба — мини-спрайт
-// схемы агента (assemblyFromSeed(id), спека 99.2.15 §5.2), повёрнутый по
-// вектору движения; каталог пуст/спрайт не загружен — фолбэк-ромб (И4).
+// агента (spriteForAgent(id) → {file, color} → recolorShipSprite, уточнение
+// 2026-09-16: агенты перекрашиваются из кэша/прелоада), повёрнутый по вектору
+// движения; спрайт не загружен/реестр пуст — фолбэк-ромб (И4).
 export function drawNPCAgents(ctx, canvasWidth, canvasHeight) {
     if (state.scale <= mapCfg.nameDisplayThreshold) return;
     const positions = state.npcPositions || [];
@@ -247,8 +248,9 @@ export function drawNPCAgents(ctx, canvasWidth, canvasHeight) {
         // Экранный cull как у звёзд.
         if (px < -50 || py < -50 || px > canvasWidth + 50 || py > canvasHeight + 50) continue;
 
-        const sprite = getShipSprite(p.id);
-        if (sprite && sprite.complete && sprite.naturalWidth > 0) {
+        const sel = spriteForAgent(p.id);
+        const sprite = sel ? recolorShipSprite(sel.file, sel.color) : null;
+        if (sprite) {
             ctx.save();
             ctx.translate(px, py);
             ctx.rotate(npcAngle(p, pos));

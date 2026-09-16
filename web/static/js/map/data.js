@@ -1,6 +1,7 @@
 // web/static/js/map/data.js
 import { state, elements } from './config.js';
-import { draw, setShipIcon, galaxyRadiusFromRegions, updateFitZoom } from './map_render.js';
+import { draw, setShipIcon, setShipColor, galaxyRadiusFromRegions, updateFitZoom } from './map_render.js';
+import { setShipOptions } from './ship_sprites.js';
 import { filterState } from '../filters.js';
 
 // Размер ячейки кластеризации на экране, в пикселях.
@@ -231,8 +232,12 @@ function getFlightBounds() {
     if (!state.isFlying || !state.flyFrom || !state.flyTo || !(state.flyDuration > 0)) {
         return bounds;
     }
-    const dx = state.flyTo.coord_x - state.flyFrom.coord_x;
-    const dy = state.flyTo.coord_y - state.flyFrom.coord_y;
+    // Курс и скорость — от стартовой точки сегмента (61a): при редиректе
+    // это точка P маршрута, а не мир отправления.
+    const sx = (typeof state.flyStartX === 'number') ? state.flyStartX : state.flyFrom.coord_x;
+    const sy = (typeof state.flyStartY === 'number') ? state.flyStartY : state.flyFrom.coord_y;
+    const dx = state.flyTo.coord_x - sx;
+    const dy = state.flyTo.coord_y - sy;
     const speed = Math.hypot(dx, dy) / state.flyDuration;
     const shift = speed * 1.5;
     const dist = Math.hypot(dx, dy) || 1;
@@ -297,6 +302,10 @@ export async function loadUserData(force = false) {
         if (user.ship_icon) {
             setShipIcon(user.ship_icon);
         }
+        // Цвет перекраски (NULL = «Оригинал») и порядок реестра спрайтов
+        // для spriteForAgent (спека 61b §6.1/§5.6).
+        setShipColor(user.ship_color);
+        setShipOptions(user.ship_options);
 
         if (user.current_world_id) {
             state.currentWorldId = user.current_world_id;
@@ -330,6 +339,10 @@ export async function loadUserData(force = false) {
                 state.flyTo = toWorld;
                 state.flyStartTime = user.flight.start_time;
                 state.flyDuration = user.flight.duration;
+                // Стартовая точка сегмента (61a); фолбэк на fromWorld, если
+                // start_x/start_y нет (старый сервер/полёт без редиректа).
+                state.flyStartX = (typeof user.flight.start_x === 'number') ? user.flight.start_x : fromWorld.coord_x;
+                state.flyStartY = (typeof user.flight.start_y === 'number') ? user.flight.start_y : fromWorld.coord_y;
                 state.isFlying = true;
             } else {
                 // Мир from/to не загрузился (удалён при перегенерации) —

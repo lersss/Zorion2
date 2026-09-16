@@ -154,7 +154,7 @@ func (h *AdminUsersHandlers) CreateUser(w http.ResponseWriter, r *http.Request) 
 		ID:           uuid.New().String(),
 		Username:     req.Username,
 		PasswordHash: string(hashed),
-		ShipIcon:     "ship_strela.svg",
+		ShipIcon:     models.DefaultShipIcon,
 		Role:         models.Role(role),
 	}
 	if req.Email != "" {
@@ -351,8 +351,9 @@ func (h *AdminUsersHandlers) writeProfile(w http.ResponseWriter, status int, use
 		"updated_at":         user.UpdatedAt,
 		"current_world_id":   user.CurrentWorldID,
 		"current_world_name": currentWorldName,
-		"ship_icon":          user.ShipIcon,
-		"agent_id":           user.AgentID,
+		// Спека 61b §4: тот же маппинг ship_icon, что в /me.
+		"ship_icon": models.ResolveShipIcon(user.ShipIcon),
+		"agent_id":  user.AgentID,
 	})
 }
 

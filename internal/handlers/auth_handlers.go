@@ -79,7 +79,7 @@ func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 		ID:           uuid.New().String(),
 		Username:     req.Username,
 		PasswordHash: string(hashed),
-		ShipIcon:     "ship_strela.svg",
+		ShipIcon:     models.DefaultShipIcon,
 		Role:         models.RolePlayer,
 	}
 	if req.Email != "" {
@@ -198,6 +198,8 @@ func (h *AuthHandlers) GetMe(w http.ResponseWriter, r *http.Request) {
 			"to":         f.ToWorld,
 			"start_time": f.StartTime.UnixMilli(),
 			"duration":   int(f.Duration.Seconds()),
+			"start_x":    f.StartX,
+			"start_y":    f.StartY,
 		}
 	}
 
@@ -208,8 +210,13 @@ func (h *AuthHandlers) GetMe(w http.ResponseWriter, r *http.Request) {
 		"role":               user.Role,
 		"current_world_id":   user.CurrentWorldID,
 		"current_world_name": currentWorldName,
-		"ship_icon":          user.ShipIcon,
-		"flight":             flight,
+		// Спека 61b §4: ship_icon маппится при чтении (legacy SVG-имя → PNG-имя,
+		// неизвестное → дефолт); ship_color — NULL = «Оригинал»; ship_options —
+		// реестр 21 спрайта для дашборда (И1: клиент не дублирует список).
+		"ship_icon":    models.ResolveShipIcon(user.ShipIcon),
+		"ship_color":   user.ShipColor,
+		"ship_options": models.ShipSprites,
+		"flight":       flight,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -221,6 +228,8 @@ type ShipIconRequest struct {
 }
 
 // UpdateShipIcon сохраняет выбранную иконку корабля пользователя.
+// Спека 61b §4: принимаются только имена из реестра ShipSprites (21 PNG-имя);
+// legacy-имена и прочие → 400 (выбор теперь делается из нового набора).
 func (h *AuthHandlers) UpdateShipIcon(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(auth.UserIDKey).(string)
 	if !ok || userID == "" {
@@ -233,7 +242,7 @@ func (h *AuthHandlers) UpdateShipIcon(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, "Некорректное тело запроса", http.StatusBadRequest)
 		return
 	}
-	if req.ShipIcon == "" || !validShipIcon(req.ShipIcon) {
+	if !models.IsValidShipIcon(req.ShipIcon) {
 		writeJSONError(w, "Некорректное имя иконки корабля", http.StatusBadRequest)
 		return
 	}
@@ -247,20 +256,37 @@ func (h *AuthHandlers) UpdateShipIcon(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"ship_icon": req.ShipIcon})
 }
 
-// validShipIcon допускает только безопасное имя SVG-файла спрайта.
-func validShipIcon(name string) bool {
-	if len(name) > 64 {
-		return false
+type ShipColorRequest struct {
+	ShipColor *string `json:"ship_color"`
+}
+
+// UpdateShipColor сохраняет цвет перекраски спрайта корабля (спека 61b §7):
+// NULL = «Оригинал» (без перекраски), иначе hex из ShipColorPalette; вне
+// палитры → 400.
+func (h *AuthHandlers) UpdateShipColor(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(auth.UserIDKey).(string)
+	if !ok || userID == "" {
+		writeJSONError(w, "Не авторизован", http.StatusUnauthorized)
+		return
 	}
-	for _, c := range name {
-		if (c >= 'a' && c <= 'z') ||
-			(c >= '0' && c <= '9') ||
-			c == '_' || c == '-' || c == '.' {
-			continue
-		}
-		return false
+
+	var req ShipColorRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, "Некорректное тело запроса", http.StatusBadRequest)
+		return
 	}
-	return true
+	if req.ShipColor != nil && !models.IsValidShipColor(*req.ShipColor) {
+		writeJSONError(w, "Некорректный цвет корабля", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.userRepo.UpdateShipColor(userID, req.ShipColor); err != nil {
+		writeJSONError(w, "Не удалось сохранить цвет", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"ship_color": req.ShipColor})
 }
 
 // writeJSONError возвращает ошибку в формате JSON {"error": "..."}.

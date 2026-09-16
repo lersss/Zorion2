@@ -59,6 +59,7 @@
 | `docs/PITFALLS.md` | Ловушки проекта, проверенные на практике | любой правке рядом с перечисленными местами |
 | `docs/DEPLOY.md` | Развёртывание: env, локальный запуск, деплой Amvera, генерация кораблей, VACUUM | развертывании сервера, правках, затрагивающих деплой |
 | `docs/COORDINATION.md` | Реестр занятости файлов при параллельной работе (мягкий локейт) | перед правкой общего файла |
+| `docs/VECTORS.md` | Векторы разработки: как разносить команды/пожелания (7 векторов: Генерация, Новые механики, Поселения, Агенты, Визуал, Баги, Игрок), правила горячих точек | открывать при разнесении пожеланий, старте сессии @manager |
 | `docs/ROLES.md` | Роли агентов: человекочитаемая сводка «кто что делает» (канон — `AGENTS.md` §4 и `.opencode/agents/*.md`) | ролях команды, форматах агентов |
 | `docs/DESCRIPTIONS_WORK.md` | Описания планет: формат, теги, стиль | текстах описаний планет |
 | `docs/NEXT_SESSION.md` | Повестка следующей дизайн-сессии | том, где встал дизайн |
@@ -95,6 +96,7 @@
 | `STATUS.md`, `docs/INDEX.md`, `docs/gamedesign/99_roadmap.md`, `docs/gamedesign/faq_counter.md`, `CHANGELOG.md`, `AGENTS.md`, `.opencode/CONTEXT.md` | **`@dispatcher`** (горячие доки; вызывается только создателем в паузу) |
 | `docs/gamedesign/ideas/` — раздел «Разнос по докам» в своей идее и новые идеи | `@manager` команды, которая подала пожелание (свой файл) |
 | `docs/specs/README.md`, `docs/gamedesign/*.md` (тематические GDD) | `@designer` |
+| `docs/VECTORS.md` | `@manager` |
 | `docs/ARCHITECTURE.md`, `docs/DB.md`, `docs/PITFALLS.md`, `docs/DEPLOY.md` | `@developer` |
 | `docs/QA_CHECKLIST.md`, `docs/QA.md` | `@tester` |
 | `docs/COORDINATION.md` | все по ролям (мягкий локейт: каждый отмечает свой участок)

@@ -34,12 +34,14 @@ Go 1.21+ · PostgreSQL 15+ · Redis 7+ · Vanilla JS (ES-модули) + Canvas 
 ```powershell
 $env:DATABASE_URL = "postgres://zorion:zorion123@127.0.0.1:5432/zorion?sslmode=disable"
 $env:REDIS_URL    = "redis://localhost:6379"
-$env:JWT_SECRET   = "минимум-32-символа"
 $env:TICK_INTERVAL_SEC = "3"
 go run cmd/server/main.go
 ```
 
-`JWT_SECRET` обязателен — без него `log.Fatal`.
+`JWT_SECRET` обязателен — без него `log.Fatal`. **`JWT_SECRET` вручную НЕ задавать** — берётся из `.env` в корне проекта
+(godotenv) или через `run.ps1`. Заданный вручную секрет перекрывает `.env` и
+делает невалидными все ранее выданные токены: каждый перезапуск с новым
+секретом = «сессия истекла» у всех залогиненных (идея 58a).
 
 Админка — по JWT-ролям (`admin`/`skycomposer`), глобального пароля нет (роли, bootstrap,
 раздел «Пользователи» — `docs/gamedesign/20_admin_roles.md` и спека `99.2.14`).

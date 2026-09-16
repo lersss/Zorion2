@@ -12,7 +12,7 @@ import (
 	"math"
 	"math/rand"
 
-	"zorion/internal/generator/settlement"
+	"zorion/internal/races"
 	"zorion/internal/regionprofile"
 )
 
@@ -490,8 +490,9 @@ func (g *Generator) runCascade(in cascadeInput) *cascadeResult {
 	}
 
 	// --- Пригодность, спутники, политика ---
-	radioactive := core.IsRadioactive()
-	res.Settleable = settlement.Suitable(res.WaterPercent, res.TFinal, res.AtmosphereLabel, res.Life, false, radioactive)
+	// Пригодность для людей — единый источник races.HumansSuitable (65a,
+	// Вариант А): вместо пресета поселений (settlement.Suitable, скрыт).
+	res.Settleable = races.HumansSuitable(humansSuitableData(res))
 	res.Moons = determineMoons(size, band.id, g.rng)
 	res.Political = "нет"
 	if res.Settleable {
@@ -507,6 +508,31 @@ func (g *Generator) runCascade(in cascadeInput) *cascadeResult {
 	res.ArchetypeBand = bandForTemp(res.TFinal).id
 
 	return res
+}
+
+// humansSuitableData — собирает map planet.data для races.HumansSuitable
+// из результата каскада: поля, которые читает карточка людей (температура,
+// давление/состав атмосферы, радиация ядра, гравитация, флаг жидкой воды,
+// фактическая вода). Единый источник пригодности для людей (65a).
+func humansSuitableData(res *cascadeResult) map[string]interface{} {
+	comp := make(map[string]interface{}, len(res.AtmosphereData.Composition))
+	for gas, pct := range res.AtmosphereData.Composition {
+		comp[gas] = pct
+	}
+	return map[string]interface{}{
+		"temperature":           res.TFinal,
+		"gravity":               res.Gravity,
+		"water_percent":         res.WaterPercent,
+		"liquid_water_possible": res.LiquidWater,
+		"atmosphere_data": map[string]interface{}{
+			"pressure_atm": res.AtmosphereData.PressureAtm,
+			"composition":  comp,
+		},
+		"core": map[string]interface{}{
+			"radioactivity":  res.Core.Radioactivity,
+			"heat_flux_w_m2": res.Core.HeatFluxWm2,
+		},
+	}
 }
 
 // prelimBandTemp — предварительная температура для выбора полосы: T₁ с

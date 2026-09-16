@@ -17,14 +17,18 @@ import (
 
 // GenerateRaceSettlements — массовая генерация поселений рас (спека 99.2.21
 // §7, идея 56a): доминанта кластера + подселение соседней расы на выбросах.
-// Отдельный проход от человеческого GenerateSettlements: удаляет только
-// поселения рас (race_id IS NOT NULL), человеческие не трогает.
+// Отдельный проход от человеческого GenerateSettlements (скрыт 65a):
+// удаляет только поселения рас (race_id IS NOT NULL), человеческие не трогает.
 //
-// Тело (JSON): {"neighbor_chance": 0.3} — шанс заселения соседней расы (0–1);
-// пустое тело — дефолт из пресета поселений (config/settlement_preset.json).
+// Тело (JSON): {"neighbor_chance": 0.3, "chance": 1.0, "population": {...}} —
+// крутилка подселения соседа (0–1), шанс заселения доминанты (0–1, 65a),
+// стратегия населения (fixed/random, 65a). Пустое тело — дефолты из пресета
+// расового генератора (config/race_settlement.json).
 func (h *AdminHandlers) GenerateRaceSettlements(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		NeighborChance *float64 `json:"neighbor_chance"`
+		NeighborChance *float64             `json:"neighbor_chance"`
+		Chance         *float64             `json:"chance"`
+		Population     *settlement.Population `json:"population"`
 	}
 	if r.Body != nil {
 		dec := json.NewDecoder(r.Body)
@@ -33,12 +37,23 @@ func (h *AdminHandlers) GenerateRaceSettlements(w http.ResponseWriter, r *http.R
 			return
 		}
 	}
-	chance := settlement.Current().NeighborChance
-	if req.NeighborChance != nil {
-		chance = *req.NeighborChance
+	preset := settlement.CurrentRacePreset()
+	cfg := settlement.RaceGenConfig{
+		NeighborChance: preset.NeighborChance,
+		Chance:         preset.Chance,
+		Population:     preset.Population,
 	}
-	if chance < 0 || chance > 1 {
-		http.Error(w, "neighbor_chance: должно быть от 0 до 1", http.StatusBadRequest)
+	if req.NeighborChance != nil {
+		cfg.NeighborChance = *req.NeighborChance
+	}
+	if req.Chance != nil {
+		cfg.Chance = *req.Chance
+	}
+	if req.Population != nil {
+		cfg.Population = *req.Population
+	}
+	if err := cfg.Validate(); err != nil {
+		http.Error(w, "Bad config: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	if len(races.Catalog()) == 0 {
@@ -79,7 +94,7 @@ func (h *AdminHandlers) GenerateRaceSettlements(w http.ResponseWriter, r *http.R
 			return
 		default:
 		}
-		log.Printf("👽 GenerateRaceSettlements: start (neighbor_chance=%.2f)", chance)
+		log.Printf("👽 GenerateRaceSettlements: start (neighbor_chance=%.2f, chance=%.2f)", cfg.NeighborChance, cfg.Chance)
 
 		// Слой рас: удаляем только поселения рас, человеческие не трогаем.
 		oldCount, err := h.clearRaceSettlementsLayer()
@@ -91,7 +106,7 @@ func (h *AdminHandlers) GenerateRaceSettlements(w http.ResponseWriter, r *http.R
 		log.Printf("🗑️ GenerateRaceSettlements: удалено старых поселений рас: %d", oldCount)
 
 		gen := settlement.NewGenerator(h.db, 0)
-		count, unsettled, err := gen.GenerateRaceSettlements(ctx, settlement.RaceGenConfig{NeighborChance: chance}, func(processed int) {
+		count, unsettled, err := gen.GenerateRaceSettlements(ctx, cfg, func(processed int) {
 			statusManager.Progress(generator.JobGenerateRaceSettlements, processed)
 		})
 		if err != nil {

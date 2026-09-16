@@ -27,6 +27,26 @@ type RaceGenConfig struct {
 	// Умножается на отношение расстояний d1/d2: 0 у центра кластера,
 	// максимум (крутилка) у середины между кластерами.
 	NeighborChance float64
+	// Chance — шанс заселения доминантной расы кластера (0–1, дефолт 1.0):
+	// доминанта селится, если пригодна И ролл < Chance (65a, перенос из
+	// старого генератора поселений).
+	Chance float64
+	// Population — стратегия населения поселений рас (fixed/random, 65a,
+	// перенос из старого генератора). Дефолт — как DefaultModel
+	// (random 100k–1B), заполняется в GenerateRaceSettlements.
+	Population Population
+}
+
+// Validate — проверяет конфиг перед генерацией (валидация как в
+// Model.Validate, 65a: chance/neighbor_chance 0–1, population по стратегии).
+func (c RaceGenConfig) Validate() error {
+	if c.Chance < 0 || c.Chance > 1 {
+		return fmt.Errorf("chance: должно быть от 0 до 1, получил %v", c.Chance)
+	}
+	if c.NeighborChance < 0 || c.NeighborChance > 1 {
+		return fmt.Errorf("neighbor_chance: должно быть от 0 до 1, получил %v", c.NeighborChance)
+	}
+	return c.Population.Validate()
 }
 
 // clusterEdgeFactor — граница территории кластера: точки в пределах
@@ -38,6 +58,10 @@ const clusterEdgeFactor = 1.25
 // Возвращает число поселений и список рас без поселений (0 из 50) —
 // копилка для разбора причин (идея 56a: «потом будем по каждой выяснять»).
 func (g *Generator) GenerateRaceSettlements(ctx context.Context, cfg RaceGenConfig, progressFn func(processed int)) (int, []string, error) {
+	if cfg.Population.Kind == "" {
+		// Дефолт населения — как DefaultModel (random 100k–1B, 65a).
+		cfg.Population = Population{Kind: "random", Min: 100_000, Max: 1_000_000_000}
+	}
 	regions, err := g.loadRaceRegions(ctx)
 	if err != nil {
 		return 0, nil, err
@@ -76,7 +100,7 @@ func (g *Generator) GenerateRaceSettlements(ctx context.Context, cfg RaceGenConf
 		}
 
 		for _, raceID := range decideRaceSettlements(data, cx, cy, regions, cfg, g.rng) {
-			settlementRows = append(settlementRows, buildRaceSettlement(id, raceID, g.rng))
+			settlementRows = append(settlementRows, buildRaceSettlement(id, raceID, g.rng, cfg.Population))
 			settledRaces[raceID] = true
 			settled++
 		}
@@ -108,8 +132,10 @@ func (g *Generator) GenerateRaceSettlements(ctx context.Context, cfg RaceGenConf
 }
 
 // decideRaceSettlements — какие расы поселяются на планете (0–2):
-// доминанта кластера (если пригодна) + на выбросе сосед с шансом из
-// крутилки. Приоритет всегда у доминантной расы кластера (идея 56a).
+// доминанта кластера (если пригодна и ролл < Chance) + на выбросе сосед
+// с шансом из крутилки. Приоритет всегда у доминантной расы кластера
+// (идея 56a). Chance (65a) — шанс заселения доминанты: 0 → доминанта не
+// селится даже на пригодной планете.
 func decideRaceSettlements(data map[string]interface{}, cx, cy float64, regions []*models.Region, cfg RaceGenConfig, rng *rand.Rand) []string {
 	idx1, idx2, d1, d2 := twoNearestRegions(cx, cy, regions)
 	if idx1 < 0 {
@@ -121,7 +147,7 @@ func decideRaceSettlements(data map[string]interface{}, cx, cy float64, regions 
 	}
 
 	var out []string
-	if dominant.Suitable(data) {
+	if dominant.Suitable(data) && rng.Float64() < cfg.Chance {
 		out = append(out, dominant.ID)
 	}
 
@@ -190,10 +216,11 @@ func twoNearestRegions(x, y float64, regions []*models.Region) (idx1, idx2 int, 
 }
 
 // buildRaceSettlement — строка поселения расы для вставки в БД.
-// Стартовые population/stability — как у человеческих (buildSettlement,
-// диапазон населения — дефолт DefaultModel 100k–1B).
-func buildRaceSettlement(planetID, raceID string, rng *rand.Rand) []interface{} {
-	population := 100_000 + rng.Intn(1_000_000_000-100_000+1)
+// Стартовые population/stability — как у человеческих (buildSettlement);
+// население — по стратегии конфига (fixed/random, 65a), дефолт
+// random 100k–1B.
+func buildRaceSettlement(planetID, raceID string, rng *rand.Rand, pop Population) []interface{} {
+	population := pop.Value(rng)
 	return []interface{}{
 		uuid.New().String(),
 		planetID,

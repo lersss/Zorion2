@@ -157,3 +157,41 @@ func TestSuitableHumansFromCatalog(t *testing.T) {
 	require.NotNil(t, h)
 	assert.True(t, h.Suitable(planetData()))
 }
+
+// Водность (65a): liquid_water=true требует фактической воды (water_percent
+// ≥ 10, наследие пресета поселений) — «сухая» планета с флагом не подходит.
+func TestSuitableWaterPercentRequired(t *testing.T) {
+	d := planetData()
+	d["water_percent"] = 5.0
+	assert.False(t, humans().Suitable(d), "людям нужна фактическая вода ≥ 10%")
+	d["water_percent"] = 10.0
+	assert.True(t, humans().Suitable(d))
+}
+
+// Газовый гигант (65a): состав H2/He без O2 — need O2 ≥ 10% не выполняется;
+// вода 0 — водная проверка тоже режет. Явное исключение гигантов не нужно.
+func TestSuitableGasGiantExcluded(t *testing.T) {
+	d := planetData()
+	d["atmosphere_data"].(map[string]interface{})["composition"] = map[string]interface{}{
+		"H2": 90.0, "He": 10.0,
+	}
+	d["water_percent"] = 0.0
+	assert.False(t, humans().Suitable(d), "гигант не проходит: нет O2 и воды")
+}
+
+// Жара (65a): T вне surv [250, 330] — не подходит.
+func TestSuitableHeatExcluded(t *testing.T) {
+	d := planetData()
+	d["temperature"] = 400.0
+	assert.False(t, humans().Suitable(d))
+}
+
+// HumansSuitable — хелпер пригодности для людей (65a): флаг Settleable
+// планет и тег inhabited считаются через него.
+func TestHumansSuitable(t *testing.T) {
+	require.NoError(t, LoadCatalog("../../config/races.json"))
+	assert.True(t, HumansSuitable(planetData()))
+	d := planetData()
+	d["temperature"] = 400.0
+	assert.False(t, HumansSuitable(d))
+}

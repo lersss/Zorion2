@@ -21,6 +21,11 @@ func (h *AdminHandlers) SettlementFields(w http.ResponseWriter, r *http.Request)
 
 // GenerateSettlements — массовая генерация поселений по модели генерации.
 //
+// СКРЫТ (65a): старый человеческий генератор поселений устарел — расовый
+// генератор (/admin/generate-race-settlements) заменяет. Роут не
+// регистрируется (cmd/server/main.go), код не удаляется (можно вернуть/
+// удалить позже).
+//
 // Тело запроса (JSON) — объект Model:
 // {"mode":"complex","chance":0.5,"population":{"kind":"random","min":100000,
 //  "max":1000000000},"rules":[{"field":"temperature","min":200,"max":350}]}.

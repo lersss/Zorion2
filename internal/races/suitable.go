@@ -1,16 +1,24 @@
 // internal/races/suitable.go — пригодность планеты для расы.
 package races
 
+// minWaterPercentForLiquidWater — минимальная фактическая вода для рас с
+// liquid_water: true (наследие пресета поселений «минимальная_вода: 10»,
+// скрыт 65a). Флаг liquid_water_possible — физическая возможность жидкой
+// воды при (T, P), а не фактическая вода: «сухая» гидросфера при флаге
+// true даёт water_percent 0 — раса с требованием жидкой воды там не живёт.
+const minWaterPercentForLiquidWater = 10.0
+
 // Suitable — пригодность планеты для расы (спека §16 п.4): конъюнкция
 // surv-окон по всем осям карточки + атмосфера (need/poison по composition)
 // + liquid_water (если задан). Оси читаются из planet.data (JSONB):
 // temperature, atmosphere_data.pressure_atm, atmosphere_data.composition
 // (газ → %, сумма 100), core.radioactivity, core.heat_flux_w_m2, gravity,
-// liquid_water_possible.
+// liquid_water_possible, water_percent (для liquid_water: true).
 //
 // Отсутствующая ось = «не влияет» (полный диапазон): проверка по ней
-// пропускается. Параллельный механизм к settlement.Suitable (пригодность
-// людей) — тот не трогается.
+// пропускается. Единый источник пригодности для людей (65a): флаг
+// Settleable в данных планет и тег inhabited считаются через
+// HumansSuitable, а не через пресет поселений (скрыт 65a).
 func (r *Race) Suitable(data map[string]interface{}) bool {
 	if v, ok := floatAtPath(data, "temperature"); ok {
 		if !r.Conditions.Temperature.Surv.Contains(v) {
@@ -47,6 +55,15 @@ func (r *Race) Suitable(data map[string]interface{}) bool {
 				return false
 			}
 		}
+		// Требование жидкой воды — это и фактическая вода (water_percent),
+		// а не только физическая возможность флага (65a).
+		if *r.Conditions.LiquidWater {
+			if v, ok := floatAtPath(data, "water_percent"); ok {
+				if v < minWaterPercentForLiquidWater {
+					return false
+				}
+			}
+		}
 	}
 
 	// Атмосфера: need (газ ≥ min%) и poison (газ ≤ max%) по composition.
@@ -64,6 +81,18 @@ func (r *Race) Suitable(data map[string]interface{}) bool {
 		}
 	}
 	return true
+}
+
+// HumansSuitable — пригодность планеты для людей (раса humans, карточка
+// config/races.json). Единый источник пригодности для людей (65a): флаг
+// Settleable в данных планет (cascade.go) и тег inhabited (descriptions)
+// считаются через него вместо пресета поселений (скрыт 65a).
+func HumansSuitable(data map[string]interface{}) bool {
+	h := ByID("humans")
+	if h == nil {
+		return false
+	}
+	return h.Suitable(data)
 }
 
 // floatAtPath — число по dot-пути ("core.radioactivity" → data["core"]

@@ -45,7 +45,7 @@ func TestDecideRaceSettlementsClusterPlanetDominantOnly(t *testing.T) {
 	rng := rand.New(rand.NewSource(1))
 
 	// Планета в (50, 0): d1 = 50 ≤ 125 — планета кластера A.
-	got := decideRaceSettlements(sulfurPlanet(), 50, 0, raceRegions(), RaceGenConfig{NeighborChance: 1.0}, rng)
+	got := decideRaceSettlements(sulfurPlanet(), 50, 0, raceRegions(), RaceGenConfig{NeighborChance: 1.0, Chance: 1.0}, rng)
 	assert.Equal(t, []string{"sulfur_nests"}, got, "планета кластера — только доминанта")
 }
 
@@ -55,7 +55,7 @@ func TestDecideRaceSettlementsOutlierDominantPlusNeighbor(t *testing.T) {
 	rng := rand.New(rand.NewSource(1))
 
 	// Планета в (500, 0): d1 = d2 = 500 — середина; шанс = крутилка × 1.
-	got := decideRaceSettlements(sulfurPlanet(), 500, 0, raceRegions(), RaceGenConfig{NeighborChance: 1.0}, rng)
+	got := decideRaceSettlements(sulfurPlanet(), 500, 0, raceRegions(), RaceGenConfig{NeighborChance: 1.0, Chance: 1.0}, rng)
 	assert.ElementsMatch(t, []string{"sulfur_nests", "salt_bridge"}, got, "выброс: доминанта + сосед")
 }
 
@@ -64,8 +64,40 @@ func TestDecideRaceSettlementsNeighborChanceZero(t *testing.T) {
 	require.NoError(t, races.LoadCatalog("../../../config/races.json"))
 	rng := rand.New(rand.NewSource(1))
 
-	got := decideRaceSettlements(sulfurPlanet(), 500, 0, raceRegions(), RaceGenConfig{NeighborChance: 0}, rng)
+	got := decideRaceSettlements(sulfurPlanet(), 500, 0, raceRegions(), RaceGenConfig{NeighborChance: 0, Chance: 1.0}, rng)
 	assert.Equal(t, []string{"sulfur_nests"}, got, "крутилка 0 — сосед не подселяется")
+}
+
+// Chance 0 (65a) — доминанта не селится даже на пригодной планете кластера.
+func TestDecideRaceSettlementsChanceZero(t *testing.T) {
+	require.NoError(t, races.LoadCatalog("../../../config/races.json"))
+	rng := rand.New(rand.NewSource(1))
+
+	got := decideRaceSettlements(sulfurPlanet(), 50, 0, raceRegions(), RaceGenConfig{NeighborChance: 1.0, Chance: 0}, rng)
+	assert.Empty(t, got, "chance 0 — доминанта не селится")
+}
+
+// Chance 1 (65a) — доминанта селится (дефолт конфига).
+func TestDecideRaceSettlementsChanceOne(t *testing.T) {
+	require.NoError(t, races.LoadCatalog("../../../config/races.json"))
+	rng := rand.New(rand.NewSource(1))
+
+	got := decideRaceSettlements(sulfurPlanet(), 50, 0, raceRegions(), RaceGenConfig{NeighborChance: 1.0, Chance: 1.0}, rng)
+	assert.Equal(t, []string{"sulfur_nests"}, got, "chance 1 — доминанта селится")
+}
+
+// buildRaceSettlement (65a) — население по стратегии: fixed → Fixed,
+// random → в [Min, Max].
+func TestBuildRaceSettlementPopulation(t *testing.T) {
+	rng := rand.New(rand.NewSource(1))
+
+	fixed := buildRaceSettlement("p1", "humans", rng, Population{Kind: "fixed", Fixed: 12345})
+	assert.Equal(t, 12345, fixed[2], "fixed: население = Fixed")
+
+	random := buildRaceSettlement("p2", "humans", rng, Population{Kind: "random", Min: 100_000, Max: 200_000})
+	pop := random[2].(int)
+	assert.GreaterOrEqual(t, pop, 100_000, "random: население ≥ Min")
+	assert.LessOrEqual(t, pop, 200_000, "random: население ≤ Max")
 }
 
 // Доминанта непригодна — планета остаётся пустой для неё; сосед может
@@ -88,7 +120,7 @@ func TestDecideRaceSettlementsDominantUnsuitableNeighborSettles(t *testing.T) {
 			"heat_flux_w_m2": 2.0,
 		},
 	}
-	got := decideRaceSettlements(data, 500, 0, raceRegions(), RaceGenConfig{NeighborChance: 1.0}, rng)
+	got := decideRaceSettlements(data, 500, 0, raceRegions(), RaceGenConfig{NeighborChance: 1.0, Chance: 1.0}, rng)
 	assert.Equal(t, []string{"salt_bridge"}, got, "доминанта непригодна — сосед на выбросе")
 }
 
@@ -111,7 +143,7 @@ func TestDecideRaceSettlementsNeighborUnsuitable(t *testing.T) {
 			"heat_flux_w_m2": 2.0,
 		},
 	}
-	got := decideRaceSettlements(data, 500, 0, raceRegions(), RaceGenConfig{NeighborChance: 1.0}, rng)
+	got := decideRaceSettlements(data, 500, 0, raceRegions(), RaceGenConfig{NeighborChance: 1.0, Chance: 1.0}, rng)
 	assert.Equal(t, []string{"sulfur_nests"}, got, "сосед непригоден — только доминанта")
 }
 
@@ -127,7 +159,7 @@ func TestGenerateRaceSettlementsNoRegions(t *testing.T) {
 	`).WillReturnRows(sqlmock.NewRows([]string{"id", "center_x", "center_y", "radius", "race_id"}))
 
 	g := NewGenerator(db, 1)
-	count, unsettled, err := g.GenerateRaceSettlements(context.Background(), RaceGenConfig{NeighborChance: 0.3}, nil)
+	count, unsettled, err := g.GenerateRaceSettlements(context.Background(), RaceGenConfig{NeighborChance: 0.3, Chance: 1.0}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, 0, count)
 	assert.Len(t, unsettled, 50, "все расы без поселений")
@@ -154,7 +186,7 @@ func TestGenerateRaceSettlementsNoSuitable(t *testing.T) {
 		AddRow("p1", `{"temperature":300,"gravity":1.5,"atmosphere_data":{"pressure_atm":50,"composition":{"H2S":2,"SO2":5,"CO2":30,"N2":60}},"core":{"radioactivity":30,"heat_flux_w_m2":2}}`, 50.0, 0.0))
 
 	g := NewGenerator(db, 1)
-	count, unsettled, err := g.GenerateRaceSettlements(context.Background(), RaceGenConfig{NeighborChance: 0.3}, nil)
+	count, unsettled, err := g.GenerateRaceSettlements(context.Background(), RaceGenConfig{NeighborChance: 0.3, Chance: 1.0}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, 0, count)
 	assert.Len(t, unsettled, 50, "все расы без поселений")

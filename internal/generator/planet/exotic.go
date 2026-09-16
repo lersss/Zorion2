@@ -94,6 +94,7 @@ func (g *Generator) buildExoticPlanet(w WorldInfo, orbitIndex int, temp float64)
 		Density:      density,
 		Moons:        0,
 		Life:         false,
+		Settleable:   false, // мёртвые тела непригодны для людей (65a)
 		Surface:      surfaceComp,
 		Core:         Core{},
 		IsGasGiant:   false,

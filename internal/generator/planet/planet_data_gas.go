@@ -66,6 +66,7 @@ func (g *Generator) generateGasGiant(
 		Density:      res.Density,
 		Moons:        satelliteCount,
 		Life:         false,
+		Settleable:   res.Settleable,
 		Surface:      nil,
 		Core:         res.Core,
 		IsGasGiant:   true,

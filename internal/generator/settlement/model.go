@@ -1,5 +1,10 @@
 // internal/generator/settlement/model.go
 //
+// СКРЫТ (65a): модель человеческого генератора поселений устарела —
+// расовый генератор (races.go) заменяет. Код не удаляется (можно вернуть/
+// удалить позже); типы Population/FieldRule остаются — их используют
+// близнецы (twin.go) и расовый генератор.
+//
 // Модель генерации поселений — задаётся в админке и управляет и выбором
 // планет, и расчётом населения. Два режима:
 //
@@ -47,7 +52,8 @@ type FieldRule struct {
 	Is    *bool     `json:"is,omitempty"`
 }
 
-// Model — модель генерации поселений.
+// Model — модель генерации поселений. СКРЫТ (65a): устарел — расовый
+// генератор заменяет.
 type Model struct {
 	Mode       Mode        `json:"mode"`
 	Chance     float64     `json:"chance"` // 0..1, шанс заселения
@@ -57,6 +63,7 @@ type Model struct {
 
 // DefaultModel — значения по умолчанию, совпадают с прежним пресетом
 // пригодности (config/settlement_preset.json), переведённым на правила.
+// СКРЫТ (65a): устарел — расовый генератор заменяет.
 func DefaultModel() *Model {
 	return &Model{
 		Mode:   ModeComplex,
@@ -84,8 +91,24 @@ func (m *Model) Validate() error {
 	if m.Chance < 0 || m.Chance > 1 {
 		return fmt.Errorf("chance: должно быть от 0 до 1, получил %v", m.Chance)
 	}
+	if err := m.Population.Validate(); err != nil {
+		return err
+	}
 
-	p := m.Population
+	if m.Mode == ModeComplex {
+		for i, r := range m.Rules {
+			if err := validateRule(i, r); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// Validate — проверяет стратегию населения (fixed/random, рамки
+// integer-колонки settlements.population). Общая для модели поселений,
+// близнецов (twin.go) и расового генератора (65a).
+func (p Population) Validate() error {
 	switch p.Kind {
 	case "fixed":
 		if p.Fixed <= 0 {
@@ -103,14 +126,6 @@ func (m *Model) Validate() error {
 		}
 	default:
 		return fmt.Errorf("population.kind: ожидается \"fixed\" или \"random\", получил %q", p.Kind)
-	}
-
-	if m.Mode == ModeComplex {
-		for i, r := range m.Rules {
-			if err := validateRule(i, r); err != nil {
-				return err
-			}
-		}
 	}
 	return nil
 }

@@ -392,6 +392,7 @@ func (g *Generator) generateStandardPlanet(
 		Density:      res.Density,
 		Moons:        res.Moons,
 		Life:         res.Life,
+		Settleable:   res.Settleable,
 		Surface:      res.Surface,
 		Core:         res.Core,
 		IsGasGiant:   false,

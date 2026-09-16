@@ -129,10 +129,21 @@ func main() {
 	log.Println("✅ Описания планет загружены")
 
 	// Загрузка пресета генерации поселений. При ошибке — дефолты.
+	// СКРЫТ (65a): пресет человеческого генератора устарел — расовый
+	// генератор заменяет; файл остаётся помеченным, не используется.
 	if err := settlement.LoadPreset("config/settlement_preset.json"); err != nil {
 		log.Printf("⚠️ Пресет поселений: %v, использую дефолты", err)
 	} else {
 		log.Println("✅ Пресет поселений загружен")
+	}
+
+	// Пресет расового генератора поселений (65a): шанс доминанты, крутилка
+	// подселения соседа, население (config/race_settlement.json).
+	// При ошибке — дефолты.
+	if err := settlement.LoadRacePreset("config/race_settlement.json"); err != nil {
+		log.Printf("⚠️ Пресет расовых поселений: %v, использую дефолты", err)
+	} else {
+		log.Println("✅ Пресет расовых поселений загружен")
 	}
 
 	// Каталог рас (спека 99.2.21 §2.3): config/races.json, 50 карточек.
@@ -233,7 +244,10 @@ func main() {
 	http.HandleFunc("/admin/generate-planets", auth.AdminAuth(adminHandlers.GeneratePlanets))
 	http.HandleFunc("/admin/generate-prototype-planet", auth.AdminAuth(adminHandlers.GeneratePrototypePlanet))
 	http.HandleFunc("/admin/generate-factions", auth.AdminAuth(adminHandlers.GenerateFactions))
-	http.HandleFunc("/admin/generate-settlements", auth.AdminAuth(adminHandlers.GenerateSettlements))
+	// СКРЫТ (65a): старый человеческий генератор поселений заменён расовым
+	// (/admin/generate-race-settlements). Код хендлера остаётся в
+	// internal/handlers/admin_settlements.go, роут не регистрируется.
+	// http.HandleFunc("/admin/generate-settlements", auth.AdminAuth(adminHandlers.GenerateSettlements))
 	http.HandleFunc("/admin/generate-race-settlements", auth.AdminAuth(adminHandlers.GenerateRaceSettlements))
 	http.HandleFunc("/admin/settlement-fields", auth.AdminAuth(adminHandlers.SettlementFields))
 	http.HandleFunc("/admin/generate-cancel", auth.AdminAuth(adminHandlers.CancelGeneration))

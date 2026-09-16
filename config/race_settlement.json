@@ -1,0 +1,5 @@
+{
+  "neighbor_chance": 0.3,
+  "chance": 1.0,
+  "population": {"kind": "random", "min": 100000, "max": 1000000000}
+}

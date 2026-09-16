@@ -56,6 +56,11 @@ type DescriptionContext struct {
 	// Биосфера
 	Life bool
 
+	// Settleable — пригодность для людей (races.HumansSuitable, 65a):
+	// где поселение появится — там тег inhabited. Приходит из каскада
+	// (res.Settleable); экзотика/гиганты — false.
+	Settleable bool
+
 	// Композиция и ядро
 	Surface Composition
 	Core    Core

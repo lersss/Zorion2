@@ -37,24 +37,50 @@ type TravelRequest struct {
 }
 
 type TravelResponse struct {
-	TravelID string `json:"travel_id"`
-	Duration int    `json:"duration"`
-	From     string `json:"from"`
-	To       string `json:"to"`
+	TravelID  string  `json:"travel_id"`
+	Duration  int     `json:"duration"`
+	From      string  `json:"from"`
+	To        string  `json:"to"`
+	StartX    float64 `json:"start_x"`    // стартовая точка сегмента (61a)
+	StartY    float64 `json:"start_y"`
+	StartTime int64   `json:"start_time"` // UnixMilli из фактического полёта
+}
+
+// travelCancelResponse — ответ при возврате в мир отправления во время
+// полёта (61a): полёт отменяется, корабль остаётся в мире отправления.
+type travelCancelResponse struct {
+	Status    string `json:"status"`
+	WorldID   string `json:"world_id"`
+	WorldName string `json:"world_name,omitempty"`
 }
 
 // calcTravelDuration вычисляет длительность полёта по расстоянию между мирами:
-// dist * 0.3 секунд, минимум 3 секунды, потолок 20 секунд (решение создателя 2026-09-14).
+// dist * 0.3 секунд, минимум 3 секунды (решение создателя 2026-09-16;
+// потолок 20 секунд от 2026-09-14 убран).
 func calcTravelDuration(dist float64) time.Duration {
 	speedFactor := 0.3
 	duration := time.Duration(dist*speedFactor) * time.Second
 	if duration < 3*time.Second {
 		duration = 3 * time.Second
 	}
-	if duration > 20*time.Second {
-		duration = 20 * time.Second
-	}
 	return duration
+}
+
+// redirectStartPoint — стартовая точка нового полёта при редиректе (61a):
+// точка P на отрезке from→to по прогрессу старого полёта (зажат 0..1).
+// elapsed < 0 или duration <= 0 → P = from; elapsed >= duration → P = to.
+func redirectStartPoint(fromX, fromY, toX, toY float64, elapsed, duration time.Duration) (float64, float64) {
+	progress := 0.0
+	if duration > 0 {
+		progress = float64(elapsed) / float64(duration)
+	}
+	if progress < 0 {
+		progress = 0
+	}
+	if progress > 1 {
+		progress = 1
+	}
+	return fromX + (toX-fromX)*progress, fromY + (toY-fromY)*progress
 }
 
 func (h *TravelHandlers) StartTravel(w http.ResponseWriter, r *http.Request) {
@@ -114,13 +140,41 @@ func (h *TravelHandlers) StartTravel(w http.ResponseWriter, r *http.Request) {
 		_ = h.userRepo.UpdateCurrentWorld(userID, fromWorldID)
 	}
 
+	// Возврат в мир отправления во время полёта (61a): выбор fromWorldID
+	// (= user.CurrentWorldID, меняется только по прибытии) при активном
+	// полёте = отмена полёта, а не «Already in this world». Имя мира —
+	// из targetWorld: в этой ветке req.WorldID == fromWorldID, т.е. это
+	// тот же мир. Без полёта — прежний 400 остаётся ниже.
+	if flight := h.travelManager.GetFlight(userID); flight != nil && req.WorldID == fromWorldID {
+		h.travelManager.CancelFlight(userID)
+		writeJSONStatus(w, http.StatusAccepted, travelCancelResponse{
+			Status:    "cancelled",
+			WorldID:   fromWorldID,
+			WorldName: targetWorld.Name,
+		})
+		return
+	}
+
 	if fromWorldID == req.WorldID {
 		http.Error(w, "Already in this world", http.StatusBadRequest)
 		return
 	}
 
-	if h.travelManager.IsInFlight(userID) {
-		http.Error(w, "Already in flight", http.StatusBadRequest)
+	// Идемпотентность: повторный запрос той же цели во время полёта не
+	// перезапускает полёт — возвращаем текущий без сброса прогресса.
+	if flight := h.travelManager.GetFlight(userID); flight != nil && flight.ToWorld == req.WorldID {
+		resp := TravelResponse{
+			TravelID:  userID + "-" + time.Now().Format("20060102150405"),
+			Duration:  int(flight.Duration.Seconds()),
+			From:      flight.FromWorld,
+			To:        flight.ToWorld,
+			StartX:    flight.StartX,
+			StartY:    flight.StartY,
+			StartTime: flight.StartTime.UnixMilli(),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		json.NewEncoder(w).Encode(resp)
 		return
 	}
 
@@ -129,8 +183,31 @@ func (h *TravelHandlers) StartTravel(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Current world not found", http.StatusInternalServerError)
 		return
 	}
-	dx := fromWorld.CoordX - targetWorld.CoordX
-	dy := fromWorld.CoordY - targetWorld.CoordY
+
+	// Стартовая точка сегмента: при обычном старте — координаты FromWorld;
+	// при редиректе (активный полёт, новая цель) — текущая точка P маршрута
+	// (61a, решение создателя 2026-09-16: корабль не отскакивает к стартовой
+	// звезде, а продолжает из текущей точки).
+	startX, startY := fromWorld.CoordX, fromWorld.CoordY
+	if flight := h.travelManager.GetFlight(userID); flight != nil {
+		// Координаты цели старого полёта. Если мир удалён при перегенерации
+		// вселенной — фолбэк на текущую позицию (flight.StartX/StartY).
+		toX, toY := flight.StartX, flight.StartY
+		if oldTo, err := h.worldRepo.GetByID(flight.ToWorld); err == nil && oldTo != nil {
+			toX, toY = oldTo.CoordX, oldTo.CoordY
+		}
+		// Точка P считается от фактической стартовой точки предыдущего
+		// сегмента (flight.StartX/StartY), а не от мира отправления A —
+		// иначе при каскадных редиректах корабль «перескакивал» на линию
+		// A→новая цель (баг создателя 2026-09-16).
+		startX, startY = redirectStartPoint(
+			flight.StartX, flight.StartY, toX, toY,
+			time.Since(flight.StartTime), flight.Duration,
+		)
+	}
+
+	dx := startX - targetWorld.CoordX
+	dy := startY - targetWorld.CoordY
 	dist := math.Sqrt(dx*dx + dy*dy)
 
 	duration := calcTravelDuration(dist)
@@ -140,13 +217,17 @@ func (h *TravelHandlers) StartTravel(w http.ResponseWriter, r *http.Request) {
 			log.Printf("Failed to update current world for user %s: %v", uid, err)
 		}
 	}
-	h.travelManager.StartFlight(userID, fromWorldID, req.WorldID, duration, onArrival)
+	h.travelManager.StartFlight(userID, fromWorldID, req.WorldID, startX, startY, duration, onArrival)
 
+	newFlight := h.travelManager.GetFlight(userID)
 	resp := TravelResponse{
-		TravelID: userID + "-" + time.Now().Format("20060102150405"),
-		Duration: int(duration.Seconds()),
-		From:     fromWorldID,
-		To:       req.WorldID,
+		TravelID:  userID + "-" + time.Now().Format("20060102150405"),
+		Duration:  int(newFlight.Duration.Seconds()),
+		From:      fromWorldID,
+		To:        req.WorldID,
+		StartX:    newFlight.StartX,
+		StartY:    newFlight.StartY,
+		StartTime: newFlight.StartTime.UnixMilli(),
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)

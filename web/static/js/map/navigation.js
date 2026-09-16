@@ -16,8 +16,9 @@ export function centerOnAgent() {
     if (state.isFlying && state.flyFrom && state.flyTo && state.flyStartTime !== undefined && state.flyDuration > 0) {
         const elapsed = (Date.now() - state.flyStartTime) / 1000;
         const progress = Math.min(elapsed / state.flyDuration, 1);
-        const fromX = state.flyFrom.coord_x;
-        const fromY = state.flyFrom.coord_y;
+        // Стартовая точка сегмента (61a): точка P маршрута, не мир отправления.
+        const fromX = (typeof state.flyStartX === 'number') ? state.flyStartX : state.flyFrom.coord_x;
+        const fromY = (typeof state.flyStartY === 'number') ? state.flyStartY : state.flyFrom.coord_y;
         const toX = state.flyTo.coord_x;
         const toY = state.flyTo.coord_y;
 

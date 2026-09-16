@@ -23,13 +23,15 @@ func TestStartFlightRegistersFlight(t *testing.T) {
 	m := NewManager()
 
 	const userID, from, to = "user-1", "world-A", "world-B"
-	m.StartFlight(userID, from, to, time.Hour, nil)
+	m.StartFlight(userID, from, to, 1.5, 2.5, time.Hour, nil)
 
 	flight := m.GetFlight(userID)
 	require.NotNil(t, flight, "полёт должен зарегистрироваться сразу")
 	assert.Equal(t, userID, flight.UserID)
 	assert.Equal(t, from, flight.FromWorld)
 	assert.Equal(t, to, flight.ToWorld)
+	assert.Equal(t, 1.5, flight.StartX)
+	assert.Equal(t, 2.5, flight.StartY)
 	assert.Equal(t, time.Hour, flight.Duration)
 	assert.False(t, flight.StartTime.IsZero())
 	assert.True(t, m.IsInFlight(userID))
@@ -39,7 +41,7 @@ func TestArrivalCallsCallback(t *testing.T) {
 	m := NewManager()
 
 	arrived := make(chan string, 1)
-	m.StartFlight("user-1", "world-A", "world-B", 30*time.Millisecond,
+	m.StartFlight("user-1", "world-A", "world-B", 0, 0, 30*time.Millisecond,
 		func(userID, worldID string) {
 			arrived <- userID + ":" + worldID
 		})
@@ -61,7 +63,7 @@ func TestArrivalCallsCallbackAfterRemoval(t *testing.T) {
 
 	flightRemoved := make(chan struct{}, 1)
 	done := make(chan struct{}, 1)
-	m.StartFlight("user-2", "A", "B", 20*time.Millisecond,
+	m.StartFlight("user-2", "A", "B", 0, 0, 20*time.Millisecond,
 		func(userID, worldID string) {
 			close(flightRemoved)
 			done <- struct{}{}
@@ -85,12 +87,12 @@ func TestReplaceCancelsOldFlight(t *testing.T) {
 	m := NewManager()
 
 	oldArrived := make(chan string, 1)
-	m.StartFlight("user-1", "A", "old", time.Hour,
+	m.StartFlight("user-1", "A", "old", 0, 0, time.Hour,
 		func(userID, worldID string) { oldArrived <- worldID })
 
 	// Сразу заменяем коротким полётом.
 	newArrived := make(chan string, 1)
-	m.StartFlight("user-1", "A", "new", 30*time.Millisecond,
+	m.StartFlight("user-1", "A", "new", 0, 0, 30*time.Millisecond,
 		func(userID, worldID string) { newArrived <- worldID })
 
 	// Новый полёт должен долететь.
@@ -116,12 +118,36 @@ func TestReplaceCancelsOldFlight(t *testing.T) {
 func TestGetFlightShowsNewestFlight(t *testing.T) {
 	m := NewManager()
 
-	m.StartFlight("user-1", "A", "old", time.Hour, nil)
-	m.StartFlight("user-1", "A", "new", time.Hour, nil)
+	m.StartFlight("user-1", "A", "old", 0, 0, time.Hour, nil)
+	m.StartFlight("user-1", "A", "new", 0, 0, time.Hour, nil)
 
 	flight := m.GetFlight("user-1")
 	require.NotNil(t, flight)
 	assert.Equal(t, "new", flight.ToWorld)
+}
+
+// ==================== ОТМЕНА ПОЛЁТА ====================
+
+func TestCancelFlight(t *testing.T) {
+	m := NewManager()
+
+	// Нет полёта — false.
+	assert.False(t, m.CancelFlight("user-1"))
+
+	// Активный полёт — true, полёт удаляется, onArrival не вызывается.
+	arrived := make(chan string, 1)
+	m.StartFlight("user-1", "A", "B", 0, 0, time.Hour,
+		func(userID, worldID string) { arrived <- worldID })
+
+	assert.True(t, m.CancelFlight("user-1"))
+	require.Eventually(t, func() bool { return !m.IsInFlight("user-1") }, time.Second, 5*time.Millisecond)
+	assert.Nil(t, m.GetFlight("user-1"))
+
+	select {
+	case w := <-arrived:
+		t.Fatalf("onArrival вызван после отмены: %s", w)
+	case <-time.After(150 * time.Millisecond):
+	}
 }
 
 // ==================== НЕСКОЛЬКО ПОЛЬЗОВАТЕЛЕЙ ====================
@@ -131,9 +157,9 @@ func TestConcurrentUsersIndependent(t *testing.T) {
 
 	arrivedA := make(chan string, 1)
 	arrivedB := make(chan string, 1)
-	m.StartFlight("user-A", "W1", "W2", 20*time.Millisecond,
+	m.StartFlight("user-A", "W1", "W2", 0, 0, 20*time.Millisecond,
 		func(userID, worldID string) { arrivedA <- userID })
-	m.StartFlight("user-B", "W9", "W8", 40*time.Millisecond,
+	m.StartFlight("user-B", "W9", "W8", 0, 0, 40*time.Millisecond,
 		func(userID, worldID string) { arrivedB <- userID })
 
 	select {

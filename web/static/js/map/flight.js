@@ -5,7 +5,7 @@
 import { state, elements } from './config.js';
 import { draw } from './map_render.js';
 import { fetchWorldByID, handleUnauthorized } from './data.js';
-import { notifyError, notifySuccess } from '../ui/toast.js';
+import { notifyError } from '../ui/toast.js';
 
 // ensureWorld — берёт мир из кэша или подгружает по ID (даже вне текущего кадра).
 async function ensureWorld(id, token) {
@@ -58,10 +58,21 @@ export function hideFlightPanel() {
     updateFlightPanel();
 }
 
-// setCurrentWorldLabel — показывает имя текущего мира в шапке.
+// setCurrentWorldLabel — показывает имя текущего мира в шапке (61a:
+// префикс «Текущий мир:» возвращается после полёта/отмены).
 export function setCurrentWorldLabel(name) {
+    const prefix = document.getElementById('currentWorldPrefix');
     const label = document.getElementById('currentWorldName');
+    if (prefix) prefix.textContent = 'Текущий мир:';
     if (label) label.textContent = name || '—';
+}
+
+// showFlightLabel — шапка карты в полёте: «В полёте: From → To» (61a).
+export function showFlightLabel(fromName, toName) {
+    const prefix = document.getElementById('currentWorldPrefix');
+    const name = document.getElementById('currentWorldName');
+    if (prefix) prefix.textContent = 'В полёте:';
+    if (name) name.textContent = (fromName || '—') + ' → ' + (toName || '—');
 }
 
 // ==================== НАЧАЛО ПЕРЕЛЁТА ====================
@@ -69,10 +80,6 @@ export function setCurrentWorldLabel(name) {
 // startFlight — отправляет /travel, подгружает миры, запускает полёт и показывает панель.
 // Возвращает true при успехе, false при ошибке.
 export async function startFlight(worldId, token) {
-    if (state.isFlying) {
-        notifyError('Уже в полёте');
-        return false;
-    }
     if (!worldId) {
         notifyError('Не выбран мир назначения');
         return false;
@@ -97,6 +104,15 @@ export async function startFlight(worldId, token) {
         }
         const data = JSON.parse(text);
 
+        // Возврат в мир отправления (61a): сервер отменил полёт.
+        if (data.status === 'cancelled') {
+            state.isFlying = false;
+            hideFlightPanel();
+            setCurrentWorldLabel(data.world_name || (state.flyFrom && state.flyFrom.name) || '—');
+            draw();
+            return true;
+        }
+
         const [fromWorld, toWorld] = await Promise.all([
             ensureWorld(data.from, token),
             ensureWorld(data.to, token),
@@ -109,13 +125,14 @@ export async function startFlight(worldId, token) {
         state.flyFrom = fromWorld;
         state.flyTo = toWorld;
         state.flyDuration = data.duration;
-        state.flyStartTime = Date.now();
+        state.flyStartX = data.start_x;
+        state.flyStartY = data.start_y;
+        state.flyStartTime = data.start_time;
         state.isFlying = true;
-        notifySuccess('Полёт начат: ' + fromWorld.name + ' → ' + toWorld.name);
 
         elements.tooltip.classList.remove('active');
         showFlightPanel(fromWorld.name, toWorld.name);
-        setCurrentWorldLabel(fromWorld.name);
+        showFlightLabel(fromWorld.name, toWorld.name);
         draw();
         return true;
     } catch (e) {

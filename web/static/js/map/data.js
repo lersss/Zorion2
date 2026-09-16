@@ -319,6 +319,10 @@ export async function loadUserData(force = false) {
             }
 
             if (world) {
+                // Явно возвращаем префикс «Текущий мир:» — до этого шапка
+                // могла показывать «В полёте:» (61a).
+                const prefix = document.getElementById('currentWorldPrefix');
+                if (prefix) prefix.textContent = 'Текущий мир:';
                 const label = document.getElementById('currentWorldName');
                 if (label) label.textContent = world.name;
             }
@@ -344,6 +348,12 @@ export async function loadUserData(force = false) {
                 state.flyStartX = (typeof user.flight.start_x === 'number') ? user.flight.start_x : fromWorld.coord_x;
                 state.flyStartY = (typeof user.flight.start_y === 'number') ? user.flight.start_y : fromWorld.coord_y;
                 state.isFlying = true;
+                // Шапка: «В полёте: From → To» (61a). Напрямую, без импорта
+                // из flight.js — чтобы не плодить циклы между модулями.
+                const prefix = document.getElementById('currentWorldPrefix');
+                if (prefix) prefix.textContent = 'В полёте:';
+                const label = document.getElementById('currentWorldName');
+                if (label) label.textContent = fromWorld.name + ' → ' + toWorld.name;
             } else {
                 // Мир from/to не загрузился (удалён при перегенерации) —
                 // полёт не восстанавливаем, оставляем как было.

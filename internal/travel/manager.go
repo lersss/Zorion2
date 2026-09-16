@@ -12,6 +12,8 @@ type TravelInfo struct {
 	UserID     string
 	FromWorld  string
 	ToWorld    string
+	StartX     float64 // координаты стартовой точки сегмента (61a)
+	StartY     float64
 	StartTime  time.Time
 	Duration   time.Duration
 	CancelChan chan struct{}
@@ -31,6 +33,9 @@ func NewManager() *Manager {
 
 // StartFlight — запускает полёт для пользователя.
 //
+// startX/startY — координаты стартовой точки сегмента: при обычном старте
+// это координаты FromWorld, при редиректе (61a) — текущая точка P маршрута.
+//
 // Если у пользователя уже был активный полёт:
 //   - старый полёт сигнализируется об отмене (close CancelChan);
 //   - заменяется новым.
@@ -39,6 +44,7 @@ func NewManager() *Manager {
 // ИМЕННО СВОЙ полёт (сравнение указателей) — иначе не трогает map.
 func (m *Manager) StartFlight(
 	userID, fromWorldID, toWorldID string,
+	startX, startY float64,
 	duration time.Duration,
 	onArrival func(userID, worldID string),
 ) {
@@ -50,6 +56,8 @@ func (m *Manager) StartFlight(
 		UserID:     userID,
 		FromWorld:  fromWorldID,
 		ToWorld:    toWorldID,
+		StartX:     startX,
+		StartY:     startY,
 		StartTime:  time.Now(),
 		Duration:   duration,
 		CancelChan: make(chan struct{}),
@@ -97,6 +105,20 @@ func runFlight(m *Manager, flight *TravelInfo, onArrival func(userID, worldID st
 	} else {
 		log.Printf("Travel cancelled: user %s", flight.UserID)
 	}
+}
+
+// CancelFlight — отменяет активный полёт пользователя: корабль остаётся
+// в мире отправления, onArrival не вызывается. Возвращает true, если
+// полёт был активен.
+func (m *Manager) CancelFlight(userID string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	f, ok := m.flights[userID]
+	if !ok {
+		return false
+	}
+	close(f.CancelChan) // runFlight проснётся, удалит полёт, onArrival не вызовет
+	return true
 }
 
 // GetFlight — возвращает информацию о текущем полёте пользователя.

@@ -162,8 +162,8 @@ func nullIfEmpty(s string) interface{} {
 }
 
 // loadRegionsWithProfiles — все регионы с профилями (59a §10): привязка
-// планет к региону по ближайшему центру. Профиль не публикуется (не ярлык,
-// §11.7) — колонки читаются только здесь, в API регионов не выводятся.
+// планет к региону по ближайшему центру. ОТЛАДОЧНО (59a) profile также
+// выводится в /api/regions (region_handler.go); в финале — убрать (не ярлык, §11.7).
 func (h *AdminHandlers) loadRegionsWithProfiles() ([]*models.Region, error) {
 	rows, err := h.db.Query(`
 		SELECT id, name, center_x, center_y, radius, color, world_count, profile, profile_intensity

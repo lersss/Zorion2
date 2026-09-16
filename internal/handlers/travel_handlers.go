@@ -46,14 +46,6 @@ type TravelResponse struct {
 	StartTime int64   `json:"start_time"` // UnixMilli из фактического полёта
 }
 
-// travelCancelResponse — ответ при возврате в мир отправления во время
-// полёта (61a): полёт отменяется, корабль остаётся в мире отправления.
-type travelCancelResponse struct {
-	Status    string `json:"status"`
-	WorldID   string `json:"world_id"`
-	WorldName string `json:"world_name,omitempty"`
-}
-
 // calcTravelDuration вычисляет длительность полёта по расстоянию между мирами:
 // dist * 0.3 секунд, минимум 3 секунды (решение создателя 2026-09-16;
 // потолок 20 секунд от 2026-09-14 убран).
@@ -140,26 +132,6 @@ func (h *TravelHandlers) StartTravel(w http.ResponseWriter, r *http.Request) {
 		_ = h.userRepo.UpdateCurrentWorld(userID, fromWorldID)
 	}
 
-	// Возврат в мир отправления во время полёта (61a): выбор fromWorldID
-	// (= user.CurrentWorldID, меняется только по прибытии) при активном
-	// полёте = отмена полёта, а не «Already in this world». Имя мира —
-	// из targetWorld: в этой ветке req.WorldID == fromWorldID, т.е. это
-	// тот же мир. Без полёта — прежний 400 остаётся ниже.
-	if flight := h.travelManager.GetFlight(userID); flight != nil && req.WorldID == fromWorldID {
-		h.travelManager.CancelFlight(userID)
-		writeJSONStatus(w, http.StatusAccepted, travelCancelResponse{
-			Status:    "cancelled",
-			WorldID:   fromWorldID,
-			WorldName: targetWorld.Name,
-		})
-		return
-	}
-
-	if fromWorldID == req.WorldID {
-		http.Error(w, "Already in this world", http.StatusBadRequest)
-		return
-	}
-
 	// Идемпотентность: повторный запрос той же цели во время полёта не
 	// перезапускает полёт — возвращаем текущий без сброса прогресса.
 	if flight := h.travelManager.GetFlight(userID); flight != nil && flight.ToWorld == req.WorldID {
@@ -204,6 +176,14 @@ func (h *TravelHandlers) StartTravel(w http.ResponseWriter, r *http.Request) {
 			flight.StartX, flight.StartY, toX, toY,
 			time.Since(flight.StartTime), flight.Duration,
 		)
+	}
+
+	// «Already in this world» — только без полёта (66a): при активном полёте
+	// выбор мира отправления обрабатывается редиректом выше (разворот из
+	// текущей точки P), а не 400.
+	if flight := h.travelManager.GetFlight(userID); flight == nil && fromWorldID == req.WorldID {
+		http.Error(w, "Already in this world", http.StatusBadRequest)
+		return
 	}
 
 	dx := startX - targetWorld.CoordX

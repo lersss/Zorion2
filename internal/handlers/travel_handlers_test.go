@@ -300,9 +300,12 @@ func TestStartTravelAlreadyInThisWorld(t *testing.T) {
 	const userID = "11111111-1111-1111-1111-111111111111"
 	const world = "w1"
 
-	// Цель = текущий мир: 400 без запуска полёта.
+	// Цель = текущий мир: 400 без запуска полёта. Четвёртый expectWorld —
+	// координаты текущего мира: 400 стоит после ветки редиректа (66a),
+	// поэтому fromWorld фетчится до проверки.
 	expectWorld(mock, world, 0, 0)
 	expectUser(mock, userID, world)
+	expectWorld(mock, world, 0, 0)
 	expectWorld(mock, world, 0, 0)
 
 	rec := execJSON(h.StartTravel, travelRequest(userID, world))
@@ -314,12 +317,13 @@ func TestStartTravelAlreadyInThisWorld(t *testing.T) {
 // ==================== ВОЗВРАТ В МИР ОТПРАВЛЕНИЯ ====================
 
 // TestStartTravelReturnToFromWorld — во время полёта выбор мира отправления
-// отменяет полёт (202 cancelled), а не отвечает «Already in this world».
+// работает как обычный редирект (66a): корабль разворачивается из текущей
+// точки P и летит обратно с честной длительностью, а не телепортируется.
 func TestStartTravelReturnToFromWorld(t *testing.T) {
 	h, tm, mock := newTravelHarness(t)
 	const userID = "11111111-1111-1111-1111-111111111111"
-	const fromWorld = "w1"
-	const target = "w2"
+	const fromWorld = "w1" // A (0,0)
+	const target = "w2"    // B (10,0)
 
 	// Старт A->B.
 	expectTravelQueries(mock, userID, fromWorld, 0, 0, target, 10, 0)
@@ -327,22 +331,30 @@ func TestStartTravelReturnToFromWorld(t *testing.T) {
 	require.Equal(t, http.StatusAccepted, rec.Code)
 	require.NotNil(t, tm.GetFlight(userID))
 
-	// Возврат: /travel с целью A при активном полёте -> 202 cancelled.
-	// current_world не меняется (onArrival не вызывается — его нет в
-	// ожиданиях sqlmock).
-	expectWorld(mock, fromWorld, 0, 0)
-	expectUser(mock, userID, fromWorld)
-	expectWorld(mock, fromWorld, 0, 0)
+	// Возврат: /travel с целью A при активном полёте -> редирект из точки P.
+	// P на отрезке A->B по прогрессу (elapsed ~5 мс из 3 с): P ≈ (0.017, 0).
+	time.Sleep(5 * time.Millisecond)
+	expectTravelQueriesRedirect(mock, userID, fromWorld, 0, 0, fromWorld, 0, 0, target, 10, 0)
 	rec = execJSON(h.StartTravel, travelRequest(userID, fromWorld))
 	require.Equal(t, http.StatusAccepted, rec.Code)
 
-	var resp map[string]interface{}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	require.Equal(t, "cancelled", resp["status"])
-	require.Equal(t, fromWorld, resp["world_id"])
-	require.Equal(t, "Мир w1", resp["world_name"])
+	flight := tm.GetFlight(userID)
+	require.NotNil(t, flight, "полёт не отменён, а заменён редиректом")
+	require.Equal(t, fromWorld, flight.ToWorld, "цель = мир отправления A")
+	require.Equal(t, fromWorld, flight.FromWorld, "from остаётся миром отправления A")
+	require.Greater(t, flight.StartX, 0.0, "стартовая точка = P: прогресс > 0")
+	require.Less(t, flight.StartX, 10.0, "стартовая точка = P: не в старой цели B")
+	require.Equal(t, 0.0, flight.StartY, "P лежит на линии A->B (обе Y=0)")
+	// Честная длительность: dist(P, A) * 0.3, мин 3 сек. P ≈ 0.017 -> 3 сек.
+	require.Equal(t, 3*time.Second, flight.Duration, "dist(P,A) мал -> минимум 3 сек")
 
-	// runFlight проснулся по CancelChan и удалил полёт.
-	require.Eventually(t, func() bool { return tm.GetFlight(userID) == nil }, time.Second, 5*time.Millisecond)
+	// Ответ — обычный TravelResponse: from == to == A, стартовая точка = P.
+	var resp TravelResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Equal(t, fromWorld, resp.From)
+	require.Equal(t, fromWorld, resp.To)
+	require.Equal(t, int(flight.Duration.Seconds()), resp.Duration)
+	require.Equal(t, flight.StartX, resp.StartX)
+	require.Equal(t, flight.StartY, resp.StartY)
 	require.NoError(t, mock.ExpectationsWereMet())
 }

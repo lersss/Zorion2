@@ -58,15 +58,6 @@ export function hideFlightPanel() {
     updateFlightPanel();
 }
 
-// setCurrentWorldLabel — показывает имя текущего мира в шапке (61a:
-// префикс «Текущий мир:» возвращается после полёта/отмены).
-export function setCurrentWorldLabel(name) {
-    const prefix = document.getElementById('currentWorldPrefix');
-    const label = document.getElementById('currentWorldName');
-    if (prefix) prefix.textContent = 'Текущий мир:';
-    if (label) label.textContent = name || '—';
-}
-
 // showFlightLabel — шапка карты в полёте: «В полёте: From → To» (61a).
 export function showFlightLabel(fromName, toName) {
     const prefix = document.getElementById('currentWorldPrefix');
@@ -103,15 +94,6 @@ export async function startFlight(worldId, token) {
             return false;
         }
         const data = JSON.parse(text);
-
-        // Возврат в мир отправления (61a): сервер отменил полёт.
-        if (data.status === 'cancelled') {
-            state.isFlying = false;
-            hideFlightPanel();
-            setCurrentWorldLabel(data.world_name || (state.flyFrom && state.flyFrom.name) || '—');
-            draw();
-            return true;
-        }
 
         const [fromWorld, toWorld] = await Promise.all([
             ensureWorld(data.from, token),

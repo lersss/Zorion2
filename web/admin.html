@@ -126,11 +126,22 @@
                         <select id="genShape">
                             <option value="blob">Бесформенное облако</option>
                             <option value="circle">Круг</option>
+                            <option value="ring">Кольцо</option>
+                            <option value="bar">Перемычка</option>
+                            <option value="spiral">Спираль</option>
+                            <option value="dumbbell">Две доли</option>
+                            <option value="stream">Поток</option>
+                            <option value="core_halo">Ядро и гало</option>
+                            <option value="random">Случайная</option>
                         </select>
                     </div>
                     <button class="btn success" onclick="generateUniverse()">Сгенерировать</button>
                     <button class="btn danger" onclick="cancelGeneration('generate_universe')" id="cancelUniverseBtn" style="display:none;">Остановить</button>
                 </div>
+                <div style="margin-top:8px;">
+                    <button class="btn danger" onclick="clearUniverse()">🗑️ Удалить все миры</button>
+                </div>
+                <div id="clearResult" class="result"></div>
                 <div id="genResult" class="result"></div>
                 <div id="genProgress" class="progress-container">
                     <span class="progress-text" id="genProgressText">0 из 0</span>
@@ -259,11 +270,6 @@
             </div>
 
             <!-- Генерация фракций перенесена в подвкладку «Фракции» (29a) -->
-            <div class="card">
-                <h2>🗑️ Очистка вселенной</h2>
-                <button class="btn danger" onclick="clearUniverse()">Удалить все миры</button>
-                <div id="clearResult" class="result"></div>
-            </div>
         </div>
 
         <!-- Подвкладка: Планеты -->

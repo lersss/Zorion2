@@ -626,6 +626,138 @@ func TestFillUpStaysWithinRegion(t *testing.T) {
 		"вне территорий регионов — только выбросы (≤%d), а не точки добивки", maxOutliers)
 }
 
+// ==================== ДОБИВКА В ФОРМЕ РЕГИОНА (57a) ====================
+
+// distToSpiral — минимальное расстояние от точки до рукава спирали
+// r(θ) = radius·θ/θmax, θ ∈ [0, 2.5π] (в локальных координатах, без поворота).
+func distToSpiral(x, y, radius float64) float64 {
+	const thetaMax = 2.5 * math.Pi
+	const samples = 256
+	best := math.Inf(1)
+	for i := 0; i <= samples; i++ {
+		theta := thetaMax * float64(i) / samples
+		r := radius * (theta / thetaMax)
+		d := math.Hypot(x-r*math.Cos(theta), y-r*math.Sin(theta))
+		if d < best {
+			best = d
+		}
+	}
+	return best
+}
+
+func TestShapeCandidateSpiralOnArm(t *testing.T) {
+	// Кандидат добивки для spiral генерируется вдоль рукава (r(θ)=R·θ/θmax),
+	// а не гауссом вокруг центра: при фиксированном повороте (0) почти все
+	// точки ложатся в пределах 0.25R от кривой рукава (ширина рукава 0.07R,
+	// 3σ ≈ 0.21R).
+	const radius = 1500.0
+	for _, seed := range []int64{1, 2, 3, 5, 7} {
+		g := NewGenerator(&Config{Seed: seed})
+		params := clusterShapeParams{cosR: 1, sinR: 0} // поворот 0
+		const total = 2000
+		near := 0
+		for i := 0; i < total; i++ {
+			x, y := g.shapeCandidate("spiral", 0, 0, radius, params)
+			if distToSpiral(x, y, radius) <= radius*0.25 {
+				near++
+			}
+		}
+		frac := float64(near) / float64(total)
+		assert.Greater(t, frac, 0.9, "seed=%d: кандидаты добивки не ложатся вдоль рукава (доля %.3f)", seed, frac)
+	}
+}
+
+func TestFillUpSpiralKeepsShape(t *testing.T) {
+	// Добивка в форме региона: при плотном minDist, когда рукав не вмещает
+	// все запрошенные точки, остаток НЕ заливается гауссом вокруг центра
+	// (старое поведение размазывало спираль в диск). Точки кластера остаются
+	// вдоль рукава: у спирали r равномерен в [0, R] → доля точек с r < 0.5R
+	// ≈ 0.5, а гауссова заливка диска давала бы ~0.12 таких точек.
+	const (
+		radius     = 1500.0
+		minDist    = 150.0
+		worldCount = 400
+	)
+	for _, seed := range []int64{1, 2, 3, 5, 7, 11} {
+		g := NewGenerator(&Config{
+			Seed: seed, WorldCount: worldCount, MapSize: 20000, MinDist: minDist,
+			ClusterCount: 1, ClusterSpacing: 5000, ClusterRadius: radius,
+			OutlierPercent: 0.08, WorldSpread: 0, Shape: "spiral",
+		})
+		res := g.GenerateGalaxyWithRegions()
+		require.NotEmpty(t, res.Regions, "seed=%d: нет региона", seed)
+		cx, cy := res.Regions[0].CenterX, res.Regions[0].CenterY
+		// Точки кластера — в пределах территории 1.25R (выбросы уходят дальше).
+		var inner, total int
+		for _, w := range res.Worlds {
+			if math.Hypot(w.CoordX-cx, w.CoordY-cy) <= radius*1.25 {
+				total++
+				if math.Hypot(w.CoordX-cx, w.CoordY-cy) < radius*0.5 {
+					inner++
+				}
+			}
+		}
+		require.Greater(t, total, 30, "seed=%d: слишком мало точек кластера", seed)
+		// «Не раздувает»: рукав физически не вмещает все запрошенные точки,
+		// и добивка НЕ заливает остаток гауссовым диском до цели (старое
+		// поведение добирало до worldCount, размазывая спираль).
+		assert.Less(t, float64(total), worldCount*0.8, "seed=%d: добивка раздула кластер до цели (total=%d)", seed, total)
+		frac := float64(inner) / float64(total)
+		assert.Greater(t, frac, 0.25, "seed=%d: спираль размазана добивкой (доля точек в центре %.2f)", seed, frac)
+	}
+}
+
+func TestFillUpRingKeepsCenterEmpty(t *testing.T) {
+	// Добивка в форме региона (ring): при плотном minDist остаток ложится
+	// на кольцо, а не заливает центр (старое поведение — гаусс вокруг
+	// центра — заполняло дырку кольца).
+	const (
+		radius     = 1500.0
+		minDist    = 150.0
+		worldCount = 400
+	)
+	for _, seed := range []int64{1, 2, 3, 5, 7, 11} {
+		g := NewGenerator(&Config{
+			Seed: seed, WorldCount: worldCount, MapSize: 20000, MinDist: minDist,
+			ClusterCount: 1, ClusterSpacing: 5000, ClusterRadius: radius,
+			OutlierPercent: 0.08, WorldSpread: 0, Shape: "ring",
+		})
+		res := g.GenerateGalaxyWithRegions()
+		require.NotEmpty(t, res.Regions, "seed=%d: нет региона", seed)
+		cx, cy := res.Regions[0].CenterX, res.Regions[0].CenterY
+		var inner, total int
+		for _, w := range res.Worlds {
+			if math.Hypot(w.CoordX-cx, w.CoordY-cy) <= radius*1.25 {
+				total++
+				if math.Hypot(w.CoordX-cx, w.CoordY-cy) < radius*0.3 {
+					inner++
+				}
+			}
+		}
+		require.Greater(t, total, 30, "seed=%d: слишком мало точек кластера", seed)
+		// «Не раздувает»: кольцо не вмещает все запрошенные точки, добивка
+		// НЕ заливает остаток гауссовым диском до цели (старое поведение
+		// добирало до worldCount, заполняя дырку кольца).
+		assert.Less(t, float64(total), worldCount*0.8, "seed=%d: добивка раздула кластер до цели (total=%d)", seed, total)
+		frac := float64(inner) / float64(total)
+		assert.Less(t, frac, 0.1, "seed=%d: добивка залила центр кольца (доля %.2f)", seed, frac)
+	}
+}
+
+func TestGenerateGalaxyWithRegionsRandomShapeDeterminism(t *testing.T) {
+	// Детерминизм полной генерации с режимом random: один seed → одинаковые
+	// миры (выбор формы на кластер идёт через g.rng в порядке кластеров).
+	mk := func() *GalaxyResult {
+		return NewGenerator(&Config{
+			Seed: 99, WorldCount: 15, MapSize: 1500, MinDist: 200,
+			ClusterCount: 2, ClusterSpacing: 800, ClusterRadius: 150,
+			WorldSpread: 5, Shape: "random",
+		}).GenerateGalaxyWithRegions()
+	}
+	a, b := mk(), mk()
+	assert.Equal(t, worldSignatures(a.Worlds), worldSignatures(b.Worlds), "миры должны совпадать")
+}
+
 func TestClusterPointsCircleDensity(t *testing.T) {
 	// Точки круга должны быть плотнее к центру (гауссово распределение),
 	// а не равномерно по кругу; граница размытая, а не жёсткое «кольцо».
@@ -633,7 +765,7 @@ func TestClusterPointsCircleDensity(t *testing.T) {
 	// ограничена ёмкостью диска, и форма «красится» плотностью — это не
 	// свойство распределения, а физика разреженного поля.
 	g := NewGenerator(&Config{Seed: 9})
-	points := g.clusterPointsCircle(0, 0, 1000, 4, 1000)
+	points := g.clusterPointsCircle(0, 0, 1000, 4, 1000, g.rollShapeParams("circle", 1000))
 	require.NotEmpty(t, points)
 
 	var sum float64
@@ -684,7 +816,7 @@ func TestClusterPointsBlobIrregular(t *testing.T) {
 	var dispSum float64
 	for _, seed := range seeds {
 		g := NewGenerator(&Config{Seed: seed})
-		points := g.clusterPointsBlob(0, 0, radius, 20, perSeed)
+		points := g.clusterPointsBlob(0, 0, radius, 20, perSeed, g.rollShapeParams("blob", radius))
 		require.NotEmpty(t, points)
 
 		var sx, sy float64
@@ -707,13 +839,15 @@ func TestClusterPointsBlobIrregular(t *testing.T) {
 }
 
 func TestClusterPointsDispatchByShape(t *testing.T) {
-	// Хелпер должен выбирать форму по Config.Shape, а круглая форма — давать
-	// почти нулевое смещение центроида в отличие от бесформенной.
+	// Хелпер должен диспетчеризовать по переданной форме, а круглая форма —
+	// давать почти нулевое смещение центроида в отличие от бесформенной.
 	seeds := []int64{1, 2, 3, 4, 5, 7}
 	var blobDisp, circleDisp float64
 	for _, seed := range seeds {
-		blob := NewGenerator(&Config{Seed: seed}).clusterPoints(0, 0, 1000, 20, 500)
-		circle := NewGenerator(&Config{Seed: seed, Shape: "circle"}).clusterPoints(0, 0, 1000, 20, 500)
+		bg := NewGenerator(&Config{Seed: seed})
+		blob := bg.clusterPoints("blob", bg.rollShapeParams("blob", 1000), 0, 0, 1000, 20, 500)
+		cg := NewGenerator(&Config{Seed: seed, Shape: "circle"})
+		circle := cg.clusterPoints("circle", cg.rollShapeParams("circle", 1000), 0, 0, 1000, 20, 500)
 		require.NotEmpty(t, blob)
 		require.NotEmpty(t, circle)
 		blobDisp += centroidOffset(blob)
@@ -732,6 +866,21 @@ func TestClusterShapeNormalization(t *testing.T) {
 		{"BLOB", "blob"},
 		{"circle", "circle"},
 		{"Circle", "circle"},
+		{"ring", "ring"},
+		{"RING", "ring"},
+		{"bar", "bar"},
+		{"Bar", "bar"},
+		{"spiral", "spiral"},
+		{"SPIRAL", "spiral"},
+		{"dumbbell", "dumbbell"},
+		{"Dumbbell", "dumbbell"},
+		{"stream", "stream"},
+		{"Stream", "stream"},
+		{"core_halo", "core_halo"},
+		{"CORE_HALO", "core_halo"},
+		{"random", "random"},
+		{"Random", "random"},
+		{"  ring  ", "ring"},
 		{"oval", "blob"},
 	}
 	for _, c := range cases {
@@ -741,13 +890,179 @@ func TestClusterShapeNormalization(t *testing.T) {
 
 func TestClusterPointsBlobDeterminism(t *testing.T) {
 	mk := func() []struct{ X, Y float64 } {
-		return NewGenerator(&Config{Seed: 42, Shape: "blob"}).clusterPointsBlob(0, 0, 500, 30, 100)
+		g := NewGenerator(&Config{Seed: 42, Shape: "blob"})
+		return g.clusterPointsBlob(0, 0, 500, 30, 100, g.rollShapeParams("blob", 500))
 	}
 	a, b := mk(), mk()
 	require.Equal(t, len(a), len(b))
 	for i := range a {
 		assert.Equal(t, a[i], b[i], "одинаковый seed должен давать одинаковые точки")
 	}
+}
+
+func TestClusterPointsNewShapesDeterminism(t *testing.T) {
+	shapes := []string{"ring", "bar", "spiral", "dumbbell", "stream", "core_halo", "random"}
+	for _, shape := range shapes {
+		mk := func() []struct{ X, Y float64 } {
+			g := NewGenerator(&Config{Seed: 42, Shape: shape})
+			s := g.rollClusterShape()
+			return g.clusterPoints(s, g.rollShapeParams(s, 500), 0, 0, 500, 30, 100)
+		}
+		a, b := mk(), mk()
+		require.Equal(t, len(a), len(b), "shape=%s", shape)
+		for i := range a {
+			assert.Equal(t, a[i], b[i], "shape=%s: одинаковый seed должен давать одинаковые точки", shape)
+		}
+	}
+}
+
+func TestClusterPointsNewShapesInvariants(t *testing.T) {
+	// Общие инварианты всех новых форм: при достаточном пространстве
+	// генерируется ровно count точек, все в пределах 1.25×radius от центра,
+	// minDist соблюдается (отбор отбрасыванием).
+	shapes := []string{"ring", "bar", "spiral", "dumbbell", "stream", "core_halo", "random"}
+	const radius = 1000.0
+	const minDist = 4.0
+	const count = 500
+	for _, shape := range shapes {
+		g := NewGenerator(&Config{Seed: 9, Shape: shape})
+		s := g.rollClusterShape()
+		points := g.clusterPoints(s, g.rollShapeParams(s, radius), 0, 0, radius, minDist, count)
+		require.Len(t, points, count, "shape=%s: при достаточном пространстве все точки должны быть сгенерированы", shape)
+		for _, p := range points {
+			assert.LessOrEqual(t, math.Hypot(p.X, p.Y), radius*1.25, "shape=%s: точка за пределами территории кластера", shape)
+		}
+		for i := 0; i < len(points); i++ {
+			for j := i + 1; j < len(points); j++ {
+				d := math.Hypot(points[i].X-points[j].X, points[i].Y-points[j].Y)
+				assert.GreaterOrEqual(t, d, minDist-0.01, "shape=%s: точки слишком близко", shape)
+			}
+		}
+	}
+}
+
+func TestClusterPointsRingEmptyCenter(t *testing.T) {
+	// Кольцо: средний радиус 0.75–0.8R, толщина 0.10R — центр пустой.
+	g := NewGenerator(&Config{Seed: 9, Shape: "ring"})
+	points := g.clusterPointsRing(0, 0, 1000, 4, 1000, g.rollShapeParams("ring", 1000))
+	require.NotEmpty(t, points)
+	inner := 0
+	for _, p := range points {
+		assert.LessOrEqual(t, math.Hypot(p.X, p.Y), 1250.0, "точка за пределами кластера")
+		if math.Hypot(p.X, p.Y) < 300 {
+			inner++
+		}
+	}
+	assert.Less(t, float64(inner)/float64(len(points)), 0.05, "центр кольца должен быть пустым")
+}
+
+func TestClusterPointsBarElongated(t *testing.T) {
+	// Перемычка: std вдоль оси 0.85R, поперёк 0.12R — дисперсия вдоль оси
+	// (главная компонента PCA) заметно больше поперечной.
+	g := NewGenerator(&Config{Seed: 9, Shape: "bar"})
+	points := g.clusterPointsBar(0, 0, 1000, 4, 1000, g.rollShapeParams("bar", 1000))
+	require.NotEmpty(t, points)
+	lambdaMax, lambdaMin := principalDispersions(points)
+	assert.Greater(t, lambdaMax/lambdaMin, 9.0,
+		"перемычка должна быть вытянута вдоль оси (std 0.85R против 0.12R), ratio=%.1f", lambdaMax/lambdaMin)
+}
+
+func TestClusterPointsCoreHaloDenseCore(t *testing.T) {
+	// Ядро + гало: 75% точек — ядро (std 0.18R) — большинство точек близко
+	// к центру (заметно плотнее круга: у circle доля r < 0.3R ~0.09).
+	g := NewGenerator(&Config{Seed: 9, Shape: "core_halo"})
+	points := g.clusterPointsCoreHalo(0, 0, 1000, 4, 1000, g.rollShapeParams("core_halo", 1000))
+	require.NotEmpty(t, points)
+	inner := 0
+	for _, p := range points {
+		if math.Hypot(p.X, p.Y) < 300 {
+			inner++
+		}
+	}
+	assert.Greater(t, float64(inner)/float64(len(points)), 0.4, "ядро должно быть плотным (75% точек со std 0.18R)")
+}
+
+func TestClusterPointsDumbbellTwoLobes(t *testing.T) {
+	// Две доли: очаги на ±0.65R вдоль случайной оси — проекции на ось долей
+	// далеко от центра и с обеих сторон (не центрировано, обе доли населены).
+	g := NewGenerator(&Config{Seed: 9, Shape: "dumbbell"})
+	points := g.clusterPointsDumbbell(0, 0, 1000, 4, 1000, g.rollShapeParams("dumbbell", 1000))
+	require.NotEmpty(t, points)
+	cxx, cyy, cxy := covariance(points)
+	trace := cxx + cyy
+	det := cxx*cyy - cxy*cxy
+	lambdaMax := trace/2 + math.Sqrt(math.Max(0, trace*trace/4-det))
+	// Главный собственный вектор (ось долей).
+	vx, vy := cxy, lambdaMax-cxx
+	norm := math.Hypot(vx, vy)
+	if norm == 0 {
+		vx, vy = 1, 0
+	} else {
+		vx, vy = vx/norm, vy/norm
+	}
+	pos, neg := 0, 0
+	var meanAbs float64
+	for _, p := range points {
+		t := p.X*vx + p.Y*vy
+		meanAbs += math.Abs(t)
+		if t >= 0 {
+			pos++
+		} else {
+			neg++
+		}
+	}
+	meanAbs /= float64(len(points))
+	assert.Greater(t, meanAbs, 400.0, "доли должны быть далеко от центра (±0.65R), mean|t|=%.0f", meanAbs)
+	minor := pos
+	if neg < minor {
+		minor = neg
+	}
+	assert.Greater(t, float64(minor)/float64(len(points)), 0.2, "обе доли должны быть населены (50/50)")
+}
+
+func TestClusterPointsSpiralNotCentered(t *testing.T) {
+	// Спираль: рукав от центра наружу — точки не концентрируются в центре
+	// (у circle доля r < 0.3R ~0.09, у core_halo ~0.5; спираль ~0.27).
+	g := NewGenerator(&Config{Seed: 9, Shape: "spiral"})
+	points := g.clusterPointsSpiral(0, 0, 1000, 4, 1000, g.rollShapeParams("spiral", 1000))
+	require.NotEmpty(t, points)
+	inner := 0
+	for _, p := range points {
+		if math.Hypot(p.X, p.Y) < 300 {
+			inner++
+		}
+	}
+	assert.Less(t, float64(inner)/float64(len(points)), 0.4, "спираль не должна концентрироваться в центре")
+}
+
+func TestClusterPointsRandomVariety(t *testing.T) {
+	// Режим random: на каждый кластер случайная форма из 8. При нескольких
+	// кластерах формы должны различаться — проверяем по доле точек в ядре
+	// (r < 0.3R): у форм она заметно разная (ring ~0, core_halo ~0.7).
+	g := NewGenerator(&Config{Seed: 42, Shape: "random"})
+	const radius = 1000.0
+	const clusters = 12
+	minF, maxF := 1.0, 0.0
+	for i := 0; i < clusters; i++ {
+		s := g.rollClusterShape()
+		points := g.clusterPoints(s, g.rollShapeParams(s, radius), 0, 0, radius, 4, 500)
+		require.NotEmpty(t, points)
+		inner := 0
+		for _, p := range points {
+			if math.Hypot(p.X, p.Y) < 300 {
+				inner++
+			}
+		}
+		f := float64(inner) / float64(len(points))
+		if f < minF {
+			minF = f
+		}
+		if f > maxF {
+			maxF = f
+		}
+	}
+	assert.Greater(t, maxF-minF, 0.3,
+		"случайные формы должны различаться по плотности ядра (range=%.2f)", maxF-minF)
 }
 
 func TestGenerateGalaxyWithRegionsDeterminism(t *testing.T) {
@@ -917,6 +1232,32 @@ func centroidOffset(points []struct{ X, Y float64 }) float64 {
 	}
 	n := float64(len(points))
 	return math.Hypot(sx/n, sy/n)
+}
+
+// covariance — элементы ковариационной матрицы точек (для PCA в тестах форм).
+func covariance(points []struct{ X, Y float64 }) (cxx, cyy, cxy float64) {
+	var sx, sy, sxx, syy, sxy float64
+	n := float64(len(points))
+	for _, p := range points {
+		sx += p.X
+		sy += p.Y
+		sxx += p.X * p.X
+		syy += p.Y * p.Y
+		sxy += p.X * p.Y
+	}
+	return sxx/n - (sx/n)*(sx/n), syy/n - (sy/n)*(sy/n), sxy/n - (sx/n)*(sy/n)
+}
+
+// principalDispersions — собственные значения ковариационной матрицы точек
+// (дисперсии вдоль главных осей).
+func principalDispersions(points []struct{ X, Y float64 }) (lambdaMax, lambdaMin float64) {
+	cxx, cyy, cxy := covariance(points)
+	trace := cxx + cyy
+	det := cxx*cyy - cxy*cxy
+	disc := math.Sqrt(math.Max(0, trace*trace/4-det))
+	lambdaMax = trace/2 + disc
+	lambdaMin = math.Max(trace/2-disc, 1e-9)
+	return lambdaMax, lambdaMin
 }
 
 func worldSignatures(worlds []*models.World) []string {

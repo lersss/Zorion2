@@ -1,0 +1,884 @@
+{
+  "races": [
+    {
+      "id": "humans",
+      "name": "Люди",
+      "basis": "вода+биосфера",
+      "conditions": {
+        "temperature": {"opt": [273, 310], "surv": [250, 330]},
+        "pressure": {"opt": [0.5, 3], "surv": [0.2, 10]},
+        "atmosphere": {"need": {"O2": 10, "N2": 0}, "poison": {"H2S": 0, "SO2": 0, "NH3": 0, "CO2": 5}},
+        "radiation": {"opt": [0, 20], "surv": [0, 50]},
+        "gravity": {"opt": [0.8, 1.2], "surv": [0.5, 2]},
+        "liquid_water": true
+      },
+      "attributes": {"aggression": 50, "curiosity": 50, "reproduction": 1.0, "intelligence": 50, "diplomacy": 50, "resilience": 50},
+      "consumption": {"ВОД": 60, "ОРГ": 30, "CO2": 5, "ГРД": 5},
+      "forage": {"source": "биосфера (растения/фауна), землеподобная; вода", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["G", "K"], "planet_niche": "умеренная зона"},
+      "bulge": "cold"
+    },
+    {
+      "id": "oceanids",
+      "name": "Океаниды",
+      "basis": "вода, океаны",
+      "conditions": {
+        "temperature": {"opt": [275, 305], "surv": [258, 320]},
+        "pressure": {"opt": [0.5, 5], "surv": [0.3, 15]},
+        "atmosphere": {"need": {"O2": 5, "N2": 0}, "poison": {"H2S": 0, "SO2": 0}},
+        "radiation": {"opt": [0, 20], "surv": [0, 50]},
+        "gravity": {"opt": [0.8, 1.2], "surv": [0.5, 2.5]},
+        "liquid_water": true
+      },
+      "attributes": {"aggression": 30, "curiosity": 60, "reproduction": 0.9, "intelligence": 45, "diplomacy": 55, "resilience": 55},
+      "consumption": {"ВОД": 60, "ОРГ": 25, "ГРД": 10, "CO2": 5},
+      "forage": {"source": "океанская биосфера (планктон/водоросли)", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["G", "K"], "planet_niche": "океанические миры"},
+      "bulge": "cold"
+    },
+    {
+      "id": "deep_dwellers",
+      "name": "Глубинники",
+      "basis": "вода подлёдного океана",
+      "conditions": {
+        "temperature": {"opt": [273, 300], "surv": [268, 310]},
+        "pressure": {"opt": [1, 100], "surv": [0.5, 300]},
+        "atmosphere": {"need": {}, "poison": {}},
+        "radiation": {"opt": [0, 30], "surv": [0, 60]},
+        "heat_flux": {"opt": [1, null], "surv": [0.1, null]},
+        "gravity": {"opt": [0.3, 1.5], "surv": [0.2, 2.5]}
+      },
+      "attributes": {"aggression": 20, "curiosity": 30, "reproduction": 0.5, "intelligence": 45, "diplomacy": 40, "resilience": 70},
+      "consumption": {"ВОД": 50, "ГРД": 30, "ОРГ": 15, "CO2": 5},
+      "forage": {"source": "хемосинтез гидротермальных источников", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["K", "M"], "planet_niche": "подлёдные океаны"},
+      "bulge": "hot"
+    },
+    {
+      "id": "coastal",
+      "name": "Прибрежные",
+      "basis": "вода+соляные отмели",
+      "conditions": {
+        "temperature": {"opt": [270, 310], "surv": [250, 325]},
+        "pressure": {"opt": [0.5, 3], "surv": [0.2, 10]},
+        "atmosphere": {"need": {"O2": 10, "N2": 0}, "poison": {"H2S": 0, "SO2": 0}},
+        "radiation": {"opt": [0, 25], "surv": [0, 55]},
+        "gravity": {"opt": [0.8, 1.5], "surv": [0.5, 2.5]},
+        "liquid_water": true
+      },
+      "attributes": {"aggression": 40, "curiosity": 45, "reproduction": 1.1, "intelligence": 50, "diplomacy": 50, "resilience": 60},
+      "consumption": {"ВОД": 55, "ОРГ": 30, "РАС": 10, "CO2": 5},
+      "forage": {"source": "биосфера + соляные отмели", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["G", "K"], "planet_niche": "умеренная зона, соляные отмели"},
+      "bulge": "cold"
+    },
+    {
+      "id": "ammonia",
+      "name": "Аммиачники",
+      "basis": "жидкий NH₃",
+      "conditions": {
+        "temperature": {"opt": [200, 235], "surv": [196, 255]},
+        "pressure": {"opt": [1, 10], "surv": [0.5, 50]},
+        "atmosphere": {"need": {"NH3": 1, "N2": 0, "CH4": 0}, "poison": {"O2": 1, "H2O": 0}},
+        "radiation": {"opt": [0, 30], "surv": [0, 60]},
+        "gravity": {"opt": [0.5, 2], "surv": [0.3, 3]}
+      },
+      "attributes": {"aggression": 20, "curiosity": 25, "reproduction": 0.05, "intelligence": 55, "diplomacy": 60, "resilience": 65},
+      "consumption": {"АММ": 55, "МЕТ": 15, "CO2": 15, "ГРД": 10, "ВГЕ": 5},
+      "forage": {"source": "NH₃-моря (растворённые углеводороды)", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["K", "M"], "planet_niche": "холодная зона, NH₃-обогащение"},
+      "bulge": "hot"
+    },
+    {
+      "id": "cryo_forest",
+      "name": "Крио-лесные",
+      "basis": "NH₃-моря, крио-«леса»",
+      "conditions": {
+        "temperature": {"opt": [200, 235], "surv": [185, 250]},
+        "pressure": {"opt": [1, 20], "surv": [0.5, 80]},
+        "atmosphere": {"need": {"NH3": 0, "CH4": 0, "N2": 0}, "poison": {"O2": 0, "H2O": 0}},
+        "radiation": {"opt": [0, 30], "surv": [0, 60]},
+        "gravity": {"opt": [0.5, 2], "surv": [0.3, 3]}
+      },
+      "attributes": {"aggression": 15, "curiosity": 30, "reproduction": 0.06, "intelligence": 50, "diplomacy": 55, "resilience": 60},
+      "consumption": {"АММ": 45, "МЕТ": 30, "CO2": 15, "ГРД": 10},
+      "forage": {"source": "крио-флора (NH₃/CH₄-растительность)", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["K", "M"], "planet_niche": "холодная зона, NH₃-моря"},
+      "bulge": "highP"
+    },
+    {
+      "id": "ice_herders",
+      "name": "Ледяные пастухи",
+      "basis": "CO₂-льды с примесью NH₃/CH₄",
+      "conditions": {
+        "temperature": {"opt": [170, 210], "surv": [155, 225]},
+        "pressure": {"opt": [0.1, 3], "surv": [0.05, 10]},
+        "atmosphere": {"need": {"CO2": 0, "N2": 0, "CH4": 0, "NH3": 0}, "poison": {"O2": 0}},
+        "radiation": {"opt": [0, 30], "surv": [0, 60]},
+        "gravity": {"opt": [0.3, 1.5], "surv": [0.2, 2.5]}
+      },
+      "attributes": {"aggression": 10, "curiosity": 35, "reproduction": 0.07, "intelligence": 45, "diplomacy": 50, "resilience": 70},
+      "consumption": {"CO2": 35, "АММ": 35, "МЕТ": 15, "ГРД": 15},
+      "forage": {"source": "твёрдофазная крио-химия CO₂-льдов", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["M", "L"], "planet_niche": "холодные CO₂-миры"},
+      "bulge": "highP"
+    },
+    {
+      "id": "mistfolk",
+      "name": "Туманники",
+      "basis": "NH₃-туманы, высокое P",
+      "conditions": {
+        "temperature": {"opt": [200, 240], "surv": [190, 255]},
+        "pressure": {"opt": [5, 50], "surv": [1, 200]},
+        "atmosphere": {"need": {"NH3": 0, "N2": 0}, "poison": {"O2": 0, "H2O": 0}},
+        "radiation": {"opt": [0, 35], "surv": [0, 65]},
+        "gravity": {"opt": [0.5, 2.5], "surv": [0.3, 4]}
+      },
+      "attributes": {"aggression": 25, "curiosity": 40, "reproduction": 0.08, "intelligence": 60, "diplomacy": 55, "resilience": 55},
+      "consumption": {"АММ": 55, "МЕТ": 15, "CO2": 15, "ГРД": 15},
+      "forage": {"source": "аэрозоли NH₃-туманов", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["K", "M"], "planet_niche": "холодная зона, высокое P"},
+      "bulge": "hot"
+    },
+    {
+      "id": "cryo_swarms",
+      "name": "Крио-рои",
+      "basis": "аммиак+метан, коллективные",
+      "conditions": {
+        "temperature": {"opt": [190, 230], "surv": [175, 245]},
+        "pressure": {"opt": [0.5, 10], "surv": [0.2, 50]},
+        "atmosphere": {"need": {"NH3": 0, "CH4": 0, "N2": 0}, "poison": {"O2": 0, "H2O": 0}},
+        "radiation": {"opt": [0, 30], "surv": [0, 60]},
+        "gravity": {"opt": [0.3, 2], "surv": [0.2, 3]}
+      },
+      "attributes": {"aggression": 35, "curiosity": 45, "reproduction": 0.1, "intelligence": 40, "diplomacy": 45, "resilience": 60},
+      "consumption": {"АММ": 50, "МЕТ": 30, "CO2": 10, "ГРД": 10},
+      "forage": {"source": "крио-планктон, роевая охота", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["K", "M"], "planet_niche": "холодная зона, NH₃/CH₄"},
+      "bulge": "highP"
+    },
+    {
+      "id": "cryo_sky",
+      "name": "Крио-небесные",
+      "basis": "атмосферы холодных гигантов",
+      "conditions": {
+        "temperature": {"opt": [150, 250], "surv": [130, 270]},
+        "pressure": {"opt": [1, 100], "surv": [0.5, 300]},
+        "atmosphere": {"need": {"H2": 0, "He": 0, "CH4": 0, "NH3": 0}, "poison": {"O2": 0}},
+        "radiation": {"opt": [0, 30], "surv": [0, 60]},
+        "gravity": {"opt": [1, 5], "surv": [0.5, 10]}
+      },
+      "attributes": {"aggression": 15, "curiosity": 50, "reproduction": 0.05, "intelligence": 50, "diplomacy": 50, "resilience": 55},
+      "consumption": {"АММ": 35, "МЕТ": 25, "ВГЕ": 25, "CO2": 10, "ГРД": 5},
+      "forage": {"source": "атмосферная крио-химия (аэрозоли CH₄/NH₃ в H₂)", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["K", "M"], "planet_niche": "холодные гиганты"},
+      "bulge": "highP"
+    },
+    {
+      "id": "methane_fungi",
+      "name": "Метан-грибницы",
+      "basis": "метановые моря, коллективный разум",
+      "conditions": {
+        "temperature": {"opt": [95, 110], "surv": [90, 120]},
+        "pressure": {"opt": [0.5, 3], "surv": [0.1, 10]},
+        "atmosphere": {"need": {"CH4": 5, "N2": 0, "CO2": 0}, "poison": {"O2": 0, "H2O": 0}},
+        "radiation": {"opt": [0, 20], "surv": [0, 40]},
+        "gravity": {"opt": [0.5, 2], "surv": [0.3, 3]}
+      },
+      "attributes": {"aggression": 10, "curiosity": 15, "reproduction": 0.001, "intelligence": 25, "diplomacy": 30, "resilience": 70},
+      "consumption": {"МЕТ": 60, "АММ": 10, "CO2": 20, "ГРД": 10},
+      "forage": {"source": "метановые моря (растворённые углеводороды)", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["M", "L", "T"], "planet_niche": "холодная зона, CH₄-обогащение"},
+      "bulge": "hot"
+    },
+    {
+      "id": "methane_plankton",
+      "name": "Метан-планктон",
+      "basis": "океаны жидкого CH₄",
+      "conditions": {
+        "temperature": {"opt": [90, 105], "surv": [88, 115]},
+        "pressure": {"opt": [0.5, 3], "surv": [0.1, 10]},
+        "atmosphere": {"need": {"CH4": 0, "N2": 0}, "poison": {"O2": 0, "H2O": 0}},
+        "radiation": {"opt": [0, 15], "surv": [0, 35]},
+        "gravity": {"opt": [0.3, 1.5], "surv": [0.2, 2.5]}
+      },
+      "attributes": {"aggression": 5, "curiosity": 10, "reproduction": 0.0005, "intelligence": 15, "diplomacy": 20, "resilience": 65},
+      "consumption": {"МЕТ": 70, "АММ": 10, "CO2": 10, "ГРД": 10},
+      "forage": {"source": "метановый планктон", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["M", "L", "T"], "planet_niche": "холодная зона, CH₄-моря"},
+      "bulge": "hot"
+    },
+    {
+      "id": "cryo_corals",
+      "name": "Крио-кораллы",
+      "basis": "CH₄/CO₂-льды (твёрдая фаза)",
+      "conditions": {
+        "temperature": {"opt": [85, 115], "surv": [80, 125]},
+        "pressure": {"opt": [0.01, 1], "surv": [0.005, 5]},
+        "atmosphere": {"need": {"CH4": 0, "CO2": 0, "N2": 0}, "poison": {"O2": 0, "H2O": 0}},
+        "radiation": {"opt": [0, 15], "surv": [0, 35]},
+        "gravity": {"opt": [0.3, 1.5], "surv": [0.2, 2.5]}
+      },
+      "attributes": {"aggression": 5, "curiosity": 15, "reproduction": 0.0003, "intelligence": 10, "diplomacy": 15, "resilience": 75},
+      "consumption": {"МЕТ": 50, "CO2": 35, "АММ": 10, "ГРД": 5},
+      "forage": {"source": "твёрдофазный рост на CH₄/CO₂-льдах", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["M", "L", "T"], "planet_niche": "холодные CH₄/CO₂-миры"},
+      "bulge": "hot"
+    },
+    {
+      "id": "mist_swarms",
+      "name": "Туман-рои",
+      "basis": "CH₄-туманы",
+      "conditions": {
+        "temperature": {"opt": [95, 115], "surv": [90, 125]},
+        "pressure": {"opt": [1, 10], "surv": [0.3, 50]},
+        "atmosphere": {"need": {"CH4": 0, "N2": 0}, "poison": {"O2": 0, "H2O": 0}},
+        "radiation": {"opt": [0, 20], "surv": [0, 40]},
+        "gravity": {"opt": [0.3, 2], "surv": [0.2, 3]}
+      },
+      "attributes": {"aggression": 15, "curiosity": 20, "reproduction": 0.001, "intelligence": 20, "diplomacy": 25, "resilience": 60},
+      "consumption": {"МЕТ": 60, "АММ": 15, "CO2": 15, "ГРД": 10},
+      "forage": {"source": "аэрозоли CH₄", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["M", "L", "T"], "planet_niche": "холодная зона, CH₄-туманы"},
+      "bulge": "hot"
+    },
+    {
+      "id": "sulfur_nests",
+      "name": "Серные гнёзда",
+      "basis": "H₂S-источники",
+      "conditions": {
+        "temperature": {"opt": [400, 480], "surv": [350, 550]},
+        "pressure": {"opt": [1, 50], "surv": [0.5, 200]},
+        "atmosphere": {"need": {"H2S": 1, "SO2": 0, "CO2": 0, "N2": 0}, "poison": {"O2": 1}},
+        "radiation": {"opt": [0, 60], "surv": [0, 90]},
+        "heat_flux": {"opt": [1, null], "surv": [0.1, null]},
+        "gravity": {"opt": [0.5, 2.5], "surv": [0.3, 4]}
+      },
+      "attributes": {"aggression": 55, "curiosity": 35, "reproduction": 30, "intelligence": 50, "diplomacy": 45, "resilience": 55},
+      "consumption": {"СЕР": 60, "ГРД": 25, "РАС": 10, "CO2": 5},
+      "forage": {"source": "серные источники (хемосинтез)", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["K", "M"], "planet_niche": "молодые вулканические миры"},
+      "bulge": "hot"
+    },
+    {
+      "id": "smokers",
+      "name": "Курильщики",
+      "basis": "чёрные курильщики, глубокие",
+      "conditions": {
+        "temperature": {"opt": [350, 450], "surv": [320, 500]},
+        "pressure": {"opt": [50, 300], "surv": [10, 800]},
+        "atmosphere": {"need": {"H2S": 0, "SO2": 0, "CO2": 0}, "poison": {"O2": 0}},
+        "radiation": {"opt": [0, 60], "surv": [0, 90]},
+        "heat_flux": {"opt": [2, null], "surv": [0.5, null]},
+        "gravity": {"opt": [0.5, 2.5], "surv": [0.3, 4]}
+      },
+      "attributes": {"aggression": 40, "curiosity": 30, "reproduction": 25, "intelligence": 45, "diplomacy": 40, "resilience": 60},
+      "consumption": {"СЕР": 60, "ГРД": 30, "РАС": 10},
+      "forage": {"source": "глубокие гидротермальные источники", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["K", "M"], "planet_niche": "глубокие гидротермальные миры"},
+      "bulge": "hot"
+    },
+    {
+      "id": "sulfur_steppes",
+      "name": "Серные степи",
+      "basis": "SO₂-равнины",
+      "conditions": {
+        "temperature": {"opt": [380, 500], "surv": [350, 560]},
+        "pressure": {"opt": [0.5, 20], "surv": [0.2, 100]},
+        "atmosphere": {"need": {"SO2": 0, "CO2": 0, "N2": 0}, "poison": {"O2": 0}},
+        "radiation": {"opt": [0, 55], "surv": [0, 85]},
+        "heat_flux": {"opt": [0.5, null], "surv": [0.05, null]},
+        "gravity": {"opt": [0.5, 2.5], "surv": [0.3, 4]}
+      },
+      "attributes": {"aggression": 50, "curiosity": 45, "reproduction": 35, "intelligence": 55, "diplomacy": 50, "resilience": 50},
+      "consumption": {"СЕР": 55, "CO2": 20, "ГРД": 20, "РАС": 5},
+      "forage": {"source": "серные отложения + градиенты", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["K", "M"], "planet_niche": "вулканические равнины"},
+      "bulge": "hot"
+    },
+    {
+      "id": "volcanites",
+      "name": "Вулканиты",
+      "basis": "кальдеры",
+      "conditions": {
+        "temperature": {"opt": [420, 520], "surv": [380, 570]},
+        "pressure": {"opt": [1, 100], "surv": [0.5, 400]},
+        "atmosphere": {"need": {"SO2": 0, "H2S": 0, "CO2": 0}, "poison": {"O2": 0}},
+        "radiation": {"opt": [0, 70], "surv": [0, 95]},
+        "heat_flux": {"opt": [5, null], "surv": [1, null]},
+        "gravity": {"opt": [0.5, 3], "surv": [0.3, 5]}
+      },
+      "attributes": {"aggression": 60, "curiosity": 40, "reproduction": 40, "intelligence": 50, "diplomacy": 40, "resilience": 55},
+      "consumption": {"СЕР": 55, "ГРД": 30, "РАС": 10, "CO2": 5},
+      "forage": {"source": "кальдеры (терморедокс + сера)", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["K", "M"], "planet_niche": "кальдеры"},
+      "bulge": "hot"
+    },
+    {
+      "id": "sulfur_swarms",
+      "name": "Серные рои",
+      "basis": "коллективные, гнёзда",
+      "conditions": {
+        "temperature": {"opt": [380, 460], "surv": [350, 510]},
+        "pressure": {"opt": [1, 50], "surv": [0.5, 200]},
+        "atmosphere": {"need": {"H2S": 0, "SO2": 0}, "poison": {"O2": 0}},
+        "radiation": {"opt": [0, 60], "surv": [0, 90]},
+        "heat_flux": {"opt": [1, null], "surv": [0.1, null]},
+        "gravity": {"opt": [0.5, 2.5], "surv": [0.3, 4]}
+      },
+      "attributes": {"aggression": 65, "curiosity": 50, "reproduction": 45, "intelligence": 45, "diplomacy": 35, "resilience": 55},
+      "consumption": {"СЕР": 65, "ГРД": 25, "РАС": 10},
+      "forage": {"source": "серные гнёзда (роевая добыча)", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["K", "M"], "planet_niche": "вулканические миры"},
+      "bulge": "hot"
+    },
+    {
+      "id": "nether",
+      "name": "Преисподние",
+      "basis": "«преисподняя как сад»",
+      "conditions": {
+        "temperature": {"opt": [400, 470], "surv": [360, 520]},
+        "pressure": {"opt": [1, 100], "surv": [0.5, 300]},
+        "atmosphere": {"need": {"H2S": 0, "SO2": 0, "CO2": 0, "N2": 0}, "poison": {"O2": 0}},
+        "radiation": {"opt": [0, 65], "surv": [0, 90]},
+        "heat_flux": {"opt": [2, null], "surv": [0.2, null]},
+        "gravity": {"opt": [0.5, 2.5], "surv": [0.3, 4]}
+      },
+      "attributes": {"aggression": 45, "curiosity": 30, "reproduction": 30, "intelligence": 55, "diplomacy": 60, "resilience": 60},
+      "consumption": {"СЕР": 60, "ГРД": 20, "CO2": 10, "РАС": 10},
+      "forage": {"source": "серные источники + восстановительная химия", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["K", "M"], "planet_niche": "вулканические миры"},
+      "bulge": "hot"
+    },
+    {
+      "id": "ashfolk",
+      "name": "Пепельные",
+      "basis": "SO₂-пепел, восстановительные",
+      "conditions": {
+        "temperature": {"opt": [350, 430], "surv": [330, 480]},
+        "pressure": {"opt": [0.5, 10], "surv": [0.2, 50]},
+        "atmosphere": {"need": {"SO2": 0, "CO2": 0, "N2": 0}, "poison": {"O2": 0}},
+        "radiation": {"opt": [0, 50], "surv": [0, 80]},
+        "heat_flux": {"opt": [0.5, null], "surv": [0.05, null]},
+        "gravity": {"opt": [0.5, 2.5], "surv": [0.3, 4]}
+      },
+      "attributes": {"aggression": 35, "curiosity": 40, "reproduction": 25, "intelligence": 50, "diplomacy": 55, "resilience": 60},
+      "consumption": {"СЕР": 50, "CO2": 25, "ГРД": 20, "РАС": 5},
+      "forage": {"source": "пепельные равнины (серные отложения)", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["K", "M"], "planet_niche": "пепельные равнины"},
+      "bulge": "hot"
+    },
+    {
+      "id": "sulfur_wanderers",
+      "name": "Серные странники",
+      "basis": "кочевые между источниками",
+      "conditions": {
+        "temperature": {"opt": [340, 500], "surv": [320, 560]},
+        "pressure": {"opt": [0.5, 50], "surv": [0.2, 200]},
+        "atmosphere": {"need": {"H2S": 0, "SO2": 0, "CO2": 0, "N2": 0}, "poison": {"O2": 0}},
+        "radiation": {"opt": [0, 60], "surv": [0, 90]},
+        "heat_flux": {"opt": [0.5, null], "surv": [0.05, null]},
+        "gravity": {"opt": [0.5, 3], "surv": [0.3, 5]}
+      },
+      "attributes": {"aggression": 55, "curiosity": 70, "reproduction": 30, "intelligence": 55, "diplomacy": 45, "resilience": 50},
+      "consumption": {"СЕР": 55, "ГРД": 25, "CO2": 10, "РАС": 10},
+      "forage": {"source": "кочевой хемосинтез (источники + градиенты)", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["K", "M"], "planet_niche": "вулканические миры"},
+      "bulge": "hot"
+    },
+    {
+      "id": "tidal",
+      "name": "Приливные",
+      "basis": "приливно-нагретые спутники",
+      "conditions": {
+        "temperature": {"opt": [300, 450], "surv": [270, 500]},
+        "pressure": {"opt": [0.5, 20], "surv": [0.2, 100]},
+        "atmosphere": {"need": {"SO2": 0, "H2S": 0, "CO2": 0}, "poison": {"O2": 0}},
+        "radiation": {"opt": [0, 60], "surv": [0, 90]},
+        "heat_flux": {"opt": [2, null], "surv": [0.5, null]},
+        "gravity": {"opt": [0.2, 1.5], "surv": [0.1, 2.5]}
+      },
+      "attributes": {"aggression": 40, "curiosity": 55, "reproduction": 30, "intelligence": 50, "diplomacy": 50, "resilience": 60},
+      "consumption": {"СЕР": 40, "ГРД": 30, "РАС": 20, "CO2": 10},
+      "forage": {"source": "приливные источники (терморедокс на спутниках)", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["M"], "planet_niche": "приливно-нагретые спутники"},
+      "bulge": "hot"
+    },
+    {
+      "id": "saltfolk",
+      "name": "Солевые",
+      "basis": "эвтектики расплавов",
+      "conditions": {
+        "temperature": {"opt": [600, 800], "surv": [550, 900]},
+        "pressure": {"opt": [10, 1000], "surv": [1, 1000]},
+        "atmosphere": {"need": {"CO2": 0, "SO2": 0, "N2": 0}, "poison": {"O2": 5}},
+        "radiation": {"opt": [0, 50], "surv": [0, 80]},
+        "heat_flux": {"opt": [5, null], "surv": [1, null]},
+        "gravity": {"opt": [0.3, 3], "surv": [0.2, 5]}
+      },
+      "attributes": {"aggression": 60, "curiosity": 65, "reproduction": 100, "intelligence": 55, "diplomacy": 40, "resilience": 40},
+      "consumption": {"РАС": 50, "ГРД": 30, "СКФ": 15, "CO2": 5},
+      "forage": {"source": "расплавы солей (эвтектики) + терморедокс", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["F", "G", "K"], "planet_niche": "горячие миры (эвтектики)"},
+      "bulge": "hot"
+    },
+    {
+      "id": "lava",
+      "name": "Лавовые",
+      "basis": "края лавовых озёр",
+      "conditions": {
+        "temperature": {"opt": [700, 950], "surv": [650, 1050]},
+        "pressure": {"opt": [1, 100], "surv": [0.5, 500]},
+        "atmosphere": {"need": {"CO2": 0, "SO2": 0}, "poison": {"O2": 0}},
+        "radiation": {"opt": [0, 55], "surv": [0, 85]},
+        "heat_flux": {"opt": [10, null], "surv": [2, null]},
+        "gravity": {"opt": [0.3, 3], "surv": [0.2, 5]}
+      },
+      "attributes": {"aggression": 70, "curiosity": 60, "reproduction": 150, "intelligence": 50, "diplomacy": 35, "resilience": 35},
+      "consumption": {"РАС": 50, "ГРД": 35, "СКФ": 15},
+      "forage": {"source": "лавовые края (терморедокс)", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["F", "G", "K"], "planet_niche": "лавовые миры"},
+      "bulge": "hot"
+    },
+    {
+      "id": "supercritical",
+      "name": "Сверхкритические",
+      "basis": "CO₂/SO₂ сверхкритические флюиды",
+      "conditions": {
+        "temperature": {"opt": [550, 750], "surv": [520, 820]},
+        "pressure": {"opt": [100, 1000], "surv": [50, 1000]},
+        "atmosphere": {"need": {"CO2": 0, "SO2": 0, "N2": 0}, "poison": {"O2": 0}},
+        "radiation": {"opt": [0, 50], "surv": [0, 80]},
+        "heat_flux": {"opt": [2, null], "surv": [0.5, null]},
+        "gravity": {"opt": [0.5, 4], "surv": [0.3, 8]}
+      },
+      "attributes": {"aggression": 55, "curiosity": 70, "reproduction": 120, "intelligence": 60, "diplomacy": 45, "resilience": 45},
+      "consumption": {"СКФ": 45, "РАС": 25, "ГРД": 25, "CO2": 5},
+      "forage": {"source": "сверхкритические флюиды", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["F", "G", "K"], "planet_niche": "горячие высокодавленческие"},
+      "bulge": "hot"
+    },
+    {
+      "id": "thermo_swarms",
+      "name": "Термо-рои",
+      "basis": "быстрые, градиенты, коллективные",
+      "conditions": {
+        "temperature": {"opt": [500, 700], "surv": [480, 780]},
+        "pressure": {"opt": [1, 100], "surv": [0.5, 400]},
+        "atmosphere": {"need": {"CO2": 0, "SO2": 0, "N2": 0}, "poison": {"O2": 0}},
+        "radiation": {"opt": [0, 50], "surv": [0, 80]},
+        "heat_flux": {"opt": [5, null], "surv": [1, null]},
+        "gravity": {"opt": [0.3, 3], "surv": [0.2, 5]}
+      },
+      "attributes": {"aggression": 75, "curiosity": 75, "reproduction": 200, "intelligence": 50, "diplomacy": 30, "resilience": 35},
+      "consumption": {"ГРД": 45, "РАС": 35, "СКФ": 15, "CO2": 5},
+      "forage": {"source": "терморедоксные градиенты (роевая добыча)", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["F", "G", "K"], "planet_niche": "горячие миры"},
+      "bulge": "hot"
+    },
+    {
+      "id": "microcrack",
+      "name": "Микротрещинные",
+      "basis": "нишевые, микротрещины",
+      "conditions": {
+        "temperature": {"opt": [550, 650], "surv": [520, 700]},
+        "pressure": {"opt": [1, 100], "surv": [0.5, 400]},
+        "atmosphere": {"need": {"CO2": 0, "SO2": 0, "N2": 0}, "poison": {"O2": 0}},
+        "radiation": {"opt": [0, 45], "surv": [0, 75]},
+        "heat_flux": {"opt": [5, null], "surv": [1, null]},
+        "gravity": {"opt": [0.3, 3], "surv": [0.2, 5]}
+      },
+      "attributes": {"aggression": 30, "curiosity": 40, "reproduction": 80, "intelligence": 45, "diplomacy": 50, "resilience": 55},
+      "consumption": {"РАС": 45, "ГРД": 40, "СКФ": 15},
+      "forage": {"source": "микротрещины (нишевый хемосинтез)", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["F", "G", "K"], "planet_niche": "горячие миры"},
+      "bulge": "hot"
+    },
+    {
+      "id": "hot_ash",
+      "name": "Жаркие пепловые",
+      "basis": "вулканический пепел",
+      "conditions": {
+        "temperature": {"opt": [500, 700], "surv": [470, 780]},
+        "pressure": {"opt": [0.5, 50], "surv": [0.2, 200]},
+        "atmosphere": {"need": {"CO2": 0, "SO2": 0}, "poison": {"O2": 0}},
+        "radiation": {"opt": [0, 60], "surv": [0, 90]},
+        "heat_flux": {"opt": [5, null], "surv": [1, null]},
+        "gravity": {"opt": [0.3, 3], "surv": [0.2, 5]}
+      },
+      "attributes": {"aggression": 60, "curiosity": 55, "reproduction": 130, "intelligence": 50, "diplomacy": 40, "resilience": 45},
+      "consumption": {"РАС": 35, "ГРД": 40, "СКФ": 20, "CO2": 5},
+      "forage": {"source": "пепел + терморедокс", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["F", "G", "K"], "planet_niche": "вулканические миры"},
+      "bulge": "hot"
+    },
+    {
+      "id": "geysers",
+      "name": "Гейзерные",
+      "basis": "терморедокс гейзеры",
+      "conditions": {
+        "temperature": {"opt": [600, 750], "surv": [560, 830]},
+        "pressure": {"opt": [5, 200], "surv": [1, 800]},
+        "atmosphere": {"need": {"CO2": 0, "SO2": 0, "H2S": 0}, "poison": {"O2": 0}},
+        "radiation": {"opt": [0, 55], "surv": [0, 85]},
+        "heat_flux": {"opt": [10, null], "surv": [2, null]},
+        "gravity": {"opt": [0.3, 3], "surv": [0.2, 5]}
+      },
+      "attributes": {"aggression": 50, "curiosity": 65, "reproduction": 140, "intelligence": 55, "diplomacy": 45, "resilience": 45},
+      "consumption": {"ГРД": 50, "РАС": 35, "СКФ": 15},
+      "forage": {"source": "гейзерные градиенты", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["F", "G", "K"], "planet_niche": "горячие миры"},
+      "bulge": "hot"
+    },
+    {
+      "id": "radiotolerant",
+      "name": "Радиотолерантные",
+      "basis": "жаркие + радиация (стойкость)",
+      "conditions": {
+        "temperature": {"opt": [500, 700], "surv": [470, 780]},
+        "pressure": {"opt": [1, 100], "surv": [0.5, 400]},
+        "atmosphere": {"need": {"CO2": 0, "SO2": 0, "N2": 0}, "poison": {"O2": 0}},
+        "radiation": {"opt": [0, 90], "surv": [0, 100]},
+        "heat_flux": {"opt": [5, null], "surv": [1, null]},
+        "gravity": {"opt": [0.3, 3], "surv": [0.2, 5]}
+      },
+      "attributes": {"aggression": 65, "curiosity": 50, "reproduction": 90, "intelligence": 50, "diplomacy": 35, "resilience": 50},
+      "consumption": {"РАС": 45, "ГРД": 35, "СКФ": 15, "CO2": 5},
+      "forage": {"source": "терморедокс на радиоактивных мирах", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["F", "G", "K"], "planet_niche": "горячие радиоактивные миры"},
+      "bulge": "hot"
+    },
+    {
+      "id": "young",
+      "name": "Молодые",
+      "basis": "молодые планеты (F_accretion)",
+      "conditions": {
+        "temperature": {"opt": [500, 800], "surv": [450, 900]},
+        "pressure": {"opt": [1, 100], "surv": [0.5, 400]},
+        "atmosphere": {"need": {"CO2": 0, "SO2": 0, "N2": 0}, "poison": {"O2": 0}},
+        "radiation": {"opt": [0, 60], "surv": [0, 90]},
+        "heat_flux": {"opt": [20, null], "surv": [5, null]},
+        "gravity": {"opt": [0.3, 3], "surv": [0.2, 5]}
+      },
+      "attributes": {"aggression": 60, "curiosity": 60, "reproduction": 160, "intelligence": 50, "diplomacy": 40, "resilience": 40},
+      "consumption": {"РАС": 40, "ГРД": 45, "СКФ": 15},
+      "forage": {"source": "аккреционное тепло + терморедокс", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["F", "G", "K"], "planet_niche": "молодые планеты"},
+      "bulge": "hot"
+    },
+    {
+      "id": "salt_bridge",
+      "name": "Соляные",
+      "basis": "эвтектики хлоридов/сульфатов (мост сера↔жара)",
+      "conditions": {
+        "temperature": {"opt": [450, 600], "surv": [420, 680]},
+        "pressure": {"opt": [1, 100], "surv": [0.5, 400]},
+        "atmosphere": {"need": {"CO2": 0, "SO2": 0, "H2S": 0, "N2": 0}, "poison": {"O2": 1}},
+        "radiation": {"opt": [0, 55], "surv": [0, 85]},
+        "heat_flux": {"opt": [2, null], "surv": [0.5, null]},
+        "gravity": {"opt": [0.3, 3], "surv": [0.2, 5]}
+      },
+      "attributes": {"aggression": 50, "curiosity": 55, "reproduction": 60, "intelligence": 55, "diplomacy": 50, "resilience": 50},
+      "consumption": {"РАС": 45, "СЕР": 25, "ГРД": 20, "CO2": 10},
+      "forage": {"source": "соляные эвтектики + серные источники", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["F", "G", "K"], "planet_niche": "горячие миры (эвтектики)"},
+      "bulge": "hot"
+    },
+    {
+      "id": "crystallites",
+      "name": "Кристаллиты",
+      "basis": "кристаллический рост",
+      "conditions": {
+        "temperature": {"opt": [700, 1000], "surv": [650, 1100]},
+        "pressure": {"opt": [100, 1000], "surv": [10, 1000]},
+        "atmosphere": {"need": {"CO2": 0, "SO2": 0, "N2": 0, "H2S": 0}, "poison": {"O2": 0}},
+        "radiation": {"opt": [0, 40], "surv": [0, 70]},
+        "heat_flux": {"opt": [10, null], "surv": [2, null]},
+        "gravity": {"opt": [0.5, 5], "surv": [0.3, 8]}
+      },
+      "attributes": {"aggression": 10, "curiosity": 20, "reproduction": 0.00001, "intelligence": 40, "diplomacy": 30, "resilience": 70},
+      "consumption": {"КРЕ": 70, "РАС": 15, "ГРД": 15},
+      "forage": {"source": "кристаллический рост (диффузия в расплавах)", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["F", "G", "K"], "planet_niche": "горячие высокодавленческие"},
+      "bulge": "hot"
+    },
+    {
+      "id": "silicon_threads",
+      "name": "Кремниевые нити",
+      "basis": "диффузионные",
+      "conditions": {
+        "temperature": {"opt": [650, 950], "surv": [600, 1050]},
+        "pressure": {"opt": [100, 1000], "surv": [10, 1000]},
+        "atmosphere": {"need": {"CO2": 0, "SO2": 0, "N2": 0}, "poison": {"O2": 0}},
+        "radiation": {"opt": [0, 40], "surv": [0, 70]},
+        "heat_flux": {"opt": [10, null], "surv": [2, null]},
+        "gravity": {"opt": [0.5, 5], "surv": [0.3, 8]}
+      },
+      "attributes": {"aggression": 5, "curiosity": 15, "reproduction": 0.000008, "intelligence": 30, "diplomacy": 25, "resilience": 75},
+      "consumption": {"КРЕ": 70, "СКФ": 15, "ГРД": 15},
+      "forage": {"source": "диффузионный рост нитей", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["F", "G", "K"], "planet_niche": "горячие высокодавленческие"},
+      "bulge": "hot"
+    },
+    {
+      "id": "piezo_minds",
+      "name": "Пьезо-разум",
+      "basis": "кварцевые, пьезоэлектричество",
+      "conditions": {
+        "temperature": {"opt": [600, 900], "surv": [550, 1000]},
+        "pressure": {"opt": [50, 1000], "surv": [5, 1000]},
+        "atmosphere": {"need": {"CO2": 0, "SO2": 0, "N2": 0}, "poison": {"O2": 0}},
+        "radiation": {"opt": [0, 45], "surv": [0, 75]},
+        "heat_flux": {"opt": [10, null], "surv": [2, null]},
+        "gravity": {"opt": [0.5, 5], "surv": [0.3, 8]}
+      },
+      "attributes": {"aggression": 15, "curiosity": 25, "reproduction": 0.000012, "intelligence": 50, "diplomacy": 35, "resilience": 65},
+      "consumption": {"КРЕ": 65, "РАС": 20, "ГРД": 15},
+      "forage": {"source": "пьезо-кристаллы (кварц, сейсмика)", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["F", "G", "K"], "planet_niche": "горячие высокодавленческие"},
+      "bulge": "hot"
+    },
+    {
+      "id": "silicon_guardians",
+      "name": "Кремниевые стражи",
+      "basis": "памятливые, долгоживущие",
+      "conditions": {
+        "temperature": {"opt": [750, 1050], "surv": [700, 1150]},
+        "pressure": {"opt": [100, 1000], "surv": [10, 1000]},
+        "atmosphere": {"need": {"CO2": 0, "SO2": 0, "N2": 0}, "poison": {"O2": 0}},
+        "radiation": {"opt": [0, 40], "surv": [0, 70]},
+        "heat_flux": {"opt": [10, null], "surv": [2, null]},
+        "gravity": {"opt": [0.5, 5], "surv": [0.3, 8]}
+      },
+      "attributes": {"aggression": 5, "curiosity": 10, "reproduction": 0.000005, "intelligence": 45, "diplomacy": 40, "resilience": 80},
+      "consumption": {"КРЕ": 75, "ГРД": 25},
+      "forage": {"source": "кристаллический рост (медленный, памятливый)", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["F", "G", "K"], "planet_niche": "горячие высокодавленческие"},
+      "bulge": "hot"
+    },
+    {
+      "id": "silicate_swarms",
+      "name": "Силикатные рои",
+      "basis": "коллективные кристаллы",
+      "conditions": {
+        "temperature": {"opt": [650, 850], "surv": [600, 950]},
+        "pressure": {"opt": [50, 1000], "surv": [5, 1000]},
+        "atmosphere": {"need": {"CO2": 0, "SO2": 0, "N2": 0}, "poison": {"O2": 0}},
+        "radiation": {"opt": [0, 45], "surv": [0, 75]},
+        "heat_flux": {"opt": [10, null], "surv": [2, null]},
+        "gravity": {"opt": [0.5, 5], "surv": [0.3, 8]}
+      },
+      "attributes": {"aggression": 20, "curiosity": 30, "reproduction": 0.000015, "intelligence": 35, "diplomacy": 30, "resilience": 65},
+      "consumption": {"КРЕ": 70, "СКФ": 20, "ГРД": 10},
+      "forage": {"source": "коллективный кристаллический рост", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["F", "G", "K"], "planet_niche": "горячие высокодавленческие"},
+      "bulge": "hot"
+    },
+    {
+      "id": "diamond",
+      "name": "Алмазные",
+      "basis": "углерод-кремниевые, высокое P",
+      "conditions": {
+        "temperature": {"opt": [800, 1100], "surv": [750, 1200]},
+        "pressure": {"opt": [200, 1000], "surv": [50, 1000]},
+        "atmosphere": {"need": {"CO2": 0, "N2": 0}, "poison": {"O2": 0}},
+        "radiation": {"opt": [0, 40], "surv": [0, 70]},
+        "heat_flux": {"opt": [10, null], "surv": [2, null]},
+        "gravity": {"opt": [0.5, 5], "surv": [0.3, 8]}
+      },
+      "attributes": {"aggression": 10, "curiosity": 15, "reproduction": 0.000004, "intelligence": 40, "diplomacy": 30, "resilience": 75},
+      "consumption": {"КРЕ": 60, "CO2": 20, "РАС": 20},
+      "forage": {"source": "углерод-кремниевые кристаллы (алмазные структуры)", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["F", "G", "K"], "planet_niche": "горячие сверхвысокодавленческие"},
+      "bulge": "hot"
+    },
+    {
+      "id": "hydrogen",
+      "name": "Водородные",
+      "basis": "жидкий водород на гигантах (почти фантастика)",
+      "off_cascade": true,
+      "conditions": {
+        "temperature": {"opt": [20, 30], "surv": [18, 35]},
+        "pressure": {"opt": [1000, null], "surv": [1000, null]},
+        "atmosphere": {"need": {"H2": 0, "He": 0, "CH4": 0, "NH3": 0}, "poison": {"O2": 0}},
+        "radiation": {"opt": [0, 20], "surv": [0, 40]},
+        "gravity": {"opt": [1, 5], "surv": [0.5, 10]}
+      },
+      "attributes": {"aggression": 5, "curiosity": 10, "reproduction": 0.005, "intelligence": 10, "diplomacy": 15, "resilience": 70},
+      "consumption": {"ВГЕ": 70, "ПЫЛ": 20, "ГРД": 10},
+      "forage": {"source": "жидкий водород (планктон)", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["*"], "planet_niche": "глубины гигантов (оф-модельная)"},
+      "bulge": "hot"
+    },
+    {
+      "id": "skyfolk",
+      "name": "Небесные",
+      "basis": "атмосферы гигантов, плавучие",
+      "conditions": {
+        "temperature": {"opt": [100, 250], "surv": [80, 300]},
+        "pressure": {"opt": [0.5, 10], "surv": [0.1, 50]},
+        "atmosphere": {"need": {"H2": 0, "He": 0, "CH4": 0, "NH3": 0}, "poison": {"O2": 0}},
+        "radiation": {"opt": [0, 30], "surv": [0, 60]},
+        "gravity": {"opt": [1, 5], "surv": [0.5, 10]}
+      },
+      "attributes": {"aggression": 25, "curiosity": 70, "reproduction": 2, "intelligence": 55, "diplomacy": 55, "resilience": 50},
+      "consumption": {"ВГЕ": 70, "МЕТ": 15, "АММ": 10, "ГРД": 5},
+      "forage": {"source": "атмосферная химия (аэрозоли, градиенты давления)", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["*"], "planet_niche": "атмосферы гигантов"},
+      "bulge": "hot"
+    },
+    {
+      "id": "deep_sky",
+      "name": "Небесные глубокие",
+      "basis": "глубокие атмосферы гигантов",
+      "conditions": {
+        "temperature": {"opt": [250, 450], "surv": [200, 500]},
+        "pressure": {"opt": [10, 1000], "surv": [1, 1000]},
+        "atmosphere": {"need": {"H2": 0, "He": 0, "CH4": 0, "NH3": 0}, "poison": {"O2": 0}},
+        "radiation": {"opt": [0, 35], "surv": [0, 65]},
+        "gravity": {"opt": [1, 5], "surv": [0.5, 10]}
+      },
+      "attributes": {"aggression": 40, "curiosity": 60, "reproduction": 3, "intelligence": 50, "diplomacy": 45, "resilience": 55},
+      "consumption": {"ВГЕ": 65, "МЕТ": 20, "АММ": 15},
+      "forage": {"source": "глубокие атмосферные слои (термохимия)", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["*"], "planet_niche": "глубокие атмосферы гигантов"},
+      "bulge": "lowP"
+    },
+    {
+      "id": "sublimators",
+      "name": "Сублиматоры",
+      "basis": "сублимация CO₂-льдов",
+      "conditions": {
+        "temperature": {"opt": [140, 190], "surv": [125, 200]},
+        "pressure": {"opt": [0.01, 1], "surv": [0.005, 5]},
+        "atmosphere": {"need": {"CO2": 0, "N2": 0}, "poison": {"O2": 0}},
+        "radiation": {"opt": [0, 25], "surv": [0, 55]},
+        "gravity": {"opt": [0.3, 1.5], "surv": [0.2, 2.5]}
+      },
+      "attributes": {"aggression": 10, "curiosity": 20, "reproduction": 0.04, "intelligence": 40, "diplomacy": 45, "resilience": 75},
+      "consumption": {"CO2": 55, "АММ": 20, "МЕТ": 15, "ГРД": 10},
+      "forage": {"source": "CO₂-льды (сублимация/ресублимация)", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["K", "M"], "planet_niche": "холодные CO₂-миры"},
+      "bulge": "cold"
+    },
+    {
+      "id": "vortex",
+      "name": "Вихревые",
+      "basis": "ячейки Рэлея–Бенара в атмосферах",
+      "conditions": {
+        "temperature": {"opt": [300, 600], "surv": [280, 650]},
+        "pressure": {"opt": [1, 100], "surv": [0.5, 300]},
+        "atmosphere": {"need": {"CO2": 0, "SO2": 0, "N2": 0}, "poison": {"O2": 0}},
+        "radiation": {"opt": [0, 40], "surv": [0, 70]},
+        "gravity": {"opt": [0.5, 3], "surv": [0.3, 5]}
+      },
+      "attributes": {"aggression": 30, "curiosity": 75, "reproduction": 5, "intelligence": 55, "diplomacy": 55, "resilience": 50},
+      "consumption": {"CO2": 40, "СКФ": 30, "ГРД": 20, "ВГЕ": 10},
+      "forage": {"source": "вихревые градиенты (конвекция)", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["F", "G", "K"], "planet_niche": "плотные CO₂-атмосферы"},
+      "bulge": "hot"
+    },
+    {
+      "id": "carbonic",
+      "name": "Углекислые",
+      "basis": "хемосинтез на CO₂, плотные CO₂-атмосферы",
+      "conditions": {
+        "temperature": {"opt": [250, 350], "surv": [230, 380]},
+        "pressure": {"opt": [5, 100], "surv": [1, 300]},
+        "atmosphere": {"need": {"CO2": 50, "N2": 0}, "poison": {"O2": 5}},
+        "radiation": {"opt": [0, 30], "surv": [0, 60]},
+        "gravity": {"opt": [0.5, 3], "surv": [0.3, 5]}
+      },
+      "attributes": {"aggression": 20, "curiosity": 40, "reproduction": 0.8, "intelligence": 50, "diplomacy": 55, "resilience": 60},
+      "consumption": {"CO2": 60, "ОРГ": 20, "ГРД": 10, "ВГЕ": 10},
+      "forage": {"source": "CO₂-хемосинтез (фиксация углерода)", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["G", "K"], "planet_niche": "плотные CO₂-атмосферы"},
+      "bulge": "hot"
+    },
+    {
+      "id": "ice_plankton",
+      "name": "Ледяной планктон",
+      "basis": "пыль/лёд на мёртвых телах (зерно правды)",
+      "conditions": {
+        "temperature": {"opt": [50, 150], "surv": [40, 180]},
+        "pressure": {"opt": [0, 0.001], "surv": [0, 0.001]},
+        "atmosphere": {"need": {}, "poison": {}},
+        "radiation": {"opt": [0, 30], "surv": [0, 60]},
+        "gravity": {"opt": [0.1, 1], "surv": [0.05, 2]}
+      },
+      "attributes": {"aggression": 5, "curiosity": 20, "reproduction": 0.05, "intelligence": 20, "diplomacy": 25, "resilience": 70},
+      "consumption": {"ПЫЛ": 50, "ИЗЛ": 35, "ГРД": 15},
+      "forage": {"source": "пыль/лёд + звёздный свет (фотохимия на льду)", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["*"], "planet_niche": "мёртвые тела"},
+      "bulge": "hot"
+    },
+    {
+      "id": "magnetophages",
+      "name": "Магнитофаги",
+      "basis": "мёртвые тела у нейтронных звёзд (фантастика)",
+      "conditions": {
+        "temperature": {"opt": [25, 150], "surv": [20, 200]},
+        "pressure": {"opt": [0, 0.001], "surv": [0, 0.001]},
+        "atmosphere": {"need": {}, "poison": {}},
+        "radiation": {"opt": [0, 100], "surv": [0, 100]},
+        "gravity": {"opt": [0.1, 1], "surv": [0.05, 2]}
+      },
+      "attributes": {"aggression": 15, "curiosity": 30, "reproduction": 0.5, "intelligence": 45, "diplomacy": 40, "resilience": 60},
+      "consumption": {"ИЗЛ": 65, "ПЫЛ": 25, "ГРД": 10},
+      "forage": {"source": "магнитосферная энергия (пометка: фантастика)", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["neutron"], "planet_niche": "мёртвые тела у нейтронных звёзд"},
+      "bulge": "hot"
+    },
+    {
+      "id": "diskfolk",
+      "name": "Дисковые",
+      "basis": "мёртвые тела в системах протозвёзд (фантастика)",
+      "conditions": {
+        "temperature": {"opt": [25, 150], "surv": [20, 200]},
+        "pressure": {"opt": [0, 0.001], "surv": [0, 0.001]},
+        "atmosphere": {"need": {}, "poison": {}},
+        "radiation": {"opt": [0, 100], "surv": [0, 100]},
+        "gravity": {"opt": [0.1, 1], "surv": [0.05, 2]}
+      },
+      "attributes": {"aggression": 20, "curiosity": 50, "reproduction": 0.8, "intelligence": 50, "diplomacy": 45, "resilience": 45},
+      "consumption": {"ИЗЛ": 70, "ПЫЛ": 25, "ГРД": 5},
+      "forage": {"source": "излучение аккреционного диска (пометка: фантастика)", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["protostar"], "planet_niche": "мёртвые тела в системах протозвёзд"},
+      "bulge": "hot"
+    },
+    {
+      "id": "star_shepherds",
+      "name": "Звёздные пастыри",
+      "basis": "мёртвые тела у белых карликов (фантастика)",
+      "conditions": {
+        "temperature": {"opt": [25, 150], "surv": [20, 200]},
+        "pressure": {"opt": [0, 0.001], "surv": [0, 0.001]},
+        "atmosphere": {"need": {}, "poison": {}},
+        "radiation": {"opt": [0, 100], "surv": [0, 100]},
+        "gravity": {"opt": [0.1, 1], "surv": [0.05, 2]}
+      },
+      "attributes": {"aggression": 10, "curiosity": 40, "reproduction": 0.8, "intelligence": 55, "diplomacy": 60, "resilience": 55},
+      "consumption": {"ИЗЛ": 60, "ПЫЛ": 30, "ГРД": 10},
+      "forage": {"source": "свет белого карлика (фотосинтез-фантастика)", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["white_dwarf"], "planet_niche": "мёртвые тела у белых карликов"},
+      "bulge": "hot"
+    },
+    {
+      "id": "pulsar",
+      "name": "Пульсарные",
+      "basis": "мёртвые тела у пульсаров (фантастика)",
+      "conditions": {
+        "temperature": {"opt": [25, 150], "surv": [20, 200]},
+        "pressure": {"opt": [0, 0.001], "surv": [0, 0.001]},
+        "atmosphere": {"need": {}, "poison": {}},
+        "radiation": {"opt": [0, 100], "surv": [0, 100]},
+        "gravity": {"opt": [0.1, 1], "surv": [0.05, 2]}
+      },
+      "attributes": {"aggression": 30, "curiosity": 60, "reproduction": 0.7, "intelligence": 50, "diplomacy": 35, "resilience": 50},
+      "consumption": {"ИЗЛ": 70, "ПЫЛ": 20, "ГРД": 10},
+      "forage": {"source": "пульсарное излучение (пометка: фантастика)", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["neutron"], "planet_niche": "мёртвые тела у пульсаров"},
+      "bulge": "hot"
+    }
+  ]
+}

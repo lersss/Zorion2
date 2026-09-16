@@ -13,6 +13,10 @@ const (
 	JobGeneratePlanets  JobType = "generate_planets"
 	JobGenerateFactions JobType = "generate_factions"
 	JobGenerateSettlements JobType = "generate_settlements"
+	// JobGenerateRaceSettlements — генерация поселений рас (спека 99.2.21 §7):
+	// отдельный проход от человеческого, доминанта кластера + подселение
+	// соседа на выбросах.
+	JobGenerateRaceSettlements JobType = "generate_race_settlements"
 	JobHypothesis JobType = "hypothesis"
 	// JobGenerateNPC — массовая генерация NPC-агентов (спека 26a.1 §4.1):
 	// асинхронный джоб, статус/прогресс/отчёт через существующие ручки

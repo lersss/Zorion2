@@ -270,3 +270,18 @@
   «продвинулось» (напр. полёт перезапущен с новым `start_time`), вставить
   `time.Sleep(5 * time.Millisecond)` между вызовами (см.
   `internal/handlers/travel_handlers_test.go`, `TestStartTravelRedirectInFlight`).
+
+- **Порядок генерации поселений: человеческий проход стирает поселения рас.**
+  `GenerateSettlements` (люди) в начале удаляет ВСЕ поселения
+  (`clearSettlementsLayer`, `DELETE FROM settlements`), включая расовые
+  (`race_id IS NOT NULL`). Обратный порядок безопасен: проход рас
+  (`GenerateRaceSettlements`) удаляет только свой слой (`WHERE race_id IS
+  NOT NULL`). Оператору: сначала «Сгенерировать поселения» (люди), потом
+  «Сгенерировать поселения рас» — иначе расовые поселения пропадут.
+
+- **Раздача рас потребляет `g.rng` в `generateWorldsPoisson`** (shuffle 50 рас
+  через Fisher-Yates). Один и тот же seed даёт разные миры при загруженном
+  каталоге рас (`config/races.json`) и без него (в юнит-тестах каталог не
+  загружен — no-op, rng не тратится). Детерминизм сохраняется внутри одного
+  состояния каталога; «золотых» значений миров по seed нет — в проде seed
+  случайный (`time.Now().UnixNano()`).

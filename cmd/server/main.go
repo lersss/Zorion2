@@ -20,6 +20,7 @@ import (
 	"zorion/internal/mapcache"
 	"zorion/internal/models"
 	"zorion/internal/npc"
+	"zorion/internal/races"
 	"zorion/internal/regionprofile"
 	"zorion/internal/repository"
 	"zorion/internal/travel"
@@ -134,6 +135,15 @@ func main() {
 		log.Println("✅ Пресет поселений загружен")
 	}
 
+	// Каталог рас (спека 99.2.21 §2.3): config/races.json, 50 карточек.
+	// Ошибка загрузки — расы не раздаются по территориям, генерация
+	// поселений рас недоступна (сервер живёт).
+	if err := races.LoadCatalog("config/races.json"); err != nil {
+		log.Printf("⚠️ Каталог рас: %v, расы не раздаются", err)
+	} else {
+		log.Printf("✅ Каталог рас загружен: %d рас", len(races.Catalog()))
+	}
+
 	worldRepo := repository.NewWorldRepository(db)
 	locationRepo := repository.NewLocationRepository(db)
 	assignmentRepo := repository.NewAssignmentRepository(db)
@@ -224,6 +234,7 @@ func main() {
 	http.HandleFunc("/admin/generate-prototype-planet", auth.AdminAuth(adminHandlers.GeneratePrototypePlanet))
 	http.HandleFunc("/admin/generate-factions", auth.AdminAuth(adminHandlers.GenerateFactions))
 	http.HandleFunc("/admin/generate-settlements", auth.AdminAuth(adminHandlers.GenerateSettlements))
+	http.HandleFunc("/admin/generate-race-settlements", auth.AdminAuth(adminHandlers.GenerateRaceSettlements))
 	http.HandleFunc("/admin/settlement-fields", auth.AdminAuth(adminHandlers.SettlementFields))
 	http.HandleFunc("/admin/generate-cancel", auth.AdminAuth(adminHandlers.CancelGeneration))
 	http.HandleFunc("/admin/clear-settlements", auth.AdminAuth(adminHandlers.ClearSettlements))

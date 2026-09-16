@@ -13,6 +13,12 @@ type Settlement struct {
 	RPerSec         float64               `json:"r_per_sec,omitempty"`       // рекурсивная компонента изменения за 1 секунду (жара, HeatChangeRate); при росте отрицательная (99.2.12)
 	NDead           float64               `json:"n_dead,omitempty"`          // порог обнуления, тот же NDead — для той же экстраполяции
 	Log             []SettlementLogEntry  `json:"log,omitempty"`          // последние записи лога (первый тип — «Вымерло»), 18a §«Лог поселения»
+// RaceID — раса поселения (спека 99.2.21 §2.3); пусто = легаси/люди.
+	// Две расы на планете = два ряда settlements с разными race_id (§7.4).
+	RaceID string `json:"race_id,omitempty"`
+	// RaceName — человекочитаемое имя расы поселения (JSON-вывод, не колонка
+	// БД): вычисляется в attachSettlements из каталога рас; пусто = легаси/люди.
+	RaceName string `json:"race_name,omitempty"`
 	CreatedAt       time.Time             `json:"created_at"`
 	UpdatedAt       time.Time             `json:"updated_at"`
 }

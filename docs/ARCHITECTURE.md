@@ -110,6 +110,7 @@ docs/gamedesign/                         — GDD (семейство доков,
 | Генераторы планет | `internal/generator/planet/` (mean-модель числа планет §5.2; ветка экзотики — `exotic.go` §5.3; P-ветка циркумбинарных — `circumbinary.go` `35b` §4.1) |
 | Общие звёздные константы | `internal/astro/` (светимость по классу — единый источник для galaxy и planet; `35b` §3) |
 | Профили регионов (59a) | `internal/regionprofile/` (каталог классов `config/region_profiles/`, интенсивность 0/1/2, `NearestRegionIndex` — привязка планет к региону); ролл в `buildRegions` (`galaxy.go`), применение к звёздам — `galaxy.go`, к планетам — `planet/` (число планет, гиганты, веса полосы, ресурсы); колонки `regions.profile`/`profile_intensity` (миграция `000036`) |
+| Расы (99.2.21) | `internal/races/` (каталог `config/races.json` — 50 карточек, валидация §16, `RaceSuitable` — пригодность планеты для расы); раздача территорий — `internal/generator/galaxy/races.go` (агломеративная кластеризация до 50 групп + shuffle через g.rng, `regions.race_id`, миграция `000038`); поселения рас — `internal/generator/settlement/races.go` (отдельный проход: доминанта кластера + подселение соседа на выбросах, `settlements.race_id`, миграция `000039`); ручка — `internal/handlers/admin_race_settlements.go` (`POST /admin/generate-race-settlements`, крутилка `neighbor_chance` из пресета поселений) |
 | Система описаний | `internal/generator/planet/descriptions_*.go` |
 | Композиция планет | `internal/generator/planet/composition_*.go` |
 | Физика температуры | `internal/generator/planet/physics.go` |

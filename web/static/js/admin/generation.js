@@ -627,6 +627,46 @@ export async function generateSettlements() {
     }
 }
 
+// generateRaceSettlements — отдельный проход: поселения рас (спека 99.2.21 §7).
+// Доминанта кластера + подселение соседней расы на выбросах; крутилка —
+// шанс заселения соседней расы (0–100%).
+export async function generateRaceSettlements() {
+    if (!confirm('Сгенерировать поселения рас?')) return;
+
+    const neighborChance = parseFloat(document.getElementById('raceNeighborChance').value) / 100;
+    if (isNaN(neighborChance) || neighborChance < 0 || neighborChance > 1) {
+        document.getElementById('raceSettlementResult').textContent = '❌ Шанс: 0–100%';
+        return;
+    }
+
+    document.getElementById('raceSettlementResult').textContent = '⏳ Генерация запущена...';
+    document.getElementById('raceSettlementProgress').style.display = 'block';
+    document.getElementById('raceSettlementProgressBar').value = 0;
+    document.getElementById('raceSettlementProgressText').textContent = 'Подготовка...';
+    document.getElementById('cancelRaceSettlementsBtn').style.display = 'inline-block';
+
+    try {
+        const res = await fetchWithAuth('/admin/generate-race-settlements', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ neighbor_chance: neighborChance }),
+        });
+        if (!res.ok) {
+            const text = await res.text();
+            document.getElementById('raceSettlementResult').textContent = '❌ Ошибка: ' + text;
+            document.getElementById('raceSettlementProgress').style.display = 'none';
+            document.getElementById('cancelRaceSettlementsBtn').style.display = 'none';
+            return;
+        }
+        if (pollIntervals['race_settlements']) clearInterval(pollIntervals['race_settlements']);
+        pollIntervals['race_settlements'] = setInterval(() => pollJob('generate_race_settlements', 'raceSettlementProgress', 'raceSettlementResult', 'cancelRaceSettlementsBtn'), 1500);
+    } catch (e) {
+        document.getElementById('raceSettlementResult').textContent = '❌ ' + e.message;
+        document.getElementById('raceSettlementProgress').style.display = 'none';
+        document.getElementById('cancelRaceSettlementsBtn').style.display = 'none';
+    }
+}
+
 export async function cancelGeneration(jobType) {
     if (!confirm(`Остановить генерацию?`)) return;
     try {
@@ -637,6 +677,7 @@ export async function cancelGeneration(jobType) {
                           jobType === 'generate_planets' ? 'cancelPlanetsBtn' :
                           jobType === 'generate_factions' ? 'cancelFactionsBtn' :
                           jobType === 'generate_settlements' ? 'cancelSettlementsBtn' :
+                          jobType === 'generate_race_settlements' ? 'cancelRaceSettlementsBtn' :
                           jobType === 'hypothesis' ? 'cancelHypothesisBtn' :
                           'cancelResourcesBtn';
             document.getElementById(btnId).style.display = 'none';

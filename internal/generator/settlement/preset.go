@@ -25,6 +25,9 @@ type Suitability struct {
 // Preset — пресет генерации поселений.
 type Preset struct {
 	Suitability Suitability `json:"пригодность"`
+	// NeighborChance — шанс заселения соседней расы на выбросе (0–1,
+	// спека 99.2.21 §7.3, идея 56a «Крутилка»). Дефолт 0.3.
+	NeighborChance float64 `json:"шанс_заселения_соседней_расы"`
 }
 
 // current — пресет, загруженный последним вызовом LoadPreset.
@@ -136,5 +139,6 @@ func DefaultPreset() *Preset {
 			OnlyWithLife:         false,
 			Chance:               1.0,
 		},
+		NeighborChance: 0.3,
 	}
 }

@@ -17,6 +17,9 @@ type Region struct {
 	Profile string
 	// ProfileIntensity — интенсивность профиля 0/1/2: слабая/средняя/сильная.
 	ProfileIntensity int
+	// RaceID — доминантная раса территории (спека 99.2.21 §7.1); пусто =
+	// не назначена (до раздачи, легаси-вселенные).
+	RaceID string
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 }

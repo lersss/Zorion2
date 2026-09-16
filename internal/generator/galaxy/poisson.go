@@ -103,6 +103,10 @@ func (g *Generator) generateWorldsPoisson() *GalaxyResult {
 	centers := g.generateClusterCenters(clusterCount, halfSize, clusterSpacing)
 	regions := g.buildRegions(centers)
 
+	// Раздача рас по территориям (спека 99.2.21 §7): после создания
+	// регионов, до генерации миров. Каталог не загружен — no-op.
+	g.assignRacesToRegions(regions)
+
 	// Форма и параметры формы на каждый кластерный центр (индекс == индекс
 	// центра/региона). Роллятся заранее, чтобы добивка генерировала точки
 	// в той же геометрии, что и основные точки кластера.

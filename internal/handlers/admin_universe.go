@@ -142,10 +142,10 @@ func insertRegionsTx(ctx context.Context, tx *sql.Tx, regions []*models.Region) 
 	}
 	for _, r := range regions {
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO regions (id, name, center_x, center_y, radius, color, world_count, profile, profile_intensity, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+			INSERT INTO regions (id, name, center_x, center_y, radius, color, world_count, profile, profile_intensity, race_id, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
 			r.ID, r.Name, r.CenterX, r.CenterY, r.Radius, r.Color, r.WorldCount,
-			nullIfEmpty(r.Profile), r.ProfileIntensity, r.CreatedAt, r.UpdatedAt,
+			nullIfEmpty(r.Profile), r.ProfileIntensity, nullIfEmpty(r.RaceID), r.CreatedAt, r.UpdatedAt,
 		); err != nil {
 			return fmt.Errorf("insert region %s: %w", r.Name, err)
 		}
@@ -166,7 +166,7 @@ func nullIfEmpty(s string) interface{} {
 // выводится в /api/regions (region_handler.go); в финале — убрать (не ярлык, §11.7).
 func (h *AdminHandlers) loadRegionsWithProfiles() ([]*models.Region, error) {
 	rows, err := h.db.Query(`
-		SELECT id, name, center_x, center_y, radius, color, world_count, profile, profile_intensity
+		SELECT id, name, center_x, center_y, radius, color, world_count, profile, profile_intensity, race_id
 		FROM regions`)
 	if err != nil {
 		return nil, err
@@ -176,11 +176,13 @@ func (h *AdminHandlers) loadRegionsWithProfiles() ([]*models.Region, error) {
 	for rows.Next() {
 		var r models.Region
 		var profile sql.NullString
+		var raceID sql.NullString
 		if err := rows.Scan(&r.ID, &r.Name, &r.CenterX, &r.CenterY, &r.Radius, &r.Color,
-			&r.WorldCount, &profile, &r.ProfileIntensity); err != nil {
+			&r.WorldCount, &profile, &r.ProfileIntensity, &raceID); err != nil {
 			return nil, err
 		}
 		r.Profile = profile.String
+		r.RaceID = raceID.String
 		regions = append(regions, &r)
 	}
 	return regions, rows.Err()

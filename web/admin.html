@@ -414,6 +414,34 @@
             </div>
 
             <div class="card">
+                <h2>👽 Генерация поселений рас</h2>
+                <p class="hint">
+                    Отдельный проход (спека 99.2.21 §7): доминантная раса кластера
+                    + подселение соседней расы на выбросах. Поселения людей не
+                    трогаются. Отчёт о незаселившихся расах — в результате.
+                </p>
+                <div class="settle-field">
+                    <label>Шанс заселения соседней расы, %</label>
+                    <div class="chance-row">
+                        <input type="range" id="raceNeighborChanceRange" min="0" max="100" step="1" value="30"
+                               oninput="document.getElementById('raceNeighborChance').value=this.value">
+                        <input type="number" id="raceNeighborChance" value="30" min="0" max="100" step="1"
+                               oninput="document.getElementById('raceNeighborChanceRange').value=this.value">
+                        <span class="unit">%</span>
+                    </div>
+                </div>
+                <div class="generate-row">
+                    <button class="btn success" onclick="generateRaceSettlements()">Сгенерировать поселения рас</button>
+                    <button class="btn danger" onclick="cancelGeneration('generate_race_settlements')" id="cancelRaceSettlementsBtn" style="display:none;">Остановить</button>
+                </div>
+                <div id="raceSettlementResult" class="result"></div>
+                <div id="raceSettlementProgress" class="progress-container">
+                    <span class="progress-text" id="raceSettlementProgressText">0 из 0</span>
+                    <progress id="raceSettlementProgressBar" class="progress-bar" value="0" max="100"></progress>
+                </div>
+            </div>
+
+            <div class="card">
                 <h2>🗑️ Очистка поселений</h2>
                 <p class="hint">
                     Удаляет только поселения. Планеты не трогаются.

@@ -57,6 +57,11 @@ export async function pollJob(jobType, progressId, resultId, cancelBtnId) {
                     if (bulkBtn) bulkBtn.disabled = false;
                     loadNPC();
                     loadNPCMetrics();
+                } else if (jobType === 'generate_race_settlements') {
+                    // Поселения рас (спека 99.2.21 §7, идея 56a): отчёт —
+                    // «Не заселились (N из 50): ...» (копилка для разбора
+                    // причин); все 50 заселились — отчёта нет, generic.
+                    resultEl.textContent = data.report || `✅ Поселения рас сгенерированы`;
                 }
             } else if (status === 'canceled') {
                 resultEl.textContent = `⏹️ Остановлено пользователем`;

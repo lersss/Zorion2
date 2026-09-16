@@ -436,7 +436,7 @@ function drawRegions(ctx, canvasWidth, canvasHeight, scale, offsetX, offsetY, al
         const ly = cell.y * scale + offsetY;
         if (!isFiniteNumber(lx) || !isFiniteNumber(ly)) continue;
         const cellSize = Math.hypot(maxX - minX, maxY - minY);
-        labels.push({ name: cell.name, profile: cell.profile || '', x: lx, y: ly, size: cellSize });
+        labels.push({ name: cell.name, profile: cell.profile || '', race: cell.race || '', x: lx, y: ly, size: cellSize });
     }
 
     if (showNames) drawRegionLabels(ctx, labels, alpha, fontSize);
@@ -445,9 +445,11 @@ function drawRegions(ctx, canvasWidth, canvasHeight, scale, offsetX, offsetY, al
 // drawRegionLabels — размещает названия регионов без наложений:
 // крупные ячейки получают приоритет, пересекающиеся подписи пропускаются.
 // Отладочно (59a): под названием — вторая строка с типом профиля региона
-// (мельче, приглушённый жёлтый); в финале убрать — профиль не публикуется
-// как ярлык (спека §11.7 / GDD §2.6.1). Вторая строка включена в rect
-// проверки наложений, чтобы не наезжать на соседние подписи.
+// (мельче, приглушённый жёлтый); отладочно (расы): третья строка с именем
+// доминантной расы территории (мельче, приглушённый индиго). В финале убрать
+// вместе с профилем — профиль и раса не публикуются как ярлыки (спека §11.7 /
+// GDD §2.6.1). Вторая и третья строки включены в rect проверки наложений,
+// чтобы не наезжать на соседние подписи.
 function drawRegionLabels(ctx, labels, alpha, fontSize) {
     if (labels.length === 0) return;
 
@@ -459,12 +461,15 @@ function drawRegionLabels(ctx, labels, alpha, fontSize) {
 
     for (const lb of labels) {
         const hasProfile = !!lb.profile;
-        const profileFontSize = Math.max(9, Math.round(fontSize * 0.6));
+        const hasRace = !!lb.race;
+        const subFontSize = Math.max(9, Math.round(fontSize * 0.6));
         const nameW = lb.name.length * fontSize * 0.62 + 8;
-        const profileW = hasProfile ? lb.profile.length * profileFontSize * 0.62 + 8 : 0;
-        const w = Math.max(nameW, profileW);
-        const profileH = hasProfile ? profileFontSize + 8 : 0;
-        const h = fontSize + 6 + profileH;
+        const profileW = hasProfile ? lb.profile.length * subFontSize * 0.62 + 8 : 0;
+        const raceW = hasRace ? lb.race.length * subFontSize * 0.62 + 8 : 0;
+        const w = Math.max(nameW, profileW, raceW);
+        const profileH = hasProfile ? subFontSize + 8 : 0;
+        const raceH = hasRace ? subFontSize + 8 : 0;
+        const h = fontSize + 6 + profileH + raceH;
         const rect = { x: lb.x - w / 2, y: lb.y - 6, w, h };
 
         let ok = true;
@@ -479,11 +484,22 @@ function drawRegionLabels(ctx, labels, alpha, fontSize) {
 
         placed.push(rect);
         ctx.fillText(lb.name, lb.x, lb.y + fontSize);
+        let lineY = lb.y + fontSize;
         // Отладочно (59a): тип профиля региона второй строкой, мельче.
         if (hasProfile) {
-            ctx.font = `500 ${profileFontSize}px system-ui`;
+            ctx.font = `500 ${subFontSize}px system-ui`;
             ctx.fillStyle = `rgba(250,204,21,${0.75 * alpha})`; // приглушённый жёлтый
-            ctx.fillText(lb.profile, lb.x, lb.y + fontSize + profileFontSize + 2);
+            lineY += subFontSize + 2;
+            ctx.fillText(lb.profile, lb.x, lineY);
+            ctx.font = `600 ${fontSize}px system-ui`;
+            ctx.fillStyle = `rgba(226,232,240,${0.9 * alpha})`;
+        }
+        // Отладочно (расы): имя доминантной расы территории третьей строкой.
+        if (hasRace) {
+            ctx.font = `500 ${subFontSize}px system-ui`;
+            ctx.fillStyle = `rgba(129,140,248,${0.75 * alpha})`; // приглушённый индиго
+            lineY += subFontSize + 2;
+            ctx.fillText(lb.race, lb.x, lineY);
             ctx.font = `600 ${fontSize}px system-ui`;
             ctx.fillStyle = `rgba(226,232,240,${0.9 * alpha})`;
         }
@@ -557,7 +573,7 @@ function buildVoronoi(regions) {
         }
 
         if (poly.length >= 3) {
-            cells.push({ id: s.id, name: s.name, x: s.x, y: s.y, color: s.color, profile: s.profile || '', poly });
+            cells.push({ id: s.id, name: s.name, x: s.x, y: s.y, color: s.color, profile: s.profile || '', race: s.race_name || '', poly });
         }
     }
     return cells;

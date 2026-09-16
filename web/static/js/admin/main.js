@@ -4,7 +4,7 @@ import { loadStats, loadPlanetStats } from './stats.js';
 import { loadWorlds, deleteWorld, createWorld, initWorldsSorting } from './worlds.js';
 import {
     generateUniverse, generatePlanets, generateFactions, generateResources,
-    generateSettlements, loadSettlementFields, renderSettlementModel,
+    generateSettlements, generateRaceSettlements, loadSettlementFields, renderSettlementModel,
     addSettlementRule, setSettleMode, setSettlePopKind, applySettlementPreset,
     cancelGeneration, clearUniverse, clearSettlements, applyPreset,
     switchGenSubTab, showTab, loadGenConfig, saveGenConfig, recalcGenWeights,
@@ -34,6 +34,7 @@ window.generateUniverse = generateUniverse;
 window.generatePlanets = generatePlanets;
 window.generateFactions = generateFactions;
 window.generateSettlements = generateSettlements;
+window.generateRaceSettlements = generateRaceSettlements;
 window.generateResources = generateResources;
 window.cancelGeneration = cancelGeneration;
 window.clearUniverse = clearUniverse;

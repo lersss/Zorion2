@@ -122,7 +122,11 @@ def material_head():
         d.ellipse([CX + s * 90 - 28, CY - 70, CX + s * 90 + 28, CY - 14], fill=DARK, outline=BORDER, width=4)
     # светящееся ядро
     d.ellipse([CX - 25, CY + 40, CX + 25, CY + 90], fill=GLASS, outline=BORDER, width=4)
-    neck_to_bottom(d, CY + 200, (220, 210, 235), w=120)
+    # ПОСАЖЕННЫЙ НИЗ: широкий контрастный воротник-туловище до края
+    d.polygon([(CX - 230, CY + 140), (CX + 230, CY + 140), (CX + 210, SIZE), (CX - 210, SIZE)], fill=(150, 120, 90))
+    d.line([(CX - 230, CY + 140), (CX + 230, CY + 140)], fill=BORDER, width=6)
+    d.line([(CX - 230, CY + 140), (CX - 210, SIZE)], fill=BORDER, width=5)
+    d.line([(CX + 230, CY + 140), (CX + 210, SIZE)], fill=BORDER, width=5)
     save(img, 'sil_race_material_head')
 
 
@@ -149,7 +153,11 @@ def geometry_head():
         dx = 130 * math.cos(math.radians(ang))
         dy = 130 * math.sin(math.radians(ang)) - 20
         d.ellipse([CX + dx - 10, CY + dy - 10, CX + dx + 10, CY + dy + 10], fill=WHITE)
-    neck_to_bottom(d, CY + 220, (40, 30, 60), w=130)
+    # ПОСАЖЕННЫЙ НИЗ: широкий светлый воротник-туловище (контрастный, до края)
+    d.polygon([(CX - 240, CY + 180), (CX + 240, CY + 180), (CX + 220, SIZE), (CX - 220, SIZE)], fill=(150, 130, 190))
+    d.line([(CX - 240, CY + 180), (CX + 240, CY + 180)], fill=BORDER, width=6)
+    d.line([(CX - 240, CY + 180), (CX - 220, SIZE)], fill=BORDER, width=5)
+    d.line([(CX + 240, CY + 180), (CX + 220, SIZE)], fill=BORDER, width=5)
     save(img, 'sil_race_geometry_head')
 
 

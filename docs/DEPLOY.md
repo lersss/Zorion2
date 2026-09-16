@@ -37,9 +37,10 @@
 ```powershell
 $env:DATABASE_URL = "postgres://zorion:zorion123@127.0.0.1:5432/zorion?sslmode=disable"
 $env:REDIS_URL    = "redis://localhost:6379"
-$env:JWT_SECRET   = "минимум-32-символа-ключ-для-теста"
 $env:TICK_INTERVAL_SEC = "3"
 ```
+
+`JWT_SECRET` вручную не задавать — берётся из `.env` в корне проекта (godotenv) или через `run.ps1`. Свой секрет вручную перекрывает `.env` и делает невалидными все ранее выданные токены — у всех залогиненных «сессия истекла» (идея 58a).
 
 ### Шаг 2 — Запустить
 

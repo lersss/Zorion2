@@ -58,7 +58,7 @@ function activateTab(tabId) {
         initSettlementSettings();
     }
     if (tabId === 'tab-generation') {
-        // Подвкладки-дропдаун генерации (99.2.3 §2): восстановить сохранённую.
+        // Подвкладки генерации (99.2.3 §2; кнопки с 71a): восстановить сохранённую.
         applyGenSubTab();
     }
 }

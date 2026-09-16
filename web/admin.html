@@ -54,23 +54,19 @@
         </div>
     </div>
 
-    <!-- Вкладка: Генерация (подвкладки-дропдаун, спека 99.2.3 §2) -->
+    <!-- Вкладка: Генерация (подвкладки-кнопки, спека 99.2.3 §2, 71a) -->
     <div id="tab-generation" class="tab-pane">
 
-        <!-- Дропдаун подвкладок -->
+        <!-- Кнопки-подвкладки (вместо дропдауна, 71a) -->
         <div class="card">
             <h2>🌌 Генерация</h2>
-            <div class="compact-row">
-                <div><label>Раздел</label>
-                    <select id="genSubTab" onchange="switchGenSubTab()">
-                        <option value="stars">Звёзды</option>
-                        <option value="planets">Планеты</option>
-                        <option value="settlements">Поселения</option>
-                        <option value="hypothesis">Гипотезы</option>
-                        <option value="npc">NPC-агенты</option>
-                        <option value="factions">Фракции</option>
-                    </select>
-                </div>
+            <div class="admin-tabs gen-subtabs">
+                <button class="gen-subtab-btn active" data-gen-sub="stars" onclick="switchGenSubTab('stars')">Звёзды</button>
+                <button class="gen-subtab-btn" data-gen-sub="planets" onclick="switchGenSubTab('planets')">Планеты</button>
+                <button class="gen-subtab-btn" data-gen-sub="settlements" onclick="switchGenSubTab('settlements')">Поселения</button>
+                <button class="gen-subtab-btn" data-gen-sub="hypothesis" onclick="switchGenSubTab('hypothesis')">Гипотезы</button>
+                <button class="gen-subtab-btn" data-gen-sub="npc" onclick="switchGenSubTab('npc')">NPC-агенты</button>
+                <button class="gen-subtab-btn" data-gen-sub="factions" onclick="switchGenSubTab('factions')">Фракции</button>
             </div>
         </div>
 

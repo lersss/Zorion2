@@ -367,24 +367,25 @@ export async function clearUniverse() {
 
 // ---------- ПОДВКЛАДКИ ГЕНЕРАЦИИ (99.2.3 §2) ----------
 
-// switchGenSubTab — переключение подвкладки раздела «Генерация».
-// Сохраняется в localStorage (tabs.js хранит подвкладку тоже).
-export function switchGenSubTab() {
-    const sel = document.getElementById('genSubTab');
-    const name = sel ? sel.value : 'stars';
+// switchGenSubTab — переключение подвкладки раздела «Генерация» (кнопки
+// вместо дропдауна, 71a). name — подвкладка ('stars' | 'planets' | ...);
+// без аргумента — восстановление сохранённой из localStorage (выбор
+// переживает перезагрузку страницы).
+export function switchGenSubTab(name) {
+    const target = name || localStorage.getItem('adminGenSubTab') || 'stars';
     document.querySelectorAll('#tab-generation .gen-sub').forEach(d => {
-        d.style.display = d.id === 'genSub-' + name ? 'block' : 'none';
+        d.style.display = d.id === 'genSub-' + target ? 'block' : 'none';
     });
-    if (name === 'stars') loadGenConfig();
-    localStorage.setItem('adminGenSubTab', name);
+    document.querySelectorAll('.gen-subtab-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.genSub === target);
+    });
+    if (target === 'stars') loadGenConfig();
+    localStorage.setItem('adminGenSubTab', target);
 }
 
 // applyGenSubTab — применяет сохранённую подвкладку (вызывается из tabs.js
 // при активации вкладки «Генерация»).
 export function applyGenSubTab() {
-    const saved = localStorage.getItem('adminGenSubTab') || 'stars';
-    const sel = document.getElementById('genSubTab');
-    if (sel) sel.value = saved;
     switchGenSubTab();
 }
 

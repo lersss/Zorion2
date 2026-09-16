@@ -674,6 +674,13 @@ table tr:hover { background: #1a1a2e; }
     display: block;
 }
 
+/* Подвкладки раздела «Генерация» (кнопки вместо дропдауна, 71a):
+   стили кнопок переиспользуют .admin-tabs, здесь только убираем нижний
+   отступ — внутри карточки он лишний. */
+.gen-subtabs {
+    margin-bottom: 0;
+}
+
 /* Адаптивность */
 @media (max-width: 768px) {
     .compact-row { flex-direction: column; align-items: stretch; }

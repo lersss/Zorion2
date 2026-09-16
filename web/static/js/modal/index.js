@@ -407,7 +407,6 @@ function renderModal(worldId, worldName, spectralClass, data) {
     // перерисовываем числа от локального счёта, чтобы между синками с сервером
     // население «жило». rAF в фоновой вкладке замирает — первый кадр после
     // возврата сразу даёт свежее число без запроса.
-    modalState.animStart = performance.now();
     let lastPopRepaint = 0;
     function tick() {
         if (!document.getElementById('system-modal-overlay')) return;

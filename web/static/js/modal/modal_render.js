@@ -4,12 +4,9 @@ import { drawMiniMap } from './minimap.js';
 import { getPlanetTexture } from './textures.js';
 import { computeLayout, getOrbitRadius, getPlanetPose, getPlanetSize, planetOrbitCenter } from './layout.js';
 
-// formatAU — читаемое разделение: ≥ 100 а.е. — целое («342 а.е.»), иначе
-// два знака («0.45 а.е.»).
-function formatAU(au) {
-    if (typeof au !== 'number' || !isFinite(au) || au <= 0) return '';
-    return au >= 100 ? Math.round(au) + ' а.е.' : au.toFixed(2) + ' а.е.';
-}
+// Минимальный экранный радиус звезды (51a): на отдалённом зуме (0.02–0.3)
+// звезда не сжимается ниже ~4px на экране и остаётся яркой читаемой точкой.
+const MIN_STAR_PX = 4;
 
 export async function drawSystem(canvas, spectralClass, planets, starRadius, starColor, width, height) {
     const dpr = window.devicePixelRatio || 1;
@@ -22,8 +19,9 @@ export async function drawSystem(canvas, spectralClass, planets, starRadius, sta
     ctx.scale(dpr, dpr);
 
     const layout = computeLayout(planets, starRadius, width, height);
-    const { cx, cy, mainX, mainY, finalStarRadius, step, maxOrbit, sizeMultiplier, stars } = layout;
-    const timeMs = performance.now() - (modalState.animStart || performance.now());
+    const { mainX, mainY, finalStarRadius, sizeMultiplier, stars } = layout;
+    // Глобальные часы (51a): фаза планет не сбрасывается при переоткрытии модалки.
+    const timeMs = performance.now();
 
     // Компактные остатки (ЧД/нейтронная/WD, 40a): свечение главной звезды
     // гасим — точка без ореола; обычные звёзды и протозвезда — как есть.
@@ -58,37 +56,17 @@ export async function drawSystem(canvas, spectralClass, planets, starRadius, sta
             ctx.shadowColor = s.color;
             ctx.shadowBlur = compactRemnant ? 0 : 40;
         } else {
-            ctx.globalAlpha = 0.85;
             ctx.shadowColor = s.color;
-            ctx.shadowBlur = 18;
+            ctx.shadowBlur = 25;
         }
         ctx.beginPath();
-        ctx.arc(s.x, s.y, s.radius, 0, 2 * Math.PI);
+        // Минимальный радиус в мировых координатах: на отдалении звезда не
+        // сжимается ниже MIN_STAR_PX экранных пикселей (51a).
+        ctx.arc(s.x, s.y, Math.max(s.radius, MIN_STAR_PX / modalState.zoom), 0, 2 * Math.PI);
         ctx.fillStyle = s.color;
         ctx.fill();
         ctx.restore();
     });
-
-    // Подпись реального расстояния wide-компаньона вне честного масштаба
-    // (35b §6.2, решение №3б): «компаньон: 342 а.е.»; у кратных — и внешние.
-    const labelled = stars.filter(s => s.kind !== 'main' && s.atEdge && s.sepAU > 0);
-    if (labelled.length > 0) {
-        ctx.save();
-        ctx.font = '11px system-ui';
-        ctx.textAlign = 'center';
-        labelled.forEach(s => {
-            const label = (s.kind === 'companion' ? 'компаньон: ' : 'внешний: ') + formatAU(s.sepAU);
-            // Подпись — с внутренней стороны от края кадра: у нижнего компаньона
-            // сверху, у верхнего — снизу (иначе уходит за край канваса).
-            const belowCenter = s.y > cy;
-            const ly = belowCenter ? s.y - s.radius - 8 : s.y + s.radius + 14;
-            ctx.fillStyle = 'rgba(0,0,0,0.6)';
-            ctx.fillText(label, s.x, ly + 1);
-            ctx.fillStyle = '#aab';
-            ctx.fillText(label, s.x, ly);
-        });
-        ctx.restore();
-    }
 
     // ---- СЛОЙ 3: ПЛАНЕТЫ (АСИНХРОННАЯ ЗАГРУЗКА ТЕКСТУР) ----
     if (planets && planets.length > 0) {
@@ -186,5 +164,5 @@ export async function drawSystem(canvas, spectralClass, planets, starRadius, sta
     ctx.restore(); // сброс трансформации
 
     // ---- МИНИ-КАРТА (поверх всего) ----
-    drawMiniMap(ctx, cx, cy, finalStarRadius, step, maxOrbit, planets, width, height);
+    drawMiniMap(ctx, planets, width, height);
 }

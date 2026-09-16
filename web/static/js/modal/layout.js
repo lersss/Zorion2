@@ -4,9 +4,11 @@
 // координаты всегда совпадали, а планеты вращались синхронно.
 //
 // Двойные/кратные (35b §6.1): барицентр пары — в центре кадра (cx, cy);
-// главная смещена на d₁ = a·m₂/(m₁+m₂), компаньон — на d₂ = a·m₁/(m₁+m₂).
-// Массы старых миров (NULL) → фолбэк 0.5/0.5 (§2.4). Wide-компаньон вне
-// честного масштаба кадра — на краю кадра (гибрид-шкала, решение №3б).
+// тесная пара — главная смещена на d₁ = a·m₂/(m₁+m₂), компаньон — на
+// d₂ = a·m₁/(m₁+m₂). Wide (51a): главная в центре кадра, компаньон честно
+// на полном расстоянии a вне кадра (canvas обрежет). Звёзды статичны.
+// Массы старых миров (NULL) → фолбэк 0.5/0.5 (§2.4). minimapStars — только
+// фолбэк старых wide-миров без sepAU (честной позиции нет).
 
 import { modalState } from './state.js';
 import { getStarColor, getStarSize } from './utils.js';
@@ -65,6 +67,9 @@ export function computeLayout(planets, starRadius, width, height) {
     let mainX = cx;
     let mainY = cy;
     const stars = [{ kind: 'main', x: cx, y: cy, radius: finalStarRadius, color: modalState.starColor }];
+    // minimapStars — только фолбэк старых wide-миров без sepAU (51a): честной
+    // позиции у них нет, миникарта рисует их по старой позиции.
+    const minimapStars = [];
 
     const { isBinary, m1, m2, sepAU } = companionParams();
     // 35a-паритет: компаньон рисуется для любой binary/multiple (цвет фолбечится
@@ -75,7 +80,7 @@ export function computeLayout(planets, starRadius, width, height) {
     if (hasCompanion && sepAU > 0) {
         // Честная барицентричная геометрия. Масштаб: 1 а.е. = finalStarRadius —
         // тесная пара (0.05–0.9 а.е.) рисуется рядом со звездой, wide (100+ а.е.)
-        // — за пределами кадра (гибрид-шкала).
+        // — за пределами кадра (гибрид-шкала, canvas обрежет).
         const honest = sepAU * finalStarRadius;
         const d1 = honest * m2 / (m1 + m2);
         const d2 = honest * m1 / (m1 + m2);
@@ -84,8 +89,20 @@ export function computeLayout(planets, starRadius, width, height) {
         const compColor = starColorOf(compSpec);
         const compRadius = starSizeOf(compSpec, maxStarRadius);
 
-        if (d2 <= frameEdge) {
-            // Честная геометрия: главная слева от барицентра, компаньон справа.
+        if (d2 > frameEdge) {
+            // Wide (51a): главная в центре кадра (стартовый вид не уезжает),
+            // компаньон честно на полном расстоянии honest справа (статика).
+            mainX = cx;
+            mainY = cy;
+            stars[0] = { kind: 'main', x: mainX, y: mainY, radius: finalStarRadius, color: modalState.starColor };
+            stars.push({
+                kind: 'companion', x: cx + honest, y: cy,
+                radius: compRadius, color: compColor,
+                sepAU: sepAU, atEdge: false,
+            });
+        } else {
+            // Честная геометрия тесной пары: главная слева от барицентра,
+            // компаньон справа (статика).
             mainX = cx - d1;
             mainY = cy;
             stars[0] = { kind: 'main', x: mainX, y: mainY, radius: finalStarRadius, color: modalState.starColor };
@@ -94,37 +111,38 @@ export function computeLayout(planets, starRadius, width, height) {
                 radius: compRadius, color: compColor,
                 sepAU: sepAU, atEdge: false,
             });
-        } else {
-            // Гибрид-шкала: главная в центре, компаньон на краю кадра
-            // в направлении орбитального угла (решение №3б).
-            const angle = (performance.now() * 0.0001) % (2 * Math.PI);
-            stars.push({
-                kind: 'companion',
-                x: cx + Math.cos(angle) * frameEdge,
-                y: cy + Math.sin(angle) * frameEdge,
-                radius: compRadius, color: compColor,
-                sepAU: sepAU, atEdge: true,
-            });
         }
 
-        // Внешние компаньоны кратных (35b §6.2): тоже на краю кадра.
+        // Внешние компаньоны кратных (35b §6.2): честно от пары по углу (51a);
+        // без sep_au — только на миникарте (фолбэк старых миров).
         (modalState.extraCompanions || []).forEach((ec, i) => {
             const spec = ec && ec.spectral_class;
             const color = spec ? getStarColor(spec, 'star') : compColor;
             const radius = spec ? Math.min(getStarSize(spec, 'star'), maxStarRadius) : compRadius;
-            const angle = (performance.now() * 0.0001 + (i + 1) * (Math.PI / 3)) % (2 * Math.PI);
-            stars.push({
-                kind: 'extra',
-                x: cx + Math.cos(angle) * frameEdge,
-                y: cy + Math.sin(angle) * frameEdge,
-                radius, color,
-                sepAU: (ec && typeof ec.sep_au === 'number') ? ec.sep_au : 0,
-                atEdge: true,
-            });
+            const angle = (i + 1) * (Math.PI / 3);
+            const ecSepAU = (ec && typeof ec.sep_au === 'number') ? ec.sep_au : 0;
+            if (ecSepAU > 0) {
+                const r = ecSepAU * finalStarRadius;
+                stars.push({
+                    kind: 'extra',
+                    x: cx + Math.cos(angle) * r,
+                    y: cy + Math.sin(angle) * r,
+                    radius, color,
+                    sepAU: ecSepAU, atEdge: false,
+                });
+            } else {
+                minimapStars.push({
+                    kind: 'extra',
+                    x: cx + Math.cos(angle) * frameEdge,
+                    y: cy + Math.sin(angle) * frameEdge,
+                    radius, color,
+                    sepAU: 0, atEdge: true,
+                });
+            }
         });
     } else if (hasCompanion) {
         // Старые миры без companion_sep_au (35a-отрисовка, фолбэк §2.4):
-        // close — компаньон вплотную справа; wide/кратные — на медленной орбите.
+        // close — компаньон вплотную справа; wide/кратные — только на миникарте (51a).
         const compSpec = modalState.companion;
         const compColor = starColorOf(compSpec);
         const isMultiple = modalState.systemType === 'multiple';
@@ -139,12 +157,12 @@ export function computeLayout(planets, starRadius, width, height) {
         } else {
             const orbitR = Math.max(12, finalStarRadius * 1.8);
             const cr = finalStarRadius * 0.45;
-            const baseAngle = (performance.now() * 0.0002) % (2 * Math.PI);
+            const baseAngle = 0;
             const angles = isMultiple
                 ? [baseAngle, baseAngle + Math.PI / 3]
                 : [baseAngle];
             angles.forEach((a, i) => {
-                stars.push({
+                minimapStars.push({
                     kind: i === 0 ? 'companion' : 'extra',
                     x: cx + Math.cos(a) * orbitR,
                     y: cy + Math.sin(a) * orbitR,
@@ -155,7 +173,19 @@ export function computeLayout(planets, starRadius, width, height) {
         }
     }
 
-    return { cx, cy, mainX, mainY, finalStarRadius, step, maxOrbit, sizeMultiplier, stars, frameEdge };
+    // Максимальное расстояние не-главных звёзд от барицентра (51a): для
+    // динамического минимума зума, чтобы все звёзды влезали в кадр.
+    let maxStarDistPx = 0;
+    stars.forEach(s => {
+        if (s.kind !== 'main') {
+            maxStarDistPx = Math.max(maxStarDistPx, Math.hypot(s.x - cx, s.y - cy));
+        }
+    });
+    minimapStars.forEach(s => {
+        maxStarDistPx = Math.max(maxStarDistPx, Math.hypot(s.x - cx, s.y - cy));
+    });
+
+    return { cx, cy, mainX, mainY, finalStarRadius, step, maxOrbit, sizeMultiplier, stars, minimapStars, frameEdge, maxStarDistPx };
 }
 
 // planetOrbitCenter — центр вращения планеты (35b §6.1): P-планеты вокруг
@@ -172,12 +202,13 @@ export function getOrbitRadius(layout, p, idx) {
     return layout.finalStarRadius * 1.8 + (p.orbit_index + 1) * layout.step * (1 + randomOffset);
 }
 
-// Угол планеты на орбите в момент времени timeMs (мс от начала анимации).
-// Периоды — косметика (35b §6.1): S — визуальная формула 25 + r·0.35 с;
-// P — по Кеплеру III от массы пары (√((M₁+M₂)/M₁)) с бо́льшим визуальным
-// периодом (орбита 3a далеко, абсолют честного времени не моделируем).
+// Угол планеты на орбите в момент времени timeMs (мс, глобальные часы).
+// Периоды — косметика (35b §6.1): S — визуальная формула 25 + r·0.35 с,
+// замедлена ×10 (51a); P — по Кеплеру III от массы пары (√((M₁+M₂)/M₁))
+// с бо́льшим визуальным периодом (орбита 3a далеко, абсолют честного
+// времени не моделируем).
 export function getPlanetAngle(p, orbitRadius, idx, timeMs) {
-    let periodMs = (25 + orbitRadius * 0.35) * 1000;
+    let periodMs = (25 + orbitRadius * 0.35) * 1000 * 10;
     if (p && p.orbit_center === 'barycenter') {
         const { m1, m2 } = companionParams();
         periodMs *= Math.sqrt((m1 + m2) / m1);

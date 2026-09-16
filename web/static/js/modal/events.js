@@ -2,13 +2,15 @@
 import { modalState } from './state.js';
 import { drawSystem } from './modal_render.js';
 import { computeLayout, getOrbitRadius, getPlanetAngle, getPlanetSize, planetOrbitCenter } from './layout.js';
+import { miniObjects } from './minimap.js';
 import { closeModal } from './index.js';
 
 export function initEvents(canvas, spectralClass, planets, starRadius, starColor, width, height) {
     const dpr = window.devicePixelRatio || 1;
 
     function getAnimTime() {
-        return performance.now() - (modalState.animStart || performance.now());
+        // Глобальные часы (51a): фаза планет не сбрасывается при переоткрытии модалки.
+        return performance.now();
     }
 
     function getPlanetWorldPos(p, idx) {
@@ -83,8 +85,25 @@ export function initEvents(canvas, spectralClass, planets, starRadius, starColor
         const mouseX = (e.clientX - rect.left) * (canvas.width / rect.width) / dpr;
         const mouseY = (e.clientY - rect.top) * (canvas.height / rect.height) / dpr;
 
-        const delta = e.deltaY > 0 ? 0.9 : 1.1;
-        const newZoom = Math.min(Math.max(modalState.zoom * delta, 0.3), 5);
+        // Адаптивный шаг зума (51a): на обзоре (zoom < 0.05) отдаление/приближение
+        // быстрее — от 1 до ~0.0006 (Ugvol, внешняя на 8226 а.е.) ~30 прокруток;
+        // на обычных зумах (zoom ≥ 0.3) поведение как раньше.
+        let delta;
+        if (modalState.zoom < 0.05) {
+            delta = e.deltaY > 0 ? 0.65 : 1.5;
+        } else if (modalState.zoom < 0.3) {
+            delta = e.deltaY > 0 ? 0.8 : 1.25;
+        } else {
+            delta = e.deltaY > 0 ? 0.9 : 1.1;
+        }
+
+        // Динамический минимум зума (51a): от самой дальней звезды системы,
+        // чтобы все звёзды (компаньоны/внешние кратных) влезали в кадр.
+        const layout = computeLayout(planets, starRadius, width, height);
+        const minZoom = layout.maxStarDistPx > 0
+            ? Math.max(0.0003, Math.min(0.02, modalState.canvasWidth / (2 * layout.maxStarDistPx)))
+            : 0.02;
+        const newZoom = Math.min(Math.max(modalState.zoom * delta, minZoom), 5);
 
         const worldX = (mouseX - modalState.offsetX) / modalState.zoom;
         const worldY = (mouseY - modalState.offsetY) / modalState.zoom;
@@ -131,6 +150,33 @@ export function initEvents(canvas, spectralClass, planets, starRadius, starColor
             modalState.suppressNextClick = false;
             return;
         }
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = (e.clientX - rect.left) * (canvas.width / rect.width) / dpr;
+        const mouseY = (e.clientY - rect.top) * (canvas.height / rect.height) / dpr;
+
+        // Клик по миникарте (51a): ближайший объект — фокус на него; мимо
+        // объектов — игнор. Как клик по канвасу не обрабатывается. Размеры —
+        // свежие из modalState (после ресайза окна замыкание width/height устарело).
+        const mini = miniObjects(planets, modalState.canvasWidth, modalState.canvasHeight);
+        if (mouseX >= mini.miniX && mouseX <= mini.miniX + mini.miniSize &&
+            mouseY >= mini.miniY && mouseY <= mini.miniY + mini.miniSize) {
+            let best = null;
+            let bestDist = 14;
+            mini.objects.forEach(o => {
+                const d = Math.hypot(mouseX - o.x, mouseY - o.y);
+                if (d < bestDist) {
+                    bestDist = d;
+                    best = o;
+                }
+            });
+            if (best) {
+                modalState.offsetX = modalState.canvasWidth / 2 - best.world.x * modalState.zoom;
+                modalState.offsetY = modalState.canvasHeight / 2 - best.world.y * modalState.zoom;
+                drawSystem(canvas, spectralClass, planets, starRadius, starColor, modalState.canvasWidth, modalState.canvasHeight);
+            }
+            return;
+        }
+
         const { worldX, worldY } = toWorld(e);
         const hit = hitTest(worldX, worldY);
 

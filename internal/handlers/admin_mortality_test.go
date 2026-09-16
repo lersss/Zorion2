@@ -64,11 +64,11 @@ func TestMortalityPreviewComfortablePlanetHasZeroLambda(t *testing.T) {
 			AddRow("p1", "w1", "Уютная", 1, `{"temperature":288,"gravity":1.0}`, now, now),
 	)
 	mock.ExpectQuery(`
-		SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at
+		SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at, race_id
 		FROM settlements WHERE planet_id = ANY($1) ORDER BY created_at ASC
 	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(
-		sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at"}).
-			AddRow("s1", "p1", 1_000_000, float64(1_000_000), 60, now, now, now),
+		sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id"}).
+			AddRow("s1", "p1", 1_000_000, float64(1_000_000), 60, now, now, now, nil),
 	)
 	// attachSettlements читает лог поселения (18a §«Лог поселения») — пусто.
 	mock.ExpectQuery(`
@@ -117,10 +117,10 @@ func TestMortalityPreviewP0Override(t *testing.T) {
 			AddRow("p1", "w1", "Без поселений", 1, `{"temperature":288,"gravity":1.0}`, now, now),
 	)
 	mock.ExpectQuery(`
-		SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at
+		SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at, race_id
 		FROM settlements WHERE planet_id = ANY($1) ORDER BY created_at ASC
 	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(
-		sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at"}),
+		sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id"}),
 	)
 
 	h := &AdminHandlers{db: db}
@@ -172,10 +172,10 @@ func TestMortalityPreviewUninhabitable(t *testing.T) {
 					AddRow("p1", "w1", "Необитаемая", 1, fmt.Sprintf(`{"temperature":%v,"gravity":1.0}`, tc.temp), now, now),
 			)
 			mock.ExpectQuery(`
-				SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at
+				SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at, race_id
 				FROM settlements WHERE planet_id = ANY($1) ORDER BY created_at ASC
 			`).WithArgs(sqlmock.AnyArg()).WillReturnRows(
-				sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at"}),
+				sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id"}),
 			)
 
 			h := &AdminHandlers{db: db}

@@ -34,7 +34,7 @@ func (r *EconomyRepository) GetSettlementsByPlanetIDs(planetIDs []string) (map[s
 		return map[string][]models.Settlement{}, nil
 	}
 
-	query := `SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at
+	query := `SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at, race_id
 	          FROM settlements WHERE planet_id = ANY($1) ORDER BY created_at ASC`
 	rows, err := r.db.Query(query, pqStringArray(planetIDs))
 	if err != nil {
@@ -45,13 +45,15 @@ func (r *EconomyRepository) GetSettlementsByPlanetIDs(planetIDs []string) (map[s
 	result := map[string][]models.Settlement{}
 	for rows.Next() {
 		var s models.Settlement
+		var raceID sql.NullString
 		if err := rows.Scan(
 			&s.ID, &s.PlanetID, &s.Population,
 			&s.PopulationExact, &s.Stability, &s.ComputedAt,
-			&s.CreatedAt, &s.UpdatedAt,
+			&s.CreatedAt, &s.UpdatedAt, &raceID,
 		); err != nil {
 			return nil, err
 		}
+		s.RaceID = raceID.String
 		result[s.PlanetID] = append(result[s.PlanetID], s)
 	}
 	return result, rows.Err()

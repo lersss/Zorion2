@@ -25,10 +25,10 @@ func TestGetPlanetByID(t *testing.T) {
 		WHERE id = $1
 	`).WithArgs("p1").WillReturnRows(planetRows)
 
-	settlementRows := sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at"}).
-		AddRow("s1", "p1", 1_000_000, float64(1_000_000), 60, now, now, now)
+	settlementRows := sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id"}).
+		AddRow("s1", "p1", 1_000_000, float64(1_000_000), 60, now, now, now, nil)
 	mock.ExpectQuery(`
-		SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at
+		SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at, race_id
 		FROM settlements WHERE planet_id = ANY($1) ORDER BY created_at ASC
 	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(settlementRows)
 

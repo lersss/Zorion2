@@ -8,6 +8,8 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"zorion/internal/races"
 )
 
 // GetPlanetsByWorldID подтягивает поселения и считает население планеты
@@ -29,12 +31,12 @@ func TestGetPlanetsByWorldIDWithSettlements(t *testing.T) {
 		ORDER BY orbit_index ASC
 	`).WithArgs("w1").WillReturnRows(planetRows)
 
-	settlementRows := sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at"}).
-		AddRow("s1", "p1", 5_000_000, float64(5_000_000), 60, now, now, now).
-		AddRow("s2", "p1", 8_000_000, float64(8_000_000), 70, now, now, now)
+	settlementRows := sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id"}).
+		AddRow("s1", "p1", 5_000_000, float64(5_000_000), 60, now, now, now, nil).
+		AddRow("s2", "p1", 8_000_000, float64(8_000_000), 70, now, now, now, nil)
 
 	mock.ExpectQuery(`
-		SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at
+		SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at, race_id
 		FROM settlements WHERE planet_id = ANY($1) ORDER BY created_at ASC
 	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(settlementRows)
 
@@ -99,9 +101,9 @@ func TestGetPlanetsByWorldIDOrbitContext(t *testing.T) {
 	// attachSettlements: поселений нет — settlements-запрос возвращает пусто,
 	// settlement_log при пустом ids не запрашивается (GetSettlementLogBySettlementIDs).
 	mock.ExpectQuery(`
-		SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at
+		SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at, race_id
 		FROM settlements WHERE planet_id = ANY($1) ORDER BY created_at ASC
-	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at"}))
+	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id"}))
 
 	planets, err := NewPlanetRepository(db).GetPlanetsByWorldID("w1")
 	require.NoError(t, err)
@@ -137,13 +139,13 @@ func TestGetSettlementsByPlanetIDs(t *testing.T) {
 	defer db.Close()
 
 	now := time.Now()
-	rows := sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at"}).
-		AddRow("s1", "p1", 100, float64(100), 50, now, now, now).
-		AddRow("s2", "p2", 200, float64(200), 60, now, now, now).
-		AddRow("s3", "p1", 300, float64(300), 70, now, now, now)
+	rows := sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id"}).
+		AddRow("s1", "p1", 100, float64(100), 50, now, now, now, nil).
+		AddRow("s2", "p2", 200, float64(200), 60, now, now, now, "humans").
+		AddRow("s3", "p1", 300, float64(300), 70, now, now, now, nil)
 
 	mock.ExpectQuery(`
-		SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at
+		SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at, race_id
 		FROM settlements WHERE planet_id = ANY($1) ORDER BY created_at ASC
 	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(rows)
 
@@ -154,6 +156,8 @@ func TestGetSettlementsByPlanetIDs(t *testing.T) {
 	require.Len(t, byPlanet, 2)
 	assert.Len(t, byPlanet["p1"], 2)
 	assert.Len(t, byPlanet["p2"], 1)
+	assert.Equal(t, "", byPlanet["p1"][0].RaceID, "NULL race_id → пусто (легаси/люди)")
+	assert.Equal(t, "humans", byPlanet["p2"][0].RaceID, "race_id сканируется из БД")
 }
 
 // Пустой запрос не трогает БД и возвращает пустую карту.
@@ -166,4 +170,70 @@ func TestGetSettlementsByPlanetIDsEmpty(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, byPlanet)
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// race_name в JSON-выводе поселения: NULL race_id → «Люди» (легаси/люди,
+// спека 99.2.21 §2.3), непустой → имя из каталога рас.
+func TestGetPlanetsByWorldIDRaceName(t *testing.T) {
+	require.NoError(t, races.LoadCatalog("../../config/races.json"))
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
+	require.NoError(t, err)
+	defer db.Close()
+
+	now := time.Now()
+	planetRows := sqlmock.NewRows([]string{"id", "world_id", "name", "orbit_index", "data", "created_at", "updated_at"}).
+		AddRow("p1", "w1", "Двойная", 1, `{"life":true,"habitable":true,"temperature":288,"gravity":1.0}`, now, now)
+
+	mock.ExpectQuery(`
+		SELECT id, world_id, name, orbit_index, data, created_at, updated_at
+		FROM planets
+		WHERE world_id = $1
+		ORDER BY orbit_index ASC
+	`).WithArgs("w1").WillReturnRows(planetRows)
+
+	// NULL race_id (легаси/люди) + раса из каталога (sulfur_nests → «Серные гнёзда»).
+	settlementRows := sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id"}).
+		AddRow("s1", "p1", 5_000_000, float64(5_000_000), 60, now, now, now, nil).
+		AddRow("s2", "p1", 8_000_000, float64(8_000_000), 70, now, now, now, "sulfur_nests")
+
+	mock.ExpectQuery(`
+		SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at, race_id
+		FROM settlements WHERE planet_id = ANY($1) ORDER BY created_at ASC
+	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(settlementRows)
+
+	mock.ExpectQuery(`
+		SELECT id, settlement_id, type, occurred_at, cause, created_at
+		FROM (
+			SELECT id, settlement_id, type, occurred_at, cause, created_at,
+			       ROW_NUMBER() OVER (PARTITION BY settlement_id ORDER BY occurred_at DESC) AS rn
+			FROM settlement_log
+			WHERE settlement_id = ANY($1)
+		) sub
+		WHERE rn <= 3
+		ORDER BY occurred_at DESC
+	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"id", "settlement_id", "type", "occurred_at", "cause", "created_at"}))
+
+	planets, err := NewPlanetRepository(db).GetPlanetsByWorldID("w1")
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	require.Len(t, planets, 1)
+	require.Len(t, planets[0].Settlements, 2)
+	assert.Equal(t, "Люди", planets[0].Settlements[0].RaceName, "NULL race_id → «Люди»")
+	assert.Equal(t, "Серные гнёзда", planets[0].Settlements[1].RaceName, "имя из каталога рас")
+
+	// JSON-вывод как в API-ответе: race_name присутствует, race_id — только
+	// у расового поселения (omitempty).
+	raw, err := json.Marshal(planets[0].Settlements[0])
+	require.NoError(t, err)
+	var obj map[string]interface{}
+	require.NoError(t, json.Unmarshal(raw, &obj))
+	assert.Equal(t, "Люди", obj["race_name"])
+	assert.NotContains(t, obj, "race_id", "NULL race_id не сериализуется (omitempty)")
+
+	raw2, err := json.Marshal(planets[0].Settlements[1])
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(raw2, &obj))
+	assert.Equal(t, "Серные гнёзда", obj["race_name"])
+	assert.Equal(t, "sulfur_nests", obj["race_id"])
 }

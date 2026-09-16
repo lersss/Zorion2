@@ -10,6 +10,7 @@ import (
 
 	"zorion/internal/economy/settlement"
 	"zorion/internal/models"
+	"zorion/internal/races"
 )
 
 type PlanetRepository struct {
@@ -134,6 +135,7 @@ func (r *PlanetRepository) attachSettlements(planets []models.Planet) error {
 				return fmt.Errorf("failed to recompute settlement %s: %w", settlements[j].ID, err)
 			}
 			settlements[j] = updated
+			settlements[j].RaceName = raceName(settlements[j].RaceID)
 			settlementIDs = append(settlementIDs, settlements[j].ID)
 		}
 		planets[i].Settlements = settlements
@@ -170,6 +172,19 @@ func planetMortalityInput(p models.Planet) settlement.PlanetInput {
 		GravityG:          p.Gravity,
 		CoreRadioactivity: radioactivity,
 	}
+}
+
+// raceName — человекочитаемое имя расы поселения: из каталога рас
+// (internal/races); пустой RaceID (NULL = легаси/люди, спека 99.2.21 §2.3) —
+// «Люди». Неизвестный ключ — показываем как есть (защита от битого каталога).
+func raceName(raceID string) string {
+	if raceID == "" {
+		return "Люди"
+	}
+	if r := races.ByID(raceID); r != nil {
+		return r.Name
+	}
+	return raceID
 }
 
 // ==================== ПАРСИНГ ====================

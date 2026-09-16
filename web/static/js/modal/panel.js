@@ -268,9 +268,14 @@ function planetsTable(planets) {
             <tbody>
     `;
     planets.forEach((p, idx) => {
+        // Населённые планеты отмечаем домиком (пожелание создателя 2026-09-17).
+        const inhabited = planetPopulationAt(p, Date.now()) > 0;
+        const nameCell = inhabited
+            ? `<span title="Населена">🏠 ${capitalize(p.name || (idx + 1))}</span>`
+            : `${capitalize(p.name || (idx + 1))}`;
         html += `
             <tr data-index="${idx}" style="border-bottom: 1px solid #1a1a2e; cursor: pointer;">
-                <td style="padding:2px 4px;">${capitalize(p.name || (idx + 1))}</td>
+                <td style="padding:2px 4px;">${nameCell}</td>
                 <td style="padding:2px 4px;">${p.type || '?'}</td>
                 <td style="padding:2px 4px;">${p.size ? p.size.toFixed(1) : '-'}</td>
                 <td style="padding:2px 4px;">${p.temperature ? kelvinToCelsius(p.temperature) + '°' : '-'}</td>

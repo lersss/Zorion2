@@ -156,10 +156,14 @@ function renderGeneral(planet) {
     html += `<p style="margin:4px 0;"><strong>Размер:</strong> ${planet.size ? planet.size.toFixed(2) + ' R⊕' : '—'}</p>`;
     html += `<p style="margin:4px 0;"><strong>Плотность:</strong> ${planet.density ? planet.density.toFixed(2) : '—'}</p>`;
     html += `<p style="margin:4px 0;"><strong>Температура:</strong> ${kelvinToCelsius(planet.temperature)} °C (${planet.temperature ? planet.temperature.toFixed(0) : '—'} K)</p>`;
+    html += `<p style="margin:4px 0;"><strong>Расстояние до звезды:</strong> ${planet.orbit_radius_au ? planet.orbit_radius_au.toFixed(1) + ' а.е.' : '—'}</p>`;
 
     // Атмосфера, биосфера
     html += `<p style="margin:8px 0 4px 0; color:#888; font-size:0.9rem; text-transform:uppercase;">Среда</p>`;
     html += `<p style="margin:4px 0;"><strong>Атмосфера:</strong> ${planet.atmosphere || '—'}</p>`;
+    if (planet.atmosphere_data && planet.atmosphere_data.pressure_atm != null) {
+        html += `<p style="margin:4px 0;"><strong>Давление:</strong> ${planet.atmosphere_data.pressure_atm.toFixed(2)} атм</p>`;
+    }
     if (planet.hydrosphere) {
         html += `<p style="margin:4px 0;"><strong>Гидросфера:</strong> ${planet.hydrosphere}</p>`;
     }

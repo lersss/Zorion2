@@ -3,7 +3,6 @@ import { modalState } from './state.js';
 import { drawSystem } from './modal_render.js';
 import { renderTabContent } from './tabs.js';
 import { planetPopulationAt } from './extrapolate.js';
-import { starTypeLabel } from './utils.js';
 
 // Перевод Кельвинов в Цельсии (для таблицы планет)
 function kelvinToCelsius(k) {
@@ -18,39 +17,17 @@ function capitalize(s) {
 }
 
 // formatStellarMass — масса звезды в M☉ (29a §4м): < 10 — 1 десятичный знак,
-// ≥ 10 — целое; null/не число — «—».
-function formatStellarMass(m) {
+// ≥ 10 — целое; null/не число — «—». Экспорт — для тултипа звезды (70a).
+export function formatStellarMass(m) {
     if (typeof m !== 'number' || !isFinite(m) || m <= 0) return '—';
     return (m >= 10 ? Math.round(m) : m.toFixed(1)) + ' M☉';
 }
 
 // formatAU — разделение пары: ≥ 100 а.е. — целое, иначе два знака.
-function formatAU(au) {
+// Экспорт — для тултипа звезды (70a).
+export function formatAU(au) {
     if (typeof au !== 'number' || !isFinite(au) || au <= 0) return '—';
     return au >= 100 ? Math.round(au) : au.toFixed(2);
-}
-
-// companionBlock — блок «Компаньон» карточки звезды (35b §6.3): спектр,
-// температура, масса, разделение; у кратных — перечень extra_companions[].
-// Старые миры без полей — строка по фолбэкам §2.4 («—» вместо отсутствующих).
-function companionBlock() {
-    const st = modalState.systemType;
-    if (st !== 'binary' && st !== 'multiple') return '';
-    const parts = [];
-    const spec = modalState.companion;
-    parts.push('спектр ' + (spec || '—'));
-    parts.push('T ' + (typeof modalState.companionTemp === 'number' ? modalState.companionTemp.toFixed(0) + ' K' : '—'));
-    if (typeof modalState.companionMass === 'number') parts.push('масса ' + formatStellarMass(modalState.companionMass));
-    if (typeof modalState.companionSepAU === 'number') parts.push(formatAU(modalState.companionSepAU) + ' а.е.');
-    let html = `<p style="margin:4px 0;"><strong>Компаньон:</strong> ${parts.join(', ')}</p>`;
-    (modalState.extraCompanions || []).forEach(ec => {
-        const row = [];
-        row.push('спектр ' + (ec.spectral_class || '—'));
-        if (typeof ec.temp === 'number') row.push('T ' + ec.temp.toFixed(0) + ' K');
-        if (typeof ec.sep_au === 'number') row.push(formatAU(ec.sep_au) + ' а.е.');
-        html += `<p style="margin:4px 0;"><strong>Внешний:</strong> ${row.join(', ')}</p>`;
-    });
-    return html;
 }
 
 // exoticStarInfo — честные значения карточки экзотики (41a §5.1): таблица по
@@ -58,8 +35,9 @@ function companionBlock() {
 // по stellar_mods (subtype/disk_state = accretion, решение §8.1 вариант б):
 // T диска — статический диапазон 10⁵–10⁷ K, сама ЧД не излучает.
 // Возвращает { temperature, color, radius, luminosity, age } — строки; для
-// не-экзотики — null (карточка идёт по getSpectralInfo).
-function exoticStarInfo() {
+// не-экзотики — null (карточка идёт по getSpectralInfo). Экспорт — для
+// тултипа звезды (70a).
+export function exoticStarInfo() {
     const starType = modalState.starType;
     if (!starType || starType === 'star') return null;
 
@@ -116,14 +94,14 @@ function exoticStarInfo() {
 }
 
 // renderRightPanel — рисует правую панель модалки:
-// карточку звезды со списком планет (selectedIndex === null/undefined)
+// список планет системы (selectedIndex === null/undefined)
 // или карточку выбранной планеты.
 export function renderRightPanel(planets, selectedIndex) {
     const panel = document.getElementById('right-panel');
     if (!panel) return;
 
     if (selectedIndex === null || selectedIndex === undefined) {
-        renderStarCard();
+        renderPlanetsList();
     } else {
         renderCard(panel, planets, selectedIndex);
     }
@@ -134,7 +112,7 @@ export function renderRightPanel(planets, selectedIndex) {
 const AUTO_REFRESH_PLANET_KEY = 'debugAutoRefreshPlanet';
 
 // stopAutoRefresh — гасит таймер автообновления карточки планеты (отладка).
-// Вызывается при уходе с карточки конкретной планеты (в карточку звезды) или
+// Вызывается при уходе с карточки конкретной планеты (в список планет) или
 // при закрытии модалки — вне карточки планеты обновлять нечего.
 function stopAutoRefresh() {
     if (modalState.autoRefreshTimer !== null) {
@@ -160,66 +138,20 @@ function syncAutoRefreshTimer() {
     }, 3000);
 }
 
-// renderStarCard — рисует карточку звезды в правой панели: инфо по звезде
-// и рядом компактный список планет системы. Это вид системы по умолчанию
-// (при открытии и при снятии выделения планеты).
-//
-// Экзотика (ЧД/нейтронная/WD/протозвезда, star_type ≠ 'star'): спектрального
-// класса нет (NULL, баг #1 — фронт фолбечился на 'G' и врал «Жёлтый карлик»).
-// Показываем «Спектральный класс: —», тип — человекочитаемый (starTypeLabel),
-// без getSpectralInfo (радиус/светимость/возраст по Солнцу — враньё).
-export function renderStarCard() {
+// renderPlanetsList — список планет системы в правой панели (70a): вид по
+// умолчанию при открытии модалки и при снятии выделения планеты. Информация
+// о звезде вынесена в тултип при наведении на звезду на канвасе (events.js).
+export function renderPlanetsList() {
     stopAutoRefresh();
     const panel = document.getElementById('right-panel');
     if (!panel) return;
 
-    const starType = modalState.starType || 'star';
-    const exotic = starType && starType !== 'star';
-    // Компактные остатки (ЧД/нейтронная/WD, 40a): превью — сплошной цвет без
-    // белого ядра и свечения; протозвезда — как обычная звезда (градиент).
-    const compactRemnant = ['black_hole', 'neutron', 'white_dwarf'].includes(starType);
-    // Реальное значение, без фолбека на 'G': у экзотики пустая строка.
-    const spec = modalState.spectralClass || '';
-    const color = modalState.starColor || '#fff4a3';
     const planets = (modalState.planets || []).slice();
 
-    const temp = modalState.worldTemperature;
-
-    const typeLabel = exotic ? (starTypeLabel(starType) || starType) : '';
-    const specInfo = exotic ? null : getSpectralInfo(spec);
-    const exoticInfo = exotic ? exoticStarInfo() : null;
-    const specClassText = exotic ? '—' : spec;
-    const typeText = exotic ? typeLabel : specInfo.type;
-
-    // Название в карточке звезды не дублируем (49b): оно уже в шапке модалки
-    // рядом с координатами («Virquelif (99, -1775)»); заголовок h3 и бейдж
-    // «Звезда B» убраны (решение создателя 2026-09-16).
     panel.innerHTML = `
-        <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:flex-start;">
-            <div style="flex:1; min-width:170px;">
-                <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px; padding:10px; background:#0d0d1a; border-radius:8px;">
-                    <div style="width:44px; height:44px; border-radius:50%; background: ${compactRemnant ? color : `radial-gradient(circle at 35% 35%, #fff, ${color})`}; box-shadow: ${compactRemnant ? 'none' : `0 0 18px ${color}`};"></div>
-                    <div>
-                        <div style="font-size:1.05rem; color:#cbd5e1;"><strong>Спектральный класс:</strong> ${specClassText}</div>
-                        <div style="font-size:1.05rem; color:#88b0e0;"><strong>Тип:</strong> ${typeText}</div>
-                        <div style="font-size:1.05rem; color:#cbd5e1;"><strong>Планет в системе:</strong> ${planets.length}</div>
-                    </div>
-                </div>
-                <div style="font-size:1rem; line-height:1.7;">
-                    <p style="margin:4px 0;"><strong>Температура:</strong> ${exotic ? exoticInfo.temperature : (temp ? (temp - 273.15).toFixed(0) + ' °C' + ' (' + temp.toFixed(0) + ' K)' : '—')}</p>
-                    <p style="margin:4px 0;"><strong>Масса:</strong> ${formatStellarMass(modalState.stellarMass)}</p>
-                    ${companionBlock()}
-                    <p style="margin:4px 0;"><strong>Цвет:</strong> ${exotic ? exoticInfo.color : specInfo.color}</p>
-                    <p style="margin:4px 0;"><strong>Относительный радиус:</strong> ${exotic ? exoticInfo.radius : specInfo.radius}</p>
-                    <p style="margin:4px 0;"><strong>Светимость:</strong> ${exotic ? exoticInfo.luminosity : specInfo.luminosity}</p>
-                    <p style="margin:4px 0;"><strong>${exotic ? 'Возраст' : 'Срок жизни'}:</strong> ${exotic ? exoticInfo.age : specInfo.age}</p>
-                    <p style="margin:8px 0; color:#888; font-size:0.95rem;">${exotic ? '' : specInfo.description}</p>
-                </div>
-            </div>
-            <div style="flex:1; min-width:170px; background:#0d0d1a; border-radius:8px; padding:10px;">
-                <h4 style="margin:0 0 8px 0; font-size:1rem; color:#aaa;">Планеты (${planets.length})</h4>
-                ${planetsTable(planets)}
-            </div>
+        <div style="background:#0d0d1a; border-radius:8px; padding:10px;">
+            <h4 style="margin:0 0 8px 0; font-size:1rem; color:#aaa;">Планеты (${planets.length})</h4>
+            ${planetsTable(planets)}
         </div>
     `;
 
@@ -231,7 +163,8 @@ export function renderStarCard() {
 }
 
 // getSpectralInfo — справочник по спектральному классу для карточки звезды.
-function getSpectralInfo(spec) {
+// Экспорт — для тултипа звезды (70a).
+export function getSpectralInfo(spec) {
     const map = {
         'O': { type: 'Голубой гигант', color: 'Голубой', radius: '16–25 R☉', luminosity: 'Высокая', age: 'Короткий (до 10 млн лет)', description: 'Очень горячие и яркие звёзды, живут недолго.' },
         'B': { type: 'Голубо-белый гигант', color: 'Голубо-белый', radius: '5–14 R☉', luminosity: 'Высокая', age: 'Короткий (50 млн лет)', description: 'Яркие массивные звёзды с сильным излучением.' },
@@ -247,9 +180,9 @@ function getSpectralInfo(spec) {
     return map[spec] || { type: 'Неизвестно', color: '—', radius: '—', luminosity: '—', age: '—', description: 'Данные отсутствуют.' };
 }
 
-// ---------- СПИСОК ПЛАНЕТ (в карточке звезды) ----------
+// ---------- СПИСОК ПЛАНЕТ (правая панель) ----------
 
-// planetsTable — компактная таблица планет для карточки звезды.
+// planetsTable — компактная таблица планет для правой панели.
 // Строки data-index — по ним работает общий клик в index.js.
 function planetsTable(planets) {
     if (!planets || planets.length === 0) {
@@ -318,7 +251,7 @@ function formatPopulation(n) {
 function renderCard(panel, planets, selectedIndex) {
     const planet = planets[selectedIndex];
     if (!planet) {
-        renderStarCard();
+        renderPlanetsList();
         return;
     }
 

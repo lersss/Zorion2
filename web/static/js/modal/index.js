@@ -4,7 +4,7 @@ import { drawSystem } from './modal_render.js';
 import { initEvents } from './events.js';
 import { clearTextureCache } from './textures.js';
 import { getStarColor, getStarSize, starTypeLabel, systemTypeLabel, starModsBadges } from './utils.js';
-import { renderRightPanel, renderStarCard } from './panel.js';
+import { renderRightPanel } from './panel.js';
 import { notifyError } from '../ui/toast.js';
 import { repaintPopulationNumbers } from './extrapolate.js';
 
@@ -371,9 +371,10 @@ function renderModal(worldId, worldName, spectralClass, data) {
         renderRightPanel(planets, selectedIndex);
     };
 
-    // Глобальная функция для events.js (клик по звезде)
+    // Глобальная функция для events.js (клик по звезде): карточка звезды
+    // убрана (70a) — клик возвращает панель к списку планет.
     window.showStarCard = () => {
-        renderStarCard();
+        renderRightPanel(planets, null);
     };
 
     // Клик по строке таблицы
@@ -436,6 +437,8 @@ export function closeModal() {
     }
     const ctxMenu = document.getElementById('star-context-menu');
     if (ctxMenu) ctxMenu.remove();
+    const starTooltip = document.getElementById('star-tooltip');
+    if (starTooltip) starTooltip.remove();
     delete window.updateRightPanel;
     delete window.showStarCard;
 }

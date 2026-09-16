@@ -1,9 +1,11 @@
 // web/static/js/modal/events.js
 import { modalState } from './state.js';
-import { drawSystem } from './modal_render.js';
+import { drawSystem, MIN_STAR_PX } from './modal_render.js';
 import { computeLayout, getOrbitRadius, getPlanetAngle, getPlanetSize, planetOrbitCenter } from './layout.js';
 import { miniObjects } from './minimap.js';
 import { closeModal } from './index.js';
+import { getSpectralInfo, exoticStarInfo, formatStellarMass, formatAU } from './panel.js';
+import { starTypeLabel } from './utils.js';
 
 export function initEvents(canvas, spectralClass, planets, starRadius, starColor, width, height) {
     const dpr = window.devicePixelRatio || 1;
@@ -27,8 +29,19 @@ export function initEvents(canvas, spectralClass, planets, starRadius, starColor
     function hitTest(worldX, worldY) {
         const layout = computeLayout(planets, starRadius, width, height);
         // Звезда — по позиции главной (в тесной паре она смещена от барицентра).
+        // Радиус — как у рендера (70a): с экранным минимумом MIN_STAR_PX, иначе
+        // на низком зуме hit-область (s.radius+8)·zoom ≈ 0.04px не ловит клик.
         const distToStar = Math.hypot(worldX - layout.mainX, worldY - layout.mainY);
-        if (distToStar < layout.finalStarRadius + 8) return 'star';
+        if (distToStar < Math.max(layout.finalStarRadius, MIN_STAR_PX / modalState.zoom) + 8) return 'star';
+
+        // Компаньоны/внешние компаньоны (35b): по честным координатам layout.stars
+        // (stars[0] — главная, уже проверена выше).
+        for (let i = 1; i < layout.stars.length; i++) {
+            const s = layout.stars[i];
+            if (Math.hypot(worldX - s.x, worldY - s.y) < Math.max(s.radius, MIN_STAR_PX / modalState.zoom) + 8) {
+                return { type: 'star', starIndex: i };
+            }
+        }
 
         for (let idx = 0; idx < planets.length; idx++) {
             const { px, py, radius } = getPlanetWorldPos(planets[idx], idx);
@@ -58,6 +71,11 @@ export function initEvents(canvas, spectralClass, planets, starRadius, starColor
                 modalState.hoveredObject = 'star';
                 canvas.style.cursor = 'pointer';
             }
+        } else if (hit && hit.type === 'star') {
+            if (!modalState.hoveredObject || modalState.hoveredObject.type !== 'star' || modalState.hoveredObject.starIndex !== hit.starIndex) {
+                modalState.hoveredObject = hit;
+                canvas.style.cursor = 'pointer';
+            }
         } else if (hit && hit.type === 'planet') {
             if (!modalState.hoveredObject || modalState.hoveredObject.type !== 'planet' || modalState.hoveredObject.index !== hit.index) {
                 modalState.hoveredObject = hit;
@@ -69,6 +87,14 @@ export function initEvents(canvas, spectralClass, planets, starRadius, starColor
                 canvas.style.cursor = modalState.isDragging ? 'grabbing' : 'default';
             }
         }
+
+        // Тултип звезды (70a): у курсора при ховере на звезду (кроме драга),
+        // при уходе с объекта/канваса — прячем.
+        if (!modalState.isDragging && (hit === 'star' || (hit && hit.type === 'star'))) {
+            showStarTooltip(e, hit);
+        } else {
+            hideStarTooltip();
+        }
     });
 
     canvas.addEventListener('mouseleave', () => {
@@ -76,6 +102,7 @@ export function initEvents(canvas, spectralClass, planets, starRadius, starColor
             modalState.hoveredObject = null;
             canvas.style.cursor = modalState.isDragging ? 'grabbing' : 'default';
         }
+        hideStarTooltip();
     });
 
     // ---- WHEEL ZOOM ----
@@ -121,6 +148,7 @@ export function initEvents(canvas, spectralClass, planets, starRadius, starColor
         modalState.dragStartOffsetX = modalState.offsetX;
         modalState.dragStartOffsetY = modalState.offsetY;
         canvas.style.cursor = 'grabbing';
+        hideStarTooltip();
     });
 
     window.addEventListener('mousemove', (e) => {
@@ -180,7 +208,7 @@ export function initEvents(canvas, spectralClass, planets, starRadius, starColor
         const { worldX, worldY } = toWorld(e);
         const hit = hitTest(worldX, worldY);
 
-        if (hit === 'star') {
+        if (hit === 'star' || (hit && hit.type === 'star')) {
             modalState.selectedPlanetIndex = null;
             modalState.selectedObject = { type: 'star' };
             if (typeof window.showStarCard === 'function') {
@@ -222,6 +250,127 @@ export function initEvents(canvas, spectralClass, planets, starRadius, starColor
     document.addEventListener('mousedown', (e) => {
         if (e.button !== 2 && !e.target.closest('#star-context-menu')) hideStarMenu();
     });
+}
+
+// ---- ТУЛТИП ЗВЕЗДЫ (70a) ----
+// starTooltipEl — тултип информации о звезде при наведении на канвасе модалки.
+// Создаётся лениво один раз; pointer-events: none — не перехватывает клики.
+// Прячется при уходе мыши с объекта/канваса и при драге; удаляется в closeModal.
+let starTooltipEl = null;
+
+function getStarTooltipEl() {
+    // isConnected: closeModal удаляет элемент из DOM — при повторном открытии
+    // модалки пересоздаём (иначе ссылка ведёт на отсоединённый узел).
+    if (!starTooltipEl || !starTooltipEl.isConnected) {
+        starTooltipEl = document.createElement('div');
+        starTooltipEl.id = 'star-tooltip';
+        starTooltipEl.style.cssText = `
+            position: fixed;
+            pointer-events: none;
+            z-index: 1100;
+            background: #1a1a2e;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+            padding: 8px 10px;
+            font-size: 0.9rem;
+            color: #e0e0e0;
+            user-select: none;
+            max-width: 260px;
+            display: none;
+        `;
+        document.body.appendChild(starTooltipEl);
+    }
+    return starTooltipEl;
+}
+
+function hideStarTooltip() {
+    if (starTooltipEl) starTooltipEl.style.display = 'none';
+}
+
+// showStarTooltip — показывает тултип у курсора. hit: 'star' (главная) или
+// {type:'star', starIndex} (компаньон/внешний из layout.stars).
+function showStarTooltip(e, hit) {
+    const el = getStarTooltipEl();
+    el.innerHTML = buildStarTooltipHtml(hit);
+    el.style.display = 'block';
+    // Смещение от курсора (14px); у правого края — влево, чтобы не уходить за экран.
+    const left = e.clientX + 14 + el.offsetWidth > window.innerWidth
+        ? e.clientX - el.offsetWidth - 14
+        : e.clientX + 14;
+    el.style.left = Math.max(4, left) + 'px';
+    // Клампинг по нижнему краю (70a): тултип не вылезает за вьюпорт.
+    const top = Math.max(4, e.clientY - 10);
+    el.style.top = Math.max(4, Math.min(top, window.innerHeight - el.offsetHeight - 4)) + 'px';
+}
+
+// tooltipRowsHtml — строки «ключ: значение» компактного тултипа.
+function tooltipRowsHtml(rows) {
+    return rows.map(([k, v]) =>
+        `<div style="line-height:1.5;"><span style="color:#888;">${k}:</span> ${v}</div>`
+    ).join('');
+}
+
+// buildStarTooltipHtml — содержимое тултипа (70a): вся информация из карточки
+// звезды без количества планет. Главная — по modalState; компаньон/внешний —
+// по kind звезды в layout.stars (данные из modalState.companion* /
+// extraCompanions).
+function buildStarTooltipHtml(hit) {
+    const exotic = modalState.starType && modalState.starType !== 'star';
+    const spec = modalState.spectralClass || '';
+    const temp = modalState.worldTemperature;
+
+    if (hit === 'star') {
+        const specInfo = exotic ? null : getSpectralInfo(spec);
+        const exoticInfo = exotic ? exoticStarInfo() : null;
+        const typeText = exotic ? (starTypeLabel(modalState.starType) || modalState.starType) : specInfo.type;
+        const tempText = exotic
+            ? exoticInfo.temperature
+            : (temp ? (temp - 273.15).toFixed(0) + ' °C' + ' (' + temp.toFixed(0) + ' K)' : '—');
+        let html = tooltipRowsHtml([
+            ['Тип', typeText],
+            ['Температура', tempText],
+            ['Масса', formatStellarMass(modalState.stellarMass)],
+            ['Цвет', exotic ? exoticInfo.color : specInfo.color],
+            ['Радиус', exotic ? exoticInfo.radius : specInfo.radius],
+            ['Светимость', exotic ? exoticInfo.luminosity : specInfo.luminosity],
+            [exotic ? 'Возраст' : 'Срок жизни', exotic ? exoticInfo.age : specInfo.age],
+        ]);
+        if (!exotic && specInfo.description) {
+            html += `<div style="margin-top:6px; color:#888; font-size:0.85rem;">${specInfo.description}</div>`;
+        }
+        return html;
+    }
+
+    // Компаньон/внешний компаньон: источник данных по kind звезды в layout.
+    const layout = computeLayout(modalState.planets, modalState.starRadius, modalState.canvasWidth, modalState.canvasHeight);
+    const star = layout.stars[hit.starIndex];
+    if (!star) return '';
+    if (star.kind === 'companion') {
+        const info = getSpectralInfo(modalState.companion || '');
+        return tooltipRowsHtml([
+            ['Тип', modalState.companion ? info.type : 'Компаньон'],
+            ['Температура', typeof modalState.companionTemp === 'number' ? modalState.companionTemp.toFixed(0) + ' K' : '—'],
+            ['Масса', formatStellarMass(modalState.companionMass)],
+            ['До доминантной', typeof modalState.companionSepAU === 'number' ? formatAU(modalState.companionSepAU) + ' а.е.' : '—'],
+            ['Цвет', info.color],
+            ['Радиус', info.radius],
+            ['Светимость', info.luminosity],
+        ]);
+    }
+    // kind === 'extra': внешний компаньон кратной (35b §6.2) — stars[2..]
+    // соответствуют extraCompanions по порядку.
+    const ec = (modalState.extraCompanions || [])[hit.starIndex - 2];
+    if (!ec) return '';
+    const info = getSpectralInfo(ec.spectral_class || '');
+    return tooltipRowsHtml([
+        ['Спектр', ec.spectral_class || '—'],
+        ['Температура', typeof ec.temp === 'number' ? ec.temp.toFixed(0) + ' K' : '—'],
+        ['До доминантной', typeof ec.sep_au === 'number' ? formatAU(ec.sep_au) + ' а.е.' : '—'],
+        ['Цвет', info.color],
+        ['Радиус', info.radius],
+        ['Светимость', info.luminosity],
+    ]);
 }
 
 function showStarMenu(x, y) {

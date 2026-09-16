@@ -6,7 +6,8 @@ import { computeLayout, getOrbitRadius, getPlanetPose, getPlanetSize, planetOrbi
 
 // Минимальный экранный радиус звезды (51a): на отдалённом зуме (0.02–0.3)
 // звезда не сжимается ниже ~4px на экране и остаётся яркой читаемой точкой.
-const MIN_STAR_PX = 4;
+// Экспорт (70a): hit-тест в events.js использует тот же радиус, что рендер.
+export const MIN_STAR_PX = 4;
 
 export async function drawSystem(canvas, spectralClass, planets, starRadius, starColor, width, height) {
     const dpr = window.devicePixelRatio || 1;
@@ -113,20 +114,8 @@ export async function drawSystem(canvas, spectralClass, planets, starRadius, sta
             }
         });
 
-        // ---- ПОДСВЕТКА ПРИ ХОВЕРЕ ----
-        if (modalState.hoveredObject === 'star') {
-            ctx.save();
-            ctx.shadowColor = 'rgba(255,255,255,0.3)';
-            ctx.shadowBlur = 25;
-            ctx.beginPath();
-            ctx.arc(mainX, mainY, finalStarRadius + 4, 0, 2 * Math.PI);
-            ctx.fillStyle = 'rgba(255,255,255,0.15)';
-            ctx.fill();
-            ctx.strokeStyle = 'rgba(255,255,255,0.7)';
-            ctx.lineWidth = 2;
-            ctx.stroke();
-            ctx.restore();
-        } else if (modalState.hoveredObject && modalState.hoveredObject.type === 'planet') {
+        // ---- ПОДСВЕТКА ПРИ ХОВЕРЕ: ПЛАНЕТА ----
+        if (modalState.hoveredObject && modalState.hoveredObject.type === 'planet') {
             const idx = modalState.hoveredObject.index;
             const p = loaded[idx];
             if (p) {
@@ -158,6 +147,39 @@ export async function drawSystem(canvas, spectralClass, planets, starRadius, sta
                 ctx.stroke();
                 ctx.restore();
             }
+        }
+    }
+
+    // ---- ПОДСВЕТКА ПРИ ХОВЕРЕ: ЗВЁЗДЫ (70a) ----
+    // Вне условия по планетам: в системе без планет подсветка звёзд тоже рисуется.
+    if (modalState.hoveredObject === 'star') {
+        ctx.save();
+        ctx.shadowColor = 'rgba(255,255,255,0.3)';
+        ctx.shadowBlur = 25;
+        ctx.beginPath();
+        ctx.arc(mainX, mainY, finalStarRadius + 4, 0, 2 * Math.PI);
+        ctx.fillStyle = 'rgba(255,255,255,0.15)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.restore();
+    } else if (modalState.hoveredObject && modalState.hoveredObject.type === 'star') {
+        // Компаньон/внешний компаньон (70a): подсветка по честной позиции
+        // из layout.stars.
+        const s = layout.stars[modalState.hoveredObject.starIndex];
+        if (s) {
+            ctx.save();
+            ctx.shadowColor = 'rgba(255,255,255,0.3)';
+            ctx.shadowBlur = 25;
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, s.radius + 4, 0, 2 * Math.PI);
+            ctx.fillStyle = 'rgba(255,255,255,0.15)';
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.restore();
         }
     }
 

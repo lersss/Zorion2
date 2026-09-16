@@ -17,11 +17,11 @@ func TestGetRegionsHandler(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	rows := sqlmock.NewRows([]string{"id", "name", "center_x", "center_y", "radius", "color", "world_count"}).
-		AddRow("r1", "Астерия", 100.0, 200.0, 1200.0, "#7c6cff", 45).
-		AddRow("r2", "Сектор Ксирон", -50.0, -80.0, 1200.0, "#ff6b9d", 60)
+	rows := sqlmock.NewRows([]string{"id", "name", "center_x", "center_y", "radius", "color", "world_count", "profile"}).
+		AddRow("r1", "Астерия", 100.0, 200.0, 1200.0, "#7c6cff", 45, "young").
+		AddRow("r2", "Сектор Ксирон", -50.0, -80.0, 1200.0, "#ff6b9d", 60, "")
 
-	mock.ExpectQuery(`(?i)SELECT id, name, center_x, center_y, radius, color, world_count FROM regions ORDER BY name`).
+	mock.ExpectQuery(`(?i)SELECT id, name, center_x, center_y, radius, color, world_count, COALESCE\(profile, ''\) FROM regions ORDER BY name`).
 		WillReturnRows(rows)
 
 	h := &AdminHandlers{db: db}
@@ -39,5 +39,7 @@ func TestGetRegionsHandler(t *testing.T) {
 	assert.Equal(t, "Астерия", regions[0].Name)
 	assert.Equal(t, 1200.0, regions[0].Radius)
 	assert.Equal(t, 45, regions[0].WorldCount)
+	assert.Equal(t, "young", regions[0].Profile, "профиль региона приходит в DTO (отладочно, 59a)")
 	assert.Equal(t, "Сектор Ксирон", regions[1].Name)
+	assert.Equal(t, "", regions[1].Profile, "NULL-профиль → пустая строка")
 }

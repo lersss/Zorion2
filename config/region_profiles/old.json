@@ -1,0 +1,19 @@
+{
+  "id": "old",
+  "name": "Старый",
+  "weight": 1.0,
+  "cause": "physical",
+  "crises": ["бедные месторождения"],
+  "boons": [],
+  "star": {
+    "spectral_mult": {"M": 1.4, "K": 1.2, "L": 1.3, "T": 1.3, "Y": 1.3, "O": 0.5, "B": 0.6, "A": 0.8},
+    "system_type_mult": {"white_dwarf": 2.5, "neutron": 1.3},
+    "mass_bias": -0.25,
+    "metallicity_shift": -0.3
+  },
+  "planet": {
+    "planet_count_mult": 0.8,
+    "gas_giant_shift": -0.1,
+    "resource_bias": {"rare": 0.7, "organic": 0.8, "water": 0.8}
+  }
+}

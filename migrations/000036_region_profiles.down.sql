@@ -1,0 +1,2 @@
+ALTER TABLE regions DROP COLUMN IF EXISTS profile;
+ALTER TABLE regions DROP COLUMN IF EXISTS profile_intensity;

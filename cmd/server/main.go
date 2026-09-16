@@ -21,6 +21,7 @@ import (
 	"zorion/internal/mapcache"
 	"zorion/internal/models"
 	"zorion/internal/npc"
+	"zorion/internal/regionprofile"
 	"zorion/internal/repository"
 	"zorion/internal/travel"
 	"zorion/migrations"
@@ -103,6 +104,15 @@ func main() {
 		log.Printf("⚠️ Не удалось загрузить архетипы планет: %v, использую fallback", err)
 	} else {
 		log.Println("✅ Архетипы планет загружены")
+	}
+
+	// Каталог профилей регионов (59a, спека 99.2.10 §9): один JSON на класс.
+	// Имена форм — точные константы composition_forms.go (валидация §9).
+	// Ошибка загрузки — регионы остаются фоновыми (профиля нет), сервер живёт.
+	if err := regionprofile.LoadProfiles("config/region_profiles", planet.AllSurfaceForms, planet.AllSubterrainTypes); err != nil {
+		log.Printf("⚠️ Профили регионов: %v, регионы будут фоновыми", err)
+	} else {
+		log.Printf("✅ Профили регионов загружены: %d классов", len(regionprofile.Profiles()))
 	}
 
 	// Загрузка матрицы совместимости

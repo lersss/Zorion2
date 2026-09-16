@@ -11,6 +11,7 @@ import (
 	"zorion/internal/astro"
 	"zorion/internal/models"
 	"zorion/internal/names"
+	"zorion/internal/regionprofile"
 )
 
 // Config – параметры генерации галактики
@@ -48,6 +49,13 @@ type Generator struct {
 	// usedNames — имена, уже занятые в текущей вселенной (для уникальности);
 	// инициализируется в NewGenerator, чтобы дубли не появлялись между вызовами.
 	usedNames map[string]bool
+
+	// profile/profileIntensity — профиль региона текущего мира (59a, спека
+	// §7): задаётся в generateWorld, читается хелперами (спектр, типы систем,
+	// масса, металличность, переменность). Генерация однопоточная (один
+	// генератор — одна горутина) — поле безопасно.
+	profile          *regionprofile.Profile
+	profileIntensity regionprofile.Intensity
 }
 
 // NewGenerator создаёт новый генератор с дефолтными весами и массами.
@@ -120,7 +128,7 @@ func (g *Generator) buildRegions(centers []struct{ X, Y float64 }) []*models.Reg
 	}
 	now := time.Now()
 	for i, c := range centers {
-		regions = append(regions, &models.Region{
+		region := &models.Region{
 			ID:        uuid.New().String(),
 			Name:      names.GenerateRegionName(g.rng, g.usedNames),
 			CenterX:   c.X,
@@ -130,28 +138,27 @@ func (g *Generator) buildRegions(centers []struct{ X, Y float64 }) []*models.Reg
 			WorldCount: 0,
 			CreatedAt: now,
 			UpdatedAt: now,
-		})
+		}
+		// Профиль региона (59a, спека §10): ~75% регионов получают профиль,
+		// ~25% — фоновые. Класс — взвешенный по weight из каталога,
+		// интенсивность — равномерно {слабая, средняя, сильная}. Все роллы
+		// через g.rng — детерминизм по seed сохраняется.
+		if g.rng.Float64() < 0.75 {
+			if p := regionprofile.PickClass(g.rng); p != nil {
+				region.Profile = p.ID
+				region.ProfileIntensity = g.rng.Intn(3)
+			}
+		}
+		regions = append(regions, region)
 	}
 	return regions
 }
 
 // nearestRegionIndex — индекс ближайшего региона к точке (для выбросов и добивки).
+// Единый источник — regionprofile.NearestRegionIndex (спека §10: та же функция
+// используется при привязке планет к региону).
 func (g *Generator) nearestRegionIndex(x, y float64, regions []*models.Region) int {
-	if len(regions) == 0 {
-		return -1
-	}
-	best := 0
-	bestDist := math.Inf(1)
-	for i, r := range regions {
-		dx := r.CenterX - x
-		dy := r.CenterY - y
-		d := dx*dx + dy*dy
-		if d < bestDist {
-			bestDist = d
-			best = i
-		}
-	}
-	return best
+	return regionprofile.NearestRegionIndex(x, y, regions)
 }
 
 // ==================== СПЕКТРАЛЬНЫЕ КЛАССЫ ====================
@@ -292,19 +299,30 @@ func weightedPick(rng *rand.Rand, weights map[string]float64, order []string) st
 }
 
 // spectralClass — класс мира: конфиг-веса, если заданы, иначе дефолт.
+// Профиль региона (59a §7): веса умножаются на spectral_mult (мягкий сдвиг,
+// все классы остаются возможны — weightedPick нормирует по сумме).
 func (g *Generator) spectralClass() string {
 	if len(g.weights.Spectral) > 0 {
-		return weightedPick(g.rng, g.weights.Spectral, spectralOrder)
+		weights := g.weights.Spectral
+		if g.profile != nil {
+			weights = regionprofile.ApplyMultMap(weights, g.profile.Star.SpectralMult, g.profileIntensity)
+		}
+		return weightedPick(g.rng, weights, spectralOrder)
 	}
 	return randomSpectralClass(g.rng)
 }
 
 // randomSystemType — категория системы/объекта (99.2.4 §4.1).
+// Профиль региона (59a §7): веса умножаются на system_type_mult.
 func (g *Generator) randomSystemType() string {
-	if len(g.weights.SystemTypes) > 0 {
-		return weightedPick(g.rng, g.weights.SystemTypes, systemTypeOrder)
+	weights := g.weights.SystemTypes
+	if len(weights) == 0 {
+		weights = DefaultWeights().SystemTypes
 	}
-	return weightedPick(g.rng, DefaultWeights().SystemTypes, systemTypeOrder)
+	if g.profile != nil {
+		weights = regionprofile.ApplyMultMap(weights, g.profile.Star.SystemTypeMult, g.profileIntensity)
+	}
+	return weightedPick(g.rng, weights, systemTypeOrder)
 }
 
 // defaultSpectralWeight — вес класса из таблицы spectralWeights (для подмножеств).
@@ -369,12 +387,26 @@ func DefaultStellarMassRanges() StellarMassRanges {
 
 // randomMass — масса звезды по типу: равномерно в [min, max] из конфига
 // (или дефолтов). Ключ отсутствует/битый — масса не задаётся (NULL).
+// Профиль региона (59a §7): mass_bias сдвигает выбор внутри диапазона класса
+// (масса = min + (max−min)·clamp(U(0,1)+bias, 0, 1)) — физика диапазона
+// не нарушается (инвариант §11.2).
 func (g *Generator) randomMass(key string) (float64, bool) {
 	r, ok := g.massRanges[key]
 	if !ok || r.Min <= 0 || r.Max < r.Min {
 		return 0, false
 	}
-	return r.Min + g.rng.Float64()*(r.Max-r.Min), true
+	bias := 0.0
+	if g.profile != nil {
+		bias = g.profile.MassBias(g.profileIntensity)
+	}
+	u := g.rng.Float64() + bias
+	if u < 0 {
+		u = 0
+	}
+	if u > 1 {
+		u = 1
+	}
+	return r.Min + u*(r.Max-r.Min), true
 }
 
 // ==================== ГЕНЕРАЦИЯ МИРА ====================
@@ -384,7 +416,13 @@ func (g *Generator) randomMass(key string) (float64, bool) {
 // Слои (99.2.4 §2): категория системы/объекта (§4.1) → обычная звезда O–Y
 // (спектр + температура + модификаторы §4.3) или экзотика (своя ветка §4.1 п.3,
 // спектр NULL).
-func (g *Generator) generateWorld(center struct{ X, Y float64 }) *models.World {
+//
+// profile — профиль региона точки (59a §10): мягкий сдвиг весов генерации;
+// nil — фоновый регион/случайная генерация (профиля нет).
+func (g *Generator) generateWorld(center struct{ X, Y float64 }, profile *regionprofile.Profile, intensity regionprofile.Intensity) *models.World {
+	g.profile = profile
+	g.profileIntensity = intensity
+
 	spread := g.cfg.WorldSpread
 	x := center.X + g.rng.NormFloat64()*spread
 	y := center.Y + g.rng.NormFloat64()*spread
@@ -477,7 +515,7 @@ func (g *Generator) fillExoticWorld(w *models.World, category string) {
 			w.StellarMass = &mass
 		}
 		mods.DiskState = "protoplanetary" // диск вместо планет (§5.3)
-		if g.rng.Float64() < 0.50 {
+		if g.rng.Float64() < clampProb(0.50*g.variableMult()) {
 			mods.VariableType = "t_tauri" // 50% (§4.3)
 		}
 	case "exotic":
@@ -620,14 +658,14 @@ type starComp struct {
 func (g *Generator) rollMultiple(w *models.World, mods *models.StellarMods) {
 	mods.BinaryType = "wide"
 
-	compClass := randomSpectralClass(g.rng)
+	compClass := g.spectralClass()
 	compTemp := randomTemperature(compClass, g.rng)
 	var compMass *float64
 	if mass, ok := g.randomMass(compClass); ok {
 		compMass = &mass
 	}
 
-	extClass := randomSpectralClass(g.rng)
+	extClass := g.spectralClass()
 	extTemp := randomTemperature(extClass, g.rng)
 	var extMass *float64
 	if mass, ok := g.randomMass(extClass); ok {
@@ -668,8 +706,11 @@ func (g *Generator) rollMultiple(w *models.World, mods *models.StellarMods) {
 // rollStarMods — модификаторы обычной звезды (99.2.4 §4.3): фаза (V/III/I),
 // переменность по гейтам (иначе «цефеида на главной последовательности»),
 // параметры двойной. Вероятности — хардкод-дефолты фичи.
+// Профиль региона (59a §7): variable_mult умножает вероятности переменности
+// (каждая клампится к ≤ 1.0).
 func (g *Generator) rollStarMods(w *models.World, systemType, cls string) {
 	mods := &models.StellarMods{}
+	vm := g.variableMult()
 
 	phase := "V"
 	// Фаза III: красные гиганты среди K/M (8% от популяции класса).
@@ -686,18 +727,18 @@ func (g *Generator) rollStarMods(w *models.World, systemType, cls string) {
 
 	// Переменность по гейтам §4.3.
 	switch {
-	case phase == "III" && cls == "M" && g.rng.Float64() < 0.50:
+	case phase == "III" && cls == "M" && g.rng.Float64() < clampProb(0.50*vm):
 		mods.VariableType = "mira" // пульсирующий гигант
-	case cls == "M" && phase == "V" && g.rng.Float64() < 0.04:
+	case cls == "M" && phase == "V" && g.rng.Float64() < clampProb(0.04*vm):
 		mods.VariableType = "uv_ceti" // вспыхивающий красный карлик
-	case phase == "I" && isClassIn(cls, "F", "G", "K") && g.rng.Float64() < 0.25:
+	case phase == "I" && isClassIn(cls, "F", "G", "K") && g.rng.Float64() < clampProb(0.25*vm):
 		mods.VariableType = "cepheid" // стандартная свеча, период 1–50 дней
 		period := 1 + g.rng.Float64()*49
 		mods.VariablePeriodDays = &period
 	}
 
 	if systemType == "binary" || systemType == "multiple" {
-		if g.rng.Float64() < 0.03 {
+		if g.rng.Float64() < clampProb(0.03*vm) {
 			mods.VariableType = "eclipsing" // затменные: 3% от двойных (§4.3)
 		}
 		// Параметры двойной (35b §3.2): multiple — принудительно wide (реш.
@@ -713,7 +754,7 @@ func (g *Generator) rollStarMods(w *models.World, systemType, cls string) {
 			} else {
 				mods.BinaryType = "close"
 			}
-			compClass := randomSpectralClass(g.rng)
+			compClass := g.spectralClass()
 			mods.Companion = compClass
 			// Масса/температура компаньона (обычная звезда O–Y, экзотика
 			// невозможна — 35b §3): randomMass/randomTemperature по классу.
@@ -736,7 +777,7 @@ func (g *Generator) rollStarMods(w *models.World, systemType, cls string) {
 	}
 
 	// Металличность [Fe/H] (99.2.20 §3.1): ролл для всех обычных звёзд.
-	met := rollMetallicity(g.rng)
+	met := g.rollMetallicity()
 	mods.Metallicity = &met
 
 	if mods.Phase != "" || mods.VariableType != "" || mods.BinaryType != "" || mods.Companion != "" || mods.Metallicity != nil {
@@ -748,8 +789,14 @@ func (g *Generator) rollStarMods(w *models.World, systemType, cls string) {
 // clamp(N(0, 0.3), −0.8, +0.5) — солнечная окрестность. Пишется в
 // StellarMods.Metallicity; старые миры (nil) — фолбэк 0 (солнечная).
 // Влияние на каскад: масштаб массы аккреции (§3.3).
-func rollMetallicity(rng *rand.Rand) float64 {
-	met := rng.NormFloat64() * 0.3
+// Профиль региона (59a §7): metallicity_shift сдвигает среднее распределения
+// (N(0+shift, 0.3)); кламп [−0.8, +0.5] сохраняется (инвариант §11.3).
+func (g *Generator) rollMetallicity() float64 {
+	shift := 0.0
+	if g.profile != nil {
+		shift = g.profile.MetallicityShift(g.profileIntensity)
+	}
+	met := g.rng.NormFloat64()*0.3 + shift
 	if met < -0.8 {
 		met = -0.8
 	}
@@ -757,4 +804,22 @@ func rollMetallicity(rng *rand.Rand) float64 {
 		met = 0.5
 	}
 	return met
+}
+
+// variableMult — эффективный множитель вероятностей переменности (59a §7):
+// 1.0 без профиля, иначе variable_mult с масштабом интенсивности.
+func (g *Generator) variableMult() float64 {
+	if g.profile == nil {
+		return 1.0
+	}
+	return g.profile.VariableMult(g.profileIntensity)
+}
+
+// clampProb — вероятность, клампнутая к ≤ 1.0 (59a §7: variable_mult
+// умножает вероятности, каждая клампится к ≤ 1.0).
+func clampProb(p float64) float64 {
+	if p > 1 {
+		return 1
+	}
+	return p
 }

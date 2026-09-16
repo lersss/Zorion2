@@ -39,7 +39,7 @@ func (g *Generator) generateCircumbinaryPlanet(w WorldInfo) *PlanetData {
 	}
 
 	// Гиганты P-типа разрешены: шанс от спектра главной, орбита — та же 3a.
-	if g.rng.Float64() < gasGiantChance(w.SpectralClass) {
+	if g.rng.Float64() < g.gasGiantChanceShifted(w.SpectralClass) {
 		return g.generateCircumbinaryGiant(w, rP, sp)
 	}
 	return g.generateCircumbinaryRocky(w, rP, sp)
@@ -141,7 +141,7 @@ func (g *Generator) generateCircumbinaryRocky(w WorldInfo, rP float64, sp Stella
 	resources := attachResources(
 		data, planetID, dominant,
 		map[string]float64(res.Subterrain),
-		w.SpectralClass, g.rng,
+		w.SpectralClass, g.rng, g.resourceBias(),
 	)
 
 	dataJSON, _ := json.Marshal(data)

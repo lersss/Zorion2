@@ -1,0 +1,22 @@
+{
+  "id": "quasar",
+  "name": "Квазарный",
+  "weight": 0.5,
+  "cause": "physical",
+  "crises": ["бури", "помехи связи", "радиация"],
+  "boons": ["редкие элементы", "аномальные вещества"],
+  "star": {
+    "spectral_mult": {"O": 2.5, "B": 1.5, "A": 1.2, "K": 0.8, "M": 0.6},
+    "system_type_mult": {"black_hole": 3.0, "neutron": 2.0, "exotic": 1.5, "binary": 1.2, "single": 0.9},
+    "mass_bias": 0.2,
+    "metallicity_shift": 0.1,
+    "variable_mult": 1.5
+  },
+  "planet": {
+    "planet_count_mult": 0.8,
+    "gas_giant_shift": -0.1,
+    "surface_bias": {"кратеры": 1.3, "лавовые_поля": 1.2},
+    "subterrain_bias": {"радиоактивные_зоны": 1.5, "рудные_жилы": 1.2},
+    "resource_bias": {"rare": 2.0, "mineral": 1.3, "fuel": 0.8, "organic": 0.5}
+  }
+}

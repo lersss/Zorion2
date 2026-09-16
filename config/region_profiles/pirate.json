@@ -1,0 +1,13 @@
+{
+  "id": "pirate",
+  "name": "Пиратский",
+  "weight": 1.0,
+  "cause": "content",
+  "crises": ["набеги", "грабежи"],
+  "boons": ["чёрный рынок", "наёмники"],
+  "star": {},
+  "planet": {
+    "planet_count_mult": 1.0,
+    "resource_bias": {"fuel": 1.3, "rare": 1.2}
+  }
+}

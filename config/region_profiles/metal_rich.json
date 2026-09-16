@@ -1,0 +1,18 @@
+{
+  "id": "metal_rich",
+  "name": "Богатый металлами",
+  "weight": 1.0,
+  "cause": "physical",
+  "crises": [],
+  "boons": ["богатые месторождения", "редкие сплавы"],
+  "star": {
+    "spectral_mult": {"G": 1.2, "K": 1.3, "M": 1.1, "O": 0.7, "B": 0.8},
+    "system_type_mult": {"binary": 1.2},
+    "metallicity_shift": 0.3
+  },
+  "planet": {
+    "planet_count_mult": 1.2,
+    "gas_giant_shift": 0.1,
+    "resource_bias": {"mineral": 1.8, "rare": 1.5, "fuel": 1.2, "water": 1.1}
+  }
+}

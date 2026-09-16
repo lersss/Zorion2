@@ -18,6 +18,10 @@ import (
 //     Ресурсы генерируются только из типов с долей > minSubterrainShare.
 //   - spectralClass — спектральный класс звезды (влияет на редкость).
 //   - rng — источник случайности.
+//   - resourceBias — веса категорий профиля региона (59a §8 P2): весовой
+//     выбор категории (вес = bias, отсутствующая категория = 1.0); nil —
+//     равномерный выбор. Bias НЕ добавляет категорию — только взвешивает
+//     существующие в наборе.
 //
 // Возвращает список ресурсов с уникальными именами (в кириллице и латинице).
 func GenerateResources(
@@ -26,6 +30,7 @@ func GenerateResources(
 	subterrainComposition map[string]float64,
 	spectralClass string,
 	rng *rand.Rand,
+	resourceBias map[string]float64,
 ) []*models.PlanetResource {
 	// 1. Собираем категории из поверхности и недр
 	surfaceCats := CategoriesForSurface(surfaceDominant)
@@ -62,7 +67,7 @@ func GenerateResources(
 
 	// 4. Известные
 	for i := 0; i < knownCount; i++ {
-		cat := pickCategory(allCategories, rng)
+		cat := pickCategory(allCategories, rng, resourceBias)
 		res := generateResource(planetID, cat, true, rng, existingNames)
 		if res != nil {
 			result = append(result, res)
@@ -71,7 +76,7 @@ func GenerateResources(
 
 	// 5. Неизвестные
 	for i := 0; i < unknownCount; i++ {
-		cat := pickCategory(allCategories, rng)
+		cat := pickCategory(allCategories, rng, resourceBias)
 		res := generateResource(planetID, cat, false, rng, existingNames)
 		if res != nil {
 			result = append(result, res)
@@ -103,12 +108,36 @@ const minSubterrainShare = 5.0
 
 // ==================== ХЕЛПЕРЫ ====================
 
-// pickCategory — случайная категория из списка (равномерно).
-func pickCategory(categories []string, rng *rand.Rand) string {
+// pickCategory — случайная категория из списка. Без bias — равномерно;
+// с bias — весовой выбор (вес = bias[категория], отсутствующая = 1.0).
+// Bias не добавляет категорию — только взвешивает существующие (59a §8 P2).
+func pickCategory(categories []string, rng *rand.Rand, bias map[string]float64) string {
 	if len(categories) == 0 {
 		return CategoryMineral
 	}
-	return categories[rng.Intn(len(categories))]
+	if len(bias) == 0 {
+		return categories[rng.Intn(len(categories))]
+	}
+	total := 0.0
+	for _, c := range categories {
+		total += categoryWeight(c, bias)
+	}
+	r := rng.Float64() * total
+	for _, c := range categories {
+		r -= categoryWeight(c, bias)
+		if r <= 0 {
+			return c
+		}
+	}
+	return categories[len(categories)-1]
+}
+
+// categoryWeight — вес категории: bias[категория] (если > 0), иначе 1.0.
+func categoryWeight(category string, bias map[string]float64) float64 {
+	if w, ok := bias[category]; ok && w > 0 {
+		return w
+	}
+	return 1.0
 }
 
 // generateResource — генерирует один ресурс заданной категории.

@@ -1,0 +1,13 @@
+{
+  "id": "predator",
+  "name": "Хищный",
+  "weight": 1.0,
+  "cause": "content",
+  "crises": ["нападения"],
+  "boons": ["биоматериалы", "оружие"],
+  "star": {},
+  "planet": {
+    "surface_bias": {"леса": 1.3, "джунгли": 1.3, "болота": 1.2},
+    "resource_bias": {"organic": 2, "water": 1.2, "mineral": 0.8}
+  }
+}

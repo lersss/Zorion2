@@ -16,6 +16,7 @@ import (
 	"zorion/internal/generator/galaxy"
 	"zorion/internal/generator/planet"
 	"zorion/internal/models"
+	"zorion/internal/regionprofile"
 )
 
 var statusManager = generator.NewStatusManager()
@@ -141,14 +142,48 @@ func insertRegionsTx(ctx context.Context, tx *sql.Tx, regions []*models.Region) 
 	}
 	for _, r := range regions {
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO regions (id, name, center_x, center_y, radius, color, world_count, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-			r.ID, r.Name, r.CenterX, r.CenterY, r.Radius, r.Color, r.WorldCount, r.CreatedAt, r.UpdatedAt,
+			INSERT INTO regions (id, name, center_x, center_y, radius, color, world_count, profile, profile_intensity, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+			r.ID, r.Name, r.CenterX, r.CenterY, r.Radius, r.Color, r.WorldCount,
+			nullIfEmpty(r.Profile), r.ProfileIntensity, r.CreatedAt, r.UpdatedAt,
 		); err != nil {
 			return fmt.Errorf("insert region %s: %w", r.Name, err)
 		}
 	}
 	return nil
+}
+
+// nullIfEmpty — пустая строка → NULL (для nullable-колонок regions.profile).
+func nullIfEmpty(s string) interface{} {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+// loadRegionsWithProfiles — все регионы с профилями (59a §10): привязка
+// планет к региону по ближайшему центру. Профиль не публикуется (не ярлык,
+// §11.7) — колонки читаются только здесь, в API регионов не выводятся.
+func (h *AdminHandlers) loadRegionsWithProfiles() ([]*models.Region, error) {
+	rows, err := h.db.Query(`
+		SELECT id, name, center_x, center_y, radius, color, world_count, profile, profile_intensity
+		FROM regions`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	regions := make([]*models.Region, 0, 256)
+	for rows.Next() {
+		var r models.Region
+		var profile sql.NullString
+		if err := rows.Scan(&r.ID, &r.Name, &r.CenterX, &r.CenterY, &r.Radius, &r.Color,
+			&r.WorldCount, &profile, &r.ProfileIntensity); err != nil {
+			return nil, err
+		}
+		r.Profile = profile.String
+		regions = append(regions, &r)
+	}
+	return regions, rows.Err()
 }
 
 // ==================== GENERATE UNIVERSE ====================
@@ -370,9 +405,17 @@ func (h *AdminHandlers) GeneratePlanets(w http.ResponseWriter, r *http.Request) 
 	// Конвертируем []*models.World в []planet.WorldInfo — лёгкий тип,
 	// чтобы генератор не зависел от models. Экзотические типы и модификаторы
 	// несутся в WorldInfo для ветки generateExoticPlanet (99.2.4 §5.3).
+	// Профиль региона (59a §10): для каждого мира — ближайший регион по
+	// координатам (та же NearestRegionIndex, что в генерации звёзд).
+	regions, err := h.loadRegionsWithProfiles()
+	if err != nil {
+		log.Printf("❌ GeneratePlanets: failed to load regions: %v", err)
+		statusManager.Fail(generator.JobGeneratePlanets, err.Error())
+		return
+	}
 	worldInfos := make([]planet.WorldInfo, 0, len(worlds))
 	for _, w := range worlds {
-		worldInfos = append(worldInfos, planet.WorldInfo{
+		wi := planet.WorldInfo{
 			ID:            w.ID,
 			Name:          w.Name,
 			SpectralClass: w.SpectralClass,
@@ -382,7 +425,14 @@ func (h *AdminHandlers) GeneratePlanets(w http.ResponseWriter, r *http.Request) 
 			Mods:          w.StellarMods,
 			Age:           w.Age,
 			StellarMass:   w.StellarMass,
-		})
+		}
+		if idx := regionprofile.NearestRegionIndex(w.CoordX, w.CoordY, regions); idx >= 0 {
+			if r := regions[idx]; r.Profile != "" {
+				wi.Profile = regionprofile.ByID(r.Profile)
+				wi.ProfileIntensity = regionprofile.Intensity(r.ProfileIntensity)
+			}
+		}
+		worldInfos = append(worldInfos, wi)
 	}
 
 	go func() {

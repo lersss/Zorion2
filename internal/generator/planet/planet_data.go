@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"zorion/internal/models"
+	"zorion/internal/regionprofile"
 	"zorion/internal/resource"
 )
 
@@ -31,6 +32,13 @@ type Generator struct {
 	rng       *rand.Rand
 	usedNames map[string]bool
 	means     PlanetMeans // среднее число планет по типу звезды (99.2.4 §5.2)
+
+	// profile/profileIntensity — профиль региона текущего мира (59a, спека
+	// §8): задаётся в generateWorldWithCountIntoBuffer, читается хелперами
+	// (число планет, шанс гиганта, веса полосы, ресурсы). Генерация
+	// однопоточная (один генератор — одна горутина) — поле безопасно.
+	profile          *regionprofile.Profile
+	profileIntensity regionprofile.Intensity
 }
 
 // NewGenerator — создаёт генератор. Если seed = 0 — берётся time.Now().
@@ -113,6 +121,11 @@ type WorldInfo struct {
 	// приливный захват, 99.2.20 §3.1); старые миры (nil) — фолбэк серединой
 	// диапазона класса.
 	StellarMass *float64
+	// Profile — профиль региона мира (59a §10): привязка по ближайшему
+	// центру региона (NearestRegionIndex); nil — фоновый регион.
+	Profile *regionprofile.Profile
+	// ProfileIntensity — интенсивность профиля 0/1/2: слабая/средняя/сильная.
+	ProfileIntensity regionprofile.Intensity
 }
 
 // GeneratePlanetsForWorlds — генерирует планеты для списка миров.
@@ -170,6 +183,12 @@ func (g *Generator) GeneratePlanetsForWorlds(
 // generateWorldIntoBuffer — генерирует планеты одного мира и складывает в буфер.
 // Возвращает число сгенерированных планет.
 func (g *Generator) generateWorldIntoBuffer(w WorldInfo, buf *batchBuffers) int {
+	// Профиль региона мира (59a §10) выставляется ДО planetCountFor:
+	// иначе счёт планет берёт профиль ПРЕДЫДУЩЕГО мира (stale — баг 59a,
+	// ревью гейта 2). Остальные хуки (гиганты, веса полосы, ресурсы)
+	// выставляются в generateWorldWithCountIntoBuffer.
+	g.profile = w.Profile
+	g.profileIntensity = w.ProfileIntensity
 	return g.generateWorldWithCountIntoBuffer(w, g.planetCountFor(w), buf)
 }
 
@@ -182,6 +201,10 @@ func (g *Generator) generateWorldWithCountIntoBuffer(w WorldInfo, count int, buf
 	if count <= 0 {
 		return 0
 	}
+
+	// Профиль региона мира (59a §10): применяется ко всем планетам мира.
+	g.profile = w.Profile
+	g.profileIntensity = w.ProfileIntensity
 
 	generated := 0
 
@@ -376,6 +399,7 @@ func flatten(rows []interface{}) []interface{} {
 //
 // На вход — уже собранный map планеты. Добавляет в него ключ "resources"
 // (категория → богатство 0..1, английские коды) и возвращает ресурсы.
+// resourceBias — веса категорий профиля региона (59a §8 P2); nil — равномерно.
 func attachResources(
 	data map[string]interface{},
 	planetID string,
@@ -383,8 +407,9 @@ func attachResources(
 	subterrain map[string]float64,
 	spectralClass string,
 	rng *rand.Rand,
+	resourceBias map[string]float64,
 ) []*models.PlanetResource {
-	resources := resource.GenerateResources(planetID, dominant, subterrain, spectralClass, rng)
+	resources := resource.GenerateResources(planetID, dominant, subterrain, spectralClass, rng, resourceBias)
 	data["resources"] = resource.Summary(resources)
 	return resources
 }

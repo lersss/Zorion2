@@ -1,0 +1,21 @@
+{
+  "id": "dead",
+  "name": "Мёртвый",
+  "weight": 1.0,
+  "cause": "content",
+  "crises": ["радиация", "упадок"],
+  "boons": ["артефакты", "редкие сплавы"],
+  "star": {
+    "spectral_mult": {"M": 1.3, "L": 1.2, "T": 1.2, "Y": 1.2, "O": 0.6, "B": 0.7},
+    "system_type_mult": {"white_dwarf": 2, "neutron": 1.5, "black_hole": 1.3},
+    "mass_bias": -0.2,
+    "metallicity_shift": -0.15
+  },
+  "planet": {
+    "planet_count_mult": 0.7,
+    "gas_giant_shift": -0.1,
+    "surface_bias": {"кратеры": 1.5, "ледники": 1.2, "леса": 0.4},
+    "subterrain_bias": {"пустая_порода": 1.3, "радиоактивные_зоны": 1.3},
+    "resource_bias": {"rare": 1.5, "mineral": 1.2, "organic": 0.3, "water": 0.5}
+  }
+}

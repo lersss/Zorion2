@@ -13,6 +13,7 @@ import (
 	"math/rand"
 
 	"zorion/internal/generator/settlement"
+	"zorion/internal/regionprofile"
 )
 
 // ==================== КОНСТАНТЫ КАСКАДА (99.2.20 §3) ====================
@@ -372,9 +373,14 @@ func (g *Generator) runCascade(in cascadeInput) *cascadeResult {
 
 	// --- Полоса композиции по предварительной T (для T₀-альбедо) ---
 	band := bandForTemp(prelimBandTemp(in))
+	// Профиль региона (59a §8): surface_bias/subterrain_bias умножают веса
+	// полосы (форма вне шаблона полосы — no-op, ограничение O4). Каскад
+	// не модифицируется — сдвигаются только веса композиционного шаблона.
+	bandSurface := regionprofile.ApplyMultMap(band.baseSurface, g.surfaceBias(), g.profileIntensity)
+	bandSubterrain := regionprofile.ApplyMultMap(band.baseSubterrain, g.subterrainBias(), g.profileIntensity)
 
 	// --- Слой 4 — ядро (существующая генерация + F_int) ---
-	prelimSub := GenerateSubterrainComposition(band.baseSubterrain, Composition{}, 0, 0, g.rng)
+	prelimSub := GenerateSubterrainComposition(bandSubterrain, Composition{}, 0, 0, g.rng)
 	core := GenerateCore(mass, band.id, prelimSub, in.AgeGyr, g.rng)
 	heatFlux := internalHeatFlux(core, in.AgeGyr, mass, false)
 	core.HeatFluxWm2 = heatFlux
@@ -383,7 +389,7 @@ func (g *Generator) runCascade(in cascadeInput) *cascadeResult {
 	// --- Слой 5 — T⁴-энергобаланс: T₀ → T₁ (режим) → атмосфера → T_final ---
 	prelimSurface := in.SurfaceOverride
 	if len(prelimSurface) == 0 {
-		prelimSurface = GenerateSurfaceComposition(band.baseSurface, 0, 0, g.rng)
+		prelimSurface = GenerateSurfaceComposition(bandSurface, 0, 0, g.rng)
 	}
 	aSurface := computeAlbedo(prelimSurface)
 	fStar := solarFluxAt1AU * in.Luminosity / (in.OrbitRadiusAU * in.OrbitRadiusAU)
@@ -472,10 +478,10 @@ func (g *Generator) runCascade(in cascadeInput) *cascadeResult {
 	res.LiquidWater = liquidWaterPossible(res.TFinal, pressure)
 
 	// --- Слой 8 — поверхность (гейт финальным флагом, финальная T) ---
-	baseSurface := copyWeights(band.baseSurface)
+	baseSurface := copyWeights(bandSurface)
 	applyLiquidWaterGate(baseSurface, res.LiquidWater)
 	res.Surface = GenerateSurfaceComposition(baseSurface, res.TFinal, res.WaterPercent, g.rng)
-	res.Subterrain = GenerateSubterrainComposition(band.baseSubterrain, res.Surface, res.TFinal, res.WaterPercent, g.rng)
+	res.Subterrain = GenerateSubterrainComposition(bandSubterrain, res.Surface, res.TFinal, res.WaterPercent, g.rng)
 
 	// ~3–4% планет — «примитивные» тела (1–2 типа поверхности и недр).
 	if g.rng.Float64() < primitivePlanetProbability {

@@ -1,0 +1,16 @@
+{
+  "id": "fertile",
+  "name": "Плодородный",
+  "weight": 1.0,
+  "cause": "content",
+  "crises": [],
+  "boons": ["избыток продовольствия"],
+  "star": {},
+  "planet": {
+    "planet_count_mult": 1.1,
+    "gas_giant_shift": -0.05,
+    "surface_bias": {"луга_степи": 1.4, "леса": 1.3, "океаны": 1.1},
+    "subterrain_bias": {"подземные_воды": 1.3},
+    "resource_bias": {"organic": 2.5, "water": 1.5, "gas": 1.2}
+  }
+}

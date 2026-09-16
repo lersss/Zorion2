@@ -1,0 +1,14 @@
+{
+  "id": "dense",
+  "name": "Плотный",
+  "weight": 0.7,
+  "cause": "physical",
+  "crises": ["гравитационные возмущения"],
+  "boons": ["двойные системы"],
+  "star": {
+    "system_type_mult": {"binary": 3, "multiple": 3, "single": 0.8}
+  },
+  "planet": {
+    "planet_count_mult": 0.9
+  }
+}

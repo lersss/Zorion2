@@ -99,6 +99,7 @@ func TestGenerateResources_AllCategoriesValid(t *testing.T) {
 			map[string]float64{"рудные_жилы": 60, "пустая_порода": 40},
 			"G",
 			rng,
+			nil,
 		)
 		require.NotEmpty(t, res, "планета со скалами и рудами не должна быть пустой")
 		for _, r := range res {
@@ -118,6 +119,7 @@ func TestGenerateResources_UniqueNames(t *testing.T) {
 		map[string]float64{"нефтяные_карманы": 50, "подземные_воды": 50},
 		"K",
 		rng,
+		nil,
 	)
 	seen := map[string]bool{}
 	for _, r := range res {
@@ -134,6 +136,7 @@ func TestGenerateResources_PropertiesInRange(t *testing.T) {
 		map[string]float64{"угольные_пласты": 100},
 		"M",
 		rng,
+		nil,
 	)
 	require.NotEmpty(t, res)
 	for _, r := range res {
@@ -161,6 +164,7 @@ func TestGenerateResources_KnownSplit(t *testing.T) {
 		map[string]float64{"рудные_жилы": 100},
 		"G",
 		rng,
+		nil,
 	)
 	require.GreaterOrEqual(t, len(res), 2)
 	known := 0

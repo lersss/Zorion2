@@ -1,0 +1,13 @@
+{
+  "id": "abandoned",
+  "name": "Заброшенный",
+  "weight": 1.0,
+  "cause": "content",
+  "crises": ["обломки", "ловушки"],
+  "boons": ["металлолом", "технологии"],
+  "star": {},
+  "planet": {
+    "planet_count_mult": 0.9,
+    "resource_bias": {"rare": 1.8, "mineral": 1.3, "fuel": 1.2}
+  }
+}

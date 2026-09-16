@@ -77,6 +77,7 @@ cmd/server/main.go                       — точка входа
 internal/generator/galaxy/               — генерация миров (Пуассон + кластеры)
 internal/generator/planet/               — планеты, композиция, физика, ядро, описания
 internal/generator/planet/descriptions_*.go — система описаний планет (6 файлов)
+internal/regionprofile/                  — профили регионов (59a): каталог классов, интенсивность, привязка планет к региону
 internal/audit/                          — движок аудита (Run[T])
 internal/audit/planet/                   — 43 правила проверки планет
 internal/resource/                       — 6 категорий ресурсов
@@ -90,6 +91,7 @@ internal/config/                         — загрузка конфига и�
 config/planet_archetypes.json            — архетипы планет
 config/compatibility_defaults.json       — дефолты матрицы совместимости
 config/anomalies/                        — библиотека аномалий (22 файла)
+config/region_profiles/                  — каталог классов профилей регионов (59a, 12 файлов)
 config/descriptions/                     — библиотека описаний планет (11 типов)
 migrations/                              — SQL-миграции (numbered, up/down)
 web/                                     — фронтенд (HTML, CSS, JS, ES-модули)
@@ -107,6 +109,7 @@ docs/gamedesign/                         — GDD (семейство доков,
 | Генераторы миров | `internal/generator/galaxy/` (спектральные веса, типы систем/объектов, модификаторы — спека `99.2.4`; параметры компаньонов — `35b` §3; сортировка «главная = самая массивная», пакет кратной на 3 — `35c`; масса — `29a` §4м) |
 | Генераторы планет | `internal/generator/planet/` (mean-модель числа планет §5.2; ветка экзотики — `exotic.go` §5.3; P-ветка циркумбинарных — `circumbinary.go` `35b` §4.1) |
 | Общие звёздные константы | `internal/astro/` (светимость по классу — единый источник для galaxy и planet; `35b` §3) |
+| Профили регионов (59a) | `internal/regionprofile/` (каталог классов `config/region_profiles/`, интенсивность 0/1/2, `NearestRegionIndex` — привязка планет к региону); ролл в `buildRegions` (`galaxy.go`), применение к звёздам — `galaxy.go`, к планетам — `planet/` (число планет, гиганты, веса полосы, ресурсы); колонки `regions.profile`/`profile_intensity` (миграция `000036`) |
 | Система описаний | `internal/generator/planet/descriptions_*.go` |
 | Композиция планет | `internal/generator/planet/composition_*.go` |
 | Физика температуры | `internal/generator/planet/physics.go` |

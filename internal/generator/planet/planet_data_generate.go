@@ -12,28 +12,31 @@ import (
 
 // determinePlanetCount — сколько планет у звезды данного класса.
 // Mean-модель (99.2.4 §5.2): n = floor(mean) + Бернулли(frac), потолок 8.
+// Профиль региона (59a §8 P3): mean × planet_count_mult перед потолком 8.
 func (g *Generator) determinePlanetCount(spectralClass string) int {
-	return meanPlanetCount(g.rng, g.means.meanForClass(spectralClass), g.means.Max)
+	return meanPlanetCount(g.rng, g.means.meanForClass(spectralClass)*g.planetCountMult(), g.means.Max)
 }
 
 // planetCountFor — число планет для мира (99.2.4 §5.2): mean-модель по типу.
 // Обычные звёзды — mean по классу; двойные широкие ×0.9 (S-тип), тесные
 // mean 0.2 (P-тип); кратные ×0.9; остатки/прочая экзотика — свои mean
 // (максимум генератора 1, «чаще 0»); протозвезда — 0 (диск вместо планет).
+// Профиль региона (59a §8 P3): mean × planet_count_mult перед потолком 8.
 func (g *Generator) planetCountFor(w WorldInfo) int {
 	m := g.means
+	mult := g.planetCountMult()
 	switch w.StarType {
 	case "star", "":
 		if w.Mods != nil && w.Mods.IsSupergiantExotic() {
 			// Прочая экзотика (сверхгиганты O–B–A, фаза I): mean 0.1, максимум 1.
-			return capRemnant(meanPlanetCount(g.rng, m.Exotic, m.Max))
+			return capRemnant(meanPlanetCount(g.rng, m.Exotic*mult, m.Max))
 		}
-		mean := m.meanForClass(w.SpectralClass)
+		mean := m.meanForClass(w.SpectralClass) * mult
 		switch w.SystemType {
 		case "binary":
 			if w.Mods != nil && w.Mods.BinaryType == "close" {
 				// P-тип редок (Kepler-16/47): mean 0.2.
-				return meanPlanetCount(g.rng, m.BinaryCloseMean, m.Max)
+				return meanPlanetCount(g.rng, m.BinaryCloseMean*mult, m.Max)
 			}
 			// S-тип: планеты у главного компонента, ×0.9.
 			return meanPlanetCount(g.rng, mean*m.BinaryWideFactor, m.Max)
@@ -44,15 +47,51 @@ func (g *Generator) planetCountFor(w WorldInfo) int {
 			return meanPlanetCount(g.rng, mean, m.Max)
 		}
 	case "black_hole":
-		return capRemnant(meanPlanetCount(g.rng, m.BlackHole, m.Max))
+		return capRemnant(meanPlanetCount(g.rng, m.BlackHole*mult, m.Max))
 	case "neutron":
-		return capRemnant(meanPlanetCount(g.rng, m.Neutron, m.Max))
+		return capRemnant(meanPlanetCount(g.rng, m.Neutron*mult, m.Max))
 	case "white_dwarf":
-		return capRemnant(meanPlanetCount(g.rng, m.WhiteDwarf, m.Max))
+		return capRemnant(meanPlanetCount(g.rng, m.WhiteDwarf*mult, m.Max))
 	case "protostar":
 		return 0 // диск вместо планет (§5.3)
 	}
 	return 0
+}
+
+// planetCountMult — эффективный множитель среднего числа планет (59a §8 P3):
+// 1.0 без профиля, иначе planet_count_mult с масштабом интенсивности.
+func (g *Generator) planetCountMult() float64 {
+	if g.profile == nil {
+		return 1.0
+	}
+	return g.profile.PlanetCountMult(g.profileIntensity)
+}
+
+// resourceBias — эффективные веса категорий ресурсов (59a §8 P2):
+// nil без профиля, иначе resource_bias с масштабом интенсивности.
+func (g *Generator) resourceBias() map[string]float64 {
+	if g.profile == nil {
+		return nil
+	}
+	return g.profile.ResourceBias(g.profileIntensity)
+}
+
+// surfaceBias — эффективные множители весов форм поверхности полосы
+// (59a §8): nil без профиля, иначе surface_bias с масштабом интенсивности.
+func (g *Generator) surfaceBias() map[string]float64 {
+	if g.profile == nil {
+		return nil
+	}
+	return g.profile.SurfaceBias(g.profileIntensity)
+}
+
+// subterrainBias — эффективные множители весов форм недр полосы (59a §8):
+// nil без профиля, иначе subterrain_bias с масштабом интенсивности.
+func (g *Generator) subterrainBias() map[string]float64 {
+	if g.profile == nil {
+		return nil
+	}
+	return g.profile.SubterrainBias(g.profileIntensity)
 }
 
 // capRemnant — «максимум генератора 1» у остатков (99.2.4 §5.2, решение §4к.1).
@@ -206,6 +245,23 @@ func gasGiantChance(spectralClass string) float64 {
 	}
 }
 
+// gasGiantChanceShifted — шанс гиганта с профилем региона (59a §8 P4):
+// gas_giant_shift ±0.2 с клампом [0.05, 0.95] на местах вызова. Гиганты
+// не исчезают и не доминируют (инвариант §11.5).
+func (g *Generator) gasGiantChanceShifted(spectralClass string) float64 {
+	c := gasGiantChance(spectralClass)
+	if g.profile != nil {
+		c += g.profile.GasGiantShift(g.profileIntensity)
+		if c < 0.05 {
+			c = 0.05
+		}
+		if c > 0.95 {
+			c = 0.95
+		}
+	}
+	return c
+}
+
 // ==================== ПАРАМЕТРЫ ЗВЕЗДЫ (99.2.20 §3.1) ====================
 
 // StellarParams — параметры звезды для каскада (слой 1).
@@ -266,7 +322,7 @@ func stellarParamsFromClass(spectralClass string, temperature int, rng *rand.Ran
 func (g *Generator) generatePlanet(worldID, worldName string, orbitIndex int, sp StellarParams) *PlanetData {
 	// --- ГАЗОВЫЙ ГИГАНТ ---
 	if orbitIndex >= 3 {
-		if g.rng.Float64() < gasGiantChance(sp.SpectralClass) {
+		if g.rng.Float64() < g.gasGiantChanceShifted(sp.SpectralClass) {
 			return g.generateGasGiant(worldID, worldName, orbitIndex, sp)
 		}
 	}
@@ -385,7 +441,7 @@ func (g *Generator) generateStandardPlanet(
 	resources := attachResources(
 		data, planetID, dominant,
 		map[string]float64(res.Subterrain),
-		sp.SpectralClass, g.rng,
+		sp.SpectralClass, g.rng, g.resourceBias(),
 	)
 
 	dataJSON, _ := json.Marshal(data)

@@ -16,6 +16,10 @@ type regionDTO struct {
 	Radius     float64 `json:"radius"`
 	Color      string  `json:"color"`
 	WorldCount int     `json:"world_count"`
+	// Profile — ключ класса профиля региона (59a, дополнение гейта 2):
+	// отладочный вывод на карте; NULL → пустая строка. В финале убрать —
+	// профиль не публикуется как ярлык (спека §11.7 / GDD §2.6.1).
+	Profile string `json:"profile"`
 }
 
 // GetRegionsHandler — возвращает все регионы галактики.
@@ -25,7 +29,7 @@ type regionDTO struct {
 // Регионов мало (сотни), запрос дешёвый.
 func (h *AdminHandlers) GetRegionsHandler(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.db.QueryContext(r.Context(), `
-		SELECT id, name, center_x, center_y, radius, color, world_count
+		SELECT id, name, center_x, center_y, radius, color, world_count, COALESCE(profile, '')
 		FROM regions
 		ORDER BY name`)
 	if err != nil {
@@ -38,7 +42,7 @@ func (h *AdminHandlers) GetRegionsHandler(w http.ResponseWriter, r *http.Request
 	regions := make([]regionDTO, 0, 256)
 	for rows.Next() {
 		var reg regionDTO
-		if err := rows.Scan(&reg.ID, &reg.Name, &reg.X, &reg.Y, &reg.Radius, &reg.Color, &reg.WorldCount); err != nil {
+		if err := rows.Scan(&reg.ID, &reg.Name, &reg.X, &reg.Y, &reg.Radius, &reg.Color, &reg.WorldCount, &reg.Profile); err != nil {
 			log.Printf("❌ GetRegions scan error: %v", err)
 			http.Error(w, "Scan error", http.StatusInternalServerError)
 			return

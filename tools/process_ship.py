@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # Обработка кораблей Juggernaut XL: вырезание фона ПО ЦВЕТУ (фон ровный тёмный ~21,23,26),
-# кадрирование, вписывание в 200x200, нормализация ориентации (нос вправо).
-# Использование: python process_ship.py <in.png> <out.png>
+# кадрирование, вписывание в 200x200, нормализация ориентации (нос вправо), сглаживание границ.
+# Использование: python process_ship.py <in.png> <out.png> [--no-orient] [--smooth N]
 import sys
 from PIL import Image, ImageOps
 import numpy as np
@@ -10,6 +10,21 @@ from scipy import ndimage
 CANVAS = 200
 PAD = 6
 BG_TOL = 40  # допуск расстояния до цвета фона
+
+NO_ORIENT = '--no-orient' in sys.argv
+SMOOTH = 2
+
+
+def remove_bg_by_color(img):
+    """Всё, что близко к цвету фона (тёмный ровный), -> прозрачное."""
+    arr = np.array(img.convert('RGB')).astype(np.int16)
+    h, w, _ = arr.shape
+    bg = np.array([arr[2, 2], arr[2, w - 3], arr[h - 3, 2], arr[h - 3, w - 3]]).mean(axis=0)
+    diff = np.abs(arr - bg).sum(axis=2)
+    mask = diff <= BG_TOL
+    out = np.array(img.convert('RGBA'))
+    out[mask] = (0, 0, 0, 0)
+    return Image.fromarray(out)
 
 
 def keep_largest_component(img):
@@ -28,18 +43,17 @@ def keep_largest_component(img):
     return Image.fromarray(arr)
 
 
-def remove_bg_by_color(img):
-    """Всё, что близко к цвету фона (тёмный ровный), -> прозрачное."""
-    arr = np.array(img.convert('RGB')).astype(np.int16)
-    h, w, _ = arr.shape
-    # цвет фона = средний по углам
-    bg = np.array([arr[2, 2], arr[2, w - 3], arr[h - 3, 2], arr[h - 3, w - 3]]).mean(axis=0)
-    # расстояние каждого пикселя до bg
-    diff = np.abs(arr - bg).sum(axis=2)
-    mask = diff <= BG_TOL  # фон
-    out = np.array(img.convert('RGBA'))
-    out[mask] = (0, 0, 0, 0)
-    return Image.fromarray(out)
+def smooth_edges(img, radius=2):
+    """Сгладить границы силуэта: закрытие (дыры) + открытие (зубцы)."""
+    arr = np.array(img.convert('RGBA'))
+    alpha = arr[:, :, 3]
+    mask = alpha > 40
+    if mask.sum() == 0:
+        return img
+    closed = ndimage.binary_closing(mask, structure=np.ones((radius * 2 + 1, radius * 2 + 1)))
+    opened = ndimage.binary_opening(closed, structure=np.ones((radius + 1, radius + 1)))
+    arr[:, :, 3] = np.where(opened, 255, 0)
+    return Image.fromarray(arr)
 
 
 def crop_to_content(img):
@@ -59,16 +73,13 @@ def normalize_orientation(img):
     w = xs.max() - xs.min()
     h = ys.max() - ys.min()
     if w < h:
-        # вертикальный -> повернуть
         img = img.rotate(-90, expand=True)
         arr = np.array(img.convert('RGBA'))
         alpha = arr[:, :, 3]
         ys, xs = np.where(alpha > 40)
-    # теперь горизонтальный: нос = сторона с меньшей массой на концах
     left = alpha[:, :xs.min() + (xs.max() - xs.min()) // 3].sum()
     right = alpha[:, xs.min() + 2 * (xs.max() - xs.min()) // 3:].sum()
     if left < right:
-        # нос уже справа? нет: если слева масса меньше, значит нос слева -> отразить
         img = ImageOps.mirror(img)
     return img
 
@@ -86,7 +97,9 @@ def main(in_path, out_path):
     if bbox:
         l, t, r, b = bbox
         img = img.crop((max(0, l - PAD), max(0, t - PAD), min(img.width, r + PAD), min(img.height, b + PAD)))
-    img = normalize_orientation(img)
+    if not NO_ORIENT:
+        img = normalize_orientation(img)
+    img = smooth_edges(img, SMOOTH)
     img = fit_canvas(img, CANVAS)
     img.save(out_path, 'PNG')
     print('Saved: %s (%dx%d)' % (out_path, img.size[0], img.size[1]))

@@ -1,0 +1,239 @@
+# Как рисовать корабли (art_ships.md)
+
+> Конкретика генерации спрайтов КОРАБЛЕЙ через Stable Diffusion (ComfyUI +
+> Juggernaut XL + ControlNet). **Общие принципы (для любых сущностей) —
+> в `art_principles.md` этой папки.** Здесь только корабельное: специфика
+> силуэтов, пайплайн, грабли, установка, словарь концептов. Не геймдизайн —
+> геймдизайн кораблей в `21_ships.md` и идее `29a`. Зафиксировано 2026-09-15/16.
+
+**Стек (проверено):**
+- ComfyUI на `C:\ComfyUI` (вне репо), API `http://127.0.0.1:8188`
+- Python 3.10.6 (отдельный), torch 2.5.1+cu121, RTX 4060 Ti 16 GB
+- Модель **Juggernaut XL v9** (`juggernaut-xl-v9.safetensors`)
+- ControlNet **canny-sdxl-1.0** (`controlnet-canny-sdxl-1.0.safetensors`)
+- Апскейл **4x-UltraSharp** (`4x-UltraSharp.pth`)
+- Скрипты: `tools/comfy_api.ps1`, `tools/process_ship.py`, `tools/make_*_silhouettes.py`, `tools/batch_concepts*.ps1`
+- Принятые спрайты: `ai_drafts/final_accepted/` (27 шт, 200×200, прозрачный фон)
+
+---
+
+## 1. Главные выводы (коротко)
+
+1. **txt2img не даёт контроль формы.** SDXL при жёстких промптах («no
+   perspective, orthographic») срывается в сюрреализм («картины Дали»), рисует
+   «нос к зрителю», «шляпы», переворачивает корабль. Текст НЕ управляет
+   перспективой и ориентацией.
+2. **Рабочий путь — ControlNet Canny + img2img от цветного модульного силуэта.**
+   Форму задаёт силуэт, текстуру/цвета — SDXL.
+3. **Двухэтапный процесс обязателен** для текстуры: (1) форма, (2) детализация.
+4. **Ориентацию задаёт СИЛУЭТ, а не промпт:** дюзы слева (корма), нос справа,
+   асимметрия. Симметричный силуэт (корона) SDXL «переворачивает» как хочет.
+5. **Концепты («корабль в образе слова»)** — лучший способ получить дикое
+   разнообразие форм. Рабочий процесс: пачка из 10 → создатель отбирает
+   номерами.
+
+---
+
+## 2. Пайплайн (проверенный порядок)
+
+### 2.1. Силуэт (рисунок, не AI)
+
+- Холст **1024×1024**, фон чёрный `(5,5,5)`, вид сверху, нос вправо.
+- **Модули цветные**: корпус крем `(232,224,186)`, крылья сталь `(120,140,170)`,
+  хвост бронза `(140,90,45)`, дюзы тёмные `(40,44,55)`, кабина-стекло
+  `(180,210,235)`, свечение огонь `(230,120,40)`. Между модулями — тёмные
+  границы-линии `(12,12,12)`.
+- **Асимметрия обязательна**: дюзы слева, «нос» (выступающая часть) справа.
+  Симметричные формы SDXL разворачивает произвольно.
+- **Запас от краёв**: масштабировать до ~82% холста + центрировать (запас
+  ~90 px со всех сторон), иначе нос/детали обрезаются.
+- **Дюзы на корме только в силуэте** (тёмный блок + оранжевое свечение) —
+  иначе SDXL размазывает огонь по всему корпусу («дюзы из живота»).
+- Нос = **светлая кабина-стекло**, НЕ синий — синий читается как «попа с
+  дюзами» (выхлоп).
+
+### 2.2. Этап 1 — форма (img2img + ControlNet)
+
+- `Send-ComfyControlNet`: силуэт → LoadImage → **Canny** (low 0.2 / high 0.5,
+  нормализованные 0–0.99!) → ControlNetApply (strength 1.5) → VAEEncode
+  силуэта → KSampler.
+- Параметры: **denoise 0.85, strength 1.5, steps 40, cfg 7, dpmpp_2m/karras**.
+- Промпт: концепт + «top-down flat view, horizontal, nose pointing FORWARD to
+  the right, engine at the LEFT rear, perfectly flat, no perspective, game
+  asset, 2D sprite, centered, single ship, on black background, no text, no
+  watermark».
+
+### 2.3. Этап 2 — детализация (img2img без ControlNet)
+
+- `Send-ComfyImg2Img`: результат этапа 1 → VAEEncode → KSampler.
+- Параметры: **denoise 0.45–0.55, steps 40, cfg 7.5, dpmpp_2m/karras**.
+- Промпт: общий «ENTIRE hull covered with dense mechanical texture, panel
+  lines, greebles, rivets, vents, hatches, weathering, subtle gradients,
+  glowing details, rich palette, **no orange, no flames**, neutral engine
+  nozzles at left rear, maximal detail, masterpiece».
+- Эффект: уникальных цветов в корабле растёт с ~25 до ~1200+ — текстура
+  появляется.
+
+### 2.4. Пост-обработка (`tools/process_ship.py`)
+
+- **Фон режем ПО ЦВЕТУ, а не rembg**: фон Juggernaut ровный тёмный
+  (~21,23,26), вырезаем всё в пределах `BG_TOL=40` от цвета углов. rembg
+  режет корабль («кольцо от станции»).
+- **Крупнейший связный компонент** (scipy ndimage) — убирает «мусор» (мелкие
+  парящие обрывки; бывало 341 компонент).
+- **Сглаживание границ**: морфологическое закрытие + открытие (радиус 2) —
+  убирает зубцы/артефакты на контуре.
+- **Кадрирование** по bbox + паддинг 6 px → **вписывание в 200×200**
+  (ImageOps.pad, центрирование).
+- **Нормализация ориентации** (`--no-orient` для отключения): вертикальный →
+  повернуть на 90°, горизонтальный → отразить, если масса справа меньше.
+  Для «особых» форм (подкова и т.п.) — `--no-orient` + ручной поворот.
+- Если фон «не-чёрный»/пёстрый — см. §3.3.
+
+### 2.5. Hi-Res (по желанию, для деталей)
+
+- `Send-ComfyHiRes`: апскейл **4x-UltraSharp** → ImageScale 2048×2048 →
+  img2img denoise 0.35–0.5 → снова `process_ship.py`.
+- Даёт больше деталей (файлы 1.6–3.3 MB), но менять смысл формы не должен.
+
+---
+
+## 3. Грабли (что НЕ работает)
+
+### 3.1. txt2img
+- «no perspective, orthographic, bird's eye view» в промпте → «Дали»,
+  сюрреализм, светлый фон, «нос на зрителя».
+- SD 1.5 (v1-5-pruned-emaonly): «шляпы», пёстрый фон, ориентация «куда попало».
+- **Вывод: форма — только через силуэт + ControlNet.**
+
+### 3.2. ControlNet
+- `Canny` в этой версии ComfyUI принимает пороги **0–0.99**, не 100/200.
+- Сплошной белый силуэт → Canny даёт только внешний контур — SDXL заливает
+  «одной краской» без деталей. Нужен **цветной модульный силуэт** + img2img.
+- strength > 1.0 допустим (до 10). При малом влиянии — форма «плывёт».
+
+### 3.3. Фон
+- Промпт «black background» SDXL часто игнорирует (серый/пёстрый фон).
+- rembg (U2Net) режет корабль — подходит для фото, не для наших спрайтов.
+- **Работает только вырез по цвету фона** (§2.4), если фон ровный.
+
+### 3.4. Цвета и огонь
+- «no orange, no flames» в промпте не спасает — оранжевое размазывается по
+  корпусу («дюзы из живота»). Надёжно: убрать FIRE из силуэта ИЛИ пост-фикс
+  (оранжевые px r>180, 80<g<190, b<120 → золото/нейтраль).
+- Синий нос → «попа с дюзами». Нос только светлая кабина.
+
+### 3.5. Ориентация
+- Текст «nose pointing right» не работает — SDXL рисует как хочет.
+- Симметричные силуэты (корона) — лотерея перспективы. Только асимметрия.
+
+### 3.6. Мелкие модули
+- Крылья/хвост (маленькие) сглаживаются в основной цвет — делать их
+  контрастнее в силуэте (сильнее отличия RGB).
+
+---
+
+## 4. Рабочий процесс с создателем
+
+1. Генерируем **пачку по 10–20** (каждый — новый концепт-слово, двухэтапный
+   процесс, `batch_concepts*.ps1`).
+2. Создатель смотрит превью-сетку (номера 1..N) и говорит: «оставить N, M» /
+   «выкинуть K», при необходимости «повернуть на 90/180».
+3. Принятые — в `ai_drafts/final_accepted/`, остальное удаляется.
+4. **Правило:** новые генерации — только с НОВЫМИ словами/форм-факторами,
+   повторы концептов не нужны.
+
+---
+
+## 5. Принятые корабли (27, `ai_drafts/final_accepted/`)
+
+anchor, book, boomerang, crater, crescent, crystal, drop, egg, heart, helmet,
+jellyfish, lightning, manta, mushroom, octopus, owl, phoenix, pyramid, shark,
+shell, shield, snail, spiral, star, star_celestial, trident, volcano.
+
+(Корона отклонена: «перспектива не та», v2/v3 — другие корабли, не нравятся.)
+
+---
+
+## 6. Словарь концептов (уже использованные, не повторять)
+
+arrow, cruiser, hawk, freighter, protoss, zerg, home, flower, dragon, ghost,
+cigarette, lightbulb, cat, skull, dragonfly, turtle, sword, umbrella, snowflake,
+spider, butterfly, key, feather, comet, horseshoe, clock, star, anchor, crystal,
+crown, jellyfish, octopus, snail, manta, lightning, heart, pyramid, spiral,
+trident, shield, egg, phoenix, owl, helmet, shell, book, fan, crescent, compass,
+mushroom, sail, drop, boomerang, ring, bow, mirror, alien, predator, crater,
+volcano, star_celestial, shark.
+
+(56 слов. Идеи на будущее: парусник, лебедь, рыба-меч, башня, свеча, крюк,
+гребень, шестерня, цепь, клюшка, чайник, кофейник, колокол, погремушка, зонт-гриб,
+песочные часы, кубик, волчок, пропеллер, руль корабля...)
+
+---
+
+## 7. Установка окружения (грабли, проверено 2026-09-15/16)
+
+### 7.1. AUTOMATIC1111 — НЕ использовать, полный тупик
+Попытка поставить AUTOMATIC1111 (`stable-diffusion-webui`) провалилась по
+цепочке причин:
+- Требует Python 3.10.6; системный 3.12 → torch 2.1.2 не ставится.
+- CLIP ставится из GitHub-архива, падает на `pkg_resources` (setuptools ≥70) →
+  нужен `--no-build-isolation` + wheel + старый setuptools.
+- `Stability-AI/stablediffusion` **удалён по DMCA**; форки (aliencaocao и др.)
+  несовместимы (нет `ldm.modules.midas`, taming ломается: нет VectorQuantizer2 —
+  пришлось качать quantize.py вручную из master).
+- k-diffusion требует dctorch (свежий master несовместим со старым webui).
+- Итог: AUTOMATIC1111 v1.10.1 (2023) — мёртвая версия, зависимости удалены.
+  **Используем ComfyUI.**
+
+### 7.2. ComfyUI — рабочий путь
+- Клонировать `comfyanonymous/ComfyUI` → venv на Python 3.10.6 → torch из
+  локального wheel (см. §7.4).
+- **comfy-kitchen** (обязательная зависимость свежего ComfyUI) требует torch
+  ≥2.5 и падает на Python-аннотациях `list[int]`/`list[bool]` в
+  `torch.library.custom_op` (infer_schema не понимает `list[...]`):
+  заменить `list[X]` → `List[X]` + импорт `from typing import List`
+  (после `from __future__`!) во ВСЕХ файлах `site-packages/comfy_kitchen/`.
+- **torchaudio** ставится как несовместимый (2.11 для torch 2.11): нужен
+  `torchaudio==2.5.1+cu121` (для torch 2.5.1), иначе WinError 127 при загрузке.
+- torchvision тоже строго под torch: `0.20.1+cu121` для torch 2.5.1.
+- rembg требует `onnxruntime` (отдельно).
+
+### 7.3. Модели
+- **Juggernaut XL v9** (`RunDiffusion/Juggernaut-XL-v9`, 7.1 GB) — сильна в
+  технике, читает «flat 2D sprite» лучше vanilla SDXL. В `models/checkpoints/`.
+- **ControlNet Canny SDXL** (`diffusers/controlnet-canny-sdxl-1.0`, 2.5 GB) — в
+  `models/controlnet/`. xinsir-вариант 404.
+- **4x-UltraSharp** (`lokCX/4x-Ultrasharp`, 67 MB) — в `models/upscale_models/`.
+- Рестарт ComfyUI после добавления модели обязателен.
+
+### 7.4. Скачивание больших файлов (2–7 GB) — curl с resume
+- `curl.exe -L -sS --retry 50 --retry-delay 5 -C - -o <file> <url>` в фоне
+  (Start-Process), периодически проверять `(Get-Item f).Length`.
+- Скорость ~40 MB/мин с pytorch.org и HuggingFace (2.5 GB ≈ 1 час, 7 GB ≈ 3 ч).
+- **curl умирает** на обрывах — проверять процесс; возобновлять `-C -`.
+- Размер считать по `Content-Length` сервера, а не «ожиданиям» (у v1-5
+  реальный 4265146304, не 4269525910).
+- Один раз скачанный torch-файл переиспользуем: `pip install <wheel>` —
+  не качать повторно в новый venv.
+
+---
+
+## 8. Операционные грабли (сессия)
+
+1. **PowerShell + инлайн-скрипты с `$`** ломаются на кириллице/экранировании —
+   писать batch-скрипты файлами (`*.ps1`), запускать
+   `powershell -NoProfile -ExecutionPolicy Bypass -File`.
+2. **Фоновая пакетная генерация умирает** при прерывании сессии (sleep в
+   оболочке убивает дочерний процесс). Скрипт должен писать лог
+   (`Add-Content`) и поддерживать продолжение: `-StartNum N -StartSeed S`
+   (нумерация файлов = номер варианта, seed = StartSeed + N - 1).
+3. **ExecutionPolicy** блокирует `.ps1` — запускать с `-ExecutionPolicy Bypass`.
+4. ComfyUI при долгом простое умирает — перед новой пачкой проверять
+   `/system_stats`, поднимать заново.
+5. **Временный хак спрайта в игре**: `web/static/js/map/ship_render.js`
+   `getShipSprite` → `img.src='/static/sprites/<file>.png'`; статика отдаётся
+   с диска без кэша, рестарт сервера не нужен; после проверки откатить.
+   Браузер кэширует картинки — обновлять `Ctrl+Shift+R`.
+6. Инлайн-питон в PowerShell ломает кавычки — писать `-c "..."` в файл или
+   однострочники без кавычек-конфликтов; многострочное — файлом `.py`.

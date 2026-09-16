@@ -90,17 +90,15 @@ const SUBTERRAIN_COLORS = {
 
 // ---------- РЕНДЕР КОМПОЗИЦИИ ----------
 
-// Рисует полоску + список форм с обрезкой и кнопкой "показать все"
-function renderComposition(composition, icons, colors, limit = 7) {
+// Рисует полоску + полный список форм. Без обрезки и кнопки «показать все»
+// (69a: в блоках Поверхность/Недра остаток был 1–2 строки, кнопка бесполезна).
+function renderComposition(composition, icons, colors) {
     if (!composition || Object.keys(composition).length === 0) {
         return '<p style="color:#666; margin: 4px 0;">— нет данных —</p>';
     }
 
     const allEntries = Object.entries(composition).filter(([, v]) => v > 0.01);
     allEntries.sort((a, b) => b[1] - a[1]);
-    const visible = allEntries.slice(0, limit);
-    const hidden = allEntries.slice(limit);
-    const hasMore = hidden.length > 0;
 
     // Полоска
     let bar = '<div style="display:flex; height:10px; border-radius:5px; overflow:hidden; margin: 6px 0;">';
@@ -120,21 +118,8 @@ function renderComposition(composition, icons, colors, limit = 7) {
     };
 
     let list = `<ul style="list-style:none; padding: 0; margin: 4px 0;">`;
-    visible.forEach(e => { list += renderRow(e); });
+    allEntries.forEach(e => { list += renderRow(e); });
     list += '</ul>';
-
-    if (hasMore) {
-        const hiddenId = 'hidden-' + Math.random().toString(36).slice(2, 9);
-        let hiddenList = `<ul id="${hiddenId}" style="list-style:none; padding: 0; margin: 0; display:none;">`;
-        hidden.forEach(e => { hiddenList += renderRow(e); });
-        hiddenList += '</ul>';
-
-        list += hiddenList;
-        list += `<button class="show-more-btn" data-target="${hiddenId}" 
-            style="background:none; border:none; color:#4a9eff; cursor:pointer; padding:2px 0; font-size:0.9rem;">
-            ▼ показать все (${allEntries.length})
-        </button>`;
-    }
 
     return bar + list;
 }
@@ -188,11 +173,11 @@ function renderGeneral(planet) {
 
     // Поверхность
     html += `<p style="margin:8px 0 4px 0; color:#888; font-size:0.9rem; text-transform:uppercase;">Поверхность</p>`;
-    html += renderComposition(planet.surface_composition, FORM_ICONS, FORM_COLORS, 7);
+    html += renderComposition(planet.surface_composition, FORM_ICONS, FORM_COLORS);
 
     // Недра
     html += `<p style="margin:8px 0 4px 0; color:#888; font-size:0.9rem; text-transform:uppercase;">Недра</p>`;
-    html += renderComposition(planet.subterrain_composition, SUBTERRAIN_ICONS, SUBTERRAIN_COLORS, 7);
+    html += renderComposition(planet.subterrain_composition, SUBTERRAIN_ICONS, SUBTERRAIN_COLORS);
 
     // Жизнь
     html += `<p style="margin:8px 0 4px 0; color:#888; font-size:0.9rem; text-transform:uppercase;">Жизнь</p>`;
@@ -258,12 +243,12 @@ function renderSatelliteCard(planet, sat, container) {
 
     if (sat.surface_composition && Object.keys(sat.surface_composition).length) {
         html += `<p style="margin:8px 0 4px 0; color:#888; font-size:0.9rem; text-transform:uppercase;">Поверхность</p>`;
-        html += renderComposition(sat.surface_composition, FORM_ICONS, FORM_COLORS, 7);
+        html += renderComposition(sat.surface_composition, FORM_ICONS, FORM_COLORS);
     }
 
     if (sat.subterrain_composition && Object.keys(sat.subterrain_composition).length) {
         html += `<p style="margin:8px 0 4px 0; color:#888; font-size:0.9rem; text-transform:uppercase;">Недра</p>`;
-        html += renderComposition(sat.subterrain_composition, SUBTERRAIN_ICONS, SUBTERRAIN_COLORS, 7);
+        html += renderComposition(sat.subterrain_composition, SUBTERRAIN_ICONS, SUBTERRAIN_COLORS);
     }
 
     if (sat.description) {
@@ -278,18 +263,6 @@ function renderSatelliteCard(planet, sat, container) {
             renderTabContent('general', planet, container);
         });
     }
-
-    container.querySelectorAll('.show-more-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const target = btn.dataset.target;
-            const hidden = container.querySelector('#' + target);
-            if (hidden) {
-                const isHidden = hidden.style.display === 'none';
-                hidden.style.display = isHidden ? 'block' : 'none';
-                btn.textContent = isHidden ? '▲ скрыть' : `▼ показать все`;
-            }
-        });
-    });
 }
 
 // formatNumberSafe — безопасное отображение строки/числа
@@ -412,7 +385,6 @@ function renderFactionsStub() {
 // ---------- ГЛАВНЫЙ ЭКСПОРТ ----------
 
 // renderTabContent — рендерит контент вкладки в container.
-// Также вешает обработчики на кнопки "показать все".
 export function renderTabContent(tab, planet, container) {
     switch (tab) {
         case 'general':
@@ -430,19 +402,6 @@ export function renderTabContent(tab, planet, container) {
         default:
             container.innerHTML = '<p style="color: #666;">Неизвестная вкладка</p>';
     }
-
-    // Обработчики "показать все"
-    container.querySelectorAll('.show-more-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const target = btn.dataset.target;
-            const hidden = container.querySelector('#' + target);
-            if (hidden) {
-                const isHidden = hidden.style.display === 'none';
-                hidden.style.display = isHidden ? 'block' : 'none';
-                btn.textContent = isHidden ? '▲ скрыть' : `▼ показать все`;
-            }
-        });
-    });
 
     // Клик по спутнику — карточка спутника
     container.querySelectorAll('[data-sat-idx]').forEach(li => {

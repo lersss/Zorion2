@@ -128,7 +128,7 @@
   не ждёт подсказки**. Механизм — «Архитектурный фильтр приёмки» в
   `.opencode/agents/manager.md`; сверка с архитектурой при проектировании
   сущностей — в `.opencode/agents/designer.md`. Разбор:
-  `docs/gamedesign/ideas/16a...md`, `18a_population_death.md` §«Лог поселения».
+  `docs/gamedesign/ideas/16a...md`, `18b_settlement_log.md` §«Лог поселения».
 
 - **Bootstrap skycomposer не меняет пароль существующей учётки.** Если
   `SKYCOMPOSER_BOOTSTRAP_USERNAME` совпадает с уже существующим пользователем,

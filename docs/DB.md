@@ -32,7 +32,7 @@
 - `000024` — лог поселения `settlement_log` (запись «Вымерло»: `type`,
   `occurred_at NOT NULL` — записи без даты не существует, `cause`; срез
   2026-09-14, концепция создателя: лог, не поля у поселения; бэкфилл отменён —
-  см. `18a_population_death.md`, §«Лог поселения»). Миграция `000023` (поля
+  см. `18b_settlement_log.md`, §«Лог поселения»). Миграция `000023` (поля
   `died_at`/`death_cause`) отменена до создания.
 - `000025` — роль пользователя `users.role` (`TEXT NOT NULL DEFAULT 'player'`
   + CHECK `player`/`admin`/`skycomposer`), спека `99.2.14-role-model-admin-users.md` §2.

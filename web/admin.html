@@ -788,7 +788,14 @@
                 </div>
             </div>
             <table class="stats-table" style="margin-top:8px;">
-                <thead><tr><th>№</th><th>Имя</th><th>Категория</th><th title="Наведите на ячейку — полный профиль всех 10 осей">Ключевые оси</th><th>T_melt / T_boil, K</th><th>Что это</th></tr></thead>
+                <thead><tr>
+                    <th title="Порядковый номер в каталоге">№</th>
+                    <th title="Рабочее имя-заглушка; финальные имена даст @writer">Имя</th>
+                    <th title="Физическая среда ресурса: вода/жидкости, минералы, газы, топливо/редокс, органика, редкие">Категория</th>
+                    <th title="Наведите на ячейку — полный профиль всех 10 осей">Ключевые оси</th>
+                    <th title="Температуры плавления / кипения, K. У сублимирующих кипение ≤ плавления (жидкой фазы нет)">T_melt / T_boil, K</th>
+                    <th title="Ядерный — закрывает свой хемотип; мостовой — вторичные доли нескольких рас. В скобках — какие хемотипы закрывает">Что это</th>
+                </tr></thead>
                 <tbody id="resourcesBody">
                     <tr><td colspan="6" style="text-align:center;color:#94a3b8;">Загрузка...</td></tr>
                 </tbody>
@@ -805,7 +812,13 @@
                 <span id="resourcesCoverageCount" style="color:#94a3b8; align-self:center;"></span>
             </div>
             <table class="stats-table" style="margin-top:8px;">
-                <thead><tr><th>Раса</th><th>Ось</th><th>Вес</th><th>Ресурсы</th><th>Статус</th></tr></thead>
+                <thead><tr>
+                    <th title="Раса-потребитель">Раса</th>
+                    <th title="Ось потребления (хемотип) с весом ≥ 10 — обязательна к покрытию">Ось</th>
+                    <th title="Доля в диете расы, % (сумма по всем осям = 100). Вес ≥ 10 — обязателен, 5–9 — желателен, < 5 — необязателен">Вес</th>
+                    <th title="Ресурсы каталога, чей профиль попадает в окно расы по этой оси">Ресурсы</th>
+                    <th title="✅ — ось покрыта хотя бы одним ресурсом; ❌ — дыра">Статус</th>
+                </tr></thead>
                 <tbody id="resourcesRacesBody">
                     <tr><td colspan="5" style="text-align:center;color:#94a3b8;">Загрузка...</td></tr>
                 </tbody>

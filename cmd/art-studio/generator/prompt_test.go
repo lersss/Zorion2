@@ -63,24 +63,12 @@ func TestFormsFor(t *testing.T) {
 	}
 }
 
-// TestRandomForm — случайная форма семейства собирается по шаблону.
-func TestRandomForm(t *testing.T) {
-	fc := loadForms(t)
-	rng := rand.New(rand.NewSource(1))
-	for i := 0; i < 20; i++ {
-		f := RandomForm(rng, fc, "F4")
-		if !strings.Contains(f, " of material, formed of ") {
-			t.Fatalf("RandomForm не по шаблону: %q", f)
-		}
-	}
-}
-
 // TestBuildPrompt — промпт вариации расы (спека 67a.1 §5.2).
 func TestBuildPrompt(t *testing.T) {
 	fam := loadFamilies(t)
 	fc := loadForms(t)
 	rng := rand.New(rand.NewSource(42))
-	prompt, rid, rname := BuildPrompt(rng, fam["F2"], 0, "F2", fc, 0)
+	prompt, rid, rname := BuildPrompt(rng, fam["F2"], 0, "F2", fc, 0, false)
 	if rid != "5" || rname != "5 Аммиачники" {
 		t.Errorf("rid/rname = %s/%s, want 5/5 Аммиачники", rid, rname)
 	}
@@ -100,7 +88,7 @@ func TestBuildPromptFormFromRace(t *testing.T) {
 	rng := rand.New(rand.NewSource(42))
 	race := fam["F2"].Races[0]
 	for i := 0; i < 20; i++ {
-		prompt, _, _ := BuildPrompt(rng, fam["F2"], 0, "F2", fc, 0)
+		prompt, _, _ := BuildPrompt(rng, fam["F2"], 0, "F2", fc, 0, false)
 		formOK := false
 		for _, f := range race.Forms {
 			if strings.Contains(prompt, f) {
@@ -137,15 +125,15 @@ func TestBuildPromptWide(t *testing.T) {
 	fam := loadFamilies(t)
 	fc := loadForms(t)
 	rng := rand.New(rand.NewSource(7))
-	prompt, _, _ := BuildPromptWide(rng, fam["F2"], -1, "F2", "", fc)
+	prompt, _, _ := BuildPromptWide(rng, fam["F2"], -1, "F2", "", fc, false)
 	if !strings.Contains(prompt, "ABSTRACT OBJECT") {
 		t.Errorf("не-антропо: %s", prompt)
 	}
-	prompt2, _, _ := BuildPromptWide(rng, fam["F2"], -1, "F2", "anthro", fc)
+	prompt2, _, _ := BuildPromptWide(rng, fam["F2"], -1, "F2", "anthro", fc, false)
 	if !strings.Contains(prompt2, "alien humanoid race") {
 		t.Errorf("антропо: %s", prompt2)
 	}
-	prompt3, _, _ := BuildPromptWide(rng, fam["F4"], -1, "F4", "beast", fc)
+	prompt3, _, _ := BuildPromptWide(rng, fam["F4"], -1, "F4", "beast", fc, false)
 	if !strings.Contains(prompt3, "alien creature") {
 		t.Errorf("beast: %s", prompt3)
 	}
@@ -161,6 +149,76 @@ func TestBuildPromptWide(t *testing.T) {
 	}
 	if !formOK {
 		t.Errorf("beast: форма не из fam.BeastForms: %s", prompt3)
+	}
+}
+
+// TestBuildPromptWideFormFromRace — кандидат эталона (morph="") берёт форму из
+// race.Forms выбранной расы (78a решение 4, вариант «б»), а не из общего
+// словаря форм; серия вызовов даёт разброс форм и промптов (решение 5).
+func TestBuildPromptWideFormFromRace(t *testing.T) {
+	fam := loadFamilies(t)
+	fc := loadForms(t)
+	raceIdx := 0
+	race := fam["F2"].Races[raceIdx]
+	rng := rand.New(rand.NewSource(1))
+	formsSeen := map[string]bool{}
+	promptsSeen := map[string]bool{}
+	for i := 0; i < 30; i++ {
+		prompt, rid, _ := BuildPromptWide(rng, fam["F2"], raceIdx, "F2", "", fc, false)
+		if rid != race.ID {
+			t.Fatalf("rid = %s, want %s", rid, race.ID)
+		}
+		if strings.Contains(prompt, " of material, formed of ") {
+			t.Errorf("форма из общего словаря форм, а не race.Forms: %s", prompt)
+		}
+		formOK := false
+		for _, f := range race.Forms {
+			if strings.Contains(prompt, f) {
+				formOK = true
+				formsSeen[f] = true
+				break
+			}
+		}
+		if !formOK {
+			t.Errorf("форма не из race.Forms расы %s: %s", race.ID, prompt)
+		}
+		promptsSeen[prompt] = true
+	}
+	if len(formsSeen) < 2 {
+		t.Errorf("разброс форм: за 30 вызовов %d уникальных, want >= 2", len(formsSeen))
+	}
+	if len(promptsSeen) < 2 {
+		t.Errorf("разброс промптов: за 30 вызовов %d уникальных, want >= 2", len(promptsSeen))
+	}
+}
+
+// TestPersonage — эксперимент 82a: при personage=true субъект «a personage»
+// вместо «an abstract object/structure»; при false — прежнее поведение.
+func TestPersonage(t *testing.T) {
+	fam := loadFamilies(t)
+	fc := loadForms(t)
+	rng := rand.New(rand.NewSource(1))
+	p, _, _ := BuildPromptWide(rng, fam["F2"], 0, "F2", "", fc, true)
+	if !strings.Contains(p, "a personage") {
+		t.Errorf("BuildPromptWide personage=true: нет «a personage»: %s", p)
+	}
+	if strings.Contains(p, "ABSTRACT OBJECT") {
+		t.Errorf("BuildPromptWide personage=true: остался «ABSTRACT OBJECT»: %s", p)
+	}
+	p2, _, _ := BuildPromptWide(rng, fam["F2"], 0, "F2", "", fc, false)
+	if !strings.Contains(p2, "ABSTRACT OBJECT") {
+		t.Errorf("BuildPromptWide personage=false: нет «ABSTRACT OBJECT»: %s", p2)
+	}
+	p3, _, _ := BuildPrompt(rng, fam["F2"], 0, "F2", fc, 0, true)
+	if !strings.Contains(p3, "a personage") {
+		t.Errorf("BuildPrompt personage=true: нет «a personage»: %s", p3)
+	}
+	if strings.Contains(p3, "an abstract structure") {
+		t.Errorf("BuildPrompt personage=true: остался «an abstract structure»: %s", p3)
+	}
+	p4, _, _ := BuildPrompt(rng, fam["F2"], 0, "F2", fc, 0, false)
+	if !strings.Contains(p4, "an abstract structure") {
+		t.Errorf("BuildPrompt personage=false: нет «an abstract structure»: %s", p4)
 	}
 }
 

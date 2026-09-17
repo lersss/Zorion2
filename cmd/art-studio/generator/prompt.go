@@ -30,26 +30,6 @@ func FormsFor(fc *config.FormsConfig, famID string) []string {
 	return out
 }
 
-// RandomForm — случайная форма семейства без построения полного списка
-// (эквивалент rng.choice(forms_for(fam)) из прототипа).
-func RandomForm(rng *rand.Rand, fc *config.FormsConfig, famID string) string {
-	keys := fc.CategoryKeys[famID]
-	var shapes []config.Shape
-	for _, sh := range fc.Shapes {
-		if len(keys) == 0 || intersects(sh.Categories, keys) {
-			shapes = append(shapes, sh)
-		}
-	}
-	if len(shapes) == 0 {
-		shapes = fc.Shapes
-	}
-	sh := shapes[rng.Intn(len(shapes))]
-	st := fc.Struct[rng.Intn(len(fc.Struct))]
-	ch := fc.Character[rng.Intn(len(fc.Character))]
-	pt := fc.Parts[rng.Intn(len(fc.Parts))]
-	return buildPhrase(fc.PhraseTemplate, st, ch, sh.Shape, pt)
-}
-
 func buildPhrase(tpl, struct_, char, shape, part string) string {
 	r := strings.NewReplacer("{struct}", struct_, "{character}", char, "{shape}", shape, "{part}", part)
 	return r.Replace(tpl)
@@ -75,7 +55,9 @@ func intersects(a, b []string) bool {
 // (палитра); palette 0–100 — отклонение палитры: при >0 добавляется цветовой
 // акцент из PaletteAccents (больше = сильнее акцент, не ломая основу расы);
 // композицию эталона держит ControlNet Canny от маски (art_principles.md §3).
-func BuildPrompt(rng *rand.Rand, fam config.Family, raceIdx int, famID string, fc *config.FormsConfig, palette int) (prompt, raceID, raceName string) {
+// personage — эксперимент 82a: при true субъект «a personage» вместо
+// «an abstract structure» (остальной шаблон и негативы не меняются).
+func BuildPrompt(rng *rand.Rand, fam config.Family, raceIdx int, famID string, fc *config.FormsConfig, palette int, personage bool) (prompt, raceID, raceName string) {
 	race := fam.Races[raceIdx]
 	mat := race.Materials[rng.Intn(len(race.Materials))]
 	glow := race.Glows[rng.Intn(len(race.Glows))]
@@ -99,8 +81,12 @@ func BuildPrompt(rng *rand.Rand, fam config.Family, raceIdx int, famID string, f
 			acc = append(acc[:k], acc[k+1:]...)
 		}
 	}
-	prompt = fmt.Sprintf("dramatic cinematic concept art of an abstract structure, FRONT VIEW, made of %s, %s, %s%s, with %s %s, %s, %s, centered, %s, masterpiece, game avatar, no text, no watermark",
-		mat, form, glow, accent, character, parts, extra, anchor, scene)
+	subject := "an abstract structure"
+	if personage {
+		subject = "a personage"
+	}
+	prompt = fmt.Sprintf("dramatic cinematic concept art of %s, FRONT VIEW, made of %s, %s, %s%s, with %s %s, %s, %s, centered, %s, masterpiece, game avatar, no text, no watermark",
+		subject, mat, form, glow, accent, character, parts, extra, anchor, scene)
 	return prompt, race.ID, race.Name
 }
 
@@ -125,7 +111,9 @@ func NegFor(fam config.Family, morph string) string {
 // от неё). morph — морф генерации: "" = не-антропо (абстрактный объект),
 // "anthro"/"beast"/"xeno"/"amorph"/"crystal"/"mech"/"titan" — гуманоидные
 // морфы из материала расы (select морфа на вкладке «Эталон»).
-func BuildPromptWide(rng *rand.Rand, fam config.Family, raceIdx int, famID string, morph string, fc *config.FormsConfig) (prompt, raceID, raceName string) {
+// personage — эксперимент 82a: при true в не-антропо ветке субъект «a personage»
+// вместо «an abstract object» (морф-ветка и негативы не меняются).
+func BuildPromptWide(rng *rand.Rand, fam config.Family, raceIdx int, famID string, morph string, fc *config.FormsConfig, personage bool) (prompt, raceID, raceName string) {
 	if raceIdx < 0 {
 		raceIdx = rng.Intn(len(fam.Races))
 	}
@@ -182,9 +170,13 @@ func BuildPromptWide(rng *rand.Rand, fam config.Family, raceIdx int, famID strin
 		}
 		return prompt, race.ID, race.Name
 	}
-	form := RandomForm(rng, fc, famID)
-	prompt = fmt.Sprintf("dramatic cinematic concept art of an ABSTRACT OBJECT, FRONT VIEW, made of %s, %s, %s, no face, no eyes, no mouth, no human features, asymmetric, anchored by a solid base extending to the bottom edge of the frame, centered, %s, masterpiece, game avatar, no text, no watermark",
-		mat, form, glow, scene)
+	subject := "an ABSTRACT OBJECT"
+	if personage {
+		subject = "a personage"
+	}
+	form := race.Forms[rng.Intn(len(race.Forms))]
+	prompt = fmt.Sprintf("dramatic cinematic concept art of %s, FRONT VIEW, made of %s, %s, %s, no face, no eyes, no mouth, no human features, asymmetric, anchored by a solid base extending to the bottom edge of the frame, centered, %s, masterpiece, game avatar, no text, no watermark",
+		subject, mat, form, glow, scene)
 	return prompt, race.ID, race.Name
 }
 

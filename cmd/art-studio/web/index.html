@@ -20,6 +20,7 @@
  .btns{display:flex;gap:6px;justify-content:center;flex-wrap:wrap}
  .btns button{border:none;border-radius:6px;padding:6px 10px;font-size:13px;cursor:pointer}
  .ok{background:#2a7;color:#fff}.del{background:#a33;color:#fff}
+ .cand-tip{position:fixed;z-index:100;width:400px;max-height:60vh;overflow-y:auto;font-size:18px;line-height:1.35;color:#ccc;background:#151515;border:1px solid #555;border-radius:4px;padding:6px 8px;display:none;text-align:left;pointer-events:auto;white-space:pre-wrap}
  .done{color:#2a7;font-size:14px;margin-top:12px}
  .modal{position:fixed;inset:0;background:#000c;display:none;align-items:center;justify-content:center;z-index:9}
  .modal.show{display:flex}
@@ -96,6 +97,7 @@
       <option value="mech">Мехоморфный</option>
       <option value="titan">Титаноморфный</option>
     </select>
+    <label style="font-size:13px;color:#ddd;cursor:pointer" title="Эксперимент 82a: субъект «a personage» вместо «an abstract object/structure» в кандидатах и вариациях"><input type="checkbox" id="personageRef"> персонаж (тест)</label>
     <span style="margin-left:12px">Сброс эталона расы:</span>
     <select id="raceRefClear" style="background:#222;border:1px solid #444;color:#ddd;padding:4px;border-radius:4px"></select>
     <button class="gen" style="background:#a62" onclick="clearRef()">СБРОС ЭТАЛОНА</button>
@@ -144,6 +146,7 @@
   </div>
 </div>
 
+<div class="cand-tip" id="candTip" onmouseenter="hideRaceTipKeep()" onmouseleave="hideRaceTip()"></div>
 <script>
 // показ JS-ошибок прямо на странице (для диагностики)
 window.onerror = function(msg, src, line){
@@ -264,7 +267,7 @@ async function loadRaces(){
     h+=`<option value="${x.id}">${x.name} — ✓ ${n}</option>`;
   });
   sel.innerHTML=h;
-  const saved=localStorage.getItem('racePool');
+  const saved=getUIState('racePool');
   if(saved && [...sel.options].some(o=>o.value===saved)) sel.value=saved;
   updateVarBtn();
 }
@@ -292,8 +295,9 @@ async function genVarPool(){
   const cnEnd=(1.0-e/100*0.6).toFixed(3);
   const size=document.getElementById('sizePool').value;
   const palette=document.getElementById('palettePct').value;
+  const personage=document.getElementById('personageRef').checked? '1':'0';
   document.getElementById('done').textContent='Генерация вариаций...';
-  const r=await fetch('/genvar?fam='+fam+'&race='+race+'&n='+n+'&denoise='+denoise+'&cn_strength='+cnStrength+'&cn_end='+cnEnd+'&size='+size+'&palette='+palette); const j=await r.json();
+  const r=await fetch('/genvar?fam='+fam+'&race='+race+'&n='+n+'&denoise='+denoise+'&cn_strength='+cnStrength+'&cn_end='+cnEnd+'&size='+size+'&palette='+palette+'&personage='+personage); const j=await r.json();
   // сообщение в процентах ползунков (не абсолютные значения воркфлоу)
   document.getElementById('done').textContent='Вариации от эталона расы: '+n+' шт (разнообразие '+d+'% · свобода формы '+s+'% · отпускание '+e+'% · палитра '+palette+'% · '+size+')';
   load();
@@ -302,8 +306,9 @@ async function genCandsPool(){
   const fam=document.getElementById('famRef').value;
   const n=document.getElementById('cntRef').value;
   const morph=document.getElementById('morphRef').value;
+  const personage=document.getElementById('personageRef').checked? '1':'0';
   document.getElementById('doneRef').textContent='Генерация кандидатов эталона...';
-  const r=await fetch('/genref?fam='+fam+'&n='+n+'&morph='+morph+'&size=512'); const j=await r.json();
+  const r=await fetch('/genref?fam='+fam+'&n='+n+'&morph='+morph+'&size=512&personage='+personage); const j=await r.json();
   document.getElementById('doneRef').textContent=j.msg;
   loadRef();
 }
@@ -347,6 +352,66 @@ async function clearRef(){
   document.getElementById('doneRef').textContent=j.msg;
   loadRef();
 }
+// лор-тултип на строке «Эталоны: …» (79b): при наведении на имя расы —
+// отфильтрованный лор в плавающей панели #candTip рядом с именем (снизу,
+// не вылезает за экран — горизонтальный и вертикальный кламп); панель
+// интерактивна (скролл), остаётся открытой, пока курсор на имени или панели
+let tipHideTimer=null;
+function showRaceTip(raceId, el){
+  clearTimeout(tipHideTimer); // вход на имя — отменяем отложенное скрытие
+  const tip=document.getElementById('candTip');
+  if(!tip) return;
+  const r=el.getBoundingClientRect();
+  const W=400, GAP=8;
+  let left=r.left; // по умолчанию по левому краю имени
+  if(left+W>window.innerWidth) left=window.innerWidth-W-GAP; // у правого края — прижать
+  if(left<0) left=0; // страховка: не вылезать за левый край
+  tip.style.left=left+'px';
+  tip.style.top=(r.bottom+GAP)+'px'; // снизу от имени
+  tip.style.display='block';
+  tip.dataset.race=raceId;
+  // кэш лора по расе (не дёргать /race-info на каждое наведение)
+  if(window._raceLore && window._raceLore[raceId]){
+    tip.textContent=window._raceLore[raceId];
+    clampTip();
+    return;
+  }
+  tip.textContent='Загрузка...';
+  clampTip();
+  const fam=document.getElementById('famRef').value;
+  fetch('/race-info?fam='+fam+'&race='+raceId).then(r=>r.json()).then(j=>{
+    const lore=j.lore || j.basis || '';
+    if(!window._raceLore) window._raceLore={};
+    window._raceLore[raceId]=lore;
+    if(tip.dataset.race===raceId){
+      tip.textContent=lore;
+      clampTip(); // высота изменилась — пересчитать вертикальный кламп
+    }
+  }).catch(()=>{
+    if(tip.dataset.race===raceId) tip.textContent='';
+  });
+}
+// вертикальный кламп: панель целиком в пределах вьюпорта (низ ≥ 8px от края)
+function clampTip(){
+  const tip=document.getElementById('candTip');
+  if(!tip || tip.style.display==='none') return;
+  const h=tip.offsetHeight;
+  const maxTop=window.innerHeight-h-8;
+  const top=parseInt(tip.style.top,10)||0;
+  if(top>maxTop) tip.style.top=Math.max(0,maxTop)+'px';
+}
+function hideRaceTipDelayed(){
+  clearTimeout(tipHideTimer);
+  tipHideTimer=setTimeout(hideRaceTip, 500); // дать курсору перейти на панель
+}
+function hideRaceTipKeep(){
+  clearTimeout(tipHideTimer); // курсор на панели — не скрывать
+}
+function hideRaceTip(){
+  clearTimeout(tipHideTimer);
+  const tip=document.getElementById('candTip');
+  if(tip) tip.style.display='none';
+}
 async function loadRef(){
   const fam=document.getElementById('famRef').value;
   const r=await fetch('/ref?fam='+fam); const j=await r.json();
@@ -354,7 +419,11 @@ async function loadRef(){
   let s='';
   if(j.raceStatus && j.raceStatus.length){
     s='Эталоны: ';
-    s+=j.raceStatus.map(x=>x.has? `<b style="color:#2a7">✓ ${x.name}</b>` : `<span style="color:#666">· ${x.name}</span>`).join(' ');
+    s+=j.raceStatus.map(x=>{
+      const color=x.has? '#2a7' : '#666';
+      const mark=x.has? '✓ ' : '· ';
+      return `<span style="color:${color};cursor:pointer" onmouseenter="showRaceTip('${x.id}', this)" onmouseleave="hideRaceTipDelayed()">${mark}${x.name}</span>`;
+    }).join(' ');
   }
   st.innerHTML=s;
   const rc=document.getElementById('raceRefClear');
@@ -497,7 +566,7 @@ async function loadGalleryRaces(){
   let h='';
   j.races.forEach(x=>{ h+=`<option value="${x.id}">${x.name}</option>`; });
   sel.innerHTML=h;
-  const saved=localStorage.getItem('raceGallery');
+  const saved=getUIState('raceGallery');
   if(saved && [...sel.options].some(o=>o.value===saved)) sel.value=saved;
   loadGallery();
 }
@@ -546,6 +615,51 @@ async function loadGallery(){
 }
 
 // ---------- ОБЩЕЕ ----------
+// ---------- ПЕРСИСТЕНТНОСТЬ UI (85a): один ключ studio-ui-state ----------
+const UI_STATE_KEY='studio-ui-state';
+function saveUIState(id, value){
+  let st={};
+  try{ st=JSON.parse(localStorage.getItem(UI_STATE_KEY)||'{}'); }catch(e){}
+  st[id]=value;
+  localStorage.setItem(UI_STATE_KEY, JSON.stringify(st));
+}
+function getUIState(id){
+  try{ const st=JSON.parse(localStorage.getItem(UI_STATE_KEY)||'{}'); return st[id]; }catch(e){ return undefined; }
+}
+// восстановление один раз при init: только валидные значения (опция существует,
+// число в диапазоне); галка «персонаж» — checked при первом запуске (нет значения)
+function restoreUIState(){
+  let st={};
+  try{ st=JSON.parse(localStorage.getItem(UI_STATE_KEY)||'{}'); }catch(e){ return; }
+  ['fam','racePool','sizePool','famRef','morphRef','famGallery','raceGallery'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(!el || el.tagName!=='SELECT' || st[id]===undefined) return;
+    if([...el.options].some(o=>o.value===String(st[id]))) el.value=st[id];
+  });
+  ['cnt','cntRef','cntHumans'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(!el || st[id]===undefined) return;
+    const v=parseInt(st[id],10);
+    if(!isNaN(v) && v>=parseInt(el.min||'0',10) && v<=parseInt(el.max||'9999',10)) el.value=v;
+  });
+  ['denoisePct','cnStrengthPct','cnEndPct','palettePct'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(!el || st[id]===undefined) return;
+    const v=parseInt(st[id],10);
+    if(!isNaN(v) && v>=parseInt(el.min||'0',10) && v<=parseInt(el.max||'100',10)){
+      el.value=v;
+      const lbl=document.getElementById(id+'Lbl');
+      if(lbl) lbl.textContent=v+'%';
+    }
+  });
+  const pg=document.getElementById('personageRef');
+  if(pg){
+    if(st.personageRef===undefined) pg.checked=true; // первый запуск — checked
+    else pg.checked = st.personageRef==='true';
+  }
+  const tab=st.raceTab || 'pool';
+  showTab(tab);
+}
 function showTab(name){
   document.getElementById('tab-pool').style.display = name==='pool' ? '' : 'none';
   document.getElementById('tab-ref').style.display = name==='ref' ? '' : 'none';
@@ -555,27 +669,14 @@ function showTab(name){
   document.getElementById('tabbtn-ref').classList.toggle('active', name==='ref');
   document.getElementById('tabbtn-humans').classList.toggle('active', name==='humans');
   document.getElementById('tabbtn-gallery').classList.toggle('active', name==='gallery');
-  localStorage.setItem('raceTab', name);
+  saveUIState('raceTab', name);
   if(name==='ref') loadRef();
   if(name==='pool') updateVarBtn();
   if(name==='humans') loadHumans();
   if(name==='gallery') loadGallery();
 }
 function restoreState(){
-  const tab = localStorage.getItem('raceTab') || 'pool';
-  if(tab==='ref'){
-    const fam = localStorage.getItem('raceFamRef');
-    if(fam) document.getElementById('famRef').value = fam;
-  } else if(tab==='humans'){
-    // семейство людей фиксировано (F1)
-  } else if(tab==='gallery'){
-    const fam = localStorage.getItem('raceFamGallery');
-    if(fam) document.getElementById('famGallery').value = fam;
-  } else {
-    const fam = localStorage.getItem('raceFam');
-    if(fam) document.getElementById('fam').value = fam;
-  }
-  showTab(tab);
+  restoreUIState(); // восстанавливает все поля + активную вкладку (85a)
   loadRaces();
   loadGalleryRaces();
 }
@@ -705,32 +806,27 @@ async function initFamSelects(){
   let h='';
   fams.forEach(x=>{ h+=`<option value="${x[0]}">${x[1]}</option>`; });
   sel.innerHTML=h; selRef.innerHTML=h; selGal.innerHTML=h;
-  document.getElementById('famRef').onchange = e=>localStorage.setItem('raceFamRef', e.target.value);
-  document.getElementById('fam').onchange = e=>{ localStorage.setItem('raceFam', e.target.value); loadRaces(); };
-  document.getElementById('famGallery').onchange = e=>{ localStorage.setItem('raceFamGallery', e.target.value); loadGalleryRaces(); };
-  document.getElementById('raceGallery').onchange = e=>{ localStorage.setItem('raceGallery', e.target.value); loadGallery(); };
-  document.getElementById('racePool').onchange = e=>{ localStorage.setItem('racePool', e.target.value); updateVarBtn(); load(); };
+  document.getElementById('famRef').onchange = e=>saveUIState('famRef', e.target.value);
+  document.getElementById('fam').onchange = e=>{ saveUIState('fam', e.target.value); loadRaces(); };
+  document.getElementById('famGallery').onchange = e=>{ saveUIState('famGallery', e.target.value); loadGalleryRaces(); };
+  document.getElementById('raceGallery').onchange = e=>{ saveUIState('raceGallery', e.target.value); loadGallery(); };
+  document.getElementById('racePool').onchange = e=>{ saveUIState('racePool', e.target.value); updateVarBtn(); load(); };
+  document.getElementById('morphRef').onchange = e=>saveUIState('morphRef', e.target.value);
+  document.getElementById('personageRef').onchange = e=>saveUIState('personageRef', e.target.checked ? 'true' : 'false');
   document.getElementById('cnt').oninput = e=>{
+    saveUIState('cnt', e.target.value);
     document.getElementById('btnVar').textContent='СГЕНЕРИРОВАТЬ РАСУ ('+e.target.value+')';
   };
   document.getElementById('cntRef').oninput = e=>{
+    saveUIState('cntRef', e.target.value);
     document.getElementById('btnCands').textContent='СГЕНЕРИРОВАТЬ ЭТАЛОНЫ ('+e.target.value+')';
   };
-  document.getElementById('denoisePct').oninput = e=>{ localStorage.setItem('denoisePct', e.target.value); document.getElementById('denoisePctLbl').textContent=e.target.value+'%'; };
-  document.getElementById('cnStrengthPct').oninput = e=>{ localStorage.setItem('cnStrengthPct', e.target.value); document.getElementById('cnStrengthPctLbl').textContent=e.target.value+'%'; };
-  document.getElementById('cnEndPct').oninput = e=>{ localStorage.setItem('cnEndPct', e.target.value); document.getElementById('cnEndPctLbl').textContent=e.target.value+'%'; };
-  document.getElementById('palettePct').oninput = e=>{ localStorage.setItem('palettePct', e.target.value); document.getElementById('palettePctLbl').textContent=e.target.value+'%'; };
-  document.getElementById('sizePool').onchange = e=>localStorage.setItem('sizePool', e.target.value);
-  // восстановить ползунки разнообразия (не сбрасываются при F5/остановке)
-  ['denoisePct','cnStrengthPct','cnEndPct','palettePct'].forEach(id=>{
-    const v=localStorage.getItem(id);
-    if(v && document.getElementById(id)){
-      document.getElementById(id).value=v;
-      document.getElementById(id+'Lbl').textContent=v+'%';
-    }
-  });
-  const sizeSaved=localStorage.getItem('sizePool');
-  if(sizeSaved) document.getElementById('sizePool').value=sizeSaved;
+  document.getElementById('cntHumans').oninput = e=>saveUIState('cntHumans', e.target.value);
+  document.getElementById('denoisePct').oninput = e=>{ saveUIState('denoisePct', e.target.value); document.getElementById('denoisePctLbl').textContent=e.target.value+'%'; };
+  document.getElementById('cnStrengthPct').oninput = e=>{ saveUIState('cnStrengthPct', e.target.value); document.getElementById('cnStrengthPctLbl').textContent=e.target.value+'%'; };
+  document.getElementById('cnEndPct').oninput = e=>{ saveUIState('cnEndPct', e.target.value); document.getElementById('cnEndPctLbl').textContent=e.target.value+'%'; };
+  document.getElementById('palettePct').oninput = e=>{ saveUIState('palettePct', e.target.value); document.getElementById('palettePctLbl').textContent=e.target.value+'%'; };
+  document.getElementById('sizePool').onchange = e=>saveUIState('sizePool', e.target.value);
 }
 // авто-обновление: НЕ трогает текущую вкладку, дифф-рендер не сбрасывает карточки
 setInterval(()=>{

@@ -26,11 +26,23 @@ type Server struct {
 	humans   *config.HumansConfig
 	runner   *generator.Runner
 	uiHTML   []byte
+	raceSlug map[string]string // name (races.json) → slug (id) для лора рас
+	loreDir  string            // каталог docs/gamedesign/races/
 }
 
 // NewServer создаёт Server. uiHTML — содержимое web/index.html (embed в main).
+// При старте читает config/races.json (маппинг name→slug для /race-info).
 func NewServer(cfg *config.StudioConfig, forms *config.FormsConfig, families config.FamiliesConfig, humans *config.HumansConfig, runner *generator.Runner, uiHTML []byte) *Server {
-	return &Server{cfg: cfg, forms: forms, families: families, humans: humans, runner: runner, uiHTML: uiHTML}
+	return &Server{
+		cfg:      cfg,
+		forms:    forms,
+		families: families,
+		humans:   humans,
+		runner:   runner,
+		uiHTML:   uiHTML,
+		raceSlug: loadRaceSlug("config/races.json"),
+		loreDir:  "docs/gamedesign/races",
+	}
 }
 
 // Handler возвращает роутер со всеми эндпоинтами (спека 67a.1 §6).
@@ -41,6 +53,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/races", s.handleRaces)
 	mux.HandleFunc("/refs", s.handleRefs)
 	mux.HandleFunc("/ref", s.handleRef)
+	mux.HandleFunc("/race-info", s.handleRaceInfo)
 	mux.HandleFunc("/refimg", s.handleRefImg)
 	mux.HandleFunc("/gallery", s.handleGallery)
 	mux.HandleFunc("/gallery/img", s.handleGalleryImg)

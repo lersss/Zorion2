@@ -57,7 +57,7 @@ func (s *Server) handleRaces(w http.ResponseWriter, r *http.Request) {
 	}
 	var races []map[string]string
 	for _, rc := range f.Races {
-		races = append(races, map[string]string{"id": rc.ID, "name": rc.Name})
+		races = append(races, map[string]string{"id": rc.ID, "name": rc.Name, "basis": rc.Basis})
 	}
 	writeJSON(w, map[string]interface{}{"races": races})
 }
@@ -90,10 +90,12 @@ func (s *Server) handleRef(w http.ResponseWriter, r *http.Request) {
 	pool := filepath.Join(s.cfg.PoolRoot, "races_pool")
 	var raceStatus []map[string]interface{}
 	raceOptions := ""
+	raceBasis := map[string]string{}
 	if f, ok := s.families[fam]; ok {
 		for _, rc := range f.Races {
 			has := fileExists(filepath.Join(pool, RefFileName(fam, rc.ID)))
 			raceStatus = append(raceStatus, map[string]interface{}{"id": rc.ID, "name": rc.Name, "has": has})
+			raceBasis[rc.ID] = rc.Basis
 			mark := ""
 			if has {
 				mark = "✓ "
@@ -101,7 +103,7 @@ func (s *Server) handleRef(w http.ResponseWriter, r *http.Request) {
 			raceOptions += fmt.Sprintf(`<option value="%s">%s%s</option>`, rc.ID, mark, rc.Name)
 		}
 	}
-	writeJSON(w, map[string]interface{}{"raceStatus": raceStatus, "raceOptions": raceOptions, "cands": s.readCands(pool)})
+	writeJSON(w, map[string]interface{}{"raceStatus": raceStatus, "raceOptions": raceOptions, "raceBasis": raceBasis, "cands": s.readCands(pool)})
 }
 
 func (s *Server) handleRefImg(w http.ResponseWriter, r *http.Request) {
@@ -251,7 +253,8 @@ func (s *Server) handleGenVar(w http.ResponseWriter, r *http.Request) {
 	cnEnd := atofDefault(q.Get("cn_end"), s.cfg.CNEnd)
 	size := clampSize(atoiDefault(q.Get("size"), 512))
 	palette := clampPalette(atoiDefault(q.Get("palette"), 0))
-	msg, _ := s.runner.GenVar(q.Get("fam"), q.Get("race"), n, denoise, cnStrength, cnEnd, size, palette)
+	personage := q.Get("personage") == "1"
+	msg, _ := s.runner.GenVar(q.Get("fam"), q.Get("race"), n, denoise, cnStrength, cnEnd, size, palette, personage)
 	writeJSON(w, map[string]string{"msg": msg})
 }
 
@@ -260,7 +263,8 @@ func (s *Server) handleGenRef(w http.ResponseWriter, r *http.Request) {
 	n := clampCount(atoiDefault(q.Get("n"), 12), s.cfg.MaxCount)
 	morph := q.Get("morph")
 	size := clampSize(atoiDefault(q.Get("size"), 512))
-	msg, _ := s.runner.GenRef(q.Get("fam"), n, morph, size)
+	personage := q.Get("personage") == "1"
+	msg, _ := s.runner.GenRef(q.Get("fam"), n, morph, size, personage)
 	writeJSON(w, map[string]string{"msg": msg})
 }
 

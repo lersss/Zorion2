@@ -108,8 +108,8 @@ func TestLoadFamilies(t *testing.T) {
 			if rc.Name == "" || rc.Basis == "" {
 				t.Errorf("%s/%s: name/basis пусты", fid, rc.ID)
 			}
-			if len(rc.Forms) < 2 || len(rc.Forms) > 4 {
-				t.Errorf("%s/%s: forms %d (нужно 2–4)", fid, rc.ID, len(rc.Forms))
+			if len(rc.Forms) < 2 || len(rc.Forms) > 60 {
+				t.Errorf("%s/%s: forms %d (нужно 2–60)", fid, rc.ID, len(rc.Forms))
 			}
 			if len(rc.Materials) < 2 || len(rc.Materials) > 3 {
 				t.Errorf("%s/%s: materials %d (нужно 2–3)", fid, rc.ID, len(rc.Materials))

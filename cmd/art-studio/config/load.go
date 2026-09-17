@@ -129,8 +129,8 @@ func LoadFamilies(path string) (FamiliesConfig, error) {
 			if rc.ID == "" || rc.Name == "" {
 				return nil, fmt.Errorf("%s: %s: раса с пустым id/name", path, fid)
 			}
-			if len(rc.Forms) < 2 || len(rc.Forms) > 4 {
-				return nil, fmt.Errorf("%s: %s/%s: forms %d (нужно 2–4)", path, fid, rc.ID, len(rc.Forms))
+			if len(rc.Forms) < 2 || len(rc.Forms) > 60 {
+				return nil, fmt.Errorf("%s: %s/%s: forms %d (нужно 2–60)", path, fid, rc.ID, len(rc.Forms))
 			}
 			if len(rc.Materials) < 2 || len(rc.Materials) > 3 {
 				return nil, fmt.Errorf("%s: %s/%s: materials %d (нужно 2–3)", path, fid, rc.ID, len(rc.Materials))

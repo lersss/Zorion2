@@ -244,6 +244,7 @@ export function toggleAxesCell(td) {
     td.dataset.expanded = expanded ? '0' : '1';
     const body = expanded ? topAxes(r, 4) : fullProfile(r);
     td.innerHTML = `${body} <span style="font-size:0.7rem;color:#93c5fd;">${expanded ? '▾' : '▴'}</span>`;
+    setWrap(td, !expanded);
 }
 
 // toggleRacesCell — клик по «едят: N»: список рас ↔ счётчик.
@@ -255,6 +256,19 @@ export function toggleRacesCell(td) {
         td.innerHTML = `едят: ${races.length} <span style="font-size:0.7rem;">▾</span>`;
     } else {
         td.innerHTML = `${races.join(', ')} <span style="font-size:0.7rem;">▴</span>`;
+    }
+    setWrap(td, !expanded);
+}
+
+// setWrap — при раскрытии разрешить перенос текста, чтобы длинный список
+// не растягивал таблицу за пределы экрана (горизонтальная прокрутка).
+function setWrap(td, on) {
+    if (on) {
+        td.style.whiteSpace = 'normal';
+        td.style.overflowWrap = 'anywhere';
+    } else {
+        td.style.whiteSpace = '';
+        td.style.overflowWrap = '';
     }
 }
 

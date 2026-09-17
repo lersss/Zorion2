@@ -49,6 +49,7 @@ const CATEGORY_NAMES = {
 let resourcesBound = false;
 let resourcesData = null;   // кэш ответа /admin/resources
 let resourceNames = {};     // id ресурса → имя (для колонки «Ресурсы» в покрытии)
+let resourceRaces = {};     // id ресурса → [имя расы] (кто потребляет)
 
 // initResources — ленивая инициализация при активации вкладки (как initBalancer).
 export function initResources() {
@@ -68,6 +69,7 @@ function bindFilters() {
     bind('resourcesTypeFilter', 'change', renderCatalog);
     bind('resourcesSearch', 'input', renderCatalog);
     bind('resourcesRaceFilter', 'change', renderCoverage);
+    bind('resourcesRaceFilter', 'change', renderT1);
     bind('resourcesAxisFilter', 'change', renderCoverage);
 }
 
@@ -83,7 +85,18 @@ export async function loadResources() {
         if (!res.ok) throw new Error('HTTP ' + res.status);
         resourcesData = await res.json();
         resourceNames = {};
+        resourceRaces = {};
         resourcesData.resources.forEach(r => { resourceNames[r.id] = r.name; });
+        // Обратный индекс: ресурс → какие расы его потребляют (через coverage).
+        resourcesData.races.forEach(rc => {
+            const raceLabel = rc.name || rc.race_id;
+            Object.values(rc.coverage || {}).forEach(ids => {
+                ids.forEach(id => {
+                    if (!resourceRaces[id]) resourceRaces[id] = [];
+                    if (!resourceRaces[id].includes(raceLabel)) resourceRaces[id].push(raceLabel);
+                });
+            });
+        });
         fillRaceSelect();
         fillAxisSelect();
         renderAll();
@@ -101,6 +114,7 @@ function renderAll() {
     renderSummary();
     renderCatalog();
     renderCoverage();
+    renderT1();
 }
 
 // renderSummary — сводка: «ресурсов: 20 · рас: 50 · дыр: 0».
@@ -136,13 +150,15 @@ function renderCatalog() {
         if (r.sublimating) flags.push('сублимирующий');
         if (r.supercritical) flags.push('сверхкритический');
         const closes = (r.closes || []).map(a => CHEMOTYPE_NAMES[a] || a).join(', ');
+        const races = resourceRaces[r.id] || [];
         return `<tr>
             <td>${i + 1}</td>
             <td>${r.name}${flags.length ? ` <span class="hint" style="font-size:0.75rem;">(${flags.join(', ')})</span>` : ''}</td>
             <td>${r.category_icon} ${CATEGORY_NAMES[r.category] || r.category}</td>
             <td data-id="${r.id}" onclick="toggleAxesCell(this)" style="cursor:pointer; border-bottom: 1px dotted rgba(147,197,253,0.5);">${topAxes(r, 4)} <span style="font-size:0.7rem;color:#93c5fd;">▾</span></td>
             <td>${r.t_melt} / ${r.t_boil}</td>
-            <td>${r.bridge ? 'мостовой' : 'ядерный'}${closes ? ` · кормит: ${closes}` : ''}</td>
+            <td>${r.bridge ? 'мостовой' : 'ядерный'}${closes ? ` · кормит: ${closes}` : ''}
+                <span data-id="${r.id}" onclick="toggleRacesCell(this)" style="cursor:pointer; color:#93c5fd; border-bottom: 1px dotted rgba(147,197,253,0.5); margin-left:6px; white-space:nowrap;">едят: ${races.length} ▾</span></td>
         </tr>`;
     }).join('');
 }
@@ -230,6 +246,18 @@ export function toggleAxesCell(td) {
     td.innerHTML = `${body} <span style="font-size:0.7rem;color:#93c5fd;">${expanded ? '▾' : '▴'}</span>`;
 }
 
+// toggleRacesCell — клик по «едят: N»: список рас ↔ счётчик.
+export function toggleRacesCell(td) {
+    const expanded = td.dataset.expanded === '1';
+    td.dataset.expanded = expanded ? '0' : '1';
+    const races = resourceRaces[td.dataset.id] || [];
+    if (expanded) {
+        td.innerHTML = `едят: ${races.length} <span style="font-size:0.7rem;">▾</span>`;
+    } else {
+        td.innerHTML = `${races.join(', ')} <span style="font-size:0.7rem;">▴</span>`;
+    }
+}
+
 // chemotypeLabel — читаемое имя consumption-оси («ВОД → вода»).
 function chemotypeLabel(axis) {
     return `${axis} → ${CHEMOTYPE_NAMES[axis] || axis}`;
@@ -249,4 +277,57 @@ function fillAxisSelect() {
     if (!sel) return;
     sel.innerHTML = '<option value="">Все оси</option>' +
         Object.keys(CHEMOTYPE_NAMES).map(a => `<option value="${a}">${chemotypeLabel(a)}</option>`).join('');
+}
+
+// ==================== Корзина T1 ====================
+
+// renderT1 — «Корзина T1 выбранной расы»: еда (свои ресурсы) + теневой
+// товар (из не-своих ресурсов). Спека 94a §7: корзина T1 = ресурсы без
+// переработки (только добычи) + простенький производимый товар теневым
+// механизмом для роста.
+function renderT1() {
+    const block = document.getElementById('resourcesT1Block');
+    if (!block || !resourcesData) return;
+    const raceFilter = document.getElementById('resourcesRaceFilter').value;
+    if (!raceFilter) {
+        block.innerHTML = '<span style="color:#94a3b8;">Выберите расу в фильтре выше — покажу, что ей нужно на 1 тире.</span>';
+        return;
+    }
+    const rc = resourcesData.races.find(x => x.race_id === raceFilter);
+    if (!rc) { block.innerHTML = ''; return; }
+    const label = rc.name || rc.race_id;
+
+    // Свои ресурсы: всё, что закрывает оси расы (из coverage).
+    const ownIds = new Set();
+    Object.values(rc.coverage || {}).forEach(ids => ids.forEach(id => ownIds.add(id)));
+    const own = resourcesData.resources.filter(r => ownIds.has(r.id));
+    const ownNames = own.map(r => r.name);
+
+    // Не-свои: каталог минус свои.
+    const foreign = resourcesData.resources.filter(r => !ownIds.has(r.id));
+
+    // Теневой товар T1: по типам — лучший не-свой по релевантной оси.
+    const t1 = [
+        { name: 'Топливо', axis: 'energy_density', alt: 'flammability' },
+        { name: 'Химикаты', axis: 'chemical_activity' },
+        { name: 'Конструкционные', axis: 'hardness' },
+        { name: 'Товары быта', axis: 'elasticity', any: true },
+    ].map(t => {
+        const pool = t.any ? foreign.slice(0, 3) : [bestByAxis(foreign, t.axis)];
+        const list = pool.map(r => r.name).filter(Boolean).join(', ');
+        return `<b>${t.name}:</b> ${list || '—'}`;
+    }).join('<br>');
+
+    block.innerHTML = `
+        <div style="background:#16162a; border:1px solid #2a2a4a; border-radius:8px; padding:10px 14px;">
+            <b>${label}</b> — корзина T1:
+            <div style="margin-top:6px;"><b>Еда (ресурсы диеты):</b> ${ownNames.join(', ') || '—'}</div>
+            <div style="margin-top:4px;"><b>Теневой товар (из не-своих ресурсов):</b><br>${t1}</div>
+        </div>`;
+}
+
+// bestByAxis — не-свой ресурс с максимальным значением оси (для теневого товара).
+function bestByAxis(list, axis) {
+    if (!list.length) return null;
+    return list.reduce((a, b) => (b[axis] || 0) > (a[axis] || 0) ? b : a);
 }

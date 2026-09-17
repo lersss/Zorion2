@@ -1,6 +1,6 @@
 {
   "comment": "Студия людей (F1, раса 1 Люди) — оси рандома портретов (перенос tools/human_gen.py в JSON). Промпты — английские. Голых НЕТ (правило): neg содержит naked/nude/shirtless/topless. Подстановки в prompt_template: {gender}, {skin}, {age}, {hair}, {beard} (пусто или ', <значение>'), {facial}, {expr}, {clothes}, {armor} (пусто или '<значение> '), {helmet} (пусто или '<значение> '), {scene}. Второй facial добавляется с шансом second_facial_chance.",
-  "family": "F1",
+  "family": "F0",
   "name": "Люди",
   "axes": {
     "GENDER": ["man", "woman"],

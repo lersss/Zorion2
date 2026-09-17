@@ -30,7 +30,7 @@
  .cropbar button{background:#2a7;border:none;border-radius:6px;padding:6px 12px;color:#fff;cursor:pointer}
 </style></head><body>
 <h1>Арт-студия генерации аватаров</h1>
-<div class="note">ОТБОР: генерация + принять/удалить. ЭТАЛОН: кандидаты (широкий поиск формы) -&gt; выбрать эталон -&gt; вариации (узко вокруг эталона). ЛЮДИ: портреты F1.
+<div class="note">ОТБОР: генерация + принять/удалить. ЭТАЛОН: кандидаты (широкий поиск формы) -&gt; выбрать эталон -&gt; вариации (узко вокруг эталона). ЛЮДИ: портреты F0.
 <br><span style="color:#fa0">Для антропоморфных (гуманоидов): разнообразие 52 / свобода формы 47 / отпускание 25.</span></div>
 <div class="tabs">
   <button class="tab active" id="tabbtn-pool" onclick="showTab('pool')">Отбор</button>
@@ -799,7 +799,7 @@ async function act(file, what){
 
 // ---------- ИНИЦИАЛИЗАЦИЯ ----------
 async function initFamSelects(){
-  const fams=[['F2','F2 Крио-аммиачные'],['F3','F3 Метановые'],['F4','F4 Серные'],['F5','F5 Терморедокс'],['F6','F6 Кремниевые'],['F7','F7 Небесные'],['F8','F8 Углекислые'],['F9','F9 Экзотика'],['F10','F10 Роботы и AI']];
+  const fams=[['F1','F1 Водные'],['F2','F2 Крио-аммиачные'],['F3','F3 Метановые'],['F4','F4 Серные'],['F5','F5 Терморедокс'],['F6','F6 Кремниевые'],['F7','F7 Небесные'],['F8','F8 Углекислые'],['F9','F9 Экзотика'],['F10','F10 Роботы и AI']];
   const sel=document.getElementById('fam');
   const selRef=document.getElementById('famRef');
   const selGal=document.getElementById('famGallery');

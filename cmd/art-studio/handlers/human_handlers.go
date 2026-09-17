@@ -54,7 +54,7 @@ func (s *Server) handleHumansAct(w http.ResponseWriter, r *http.Request) {
 	case "accept":
 		if _, err := os.Stat(src); err == nil {
 			acceptRoot := filepath.Join(s.cfg.PoolRoot, "final_accepted")
-			dst := filepath.Join(acceptRoot, fmt.Sprintf("race_f1_humans_%02d.png", NextAcceptHumans(acceptRoot)))
+			dst := filepath.Join(acceptRoot, fmt.Sprintf("race_f0_humans_%02d.png", NextAcceptHumans(acceptRoot)))
 			if err := resizeSave(src, dst); err != nil {
 				msg = "Ошибка: " + err.Error()
 			} else {

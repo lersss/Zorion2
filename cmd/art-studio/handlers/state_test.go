@@ -39,11 +39,11 @@ func TestNextAcceptNumber(t *testing.T) {
 	}
 }
 
-// TestNextAcceptHumans — автонумерация race_f1_humans_NN.png.
+// TestNextAcceptHumans — автонумерация race_f0_humans_NN.png.
 func TestNextAcceptHumans(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "race_f1_humans_01.png"), []byte("x"), 0644)
-	os.WriteFile(filepath.Join(dir, "race_f1_humans_02.png"), []byte("x"), 0644)
+	os.WriteFile(filepath.Join(dir, "race_f0_humans_01.png"), []byte("x"), 0644)
+	os.WriteFile(filepath.Join(dir, "race_f0_humans_02.png"), []byte("x"), 0644)
 	if n := NextAcceptHumans(dir); n != 3 {
 		t.Errorf("n = %d, want 3", n)
 	}

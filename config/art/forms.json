@@ -1525,6 +1525,13 @@
     "a colossal creature with a hooked beak and running talons on a terror-bird body, predatory"
     ],
   "category_keys": {
+  "F1": [
+   "liquid",
+   "organic",
+   "sphere",
+   "gas",
+   "crystal"
+  ],
   "F2": [
    "crystal",
    "cold",

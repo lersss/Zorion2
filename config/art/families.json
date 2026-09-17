@@ -1,5 +1,279 @@
 {
-  "comment": "Конфиг семейств рас для арт-студии (перенос tools/race_gen.py FAMILIES в JSON; F3-F9 заполнены из спеки 99.2.21 §5 — основы рас). Для каждой расы: id (номер из 99.2.21), name (русское, с номером — как в прототипе), basis (основа из 99.2.21, справочно), forms (2-4 фразы), materials (2-3), glows (2-3). extra/anchor/scene/neg — общие шаблоны семейства (как F2). Промпты — английские, имена — русские. F1 (люди) — отдельный файл humans.json.",
+  "comment": "Конфиг семейств рас для арт-студии (перенос tools/race_gen.py FAMILIES в JSON; F3-F9 заполнены из спеки 99.2.21 §5 — основы рас; F1 — Водные, расы 2-4, из 99.2.21 §5 + docs/gamedesign/races/, спека 88a.1). Для каждой расы: id (номер из 99.2.21), name (русское, с номером — как в прототипе), basis (основа из 99.2.21, справочно), forms (2-60 фраз), materials (2-3), glows (2-3). extra/anchor/scene/neg — общие шаблоны семейства (как F2). Промпты — английские, имена — русские. Люди (раса 1) — отдельный файл humans.json.",
+  "F1": {
+    "name": "Водные",
+    "races": [
+      {
+        "id": "2",
+        "name": "2 Океаниды",
+        "basis": "вода, океаны",
+        "forms": [
+          "a sleek fish-like body covered in shimmering scales",
+          "a school of slender swimmers filtering plankton through their gills",
+          "a lone gliding body with a long finned tail",
+          "a pod of smooth bodies riding a warm current",
+          "a fan of gill fronds catching the flow",
+          "a veil of plankton drawn into a feeding mouth",
+          "a colony of reef-dwellers on a sunlit shelf",
+          "a drifting kelp-archipelago settlement",
+          "a coral-and-shell town on a shallow bank",
+          "a field of filter-feeders hanging in the water column",
+          "a cloud of fry following a parent school",
+          "a single explorer gliding through a kelp forest",
+          "a ring of bodies circling a plankton bloom",
+          "a migration line stretching along a current",
+          "a dome of woven algae over a resting pod",
+          "a cluster of egg-masses anchored to a reef wall",
+          "a school spiraling upward at dusk",
+          "a solitary hunter with a wide filtering mouth",
+          "a chain of bodies linked by sound calls",
+          "a bed of sea-grass colonies on a gentle slope",
+          "a tower of coral chambers with swimming dwellers",
+          "a wave of bodies moving with the tide",
+          "a scatter of young swimmers in a warm lagoon",
+          "a herd of grazers cropping a kelp meadow",
+          "a spiral of bodies descending into the deep",
+          "a reef-city of intergrown coral and shell",
+          "a single body with a glowing fin-line",
+          "a flock of gliders skimming the surface",
+          "a network of sound-mapped currents with a colony at its center",
+          "a grove of giant kelp with a village woven in",
+          "a stream of bodies migrating between feeding grounds",
+          "a cluster of filter towers in a plankton-rich layer",
+          "a calm body drifting with neutral buoyancy",
+          "a field of resting pods in a quiet bay",
+          "a veil of shimmering scales catching the light",
+          "a school splitting around a reef",
+          "a dome of shell-built homes on a sandy bank",
+          "a line of scouts following a scent trail",
+          "a colony of the open ocean, drifting with the algae",
+          "a city of the currents, never still"
+        ],
+        "materials": [
+          "translucent aquatic tissue, pale blue-green",
+          "shimmering scale-covered skin, wet",
+          "kelp and coral organic matter"
+        ],
+        "glows": [
+          "soft bioluminescent shimmer",
+          "pale blue inner glow",
+          "gentle phosphorescent light"
+        ]
+      },
+      {
+        "id": "3",
+        "name": "3 Глубинники",
+        "basis": "вода подлёдного океана",
+        "forms": [
+          "a soft-bodied creature with long trailing tentacles",
+          "a reef of pale forms around a black smoker",
+          "a slow colony pulsing with faint light",
+          "a cluster of chemosynthetic gardens at a vent",
+          "a veil of mineral smoke with drifting dwellers",
+          "a dark-adapted body with luminous spots",
+          "a patient ring of feeders at a hot seam",
+          "a field of tubeworm-like growths on a chimney",
+          "a single glowing being hovering in the dark water",
+          "a settled city of a thousand years at one vent",
+          "a fan of pale tendrils sifting the mineral flow",
+          "a cluster of soft bodies resting on a vent shelf",
+          "a spiral of luminous dots around a smoker",
+          "a chain of vent-cities linked by chemical trails",
+          "a dome of pale tissue over a hot mouth",
+          "a single slow body drifting between sources",
+          "a field of chemosynthetic mats on the seafloor",
+          "a ring of feeders around a warm crack",
+          "a veil of bioluminescent flashes in the dark",
+          "a colony of the abyss, patient and still",
+          "a tower of mineral-crusted growths at a source",
+          "a school of pale swimmers in a thermal plume",
+          "a cluster of egg-cases anchored near a vent",
+          "a single body with a glowing lure",
+          "a network of vent fields mapped by memory",
+          "a dome of soft bodies over a chimney mouth",
+          "a field of slow grazers on a bacterial mat",
+          "a spiral of tentacled forms rising from a source",
+          "a city of the deep, lit by faint chemosynthesis",
+          "a lone wanderer crossing a food desert",
+          "a cluster of pale forms at a fresh vent",
+          "a veil of mineral snow settling through the dark",
+          "a ring of luminous bodies around a hot spring",
+          "a single ancient being on a long-stable vent",
+          "a field of chimneys each with a clinging colony",
+          "a school of the dark, moving as one",
+          "a dome of soft tissue with a thousand luminous points",
+          "a chain of colonies along a geothermal seam",
+          "a patient body absorbing the mineral flow",
+          "a reef of the abyss, lit from within"
+        ],
+        "materials": [
+          "soft pale pressure-adapted tissue",
+          "mineral-crusted organic matter",
+          "translucent deep-water flesh with mineral veins"
+        ],
+        "glows": [
+          "dim bioluminescent glow",
+          "faint blue-green chemosynthetic light",
+          "scattered soft luminous spots"
+        ]
+      },
+      {
+        "id": "4",
+        "name": "4 Прибрежные",
+        "basis": "вода + соляные отмели",
+        "forms": [
+          "a webbed-handed body wading through the shallows",
+          "a stilt-village of coral and stone above the tide line",
+          "a line of salt gatherers crossing a drying flat",
+          "a basket of harvested salt on a webbed shoulder",
+          "a settlement on piles over the surf",
+          "a flat of white salt crust with busy figures",
+          "a tidepool cluster of resting bodies",
+          "a coral-pile home raised above the high water",
+          "a herd of waders moving with the falling tide",
+          "a salt-caked figure returning from the flats",
+          "a village of stilt-homes linked by rope bridges",
+          "a field of drying salt racks on a warm bank",
+          "a single wader with a wide salt-scraping hand",
+          "a cluster of homes on a coral reef shelf",
+          "a line of figures carrying salt to the stores",
+          "a dome of woven reed over a stilt platform",
+          "a school of young swimmers in a tidal pool",
+          "a settlement on a shell-mound above the surf",
+          "a chain of stilt-villages along the shore",
+          "a salt-glazed body resting in the shallows",
+          "a field of brine pools with gathering figures",
+          "a single figure scraping salt at the tide's edge",
+          "a cluster of webbed forms crossing a mudflat",
+          "a tower of coral and stone over the breakers",
+          "a herd of waders resting at high tide",
+          "a network of stilt-walks over the lagoon",
+          "a salt-encrusted settlement on a drying flat",
+          "a school of the shallows following the tide",
+          "a dome of shell-built storehouses on piles",
+          "a line of figures at a salt seam",
+          "a village of the tide line, raised and dry",
+          "a cluster of bodies with webbed hands at rest",
+          "a field of tidal pools with busy gatherers",
+          "a single figure wading with a full basket",
+          "a settlement of the flats, salt-white and busy",
+          "a chain of homes along a coral ridge",
+          "a herd of waders crossing a shallow bank",
+          "a dome of woven kelp over a stilt home",
+          "a line of the shore, moving with the tides",
+          "a city of the tide line, built above the water"
+        ],
+        "materials": [
+          "salt-crusted tough hide",
+          "coral and stone, wet",
+          "brine-hardened organic matter"
+        ],
+        "glows": [
+          "pale salt-glint in the sun",
+          "soft reflective sheen",
+          "warm amber light from stilt-homes"
+        ]
+      }
+    ],
+    "beast_forms": [
+      "a creature with dolphin snout and smooth finned back on a sleek swimmer body, made of shimmering scale",
+      "a creature with ray wings and a wide filtering mouth on a manta body, made of wet skin",
+      "a creature with seal head and whiskered muzzle on a sleek swimmer body, made of pale water-slick hide",
+      "a creature with turtle beak and a smooth shell on a sea-turtle body, made of coral plate",
+      "a creature with sea-lion whiskers and flippered forelimbs on a sleek swimmer body, made of wet hide",
+      "a creature with otter ears and a long tail on a river-swimmer body, made of water-slick fur",
+      "a creature with penguin beak and a white chest on a diving body, made of dense feather",
+      "a creature with albatross wings and webbed feet on a surface-glider body, made of salt spray",
+      "a creature with jellyfish bell and trailing tentacles on a drifting body, made of translucent water",
+      "a creature with octopus arms and sucker-lined tentacles on a soft body, made of wet tissue",
+      "a creature with squid fins and a jetting mantle on a torpedo body, made of pale ink",
+      "a creature with shrimp feelers and a translucent shell on a filterer body, made of brine",
+      "a creature with crab claws and a domed shell on a reef-crawler body, made of coral",
+      "a creature with lobster antennae and jointed armor on a reef-crawler body, made of shell plate",
+      "a creature with starfish arms and slow-turning rays on a seafloor body, made of wet stone",
+      "a creature with urchin spines and a rounded test on a slow body, made of lime",
+      "a creature with anemone tentacles and swaying fronds on a reef body, made of soft coral",
+      "a creature with coral branches and polyp mouths on a reef body, made of living stone",
+      "a creature with sponge pores and a slow-growing body on a reef shelf, made of porous tissue",
+      "a creature with seahorse snout and a curled tail on a small swimmer body, made of scale",
+      "a creature with eel jaws and a long finned body on a serpentine swimmer, made of wet skin",
+      "a creature with manta wings and a wide mouth on a gliding body, made of pale skin",
+      "a creature with dolphin head and a playful fin on a pod-swimmer body, made of shimmering scale",
+      "a creature with whale flukes and a vast mouth on a filterer body, made of baleen",
+      "a creature with kelp-frond limbs and a swaying body on a slow drifter, made of woven algae",
+      "a creature with anglerfish lure and a glowing tip on a dark body, made of bioluminescent tissue",
+      "a creature with gulper jaws and a distended belly on a deep body, made of soft pale flesh",
+      "a creature with giant-squid tentacles and a mantle on a deep body, made of mineral-veined flesh",
+      "a creature with vampire-squid webbed arms and a cloak-like body, made of dark membrane",
+      "a creature with tube-worm plumes and a rooted body on a vent chimney, made of mineral crust",
+      "a creature with vent-crab claws and a pale shell on a chimney-crawler body, made of sulfide",
+      "a creature with yeti-crab furred arms and a pale body on a vent shelf, made of mineral wool",
+      "a creature with snailfish head and translucent fins on a pressure body, made of soft gel",
+      "a creature with viperfish fangs and a glowing jaw on a dark body, made of cold light",
+      "a creature with dragonfish barbel and a luminous chin on a deep body, made of faint glow",
+      "a creature with hatchetfish eyes and a silver belly on a small body, made of mirror scale",
+      "a creature with isopod plates and a segmented back on a deep crawler, made of chitin",
+      "a creature with amphipod limbs and a translucent body on a drifter, made of pale tissue",
+      "a creature with sea-spider legs and a tiny body on a vent crawler, made of thin chitin",
+      "a creature with bristle-worm jaws and a segmented body on a vent dweller, made of pale bristle",
+      "a creature with a cyclopean eye and a glowing lure on a deep hunter, made of dark flesh",
+      "a creature with a wide mouth and needle teeth on a deep ambusher, made of soft tissue",
+      "a creature with mudskipper eyes and a salt-caked back on a wading body, made of tough hide",
+      "a creature with flounder eyes and a flat body on a bottom-dweller, made of sand-colored skin",
+      "a creature with stingray wings and a barbed tail on a shallow-glider body, made of wet skin",
+      "a creature with heron beak and long wading legs on a shore body, made of salt spray",
+      "a creature with gull wings and a sharp beak on a shore-glider body, made of brine",
+      "a creature with clam lips and a sealed shell on a burrower body, made of lime",
+      "a creature with oyster plates and a rough shell on a reef body, made of stone",
+      "a creature with barnacle plates and feeding cirri on a tide-pool body, made of salt crust"
+    ],
+    "anthro_clothes": [
+      "a cloak of woven kelp",
+      "a robe of fish-scale mail",
+      "armor of coral plates",
+      "a crown of bioluminescent tendrils",
+      "a mantle of sea-silk",
+      "a headdress of anemone fronds",
+      "a sash of pearl beads",
+      "a coat of salt-crusted hide",
+      "a veil of jellyfish bells",
+      "a harness of braided seaweed",
+      "a gown of shimmering scale",
+      "a shawl of drifting plankton light",
+      "a belt of shell links",
+      "a hood of translucent water-skin",
+      "a cloak of brine-soaked fiber",
+      "a crown of coral branches",
+      "armor of turtle-shell plates",
+      "a robe trimmed with luminous spots",
+      "a headdress of glowing lures",
+      "a mantle of sponge tissue",
+      "a scarf of jellyfish silk",
+      "a girdle of sea-glass beads",
+      "a wide-brimmed hat of woven reed",
+      "a cape of ray-skin",
+      "a collar of barnacle studs",
+      "a gown of deep-sea membrane",
+      "a shawl of salt crystals",
+      "a helm of whale-bone",
+      "a cloak of bioluminescent algae",
+      "a train of kelp ribbons",
+      "a mask of mother-of-pearl",
+      "a ceremonial robe of living coral"
+    ],
+    "anthro_neg": "text, watermark, blurry, low quality, deformed, ugly, duplicate, extra fingers, extra limbs, malformed, disfigured, 3D render, cartoon, anime, illustration, painting, drawing, red, orange, yellow, magenta, brown, purple, pink, cropped, cut off, out of frame, asymmetric eyes",
+    "extra": [
+      "no face, no eyes, no mouth",
+      "no face, no eyes, no mouth, no human features",
+      "no face, no eyes, no mouth, asymmetric"
+    ],
+    "anchor": [
+      "drifting freely in the water column, suspended in the frame",
+      "standing on the seafloor, anchored to the bottom edge of the frame"
+    ],
+    "scene": "on flat dark blue background, on flat deep underwater blue background",
+    "neg": "text, watermark, blurry, low quality, deformed, ugly, duplicate, 3D render, cartoon, anime, human, person, face, eyes, nose, mouth, ears, chin, shoulders, head, portrait, symmetrical, human anatomy, structure, machine, pipe, chimney, corrugation, cave, scenery, logo, icon, pattern, seamless, full frame, creature, lifeform, being, monster, naked, nude, magenta, red, cropped, cut off"
+  },
   "F2": {
     "name": "Крио-аммиачные",
     "races": [
@@ -437,8 +711,8 @@
       "no face, no eyes, no mouth, asymmetric"
     ],
     "anchor": [
-      "anchored by a solid ice base extending to the bottom edge of the frame",
-      "anchored by a mineral base extending down, NOT floating"
+      "anchored by a solid ice base standing on the bottom edge of the frame",
+      "anchored by a mineral base standing firmly, NOT floating"
     ],
     "scene": "on flat dark grey background, on flat dark blue background",
     "neg": "text, watermark, blurry, low quality, deformed, ugly, duplicate, 3D render, cartoon, anime, human, person, face, eyes, nose, mouth, ears, chin, shoulders, head, portrait, symmetrical, human anatomy, building, structure, machine, pipe, chimney, castle, architecture, organ, flesh, meat, ribs, corrugation, wavy, fish, animal, cave, scenery, logo, icon, pattern, seamless, full frame, creature, lifeform, being, monster, crystal, crystalline, shard, spike, prism, gem, mineral, gemstone, naked, nude, blue, green, magenta, red, cropped, cut off, floating, no base"
@@ -768,8 +1042,8 @@
       "no face, no eyes, no mouth, asymmetric"
     ],
     "anchor": [
-      "anchored by a solid ice base extending to the bottom edge of the frame",
-      "anchored by a mineral base extending down, NOT floating"
+      "anchored by a solid ice base standing on the bottom edge of the frame",
+      "anchored by a mineral base standing firmly, NOT floating"
     ],
     "scene": "on flat dark grey background, on flat dark blue background",
     "neg": "text, watermark, blurry, low quality, deformed, ugly, duplicate, 3D render, cartoon, anime, human, person, face, eyes, nose, mouth, ears, chin, shoulders, head, portrait, symmetrical, human anatomy, building, structure, machine, pipe, chimney, castle, architecture, organ, flesh, meat, ribs, corrugation, wavy, fish, animal, cave, scenery, logo, icon, pattern, seamless, full frame, creature, lifeform, being, monster, crystal, crystalline, shard, spike, prism, gem, mineral, gemstone, naked, nude, blue, green, magenta, red, cropped, cut off, floating, no base"
@@ -1381,8 +1655,8 @@
       "no face, no eyes, no mouth, asymmetric"
     ],
     "anchor": [
-      "anchored by a solid rock base extending to the bottom edge of the frame",
-      "anchored by a mineral base extending down, NOT floating"
+      "anchored by a solid rock base standing on the bottom edge of the frame",
+      "anchored by a mineral base standing firmly, NOT floating"
     ],
     "scene": "on flat dark grey background, on flat dark brown background",
     "neg": "text, watermark, blurry, low quality, deformed, ugly, duplicate, 3D render, cartoon, anime, human, person, face, eyes, nose, mouth, ears, chin, shoulders, head, portrait, symmetrical, human anatomy, building, castle, architecture, organ, flesh, meat, ribs, corrugation, wavy, fish, animal, cave, scenery, logo, icon, pattern, seamless, full frame, creature, lifeform, being, monster, crystal, crystalline, shard, spike, prism, gem, gemstone, naked, nude, blue, green, magenta, cropped, cut off, floating, no base"
@@ -2046,8 +2320,8 @@
       "no face, no eyes, no mouth, asymmetric"
     ],
     "anchor": [
-      "anchored by a solid rock base extending to the bottom edge of the frame",
-      "anchored by a mineral base extending down, NOT floating"
+      "anchored by a solid rock base standing on the bottom edge of the frame",
+      "anchored by a mineral base standing firmly, NOT floating"
     ],
     "scene": "on flat dark grey background, on flat dark brown background",
     "neg": "text, watermark, blurry, low quality, deformed, ugly, duplicate, 3D render, cartoon, anime, human, person, face, eyes, nose, mouth, ears, chin, shoulders, head, portrait, symmetrical, human anatomy, building, castle, architecture, organ, flesh, meat, ribs, corrugation, wavy, fish, animal, cave, scenery, logo, icon, pattern, seamless, full frame, creature, lifeform, being, monster, gem, gemstone, prism, naked, nude, blue, green, magenta, cropped, cut off, floating, no base"
@@ -2491,8 +2765,8 @@
       "no face, no eyes, no mouth, asymmetric"
     ],
     "anchor": [
-      "anchored by a solid crystal base extending to the bottom edge of the frame",
-      "anchored by a mineral base extending down, NOT floating"
+      "anchored by a solid crystal base standing on the bottom edge of the frame",
+      "anchored by a mineral base standing firmly, NOT floating"
     ],
     "scene": "on flat dark grey background, on flat dark blue-grey background",
     "neg": "text, watermark, blurry, low quality, deformed, ugly, duplicate, 3D render, cartoon, anime, human, person, face, eyes, nose, mouth, ears, chin, shoulders, head, portrait, symmetrical, human anatomy, building, castle, architecture, organ, flesh, meat, ribs, corrugation, wavy, fish, animal, cave, scenery, logo, icon, pattern, seamless, full frame, creature, lifeform, being, monster, naked, nude, blue, green, magenta, cropped, cut off, floating, no base"
@@ -3039,7 +3313,7 @@
       "no face, no eyes, no mouth, asymmetric"
     ],
     "anchor": [
-      "anchored by a solid ice base extending to the bottom edge of the frame",
+      "anchored by a solid ice base standing on the bottom edge of the frame",
       "anchored by a dense gas core, NOT floating"
     ],
     "scene": "on flat dark grey background, on flat dark blue background",
@@ -4100,8 +4374,8 @@
       "no face, no eyes, no mouth, asymmetric"
     ],
     "anchor": [
-      "anchored by a solid metal base extending to the bottom edge of the frame",
-      "anchored by a mechanical base extending down, NOT floating"
+      "anchored by a solid metal base standing on the bottom edge of the frame",
+      "anchored by a mechanical base standing firmly, NOT floating"
     ],
     "scene": "on flat dark grey background, on flat dark blue background",
     "neg": "text, watermark, blurry, low quality, deformed, ugly, duplicate, 3D render, cartoon, anime, human, person, face, eyes, nose, mouth, ears, chin, shoulders, head, portrait, symmetrical, human anatomy, organ, flesh, meat, ribs, biological, organic, plant, leaf, flower, tree, fur, skin, feather, scale, bone, fish, animal, cave, scenery, logo, icon, pattern, seamless, full frame, creature, lifeform, being, monster, naked, nude, magenta, purple, pink, brown, cropped, cut off, floating, no base"

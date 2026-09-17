@@ -10,7 +10,7 @@ const (
 
 // TestLoadForms — словарь форм: 55×50×40×50 компонентов (расширен газом/туманом,
 // решение создателя 2026-09-17) + 43 антропо-формы + palette_accents
-// + category_keys F2–F10 (инвариант 67a.1 §11.6, 76a.1 §6.6).
+// + category_keys F1–F10 (инвариант 67a.1 §11.6, 76a.1 §6.6, 88a.1 §6.5).
 func TestLoadForms(t *testing.T) {
 	fc, err := LoadForms(formsPath)
 	if err != nil {
@@ -50,15 +50,15 @@ func TestLoadForms(t *testing.T) {
 	if len(fc.PaletteAccents) == 0 {
 		t.Errorf("palette_accents пуст")
 	}
-	for _, fam := range []string{"F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10"} {
+	for _, fam := range []string{"F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10"} {
 		if len(fc.CategoryKeys[fam]) == 0 {
 			t.Errorf("category_keys[%s] пуст", fam)
 		}
 	}
 }
 
-// TestLoadFamilies — 56 рас F2–F10, id из 99.2.21 §5 и 99.2.24 (F10),
-// непустые поля, морф-наборы у всех семейств (инварианты 67a.1 §11.6, 76a.1 §6).
+// TestLoadFamilies — 59 рас F1–F10, id из 99.2.21 §5 и 99.2.24 (F10),
+// непустые поля, морф-наборы у всех семейств (инварианты 67a.1 §11.6, 76a.1 §6, 88a.1 §6).
 func TestLoadFamilies(t *testing.T) {
 	fam, err := LoadFamilies(familiesPath)
 	if err != nil {
@@ -68,10 +68,11 @@ func TestLoadFamilies(t *testing.T) {
 	for _, f := range fam {
 		total += len(f.Races)
 	}
-	if total != 56 {
-		t.Errorf("всего рас = %d, want 56", total)
+	if total != 59 {
+		t.Errorf("всего рас = %d, want 59", total)
 	}
 	want := map[string][]string{
+		"F1":  {"2", "3", "4"},
 		"F2":  {"5", "6", "7", "8", "9", "48"},
 		"F3":  {"11", "12", "13", "14"},
 		"F4":  {"15", "16", "17", "18", "19", "20", "21", "22", "43"},
@@ -119,7 +120,7 @@ func TestLoadFamilies(t *testing.T) {
 			}
 		}
 	}
-	for _, fid := range []string{"F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10"} {
+	for _, fid := range []string{"F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10"} {
 		if len(fam[fid].BeastForms) == 0 {
 			t.Errorf("%s: beast_forms пуст", fid)
 		}

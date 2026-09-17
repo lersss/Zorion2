@@ -19,11 +19,11 @@ func NextAcceptNumber(dir string) int {
 	}
 }
 
-// NextAcceptHumans — первый свободный номер race_f1_humans_NN.png.
+// NextAcceptHumans — первый свободный номер race_f0_humans_NN.png.
 func NextAcceptHumans(dir string) int {
 	n := 1
 	for {
-		if _, err := os.Stat(filepath.Join(dir, fmt.Sprintf("race_f1_humans_%02d.png", n))); err != nil {
+		if _, err := os.Stat(filepath.Join(dir, fmt.Sprintf("race_f0_humans_%02d.png", n))); err != nil {
 			return n
 		}
 		n++

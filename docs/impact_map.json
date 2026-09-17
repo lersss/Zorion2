@@ -63,6 +63,59 @@
       ]
     },
     {
+      "id": "18b_settlement_log.md",
+      "type": "doc",
+      "path": "docs/gamedesign/18b_settlement_log.md",
+      "note": "GDD-док «Лог поселения» (записи «Вымерло», таблица settlement_log, миграция 000024); вынесен из 18a_population_death.md 2026-09-18 (идея 92a); тема: дата смерти, причина, схема, анти-дубль и синк, бэкфилл — отменён, UI",
+      "impacts": [
+        { "on": "18a_population_death.md", "kind": "reads", "reason": "18a ссылается на 18b (лог вынесен); R-модель смертности и лог — смежные темы" },
+        { "on": "settlement_log", "kind": "duplicates", "reason": "таблица settlement_log (000024) задокументирована в доке: схема, uq_settlement_log_extinct, дата/причина" },
+        { "on": "internal/repository/economy_repository.go", "kind": "reads", "reason": "комментарии: RecomputeSettlementPopulation пишет «Вымерло» (анти-дубль uq), GetSettlementLogBySettlementIDs — 3 записи (UI)" },
+        { "on": "internal/repository/economy_repository_log_test.go", "kind": "test", "reason": "тесты лога ссылаются на §Анти-дубль/§Бэкфилл" },
+        { "on": "internal/models/economy.go", "kind": "reads", "reason": "SettlementLogEntry (лог поселения) — модель записи; DeathCause — код причины" },
+        { "on": "internal/economy/settlement/death.go", "kind": "reads", "reason": "DeathTime/причины гибели (heat/cold/…) — §Причина; логика «Вымерло»" },
+        { "on": "internal/repository/planet_repo.go", "kind": "reads", "reason": "attachSettlements читает лог (settlements[].log, 3 записи)" },
+        { "on": "web/static/js/modal/tabs.js", "kind": "reads", "reason": "settlementLogRows: код причины → текст, блок лога в карточке поселения" },
+        { "on": "migrations/000024_create_settlement_log.sql", "kind": "duplicates", "reason": "схема таблицы и анти-дубль — в доке и миграции" },
+        { "on": "docs/specs/99.2.12-temperature-mortality-calibration.md", "kind": "duplicates", "reason": "спека ссылается на «событие „Вымерло“» → 18b §Дата смерти" },
+        { "on": "docs/specs/99.2.16-natality-life-expectancy.md", "kind": "duplicates", "reason": "связи: механизм 18a + лог 18b; DeathCause — в 18b" },
+        { "on": "docs/specs/99.2.21-races-v1.md", "kind": "duplicates", "reason": "связи: R-модель 18a, лог «Вымерло» 18b" },
+        { "on": "docs/specs/99.2.23-race-r-curves-twins.md", "kind": "duplicates", "reason": "упоминание лога «Вымерло» → 18b" },
+        { "on": "docs/specs/99.2.24-robots-ai.md", "kind": "duplicates", "reason": "settlement_log, механизм 18a → 18b" },
+        { "on": "docs/GLOSSARY.md", "kind": "duplicates", "reason": "термин «Лог поселения» → 18b (источник)" },
+        { "on": "docs/PITFALLS.md", "kind": "duplicates", "reason": "ловушка «событие vs лог» → 18b" },
+        { "on": "docs/DB.md", "kind": "duplicates", "reason": "ссылка на срез лога → 18b" }
+      ]
+    },
+    {
+      "id": "18a_population_death.md",
+      "type": "doc",
+      "path": "docs/gamedesign/18a_population_death.md",
+      "note": "GDD-док «Смертность населения от среды»: R-модель (99.2.13), температурный профиль (99.2.12), рождаемость (99.2.16); «Лог поселения» вынесен в 18b (идея 92a)",
+      "impacts": [
+        { "on": "18b_settlement_log.md", "kind": "reads", "reason": "18a ссылается на 18b (лог вынесен); R-модель и лог — смежные темы" },
+        { "on": "config/race_balancer.json", "kind": "reads", "reason": "R-модель использует active-кривые (пересчёт населения)" },
+        { "on": "internal/economy/settlement/*.go", "kind": "reads", "reason": "пересчёт населения по R-модели, чек-точка, DeathTime (death.go)" },
+        { "on": "docs/specs/99.2.12-temperature-mortality-calibration.md", "kind": "duplicates", "reason": "калибровка температурного профиля — источник чисел 18a" },
+        { "on": "docs/specs/99.2.13-other-factors-r-model.md", "kind": "duplicates", "reason": "R-модель — источник механики" },
+        { "on": "docs/specs/99.2.16-natality-life-expectancy.md", "kind": "duplicates", "reason": "рождаемость реализована — связь с 18a" },
+        { "on": "docs/GLOSSARY.md", "kind": "duplicates", "reason": "термины смертности/R-модели — глоссарий" }
+      ]
+    },
+    {
+      "id": "settlement_log",
+      "type": "table",
+      "path": "db:settlement_log",
+      "note": "таблица лога поселения (000024): settlement_id, death_at, cause, population_exact; uq_settlement_log_extinct — анти-дубль; бэкфилл отменён",
+      "impacts": [
+        { "on": "18b_settlement_log.md", "kind": "duplicates", "reason": "схема таблицы задокументирована в доке (Дата смерти, Причина, Анти-дубль)" },
+        { "on": "migrations/000024_create_settlement_log.sql", "kind": "duplicates", "reason": "миграция создаёт таблицу и uq-индекс" },
+        { "on": "internal/repository/economy_repository.go", "kind": "reads", "reason": "INSERT ... ON CONFLICT DO NOTHING (анти-дубль uq_settlement_log_extinct), GetSettlementLogBySettlementIDs" },
+        { "on": "internal/models/economy.go", "kind": "reads", "reason": "SettlementLogEntry — модель записи лога" },
+        { "on": "internal/repository/planet_repo.go", "kind": "reads", "reason": "attachSettlements читает лог (settlements[].log, 3 записи)" }
+      ]
+    },
+    {
       "id": "99.2.21",
       "type": "spec",
       "path": "docs/specs/99.2.21-races-v1.md",

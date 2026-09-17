@@ -1,0 +1,94 @@
+{
+  "_comment": "Реестр каскадных влияний Zorion. Вопрос: «меняем X → смотрим на Y». Ведёт @manager при сдаче фич (идея 83a): дедупликация по entity.id, schema_version растёт только при изменении структуры, updated_at — дата правки. Сущность заводится при ≥2 потребителях или ≥2 влияниях.",
+  "schema_version": 1,
+  "updated_at": "2026-09-17",
+  "entities": [
+    {
+      "id": "races.json",
+      "type": "config",
+      "path": "config/races.json",
+      "note": "каталог 60 рас (50 био + 10 роботов): окна opt/surv, атрибуты, потребление 13 осей, forage, home, bulge",
+      "impacts": [
+        { "on": "race_balancer.json", "kind": "derives", "reason": "R-кривые генерируются из карточки (99.2.23 §3.3); card_hash устаревает → пометка «заводские устарели», factory перегенерировать" },
+        { "on": "internal/generator/settlement/races_test.go", "kind": "test", "reason": "тесты генератора поселений ссылаются на race_id и T-окна (80a §9.3: T 450→520)" },
+        { "on": "22_races.md", "kind": "duplicates", "reason": "карточки дублируются в справочнике (§3/§4 — имена/лор); числа не копируются (§8.1), имена/основы — да" },
+        { "on": "docs/gamedesign/races/*.md", "kind": "duplicates", "reason": "60 лор-файлов по расе; правка карточки (имя/основа) устаревает лор" },
+        { "on": "99.2.21", "kind": "duplicates", "reason": "числа карточек зафиксированы в спеке §5; правка карточки = правка спеки" },
+        { "on": "config/art/*.json", "kind": "reads", "reason": "морфы/формы/материалы строятся от имён и basis (67a.1, 76a.1, 78a.1)" },
+        { "on": "internal/races/catalog.go", "kind": "reads", "reason": "LoadCatalog валидирует карточки при старте; новые поля = правка валидации" },
+        { "on": "settlements.race_id", "kind": "schema", "reason": "строковый ключ ссылается на id расы; смена id = миграция данных (000039/000038)" }
+      ]
+    },
+    {
+      "id": "race_balancer.json",
+      "type": "balance",
+      "path": "config/race_balancer.json",
+      "note": "R-кривые рас: factory (снимок из карточки) + active (настроенная), card_hash; env RACE_BALANCER_FILE",
+      "impacts": [
+        { "on": "races.json", "kind": "derives", "reason": "card_hash сверяется с карточкой; устаревание → «Сгенерировать из карточки» (99.2.23 §4.4)" },
+        { "on": "internal/economy/settlement/race_balancer.go", "kind": "reads", "reason": "store читает файл при старте (race_balancer_file.go: tmp+rename, битый JSON → лог)" },
+        { "on": "internal/handlers/admin_race_balancer.go", "kind": "api", "reason": "вкладка «Балансировка»: кривые, generate, status" },
+        { "on": "docs/specs/99.2.23-race-r-curves-twins.md", "kind": "duplicates", "reason": "механика factory/active/card_hash описана в спеке" },
+        { "on": "docs/gamedesign/18a_population_death.md", "kind": "reads", "reason": "R-модель населения использует active-кривые (пересчёт)" }
+      ]
+    },
+    {
+      "id": "settlements.race_id",
+      "type": "table",
+      "path": "db:settlements",
+      "note": "колонка settlements.race_id (000039) + regions.race_id (000038); NULL = легаси/люди; две расы на планете = два ряда",
+      "impacts": [
+        { "on": "races.json", "kind": "reads", "reason": "значение = id из каталога; смена id расы = UPDATE данных + проверка регионов" },
+        { "on": "internal/generator/settlement/races.go", "kind": "writes", "reason": "генератор поселений пишет race_id (65a)" },
+        { "on": "internal/repository/economy_repository.go", "kind": "reads", "reason": "репозиторий читает race_id для пересчёта населения и карточек поселений (строки 37/56/85/108); planet_repo.go:138 — race_name в JSON-выводе" },
+        { "on": "docs/gamedesign/13_tiers_impl.md", "kind": "duplicates", "reason": "структура таблицы задокументирована (race_id, NULL=легаси)" },
+        { "on": "99.2.21", "kind": "duplicates", "reason": "§2.3/§7.4: race_id, сосуществование двух рас" }
+      ]
+    },
+    {
+      "id": "22_races.md",
+      "type": "doc",
+      "path": "docs/gamedesign/22_races.md",
+      "note": "GDD-справочник рас (лор); источник фактов — config/races.json и спеки 99.2.21–99.2.24",
+      "impacts": [
+        { "on": "races.json", "kind": "reads", "reason": "справочник строится от карточек; числа не копирует (§8.1), имена/лор — да" },
+        { "on": "docs/gamedesign/races/*.md", "kind": "writes", "reason": "сводный справочник ссылается на 60 файлов рас; правка лора синхронизируется" },
+        { "on": "config/art/*.json", "kind": "reads", "reason": "арт-студия берёт слова/материалы из справочника (78a.1)" },
+        { "on": "99.2.21", "kind": "duplicates", "reason": "справочник — задел из спеки §15; расхождения = правка одного из двух" }
+      ]
+    },
+    {
+      "id": "99.2.21",
+      "type": "spec",
+      "path": "docs/specs/99.2.21-races-v1.md",
+      "note": "спека «Расы» + строка роадмапа §99.2.21 (✅ Реализовано 2026-09-17)",
+      "impacts": [
+        { "on": "races.json", "kind": "duplicates", "reason": "числа карточек (§5) и инварианты (§16) — источник конфига; правка спеки = правка конфига" },
+        { "on": "22_races.md", "kind": "writes", "reason": "справочник создан из спеки §15; правка спеки устаревает справочник" },
+        { "on": "docs/specs/README.md", "kind": "docs", "reason": "манифест спек: строка 99.2.21 (статус/дата)" },
+        { "on": "99_roadmap.md", "kind": "docs", "reason": "строка §99.2.21 — статус фичи; правка спеки = актуализация строки" }
+      ]
+    },
+    {
+      "id": "99_roadmap.md",
+      "type": "doc",
+      "path": "docs/gamedesign/99_roadmap.md",
+      "note": "горячий док: статусы фич §99.2; ведёт @dispatcher по дельтам менеджера (строку добавляет менеджер)",
+      "impacts": [
+        { "on": "CHANGELOG.md", "kind": "docs", "reason": "сдача фичи = запись CHANGELOG + статус в §99.2 + STATUS §1 + CONTEXT — комплект дельт @dispatcher (56a)" },
+        { "on": "STATUS.md", "kind": "docs", "reason": "§1 активные задачи синхронны со статусами роадмапа" },
+        { "on": "docs/specs/README.md", "kind": "docs", "reason": "манифест спек отражает статусы роадмапа" }
+      ]
+    },
+    {
+      "id": "CHANGELOG.md",
+      "type": "doc",
+      "path": "CHANGELOG.md",
+      "note": "горячий док: история релизов/фич; ведёт @dispatcher по дельтам менеджера",
+      "impacts": [
+        { "on": "99_roadmap.md", "kind": "docs", "reason": "запись сдачи фичи = статус строки §99.2; комплект: CHANGELOG + роадмап + STATUS + CONTEXT" },
+        { "on": "STATUS.md", "kind": "docs", "reason": "закрытые фичи в §1/§2 синхронны с CHANGELOG" }
+      ]
+    }
+  ]
+}

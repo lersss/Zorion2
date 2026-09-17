@@ -406,7 +406,7 @@
     },
     {
       "id": "saltfolk",
-      "name": "Солевые",
+      "name": "Кшарры",
       "basis": "эвтектики расплавов",
       "conditions": {
         "temperature": {"opt": [600, 800], "surv": [550, 900]},
@@ -418,7 +418,7 @@
       },
       "attributes": {"aggression": 60, "curiosity": 65, "reproduction": 100, "intelligence": 55, "diplomacy": 40, "resilience": 40},
       "consumption": {"РАС": 50, "ГРД": 30, "СКФ": 15, "CO2": 5},
-      "forage": {"source": "расплавы солей (эвтектики) + терморедокс", "works_where": "окна выживания расы", "basic_resources": []},
+      "forage": {"source": "глубокие бассейны расплавов солей (эвтектики) + терморедокс", "works_where": "окна выживания расы", "basic_resources": []},
       "home": {"star_classes": ["F", "G", "K"], "planet_niche": "горячие миры (эвтектики)"},
       "bulge": "hot"
     },
@@ -568,20 +568,20 @@
     },
     {
       "id": "salt_bridge",
-      "name": "Соляные",
-      "basis": "эвтектики хлоридов/сульфатов (мост сера↔жара)",
+      "name": "Маргулы",
+      "basis": "озёра жидких низкоплавких металлов (олово/свинец/цинк), электрохимия",
       "conditions": {
-        "temperature": {"opt": [450, 600], "surv": [420, 680]},
-        "pressure": {"opt": [1, 100], "surv": [0.5, 400]},
-        "atmosphere": {"need": {"CO2": 0, "SO2": 0, "H2S": 0, "N2": 0}, "poison": {"O2": 1}},
+        "temperature": {"opt": [550, 650], "surv": [500, 730]},
+        "pressure": {"opt": [1, 10], "surv": [0.5, 100]},
+        "atmosphere": {"need": {"CO2": 0, "SO2": 0, "N2": 0}, "poison": {"O2": 0}},
         "radiation": {"opt": [0, 55], "surv": [0, 85]},
         "heat_flux": {"opt": [2, null], "surv": [0.5, null]},
         "gravity": {"opt": [0.3, 3], "surv": [0.2, 5]}
       },
-      "attributes": {"aggression": 50, "curiosity": 55, "reproduction": 60, "intelligence": 55, "diplomacy": 50, "resilience": 50},
-      "consumption": {"РАС": 45, "СЕР": 25, "ГРД": 20, "CO2": 10},
-      "forage": {"source": "соляные эвтектики + серные источники", "works_where": "окна выживания расы", "basic_resources": []},
-      "home": {"star_classes": ["F", "G", "K"], "planet_niche": "горячие миры (эвтектики)"},
+      "attributes": {"aggression": 35, "curiosity": 45, "reproduction": 60, "intelligence": 55, "diplomacy": 60, "resilience": 55},
+      "consumption": {"РАС": 55, "ГРД": 20, "СЕР": 15, "CO2": 10},
+      "forage": {"source": "лужи и озёра жидких низкоплавких металлов (олово/свинец/цинк) + электрохимические градиенты (гальванические пары)", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["F", "G", "K"], "planet_niche": "горячие миры (металлические озёра)"},
       "bulge": "hot"
     },
     {

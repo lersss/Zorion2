@@ -23,10 +23,10 @@ func raceRegions() []*models.Region {
 	}
 }
 
-// sulfurPlanet — данные, пригодные серным гнёздам (и соляным).
+// sulfurPlanet — данные, пригодные серным гнёздам (и Маргулам).
 func sulfurPlanet() map[string]interface{} {
 	return map[string]interface{}{
-		"temperature": 450.0,
+		"temperature": 520.0,
 		"gravity":     1.5,
 		"atmosphere_data": map[string]interface{}{
 			"pressure_atm": 50.0,
@@ -106,7 +106,7 @@ func TestDecideRaceSettlementsDominantUnsuitableNeighborSettles(t *testing.T) {
 	require.NoError(t, races.LoadCatalog("../../../config/races.json"))
 	rng := rand.New(rand.NewSource(1))
 
-	// T = 600: соляные (surv [420, 680]) пригодны, серные гнёзда (surv
+	// T = 600: Маргулы (surv [500, 730]) пригодны, серные гнёзда (surv
 	// [350, 550]) — нет; H2S отсутствует (серным нужен ≥ 1%).
 	data := map[string]interface{}{
 		"temperature": 600.0,
@@ -129,8 +129,8 @@ func TestDecideRaceSettlementsNeighborUnsuitable(t *testing.T) {
 	require.NoError(t, races.LoadCatalog("../../../config/races.json"))
 	rng := rand.New(rand.NewSource(1))
 
-	// T = 400: серные гнёзда (surv [350, 550]) пригодны, соляные (surv
-	// [420, 680]) — нет.
+	// T = 400: серные гнёзда (surv [350, 550]) пригодны, Маргулы (surv
+	// [500, 730]) — нет.
 	data := map[string]interface{}{
 		"temperature": 400.0,
 		"gravity":     1.5,

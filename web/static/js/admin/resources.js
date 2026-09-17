@@ -140,7 +140,7 @@ function renderCatalog() {
             <td>${i + 1}</td>
             <td>${r.name}${flags.length ? ` <span class="hint" style="font-size:0.75rem;">(${flags.join(', ')})</span>` : ''}</td>
             <td>${r.category_icon} ${CATEGORY_NAMES[r.category] || r.category}</td>
-            <td title="${fullProfile(r)}" style="cursor:help;">${topAxes(r, 4)}</td>
+            <td data-tip="${fullProfile(r)}" style="cursor:help;">${topAxes(r, 4)}</td>
             <td>${r.t_melt} / ${r.t_boil}</td>
             <td>${r.bridge ? 'мостовой' : 'ядерный'}${closes ? ` · закрывает: ${closes}` : ''}</td>
         </tr>`;

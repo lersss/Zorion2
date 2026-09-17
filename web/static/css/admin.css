@@ -700,3 +700,28 @@ table tr:hover { background: #1a1a2e; }
 .anomaly-high { color: #f87171; }
 .anomaly-medium { color: #fbbf24; }
 .anomaly-low { color: #fcd34d; }
+/* Мгновенные тултипы на шапках таблиц (94a): data-tip вместо медленного title. */
+[data-tip] {
+    position: relative;
+    cursor: help;
+    border-bottom: 1px dotted rgba(224, 224, 224, 0.35);
+}
+[data-tip]:hover::after {
+    content: attr(data-tip);
+    position: absolute;
+    left: 0;
+    bottom: calc(100% + 8px);
+    z-index: 60;
+    min-width: 180px;
+    max-width: 300px;
+    padding: 8px 10px;
+    background: #0b1220;
+    border: 1px solid #3d3d6e;
+    border-radius: 6px;
+    color: #e0e0e0;
+    font-size: 0.78rem;
+    line-height: 1.4;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6);
+    pointer-events: none;
+    white-space: normal;
+}

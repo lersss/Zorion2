@@ -432,8 +432,12 @@ function drawRegions(ctx, canvasWidth, canvasHeight, scale, offsetX, offsetY, al
         if (!showNames) continue;
 
         // Подпись собираем отдельно — чтобы избежать наложений названий.
-        const lx = cell.x * scale + offsetX;
-        const ly = cell.y * scale + offsetY;
+        // Якорь — геометрический центр ячейки (центроид), а не центр кластера:
+        // у краевых регионов (обрезанных границей галактики и соседями) они
+        // расходятся, название с центроида сидит в середине территории (81a).
+        const c = polygonCentroid(poly);
+        const lx = c.x * scale + offsetX;
+        const ly = c.y * scale + offsetY;
         if (!isFiniteNumber(lx) || !isFiniteNumber(ly)) continue;
         const cellSize = Math.hypot(maxX - minX, maxY - minY);
         labels.push({ name: cell.name, profile: cell.profile || '', race: cell.race || '', x: lx, y: ly, size: cellSize });
@@ -527,6 +531,27 @@ function pointInPolygon(x, y, poly) {
         }
     }
     return inside;
+}
+
+// polygonCentroid — геометрический центр (центроид) полигона по площади.
+// Ячейки Вороного выпуклые → центроид всегда внутри территории. Вырожденный
+// полигон (нулевая площадь) — падаем на первую вершину (страховка).
+function polygonCentroid(poly) {
+    let a = 0, cx = 0, cy = 0;
+    for (let i = 0; i < poly.length; i++) {
+        const j = (i + 1) % poly.length;
+        const xi = poly[i].x, yi = poly[i].y;
+        const xj = poly[j].x, yj = poly[j].y;
+        const cross = xi * yj - xj * yi;
+        a += cross;
+        cx += (xi + xj) * cross;
+        cy += (yi + yj) * cross;
+    }
+    a *= 0.5;
+    if (Math.abs(a) < 1e-9) {
+        return { x: poly[0].x, y: poly[0].y };
+    }
+    return { x: cx / (6 * a), y: cy / (6 * a) };
 }
 
 // ensureVoronoi — строит ячейки Вороного, только если список регионов изменился.

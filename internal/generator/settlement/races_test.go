@@ -147,6 +147,153 @@ func TestDecideRaceSettlementsNeighborUnsuitable(t *testing.T) {
 	assert.Equal(t, []string{"sulfur_nests"}, got, "сосед непригоден — только доминанта")
 }
 
+// bioRobotRegions — био (sulfur_nests) в (0,0) и робот (archivists) в (1000,0).
+func bioRobotRegions() []*models.Region {
+	return []*models.Region{
+		{ID: "rA", CenterX: 0, CenterY: 0, Radius: 100, RaceID: "sulfur_nests"},
+		{ID: "rB", CenterX: 1000, CenterY: 0, Radius: 100, RaceID: "archivists"},
+	}
+}
+
+// robotRegions — два робота: archivists в (0,0), spark в (1000,0).
+func robotRegions() []*models.Region {
+	return []*models.Region{
+		{ID: "rA", CenterX: 0, CenterY: 0, Radius: 100, RaceID: "archivists"},
+		{ID: "rB", CenterX: 1000, CenterY: 0, Radius: 100, RaceID: "spark"},
+	}
+}
+
+// archivistsPlanet — данные, пригодные архивариусам (робот, T 220–400),
+// но не серным гнёздам (T 300 < 350).
+func archivistsPlanet() map[string]interface{} {
+	return map[string]interface{}{
+		"temperature": 300.0,
+		"gravity":     1.0,
+		"atmosphere_data": map[string]interface{}{
+			"pressure_atm": 1.0,
+			"composition":  map[string]interface{}{"N2": 78.0, "O2": 21.0, "CO2": 1.0},
+		},
+		"core": map[string]interface{}{
+			"radioactivity": 10.0,
+		},
+	}
+}
+
+// robotSuitablePlanet — данные, пригодные и архивариусам, и искре
+// (без O2/H2O — искра не переносит их).
+func robotSuitablePlanet() map[string]interface{} {
+	return map[string]interface{}{
+		"temperature": 300.0,
+		"gravity":     1.0,
+		"atmosphere_data": map[string]interface{}{
+			"pressure_atm": 1.0,
+			"composition":  map[string]interface{}{"N2": 90.0, "CO2": 10.0},
+		},
+		"core": map[string]interface{}{
+			"radioactivity": 10.0,
+		},
+	}
+}
+
+// coexistPlanet — данные, пригодные и серным гнёздам (био), и архивариусам
+// (робот): T 380, H2S есть.
+func coexistPlanet() map[string]interface{} {
+	return map[string]interface{}{
+		"temperature": 380.0,
+		"gravity":     1.5,
+		"atmosphere_data": map[string]interface{}{
+			"pressure_atm": 10.0,
+			"composition":  map[string]interface{}{"H2S": 2.0, "SO2": 5.0, "CO2": 30.0, "N2": 60.0},
+		},
+		"core": map[string]interface{}{
+			"radioactivity":  20.0,
+			"heat_flux_w_m2": 2.0,
+		},
+	}
+}
+
+// Робот селится вне кластера-дома по условиям среды (Race.Suitable, 99.2.24 §5.3).
+func TestDecideRaceSettlementsRobotOutsideHomeCluster(t *testing.T) {
+	require.NoError(t, races.LoadCatalog("../../../config/races.json"))
+	rng := rand.New(rand.NewSource(1))
+
+	// Планета в (500,0) — середина между био (sulfur_nests) и роботом
+	// (archivists). Пригодна архивариусам (T 300), но не серным гнёздам
+	// (T 300 < 350). Робот селится вне кластера-дома по Suitable.
+	got := decideRaceSettlements(archivistsPlanet(), 500, 0, bioRobotRegions(), RaceGenConfig{NeighborChance: 1.0, Chance: 1.0}, rng)
+	assert.Equal(t, []string{"archivists"}, got, "робот селится вне кластера-дома по Suitable")
+}
+
+// На одной планете селится один робот (99.2.24 §5.4): при совпадении окон
+// двух роботорас — один, с приоритетом ближайшего кластера-дома.
+func TestDecideRaceSettlementsRobotOnePerPlanet(t *testing.T) {
+	require.NoError(t, races.LoadCatalog("../../../config/races.json"))
+	rng := rand.New(rand.NewSource(1))
+
+	// Планета в (500,0) — середина между архивариусами и искрой. Обе
+	// пригодны; селится одна — архивариусы (первый в каталоге, tiebreak).
+	got := decideRaceSettlements(robotSuitablePlanet(), 500, 0, robotRegions(), RaceGenConfig{NeighborChance: 1.0, Chance: 1.0}, rng)
+	assert.Equal(t, []string{"archivists"}, got, "на планете селится один робот")
+}
+
+// Приоритет расе-дому кластера (99.2.24 §5.4): робот, чей кластер-дом
+// ближайший к планете.
+func TestDecideRaceSettlementsRobotHomePriority(t *testing.T) {
+	require.NoError(t, races.LoadCatalog("../../../config/races.json"))
+	rng := rand.New(rand.NewSource(1))
+
+	// Планета в (50,0) — внутри кластера-дома архивариусов (50 ≤ 125).
+	// Обе пригодны; архивариусы ближе (50 < 950) — приоритет расе-дому.
+	got := decideRaceSettlements(robotSuitablePlanet(), 50, 0, robotRegions(), RaceGenConfig{NeighborChance: 1.0, Chance: 1.0}, rng)
+	assert.Equal(t, []string{"archivists"}, got, "приоритет расе-дому кластера")
+}
+
+// Ни один робот не пригоден — поселения роботов на планете нет (99.2.24 §5.4).
+func TestDecideRaceSettlementsRobotNoneSuitable(t *testing.T) {
+	require.NoError(t, races.LoadCatalog("../../../config/races.json"))
+	rng := rand.New(rand.NewSource(1))
+
+	// Планета в (50,0), T=1000 — вне окна архивариусов (surv [220,400])
+	// и искры (surv [120,650]).
+	data := map[string]interface{}{
+		"temperature": 1000.0,
+		"gravity":     1.0,
+		"atmosphere_data": map[string]interface{}{
+			"pressure_atm": 1.0,
+			"composition":  map[string]interface{}{"N2": 90.0, "CO2": 10.0},
+		},
+		"core": map[string]interface{}{
+			"radioactivity": 10.0,
+		},
+	}
+	got := decideRaceSettlements(data, 50, 0, robotRegions(), RaceGenConfig{NeighborChance: 1.0, Chance: 1.0}, rng)
+	assert.Empty(t, got, "ни один робот не пригоден — поселения нет")
+}
+
+// В кластере-доме робота применяется шанс Chance (как у доминанты био-расы).
+func TestDecideRaceSettlementsRobotChanceInHome(t *testing.T) {
+	require.NoError(t, races.LoadCatalog("../../../config/races.json"))
+	rng := rand.New(rand.NewSource(1))
+
+	// Планета в (50,0) — внутри кластера-дома архивариусов, пригодна.
+	// Chance=0 → робот не селится (шанс в кластере-доме не прошёл).
+	got := decideRaceSettlements(robotSuitablePlanet(), 50, 0, robotRegions(), RaceGenConfig{NeighborChance: 1.0, Chance: 0}, rng)
+	assert.Empty(t, got, "Chance=0 в кластере-доме — робот не селится")
+}
+
+// Робот и био-раса сосуществуют на одной планете (99.2.24 §5.5): окна
+// пересекаются, взаимных ядов нет.
+func TestDecideRaceSettlementsRobotBioCoexist(t *testing.T) {
+	require.NoError(t, races.LoadCatalog("../../../config/races.json"))
+	rng := rand.New(rand.NewSource(1))
+
+	// Планета в (500,0) — середина между био (sulfur_nests) и роботом
+	// (archivists). Пригодна обоим (T 380, H2S есть). Селится био-доминанта
+	// + робот.
+	got := decideRaceSettlements(coexistPlanet(), 500, 0, bioRobotRegions(), RaceGenConfig{NeighborChance: 1.0, Chance: 1.0}, rng)
+	assert.ElementsMatch(t, []string{"sulfur_nests", "archivists"}, got, "робот и био сосуществуют")
+}
+
 // Регионов с расой нет — 0 поселений, все расы в отчёте.
 func TestGenerateRaceSettlementsNoRegions(t *testing.T) {
 	require.NoError(t, races.LoadCatalog("../../../config/races.json"))

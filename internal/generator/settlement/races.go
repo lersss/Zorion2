@@ -1,10 +1,11 @@
 // internal/generator/settlement/races.go — генерация поселений рас
-// (спека 99.2.21 §7, идея 56a «Механика заселения»).
+// (спека 99.2.21 §7, идея 56a «Механика заселения»; роботы — 99.2.24 §5).
 //
 // Отдельный проход от человеческого GenerateSettlements: доминантная раса
-// кластера + подселение соседней расы на выбросах. R-модель рас
-// (reproduction/resilience) НЕ реализуется — будущая сессия (спека §14);
-// стартовые population/stability — как у человеческих поселений.
+// кластера + подселение соседней расы на выбросах; роботы (territory
+// "conditions") — по условиям среды (Race.Suitable), один на планету.
+// R-модель рас (reproduction/resilience) НЕ реализуется — будущая сессия
+// (спека §14); стартовые population/stability — как у человеческих поселений.
 package settlement
 
 import (
@@ -131,11 +132,16 @@ func (g *Generator) GenerateRaceSettlements(ctx context.Context, cfg RaceGenConf
 	return settled, unsettledRaces(settledRaces), nil
 }
 
-// decideRaceSettlements — какие расы поселяются на планете (0–2):
+// decideRaceSettlements — какие расы поселяются на планете (0–3):
 // доминанта кластера (если пригодна и ролл < Chance) + на выбросе сосед
-// с шансом из крутилки. Приоритет всегда у доминантной расы кластера
-// (идея 56a). Chance (65a) — шанс заселения доминанты: 0 → доминанта не
-// селится даже на пригодной планете.
+// с шансом из крутилки + один робот (территория по условиям, 99.2.24 §5.3).
+// Приоритет всегда у доминантной расы кластера (идея 56a). Chance (65a) —
+// шанс заселения доминанты: 0 → доминанта не селится даже на пригодной
+// планете.
+//
+// Био-расы (territory "adjacency"/пусто) — как раньше (99.2.21 §7). Роботы
+// (territory "conditions") обрабатываются отдельно: на планете селится один
+// робот по условиям среды (Race.Suitable), не по соседству кластеров.
 func decideRaceSettlements(data map[string]interface{}, cx, cy float64, regions []*models.Region, cfg RaceGenConfig, rng *rand.Rand) []string {
 	idx1, idx2, d1, d2 := twoNearestRegions(cx, cy, regions)
 	if idx1 < 0 {
@@ -147,7 +153,10 @@ func decideRaceSettlements(data map[string]interface{}, cx, cy float64, regions 
 	}
 
 	var out []string
-	if dominant.Suitable(data) && rng.Float64() < cfg.Chance {
+
+	// Био-расы: доминанта кластера + сосед на выбросе (99.2.21 §7).
+	// Роботы исключаются из этой схемы — их обрабатывает decideRobotSettlement.
+	if dominant.Robotic == nil && dominant.Suitable(data) && rng.Float64() < cfg.Chance {
 		out = append(out, dominant.ID)
 	}
 
@@ -157,7 +166,7 @@ func decideRaceSettlements(data map[string]interface{}, cx, cy float64, regions 
 	// кластерами d1 = d2 → шанс = крутилка).
 	if d1 > clusterEdgeFactor*regions[idx1].Radius && idx2 >= 0 {
 		neighbor := races.ByID(regions[idx2].RaceID)
-		if neighbor != nil && neighbor.ID != dominant.ID {
+		if neighbor != nil && neighbor.ID != dominant.ID && neighbor.Robotic == nil {
 			chance := cfg.NeighborChance * (d1 / d2)
 			if chance > 1 {
 				chance = 1
@@ -167,7 +176,75 @@ func decideRaceSettlements(data map[string]interface{}, cx, cy float64, regions 
 			}
 		}
 	}
+
+	// Роботы (99.2.24 §5.3–§5.4): на планете селится один робот — тот, чей
+	// кластер-дом ближайший к планете и при этом проходит Race.Suitable.
+	// В кластере-доме — с шансом Chance (как у доминанты био-расы); вне
+	// кластера-дома (рассеянное поселение по условиям среды) — по Suitable
+	// без шанса (NeighborChance к роботам не применяется, §5.3).
+	if robot := decideRobotSettlement(data, cx, cy, regions, cfg, rng); robot != "" {
+		out = append(out, robot)
+	}
+
 	return out
+}
+
+// decideRobotSettlement — робот, поселяющийся на планете (0 или 1, 99.2.24
+// §5.4): среди роботорас (territory == "conditions"), проходящих
+// Race.Suitable, выбирается та, чей кластер-дом ближайший к планете.
+// В кластере-доме применяется шанс Chance; вне кластера-дома — по Suitable
+// без шанса (NeighborChance к роботам не применяется, §5.3). Две роботорасы
+// на одной планете не селятся (кустов из нескольких роботорас не возникает).
+func decideRobotSettlement(data map[string]interface{}, cx, cy float64, regions []*models.Region, cfg RaceGenConfig, rng *rand.Rand) string {
+	// Индексы регионов по расе-дому (кластеры-дома роботов).
+	homeByRace := map[string][]int{}
+	for i, r := range regions {
+		if r.RaceID != "" {
+			homeByRace[r.RaceID] = append(homeByRace[r.RaceID], i)
+		}
+	}
+
+	bestRace := ""
+	bestDist := math.Inf(1)
+	bestInHome := false
+	for _, r := range races.Catalog() {
+		if r.Robotic == nil {
+			continue // только роботы
+		}
+		if !r.Suitable(data) {
+			continue
+		}
+		dist, inHome := nearestHomeRegion(cx, cy, regions, homeByRace[r.ID])
+		if dist < bestDist {
+			bestDist = dist
+			bestRace = r.ID
+			bestInHome = inHome
+		}
+	}
+	if bestRace == "" {
+		return ""
+	}
+	if bestInHome && rng.Float64() >= cfg.Chance {
+		return "" // в кластере-доме шанс Chance не прошёл
+	}
+	return bestRace
+}
+
+// nearestHomeRegion — расстояние до ближайшего региона кластера-дома расы
+// и признак «планета в кластере-доме» (в пределах 1.25×радиус от центра).
+// Пустой кластер-дом (нет регионов расы) — +Inf, вне дома.
+func nearestHomeRegion(cx, cy float64, regions []*models.Region, home []int) (dist float64, inHome bool) {
+	dist = math.Inf(1)
+	inHome = false
+	for _, ri := range home {
+		r := regions[ri]
+		d := math.Hypot(r.CenterX-cx, r.CenterY-cy)
+		if d < dist {
+			dist = d
+			inHome = d <= clusterEdgeFactor*r.Radius
+		}
+	}
+	return dist, inHome
 }
 
 // loadRaceRegions — регионы с назначенной расой (regions.race_id).

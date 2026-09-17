@@ -120,6 +120,71 @@ func TestGroupRegionsIntoTerritoriesFewerThanTarget(t *testing.T) {
 	}
 }
 
+// robotTerritoriesOf — индексы территорий, занятых роботорасами
+// (territory == "conditions", Robotic != nil), после раздачи.
+func robotTerritoriesOf(regions []*models.Region) []int {
+	territories := groupRegionsIntoTerritories(regions, len(races.Catalog()))
+	var out []int
+	for ti, group := range territories {
+		if len(group) > 0 {
+			r := races.ByID(regions[group[0]].RaceID)
+			if r != nil && r.Robotic != nil {
+				out = append(out, ti)
+			}
+		}
+	}
+	return out
+}
+
+// Роботорасы стремятся к рассеиванию (99.2.24 §5 п.2): на большой галактике
+// большинство роботов разнесено (не соседствуют с другой роботорасой).
+func TestAssignRacesToRegionsRobotsSpread(t *testing.T) {
+	require.NoError(t, races.LoadCatalog("../../../config/races.json"))
+	g := NewGenerator(&Config{Seed: 42})
+	regions := mkRegions(200)
+	g.assignRacesToRegions(regions)
+
+	territories := groupRegionsIntoTerritories(regions, len(races.Catalog()))
+	robotTerr := robotTerritoriesOf(regions)
+	require.Len(t, robotTerr, 10, "10 роботорас получают территории")
+	spread, total := robotSpreadingReport(territories, robotTerr, regions)
+	assert.Equal(t, 10, total)
+	assert.GreaterOrEqual(t, spread, 6, "большинство роботов разнесено")
+}
+
+// Best-effort (99.2.24 §5 п.2): на малой галактике (мало территорий) роботы
+// всё равно получают территории — разносится сколько возможно.
+func TestAssignRacesToRegionsRobotsBestEffort(t *testing.T) {
+	require.NoError(t, races.LoadCatalog("../../../config/races.json"))
+	g := NewGenerator(&Config{Seed: 42})
+	regions := mkRegions(12) // 12 территорий < 60 рас
+	g.assignRacesToRegions(regions)
+
+	robotTerr := robotTerritoriesOf(regions)
+	require.Len(t, robotTerr, 10, "все 10 роботов получают территории (best-effort)")
+}
+
+// Детерминизм рассеивания роботов: одинаковый seed → одинаковое
+// сопоставление роботов территориям.
+func TestAssignRacesToRegionsRobotsDeterminism(t *testing.T) {
+	require.NoError(t, races.LoadCatalog("../../../config/races.json"))
+
+	mk := func() []string {
+		g := NewGenerator(&Config{Seed: 7})
+		regions := mkRegions(200)
+		g.assignRacesToRegions(regions)
+		territories := groupRegionsIntoTerritories(regions, len(races.Catalog()))
+		robotTerr := robotTerritoriesOf(regions)
+		out := make([]string, len(robotTerr))
+		for i, ti := range robotTerr {
+			out[i] = regions[territories[ti][0]].RaceID
+		}
+		return out
+	}
+	a, b := mk(), mk()
+	assert.Equal(t, a, b, "одинаковый seed → одинаковое рассеивание роботов")
+}
+
 // Интеграция: GenerateGalaxyWithRegions раздаёт расы (каталог загружен).
 func TestGenerateGalaxyWithRegionsAssignsRaces(t *testing.T) {
 	require.NoError(t, races.LoadCatalog("../../../config/races.json"))

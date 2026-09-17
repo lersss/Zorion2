@@ -8,60 +8,60 @@ import { notifyError, notifyInfo } from '../ui/toast.js';
 // Пресеты генерации вселенной (проверены: 100k миров, 200 кластеров).
 const UNIVERSE_PRESETS = {
     dense: {   // плотная галактика
-        worlds: 100000, clusters: 200, mapSize: 40000, minDist: 120,
+        worlds: 100000, clusters: 200, mapSize: 45000, minDist: 170,
         clusterRadius: 2500, clusterSpacing: 5000, outlierPercent: 20
     },
     sparse: {  // просторная: большая галактика, миры дальше друг от друга
-        worlds: 100000, clusters: 200, mapSize: 50000, minDist: 150,
+        worlds: 100000, clusters: 200, mapSize: 50000, minDist: 200,
         clusterRadius: 2500, clusterSpacing: 5000, outlierPercent: 20
     },
     compact: { // тесная: компактная галактика, миры близко, больше выбросов
-        worlds: 100000, clusters: 200, mapSize: 36000, minDist: 100,
-        clusterRadius: 1600, clusterSpacing: 3200, outlierPercent: 25
+        worlds: 100000, clusters: 200, mapSize: 36000, minDist: 150,
+        clusterRadius: 1920, clusterSpacing: 3200, outlierPercent: 25
     },
     prototype: { // тестовая галактика: один мир для прототипа поселения
-        worlds: 1, clusters: 1, mapSize: 800, minDist: 100,
+        worlds: 1, clusters: 1, mapSize: 800, minDist: 150,
         clusterRadius: 80, clusterSpacing: 160, outlierPercent: 0
     },
     swarm: {   // рой: компактная группа мелких миров
-        worlds: 300, clusters: 6, mapSize: 3000, minDist: 120,
-        clusterRadius: 620, clusterSpacing: 1300, outlierPercent: 15, shape: 'blob'
+        worlds: 300, clusters: 6, mapSize: 3000, minDist: 170,
+        clusterRadius: 744, clusterSpacing: 1300, outlierPercent: 15, shape: 'blob'
     },
     frontier: {   // пограничье: просторная галактика, много выбросов
-        worlds: 1000, clusters: 8, mapSize: 6500, minDist: 180,
+        worlds: 1000, clusters: 8, mapSize: 6500, minDist: 230,
         clusterRadius: 1480, clusterSpacing: 3000, outlierPercent: 30, shape: 'blob'
     },
     constellation: {   // созвездие: много кластеров, круглая форма
-        worlds: 3000, clusters: 40, mapSize: 8000, minDist: 100,
-        clusterRadius: 650, clusterSpacing: 1350, outlierPercent: 10, shape: 'circle'
+        worlds: 3000, clusters: 40, mapSize: 8000, minDist: 150,
+        clusterRadius: 780, clusterSpacing: 1350, outlierPercent: 10, shape: 'circle'
     },
     crossroads: {   // перекрёсток: средняя галактика, много миров
-        worlds: 10000, clusters: 30, mapSize: 13000, minDist: 110,
-        clusterRadius: 1470, clusterSpacing: 3000, outlierPercent: 20, shape: 'blob'
+        worlds: 10000, clusters: 30, mapSize: 13000, minDist: 160,
+        clusterRadius: 1764, clusterSpacing: 3000, outlierPercent: 20, shape: 'blob'
     },
     archipelago: {   // архипелаг: крупные острова-кластеры, круглая форма
-        worlds: 20000, clusters: 12, mapSize: 21000, minDist: 130,
-        clusterRadius: 3950, clusterSpacing: 8000, outlierPercent: 15, shape: 'circle'
+        worlds: 20000, clusters: 12, mapSize: 21000, minDist: 180,
+        clusterRadius: 4740, clusterSpacing: 8000, outlierPercent: 15, shape: 'circle'
     },
     outback: {   // глубинка: много кластеров, много выбросов
-        worlds: 30000, clusters: 80, mapSize: 34000, minDist: 160,
+        worlds: 30000, clusters: 80, mapSize: 34000, minDist: 210,
         clusterRadius: 2250, clusterSpacing: 4600, outlierPercent: 30, shape: 'blob'
     },
     agglomeration: {   // скопление: очень много кластеров
-        worlds: 50000, clusters: 150, mapSize: 30000, minDist: 110,
-        clusterRadius: 1540, clusterSpacing: 3100, outlierPercent: 12, shape: 'blob'
+        worlds: 50000, clusters: 150, mapSize: 30000, minDist: 160,
+        clusterRadius: 1848, clusterSpacing: 3100, outlierPercent: 12, shape: 'blob'
     },
     fararm: {   // дальняя рука: огромная галактика, круглая форма
-        worlds: 75000, clusters: 40, mapSize: 47000, minDist: 150,
+        worlds: 75000, clusters: 40, mapSize: 47000, minDist: 200,
         clusterRadius: 4800, clusterSpacing: 9700, outlierPercent: 18, shape: 'circle'
     },
     metropolis: {   // метрополия: максимум миров, много кластеров
-        worlds: 100000, clusters: 300, mapSize: 42000, minDist: 115,
-        clusterRadius: 1580, clusterSpacing: 3200, outlierPercent: 15, shape: 'blob'
+        worlds: 100000, clusters: 300, mapSize: 42000, minDist: 165,
+        clusterRadius: 1738, clusterSpacing: 3200, outlierPercent: 15, shape: 'blob'
     },
     outskirts: {   // окраина: огромная галактика, много выбросов
-        worlds: 100000, clusters: 60, mapSize: 50000, minDist: 140,
-        clusterRadius: 3760, clusterSpacing: 7600, outlierPercent: 35, shape: 'blob'
+        worlds: 100000, clusters: 60, mapSize: 50000, minDist: 190,
+        clusterRadius: 4136, clusterSpacing: 7600, outlierPercent: 35, shape: 'blob'
     },
 };
 

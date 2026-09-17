@@ -13,14 +13,24 @@ import (
 	"zorion/internal/npc"
 )
 
-// Positions — GET /api/npc/positions: все агенты с x, y, status, target.
-// Для role=player агенты вне радиуса радара скрыты (спека 77a §5.4/§11.2);
-// admin/skycomposer — без фильтра (И7).
+// Positions — GET /api/npc/positions: только агенты в полёте (90a) с x, y,
+// status, target. Для role=player агенты вне радиуса радара скрыты
+// (спека 77a §5.4/§11.2); admin/skycomposer — без фильтра радиуса (И7),
+// фильтр «только в полёте» применяется ко всем ролям (90a).
 func (h *AdminNPCHandlers) Positions(w http.ResponseWriter, r *http.Request) {
 	positions := h.manager.Positions()
 	if positions == nil {
 		positions = []npc.InterpolatedPosition{}
 	}
+	// Только корабли в полёте (90a): idle-агенты не отображаются (для всех
+	// ролей, вариант a).
+	flying := make([]npc.InterpolatedPosition, 0, len(positions))
+	for _, p := range positions {
+		if p.Status == models.NPCAgentStatusFlying {
+			flying = append(flying, p)
+		}
+	}
+	positions = flying
 	if h.visibility != nil && roleFromContext(r) == string(models.RolePlayer) {
 		positions = h.filterPositionsByVisibility(r, positions)
 	}

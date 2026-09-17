@@ -1,9 +1,10 @@
 // internal/handlers/players_positions.go
 // Позиции чужих игроков для карты (спека 77a §5.3): GET /api/players/positions
-// (игровой JWT). Сервер отдаёт только игроков в радиусе радара запрашивающего
-// (id, username, ship_icon, ship_color, статус, x, y) — клиент не получает
-// скрытых позиций (И1). Маршрут/цель полёта не показываются (знание, которое
-// должно добываться). admin/skycomposer — без фильтра (И7).
+// (игровой JWT). Сервер отдаёт только корабли в полёте (90a) в радиусе радара
+// запрашивающего (id, username, ship_icon, ship_color, статус, x, y) — клиент
+// не получает скрытых позиций (И1). Маршрут/цель полёта не показываются
+// (знание, которое должно добываться). admin/skycomposer — без фильтра радиуса
+// (И7), фильтр «только в полёте» применяется ко всем ролям (90a).
 package handlers
 
 import (
@@ -12,6 +13,7 @@ import (
 	"zorion/internal/auth"
 	"zorion/internal/models"
 	"zorion/internal/repository"
+	"zorion/internal/travel"
 )
 
 // PlayersPositions — GET /api/players/positions.
@@ -47,6 +49,17 @@ func (h *AdminHandlers) PlayersPositions(w http.ResponseWriter, r *http.Request)
 		if u.ID == userID || u.CurrentWorldID == nil {
 			continue
 		}
+		// Только корабли в полёте (90a): без активного полёта игрок не
+		// отображается (для всех ролей, вариант a). Один вызов GetFlight —
+		// результат переиспользуется ниже (без микро-окна между проверкой
+		// и интерполяцией, замечание @tester).
+		var f *travel.TravelInfo
+		if h.travelManager != nil {
+			f = h.travelManager.GetFlight(u.ID)
+		}
+		if f == nil {
+			continue
+		}
 		coords, ok := worldCoords[*u.CurrentWorldID]
 		if !ok {
 			continue // мир удалён при перегенерации — позиция неизвестна
@@ -56,14 +69,10 @@ func (h *AdminHandlers) PlayersPositions(w http.ResponseWriter, r *http.Request)
 
 		// В полёте — интерполированная позиция (спека 77a §4.2), статус
 		// «в полёте»; цель/маршрут не показываются (§5.3).
-		if h.travelManager != nil {
-			if f := h.travelManager.GetFlight(u.ID); f != nil {
-				if toCoords, toOK := worldCoords[f.ToWorld]; toOK {
-					x, y = interpolateFlight(f, toCoords[0], toCoords[1])
-				}
-				status = "в полёте"
-			}
+		if toCoords, toOK := worldCoords[f.ToWorld]; toOK {
+			x, y = interpolateFlight(f, toCoords[0], toCoords[1])
 		}
+		status = "в полёте"
 
 		// Фильтр по радиусу для player: вне круга — не отдаём (И1).
 		if pc != nil && (!pc.ok || !IsVisible(x, y, pc.centerX, pc.centerY, pc.radius)) {

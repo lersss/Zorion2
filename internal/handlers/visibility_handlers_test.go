@@ -341,10 +341,11 @@ func TestNPCPositionsFilteredByRadius(t *testing.T) {
 	h := NewAdminNPCHandlers(repository.NewNPCRepository(db), repository.NewWorldRepository(db), npcManager)
 	h.SetVisibility(v)
 
-	// Агент a1 в (0,0) — в радиусе; a2 в (1000,0) — за радаром.
+	// Агент a1 в (0,0) — в радиусе; a2 в (1000,0) — за радаром. Оба в полёте
+	// (90a): радиус-фильтр проверяется на летящих.
 	npcManager.SetPositions([]npc.InterpolatedPosition{
-		{ID: "a1", Name: "Агент1", X: 0, Y: 0, Status: models.NPCAgentStatusIdle, CurrentWorldID: "w1"},
-		{ID: "a2", Name: "Агент2", X: 1000, Y: 0, Status: models.NPCAgentStatusIdle, CurrentWorldID: "w3"},
+		{ID: "a1", Name: "Агент1", X: 0, Y: 0, Status: models.NPCAgentStatusFlying, CurrentWorldID: "w1"},
+		{ID: "a2", Name: "Агент2", X: 1000, Y: 0, Status: models.NPCAgentStatusFlying, CurrentWorldID: "w3"},
 	})
 
 	expectPlayerUser(mock, "u1")
@@ -798,7 +799,11 @@ func TestPlayersPositionsFilteredByRadius(t *testing.T) {
 	const userID = "u1"
 	expectPlayerUser(mock, userID)
 
-	// Другие игроки: p2 в w2 (100,0 — в радиусе), p3 в w3 (1000,0 — за радаром).
+	// Другие игроки (оба в полёте, 90a): p2 летит w1→w2 (старт 0,0 — в
+	// радиусе), p3 летит w3→w1 (старт 1000,0 — за радаром).
+	tm.StartFlight("p2", "w1", "w2", 0, 0, time.Hour, nil)
+	tm.StartFlight("p3", "w3", "w1", 1000, 0, time.Hour, nil)
+
 	mock.ExpectQuery(`SELECT id, username, ship_icon, ship_color, current_world_id, role FROM users`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "username", "ship_icon", "ship_color", "current_world_id", "role"}).
 			AddRow(userID, "player", "ship_strela.svg", nil, "w1", "player").
@@ -819,6 +824,176 @@ func TestPlayersPositionsFilteredByRadius(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Len(t, resp.Players, 1, "только игрок в радиусе")
 	require.Equal(t, "alice", resp.Players[0]["username"])
-	require.Equal(t, "в системе Мир2", resp.Players[0]["status"])
-	require.InDelta(t, 100.0, resp.Players[0]["x"].(float64), 1.0, "позиция мира w2 (100,0)")
+	require.Equal(t, "в полёте", resp.Players[0]["status"])
+	require.InDelta(t, 0.0, resp.Players[0]["x"].(float64), 1.0, "старт сегмента w1 (0,0)")
+}
+
+// Только корабли в полёте (90a): игрок без активного полёта не отдаётся.
+func TestPlayersPositionsOnlyFlying(t *testing.T) {
+	ship.LoadDefaults()
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	t.Cleanup(func() { db.Close() })
+
+	tm := travel.NewManager()
+	mc := mapcache.NewManager()
+	mc.Replace(visWorlds())
+	userRepo := repository.NewUserRepository(db)
+	v := NewVisibility(userRepo, tm, mc, repository.NewKnowledgeRepository(db))
+
+	h := NewAdminHandlers(repository.NewWorldRepository(db), db, mc)
+	h.SetVisibility(v)
+	h.SetTravelManager(tm)
+
+	const userID = "u1"
+	expectPlayerUser(mock, userID)
+
+	// p2 стоит в w2 (без полёта) — скрыт (90a); p3 летит w1→w2 — отдан.
+	tm.StartFlight("p3", "w1", "w2", 0, 0, time.Hour, nil)
+
+	mock.ExpectQuery(`SELECT id, username, ship_icon, ship_color, current_world_id, role FROM users`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "username", "ship_icon", "ship_color", "current_world_id", "role"}).
+			AddRow(userID, "player", "ship_strela.svg", nil, "w1", "player").
+			AddRow("p2", "alice", "shark.png", nil, "w2", "player").
+			AddRow("p3", "bob", "crescent.png", nil, "w3", "player"))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/players/positions", nil)
+	req = withUserID(req, userID)
+	req = withRole(req, string(models.RolePlayer))
+
+	rec := execJSON(h.PlayersPositions, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	var resp struct {
+		Players []map[string]interface{} `json:"players"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Players, 1, "игрок без полёта скрыт (90a)")
+	require.Equal(t, "bob", resp.Players[0]["username"])
+	require.Equal(t, "в полёте", resp.Players[0]["status"])
+}
+
+// Админ тоже видит только летящих игроков (90a, вариант a).
+func TestPlayersPositionsAdminOnlyFlying(t *testing.T) {
+	ship.LoadDefaults()
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	t.Cleanup(func() { db.Close() })
+
+	tm := travel.NewManager()
+	mc := mapcache.NewManager()
+	mc.Replace(visWorlds())
+	userRepo := repository.NewUserRepository(db)
+	v := NewVisibility(userRepo, tm, mc, repository.NewKnowledgeRepository(db))
+
+	h := NewAdminHandlers(repository.NewWorldRepository(db), db, mc)
+	h.SetVisibility(v)
+	h.SetTravelManager(tm)
+
+	const userID = "u1"
+
+	// p2 стоит в w2 (без полёта) — скрыт (90a); p3 летит w3→w1 — отдан.
+	tm.StartFlight("p3", "w3", "w1", 1000, 0, time.Hour, nil)
+
+	mock.ExpectQuery(`SELECT id, username, ship_icon, ship_color, current_world_id, role FROM users`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "username", "ship_icon", "ship_color", "current_world_id", "role"}).
+			AddRow(userID, "player", "ship_strela.svg", nil, "w1", "player").
+			AddRow("p2", "alice", "shark.png", nil, "w2", "player").
+			AddRow("p3", "bob", "crescent.png", nil, "w3", "player"))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/players/positions", nil)
+	req = withUserID(req, userID)
+	req = withRole(req, string(models.RoleAdmin))
+
+	rec := execJSON(h.PlayersPositions, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	var resp struct {
+		Players []map[string]interface{} `json:"players"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Players, 1, "админ видит только летящих (90a)")
+	require.Equal(t, "bob", resp.Players[0]["username"])
+	require.Equal(t, "в полёте", resp.Players[0]["status"])
+}
+
+// Только корабли в полёте (90a): idle-агент скрыт, flying отдан.
+func TestNPCPositionsOnlyFlying(t *testing.T) {
+	ship.LoadDefaults()
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	t.Cleanup(func() { db.Close() })
+
+	tm := travel.NewManager()
+	mc := mapcache.NewManager()
+	mc.Replace(visWorlds())
+	userRepo := repository.NewUserRepository(db)
+	v := NewVisibility(userRepo, tm, mc, repository.NewKnowledgeRepository(db))
+
+	npcManager := npc.NewManager(repository.NewNPCRepository(db), npc.NewMapCacheSource(mc), npc.DefaultSettings())
+	h := NewAdminNPCHandlers(repository.NewNPCRepository(db), repository.NewWorldRepository(db), npcManager)
+	h.SetVisibility(v)
+
+	// a1 idle в (0,0) — скрыт (90a); a2 flying в (0,0) — отдан.
+	npcManager.SetPositions([]npc.InterpolatedPosition{
+		{ID: "a1", Name: "Агент1", X: 0, Y: 0, Status: models.NPCAgentStatusIdle, CurrentWorldID: "w1"},
+		{ID: "a2", Name: "Агент2", X: 0, Y: 0, Status: models.NPCAgentStatusFlying, CurrentWorldID: "w1"},
+	})
+
+	expectPlayerUser(mock, "u1")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/npc/positions", nil)
+	req = withUserID(req, "u1")
+	req = withRole(req, string(models.RolePlayer))
+
+	rec := execJSON(h.Positions, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	var resp struct {
+		Positions []npc.InterpolatedPosition `json:"positions"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Positions, 1, "idle-агент скрыт (90a)")
+	require.Equal(t, "a2", resp.Positions[0].ID)
+}
+
+// Админ тоже видит только летящих агентов (90a, вариант a).
+func TestNPCPositionsAdminOnlyFlying(t *testing.T) {
+	ship.LoadDefaults()
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	t.Cleanup(func() { db.Close() })
+
+	tm := travel.NewManager()
+	mc := mapcache.NewManager()
+	mc.Replace(visWorlds())
+	userRepo := repository.NewUserRepository(db)
+	v := NewVisibility(userRepo, tm, mc, repository.NewKnowledgeRepository(db))
+
+	npcManager := npc.NewManager(repository.NewNPCRepository(db), npc.NewMapCacheSource(mc), npc.DefaultSettings())
+	h := NewAdminNPCHandlers(repository.NewNPCRepository(db), repository.NewWorldRepository(db), npcManager)
+	h.SetVisibility(v)
+
+	npcManager.SetPositions([]npc.InterpolatedPosition{
+		{ID: "a1", Name: "Агент1", X: 0, Y: 0, Status: models.NPCAgentStatusIdle, CurrentWorldID: "w1"},
+		{ID: "a2", Name: "Агент2", X: 0, Y: 0, Status: models.NPCAgentStatusFlying, CurrentWorldID: "w1"},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/npc/positions", nil)
+	req = withUserID(req, "u1")
+	req = withRole(req, string(models.RoleAdmin))
+
+	rec := execJSON(h.Positions, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	var resp struct {
+		Positions []npc.InterpolatedPosition `json:"positions"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Positions, 1, "админ видит только летящих агентов (90a)")
+	require.Equal(t, "a2", resp.Positions[0].ID)
 }

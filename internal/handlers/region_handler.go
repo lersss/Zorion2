@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-
-	"zorion/internal/races"
 )
 
 // regionDTO — регион для карты.
@@ -22,10 +20,6 @@ type regionDTO struct {
 	// отладочный вывод на карте; NULL → пустая строка. В финале убрать —
 	// профиль не публикуется как ярлык (спека §11.7 / GDD §2.6.1).
 	Profile string `json:"profile"`
-	// RaceName — человекочитаемое имя доминантной расы территории (спека
-	// 99.2.21 §7.1): отладочный вывод на карте; NULL/нет расы → пустая
-	// строка. В финале убрать вместе с профилем (расы — не ярлык).
-	RaceName string `json:"race_name"`
 }
 
 // GetRegionsHandler — возвращает все регионы галактики.
@@ -35,7 +29,7 @@ type regionDTO struct {
 // Регионов мало (сотни), запрос дешёвый.
 func (h *AdminHandlers) GetRegionsHandler(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.db.QueryContext(r.Context(), `
-		SELECT id, name, center_x, center_y, radius, color, world_count, COALESCE(profile, ''), COALESCE(race_id, '')
+		SELECT id, name, center_x, center_y, radius, color, world_count, COALESCE(profile, '')
 		FROM regions
 		ORDER BY name`)
 	if err != nil {
@@ -48,13 +42,11 @@ func (h *AdminHandlers) GetRegionsHandler(w http.ResponseWriter, r *http.Request
 	regions := make([]regionDTO, 0, 256)
 	for rows.Next() {
 		var reg regionDTO
-		var raceID string
-		if err := rows.Scan(&reg.ID, &reg.Name, &reg.X, &reg.Y, &reg.Radius, &reg.Color, &reg.WorldCount, &reg.Profile, &raceID); err != nil {
+		if err := rows.Scan(&reg.ID, &reg.Name, &reg.X, &reg.Y, &reg.Radius, &reg.Color, &reg.WorldCount, &reg.Profile); err != nil {
 			log.Printf("❌ GetRegions scan error: %v", err)
 			http.Error(w, "Scan error", http.StatusInternalServerError)
 			return
 		}
-		reg.RaceName = regionRaceName(raceID)
 		regions = append(regions, reg)
 	}
 	if err = rows.Err(); err != nil {
@@ -68,17 +60,4 @@ func (h *AdminHandlers) GetRegionsHandler(w http.ResponseWriter, r *http.Request
 	if err := json.NewEncoder(w).Encode(regions); err != nil {
 		log.Printf("⚠️ GetRegions encode error: %v", err)
 	}
-}
-
-// regionRaceName — человекочитаемое имя расы региона: из каталога рас
-// (internal/races); пустой race_id (NULL = территория без расы) или
-// неизвестный ключ (каталог не загружен) — «» (не падаем).
-func regionRaceName(raceID string) string {
-	if raceID == "" {
-		return ""
-	}
-	if r := races.ByID(raceID); r != nil {
-		return r.Name
-	}
-	return ""
 }

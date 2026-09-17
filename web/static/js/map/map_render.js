@@ -80,6 +80,10 @@ export function clusterScreenRadius(c) {
         const variation = 0.9 + (hash % 20) / 100;
         return Math.max(mapCfg.minRadius, baseSize * variation * state.scale);
     }
+    if (!c.cnt) {
+        // «Точка-огонёк» за радаром (спека 77a §5.1): приглушённая точка.
+        return Math.max(1.5, 2.2 * state.scale);
+    }
     return Math.max(10, Math.min(30, 8 + Math.log2(c.cnt) * 3));
 }
 
@@ -148,6 +152,10 @@ export function draw() {
         if (c.cnt === 1) {
             drawSingleStar(ctx, c, px, py, scale, currentWorldId, hoveredWorldId, focusWorldId);
             singles.push({ c, x: px, y: py });
+        } else if (!c.cnt) {
+            // «Точка-огонёк» за радаром (спека 77a §5.1/И11): только координаты,
+            // без имени/данных. Рисуется приглушённой точкой (как пульсар).
+            drawAnonymousPoint(ctx, c, px, py, scale);
         } else {
             drawCluster(ctx, c, px, py);
         }
@@ -161,6 +169,13 @@ export function draw() {
 
     // --- Имя звезды под курсором (даже когда общие названия скрыты) ---
     drawHoveredStarName(ctx, scale, offsetX, offsetY);
+
+    // --- Граница видимости радара (спека 77a §9): круг радиуса вокруг
+    // корабля игрока. Косметика поверх карты, не источник правды (И1).
+    drawRadarBoundary(ctx, canvasWidth, canvasHeight);
+
+    // --- Чужие игроки в радиусе радара (спека 77a §5.3) ---
+    drawPlayerPositions(ctx, canvasWidth, canvasHeight);
 
     // --- NPC-агенты (спека 20a.1 §7): иконки поверх звёзд ---
     drawNPCAgents(ctx, canvasWidth, canvasHeight);
@@ -294,6 +309,166 @@ function drawCluster(ctx, c, x, y) {
     ctx.arc(x, y, Math.max(0.6, radius * 0.4), 0, Math.PI * 2);
     ctx.fillStyle = 'rgba(255,255,255,0.75)';
     ctx.fill();
+}
+
+// drawAnonymousPoint — «точка-огонёк» за радаром (спека 77a §5.1/И11):
+// безымянная приглушённая точка (как пульсар), без имени/данных/полёта.
+function drawAnonymousPoint(ctx, c, x, y, scale) {
+    const radius = Math.max(1.5, 2.2 * scale);
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(148,163,184,0.45)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(148,163,184,0.2)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+}
+
+// ==================== ГРАНИЦА ВИДИМОСТИ РАДАРА (спека 77a §9) ====================
+
+// RADAR_BOUNDARY_KEY — localStorage-ключ выбранного варианта границы
+// (тестовая переключалка, спека 77a §9.1: выбор хранится в localStorage).
+const RADAR_BOUNDARY_KEY = 'radarBoundaryVariant';
+
+// radarBoundaryVariant — текущий вариант отрисовки границы (1–4).
+export function radarBoundaryVariant() {
+    const v = parseInt(localStorage.getItem(RADAR_BOUNDARY_KEY) || '1', 10);
+    return (v >= 1 && v <= 4) ? v : 1;
+}
+
+// setRadarBoundaryVariant — выбор варианта (переключалка в map.html).
+export function setRadarBoundaryVariant(v) {
+    localStorage.setItem(RADAR_BOUNDARY_KEY, String(v));
+    draw();
+}
+
+// playerWorldPosition — текущая позиция игрока в мировых координатах
+// (спека 77a §4.2): в полёте — интерполяция от стартовой точки сегмента
+// (61a) к цели; иначе — координаты current_world_id. null — неизвестна.
+function playerWorldPosition() {
+    if (state.isFlying && state.flyFrom && state.flyTo) {
+        const sx = (typeof state.flyStartX === 'number') ? state.flyStartX : state.flyFrom.coord_x;
+        const sy = (typeof state.flyStartY === 'number') ? state.flyStartY : state.flyFrom.coord_y;
+        const elapsed = (Date.now() - state.flyStartTime) / 1000;
+        const progress = Math.min(Math.max(elapsed / (state.flyDuration || 1), 0), 1);
+        return {
+            x: sx + (state.flyTo.coord_x - sx) * progress,
+            y: sy + (state.flyTo.coord_y - sy) * progress,
+        };
+    }
+    if (!state.currentWorldId) return null;
+    const world = state.worlds.find(w => w.id === state.currentWorldId);
+    if (!world) return null;
+    return { x: world.coord_x, y: world.coord_y };
+}
+
+// drawRadarBoundary — круг радиуса радара вокруг корабля игрока (спека 77a
+// §9). Варианты (тестовая переключалка, §9.2): 1 — туман войны, 2 —
+// светящийся контур, 3 — градиентное затухание, 4 — пунктир. Косметика
+// поверх карты, не источник правды (И1).
+function drawRadarBoundary(ctx, canvasWidth, canvasHeight) {
+    if (!(state.radarRadius > 0)) return; // радиус не загружен (нет /me)
+    const pos = playerWorldPosition();
+    if (!pos) return;
+
+    const cx = pos.x * state.scale + state.offsetX;
+    const cy = pos.y * state.scale + state.offsetY;
+    const r = state.radarRadius * state.scale;
+    if (!isFiniteNumber(cx) || !isFiniteNumber(cy) || r <= 0) return;
+
+    const variant = radarBoundaryVariant();
+
+    if (variant === 1) {
+        // «Туман войны»: полупрозрачное затемнение вне круга (точки-огоньки
+        // приглушены, но видны); внутри — нормальная яркость.
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, 0, canvasWidth, canvasHeight);
+        ctx.arc(cx, cy, r, 0, Math.PI * 2, true);
+        ctx.fillStyle = 'rgba(2,6,23,0.35)';
+        ctx.fill();
+        ctx.restore();
+    } else if (variant === 2) {
+        // «Светящийся контур»: тонкая светящаяся окружность границы.
+        ctx.save();
+        ctx.shadowColor = 'rgba(56,189,248,0.8)';
+        ctx.shadowBlur = 12;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(56,189,248,0.7)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.restore();
+    } else if (variant === 3) {
+        // «Градиентное затухание»: мягкий градиент от края круга к периферии.
+        const g = ctx.createRadialGradient(cx, cy, r * 0.9, cx, cy, r * 1.6);
+        g.addColorStop(0, 'rgba(2,6,23,0)');
+        g.addColorStop(1, 'rgba(2,6,23,0.4)');
+        ctx.beginPath();
+        ctx.arc(cx, cy, r * 1.6, 0, Math.PI * 2);
+        ctx.fillStyle = g;
+        ctx.fill();
+    } else {
+        // «Пунктир»: пунктирная окружность границы.
+        ctx.save();
+        ctx.setLineDash([8, 6]);
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(148,163,184,0.6)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+    }
+}
+
+// ==================== ЧУЖИЕ ИГРОКИ (спека 77a §5.3) ====================
+
+// drawPlayerPositions — чужие игроки в радиусе радара: мини-спрайт корабля
+// (61b) или фолбэк-ромб, имя под иконкой при достаточном зуме. Сервер уже
+// отфильтровал по радиусу (И1) — клиент рисует как есть.
+function drawPlayerPositions(ctx, canvasWidth, canvasHeight) {
+    const positions = state.playerPositions || [];
+    if (positions.length === 0) return;
+    if (state.scale <= mapCfg.nameDisplayThreshold) return;
+
+    const { scale, offsetX, offsetY } = state;
+    const size = Math.max(3.5, 4.5 * scale);
+
+    for (const p of positions) {
+        const px = p.x * scale + offsetX;
+        const py = p.y * scale + offsetY;
+        if (!isFiniteNumber(px) || !isFiniteNumber(py)) continue;
+        if (px < -50 || py < -50 || px > canvasWidth + 50 || py > canvasHeight + 50) continue;
+
+        const sprite = recolorShipSprite(p.ship_icon, p.ship_color);
+        if (sprite) {
+            ctx.save();
+            ctx.translate(px, py);
+            ctx.drawImage(sprite, -size, -size, size * 2, size * 2);
+            ctx.restore();
+        } else {
+            // Фолбэк-ромб (И4): спрайт не загружен.
+            ctx.beginPath();
+            ctx.moveTo(px, py - size);
+            ctx.lineTo(px + size, py);
+            ctx.lineTo(px, py + size);
+            ctx.lineTo(px - size, py);
+            ctx.closePath();
+            ctx.fillStyle = '#38bdf8';
+            ctx.fill();
+            ctx.strokeStyle = '#0f172a';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+        }
+
+        // Имя игрока под иконкой (спека 77a §5.3: иконка + имя + статус).
+        const fontSize = Math.max(10, Math.round(mapCfg.nameFontSize * 0.8));
+        ctx.font = `${fontSize}px system-ui`;
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#7dd3fc';
+        ctx.fillText(p.username || '—', px, py + size + fontSize);
+    }
 }
 
 function drawNames(ctx, singles, scale) {
@@ -440,7 +615,7 @@ function drawRegions(ctx, canvasWidth, canvasHeight, scale, offsetX, offsetY, al
         const ly = c.y * scale + offsetY;
         if (!isFiniteNumber(lx) || !isFiniteNumber(ly)) continue;
         const cellSize = Math.hypot(maxX - minX, maxY - minY);
-        labels.push({ name: cell.name, profile: cell.profile || '', race: cell.race || '', x: lx, y: ly, size: cellSize });
+        labels.push({ name: cell.name, profile: cell.profile || '', x: lx, y: ly, size: cellSize });
     }
 
     if (showNames) drawRegionLabels(ctx, labels, alpha, fontSize);
@@ -449,11 +624,8 @@ function drawRegions(ctx, canvasWidth, canvasHeight, scale, offsetX, offsetY, al
 // drawRegionLabels — размещает названия регионов без наложений:
 // крупные ячейки получают приоритет, пересекающиеся подписи пропускаются.
 // Отладочно (59a): под названием — вторая строка с типом профиля региона
-// (мельче, приглушённый жёлтый); отладочно (расы): третья строка с именем
-// доминантной расы территории (мельче, приглушённый индиго). В финале убрать
-// вместе с профилем — профиль и раса не публикуются как ярлыки (спека §11.7 /
-// GDD §2.6.1). Вторая и третья строки включены в rect проверки наложений,
-// чтобы не наезжать на соседние подписи.
+// (мельче, приглушённый жёлтый). В финале убрать — профиль не публикуется
+// как ярлык (спека §11.7 / GDD §2.6.1).
 function drawRegionLabels(ctx, labels, alpha, fontSize) {
     if (labels.length === 0) return;
 
@@ -465,15 +637,12 @@ function drawRegionLabels(ctx, labels, alpha, fontSize) {
 
     for (const lb of labels) {
         const hasProfile = !!lb.profile;
-        const hasRace = !!lb.race;
         const subFontSize = Math.max(9, Math.round(fontSize * 0.6));
         const nameW = lb.name.length * fontSize * 0.62 + 8;
         const profileW = hasProfile ? lb.profile.length * subFontSize * 0.62 + 8 : 0;
-        const raceW = hasRace ? lb.race.length * subFontSize * 0.62 + 8 : 0;
-        const w = Math.max(nameW, profileW, raceW);
+        const w = Math.max(nameW, profileW);
         const profileH = hasProfile ? subFontSize + 8 : 0;
-        const raceH = hasRace ? subFontSize + 8 : 0;
-        const h = fontSize + 6 + profileH + raceH;
+        const h = fontSize + 6 + profileH;
         const rect = { x: lb.x - w / 2, y: lb.y - 6, w, h };
 
         let ok = true;
@@ -495,15 +664,6 @@ function drawRegionLabels(ctx, labels, alpha, fontSize) {
             ctx.fillStyle = `rgba(250,204,21,${0.75 * alpha})`; // приглушённый жёлтый
             lineY += subFontSize + 2;
             ctx.fillText(lb.profile, lb.x, lineY);
-            ctx.font = `600 ${fontSize}px system-ui`;
-            ctx.fillStyle = `rgba(226,232,240,${0.9 * alpha})`;
-        }
-        // Отладочно (расы): имя доминантной расы территории третьей строкой.
-        if (hasRace) {
-            ctx.font = `500 ${subFontSize}px system-ui`;
-            ctx.fillStyle = `rgba(129,140,248,${0.75 * alpha})`; // приглушённый индиго
-            lineY += subFontSize + 2;
-            ctx.fillText(lb.race, lb.x, lineY);
             ctx.font = `600 ${fontSize}px system-ui`;
             ctx.fillStyle = `rgba(226,232,240,${0.9 * alpha})`;
         }
@@ -598,7 +758,7 @@ function buildVoronoi(regions) {
         }
 
         if (poly.length >= 3) {
-            cells.push({ id: s.id, name: s.name, x: s.x, y: s.y, color: s.color, profile: s.profile || '', race: s.race_name || '', poly });
+            cells.push({ id: s.id, name: s.name, x: s.x, y: s.y, color: s.color, profile: s.profile || '', poly });
         }
     }
     return cells;
@@ -739,7 +899,7 @@ function updateStatusBar(statusBar, clusters, isFlying, flyStartTime, flyDuratio
     let totalWorlds = 0;
     let singles = 0;
     for (const c of clusters) {
-        totalWorlds += c.cnt;
+        totalWorlds += c.cnt || 0; // точка-огонёк (cnt отсутствует) — 0 миров
         if (c.cnt === 1) singles++;
     }
     let text = `${totalWorlds} миров в кадре (${singles} одиночных, ${totalClusters - singles} кластеров)`;

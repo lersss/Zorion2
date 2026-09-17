@@ -336,7 +336,7 @@ function settlementTrendArrow(s) {
     return ' <span style="color:#888;" title="Без изменений">—</span>';
 }
 
-// Код причины «Вымерло» → человеческий текст (18a_population_death.md, §«Причина»)
+// Код причины «Вымерло» → человеческий текст (18b_settlement_log.md, §«Причина»)
 const EXTINCT_CAUSE_TEXT = {
     'heat': 'Экстремальная жара',
     'cold': 'Сильный холод',
@@ -349,7 +349,7 @@ const EXTINCT_CAUSE_TEXT = {
 // settlementLogRows — строки лога поселения «Вымерло · дата · причина»,
 // последние 3 записи, сортировка по дате убывающая. При 0 записей — пусто
 // (блок скрыт). Запись появляется только после серверного синка, отдавшего
-// log (extrapolate.js запись не рисует — 18a §«UI»).
+// log (extrapolate.js запись не рисует — 18b §«UI»).
 function settlementLogRows(s) {
     if (!s.log || !Array.isArray(s.log) || s.log.length === 0) return '';
     const rows = s.log

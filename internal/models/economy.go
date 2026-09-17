@@ -12,7 +12,7 @@ type Settlement struct {
 	LambdaPerHour   float64               `json:"lambda_per_hour,omitempty"` // λ-компоненты изменения населения за час (холод/гравитация/радиоактивность), для косметической экстраполяции на клиенте (18a)
 	RPerSec         float64               `json:"r_per_sec,omitempty"`       // рекурсивная компонента изменения за 1 секунду (жара, HeatChangeRate); при росте отрицательная (99.2.12)
 	NDead           float64               `json:"n_dead,omitempty"`          // порог обнуления, тот же NDead — для той же экстраполяции
-	Log             []SettlementLogEntry  `json:"log,omitempty"`          // последние записи лога (первый тип — «Вымерло»), 18a §«Лог поселения»
+	Log             []SettlementLogEntry  `json:"log,omitempty"`          // последние записи лога (первый тип — «Вымерло»), 18b §«Лог поселения»
 // RaceID — раса поселения (спека 99.2.21 §2.3); пусто = легаси/люди.
 	// Две расы на планете = два ряда settlements с разными race_id (§7.4).
 	RaceID string `json:"race_id,omitempty"`
@@ -23,7 +23,7 @@ type Settlement struct {
 	UpdatedAt       time.Time             `json:"updated_at"`
 }
 
-// SettlementLogEntry — запись лога поселения (18a_population_death.md, §«Лог
+// SettlementLogEntry — запись лога поселения (18b_settlement_log.md, §«Лог
 // поселения»). Первый тип — 'extinct' (Вымерло); список открыт. occurred_at
 // NOT NULL — запись без даты не существует (бэкфилл отменён, решение создателя
 // 2026-09-14); cause — код причины ('heat'/'cold'/'gravity_high'/'gravity_low'/

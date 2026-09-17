@@ -76,7 +76,7 @@ func (r *EconomyRepository) GetSettlementsByPlanetIDs(planetIDs []string) (map[s
 // (λ-механизм убран, 99.2.13: всё изменение в r_per_sec).
 // Если «событие» впервые видит обвал (чек-точка живая, population_exact >
 // NDead, и next = 0), той же транзакцией создаётся запись лога «Вымерло»
-// (18a §«Лог поселения»): INSERT ... ON CONFLICT DO NOTHING — анти-дубль на
+// (18b §«Лог поселения»): INSERT ... ON CONFLICT DO NOTHING — анти-дубль на
 // уровне БД (uq_settlement_log_extinct). Мёртвая чек-точка (population_exact
 // ≤ NDead) запись не создаёт — бэкфилл отменён.
 func (r *EconomyRepository) RecomputeSettlementPopulation(s *models.Settlement, input settlement.PlanetInput, now time.Time) (models.Settlement, error) {
@@ -128,7 +128,7 @@ func (r *EconomyRepository) RecomputeSettlementPopulation(s *models.Settlement, 
 	// Обвал с живой чек-точки: население обнулилось целиком (next < NDead →
 	// 0) — дата смерти вычислима, пишем «Вымерло» в лог той же транзакцией.
 	// INSERT ... ON CONFLICT DO NOTHING: второй одновременный синк упирается
-	// в uq_settlement_log_extinct и ничего не пишет (18a §«Анти-дубль и синк»).
+	// в uq_settlement_log_extinct и ничего не пишет (18b §«Анти-дубль и синк»).
 	if stored.PopulationExact > settlement.NDead && newExact == 0 {
 		deathAt, ok := settlement.DeathTime(stored.PopulationExact, rPerSec, stored.ComputedAt, stored.CreatedAt)
 		if ok {
@@ -158,7 +158,7 @@ func (r *EconomyRepository) RecomputeSettlementPopulation(s *models.Settlement, 
 
 // GetSettlementLogBySettlementIDs возвращает последние 3 записи лога на
 // поселение, сгруппированные по settlement_id, сортировка по дате убывающая
-// (18a §«UI»). Пустой список id — пустой результат, без запроса.
+// (18b §«UI»). Пустой список id — пустой результат, без запроса.
 func (r *EconomyRepository) GetSettlementLogBySettlementIDs(ids []string) (map[string][]models.SettlementLogEntry, error) {
 	if len(ids) == 0 {
 		return map[string][]models.SettlementLogEntry{}, nil

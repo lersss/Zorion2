@@ -1,4 +1,4 @@
--- Лог поселения (docs/gamedesign/ideas/16a...md, 18a_population_death.md
+-- Лог поселения (docs/gamedesign/ideas/16a...md, 18b_settlement_log.md
 -- §«Лог поселения»): отдельная таблица записей, одно поселение — много записей
 -- (решение создателя 2026-09-14: лог, не поля у поселения). Первый тип —
 -- 'extinct' (Вымерло); список открыт, второй тип влезает в ту же схему.
@@ -13,5 +13,5 @@ CREATE TABLE IF NOT EXISTS settlement_log (
     created_at    timestamptz DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_settlement_log_settlement_id ON settlement_log (settlement_id);
--- Анти-дубль: одна запись «Вымерло» на поселение (инвариант, см. 18a §«Анти-дубль и синк»).
+-- Анти-дубль: одна запись «Вымерло» на поселение (инвариант, см. 18b §«Анти-дубль и синк»).
 CREATE UNIQUE INDEX IF NOT EXISTS uq_settlement_log_extinct ON settlement_log (settlement_id) WHERE type = 'extinct';

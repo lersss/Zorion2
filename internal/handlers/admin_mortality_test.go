@@ -72,7 +72,7 @@ func TestMortalityPreviewComfortablePlanetHasZeroLambda(t *testing.T) {
 		sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id"}).
 			AddRow("s1", "p1", 1_000_000, float64(1_000_000), 60, now, now, now, nil),
 	)
-	// attachSettlements читает лог поселения (18a §«Лог поселения») — пусто.
+	// attachSettlements читает лог поселения (18b §«Лог поселения») — пусто.
 	mock.ExpectQuery(`
 		SELECT id, settlement_id, type, occurred_at, cause, created_at
 		FROM (

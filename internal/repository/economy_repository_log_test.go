@@ -12,7 +12,7 @@ import (
 
 // «Событие» с обвалом населения: запись «Вымерло» создаётся той же
 // транзакцией синка, что продвигает чек-точку (INSERT ... ON CONFLICT
-// DO NOTHING — анти-дубль, 18a §«Анти-дубль и синк»).
+// DO NOTHING — анти-дубль, 18b §«Анти-дубль и синк»).
 func TestRecomputeSettlementPopulationDeathWritesLog(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
@@ -42,7 +42,7 @@ func TestRecomputeSettlementPopulationDeathWritesLog(t *testing.T) {
 }
 
 // Мёртвая чек-точка (population_exact <= NDead на старте): обвал есть, но
-// запись НЕ создаётся — дата невычислима, бэкфилл отменён (18a §«Бэкфилл»).
+// запись НЕ создаётся — дата невычислима, бэкфилл отменён (18b §«Бэкфилл»).
 func TestRecomputeSettlementPopulationDeadCheckpointNoLog(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)

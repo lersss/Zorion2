@@ -40,7 +40,7 @@ func TestGetPlanetsByWorldIDWithSettlements(t *testing.T) {
 		FROM settlements WHERE planet_id = ANY($1) ORDER BY created_at ASC
 	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(settlementRows)
 
-	// attachSettlements читает лог поселений (18a §«Лог поселения») — пусто.
+	// attachSettlements читает лог поселений (18b §«Лог поселения») — пусто.
 	mock.ExpectQuery(`
 		SELECT id, settlement_id, type, occurred_at, cause, created_at
 		FROM (

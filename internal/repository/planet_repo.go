@@ -146,7 +146,7 @@ func (r *PlanetRepository) attachSettlements(planets []models.Planet) error {
 	}
 
 	// Лог поселения (записи «Вымерло»): один запрос на все поселения, последние
-	// 3 записи на поселение (18a §«UI», settlements[].log).
+	// 3 записи на поселение (18b §«UI», settlements[].log).
 	logBySettlement, err := econRepo.GetSettlementLogBySettlementIDs(settlementIDs)
 	if err != nil {
 		return fmt.Errorf("failed to load settlement log: %w", err)

@@ -1,4 +1,4 @@
-// Лог поселения — запись «Вымерло» (docs/gamedesign/18a_population_death.md,
+// Лог поселения — запись «Вымерло» (docs/gamedesign/18b_settlement_log.md,
 // §«Лог поселения»). Здесь — только чистая математика: дата смерти из живой
 // чек-точки и доминирующая причина. Запись в БД — транзакцией синка в
 // репозитории (в той же tx, что продвигает чек-точку). Новых констант баланса
@@ -41,7 +41,7 @@ func DeathTime(populationExact float64, r float64, computedAt time.Time, created
 	return time.Unix(unix, 0), true
 }
 
-// DeathCause — код причины гибели (18a, §«Причина»; 99.2.13, R-модель):
+// DeathCause — код причины гибели (18b, §«Причина»; 99.2.13, R-модель):
 // доминирующая рекурсивная компонента по вкладу — жары (HeatTemperatureChangeRate),
 // холода (ColdChangeRate), гравитации верхней/нижней ветки
 // (GravityChangeRate), радиации (RadiationChangeRate). При равенстве вкладов —

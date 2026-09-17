@@ -7,6 +7,7 @@ import (
 	"zorion/internal/mapcache"
 	"zorion/internal/npc"
 	"zorion/internal/repository"
+	"zorion/internal/travel"
 )
 
 type AdminHandlers struct {
@@ -18,6 +19,15 @@ type AdminHandlers struct {
 	// (ClearUniverse/GenerateUniverse, идея 26c A2). nil в тестах, где
 	// менеджер не подключён.
 	npcManager *npc.Manager
+
+	// visibility — серверная видимость игрока (спека 77a §11). nil в тестах
+	// и для admin/skycomposer (видят всё, И7); для player применяется фильтр
+	// по кругу радара.
+	visibility *Visibility
+
+	// travelManager — активные полёты игроков (спека 77a §5.3): позиции
+	// чужих игроков в полёте интерполируются. nil в тестах.
+	travelManager *travel.Manager
 
 	planetStatsMu sync.RWMutex
 	planetStats   *PlanetStats
@@ -37,4 +47,17 @@ func NewAdminHandlers(worldRepo *repository.WorldRepository, db *sql.DB, mapCach
 // конструктора): менеджер создаётся позже adminHandlers в main.go.
 func (h *AdminHandlers) SetNPCManager(m *npc.Manager) {
 	h.npcManager = m
+}
+
+// SetVisibility — подключает серверную видимость игрока (спека 77a §11).
+// Сеттер (не параметр конструктора): Visibility строится из репозиториев,
+// которые создаются позже adminHandlers в main.go.
+func (h *AdminHandlers) SetVisibility(v *Visibility) {
+	h.visibility = v
+}
+
+// SetTravelManager — подключает менеджер полётов (спека 77a §5.3): позиции
+// чужих игроков в полёте интерполируются. Сеттер (не параметр конструктора).
+func (h *AdminHandlers) SetTravelManager(m *travel.Manager) {
+	h.travelManager = m
 }

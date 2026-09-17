@@ -81,8 +81,8 @@ func travelWorldRow(id string, x, y float64) *sqlmock.Rows {
 func userRow(id, fromWorld string) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
 		"id", "username", "password_hash", "email", "agent_id", "current_world_id",
-		"ship_icon", "ship_color", "role", "created_at", "updated_at",
-	}).AddRow(id, "player", "hash", nil, nil, fromWorld, "ship_strela.svg", nil, "player", now(), now())
+		"ship_icon", "ship_color", "ship_model_id", "equipment", "role", "created_at", "updated_at",
+	}).AddRow(id, "player", "hash", nil, nil, fromWorld, "ship_strela.svg", nil, nil, nil, "player", now(), now())
 }
 
 // expectWorld — ожидание SELECT мира по id.
@@ -94,7 +94,7 @@ func expectWorld(mock sqlmock.Sqlmock, id string, x, y float64) {
 
 // expectUser — ожидание SELECT пользователя по id.
 func expectUser(mock sqlmock.Sqlmock, id, fromWorld string) {
-	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, role, created_at, updated_at FROM users WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at FROM users WHERE id = \$1`).
 		WithArgs(id).
 		WillReturnRows(userRow(id, fromWorld))
 }

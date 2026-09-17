@@ -357,3 +357,12 @@
   10 осей) и `territory == "conditions"`. Тесты с жёстким «50 рас» в каталоге
   (например, `require.Len(t, races.Catalog(), 50)`) при добавлении рас
   обновлять на актуальное число (60).
+
+- **Каталог оборудования (спека 77a) — глобальное in-memory состояние
+  `internal/ship`.** `RadarRadius`/`HasScanner` читают map, загружаемую
+  `ship.LoadCatalog(db)` при старте (или `LoadDefaults()` при пустой БД).
+  В юнит-тестах каталог пуст → `RadarRadius` молча возвращает минимум 200 px
+  (не 800), тест «стартовый радар → 800» падает. Правило: тест, проверяющий
+  радиус/сканер, обязан сначала вызвать `ship.LoadDefaults()` (или
+  `LoadCatalog` с sqlmock) — как `newVisibilityHarness` в
+  `internal/handlers/visibility_test.go`.

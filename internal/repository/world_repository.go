@@ -1,8 +1,10 @@
 package repository
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"zorion/internal/models"
@@ -46,6 +48,49 @@ type WorldRepository struct {
 
 func NewWorldRepository(db *sql.DB) *WorldRepository {
 	return &WorldRepository{DB: db}
+}
+
+// PickSpawnWorld — стартовый мир для нового игрока (решение создателя
+// 2026-09-17: «давай его пока к людям кидать»). Приоритет:
+//  1. мир, где есть поселение расы humans (ближайший к центру галактики);
+//  2. фолбэк — ближайший к центру мир вообще (как assignCurrentWorldsTx);
+//  3. миров нет — (nil, nil): регистрация не ломается, current_world_id = NULL.
+//
+// Единая логика выбора: используется и в Register, и в миграции 000041
+// (там — SQL-подзапрос с тем же смыслом).
+func (r *WorldRepository) PickSpawnWorld(ctx context.Context) (*string, error) {
+	// 1. Мир с поселением расы humans, ближайший к центру галактики.
+	var id string
+	err := r.DB.QueryRowContext(ctx, `
+		SELECT w.id FROM worlds w
+		WHERE EXISTS (
+			SELECT 1 FROM settlements s
+			JOIN planets p ON p.id = s.planet_id
+			WHERE p.world_id = w.id AND s.race_id = 'humans'
+		)
+		ORDER BY (w.coord_x * w.coord_x + w.coord_y * w.coord_y)
+		LIMIT 1
+	`).Scan(&id)
+	if err == nil {
+		return &id, nil
+	}
+	if err != sql.ErrNoRows {
+		return nil, fmt.Errorf("pick spawn world (humans): %w", err)
+	}
+
+	// 2. Фолбэк: ближайший к центру мир вообще.
+	err = r.DB.QueryRowContext(ctx, `
+		SELECT id FROM worlds
+		ORDER BY (coord_x * coord_x + coord_y * coord_y)
+		LIMIT 1
+	`).Scan(&id)
+	if err == sql.ErrNoRows {
+		return nil, nil // миров нет — NULL, регистрация не ломается
+	}
+	if err != nil {
+		return nil, fmt.Errorf("pick spawn world (fallback): %w", err)
+	}
+	return &id, nil
 }
 
 func (r *WorldRepository) Create(world *models.World) error {

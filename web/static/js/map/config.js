@@ -35,6 +35,8 @@ export const state = {
     userShipIcon: '',    // PNG-имя спрайта корабля из /me (спека 61b §6.1)
     userShipColor: null, // цвет перекраски спрайта из /me (NULL = «Оригинал», спека 61b §6.1)
     userRole: '',        // роль пользователя ('admin'/'skycomposer' → FPS-счётчик на карте)
+    radarRadius: 0,      // радиус радара игрока из /me (спека 77a §4.2; 0 = не загружен)
+    playerPositions: [], // чужие игроки в радиусе радара (спека 77a §5.3): {id,username,ship_icon,ship_color,status,x,y}
 };
 
 export const elements = {

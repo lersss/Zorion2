@@ -157,6 +157,12 @@ func (m *Manager) Positions() []InterpolatedPosition {
 	return m.positions.Snapshot()
 }
 
+// SetPositions — подмена снимка позиций (тесты хендлеров карты; в проде
+// снимок пересчитывает планировщик каждый тик).
+func (m *Manager) SetPositions(pos []InterpolatedPosition) {
+	m.positions.Replace(pos)
+}
+
 // Settings — настройки менеджера (админ-ручка /admin/npc/settings, §6).
 func (m *Manager) Settings() *Settings {
 	return m.settings

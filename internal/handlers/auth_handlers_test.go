@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"zorion/internal/auth"
 	"zorion/internal/repository"
 	"zorion/internal/travel"
 )
@@ -34,17 +35,17 @@ func newAuthHandlersHarness(t *testing.T) (*AuthHandlers, sqlmock.Sqlmock, *trav
 
 // authUserCols — колонки users для sqlmock.
 var authUserCols = []string{
-	"id", "username", "password_hash", "email", "agent_id", "current_world_id", "ship_icon", "ship_color", "role", "created_at", "updated_at",
+	"id", "username", "password_hash", "email", "agent_id", "current_world_id", "ship_icon", "ship_color", "ship_model_id", "equipment", "role", "created_at", "updated_at",
 }
 
 func TestGetMeWithActiveFlight(t *testing.T) {
 	h, mock, tm := newAuthHandlersHarness(t)
 
 	userID := "11111111-1111-1111-1111-111111111111"
-	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, role, created_at, updated_at FROM users WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at FROM users WHERE id = \$1`).
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows(authUserCols).
-			AddRow(userID, "bob", "hash", nil, nil, nil, "ship_strela.svg", nil, "player", now(), now()))
+			AddRow(userID, "bob", "hash", nil, nil, nil, "ship_strela.svg", nil, nil, nil, "player", now(), now()))
 
 	// Полёт с часовой длительностью — не завершится во время теста.
 	tm.StartFlight(userID, "w-from", "w-to", 10.5, 20.5, time.Hour, nil)
@@ -73,10 +74,10 @@ func TestGetMeWithoutFlight(t *testing.T) {
 	h, mock, _ := newAuthHandlersHarness(t)
 
 	userID := "22222222-2222-2222-2222-222222222222"
-	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, role, created_at, updated_at FROM users WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at FROM users WHERE id = \$1`).
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows(authUserCols).
-			AddRow(userID, "alice", "hash", nil, nil, nil, "ship_strela.svg", nil, "player", now(), now()))
+			AddRow(userID, "alice", "hash", nil, nil, nil, "ship_strela.svg", nil, nil, nil, "player", now(), now()))
 
 	req := httptest.NewRequest(http.MethodGet, "/me", nil)
 	rec := execJSON(h.GetMe, withUserID(req, userID))
@@ -95,10 +96,10 @@ func TestGetMeMapsLegacyShipIcon(t *testing.T) {
 	h, mock, _ := newAuthHandlersHarness(t)
 
 	userID := "33333333-3333-3333-3333-333333333333"
-	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, role, created_at, updated_at FROM users WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at FROM users WHERE id = \$1`).
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows(authUserCols).
-			AddRow(userID, "bob", "hash", nil, nil, nil, "ship_strela.svg", nil, "player", now(), now()))
+			AddRow(userID, "bob", "hash", nil, nil, nil, "ship_strela.svg", nil, nil, nil, "player", now(), now()))
 
 	req := httptest.NewRequest(http.MethodGet, "/me", nil)
 	rec := execJSON(h.GetMe, withUserID(req, userID))
@@ -119,10 +120,10 @@ func TestGetMeMapsUnknownShipIconToDefault(t *testing.T) {
 	h, mock, _ := newAuthHandlersHarness(t)
 
 	userID := "44444444-4444-4444-4444-444444444444"
-	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, role, created_at, updated_at FROM users WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at FROM users WHERE id = \$1`).
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows(authUserCols).
-			AddRow(userID, "bob", "hash", nil, nil, nil, "x.png", nil, "player", now(), now()))
+			AddRow(userID, "bob", "hash", nil, nil, nil, "x.png", nil, nil, nil, "player", now(), now()))
 
 	req := httptest.NewRequest(http.MethodGet, "/me", nil)
 	rec := execJSON(h.GetMe, withUserID(req, userID))
@@ -219,4 +220,81 @@ func TestUpdateShipColorRejectsGarbage(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, rec.Code, "цвет %s должен быть отклонён", body)
 	}
 	require.NoError(t, mock.ExpectationsWereMet(), "невалидные цвета не должны трогать БД")
+}
+
+// ==================== REGISTER: СТАРТОВЫЙ МИР (баг 77a) ====================
+
+// authUserColsRegister — колонки users для sqlmock (13 колонок userSelect).
+var authUserColsRegister = []string{
+	"id", "username", "password_hash", "email", "agent_id", "current_world_id",
+	"ship_icon", "ship_color", "ship_model_id", "equipment", "role", "created_at", "updated_at",
+}
+
+// expectRegisterPrecheck — pre-check занятости имени (пусто).
+func expectRegisterPrecheck(mock sqlmock.Sqlmock, username string) {
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at FROM users WHERE username = \$1`).
+		WithArgs(username).
+		WillReturnRows(sqlmock.NewRows(authUserColsRegister))
+}
+
+// expectRegisterInsert — INSERT нового пользователя (current_world_id — как задан).
+func expectRegisterInsert(mock sqlmock.Sqlmock, username string, currentWorldID interface{}) {
+	mock.ExpectExec(`INSERT INTO users \(id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_model_id, equipment, role, created_at, updated_at\) VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, \$9, \$10, \$11, \$12\)`).
+		WithArgs(sqlmock.AnyArg(), username, sqlmock.AnyArg(), nil, nil, currentWorldID, "crescent.png", "starter", sqlmock.AnyArg(), "player", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+}
+
+// registerRequest — POST /register с телом {username, password}.
+func registerRequest(username string) *http.Request {
+	return httptest.NewRequest(http.MethodPost, "/register",
+		strings.NewReader(`{"username":"`+username+`","password":"secret123"}`))
+}
+
+// Мир с людьми найден — current_world_id записан в INSERT (201).
+func TestRegisterAssignsSpawnWorld(t *testing.T) {
+	_ = auth.InitJWTSecret("handler-test-secret-that-is-long-enough-32b!")
+	h, mock, _ := newAuthHandlersHarness(t)
+
+	expectRegisterPrecheck(mock, "newbie")
+	mock.ExpectQuery(`SELECT w.id FROM worlds w WHERE EXISTS.*race_id = 'humans'.*LIMIT 1`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("w-humans"))
+	expectRegisterInsert(mock, "newbie", "w-humans")
+
+	rec := execJSON(h.Register, registerRequest("newbie"))
+	require.Equal(t, http.StatusCreated, rec.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Миров нет — current_world_id = NULL, регистрация не падает (201).
+func TestRegisterNoWorlds(t *testing.T) {
+	_ = auth.InitJWTSecret("handler-test-secret-that-is-long-enough-32b!")
+	h, mock, _ := newAuthHandlersHarness(t)
+
+	expectRegisterPrecheck(mock, "newbie")
+	mock.ExpectQuery(`SELECT w.id FROM worlds w WHERE EXISTS.*race_id = 'humans'.*LIMIT 1`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	mock.ExpectQuery(`SELECT id FROM worlds ORDER BY \(coord_x \* coord_x \+ coord_y \* coord_y\) LIMIT 1`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	expectRegisterInsert(mock, "newbie", nil)
+
+	rec := execJSON(h.Register, registerRequest("newbie"))
+	require.Equal(t, http.StatusCreated, rec.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Миров с людьми нет, но миры есть — фолбэк на ближайший к центру (201).
+func TestRegisterFallbackClosestWorld(t *testing.T) {
+	_ = auth.InitJWTSecret("handler-test-secret-that-is-long-enough-32b!")
+	h, mock, _ := newAuthHandlersHarness(t)
+
+	expectRegisterPrecheck(mock, "newbie")
+	mock.ExpectQuery(`SELECT w.id FROM worlds w WHERE EXISTS.*race_id = 'humans'.*LIMIT 1`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	mock.ExpectQuery(`SELECT id FROM worlds ORDER BY \(coord_x \* coord_x \+ coord_y \* coord_y\) LIMIT 1`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("w-closest"))
+	expectRegisterInsert(mock, "newbie", "w-closest")
+
+	rec := execJSON(h.Register, registerRequest("newbie"))
+	require.Equal(t, http.StatusCreated, rec.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
 }

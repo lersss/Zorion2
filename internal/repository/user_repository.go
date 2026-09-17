@@ -2,6 +2,7 @@ package repository
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -26,17 +27,33 @@ func NewUserRepository(db *sql.DB) *UserRepository {
 }
 
 // Create создаёт нового пользователя. Роль по умолчанию — player.
+// Стартовая комплектация 77a (спека §3.3): ship_model_id='starter',
+// equipment={radar:radar_1, scanner:scanner_1, engine:null} — если не заданы
+// явно (как дефолты 61b при регистрации).
 func (r *UserRepository) Create(user *models.User) error {
 	role := user.Role
 	if role == "" {
 		role = models.RolePlayer
 	}
+	shipModelID := user.ShipModelID
+	if shipModelID == nil {
+		s := models.StarterShipModelID
+		shipModelID = &s
+	}
+	equipment := user.Equipment
+	if equipment == nil {
+		equipment = models.StarterEquipment
+	}
+	equipmentJSON, err := json.Marshal(equipment)
+	if err != nil {
+		return fmt.Errorf("create user: equipment marshal: %w", err)
+	}
 	query := `
-		INSERT INTO users (id, username, password_hash, email, agent_id, current_world_id, ship_icon, role, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		INSERT INTO users (id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_model_id, equipment, role, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 	`
 	now := time.Now()
-	_, err := r.db.Exec(query,
+	_, err = r.db.Exec(query,
 		user.ID,
 		user.Username,
 		user.PasswordHash,
@@ -44,6 +61,8 @@ func (r *UserRepository) Create(user *models.User) error {
 		user.AgentID,
 		user.CurrentWorldID,
 		user.ShipIcon,
+		shipModelID,
+		equipmentJSON,
 		role,
 		now,
 		now,
@@ -52,6 +71,8 @@ func (r *UserRepository) Create(user *models.User) error {
 		return fmt.Errorf("create user: %w", err)
 	}
 	user.Role = role
+	user.ShipModelID = shipModelID
+	user.Equipment = equipment
 	user.CreatedAt = now
 	user.UpdatedAt = now
 	return nil
@@ -59,38 +80,23 @@ func (r *UserRepository) Create(user *models.User) error {
 
 // GetByUsername возвращает пользователя по логину
 func (r *UserRepository) GetByUsername(username string) (*models.User, error) {
-	query := `SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, role, created_at, updated_at FROM users WHERE username = $1`
+	query := userSelect + ` WHERE username = $1`
 	row := r.db.QueryRow(query, username)
-
-	var u models.User
-	err := row.Scan(
-		&u.ID,
-		&u.Username,
-		&u.PasswordHash,
-		&u.Email,
-		&u.AgentID,
-		&u.CurrentWorldID,
-		&u.ShipIcon,
-		&u.ShipColor,
-		&u.Role,
-		&u.CreatedAt,
-		&u.UpdatedAt,
-	)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	return &u, nil
+	return scanUser(row)
 }
 
 // GetByID возвращает пользователя по ID
 func (r *UserRepository) GetByID(id string) (*models.User, error) {
-	query := `SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, role, created_at, updated_at FROM users WHERE id = $1`
+	query := userSelect + ` WHERE id = $1`
 	row := r.db.QueryRow(query, id)
+	return scanUser(row)
+}
 
+// scanUser — сканирует одну строку users (общие колонки userSelect).
+func scanUser(row *sql.Row) (*models.User, error) {
 	var u models.User
+	var shipModelID sql.NullString
+	var equipmentRaw []byte
 	err := row.Scan(
 		&u.ID,
 		&u.Username,
@@ -100,6 +106,8 @@ func (r *UserRepository) GetByID(id string) (*models.User, error) {
 		&u.CurrentWorldID,
 		&u.ShipIcon,
 		&u.ShipColor,
+		&shipModelID,
+		&equipmentRaw,
 		&u.Role,
 		&u.CreatedAt,
 		&u.UpdatedAt,
@@ -109,6 +117,14 @@ func (r *UserRepository) GetByID(id string) (*models.User, error) {
 	}
 	if err != nil {
 		return nil, err
+	}
+	if shipModelID.Valid {
+		u.ShipModelID = &shipModelID.String
+	}
+	if len(equipmentRaw) > 0 && string(equipmentRaw) != "null" {
+		if err := json.Unmarshal(equipmentRaw, &u.Equipment); err != nil {
+			return nil, err
+		}
 	}
 	return &u, nil
 }
@@ -135,8 +151,8 @@ func (r *UserRepository) UpdateShipColor(userID string, color *string) error {
 	return err
 }
 
-// userSelect — общие колонки для листинга.
-const userSelect = `SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, role, created_at, updated_at FROM users`
+// userSelect — общие колонки для листинга (включая 77a: ship_model_id, equipment).
+const userSelect = `SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at FROM users`
 
 // Count возвращает число пользователей под фильтрами раздела «Пользователи»
 // (§6.1): подстрока по username/email (case-insensitive) + фильтр роли.
@@ -167,6 +183,8 @@ func (r *UserRepository) List(query, role string, page, limit int) ([]*models.Us
 	var users []*models.User
 	for rows.Next() {
 		var u models.User
+		var shipModelID sql.NullString
+		var equipmentRaw []byte
 		if err := rows.Scan(
 			&u.ID,
 			&u.Username,
@@ -176,11 +194,21 @@ func (r *UserRepository) List(query, role string, page, limit int) ([]*models.Us
 			&u.CurrentWorldID,
 			&u.ShipIcon,
 			&u.ShipColor,
+			&shipModelID,
+			&equipmentRaw,
 			&u.Role,
 			&u.CreatedAt,
 			&u.UpdatedAt,
 		); err != nil {
 			return nil, err
+		}
+		if shipModelID.Valid {
+			u.ShipModelID = &shipModelID.String
+		}
+		if len(equipmentRaw) > 0 && string(equipmentRaw) != "null" {
+			if err := json.Unmarshal(equipmentRaw, &u.Equipment); err != nil {
+				return nil, err
+			}
 		}
 		users = append(users, &u)
 	}
@@ -322,4 +350,28 @@ func (r *UserRepository) CountByRole(role models.Role) (int, error) {
 		`SELECT COUNT(*) FROM users WHERE role = $1`, role,
 	).Scan(&n)
 	return n, err
+}
+
+// PlayerPositions — игроки для карты (спека 77a §5.3): id, username,
+// ship_icon, ship_color, current_world_id, role. Без password_hash/email —
+// позиции чужих игроков не должны тянуть лишнее. При малом числе
+// онлайн-игроков — просто запрос с фильтром по радиусу на чтении (§11.3).
+func (r *UserRepository) PlayerPositions() ([]*models.User, error) {
+	rows, err := r.db.Query(
+		`SELECT id, username, ship_icon, ship_color, current_world_id, role FROM users`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []*models.User
+	for rows.Next() {
+		var u models.User
+		if err := rows.Scan(&u.ID, &u.Username, &u.ShipIcon, &u.ShipColor, &u.CurrentWorldID, &u.Role); err != nil {
+			return nil, err
+		}
+		users = append(users, &u)
+	}
+	return users, rows.Err()
 }

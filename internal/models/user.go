@@ -20,6 +20,8 @@ type User struct {
 	CurrentWorldID *string   `json:"current_world_id,omitempty"` // текущий мир
 	ShipIcon       string    `json:"ship_icon"`                  // выбранная иконка корабля (PNG-имя)
 	ShipColor      *string   `json:"ship_color"`                 // цвет перекраски спрайта (NULL = «Оригинал», спека 61b §3.3)
+	ShipModelID    *string   `json:"ship_model_id,omitempty"`    // модель корабля (спека 77a §2.2; NULL = легаси-игрок до бэкфилла)
+	Equipment      map[string]interface{} `json:"equipment,omitempty"` // установленное оборудование по слотам (спека 77a §3.3)
 	Role           Role      `json:"role"`                       // player/admin/skycomposer
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`

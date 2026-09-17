@@ -45,6 +45,11 @@ type Snapshot struct {
 	worlds []World
 }
 
+// NewSnapshot — снапшот из готового списка миров (тесты, пересборка).
+func NewSnapshot(worlds []World) *Snapshot {
+	return &Snapshot{worlds: worlds}
+}
+
 // Len — число миров в снапшоте (0 для неготового снапшота).
 func (s *Snapshot) Len() int {
 	if s == nil {

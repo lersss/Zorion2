@@ -43,10 +43,19 @@ type AdminNPCHandlers struct {
 	npcRepo   *repository.NPCRepository
 	worldRepo *repository.WorldRepository
 	manager   *npc.Manager
+
+	// visibility — серверная видимость игрока (спека 77a §11): агенты вне
+	// радиуса радара скрыты для player. nil в тестах и для admin/skycomposer.
+	visibility *Visibility
 }
 
 func NewAdminNPCHandlers(npcRepo *repository.NPCRepository, worldRepo *repository.WorldRepository, manager *npc.Manager) *AdminNPCHandlers {
 	return &AdminNPCHandlers{npcRepo: npcRepo, worldRepo: worldRepo, manager: manager}
+}
+
+// SetVisibility — подключает серверную видимость игрока (спека 77a §11).
+func (h *AdminNPCHandlers) SetVisibility(v *Visibility) {
+	h.visibility = v
 }
 
 // ==================== КОЛЛЕКЦИЯ: /admin/npc ====================

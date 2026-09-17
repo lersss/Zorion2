@@ -3,11 +3,14 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 
+	"zorion/internal/auth"
 	"zorion/internal/models"
 	"zorion/internal/repository"
+	"zorion/internal/ship"
 )
 
 // GetPlanetsByWorld возвращает планеты для указанного мира
@@ -58,6 +61,43 @@ func (h *AdminHandlers) GetPlanetsByWorld(w http.ResponseWriter, r *http.Request
 	var worldAge *float64
 	if ageRaw.Valid {
 		worldAge = &ageRaw.Float64
+	}
+
+	// Видимость игрока (спека 77a §11.2): система вне радиуса радара и не
+	// «зажжена» знанием координат — 403 для player. admin/skycomposer — без
+	// фильтра (И7). В радиусе — ленивый прогон сканера (§6.1) и скрытие
+	// деталей планет за знанием (§6.2).
+	if h.visibility != nil && roleFromContext(r) == string(models.RolePlayer) {
+		userID, _ := r.Context().Value(auth.UserIDKey).(string)
+		user, err := h.visibility.userRepo.GetByID(userID)
+		if err != nil || user == nil {
+			writeJSONError(w, "Пользователь не найден", http.StatusNotFound)
+			return
+		}
+		centerX, centerY, ok := h.visibility.PlayerPosition(user)
+		if !ok {
+			writeJSONError(w, "вне зоны видимости", http.StatusForbidden)
+			return
+		}
+		radius := h.visibility.RadarRadius(user)
+		known := h.visibility.KnownWorldIDs(userID)
+		if !IsVisible(coordX, coordY, centerX, centerY, radius) && !known[worldID] {
+			writeJSONError(w, "вне зоны видимости", http.StatusForbidden)
+			return
+		}
+		// Ленивый прогон сканера (спека 77a §6.1, режим A): при взгляде на
+		// систему В РАДИУСЕ радара сервер обновляет знание игрока о планетах
+		// системы (дата = now). «Зажжённая» знанием система вне радиуса —
+		// модалка с ИМЕЮЩИМСЯ знанием (даже устаревшим, fresh:false), но
+		// сканировать/обновлять знание НЕЛЬЗЯ — иначе знание известных систем
+		// никогда не стареет из любой точки (подрыв И8/И9). Только со сканером
+		// (без сканера знания нет).
+		if ship.HasScanner(user.Equipment) && IsVisible(coordX, coordY, centerX, centerY, radius) {
+			if err := h.visibility.knowledge.ScanSystem(userID, worldID); err != nil {
+				log.Printf("⚠️ ScanSystem %s: %v", worldID, err)
+			}
+		}
+		planets = applyPlanetVisibility(userID, planets, h.visibility.knowledge)
 	}
 
 	response := struct {

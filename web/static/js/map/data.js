@@ -284,6 +284,43 @@ function buildUrl(bounds, cell) {
 
 // ==================== ПОЛЬЗОВАТЕЛЬ ====================
 
+// Период опроса позиций чужих игроков (спека 77a §5.3): согласованно с
+// полётным циклом карты.
+const PLAYER_POSITIONS_POLL_MS = 5000;
+
+let playerPositionsLoopStarted = false;
+
+// loadPlayerPositions — позиции чужих игроков в радиусе радара (спека 77a
+// §5.3). Сервер отдаёт только игроков в радиусе (И1) — клиент рисует как есть.
+export async function loadPlayerPositions() {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+        const res = await fetch('/api/players/positions', {
+            headers: { 'Authorization': 'Bearer ' + token }
+        });
+        if (res.status === 401 || res.status === 403) {
+            handleUnauthorized();
+            return;
+        }
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        state.playerPositions = Array.isArray(data.players) ? data.players : [];
+        draw();
+    } catch (err) {
+        // Тихий сбой: карта работает и без чужих игроков.
+        console.warn('loadPlayerPositions error:', err);
+    }
+}
+
+// startPlayerPositionsLoop — периодический опрос позиций чужих игроков.
+export function startPlayerPositionsLoop() {
+    if (playerPositionsLoopStarted) return;
+    playerPositionsLoopStarted = true;
+    loadPlayerPositions();
+    setInterval(loadPlayerPositions, PLAYER_POSITIONS_POLL_MS);
+}
+
 export async function loadUserData(force = false) {
     if (currentWorldIdLoaded && !force) return;
     try {
@@ -307,6 +344,8 @@ export async function loadUserData(force = false) {
 
         if (user.id) state.userId = user.id;
         if (user.role) state.userRole = user.role;
+        // Радиус радара (спека 77a §4.2): для отрисовки границы видимости.
+        if (typeof user.radar_radius === 'number') state.radarRadius = user.radar_radius;
         if (user.ship_icon) {
             setShipIcon(user.ship_icon);
         }

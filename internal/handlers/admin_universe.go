@@ -50,7 +50,7 @@ func recoverErr(r interface{}) string {
 // с ошибкой "cannot truncate a table referenced in a foreign key
 // constraint". Тогда добавь её в этот список.
 
-const truncateTables = `worlds, locations, planets, assignments, production_units, factions, settlements, settlement_log, regions, npc_agents`
+const truncateTables = `worlds, locations, planets, assignments, production_units, factions, settlements, settlement_log, regions, npc_agents, player_planet_knowledge`
 
 // clearUniverseTx — очистка внутри уже начатой транзакции.
 // Вызывающий делает Begin/Commit/Rollback.

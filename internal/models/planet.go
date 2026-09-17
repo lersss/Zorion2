@@ -66,6 +66,12 @@ type Planet struct {
 	// Поселения планеты (источник населения)
 	Settlements []Settlement `json:"settlements,omitempty"`
 
+	// Knowledge — видимость знания о планете для модалки (спека 77a §6.2):
+	// заполняется сервером для role=player (поверхность + наличие поселений
+	// с датой актуальности); null для admin/skycomposer и без знания —
+	// клиент показывает «нет данных — купить отчёт».
+	Knowledge *PlanetKnowledgeView `json:"knowledge"`
+
 	// Прочее
 	Description string    `json:"description,omitempty"`
 	SystemAge   float64   `json:"system_age,omitempty"`
@@ -73,6 +79,17 @@ type Planet struct {
 	Radioactive bool      `json:"radioactive,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// PlanetKnowledgeView — знание игрока о планете в ответе модалки (спека 77a
+// §6.2/§8.2): поверхность и наличие поселений с датой актуальности (И8).
+// Недра/атмосфера/детали поселений сканер не вскрывает — их нет в ответе.
+type PlanetKnowledgeView struct {
+	ScannedAt          time.Time          `json:"scanned_at"` // дата актуальности (момент скана)
+	Fresh              bool               `json:"fresh"`      // актуально (≤ 7 дней, §8.2)
+	SurfaceDominant    string             `json:"surface_dominant,omitempty"`
+	SurfaceComposition map[string]float64 `json:"surface_composition,omitempty"`
+	SettlementsCount   int                `json:"settlements_count,omitempty"` // есть/нет + число (§6.2)
 }
 
 // PlanetCore — ядро планеты.

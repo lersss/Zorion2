@@ -72,6 +72,8 @@ export function initHover() {
         hideNPCTooltip();
 
         const hit = findClusterAt(mouseX, mouseY);
+        // Точка-огонёк за радаром (спека 77a §5.1): hoverWorldId не ставится
+        // (имени нет, И11), но тултип «вне зоны детальной видимости» показываем.
         const newHoveredId = hit && hit.cluster.cnt === 1 ? hit.cluster.sid : null;
 
         if (state.hoveredWorldId !== newHoveredId) {
@@ -98,6 +100,16 @@ export function initHover() {
 // showTooltip — заполняет и показывает тултип для одиночного мира, скрывает иначе.
 function showTooltip(cluster) {
     if (!cluster || cluster.cnt !== 1) {
+        // Точка-огонёк за радаром (спека 77a §10): тултип без имени/данных —
+        // «вне зоны детальной видимости», кнопка «Лететь» скрыта (И11).
+        if (cluster && !cluster.cnt) {
+            elements.tooltipName.textContent = 'Вне зоны детальной видимости';
+            elements.tooltipType.textContent = 'Тип: —';
+            elements.tooltipLevel.textContent = 'Уровень: —';
+            elements.tooltipFlyBtn.style.display = 'none';
+            elements.tooltip.classList.add('active');
+            return;
+        }
         elements.tooltip.classList.remove('active');
         return;
     }
@@ -111,6 +123,7 @@ function showTooltip(cluster) {
     elements.tooltipType.textContent = 'Тип: ' + tooltipStarType(cluster.stype, spec);
     elements.tooltipLevel.textContent = 'Уровень: ' + level;
     elements.tooltipFlyBtn.dataset.worldId = cluster.sid;
+    elements.tooltipFlyBtn.style.display = '';
     elements.tooltip.classList.add('active');
 }
 
@@ -163,6 +176,11 @@ export function handleCanvasClick(e) {
         }
         elements.tooltip.classList.remove('active');
         state.selectedWorldId = c.sid;
+    } else if (!c.cnt) {
+        // Точка-огонёк за радаром (спека 77a §5.1): клик не открывает модалку,
+        // полёт-цель недоступна (слепой прыжок запрещён, И6/И11).
+        elements.tooltip.classList.remove('active');
+        state.selectedWorldId = null;
     } else {
         // Кластер — зуммируем к его центру
         const targetScale = Math.min(state.scale * 2, mapCfg.maxZoom);

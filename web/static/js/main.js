@@ -6,8 +6,9 @@ import { animationLoop } from './map/animation.js';
 import { centerOnAgent } from './map/navigation.js';
 import { showFlightPanel } from './map/flight.js';
 import { applyFiltersFromUI, resetFilters, filterState } from './filters.js';
-import { loadClusters, loadUserData } from './map/data.js';
+import { loadClusters, loadUserData, startPlayerPositionsLoop } from './map/data.js';
 import { draw } from './map/map_render.js';
+import { radarBoundaryVariant, setRadarBoundaryVariant } from './map/map_render.js';
 import { setRedrawCallback, preloadShipSprites } from './map/ship_sprites.js';
 import { showTextLoader } from './loader.js';
 import { notifyError } from './ui/toast.js';
@@ -112,8 +113,20 @@ function init() {
     // --- NPC-агенты на карте (спека 20a.1 §7): опрос позиций + WS ---
     startNPCLoop();
 
+    // --- Чужие игроки в радиусе радара (спека 77a §5.3): опрос позиций ---
+    startPlayerPositionsLoop();
+
     // --- Поиск агента на карте (спека 26a.1 §6.2): поле в #zoom-controls ---
     initNPCSearch();
+
+    // --- Тестовая переключалка границы видимости (спека 77a §9.1) ---
+    const boundarySelect = document.getElementById('radarBoundarySelect');
+    if (boundarySelect) {
+        boundarySelect.value = String(radarBoundaryVariant());
+        boundarySelect.addEventListener('change', () => {
+            setRadarBoundaryVariant(parseInt(boundarySelect.value, 10) || 1);
+        });
+    }
 
     // --- Автоматическое применение фильтров ---
     const filterInputs = document.querySelectorAll('#filters-bar input, #filters-bar select');

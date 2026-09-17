@@ -70,6 +70,15 @@ func (h *AdminNPCHandlers) SearchAgent(w http.ResponseWriter, r *http.Request) {
 	// Позиции — из снапшота PositionCache (спека §6.1: линейный поиск по id
 	// в слайсе — ≤ limit × 100к сравнений на запрос, разово, приемлемо).
 	positions := h.manager.Positions()
+
+	// Видимость игрока (спека 77a §10): агент вне радиуса радара — найден,
+	// но координаты скрыты («вне зоны видимости»). admin/skycomposer — без
+	// фильтра (И7).
+	var pc *playerContext
+	if h.visibility != nil && roleFromContext(r) == string(models.RolePlayer) {
+		pc = h.visibility.playerContextFrom(r)
+	}
+
 	results := make([]map[string]interface{}, 0, len(agents))
 	for _, a := range agents {
 		res := map[string]interface{}{
@@ -93,6 +102,11 @@ func (h *AdminNPCHandlers) SearchAgent(w http.ResponseWriter, r *http.Request) {
 		if !found {
 			res["x"] = nil // агента нет в snapshot — позиция неизвестна
 			res["y"] = nil
+		} else if pc != nil && (!pc.ok || !IsVisible(res["x"].(float64), res["y"].(float64), pc.centerX, pc.centerY, pc.radius)) {
+			// Агент вне радиуса радара: имя — справочное, позиция — разведданные.
+			res["x"] = nil
+			res["y"] = nil
+			res["outside_visibility"] = true
 		}
 		results = append(results, res)
 	}

@@ -11,6 +11,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"zorion/internal/auth"
+	"zorion/internal/models"
 )
 
 // Кинды объектов в результатах поиска.
@@ -66,11 +69,64 @@ func (h *AdminHandlers) SearchEntitiesHandler(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// Видимость игрока (спека 77a §10): поиск звёзд — только по известным
+	// (в радиусе радара + «зажжённые» знанием); за-радарные безымянные точки
+	// в поиске не участвуют (имя за-радарной звезды клиенту не отдаётся —
+	// И11). Планеты/спутники — находит, детали по видимости.
+	// admin/skycomposer — без фильтра (И7).
+	if h.visibility != nil && roleFromContext(r) == string(models.RolePlayer) {
+		results = h.applySearchVisibility(r, results)
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	if err := json.NewEncoder(w).Encode(searchResponse{Results: results}); err != nil {
 		log.Printf("⚠️ SearchEntities encode error: %v", err)
 	}
+}
+
+// applySearchVisibility — фильтр результатов поиска для player (спека 77a §10):
+// звёзды — только в радиусе радара или «зажжённые» знанием; планеты/спутники
+// неизвестных систем — найдены, но без имени звезды/координат (И11). Позиция
+// игрока неизвестна — пустой результат (безопасное направление).
+func (h *AdminHandlers) applySearchVisibility(r *http.Request, results []searchResult) []searchResult {
+	userID, _ := r.Context().Value(auth.UserIDKey).(string)
+	user, err := h.visibility.userRepo.GetByID(userID)
+	if err != nil || user == nil {
+		return nil
+	}
+	centerX, centerY, ok := h.visibility.PlayerPosition(user)
+	if !ok {
+		return nil
+	}
+	radius := h.visibility.RadarRadius(user)
+	known := h.visibility.KnownWorldIDs(userID)
+
+	out := make([]searchResult, 0, len(results))
+	for _, res := range results {
+		if res.Kind == searchKindWorld {
+			// Звезда: известна (в радиусе или «зажжена» знанием) — отдаём.
+			if IsVisible(res.CoordX, res.CoordY, centerX, centerY, radius) || known[res.ID] {
+				out = append(out, res)
+			}
+			continue
+		}
+		// Планета/спутник: система известна — полный результат.
+		if IsVisible(res.CoordX, res.CoordY, centerX, centerY, radius) || known[res.WorldID] {
+			out = append(out, res)
+			continue
+		}
+		// Система неизвестна — имя звезды, координаты и world_id скрыты (И11):
+		// цепочка search → GET /worlds/{world_id} не должна отдавать имя
+		// за-радарной звезды. Сам объект найден (справочник имён).
+		res.WorldName = ""
+		res.Spectral = ""
+		res.CoordX = 0
+		res.CoordY = 0
+		res.WorldID = ""
+		out = append(out, res)
+	}
+	return out
 }
 
 // ==================== ХЕЛПЕРЫ ====================

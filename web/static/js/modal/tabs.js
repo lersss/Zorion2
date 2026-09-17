@@ -131,8 +131,22 @@ function renderGeneral(planet) {
 
     // Тип (название в шапке карточки)
     html += `<p style="margin:4px 0;"><strong>Тип:</strong> ${planet.type || '—'}</p>`;
-    if (planet.surface_dominant) {
-        html += `<p style="margin:4px 0;"><strong>Доминирует:</strong> ${planet.surface_dominant}</p>`;
+
+    // Знание о планете (спека 77a §6.2): для player без знания сервер скрывает
+    // детали (поверхность/недра/атмосфера/поселения) — заглушка «нет данных —
+    // купить отчёт» вместо них. У admin/skycomposer детали на месте (И7).
+    const hasDetails = planet.surface_composition || planet.atmosphere || planet.core || planet.subterrain_composition;
+    if (!planet.knowledge && !hasDetails) {
+        html += `<p style="margin:8px 0; padding:8px 10px; background:rgba(148,163,184,0.08); border:1px dashed rgba(148,163,184,0.3); border-radius:8px; color:#94a3b8; font-size:0.85rem;">
+            Нет данных — купить отчёт
+        </p>`;
+    }
+
+    // Поверхность: у player — из знания сканера (с датой актуальности, И8);
+    // у admin — из тела планеты.
+    const surfaceDominant = planet.knowledge ? planet.knowledge.surface_dominant : planet.surface_dominant;
+    if (surfaceDominant) {
+        html += `<p style="margin:4px 0;"><strong>Доминирует:</strong> ${surfaceDominant}</p>`;
     }
 
     // Физика
@@ -171,9 +185,11 @@ function renderGeneral(planet) {
         html += `<p style="margin:4px 0;"><strong>Возраст:</strong> ${c.age ? c.age.toFixed(2) + ' млрд лет' : '—'}</p>`;
     }
 
-    // Поверхность
+    // Поверхность (у player — из знания сканера, спека 77a §6.2)
     html += `<p style="margin:8px 0 4px 0; color:#888; font-size:0.9rem; text-transform:uppercase;">Поверхность</p>`;
-    html += renderComposition(planet.surface_composition, FORM_ICONS, FORM_COLORS);
+    const surfaceComp = planet.knowledge && planet.knowledge.surface_composition
+        ? planet.knowledge.surface_composition : planet.surface_composition;
+    html += renderComposition(surfaceComp, FORM_ICONS, FORM_COLORS);
 
     // Недра
     html += `<p style="margin:8px 0 4px 0; color:#888; font-size:0.9rem; text-transform:uppercase;">Недра</p>`;
@@ -350,6 +366,23 @@ function settlementLogRows(s) {
 }
 
 function renderSettlements(planet) {
+    // Для player без знания сканера сервер скрывает поселения (спека 77a
+    // §6.2): «нет данных — купить отчёт» вместо «нет поселений» (последнее —
+    // само по себе знание). У admin/skycomposer settlements на месте (И7).
+    if (!planet.knowledge && !planet.settlements) {
+        return `<p style="color: #666; text-align: center; padding: 20px 0;">Нет данных — купить отчёт</p>`;
+    }
+    // Player со знанием сканера: детали поселений скрыты (население/раса —
+    // платные отчёты), видно только наличие + число (спека 77a §6.2).
+    if (planet.knowledge && !planet.settlements) {
+        const n = planet.knowledge.settlements_count || 0;
+        if (n <= 0) {
+            return `<p style="color: #666; text-align: center; padding: 20px 0;">🏙️ На планете нет поселений</p>`;
+        }
+        return `<p style="color:#888; font-size:0.9rem; text-transform:uppercase;">Поселения (${n})</p>
+            <p style="color:#94a3b8; font-size:0.85rem; padding: 8px 0;">Детали поселений — купить отчёт</p>`;
+    }
+
     const list = planet.settlements;
     if (!list || list.length === 0) {
         return `<p style="color: #666; text-align: center; padding: 20px 0;">🏙️ На планете нет поселений</p>`;

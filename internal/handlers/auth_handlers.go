@@ -13,6 +13,7 @@ import (
 	"zorion/internal/auth"
 	"zorion/internal/models"
 	"zorion/internal/repository"
+	"zorion/internal/ship"
 	"zorion/internal/travel"
 )
 
@@ -85,7 +86,18 @@ func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 	if req.Email != "" {
 		user.Email = &req.Email
 	}
-	// Устанавливаем текущий мир в nil — позже будет установлен при первом полёте
+	// Стартовый мир назначается СРАЗУ при регистрации (решение создателя
+	// 2026-09-17: «давай его пока к людям кидать»): игрок без current_world_id
+	// не видит карту — видимость 77a требует позицию (PlayerPosition → ok=false
+	// → все кластеры урезаются до точек-огоньков, полёт невозможен). Выбор:
+	// мир с поселением расы humans (ближайший к центру), фолбэк — ближайший
+	// к центру вообще; миров нет — NULL (регистрация не ломается).
+	spawnWorld, err := h.worldRepo.PickSpawnWorld(r.Context())
+	if err != nil {
+		log.Printf("register: PickSpawnWorld: %v (current_world_id = NULL)", err)
+	} else {
+		user.CurrentWorldID = spawnWorld
+	}
 	if err := h.userRepo.Create(user); err != nil {
 		var pgErr *pq.Error
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -216,7 +228,12 @@ func (h *AuthHandlers) GetMe(w http.ResponseWriter, r *http.Request) {
 		"ship_icon":    models.ResolveShipIcon(user.ShipIcon),
 		"ship_color":   user.ShipColor,
 		"ship_options": models.ShipSprites,
-		"flight":       flight,
+		// Спека 77a §12: модель корабля, установленное оборудование и
+		// вычисленный радиус радара (для отрисовки границы видимости на карте).
+		"ship_model_id": user.ShipModelID,
+		"equipment":     user.Equipment,
+		"radar_radius":  ship.RadarRadius(user.Equipment),
+		"flight":        flight,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

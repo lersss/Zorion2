@@ -60,9 +60,10 @@ go test -race ./...
 
 `-race` — основной инструмент против риска из раздела 0. Гоняй его, а не рассуждай о гонках.
 
-> **Локальное исключение (до версии 1.0):** `-race` требует cgo, а в PATH нет gcc
-> (`CGO_ENABLED=0`). Локально DoD = `go build` + `go vet` + `go test ./...`;
-> `-race` вернётся вместе с CI после 1.0. Решение создателя 2026-09-12, см. `STATUS.md` §4.
+> `-race` доступен локально (gcc установлен, WinLibs, решение создателя
+> 2026-09-18, идея 93a): DoD = `go build` + `go vet` + `go test -race ./...`;
+> CI остаётся отложенным до 1.0. Для прогона с `-race` добавить gcc в PATH текущей
+> сессии (см. `docs/PITFALLS.md`, раздел «БД и шелл»).
 
 Сборка бинаря: `go build -o zorion-server.exe ./cmd/server` (пакет, а не файл — в `cmd/server` несколько файлов: `main.go` + `bootstrap.go`; сборка одного файла `cmd/server/main.go` даёт `undefined: bootstrapSkycomposer`)
 

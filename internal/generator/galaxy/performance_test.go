@@ -29,6 +29,9 @@ func TestGenerateGalaxyPerformance(t *testing.T) {
 	if testing.Short() {
 		t.Skip("производительность не проверяется в -short")
 	}
+	if isRace() {
+		t.Skip("производительность не меряется под -race: детектор замедляет прогон в 3–10x, бюджет 5 с писан для обычного прогона")
+	}
 
 	g := NewGenerator(&Config{
 		Seed: 42, WorldCount: 12000, MapSize: 6000, MinDist: 150,

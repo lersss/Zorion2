@@ -14,6 +14,7 @@ import (
 // спека 67a.1 §4.1/§5.2). Если категорий нет — все комбинации.
 func FormsFor(fc *config.FormsConfig, famID string) []string {
 	keys := fc.CategoryKeys[famID]
+	segs := parsePhraseTemplate(fc.PhraseTemplate)
 	var out []string
 	for _, sh := range fc.Shapes {
 		if len(keys) > 0 && !intersects(sh.Categories, keys) {
@@ -22,7 +23,7 @@ func FormsFor(fc *config.FormsConfig, famID string) []string {
 		for _, st := range fc.Struct {
 			for _, ch := range fc.Character {
 				for _, pt := range fc.Parts {
-					out = append(out, buildPhrase(fc.PhraseTemplate, st, ch, sh.Shape, pt))
+					out = append(out, buildPhrase(segs, st, ch, sh.Shape, pt))
 				}
 			}
 		}
@@ -30,9 +31,61 @@ func FormsFor(fc *config.FormsConfig, famID string) []string {
 	return out
 }
 
-func buildPhrase(tpl, struct_, char, shape, part string) string {
-	r := strings.NewReplacer("{struct}", struct_, "{character}", char, "{shape}", shape, "{part}", part)
-	return r.Replace(tpl)
+// phraseSeg — сегмент шаблона фразы: обычный текст или плейсхолдер {key}.
+type phraseSeg struct {
+	text string // текст сегмента; для плейсхолдера — "{key}" как в шаблоне
+	key  string // ключ плейсхолдера ("" — обычный текст)
+}
+
+// parsePhraseTemplate разбивает шаблон на сегменты один раз на вызов FormsFor
+// (кеш по шаблону): фраза собирается конкатенацией, без NewReplacer на каждую
+// комбинацию (на полном словаре ~69M строк NewReplacer давал ~98 с).
+func parsePhraseTemplate(tpl string) []phraseSeg {
+	var segs []phraseSeg
+	for {
+		i := strings.IndexByte(tpl, '{')
+		if i < 0 {
+			if tpl != "" {
+				segs = append(segs, phraseSeg{text: tpl})
+			}
+			return segs
+		}
+		if i > 0 {
+			segs = append(segs, phraseSeg{text: tpl[:i]})
+		}
+		j := strings.IndexByte(tpl[i:], '}')
+		if j < 0 {
+			segs = append(segs, phraseSeg{text: tpl[i:]})
+			return segs
+		}
+		raw := tpl[i : i+j+1]
+		segs = append(segs, phraseSeg{text: raw, key: tpl[i+1 : i+j]})
+		tpl = tpl[i+j+1:]
+	}
+}
+
+func buildPhrase(segs []phraseSeg, struct_, char, shape, part string) string {
+	var b strings.Builder
+	b.Grow(64)
+	for _, s := range segs {
+		if s.key == "" {
+			b.WriteString(s.text)
+			continue
+		}
+		switch s.key {
+		case "struct":
+			b.WriteString(struct_)
+		case "character":
+			b.WriteString(char)
+		case "shape":
+			b.WriteString(shape)
+		case "part":
+			b.WriteString(part)
+		default:
+			b.WriteString(s.text) // неизвестный плейсхолдер — как в шаблоне
+		}
+	}
+	return b.String()
 }
 
 func intersects(a, b []string) bool {

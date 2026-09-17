@@ -30,7 +30,15 @@ func loadFamilies(t *testing.T) config.FamiliesConfig {
 // (DoD 67a.1 §10): фраза по шаблону, только формы категорий семейства.
 func TestFormsFor(t *testing.T) {
 	fc := loadForms(t)
-	forms := FormsFor(fc, "F2")
+	// Полное произведение F2 — ~69M строк (69 shapes × 107 struct × 89 character
+	// × 105 parts): материализовать его в юнит-тесте нельзя (~98 с + ~4 ГБ).
+	// Фильтр категорий и шаблон проверяем на реальных shapes/template, урезав
+	// ортогональные оси struct/character/parts до 3 элементов — логика та же.
+	small := *fc
+	small.Struct = fc.Struct[:3]
+	small.Character = fc.Character[:3]
+	small.Parts = fc.Parts[:3]
+	forms := FormsFor(&small, "F2")
 	if len(forms) == 0 {
 		t.Fatal("FormsFor(F2) пуст")
 	}

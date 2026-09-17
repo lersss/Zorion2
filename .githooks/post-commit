@@ -1,0 +1,6 @@
+#!/bin/sh
+# post-commit — автосверка реестра каскадных влияний после каждого коммита (идея 83a §6.2).
+# Вывод — предупреждение в консоль, коммит НЕ блокирует (exit 0 всегда).
+echo "[impact-map] сверка реестра каскадных влияний..."
+powershell -NoProfile -ExecutionPolicy Bypass -File "$(dirname "$0")/../scripts/check_impact_map.ps1"
+exit 0

@@ -1,0 +1,72 @@
+{
+  "comment": "Студия людей (F1, раса 1 Люди) — оси рандома портретов (перенос tools/human_gen.py в JSON). Промпты — английские. Голых НЕТ (правило): neg содержит naked/nude/shirtless/topless. Подстановки в prompt_template: {gender}, {skin}, {age}, {hair}, {beard} (пусто или ', <значение>'), {facial}, {expr}, {clothes}, {armor} (пусто или '<значение> '), {helmet} (пусто или '<значение> '), {scene}. Второй facial добавляется с шансом second_facial_chance.",
+  "family": "F1",
+  "name": "Люди",
+  "axes": {
+    "GENDER": ["man", "woman"],
+    "SKIN": [
+      "light skin", "fair skin", "olive skin", "brown skin", "dark skin", "black skin",
+      "pale skin", "tan skin", "deep brown skin", "warm bronze skin",
+      "African features with dark skin", "African features with brown skin",
+      "East Asian features with light skin", "East Asian features with fair skin",
+      "South Asian features with brown skin", "South Asian features with dark skin",
+      "Middle-Eastern features with olive skin", "Middle-Eastern features with tan skin",
+      "Latino features with tan skin", "Latino features with brown skin",
+      "Native American features with bronze skin",
+      "Polynesian features with tan skin",
+      "mixed-race features", "Caucasian features with pale skin"
+    ],
+    "AGE": [
+      "young adult", "adult in their 30s", "middle-aged", "older",
+      "youthful", "worn weathered face", "veteran"
+    ],
+    "HAIR": [
+      "short dark hair", "short blond hair", "shoulder-length brown hair",
+      "black hair in a bun", "curly dark hair", "long dark hair tied back",
+      "grey hair", "shaved head", "red hair", "braided hair", "short curly hair"
+    ],
+    "BEARD": ["clean shaven", "light stubble", "full beard", "grey beard", "goatee", "moustache"],
+    "CLOTHES": [
+      "navy uniform with high collar", "grey jumpsuit with zipper",
+      "black tactical uniform with collar", "white uniform with insignia",
+      "brown uniform with gold trim", "orange flight suit",
+      "dark purple uniform with high collar", "simple grey uniform",
+      "blue coveralls", "leather jacket over shirt"
+    ],
+    "ARMOR": [
+      "", "", "", "",
+      "with lightweight armor plates", "with armored collar",
+      "with shoulder pads", "with tech harness"
+    ],
+    "HELMET": [
+      "", "", "", "", "", "",
+      "wearing a futuristic helmet with transparent visor, face visible",
+      "wearing a open space helmet",
+      "wearing a pilot helmet"
+    ],
+    "EXPR": [
+      "neutral expression", "calm expression", "confident expression",
+      "stern expression", "gentle expression", "serious expression",
+      "hopeful expression", "worn tired expression"
+    ],
+    "FACIAL": [
+      "angular jawline", "round face", "high cheekbones", "narrow face",
+      "broad nose", "thin lips", "full lips", "deep-set eyes", "almond-shaped eyes",
+      "prominent brow", "soft features", "sharp features", "wide-set eyes",
+      "strong nose bridge", "freckles", "dimples", "high forehead", "square jaw"
+    ],
+    "SCENE": ["on flat dark grey background", "on flat dark blue background"]
+  },
+  "neg": "text, watermark, blurry, low quality, deformed, ugly, duplicate, extra fingers, 3D render, cartoon, anime, gradient, vignette, glow, haze, environment, cockpit, spaceship, room, background details, naked, nude, shirtless, topless, blue, green, magenta, red, cropped, cut off, out of frame, side view, profile, head cut off, top of head cut, cropped head, head cropped",
+  "prompt_template": "realistic portrait of a human {gender}, FRONT VIEW, face looking directly at viewer, {skin}, {age}, {hair}{beard}, {facial}, {expr}, wearing {clothes} {armor} {helmet}, FULL head visible with empty space above, head NOT cropped, head and upper chest, {scene}, game avatar, no text, no watermark",
+  "params": {
+    "width": 1024,
+    "height": 1024,
+    "steps": 28,
+    "cfg": 7.0,
+    "denoise": 1.0,
+    "beard_chance": 0.6,
+    "second_facial_chance": 0.4,
+    "max_count": 24
+  }
+}

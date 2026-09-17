@@ -1,0 +1,21 @@
+{
+  "comment": "Параметры арт-студии (создан @developer по спеке 67a.1 §4.4). Порт фикс 8798; python_cmd — venv Python с rembg+onnxruntime (art_ships.md §7.2); pool_root — вне git; comfy_input — папка input ComfyUI (для img2img-эталонов, спека §5.1).",
+  "port": 8798,
+  "comfy_url": "http://127.0.0.1:8188",
+  "comfy_input": "C:\\ComfyUI\\input",
+  "python_cmd": "C:\\ComfyUI\\venv\\Scripts\\python.exe",
+  "rembg_cli": "cmd/art-studio/postproc/rembg_cli.py",
+  "checkpoint": "juggernaut-xl-v9.safetensors",
+  "steps": 28,
+  "cfg": 7.0,
+  "cfg_img": 7.5,
+  "denoise_ref": 0.35,
+  "cn_strength": 1.2,
+  "cn_end": 0.7,
+  "workers": 2,
+  "pool_root": "ai_drafts",
+  "poll_interval_s": 2,
+  "history_timeout_s": 360,
+  "auto_refresh_ms": 3000,
+  "max_count": 24
+}

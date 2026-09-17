@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="ru"><head><meta charset="utf-8">
+<title>Арт-студия Zorion</title>
+<style>
+ body{background:#111;color:#ddd;font-family:Arial;margin:0;padding:20px}
+ h1{font-size:18px}
+ .note{color:#999;font-size:13px;margin-bottom:16px}
+ .tabs{display:flex;gap:8px;margin-bottom:12px}
+ .tab{background:#222;border:1px solid #444;color:#ddd;border-radius:6px;padding:8px 16px;cursor:pointer;font-size:14px}
+ .tab.active{background:#26a;border-color:#26a}
+ .toolbar{display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap}
+ .toolbar select,.toolbar input{background:#222;border:1px solid #444;color:#ddd;padding:6px;border-radius:6px}
+ .toolbar input[type=number]{width:70px}
+ .toolbar button{border:none;border-radius:6px;padding:8px 14px;font-size:14px;cursor:pointer}
+ .gen{background:#26a;color:#fff}
+ .grid{display:flex;flex-wrap:wrap;gap:16px}
+ .cell{background:#1c1c1c;border:1px solid #333;border-radius:8px;padding:10px;width:300px;text-align:center}
+ .cell img{width:300px;height:300px;object-fit:cover;background:#222;border-radius:6px;cursor:pointer}
+ .cell .name{font-size:12px;color:#8cf;margin:4px 0}
+ .btns{display:flex;gap:6px;justify-content:center;flex-wrap:wrap}
+ .btns button{border:none;border-radius:6px;padding:6px 10px;font-size:13px;cursor:pointer}
+ .ok{background:#2a7;color:#fff}.del{background:#a33;color:#fff}
+ .done{color:#2a7;font-size:14px;margin-top:12px}
+ .modal{position:fixed;inset:0;background:#000c;display:none;align-items:center;justify-content:center;z-index:9}
+ .modal.show{display:flex}
+ .modal img{max-width:85vw;max-height:75vh;background:#222}
+ .cropbar{margin-top:8px;display:flex;gap:8px;align-items:center}
+ .cropbar input{width:300px}
+ .cropbar button{background:#2a7;border:none;border-radius:6px;padding:6px 12px;color:#fff;cursor:pointer}
+</style></head><body>
+<h1>Арт-студия генерации аватаров</h1>
+<div class="note">ОТБОР: генерация + принять/удалить. ЭТАЛОН: кандидаты (широкий поиск формы) -&gt; выбрать эталон -&gt; вариации (узко вокруг эталона). ЛЮДИ: портреты F1.
+<br><span style="color:#fa0">Для антропоморфных (гуманоидов): разнообразие 52 / свобода формы 47 / отпускание 25.</span></div>
+<div class="tabs">
+  <button class="tab active" id="tabbtn-pool" onclick="showTab('pool')">Отбор</button>
+  <button class="tab" id="tabbtn-ref" onclick="showTab('ref')">Эталон</button>
+  <button class="tab" id="tabbtn-humans" onclick="showTab('humans')">Люди</button>
+  <button class="tab" id="tabbtn-gallery" onclick="showTab('gallery')">Галерея</button>
+</div>
+
+<div id="tab-pool">
+<div class="toolbar">
+  <span>Семейство:</span>
+  <select id="fam"></select>
+  <span>Раса:</span>
+  <select id="racePool"></select>
+  <span>Штук:</span>
+  <input id="cnt" type="number" value="5" min="1" max="24">
+  <button class="gen" style="background:#a62" id="btnVar" onclick="genVarPool()" disabled>СГЕНЕРИРОВАТЬ РАСУ (5)</button>
+  <span title="Разнообразие (главная ручка): насколько сильно меняется всё — и форма, и текстура.
+0 = почти копия эталона (лёгкая полировка). 50 = та же фигура, но другая фактура/цвета. 100 = вольная интерпретация, эталон едва узнаваем.">разнообразие:</span>
+  <input id="denoisePct" type="range" min="0" max="100" step="1" value="89" style="width:120px">
+  <span id="denoisePctLbl" style="font-size:13px;color:#8cf">89%</span>
+  <span title="Свобода формы: насколько можно менять СИЛУЭТ (внешний контур) эталона.
+0 = контур строго как у эталона. 50 = форма узнаваема, мелкие вольности. 100 = форма может сильно измениться/расплыться.">свобода формы:</span>
+  <input id="cnStrengthPct" type="range" min="0" max="100" step="1" value="33" style="width:120px">
+  <span id="cnStrengthPctLbl" style="font-size:13px;color:#8cf">33%</span>
+  <span title="Отпускание формы: КОГДА художнику разрешают отойти от контура (рисуем в 28 шагов: сначала очертания, потом детали).
+0 = контур держится до последнего штриха. 50 = половину работы строго по контуру, потом детали свободны. 100 = форма фиксируется лишь в начале, дальше полная свобода.
+Совет для «та же голова, разные лица»: разнообразие 80-90, свобода формы 10-20, отпускание 50-60.">отпускание формы:</span>
+  <input id="cnEndPct" type="range" min="0" max="100" step="1" value="50" style="width:120px">
+  <span id="cnEndPctLbl" style="font-size:13px;color:#8cf">50%</span>
+  <span title="Отклонение палитры: насколько уводить цвета от канона расы.
+0 = строго материалы/свечения расы. 50 = лёгкий цветовой акцент. 100 = до 3 цветовых акцентов (палитра заметно другая, но основа расы сохраняется).">палитра:</span>
+  <input id="palettePct" type="range" min="0" max="100" step="1" value="0" style="width:120px">
+  <span id="palettePctLbl" style="font-size:13px;color:#8cf">0%</span>
+  <span>размер:</span>
+  <select id="sizePool"><option value="512">512 (быстро)</option><option value="1024">1024</option></select>
+  <button class="gen" style="background:#a33;display:none" onclick="stopGen()" id="btnStopPool">СТОП</button>
+  <button class="gen" style="background:#555" onclick="clearPool()" title="Удалить все варианты r*.png (эталоны не трогает)">ОЧИСТИТЬ РЕЗУЛЬТАТЫ</button>
+</div>
+<div id="done" class="done"></div>
+<div id="genStatePool" style="margin-bottom:8px;color:#8cf;font-size:14px">Статус генератора: ...</div>
+<div id="prog" class="prog" style="display:none;margin-bottom:12px;color:#8cf;font-size:14px"></div>
+<div class="grid" id="grid"></div>
+</div>
+
+<div id="tab-ref" style="display:none">
+  <div class="toolbar">
+    <span>Семейство:</span>
+    <select id="famRef"></select>
+    <span>Штук:</span>
+    <input id="cntRef" type="number" value="8" min="1" max="24">
+    <button class="gen" id="btnCands" onclick="genCandsPool()">СГЕНЕРИРОВАТЬ ЭТАЛОНЫ (8)</button>
+    <label style="color:#ddd;font-size:13px"><input id="anthroRef" type="checkbox"> Антропоморфный</label>
+    <span style="margin-left:12px">Сброс эталона расы:</span>
+    <select id="raceRefClear" style="background:#222;border:1px solid #444;color:#ddd;padding:4px;border-radius:4px"></select>
+    <button class="gen" style="background:#a62" onclick="clearRef()">СБРОС ЭТАЛОНА</button>
+    <button class="gen" style="background:#a33;display:none" onclick="stopGen()" id="btnStop">СТОП</button>
+  </div>
+  <div id="doneRef" class="done"></div>
+  <div id="genState" style="margin-bottom:8px;color:#8cf;font-size:14px">Статус генератора: ...</div>
+  <div id="progRef" class="prog" style="display:none;margin-bottom:12px;color:#fa0;font-size:14px"></div>
+  <div id="refStatus" style="margin-bottom:12px;color:#8cf;font-size:13px"></div>
+  <div class="grid" id="gridRef"></div>
+</div>
+
+<div id="tab-humans" style="display:none">
+  <div class="toolbar">
+    <span>Сгенерировать:</span>
+    <input id="cntHumans" type="number" value="8" min="1" max="24">
+    <button class="gen" onclick="genHumans()">СГЕНЕРИРОВАТЬ</button>
+    <button class="gen" style="background:#a33;display:none" onclick="stopGen()" id="btnStopHumans">СТОП</button>
+  </div>
+  <div id="doneHumans" class="done"></div>
+  <div id="genStateHumans" style="margin-bottom:8px;color:#8cf;font-size:14px">Статус генератора: ...</div>
+  <div id="progHumans" class="prog" style="display:none;margin-bottom:12px;color:#8cf;font-size:14px"></div>
+  <div class="grid" id="gridHumans"></div>
+</div>
+
+<div id="tab-gallery" style="display:none">
+  <div class="toolbar">
+    <span>Семейство:</span>
+    <select id="famGallery"></select>
+    <span>Раса:</span>
+    <select id="raceGallery"></select>
+  </div>
+  <div id="galleryStatus" style="margin-bottom:8px;color:#8cf;font-size:13px"></div>
+  <div class="grid" id="gridGallery"></div>
+</div>
+
+<div class="modal" id="modal">
+  <div>
+    <img id="mimg">
+    <div class="cropbar">
+      <input id="cropVal" type="range" min="0" max="100" value="100">
+      <span id="cropLbl">100%</span>
+      <button onclick="doCrop()">Обрезать снизу</button>
+      <button style="background:#555" onclick="closeModal()">Закрыть</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// показ JS-ошибок прямо на странице (для диагностики)
+window.onerror = function(msg, src, line){
+  const el=document.getElementById('doneRef')||document.body;
+  el.textContent='JS-ошибка: '+msg+' (строка '+line+')';
+};
+window.addEventListener('unhandledrejection', function(e){
+  const el=document.getElementById('doneRef')||document.body;
+  el.textContent='Promise-ошибка: '+e.reason;
+});
+let curFile=null, curPool='races';
+
+// ---------- ОТБОР (расы) ----------
+async function load(){
+  const raceSel=document.getElementById('racePool');
+  const raceFilter=raceSel? raceSel.value : '';
+  const fam=document.getElementById('fam').value;
+  const r=await fetch('/list?fam='+fam+'&race='+raceFilter); const items=await r.json();
+  // эталон выбранной расы (если есть) — первая нестираемая карточка в ряду
+  let refRace='';
+  if(raceFilter){
+    try{
+      const rr=await fetch('/refs?fam='+fam); const jr=await rr.json();
+      const hit=(jr.refs||[]).find(x=>x.race===raceFilter);
+      if(hit) refRace=hit.race;
+    }catch(e){}
+  }
+  const g=document.getElementById('grid');
+  const existing={};
+  g.querySelectorAll('.cell[data-file]').forEach(c=>{ existing[c.dataset.file]=c; });
+  const seen={};
+  // карточка эталона — всегда первой
+  if(refRace){
+    const key='ref_'+fam+'_r'+refRace;
+    seen[key]=true;
+    let d=existing[key];
+    if(!d){
+      d=document.createElement('div'); d.className='cell'; d.dataset.file=key;
+      d.innerHTML=`<img src="/refimg?fam=${fam}&race=${refRace}" style="border:2px solid #2a7">
+      <div class="name" style="color:#2a7">ЭТАЛОН</div>
+      <div class="btns"><span style="font-size:12px;color:#999">эталон расы — не удаляется</span></div>`;
+      g.insertBefore(d, g.firstChild);
+    } else {
+      g.insertBefore(d, g.firstChild);
+    }
+  }
+  items.forEach(it=>{
+    seen[it.file]=true;
+    let d=existing[it.file];
+    if(!d){
+      d=document.createElement('div'); d.className='cell'; d.dataset.file=it.file;
+      const refBtn = raceFilter
+        ? `<button class="ok" style="background:#a62" onclick="setPoolRef('${it.file}')" title="Сделать этот вариант эталоном выбранной расы">Эталон</button>`
+        : '';
+      d.innerHTML=`<img src="/img/${it.file}" onclick="openCrop('${it.file}','races')">
+      <div class="name">${it.file}${it.fam? ' ['+it.fam+']':''}${it.race? ' — '+it.race:''}</div>
+      <div class="btns">
+        ${refBtn}
+        <button class="ok" onclick="act('${it.file}','accept')">Принять</button>
+        <button class="del" onclick="act('${it.file}','reject')">Удалить</button>
+      </div>`;
+      g.appendChild(d);
+    }
+  });
+  Object.keys(existing).forEach(f=>{ if(!seen[f]) existing[f].remove(); });
+  // сортировка карточек: эталон (ref_) первый, дальше rNN по номеру (не по
+  // времени появления — параллельная генерация пишет файлы вразнобой)
+  const cards=[...g.querySelectorAll('.cell[data-file]')];
+  cards.sort((a,b)=>{
+    const na=cardNum(a.dataset.file), nb=cardNum(b.dataset.file);
+    if(a.dataset.file.indexOf('ref_')===0 && b.dataset.file.indexOf('ref_')!==0) return -1;
+    if(b.dataset.file.indexOf('ref_')===0 && a.dataset.file.indexOf('ref_')!==0) return 1;
+    return na-nb;
+  });
+  cards.forEach(c=>g.appendChild(c));
+  const oldHint=document.getElementById('poolHint');
+  if(oldHint) oldHint.remove();
+  if(!items.length && raceFilter){
+    const hint=document.createElement('div');
+    hint.id='poolHint';
+    hint.style.cssText='color:#fa0;font-size:14px;padding:8px 0';
+    hint.textContent='Нет файлов этой расы в пуле — нажми «СГЕНЕРИРОВАТЬ РАСУ» (от эталона) или выбери другую расу.';
+    g.appendChild(hint);
+  }
+}
+function cardNum(file){
+  const m=file.match(/r(\d+)\.png$/);
+  return m? parseInt(m[1],10) : 0;
+}
+async function loadRaces(){
+  const fam=document.getElementById('fam').value;
+  const sel=document.getElementById('racePool');
+  const r=await fetch('/races?fam='+fam); const j=await r.json();
+  let h='<option value="">все</option>';
+  j.races.forEach(x=>{ h+=`<option value="${x.id}">${x.name}</option>`; });
+  sel.innerHTML=h;
+  const saved=localStorage.getItem('racePool');
+  if(saved && [...sel.options].some(o=>o.value===saved)) sel.value=saved;
+  updateVarBtn();
+}
+async function updateVarBtn(){
+  const btn=document.getElementById('btnVar');
+  const race=document.getElementById('racePool').value;
+  const fam=document.getElementById('fam').value;
+  if(!race){ btn.disabled=true; btn.title='выбери расу'; return; }
+  const r=await fetch('/refs?fam='+fam); const j=await r.json();
+  const has=(j.refs||[]).some(x=>x.race===race);
+  btn.disabled=!has;
+  btn.title=has? '' : 'сначала сгенерируй эталон';
+}
+async function genVarPool(){
+  const fam=document.getElementById('fam').value;
+  const race=document.getElementById('racePool').value;
+  const n=document.getElementById('cnt').value;
+  // три ручки «разнообразия», все в одну сторону: больше = дальше от эталона.
+  // 0–100% → значения воркфлоу (денойз, CN strength, CN end).
+  const d=+document.getElementById('denoisePct').value;
+  const s=+document.getElementById('cnStrengthPct').value;
+  const e=+document.getElementById('cnEndPct').value;
+  const denoise=(0.3+d/100*0.45).toFixed(3);
+  const cnStrength=(1.5-s/100*0.9).toFixed(3);
+  const cnEnd=(1.0-e/100*0.6).toFixed(3);
+  const size=document.getElementById('sizePool').value;
+  const palette=document.getElementById('palettePct').value;
+  document.getElementById('done').textContent='Генерация вариаций...';
+  const r=await fetch('/genvar?fam='+fam+'&race='+race+'&n='+n+'&denoise='+denoise+'&cn_strength='+cnStrength+'&cn_end='+cnEnd+'&size='+size+'&palette='+palette); const j=await r.json();
+  document.getElementById('done').textContent=j.msg;
+  load();
+}
+async function genCandsPool(){
+  const fam=document.getElementById('famRef').value;
+  const n=document.getElementById('cntRef').value;
+  const anthro=document.getElementById('anthroRef').checked?'anthro':'';
+  document.getElementById('doneRef').textContent='Генерация кандидатов эталона...';
+  const r=await fetch('/genref?fam='+fam+'&n='+n+'&anthro='+anthro); const j=await r.json();
+  document.getElementById('doneRef').textContent=j.msg;
+  loadRef();
+}
+// «Эталон» в галерее: копирует одобренный вариант в эталон выбранной расы
+// (одобренный остаётся в галерее).
+async function setAcceptedRef(file){
+  const fam=document.getElementById('famGallery').value;
+  const race=document.getElementById('raceGallery').value;
+  if(!race){ document.getElementById('galleryStatus').textContent='сначала выбери расу'; return; }
+  const r=await fetch('/refsetaccepted?file='+file+'&fam='+fam+'&race='+race); const j=await r.json();
+  document.getElementById('galleryStatus').textContent=j.msg;
+  loadGallery(); // обновит карточку эталона (станет первой)
+}
+// «Эталон» в карточке варианта на вкладке «Отбор»: копирует вариант в эталон
+// выбранной расы (вариант остаётся в пуле). Раса — из выбранного селекта.
+async function setPoolRef(file){
+  const fam=document.getElementById('fam').value;
+  const race=document.getElementById('racePool').value;
+  if(!race){ document.getElementById('done').textContent='сначала выбери расу'; return; }
+  const r=await fetch('/refsetpool?file='+file+'&fam='+fam+'&race='+race); const j=await r.json();
+  document.getElementById('done').textContent=j.msg;
+  load(); // обновит карточку эталона первой в ряду
+}
+
+// ---------- ЭТАЛОН ----------
+async function setRef(file){
+  const fam=document.getElementById('famRef').value;
+  // id с точкой (c01.png) невалиден в querySelector — getElementById допустим
+  const sel=document.getElementById('raceSel-'+file);
+  const race=sel? sel.value : '5';
+  const r=await fetch('/refset?file='+file+'&fam='+fam+'&race='+race); const j=await r.json();
+  document.getElementById('doneRef').textContent=j.msg;
+  loadRef();
+}
+async function clearRef(){
+  const fam=document.getElementById('famRef').value;
+  const sel=document.getElementById('raceRefClear');
+  const race=sel? sel.value : '';
+  if(!race){ document.getElementById('doneRef').textContent='выбери расу'; return; }
+  const r=await fetch('/refclear?fam='+fam+'&race='+race); const j=await r.json();
+  document.getElementById('doneRef').textContent=j.msg;
+  loadRef();
+}
+async function loadRef(){
+  const fam=document.getElementById('famRef').value;
+  const r=await fetch('/ref?fam='+fam); const j=await r.json();
+  const st=document.getElementById('refStatus');
+  let s='';
+  if(j.raceStatus && j.raceStatus.length){
+    s='Эталоны: ';
+    s+=j.raceStatus.map(x=>x.has? `<b style="color:#2a7">✓ ${x.name}</b>` : `<span style="color:#666">· ${x.name}</span>`).join(' ');
+  }
+  st.innerHTML=s;
+  const rc=document.getElementById('raceRefClear');
+  if(rc){
+    const prev=rc.value;
+    rc.innerHTML=(j.raceStatus||[]).map(x=>`<option value="${x.id}">${x.name}</option>`).join('');
+    if(prev) rc.value=prev;
+  }
+  const hasRefs = (j.raceStatus||[]).filter(x=>x.has);
+  const prevRow=document.getElementById('refRow');
+  if(prevRow) prevRow.remove();
+  if(hasRefs.length){
+    const rw=document.createElement('div');
+    rw.id='refRow';
+    rw.style.cssText='display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px';
+    hasRefs.forEach(x=>{
+      const box=document.createElement('div');
+      box.style.cssText='text-align:center';
+      box.innerHTML=`<img src="/refimg?fam=${fam}&race=${x.id}" style="width:80px;height:80px;object-fit:cover;background:#222;border-radius:6px;border:2px solid #2a7;cursor:pointer" onclick="window.open('/refimg?fam=${fam}&race=${x.id}')">
+        <div style="font-size:10px;color:#8cf;margin-top:2px">${x.name.replace(/^\d+\s*/,'')}</div>`;
+      rw.appendChild(box);
+    });
+    st.after(rw);
+  }
+  const g=document.getElementById('gridRef');
+  // дифф-рендер: не перерисовывать загруженные карточки (иначе таймер 3с сбрасывает картинки)
+  const prevSel={};
+  g.querySelectorAll('select[id^="raceSel-"]').forEach(s=>{ prevSel[s.id]=s.value; });
+  const existing={};
+  g.querySelectorAll('.cell[data-file]').forEach(c=>{ existing[c.dataset.file]=c; });
+  const seen={};
+  if(j.cands) j.cands.forEach(it=>{
+    seen[it.file]=true;
+    let d=existing[it.file];
+    if(!d){
+      d=document.createElement('div'); d.className='cell'; d.dataset.file=it.file;
+      d.innerHTML=`<img src="/refcand/${it.file}">
+      <div class="name" style="font-size:11px;line-height:1.3">${it.info || it.file}</div>
+      <div class="btns">
+        <select id="raceSel-${it.file}" style="background:#222;border:1px solid #444;color:#ddd;padding:4px;border-radius:4px">${j.raceOptions}</select>
+        <button class="ok" onclick="setRef('${it.file}')">Эталон</button>
+      </div>`;
+      g.appendChild(d);
+    } else {
+      const sel=d.querySelector('select');
+      if(sel && sel.innerHTML!==j.raceOptions){
+        const v=sel.value; sel.innerHTML=j.raceOptions; if(v) sel.value=v;
+      }
+    }
+    const sel=d.querySelector('select');
+    if(prevSel['raceSel-'+it.file]!==undefined) sel.value=prevSel['raceSel-'+it.file];
+    if(it.raceId && j.raceStatus){
+      const st2=j.raceStatus.find(x=>x.id===it.raceId);
+      if(st2 && st2.has){
+        sel.style.border='2px solid #2a7';
+        sel.title='У этой расы уже есть эталон';
+      }
+    }
+  });
+  Object.keys(existing).forEach(f=>{ if(!seen[f]) existing[f].remove(); });
+}
+
+// ---------- ЛЮДИ ----------
+async function loadHumans(){
+  const r=await fetch('/humans/list'); const items=await r.json();
+  const g=document.getElementById('gridHumans');
+  const existing={};
+  g.querySelectorAll('.cell[data-file]').forEach(c=>{ existing[c.dataset.file]=c; });
+  const seen={};
+  items.forEach(it=>{
+    seen[it.file]=true;
+    let d=existing[it.file];
+    if(!d){
+      d=document.createElement('div'); d.className='cell'; d.dataset.file=it.file;
+      d.innerHTML=`<img src="/humans/img/${it.file}" onclick="openCrop('${it.file}','humans')">
+      <div class="name">${it.file}${it.sex? ' ('+it.sex+')':''}</div>
+      <div class="btns">
+        <button class="ok" onclick="actHuman('${it.file}','accept')">Принять</button>
+        <button class="del" onclick="actHuman('${it.file}','reject')">Удалить</button>
+      </div>`;
+      g.appendChild(d);
+    }
+  });
+  Object.keys(existing).forEach(f=>{ if(!seen[f]) existing[f].remove(); });
+}
+async function genHumans(){
+  const n=document.getElementById('cntHumans').value;
+  const r=await fetch('/humans/gen?n='+n); const j=await r.json();
+  document.getElementById('doneHumans').textContent=j.msg;
+  loadHumans();
+}
+async function actHuman(file, what){
+  const r=await fetch('/humans/act?'+new URLSearchParams({file,what}));
+  const j=await r.json();
+  document.getElementById('doneHumans').textContent=j.msg;
+  loadHumans();
+}
+
+// ---------- ГАЛЕРЕЯ ----------
+async function loadGalleryRaces(){
+  const fam=document.getElementById('famGallery').value;
+  const sel=document.getElementById('raceGallery');
+  const r=await fetch('/races?fam='+fam); const j=await r.json();
+  let h='';
+  j.races.forEach(x=>{ h+=`<option value="${x.id}">${x.name}</option>`; });
+  sel.innerHTML=h;
+  const saved=localStorage.getItem('raceGallery');
+  if(saved && [...sel.options].some(o=>o.value===saved)) sel.value=saved;
+  loadGallery();
+}
+async function loadGallery(){
+  const fam=document.getElementById('famGallery').value;
+  const race=document.getElementById('raceGallery').value;
+  if(!race) return;
+  const r=await fetch('/gallery?fam='+fam+'&race='+race); const j=await r.json();
+  const g=document.getElementById('gridGallery');
+  const st=document.getElementById('galleryStatus');
+  // дифф-рендер: ключ карточки = race + '/' + (ref|file) — при смене расы
+  // старые карточки уходят (01.png есть у каждой расы)
+  const existing={};
+  g.querySelectorAll('.cell[data-file]').forEach(c=>{ existing[c.dataset.file]=c; });
+  const seen={};
+  if(j.ref){
+    const key=race+'/ref';
+    seen[key]=true;
+    let d=existing[key];
+    if(!d){
+      d=document.createElement('div'); d.className='cell'; d.dataset.file=key;
+      d.innerHTML=`<img src="/refimg?fam=${fam}&race=${race}" style="border:2px solid #2a7">
+      <div class="name">ЭТАЛОН</div>`;
+      g.appendChild(d);
+    }
+  }
+  (j.items||[]).forEach(it=>{
+    const key=race+'/'+it.file;
+    seen[key]=true;
+    let d=existing[key];
+    if(!d){
+      d=document.createElement('div'); d.className='cell'; d.dataset.file=key;
+      d.innerHTML=`<img src="/gallery/img?fam=${fam}&race=${race}&file=${it.file}">
+      <div class="name">${it.file}</div>
+      <div class="btns"><button class="ok" style="background:#a62" onclick="setAcceptedRef('${it.file}')" title="Сделать этот одобренный вариант эталоном расы">Эталон</button></div>`;
+      g.appendChild(d);
+    }
+  });
+  Object.keys(existing).forEach(f=>{ if(!seen[f]) existing[f].remove(); });
+  const total=(j.items||[]).length;
+  if(!j.ref && total===0){
+    st.textContent='Нет одобренных вариантов для этой расы';
+  } else {
+    st.textContent='Эталон: '+(j.ref?'есть':'нет')+' · Принято: '+total;
+  }
+}
+
+// ---------- ОБЩЕЕ ----------
+function showTab(name){
+  document.getElementById('tab-pool').style.display = name==='pool' ? '' : 'none';
+  document.getElementById('tab-ref').style.display = name==='ref' ? '' : 'none';
+  document.getElementById('tab-humans').style.display = name==='humans' ? '' : 'none';
+  document.getElementById('tab-gallery').style.display = name==='gallery' ? '' : 'none';
+  document.getElementById('tabbtn-pool').classList.toggle('active', name==='pool');
+  document.getElementById('tabbtn-ref').classList.toggle('active', name==='ref');
+  document.getElementById('tabbtn-humans').classList.toggle('active', name==='humans');
+  document.getElementById('tabbtn-gallery').classList.toggle('active', name==='gallery');
+  localStorage.setItem('raceTab', name);
+  if(name==='ref') loadRef();
+  if(name==='pool') updateVarBtn();
+  if(name==='humans') loadHumans();
+  if(name==='gallery') loadGallery();
+}
+function restoreState(){
+  const tab = localStorage.getItem('raceTab') || 'pool';
+  if(tab==='ref'){
+    const fam = localStorage.getItem('raceFamRef');
+    if(fam) document.getElementById('famRef').value = fam;
+  } else if(tab==='humans'){
+    // семейство людей фиксировано (F1)
+  } else if(tab==='gallery'){
+    const fam = localStorage.getItem('raceFamGallery');
+    if(fam) document.getElementById('famGallery').value = fam;
+  } else {
+    const fam = localStorage.getItem('raceFam');
+    if(fam) document.getElementById('fam').value = fam;
+  }
+  showTab(tab);
+  loadRaces();
+  loadGalleryRaces();
+}
+async function pollStatus(){
+  const r=await fetch('/status'); const s=await r.json();
+  const el=document.getElementById('prog');
+  const elRef=document.getElementById('progRef');
+  const elHumans=document.getElementById('progHumans');
+  const btn=document.getElementById('btnStop');
+  const btnPool=document.getElementById('btnStopPool');
+  const btnHumans=document.getElementById('btnStopHumans');
+  const st=document.getElementById('genState');
+  const stp=document.getElementById('genStatePool');
+  const sth=document.getElementById('genStateHumans');
+  if(s.running){
+    const txt='Генерация: '+s.done+'/'+s.total+' — '+s.current;
+    el.style.display='block'; el.textContent=txt;
+    elRef.style.display='block'; elRef.textContent='Эталон: '+txt;
+    elHumans.style.display='block'; elHumans.textContent='Люди: '+txt;
+    if(btn) btn.style.display='inline-block';
+    if(btnPool) btnPool.style.display='inline-block';
+    if(btnHumans) btnHumans.style.display='inline-block';
+    const html='<span style="color:#fa0">⏳ Генерируется: '+s.done+'/'+s.total+' — '+s.current+'</span>';
+    if(st) st.innerHTML=html;
+    if(stp) stp.innerHTML=html;
+    if(sth) sth.innerHTML=html;
+  } else {
+    el.style.display='none';
+    elRef.style.display='none';
+    elHumans.style.display='none';
+    if(btn) btn.style.display='none';
+    if(btnPool) btnPool.style.display='none';
+    if(btnHumans) btnHumans.style.display='none';
+    const cur=s.current||'';
+    const idle = cur==='остановлено' ? '<span style="color:#a33">⏹ Остановлено</span>'
+      : (cur==='готово' ? '<span style="color:#2a7">✓ Простаивает (готово)</span>'
+        : '<span style="color:#2a7">✓ Простаивает</span>');
+    if(st) st.innerHTML=idle;
+    if(stp) stp.innerHTML=idle;
+    if(sth) sth.innerHTML=idle;
+    if(cur==='остановлено' || cur==='готово'){
+      // очистить зелёные уведомления (висели бы вечно)
+      for(const id of ['done','doneRef','doneHumans']){
+        const dr=document.getElementById(id);
+        if(dr && dr.textContent.indexOf('Останавливаю')!==-1) dr.textContent='';
+      }
+    }
+  }
+}
+async function stopGen(){
+  const btns=['btnStop','btnStopPool','btnStopHumans'];
+  const targets=['done','doneRef','doneHumans'];
+  let j={};
+  try{ const r=await fetch('/stop'); j=await r.json(); }catch(e){ j={msg:'Ошибка запроса: '+e.message}; }
+  const msg=j.msg||'';
+  if(msg.indexOf('Нет активной')!==-1){
+    // генерации нет — краткое сообщение с автоочисткой, кнопки не трогаем
+    for(const id of targets){
+      const el=document.getElementById(id);
+      if(el && el.offsetParent!==null){
+        el.textContent=msg;
+        setTimeout(()=>{ if(el.textContent===msg) el.textContent=''; }, 2500);
+        break;
+      }
+    }
+    return;
+  }
+  // генерация есть: держим «Останавливаю...» до фактической остановки —
+  // pollStatus сам спрячет кнопку и покажет «Остановлено», когда running=false
+  for(const id of btns){
+    const b=document.getElementById(id);
+    if(b){ b.textContent='⏹ Останавливаю...'; b.disabled=true; b.style.opacity='0.6'; }
+  }
+  for(const id of targets){
+    const el=document.getElementById(id);
+    if(el && el.offsetParent!==null){ el.textContent=msg; break; }
+  }
+}
+async function clearPool(){
+  if(!confirm('Очистить все варианты рас (r*.png)? Эталоны не будут затронуты.')) return;
+  const r=await fetch('/clearpool'); const j=await r.json();
+  const targets=['done','doneRef','doneHumans'];
+  for(const id of targets){
+    const el=document.getElementById(id);
+    if(el && el.offsetParent!==null){ el.textContent=j.msg; break; }
+  }
+  load();
+}
+function openCrop(file, pool){
+  curFile=file; curPool=pool||'races';
+  document.getElementById('cropVal').value=100;
+  document.getElementById('cropLbl').textContent='100%';
+  document.getElementById('modal').classList.add('show');
+  updatePreview();
+}
+function updatePreview(){
+  const pct=parseInt(document.getElementById('cropVal').value);
+  document.getElementById('cropLbl').textContent=pct+'%';
+  const base = curPool==='humans' ? '/humans/preview' : '/preview';
+  document.getElementById('mimg').src=base+'?'+new URLSearchParams({file:curFile,pct})+'&t='+Date.now();
+}
+document.getElementById('cropVal').oninput=e=>{ updatePreview(); };
+function closeModal(){document.getElementById('modal').classList.remove('show');}
+async function doCrop(){
+  const pct=parseInt(document.getElementById('cropVal').value);
+  const base = curPool==='humans' ? '/humans/crop' : '/crop';
+  const r=await fetch(base+'?'+new URLSearchParams({file:curFile,pct}));
+  const j=await r.json();
+  const doneEl = curPool==='humans' ? document.getElementById('doneHumans') : document.getElementById('done');
+  doneEl.textContent=j.msg;
+  closeModal();
+  if(curPool==='humans') loadHumans(); else load();
+}
+async function act(file, what){
+  const r=await fetch('/act?'+new URLSearchParams({file,what}));
+  const j=await r.json();
+  document.getElementById('done').textContent=j.msg;
+  load();
+}
+
+// ---------- ИНИЦИАЛИЗАЦИЯ ----------
+async function initFamSelects(){
+  const fams=[['F2','F2 Крио-аммиачные'],['F3','F3 Метановые'],['F4','F4 Серные'],['F5','F5 Терморедокс'],['F6','F6 Кремниевые'],['F7','F7 Небесные'],['F8','F8 Углекислые'],['F9','F9 Экзотика']];
+  const sel=document.getElementById('fam');
+  const selRef=document.getElementById('famRef');
+  const selGal=document.getElementById('famGallery');
+  let h='';
+  fams.forEach(x=>{ h+=`<option value="${x[0]}">${x[1]}</option>`; });
+  sel.innerHTML=h; selRef.innerHTML=h; selGal.innerHTML=h;
+  document.getElementById('famRef').onchange = e=>localStorage.setItem('raceFamRef', e.target.value);
+  document.getElementById('fam').onchange = e=>{ localStorage.setItem('raceFam', e.target.value); loadRaces(); };
+  document.getElementById('famGallery').onchange = e=>{ localStorage.setItem('raceFamGallery', e.target.value); loadGalleryRaces(); };
+  document.getElementById('raceGallery').onchange = e=>{ localStorage.setItem('raceGallery', e.target.value); loadGallery(); };
+  document.getElementById('racePool').onchange = e=>{ localStorage.setItem('racePool', e.target.value); updateVarBtn(); load(); };
+  document.getElementById('cnt').oninput = e=>{
+    document.getElementById('btnVar').textContent='СГЕНЕРИРОВАТЬ РАСУ ('+e.target.value+')';
+  };
+  document.getElementById('cntRef').oninput = e=>{
+    document.getElementById('btnCands').textContent='СГЕНЕРИРОВАТЬ ЭТАЛОНЫ ('+e.target.value+')';
+  };
+  document.getElementById('denoisePct').oninput = e=>{ localStorage.setItem('denoisePct', e.target.value); document.getElementById('denoisePctLbl').textContent=e.target.value+'%'; };
+  document.getElementById('cnStrengthPct').oninput = e=>{ localStorage.setItem('cnStrengthPct', e.target.value); document.getElementById('cnStrengthPctLbl').textContent=e.target.value+'%'; };
+  document.getElementById('cnEndPct').oninput = e=>{ localStorage.setItem('cnEndPct', e.target.value); document.getElementById('cnEndPctLbl').textContent=e.target.value+'%'; };
+  document.getElementById('palettePct').oninput = e=>{ localStorage.setItem('palettePct', e.target.value); document.getElementById('palettePctLbl').textContent=e.target.value+'%'; };
+  document.getElementById('sizePool').onchange = e=>localStorage.setItem('sizePool', e.target.value);
+  // восстановить ползунки разнообразия (не сбрасываются при F5/остановке)
+  ['denoisePct','cnStrengthPct','cnEndPct','palettePct'].forEach(id=>{
+    const v=localStorage.getItem(id);
+    if(v && document.getElementById(id)){
+      document.getElementById(id).value=v;
+      document.getElementById(id+'Lbl').textContent=v+'%';
+    }
+  });
+  const sizeSaved=localStorage.getItem('sizePool');
+  if(sizeSaved) document.getElementById('sizePool').value=sizeSaved;
+}
+// авто-обновление: НЕ трогает текущую вкладку, дифф-рендер не сбрасывает карточки
+setInterval(()=>{
+  const poolVisible = document.getElementById('tab-pool').style.display !== 'none';
+  if(poolVisible) load();
+  loadRef();
+  loadHumans();
+  loadGallery();
+  pollStatus();
+}, 3000);
+initFamSelects().then(()=>{ restoreState(); pollStatus(); });
+</script></body></html>

@@ -1,0 +1,1095 @@
+{
+  "comment": "Конфиг семейств рас для арт-студии (перенос tools/race_gen.py FAMILIES в JSON; F3-F9 заполнены из спеки 99.2.21 §5 — основы рас). Для каждой расы: id (номер из 99.2.21), name (русское, с номером — как в прототипе), basis (основа из 99.2.21, справочно), forms (2-4 фразы), materials (2-3), glows (2-3). extra/anchor/scene/neg — общие шаблоны семейства (как F2). Промпты — английские, имена — русские. F1 (люди) — отдельный файл humans.json.",
+  "F2": {
+    "name": "Крио-аммиачные",
+    "races": [
+      {
+        "id": "5",
+        "name": "5 Аммиачники",
+        "basis": "жидкий NH3, моря",
+        "forms": [
+          "a single molten ammonia droplet form",
+          "a smooth liquid ammonia pool rising upward",
+          "a rounded ammonia liquid mass",
+          "a teardrop of liquid ammonia"
+        ],
+        "materials": [
+          "liquid ammonia, translucent pale blue",
+          "liquid ammonia with frost rim"
+        ],
+        "glows": [
+          "soft cyan glow inside",
+          "faint blue inner light",
+          "pale white sheen"
+        ]
+      },
+      {
+        "id": "6",
+        "name": "6 Крио-лесные",
+        "basis": "крио-флора, NH3-моря",
+        "forms": [
+          "a branching ice crystal forest",
+          "a coral-like ice growth",
+          "a frost crystal with many branches",
+          "an ice fern structure"
+        ],
+        "materials": [
+          "frosted ammonia ice",
+          "crystalline methane ice",
+          "pale blue ice"
+        ],
+        "glows": [
+          "glowing pale blue tips",
+          "soft cyan glow between branches",
+          "white inner glow"
+        ]
+      },
+      {
+        "id": "7",
+        "name": "7 Ледяные пастухи",
+        "basis": "CO2-льды, твёрдая фаза",
+        "forms": [
+          "a flat ice plateau with ridges",
+          "a frozen carbon-dioxide dune",
+          "a cracked ice slab formation",
+          "a layered frost plain"
+        ],
+        "materials": [
+          "carbon-dioxide frost, white-grey",
+          "frozen CO2 ice, pale blue-grey",
+          "dry ice crust"
+        ],
+        "glows": [
+          "faint white glow from cracks",
+          "soft blue glow in fissures",
+          "no glow, matte frost"
+        ]
+      },
+      {
+        "id": "8",
+        "name": "8 Туманники",
+        "basis": "NH3-туманы, высокое давление",
+        "forms": [
+          "a swirling ammonia fog vortex",
+          "a dense cloud of ammonia mist",
+          "a towering fog column",
+          "a misty spiral"
+        ],
+        "materials": [
+          "ammonia fog, translucent grey-blue",
+          "dense ammonia mist, pale"
+        ],
+        "glows": [
+          "soft cyan light inside the fog",
+          "glowing core in the mist",
+          "faint teal glow"
+        ]
+      },
+      {
+        "id": "9",
+        "name": "9 Крио-рои",
+        "basis": "коллективные, роевая охота",
+        "forms": [
+          "a swarm of small ice shards",
+          "a cluster of frost fragments",
+          "a roiling mass of ice crystals",
+          "a cloud of frozen needles"
+        ],
+        "materials": [
+          "small ice shards, pale blue",
+          "frost fragments, white-blue",
+          "methane ice splinters"
+        ],
+        "glows": [
+          "each shard glowing faintly",
+          "soft blue glow in the swarm",
+          "pale shimmer"
+        ]
+      },
+      {
+        "id": "48",
+        "name": "48 Крио-небесные",
+        "basis": "атмосферы холодных гигантов",
+        "forms": [
+          "a floating atmospheric crystal",
+          "a levitating frost prism",
+          "a hovering ice gem cluster",
+          "a drifting crystalline form"
+        ],
+        "materials": [
+          "translucent methane ice, pale",
+          "atmospheric frost crystal, blue-white",
+          "glassy ice"
+        ],
+        "glows": [
+          "glowing pale core",
+          "soft cyan inner light",
+          "white luminosity"
+        ]
+      }
+    ],
+    "extra": [
+      "no face, no eyes, no mouth",
+      "no face, no eyes, no mouth, no human features",
+      "no face, no eyes, no mouth, asymmetric"
+    ],
+    "anchor": [
+      "anchored by a solid ice base extending to the bottom edge of the frame",
+      "anchored by a mineral base extending down, NOT floating"
+    ],
+    "scene": "on flat dark grey background, on flat dark blue background",
+    "neg": "text, watermark, blurry, low quality, deformed, ugly, duplicate, 3D render, cartoon, anime, human, person, face, eyes, nose, mouth, ears, chin, shoulders, head, portrait, symmetrical, human anatomy, building, structure, machine, pipe, chimney, castle, architecture, organ, flesh, meat, ribs, corrugation, wavy, fish, animal, cave, scenery, logo, icon, pattern, seamless, full frame, creature, lifeform, being, monster, crystal, crystalline, shard, spike, prism, gem, mineral, gemstone, naked, nude, blue, green, magenta, red, cropped, cut off, floating, no base"
+  },
+  "F3": {
+    "name": "Метановые",
+    "races": [
+      {
+        "id": "11",
+        "name": "11 Метан-грибницы",
+        "basis": "метановые моря, коллективный разум",
+        "forms": [
+          "a spreading methane fungus colony",
+          "a fan of frozen methane fronds",
+          "a dome of methane ice mycelium",
+          "a layered mushroom-like ice growth"
+        ],
+        "materials": [
+          "frozen methane, pale amber-white",
+          "methane ice with organic veins",
+          "translucent methane slush"
+        ],
+        "glows": [
+          "faint bioluminescent spots",
+          "soft amber glow inside",
+          "dim pale light"
+        ]
+      },
+      {
+        "id": "12",
+        "name": "12 Метан-планктон",
+        "basis": "океаны жидкого CH4",
+        "forms": [
+          "a drifting cloud of methane plankton",
+          "a swarm of tiny methane droplets",
+          "a shimmering veil of liquid methane",
+          "a floating bloom of methane organisms"
+        ],
+        "materials": [
+          "liquid methane, transparent pale",
+          "methane droplets, glassy",
+          "slush of methane and ice"
+        ],
+        "glows": [
+          "faint shimmer",
+          "pale luminescence",
+          "soft glow from within"
+        ]
+      },
+      {
+        "id": "13",
+        "name": "13 Крио-кораллы",
+        "basis": "CH4/CO2-льды, твёрдая фаза",
+        "forms": [
+          "a branching methane coral",
+          "a frozen coral reef of methane ice",
+          "a lattice of methane crystals",
+          "a dense thicket of ice coral"
+        ],
+        "materials": [
+          "solid methane ice, pale",
+          "CO2 frost with methane veins",
+          "crystalline methane, white-blue"
+        ],
+        "glows": [
+          "glowing tips",
+          "soft blue inner light",
+          "pale frost shimmer"
+        ]
+      },
+      {
+        "id": "14",
+        "name": "14 Туман-рои",
+        "basis": "CH4-туманы",
+        "forms": [
+          "a swirling methane fog swarm",
+          "a dense cloud of methane mist",
+          "a vortex of cold vapor",
+          "a rolling bank of methane fog"
+        ],
+        "materials": [
+          "methane fog, translucent grey",
+          "cold methane vapor, pale",
+          "dense mist, almost white"
+        ],
+        "glows": [
+          "soft glow inside the fog",
+          "faint amber light",
+          "dim inner luminescence"
+        ]
+      }
+    ],
+    "extra": [
+      "no face, no eyes, no mouth",
+      "no face, no eyes, no mouth, no human features",
+      "no face, no eyes, no mouth, asymmetric"
+    ],
+    "anchor": [
+      "anchored by a solid ice base extending to the bottom edge of the frame",
+      "anchored by a mineral base extending down, NOT floating"
+    ],
+    "scene": "on flat dark grey background, on flat dark blue background",
+    "neg": "text, watermark, blurry, low quality, deformed, ugly, duplicate, 3D render, cartoon, anime, human, person, face, eyes, nose, mouth, ears, chin, shoulders, head, portrait, symmetrical, human anatomy, building, structure, machine, pipe, chimney, castle, architecture, organ, flesh, meat, ribs, corrugation, wavy, fish, animal, cave, scenery, logo, icon, pattern, seamless, full frame, creature, lifeform, being, monster, crystal, crystalline, shard, spike, prism, gem, mineral, gemstone, naked, nude, blue, green, magenta, red, cropped, cut off, floating, no base"
+  },
+  "F4": {
+    "name": "Серные",
+    "races": [
+      {
+        "id": "15",
+        "name": "15 Серные гнёзда",
+        "basis": "H2S-источники",
+        "forms": [
+          "a nest of sulfur vents",
+          "a cluster of sulfur cones",
+          "a hive of yellow sulfur mounds",
+          "a mound of sulfur crust"
+        ],
+        "materials": [
+          "yellow sulfur crust",
+          "sulfur crystals, golden",
+          "sulfur with dark vents"
+        ],
+        "glows": [
+          "faint yellow glow from vents",
+          "dim amber light",
+          "glowing cracks"
+        ]
+      },
+      {
+        "id": "16",
+        "name": "16 Курильщики",
+        "basis": "чёрные курильщики, глубокие",
+        "forms": [
+          "a black smoker vent stack",
+          "a towering dark chimney",
+          "a cluster of hydrothermal chimneys",
+          "a jagged black spire"
+        ],
+        "materials": [
+          "black mineral crust",
+          "dark sulfide deposits",
+          "iron-black rock with sulfur veins"
+        ],
+        "glows": [
+          "glowing orange vents",
+          "hot red glow inside",
+          "faint ember light"
+        ]
+      },
+      {
+        "id": "17",
+        "name": "17 Серные степи",
+        "basis": "SO2-равнины",
+        "forms": [
+          "a flat sulfur plain with cracks",
+          "a cracked sulfur field",
+          "a layered sulfur desert",
+          "a vast yellow plateau"
+        ],
+        "materials": [
+          "pale yellow sulfur dust",
+          "sulfur crust, pale",
+          "cracked sulfur rock"
+        ],
+        "glows": [
+          "faint glow from cracks",
+          "soft yellow light",
+          "dim heat shimmer"
+        ]
+      },
+      {
+        "id": "18",
+        "name": "18 Вулканиты",
+        "basis": "кальдеры",
+        "forms": [
+          "a volcanic caldera formation",
+          "a mound of cooling lava",
+          "a jagged volcanic rock cluster",
+          "a cracked lava dome"
+        ],
+        "materials": [
+          "dark volcanic rock",
+          "basalt with sulfur deposits",
+          "cooling lava crust"
+        ],
+        "glows": [
+          "glowing lava cracks",
+          "red-orange ember glow",
+          "hot inner light"
+        ]
+      },
+      {
+        "id": "19",
+        "name": "19 Серные рои",
+        "basis": "коллективные, гнёзда",
+        "forms": [
+          "a swarm of sulfur fragments",
+          "a roiling mass of sulfur shards",
+          "a cloud of yellow mineral pieces",
+          "a hive of flying sulfur chunks"
+        ],
+        "materials": [
+          "sulfur shards, golden",
+          "fragments of sulfur rock",
+          "yellow mineral dust"
+        ],
+        "glows": [
+          "each fragment glowing faintly",
+          "soft amber glow in the swarm",
+          "pale yellow shimmer"
+        ]
+      },
+      {
+        "id": "20",
+        "name": "20 Преисподние",
+        "basis": "«преисподняя как сад»",
+        "forms": [
+          "a garden of sulfur formations",
+          "a branching sulfur grove",
+          "a terraced sulfur landscape",
+          "a twisted sulfur forest"
+        ],
+        "materials": [
+          "sulfur with dark veins",
+          "golden sulfur rock",
+          "crystal sulfur, deep yellow"
+        ],
+        "glows": [
+          "glowing veins",
+          "soft red light from below",
+          "dim ember glow"
+        ]
+      },
+      {
+        "id": "21",
+        "name": "21 Пепельные",
+        "basis": "SO2-пепел, восстановительные",
+        "forms": [
+          "a mound of volcanic ash",
+          "a dune of grey ash",
+          "a layered ash formation",
+          "a drifting ash cloud"
+        ],
+        "materials": [
+          "grey volcanic ash",
+          "fine sulfur ash",
+          "ash with sulfur streaks"
+        ],
+        "glows": [
+          "faint glow under the ash",
+          "dim ember light",
+          "soft heat shimmer"
+        ]
+      },
+      {
+        "id": "22",
+        "name": "22 Серные странники",
+        "basis": "кочевые между источниками",
+        "forms": [
+          "a wandering cluster of sulfur rocks",
+          "a mobile formation of sulfur crystals",
+          "a drifting mound of mineral",
+          "a travelling rock cluster"
+        ],
+        "materials": [
+          "sulfur rock, worn",
+          "mineral crust with sulfur",
+          "dark rock with yellow veins"
+        ],
+        "glows": [
+          "faint glow between rocks",
+          "soft amber light",
+          "dim inner glow"
+        ]
+      },
+      {
+        "id": "43",
+        "name": "43 Приливные",
+        "basis": "приливно-нагретые спутники",
+        "forms": [
+          "a tidal vent formation",
+          "a cracked ice-rock cluster",
+          "a steaming vent mound",
+          "a fissured rock formation"
+        ],
+        "materials": [
+          "rock with sulfur frost",
+          "cracked mineral crust",
+          "ice-rock with vents"
+        ],
+        "glows": [
+          "glowing vent mouths",
+          "soft orange light",
+          "faint steam glow"
+        ]
+      }
+    ],
+    "extra": [
+      "no face, no eyes, no mouth",
+      "no face, no eyes, no mouth, no human features",
+      "no face, no eyes, no mouth, asymmetric"
+    ],
+    "anchor": [
+      "anchored by a solid rock base extending to the bottom edge of the frame",
+      "anchored by a mineral base extending down, NOT floating"
+    ],
+    "scene": "on flat dark grey background, on flat dark brown background",
+    "neg": "text, watermark, blurry, low quality, deformed, ugly, duplicate, 3D render, cartoon, anime, human, person, face, eyes, nose, mouth, ears, chin, shoulders, head, portrait, symmetrical, human anatomy, building, castle, architecture, organ, flesh, meat, ribs, corrugation, wavy, fish, animal, cave, scenery, logo, icon, pattern, seamless, full frame, creature, lifeform, being, monster, crystal, crystalline, shard, spike, prism, gem, gemstone, naked, nude, blue, green, magenta, cropped, cut off, floating, no base"
+  },
+  "F5": {
+    "name": "Терморедокс",
+    "races": [
+      {
+        "id": "23",
+        "name": "23 Солевые",
+        "basis": "эвтектики расплавов",
+        "forms": [
+          "a pool of molten salt",
+          "a crystallized salt basin",
+          "a layered salt formation",
+          "a glowing salt flat"
+        ],
+        "materials": [
+          "molten salt, translucent",
+          "crystallized salt, white-pink",
+          "salt crust with glowing veins"
+        ],
+        "glows": [
+          "glowing veins in the salt",
+          "soft orange inner light",
+          "hot shimmer"
+        ]
+      },
+      {
+        "id": "24",
+        "name": "24 Лавовые",
+        "basis": "края лавовых озёр",
+        "forms": [
+          "a cooling lava flow",
+          "a cracked lava crust",
+          "a mound of volcanic rock",
+          "a twisted lava formation"
+        ],
+        "materials": [
+          "black lava rock",
+          "cooling basalt",
+          "lava with glowing cracks"
+        ],
+        "glows": [
+          "glowing lava cracks",
+          "red-orange ember light",
+          "hot inner glow"
+        ]
+      },
+      {
+        "id": "25",
+        "name": "25 Сверхкритические",
+        "basis": "CO2/SO2 сверхкритические флюиды",
+        "forms": [
+          "a swirling supercritical fluid",
+          "a dense vortex of hot gas",
+          "a translucent fluid mass",
+          "a roiling critical-phase cloud"
+        ],
+        "materials": [
+          "supercritical CO2, shimmering",
+          "hot dense fluid, translucent",
+          "critical-phase vapor"
+        ],
+        "glows": [
+          "glowing core",
+          "soft white-hot light",
+          "shimmering surface"
+        ]
+      },
+      {
+        "id": "26",
+        "name": "26 Термо-рои",
+        "basis": "быстрые, градиенты, коллективные",
+        "forms": [
+          "a swarm of hot mineral shards",
+          "a roiling mass of glowing fragments",
+          "a cloud of molten particles",
+          "a fast-moving cluster of embers"
+        ],
+        "materials": [
+          "hot mineral fragments",
+          "molten rock pieces",
+          "glowing ember shards"
+        ],
+        "glows": [
+          "each shard glowing",
+          "ember glow in the swarm",
+          "hot orange light"
+        ]
+      },
+      {
+        "id": "27",
+        "name": "27 Микротрещинные",
+        "basis": "нишевые, микротрещины",
+        "forms": [
+          "a network of micro-cracks",
+          "a cracked rock slab with glowing seams",
+          "a fissured mineral formation",
+          "a web of thin glowing lines"
+        ],
+        "materials": [
+          "dark rock with mineral veins",
+          "cracked silicate crust",
+          "stone with glowing seams"
+        ],
+        "glows": [
+          "glowing seams",
+          "thin lines of light",
+          "faint inner glow"
+        ]
+      },
+      {
+        "id": "28",
+        "name": "28 Жаркие пепловые",
+        "basis": "вулканический пепел",
+        "forms": [
+          "a dune of hot ash",
+          "a mound of glowing ash",
+          "a layered ash formation",
+          "a drifting cloud of embers"
+        ],
+        "materials": [
+          "hot volcanic ash",
+          "grey ash with embers",
+          "ash and cinder"
+        ],
+        "glows": [
+          "embers glowing inside",
+          "faint red light",
+          "hot shimmer"
+        ]
+      },
+      {
+        "id": "29",
+        "name": "29 Гейзерные",
+        "basis": "терморедокс гейзеры",
+        "forms": [
+          "a geyser vent formation",
+          "a steaming mineral cone",
+          "a cluster of hot springs",
+          "a cracked vent mound"
+        ],
+        "materials": [
+          "mineral crust around vents",
+          "sinter deposits, pale",
+          "rock with steaming cracks"
+        ],
+        "glows": [
+          "glowing vent mouths",
+          "steam-lit glow",
+          "soft orange light"
+        ]
+      },
+      {
+        "id": "30",
+        "name": "30 Радиотолерантные",
+        "basis": "жаркие + радиация (стойкость)",
+        "forms": [
+          "a dense mineral cluster",
+          "a shielded rock formation",
+          "a thick-walled mineral mound",
+          "a blocky crystal mass"
+        ],
+        "materials": [
+          "dense mineral rock",
+          "thick silicate crust",
+          "dark stone with crystal veins"
+        ],
+        "glows": [
+          "faint pale glow",
+          "dim white inner light",
+          "soft cold shimmer"
+        ]
+      },
+      {
+        "id": "31",
+        "name": "31 Молодые",
+        "basis": "молодые планеты (F_accretion)",
+        "forms": [
+          "a raw accretion formation",
+          "a rough young rock cluster",
+          "a jagged primitive mound",
+          "a fresh volcanic formation"
+        ],
+        "materials": [
+          "raw young rock",
+          "fresh basalt",
+          "primitive mineral crust"
+        ],
+        "glows": [
+          "glowing young cracks",
+          "hot inner light",
+          "faint ember glow"
+        ]
+      },
+      {
+        "id": "49",
+        "name": "49 Соляные",
+        "basis": "эвтектики хлоридов/сульфатов (мост сера-жара)",
+        "forms": [
+          "a salt crystal cluster",
+          "a white salt basin with sulfur veins",
+          "a layered salt-sulfur formation",
+          "a crystalline salt mound"
+        ],
+        "materials": [
+          "white salt crystals",
+          "salt with sulfur veins",
+          "chloride crust, pale"
+        ],
+        "glows": [
+          "glowing sulfur veins",
+          "soft yellow light",
+          "faint inner glow"
+        ]
+      }
+    ],
+    "extra": [
+      "no face, no eyes, no mouth",
+      "no face, no eyes, no mouth, no human features",
+      "no face, no eyes, no mouth, asymmetric"
+    ],
+    "anchor": [
+      "anchored by a solid rock base extending to the bottom edge of the frame",
+      "anchored by a mineral base extending down, NOT floating"
+    ],
+    "scene": "on flat dark grey background, on flat dark brown background",
+    "neg": "text, watermark, blurry, low quality, deformed, ugly, duplicate, 3D render, cartoon, anime, human, person, face, eyes, nose, mouth, ears, chin, shoulders, head, portrait, symmetrical, human anatomy, building, castle, architecture, organ, flesh, meat, ribs, corrugation, wavy, fish, animal, cave, scenery, logo, icon, pattern, seamless, full frame, creature, lifeform, being, monster, gem, gemstone, prism, naked, nude, blue, green, magenta, cropped, cut off, floating, no base"
+  },
+  "F6": {
+    "name": "Кремниевые",
+    "races": [
+      {
+        "id": "32",
+        "name": "32 Кристаллиты",
+        "basis": "кристаллический рост",
+        "forms": [
+          "a cluster of growing crystals",
+          "a faceted crystal formation",
+          "a branching crystal growth",
+          "a dense crystal mass"
+        ],
+        "materials": [
+          "silicon crystal, grey-blue",
+          "faceted silicate crystal",
+          "translucent quartz-like rock"
+        ],
+        "glows": [
+          "glowing crystal cores",
+          "soft inner light",
+          "pale luminescence"
+        ]
+      },
+      {
+        "id": "33",
+        "name": "33 Кремниевые нити",
+        "basis": "диффузионные",
+        "forms": [
+          "a web of silicon filaments",
+          "a tangle of thin mineral threads",
+          "a network of glowing fibers",
+          "a mat of fine silicate strands"
+        ],
+        "materials": [
+          "silicon filaments, pale",
+          "thin mineral threads",
+          "silicate fibers, glassy"
+        ],
+        "glows": [
+          "glowing filament tips",
+          "soft light along threads",
+          "faint inner glow"
+        ]
+      },
+      {
+        "id": "34",
+        "name": "34 Пьезо-разум",
+        "basis": "кварцевые, пьезоэлектричество",
+        "forms": [
+          "a quartz crystal cluster",
+          "a faceted quartz formation",
+          "a hexagonal crystal pillar",
+          "a group of intergrown quartz crystals"
+        ],
+        "materials": [
+          "clear quartz",
+          "smoky quartz, translucent",
+          "milky quartz"
+        ],
+        "glows": [
+          "glowing crystal faces",
+          "soft electric shimmer",
+          "pale inner light"
+        ]
+      },
+      {
+        "id": "35",
+        "name": "35 Кремниевые стражи",
+        "basis": "памятливые, долгоживущие",
+        "forms": [
+          "a monolithic crystal pillar",
+          "a tall faceted obelisk",
+          "a massive crystal monolith",
+          "a weathered crystal tower"
+        ],
+        "materials": [
+          "dark silicon crystal",
+          "grey crystal rock",
+          "ancient faceted stone"
+        ],
+        "glows": [
+          "glowing rune-like seams",
+          "soft light from within",
+          "dim ancient glow"
+        ]
+      },
+      {
+        "id": "36",
+        "name": "36 Силикатные рои",
+        "basis": "коллективные кристаллы",
+        "forms": [
+          "a swarm of small crystals",
+          "a roiling mass of crystal fragments",
+          "a cloud of silicon shards",
+          "a cluster of flying crystals"
+        ],
+        "materials": [
+          "silicon shards, pale",
+          "crystal fragments, grey",
+          "silicate splinters"
+        ],
+        "glows": [
+          "each crystal glowing faintly",
+          "soft light in the swarm",
+          "pale shimmer"
+        ]
+      },
+      {
+        "id": "37",
+        "name": "37 Алмазные",
+        "basis": "углерод-кремниевые, высокое P",
+        "forms": [
+          "a diamond crystal cluster",
+          "a faceted diamond formation",
+          "a brilliant crystal mass",
+          "a cluster of interlocking diamonds"
+        ],
+        "materials": [
+          "diamond crystal, clear",
+          "carbon-silicon crystal, brilliant",
+          "faceted diamond rock"
+        ],
+        "glows": [
+          "brilliant internal sparkle",
+          "glowing facets",
+          "rainbow refractions"
+        ]
+      }
+    ],
+    "extra": [
+      "no face, no eyes, no mouth",
+      "no face, no eyes, no mouth, no human features",
+      "no face, no eyes, no mouth, asymmetric"
+    ],
+    "anchor": [
+      "anchored by a solid crystal base extending to the bottom edge of the frame",
+      "anchored by a mineral base extending down, NOT floating"
+    ],
+    "scene": "on flat dark grey background, on flat dark blue-grey background",
+    "neg": "text, watermark, blurry, low quality, deformed, ugly, duplicate, 3D render, cartoon, anime, human, person, face, eyes, nose, mouth, ears, chin, shoulders, head, portrait, symmetrical, human anatomy, building, castle, architecture, organ, flesh, meat, ribs, corrugation, wavy, fish, animal, cave, scenery, logo, icon, pattern, seamless, full frame, creature, lifeform, being, monster, naked, nude, blue, green, magenta, cropped, cut off, floating, no base"
+  },
+  "F7": {
+    "name": "Водородные/небесные",
+    "races": [
+      {
+        "id": "40",
+        "name": "40 Водородные",
+        "basis": "жидкий водород на гигантах (почти фантастика)",
+        "forms": [
+          "a floating sphere of liquid hydrogen",
+          "a levitating droplet cloud",
+          "a hovering mass of hydrogen mist",
+          "a drifting liquid sphere"
+        ],
+        "materials": [
+          "liquid hydrogen, translucent pale",
+          "hydrogen mist, almost invisible",
+          "pale metallic hydrogen"
+        ],
+        "glows": [
+          "soft pale glow",
+          "faint white light",
+          "dim inner shimmer"
+        ]
+      },
+      {
+        "id": "41",
+        "name": "41 Небесные",
+        "basis": "атмосферы гигантов, плавучие",
+        "forms": [
+          "a floating atmospheric body",
+          "a levitating gas bag",
+          "a drifting balloon-like form",
+          "a hovering cloud mass"
+        ],
+        "materials": [
+          "hydrogen-helium gas, translucent",
+          "atmospheric vapor, pale",
+          "dense gas membrane"
+        ],
+        "glows": [
+          "glowing gas core",
+          "soft inner light",
+          "pale luminescence"
+        ]
+      },
+      {
+        "id": "42",
+        "name": "42 Небесные глубокие",
+        "basis": "глубокие атмосферы гигантов",
+        "forms": [
+          "a deep-atmosphere vortex",
+          "a dense gas formation",
+          "a swirling high-pressure cloud",
+          "a compact atmospheric mass"
+        ],
+        "materials": [
+          "dense hydrogen gas",
+          "deep atmospheric vapor",
+          "compressed gas, dark"
+        ],
+        "glows": [
+          "glowing vortex core",
+          "faint inner light",
+          "dim warm glow"
+        ]
+      }
+    ],
+    "extra": [
+      "no face, no eyes, no mouth",
+      "no face, no eyes, no mouth, no limbs",
+      "no face, no eyes, no mouth, no body, pure gas form"
+    ],
+    "anchor": [
+      "levitating, floating freely in the frame",
+      "hovering in mid-air, NOT touching the bottom edge"
+    ],
+    "scene": "on flat dark blue background, on flat dark grey background",
+    "neg": "text, watermark, blurry, low quality, deformed, ugly, duplicate, 3D render, cartoon, anime, human, person, face, eyes, nose, mouth, ears, chin, shoulders, head, portrait, symmetrical, human anatomy, building, structure, machine, pipe, chimney, castle, architecture, organ, flesh, meat, ribs, corrugation, wavy, fish, animal, cave, scenery, logo, icon, pattern, seamless, full frame, creature, lifeform, being, monster, crystal, crystalline, shard, spike, prism, gem, mineral, gemstone, naked, nude, blue, green, magenta, cropped, cut off"
+  },
+  "F8": {
+    "name": "Углекислые",
+    "races": [
+      {
+        "id": "10",
+        "name": "10 Сублиматоры",
+        "basis": "сублимация CO2-льдов",
+        "forms": [
+          "a sublimating CO2 ice formation",
+          "a steaming dry ice mound",
+          "a cracked carbon-dioxide glacier",
+          "a venting frost formation"
+        ],
+        "materials": [
+          "CO2 ice, white-grey",
+          "dry ice crust",
+          "frosted carbon-dioxide rock"
+        ],
+        "glows": [
+          "faint white glow",
+          "soft pale light",
+          "dim frost shimmer"
+        ]
+      },
+      {
+        "id": "39",
+        "name": "39 Вихревые",
+        "basis": "ячейки Рэлея-Бенара в атмосферах",
+        "forms": [
+          "a convection vortex",
+          "a hexagonal convection cell",
+          "a swirling atmospheric pattern",
+          "a rotating column of gas"
+        ],
+        "materials": [
+          "CO2 atmosphere, translucent",
+          "dense gas with convection",
+          "vortex of hot vapor"
+        ],
+        "glows": [
+          "glowing vortex core",
+          "soft inner light",
+          "pale heat shimmer"
+        ]
+      },
+      {
+        "id": "50",
+        "name": "50 Углекислые",
+        "basis": "хемосинтез на CO2, плотные CO2-атмосферы",
+        "forms": [
+          "a dense CO2 cloud formation",
+          "a layered atmospheric mass",
+          "a floating chemosynthetic form",
+          "a compact gas body"
+        ],
+        "materials": [
+          "dense CO2 vapor",
+          "translucent gas membrane",
+          "compressed carbon-dioxide"
+        ],
+        "glows": [
+          "soft internal glow",
+          "faint pale light",
+          "dim inner luminescence"
+        ]
+      }
+    ],
+    "extra": [
+      "no face, no eyes, no mouth",
+      "no face, no eyes, no mouth, no human features",
+      "no face, no eyes, no mouth, asymmetric"
+    ],
+    "anchor": [
+      "anchored by a solid ice base extending to the bottom edge of the frame",
+      "anchored by a dense gas core, NOT floating"
+    ],
+    "scene": "on flat dark grey background, on flat dark blue background",
+    "neg": "text, watermark, blurry, low quality, deformed, ugly, duplicate, 3D render, cartoon, anime, human, person, face, eyes, nose, mouth, ears, chin, shoulders, head, portrait, symmetrical, human anatomy, building, structure, machine, pipe, chimney, castle, architecture, organ, flesh, meat, ribs, corrugation, wavy, fish, animal, cave, scenery, logo, icon, pattern, seamless, full frame, creature, lifeform, being, monster, crystal, crystalline, shard, spike, prism, gem, mineral, gemstone, naked, nude, blue, green, magenta, red, cropped, cut off, floating, no base"
+  },
+  "F9": {
+    "name": "Экзотика",
+    "races": [
+      {
+        "id": "38",
+        "name": "38 Ледяной планктон",
+        "basis": "пыль/лёд на мёртвых телах (зерно правды)",
+        "forms": [
+          "a drifting cloud of ice dust",
+          "a swarm of tiny ice particles",
+          "a veil of frozen plankton",
+          "a shimmering dust cloud"
+        ],
+        "materials": [
+          "ice dust, pale",
+          "frozen particles, translucent",
+          "frost and stardust"
+        ],
+        "glows": [
+          "faint star-light glow",
+          "soft pale shimmer",
+          "dim luminescence"
+        ]
+      },
+      {
+        "id": "44",
+        "name": "44 Магнитофаги",
+        "basis": "мёртвые тела у нейтронных звёзд (фантастика)",
+        "forms": [
+          "a field of magnetic filaments",
+          "a swirling magnetized cloud",
+          "a cluster of glowing plasma arcs",
+          "a web of magnetic energy"
+        ],
+        "materials": [
+          "magnetized plasma, glowing",
+          "ionized gas, shimmering",
+          "energy filaments"
+        ],
+        "glows": [
+          "glowing plasma arcs",
+          "bright energy filaments",
+          "pulsing light"
+        ]
+      },
+      {
+        "id": "45",
+        "name": "45 Дисковые",
+        "basis": "мёртвые тела в системах протозвёзд (фантастика)",
+        "forms": [
+          "a flat disk formation",
+          "a ring of dust and ice",
+          "a layered accretion form",
+          "a disc-shaped cloud"
+        ],
+        "materials": [
+          "accretion dust, dark",
+          "ice and dust mixture",
+          "proto-planetary matter"
+        ],
+        "glows": [
+          "glowing disk edge",
+          "soft warm light",
+          "pale rim glow"
+        ]
+      },
+      {
+        "id": "46",
+        "name": "46 Звёздные пастыри",
+        "basis": "мёртвые тела у белых карликов (фантастика)",
+        "forms": [
+          "a radiant crystal form",
+          "a glowing shard cluster",
+          "a luminous mineral formation",
+          "a bright prismatic body"
+        ],
+        "materials": [
+          "white-hot mineral, glowing",
+          "luminous crystal",
+          "radiant silicate"
+        ],
+        "glows": [
+          "bright white glow",
+          "radiant inner light",
+          "intense luminosity"
+        ]
+      },
+      {
+        "id": "47",
+        "name": "47 Пульсарные",
+        "basis": "мёртвые тела у пульсаров (фантастика)",
+        "forms": [
+          "a pulsing energy form",
+          "a rotating beacon of light",
+          "a flashing plasma mass",
+          "a strobing energy cloud"
+        ],
+        "materials": [
+          "pulsing plasma",
+          "energy field, shimmering",
+          "ionized matter"
+        ],
+        "glows": [
+          "pulsing beams of light",
+          "strobing glow",
+          "flashing energy arcs"
+        ]
+      }
+    ],
+    "extra": [
+      "no face, no eyes, no mouth",
+      "no face, no eyes, no mouth, no body, abstract energy form",
+      "no face, no eyes, no mouth, asymmetric"
+    ],
+    "anchor": [
+      "levitating, floating freely in the frame",
+      "hovering in empty space, NOT anchored"
+    ],
+    "scene": "on flat black background, on flat dark space background",
+    "neg": "text, watermark, blurry, low quality, deformed, ugly, duplicate, 3D render, cartoon, anime, human, person, face, eyes, nose, mouth, ears, chin, shoulders, head, portrait, symmetrical, human anatomy, building, structure, machine, pipe, chimney, castle, architecture, organ, flesh, meat, ribs, corrugation, wavy, fish, animal, cave, scenery, logo, icon, pattern, seamless, full frame, creature, lifeform, being, monster, naked, nude, cropped, cut off"
+  }
+}

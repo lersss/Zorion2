@@ -1,0 +1,711 @@
+{
+ "comment": "Словарь форм-архетипов аватаров рас (перенос tools/race_forms.py в JSON). Комбинаторный: phrase_template + shapes x struct x character x parts. Категории форм подбирают формы под семейство (category_keys). Промпты — английские (как в прототипе).",
+ "phrase_template": "a {struct} {character} {shape} of material, formed of {part}",
+ "shapes": [
+  {
+   "shape": "spire",
+   "categories": [
+    "crystal",
+    "cold",
+    "hot"
+   ]
+  },
+  {
+   "shape": "cone",
+   "categories": [
+    "gas",
+    "sulfur",
+    "hot"
+   ]
+  },
+  {
+   "shape": "ring",
+   "categories": [
+    "energy",
+    "gas",
+    "sphere"
+   ]
+  },
+  {
+   "shape": "disc",
+   "categories": [
+    "sphere",
+    "gas",
+    "mech"
+   ]
+  },
+  {
+   "shape": "helix",
+   "categories": [
+    "gas",
+    "cold",
+    "energy"
+   ]
+  },
+  {
+   "shape": "sphere",
+   "categories": [
+    "sphere",
+    "cold",
+    "hot"
+   ]
+  },
+  {
+   "shape": "column",
+   "categories": [
+    "crystal",
+    "cold",
+    "hot"
+   ]
+  },
+  {
+   "shape": "lattice",
+   "categories": [
+    "crystal",
+    "energy",
+    "mech"
+   ]
+  },
+  {
+   "shape": "star",
+   "categories": [
+    "energy",
+    "crystal",
+    "sulfur"
+   ]
+  },
+  {
+   "shape": "blade",
+   "categories": [
+    "organic",
+    "cold",
+    "mech"
+   ]
+  },
+  {
+   "shape": "fan",
+   "categories": [
+    "organic",
+    "cold",
+    "energy"
+   ]
+  },
+  {
+   "shape": "web",
+   "categories": [
+    "organic",
+    "gas",
+    "energy"
+   ]
+  },
+  {
+   "shape": "chain",
+   "categories": [
+    "organic",
+    "cold",
+    "sulfur",
+    "mech"
+   ]
+  },
+  {
+   "shape": "mound",
+   "categories": [
+    "sulfur",
+    "hot",
+    "cold"
+   ]
+  },
+  {
+   "shape": "shell",
+   "categories": [
+    "organic",
+    "cold",
+    "sulfur"
+   ]
+  },
+  {
+   "shape": "obelisk",
+   "categories": [
+    "crystal",
+    "cold",
+    "hot"
+   ]
+  },
+  {
+   "shape": "torus",
+   "categories": [
+    "energy",
+    "gas",
+    "mech"
+   ]
+  },
+  {
+   "shape": "pyramid",
+   "categories": [
+    "crystal",
+    "sulfur",
+    "hot"
+   ]
+  },
+  {
+   "shape": "prism",
+   "categories": [
+    "crystal",
+    "cold",
+    "energy"
+   ]
+  },
+  {
+   "shape": "knot",
+   "categories": [
+    "organic",
+    "gas",
+    "sulfur"
+   ]
+  },
+  {
+   "shape": "burst",
+   "categories": [
+    "energy",
+    "crystal",
+    "hot"
+   ]
+  },
+  {
+   "shape": "crown",
+   "categories": [
+    "organic",
+    "energy",
+    "cold"
+   ]
+  },
+  {
+   "shape": "fountain",
+   "categories": [
+    "liquid",
+    "hot",
+    "energy"
+   ]
+  },
+  {
+   "shape": "cradle",
+   "categories": [
+    "organic",
+    "sulfur",
+    "cold"
+   ]
+  },
+  {
+   "shape": "scaffold",
+   "categories": [
+    "mech",
+    "crystal",
+    "energy"
+   ]
+  },
+  {
+   "shape": "whorl",
+   "categories": [
+    "gas",
+    "cold",
+    "energy"
+   ]
+  },
+  {
+   "shape": "cluster",
+   "categories": [
+    "crystal",
+    "cold",
+    "sulfur"
+   ]
+  },
+{
+    "shape": "sculpture",
+    "categories": [
+     "crystal",
+     "cold",
+     "hot",
+     "sulfur"
+    ]
+   },
+   {
+    "shape": "vortex",
+    "categories": [
+     "gas",
+     "energy",
+     "cold"
+    ]
+   },
+   {
+    "shape": "nebula",
+    "categories": [
+     "gas",
+     "energy",
+     "cold"
+    ]
+   },
+   {
+    "shape": "cloud-bank",
+    "categories": [
+     "gas",
+     "cold"
+    ]
+   },
+   {
+    "shape": "mist",
+    "categories": [
+     "gas",
+     "cold",
+     "sphere"
+    ]
+   },
+   {
+    "shape": "vapor-plume",
+    "categories": [
+     "gas",
+     "cold",
+     "energy"
+    ]
+   },
+   {
+    "shape": "jet-stream",
+    "categories": [
+     "gas",
+     "cold",
+     "energy"
+    ]
+   },
+   {
+    "shape": "geyser",
+    "categories": [
+     "liquid",
+     "gas",
+     "hot"
+    ]
+   },
+   {
+    "shape": "storm-cell",
+    "categories": [
+     "gas",
+     "energy",
+     "cold"
+    ]
+   },
+   {
+    "shape": "haze",
+    "categories": [
+     "gas",
+     "cold",
+     "sphere"
+    ]
+   },
+   {
+    "shape": "aura",
+    "categories": [
+     "energy",
+     "gas",
+     "sphere"
+    ]
+   },
+   {
+    "shape": "corona",
+    "categories": [
+     "energy",
+     "gas",
+     "cold"
+    ]
+   },
+   {
+    "shape": "cyclone",
+    "categories": [
+     "gas",
+     "cold",
+     "energy"
+    ]
+   },
+   {
+    "shape": "miasma",
+    "categories": [
+     "gas",
+     "cold",
+     "organic"
+    ]
+   },
+   {
+    "shape": "fog-bank",
+    "categories": [
+     "gas",
+     "cold",
+     "sphere"
+    ]
+   },
+   {
+    "shape": "aurora-sheet",
+    "categories": [
+     "energy",
+     "gas",
+     "cold"
+    ]
+   },
+   {
+    "shape": "drizzle-curtain",
+    "categories": [
+     "liquid",
+     "gas",
+     "cold"
+    ]
+   },
+   {
+    "shape": "spume",
+    "categories": [
+     "liquid",
+     "gas",
+     "sphere"
+    ]
+   },
+   {
+    "shape": "exhalation",
+    "categories": [
+     "gas",
+     "organic",
+     "cold"
+    ]
+   },
+   {
+    "shape": "wraith",
+    "categories": [
+     "gas",
+     "cold",
+     "organic"
+    ]
+   },
+   {
+    "shape": "bubble",
+    "categories": [
+     "liquid",
+     "gas",
+     "sphere"
+    ]
+   },
+   {
+    "shape": "froth",
+    "categories": [
+     "liquid",
+     "gas",
+     "sphere"
+    ]
+   },
+   {
+    "shape": "wave-crest",
+    "categories": [
+     "liquid",
+     "gas",
+     "cold"
+    ]
+   },
+   {
+    "shape": "current",
+    "categories": [
+     "liquid",
+     "gas",
+     "cold"
+    ]
+   },
+   {
+    "shape": "eddy",
+    "categories": [
+     "liquid",
+     "gas",
+     "cold"
+    ]
+   },
+   {
+    "shape": "aurora",
+    "categories": [
+     "energy",
+     "gas",
+     "cold"
+    ]
+   },
+   {
+    "shape": "vapor-column",
+    "categories": [
+     "gas",
+     "cold",
+     "energy"
+    ]
+   },
+   {
+    "shape": "mist-ring",
+    "categories": [
+     "gas",
+     "cold",
+     "sphere"
+    ]
+   }
+  ],
+ "struct": [
+  "clustered",
+  "twisted",
+  "layered",
+  "branching",
+  "hollow",
+  "nested",
+  "tangled",
+  "faceted",
+  "segmented",
+  "radiating",
+  "coiled",
+  "pierced",
+  "weathered",
+  "crystalline",
+  "interlocking",
+  "stacked",
+  "folded",
+  "fused",
+  "woven",
+  "spiral-wrapped",
+  "overlapping",
+  "tiered",
+  "concentric",
+"asymmetric",
+   "zigzag",
+   "billowing",
+   "swirling",
+   "condensing",
+   "diffusing",
+   "expanding",
+   "churning",
+   "undulating",
+   "turbulent",
+   "wispy",
+   "coalescing",
+   "evaporating",
+   "streaming",
+   "roiling",
+   "drifting",
+   "eddying",
+   "spiraling",
+   "wafting",
+   "pooling",
+   "gushing",
+   "dispersing",
+   "hovering",
+   "shimmering",
+   "pulsating",
+   "venting",
+   "cascading"
+  ],
+ "character": [
+  "jagged",
+  "smooth",
+  "spiky",
+  "rippled",
+  "porous",
+  "glassy",
+  "frosted",
+  "pitted",
+  "polished",
+  "craggy",
+  "feathered",
+  "thorned",
+  "scalloped",
+  "ridged",
+  "veined",
+  "blistered",
+  "webbed",
+"molten",
+   "chiseled",
+   "luminous-edged",
+   "gaseous",
+   "misty",
+   "vaporous",
+   "translucent",
+   "smoky",
+   "nebulous",
+   "ethereal",
+   "wispy",
+   "foggy",
+   "hazy",
+   "luminescent",
+   "diaphanous",
+   "frothy",
+   "opalescent",
+   "silvery",
+   "milky",
+   "cloudy",
+   "smoky-grey",
+   "iridescent",
+   "spectral"
+  ],
+ "parts": [
+  "shards",
+  "blades",
+  "lobes",
+  "filaments",
+  "plates",
+  "prisms",
+  "spikes",
+  "cubes",
+  "rods",
+  "petals",
+  "needles",
+  "scales",
+  "tubes",
+  "flakes",
+  "ridges",
+  "fingers",
+  "ribs",
+  "fronds",
+  "spears",
+  "chords",
+  "beads",
+  "ribbons",
+  "spurs",
+"tendrils",
+   "knuckles",
+   "wisps",
+   "veils",
+   "plumes",
+   "clouds",
+   "streams",
+   "eddies",
+   "bubbles",
+   "droplets",
+   "vapor-trails",
+   "filaments-of-mist",
+   "ribbons-of-fog",
+   "tendrils-of-vapor",
+   "motes",
+   "haze-layers",
+   "foam",
+   "spray",
+   "mist-chains",
+   "aero-swarms",
+   "condensation-lines",
+   "vortex-rings",
+   "mists",
+   "vapors",
+   "fumes",
+   "drifts",
+   "halos"
+  ],
+ "anthro_forms": [
+  "humanoid face with angular features",
+  "humanoid figure with a broad face",
+  "humanoid head with sharp cheekbones",
+  "humanoid bust with a stern face",
+  "humanoid face with a high forehead",
+  "humanoid figure with glowing eyes",
+  "humanoid head with fin-like ears",
+  "humanoid bust with a regal face",
+  "humanoid face with a strong jaw",
+  "humanoid figure with elegant features",
+  "humanoid head with a noble face",
+  "humanoid bust with almond-shaped eyes",
+  "humanoid face with weathered features",
+  "humanoid figure with a serene face",
+  "humanoid head with a fierce face",
+  "humanoid bust with a wise face",
+  "humanoid face with luminous eyes",
+  "humanoid figure with a gentle face",
+  "humanoid head with two small curved horns",
+  "humanoid figure with a high crest on the head",
+  "humanoid bust with wide-set eyes and no nose",
+  "humanoid head with a long pointed chin",
+  "humanoid figure with a domed bald head",
+  "humanoid bust with large round eyes",
+  "humanoid head with a crown of spikes",
+  "humanoid figure with a flat featureless face",
+  "humanoid bust with a narrow elongated skull",
+  "humanoid head with gill slits on the neck",
+  "humanoid figure with a wide flat face",
+  "humanoid bust with a single central eye",
+  "humanoid head with three small eyes",
+  "humanoid figure with a beak-like mouth",
+  "humanoid bust with an elongated nose ridge",
+  "humanoid head with fin-like ears and crest",
+  "humanoid figure with a split lower jaw",
+  "humanoid bust with a wide thick neck",
+  "humanoid head with protruding brow ridges",
+  "humanoid figure with small vestigial arms",
+  "humanoid bust with a smooth featureless head",
+  "humanoid head with eye stalks",
+  "humanoid figure with a hunched posture",
+  "humanoid bust with asymmetrical face",
+  "humanoid head with a lantern-like glow"
+ ],
+ "category_keys": {
+  "F2": [
+   "crystal",
+   "cold",
+   "gas",
+   "organic",
+   "sphere"
+  ],
+  "F3": [
+   "cold",
+   "organic",
+   "gas",
+   "sphere"
+  ],
+  "F4": [
+   "sulfur",
+   "hot",
+   "organic",
+   "mech",
+   "crystal"
+  ],
+  "F5": [
+   "hot",
+   "liquid",
+   "sulfur",
+   "mech",
+   "energy",
+   "crystal"
+  ],
+  "F6": [
+   "crystal",
+   "hot",
+   "mech",
+   "energy"
+  ],
+  "F7": [
+   "gas",
+   "energy",
+   "mech",
+   "sphere"
+  ],
+  "F8": [
+   "gas",
+   "organic",
+   "cold",
+   "mech"
+  ],
+  "F9": [
+   "energy",
+   "gas",
+   "mech",
+   "sphere",
+   "crystal"
+  ]
+ },
+ "palette_accents": [
+  "pale amber glow",
+  "faint violet sheen",
+  "subtle teal tint",
+  "soft rose shimmer",
+  "pale emerald luminescence",
+  "dim gold highlights",
+  "muted magenta accents",
+  "gentle cyan wash",
+  "faint turquoise iridescence",
+  "pale lavender tint",
+  "soft peach glow",
+  "subtle indigo shade",
+  "faint crimson sparkle",
+  "pale aqua luminescence",
+  "dim copper shimmer",
+  "gentle ivory tint"
+ ]
+}

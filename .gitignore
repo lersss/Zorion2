@@ -34,3 +34,5 @@ dialogues/
 
 # Черновики ИИ-ассетов (не коммитим)
 ai_drafts/
+# Рантайм-состояние расовых R-кривых (генерируется из config/races.json при старте, 99.2.23)
+config/race_balancer.json

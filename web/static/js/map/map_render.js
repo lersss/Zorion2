@@ -549,6 +549,11 @@ function roundRectPath(ctx, x, y, w, h, r) {
 
 // ==================== РЕГИОНЫ (малый зум) ====================
 
+// REGION_PROFILE_ROLES — роли, которым виден тип профиля региона под его
+// названием (59a): отладочный вывод для создателя. У игроков скрыт —
+// профиль не публикуется как ярлык (спека §11.7 / GDD §2.6.1).
+const REGION_PROFILE_ROLES = ['admin', 'skycomposer'];
+
 // Кэш ячеек Вороного: пересчитываются только при изменении списка регионов.
 let voronoiCells = null;
 let voronoiKey = '';
@@ -623,9 +628,9 @@ function drawRegions(ctx, canvasWidth, canvasHeight, scale, offsetX, offsetY, al
 
 // drawRegionLabels — размещает названия регионов без наложений:
 // крупные ячейки получают приоритет, пересекающиеся подписи пропускаются.
-// Отладочно (59a): под названием — вторая строка с типом профиля региона
-// (мельче, приглушённый жёлтый). В финале убрать — профиль не публикуется
-// как ярлык (спека §11.7 / GDD §2.6.1).
+// Для admin/skycomposer (59a): под названием — вторая строка с типом профиля
+// региона (мельче, приглушённый жёлтый). Игрокам профиль не показывается —
+// не публикуется как ярлык (спека §11.7 / GDD §2.6.1).
 function drawRegionLabels(ctx, labels, alpha, fontSize) {
     if (labels.length === 0) return;
 
@@ -636,7 +641,8 @@ function drawRegionLabels(ctx, labels, alpha, fontSize) {
     ctx.fillStyle = `rgba(226,232,240,${0.9 * alpha})`;
 
     for (const lb of labels) {
-        const hasProfile = !!lb.profile;
+        // Тип профиля региона — только для ролей создателя (admin/skycomposer).
+        const hasProfile = !!lb.profile && REGION_PROFILE_ROLES.includes(state.userRole);
         const subFontSize = Math.max(9, Math.round(fontSize * 0.6));
         const nameW = lb.name.length * fontSize * 0.62 + 8;
         const profileW = hasProfile ? lb.profile.length * subFontSize * 0.62 + 8 : 0;
@@ -658,7 +664,7 @@ function drawRegionLabels(ctx, labels, alpha, fontSize) {
         placed.push(rect);
         ctx.fillText(lb.name, lb.x, lb.y + fontSize);
         let lineY = lb.y + fontSize;
-        // Отладочно (59a): тип профиля региона второй строкой, мельче.
+        // Тип профиля региона второй строкой, мельче (только admin/skycomposer).
         if (hasProfile) {
             ctx.font = `500 ${subFontSize}px system-ui`;
             ctx.fillStyle = `rgba(250,204,21,${0.75 * alpha})`; // приглушённый жёлтый

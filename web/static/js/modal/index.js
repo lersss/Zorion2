@@ -73,6 +73,10 @@ export function openSystemModal(worldId, worldName, spectralClass, focusOpts, au
         return response.json();
     })
     .then(data => {
+        // Guard: 401/403-ветки выше уже обработали ответ и вернули undefined —
+        // цепочку дальше не ведём (иначе второй renderModal затёр бы
+        // restricted-карточку, а record упал бы на data.star_type).
+        if (!data) return;
         console.log('Planets data:', data);
         renderModal(worldId, worldName || data.world_name, spectralClass || data.spectral_class, data);
         // Хук журнала (спека 86a §4.3): аддитивная запись встреченного при

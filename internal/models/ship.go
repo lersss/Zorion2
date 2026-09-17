@@ -48,13 +48,19 @@ const (
 // без фоновых джобов; координаты системы не протухают (И10).
 const KnowledgeTTL = 7 * 24 * time.Hour
 
+// EngineSpeedDefault — скорость полёта по умолчанию (спека 91a §7.1): 0.3
+// сек/px — константа полёта 66a, становится характеристикой двигателя
+// engine_1 (params.speed_factor). Безопасное чтение при битом params.
+const EngineSpeedDefault = 0.3
+
 // StarterShipModelID / StarterEquipment — стартовая комплектация (спека 77a
-// §3.3): модель 'starter', радар-1 + сканер-1 в слотах, двигатель пуст.
+// §3.3, обновлена 91a кругом 2): модель 'starter', радар-1 + сканер-1 +
+// двигатель-1 (двигатель — настоящий модуль, полёт требует его, спека 91a §6.1).
 const StarterShipModelID = "starter"
 
 // StarterEquipment — JSON-значение users.equipment для нового игрока.
 var StarterEquipment = map[string]interface{}{
 	"radar":   "radar_1",
 	"scanner": "scanner_1",
-	"engine":  nil,
+	"engine":  "engine_1",
 }

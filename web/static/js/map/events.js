@@ -7,6 +7,7 @@ import { centerOnAgent } from './navigation.js';
 import { CONFIG } from '../config.js';
 import { openSystemModal } from '../modal/index.js';
 import { startFlight } from './flight.js';
+import { notifyError } from '../ui/toast.js';
 import { findNPCAgentAt, showNPCTooltip, hideNPCTooltip, clearNPCHighlight } from './npc_agents.js';
 
 const { map: mapCfg } = CONFIG;
@@ -171,6 +172,7 @@ export function handleCanvasClick(e) {
                 smods: c.smods,
                 x: c.x,
                 y: c.y,
+                hasEngine: state.hasEngine, // спека 91a §6.1: блок «Перелететь» в модалке
             });
         }
         elements.tooltip.classList.remove('active');
@@ -197,6 +199,12 @@ export function handleCanvasClick(e) {
 export function initFlyBtn() {
     elements.tooltipFlyBtn.addEventListener('click', async function (e) {
         e.stopPropagation();
+        // Без двигателя полёт невозможен (спека 91a §6.1): блокируем с
+        // подсказкой; сервер валидирует тоже (админ/skycomposer — исключение).
+        if (!state.hasEngine) {
+            notifyError('Двигатель не установлен — полёт невозможен');
+            return;
+        }
         const worldId = this.dataset.worldId;
         const token = localStorage.getItem('token');
         await startFlight(worldId, token);
@@ -375,6 +383,12 @@ function showWorldMenu(x, y, worldId, name) {
     flyBtn.addEventListener('mouseleave', () => { flyBtn.style.background = 'none'; });
     flyBtn.addEventListener('click', async () => {
         hideWorldMenu();
+        // Без двигателя полёт невозможен (спека 91a §6.1): блокируем с
+        // подсказкой; сервер валидирует тоже (админ/skycomposer — исключение).
+        if (!state.hasEngine) {
+            notifyError('Двигатель не установлен — полёт невозможен');
+            return;
+        }
         const token = localStorage.getItem('token');
         await startFlight(worldId, token);
         draw();

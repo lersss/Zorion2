@@ -36,6 +36,8 @@ export const modalState = {
     stellarMods: null,       // модификаторы звезды (41a): {subtype, disk_state, ...} — для ветки «аккреция» ЧД
     worldAge: null,          // возраст системы в млрд лет (41a); null — нет данных (старые миры/обычные звёзды)
     authToken: null, // токен открытия модалки (админка); refreshPlanets использует его
+    hasEngine: true, // установлен ли двигатель игрока (спека 91a §6.1): без него
+                     // «Перелететь» из модалки блокируется; true = админка/не загружено
     _rafId: null,
     dragMoved: false,
     suppressNextClick: false,

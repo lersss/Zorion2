@@ -109,6 +109,17 @@
   всех, включая бэкфилл 000040). Дефолты-страховка в коде:
   `models.RadarRadiusDefault = 800.0` (`internal/models/ship.go`),
   `defaultEquipment` в `internal/ship/catalog.go`.
+- `000043` — двигатель — настоящий модуль (спека `91a-ship-section-dashboard.md`
+  §7.1/§7.4, 2026-09-18): `engine_1` («Двигатель-1», params
+  `{"speed_factor": 0.3}`) в каталог `equipment` (тип `engine` уже в CHECK
+  77a §3.2) + бэкфилл существующих игроков: `jsonb_set(equipment, '{engine}',
+  '"engine_1"')` где слот `engine` пуст/отсутствует. Стартовая комплектация
+  обновлена в коде (`models.StarterEquipment`, `defaultEquipment` в
+  `internal/ship/catalog.go` — дефолты-страховка); скорость полёта берётся из
+  установленного двигателя (`ship.EngineSpeed`, значение 0.3 — константа 66a,
+  меняется источник), полёт без двигателя запрещён для `role=player`
+  (`ship.HasEngine` → отказ `/travel`; админ/skycomposer — исключение, спека
+  91a §6.1).
 - Миграции, вступающие в силу на старте, требуют перезапуска сервера
   (`AGENTS.md` §4 п.13).
 - `VACUUM` внутрь миграции не положить — не работает внутри транзакции

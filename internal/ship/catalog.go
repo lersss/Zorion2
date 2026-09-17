@@ -10,6 +10,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"log"
+	"sort"
 	"sync"
 
 	"zorion/internal/models"
@@ -21,12 +22,15 @@ var (
 	equipment = map[string]models.EquipmentItem{}
 )
 
-// defaultEquipment — дефолты на случай пустой БД (спека 77a §3.3/§4.2).
+// defaultEquipment — дефолты на случай пустой БД (спека 77a §3.3/§4.2,
+// 91a §7.1: двигатель engine_1 — настоящий модуль).
 var defaultEquipment = []models.EquipmentItem{
 	{ID: "radar_1", Type: models.EquipmentTypeRadar, Name: "Радар-1",
 		Params: map[string]interface{}{"radius": float64(models.RadarRadiusDefault)}},
 	{ID: "scanner_1", Type: models.EquipmentTypeScanner, Name: "Сканер-1",
 		Params: map[string]interface{}{"depth": "surface", "settlements": true}},
+	{ID: "engine_1", Type: models.EquipmentTypeEngine, Name: "Двигатель-1",
+		Params: map[string]interface{}{"speed_factor": models.EngineSpeedDefault}},
 }
 
 // LoadCatalog — читает справочник оборудования из БД. Пустая БД — дефолты.
@@ -107,4 +111,32 @@ func HasScanner(userEquipment map[string]interface{}) bool {
 	}
 	it := EquipmentByID(radarID)
 	return it != nil && it.Type == models.EquipmentTypeScanner
+}
+
+// HasEngine — установлен ли валидный двигатель (спека 91a §6.1): предмет в
+// слоте engine существует в каталоге и имеет тип engine. Без валидного
+// двигателя полёт для role=player запрещён (валидация /travel); админ/
+// skycomposer — исключение.
+func HasEngine(userEquipment map[string]interface{}) bool {
+	engineID, _ := userEquipment["engine"].(string)
+	if engineID == "" {
+		return false
+	}
+	it := EquipmentByID(engineID)
+	return it != nil && it.Type == models.EquipmentTypeEngine
+}
+
+// AllEquipment — весь каталог оборудования (для /me.ship_catalog, спека 91a
+// §7.3): id/type/name/params, включая engine_1. Клиент рисует только
+// установленное (И1) — каталог используется как справочник имён/параметров.
+// Сортировка по id — детерминированный порядок (radar_1, scanner_1, engine_1).
+func AllEquipment() []models.EquipmentItem {
+	mu.RLock()
+	defer mu.RUnlock()
+	items := make([]models.EquipmentItem, 0, len(equipment))
+	for _, it := range equipment {
+		items = append(items, it)
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
+	return items
 }

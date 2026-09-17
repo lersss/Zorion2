@@ -215,6 +215,17 @@ func (h *AuthHandlers) GetMe(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Спека 91a §7.3: раздел «Корабль» — имя модели (ship_models), каталог
+	// оборудования (id/type/name/params, включая engine_1) и скорость из
+	// установленного двигателя. Существующие поля не меняются (И3);
+	// ship_speed_factor отдаётся только при установленном двигателе (иначе
+	// ячейка «не установлен», скорость не показывается как текущая, §6.1).
+	var shipModel interface{}
+	if user.ShipModelID != nil {
+		if m := ship.ShipModelByID(*user.ShipModelID); m != nil {
+			shipModel = m
+		}
+	}
 	response := map[string]interface{}{
 		"id":                 user.ID,
 		"username":           user.Username,
@@ -233,7 +244,13 @@ func (h *AuthHandlers) GetMe(w http.ResponseWriter, r *http.Request) {
 		"ship_model_id": user.ShipModelID,
 		"equipment":     user.Equipment,
 		"radar_radius":  ship.RadarRadius(user.Equipment),
-		"flight":        flight,
+		// Спека 91a §7.3: раздел «Корабль» (аддитивно, И3).
+		"ship_model":   shipModel,
+		"ship_catalog": ship.AllEquipment(),
+		"flight":       flight,
+	}
+	if ship.HasEngine(user.Equipment) {
+		response["ship_speed_factor"] = ship.EngineSpeed(user.Equipment)
 	}
 
 	w.Header().Set("Content-Type", "application/json")

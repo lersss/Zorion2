@@ -346,6 +346,13 @@ export async function loadUserData(force = false) {
         if (user.role) state.userRole = user.role;
         // Радиус радара (спека 77a §4.2): для отрисовки границы видимости.
         if (typeof user.radar_radius === 'number') state.radarRadius = user.radar_radius;
+        // Двигатель (спека 91a §6.1): без установленного двигателя полёт
+        // невозможен — блокируем кнопки полёта в UI (сервер валидирует тоже).
+        // Валидный двигатель — предмет в слоте engine типа 'engine' из каталога.
+        const shipCatalog = Array.isArray(user.ship_catalog) ? user.ship_catalog : [];
+        const engineId = user.equipment && user.equipment.engine;
+        const engineItem = engineId ? shipCatalog.find(i => i.id === engineId) : null;
+        state.hasEngine = !!(engineItem && engineItem.type === 'engine');
         if (user.ship_icon) {
             setShipIcon(user.ship_icon);
         }

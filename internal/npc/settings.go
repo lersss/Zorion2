@@ -15,7 +15,7 @@ type Settings struct {
 	mu                   sync.RWMutex
 	tickInterval         time.Duration // npcTickInterval, default 5s
 	batchSize            int           // npcBatchSize, default 2000
-	speedFactor          float64       // npcSpeedFactor, default 0.3 (скорость игрока)
+	speedFactor          float64       // npcSpeedFactor, default 0.3 (своя настройка NPC; «скорость игрока» теперь из установленного двигателя, спека 91a §7.1)
 	notifyInterval       time.Duration // npcNotifyInterval, default 5s (этап 5)
 	notificationMaxBatch int           // npcNotificationMaxBatch, default 100 (этап 5)
 	notifyGlobalEnabled  bool          // глобальный рубильник пушей (спека 26a.1 §7.2), default false

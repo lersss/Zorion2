@@ -36,6 +36,8 @@ export const state = {
     userShipColor: null, // цвет перекраски спрайта из /me (NULL = «Оригинал», спека 61b §6.1)
     userRole: '',        // роль пользователя ('admin'/'skycomposer' → FPS-счётчик на карте)
     radarRadius: 0,      // радиус радара игрока из /me (спека 77a §4.2; 0 = не загружен)
+    hasEngine: true,     // установлен ли двигатель из /me (спека 91a §6.1; true = не загружено —
+                         // сервер валидирует сам, UI не блокирует до данных)
     playerPositions: [], // чужие игроки в радиусе радара (спека 77a §5.3): {id,username,ship_icon,ship_color,status,x,y}
 };
 

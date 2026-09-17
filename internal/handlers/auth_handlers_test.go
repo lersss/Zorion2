@@ -16,6 +16,7 @@ import (
 
 	"zorion/internal/auth"
 	"zorion/internal/repository"
+	"zorion/internal/ship"
 	"zorion/internal/travel"
 )
 
@@ -220,6 +221,89 @@ func TestUpdateShipColorRejectsGarbage(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, rec.Code, "цвет %s должен быть отклонён", body)
 	}
 	require.NoError(t, mock.ExpectationsWereMet(), "невалидные цвета не должны трогать БД")
+}
+
+// ==================== /me: РАЗДЕЛ «КОРАБЛЬ» (спека 91a §7.3) ====================
+
+// Стартовая комплектация 91a: ship_model (имя модели), ship_catalog (весь
+// каталог, включая engine_1), ship_speed_factor из установленного двигателя.
+func TestGetMeShipSection(t *testing.T) {
+	// Каталог оборудования и модели — дефолты (PITFALLS.md:185).
+	ship.LoadDefaults()
+	ship.LoadModelDefaults()
+
+	h, mock, _ := newAuthHandlersHarness(t)
+
+	userID := "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at FROM users WHERE id = \$1`).
+		WithArgs(userID).
+		WillReturnRows(sqlmock.NewRows(authUserCols).
+			AddRow(userID, "bob", "hash", nil, nil, nil, "ship_strela.svg", nil, "starter",
+				`{"radar":"radar_1","scanner":"scanner_1","engine":"engine_1"}`, "player", now(), now()))
+
+	req := httptest.NewRequest(http.MethodGet, "/me", nil)
+	rec := execJSON(h.GetMe, withUserID(req, userID))
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	// ship_model: {id, name, slots} из ship_models.
+	model, ok := resp["ship_model"].(map[string]interface{})
+	require.True(t, ok, "ship_model должен быть объектом")
+	assert.Equal(t, "starter", model["id"])
+	assert.Equal(t, "Стартовый разведчик", model["name"])
+	slots, ok := model["slots"].(map[string]interface{})
+	require.True(t, ok, "slots модели должны быть объектом")
+	assert.Equal(t, float64(1), slots["radar"])
+	assert.Equal(t, float64(1), slots["scanner"])
+	assert.Equal(t, float64(1), slots["engine"])
+
+	// ship_catalog: весь каталог (id/type/name/params), включая engine_1.
+	catalog, ok := resp["ship_catalog"].([]interface{})
+	require.True(t, ok, "ship_catalog должен быть массивом")
+	require.Len(t, catalog, 3, "radar_1 + scanner_1 + engine_1")
+	engineItem, ok := catalog[0].(map[string]interface{})
+	require.True(t, ok, "сортировка по id: engine_1 первый")
+	assert.Equal(t, "engine_1", engineItem["id"])
+	assert.Equal(t, "engine", engineItem["type"])
+	assert.Equal(t, "Двигатель-1", engineItem["name"])
+	params, ok := engineItem["params"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, float64(0.3), params["speed_factor"])
+
+	// ship_speed_factor: из установленного двигателя (0.3, константа 66a).
+	assert.Equal(t, float64(0.3), resp["ship_speed_factor"])
+
+	// Существующие поля не меняются (И3).
+	assert.Equal(t, "starter", resp["ship_model_id"])
+	assert.Equal(t, float64(800), resp["radar_radius"])
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Без двигателя ship_speed_factor не отдаётся — ячейка «не установлен» (спека 91a §6.1).
+func TestGetMeShipSectionNoEngine(t *testing.T) {
+	ship.LoadDefaults()
+	ship.LoadModelDefaults()
+
+	h, mock, _ := newAuthHandlersHarness(t)
+
+	userID := "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at FROM users WHERE id = \$1`).
+		WithArgs(userID).
+		WillReturnRows(sqlmock.NewRows(authUserCols).
+			AddRow(userID, "bob", "hash", nil, nil, nil, "ship_strela.svg", nil, "starter",
+				`{"radar":"radar_1","scanner":"scanner_1","engine":null}`, "player", now(), now()))
+
+	req := httptest.NewRequest(http.MethodGet, "/me", nil)
+	rec := execJSON(h.GetMe, withUserID(req, userID))
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	_, ok := resp["ship_speed_factor"]
+	assert.False(t, ok, "без двигателя ship_speed_factor не отдаётся")
+	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 // ==================== REGISTER: СТАРТОВЫЙ МИР (баг 77a) ====================

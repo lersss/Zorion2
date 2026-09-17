@@ -19,6 +19,32 @@
         .enc-section { margin-bottom: 1.5rem; }
         .enc-section h3 { margin-bottom: 0.6rem; color: #e2e8f0; }
         .journal-note { font-size: 0.7rem; color: #64748b; margin-top: 0.4rem; }
+        /* Раздел «Корабль» (спека 91a §3–§6): превью + силуэт со слотами + сводные характеристики. */
+        #ship-section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+        #shipSectionModelName { font-size: 1.1rem; font-weight: 600; }
+        #ship-silhouette { position: relative; max-width: 420px; margin: 0 auto 12px; }
+        .ship-slot {
+            position: absolute;
+            background: #0f172a;
+            border: 2px solid #475569;
+            border-radius: 10px;
+            padding: 4px 10px;
+            text-align: center;
+            font-size: 0.72rem;
+            min-width: 120px;
+            transform: translateX(-50%);
+            z-index: 2;
+        }
+        .ship-slot-empty { border-color: #334155; color: #64748b; }
+        .ship-slot-future {
+            min-width: 26px;
+            min-height: 26px;
+            border: 2px dashed #334155;
+            background: transparent;
+            opacity: 0.55;
+            padding: 0;
+        }
+        #ship-section-stats { border-top: 1px solid #334155; padding-top: 10px; font-size: 0.85rem; }
     </style>
 </head>
 <body>
@@ -34,6 +60,38 @@
             <button onclick="location.href='/assignments'">📋 Контракты</button>
             <button onclick="location.href='/map'">🗺️ Карта миров</button>
             <button class="btn-secondary" id="logoutBtn">🚪 Выйти</button>
+        </div>
+
+        <div class="card">
+            <h2>🛸 Корабль</h2>
+            <div id="ship-section">
+                <div id="ship-section-header">
+                    <span id="shipSectionPreview"></span>
+                    <span id="shipSectionModelName">—</span>
+                </div>
+                <div id="ship-silhouette">
+                    <!-- Схематичный силуэт корабля (спека 91a §4.1): кодовая
+                         SVG-фигура, без новых ассетов. Ячейки-слоты — HTML
+                         поверх силуэта: радар (нос), сканер (центр), двигатель
+                         (корма) + пустые ячейки будущих слотов (по бортам). -->
+                    <svg viewBox="0 0 300 170" style="width:100%; display:block;">
+                        <path d="M150 10 L205 55 L205 105 L150 160 L95 105 L95 55 Z" fill="#0f172a" stroke="#475569" stroke-width="2"/>
+                        <path d="M150 10 L172 48 L128 48 Z" fill="#1e293b" stroke="#475569" stroke-width="1.5"/>
+                        <path d="M150 160 L172 118 L128 118 Z" fill="#1e293b" stroke="#475569" stroke-width="1.5"/>
+                        <path d="M95 72 L58 90 L58 102 L95 94 Z" fill="#1e293b" stroke="#475569" stroke-width="1.5"/>
+                        <path d="M205 72 L242 90 L242 102 L205 94 Z" fill="#1e293b" stroke="#475569" stroke-width="1.5"/>
+                        <line x1="150" y1="48" x2="150" y2="118" stroke="#334155" stroke-width="1.5" stroke-dasharray="4 4"/>
+                    </svg>
+                    <div class="ship-slot" id="slot-radar" style="top:6%; left:50%;"></div>
+                    <div class="ship-slot" id="slot-scanner" style="top:40%; left:50%;"></div>
+                    <div class="ship-slot" id="slot-engine" style="top:74%; left:50%;"></div>
+                    <div class="ship-slot ship-slot-future" style="top:28%; left:16%;"></div>
+                    <div class="ship-slot ship-slot-future" style="top:28%; left:84%;"></div>
+                    <div class="ship-slot ship-slot-future" style="top:52%; left:10%;"></div>
+                    <div class="ship-slot ship-slot-future" style="top:52%; left:90%;"></div>
+                </div>
+                <div id="ship-section-stats"></div>
+            </div>
         </div>
 
         <div class="card">
@@ -78,6 +136,115 @@
             return div;
         }
 
+        // ==================== РАЗДЕЛ «КОРАБЛЬ» (спека 91a §3–§6) ====================
+        // Показывает только установленное (И1): слоты из users.equipment, имена
+        // и характеристики — из ship_catalog (с сервера, И2). Каталог «что
+        // бывает» в UI не рисуется; будущие слоты — пустые ячейки без подписей.
+
+        // slotDetail — характеристики установленного модуля для ячейки слота.
+        function slotDetail(type, item) {
+            const p = item.params || {};
+            switch (type) {
+                case 'radar':
+                    return 'Радиус: ' + (typeof p.radius === 'number' ? p.radius : '—') + ' px';
+                case 'scanner': {
+                    const depth = p.depth === 'surface' ? 'поверхность' : (p.depth || '—');
+                    return 'Глубина: ' + depth + (p.settlements ? ' · Поселения: да' : '');
+                }
+                case 'engine':
+                    return 'Скорость: ' + (typeof p.speed_factor === 'number' ? p.speed_factor : '—') + ' сек/px';
+                default:
+                    return '';
+            }
+        }
+
+        function renderShipSection(data) {
+            const catalog = Array.isArray(data.ship_catalog) ? data.ship_catalog : [];
+            const catalogById = {};
+            catalog.forEach(i => { catalogById[i.id] = i; });
+            const equipment = data.equipment || {};
+
+            // Превью корабля (спрайт + цвет, 61b) + имя модели.
+            const previewWrap = document.getElementById('shipSectionPreview');
+            if (previewWrap) {
+                previewWrap.innerHTML = '';
+                previewWrap.appendChild(shipPreviewEl(data.ship_icon, data.ship_color || null));
+            }
+            const nameEl = document.getElementById('shipSectionModelName');
+            if (nameEl) nameEl.textContent = (data.ship_model && data.ship_model.name) || '—';
+
+            // Ячейки-слоты на силуэте: радар (нос), сканер (центр), двигатель (корма).
+            const slotDefs = [
+                { key: 'radar', icon: '📡' },
+                { key: 'scanner', icon: '🔭' },
+                { key: 'engine', icon: '⚙️' },
+            ];
+            slotDefs.forEach(def => {
+                const el = document.getElementById('slot-' + def.key);
+                if (!el) return;
+                el.innerHTML = '';
+                const itemId = equipment[def.key];
+                const item = itemId ? catalogById[itemId] : null;
+                if (item) {
+                    el.classList.remove('ship-slot-empty');
+                    const icon = document.createElement('div');
+                    icon.textContent = def.icon;
+                    const name = document.createElement('div');
+                    name.textContent = item.name;
+                    name.style.fontWeight = '600';
+                    const detail = document.createElement('div');
+                    detail.textContent = slotDetail(def.key, item);
+                    detail.style.color = '#94a3b8';
+                    el.appendChild(icon);
+                    el.appendChild(name);
+                    el.appendChild(detail);
+                } else {
+                    el.classList.add('ship-slot-empty');
+                    const icon = document.createElement('div');
+                    icon.textContent = def.icon;
+                    const name = document.createElement('div');
+                    name.textContent = 'не установлен';
+                    el.appendChild(icon);
+                    el.appendChild(name);
+                }
+            });
+
+            // Сводные характеристики: радиус радара, возможности сканера, скорость.
+            const statsEl = document.getElementById('ship-section-stats');
+            if (!statsEl) return;
+            statsEl.innerHTML = '';
+            const scannerItem = catalogById[equipment.scanner];
+            const rows = [];
+            // Радиус радара — из /me.radar_radius (И3: один источник — установленный радар).
+            rows.push(['Радиус радара', (typeof data.radar_radius === 'number') ? data.radar_radius + ' px' : '—']);
+            if (scannerItem) {
+                const p = scannerItem.params || {};
+                const depth = p.depth === 'surface' ? 'поверхность' : (p.depth || '—');
+                rows.push(['Сканер', depth + (p.settlements ? ' + поселения' : '')]);
+            } else {
+                rows.push(['Сканер', 'не установлен']);
+            }
+            // Скорость — из /me.ship_speed_factor (И2: не хардкод в клиенте);
+            // без двигателя поле отсутствует — «не установлен» (спека 91a §6.1).
+            if (typeof data.ship_speed_factor === 'number') {
+                rows.push(['Скорость', data.ship_speed_factor + ' сек/px']);
+            } else {
+                rows.push(['Скорость', 'не установлен']);
+            }
+            rows.forEach(([k, v]) => {
+                const row = document.createElement('div');
+                row.style.cssText = 'display:flex; justify-content:space-between; gap:12px; padding:2px 0;';
+                const kEl = document.createElement('span');
+                kEl.textContent = k;
+                kEl.style.color = '#94a3b8';
+                const vEl = document.createElement('span');
+                vEl.textContent = v;
+                row.appendChild(kEl);
+                row.appendChild(vEl);
+                statsEl.appendChild(row);
+            });
+        }
+
         async function loadUser() {
             const token = localStorage.getItem('token');
             if (!token) return;
@@ -104,6 +271,8 @@
                     previewWrap.innerHTML = '';
                     previewWrap.appendChild(shipPreviewEl(data.ship_icon, data.ship_color || null));
                 }
+                // Раздел «Корабль» (спека 91a): силуэт со слотами + характеристики.
+                renderShipSection(data);
             } catch (e) {
                 console.error(e);
             }

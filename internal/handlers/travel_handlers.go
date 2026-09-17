@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"zorion/internal/auth"
+	"zorion/internal/models"
 	"zorion/internal/repository"
+	"zorion/internal/ship"
 	"zorion/internal/travel"
 )
 
@@ -47,10 +49,11 @@ type TravelResponse struct {
 }
 
 // calcTravelDuration вычисляет длительность полёта по расстоянию между мирами:
-// dist * 0.3 секунд, минимум 3 секунды (решение создателя 2026-09-16;
-// потолок 20 секунд от 2026-09-14 убран).
-func calcTravelDuration(dist float64) time.Duration {
-	speedFactor := 0.3
+// dist * speedFactor секунд, минимум 3 секунды (решение создателя 2026-09-16;
+// потолок 20 секунд от 2026-09-14 убран). speedFactor — скорость из
+// установленного двигателя игрока (спека 91a §7.1: ship.EngineSpeed, 0.3 —
+// значение 66a не меняется, меняется источник).
+func calcTravelDuration(dist float64, speedFactor float64) time.Duration {
 	duration := time.Duration(dist*speedFactor) * time.Second
 	if duration < 3*time.Second {
 		duration = 3 * time.Second
@@ -108,6 +111,15 @@ func (h *TravelHandlers) StartTravel(w http.ResponseWriter, r *http.Request) {
 	user, err := h.userRepo.GetByID(userID)
 	if err != nil || user == nil {
 		http.Error(w, "User not found", http.StatusNotFound)
+		return
+	}
+
+	// Валидация двигателя (спека 91a §6.1): role=player без установленного
+	// двигателя не летает («не может летать без двигателя» — создатель);
+	// админ/skycomposer — исключение (летают всегда, как видимость 77a).
+	// NPC-агенты не затрагиваются — у них своя настройка npcSpeedFactor.
+	if user.Role == models.RolePlayer && !ship.HasEngine(user.Equipment) {
+		writeJSONError(w, "Двигатель не установлен — полёт невозможен", http.StatusBadRequest)
 		return
 	}
 
@@ -195,7 +207,9 @@ func (h *TravelHandlers) StartTravel(w http.ResponseWriter, r *http.Request) {
 	dy := startY - targetWorld.CoordY
 	dist := math.Sqrt(dx*dx + dy*dy)
 
-	duration := calcTravelDuration(dist)
+	// Скорость полёта — из установленного двигателя (спека 91a §7.1):
+	// значение 0.3 (66a) не меняется, меняется источник (замысел 77a §1.3).
+	duration := calcTravelDuration(dist, ship.EngineSpeed(user.Equipment))
 
 	onArrival := func(uid, worldID string) {
 		if err := h.userRepo.UpdateCurrentWorld(uid, worldID); err != nil {

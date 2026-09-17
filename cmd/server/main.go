@@ -96,6 +96,14 @@ func main() {
 		log.Println("✅ Каталог оборудования загружен")
 	}
 
+	// Модели кораблей (спека 91a §7.3): справочник из БД (миграция 000040),
+	// дефолт — стартовая модель. Нужен до старта HTTP — /me отдаёт имя модели.
+	if err := ship.LoadModels(db); err != nil {
+		log.Printf("⚠️ Модели кораблей: %v (дефолты)", err)
+	} else {
+		log.Println("✅ Модели кораблей загружены")
+	}
+
 	// Bootstrap первого skycomposer — после миграций, до старта HTTP (спека 99.2.14 §5).
 	bootstrapSkycomposer(db, cfg.SkycomposerBootstrapUsername, cfg.SkycomposerBootstrapPassword)
 

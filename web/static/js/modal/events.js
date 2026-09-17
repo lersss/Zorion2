@@ -6,6 +6,7 @@ import { miniObjects } from './minimap.js';
 import { closeModal } from './index.js';
 import { getSpectralInfo, exoticStarInfo, formatStellarMass, formatAU } from './panel.js';
 import { starTypeLabel } from './utils.js';
+import { notifyError } from '../ui/toast.js';
 
 export function initEvents(canvas, spectralClass, planets, starRadius, starColor, width, height) {
     const dpr = window.devicePixelRatio || 1;
@@ -421,6 +422,12 @@ function showStarMenu(x, y) {
         btn.addEventListener('mouseleave', () => { btn.style.background = 'none'; });
         btn.addEventListener('click', async () => {
             hideStarMenu();
+            // Без двигателя полёт невозможен (спека 91a §6.1): блокируем с
+            // подсказкой; сервер валидирует тоже (админ/skycomposer — исключение).
+            if (!modalState.hasEngine) {
+                notifyError('Двигатель не установлен — полёт невозможен');
+                return;
+            }
             await startTravelToStar();
         });
         menu.appendChild(btn);

@@ -13,41 +13,54 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"zorion/internal/models"
 	"zorion/internal/repository"
+	"zorion/internal/ship"
 	"zorion/internal/travel"
 )
 
 func TestCalcTravelDuration(t *testing.T) {
 	tests := []struct {
-		name string
-		dist float64
-		want time.Duration
+		name        string
+		dist        float64
+		speedFactor float64
+		want        time.Duration
 	}{
 		{
-			name: "короткое расстояние: время равно dist*0.3",
-			dist: 50,
-			want: 15 * time.Second,
+			name:        "короткое расстояние: время равно dist*0.3",
+			dist:        50,
+			speedFactor: models.EngineSpeedDefault,
+			want:        15 * time.Second,
 		},
 		{
-			name: "большое расстояние: без потолка, dist*0.3 (dist=100 -> 30s)",
-			dist: 100,
-			want: 30 * time.Second,
+			name:        "большое расстояние: без потолка, dist*0.3 (dist=100 -> 30s)",
+			dist:        100,
+			speedFactor: models.EngineSpeedDefault,
+			want:        30 * time.Second,
 		},
 		{
-			name: "граница старого капа: dist=70 -> 21s, потолок не режет",
-			dist: 70,
-			want: 21 * time.Second,
+			name:        "граница старого капа: dist=70 -> 21s, потолок не режет",
+			dist:        70,
+			speedFactor: models.EngineSpeedDefault,
+			want:        21 * time.Second,
 		},
 		{
-			name: "минимум 3 секунды для очень близких миров",
-			dist: 1,
-			want: 3 * time.Second,
+			name:        "минимум 3 секунды для очень близких миров",
+			dist:        1,
+			speedFactor: models.EngineSpeedDefault,
+			want:        3 * time.Second,
+		},
+		{
+			name:        "скорость из двигателя: другой speed_factor меняет длительность",
+			dist:        100,
+			speedFactor: 0.6,
+			want:        60 * time.Second,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, calcTravelDuration(tt.dist))
+			assert.Equal(t, tt.want, calcTravelDuration(tt.dist, tt.speedFactor))
 		})
 	}
 }
@@ -55,8 +68,11 @@ func TestCalcTravelDuration(t *testing.T) {
 // ==================== ХЕЛПЕРЫ ====================
 
 // newTravelHarness — sqlmock-БД + репозитории + менеджер полётов.
+// Каталог оборудования — дефолты (PITFALLS.md:185): HasEngine/EngineSpeed
+// читают in-memory каталог, без него валидация двигателя всегда false.
 func newTravelHarness(t *testing.T) (*TravelHandlers, *travel.Manager, sqlmock.Sqlmock) {
 	t.Helper()
+	ship.LoadDefaults()
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
@@ -78,11 +94,32 @@ func travelWorldRow(id string, x, y float64) *sqlmock.Rows {
 }
 
 // userRow — строка пользователя для sqlmock (текущий мир — fromWorld).
+// Стартовая комплектация 91a: радар + сканер + двигатель (спека 91a §7.1).
 func userRow(id, fromWorld string) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
 		"id", "username", "password_hash", "email", "agent_id", "current_world_id",
 		"ship_icon", "ship_color", "ship_model_id", "equipment", "role", "created_at", "updated_at",
-	}).AddRow(id, "player", "hash", nil, nil, fromWorld, "ship_strela.svg", nil, nil, nil, "player", now(), now())
+	}).AddRow(id, "player", "hash", nil, nil, fromWorld, "ship_strela.svg", nil, nil,
+		`{"radar":"radar_1","scanner":"scanner_1","engine":"engine_1"}`, "player", now(), now())
+}
+
+// userRowNoEngine — игрок без двигателя (слот engine пуст): полёт запрещён
+// для role=player (спека 91a §6.1).
+func userRowNoEngine(id, fromWorld string) *sqlmock.Rows {
+	return sqlmock.NewRows([]string{
+		"id", "username", "password_hash", "email", "agent_id", "current_world_id",
+		"ship_icon", "ship_color", "ship_model_id", "equipment", "role", "created_at", "updated_at",
+	}).AddRow(id, "player", "hash", nil, nil, fromWorld, "ship_strela.svg", nil, nil,
+		`{"radar":"radar_1","scanner":"scanner_1","engine":null}`, "player", now(), now())
+}
+
+// userRowAdminNoEngine — админ без двигателя: летает всегда (исключение 91a §6.1).
+func userRowAdminNoEngine(id, fromWorld string) *sqlmock.Rows {
+	return sqlmock.NewRows([]string{
+		"id", "username", "password_hash", "email", "agent_id", "current_world_id",
+		"ship_icon", "ship_color", "ship_model_id", "equipment", "role", "created_at", "updated_at",
+	}).AddRow(id, "admin", "hash", nil, nil, fromWorld, "ship_strela.svg", nil, nil,
+		`{"radar":"radar_1","scanner":"scanner_1","engine":null}`, "admin", now(), now())
 }
 
 // expectWorld — ожидание SELECT мира по id.
@@ -311,6 +348,64 @@ func TestStartTravelAlreadyInThisWorld(t *testing.T) {
 	rec := execJSON(h.StartTravel, travelRequest(userID, world))
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	require.Contains(t, rec.Body.String(), "Already in this world")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// ==================== ВАЛИДАЦИЯ ДВИГАТЕЛЯ (спека 91a §6.1) ====================
+
+// Player без установленного двигателя не летает: 400 «Двигатель не установлен».
+func TestStartTravelNoEngine(t *testing.T) {
+	h, _, mock := newTravelHarness(t)
+	const userID = "11111111-1111-1111-1111-111111111111"
+	const fromWorld = "w1"
+	const target = "w2"
+
+	// Цель и пользователь (без двигателя) — дальше валидация останавливает.
+	expectWorld(mock, target, 10, 0)
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at FROM users WHERE id = \$1`).
+		WithArgs(userID).
+		WillReturnRows(userRowNoEngine(userID, fromWorld))
+
+	rec := execJSON(h.StartTravel, travelRequest(userID, target))
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Contains(t, rec.Body.String(), "Двигатель не установлен — полёт невозможен")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Admin/skycomposer без двигателя летает всегда (исключение 91a §6.1).
+func TestStartTravelAdminNoEngine(t *testing.T) {
+	h, tm, mock := newTravelHarness(t)
+	const userID = "11111111-1111-1111-1111-111111111111"
+	const fromWorld = "w1"
+	const target = "w2"
+
+	expectWorld(mock, target, 10, 0)
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at FROM users WHERE id = \$1`).
+		WithArgs(userID).
+		WillReturnRows(userRowAdminNoEngine(userID, fromWorld))
+	expectWorld(mock, fromWorld, 0, 0)
+	expectWorld(mock, fromWorld, 0, 0)
+
+	rec := execJSON(h.StartTravel, travelRequest(userID, target))
+	require.Equal(t, http.StatusAccepted, rec.Code)
+	require.NotNil(t, tm.GetFlight(userID), "админ без двигателя летает")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Player с установленным двигателем летает; длительность — из двигателя (0.3).
+func TestStartTravelWithEngine(t *testing.T) {
+	h, tm, mock := newTravelHarness(t)
+	const userID = "11111111-1111-1111-1111-111111111111"
+	const fromWorld = "w1"
+	const target = "w2"
+
+	expectTravelQueries(mock, userID, fromWorld, 0, 0, target, 10, 0)
+	rec := execJSON(h.StartTravel, travelRequest(userID, target))
+	require.Equal(t, http.StatusAccepted, rec.Code)
+
+	flight := tm.GetFlight(userID)
+	require.NotNil(t, flight)
+	require.Equal(t, 3*time.Second, flight.Duration, "dist=10 → 3 сек (минимум 66a)")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

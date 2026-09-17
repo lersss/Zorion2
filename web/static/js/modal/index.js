@@ -42,6 +42,11 @@ export function openSystemModal(worldId, worldName, spectralClass, focusOpts, au
     // события используют его же, а не игровой localStorage (в админке его нет).
     modalState.authToken = token;
 
+    // Двигатель игрока (спека 91a §6.1): без него «Перелететь» из модалки
+    // блокируется. starInfo приходит с карты (state.hasEngine); админка/
+    // неизвестно — true (админ летает всегда, сервер валидирует тоже).
+    modalState.hasEngine = starInfo ? !!starInfo.hasEngine : true;
+
     fetch(`/api/worlds/${worldId}/planets`, {
         headers: { 'Authorization': 'Bearer ' + token }
     })

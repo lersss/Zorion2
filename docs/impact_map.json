@@ -1,7 +1,7 @@
 {
   "_comment": "Реестр каскадных влияний Zorion. Вопрос: «меняем X → смотрим на Y». Ведёт @manager при сдаче фич (идея 83a): дедупликация по entity.id, schema_version растёт только при изменении структуры, updated_at — дата правки. Сущность заводится при ≥2 потребителях или ≥2 влияниях.",
   "schema_version": 1,
-  "updated_at": "2026-09-17",
+  "updated_at": "2026-09-18",
   "entities": [
     {
       "id": "races.json",
@@ -13,6 +13,11 @@
         { "on": "internal/generator/settlement/races_test.go", "kind": "test", "reason": "тесты генератора поселений ссылаются на race_id и T-окна (80a §9.3: T 450→520)" },
         { "on": "22_races.md", "kind": "duplicates", "reason": "карточки дублируются в справочнике (§3/§4 — имена/лор); числа не копируются (§8.1), имена/основы — да" },
         { "on": "docs/gamedesign/races/*.md", "kind": "duplicates", "reason": "60 лор-файлов по расе; правка карточки (имя/основа) устаревает лор" },
+        { "on": "docs/gamedesign/03_planets.md", "kind": "duplicates", "reason": "74a: обитаемость для людей ~6% привязана к HumansSuitable (вода ≥10, гиганты исключены)" },
+        { "on": "docs/gamedesign/10_exploration.md", "kind": "duplicates", "reason": "74a: отчёты — тип жизни/раса поселения; каталог рас источник" },
+        { "on": "docs/gamedesign/13_settlements.md", "kind": "duplicates", "reason": "74a: раса поселения race_id, корм рас; привязка к каталогу" },
+        { "on": "docs/gamedesign/14_money.md", "kind": "duplicates", "reason": "74a: торговцы-эмитент кредита — расы; привязка к каталогу" },
+        { "on": "docs/gamedesign/19_robots.md", "kind": "duplicates", "reason": "74a: расы-роботы 51–60 как сущности каталога (слой robotic)" },
         { "on": "99.2.21", "kind": "duplicates", "reason": "числа карточек зафиксированы в спеке §5; правка карточки = правка спеки" },
         { "on": "config/art/*.json", "kind": "reads", "reason": "морфы/формы/материалы строятся от имён и basis (67a.1, 76a.1, 78a.1)" },
         { "on": "internal/races/catalog.go", "kind": "reads", "reason": "LoadCatalog валидирует карточки при старте; новые поля = правка валидации" },
@@ -88,6 +93,67 @@
       "impacts": [
         { "on": "99_roadmap.md", "kind": "docs", "reason": "запись сдачи фичи = статус строки §99.2; комплект: CHANGELOG + роадмап + STATUS + CONTEXT" },
         { "on": "STATUS.md", "kind": "docs", "reason": "закрытые фичи в §1/§2 синхронны с CHANGELOG" }
+      ]
+    },
+    {
+      "id": "77a",
+      "type": "spec",
+      "path": "docs/specs/77a-ship-equipment-radar.md",
+      "note": "спека «Модель корабля, оборудование и радар — видимость игрока» (77a, 2026-09-17); три сущности: ship_models, equipment, player_planet_knowledge",
+      "impacts": [
+        { "on": "ship_models", "kind": "writes", "reason": "справочник моделей кораблей создаётся по спеке §2–§3 (миграция 000040)" },
+        { "on": "equipment", "kind": "writes", "reason": "справочник оборудования по спеке §2–§3 (миграция 000040)" },
+        { "on": "player_planet_knowledge", "kind": "writes", "reason": "личный каталог знания о планетах по спеке §4 (миграция 000040)" },
+        { "on": "internal/ship/radar.go", "kind": "api", "reason": "радиус радара 800 px (000042), видимость деталей систем" },
+        { "on": "internal/handlers/visibility.go", "kind": "api", "reason": "видимость применяется на сервере; клиент не получает скрытых данных" },
+        { "on": "99_roadmap.md", "kind": "docs", "reason": "строка §99.2 про 77a (статус фичи)" },
+        { "on": "docs/DB.md", "kind": "docs", "reason": "миграции 000040–000042 зарегистрированы в DB.md" }
+      ]
+    },
+    {
+      "id": "ship_models",
+      "type": "table",
+      "path": "db:ship_models",
+      "note": "справочник моделей кораблей (id, name, slots JSONB); users.ship_model_id → ship_models.id (000040)",
+      "impacts": [
+        { "on": "db:users.ship_model_id", "kind": "schema", "reason": "колонка users.ship_model_id ссылается на справочник; смена модели = UPDATE данных" },
+        { "on": "internal/ship/catalog.go", "kind": "reads", "reason": "каталог моделей читается сервером (77a)" },
+        { "on": "77a", "kind": "duplicates", "reason": "модели и слоты зафиксированы в спеке §2–§3" }
+      ]
+    },
+    {
+      "id": "equipment",
+      "type": "table",
+      "path": "db:equipment",
+      "note": "справочник оборудования (radar/scanner/engine, params JSONB); users.equipment → справочник (000040/000042)",
+      "impacts": [
+        { "on": "db:users.equipment", "kind": "schema", "reason": "колонка users.equipment JSONB хранит установленное оборудование; params = ключ справочника" },
+        { "on": "internal/ship/catalog.go", "kind": "reads", "reason": "каталог оборудования читается сервером (77a)" },
+        { "on": "77a", "kind": "duplicates", "reason": "типы и параметры оборудования зафиксированы в спеке §2–§3" }
+      ]
+    },
+    {
+      "id": "player_planet_knowledge",
+      "type": "table",
+      "path": "db:player_planet_knowledge",
+      "note": "личный каталог знания о планетах (user_id, planet_id, data, scanned_at, source; PK user+planet; протухание 7 дней — статус на чтении)",
+      "impacts": [
+        { "on": "internal/models/knowledge.go", "kind": "reads", "reason": "модель знания; протухание 7 дней — статус актуальности на чтении" },
+        { "on": "internal/repository/knowledge_repository.go", "kind": "reads", "reason": "доступ к каталогу знания (77a)" },
+        { "on": "internal/handlers/visibility.go", "kind": "api", "reason": "видимость деталей систем решается знанием + радиусом радара" },
+        { "on": "77a", "kind": "duplicates", "reason": "структура каталога и протухание — в спеке §4" }
+      ]
+    },
+    {
+      "id": "88a.1",
+      "type": "spec",
+      "path": "docs/specs/88a.1-art-studio-water-f1.md",
+      "note": "спека арт-студии: семейство F1 «Водные» (расы 2–4), люди → F0 (88a, 2026-09-17)",
+      "impacts": [
+        { "on": "config/art/families.json", "kind": "writes", "reason": "семейство F1 добавлено в families.json (88a); люди перенесены на F0" },
+        { "on": "config/art/forms.json", "kind": "writes", "reason": "категории форм F1 в forms.json" },
+        { "on": "config/art/humans.json", "kind": "writes", "reason": "люди → F0: пути race_f0_humans_*" },
+        { "on": "cmd/art-studio/*", "kind": "api", "reason": "студия читает конфиги при старте; после правки конфигов — перезапуск" }
       ]
     }
   ]

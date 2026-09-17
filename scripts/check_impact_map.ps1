@@ -111,7 +111,15 @@ foreach ($e in $entities) {
     }
 }
 
-$exceptions = @('.opencode/','docs/gamedesign/ideas/','scripts/','.githooks/','docs/impact_map.json')
+$exceptions = @(
+    '.opencode/', 'docs/gamedesign/ideas/', 'scripts/', '.githooks/', 'docs/impact_map.json',
+    # код реализации и вспомогательные зоны — не сущности реестра (2026-09-18, 77a/88a/90a)
+    'internal/', 'web/', 'cmd/', 'tools/', 'migrations/',
+    'docs/QA/checklists/', 'docs/QA_CHECKLIST.md',
+    'docs/ARCHITECTURE.md', 'docs/PITFALLS.md',
+    'AGENTS.md', 'docs/INDEX.md',
+    'go.mod', 'go.sum', '.gitignore'
+)
 
 $changedFiles = @()
 try {

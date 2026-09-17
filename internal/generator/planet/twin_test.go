@@ -175,6 +175,30 @@ func TestTwinSpecValidate(t *testing.T) {
 	}
 }
 
+// Раса группы (99.2.23 §5.1): race_id из каталога, пусто — ок; неизвестная
+// раса — ошибка валидации.
+func TestTwinSpecValidateRaceID(t *testing.T) {
+	valid := TwinSpec{ID: "x", Base: map[string]interface{}{"temperature": 288.0},
+		Groups: []TwinGroup{{ID: "g", PlanetsPerWorld: 1, RaceID: "ammonia"}}}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("валидный race_id отклонён: %v", err)
+	}
+
+	// Пусто = люди/легаси — ок.
+	empty := TwinSpec{ID: "x", Base: map[string]interface{}{"temperature": 288.0},
+		Groups: []TwinGroup{{ID: "g", PlanetsPerWorld: 1}}}
+	if err := empty.Validate(); err != nil {
+		t.Fatalf("пустой race_id отклонён: %v", err)
+	}
+
+	// Неизвестная раса — ошибка.
+	bad := TwinSpec{ID: "x", Base: map[string]interface{}{"temperature": 288.0},
+		Groups: []TwinGroup{{ID: "g", PlanetsPerWorld: 1, RaceID: "no_such_race"}}}
+	if err := bad.Validate(); err == nil {
+		t.Fatal("неизвестная раса должна быть отклонена")
+	}
+}
+
 // Числовые поля base/overrides сверяются с рамками реестра полей: вне рамок —
 // ошибка (защита от «непроизводимого генератором» объекта, например массы
 // коричневого карлика). Температура в данных — K, сверяется как (K−273) °C.

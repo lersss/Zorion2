@@ -17,6 +17,8 @@
 // без NaN) — в Population.
 package settlement
 
+import "log"
+
 // Рампа включения естественной компоненты на [15, 30) °C (15 °C =
 // 288.15 K — «288 K → R = 0» сохранено). Архитектурная константа, вне
 // балансировщика (99.2.17 §12): рампа естественной компоненты — не баланс
@@ -94,11 +96,49 @@ func RadiationChangeRate(rad float64) float64 {
 // R_ест + R_рожд + R_жара + R_холод + R_гравитация + R_радиация. Единая
 // точка сборки: новые источники (убыль/рост) добавляются здесь. λ-механизма
 // нет (всё рекурсией, 99.2.13). Гвард r ≥ 1 (мгновенная гибель) — в Population.
+// Расовый путь (99.2.23 §3.2): RaceID ≠ NULL/"humans" → active-кривые расы
+// из расового store; человеческая модель (NULL и "humans") не меняется.
 func ChangeComponents(input PlanetInput) float64 {
+	if input.RaceID != "" && input.RaceID != "humans" {
+		return changeComponentsRace(input)
+	}
 	return NaturalComponent(input.TemperatureK) +
 		BirthComponent(input.TemperatureK) +
 		HeatTemperatureChangeRate(input.TemperatureK) +
 		ColdChangeRate(input.TemperatureK) +
 		GravityChangeRate(input.GravityG) +
 		RadiationChangeRate(input.CoreRadioactivity)
+}
+
+// changeComponentsRace — расовая R-модель (99.2.23 §3.2):
+//
+//	R_total_расы = active.reproduction · (1 − k) · R_ест
+//	             + evaluateCurve(active.curves.heat, T°C)
+//	             + evaluateCurve(active.curves.cold, T)
+//	             + evaluateCurve(active.curves.gravity, g)
+//	             + evaluateCurve(active.curves.radiation, rad)
+//
+// Естественная пара — константа (без человеческой рампы [15, 30] °C):
+// R_ест_расы = active.reproduction·R_ест, R_рожд_расы = −k·active.reproduction·R_ест,
+// нетто active.reproduction·(1−k)·R_ест. Resilience уже вшит в Y при
+// генерации — отдельного масштаба в формуле нет. Гвард отсутствия записи:
+// расы нет в расовом store (теоретически невозможно после авто-инициализации;
+// страховка) → человеческая модель + лог-предупреждение (сервер не падает).
+func changeComponentsRace(input PlanetInput) float64 {
+	rc, ok := GetRaceActiveCurves(input.RaceID)
+	if !ok {
+		log.Printf("race balancer: раса %q без записи в store — человеческая модель (гвард 99.2.23 §3.2)", input.RaceID)
+		return NaturalComponent(input.TemperatureK) +
+			BirthComponent(input.TemperatureK) +
+			HeatTemperatureChangeRate(input.TemperatureK) +
+			ColdChangeRate(input.TemperatureK) +
+			GravityChangeRate(input.GravityG) +
+			RadiationChangeRate(input.CoreRadioactivity)
+	}
+	netto := rc.Reproduction * (1 - BirthRateCoefficient()) * NaturalChangeRate()
+	return netto +
+		evaluateCurve(rc.Curves["heat"].Nodes, rc.Curves["heat"].Bends, input.TemperatureK-273.15) +
+		evaluateCurve(rc.Curves["cold"].Nodes, rc.Curves["cold"].Bends, input.TemperatureK-273.15) +
+		evaluateCurve(rc.Curves["gravity"].Nodes, rc.Curves["gravity"].Bends, input.GravityG) +
+		evaluateCurve(rc.Curves["radiation"].Nodes, rc.Curves["radiation"].Bends, input.CoreRadioactivity)
 }

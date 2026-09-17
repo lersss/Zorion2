@@ -685,6 +685,11 @@
                 расчёту населения сразу после «Сохранить» (in-memory, дефолты при рестарте).
             </p>
             <div class="compact-row">
+                <div><label>Раса</label>
+                    <select id="balancerRace">
+                        <option value="">Люди (глобальная)</option>
+                    </select>
+                </div>
                 <div><label>Компонента</label>
                     <select id="balancerComponent">
                         <option value="heat">Жара (°C)</option>
@@ -705,6 +710,16 @@
                 <button class="btn secondary" id="balancerCancelBtn">Отмена</button>
                 <button class="btn danger" id="balancerResetBtn">Сброс на дефолты</button>
             </div>
+            <div class="compact-row" id="balancerRaceControls" style="margin-top:10px; display:none;">
+                <div><label>Множитель размножения (reproduction)
+                    <input type="number" id="balancerReproduction" step="any" min="0" style="width:110px;">
+                </label>
+                <span id="balancerReproCalc" class="hint" style="margin-left:8px;"></span></div>
+                <button class="btn secondary" id="balancerRaceGenerateBtn">Сгенерировать из карточки</button>
+                <button class="btn secondary" id="balancerRaceResetFactoryBtn">Вернуть заводские</button>
+                <label style="margin-left:12px;"><input type="checkbox" id="balancerFactoryOverlay"> показать заводскую</label>
+            </div>
+            <div id="balancerRaceStale" class="hint" style="display:none; margin-top:8px; color:#fbbf24; background:rgba(251,191,36,0.08); padding:6px 10px; border-radius:6px;"></div>
             <div class="compact-row" style="margin-top:10px;">
                 <div><label>Пресеты</label>
                     <select id="balancerPresetSelect"></select>

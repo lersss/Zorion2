@@ -173,7 +173,8 @@ func (h *AdminHandlers) HandleBalancerCurveReset(w http.ResponseWriter, r *http.
 // отрисовки — единый источник математики (клиент НЕ дублирует
 // evaluateCurve/bendTransform). Валидация: 2..500 точек X; точки вне
 // диапазона компоненты вычисляются горизонтальной экстраполяцией (§2) —
-// это и есть цель sample.
+// это и есть цель sample. Query-параметр race_id (99.2.23 §4.3): задан —
+// оцифровка active-кривой расы (расширение вкладки «Балансировка»).
 func (h *AdminHandlers) HandleBalancerCurveSample(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSONError(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
@@ -195,7 +196,16 @@ func (h *AdminHandlers) HandleBalancerCurveSample(w http.ResponseWriter, r *http
 			http.StatusUnprocessableEntity)
 		return
 	}
-	ys, ok := settlement.SampleCurve(req.Component, req.Xs)
+	var ys []float64
+	var ok bool
+	if raceID := r.URL.Query().Get("race_id"); raceID != "" {
+		if !raceBalancerRaceOK(w, raceID) {
+			return
+		}
+		ys, ok = settlement.SampleRaceCurve(raceID, req.Component, req.Xs)
+	} else {
+		ys, ok = settlement.SampleCurve(req.Component, req.Xs)
+	}
 	if !ok {
 		writeJSONError(w, "кривая компоненты недоступна", http.StatusInternalServerError)
 		return

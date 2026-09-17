@@ -13,6 +13,23 @@ import { HYPOTHESIS_PRESETS } from './hypothesisPresets.js';
 // currentPreset — выбранный пресет (для сборки spec).
 let currentPreset = null;
 
+// raceList — каталог рас для дропдауна группы (99.2.23 §5.4): [{race_id, name}]
+// из /admin/race-balancer/status («Люди» — пусто, дефолт).
+let raceList = [];
+
+// loadRaceList — подгрузка каталога рас для селектора группы.
+async function loadRaceList() {
+    try {
+        const res = await fetchWithAuth('/admin/race-balancer/status');
+        if (!res.ok) return;
+        const s = await res.json();
+        raceList = s.races || [];
+    } catch (e) {
+        console.error('loadRaceList:', e);
+        raceList = [];
+    }
+}
+
 // bindFieldsLoaded — перерисовка формы, когда подгрузился реестр полей
 // (оси/baked-поля рисуются по нему; до загрузки они пусты).
 let fieldsBound = false;
@@ -30,7 +47,7 @@ export function populateHypothesisPresets() {
     const sel = document.getElementById('hypothesisSelect');
     sel.innerHTML = HYPOTHESIS_PRESETS.map(p =>
         `<option value="${p.id}">${p.name}</option>`).join('');
-    renderHypothesisForm();
+    loadRaceList().then(renderHypothesisForm);
 }
 
 // renderHypothesisForm — карточки групп: ось, планеты, население, и
@@ -49,6 +66,16 @@ export function renderHypothesisForm() {
             <div class="hyp-group-name">${g.name}</div>
 
             <div id="hypAxis_${i}"></div>
+
+            <div class="hyp-line">
+                <label>Раса
+                    <select id="hypRace_${i}">
+                        <option value="">Люди</option>
+                        ${raceList.map(r => `<option value="${r.race_id}">${r.name}</option>`).join('')}
+                    </select>
+                </label>
+                <span class="hyp-fine-hint">поселения группы — с R-моделью расы (текущая настроенная кривая); непригодная раса на клоне не селится (видно в отчёте)</span>
+            </div>
 
             <div class="hyp-line">
                 <label>Планет у звезды
@@ -90,6 +117,9 @@ export function renderHypothesisForm() {
         renderAxisFieldRow(preset, g, i);
         renderCompositions(preset, g, i);
         renderAllPlanetFields(preset, g, i);
+        // Раса группы (99.2.23 §5.1): из пресета, если задана.
+        const raceSel = document.getElementById(`hypRace_${i}`);
+        if (raceSel && g.race_id) raceSel.value = g.race_id;
     });
 }
 
@@ -481,7 +511,7 @@ function buildTwinSpec() {
                 max: parseInt(parseDigits(document.getElementById(`hypPopMax_${i}`).value)),
             };
 
-        return {
+        const group = {
             id: g.id,
             name: g.name,
             overrides: collectHypOverrides(i),
@@ -493,8 +523,15 @@ function buildTwinSpec() {
                 population,
             },
         };
+        // Раса группы (99.2.23 §5.1): пусто = люди/легаси — не передавать.
+        const raceID = document.getElementById(`hypRace_${i}`).value;
+        if (raceID) group.race_id = raceID;
+        return group;
     });
-    return { id: currentPreset.id, base: currentPreset.base, groups };
+    const spec = { id: currentPreset.id, base: currentPreset.base, groups };
+    // Варьируемая ось — для отчёта групп (значение оси в точке, 99.2.23 §5.3).
+    if (currentPreset.axis && currentPreset.axis.key) spec.axis = currentPreset.axis.key;
+    return spec;
 }
 
 // runHypothesis — запуск эксперимента выбранной гипотезы.

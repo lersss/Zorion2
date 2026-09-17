@@ -19,16 +19,16 @@ import (
 
 // galaxyReportRows — 3 поселения на 2 мирах (температуры: 290 K — лёгкая
 // убыль, 320 K — жара, 280 K — холод): итог 3500, тренд убыли, w1 = 1500,
-// w2 = 2000.
+// w2 = 2000. race_id — NULL (человеческая модель, 99.2.23 §2.2).
 func galaxyReportRows(now time.Time) *sqlmock.Rows {
-	return sqlmock.NewRows([]string{"w_id", "p_data", "population_exact", "computed_at", "created_at"}).
-		AddRow("w1", `{"temperature":290,"gravity":1.0}`, 1000.0, now, now).
-		AddRow("w1", `{"temperature":320,"gravity":1.0}`, 500.0, now, now).
-		AddRow("w2", `{"temperature":280,"gravity":1.0}`, 2000.0, now, now)
+	return sqlmock.NewRows([]string{"w_id", "p_data", "population_exact", "computed_at", "created_at", "race_id"}).
+		AddRow("w1", `{"temperature":290,"gravity":1.0}`, 1000.0, now, now, nil).
+		AddRow("w1", `{"temperature":320,"gravity":1.0}`, 500.0, now, now, nil).
+		AddRow("w2", `{"temperature":280,"gravity":1.0}`, 2000.0, now, now, nil)
 }
 
 const galaxyReportSQL = `
-	SELECT w.id, p.data, s.population_exact, s.computed_at, s.created_at
+	SELECT w.id, p.data, s.population_exact, s.computed_at, s.created_at, s.race_id
 	FROM settlements s
 	JOIN planets p ON p.id = s.planet_id
 	JOIN worlds w ON w.id = p.world_id`

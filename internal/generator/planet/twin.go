@@ -21,6 +21,7 @@ import (
 	"zorion/internal/generator/galaxy"
 	"zorion/internal/generator/settlement"
 	"zorion/internal/names"
+	"zorion/internal/races"
 )
 
 // twinStarOffset — расстояние между звездами двух групп на карте.
@@ -56,6 +57,11 @@ type SettlementSpec struct {
 type TwinGroup struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+	// RaceID — раса поселений группы (спека 99.2.23 §5.1): пусто = люди/
+	// легаси (человеческая R-модель). Раса на группу (не на эксперимент):
+	// можно сравнить две расы на одном клоне или одну расу на двух значениях
+	// оси. Валидация: из каталога (races.ByID), пусто — ок.
+	RaceID string `json:"race_id,omitempty"`
 	// Overrides — поля planet.data, которые в этой группе заменяются
 	// относительно шаблона (например, {"system_age": 1.0}). Всё остальное
 	// наследуется из Base побайтово.
@@ -71,6 +77,10 @@ type TwinSpec struct {
 	// ID — идентификатор эксперимента (тег _experiment.id).
 	ID   string `json:"id"`
 	Base map[string]interface{} `json:"base"` // канонический шаблон planet.data
+	// Axis — ключ варьируемой оси (99.2.23 §5.3): для отчёта групп (значение
+	// оси в точке). Пусто — ось не задана (варьируется только стартовое
+	// население).
+	Axis string `json:"axis,omitempty"`
 	// Groups — «эксперимент» и «контроль» (две и более).
 	Groups []TwinGroup `json:"groups"`
 }
@@ -92,6 +102,10 @@ func (s *TwinSpec) Validate() error {
 	for i, g := range s.Groups {
 		if g.ID == "" {
 			return fmt.Errorf("groups[%d]: id пустой", i)
+		}
+		// Раса группы (99.2.23 §5.1): из каталога, пусто — ок.
+		if g.RaceID != "" && races.ByID(g.RaceID) == nil {
+			return fmt.Errorf("groups[%d].race_id: раса %q не найдена в каталоге", i, g.RaceID)
 		}
 		if err := validateFieldRanges(fmt.Sprintf("groups[%d].overrides", i), g.Overrides); err != nil {
 			return err

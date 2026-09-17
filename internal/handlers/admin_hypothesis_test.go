@@ -1,5 +1,5 @@
 // Тесты конвейра «Проверка гипотез» (admin_hypothesis.go,
-// specs/hypothesis_testing.md §8, тесты 6–7).
+// specs/hypothesis_testing.md §8, тесты 6–7; 99.2.23 §5 — гейт расы).
 package handlers
 
 import (
@@ -7,16 +7,19 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/require"
 
+	"zorion/internal/economy/settlement"
 	"zorion/internal/generator"
 	"zorion/internal/generator/planet"
-	"zorion/internal/generator/settlement"
+	gensettlement "zorion/internal/generator/settlement"
 	"zorion/internal/mapcache"
+	"zorion/internal/races"
 )
 
 // testTwinSpec — крошечный TwinSpec для детерминированного теста конвейра:
@@ -40,7 +43,7 @@ func testTwinSpec() planet.TwinSpec {
 			Settlement: planet.SettlementSpec{
 				Chance:              1.0,
 				SettlementsPerPlanet: 2,
-				Population:           settlement.Population{Kind: "fixed", Fixed: 12345},
+				Population:           gensettlement.Population{Kind: "fixed", Fixed: 12345},
 			},
 		}},
 	}
@@ -237,4 +240,114 @@ func TestBuildHypothesisReport(t *testing.T) {
 	require.Contains(t, got, "⚠️ Создано планет: 10, поселений: 8, невозможных: 3")
 	require.Contains(t, got, "oceans_in_heat ×2")
 	require.Contains(t, got, "life_without_water ×1")
+}
+
+// Тест 13 (§14): гейт пригодности расы в близнецах (99.2.23 §5.2) — раса,
+// непригодная на клоне, не селится (счётчик «непригодных» = числу планет);
+// пригодная — поселения с race_id в БД; race_id = "" — как сейчас.
+func TestRunHypothesisRaceGate(t *testing.T) {
+	require.NoError(t, races.LoadCatalog("../../config/races.json"))
+	require.NoError(t, settlement.LoadRaceBalancer(filepath.Join(t.TempDir(), "race_balancer.json")))
+
+	cases := []struct {
+		name        string
+		temp        float64 // K
+		raceID      string
+		wantSettled int
+		wantUnsuit  int
+	}{
+		{"аммиачники вне surv (100 K) — не селятся", 100, "ammonia", 0, 2},
+		{"аммиачники в opt (215 K) — селятся с race_id", 215, "ammonia", 2, 0},
+		{"пусто — как сейчас (без race_id)", 100, "", 2, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+			require.NoError(t, err)
+			defer db.Close()
+
+			// Очистка вселенной.
+			mock.ExpectBegin()
+			mock.ExpectExec(`UPDATE users SET current_world_id = NULL`).WillReturnResult(sqlmock.NewResult(0, 0))
+			mock.ExpectExec(`ALTER TABLE users DROP CONSTRAINT`).WillReturnResult(sqlmock.NewResult(0, 0))
+			mock.ExpectExec(`TRUNCATE TABLE ` + truncateTables).WillReturnResult(sqlmock.NewResult(0, 0))
+			mock.ExpectExec(`ALTER TABLE users ADD CONSTRAINT`).WillReturnResult(sqlmock.NewResult(0, 0))
+
+			// Звезда + 2 планеты.
+			mock.ExpectExec(`INSERT INTO worlds \(id, name, coord_x, coord_y, spectral_class, temperature`).
+				WillReturnResult(sqlmock.NewResult(0, 1))
+			for i := 0; i < 2; i++ {
+				mock.ExpectExec(`INSERT INTO planets \(id, world_id, name, orbit_index, data`).
+					WillReturnResult(sqlmock.NewResult(0, 1))
+			}
+			// Поселения: только если раса пригодна (или race_id пуст).
+			for i := 0; i < tc.wantSettled; i++ {
+				mock.ExpectExec(`INSERT INTO settlements \(id, planet_id, population, population_exact, stability, computed_at`).
+					WillReturnResult(sqlmock.NewResult(0, 1))
+			}
+
+			// Автоназначение мира skycomposer-ам.
+			mock.ExpectQuery(`SELECT id FROM worlds ORDER BY`).
+				WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("11111111-1111-1111-1111-111111111111"))
+			mock.ExpectExec(`UPDATE users SET current_world_id = \$1`).
+				WithArgs("11111111-1111-1111-1111-111111111111").
+				WillReturnResult(sqlmock.NewResult(0, 0))
+			mock.ExpectCommit()
+
+			// Пересчёт статистики.
+			mock.ExpectQuery(`SELECT id, COALESCE\(spectral_class,''\), star_type, system_type, temperature FROM worlds`).
+				WillReturnRows(sqlmock.NewRows([]string{"id", "spectral_class", "star_type", "system_type", "temperature"}))
+			mock.ExpectQuery(`SELECT id, world_id, data FROM planets`).
+				WillReturnRows(sqlmock.NewRows([]string{"id", "world_id", "data"}))
+			mock.ExpectQuery(`SELECT planet_id, SUM\(population\) FROM settlements GROUP BY planet_id`).
+				WillReturnRows(sqlmock.NewRows([]string{"planet_id", "population"}))
+
+			spec := planet.TwinSpec{
+				ID:   "race_gate",
+				Axis: "temperature",
+				Base: map[string]interface{}{
+					"temperature": 288.0, "water_percent": 70.0,
+					"mass": 1.0, "size": 1.0, "density": 1.0, "gravity": 1.0,
+					"atmosphere": "азотно-кислородная", "hydrosphere": "океаны",
+					"biosphere": "растительная", "life": true,
+					"type": "землеподобная", "surface_dominant": "океаны",
+					"archetype": "умеренный", "system_age": 1.0,
+					"moons": 1, "development_level": 0.5,
+					"surface_composition":    map[string]interface{}{"океаны": 60.0, "горы": 40.0},
+					"subterrain_composition": map[string]interface{}{"породы": 100.0},
+				},
+				Groups: []planet.TwinGroup{{
+					ID: "g", Name: "Группа", RaceID: tc.raceID, PlanetsPerWorld: 2,
+					Overrides: map[string]interface{}{"temperature": tc.temp},
+					Settlement: planet.SettlementSpec{
+						Chance:              1.0,
+						SettlementsPerPlanet: 1,
+						Population:           gensettlement.Population{Kind: "fixed", Fixed: 100000000},
+					},
+				}},
+			}
+
+			h := &AdminHandlers{db: db, mapCache: mapcache.NewManager()}
+			settled, report, err := h.runHypothesisJob(context.Background(), spec)
+			require.NoError(t, err)
+			require.Equal(t, tc.wantSettled, settled)
+			require.NoError(t, mock.ExpectationsWereMet())
+
+			if tc.wantUnsuit > 0 {
+				require.Contains(t, report, "непригодных: 2", "счётчик «непригодных» = числу планет")
+			}
+			require.Contains(t, report, "Группа «Группа»", "отчёт групп с числами R")
+			require.Contains(t, report, "r_per_sec:", "отчёт показывает r_per_sec по active-кривой")
+		})
+	}
+}
+
+// growthLabel — метка роста/убыли за год; при r ≥ 1 (мгновенная гибель)
+// Pow(1−r, год) дал бы NaN → метка «мгновенная гибель» без Pow (ревью 99.2.23).
+func TestGrowthLabel(t *testing.T) {
+	require.Equal(t, "мгновенная гибель", growthLabel(1.5))
+	require.Equal(t, "мгновенная гибель", growthLabel(1.0))
+	require.Equal(t, "статика", growthLabel(0))
+	require.Contains(t, growthLabel(-1.27e-7), "рост", "термо-рои: рост ×54.9/год")
+	require.Contains(t, growthLabel(1e-5), "убыль")
 }

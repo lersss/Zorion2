@@ -17,6 +17,7 @@ type Config struct {
 	SkycomposerBootstrapUsername string
 	SkycomposerBootstrapPassword string
 	BalancerPresetsFile          string
+	RaceBalancerFile             string
 }
 
 func Load() *Config {
@@ -64,6 +65,14 @@ func Load() *Config {
 		pfile = "config/balancer_presets.json"
 	}
 
+	// Путь к JSON-файлу расовых R-кривых (спека 99.2.23 §3.1): дефолт
+	// config/race_balancer.json; env RACE_BALANCER_FILE переопределяет
+	// (паттерн BALANCER_PRESETS_FILE, 99.2.17 §8).
+	rfile := os.Getenv("RACE_BALANCER_FILE")
+	if rfile == "" {
+		rfile = "config/race_balancer.json"
+	}
+
 	return &Config{
 		ServerPort:                   port,
 		DBURL:                        dbURL,
@@ -73,5 +82,6 @@ func Load() *Config {
 		SkycomposerBootstrapUsername: skyUsername,
 		SkycomposerBootstrapPassword: skyPassword,
 		BalancerPresetsFile:          pfile,
+		RaceBalancerFile:             rfile,
 	}
 }

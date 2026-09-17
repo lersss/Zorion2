@@ -7,6 +7,16 @@ package settlement
 
 import "math"
 
+// MaxPopulation — расчётный кламп роста (99.2.23 §3.2, поправки В1+В2):
+// технический порог ~5 порядков ниже math.MaxFloat64; недостижим в игре.
+// Защита от +Inf при json.Marshal результата.
+const MaxPopulation = 1e300
+
+// MaxInt4Population — кламп записи в int4-колонку settlements.population
+// (2^31−1): перед приведением к int в обоих путях записи (БД и «простой
+// визит» — единая константа, защита от «integer out of range», 99.2.23 §3.2).
+const MaxInt4Population = 2147483647
+
 // Uninhabitable — истина, когда планета «необитаема» (99.2.12, 99.2.13):
 // витринный порог «t_смерти(p0) < 1 ч» по полному r (ChangeComponents) —
 // механика гладкая (жёстких нулей-обнулений больше нет: все компоненты
@@ -42,8 +52,9 @@ func DeathMomentSeconds(p0, r float64) float64 {
 // = рост: r < 0 → (1−r) > 1. Округление — только при показе игроку (18a,
 // «Точность и округление»). Гвард робастности: r ≥ 1 (экстремальные входы,
 // степенная неограничена) → мгновенная гибель p = 0 — иначе pow(1−r, Δt)
-// дал бы NaN при r > 1 (99.2.13). Guard: Δt ≤ 0 → p0; порог p < 1 → 0
-// (поселение мёртвое).
+// дал бы NaN при r > 1 (99.2.13). Гвард переполнения роста (99.2.23 §3.2):
+// p > MaxPopulation (1e300) → кламп (иначе +Inf при огромном Δt и росте).
+// Guard: Δt ≤ 0 → p0; порог p < 1 → 0 (поселение мёртвое).
 func Population(p0 float64, r float64, deltaSeconds float64) float64 {
 	if p0 <= 0 {
 		return 0
@@ -55,6 +66,9 @@ func Population(p0 float64, r float64, deltaSeconds float64) float64 {
 		return 0
 	}
 	p := p0 * math.Pow(1-r, deltaSeconds)
+	if p > MaxPopulation {
+		p = MaxPopulation
+	}
 	if p < 1 {
 		return 0
 	}

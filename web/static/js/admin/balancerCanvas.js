@@ -121,7 +121,8 @@ function drawPolyline(ctx, canvas, view, points) {
 }
 
 // render — полная отрисовка холста по текущему состоянию.
-// state: { nodes, bends, sampled, etalons, xs (сетка для preview), dirty }
+// state: { nodes, bends, sampled, etalons, xs (сетка для preview), dirty,
+//          factoryNodes, factoryBends (оверлей заводской, 99.2.23 §4.3) }
 export function render(canvas, view, state) {
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -135,6 +136,22 @@ export function render(canvas, view, state) {
     ctx.lineTo(canvas.width - PAD.right, zeroTop);
     ctx.stroke();
     ctx.setLineDash([]);
+
+    // Заводская кривая (оверлей, 99.2.23 §4.3): пунктирная линия factory
+    // поверх active (в цвет компоненты, полупрозрачно) — видно расхождение
+    // ручной правки от заводской. Оцифровка — клиентским evaluateCurveClient
+    // по узлам factory (серверный sample для factory не нужен: узлы уже
+    // загружены GET factory; математика та же, что у live-preview).
+    if (state.factoryNodes && state.factoryNodes.length >= 2 && state.xs && state.xs.length >= 2) {
+        const pts = state.xs.map(x => ({ x, y: evaluateCurveClient(state.factoryNodes, state.factoryBends || [], x) }));
+        ctx.strokeStyle = COLORS.curve;
+        ctx.globalAlpha = 0.45;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([2, 4]);
+        drawPolyline(ctx, canvas, view, pts);
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+    }
 
     // Кривая: серверные точки sample (сплошная, если чисто; пунктиром, если dirty).
     ctx.lineWidth = 2;

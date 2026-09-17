@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"zorion/internal/economy/settlement"
+	"zorion/internal/races"
 )
 
 func TestMortalityPreviewMissingPlanetID(t *testing.T) {
@@ -135,6 +137,52 @@ func TestMortalityPreviewP0Override(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, float64(500), resp.P0, "p0 из query должен переопределять население планеты")
+}
+
+// Тест 14 (§14): предпросмотр с расой — /admin/mortality-preview?race_id=ammonia
+// на планете 215 K → r_per_sec < 0 (рост, аммиачник в своём доме), t_death
+// скрыт; без race_id — человеческая модель (убыль на 215 K).
+func TestMortalityPreviewRaceID(t *testing.T) {
+	require.NoError(t, races.LoadCatalog("../../config/races.json"))
+	require.NoError(t, settlement.LoadRaceBalancer(filepath.Join(t.TempDir(), "race_balancer.json")))
+
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
+	require.NoError(t, err)
+	defer db.Close()
+
+	now := time.Now()
+	mock.ExpectQuery(`
+		SELECT id, world_id, name, orbit_index, data, created_at, updated_at
+		FROM planets
+		WHERE id = $1
+	`).WithArgs("p1").WillReturnRows(
+		sqlmock.NewRows([]string{"id", "world_id", "name", "orbit_index", "data", "created_at", "updated_at"}).
+			AddRow("p1", "w1", "Аммиачный дом", 1, `{"temperature":215,"gravity":1.0}`, now, now),
+	)
+	mock.ExpectQuery(`
+		SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at, race_id
+		FROM settlements WHERE planet_id = ANY($1) ORDER BY created_at ASC
+	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(
+		sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id"}),
+	)
+
+	h := &AdminHandlers{db: db}
+	req := httptest.NewRequest(http.MethodGet, "/admin/mortality-preview?planet_id=p1&p0=100000000&race_id=ammonia", nil)
+	rec := httptest.NewRecorder()
+
+	h.MortalityPreview(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	var resp struct {
+		RPerSec     float64            `json:"r_per_sec"`
+		TDeathHours *float64           `json:"t_death_hours"`
+		Projection  map[string]float64 `json:"projection"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Less(t, resp.RPerSec, 0.0, "аммиачник на 215 K растёт (r < 0)")
+	require.Nil(t, resp.TDeathHours, "t_death скрыт при росте")
+	require.Greater(t, resp.Projection["1 год"], float64(100_000_000), "проекция на год — рост")
 }
 
 func TestMortalityPreviewUninhabitable(t *testing.T) {

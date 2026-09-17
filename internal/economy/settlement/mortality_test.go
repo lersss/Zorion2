@@ -1,6 +1,7 @@
 package settlement
 
 import (
+	"encoding/json"
 	"math"
 	"testing"
 )
@@ -165,6 +166,31 @@ func TestRGuardCap(t *testing.T) {
 	}
 	if got := Population(1e6, r, 60); got <= 0 {
 		t.Errorf("Population с экстремальной g = %v, хочу > 0 (убыль конечная)", got)
+	}
+}
+
+// Тест 16 (§14, поправки В1+В2): гвард переполнения роста — расчётный кламп
+// MaxPopulation = 1e300 (не +Inf, json.Marshal не падает); при малом Δt —
+// обычный рост ×54.9 без клампа.
+func TestPopulationOverflowClamp(t *testing.T) {
+	// Population(10⁹, −1.27·10⁻⁷, Δt ≈ 5.3·10⁹ с) (≈167 лет) → 1e300, не +Inf.
+	got := Population(1e9, -1.27e-7, 5.3e9)
+	if got != MaxPopulation {
+		t.Errorf("Population(1e9, −1.27e-7, 5.3e9) = %v, хочу кламп %v", got, MaxPopulation)
+	}
+	if math.IsInf(got, 1) || math.IsNaN(got) {
+		t.Fatalf("результат = %v, хочу конечный (не +Inf/NaN)", got)
+	}
+	if _, err := json.Marshal(got); err != nil {
+		t.Errorf("json.Marshal результата падает: %v", err)
+	}
+
+	// При малом Δt (1 год) — обычный рост ×54.9 без клампа.
+	year := 365.0 * 24 * 3600
+	got = Population(1e9, -1.27e-7, year)
+	want := 1e9 * 54.9
+	if math.Abs(got-want) > 0.01*want {
+		t.Errorf("Population(1e9, −1.27e-7, 1 год) = %v, хочу ≈ %v (×54.9/год)", got, want)
 	}
 }
 

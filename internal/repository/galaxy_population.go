@@ -2,6 +2,7 @@
 package repository
 
 import (
+	"database/sql"
 	"encoding/json"
 	"math"
 	"time"
@@ -43,7 +44,7 @@ const (
 // изменения — ChangeComponents (18a/99.2.12/99.2.13).
 func (r *EconomyRepository) GalaxyPopulation(now time.Time) (*GalaxyPopulationReport, error) {
 	rows, err := r.db.Query(`
-		SELECT w.id, p.data, s.population_exact, s.computed_at, s.created_at
+		SELECT w.id, p.data, s.population_exact, s.computed_at, s.created_at, s.race_id
 		FROM settlements s
 		JOIN planets p ON p.id = s.planet_id
 		JOIN worlds w ON w.id = p.world_id`)
@@ -57,7 +58,8 @@ func (r *EconomyRepository) GalaxyPopulation(now time.Time) (*GalaxyPopulationRe
 		var worldID string
 		var dataJSON []byte
 		var s models.Settlement
-		if err := rows.Scan(&worldID, &dataJSON, &s.PopulationExact, &s.ComputedAt, &s.CreatedAt); err != nil {
+		var raceID sql.NullString
+		if err := rows.Scan(&worldID, &dataJSON, &s.PopulationExact, &s.ComputedAt, &s.CreatedAt, &raceID); err != nil {
 			return nil, err
 		}
 		var data map[string]interface{}
@@ -73,6 +75,9 @@ func (r *EconomyRepository) GalaxyPopulation(now time.Time) (*GalaxyPopulationRe
 			TemperatureK:      getFloat(data, "temperature"),
 			GravityG:          getFloat(data, "gravity"),
 			CoreRadioactivity: radioactivity,
+			// Раса поселения → расовая R-модель (99.2.23 §2.2): все пути
+			// пересчёта используют active-кривые расы.
+			RaceID: raceID.String,
 		}
 
 		rPerSec := settlement.ChangeComponents(input)

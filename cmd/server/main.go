@@ -155,6 +155,16 @@ func main() {
 		log.Printf("✅ Каталог рас загружен: %d рас", len(races.Catalog()))
 	}
 
+	// Расовые R-кривые (спека 99.2.23 §4.4): файл читается при старте —
+	// активные кривые восстанавливаются; раса без записи → factory/active
+	// из карточки («один раз при создании расы»); битый JSON → лог, расы
+	// инициализируются из карточек (сервер не падает).
+	if err := economySettlement.LoadRaceBalancer(cfg.RaceBalancerFile); err != nil {
+		log.Printf("⚠️ Расовый балансировщик: %v (расы инициализируются из карточек)", err)
+	} else {
+		log.Println("✅ Расовый балансировщик загружен")
+	}
+
 	worldRepo := repository.NewWorldRepository(db)
 	locationRepo := repository.NewLocationRepository(db)
 	assignmentRepo := repository.NewAssignmentRepository(db)
@@ -267,6 +277,16 @@ func main() {
 	http.HandleFunc("/admin/balancer/presets", auth.AdminAuth(adminHandlers.HandleBalancerPresets))
 	http.HandleFunc("/admin/balancer/presets/apply", auth.AdminAuth(adminHandlers.HandleBalancerPresetsApply))
 	http.HandleFunc("/admin/balancer/presets/reset-default", auth.AdminAuth(adminHandlers.HandleBalancerPresetsResetDefault))
+
+	// Расовые R-кривые (спека 99.2.23 §4.3): расширение вкладки «Балансировка»
+	// селектором расы — active/factory кривые, reproduction, перегенерация из
+	// карточки, возврат заводских, статус (селектор + пометки).
+	http.HandleFunc("/admin/race-balancer/curve", auth.AdminAuth(adminHandlers.HandleRaceBalancerCurve))
+	http.HandleFunc("/admin/race-balancer/reproduction", auth.AdminAuth(adminHandlers.HandleRaceBalancerReproduction))
+	http.HandleFunc("/admin/race-balancer/generate", auth.AdminAuth(adminHandlers.HandleRaceBalancerGenerate))
+	http.HandleFunc("/admin/race-balancer/reset-factory", auth.AdminAuth(adminHandlers.HandleRaceBalancerResetFactory))
+	http.HandleFunc("/admin/race-balancer/factory", auth.AdminAuth(adminHandlers.HandleRaceBalancerFactory))
+	http.HandleFunc("/admin/race-balancer/status", auth.AdminAuth(adminHandlers.HandleRaceBalancerStatus))
 
 	// Конфиг генерации и пересчёт планет (99.2.3 §4.5/§5)
 	http.HandleFunc("/admin/generation/config", auth.AdminAuth(adminHandlers.HandleGenerationConfig))

@@ -19,10 +19,11 @@ type SegmentNode struct {
 }
 
 // ComponentCurve — сегментная кривая компоненты: узлы + изгибы сегментов.
-// len(Bends) = len(Nodes) − 1, |k| ≤ 10.
+// len(Bends) = len(Nodes) − 1, |k| ≤ 10. JSON-теги — формат файла расовых
+// кривых (99.2.23 §3.1: {"nodes": [...], "bends": [...]}).
 type ComponentCurve struct {
-	Nodes []SegmentNode
-	Bends []float64
+	Nodes []SegmentNode `json:"nodes"`
+	Bends []float64     `json:"bends"`
 }
 
 // balancerStore — хранилище кривых по компонентам ("heat" | "cold" |

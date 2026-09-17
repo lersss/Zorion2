@@ -6,6 +6,10 @@ type PlanetInput struct {
 	TemperatureK      float64
 	GravityG          float64
 	CoreRadioactivity float64
+	// RaceID — раса поселения (спека 99.2.23 §2.2): пусто/"humans" —
+	// человеческая модель (глобальный store 99.2.17); иначе — active-кривые
+	// расы из расового store. Проставляется из поселения в точке пересчёта.
+	RaceID string
 }
 
 // Checkpoint — точка времени для предпросмотра кривой изменения населения.

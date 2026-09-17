@@ -54,6 +54,10 @@ func (h *AdminHandlers) MortalityPreview(w http.ResponseWriter, r *http.Request)
 		TemperatureK:      planet.Temperature,
 		GravityG:          planet.Gravity,
 		CoreRadioactivity: radioactivity,
+		// Раса для предпросмотра (99.2.23 §5.5): query-параметр race_id
+		// (пусто = человеческая модель) — админ смотрит active-кривую расы
+		// на конкретной планете без прогона близнецов.
+		RaceID: r.URL.Query().Get("race_id"),
 	}
 	rPerSec := settlement.ChangeComponents(input)
 	tDeath := settlement.DeathMomentSeconds(p0, rPerSec)

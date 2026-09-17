@@ -183,3 +183,61 @@ func TestDeathCauseComfortAllZeroIsNatural(t *testing.T) {
 		t.Errorf("DeathCause(30 °C, комфорт по g/rad) = %q, хочу natural", got)
 	}
 }
+
+// --- raceGravityBranch: ветка гравитации расовой кривой (99.2.23 §4.2) ---
+
+// gravityTestCurve — кривая как у крио-небесных (комфорт [1, 5] g): низкая
+// ветка, два узла комфорта, высокая ветка. comfortY — Y узлов комфорта
+// (0 = заводская; ненулевое — имитация ручной правки в UI: лог-шкала даёт
+// ~1e-14 вместо ровного нуля).
+func gravityTestCurve(comfortY float64) *ComponentCurve {
+	return &ComponentCurve{
+		Nodes: []SegmentNode{
+			{X: 0, Y: 1.0391e-7},
+			{X: 0.5, Y: 2.2032e-8},
+			{X: 1, Y: comfortY},
+			{X: 5, Y: comfortY},
+			{X: 6, Y: 1.9554e-6},
+			{X: 10, Y: 1.9308e-3},
+		},
+		Bends: []float64{-0.3, -0.75, -10, 1.1, 0.35},
+	}
+}
+
+func TestRaceGravityBranchComfort(t *testing.T) {
+	// Заводская кривая: комфорт [1, 5] (Y=0) — внутри 0/0, ниже — low,
+	// выше — high.
+	c := gravityTestCurve(0)
+	high, low := raceGravityBranch(c, 3)
+	if high != 0 || low != 0 {
+		t.Errorf("raceGravityBranch(3 g, комфорт) = (%v, %v), хочу (0, 0)", high, low)
+	}
+	high, low = raceGravityBranch(c, 0.5)
+	if high != 0 || low <= 0 {
+		t.Errorf("raceGravityBranch(0.5 g, ниже комфорта) = (%v, %v), хочу (0, >0)", high, low)
+	}
+	high, low = raceGravityBranch(c, 8)
+	if high <= 0 || low != 0 {
+		t.Errorf("raceGravityBranch(8 g, выше комфорта) = (%v, %v), хочу (>0, 0)", high, low)
+	}
+}
+
+func TestRaceGravityBranchComfortEditedNonZero(t *testing.T) {
+	// Ручная правка комфорта в ненулевой Y (1e-10 — как лог-шкала UI вместо
+	// ровного нуля) не должна уводить в fallback на человеческие 0.8/1.2:
+	// комфорт [1, 5] распознаётся по порогу, классификация «гравитация»
+	// корректна (ревью 99.2.23).
+	c := gravityTestCurve(1e-10)
+	high, low := raceGravityBranch(c, 3)
+	if high != 0 || low != 0 {
+		t.Errorf("raceGravityBranch(3 g, комфорт с Y=1e-10) = (%v, %v), хочу (0, 0)", high, low)
+	}
+	high, low = raceGravityBranch(c, 0.5)
+	if high != 0 || low <= 0 {
+		t.Errorf("raceGravityBranch(0.5 g) = (%v, %v), хочу (0, >0)", high, low)
+	}
+	high, low = raceGravityBranch(c, 8)
+	if high <= 0 || low != 0 {
+		t.Errorf("raceGravityBranch(8 g) = (%v, %v), хочу (>0, 0)", high, low)
+	}
+}

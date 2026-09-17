@@ -42,6 +42,11 @@ let dirty = false;
 
 const state = {
     component: 'heat',
+    raceID: '',          // '' = Люди (глобальная); иначе — раса (99.2.23 §4.3)
+    raceMeta: null,      // мета расы: {reproduction, card_hash, factory_hash, stale, active_equals_factory, birth_rate_coefficient, natural_rate_per_sec}
+    factoryNodes: [],    // factory-кривая текущей компоненты (оверлей пунктиром)
+    factoryBends: [],
+    showFactory: false,  // переключатель «показать заводскую»
     nodes: [],
     bends: [],
     baseNodes: [],
@@ -74,14 +79,17 @@ export function initBalancer() {
     bindScale();
     bindButtons();
     bindPresets();
+    bindRaceControls();
     bindCanvas();
     document.getElementById('balancerComponent').addEventListener('change', onComponentChange);
+    document.getElementById('balancerRace').addEventListener('change', onRaceChange);
     document.getElementById('balancerGoSettlement').addEventListener('click', (e) => {
         e.preventDefault();
         // Настройки населения — на вкладке «Основное» (tab-main).
         activateMainTab();
     });
 
+    loadRaceList();
     loadComponent();
 }
 
@@ -107,10 +115,231 @@ async function loadComponent() {
     state.view.yMin = Y_MIN;
     state.view.yMax = Y_MAX;
     setScaleUI();
-    await Promise.all([loadCurve(), loadEtalons(), loadPresets()]);
+    if (state.raceID) {
+        // Раса (99.2.23 §4.3): active-кривая + мета + factory-оверлей;
+        // эталоны и пресеты — слой глобального балансировщика, для рас не в скоупе.
+        await Promise.all([loadRaceCurve(), loadRaceFactory()]);
+        state.etalons = [];
+    } else {
+        await Promise.all([loadCurve(), loadEtalons(), loadPresets()]);
+    }
+    updateRaceUI();
     dirty = false;
     fitViewToNodes();
     sampleVisible();
+}
+
+// ==================== Раса (99.2.23 §4.3) ====================
+
+// loadRaceList — GET /admin/race-balancer/status → селектор расы
+// («Люди (глобальная)» + 50 рас из каталога).
+async function loadRaceList() {
+    const sel = document.getElementById('balancerRace');
+    if (!sel) return;
+    try {
+        const res = await fetchWithAuth('/admin/race-balancer/status');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const s = await res.json();
+        for (const r of (s.races || [])) {
+            const opt = document.createElement('option');
+            opt.value = r.race_id;
+            opt.textContent = r.name;
+            sel.appendChild(opt);
+        }
+    } catch (e) {
+        console.error('loadRaceList:', e);
+    }
+}
+
+// onRaceChange — смена расы: перезагрузка кривой (active) + factory-оверлей.
+function onRaceChange() {
+    state.raceID = document.getElementById('balancerRace').value;
+    state.showFactory = false;
+    const ov = document.getElementById('balancerFactoryOverlay');
+    if (ov) ov.checked = false;
+    loadComponent();
+}
+
+// loadRaceCurve — GET /admin/race-balancer/curve?race_id=&component=:
+// active-кривая + мета (reproduction, stale, active==factory, ручки расчёта).
+async function loadRaceCurve() {
+    try {
+        const res = await fetchWithAuth(`/admin/race-balancer/curve?race_id=${state.raceID}&component=${state.component}`);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const c = await res.json();
+        state.nodes = c.nodes;
+        state.bends = c.bends;
+        state.baseNodes = c.nodes.map(n => ({ ...n }));
+        state.baseBends = c.bends.slice();
+        state.raceMeta = c;
+        const repro = document.getElementById('balancerReproduction');
+        if (repro) repro.value = c.reproduction;
+        updateReproCalc();
+        renderRaceStale();
+    } catch (e) {
+        console.error('loadRaceCurve:', e);
+        notifyError('Не удалось загрузить кривую расы');
+    }
+}
+
+// loadRaceFactory — GET /admin/race-balancer/factory?race_id=&component=:
+// заводская кривая для оверлея (пунктир).
+async function loadRaceFactory() {
+    try {
+        const res = await fetchWithAuth(`/admin/race-balancer/factory?race_id=${state.raceID}&component=${state.component}`);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const f = await res.json();
+        state.factoryNodes = f.nodes || [];
+        state.factoryBends = f.bends || [];
+    } catch (e) {
+        console.error('loadRaceFactory:', e);
+        state.factoryNodes = [];
+        state.factoryBends = [];
+    }
+}
+
+// updateRaceUI — видимость расовых контролов: reproduction + кнопки +
+// оверлей — для расы; пресеты — только для «Люди (глобальная)».
+function updateRaceUI() {
+    const isRace = !!state.raceID;
+    const controls = document.getElementById('balancerRaceControls');
+    const presetsRow = document.getElementById('balancerPresetSelect').closest('.compact-row');
+    const resetBtn = document.getElementById('balancerResetBtn');
+    if (controls) controls.style.display = isRace ? 'flex' : 'none';
+    if (presetsRow) presetsRow.style.display = isRace ? 'none' : 'flex';
+    if (resetBtn) resetBtn.style.display = isRace ? 'none' : 'inline-block';
+    if (!isRace) renderRaceStale();
+}
+
+// renderRaceStale — плашка «заводские настройки устарели» (card_hash ≠ хэшу
+// текущей карточки): жёлтая плашка + кнопка «Обновить заводские».
+function renderRaceStale() {
+    const el = document.getElementById('balancerRaceStale');
+    if (!el) return;
+    if (state.raceID && state.raceMeta && state.raceMeta.stale) {
+        el.style.display = 'block';
+        el.innerHTML = '⚠️ Заводские настройки устарели: карточка расы менялась после генерации. ' +
+            '<button class="btn secondary" style="margin-left:8px;" onclick="window.balancerGenerateFactory()">Обновить заводские</button>';
+    } else {
+        el.style.display = 'none';
+        el.innerHTML = '';
+    }
+}
+
+// updateReproCalc — живой расчёт «рост в оптимуме при k=2: ×N/год» под полем
+// reproduction: нетто = reproduction·(1−k)·R_ест; рост = (1−нетто)^год − 1.
+function updateReproCalc() {
+    const el = document.getElementById('balancerReproCalc');
+    if (!el) return;
+    const input = document.getElementById('balancerReproduction');
+    const m = state.raceMeta;
+    if (!input || !m) { el.textContent = ''; return; }
+    const repro = parseFloat(input.value);
+    if (!(repro > 0)) { el.textContent = 'reproduction > 0'; return; }
+    const netto = repro * (1 - m.birth_rate_coefficient) * m.natural_rate_per_sec;
+    const growth = Math.pow(1 - netto, 365 * 24 * 3600) - 1;
+    if (Math.abs(growth) < 1e-6) {
+        el.textContent = 'рост в оптимуме: ~0 (статика)';
+    } else if (growth > 0) {
+        el.textContent = `рост в оптимуме: ×${(1 + growth).toFixed(2)}/год (+${(growth * 100).toFixed(1)}%/год)`;
+    } else {
+        el.textContent = `убыль в оптимуме: −${(Math.abs(growth) * 100).toFixed(1)}%/год`;
+    }
+}
+
+// bindRaceControls — кнопки расового режима: reproduction (живой расчёт +
+// сохранение по change), «Сгенерировать из карточки», «Вернуть заводские»,
+// оверлей заводской.
+function bindRaceControls() {
+    const repro = document.getElementById('balancerReproduction');
+    if (repro) {
+        repro.addEventListener('input', updateReproCalc);
+        repro.addEventListener('change', saveRaceReproduction);
+    }
+    document.getElementById('balancerRaceGenerateBtn').addEventListener('click', generateRaceFactory);
+    document.getElementById('balancerRaceResetFactoryBtn').addEventListener('click', resetRaceToFactory);
+    document.getElementById('balancerFactoryOverlay').addEventListener('change', (e) => {
+        state.showFactory = e.target.checked;
+        redraw();
+    });
+}
+
+// generateRaceFactory — «Сгенерировать из карточки»: factory пересчитан из
+// текущей карточки; active НЕ трогается; card_hash обновляется.
+window.balancerGenerateFactory = generateRaceFactory;
+async function generateRaceFactory() {
+    if (!confirm('Заводские настройки будут пересчитаны из карточки; текущая (настроенная) кривая не изменится. Продолжить?')) return;
+    try {
+        const res = await fetchWithAuth(`/admin/race-balancer/generate?race_id=${state.raceID}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: '{}',
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            notifyError(err.error || 'Не удалось перегенерировать заводские');
+            return;
+        }
+        notifySuccess('Заводские настройки пересчитаны из карточки');
+        await loadRaceFactory();
+        await loadRaceCurve();
+        sampleVisible();
+    } catch (e) {
+        console.error('generateRaceFactory:', e);
+        notifyError('Ошибка перегенерации заводских');
+    }
+}
+
+// resetRaceToFactory — «Вернуть заводские»: active = factory (deep copy).
+async function resetRaceToFactory() {
+    if (!confirm('Текущая кривая будет заменена заводской. Продолжить?')) return;
+    try {
+        const res = await fetchWithAuth(`/admin/race-balancer/reset-factory?race_id=${state.raceID}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: '{}',
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            notifyError(err.error || 'Не удалось вернуть заводские');
+            return;
+        }
+        notifySuccess('Кривая возвращена на заводскую');
+        dirty = false;
+        await loadRaceCurve();
+        sampleVisible();
+    } catch (e) {
+        console.error('resetRaceToFactory:', e);
+        notifyError('Ошибка возврата заводских');
+    }
+}
+
+// saveRaceReproduction — PUT /admin/race-balancer/reproduction?race_id=:
+// сохранение множителя размножения (валидация > 0).
+async function saveRaceReproduction() {
+    const input = document.getElementById('balancerReproduction');
+    const repro = parseFloat(input.value);
+    if (!(repro > 0)) {
+        notifyError('reproduction должен быть > 0');
+        return;
+    }
+    try {
+        const res = await fetchWithAuth(`/admin/race-balancer/reproduction?race_id=${state.raceID}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reproduction: repro }),
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            notifyError(err.error || 'Не удалось сохранить reproduction');
+            return;
+        }
+        notifySuccess('Множитель размножения сохранён');
+        await loadRaceCurve();
+    } catch (e) {
+        console.error('saveRaceReproduction:', e);
+        notifyError('Ошибка сохранения reproduction');
+    }
 }
 
 async function loadCurve() {
@@ -237,10 +466,14 @@ async function savePresetAs() {
 }
 
 // putCurrentCurve — PUT текущих экранных узлов/bends (вынесено из saveCurve
-// для повторного использования). true при успехе.
+// для повторного использования). Для расы — PUT /admin/race-balancer/curve
+// (active-кривая); для «Люди» — глобальный store 99.2.17. true при успехе.
 async function putCurrentCurve() {
     try {
-        const res = await fetchWithAuth('/admin/balancer/curve', {
+        const url = state.raceID
+            ? `/admin/race-balancer/curve?race_id=${state.raceID}&component=${state.component}`
+            : '/admin/balancer/curve';
+        const res = await fetchWithAuth(url, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ component: state.component, nodes: state.nodes, bends: state.bends }),
@@ -255,6 +488,13 @@ async function putCurrentCurve() {
         state.bends = c.bends;
         state.baseNodes = c.nodes.map(n => ({ ...n }));
         state.baseBends = c.bends.slice();
+        if (state.raceID && c.reproduction != null) {
+            state.raceMeta = c;
+            const repro = document.getElementById('balancerReproduction');
+            if (repro) repro.value = c.reproduction;
+            updateReproCalc();
+            renderRaceStale();
+        }
         dirty = false;
         return true;
     } catch (e) {
@@ -354,7 +594,8 @@ async function sampleVisible() {
     const xs = xsGrid();
     state.xs = xs;
     try {
-        const res = await fetchWithAuth('/admin/balancer/curve/sample', {
+        const q = state.raceID ? `?race_id=${state.raceID}` : '';
+        const res = await fetchWithAuth(`/admin/balancer/curve/sample${q}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ component: state.component, xs }),
@@ -380,6 +621,8 @@ function redraw() {
         dirty: dirty,
         dragInfo: dragInfo,
         xLabel: X_LABELS[state.component],
+        factoryNodes: state.showFactory ? state.factoryNodes : [],
+        factoryBends: state.showFactory ? state.factoryBends : [],
     });
     updateSaveLabel();
     updateInfo();
@@ -465,7 +708,10 @@ function resetView() {
 
 async function saveCurve() {
     try {
-        const res = await fetchWithAuth('/admin/balancer/curve', {
+        const url = state.raceID
+            ? `/admin/race-balancer/curve?race_id=${state.raceID}&component=${state.component}`
+            : '/admin/balancer/curve';
+        const res = await fetchWithAuth(url, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ component: state.component, nodes: state.nodes, bends: state.bends }),
@@ -480,8 +726,15 @@ async function saveCurve() {
         state.bends = c.bends;
         state.baseNodes = c.nodes.map(n => ({ ...n }));
         state.baseBends = c.bends.slice();
+        if (state.raceID && c.reproduction != null) {
+            state.raceMeta = c;
+            const repro = document.getElementById('balancerReproduction');
+            if (repro) repro.value = c.reproduction;
+            updateReproCalc();
+            renderRaceStale();
+        }
         dirty = false;
-        notifySuccess('Кривая сохранена');
+        notifySuccess(state.raceID ? 'Кривая расы сохранена' : 'Кривая сохранена');
         sampleVisible();
     } catch (e) {
         console.error('saveCurve:', e);
@@ -491,13 +744,22 @@ async function saveCurve() {
 
 async function cancelCurve() {
     // Отмена = GET curve + перерисовка (выброс локальных правок).
-    await loadCurve();
+    if (state.raceID) {
+        await loadRaceCurve();
+    } else {
+        await loadCurve();
+    }
     dirty = false;
     sampleVisible();
     redraw();
 }
 
 async function resetCurve() {
+    if (state.raceID) {
+        // Раса: «Вернуть заводские» (active = factory) — отдельная кнопка.
+        resetRaceToFactory();
+        return;
+    }
     if (!confirm(`Сбросить кривую «${state.component}» на дефолты?`)) return;
     try {
         const res = await fetchWithAuth('/admin/balancer/curve/reset', {

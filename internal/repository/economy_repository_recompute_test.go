@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 
 	"zorion/internal/economy/settlement"
 	"zorion/internal/models"
+	"zorion/internal/races"
 )
 
 func loadSettlement(id string, population int, computedAt time.Time) *models.Settlement {
@@ -121,4 +123,45 @@ func TestRecomputeSettlementPopulationVisitComfortableUnchanged(t *testing.T) {
 
 	require.Equal(t, 1_000_000, got.Population)
 	require.Equal(t, float64(0), got.LambdaPerHour)
+}
+
+// Тест 16 (§14, поправка В2): гвард записи int4 — newExact = 2.15·10⁹
+// (термо-рои от p0 = 10⁹ через ~70 дней) клампится в MaxInt4Population
+// (2^31−1) ПЕРЕД приведением к int; UPDATE settlements не падает
+// («integer out of range» невозможен); newExact = 1e15 → тоже 2 147 483 647.
+func TestRecomputeSettlementPopulationInt4Clamp(t *testing.T) {
+	require.NoError(t, races.LoadCatalog("../../config/races.json"))
+	require.NoError(t, settlement.LoadRaceBalancer(filepath.Join(t.TempDir(), "race_balancer.json")))
+
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
+	require.NoError(t, err)
+	defer db.Close()
+
+	since := time.Now().Add(-70 * 24 * time.Hour) // ~70 дней ≥ MinPersistInterval
+	now := time.Now()
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`
+		SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at
+		FROM settlements WHERE id = $1 FOR UPDATE`).
+		WithArgs("s1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at"}).
+			AddRow("s1", "p1", 1_000_000_000, float64(1_000_000_000), 60, since, since, since))
+	mock.ExpectExec(`
+		UPDATE settlements SET population = $1, population_exact = $2, computed_at = $3, updated_at = NOW()
+		WHERE id = $4`).
+		WithArgs(settlement.MaxInt4Population, sqlmock.AnyArg(), now, "s1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	// Термо-рои в оптимуме (600 K): r = −200·R_ест ≈ −1.27·10⁻⁷ → за 70 дней
+	// newExact ≈ 2.15·10⁹ > 2^31−1 → кламп записи.
+	s := loadSettlement("s1", 1_000_000_000, since)
+	s.RaceID = "thermo_swarms"
+	input := settlement.PlanetInput{TemperatureK: 600, GravityG: 1.0, CoreRadioactivity: 10}
+	got, err := NewEconomyRepository(db).RecomputeSettlementPopulation(s, input, now)
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+	require.Equal(t, settlement.MaxInt4Population, got.Population,
+		"newExact > 2^31−1 клампится в MaxInt4Population перед int-конверсией")
 }

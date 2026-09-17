@@ -80,11 +80,16 @@ func (r *EconomyRepository) GetSettlementsByPlanetIDs(planetIDs []string) (map[s
 // уровне БД (uq_settlement_log_extinct). Мёртвая чек-точка (population_exact
 // ≤ NDead) запись не создаёт — бэкфилл отменён.
 func (r *EconomyRepository) RecomputeSettlementPopulation(s *models.Settlement, input settlement.PlanetInput, now time.Time) (models.Settlement, error) {
+	// Раса поселения → расовая R-модель (99.2.23 §2.2): одна точка — вход
+	// получает RaceID из поселения; ChangeComponents/Recompute диспетчеризуют.
+	input.RaceID = s.RaceID
 	rPerSec := settlement.ChangeComponents(input)
 
 	if now.Sub(s.ComputedAt) < settlement.MinPersistInterval {
 		next := settlement.Recompute(input, s.PopulationExact, s.ComputedAt, now, s.CreatedAt)
-		s.Population = int(math.Round(next))
+		// Кламп записи int4 (99.2.23 §3.2): 2^31−1 перед приведением к int —
+		// защита от «integer out of range» в settlements.population.
+		s.Population = int(math.Round(math.Min(next, settlement.MaxInt4Population)))
 		s.PopulationExact = next
 		s.ComputedAt = now
 		s.RPerSec = rPerSec
@@ -108,7 +113,9 @@ func (r *EconomyRepository) RecomputeSettlementPopulation(s *models.Settlement, 
 	}
 
 	newExact := settlement.Recompute(input, stored.PopulationExact, stored.ComputedAt, now, stored.CreatedAt)
-	newPopulation := int(math.Round(newExact))
+	// Кламп записи int4 (99.2.23 §3.2): 2^31−1 перед приведением к int —
+	// защита от «integer out of range» в settlements.population.
+	newPopulation := int(math.Round(math.Min(newExact, settlement.MaxInt4Population)))
 
 	if _, err := tx.Exec(`
 		UPDATE settlements SET population = $1, population_exact = $2, computed_at = $3, updated_at = NOW()

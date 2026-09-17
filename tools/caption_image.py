@@ -11,7 +11,7 @@ MODEL = "Salesforce/blip-image-captioning-base"
 
 def _allow_bin_load():
     """Веса .bin уже скачаны; torch 2.5.1 блокирует torch.load из-за CVE-2025-32434.
-    Обходим проверку монkeypatch'ем (weights_only=True активен, модель доверенная Salesforce,
+    Обходим проверку монkeypatch'ем (weights_only=True активен, модель доверенная,
     кэш локальный). Для .bin без сафетенсорс это единственный путь на torch 2.5."""
     import transformers.utils.import_utils as iu
     if not hasattr(iu, "_zorion_patched"):

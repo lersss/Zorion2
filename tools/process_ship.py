@@ -13,6 +13,21 @@ BG_TOL = 40  # допуск расстояния до цвета фона
 
 NO_ORIENT = '--no-orient' in sys.argv
 SMOOTH = 2
+# --bg-dark N: вырезать фон ПО ЯРКОСТИ (всё, что темнее порога N) вместо цвета углов.
+# Нужно для живописных аватаров, где фон — тёмный градиент, а не ровный цвет.
+BG_DARK = None
+if '--bg-dark' in sys.argv:
+    i = sys.argv.index('--bg-dark')
+    BG_DARK = int(sys.argv[i + 1])
+
+# --keep-warm: НЕ вырезать «тёплые» пиксели (кожа/лицо), даже если близки к фону.
+# Решает вырезание одежды цвета фона у портретов людей.
+KEEP_WARM = '--keep-warm' in sys.argv
+
+
+def is_warm_rgb(r, g, b):
+    """Тёплый тон (кожа/лицо): R > B и R заметно доминирует. Массив-безопасно."""
+    return (r - b > 18) & (r > 60)
 
 
 def remove_bg_by_color(img):
@@ -22,6 +37,34 @@ def remove_bg_by_color(img):
     bg = np.array([arr[2, 2], arr[2, w - 3], arr[h - 3, 2], arr[h - 3, w - 3]]).mean(axis=0)
     diff = np.abs(arr - bg).sum(axis=2)
     mask = diff <= BG_TOL
+    out = np.array(img.convert('RGBA'))
+    out[mask] = (0, 0, 0, 0)
+    return Image.fromarray(out)
+
+
+def remove_bg_by_dark(img, threshold):
+    """Всё, что темнее порога яркости, -> прозрачное (фон-градиент)."""
+    arr = np.array(img.convert('RGB')).astype(np.int16)
+    brightness = arr.mean(axis=2)
+    mask = brightness <= threshold
+    if KEEP_WARM:
+        r, g, b = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
+        mask = mask & ~is_warm_rgb(r, g, b)
+    out = np.array(img.convert('RGBA'))
+    out[mask] = (0, 0, 0, 0)
+    return Image.fromarray(out)
+
+
+def remove_bg_with_keep_warm(img):
+    """Как remove_bg_by_color, но НЕ вырезает тёплые пиксели (кожу/лицо)."""
+    arr = np.array(img.convert('RGB')).astype(np.int16)
+    h, w, _ = arr.shape
+    bg = np.array([arr[2, 2], arr[2, w - 3], arr[h - 3, 2], arr[h - 3, w - 3]]).mean(axis=0)
+    diff = np.abs(arr - bg).sum(axis=2)
+    mask = diff <= BG_TOL
+    if KEEP_WARM:
+        r, g, b = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
+        mask = mask & ~is_warm_rgb(r, g, b)
     out = np.array(img.convert('RGBA'))
     out[mask] = (0, 0, 0, 0)
     return Image.fromarray(out)
@@ -90,7 +133,12 @@ def fit_canvas(img, canvas=CANVAS):
 
 def main(in_path, out_path):
     img = Image.open(in_path)
-    img = remove_bg_by_color(img)
+    if BG_DARK is not None:
+        img = remove_bg_by_dark(img, BG_DARK)
+    elif KEEP_WARM:
+        img = remove_bg_with_keep_warm(img)
+    else:
+        img = remove_bg_by_color(img)
     img = keep_largest_component(img)
     img = crop_to_content(img)
     bbox = img.getbbox()

@@ -39,3 +39,7 @@ ai_drafts/
 __pycache__/
 # Рантайм-состояние расовых R-кривых (генерируется из config/races.json при старте, 99.2.23)
 config/race_balancer.json
+
+# E2E-инструмент (tools/e2e): зависимости и артефакты прогонов
+tools/e2e/node_modules/
+tools/e2e/artifacts/

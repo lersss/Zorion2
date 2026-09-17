@@ -1,0 +1,12 @@
+{
+  "name": "zorion-e2e",
+  "private": true,
+  "type": "module",
+  "description": "Browser smoke tests for Zorion (playwright-core + system Chrome/Edge, no browser download)",
+  "scripts": {
+    "map-check": "node map-check.js"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.63.0"
+  }
+}

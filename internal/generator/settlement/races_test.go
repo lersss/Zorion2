@@ -162,7 +162,7 @@ func TestGenerateRaceSettlementsNoRegions(t *testing.T) {
 	count, unsettled, err := g.GenerateRaceSettlements(context.Background(), RaceGenConfig{NeighborChance: 0.3, Chance: 1.0}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, 0, count)
-	assert.Len(t, unsettled, 50, "все расы без поселений")
+	assert.Len(t, unsettled, 60, "все расы без поселений")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -189,6 +189,6 @@ func TestGenerateRaceSettlementsNoSuitable(t *testing.T) {
 	count, unsettled, err := g.GenerateRaceSettlements(context.Background(), RaceGenConfig{NeighborChance: 0.3, Chance: 1.0}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, 0, count)
-	assert.Len(t, unsettled, 50, "все расы без поселений")
+	assert.Len(t, unsettled, 60, "все расы без поселений")
 	require.NoError(t, mock.ExpectationsWereMet())
 }

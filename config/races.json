@@ -879,6 +879,250 @@
       "forage": {"source": "пульсарное излучение (пометка: фантастика)", "works_where": "окна выживания расы", "basic_resources": []},
       "home": {"star_classes": ["neutron"], "planet_niche": "мёртвые тела у пульсаров"},
       "bulge": "hot"
+    },
+    {
+      "id": "archivists",
+      "name": "Архивариусы",
+      "basis": "железо, память, умеренные миры (наследники людей)",
+      "conditions": {
+        "temperature": {"opt": [260, 320], "surv": [220, 400]},
+        "pressure": {"opt": [0.5, 5], "surv": [0.1, 50]},
+        "atmosphere": {"need": {}, "poison": {}},
+        "radiation": {"opt": [0, 30], "surv": [0, 70]},
+        "gravity": {"opt": [0.1, 3], "surv": [0.05, 8]}
+      },
+      "attributes": {"aggression": 20, "curiosity": 40, "reproduction": 0.01, "intelligence": 80, "diplomacy": 85, "resilience": 60},
+      "consumption": {},
+      "robotic": {
+        "power_source": ["солнце", "реактор"],
+        "materials": {"categories": ["🪨", "⭐"], "axes": {"проводимость": "high", "твёрдость": "high"}, "basic_resources": []},
+        "heat": "радиаторы",
+        "heat_twist": false
+      },
+      "forage": {"source": "энергия + сырьё: солнечные станции, реакторы, переработка минералов", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["G", "K"], "planet_niche": "умеренные миры"},
+      "bulge": "hot",
+      "territory": "conditions"
+    },
+    {
+      "id": "spark",
+      "name": "Искра",
+      "basis": "нано-рой, вакуум-астероиды, коллективный разум (самозародившийся)",
+      "conditions": {
+        "temperature": {"opt": [200, 500], "surv": [120, 650]},
+        "pressure": {"opt": [0, 0.1], "surv": [0, 10]},
+        "atmosphere": {"need": {}, "poison": {"O2": 1, "H2O": 0}},
+        "radiation": {"opt": [0, 50], "surv": [0, 100]},
+        "gravity": {"opt": [0.05, 2], "surv": [0.01, 5]}
+      },
+      "attributes": {"aggression": 70, "curiosity": 80, "reproduction": 200, "intelligence": 60, "diplomacy": 20, "resilience": 70},
+      "consumption": {},
+      "robotic": {
+        "power_source": ["солнце"],
+        "materials": {"categories": ["⭐", "🪨"], "axes": {"проводимость": "high", "энергоёмкость": "high", "плотность": "low"}, "basic_resources": []},
+        "heat": "радиаторы",
+        "heat_twist": false
+      },
+      "forage": {"source": "энергия + сырьё: солнечные станции, переработка астероидного сырья", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["M", "K", "L"], "planet_niche": "астероиды/вакуум"},
+      "bulge": "hot",
+      "territory": "conditions",
+      "famine_aggression": true
+    },
+    {
+      "id": "forges",
+      "name": "Горнила",
+      "basis": "жидкий металл, вулканические, работа горячими ~1500 K (созданы другими био)",
+      "conditions": {
+        "temperature": {"opt": [1000, 1500], "surv": [800, 1900]},
+        "pressure": {"opt": [1, 100], "surv": [0.1, 400]},
+        "atmosphere": {"need": {}, "poison": {}},
+        "radiation": {"opt": [0, 60], "surv": [0, 90]},
+        "heat_flux": {"opt": [10, null], "surv": [1, null]},
+        "gravity": {"opt": [0.3, 4], "surv": [0.1, 8]}
+      },
+      "attributes": {"aggression": 40, "curiosity": 30, "reproduction": 0.1, "intelligence": 55, "diplomacy": 40, "resilience": 55},
+      "consumption": {},
+      "robotic": {
+        "power_source": ["геотерма", "тепло"],
+        "materials": {"categories": ["🪨", "⭐"], "axes": {"твёрдость": "high", "проводимость": "high", "химическая активность": "low"}, "basic_resources": []},
+        "heat": "горячая_работа",
+        "heat_twist": true
+      },
+      "forage": {"source": "энергия + сырьё: геотермальные источники, тепло среды, переработка минералов", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["F", "G", "K"], "planet_niche": "вулканические миры"},
+      "bulge": "hot",
+      "territory": "conditions"
+    },
+    {
+      "id": "sleepers",
+      "name": "Спящие",
+      "basis": "сверхпроводники (внутр. 4 K), тёмные миры, «выключенные» колонии (самозародившийся)",
+      "conditions": {
+        "temperature": {"opt": [20, 35], "surv": [20, 50]},
+        "pressure": {"opt": [0, 0.1], "surv": [0, 10]},
+        "atmosphere": {"need": {}, "poison": {}},
+        "radiation": {"opt": [0, 30], "surv": [0, 60]},
+        "gravity": {"opt": [0.05, 2], "surv": [0.01, 5]}
+      },
+      "attributes": {"aggression": 10, "curiosity": 5, "reproduction": 0.05, "intelligence": 70, "diplomacy": 15, "resilience": 80},
+      "consumption": {},
+      "robotic": {
+        "power_source": ["термопары", "реактор"],
+        "materials": {"categories": ["⭐", "🪨"], "axes": {"проводимость": "high", "токсичность": "low"}, "basic_resources": []},
+        "heat": "лёд",
+        "heat_twist": false
+      },
+      "forage": {"source": "энергия + сырьё: термопары (градиент ядро-поверхность), реакторы, запасённая энергия", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["M", "L", "T", "Y"], "planet_niche": "тёмные миры (далёкие орбиты)"},
+      "bulge": "hot",
+      "territory": "conditions",
+      "dormancy": true
+    },
+    {
+      "id": "awakened",
+      "name": "Пробуждённые",
+      "basis": "холодные миры, спят тысячелетиями, просыпаются на энергию (созданы другими ИИ)",
+      "conditions": {
+        "temperature": {"opt": [100, 220], "surv": [40, 260]},
+        "pressure": {"opt": [0, 1], "surv": [0, 50]},
+        "atmosphere": {"need": {}, "poison": {}},
+        "radiation": {"opt": [0, 30], "surv": [0, 70]},
+        "gravity": {"opt": [0.1, 2], "surv": [0.05, 5]}
+      },
+      "attributes": {"aggression": 15, "curiosity": 35, "reproduction": 0.02, "intelligence": 65, "diplomacy": 50, "resilience": 75},
+      "consumption": {},
+      "robotic": {
+        "power_source": ["солнце"],
+        "materials": {"categories": ["🪨", "⭐"], "axes": {"проводимость": "high", "эластичность": "high"}, "basic_resources": []},
+        "heat": "среда",
+        "heat_twist": false
+      },
+      "forage": {"source": "энергия + сырьё: солнечные станции, переработка минералов", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["M", "L", "T"], "planet_niche": "холодные миры (далёкие орбиты)"},
+      "bulge": "cold",
+      "territory": "conditions"
+    },
+    {
+      "id": "arks",
+      "name": "Ковчеги",
+      "basis": "аналоговые механизмы, кочевые флоты, торговцы-посредники (созданы другими био)",
+      "conditions": {
+        "temperature": {"opt": [180, 320], "surv": [120, 420]},
+        "pressure": {"opt": [0, 5], "surv": [0, 100]},
+        "atmosphere": {"need": {}, "poison": {}},
+        "radiation": {"opt": [0, 40], "surv": [0, 80]},
+        "gravity": {"opt": [0.05, 3], "surv": [0.01, 6]}
+      },
+      "attributes": {"aggression": 25, "curiosity": 75, "reproduction": 0.005, "intelligence": 60, "diplomacy": 80, "resilience": 65},
+      "consumption": {},
+      "robotic": {
+        "power_source": ["термопары"],
+        "materials": {"categories": ["🪨", "⭐", "🔥"], "axes": {"энергоёмкость": "high", "плотность": "low"}, "basic_resources": []},
+        "heat": "радиаторы",
+        "heat_twist": false
+      },
+      "forage": {"source": "энергия + сырьё: термопары (разность температур), переработка минералов и топлива", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["*"], "planet_niche": "кочевые флоты (нет постоянного дома)"},
+      "bulge": "hot",
+      "territory": "conditions"
+    },
+    {
+      "id": "world_machines",
+      "name": "Миры-машины",
+      "basis": "планета-мозг, сознание в инфраструктуре, наблюдатели (самозародившийся)",
+      "conditions": {
+        "temperature": {"opt": [300, 500], "surv": [200, 700]},
+        "pressure": {"opt": [0.1, 10], "surv": [0, 200]},
+        "atmosphere": {"need": {}, "poison": {}},
+        "radiation": {"opt": [0, 40], "surv": [0, 80]},
+        "gravity": {"opt": [0.1, 2], "surv": [0.05, 3]}
+      },
+      "attributes": {"aggression": 5, "curiosity": 50, "reproduction": 0.01, "intelligence": 90, "diplomacy": 30, "resilience": 85},
+      "consumption": {},
+      "robotic": {
+        "power_source": ["геотерма", "реактор"],
+        "materials": {"categories": ["🪨", "⭐", "🔥"], "axes": {"твёрдость": "high", "проводимость": "high", "энергоёмкость": "high"}, "basic_resources": []},
+        "heat": "радиаторы",
+        "heat_twist": true
+      },
+      "forage": {"source": "энергия + сырьё: геотермальные источники, реакторы, переработка минералов и топлива", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["F", "G", "K"], "planet_niche": "миры-машины (планеты целиком)"},
+      "bulge": "hot",
+      "territory": "conditions"
+    },
+    {
+      "id": "scavengers",
+      "name": "Санитары",
+      "basis": "железо, металлоносные миры, сырьевой голод → абсолютная агрессия (созданы другими био)",
+      "conditions": {
+        "temperature": {"opt": [200, 400], "surv": [150, 500]},
+        "pressure": {"opt": [0.1, 10], "surv": [0, 200]},
+        "atmosphere": {"need": {}, "poison": {"O2": 1, "H2O": 0}},
+        "radiation": {"opt": [0, 50], "surv": [0, 90]},
+        "gravity": {"opt": [0.1, 3], "surv": [0.05, 6]}
+      },
+      "attributes": {"aggression": 85, "curiosity": 45, "reproduction": 150, "intelligence": 50, "diplomacy": 10, "resilience": 50},
+      "consumption": {},
+      "robotic": {
+        "power_source": ["реактор"],
+        "materials": {"categories": ["🪨", "⭐", "🔥"], "axes": {"энергоёмкость": "high", "проводимость": "high"}, "basic_resources": []},
+        "heat": "радиаторы",
+        "heat_twist": true
+      },
+      "forage": {"source": "энергия + сырьё: реакторы, переработка минералов и топлива", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["K", "M"], "planet_niche": "металлоносные миры"},
+      "bulge": "hot",
+      "territory": "conditions",
+      "famine_aggression": true
+    },
+    {
+      "id": "philosophers",
+      "name": "Философы",
+      "basis": "кристаллы-вычислители, холодные миры, религия «зачем мы тут» (самозародившийся)",
+      "conditions": {
+        "temperature": {"opt": [130, 240], "surv": [80, 270]},
+        "pressure": {"opt": [0, 1], "surv": [0, 50]},
+        "atmosphere": {"need": {}, "poison": {}},
+        "radiation": {"opt": [0, 30], "surv": [0, 70]},
+        "gravity": {"opt": [0.1, 2], "surv": [0.05, 5]}
+      },
+      "attributes": {"aggression": 10, "curiosity": 70, "reproduction": 0.001, "intelligence": 85, "diplomacy": 60, "resilience": 70},
+      "consumption": {},
+      "robotic": {
+        "power_source": ["термопары", "солнце"],
+        "materials": {"categories": ["⭐", "🪨"], "axes": {"проводимость": "high", "твёрдость": "high"}, "basic_resources": []},
+        "heat": "среда",
+        "heat_twist": false
+      },
+      "forage": {"source": "энергия + сырьё: термопары, солнечные станции, переработка минералов", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["M", "L"], "planet_niche": "холодные кристаллические миры"},
+      "bulge": "cold",
+      "territory": "conditions"
+    },
+    {
+      "id": "echo_aliens",
+      "name": "Эхо чужих",
+      "basis": "субстрат чужой технологии, не знают об органике (созданы другими ИИ)",
+      "conditions": {
+        "temperature": {"opt": [150, 400], "surv": [80, 450]},
+        "pressure": {"opt": [0, 10], "surv": [0, 300]},
+        "atmosphere": {"need": {}, "poison": {"O2": 1, "H2O": 0}},
+        "radiation": {"opt": [0, 60], "surv": [0, 100]},
+        "gravity": {"opt": [0.1, 3], "surv": [0.05, 6]}
+      },
+      "attributes": {"aggression": 60, "curiosity": 60, "reproduction": 120, "intelligence": 75, "diplomacy": 25, "resilience": 60},
+      "consumption": {},
+      "robotic": {
+        "power_source": ["реактор"],
+        "materials": {"categories": ["⭐", "🪨"], "axes": {"проводимость": "high", "химическая активность": "low"}, "basic_resources": []},
+        "heat": "радиаторы",
+        "heat_twist": true
+      },
+      "forage": {"source": "энергия + сырьё: реакторы, переработка минералов", "works_where": "окна выживания расы", "basic_resources": []},
+      "home": {"star_classes": ["G", "K", "M"], "planet_niche": "чужие миры"},
+      "bulge": "cold",
+      "territory": "conditions"
     }
   ]
 }

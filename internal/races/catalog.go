@@ -108,6 +108,24 @@ type Home struct {
 	PlanetNiche string   `json:"planet_niche"`
 }
 
+// Robotic — слой потребления роботов (99.2.24 §3.1): энергия + сырьё вместо
+// 13 биоосей consumption. Наличие блока отличает робота от био-расы.
+type Robotic struct {
+	PowerSource []string         `json:"power_source"`
+	Materials   RoboticMaterials `json:"materials"`
+	Heat        string           `json:"heat"`
+	HeatTwist   bool             `json:"heat_twist"`
+}
+
+// RoboticMaterials — сырьё роботов на языке 09_resources §9.1: категории
+// веществ (6) + оси свойств (10) с направлением окна (high/low). Числовые
+// окна и конкретные вещества — при 99.2.5 (basic_resources — каркас).
+type RoboticMaterials struct {
+	Categories     []string          `json:"categories"`
+	Axes           map[string]string `json:"axes"`
+	BasicResources []string          `json:"basic_resources"`
+}
+
 // Race — карточка расы (§3.1).
 type Race struct {
 	ID    string `json:"id"`
@@ -124,7 +142,25 @@ type Race struct {
 
 	// Consumption — композиция потребления по 13 осям §4 (сумма = 100).
 	// Ключи: ВОД АММ МЕТ CO2 СЕР РАС СКФ КРЕ ОРГ ГРД ВГЕ ПЫЛ ИЗЛ.
+	// У роботов (Robotic != nil) пуст — их слой robotic (99.2.24 §6 п.2).
 	Consumption map[string]float64 `json:"consumption"`
+
+	// Robotic — слой потребления роботов (99.2.24 §3.1). Наличие блока
+	// отличает робота: consumption пуст, инвариант «сумма = 100» не
+	// применяется (99.2.24 §6 п.2).
+	Robotic *Robotic `json:"robotic,omitempty"`
+
+	// Territory — территория расы (99.2.24 §3.2): "adjacency" (дефолт,
+	// био-расы, 99.2.21 §7.1) | "conditions" (роботы — по условиям среды,
+	// не по соседству; 99.2.24 §6 п.5).
+	Territory string `json:"territory,omitempty"`
+
+	// Dormancy — флаг механики-кандидата «выключенные» колонии (99.2.24 §8.2).
+	Dormancy bool `json:"dormancy,omitempty"`
+
+	// FamineAggression — флаг механики-кандидата «абсолютная агрессия при
+	// сырьевом голоде» (99.2.24 §8.3).
+	FamineAggression bool `json:"famine_aggression,omitempty"`
 
 	Forage Forage `json:"forage"`
 	Home   Home   `json:"home"`
@@ -223,13 +259,17 @@ func (r *Race) Validate() error {
 		return fmt.Errorf("name пуст")
 	}
 
-	// 1. Композиция потребления = 100 (§16 п.1).
-	sum := 0.0
-	for _, v := range r.Consumption {
-		sum += v
-	}
-	if math.Abs(sum-100) > 0.01 {
-		return fmt.Errorf("сумма потребления = %.2f, ожидается 100", sum)
+	// 1. Композиция потребления = 100 (§16 п.1). Роботы (наличие robotic)
+	// исключаются: их слой — robotic (энергия + сырьё), 13 биоосей пусты
+	// (99.2.24 §6 п.2).
+	if r.Robotic == nil {
+		sum := 0.0
+		for _, v := range r.Consumption {
+			sum += v
+		}
+		if math.Abs(sum-100) > 0.01 {
+			return fmt.Errorf("сумма потребления = %.2f, ожидается 100", sum)
+		}
 	}
 
 	// 2. opt ⊆ surv по каждой оси (§16 п.2).
@@ -281,5 +321,81 @@ func (r *Race) Validate() error {
 		return fmt.Errorf("bulge = %q, ожидается cold|hot|highP|lowP|none", r.Bulge)
 	}
 
+	// Territory — из допустимого набора (99.2.24 §3.2); пусто = дефолт
+	// "adjacency" (био-расы, 99.2.21 §7.1).
+	switch r.Territory {
+	case "", "adjacency", "conditions":
+	default:
+		return fmt.Errorf("territory = %q, ожидается adjacency|conditions", r.Territory)
+	}
+
+	// Слой robotic (99.2.24 §6 п.3): power_source непуст (enum), heat из enum,
+	// categories ⊆ 6 категорий, axes ⊆ 10 осей (high|low). Роботы: consumption
+	// пуст (13 биоосей — не их слой, §6 п.2), territory = "conditions" (§6 п.5).
+	if r.Robotic != nil {
+		if err := r.Robotic.Validate(); err != nil {
+			return err
+		}
+		if len(r.Consumption) > 0 {
+			return fmt.Errorf("робот: consumption должен быть пуст (слой robotic вместо 13 биоосей)")
+		}
+		if r.Territory != "conditions" {
+			return fmt.Errorf("робот: territory = %q, ожидается \"conditions\"", r.Territory)
+		}
+	}
+
+	return nil
+}
+
+// powerSources — enum источников энергии роботов (99.2.24 §3.1).
+var powerSources = map[string]bool{
+	"солнце": true, "геотерма": true, "реактор": true, "термопары": true, "тепло": true,
+}
+
+// heatModes — enum способов сброса тепла (99.2.24 §3.1).
+var heatModes = map[string]bool{
+	"радиаторы": true, "горячая_работа": true, "лёд": true, "среда": true,
+}
+
+// materialCategories — 6 категорий веществ (09_resources §9.1.3).
+var materialCategories = map[string]bool{
+	"🪨": true, "🌿": true, "⭐": true, "🔥": true, "💧": true, "💨": true,
+}
+
+// materialAxes — 10 осей свойств (09_resources §9.1.2).
+var materialAxes = map[string]bool{
+	"твёрдость": true, "эластичность": true, "проводимость": true, "плотность": true,
+	"энергоёмкость": true, "биосовместимость": true, "радиоактивность": true,
+	"токсичность": true, "горючесть": true, "химическая активность": true,
+}
+
+// Validate — инварианты слоя robotic (99.2.24 §6 п.3): power_source непуст
+// (значения из enum), heat из enum, categories ⊆ 6 категорий, axes ⊆ 10 осей
+// (направление окна high|low).
+func (rb *Robotic) Validate() error {
+	if len(rb.PowerSource) == 0 {
+		return fmt.Errorf("robotic.power_source пуст")
+	}
+	for _, ps := range rb.PowerSource {
+		if !powerSources[ps] {
+			return fmt.Errorf("robotic.power_source = %q, ожидается солнце|геотерма|реактор|термопары|тепло", ps)
+		}
+	}
+	if !heatModes[rb.Heat] {
+		return fmt.Errorf("robotic.heat = %q, ожидается радиаторы|горячая_работа|лёд|среда", rb.Heat)
+	}
+	for _, c := range rb.Materials.Categories {
+		if !materialCategories[c] {
+			return fmt.Errorf("robotic.materials.categories = %q, ожидается одна из 6 категорий 09_resources §9.1.3", c)
+		}
+	}
+	for axis, dir := range rb.Materials.Axes {
+		if !materialAxes[axis] {
+			return fmt.Errorf("robotic.materials.axes = %q, ожидается одна из 10 осей 09_resources §9.1.2", axis)
+		}
+		if dir != "high" && dir != "low" {
+			return fmt.Errorf("robotic.materials.axes[%s] = %q, ожидается high|low", axis, dir)
+		}
+	}
 	return nil
 }

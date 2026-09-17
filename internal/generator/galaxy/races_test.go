@@ -24,10 +24,10 @@ func mkRegions(n int) []*models.Region {
 	return regions
 }
 
-// Раздача: все регионы получают расу, все 50 рас — по территории.
+// Раздача: все регионы получают расу, все 60 рас — по территории.
 func TestAssignRacesToRegions(t *testing.T) {
 	require.NoError(t, races.LoadCatalog("../../../config/races.json"))
-	require.Len(t, races.Catalog(), 50)
+	require.Len(t, races.Catalog(), 60)
 
 	g := NewGenerator(&Config{Seed: 42})
 	regions := mkRegions(200)
@@ -38,7 +38,7 @@ func TestAssignRacesToRegions(t *testing.T) {
 		assert.NotEmpty(t, r.RaceID, "регион %s должен получить расу", r.ID)
 		assigned[r.RaceID] = true
 	}
-	assert.Len(t, assigned, 50, "все 50 рас получают территорию")
+	assert.Len(t, assigned, 60, "все 60 рас получают территорию")
 	for _, r := range races.Catalog() {
 		assert.True(t, assigned[r.ID], "раса %s получает территорию", r.ID)
 	}
@@ -134,5 +134,5 @@ func TestGenerateGalaxyWithRegionsAssignsRaces(t *testing.T) {
 		assert.NotEmpty(t, r.RaceID, "регион %s должен получить расу", r.Name)
 		assigned[r.RaceID] = true
 	}
-	assert.Len(t, assigned, 50, "все 50 рас получают территорию")
+	assert.Len(t, assigned, 60, "все 60 рас получают территорию")
 }

@@ -15,7 +15,7 @@ import (
 func loadTestCatalog(t *testing.T) {
 	t.Helper()
 	require.NoError(t, LoadCatalog("../../config/races.json"))
-	require.Len(t, Catalog(), 50)
+	require.Len(t, Catalog(), 60)
 }
 
 // Аммиачники (5): холодный режим (T₁ = 188 < 273), обогащение NH₃ 5%
@@ -144,7 +144,7 @@ func TestTuningDeterminism(t *testing.T) {
 	assert.InDelta(t, a.FIntTarget, b.FIntTarget, 0.001)
 }
 
-// Все 50 рас каталога дают валидный вывод (или nil для оф-модельных):
+// Все 60 рас каталога дают валидный вывод (или nil для оф-модельных):
 // режим из допустимого набора, обогащение в режим-гейте, веса > 0.
 func TestTuningAllRacesValid(t *testing.T) {
 	loadTestCatalog(t)

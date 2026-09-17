@@ -419,8 +419,15 @@ export async function fetchWorldByID(id, token) {
         const res = await fetch('/worlds/' + encodeURIComponent(id), {
             headers: { 'Authorization': 'Bearer ' + token }
         });
-        if (res.status === 401 || res.status === 403) {
+        if (res.status === 401) {
             handleUnauthorized();
+            return null;
+        }
+        if (res.status === 403) {
+            // Детали системы закрыты вне радиуса/знания (спека 77a §5.5/И11):
+            // /worlds/{id} за-радарной звезды — 403. Не разлогиниваем —
+            // возвращаем null (вызывающий обрабатывает: кэш/фолбэк).
+            console.warn('fetchWorldByID 403 (вне зоны видимости) for', id);
             return null;
         }
         if (!res.ok) {

@@ -12,7 +12,8 @@ import { record } from '../dashboard/journal.js';
 // handleUnauthorized — локальная копия map/data.js: чистит игровой токен и
 // редиректит на логин. Не импортируем из ../map/ — тот тянет map/config.js,
 // который при загрузке требует #mapCanvas (его нет в админке) и роняет весь
-// import-граф. Единственное использование здесь — обработка 401/403.
+// import-граф. Единственное использование здесь — обработка 401 (и отсутствия
+// токена); 403 «вне зоны видимости» разлогин не вызывает (спека 77a §5.5/И11).
 function handleUnauthorized() {
     localStorage.removeItem('token');
     if (window.location.pathname !== '/login-page') {
@@ -26,7 +27,11 @@ function handleUnauthorized() {
 // authToken — необязательный токен для авторизации (админка «Миры»: там
 // используется adminToken, а игрового 'token' может не быть). undefined =
 // обычный игровой токен из localStorage.
-export function openSystemModal(worldId, worldName, spectralClass, focusOpts, authToken) {
+// starInfo — открытая информация о звезде из кластера карты (спека 77a §5.5):
+// { stype, stemp, systype, smods, x, y }. Используется при 403 (система вне
+// радиуса/знания): модалка открывается с карточкой звезды и заглушкой вместо
+// планет — вид звезды открыт везде, детали системы закрыты (И11).
+export function openSystemModal(worldId, worldName, spectralClass, focusOpts, authToken, starInfo) {
     const token = authToken || localStorage.getItem('token');
     if (!token) {
         handleUnauthorized();
@@ -42,8 +47,25 @@ export function openSystemModal(worldId, worldName, spectralClass, focusOpts, au
     })
     .then(response => {
         if (!response.ok) {
-            if (response.status === 401 || response.status === 403) {
+            if (response.status === 401) {
                 handleUnauthorized();
+                return;
+            }
+            if (response.status === 403) {
+                // Детали системы закрыты вне радиуса/знания (спека 77a §5.5/И11):
+                // звезда открыта — модалка с карточкой звезды и заглушкой вместо
+                // планет. starInfo — открытая информация из кластера карты.
+                const data = {
+                    planets: [],
+                    restricted: true,
+                    star_type: starInfo && starInfo.stype,
+                    system_type: starInfo && starInfo.systype,
+                    stellar_mods: starInfo && starInfo.smods,
+                    temperature: starInfo && starInfo.stemp,
+                    coord_x: starInfo && starInfo.x,
+                    coord_y: starInfo && starInfo.y,
+                };
+                renderModal(worldId, worldName, spectralClass, data);
                 return;
             }
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -372,6 +394,7 @@ function renderModal(worldId, worldName, spectralClass, data) {
     modalState.selectedPlanetIndex = null;
     modalState.selectedObject = null;
     modalState.planets = planets;
+    modalState.restricted = !!data.restricted;
 
     clearTextureCache();
 

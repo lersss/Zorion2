@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"zorion/internal/auth"
-	"zorion/internal/models"
 	"zorion/internal/repository"
 	"zorion/internal/travel"
 )
@@ -19,11 +18,6 @@ type TravelHandlers struct {
 	worldRepo     *repository.WorldRepository
 	userRepo      *repository.UserRepository
 	travelManager *travel.Manager
-
-	// visibility — серверная видимость игрока (спека 77a §7.3): цель полёта
-	// должна быть в радиусе радара ИЛИ известна (каталог/отчёт). nil в тестах
-	// и для admin/skycomposer (видят всё, И7).
-	visibility *Visibility
 }
 
 func NewTravelHandlers(
@@ -36,11 +30,6 @@ func NewTravelHandlers(
 		userRepo:      userRepo,
 		travelManager: travelManager,
 	}
-}
-
-// SetVisibility — подключает серверную видимость игрока (спека 77a §7.3).
-func (h *TravelHandlers) SetVisibility(v *Visibility) {
-	h.visibility = v
 }
 
 type TravelRequest struct {
@@ -161,20 +150,10 @@ func (h *TravelHandlers) StartTravel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Видимость игрока (спека 77a §7.3): цель полёта должна быть в радиусе
-	// радара ИЛИ известна (личный каталог/отчёт «зажигает» звезду, §5.1).
-	// Иначе — 403 «цель вне зоны видимости» (слепой прыжок запрещён, И6).
-	// admin/skycomposer — без фильтра (И7). Идемпотентный повтор выше уже
-	// вернул текущий полёт — здесь валидируются только новые цели.
-	if h.visibility != nil && roleFromContext(r) == string(models.RolePlayer) {
-		pc := h.visibility.playerContextFrom(r)
-		if !pc.ok || !IsVisible(targetWorld.CoordX, targetWorld.CoordY, pc.centerX, pc.centerY, pc.radius) {
-			if !h.visibility.KnownWorldIDs(userID)[req.WorldID] {
-				writeJSONError(w, "цель вне зоны видимости", http.StatusForbidden)
-				return
-			}
-		}
-	}
+	// Полёт к любой звезде разрешён (спека 77a §7.3, решение создателя
+	// 2026-09-17): валидация цели — только существование мира (404 выше);
+	// «слепой прыжок» отменён, знание координат для полёта не требуется (И6).
+	// Топливо/дальность — будущее ограничение (задел, не реализуется).
 
 	fromWorld, err := h.worldRepo.GetByID(fromWorldID)
 	if err != nil || fromWorld == nil {

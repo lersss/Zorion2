@@ -80,10 +80,6 @@ export function clusterScreenRadius(c) {
         const variation = 0.9 + (hash % 20) / 100;
         return Math.max(mapCfg.minRadius, baseSize * variation * state.scale);
     }
-    if (!c.cnt) {
-        // «Точка-огонёк» за радаром (спека 77a §5.1): приглушённая точка.
-        return Math.max(1.5, 2.2 * state.scale);
-    }
     return Math.max(10, Math.min(30, 8 + Math.log2(c.cnt) * 3));
 }
 
@@ -152,10 +148,6 @@ export function draw() {
         if (c.cnt === 1) {
             drawSingleStar(ctx, c, px, py, scale, currentWorldId, hoveredWorldId, focusWorldId);
             singles.push({ c, x: px, y: py });
-        } else if (!c.cnt) {
-            // «Точка-огонёк» за радаром (спека 77a §5.1/И11): только координаты,
-            // без имени/данных. Рисуется приглушённой точкой (как пульсар).
-            drawAnonymousPoint(ctx, c, px, py, scale);
         } else {
             drawCluster(ctx, c, px, py);
         }
@@ -309,19 +301,6 @@ function drawCluster(ctx, c, x, y) {
     ctx.arc(x, y, Math.max(0.6, radius * 0.4), 0, Math.PI * 2);
     ctx.fillStyle = 'rgba(255,255,255,0.75)';
     ctx.fill();
-}
-
-// drawAnonymousPoint — «точка-огонёк» за радаром (спека 77a §5.1/И11):
-// безымянная приглушённая точка (как пульсар), без имени/данных/полёта.
-function drawAnonymousPoint(ctx, c, x, y, scale) {
-    const radius = Math.max(1.5, 2.2 * scale);
-    ctx.beginPath();
-    ctx.arc(x, y, radius, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(148,163,184,0.45)';
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(148,163,184,0.2)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
 }
 
 // ==================== ГРАНИЦА ВИДИМОСТИ РАДАРА (спека 77a §9) ====================
@@ -905,7 +884,7 @@ function updateStatusBar(statusBar, clusters, isFlying, flyStartTime, flyDuratio
     let totalWorlds = 0;
     let singles = 0;
     for (const c of clusters) {
-        totalWorlds += c.cnt || 0; // точка-огонёк (cnt отсутствует) — 0 миров
+        totalWorlds += c.cnt || 0;
         if (c.cnt === 1) singles++;
     }
     let text = `${totalWorlds} миров в кадре (${singles} одиночных, ${totalClusters - singles} кластеров)`;

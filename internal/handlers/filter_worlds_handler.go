@@ -13,7 +13,6 @@ import (
 
 	"zorion/internal/auth"
 	"zorion/internal/mapcache"
-	"zorion/internal/models"
 )
 
 // ==================== ТИПЫ ====================
@@ -23,8 +22,9 @@ import (
 // X/Y — координаты кластера в мировых координатах.
 // Count — сколько миров в ячейке.
 // Sample* — данные представителя для cnt=1 (для tooltip и цвета).
-// cnt=0 (omitempty) — «точка-огонёк» за радаром (спека 77a §5.1/И11):
-// только координаты, без Sample*/счётчика.
+// Вид звезды (имя/спектр/температура/тип/координаты) — открытая информация
+// для всех ролей (спека 77a §5.5/И11); детали системы (планеты/поселения)
+// радиусом не раскрываются — модалка 403 вне радиуса/знания (§11.2).
 type worldCluster struct {
 	CellX          int64   `json:"cx"`
 	CellY          int64   `json:"cy"`
@@ -157,13 +157,10 @@ func (h *AdminHandlers) FilterWorldsHandler(w http.ResponseWriter, r *http.Reque
 		out = append(out, oc)
 	}
 
-	// Видимость игрока (спека 77a §5.1/§11.2): гибрид «звёздное поле».
-	// Для role=player кластеры в радиусе радара — полные; за радаром —
-	// «точка-огонёк» (только координаты, И11); знание координат «зажигает»
-	// звезду — полный вид. admin/skycomposer — всегда полные (И7).
-	if h.visibility != nil && roleFromContext(r) == string(models.RolePlayer) {
-		out = h.applyPlayerVisibility(r, out)
-	}
+	// Вид звезды — открытая информация для всех ролей (спека 77a §5.5/И11):
+	// имя/спектр/температура/тип/координаты отдаются как админу, радиус радара
+	// на вид звезды не влияет. Детали системы (планеты/поселения) закрыты
+	// отдельно — модалка 403 вне радиуса/знания (§11.2).
 	scanDur := time.Since(tScan)
 
 	// --- Ответ ---
@@ -208,52 +205,8 @@ func parseFloatParam(s string) (float64, error) {
 	return strconv.ParseFloat(s, 64)
 }
 
-// ==================== ВИДИМОСТЬ ИГРОКА (спека 77a §5.1/§11.2) ====================
-
 // roleFromContext — роль из контекста запроса (AuthMiddleware).
 func roleFromContext(r *http.Request) string {
 	role, _ := r.Context().Value(auth.RoleKey).(string)
 	return role
-}
-
-// applyPlayerVisibility — гибрид «звёздное поле»: кластеры в радиусе радара
-// игрока — полные; за радаром — «точка-огонёк» (только координаты, без
-// Sample*/счётчика, И11); знание координат (личный каталог/отчёт) «зажигает»
-// звезду — полный вид. Позиция игрока неизвестна (нет current_world_id, мир
-// удалён) — все кластеры урезаются: безопасное направление, ничего не
-// «светим» сверх радиуса.
-func (h *AdminHandlers) applyPlayerVisibility(r *http.Request, clusters []worldCluster) []worldCluster {
-	userID, _ := r.Context().Value(auth.UserIDKey).(string)
-	user, err := h.visibility.userRepo.GetByID(userID)
-	if err != nil || user == nil {
-		return reduceAllClusters(clusters)
-	}
-	centerX, centerY, ok := h.visibility.PlayerPosition(user)
-	if !ok {
-		return reduceAllClusters(clusters)
-	}
-	radius := h.visibility.RadarRadius(user)
-	known := h.visibility.KnownWorldIDs(userID)
-
-	out := make([]worldCluster, 0, len(clusters))
-	for _, c := range clusters {
-		// В радиусе ИЛИ «зажжена» знанием координат — полный вид.
-		if IsVisible(c.X, c.Y, centerX, centerY, radius) || known[c.SampleID] {
-			out = append(out, c)
-			continue
-		}
-		// Точка-огонёк: только координаты (И11).
-		out = append(out, worldCluster{CellX: c.CellX, CellY: c.CellY, X: c.X, Y: c.Y})
-	}
-	return out
-}
-
-// reduceAllClusters — все кластеры в «точки-огоньки» (безопасное направление
-// при неизвестной позиции игрока).
-func reduceAllClusters(clusters []worldCluster) []worldCluster {
-	out := make([]worldCluster, 0, len(clusters))
-	for _, c := range clusters {
-		out = append(out, worldCluster{CellX: c.CellX, CellY: c.CellY, X: c.X, Y: c.Y})
-	}
-	return out
 }

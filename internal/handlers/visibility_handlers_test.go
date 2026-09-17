@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -83,15 +82,14 @@ func expectKnownWorlds(mock sqlmock.Sqlmock, worlds ...string) {
 		WillReturnRows(rows)
 }
 
-// ==================== /api/worlds/filter: ГИБРИД «ЗВЁЗДНОЕ ПОЛЕ» ====================
+// ==================== /api/worlds/filter: ОТКРЫТАЯ ЗВЕЗДА (И11 новый) ====================
 
-func TestFilterWorldsHybridStarfield(t *testing.T) {
+func TestFilterWorldsAllStarsFull(t *testing.T) {
 	h, mock := visAdminHandlers(t)
 	const userID = "u1"
 
-	expectPlayerUser(mock, userID)
-	expectKnownWorlds(mock)
-
+	// Вид звезды — открытая информация (спека 77a §5.5/И11): сервер не
+	// запрашивает ни пользователя, ни знание — кластеры отдаются как админу.
 	req := httptest.NewRequest(http.MethodGet,
 		"/api/worlds/filter?x_min=-10&x_max=1100&y_min=-10&y_max=10&cell=50", nil)
 	req = withUserID(req, userID)
@@ -105,7 +103,6 @@ func TestFilterWorldsHybridStarfield(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &clusters))
 	require.Len(t, clusters, 3)
 
-	// w1 (0,0) и w2 (100,0) — в радиусе 800: полные.
 	byX := map[float64]worldCluster{}
 	for _, c := range clusters {
 		byX[c.X] = c
@@ -114,38 +111,13 @@ func TestFilterWorldsHybridStarfield(t *testing.T) {
 	require.Equal(t, "Мир2", byX[100].SampleName, "в радиусе — полные данные")
 	require.Equal(t, 1, byX[0].Count)
 
-	// w3 (1000,0) — за радаром: только координаты точки-огонька (И11).
+	// w3 (1000,0) — за радаром: полный вид звезды (имя/спектр/координаты —
+	// открытая информация, «видно в телескоп»); точка-огонёк отменена.
 	c3 := byX[1000]
-	require.Equal(t, 0, c3.Count, "без счётчика")
-	require.Empty(t, c3.SampleID, "без имени/данных (И11)")
-	require.Empty(t, c3.SampleName)
-	require.Empty(t, c3.SampleSpectral)
-	require.Equal(t, 1000.0, c3.X, "координаты точки остаются")
-}
-
-func TestFilterWorldsKnowledgeIgnitesStar(t *testing.T) {
-	h, mock := visAdminHandlers(t)
-	const userID = "u1"
-
-	expectPlayerUser(mock, userID)
-	expectKnownWorlds(mock, "w3") // знание координат «зажигает» звезду
-
-	req := httptest.NewRequest(http.MethodGet,
-		"/api/worlds/filter?x_min=-10&x_max=1100&y_min=-10&y_max=10&cell=50", nil)
-	req = withUserID(req, userID)
-	req = withRole(req, string(models.RolePlayer))
-
-	rec := execJSON(h.FilterWorldsHandler, req)
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, mock.ExpectationsWereMet())
-
-	var clusters []worldCluster
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &clusters))
-	byX := map[float64]worldCluster{}
-	for _, c := range clusters {
-		byX[c.X] = c
-	}
-	require.Equal(t, "Мир3", byX[1000].SampleName, "зажжённая знанием звезда — полные данные")
+	require.Equal(t, 1, c3.Count)
+	require.Equal(t, "Мир3", c3.SampleName, "за-радарная звезда — полный вид (И11)")
+	require.Equal(t, "M", c3.SampleSpectral)
+	require.Equal(t, 1000.0, c3.X, "координаты открыты")
 }
 
 func TestFilterWorldsAdminSeesAll(t *testing.T) {
@@ -417,117 +389,31 @@ func TestNPCSearchHidesCoordsOutsideRadius(t *testing.T) {
 	require.Equal(t, true, r["outside_visibility"], "пометка «вне зоны видимости»")
 }
 
-// ==================== /travel: ВАЛИДАЦИЯ ЦЕЛИ ====================
+// ==================== /travel: ПОЛЁТ К ЛЮБОЙ ЗВЕЗДЕ (И6 новый) ====================
 
-func TestStartTravelOutsideVisibility(t *testing.T) {
-	ship.LoadDefaults()
-	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
-	require.NoError(t, err)
-	t.Cleanup(func() { db.Close() })
+func TestStartTravelFarStarAllowed(t *testing.T) {
+	h, tm, mock := newTravelHarness(t)
+	const userID = "u1"
+	const fromWorld = "w1"
+	const target = "w3"
 
-	tm := travel.NewManager()
-	mc := mapcache.NewManager()
-	mc.Replace(visWorlds())
-	userRepo := repository.NewUserRepository(db)
-	v := NewVisibility(userRepo, tm, mc, repository.NewKnowledgeRepository(db))
+	// Цель w3 (1000,0) — за радаром (800) и не известна: полёт разрешён
+	// (И6 новый, решение создателя 2026-09-17: «полёт к любой звезде»;
+	// топливо/дальность — будущий задел). Валидация — только существование цели.
+	expectTravelQueries(mock, userID, fromWorld, 0, 0, target, 1000, 0)
 
-	h := NewTravelHandlers(repository.NewWorldRepository(db), userRepo, tm)
-	h.SetVisibility(v)
-
-	// Цель w3 (1000,0) — за радаром (800) и не известна → 403.
-	mock.ExpectQuery(`SELECT id, name, coord_x, coord_y, COALESCE\(spectral_class,''\), temperature, star_type, system_type, stellar_mods, stellar_mass, age, created_at, updated_at FROM worlds WHERE id = \$1`).
-		WithArgs("w3").
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "coord_x", "coord_y", "spectral_class", "temperature",
-			"star_type", "system_type", "stellar_mods", "stellar_mass", "age",
-			"created_at", "updated_at",
-		}).AddRow("w3", "Мир3", 1000, 0, "M", 3000, "star", "single", nil, nil, nil, now(), now()))
-
-	expectPlayerUser(mock, "u1")
-
-	// Проверка текущего мира (w1) — валиден.
-	mock.ExpectQuery(`SELECT id, name, coord_x, coord_y, COALESCE\(spectral_class,''\), temperature, star_type, system_type, stellar_mods, stellar_mass, age, created_at, updated_at FROM worlds WHERE id = \$1`).
-		WithArgs("w1").
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "coord_x", "coord_y", "spectral_class", "temperature",
-			"star_type", "system_type", "stellar_mods", "stellar_mass", "age",
-			"created_at", "updated_at",
-		}).AddRow("w1", "Мир1", 0, 0, "G", 5772, "star", "single", nil, nil, nil, now(), now()))
-
-	// playerContextFrom повторно читает пользователя.
-	expectPlayerUser(mock, "u1")
-	expectKnownWorlds(mock)
-
-	req := httptest.NewRequest(http.MethodPost, "/travel", strings.NewReader(`{"world_id":"w3"}`))
-	req = withUserID(req, "u1")
-	req = withRole(req, string(models.RolePlayer))
-
-	rec := execJSON(h.StartTravel, req)
-	require.Equal(t, http.StatusForbidden, rec.Code)
-	require.Contains(t, rec.Body.String(), "цель вне зоны видимости")
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestStartTravelKnownTargetAllowed(t *testing.T) {
-	ship.LoadDefaults()
-	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
-	require.NoError(t, err)
-	t.Cleanup(func() { db.Close() })
-
-	tm := travel.NewManager()
-	mc := mapcache.NewManager()
-	mc.Replace(visWorlds())
-	userRepo := repository.NewUserRepository(db)
-	v := NewVisibility(userRepo, tm, mc, repository.NewKnowledgeRepository(db))
-
-	h := NewTravelHandlers(repository.NewWorldRepository(db), userRepo, tm)
-	h.SetVisibility(v)
-
-	// Цель w3 за радаром, но «зажжена» знанием → полёт разрешён (И6).
-	mock.ExpectQuery(`SELECT id, name, coord_x, coord_y, COALESCE\(spectral_class,''\), temperature, star_type, system_type, stellar_mods, stellar_mass, age, created_at, updated_at FROM worlds WHERE id = \$1`).
-		WithArgs("w3").
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "coord_x", "coord_y", "spectral_class", "temperature",
-			"star_type", "system_type", "stellar_mods", "stellar_mass", "age",
-			"created_at", "updated_at",
-		}).AddRow("w3", "Мир3", 1000, 0, "M", 3000, "star", "single", nil, nil, nil, now(), now()))
-
-	expectPlayerUser(mock, "u1")
-
-	// Проверка текущего мира (w1) — валиден.
-	mock.ExpectQuery(`SELECT id, name, coord_x, coord_y, COALESCE\(spectral_class,''\), temperature, star_type, system_type, stellar_mods, stellar_mass, age, created_at, updated_at FROM worlds WHERE id = \$1`).
-		WithArgs("w1").
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "coord_x", "coord_y", "spectral_class", "temperature",
-			"star_type", "system_type", "stellar_mods", "stellar_mass", "age",
-			"created_at", "updated_at",
-		}).AddRow("w1", "Мир1", 0, 0, "G", 5772, "star", "single", nil, nil, nil, now(), now()))
-
-	// playerContextFrom повторно читает пользователя.
-	expectPlayerUser(mock, "u1")
-	expectKnownWorlds(mock, "w3")
-
-	// Дальше — обычный полёт: координаты текущего мира (fromWorld fetch).
-	mock.ExpectQuery(`SELECT id, name, coord_x, coord_y, COALESCE\(spectral_class,''\), temperature, star_type, system_type, stellar_mods, stellar_mass, age, created_at, updated_at FROM worlds WHERE id = \$1`).
-		WithArgs("w1").
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "coord_x", "coord_y", "spectral_class", "temperature",
-			"star_type", "system_type", "stellar_mods", "stellar_mass", "age",
-			"created_at", "updated_at",
-		}).AddRow("w1", "Мир1", 0, 0, "G", 5772, "star", "single", nil, nil, nil, now(), now()))
-
-	req := httptest.NewRequest(http.MethodPost, "/travel", strings.NewReader(`{"world_id":"w3"}`))
-	req = withUserID(req, "u1")
+	req := travelRequest(userID, target)
 	req = withRole(req, string(models.RolePlayer))
 
 	rec := execJSON(h.StartTravel, req)
 	require.Equal(t, http.StatusAccepted, rec.Code)
+	require.NotNil(t, tm.GetFlight(userID), "полёт к неизвестной звезде запущен")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// ==================== /api/entities/search: ПОИСК ПО ИЗВЕСТНЫМ (спека 77a §10) ====================
+// ==================== /api/entities/search: ОТКРЫТАЯ ЗВЕЗДА, ЗАКРЫТАЯ СИСТЕМА (спека 77a §10) ====================
 
-func TestSearchEntitiesFiltersFarStars(t *testing.T) {
+func TestSearchEntitiesFarStarFullPlanetHidden(t *testing.T) {
 	h, mock := visAdminHandlers(t)
 	const userID = "u1"
 
@@ -560,12 +446,23 @@ func TestSearchEntitiesFiltersFarStars(t *testing.T) {
 		Results []searchResult `json:"results"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	require.Len(t, resp.Results, 1, "звезда за радаром отфильтрована")
-	require.Equal(t, searchKindPlanet, resp.Results[0].Kind)
-	require.Equal(t, "Планета3", resp.Results[0].Name, "планета найдена (справочник имён)")
-	require.Empty(t, resp.Results[0].WorldName, "имя за-радарной звезды скрыто (И11)")
-	require.Empty(t, resp.Results[0].WorldID, "world_id скрыт — цепочка search → /worlds/{id} закрыта (И11)")
-	require.Equal(t, 0.0, resp.Results[0].CoordX, "координаты скрыты")
+	require.Len(t, resp.Results, 2, "звезда + планета")
+
+	// Звезда за радаром — полный вид (И11 новый): имя/спектр/координаты открыты.
+	star := resp.Results[0]
+	require.Equal(t, searchKindWorld, star.Kind)
+	require.Equal(t, "Мир3", star.Name)
+	require.Equal(t, "M", star.Spectral)
+	require.Equal(t, 1000.0, star.CoordX)
+
+	// Планета неизвестной системы — без имени звезды/координат (И11 в части
+	// содержимого остаётся): цепочка search → /worlds/{id} закрыта.
+	planet := resp.Results[1]
+	require.Equal(t, searchKindPlanet, planet.Kind)
+	require.Equal(t, "Планета3", planet.Name, "планета найдена (справочник имён)")
+	require.Empty(t, planet.WorldName, "имя за-радарной звезды скрыто (И11)")
+	require.Empty(t, planet.WorldID, "world_id скрыт — цепочка search → /worlds/{id} закрыта (И11)")
+	require.Equal(t, 0.0, planet.CoordX, "координаты скрыты")
 }
 
 func TestSearchEntitiesKnownStarReturned(t *testing.T) {

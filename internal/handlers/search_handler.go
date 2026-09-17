@@ -69,10 +69,9 @@ func (h *AdminHandlers) SearchEntitiesHandler(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Видимость игрока (спека 77a §10): поиск звёзд — только по известным
-	// (в радиусе радара + «зажжённые» знанием); за-радарные безымянные точки
-	// в поиске не участвуют (имя за-радарной звезды клиенту не отдаётся —
-	// И11). Планеты/спутники — находит, детали по видимости.
+	// Видимость игрока (спека 77a §10): звёзды — всегда полные (имя/спектр/
+	// координаты — открытая информация, §5.5); планеты/спутники систем вне
+	// радиуса/знания — без имени звезды и координат (И11 в части содержимого).
 	// admin/skycomposer — без фильтра (И7).
 	if h.visibility != nil && roleFromContext(r) == string(models.RolePlayer) {
 		results = h.applySearchVisibility(r, results)
@@ -86,9 +85,10 @@ func (h *AdminHandlers) SearchEntitiesHandler(w http.ResponseWriter, r *http.Req
 }
 
 // applySearchVisibility — фильтр результатов поиска для player (спека 77a §10):
-// звёзды — только в радиусе радара или «зажжённые» знанием; планеты/спутники
-// неизвестных систем — найдены, но без имени звезды/координат (И11). Позиция
-// игрока неизвестна — пустой результат (безопасное направление).
+// звёзды — всегда полные (имя/спектр/координаты — открытая информация, §5.5);
+// планеты/спутники систем вне радиуса/знания — найдены, но без имени звезды
+// и координат (И11 в части содержимого). Позиция игрока неизвестна — детали
+// планет скрыты (безопасное направление), звёзды остаются.
 func (h *AdminHandlers) applySearchVisibility(r *http.Request, results []searchResult) []searchResult {
 	userID, _ := r.Context().Value(auth.UserIDKey).(string)
 	user, err := h.visibility.userRepo.GetByID(userID)
@@ -96,23 +96,18 @@ func (h *AdminHandlers) applySearchVisibility(r *http.Request, results []searchR
 		return nil
 	}
 	centerX, centerY, ok := h.visibility.PlayerPosition(user)
-	if !ok {
-		return nil
-	}
 	radius := h.visibility.RadarRadius(user)
 	known := h.visibility.KnownWorldIDs(userID)
 
 	out := make([]searchResult, 0, len(results))
 	for _, res := range results {
 		if res.Kind == searchKindWorld {
-			// Звезда: известна (в радиусе или «зажжена» знанием) — отдаём.
-			if IsVisible(res.CoordX, res.CoordY, centerX, centerY, radius) || known[res.ID] {
-				out = append(out, res)
-			}
+			// Звезда: открытая информация (имя/спектр/координаты) — отдаём всегда.
+			out = append(out, res)
 			continue
 		}
-		// Планета/спутник: система известна — полный результат.
-		if IsVisible(res.CoordX, res.CoordY, centerX, centerY, radius) || known[res.WorldID] {
+		// Планета/спутник: система известна (в радиусе или знание) — полный результат.
+		if (ok && IsVisible(res.CoordX, res.CoordY, centerX, centerY, radius)) || known[res.WorldID] {
 			out = append(out, res)
 			continue
 		}

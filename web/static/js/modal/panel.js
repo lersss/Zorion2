@@ -149,6 +149,21 @@ export function renderPlanetsList() {
 
     const planets = (modalState.planets || []).slice();
 
+    // Модалка без деталей системы (403, спека 77a §5.5/И11): звезда открыта,
+    // планеты/поселения — честная заглушка вместо списка (стиль как
+    // «Нет данных — купить отчёт» в tabs.js).
+    if (modalState.restricted) {
+        panel.innerHTML = `
+            <div style="background:#0d0d1a; border-radius:8px; padding:10px;">
+                <h4 style="margin:0 0 8px 0; font-size:1rem; color:#aaa;">Планеты</h4>
+                <p style="margin:8px 0; padding:8px 10px; background:rgba(148,163,184,0.08); border:1px dashed rgba(148,163,184,0.3); border-radius:8px; color:#94a3b8; font-size:0.85rem;">
+                    Система вне зоны видимости: детали (планеты, поселения) недоступны — долетите или купите отчёт
+                </p>
+            </div>
+        `;
+        return;
+    }
+
     panel.innerHTML = `
         <div style="background:#0d0d1a; border-radius:8px; padding:10px;">
             <h4 style="margin:0 0 8px 0; font-size:1rem; color:#aaa;">Планеты (${planets.length})</h4>

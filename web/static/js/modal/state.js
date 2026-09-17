@@ -24,6 +24,7 @@ export const modalState = {
     companionSepAU: null,      // разделение пары а.е. (35b)
     extraCompanions: [],       // внешние компаньоны кратных (35b)
     planets: [],
+    restricted: false,         // модалка без деталей системы (403, спека 77a §5.5/И11): звезда открыта, планеты — заглушка
     canvas: null,
     canvasWrapper: null,
     spectralClass: 'G',
@@ -56,6 +57,7 @@ export function resetState() {
     modalState.suppressNextClick = false;
     modalState.activeTab = 'general';
     modalState.authToken = null;
+    modalState.restricted = false;
     modalState.previousPopulation = {};
     modalState.previousSettlementPop = {};
     if (modalState._rafId !== null) {

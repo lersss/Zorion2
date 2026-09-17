@@ -72,8 +72,8 @@ export function initHover() {
         hideNPCTooltip();
 
         const hit = findClusterAt(mouseX, mouseY);
-        // Точка-огонёк за радаром (спека 77a §5.1): hoverWorldId не ставится
-        // (имени нет, И11), но тултип «вне зоны детальной видимости» показываем.
+        // Hover-подсветка — только для одиночной звезды (cnt===1): у кластера
+        // нет данных отдельной звезды. Вид звезды открыт везде (спека 77a §5.5).
         const newHoveredId = hit && hit.cluster.cnt === 1 ? hit.cluster.sid : null;
 
         if (state.hoveredWorldId !== newHoveredId) {
@@ -100,16 +100,6 @@ export function initHover() {
 // showTooltip — заполняет и показывает тултип для одиночного мира, скрывает иначе.
 function showTooltip(cluster) {
     if (!cluster || cluster.cnt !== 1) {
-        // Точка-огонёк за радаром (спека 77a §10): тултип без имени/данных —
-        // «вне зоны детальной видимости», кнопка «Лететь» скрыта (И11).
-        if (cluster && !cluster.cnt) {
-            elements.tooltipName.textContent = 'Вне зоны детальной видимости';
-            elements.tooltipType.textContent = 'Тип: —';
-            elements.tooltipLevel.textContent = 'Уровень: —';
-            elements.tooltipFlyBtn.style.display = 'none';
-            elements.tooltip.classList.add('active');
-            return;
-        }
         elements.tooltip.classList.remove('active');
         return;
     }
@@ -171,16 +161,20 @@ export function handleCanvasClick(e) {
     if (c.cnt === 1) {
         // Одиночный мир — открываем модалку. sspec без фолбека на 'G':
         // у экзотики он пустой (NULL), фолбек врал бы «Жёлтый карлик» (баг #1).
+        // starInfo — открытая информация о звезде (спека 77a §5.5): при 403
+        // (система вне радиуса/знания) модалка откроется с карточкой звезды.
         if (typeof openSystemModal === 'function') {
-            openSystemModal(c.sid, c.sname || '—', c.sspec || '');
+            openSystemModal(c.sid, c.sname || '—', c.sspec || '', null, null, {
+                stype: c.stype,
+                stemp: c.stemp,
+                systype: c.systype,
+                smods: c.smods,
+                x: c.x,
+                y: c.y,
+            });
         }
         elements.tooltip.classList.remove('active');
         state.selectedWorldId = c.sid;
-    } else if (!c.cnt) {
-        // Точка-огонёк за радаром (спека 77a §5.1): клик не открывает модалку,
-        // полёт-цель недоступна (слепой прыжок запрещён, И6/И11).
-        elements.tooltip.classList.remove('active');
-        state.selectedWorldId = null;
     } else {
         // Кластер — зуммируем к его центру
         const targetScale = Math.min(state.scale * 2, mapCfg.maxZoom);

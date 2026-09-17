@@ -208,7 +208,6 @@ func main() {
 	visibility := handlers.NewVisibility(userRepo, travelManager, mapCache, knowledgeRepo)
 	adminHandlers.SetVisibility(visibility)
 	adminHandlers.SetTravelManager(travelManager)
-	travelHandlers.SetVisibility(visibility)
 	worldHandlers.SetVisibility(visibility)
 
 	// Снапшот карты подхватывается в фоне — сервер отвечает сразу,

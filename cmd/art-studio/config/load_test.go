@@ -10,7 +10,7 @@ const (
 
 // TestLoadForms — словарь форм: 55×50×40×50 компонентов (расширен газом/туманом,
 // решение создателя 2026-09-17) + 43 антропо-формы + palette_accents
-// + category_keys F2–F9 (инвариант 67a.1 §11.6).
+// + category_keys F2–F10 (инвариант 67a.1 §11.6, 76a.1 §6.6).
 func TestLoadForms(t *testing.T) {
 	fc, err := LoadForms(formsPath)
 	if err != nil {
@@ -50,15 +50,15 @@ func TestLoadForms(t *testing.T) {
 	if len(fc.PaletteAccents) == 0 {
 		t.Errorf("palette_accents пуст")
 	}
-	for _, fam := range []string{"F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9"} {
+	for _, fam := range []string{"F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10"} {
 		if len(fc.CategoryKeys[fam]) == 0 {
 			t.Errorf("category_keys[%s] пуст", fam)
 		}
 	}
 }
 
-// TestLoadFamilies — 46 рас F2–F9, id из 99.2.21 §5, непустые поля
-// (инвариант 67a.1 §11.6).
+// TestLoadFamilies — 56 рас F2–F10, id из 99.2.21 §5 и 99.2.24 (F10),
+// непустые поля, морф-наборы у всех семейств (инварианты 67a.1 §11.6, 76a.1 §6).
 func TestLoadFamilies(t *testing.T) {
 	fam, err := LoadFamilies(familiesPath)
 	if err != nil {
@@ -68,18 +68,19 @@ func TestLoadFamilies(t *testing.T) {
 	for _, f := range fam {
 		total += len(f.Races)
 	}
-	if total != 46 {
-		t.Errorf("всего рас = %d, want 46", total)
+	if total != 56 {
+		t.Errorf("всего рас = %d, want 56", total)
 	}
 	want := map[string][]string{
-		"F2": {"5", "6", "7", "8", "9", "48"},
-		"F3": {"11", "12", "13", "14"},
-		"F4": {"15", "16", "17", "18", "19", "20", "21", "22", "43"},
-		"F5": {"23", "24", "25", "26", "27", "28", "29", "30", "31", "49"},
-		"F6": {"32", "33", "34", "35", "36", "37"},
-		"F7": {"40", "41", "42"},
-		"F8": {"10", "39", "50"},
-		"F9": {"38", "44", "45", "46", "47"},
+		"F2":  {"5", "6", "7", "8", "9", "48"},
+		"F3":  {"11", "12", "13", "14"},
+		"F4":  {"15", "16", "17", "18", "19", "20", "21", "22", "43"},
+		"F5":  {"23", "24", "25", "26", "27", "28", "29", "30", "31", "49"},
+		"F6":  {"32", "33", "34", "35", "36", "37"},
+		"F7":  {"40", "41", "42"},
+		"F8":  {"10", "39", "50"},
+		"F9":  {"38", "44", "45", "46", "47"},
+		"F10": {"51", "52", "53", "54", "55", "56", "57", "58", "59", "60"},
 	}
 	for fid, ids := range want {
 		f, ok := fam[fid]
@@ -118,9 +119,15 @@ func TestLoadFamilies(t *testing.T) {
 			}
 		}
 	}
-	for _, fid := range []string{"F4", "F5"} {
+	for _, fid := range []string{"F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10"} {
 		if len(fam[fid].BeastForms) == 0 {
 			t.Errorf("%s: beast_forms пуст", fid)
+		}
+		if len(fam[fid].AnthroClothes) == 0 {
+			t.Errorf("%s: anthro_clothes пуст", fid)
+		}
+		if fam[fid].AnthroNeg == "" {
+			t.Errorf("%s: anthro_neg пуст", fid)
 		}
 	}
 }

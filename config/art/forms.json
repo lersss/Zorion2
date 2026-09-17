@@ -1571,14 +1571,22 @@
    "cold",
    "mech"
   ],
-  "F9": [
-   "energy",
-   "gas",
-   "mech",
-   "sphere",
-   "crystal"
-  ]
- },
+"F9": [
+    "energy",
+    "gas",
+    "mech",
+    "sphere",
+    "crystal"
+   ],
+   "F10": [
+    "mech",
+    "energy",
+    "crystal",
+    "sphere",
+    "cold",
+    "hot"
+   ]
+  },
  "palette_accents": [
   "pale amber glow",
   "faint violet sheen",

@@ -1,7 +1,7 @@
 // web/static/js/map/animation.js
 import { state, elements } from './config.js';
 import { draw, updateFpsCounter } from './map_render.js';
-import { loadClusters, loadUserData, maybeReloadClusters, waitForLoadIdle } from './data.js';
+import { loadClusters, loadUserData, maybeReloadClusters, resetFlightReloadTimer, waitForLoadIdle } from './data.js';
 import { centerOnAgent } from './navigation.js';
 import { updateFlightPanel, hideFlightPanel } from './flight.js';
 
@@ -12,6 +12,10 @@ export function animationLoop() {
             state.isFlying = false;
             state.followShip = false;
             sessionStorage.removeItem('followShip');
+            // Фикс 33c: сбрасываем полётный таймер перезапросов, чтобы новый
+            // полёт, начатый сразу после прибытия, не пропустил первую
+            // подгрузку кластеров (гард 600 мс).
+            resetFlightReloadTimer();
             const centerBtn = document.getElementById('centerBtn');
             if (centerBtn) centerBtn.classList.remove('active');
             hideFlightPanel();

@@ -4,7 +4,7 @@
 
 import { state, elements } from './config.js';
 import { draw } from './map_render.js';
-import { fetchWorldByID, handleUnauthorized } from './data.js';
+import { fetchWorldByID, handleUnauthorized, resetFlightReloadTimer } from './data.js';
 import { notifyError } from '../ui/toast.js';
 
 // ensureWorld — берёт мир из кэша или подгружает по ID (даже вне текущего кадра).
@@ -111,6 +111,9 @@ export async function startFlight(worldId, token) {
         state.flyStartY = data.start_y;
         state.flyStartTime = data.start_time;
         state.isFlying = true;
+        // Фикс 33c: новый полёт начинается с чистого полётного таймера
+        // перезапросов — первая подгрузка кластеров не пропускается гардом.
+        resetFlightReloadTimer();
 
         elements.tooltip.classList.remove('active');
         showFlightPanel(fromWorld.name, toWorld.name);

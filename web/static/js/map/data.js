@@ -82,6 +82,14 @@ export function maybeReloadClusters() {
     loadClusters(bounds).catch(err => console.error('maybeReloadClusters:', err));
 }
 
+// resetFlightReloadTimer — сброс полётного таймера перезапросов (фикс 33c):
+// между полётами lastFlightReloadAt должен обнуляться, иначе новый полёт,
+// начатый в пределах FLIGHT_RELOAD_INTERVAL_MS после предыдущего, пропустит
+// первую полётную подгрузку кластеров (гард в maybeReloadClusters).
+export function resetFlightReloadTimer() {
+    lastFlightReloadAt = 0;
+}
+
 // ==================== ЗАГРУЗКА КЛАСТЕРОВ ====================
 
 // notifyLoadIdle — резолвит всех вейтеров waitForLoadIdle после

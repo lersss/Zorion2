@@ -80,7 +80,7 @@ internal/generator/planet/descriptions_*.go — система описаний 
 internal/regionprofile/                  — профили регионов (59a): каталог классов, интенсивность, привязка планет к региону
 internal/audit/                          — движок аудита (Run[T])
 internal/audit/planet/                   — 43 правила проверки планет
-internal/resource/                       — 6 категорий ресурсов
+internal/resource/                       — 6 категорий ресурсов; универсальный слой (94a): каталог 20 ресурсов + шаблоны хемотипов + вывод окон расы + проверки
 internal/names/                          — генераторы имён
 internal/handlers/                       — HTTP-хендлеры
 internal/models/                         — модели БД
@@ -118,7 +118,7 @@ docs/gamedesign/                         — GDD (семейство доков,
 | Классификация | `internal/generator/planet/classify.go` |
 | Газовые гиганты | `internal/generator/planet/planet_data_gas.go`, `gas_giant_physics.go` |
 | Аудит | `internal/audit/` + `internal/audit/planet/` (45 правил; экзотика — `checks_exotic.go`) |
-| Ресурсы | `internal/resource/` |
+| Ресурсы | `internal/resource/` (6 категорий; универсальный слой 94a — `layer.go`/`chemotypes.go`/`diet.go`/`checks.go`: каталог 20 ресурсов, 13 шаблонов хемотипов, вывод окон расы из consumption, проверки §8/§13) |
 | Имена | `internal/names/` |
 | HTTP-хендлеры | `internal/handlers/` |
 | Конфиг генерации (99.2.3) | `internal/handlers/admin_generation_config.go` (`GET/PUT /admin/generation/config`; ключи `star_weights`/`planet_means`/`stellar_mass_ranges` + подкрутка под расу-дома `race_tuning_softness`/`race_cluster_planet_count_mult`, `99.2.22` §4.3), `admin_regenerate_planets.go` (`POST /admin/regenerate-planets`) |

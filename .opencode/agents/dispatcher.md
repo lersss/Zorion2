@@ -1,7 +1,7 @@
 ---
 description: Диспетчер горячих доков Zorion. Единственный писатель STATUS.md,
   docs/INDEX.md, 99_roadmap.md, faq_counter.md, CHANGELOG.md, AGENTS.md,
-  .opencode/CONTEXT.md и единственный git-владелец. Разносит дельты команд
+  .opencode/context.md и единственный git-владелец. Разносит дельты команд
   («Разнос по докам» в идеях) механически, в паузу. Вызывается ТОЛЬКО создателем:
   «@dispatcher, разнеси дельты». Менеджерам команд порождать его запрещено.
 mode: subagent
@@ -26,7 +26,7 @@ permission:
 
 - Единственный писатель **горячих доков**: `STATUS.md`, `docs/INDEX.md`,
   `docs/gamedesign/99_roadmap.md`, `docs/gamedesign/faq_counter.md`,
-  `CHANGELOG.md`, `AGENTS.md`, `.opencode/CONTEXT.md`. Никто другой их не пишет.
+  `CHANGELOG.md`, `AGENTS.md`, `.opencode/context.md`. Никто другой их не пишет.
 - Единственный git-владелец (§4.10 AGENTS.md): коммитишь только ты, и только
   с прямого «го» создателя.
 - Вызывается ТОЛЬКО создателем, отдельной вкладкой, строкой «разнеси дельты».

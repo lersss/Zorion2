@@ -225,6 +225,22 @@
         { "on": "docs/specs/README.md", "kind": "docs", "reason": "РјР°РЅРёС„РµСЃС‚ СЃРїРµРє: СЃС‚СЂРѕРєР° 94a" },
         { "on": "docs/gamedesign/09_resources.md", "kind": "duplicates", "reason": "РѕСЃРё В§9.1.2, СЃР»РѕР№ В§9.2.2, РЅРµРїРѕР»РЅРѕС‚Р° В§9.2.7 вЂ” С„СѓРЅРґР°РјРµРЅС‚ СЃРїРµРєРё; СЃСѓР±Р»РёРјР°С†РёСЏ РјРµРЅСЏРµС‚ РёРЅРІР°СЂРёР°РЅС‚ В§9.1.2 (СЂРµС€РµРЅРёРµ СЃРѕР·РґР°С‚РµР»СЏ)" }
       ]
+    },
+    {
+      "id": "91a",
+      "type": "spec",
+      "path": "docs/specs/91a-ship-section-dashboard.md",
+      "note": "speca 91a (2026-09-18): razdel «Korabl» v dashboarde (siluet so slotami), dvigatel engine_1 kak nastoyashchiy modul (migraciya 000043), skorost poleta iz ustanovlennogo dvigatelya, polet bez dvigatelya zapreshchen dlya player",
+      "impacts": [
+        { "on": "equipment", "kind": "reads", "reason": "engine_1 v kataloge equipment (migraciya 000043); users.equipment — ustanovlennye moduli" },
+        { "on": "ship_models", "kind": "reads", "reason": "imya modeli v /me (LoadModels po obrazcu LoadCatalog)" },
+        { "on": "internal/handlers/travel_handlers.go", "kind": "reads", "reason": "skorost poleta iz ustanovlennogo dvigatelya (EngineSpeed), zapret poleta bez dvigatelya dlya player (admin — isklyuchenie)" },
+        { "on": "internal/handlers/auth_handlers.go", "kind": "reads", "reason": "/me: ship_model, ship_catalog, ship_speed_factor (addition, stare polya ne menyayutsya)" },
+        { "on": "web/index.html", "kind": "reads", "reason": "razdel «Korabl»: siluet so slotami, kharakteristiki iz /me" },
+        { "on": "web/static/js/map/events.js", "kind": "reads", "reason": "blokirovka «Letet»/«Pereletet» bez dvigatelya (hasEngine iz /me)" },
+        { "on": "docs/specs/README.md", "kind": "docs", "reason": "manifest speki 91a" },
+        { "on": "99_roadmap.md", "kind": "docs", "reason": "stroka 99.2: 91a — status fi chi" }
+      ]
     }
   ]
 }

@@ -22,10 +22,10 @@ func TestRecomputeSettlementPopulationDeathWritesLog(t *testing.T) {
 	now := time.Now()
 
 	mock.ExpectBegin()
-	mock.ExpectQuery(`SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at`).
+	mock.ExpectQuery(`SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at, race_id`).
 		WithArgs("s1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at"}).
-			AddRow("s1", "p1", 1000, float64(1000), 60, since, since, since))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id"}).
+			AddRow("s1", "p1", 1000, float64(1000), 60, since, since, since, ""))
 	mock.ExpectExec(`UPDATE settlements SET population`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO settlement_log`).
@@ -38,6 +38,7 @@ func TestRecomputeSettlementPopulationDeathWritesLog(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 	require.Zero(t, got.Population, "обвал: население обнулено целиком")
+	require.Equal(t, "", got.RaceID, "легаси-поселение без расы — пустой RaceID (75a)")
 }
 
 // Мёртвая чек-точка (population_exact <= NDead на старте): обвал есть, но
@@ -51,10 +52,10 @@ func TestRecomputeSettlementPopulationDeadCheckpointNoLog(t *testing.T) {
 	now := time.Now()
 
 	mock.ExpectBegin()
-	mock.ExpectQuery(`SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at`).
+	mock.ExpectQuery(`SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at, race_id`).
 		WithArgs("s1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at"}).
-			AddRow("s1", "p1", 50, float64(50), 60, since, since, since))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id"}).
+			AddRow("s1", "p1", 50, float64(50), 60, since, since, since, ""))
 	mock.ExpectExec(`UPDATE settlements SET population`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()

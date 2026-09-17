@@ -105,9 +105,9 @@ func (r *EconomyRepository) RecomputeSettlementPopulation(s *models.Settlement, 
 
 	var stored models.Settlement
 	err = tx.QueryRow(`
-		SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at
+		SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at, race_id
 		FROM settlements WHERE id = $1 FOR UPDATE`, s.ID,
-	).Scan(&stored.ID, &stored.PlanetID, &stored.Population, &stored.PopulationExact, &stored.Stability, &stored.ComputedAt, &stored.CreatedAt, &stored.UpdatedAt)
+	).Scan(&stored.ID, &stored.PlanetID, &stored.Population, &stored.PopulationExact, &stored.Stability, &stored.ComputedAt, &stored.CreatedAt, &stored.UpdatedAt, &stored.RaceID)
 	if err != nil {
 		return models.Settlement{}, err
 	}

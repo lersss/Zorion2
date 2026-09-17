@@ -33,11 +33,11 @@ func TestRecomputeSettlementPopulationEventComfortableUnchanged(t *testing.T) {
 
 	mock.ExpectBegin()
 	mock.ExpectQuery(`
-		SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at
+		SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at, race_id
 		FROM settlements WHERE id = $1 FOR UPDATE`).
 		WithArgs("s1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at"}).
-			AddRow("s1", "p1", 1_000_000, float64(1_000_000), 60, since, since, since))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id"}).
+			AddRow("s1", "p1", 1_000_000, float64(1_000_000), 60, since, since, since, "microcrack"))
 	mock.ExpectExec(`
 		UPDATE settlements SET population = $1, population_exact = $2, computed_at = $3, updated_at = NOW()
 		WHERE id = $4`).
@@ -53,6 +53,7 @@ func TestRecomputeSettlementPopulationEventComfortableUnchanged(t *testing.T) {
 	require.Equal(t, float64(1_000_000), got.PopulationExact)
 	require.Equal(t, float64(0), got.LambdaPerHour, "комфортная планета не должна убивать")
 	require.Equal(t, float64(100), got.NDead)
+	require.Equal(t, "microcrack", got.RaceID, "путь «событие» не должен терять расу (75a)")
 }
 
 // «Событие» на жаркой планете: население убывает, чек-точка продвигается.
@@ -65,10 +66,10 @@ func TestRecomputeSettlementPopulationEventHotDecreases(t *testing.T) {
 	now := time.Now()
 
 	mock.ExpectBegin()
-	mock.ExpectQuery(`SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at`).
+	mock.ExpectQuery(`SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at, race_id`).
 		WithArgs("s1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at"}).
-			AddRow("s1", "p1", 1_000_000, float64(1_000_000), 60, since, since, since))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id"}).
+			AddRow("s1", "p1", 1_000_000, float64(1_000_000), 60, since, since, since, "microcrack"))
 	mock.ExpectExec(`UPDATE settlements SET population`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
@@ -82,6 +83,7 @@ func TestRecomputeSettlementPopulationEventHotDecreases(t *testing.T) {
 	require.Less(t, got.Population, 1_000_000, "на жаркой планете население должно уменьшиться")
 	require.Greater(t, got.Population, 0)
 	require.Greater(t, got.RPerSec, float64(0), "жара — в R_per_sec, не в lambda_per_hour")
+	require.Equal(t, "microcrack", got.RaceID, "путь «событие» не должен терять расу (75a)")
 }
 
 // «Простой визит» (Δt < MinPersistInterval): население пересчитывается только
@@ -142,11 +144,11 @@ func TestRecomputeSettlementPopulationInt4Clamp(t *testing.T) {
 
 	mock.ExpectBegin()
 	mock.ExpectQuery(`
-		SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at
+		SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at, race_id
 		FROM settlements WHERE id = $1 FOR UPDATE`).
 		WithArgs("s1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at"}).
-			AddRow("s1", "p1", 1_000_000_000, float64(1_000_000_000), 60, since, since, since))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id"}).
+			AddRow("s1", "p1", 1_000_000_000, float64(1_000_000_000), 60, since, since, since, "thermo_swarms"))
 	mock.ExpectExec(`
 		UPDATE settlements SET population = $1, population_exact = $2, computed_at = $3, updated_at = NOW()
 		WHERE id = $4`).
@@ -164,4 +166,5 @@ func TestRecomputeSettlementPopulationInt4Clamp(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 	require.Equal(t, settlement.MaxInt4Population, got.Population,
 		"newExact > 2^31−1 клампится в MaxInt4Population перед int-конверсией")
+	require.Equal(t, "thermo_swarms", got.RaceID, "путь «событие» не должен терять расу (75a)")
 }

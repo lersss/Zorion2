@@ -86,6 +86,7 @@
 | `docs/GO_DEV_PROMPT.md` | промт для Go-разработчика Zorion |
 | `.opencode/agents/writer.md` | роль «писатель»: эмпатический тест гипотез (скрытая гипотеза → дневник/рассказ/хроника на ~1 стр.) | запуск `@writer` |
 | `.opencode/agents/scientist.md` | роль «учёный»: рациональный тест гипотез (скрытая гипотеза → научная картина: механизмы, физика, оценки) | запуск `@scientist` (параллельно с `@writer`) |
+| `.opencode/agents/optimizer.md` | роль «оптимизатор»: аналитик-оптимизатор промтов и структуры (регулярный отчёт с дословными дельтами; сам не правит, не коммитит) | запуск `@optimizer` (через `@manager`) |
 | `CHANGELOG.md` | история сессий; ведёт `@dispatcher` по дельтам менеджеров (раздел «Разнос по докам» в идеях), обычным агентам при работе не нужен |
 
 ## Владельцы доков (один писатель у каждого документа)
@@ -97,7 +98,7 @@
 
 | Файл / зона | Владелец (единственный писатель) |
 |---|---|
-| `STATUS.md`, `docs/INDEX.md`, `docs/gamedesign/99_roadmap.md`, `docs/gamedesign/faq_counter.md`, `CHANGELOG.md`, `AGENTS.md`, `.opencode/CONTEXT.md` | **`@dispatcher`** (горячие доки; вызывается только создателем в паузу) |
+| `STATUS.md`, `docs/INDEX.md`, `docs/gamedesign/99_roadmap.md`, `docs/gamedesign/faq_counter.md`, `CHANGELOG.md`, `AGENTS.md`, `.opencode/context.md` | **`@dispatcher`** (горячие доки; вызывается только создателем в паузу) |
 | `docs/gamedesign/ideas/` — раздел «Разнос по докам» в своей идее и новые идеи | `@manager` команды, которая подала пожелание (свой файл) |
 | `docs/specs/README.md`, `docs/gamedesign/*.md` (тематические GDD) | `@designer` |
 | `docs/VECTORS.md` | `@manager` |

@@ -7,7 +7,7 @@
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: system-ui, sans-serif; background: #0f172a; color: #f0f4fa; padding: 2rem; min-height: 100vh; }
-        .container { max-width: 600px; margin: 0 auto; }
+        .container { max-width: 1000px; margin: 0 auto; }
         .card { background: #1e293b; padding: 1.5rem; border-radius: 1rem; border: 1px solid #334155; margin-bottom: 1.5rem; }
         h1 { font-size: 2rem; margin-bottom: 0.5rem; }
         .info p { margin-bottom: 0.3rem; color: #cbd5e1; }
@@ -16,6 +16,9 @@
         button:hover { background: #2563eb; }
         .btn-secondary { background: #475569; }
         .btn-secondary:hover { background: #334155; }
+        .enc-section { margin-bottom: 1.5rem; }
+        .enc-section h3 { margin-bottom: 0.6rem; color: #e2e8f0; }
+        .journal-note { font-size: 0.7rem; color: #64748b; margin-top: 0.4rem; }
     </style>
 </head>
 <body>
@@ -24,13 +27,24 @@
             <h1>🚀 Ваш агент</h1>
             <div class="info">
                 <p><strong>Имя:</strong> <span id="agentName">Искатель</span></p>
+                <p><strong>Корабль:</strong> <span id="shipPreview"></span></p>
                 <p><strong>Текущий мир:</strong> <span id="currentWorld">—</span></p>
-                <p><strong>Скорость:</strong> <span id="speed">1.0</span> л.с.</p>
-                <p><strong>Грузоподъёмность:</strong> <span id="cargo">100</span></p>
+                <p><strong>Статус полёта:</strong> <span id="flightStatus">—</span></p>
             </div>
             <button onclick="location.href='/assignments'">📋 Контракты</button>
             <button onclick="location.href='/map'">🗺️ Карта миров</button>
-            <button onclick="location.href='/worlds'">🌍 Список миров (JSON)</button>
+            <button class="btn-secondary" id="logoutBtn">🚪 Выйти</button>
+        </div>
+
+        <div class="card">
+            <h2>📊 Статистика</h2>
+            <div id="stats"></div>
+            <div class="journal-note">Журнал открытий хранится в этом браузере (localStorage).</div>
+        </div>
+
+        <div class="card">
+            <h2>📖 Энциклопедия</h2>
+            <div id="encyclopedia"></div>
         </div>
 
         <div class="card">
@@ -43,6 +57,26 @@
 
     <script type="module">
         import { recolorShipSprite, getShipImage, setRedrawCallback, SHIP_COLOR_PALETTE } from '/static/js/map/ship_sprites.js';
+        import { loadEncyclopedia } from '/static/js/dashboard/encyclopedia.js';
+
+        // shipPreviewEl — миниатюра 52px для шапки профиля (спека 86a §4.1):
+        // перекрашенный canvas (если цвет задан и спрайт загружен), иначе
+        // исходный Image, иначе пустой div (спрайт ещё грузится).
+        function shipPreviewEl(file, color) {
+            const preview = recolorShipSprite(file, color);
+            if (preview) {
+                preview.style.cssText = 'width:52px; height:52px; vertical-align:middle;';
+                return preview;
+            }
+            const img = getShipImage(file);
+            if (img) {
+                img.style.cssText = 'width:52px; height:52px; vertical-align:middle;';
+                return img;
+            }
+            const div = document.createElement('div');
+            div.style.cssText = 'width:52px; height:52px; display:inline-block;';
+            return div;
+        }
 
         async function loadUser() {
             const token = localStorage.getItem('token');
@@ -53,7 +87,23 @@
                 });
                 if (!res.ok) throw new Error('Failed to load user');
                 const data = await res.json();
+                document.getElementById('agentName').textContent = data.username || 'Искатель';
                 document.getElementById('currentWorld').textContent = data.current_world_name || '—';
+                // Статус полёта (спека 86a §4.1): /me.flight — {from, to, ...}
+                // (from/to — id миров) или null = «на месте».
+                const flight = data.flight;
+                const flightEl = document.getElementById('flightStatus');
+                if (flight) {
+                    flightEl.textContent = `🚀 В полёте: ${flight.from} → ${flight.to}`;
+                } else {
+                    flightEl.textContent = 'На месте';
+                }
+                // Корабль-превью в шапке (спрайт + цвет из /me).
+                const previewWrap = document.getElementById('shipPreview');
+                if (previewWrap) {
+                    previewWrap.innerHTML = '';
+                    previewWrap.appendChild(shipPreviewEl(data.ship_icon, data.ship_color || null));
+                }
             } catch (e) {
                 console.error(e);
             }
@@ -70,10 +120,11 @@
         let shipIcon = '';    // выбранный PNG-файл
         let shipColor = null; // выбранный цвет (null = «Оригинал»)
 
-        // shipPreviewEl — миниатюра 52px: перекрашенный canvas (если цвет
-        // задан и спрайт загружен), иначе исходный Image, иначе пустой div
-        // (спрайт ещё грузится — onload перерисует сетку через scheduleRedraw).
-        function shipPreviewEl(file, color) {
+        // shipTilePreviewEl — миниатюра 52px для сетки выбора: перекрашенный
+        // canvas (если цвет задан и спрайт загружен), иначе исходный Image,
+        // иначе пустой div (спрайт ещё грузится — onload перерисует сетку
+        // через scheduleRedraw).
+        function shipTilePreviewEl(file, color) {
             const preview = recolorShipSprite(file, color);
             if (preview) {
                 preview.style.cssText = 'width:52px; height:52px; pointer-events:none;';
@@ -102,7 +153,7 @@
                     padding:6px; border:2px solid #334155; border-radius:10px;
                     background:#0f172a; cursor:pointer; transition:0.15s;
                 `;
-                tile.appendChild(shipPreviewEl(s.file, shipColor));
+                tile.appendChild(shipTilePreviewEl(s.file, shipColor));
                 const span = document.createElement('span');
                 span.textContent = s.name;
                 span.style.cssText = 'font-size:0.62rem; color:#94a3b8; text-align:center; line-height:1;';
@@ -276,6 +327,17 @@
 
         loadUser();
         loadShipSelector();
+        loadEncyclopedia();
+
+        // Выход из аккаунта (мелкая правка 2026-09-17): чистим игровой
+        // токен из localStorage и уходим на страницу входа. Игровой токен
+        // ('token') не пересекается с админским ('adminToken').
+        document.getElementById('logoutBtn').addEventListener('click', () => {
+            localStorage.removeItem('token');
+            localStorage.removeItem('shipIcon');
+            localStorage.removeItem('shipColor');
+            window.location.href = '/login-page';
+        });
     </script>
 </body>
 </html>

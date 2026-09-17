@@ -7,6 +7,7 @@ import { getStarColor, getStarSize, starTypeLabel, systemTypeLabel, starModsBadg
 import { renderRightPanel } from './panel.js';
 import { notifyError } from '../ui/toast.js';
 import { repaintPopulationNumbers } from './extrapolate.js';
+import { record } from '../dashboard/journal.js';
 
 // handleUnauthorized — локальная копия map/data.js: чистит игровой токен и
 // редиректит на логин. Не импортируем из ../map/ — тот тянет map/config.js,
@@ -52,6 +53,18 @@ export function openSystemModal(worldId, worldName, spectralClass, focusOpts, au
     .then(data => {
         console.log('Planets data:', data);
         renderModal(worldId, worldName || data.world_name, spectralClass || data.spectral_class, data);
+        // Хук журнала (спека 86a §4.3): аддитивная запись встреченного при
+        // открытии модалки системы — мир, экзотическая звезда, типы планет,
+        // расы поселений (race_id пусто = люди — журнал не пишет, §5.1.3).
+        // Ничего не блокирует и не перехватывает (И1).
+        record({
+            worldId,
+            starType: data.star_type,
+            planetTypes: (data.planets || []).map(p => p.type).filter(Boolean),
+            raceIds: (data.planets || []).flatMap(p =>
+                (p.settlements || []).map(s => s.race_id)
+            ),
+        });
         if (focusOpts) {
             if (focusOpts.satelliteId) {
                 selectSatelliteInModal(focusOpts.satelliteId);

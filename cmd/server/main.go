@@ -23,6 +23,7 @@ import (
 	"zorion/internal/races"
 	"zorion/internal/regionprofile"
 	"zorion/internal/repository"
+	"zorion/internal/ship"
 	"zorion/internal/travel"
 	"zorion/migrations"
 )
@@ -85,6 +86,15 @@ func main() {
 		log.Fatalf("❌ Ошибка применения миграций: %v", err)
 	}
 	log.Println("✅ Миграции актуальны")
+
+	// Каталог оборудования (спека 77a §3): справочник из БД (миграция 000040),
+	// дефолты при пустой БД. Нужен до старта HTTP — радиус радара считается
+	// из него (спека 77a §4.2).
+	if err := ship.LoadCatalog(db); err != nil {
+		log.Printf("⚠️ Каталог оборудования: %v (дефолты)", err)
+	} else {
+		log.Println("✅ Каталог оборудования загружен")
+	}
 
 	// Bootstrap первого skycomposer — после миграций, до старта HTTP (спека 99.2.14 §5).
 	bootstrapSkycomposer(db, cfg.SkycomposerBootstrapUsername, cfg.SkycomposerBootstrapPassword)
@@ -155,6 +165,15 @@ func main() {
 		log.Printf("✅ Каталог рас загружен: %d рас", len(races.Catalog()))
 	}
 
+	// Лор рас (спека 86a §5.1.1): config/race_lore.json — машиночитаемая
+	// проекция 22_races.md §3/§4. Ошибка загрузки — энциклопедия отдаёт расы
+	// без лора (сервер живёт, паттерн каталога рас).
+	if err := races.LoadLore("config/race_lore.json"); err != nil {
+		log.Printf("⚠️ Лор рас: %v, энциклопедия без лора", err)
+	} else {
+		log.Printf("✅ Лор рас загружен: %d записей", len(races.LoreCatalog()))
+	}
+
 	// Расовые R-кривые (спека 99.2.23 §4.4): файл читается при старте —
 	// активные кривые восстанавливаются; раса без записи → factory/active
 	// из карточки («один раз при создании расы»); битый JSON → лог, расы
@@ -183,6 +202,15 @@ func main() {
 	adminHandlers := handlers.NewAdminHandlers(worldRepo, db, mapCache)
 	compatHandlers := handlers.NewCompatibilityHandlers(db)
 
+	// Серверная видимость игрока (спека 77a §11): круг радара для role=player.
+	// Подключается к хендлерам карты/полёта; admin/skycomposer — без фильтра (И7).
+	knowledgeRepo := repository.NewKnowledgeRepository(db)
+	visibility := handlers.NewVisibility(userRepo, travelManager, mapCache, knowledgeRepo)
+	adminHandlers.SetVisibility(visibility)
+	adminHandlers.SetTravelManager(travelManager)
+	travelHandlers.SetVisibility(visibility)
+	worldHandlers.SetVisibility(visibility)
+
 	// Снапшот карты подхватывается в фоне — сервер отвечает сразу,
 	// карта заполняется за пару секунд после старта.
 	mapCache.LoadAsync(db)
@@ -198,6 +226,7 @@ func main() {
 	// Уведомления (этап 5): WSNotifier подменяет заглушку LogNotifier ДО
 	// старта тика, чтобы первые прибытия не терялись.
 	npcAdminHandlers := handlers.NewAdminNPCHandlers(npcRepo, worldRepo, npcManager)
+	npcAdminHandlers.SetVisibility(visibility)
 	wsNotifier := handlers.NewWSNotifier(wsHub, npcManager,
 		npcManager.Settings().NotifyInterval(), npcManager.Settings().NotificationMaxBatch())
 	npcManager.SetNotifier(wsNotifier)
@@ -218,6 +247,11 @@ func main() {
 	http.HandleFunc("/me", auth.AuthMiddleware(authHandlers.GetMe))
 	http.HandleFunc("/me/ship-icon", auth.AuthMiddleware(authHandlers.UpdateShipIcon))
 	http.HandleFunc("/me/ship-color", auth.AuthMiddleware(authHandlers.UpdateShipColor))
+
+	// Энциклопедия (спека 86a §8.1): публичный срез каталога рас + лор.
+	// Игровой JWT (как /me); без токена — 401.
+	encyclopediaHandlers := handlers.NewEncyclopediaHandlers()
+	http.HandleFunc("/api/encyclopedia/races", auth.AuthMiddleware(encyclopediaHandlers.GetRaces))
 
 	// API контрактов
 	http.HandleFunc("/api/contracts", auth.AuthMiddleware(contractHandlers.GetContracts))
@@ -313,6 +347,10 @@ func main() {
 	http.HandleFunc("/admin/npc/", auth.AdminAuth(npcAdminHandlers.HandleObject))
 	http.HandleFunc("/api/npc/positions", auth.AuthMiddleware(npcAdminHandlers.Positions))
 	http.HandleFunc("/api/npc/search", auth.AuthMiddleware(npcAdminHandlers.SearchAgent))
+
+	// Позиции чужих игроков (спека 77a §5.3): игровой JWT, фильтр по радиусу
+	// радара запрашивающего на сервере (И1).
+	http.HandleFunc("/api/players/positions", auth.AuthMiddleware(adminHandlers.PlayersPositions))
 
 	http.Handle("/admin", noCache(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./web/admin.html")

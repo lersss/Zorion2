@@ -4,6 +4,7 @@ import { draw, updateFpsCounter } from './map_render.js';
 import { loadClusters, loadUserData, maybeReloadClusters, resetFlightReloadTimer, waitForLoadIdle } from './data.js';
 import { centerOnAgent } from './navigation.js';
 import { updateFlightPanel, hideFlightPanel } from './flight.js';
+import { recordFlight } from '../dashboard/journal.js';
 
 export function animationLoop() {
     if (state.isFlying) {
@@ -12,6 +13,9 @@ export function animationLoop() {
             state.isFlying = false;
             state.followShip = false;
             sessionStorage.removeItem('followShip');
+            // Хук журнала (спека 86a §4.3): завершённый полёт — flights += 1.
+            // Аддитивный, ничего не блокирует (И1).
+            recordFlight();
             // Фикс 33c: сбрасываем полётный таймер перезапросов, чтобы новый
             // полёт, начатый сразу после прибытия, не пропустил первую
             // подгрузку кластеров (гард 600 мс).

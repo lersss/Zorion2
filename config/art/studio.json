@@ -17,5 +17,5 @@
   "poll_interval_s": 2,
   "history_timeout_s": 360,
   "auto_refresh_ms": 3000,
-  "max_count": 24
+  "max_count": 100
 }

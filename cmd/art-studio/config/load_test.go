@@ -31,6 +31,22 @@ func TestLoadForms(t *testing.T) {
 	if len(fc.AnthroForms) < 43 {
 		t.Errorf("anthro_forms = %d, want >= 43", len(fc.AnthroForms))
 	}
+	for _, m := range []struct {
+		name string
+		n    int
+		got  []string
+	}{
+		{"beast_forms", 30, fc.BeastForms},
+		{"xeno_forms", 30, fc.XenoForms},
+		{"amorphous_forms", 25, fc.AmorphousForms},
+		{"crystal_forms", 25, fc.CrystalForms},
+		{"mech_forms", 25, fc.MechForms},
+		{"titan_forms", 25, fc.TitanForms},
+	} {
+		if len(m.got) < m.n {
+			t.Errorf("%s = %d, want >= %d", m.name, len(m.got), m.n)
+		}
+	}
 	if len(fc.PaletteAccents) == 0 {
 		t.Errorf("palette_accents пуст")
 	}
@@ -100,6 +116,11 @@ func TestLoadFamilies(t *testing.T) {
 			if len(rc.Glows) < 2 || len(rc.Glows) > 3 {
 				t.Errorf("%s/%s: glows %d (нужно 2–3)", fid, rc.ID, len(rc.Glows))
 			}
+		}
+	}
+	for _, fid := range []string{"F4", "F5"} {
+		if len(fam[fid].BeastForms) == 0 {
+			t.Errorf("%s: beast_forms пуст", fid)
 		}
 	}
 }

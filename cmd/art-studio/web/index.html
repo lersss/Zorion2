@@ -44,9 +44,16 @@
   <select id="fam"></select>
   <span>Раса:</span>
   <select id="racePool"></select>
+  <span id="acceptedCount" style="color:#2a7;font-size:14px;font-weight:bold" title="Сколько аватаров этой расы уже одобрено (кнопкой «Принять»)"></span>
   <span>Штук:</span>
-  <input id="cnt" type="number" value="5" min="1" max="24">
+  <input id="cnt" type="number" value="5" min="1" max="100">
   <button class="gen" style="background:#a62" id="btnVar" onclick="genVarPool()" disabled>СГЕНЕРИРОВАТЬ РАСУ (5)</button>
+  <span>размер:</span>
+  <select id="sizePool"><option value="512">512 (быстро)</option><option value="1024">1024</option></select>
+  <button class="gen" style="background:#a33;display:none" onclick="stopGen()" id="btnStopPool">СТОП</button>
+  <button class="gen" style="background:#555" onclick="clearPool()" title="Удалить все варианты r*.png (эталоны не трогает)">ОЧИСТИТЬ РЕЗУЛЬТАТЫ</button>
+</div>
+<div class="toolbar" style="margin-top:6px">
   <span title="Разнообразие (главная ручка): насколько сильно меняется всё — и форма, и текстура.
 0 = почти копия эталона (лёгкая полировка). 50 = та же фигура, но другая фактура/цвета. 100 = вольная интерпретация, эталон едва узнаваем.">разнообразие:</span>
   <input id="denoisePct" type="range" min="0" max="100" step="1" value="89" style="width:120px">
@@ -64,10 +71,6 @@
 0 = строго материалы/свечения расы. 50 = лёгкий цветовой акцент. 100 = до 3 цветовых акцентов (палитра заметно другая, но основа расы сохраняется).">палитра:</span>
   <input id="palettePct" type="range" min="0" max="100" step="1" value="0" style="width:120px">
   <span id="palettePctLbl" style="font-size:13px;color:#8cf">0%</span>
-  <span>размер:</span>
-  <select id="sizePool"><option value="512">512 (быстро)</option><option value="1024">1024</option></select>
-  <button class="gen" style="background:#a33;display:none" onclick="stopGen()" id="btnStopPool">СТОП</button>
-  <button class="gen" style="background:#555" onclick="clearPool()" title="Удалить все варианты r*.png (эталоны не трогает)">ОЧИСТИТЬ РЕЗУЛЬТАТЫ</button>
 </div>
 <div id="done" class="done"></div>
 <div id="genStatePool" style="margin-bottom:8px;color:#8cf;font-size:14px">Статус генератора: ...</div>
@@ -80,9 +83,19 @@
     <span>Семейство:</span>
     <select id="famRef"></select>
     <span>Штук:</span>
-    <input id="cntRef" type="number" value="8" min="1" max="24">
+    <input id="cntRef" type="number" value="8" min="1" max="100">
     <button class="gen" id="btnCands" onclick="genCandsPool()">СГЕНЕРИРОВАТЬ ЭТАЛОНЫ (8)</button>
-    <label style="color:#ddd;font-size:13px"><input id="anthroRef" type="checkbox"> Антропоморфный</label>
+    <span>Морф:</span>
+    <select id="morphRef" style="background:#222;border:1px solid #444;color:#ddd;padding:4px;border-radius:4px">
+      <option value="">— не-антропо —</option>
+      <option value="anthro">Антропоморфный</option>
+      <option value="beast">Звероморфный</option>
+      <option value="xeno">Ксеноморфный</option>
+      <option value="amorph">Аморфный</option>
+      <option value="crystal">Кристалломорфный</option>
+      <option value="mech">Мехоморфный</option>
+      <option value="titan">Титаноморфный</option>
+    </select>
     <span style="margin-left:12px">Сброс эталона расы:</span>
     <select id="raceRefClear" style="background:#222;border:1px solid #444;color:#ddd;padding:4px;border-radius:4px"></select>
     <button class="gen" style="background:#a62" onclick="clearRef()">СБРОС ЭТАЛОНА</button>
@@ -98,7 +111,7 @@
 <div id="tab-humans" style="display:none">
   <div class="toolbar">
     <span>Сгенерировать:</span>
-    <input id="cntHumans" type="number" value="8" min="1" max="24">
+    <input id="cntHumans" type="number" value="8" min="1" max="100">
     <button class="gen" onclick="genHumans()">СГЕНЕРИРОВАТЬ</button>
     <button class="gen" style="background:#a33;display:none" onclick="stopGen()" id="btnStopHumans">СТОП</button>
   </div>
@@ -148,6 +161,19 @@ async function load(){
   const raceSel=document.getElementById('racePool');
   const raceFilter=raceSel? raceSel.value : '';
   const fam=document.getElementById('fam').value;
+  // счётчик принятых в выбранной расе (галерея: ref + одобренные)
+  const accEl=document.getElementById('acceptedCount');
+  if(accEl){
+    if(!raceFilter){
+      accEl.textContent='';
+    } else {
+      try{
+        const ga=await fetch('/gallery?fam='+fam+'&race='+raceFilter); const gj=await ga.json();
+        const n=(gj.items||[]).length;
+        accEl.textContent='✓ Принято: '+n;
+      }catch(e){ accEl.textContent=''; }
+    }
+  }
   const r=await fetch('/list?fam='+fam+'&race='+raceFilter); const items=await r.json();
   // эталон выбранной расы (если есть) — первая нестираемая карточка в ряду
   let refRace='';
@@ -224,8 +250,19 @@ async function loadRaces(){
   const fam=document.getElementById('fam').value;
   const sel=document.getElementById('racePool');
   const r=await fetch('/races?fam='+fam); const j=await r.json();
+  // число принятых по каждой расе — параллельно
+  const counts=await Promise.all(j.races.map(async x=>{
+    try{
+      const g=await fetch('/gallery?fam='+fam+'&race='+x.id); const gj=await g.json();
+      return {id:x.id, n:(gj.items||[]).length};
+    }catch(e){ return {id:x.id, n:0}; }
+  }));
+  const cmap={}; counts.forEach(c=>{ cmap[c.id]=c.n; });
   let h='<option value="">все</option>';
-  j.races.forEach(x=>{ h+=`<option value="${x.id}">${x.name}</option>`; });
+  j.races.forEach(x=>{
+    const n=cmap[x.id]||0;
+    h+=`<option value="${x.id}">${x.name} — ✓ ${n}</option>`;
+  });
   sel.innerHTML=h;
   const saved=localStorage.getItem('racePool');
   if(saved && [...sel.options].some(o=>o.value===saved)) sel.value=saved;
@@ -257,15 +294,16 @@ async function genVarPool(){
   const palette=document.getElementById('palettePct').value;
   document.getElementById('done').textContent='Генерация вариаций...';
   const r=await fetch('/genvar?fam='+fam+'&race='+race+'&n='+n+'&denoise='+denoise+'&cn_strength='+cnStrength+'&cn_end='+cnEnd+'&size='+size+'&palette='+palette); const j=await r.json();
-  document.getElementById('done').textContent=j.msg;
+  // сообщение в процентах ползунков (не абсолютные значения воркфлоу)
+  document.getElementById('done').textContent='Вариации от эталона расы: '+n+' шт (разнообразие '+d+'% · свобода формы '+s+'% · отпускание '+e+'% · палитра '+palette+'% · '+size+')';
   load();
 }
 async function genCandsPool(){
   const fam=document.getElementById('famRef').value;
   const n=document.getElementById('cntRef').value;
-  const anthro=document.getElementById('anthroRef').checked?'anthro':'';
+  const morph=document.getElementById('morphRef').value;
   document.getElementById('doneRef').textContent='Генерация кандидатов эталона...';
-  const r=await fetch('/genref?fam='+fam+'&n='+n+'&anthro='+anthro); const j=await r.json();
+  const r=await fetch('/genref?fam='+fam+'&n='+n+'&morph='+morph+'&size=512'); const j=await r.json();
   document.getElementById('doneRef').textContent=j.msg;
   loadRef();
 }
@@ -326,20 +364,56 @@ async function loadRef(){
     if(prev) rc.value=prev;
   }
   const hasRefs = (j.raceStatus||[]).filter(x=>x.has);
+  // дифф-рендер ряда эталонов: пересоздавать ТОЛЬКО при изменении состава,
+  // иначе таймер 3с заново грузит миниатюры → картинки скачут
   const prevRow=document.getElementById('refRow');
-  if(prevRow) prevRow.remove();
+  const prevKeys=prevRow? prevRow.dataset.keys : '';
+  const keys=hasRefs.map(x=>x.id).join(',');
   if(hasRefs.length){
-    const rw=document.createElement('div');
-    rw.id='refRow';
-    rw.style.cssText='display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px';
-    hasRefs.forEach(x=>{
-      const box=document.createElement('div');
-      box.style.cssText='text-align:center';
-      box.innerHTML=`<img src="/refimg?fam=${fam}&race=${x.id}" style="width:80px;height:80px;object-fit:cover;background:#222;border-radius:6px;border:2px solid #2a7;cursor:pointer" onclick="window.open('/refimg?fam=${fam}&race=${x.id}')">
-        <div style="font-size:10px;color:#8cf;margin-top:2px">${x.name.replace(/^\d+\s*/,'')}</div>`;
-      rw.appendChild(box);
-    });
-    st.after(rw);
+    if(!prevRow || prevKeys!==keys){
+      if(prevRow) prevRow.remove();
+      const rw=document.createElement('div');
+      rw.id='refRow';
+      rw.dataset.keys=keys;
+      rw.style.cssText='display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px';
+      // число принятых аватаров по каждой расе — параллельные запросы галереи
+      const counts=await Promise.all(hasRefs.map(async x=>{
+        try{
+          const g=await fetch('/gallery?fam='+fam+'&race='+x.id); const j=await g.json();
+          return {id:x.id, n:(j.items||[]).length};
+        }catch(e){ return {id:x.id, n:0}; }
+      }));
+      const cmap={}; counts.forEach(c=>{ cmap[c.id]=c.n; });
+      hasRefs.forEach(x=>{
+        const box=document.createElement('div');
+        box.style.cssText='text-align:center';
+        box.dataset.race=x.id;
+        const n=cmap[x.id]||0;
+        box.innerHTML=`<img src="/refimg?fam=${fam}&race=${x.id}" style="width:80px;height:80px;object-fit:cover;background:#222;border-radius:6px;border:2px solid #2a7;cursor:pointer" onclick="window.open('/refimg?fam=${fam}&race=${x.id}')">
+          <div style="font-size:10px;color:#8cf;margin-top:2px">${x.name.replace(/^\d+\s*/,'')}</div>
+          <div class="refcount" style="font-size:11px;color:#2a7;font-weight:bold">✓ принято: ${n}</div>`;
+        rw.appendChild(box);
+      });
+      st.after(rw);
+    } else {
+      // состав эталонов тот же — обновляем ТОЛЬКО числа принятых (картинки не трогаем)
+      const counts=await Promise.all(hasRefs.map(async x=>{
+        try{
+          const g=await fetch('/gallery?fam='+fam+'&race='+x.id); const j=await g.json();
+          return {id:x.id, n:(j.items||[]).length};
+        }catch(e){ return {id:x.id, n:0}; }
+      }));
+      const cmap={}; counts.forEach(c=>{ cmap[c.id]=c.n; });
+      [...prevRow.children].forEach(box=>{
+        const id=box.dataset.race;
+        if(id && cmap[id]!==undefined){
+          const cnt=box.querySelector('.refcount');
+          if(cnt) cnt.textContent='✓ принято: '+cmap[id];
+        }
+      });
+    }
+  } else if(prevRow){
+    prevRow.remove();
   }
   const g=document.getElementById('gridRef');
   // дифф-рендер: не перерисовывать загруженные карточки (иначе таймер 3с сбрасывает картинки)

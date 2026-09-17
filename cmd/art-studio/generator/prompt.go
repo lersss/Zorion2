@@ -110,10 +110,22 @@ func LightNeg() string {
 	return "text, watermark, blurry, low quality, deformed, ugly, duplicate, 3D render, cartoon, anime, human, person, face, eyes, nose, mouth, ears, chin, head, portrait, human anatomy, limbs, hands, body, flesh, meat, organ, naked, nude, cropped, cut off, floating"
 }
 
+// NegFor — негатив для генерации кандидатов: морфам (любой morph != "") нужен
+// СВОЙ негатив (без запрета human/face/head — иначе конфликт с промптом,
+// однообразие), если семейство задало anthro_neg. Не-антропо — обычный fam.Neg.
+func NegFor(fam config.Family, morph string) string {
+	if morph != "" && fam.AnthroNeg != "" {
+		return fam.AnthroNeg
+	}
+	return fam.Neg
+}
+
 // BuildPromptWide — кандидат эталона (широкий поиск по всему семейству,
 // спека 67a.1 §5.2). raceIdx < 0 — раса выбирается случайно (материал/свечение
-// от неё). anthro — гуманоиды из материала расы (галка «антропоморфный»).
-func BuildPromptWide(rng *rand.Rand, fam config.Family, raceIdx int, famID string, anthro bool, fc *config.FormsConfig) (prompt, raceID, raceName string) {
+// от неё). morph — морф генерации: "" = не-антропо (абстрактный объект),
+// "anthro"/"beast"/"xeno"/"amorph"/"crystal"/"mech"/"titan" — гуманоидные
+// морфы из материала расы (select морфа на вкладке «Эталон»).
+func BuildPromptWide(rng *rand.Rand, fam config.Family, raceIdx int, famID string, morph string, fc *config.FormsConfig) (prompt, raceID, raceName string) {
 	if raceIdx < 0 {
 		raceIdx = rng.Intn(len(fam.Races))
 	}
@@ -121,10 +133,47 @@ func BuildPromptWide(rng *rand.Rand, fam config.Family, raceIdx int, famID strin
 	mat := race.Materials[rng.Intn(len(race.Materials))]
 	glow := race.Glows[rng.Intn(len(race.Glows))]
 	scene := pickScene(rng, fam.Scene)
-	if anthro {
-		form := fc.AnthroForms[rng.Intn(len(fc.AnthroForms))]
-		prompt = fmt.Sprintf("realistic portrait of an alien humanoid race, FRONT VIEW, face looking directly at viewer, %s made of %s, %s, natural skin texture, head and shoulders, torso extending down below the frame, anchored, centered, %s, game avatar, no text, no watermark",
-			form, mat, glow, scene)
+	if morph != "" {
+		// свои формы семейства (F4/F5 — звериные), иначе глобальный список морфа;
+		// пустой список выбранного морфа — фолбек на глобальные антропо-формы
+		var forms []string
+		switch morph {
+		case "anthro":
+			forms = fam.AnthroForms
+			if len(forms) == 0 {
+				forms = fc.AnthroForms
+			}
+		case "beast":
+			forms = fam.BeastForms
+			if len(forms) == 0 {
+				forms = fc.BeastForms
+			}
+		case "xeno":
+			forms = fc.XenoForms
+		case "amorph":
+			forms = fc.AmorphousForms
+		case "crystal":
+			forms = fc.CrystalForms
+		case "mech":
+			forms = fc.MechForms
+		case "titan":
+			forms = fc.TitanForms
+		default:
+			forms = fc.AnthroForms
+		}
+		if len(forms) == 0 {
+			forms = fc.AnthroForms
+		}
+		form := forms[rng.Intn(len(forms))]
+		clothes := ""
+		if len(fam.AnthroClothes) > 0 {
+			clothes = " wearing " + fam.AnthroClothes[rng.Intn(len(fam.AnthroClothes))]
+		}
+		// «natural skin texture» убрано: тянет к человеческой коже; «face» убрано:
+		// тянет к человеческому лицу и мешает звериным/ксено-морфам; остаётся
+		// только «looking directly at viewer» — взгляд на зрителя
+		prompt = fmt.Sprintf("realistic portrait of an alien humanoid race, FRONT VIEW, looking directly at viewer, %s made of %s, %s, head and shoulders,%s torso extending down below the frame, anchored, centered, %s, game avatar, no text, no watermark",
+			form, mat, glow, clothes, scene)
 		return prompt, race.ID, race.Name
 	}
 	form := RandomForm(rng, fc, famID)

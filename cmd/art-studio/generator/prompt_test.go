@@ -130,18 +130,34 @@ func TestBuildPromptFormFromRace(t *testing.T) {
 	}
 }
 
-// TestBuildPromptWide — кандидаты эталона: неантропо и антропо (спека §5.2).
+// TestBuildPromptWide — кандидаты эталона: не-антропо, антропо и морфы
+// (спека §5.2): morph="" — абстрактный объект, morph != "" — гуманоидная ветка
+// со списком форм морфа (beast — свои звериные формы семейства F4).
 func TestBuildPromptWide(t *testing.T) {
 	fam := loadFamilies(t)
 	fc := loadForms(t)
 	rng := rand.New(rand.NewSource(7))
-	prompt, _, _ := BuildPromptWide(rng, fam["F2"], -1, "F2", false, fc)
+	prompt, _, _ := BuildPromptWide(rng, fam["F2"], -1, "F2", "", fc)
 	if !strings.Contains(prompt, "ABSTRACT OBJECT") {
-		t.Errorf("неантропо: %s", prompt)
+		t.Errorf("не-антропо: %s", prompt)
 	}
-	prompt2, _, _ := BuildPromptWide(rng, fam["F2"], -1, "F2", true, fc)
+	prompt2, _, _ := BuildPromptWide(rng, fam["F2"], -1, "F2", "anthro", fc)
 	if !strings.Contains(prompt2, "alien humanoid race") {
 		t.Errorf("антропо: %s", prompt2)
+	}
+	prompt3, _, _ := BuildPromptWide(rng, fam["F4"], -1, "F4", "beast", fc)
+	if !strings.Contains(prompt3, "alien humanoid race") {
+		t.Errorf("beast: %s", prompt3)
+	}
+	formOK := false
+	for _, f := range fam["F4"].BeastForms {
+		if strings.Contains(prompt3, f) {
+			formOK = true
+			break
+		}
+	}
+	if !formOK {
+		t.Errorf("beast: форма не из fam.BeastForms: %s", prompt3)
 	}
 }
 

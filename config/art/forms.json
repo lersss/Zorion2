@@ -435,15 +435,516 @@
      "energy"
     ]
    },
-   {
-    "shape": "mist-ring",
-    "categories": [
-     "gas",
-     "cold",
-     "sphere"
-    ]
-   }
-  ],
+{
+     "shape": "mist-ring",
+     "categories": [
+      "gas",
+      "cold",
+      "sphere"
+     ]
+    },
+    {
+     "shape": "sulfur-vent",
+     "categories": [
+      "sulfur",
+      "hot"
+     ]
+    },
+    {
+     "shape": "fumarole",
+     "categories": [
+      "sulfur",
+      "hot"
+     ]
+    },
+    {
+     "shape": "black-smoker",
+     "categories": [
+      "hot",
+      "sulfur"
+     ]
+    },
+    {
+     "shape": "caldera",
+     "categories": [
+      "hot",
+      "sulfur"
+     ]
+    },
+    {
+     "shape": "lava-pool",
+     "categories": [
+      "hot"
+     ]
+    },
+    {
+     "shape": "ash-dune",
+     "categories": [
+      "hot",
+      "sulfur"
+     ]
+    },
+    {
+     "shape": "magma-crack",
+     "categories": [
+      "hot"
+     ]
+    },
+    {
+     "shape": "ember-mound",
+     "categories": [
+      "hot"
+     ]
+    },
+    {
+     "shape": "cinder-cone",
+     "categories": [
+      "hot"
+     ]
+    },
+    {
+     "shape": "sulfur-crystal-cluster",
+     "categories": [
+      "sulfur",
+      "crystal"
+     ]
+    },
+    {
+     "shape": "hot-spring-terrace",
+     "categories": [
+      "hot",
+      "sulfur"
+     ]
+    },
+    {
+     "shape": "geyser-vent",
+     "categories": [
+      "hot"
+     ]
+    },
+    {
+     "shape": "lava-fountain",
+     "categories": [
+      "hot"
+     ]
+    },
+    {
+     "shape": "basalt-column",
+     "categories": [
+      "hot",
+      "crystal"
+     ]
+    },
+    {
+     "shape": "pumice-field",
+     "categories": [
+      "hot"
+     ]
+    },
+    {
+     "shape": "obsidian-spike",
+     "categories": [
+      "hot",
+      "crystal"
+     ]
+    },
+    {
+     "shape": "slag-flow",
+     "categories": [
+      "hot",
+      "mech"
+     ]
+    },
+    {
+     "shape": "sulfur-plain",
+     "categories": [
+      "sulfur"
+     ]
+    },
+    {
+     "shape": "pyroclastic-flow",
+     "categories": [
+      "hot"
+     ]
+    },
+    {
+     "shape": "lava-tube",
+     "categories": [
+      "hot"
+     ]
+    },
+    {
+     "shape": "fumarole-field",
+     "categories": [
+      "sulfur",
+      "hot"
+     ]
+    },
+    {
+     "shape": "sulfur-bloom",
+     "categories": [
+      "sulfur"
+     ]
+    },
+    {
+     "shape": "scoria-cone",
+     "categories": [
+      "hot"
+     ]
+    },
+    {
+     "shape": "magma-plume",
+     "categories": [
+      "hot"
+     ]
+    },
+    {
+     "shape": "thermal-vents",
+     "categories": [
+      "hot",
+      "sulfur"
+     ]
+    },
+    {
+     "shape": "sulfur-spire",
+     "categories": [
+      "sulfur",
+      "hot"
+     ]
+    },
+    {
+     "shape": "ash-cloud",
+     "categories": [
+      "hot"
+     ]
+    },
+    {
+     "shape": "ember-storm",
+     "categories": [
+      "hot"
+     ]
+    },
+    {
+     "shape": "crater-lake",
+     "categories": [
+      "hot"
+     ]
+    },
+    {
+     "shape": "lava-dome",
+     "categories": [
+      "hot"
+     ]
+    },
+    {
+     "shape": "sulfur-mound",
+     "categories": [
+      "sulfur",
+      "hot"
+     ]
+    },
+    {
+     "shape": "black-sand-dune",
+     "categories": [
+      "hot",
+      "sulfur"
+     ]
+    },
+    {
+     "shape": "glowing-crack-field",
+     "categories": [
+      "hot"
+     ]
+    },
+    {
+     "shape": "sulfur-pool",
+     "categories": [
+      "sulfur",
+      "hot"
+     ]
+    },
+    {
+     "shape": "vent-field",
+     "categories": [
+      "hot",
+      "sulfur"
+     ]
+    },
+    {
+     "shape": "volcanic-spire",
+     "categories": [
+      "hot"
+     ]
+    },
+    {
+     "shape": "ash-plume",
+     "categories": [
+      "hot"
+     ]
+    },
+    {
+     "shape": "magma-river",
+     "categories": [
+      "hot"
+     ]
+    },
+    {
+     "shape": "sulfur-cave",
+     "categories": [
+      "sulfur"
+     ]
+    },
+    {
+     "shape": "thermal-ridge",
+     "categories": [
+      "hot",
+      "sulfur"
+     ]
+    },
+    {
+     "shape": "molten-salt-pool",
+     "categories": [
+      "liquid",
+      "hot"
+     ]
+    },
+    {
+     "shape": "salt-flat",
+     "categories": [
+      "liquid",
+      "crystal"
+     ]
+    },
+    {
+     "shape": "eutectic-lake",
+     "categories": [
+      "liquid",
+      "hot"
+     ]
+    },
+    {
+     "shape": "supercritical-plume",
+     "categories": [
+      "liquid",
+      "energy"
+     ]
+    },
+    {
+     "shape": "hypercritical-vortex",
+     "categories": [
+      "liquid",
+      "energy"
+     ]
+    },
+    {
+     "shape": "lava-lake",
+     "categories": [
+      "hot",
+      "liquid"
+     ]
+    },
+    {
+     "shape": "magma-seep",
+     "categories": [
+      "hot",
+      "liquid"
+     ]
+    },
+    {
+     "shape": "thermal-crack",
+     "categories": [
+      "hot"
+     ]
+    },
+    {
+     "shape": "micro-fissure-network",
+     "categories": [
+      "hot",
+      "mech"
+     ]
+    },
+    {
+     "shape": "brine-pool",
+     "categories": [
+      "liquid",
+      "sulfur"
+     ]
+    },
+    {
+     "shape": "salt-crystal-field",
+     "categories": [
+      "crystal",
+      "sulfur"
+     ]
+    },
+    {
+     "shape": "evaporite-terrace",
+     "categories": [
+      "crystal",
+      "liquid"
+     ]
+    },
+    {
+     "shape": "hot-brine-spring",
+     "categories": [
+      "hot",
+      "liquid"
+     ]
+    },
+    {
+     "shape": "pressure-dome",
+     "categories": [
+      "mech",
+      "hot"
+     ]
+    },
+    {
+     "shape": "geyser-basin",
+     "categories": [
+      "hot",
+      "liquid"
+     ]
+    },
+    {
+     "shape": "scorched-plain",
+     "categories": [
+      "hot"
+     ]
+    },
+    {
+     "shape": "radiant-crystal",
+     "categories": [
+      "crystal",
+      "energy"
+     ]
+    },
+    {
+     "shape": "molten-vein",
+     "categories": [
+      "hot",
+      "liquid"
+     ]
+    },
+    {
+     "shape": "salt-spire",
+     "categories": [
+      "crystal",
+      "sulfur"
+     ]
+    },
+    {
+     "shape": "supercritical-fog",
+     "categories": [
+      "liquid",
+      "energy"
+     ]
+    },
+    {
+     "shape": "accretion-lump",
+     "categories": [
+      "hot",
+      "crystal"
+     ]
+    },
+    {
+     "shape": "young-crust",
+     "categories": [
+      "hot",
+      "crystal"
+     ]
+    },
+    {
+     "shape": "brine-cascade",
+     "categories": [
+      "liquid",
+      "sulfur"
+     ]
+    },
+    {
+     "shape": "salt-glacier",
+     "categories": [
+      "crystal",
+      "liquid"
+     ]
+    },
+    {
+     "shape": "evaporite-cone",
+     "categories": [
+      "crystal",
+      "sulfur"
+     ]
+    },
+    {
+     "shape": "thermal-sink",
+     "categories": [
+      "mech",
+      "hot"
+     ]
+    },
+    {
+     "shape": "crystal-meadow",
+     "categories": [
+      "crystal",
+      "energy"
+     ]
+    },
+    {
+     "shape": "radiant-field",
+     "categories": [
+      "energy",
+      "crystal"
+     ]
+    },
+    {
+     "shape": "hypercritical-shimmer",
+     "categories": [
+      "energy",
+      "liquid"
+     ]
+    },
+    {
+     "shape": "salt-bloom",
+     "categories": [
+      "sulfur",
+      "crystal"
+     ]
+    },
+    {
+     "shape": "magma-pocket",
+     "categories": [
+      "hot",
+      "liquid"
+     ]
+    },
+    {
+     "shape": "crack-field",
+     "categories": [
+      "hot",
+      "mech"
+     ]
+    },
+    {
+     "shape": "brine-tide",
+     "categories": [
+      "liquid",
+      "sulfur"
+     ]
+    },
+    {
+     "shape": "thermal-mirage",
+     "categories": [
+      "energy",
+      "liquid"
+     ]
+    },
+    {
+     "shape": "eutectic-stream",
+     "categories": [
+      "liquid",
+      "hot"
+     ]
+    }
+   ],
  "struct": [
   "clustered",
   "twisted",
@@ -493,9 +994,66 @@
    "hovering",
    "shimmering",
    "pulsating",
-   "venting",
-   "cascading"
-  ],
+"venting",
+    "cascading",
+    "molten",
+    "erupting",
+    "smoldering",
+    "fuming",
+    "baked",
+    "sintered",
+    "vitrified",
+    "solidified",
+    "cracked",
+    "fissured",
+    "sulfurous",
+    "smoking",
+    "seething",
+    "scalding",
+    "incandescent",
+    "slaggy",
+    "ashen",
+    "tephra-layered",
+    "bubbling",
+    "crusted",
+    "glowing-veined",
+    "steam-shrouded",
+    "mineral-encrusted",
+    "hard-crusted",
+    "sintered-terraced",
+    "fissured-plateau",
+    "slag-covered",
+    "ash-covered",
+    "cinder-strewn",
+    "thermal-cracked",
+    "magma-fed",
+    "sulfur-encrusted",
+    "crystallizing",
+    "briny",
+    "pressurized",
+    "supercritical",
+    "flowing",
+    "recrystallized",
+    "salt-encrusted",
+    "hot-seeping",
+    "radiant",
+    "accretionary",
+    "freshly-formed",
+    "quenched",
+    "brine-soaked",
+    "thermal-expanding",
+    "pressure-cracked",
+    "salt-frosted",
+    "sublimating",
+    "boiling",
+    "crusted-over",
+    "recrystallizing",
+    "turbulent-hot",
+    "salt-melted",
+    "heat-warped",
+    "vapor-charged",
+    "magma-warmed"
+   ],
  "character": [
   "jagged",
   "smooth",
@@ -535,9 +1093,58 @@
    "milky",
    "cloudy",
    "smoky-grey",
-   "iridescent",
-   "spectral"
-  ],
+"iridescent",
+    "spectral",
+    "sulfurous",
+    "scalding",
+    "ashen",
+    "incandescent",
+    "cindery",
+    "vitreous",
+    "sintered",
+    "smoked",
+    "burnt",
+    "scorched",
+    "sooty",
+    "glowing",
+    "ember-lit",
+    "lava-lit",
+    "pale-yellow",
+    "golden-sulfur",
+    "dusty",
+    "gritty",
+    "charred",
+    "glassy-black",
+    "metallic-grey",
+    "sulfur-crusted",
+    "blistering",
+    "scorched-crust",
+    "smoldering",
+    "slag-like",
+    "thermal",
+    "pumice-textured",
+    "obsidian-sharp",
+    "briny",
+    "evaporitic",
+    "supercritical",
+    "crystalline-salt",
+    "shimmering-hot",
+    "pressurized",
+    "radiant",
+    "viscous",
+    "hot-glass",
+    "salt-crusted",
+    "accretionary",
+    "quenched",
+    "boiling",
+    "searing",
+    "incandescent-salt",
+    "hypercritical",
+    "brine-soaked",
+    "salt-glazed",
+    "heat-fractured",
+    "vapor-sheened"
+   ],
  "parts": [
   "shards",
   "blades",
@@ -587,9 +1194,64 @@
    "mists",
    "vapors",
    "fumes",
-   "drifts",
-   "halos"
-  ],
+"drifts",
+    "halos",
+    "sulfur-blooms",
+    "lava-fingers",
+    "ash-layers",
+    "ember-streams",
+    "cinder-fragments",
+    "vent-cracks",
+    "molten-rivulets",
+    "slag-chunks",
+    "fumarole-pipes",
+    "obsidian-splinters",
+    "pumice-bubbles",
+    "thermal-plumes",
+    "sulfur-dust",
+    "basalt-pillars",
+    "scorched-stones",
+    "glowing-cracks",
+    "ash-plumes",
+    "lava-drips",
+    "sinter-terraces",
+    "sulfur-crystals",
+    "black-smoke-columns",
+    "hot-springs",
+    "tephra-lumps",
+    "magma-threads",
+    "vent-stalks",
+    "crater-rims",
+    "ash-cones",
+    "ember-sparks",
+    "sulfur-veins",
+    "baked-mud-cracks",
+    "salt-crystals",
+    "brine-pools",
+    "molten-drips",
+    "supercritical-streams",
+    "evaporite-layers",
+    "thermal-veins",
+    "pressure-cracks",
+    "eutectic-beads",
+    "lava-filaments",
+    "salt-flakes",
+    "crystal-spires",
+    "brine-ribbons",
+    "evaporite-terraces",
+    "hot-plumes",
+    "radiant-facets",
+    "accretion-chunks",
+    "quench-cracks",
+    "salt-glacier-tongues",
+    "micro-fissures",
+    "brine-cascades",
+    "thermal-cells",
+    "pressure-domes",
+    "hypercritical-wisps",
+    "molten-beads",
+    "salt-veins"
+   ],
  "anthro_forms": [
   "humanoid face with angular features",
   "humanoid figure with a broad face",
@@ -633,9 +1295,181 @@
   "humanoid head with eye stalks",
   "humanoid figure with a hunched posture",
   "humanoid bust with asymmetrical face",
-  "humanoid head with a lantern-like glow"
- ],
- "category_keys": {
+"humanoid head with a lantern-like glow"
+  ],
+  "beast_forms": [
+   "a serpentine leviathan with a humanoid face and vented crest",
+   "a bull-bodied colossus with a humanoid head and bronze horns",
+   "a crab-shelled titan with six legs and a calm face",
+   "a wolf-bodied hunter with a humanoid face and ember eyes",
+   "a spider-limbed beast with a watchful humanoid visage",
+   "a centaur-bodied warrior with a stern humanoid face",
+   "a draconic leviathan with a humanoid face and folded wings",
+   "a bear-hulked creature with a solemn humanoid face",
+   "a stag-antlered beast with a serene humanoid face",
+   "a lizard-scaled humanoid with a spiked tail and sharp teeth",
+   "a winged wyvern-bodied being with a noble humanoid face",
+   "a turtle-shelled giant with a placid humanoid face",
+   "a boar-headed brute with a thick armored hide",
+   "a feline-bodied predator with a humanoid face and whiskered muzzle",
+   "a horse-bodied centaur with a weathered humanoid face",
+   "a crocodilian beast with a humanoid face and armored back",
+   "a scorpion-tailed creature with a humanoid torso and clawed arms",
+   "a mammoth-bodied titan with a gentle humanoid face",
+   "a rhino-horned beast with a humanoid face and plated shoulders",
+   "a hawk-winged humanoid with taloned feet and a fierce face",
+   "a shark-mawed leviathan with a humanoid face and finned spine",
+   "a stag-bodied chimera with a humanoid face and crystal antlers",
+   "a wolf-headed hound of war with a humanoid body",
+   "a serpent-coiled being with a humanoid face and scaled chest",
+   "a crab-clawed leviathan with a humanoid face and barnacled hide",
+   "a bull-headed guardian with a massive humanoid body",
+   "a panther-bodied shadow beast with a humanoid face",
+   "a bear-pawed colossus with a humanoid face and shaggy mane",
+   "a drake-bodied beast with a humanoid face and smoldering maw",
+   "a deer-bodied spirit with a humanoid face and branching antlers"
+  ],
+  "xeno_forms": [
+   "a many-armed being with a single cyclopean eye",
+   "a tentacled mass with a humanoid face and radial eyes",
+   "a six-eyed creature with a slender alien body",
+   "a bioluminescent being with a humanoid face and glowing tendrils",
+   "a four-armed entity with a serene alien face",
+   "a gelatinous being with a humanoid face and floating organs",
+   "a many-legged creature with a single vertical eye",
+   "a translucent being with a humanoid face and internal stars",
+   "a winged creature with a humanoid face and featherless wings",
+   "a chitinous being with a humanoid face and segmented limbs",
+   "a many-mouthed entity with a humanoid face and writhing tongues",
+   "a levitating being with a humanoid face and ribbon-like arms",
+   "a faceted being with a humanoid face and prismatic skin",
+   "a many-fingered creature with a serene alien face",
+   "a bioluminescent leviathan with a humanoid face and light organs",
+   "a three-eyed being with a humanoid face and elongated skull",
+   "a tentacle-limbed entity with a calm humanoid face",
+   "a crystalline being with a humanoid face and shifting facets",
+   "a many-winged creature with a humanoid face and iridescent membrane",
+   "a boneless being with a humanoid face and flowing limbs",
+   "a many-jointed creature with a humanoid face and extra elbows",
+   "a luminous being with a humanoid face and pulsing veins",
+   "a many-tongued entity with a humanoid face and split jaw",
+   "a translucent being with a humanoid face and visible skeleton",
+   "a many-spined creature with a humanoid face and barbed tail",
+   "a floating being with a humanoid face and trailing filaments",
+   "a many-eared creature with a humanoid face and wide-set eyes",
+   "a bioluminescent swarm-entity with a humanoid face",
+   "a many-nostriled being with a humanoid face and breathing slits",
+   "a shifting entity with a humanoid face and impossible angles"
+  ],
+  "amorphous_forms": [
+   "a shifting cloud-mass with a faint humanoid visage",
+   "a roiling blob of protoplasm with a humanoid face",
+   "a swirling vortex with a humanoid face at its core",
+   "a puddle of dark liquid with a humanoid face",
+   "a drifting smoke-wisp with a faint humanoid face",
+   "a gelatinous mound with a serene humanoid face",
+   "a billowing fog-body with a barely-visible humanoid face",
+   "a dripping mass of slime with a humanoid face",
+   "a swirling mist-entity with a humanoid face and glowing eyes",
+   "a quivering puddle with a humanoid face and watery limbs",
+   "a condensing vapor-being with a faint humanoid face",
+   "a flowing ribbon of liquid with a humanoid face",
+   "a bubbling pool with a humanoid face and frothing shoulders",
+   "a hovering cloud of dust with a humanoid face",
+   "a viscous droplet-creature with a humanoid face",
+   "a spreading stain with a humanoid face and slow ripples",
+   "a translucent jelly-being with a humanoid face",
+   "a swirling column of smoke with a humanoid face",
+   "a melting wax-like being with a humanoid face",
+   "a fog-wreathed entity with a humanoid face and drifting arms",
+   "a shimmering mirage-body with a humanoid face",
+   "a pooling mercury-like being with a humanoid face",
+   "a rising vapor-spirit with a faint humanoid face",
+   "a churning foam-mass with a humanoid face",
+   "a dissolving silhouette with a humanoid face and misty edges"
+  ],
+  "crystal_forms": [
+   "a faceted golem of sharp crystal shards",
+   "a crystal-bodied being with a humanoid face and jagged shoulders",
+   "a spiked crystal titan with a serene humanoid face",
+   "a mosaic-skinned entity with a humanoid face and prismatic plates",
+   "a diamond-faceted being with a humanoid face and brilliant edges",
+   "a crystal-spined creature with a humanoid face and razor limbs",
+   "a gem-studded colossus with a humanoid face and jeweled eyes",
+   "a quartz-bodied humanoid with a faceted face and crystal crown",
+   "a crystal-winged being with a humanoid face and glassy feathers",
+   "a shard-bodied entity with a humanoid face and needle fingers",
+   "a crystalline leviathan with a humanoid face and gemstone scales",
+   "a prism-bodied being with a humanoid face and refracting skin",
+   "a crystal-antlered creature with a humanoid face and mineral hide",
+   "a jewel-bodied titan with a humanoid face and emerald heart",
+   "a crystal-tailed being with a humanoid face and sharp-edged spine",
+   "a faceted giant with a humanoid face and translucent body",
+   "a crystal-clawed creature with a humanoid face and glassy armor",
+   "a gemstone-bodied entity with a humanoid face and ruby veins",
+   "a crystal-horned being with a humanoid face and diamond teeth",
+   "a mosaic-bodied titan with a humanoid face and obsidian seams",
+   "a crystal-fingered entity with a humanoid face and sapphire glow",
+   "a spired crystal being with a humanoid face and crest",
+   "a gem-faceted creature with a humanoid face and amethyst skin",
+   "a crystal-shouldered colossus with a humanoid face and glassy gaze",
+   "a diamond-bodied being with a humanoid face and glittering form"
+  ],
+  "mech_forms": [
+   "a chrome automaton with hydraulic jaws",
+   "a riveted war-machine with a humanoid face and piston arms",
+   "a gear-studded golem with a humanoid face and steam vents",
+   "a servomotor-bodied robot with a humanoid face and antennae",
+   "a plated mech-warrior with a humanoid face and thruster back",
+   "a brass automaton with a humanoid face and clockwork heart",
+   "a hydraulic titan with a humanoid face and crushing claws",
+   "a wire-muscled android with a humanoid face and glowing core",
+   "a tank-bodied machine with a humanoid face and cannon shoulder",
+   "a turbine-chested robot with a humanoid face and spinning vents",
+   "a bolt-jointed automaton with a humanoid face and armored plates",
+   "a drone-swarm entity with a humanoid face and hovering pods",
+   "a reactor-core golem with a humanoid face and exhaust pipes",
+   "a magnetized war-robot with a humanoid face and railgun arm",
+   "a piston-legged machine with a humanoid face and servoed hips",
+   "a shield-plated automaton with a humanoid face and emitter eyes",
+   "a flywheel-bodied robot with a humanoid face and chain limbs",
+   "a coolant-veined android with a humanoid face and heat sinks",
+   "a cannon-armed titan with a humanoid face and targeting visor",
+   "a cable-tendriled machine with a humanoid face and socket joints",
+   "a gyroscope-core automaton with a humanoid face and stabilizer fins",
+   "a furnace-chested golem with a humanoid face and smokestack back",
+   "a circuit-skinned android with a humanoid face and LED seams",
+   "a grapple-armed mech with a humanoid face and winch shoulders",
+   "a radar-headed robot with a humanoid face and dish antenna"
+  ],
+  "titan_forms": [
+   "a mountain-bodied colossus with a solemn stone face",
+   "a tower-limbed giant with a humanoid face and cliff shoulders",
+   "a monolithic titan with a humanoid face and bedrock chest",
+   "a mammoth-backed colossus with a humanoid face and tusked helm",
+   "a glacier-shouldered giant with a humanoid face and ice-cracked skin",
+   "a fortress-bodied titan with a humanoid face and rampart arms",
+   "a canyon-chested colossus with a humanoid face and stone fists",
+   "a volcano-backed giant with a humanoid face and molten veins",
+   "a plateau-bodied titan with a humanoid face and mesa shoulders",
+   "a pillar-legged colossus with a humanoid face and tower spine",
+   "a boulder-fisted giant with a humanoid face and quarry chest",
+   "a ridge-backed titan with a humanoid face and cliff-like jaw",
+   "a storm-cloud giant with a humanoid face and thunder shoulders",
+   "a deep-rooted colossus with a humanoid face and earthbound feet",
+   "a bastion-bodied titan with a humanoid face and wall-like arms",
+   "a landslide-shouldered giant with a humanoid face and rubble fists",
+   "a glacier-crowned colossus with a humanoid face and frozen beard",
+   "a mountain-armed titan with a humanoid face and stone heart",
+   "a dune-bodied giant with a humanoid face and sand skin",
+   "a crater-chested colossus with a humanoid face and lava scars",
+   "a monolith-shouldered titan with a humanoid face and obelisk spine",
+   "a quarry-bodied giant with a humanoid face and chiseled chest",
+   "a storm-veined colossus with a humanoid face and lightning scars",
+   "a bedrock-limbed titan with a humanoid face and mineral fists",
+   "a mountain-crowned giant with a humanoid face and snow-dusted hair"
+  ],
+  "category_keys": {
   "F2": [
    "crystal",
    "cold",

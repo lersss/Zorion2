@@ -15,26 +15,27 @@ import (
 
 // GenRef — кандидаты эталона (широкий поиск по всему семейству, спека 67a.1
 // §6.1 /genref). Очищает ref_cands/ перед стартом (разовая пачка).
-// size — 512 (быстро, дефолт) или 1024.
-func (r *Runner) GenRef(famID string, n int, anthro bool, size int) (string, Status) {
+// size — 512 (быстро, дефолт) или 1024. morph — морф генерации
+// ("" = не-антропо, иначе один из 7 морфов).
+func (r *Runner) GenRef(famID string, n int, morph string, size int) (string, Status) {
 	fam, ok := r.families[famID]
 	if !ok {
 		return "нет семейства " + famID, Status{}
 	}
 	started, st := r.TryStart(func(ctx *JobCtx) {
-		ctx.genRefJob(famID, fam, n, anthro, size)
+		ctx.genRefJob(famID, fam, n, morph, size)
 	})
 	if !started {
 		return fmt.Sprintf("Уже идёт генерация: %d/%d", st.Done, st.Total), st
 	}
-	kind := ""
-	if anthro {
-		kind = "антропоморфных "
+	suffix := ""
+	if morph != "" {
+		suffix = ", морф " + morph
 	}
-	return fmt.Sprintf("Генерация %d %sкандидатов (все расы %s)...", n, kind, famID), Status{}
+	return fmt.Sprintf("Генерация %d кандидатов (все расы %s%s)...", n, famID, suffix), Status{}
 }
 
-func (c *JobCtx) genRefJob(famID string, fam config.Family, n int, anthro bool, size int) {
+func (c *JobCtx) genRefJob(famID string, fam config.Family, n int, morph string, size int) {
 	pool := c.PoolPath("races_pool")
 	refdir := filepath.Join(pool, "ref_cands")
 	os.MkdirAll(refdir, 0755)
@@ -46,10 +47,10 @@ func (c *JobCtx) genRefJob(famID string, fam config.Family, n int, anthro bool, 
 		// локальный rand на вызов (AGENTS.md §0: общий *rand.Rand не потокобезопасен)
 		rng := rand.New(rand.NewSource(time.Now().UnixNano() + int64(i)))
 		seed := rng.Intn(999999999) + 1
-		prompt, rid, rname := BuildPromptWide(rng, fam, -1, famID, anthro, c.r.forms)
+		prompt, rid, rname := BuildPromptWide(rng, fam, -1, famID, morph, c.r.forms)
 		raw := filepath.Join(pool, fmt.Sprintf("_raw_ref_%02d.png", i+1))
 		out := filepath.Join(refdir, fmt.Sprintf("c%02d.png", i+1))
-		wf := comfy.Txt2ImgWorkflow(c.r.cfg.Checkpoint, prompt, fam.Neg, seed, c.r.cfg.Steps, c.r.cfg.Cfg, size, "race_pool")
+		wf := comfy.Txt2ImgWorkflow(c.r.cfg.Checkpoint, prompt, NegFor(fam, morph), seed, c.r.cfg.Steps, c.r.cfg.Cfg, size, "race_pool")
 		pid, err := c.r.comfy.Submit(wf)
 		if err != nil {
 			return false

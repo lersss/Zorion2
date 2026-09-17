@@ -31,8 +31,14 @@ type FormsConfig struct {
 	Shapes         []Shape           `json:"shapes"`
 	Struct         []string          `json:"struct"`
 	Character      []string          `json:"character"`
-	Parts          []string          `json:"parts"`
-	AnthroForms    []string          `json:"anthro_forms"`
+	Parts          []string            `json:"parts"`
+	AnthroForms    []string            `json:"anthro_forms"`
+	BeastForms     []string            `json:"beast_forms"`
+	XenoForms      []string            `json:"xeno_forms"`
+	AmorphousForms []string            `json:"amorphous_forms"`
+	CrystalForms   []string            `json:"crystal_forms"`
+	MechForms      []string            `json:"mech_forms"`
+	TitanForms     []string            `json:"titan_forms"`
 	CategoryKeys   map[string][]string `json:"category_keys"`
 	PaletteAccents []string          `json:"palette_accents"`
 }
@@ -48,12 +54,16 @@ type FamiliesConfig map[string]Family
 
 // Family — семейство рас: общие шаблоны + расы.
 type Family struct {
-	Name   string  `json:"name"`
-	Races  []Race  `json:"races"`
-	Extra  []string `json:"extra"`
-	Anchor []string `json:"anchor"`
-	Scene  string  `json:"scene"`
-	Neg    string  `json:"neg"`
+	Name         string   `json:"name"`
+	Races        []Race   `json:"races"`
+	Extra        []string `json:"extra"`
+	Anchor       []string `json:"anchor"`
+	Scene        string   `json:"scene"`
+	Neg          string   `json:"neg"`
+	AnthroForms  []string `json:"anthro_forms,omitempty"`  // свои антропо-формы (иначе глобальные)
+	BeastForms   []string `json:"beast_forms,omitempty"`   // свои звериные формы (иначе глобальные)
+	AnthroClothes []string `json:"anthro_clothes,omitempty"` // фантастическая одежда антропоморфов
+	AnthroNeg    string   `json:"anthro_neg,omitempty"`    // негатив для антропо (иначе fam.Neg)
 }
 
 // Race — раса семейства (id — номер из 99.2.21, строка).

@@ -258,9 +258,9 @@ func (s *Server) handleGenVar(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGenRef(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	n := clampCount(atoiDefault(q.Get("n"), 12), s.cfg.MaxCount)
-	anthro := q.Get("anthro") == "anthro"
+	morph := q.Get("morph")
 	size := clampSize(atoiDefault(q.Get("size"), 512))
-	msg, _ := s.runner.GenRef(q.Get("fam"), n, anthro, size)
+	msg, _ := s.runner.GenRef(q.Get("fam"), n, morph, size)
 	writeJSON(w, map[string]string{"msg": msg})
 }
 
@@ -443,11 +443,12 @@ func CandInfo(prompt string) string {
 func acceptRaceFile(pool, acceptRoot, file string) (string, string) {
 	src := filepath.Join(pool, file)
 	fam, raceID := "", ""
+	// берём ПОСЛЕДНЮЮ запись меты (свежую): имена rNN переиспользуются после
+	// очистки пула, первая запись может быть от другой расы (баг 2026-09-17)
 	for _, m := range generator.ReadPoolMeta(pool) {
 		if m.File == file {
 			fam = m.Family
 			raceID = m.RaceID
-			break
 		}
 	}
 	if fam != "" && raceID != "" {
@@ -458,6 +459,7 @@ func acceptRaceFile(pool, acceptRoot, file string) (string, string) {
 			return "", "Ошибка: " + err.Error()
 		}
 		os.Remove(src)
+		generator.RemovePoolMeta(pool, file) // запись уходит вместе с файлом — без дублей
 		rel, _ := filepath.Rel(acceptRoot, dst)
 		return dst, "Принято: " + rel
 	}

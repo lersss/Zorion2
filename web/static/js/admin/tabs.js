@@ -6,6 +6,7 @@ import { loadUsers } from './users.js';
 import { initNPC } from './npc.js';
 import { initSettlementSettings } from './settlementSettings.js';
 import { initBalancer } from './balancer.js';
+import { initResources } from './resources.js';
 import { applyGenSubTab } from './generation.js';
 
 // Активная вкладка сохраняется между обновлениями страницы.
@@ -53,6 +54,9 @@ function activateTab(tabId) {
     }
     if (tabId === 'tab-balancer') {
         initBalancer();
+    }
+    if (tabId === 'tab-resources') {
+        initResources();
     }
     if (tabId === 'tab-main') {
         initSettlementSettings();

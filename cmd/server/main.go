@@ -321,6 +321,10 @@ func main() {
 	http.HandleFunc("/admin/race-balancer/factory", auth.AdminAuth(adminHandlers.HandleRaceBalancerFactory))
 	http.HandleFunc("/admin/race-balancer/status", auth.AdminAuth(adminHandlers.HandleRaceBalancerStatus))
 
+	// Каталог ресурсов и покрытие рас (спека 94a): read-only просмотр
+	// универсального слоя (admin + skycomposer).
+	http.HandleFunc("/admin/resources", auth.AdminAuth(adminHandlers.GetAdminResources))
+
 	// Конфиг генерации и пересчёт планет (99.2.3 §4.5/§5)
 	http.HandleFunc("/admin/generation/config", auth.AdminAuth(adminHandlers.HandleGenerationConfig))
 	http.HandleFunc("/admin/regenerate-planets", auth.AdminAuth(adminHandlers.RegeneratePlanets))

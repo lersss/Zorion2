@@ -21,6 +21,7 @@
         <button class="tab-btn" data-tab="tab-worlds">🌍 Миры</button>
         <button class="tab-btn" data-tab="tab-npc">👁️ NPC</button>
         <button class="tab-btn" data-tab="tab-balancer">⚖️ Балансировка</button>
+        <button class="tab-btn" data-tab="tab-resources">📦 Ресурсы</button>
         <button class="tab-btn" data-tab="tab-users" id="tab-users-btn" style="display:none;">👥 Пользователи</button>
     </div>
 
@@ -745,6 +746,70 @@
                 СПЖ и коэффициент рождаемости настраиваются в Настройках населения
                 (вкладка «Основное») → <a href="#" id="balancerGoSettlement">открыть</a>.
             </p>
+        </div>
+    </div>
+
+    <!-- Вкладка: Ресурсы (спека 94a, read-only) -->
+    <div id="tab-resources" class="tab-pane">
+        <div class="card">
+            <h2>📦 Каталог ресурсов и покрытие рас</h2>
+            <p class="hint">
+                Универсальный слой (спека 94a): 20 предустановленных ресурсов
+                (13 ядерных + 7 мостовых), 13 шаблонов хемотипов, покрытие
+                потребления 50 рас. Read-only — имена ресурсов рабочие заглушки.
+            </p>
+            <div class="compact-row">
+                <button class="btn secondary" onclick="loadResources()">🔄 Обновить</button>
+                <span id="resourcesSummary" style="color:#e0e0e0;"></span>
+            </div>
+
+            <h3 style="margin-top:16px;">Каталог ресурсов</h3>
+            <div class="compact-row" style="margin-top:8px;">
+                <div><label>Категория</label>
+                    <select id="resourcesCatFilter">
+                        <option value="">Все категории</option>
+                        <option value="water">💧 Вода/жидкости</option>
+                        <option value="mineral">🪨 Минералы</option>
+                        <option value="gas">💨 Газы</option>
+                        <option value="fuel">🔥 Топливо/редокс</option>
+                        <option value="organic">🌿 Органика</option>
+                        <option value="rare">⭐ Редкие</option>
+                    </select>
+                </div>
+                <div><label>Тип</label>
+                    <select id="resourcesTypeFilter">
+                        <option value="all">Все</option>
+                        <option value="nuclear">Ядерные</option>
+                        <option value="bridge">Мостовые</option>
+                    </select>
+                </div>
+                <div><label>Поиск по имени</label>
+                    <input type="text" id="resourcesSearch" placeholder="вода, лёд..." style="width:180px;">
+                </div>
+            </div>
+            <table class="stats-table" style="margin-top:8px;">
+                <thead><tr><th>№</th><th>Имя</th><th>Категория</th><th title="Наведите на ячейку — полный профиль всех 10 осей">Ключевые оси</th><th>T_melt / T_boil, K</th><th>Что это</th></tr></thead>
+                <tbody id="resourcesBody">
+                    <tr><td colspan="6" style="text-align:center;color:#94a3b8;">Загрузка...</td></tr>
+                </tbody>
+            </table>
+
+            <h3 style="margin-top:20px;">Покрытие рас</h3>
+            <div class="compact-row" style="margin-top:8px;">
+                <div><label>Раса</label>
+                    <select id="resourcesRaceFilter"><option value="">Все расы</option></select>
+                </div>
+                <div><label>Ось</label>
+                    <select id="resourcesAxisFilter"><option value="">Все оси</option></select>
+                </div>
+                <span id="resourcesCoverageCount" style="color:#94a3b8; align-self:center;"></span>
+            </div>
+            <table class="stats-table" style="margin-top:8px;">
+                <thead><tr><th>Раса</th><th>Ось</th><th>Вес</th><th>Ресурсы</th><th>Статус</th></tr></thead>
+                <tbody id="resourcesRacesBody">
+                    <tr><td colspan="5" style="text-align:center;color:#94a3b8;">Загрузка...</td></tr>
+                </tbody>
+            </table>
         </div>
     </div>
 

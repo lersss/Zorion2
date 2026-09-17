@@ -91,6 +91,12 @@ func (c *JobCtx) genVarJob(famID string, fam config.Family, raceIdx, n int, ref 
 			os.Remove(raw)
 			return false
 		}
+		// полупрозрачный низ после rembg просвечивал фон (бледный низ) —
+		// силуэт делаем полностью непрозрачным (решение создателя 2026-09-17)
+		if err := postproc.NormalizeAlphaFile(out, 40); err != nil {
+			os.Remove(raw)
+			return false
+		}
 		os.Remove(raw)
 		metaMu.Lock()
 		appendPoolMeta(filepath.Join(pool, "meta.json"), MetaItem{

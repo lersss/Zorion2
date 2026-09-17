@@ -99,11 +99,17 @@ func LightNeg() string {
 // NegFor — негатив для генерации кандидатов: морфам (любой morph != "") нужен
 // СВОЙ негатив (без запрета human/face/head — иначе конфликт с промптом,
 // однообразие), если семейство задало anthro_neg. Не-антропо — обычный fam.Neg.
+// Мехоморфный: кадр до торса — жёсткие запреты полного тела/ног (создатель
+// 2026-09-17: «мехи в полный рост, а нужно максимум до торса»).
 func NegFor(fam config.Family, morph string) string {
+	neg := fam.Neg
 	if morph != "" && fam.AnthroNeg != "" {
-		return fam.AnthroNeg
+		neg = fam.AnthroNeg
 	}
-	return fam.Neg
+	if morph == "mech" {
+		neg += ", full body, legs, standing pose, whole figure, hips, lower body"
+	}
+	return neg
 }
 
 // BuildPromptWide — кандидат эталона (широкий поиск по всему семейству,
@@ -161,10 +167,17 @@ func BuildPromptWide(rng *rand.Rand, fam config.Family, raceIdx int, famID strin
 			// антропо: человеческое тело, лицо, взгляд на зрителя
 			prompt = fmt.Sprintf("realistic portrait of an alien humanoid race, FRONT VIEW, looking directly at viewer, %s made of %s, %s, head and shoulders,%s torso extending down below the frame, anchored, centered, %s, game avatar, no text, no watermark",
 				form, mat, glow, clothes, scene)
+		} else if morph == "mech" {
+			// мехоморфный: гуманоидная машина. БЕЗ «realistic portrait» и
+			// «looking directly at viewer» — иначе SDXL рисует лицо/голову
+			// (alien-головы у мехов). Кадр — максимум до торса: жёсткие сигналы
+			// «chest-up framing, upper body only, no legs» (решение создателя
+			// 2026-09-17).
+			prompt = fmt.Sprintf("close-up concept art of a humanoid mechanical creature, FRONT VIEW, chest-up framing, upper body only, %s made of %s, %s,%s torso extending down below the frame, no legs, no full body, anchored, centered, %s, game avatar, no text, no watermark",
+				form, mat, glow, clothes, scene)
 		} else {
-			// морфы (зверо/ксено/аморф/кристалл/мех/титан): НЕ «humanoid race»,
-			// НЕ «head and shoulders» — иначе SDXL тянет к человеку; существо
-			// смотрит на зрителя, но тело/форму задаёт форма морфа
+			// морфы (зверо/ксено/аморф/кристалл/титан): существо смотрит на
+			// зрителя, но тело/форму задаёт форма морфа
 			prompt = fmt.Sprintf("realistic portrait of an alien creature, FRONT VIEW, looking directly at viewer, %s made of %s, %s,%s anchored, centered, %s, game avatar, no text, no watermark",
 				form, mat, glow, clothes, scene)
 		}
@@ -175,7 +188,7 @@ func BuildPromptWide(rng *rand.Rand, fam config.Family, raceIdx int, famID strin
 		subject = "a personage"
 	}
 	form := race.Forms[rng.Intn(len(race.Forms))]
-	prompt = fmt.Sprintf("dramatic cinematic concept art of %s, FRONT VIEW, made of %s, %s, %s, no face, no eyes, no mouth, no human features, asymmetric, anchored by a solid base extending to the bottom edge of the frame, centered, %s, masterpiece, game avatar, no text, no watermark",
+	prompt = fmt.Sprintf("dramatic cinematic concept art of %s, FRONT VIEW, made of %s, %s, %s, no face, no eyes, no mouth, no human features, asymmetric, anchored by a solid base standing on the bottom edge of the frame, centered, %s, masterpiece, game avatar, no text, no watermark",
 		subject, mat, form, glow, scene)
 	return prompt, race.ID, race.Name
 }

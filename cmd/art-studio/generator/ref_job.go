@@ -65,6 +65,12 @@ func (c *JobCtx) genRefJob(famID string, fam config.Family, n int, morph string,
 			os.Remove(raw)
 			return false
 		}
+		// полупрозрачный низ после rembg просвечивал фон (бледный низ) —
+		// силуэт делаем полностью непрозрачным (решение создателя 2026-09-17)
+		if err := postproc.NormalizeAlphaFile(out, 40); err != nil {
+			os.Remove(raw)
+			return false
+		}
 		os.Remove(raw)
 		metaMu.Lock()
 		candMeta[fmt.Sprintf("c%02d.png", i+1)] = CandMeta{RaceID: rid, Race: rname, Seed: int64(seed), Prompt: prompt}

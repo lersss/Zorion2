@@ -140,9 +140,9 @@ function renderCatalog() {
             <td>${i + 1}</td>
             <td>${r.name}${flags.length ? ` <span class="hint" style="font-size:0.75rem;">(${flags.join(', ')})</span>` : ''}</td>
             <td>${r.category_icon} ${CATEGORY_NAMES[r.category] || r.category}</td>
-            <td data-tip="${fullProfile(r)}" style="cursor:help;">${topAxes(r, 4)}</td>
+            <td data-id="${r.id}" onclick="toggleAxesCell(this)" style="cursor:pointer; border-bottom: 1px dotted rgba(147,197,253,0.5);">${topAxes(r, 4)} <span style="font-size:0.7rem;color:#93c5fd;">▾</span></td>
             <td>${r.t_melt} / ${r.t_boil}</td>
-            <td>${r.bridge ? 'мостовой' : 'ядерный'}${closes ? ` · закрывает: ${closes}` : ''}</td>
+            <td>${r.bridge ? 'мостовой' : 'ядерный'}${closes ? ` · кормит: ${closes}` : ''}</td>
         </tr>`;
     }).join('');
 }
@@ -213,11 +213,21 @@ function topAxes(r, n) {
         .join(' · ');
 }
 
-// fullProfile — полный профиль всех 10 осей (для тултипа).
+// fullProfile — полный профиль всех 10 осей (для разворота ячейки по клику).
 function fullProfile(r) {
     return Object.keys(AXIS_NAMES)
         .map(k => `${AXIS_NAMES[k]} ${r[k]}`)
-        .join(', ');
+        .join(' · ');
+}
+
+// toggleAxesCell — клик по ячейке «Ключевые оси»: топ-4 ↔ полный профиль.
+export function toggleAxesCell(td) {
+    const r = resourcesData.resources.find(x => x.id === td.dataset.id);
+    if (!r) return;
+    const expanded = td.dataset.expanded === '1';
+    td.dataset.expanded = expanded ? '0' : '1';
+    const body = expanded ? topAxes(r, 4) : fullProfile(r);
+    td.innerHTML = `${body} <span style="font-size:0.7rem;color:#93c5fd;">${expanded ? '▾' : '▴'}</span>`;
 }
 
 // chemotypeLabel — читаемое имя consumption-оси («ВОД → вода»).

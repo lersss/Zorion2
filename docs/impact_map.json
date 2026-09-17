@@ -1,5 +1,5 @@
-{
-  "_comment": "Реестр каскадных влияний Zorion. Вопрос: «меняем X → смотрим на Y». Ведёт @manager при сдаче фич (идея 83a): дедупликация по entity.id, schema_version растёт только при изменении структуры, updated_at — дата правки. Сущность заводится при ≥2 потребителях или ≥2 влияниях.",
+﻿{
+  "_comment": "Р РµРµСЃС‚СЂ РєР°СЃРєР°РґРЅС‹С… РІР»РёСЏРЅРёР№ Zorion. Р’РѕРїСЂРѕСЃ: В«РјРµРЅСЏРµРј X в†’ СЃРјРѕС‚СЂРёРј РЅР° YВ». Р’РµРґС‘С‚ @manager РїСЂРё СЃРґР°С‡Рµ С„РёС‡ (РёРґРµСЏ 83a): РґРµРґСѓРїР»РёРєР°С†РёСЏ РїРѕ entity.id, schema_version СЂР°СЃС‚С‘С‚ С‚РѕР»СЊРєРѕ РїСЂРё РёР·РјРµРЅРµРЅРёРё СЃС‚СЂСѓРєС‚СѓСЂС‹, updated_at вЂ” РґР°С‚Р° РїСЂР°РІРєРё. РЎСѓС‰РЅРѕСЃС‚СЊ Р·Р°РІРѕРґРёС‚СЃСЏ РїСЂРё в‰Ґ2 РїРѕС‚СЂРµР±РёС‚РµР»СЏС… РёР»Рё в‰Ґ2 РІР»РёСЏРЅРёСЏС….",
   "schema_version": 1,
   "updated_at": "2026-09-18",
   "entities": [
@@ -7,206 +7,223 @@
       "id": "races.json",
       "type": "config",
       "path": "config/races.json",
-      "note": "каталог 60 рас (50 био + 10 роботов): окна opt/surv, атрибуты, потребление 13 осей, forage, home, bulge",
+      "note": "РєР°С‚Р°Р»РѕРі 60 СЂР°СЃ (50 Р±РёРѕ + 10 СЂРѕР±РѕС‚РѕРІ): РѕРєРЅР° opt/surv, Р°С‚СЂРёР±СѓС‚С‹, РїРѕС‚СЂРµР±Р»РµРЅРёРµ 13 РѕСЃРµР№, forage, home, bulge",
       "impacts": [
-        { "on": "race_balancer.json", "kind": "derives", "reason": "R-кривые генерируются из карточки (99.2.23 §3.3); card_hash устаревает → пометка «заводские устарели», factory перегенерировать" },
-        { "on": "internal/generator/settlement/races_test.go", "kind": "test", "reason": "тесты генератора поселений ссылаются на race_id и T-окна (80a §9.3: T 450→520)" },
-        { "on": "22_races.md", "kind": "duplicates", "reason": "карточки дублируются в справочнике (§3/§4 — имена/лор); числа не копируются (§8.1), имена/основы — да" },
-        { "on": "docs/gamedesign/races/*.md", "kind": "duplicates", "reason": "60 лор-файлов по расе; правка карточки (имя/основа) устаревает лор" },
-        { "on": "docs/gamedesign/03_planets.md", "kind": "duplicates", "reason": "74a: обитаемость для людей ~6% привязана к HumansSuitable (вода ≥10, гиганты исключены)" },
-        { "on": "docs/gamedesign/10_exploration.md", "kind": "duplicates", "reason": "74a: отчёты — тип жизни/раса поселения; каталог рас источник" },
-        { "on": "docs/gamedesign/13_settlements.md", "kind": "duplicates", "reason": "74a: раса поселения race_id, корм рас; привязка к каталогу" },
-        { "on": "docs/gamedesign/14_money.md", "kind": "duplicates", "reason": "74a: торговцы-эмитент кредита — расы; привязка к каталогу" },
-        { "on": "docs/gamedesign/19_robots.md", "kind": "duplicates", "reason": "74a: расы-роботы 51–60 как сущности каталога (слой robotic)" },
-        { "on": "99.2.21", "kind": "duplicates", "reason": "числа карточек зафиксированы в спеке §5; правка карточки = правка спеки" },
-        { "on": "config/art/*.json", "kind": "reads", "reason": "морфы/формы/материалы строятся от имён и basis (67a.1, 76a.1, 78a.1)" },
-        { "on": "internal/races/catalog.go", "kind": "reads", "reason": "LoadCatalog валидирует карточки при старте; новые поля = правка валидации" },
-        { "on": "settlements.race_id", "kind": "schema", "reason": "строковый ключ ссылается на id расы; смена id = миграция данных (000039/000038)" }
+        { "on": "race_balancer.json", "kind": "derives", "reason": "R-РєСЂРёРІС‹Рµ РіРµРЅРµСЂРёСЂСѓСЋС‚СЃСЏ РёР· РєР°СЂС‚РѕС‡РєРё (99.2.23 В§3.3); card_hash СѓСЃС‚Р°СЂРµРІР°РµС‚ в†’ РїРѕРјРµС‚РєР° В«Р·Р°РІРѕРґСЃРєРёРµ СѓСЃС‚Р°СЂРµР»РёВ», factory РїРµСЂРµРіРµРЅРµСЂРёСЂРѕРІР°С‚СЊ" },
+        { "on": "internal/generator/settlement/races_test.go", "kind": "test", "reason": "С‚РµСЃС‚С‹ РіРµРЅРµСЂР°С‚РѕСЂР° РїРѕСЃРµР»РµРЅРёР№ СЃСЃС‹Р»Р°СЋС‚СЃСЏ РЅР° race_id Рё T-РѕРєРЅР° (80a В§9.3: T 450в†’520)" },
+        { "on": "22_races.md", "kind": "duplicates", "reason": "РєР°СЂС‚РѕС‡РєРё РґСѓР±Р»РёСЂСѓСЋС‚СЃСЏ РІ СЃРїСЂР°РІРѕС‡РЅРёРєРµ (В§3/В§4 вЂ” РёРјРµРЅР°/Р»РѕСЂ); С‡РёСЃР»Р° РЅРµ РєРѕРїРёСЂСѓСЋС‚СЃСЏ (В§8.1), РёРјРµРЅР°/РѕСЃРЅРѕРІС‹ вЂ” РґР°" },
+        { "on": "docs/gamedesign/races/*.md", "kind": "duplicates", "reason": "60 Р»РѕСЂ-С„Р°Р№Р»РѕРІ РїРѕ СЂР°СЃРµ; РїСЂР°РІРєР° РєР°СЂС‚РѕС‡РєРё (РёРјСЏ/РѕСЃРЅРѕРІР°) СѓСЃС‚Р°СЂРµРІР°РµС‚ Р»РѕСЂ" },
+        { "on": "docs/gamedesign/03_planets.md", "kind": "duplicates", "reason": "74a: РѕР±РёС‚Р°РµРјРѕСЃС‚СЊ РґР»СЏ Р»СЋРґРµР№ ~6% РїСЂРёРІСЏР·Р°РЅР° Рє HumansSuitable (РІРѕРґР° в‰Ґ10, РіРёРіР°РЅС‚С‹ РёСЃРєР»СЋС‡РµРЅС‹)" },
+        { "on": "docs/gamedesign/10_exploration.md", "kind": "duplicates", "reason": "74a: РѕС‚С‡С‘С‚С‹ вЂ” С‚РёРї Р¶РёР·РЅРё/СЂР°СЃР° РїРѕСЃРµР»РµРЅРёСЏ; РєР°С‚Р°Р»РѕРі СЂР°СЃ РёСЃС‚РѕС‡РЅРёРє" },
+        { "on": "docs/gamedesign/13_settlements.md", "kind": "duplicates", "reason": "74a: СЂР°СЃР° РїРѕСЃРµР»РµРЅРёСЏ race_id, РєРѕСЂРј СЂР°СЃ; РїСЂРёРІСЏР·РєР° Рє РєР°С‚Р°Р»РѕРіСѓ" },
+        { "on": "docs/gamedesign/14_money.md", "kind": "duplicates", "reason": "74a: С‚РѕСЂРіРѕРІС†С‹-СЌРјРёС‚РµРЅС‚ РєСЂРµРґРёС‚Р° вЂ” СЂР°СЃС‹; РїСЂРёРІСЏР·РєР° Рє РєР°С‚Р°Р»РѕРіСѓ" },
+        { "on": "docs/gamedesign/19_robots.md", "kind": "duplicates", "reason": "74a: СЂР°СЃС‹-СЂРѕР±РѕС‚С‹ 51вЂ“60 РєР°Рє СЃСѓС‰РЅРѕСЃС‚Рё РєР°С‚Р°Р»РѕРіР° (СЃР»РѕР№ robotic)" },
+        { "on": "99.2.21", "kind": "duplicates", "reason": "С‡РёСЃР»Р° РєР°СЂС‚РѕС‡РµРє Р·Р°С„РёРєСЃРёСЂРѕРІР°РЅС‹ РІ СЃРїРµРєРµ В§5; РїСЂР°РІРєР° РєР°СЂС‚РѕС‡РєРё = РїСЂР°РІРєР° СЃРїРµРєРё" },
+        { "on": "config/art/*.json", "kind": "reads", "reason": "РјРѕСЂС„С‹/С„РѕСЂРјС‹/РјР°С‚РµСЂРёР°Р»С‹ СЃС‚СЂРѕСЏС‚СЃСЏ РѕС‚ РёРјС‘РЅ Рё basis (67a.1, 76a.1, 78a.1)" },
+        { "on": "internal/races/catalog.go", "kind": "reads", "reason": "LoadCatalog РІР°Р»РёРґРёСЂСѓРµС‚ РєР°СЂС‚РѕС‡РєРё РїСЂРё СЃС‚Р°СЂС‚Рµ; РЅРѕРІС‹Рµ РїРѕР»СЏ = РїСЂР°РІРєР° РІР°Р»РёРґР°С†РёРё" },
+        { "on": "settlements.race_id", "kind": "schema", "reason": "СЃС‚СЂРѕРєРѕРІС‹Р№ РєР»СЋС‡ СЃСЃС‹Р»Р°РµС‚СЃСЏ РЅР° id СЂР°СЃС‹; СЃРјРµРЅР° id = РјРёРіСЂР°С†РёСЏ РґР°РЅРЅС‹С… (000039/000038)" }
       ]
     },
     {
       "id": "race_balancer.json",
       "type": "balance",
       "path": "config/race_balancer.json",
-      "note": "R-кривые рас: factory (снимок из карточки) + active (настроенная), card_hash; env RACE_BALANCER_FILE",
+      "note": "R-РєСЂРёРІС‹Рµ СЂР°СЃ: factory (СЃРЅРёРјРѕРє РёР· РєР°СЂС‚РѕС‡РєРё) + active (РЅР°СЃС‚СЂРѕРµРЅРЅР°СЏ), card_hash; env RACE_BALANCER_FILE",
       "impacts": [
-        { "on": "races.json", "kind": "derives", "reason": "card_hash сверяется с карточкой; устаревание → «Сгенерировать из карточки» (99.2.23 §4.4)" },
-        { "on": "internal/economy/settlement/race_balancer.go", "kind": "reads", "reason": "store читает файл при старте (race_balancer_file.go: tmp+rename, битый JSON → лог)" },
-        { "on": "internal/handlers/admin_race_balancer.go", "kind": "api", "reason": "вкладка «Балансировка»: кривые, generate, status" },
-        { "on": "docs/specs/99.2.23-race-r-curves-twins.md", "kind": "duplicates", "reason": "механика factory/active/card_hash описана в спеке" },
-        { "on": "docs/gamedesign/18a_population_death.md", "kind": "reads", "reason": "R-модель населения использует active-кривые (пересчёт)" }
+        { "on": "races.json", "kind": "derives", "reason": "card_hash СЃРІРµСЂСЏРµС‚СЃСЏ СЃ РєР°СЂС‚РѕС‡РєРѕР№; СѓСЃС‚Р°СЂРµРІР°РЅРёРµ в†’ В«РЎРіРµРЅРµСЂРёСЂРѕРІР°С‚СЊ РёР· РєР°СЂС‚РѕС‡РєРёВ» (99.2.23 В§4.4)" },
+        { "on": "internal/economy/settlement/race_balancer.go", "kind": "reads", "reason": "store С‡РёС‚Р°РµС‚ С„Р°Р№Р» РїСЂРё СЃС‚Р°СЂС‚Рµ (race_balancer_file.go: tmp+rename, Р±РёС‚С‹Р№ JSON в†’ Р»РѕРі)" },
+        { "on": "internal/handlers/admin_race_balancer.go", "kind": "api", "reason": "РІРєР»Р°РґРєР° В«Р‘Р°Р»Р°РЅСЃРёСЂРѕРІРєР°В»: РєСЂРёРІС‹Рµ, generate, status" },
+        { "on": "docs/specs/99.2.23-race-r-curves-twins.md", "kind": "duplicates", "reason": "РјРµС…Р°РЅРёРєР° factory/active/card_hash РѕРїРёСЃР°РЅР° РІ СЃРїРµРєРµ" },
+        { "on": "docs/gamedesign/18a_population_death.md", "kind": "reads", "reason": "R-РјРѕРґРµР»СЊ РЅР°СЃРµР»РµРЅРёСЏ РёСЃРїРѕР»СЊР·СѓРµС‚ active-РєСЂРёРІС‹Рµ (РїРµСЂРµСЃС‡С‘С‚)" }
       ]
     },
     {
       "id": "settlements.race_id",
       "type": "table",
       "path": "db:settlements",
-      "note": "колонка settlements.race_id (000039) + regions.race_id (000038); NULL = легаси/люди; две расы на планете = два ряда",
+      "note": "РєРѕР»РѕРЅРєР° settlements.race_id (000039) + regions.race_id (000038); NULL = Р»РµРіР°СЃРё/Р»СЋРґРё; РґРІРµ СЂР°СЃС‹ РЅР° РїР»Р°РЅРµС‚Рµ = РґРІР° СЂСЏРґР°",
       "impacts": [
-        { "on": "races.json", "kind": "reads", "reason": "значение = id из каталога; смена id расы = UPDATE данных + проверка регионов" },
-        { "on": "internal/generator/settlement/races.go", "kind": "writes", "reason": "генератор поселений пишет race_id (65a)" },
-        { "on": "internal/repository/economy_repository.go", "kind": "reads", "reason": "репозиторий читает race_id для пересчёта населения и карточек поселений (строки 37/56/85/108); planet_repo.go:138 — race_name в JSON-выводе" },
-        { "on": "docs/gamedesign/13_tiers_impl.md", "kind": "duplicates", "reason": "структура таблицы задокументирована (race_id, NULL=легаси)" },
-        { "on": "99.2.21", "kind": "duplicates", "reason": "§2.3/§7.4: race_id, сосуществование двух рас" }
+        { "on": "races.json", "kind": "reads", "reason": "Р·РЅР°С‡РµРЅРёРµ = id РёР· РєР°С‚Р°Р»РѕРіР°; СЃРјРµРЅР° id СЂР°СЃС‹ = UPDATE РґР°РЅРЅС‹С… + РїСЂРѕРІРµСЂРєР° СЂРµРіРёРѕРЅРѕРІ" },
+        { "on": "internal/generator/settlement/races.go", "kind": "writes", "reason": "РіРµРЅРµСЂР°С‚РѕСЂ РїРѕСЃРµР»РµРЅРёР№ РїРёС€РµС‚ race_id (65a)" },
+        { "on": "internal/repository/economy_repository.go", "kind": "reads", "reason": "СЂРµРїРѕР·РёС‚РѕСЂРёР№ С‡РёС‚Р°РµС‚ race_id РґР»СЏ РїРµСЂРµСЃС‡С‘С‚Р° РЅР°СЃРµР»РµРЅРёСЏ Рё РєР°СЂС‚РѕС‡РµРє РїРѕСЃРµР»РµРЅРёР№ (СЃС‚СЂРѕРєРё 37/56/85/108); planet_repo.go:138 вЂ” race_name РІ JSON-РІС‹РІРѕРґРµ" },
+        { "on": "docs/gamedesign/13_tiers_impl.md", "kind": "duplicates", "reason": "СЃС‚СЂСѓРєС‚СѓСЂР° С‚Р°Р±Р»РёС†С‹ Р·Р°РґРѕРєСѓРјРµРЅС‚РёСЂРѕРІР°РЅР° (race_id, NULL=Р»РµРіР°СЃРё)" },
+        { "on": "99.2.21", "kind": "duplicates", "reason": "В§2.3/В§7.4: race_id, СЃРѕСЃСѓС‰РµСЃС‚РІРѕРІР°РЅРёРµ РґРІСѓС… СЂР°СЃ" }
       ]
     },
     {
       "id": "22_races.md",
       "type": "doc",
       "path": "docs/gamedesign/22_races.md",
-      "note": "GDD-справочник рас (лор); источник фактов — config/races.json и спеки 99.2.21–99.2.24",
+      "note": "GDD-СЃРїСЂР°РІРѕС‡РЅРёРє СЂР°СЃ (Р»РѕСЂ); РёСЃС‚РѕС‡РЅРёРє С„Р°РєС‚РѕРІ вЂ” config/races.json Рё СЃРїРµРєРё 99.2.21вЂ“99.2.24",
       "impacts": [
-        { "on": "races.json", "kind": "reads", "reason": "справочник строится от карточек; числа не копирует (§8.1), имена/лор — да" },
-        { "on": "docs/gamedesign/races/*.md", "kind": "writes", "reason": "сводный справочник ссылается на 60 файлов рас; правка лора синхронизируется" },
-        { "on": "config/art/*.json", "kind": "reads", "reason": "арт-студия берёт слова/материалы из справочника (78a.1)" },
-        { "on": "99.2.21", "kind": "duplicates", "reason": "справочник — задел из спеки §15; расхождения = правка одного из двух" }
+        { "on": "races.json", "kind": "reads", "reason": "СЃРїСЂР°РІРѕС‡РЅРёРє СЃС‚СЂРѕРёС‚СЃСЏ РѕС‚ РєР°СЂС‚РѕС‡РµРє; С‡РёСЃР»Р° РЅРµ РєРѕРїРёСЂСѓРµС‚ (В§8.1), РёРјРµРЅР°/Р»РѕСЂ вЂ” РґР°" },
+        { "on": "docs/gamedesign/races/*.md", "kind": "writes", "reason": "СЃРІРѕРґРЅС‹Р№ СЃРїСЂР°РІРѕС‡РЅРёРє СЃСЃС‹Р»Р°РµС‚СЃСЏ РЅР° 60 С„Р°Р№Р»РѕРІ СЂР°СЃ; РїСЂР°РІРєР° Р»РѕСЂР° СЃРёРЅС…СЂРѕРЅРёР·РёСЂСѓРµС‚СЃСЏ" },
+        { "on": "config/art/*.json", "kind": "reads", "reason": "Р°СЂС‚-СЃС‚СѓРґРёСЏ Р±РµСЂС‘С‚ СЃР»РѕРІР°/РјР°С‚РµСЂРёР°Р»С‹ РёР· СЃРїСЂР°РІРѕС‡РЅРёРєР° (78a.1)" },
+        { "on": "99.2.21", "kind": "duplicates", "reason": "СЃРїСЂР°РІРѕС‡РЅРёРє вЂ” Р·Р°РґРµР» РёР· СЃРїРµРєРё В§15; СЂР°СЃС…РѕР¶РґРµРЅРёСЏ = РїСЂР°РІРєР° РѕРґРЅРѕРіРѕ РёР· РґРІСѓС…" }
       ]
     },
     {
       "id": "18b_settlement_log.md",
       "type": "doc",
       "path": "docs/gamedesign/18b_settlement_log.md",
-      "note": "GDD-док «Лог поселения» (записи «Вымерло», таблица settlement_log, миграция 000024); вынесен из 18a_population_death.md 2026-09-18 (идея 92a); тема: дата смерти, причина, схема, анти-дубль и синк, бэкфилл — отменён, UI",
+      "note": "GDD-РґРѕРє В«Р›РѕРі РїРѕСЃРµР»РµРЅРёСЏВ» (Р·Р°РїРёСЃРё В«Р’С‹РјРµСЂР»РѕВ», С‚Р°Р±Р»РёС†Р° settlement_log, РјРёРіСЂР°С†РёСЏ 000024); РІС‹РЅРµСЃРµРЅ РёР· 18a_population_death.md 2026-09-18 (РёРґРµСЏ 92a); С‚РµРјР°: РґР°С‚Р° СЃРјРµСЂС‚Рё, РїСЂРёС‡РёРЅР°, СЃС…РµРјР°, Р°РЅС‚Рё-РґСѓР±Р»СЊ Рё СЃРёРЅРє, Р±СЌРєС„РёР»Р» вЂ” РѕС‚РјРµРЅС‘РЅ, UI",
       "impacts": [
-        { "on": "18a_population_death.md", "kind": "reads", "reason": "18a ссылается на 18b (лог вынесен); R-модель смертности и лог — смежные темы" },
-        { "on": "settlement_log", "kind": "duplicates", "reason": "таблица settlement_log (000024) задокументирована в доке: схема, uq_settlement_log_extinct, дата/причина" },
-        { "on": "internal/repository/economy_repository.go", "kind": "reads", "reason": "комментарии: RecomputeSettlementPopulation пишет «Вымерло» (анти-дубль uq), GetSettlementLogBySettlementIDs — 3 записи (UI)" },
-        { "on": "internal/repository/economy_repository_log_test.go", "kind": "test", "reason": "тесты лога ссылаются на §Анти-дубль/§Бэкфилл" },
-        { "on": "internal/models/economy.go", "kind": "reads", "reason": "SettlementLogEntry (лог поселения) — модель записи; DeathCause — код причины" },
-        { "on": "internal/economy/settlement/death.go", "kind": "reads", "reason": "DeathTime/причины гибели (heat/cold/…) — §Причина; логика «Вымерло»" },
-        { "on": "internal/repository/planet_repo.go", "kind": "reads", "reason": "attachSettlements читает лог (settlements[].log, 3 записи)" },
-        { "on": "web/static/js/modal/tabs.js", "kind": "reads", "reason": "settlementLogRows: код причины → текст, блок лога в карточке поселения" },
-        { "on": "migrations/000024_create_settlement_log.sql", "kind": "duplicates", "reason": "схема таблицы и анти-дубль — в доке и миграции" },
-        { "on": "docs/specs/99.2.12-temperature-mortality-calibration.md", "kind": "duplicates", "reason": "спека ссылается на «событие „Вымерло“» → 18b §Дата смерти" },
-        { "on": "docs/specs/99.2.16-natality-life-expectancy.md", "kind": "duplicates", "reason": "связи: механизм 18a + лог 18b; DeathCause — в 18b" },
-        { "on": "docs/specs/99.2.21-races-v1.md", "kind": "duplicates", "reason": "связи: R-модель 18a, лог «Вымерло» 18b" },
-        { "on": "docs/specs/99.2.23-race-r-curves-twins.md", "kind": "duplicates", "reason": "упоминание лога «Вымерло» → 18b" },
-        { "on": "docs/specs/99.2.24-robots-ai.md", "kind": "duplicates", "reason": "settlement_log, механизм 18a → 18b" },
-        { "on": "docs/GLOSSARY.md", "kind": "duplicates", "reason": "термин «Лог поселения» → 18b (источник)" },
-        { "on": "docs/PITFALLS.md", "kind": "duplicates", "reason": "ловушка «событие vs лог» → 18b" },
-        { "on": "docs/DB.md", "kind": "duplicates", "reason": "ссылка на срез лога → 18b" }
+        { "on": "18a_population_death.md", "kind": "reads", "reason": "18a СЃСЃС‹Р»Р°РµС‚СЃСЏ РЅР° 18b (Р»РѕРі РІС‹РЅРµСЃРµРЅ); R-РјРѕРґРµР»СЊ СЃРјРµСЂС‚РЅРѕСЃС‚Рё Рё Р»РѕРі вЂ” СЃРјРµР¶РЅС‹Рµ С‚РµРјС‹" },
+        { "on": "settlement_log", "kind": "duplicates", "reason": "С‚Р°Р±Р»РёС†Р° settlement_log (000024) Р·Р°РґРѕРєСѓРјРµРЅС‚РёСЂРѕРІР°РЅР° РІ РґРѕРєРµ: СЃС…РµРјР°, uq_settlement_log_extinct, РґР°С‚Р°/РїСЂРёС‡РёРЅР°" },
+        { "on": "internal/repository/economy_repository.go", "kind": "reads", "reason": "РєРѕРјРјРµРЅС‚Р°СЂРёРё: RecomputeSettlementPopulation РїРёС€РµС‚ В«Р’С‹РјРµСЂР»РѕВ» (Р°РЅС‚Рё-РґСѓР±Р»СЊ uq), GetSettlementLogBySettlementIDs вЂ” 3 Р·Р°РїРёСЃРё (UI)" },
+        { "on": "internal/repository/economy_repository_log_test.go", "kind": "test", "reason": "С‚РµСЃС‚С‹ Р»РѕРіР° СЃСЃС‹Р»Р°СЋС‚СЃСЏ РЅР° В§РђРЅС‚Рё-РґСѓР±Р»СЊ/В§Р‘СЌРєС„РёР»Р»" },
+        { "on": "internal/models/economy.go", "kind": "reads", "reason": "SettlementLogEntry (Р»РѕРі РїРѕСЃРµР»РµРЅРёСЏ) вЂ” РјРѕРґРµР»СЊ Р·Р°РїРёСЃРё; DeathCause вЂ” РєРѕРґ РїСЂРёС‡РёРЅС‹" },
+        { "on": "internal/economy/settlement/death.go", "kind": "reads", "reason": "DeathTime/РїСЂРёС‡РёРЅС‹ РіРёР±РµР»Рё (heat/cold/вЂ¦) вЂ” В§РџСЂРёС‡РёРЅР°; Р»РѕРіРёРєР° В«Р’С‹РјРµСЂР»РѕВ»" },
+        { "on": "internal/repository/planet_repo.go", "kind": "reads", "reason": "attachSettlements С‡РёС‚Р°РµС‚ Р»РѕРі (settlements[].log, 3 Р·Р°РїРёСЃРё)" },
+        { "on": "web/static/js/modal/tabs.js", "kind": "reads", "reason": "settlementLogRows: РєРѕРґ РїСЂРёС‡РёРЅС‹ в†’ С‚РµРєСЃС‚, Р±Р»РѕРє Р»РѕРіР° РІ РєР°СЂС‚РѕС‡РєРµ РїРѕСЃРµР»РµРЅРёСЏ" },
+        { "on": "migrations/000024_create_settlement_log.sql", "kind": "duplicates", "reason": "СЃС…РµРјР° С‚Р°Р±Р»РёС†С‹ Рё Р°РЅС‚Рё-РґСѓР±Р»СЊ вЂ” РІ РґРѕРєРµ Рё РјРёРіСЂР°С†РёРё" },
+        { "on": "docs/specs/99.2.12-temperature-mortality-calibration.md", "kind": "duplicates", "reason": "СЃРїРµРєР° СЃСЃС‹Р»Р°РµС‚СЃСЏ РЅР° В«СЃРѕР±С‹С‚РёРµ вЂћР’С‹РјРµСЂР»РѕвЂњВ» в†’ 18b В§Р”Р°С‚Р° СЃРјРµСЂС‚Рё" },
+        { "on": "docs/specs/99.2.16-natality-life-expectancy.md", "kind": "duplicates", "reason": "СЃРІСЏР·Рё: РјРµС…Р°РЅРёР·Рј 18a + Р»РѕРі 18b; DeathCause вЂ” РІ 18b" },
+        { "on": "docs/specs/99.2.21-races-v1.md", "kind": "duplicates", "reason": "СЃРІСЏР·Рё: R-РјРѕРґРµР»СЊ 18a, Р»РѕРі В«Р’С‹РјРµСЂР»РѕВ» 18b" },
+        { "on": "docs/specs/99.2.23-race-r-curves-twins.md", "kind": "duplicates", "reason": "СѓРїРѕРјРёРЅР°РЅРёРµ Р»РѕРіР° В«Р’С‹РјРµСЂР»РѕВ» в†’ 18b" },
+        { "on": "docs/specs/99.2.24-robots-ai.md", "kind": "duplicates", "reason": "settlement_log, РјРµС…Р°РЅРёР·Рј 18a в†’ 18b" },
+        { "on": "docs/GLOSSARY.md", "kind": "duplicates", "reason": "С‚РµСЂРјРёРЅ В«Р›РѕРі РїРѕСЃРµР»РµРЅРёСЏВ» в†’ 18b (РёСЃС‚РѕС‡РЅРёРє)" },
+        { "on": "docs/PITFALLS.md", "kind": "duplicates", "reason": "Р»РѕРІСѓС€РєР° В«СЃРѕР±С‹С‚РёРµ vs Р»РѕРіВ» в†’ 18b" },
+        { "on": "docs/DB.md", "kind": "duplicates", "reason": "СЃСЃС‹Р»РєР° РЅР° СЃСЂРµР· Р»РѕРіР° в†’ 18b" }
       ]
     },
     {
       "id": "18a_population_death.md",
       "type": "doc",
       "path": "docs/gamedesign/18a_population_death.md",
-      "note": "GDD-док «Смертность населения от среды»: R-модель (99.2.13), температурный профиль (99.2.12), рождаемость (99.2.16); «Лог поселения» вынесен в 18b (идея 92a)",
+      "note": "GDD-РґРѕРє В«РЎРјРµСЂС‚РЅРѕСЃС‚СЊ РЅР°СЃРµР»РµРЅРёСЏ РѕС‚ СЃСЂРµРґС‹В»: R-РјРѕРґРµР»СЊ (99.2.13), С‚РµРјРїРµСЂР°С‚СѓСЂРЅС‹Р№ РїСЂРѕС„РёР»СЊ (99.2.12), СЂРѕР¶РґР°РµРјРѕСЃС‚СЊ (99.2.16); В«Р›РѕРі РїРѕСЃРµР»РµРЅРёСЏВ» РІС‹РЅРµСЃРµРЅ РІ 18b (РёРґРµСЏ 92a)",
       "impacts": [
-        { "on": "18b_settlement_log.md", "kind": "reads", "reason": "18a ссылается на 18b (лог вынесен); R-модель и лог — смежные темы" },
-        { "on": "config/race_balancer.json", "kind": "reads", "reason": "R-модель использует active-кривые (пересчёт населения)" },
-        { "on": "internal/economy/settlement/*.go", "kind": "reads", "reason": "пересчёт населения по R-модели, чек-точка, DeathTime (death.go)" },
-        { "on": "docs/specs/99.2.12-temperature-mortality-calibration.md", "kind": "duplicates", "reason": "калибровка температурного профиля — источник чисел 18a" },
-        { "on": "docs/specs/99.2.13-other-factors-r-model.md", "kind": "duplicates", "reason": "R-модель — источник механики" },
-        { "on": "docs/specs/99.2.16-natality-life-expectancy.md", "kind": "duplicates", "reason": "рождаемость реализована — связь с 18a" },
-        { "on": "docs/GLOSSARY.md", "kind": "duplicates", "reason": "термины смертности/R-модели — глоссарий" }
+        { "on": "18b_settlement_log.md", "kind": "reads", "reason": "18a СЃСЃС‹Р»Р°РµС‚СЃСЏ РЅР° 18b (Р»РѕРі РІС‹РЅРµСЃРµРЅ); R-РјРѕРґРµР»СЊ Рё Р»РѕРі вЂ” СЃРјРµР¶РЅС‹Рµ С‚РµРјС‹" },
+        { "on": "config/race_balancer.json", "kind": "reads", "reason": "R-РјРѕРґРµР»СЊ РёСЃРїРѕР»СЊР·СѓРµС‚ active-РєСЂРёРІС‹Рµ (РїРµСЂРµСЃС‡С‘С‚ РЅР°СЃРµР»РµРЅРёСЏ)" },
+        { "on": "internal/economy/settlement/*.go", "kind": "reads", "reason": "РїРµСЂРµСЃС‡С‘С‚ РЅР°СЃРµР»РµРЅРёСЏ РїРѕ R-РјРѕРґРµР»Рё, С‡РµРє-С‚РѕС‡РєР°, DeathTime (death.go)" },
+        { "on": "docs/specs/99.2.12-temperature-mortality-calibration.md", "kind": "duplicates", "reason": "РєР°Р»РёР±СЂРѕРІРєР° С‚РµРјРїРµСЂР°С‚СѓСЂРЅРѕРіРѕ РїСЂРѕС„РёР»СЏ вЂ” РёСЃС‚РѕС‡РЅРёРє С‡РёСЃРµР» 18a" },
+        { "on": "docs/specs/99.2.13-other-factors-r-model.md", "kind": "duplicates", "reason": "R-РјРѕРґРµР»СЊ вЂ” РёСЃС‚РѕС‡РЅРёРє РјРµС…Р°РЅРёРєРё" },
+        { "on": "docs/specs/99.2.16-natality-life-expectancy.md", "kind": "duplicates", "reason": "СЂРѕР¶РґР°РµРјРѕСЃС‚СЊ СЂРµР°Р»РёР·РѕРІР°РЅР° вЂ” СЃРІСЏР·СЊ СЃ 18a" },
+        { "on": "docs/GLOSSARY.md", "kind": "duplicates", "reason": "С‚РµСЂРјРёРЅС‹ СЃРјРµСЂС‚РЅРѕСЃС‚Рё/R-РјРѕРґРµР»Рё вЂ” РіР»РѕСЃСЃР°СЂРёР№" }
       ]
     },
     {
       "id": "settlement_log",
       "type": "table",
       "path": "db:settlement_log",
-      "note": "таблица лога поселения (000024): settlement_id, death_at, cause, population_exact; uq_settlement_log_extinct — анти-дубль; бэкфилл отменён",
+      "note": "С‚Р°Р±Р»РёС†Р° Р»РѕРіР° РїРѕСЃРµР»РµРЅРёСЏ (000024): settlement_id, death_at, cause, population_exact; uq_settlement_log_extinct вЂ” Р°РЅС‚Рё-РґСѓР±Р»СЊ; Р±СЌРєС„РёР»Р» РѕС‚РјРµРЅС‘РЅ",
       "impacts": [
-        { "on": "18b_settlement_log.md", "kind": "duplicates", "reason": "схема таблицы задокументирована в доке (Дата смерти, Причина, Анти-дубль)" },
-        { "on": "migrations/000024_create_settlement_log.sql", "kind": "duplicates", "reason": "миграция создаёт таблицу и uq-индекс" },
-        { "on": "internal/repository/economy_repository.go", "kind": "reads", "reason": "INSERT ... ON CONFLICT DO NOTHING (анти-дубль uq_settlement_log_extinct), GetSettlementLogBySettlementIDs" },
-        { "on": "internal/models/economy.go", "kind": "reads", "reason": "SettlementLogEntry — модель записи лога" },
-        { "on": "internal/repository/planet_repo.go", "kind": "reads", "reason": "attachSettlements читает лог (settlements[].log, 3 записи)" }
+        { "on": "18b_settlement_log.md", "kind": "duplicates", "reason": "СЃС…РµРјР° С‚Р°Р±Р»РёС†С‹ Р·Р°РґРѕРєСѓРјРµРЅС‚РёСЂРѕРІР°РЅР° РІ РґРѕРєРµ (Р”Р°С‚Р° СЃРјРµСЂС‚Рё, РџСЂРёС‡РёРЅР°, РђРЅС‚Рё-РґСѓР±Р»СЊ)" },
+        { "on": "migrations/000024_create_settlement_log.sql", "kind": "duplicates", "reason": "РјРёРіСЂР°С†РёСЏ СЃРѕР·РґР°С‘С‚ С‚Р°Р±Р»РёС†Сѓ Рё uq-РёРЅРґРµРєСЃ" },
+        { "on": "internal/repository/economy_repository.go", "kind": "reads", "reason": "INSERT ... ON CONFLICT DO NOTHING (Р°РЅС‚Рё-РґСѓР±Р»СЊ uq_settlement_log_extinct), GetSettlementLogBySettlementIDs" },
+        { "on": "internal/models/economy.go", "kind": "reads", "reason": "SettlementLogEntry вЂ” РјРѕРґРµР»СЊ Р·Р°РїРёСЃРё Р»РѕРіР°" },
+        { "on": "internal/repository/planet_repo.go", "kind": "reads", "reason": "attachSettlements С‡РёС‚Р°РµС‚ Р»РѕРі (settlements[].log, 3 Р·Р°РїРёСЃРё)" }
       ]
     },
     {
       "id": "99.2.21",
       "type": "spec",
       "path": "docs/specs/99.2.21-races-v1.md",
-      "note": "спека «Расы» + строка роадмапа §99.2.21 (✅ Реализовано 2026-09-17)",
+      "note": "СЃРїРµРєР° В«Р Р°СЃС‹В» + СЃС‚СЂРѕРєР° СЂРѕР°РґРјР°РїР° В§99.2.21 (вњ… Р РµР°Р»РёР·РѕРІР°РЅРѕ 2026-09-17)",
       "impacts": [
-        { "on": "races.json", "kind": "duplicates", "reason": "числа карточек (§5) и инварианты (§16) — источник конфига; правка спеки = правка конфига" },
-        { "on": "22_races.md", "kind": "writes", "reason": "справочник создан из спеки §15; правка спеки устаревает справочник" },
-        { "on": "docs/specs/README.md", "kind": "docs", "reason": "манифест спек: строка 99.2.21 (статус/дата)" },
-        { "on": "99_roadmap.md", "kind": "docs", "reason": "строка §99.2.21 — статус фичи; правка спеки = актуализация строки" }
+        { "on": "races.json", "kind": "duplicates", "reason": "С‡РёСЃР»Р° РєР°СЂС‚РѕС‡РµРє (В§5) Рё РёРЅРІР°СЂРёР°РЅС‚С‹ (В§16) вЂ” РёСЃС‚РѕС‡РЅРёРє РєРѕРЅС„РёРіР°; РїСЂР°РІРєР° СЃРїРµРєРё = РїСЂР°РІРєР° РєРѕРЅС„РёРіР°" },
+        { "on": "22_races.md", "kind": "writes", "reason": "СЃРїСЂР°РІРѕС‡РЅРёРє СЃРѕР·РґР°РЅ РёР· СЃРїРµРєРё В§15; РїСЂР°РІРєР° СЃРїРµРєРё СѓСЃС‚Р°СЂРµРІР°РµС‚ СЃРїСЂР°РІРѕС‡РЅРёРє" },
+        { "on": "docs/specs/README.md", "kind": "docs", "reason": "РјР°РЅРёС„РµСЃС‚ СЃРїРµРє: СЃС‚СЂРѕРєР° 99.2.21 (СЃС‚Р°С‚СѓСЃ/РґР°С‚Р°)" },
+        { "on": "99_roadmap.md", "kind": "docs", "reason": "СЃС‚СЂРѕРєР° В§99.2.21 вЂ” СЃС‚Р°С‚СѓСЃ С„РёС‡Рё; РїСЂР°РІРєР° СЃРїРµРєРё = Р°РєС‚СѓР°Р»РёР·Р°С†РёСЏ СЃС‚СЂРѕРєРё" }
       ]
     },
     {
       "id": "99_roadmap.md",
       "type": "doc",
       "path": "docs/gamedesign/99_roadmap.md",
-      "note": "горячий док: статусы фич §99.2; ведёт @dispatcher по дельтам менеджера (строку добавляет менеджер)",
+      "note": "РіРѕСЂСЏС‡РёР№ РґРѕРє: СЃС‚Р°С‚СѓСЃС‹ С„РёС‡ В§99.2; РІРµРґС‘С‚ @dispatcher РїРѕ РґРµР»СЊС‚Р°Рј РјРµРЅРµРґР¶РµСЂР° (СЃС‚СЂРѕРєСѓ РґРѕР±Р°РІР»СЏРµС‚ РјРµРЅРµРґР¶РµСЂ)",
       "impacts": [
-        { "on": "CHANGELOG.md", "kind": "docs", "reason": "сдача фичи = запись CHANGELOG + статус в §99.2 + STATUS §1 + CONTEXT — комплект дельт @dispatcher (56a)" },
-        { "on": "STATUS.md", "kind": "docs", "reason": "§1 активные задачи синхронны со статусами роадмапа" },
-        { "on": "docs/specs/README.md", "kind": "docs", "reason": "манифест спек отражает статусы роадмапа" }
+        { "on": "CHANGELOG.md", "kind": "docs", "reason": "СЃРґР°С‡Р° С„РёС‡Рё = Р·Р°РїРёСЃСЊ CHANGELOG + СЃС‚Р°С‚СѓСЃ РІ В§99.2 + STATUS В§1 + CONTEXT вЂ” РєРѕРјРїР»РµРєС‚ РґРµР»СЊС‚ @dispatcher (56a)" },
+        { "on": "STATUS.md", "kind": "docs", "reason": "В§1 Р°РєС‚РёРІРЅС‹Рµ Р·Р°РґР°С‡Рё СЃРёРЅС…СЂРѕРЅРЅС‹ СЃРѕ СЃС‚Р°С‚СѓСЃР°РјРё СЂРѕР°РґРјР°РїР°" },
+        { "on": "docs/specs/README.md", "kind": "docs", "reason": "РјР°РЅРёС„РµСЃС‚ СЃРїРµРє РѕС‚СЂР°Р¶Р°РµС‚ СЃС‚Р°С‚СѓСЃС‹ СЂРѕР°РґРјР°РїР°" }
       ]
     },
     {
       "id": "CHANGELOG.md",
       "type": "doc",
       "path": "CHANGELOG.md",
-      "note": "горячий док: история релизов/фич; ведёт @dispatcher по дельтам менеджера",
+      "note": "РіРѕСЂСЏС‡РёР№ РґРѕРє: РёСЃС‚РѕСЂРёСЏ СЂРµР»РёР·РѕРІ/С„РёС‡; РІРµРґС‘С‚ @dispatcher РїРѕ РґРµР»СЊС‚Р°Рј РјРµРЅРµРґР¶РµСЂР°",
       "impacts": [
-        { "on": "99_roadmap.md", "kind": "docs", "reason": "запись сдачи фичи = статус строки §99.2; комплект: CHANGELOG + роадмап + STATUS + CONTEXT" },
-        { "on": "STATUS.md", "kind": "docs", "reason": "закрытые фичи в §1/§2 синхронны с CHANGELOG" }
+        { "on": "99_roadmap.md", "kind": "docs", "reason": "Р·Р°РїРёСЃСЊ СЃРґР°С‡Рё С„РёС‡Рё = СЃС‚Р°С‚СѓСЃ СЃС‚СЂРѕРєРё В§99.2; РєРѕРјРїР»РµРєС‚: CHANGELOG + СЂРѕР°РґРјР°Рї + STATUS + CONTEXT" },
+        { "on": "STATUS.md", "kind": "docs", "reason": "Р·Р°РєСЂС‹С‚С‹Рµ С„РёС‡Рё РІ В§1/В§2 СЃРёРЅС…СЂРѕРЅРЅС‹ СЃ CHANGELOG" }
       ]
     },
     {
       "id": "77a",
       "type": "spec",
       "path": "docs/specs/77a-ship-equipment-radar.md",
-      "note": "спека «Модель корабля, оборудование и радар — видимость игрока» (77a, 2026-09-17); три сущности: ship_models, equipment, player_planet_knowledge",
+      "note": "СЃРїРµРєР° В«РњРѕРґРµР»СЊ РєРѕСЂР°Р±Р»СЏ, РѕР±РѕСЂСѓРґРѕРІР°РЅРёРµ Рё СЂР°РґР°СЂ вЂ” РІРёРґРёРјРѕСЃС‚СЊ РёРіСЂРѕРєР°В» (77a, 2026-09-17); С‚СЂРё СЃСѓС‰РЅРѕСЃС‚Рё: ship_models, equipment, player_planet_knowledge",
       "impacts": [
-        { "on": "ship_models", "kind": "writes", "reason": "справочник моделей кораблей создаётся по спеке §2–§3 (миграция 000040)" },
-        { "on": "equipment", "kind": "writes", "reason": "справочник оборудования по спеке §2–§3 (миграция 000040)" },
-        { "on": "player_planet_knowledge", "kind": "writes", "reason": "личный каталог знания о планетах по спеке §4 (миграция 000040)" },
-        { "on": "internal/ship/radar.go", "kind": "api", "reason": "радиус радара 800 px (000042), видимость деталей систем" },
-        { "on": "internal/handlers/visibility.go", "kind": "api", "reason": "видимость применяется на сервере; клиент не получает скрытых данных" },
-        { "on": "99_roadmap.md", "kind": "docs", "reason": "строка §99.2 про 77a (статус фичи)" },
-        { "on": "docs/DB.md", "kind": "docs", "reason": "миграции 000040–000042 зарегистрированы в DB.md" }
+        { "on": "ship_models", "kind": "writes", "reason": "СЃРїСЂР°РІРѕС‡РЅРёРє РјРѕРґРµР»РµР№ РєРѕСЂР°Р±Р»РµР№ СЃРѕР·РґР°С‘С‚СЃСЏ РїРѕ СЃРїРµРєРµ В§2вЂ“В§3 (РјРёРіСЂР°С†РёСЏ 000040)" },
+        { "on": "equipment", "kind": "writes", "reason": "СЃРїСЂР°РІРѕС‡РЅРёРє РѕР±РѕСЂСѓРґРѕРІР°РЅРёСЏ РїРѕ СЃРїРµРєРµ В§2вЂ“В§3 (РјРёРіСЂР°С†РёСЏ 000040)" },
+        { "on": "player_planet_knowledge", "kind": "writes", "reason": "Р»РёС‡РЅС‹Р№ РєР°С‚Р°Р»РѕРі Р·РЅР°РЅРёСЏ Рѕ РїР»Р°РЅРµС‚Р°С… РїРѕ СЃРїРµРєРµ В§4 (РјРёРіСЂР°С†РёСЏ 000040)" },
+        { "on": "internal/ship/radar.go", "kind": "api", "reason": "СЂР°РґРёСѓСЃ СЂР°РґР°СЂР° 800 px (000042), РІРёРґРёРјРѕСЃС‚СЊ РґРµС‚Р°Р»РµР№ СЃРёСЃС‚РµРј" },
+        { "on": "internal/handlers/visibility.go", "kind": "api", "reason": "РІРёРґРёРјРѕСЃС‚СЊ РїСЂРёРјРµРЅСЏРµС‚СЃСЏ РЅР° СЃРµСЂРІРµСЂРµ; РєР»РёРµРЅС‚ РЅРµ РїРѕР»СѓС‡Р°РµС‚ СЃРєСЂС‹С‚С‹С… РґР°РЅРЅС‹С…" },
+        { "on": "99_roadmap.md", "kind": "docs", "reason": "СЃС‚СЂРѕРєР° В§99.2 РїСЂРѕ 77a (СЃС‚Р°С‚СѓСЃ С„РёС‡Рё)" },
+        { "on": "docs/DB.md", "kind": "docs", "reason": "РјРёРіСЂР°С†РёРё 000040вЂ“000042 Р·Р°СЂРµРіРёСЃС‚СЂРёСЂРѕРІР°РЅС‹ РІ DB.md" }
       ]
     },
     {
       "id": "ship_models",
       "type": "table",
       "path": "db:ship_models",
-      "note": "справочник моделей кораблей (id, name, slots JSONB); users.ship_model_id → ship_models.id (000040)",
+      "note": "СЃРїСЂР°РІРѕС‡РЅРёРє РјРѕРґРµР»РµР№ РєРѕСЂР°Р±Р»РµР№ (id, name, slots JSONB); users.ship_model_id в†’ ship_models.id (000040)",
       "impacts": [
-        { "on": "db:users.ship_model_id", "kind": "schema", "reason": "колонка users.ship_model_id ссылается на справочник; смена модели = UPDATE данных" },
-        { "on": "internal/ship/catalog.go", "kind": "reads", "reason": "каталог моделей читается сервером (77a)" },
-        { "on": "77a", "kind": "duplicates", "reason": "модели и слоты зафиксированы в спеке §2–§3" }
+        { "on": "db:users.ship_model_id", "kind": "schema", "reason": "РєРѕР»РѕРЅРєР° users.ship_model_id СЃСЃС‹Р»Р°РµС‚СЃСЏ РЅР° СЃРїСЂР°РІРѕС‡РЅРёРє; СЃРјРµРЅР° РјРѕРґРµР»Рё = UPDATE РґР°РЅРЅС‹С…" },
+        { "on": "internal/ship/catalog.go", "kind": "reads", "reason": "РєР°С‚Р°Р»РѕРі РјРѕРґРµР»РµР№ С‡РёС‚Р°РµС‚СЃСЏ СЃРµСЂРІРµСЂРѕРј (77a)" },
+        { "on": "77a", "kind": "duplicates", "reason": "РјРѕРґРµР»Рё Рё СЃР»РѕС‚С‹ Р·Р°С„РёРєСЃРёСЂРѕРІР°РЅС‹ РІ СЃРїРµРєРµ В§2вЂ“В§3" }
       ]
     },
     {
       "id": "equipment",
       "type": "table",
       "path": "db:equipment",
-      "note": "справочник оборудования (radar/scanner/engine, params JSONB); users.equipment → справочник (000040/000042)",
+      "note": "СЃРїСЂР°РІРѕС‡РЅРёРє РѕР±РѕСЂСѓРґРѕРІР°РЅРёСЏ (radar/scanner/engine, params JSONB); users.equipment в†’ СЃРїСЂР°РІРѕС‡РЅРёРє (000040/000042)",
       "impacts": [
-        { "on": "db:users.equipment", "kind": "schema", "reason": "колонка users.equipment JSONB хранит установленное оборудование; params = ключ справочника" },
-        { "on": "internal/ship/catalog.go", "kind": "reads", "reason": "каталог оборудования читается сервером (77a)" },
-        { "on": "77a", "kind": "duplicates", "reason": "типы и параметры оборудования зафиксированы в спеке §2–§3" }
+        { "on": "db:users.equipment", "kind": "schema", "reason": "РєРѕР»РѕРЅРєР° users.equipment JSONB С…СЂР°РЅРёС‚ СѓСЃС‚Р°РЅРѕРІР»РµРЅРЅРѕРµ РѕР±РѕСЂСѓРґРѕРІР°РЅРёРµ; params = РєР»СЋС‡ СЃРїСЂР°РІРѕС‡РЅРёРєР°" },
+        { "on": "internal/ship/catalog.go", "kind": "reads", "reason": "РєР°С‚Р°Р»РѕРі РѕР±РѕСЂСѓРґРѕРІР°РЅРёСЏ С‡РёС‚Р°РµС‚СЃСЏ СЃРµСЂРІРµСЂРѕРј (77a)" },
+        { "on": "77a", "kind": "duplicates", "reason": "С‚РёРїС‹ Рё РїР°СЂР°РјРµС‚СЂС‹ РѕР±РѕСЂСѓРґРѕРІР°РЅРёСЏ Р·Р°С„РёРєСЃРёСЂРѕРІР°РЅС‹ РІ СЃРїРµРєРµ В§2вЂ“В§3" }
       ]
     },
     {
       "id": "player_planet_knowledge",
       "type": "table",
       "path": "db:player_planet_knowledge",
-      "note": "личный каталог знания о планетах (user_id, planet_id, data, scanned_at, source; PK user+planet; протухание 7 дней — статус на чтении)",
+      "note": "Р»РёС‡РЅС‹Р№ РєР°С‚Р°Р»РѕРі Р·РЅР°РЅРёСЏ Рѕ РїР»Р°РЅРµС‚Р°С… (user_id, planet_id, data, scanned_at, source; PK user+planet; РїСЂРѕС‚СѓС…Р°РЅРёРµ 7 РґРЅРµР№ вЂ” СЃС‚Р°С‚СѓСЃ РЅР° С‡С‚РµРЅРёРё)",
       "impacts": [
-        { "on": "internal/models/knowledge.go", "kind": "reads", "reason": "модель знания; протухание 7 дней — статус актуальности на чтении" },
-        { "on": "internal/repository/knowledge_repository.go", "kind": "reads", "reason": "доступ к каталогу знания (77a)" },
-        { "on": "internal/handlers/visibility.go", "kind": "api", "reason": "видимость деталей систем решается знанием + радиусом радара" },
-        { "on": "77a", "kind": "duplicates", "reason": "структура каталога и протухание — в спеке §4" }
+        { "on": "internal/models/knowledge.go", "kind": "reads", "reason": "РјРѕРґРµР»СЊ Р·РЅР°РЅРёСЏ; РїСЂРѕС‚СѓС…Р°РЅРёРµ 7 РґРЅРµР№ вЂ” СЃС‚Р°С‚СѓСЃ Р°РєС‚СѓР°Р»СЊРЅРѕСЃС‚Рё РЅР° С‡С‚РµРЅРёРё" },
+        { "on": "internal/repository/knowledge_repository.go", "kind": "reads", "reason": "РґРѕСЃС‚СѓРї Рє РєР°С‚Р°Р»РѕРіСѓ Р·РЅР°РЅРёСЏ (77a)" },
+        { "on": "internal/handlers/visibility.go", "kind": "api", "reason": "РІРёРґРёРјРѕСЃС‚СЊ РґРµС‚Р°Р»РµР№ СЃРёСЃС‚РµРј СЂРµС€Р°РµС‚СЃСЏ Р·РЅР°РЅРёРµРј + СЂР°РґРёСѓСЃРѕРј СЂР°РґР°СЂР°" },
+        { "on": "77a", "kind": "duplicates", "reason": "СЃС‚СЂСѓРєС‚СѓСЂР° РєР°С‚Р°Р»РѕРіР° Рё РїСЂРѕС‚СѓС…Р°РЅРёРµ вЂ” РІ СЃРїРµРєРµ В§4" }
       ]
     },
     {
       "id": "88a.1",
       "type": "spec",
       "path": "docs/specs/88a.1-art-studio-water-f1.md",
-      "note": "спека арт-студии: семейство F1 «Водные» (расы 2–4), люди → F0 (88a, 2026-09-17)",
+      "note": "СЃРїРµРєР° Р°СЂС‚-СЃС‚СѓРґРёРё: СЃРµРјРµР№СЃС‚РІРѕ F1 В«Р’РѕРґРЅС‹РµВ» (СЂР°СЃС‹ 2вЂ“4), Р»СЋРґРё в†’ F0 (88a, 2026-09-17)",
       "impacts": [
-        { "on": "config/art/families.json", "kind": "writes", "reason": "семейство F1 добавлено в families.json (88a); люди перенесены на F0" },
-        { "on": "config/art/forms.json", "kind": "writes", "reason": "категории форм F1 в forms.json" },
-        { "on": "config/art/humans.json", "kind": "writes", "reason": "люди → F0: пути race_f0_humans_*" },
-        { "on": "cmd/art-studio/*", "kind": "api", "reason": "студия читает конфиги при старте; после правки конфигов — перезапуск" }
+        { "on": "config/art/families.json", "kind": "writes", "reason": "СЃРµРјРµР№СЃС‚РІРѕ F1 РґРѕР±Р°РІР»РµРЅРѕ РІ families.json (88a); Р»СЋРґРё РїРµСЂРµРЅРµСЃРµРЅС‹ РЅР° F0" },
+        { "on": "config/art/forms.json", "kind": "writes", "reason": "РєР°С‚РµРіРѕСЂРёРё С„РѕСЂРј F1 РІ forms.json" },
+        { "on": "config/art/humans.json", "kind": "writes", "reason": "Р»СЋРґРё в†’ F0: РїСѓС‚Рё race_f0_humans_*" },
+        { "on": "cmd/art-studio/*", "kind": "api", "reason": "СЃС‚СѓРґРёСЏ С‡РёС‚Р°РµС‚ РєРѕРЅС„РёРіРё РїСЂРё СЃС‚Р°СЂС‚Рµ; РїРѕСЃР»Рµ РїСЂР°РІРєРё РєРѕРЅС„РёРіРѕРІ вЂ” РїРµСЂРµР·Р°РїСѓСЃРє" }
+      ]
+    },
+    {
+      "id": "94a",
+      "type": "spec",
+      "path": "docs/specs/94a-consumption-catalog.md",
+      "note": "СЃРїРµРєР° В«РљР°С‚Р°Р»РѕРі СЂРµСЃСѓСЂСЃРѕРІ + РїРѕС‚СЂРµР±Р»РµРЅРёРµ СЂР°СЃВ» (94a, 2026-09-18): СѓРЅРёРІРµСЂСЃР°Р»СЊРЅС‹Р№ СЃР»РѕР№ 20 СЂРµСЃСѓСЂСЃРѕРІ, 13 С€Р°Р±Р»РѕРЅРѕРІ С…РµРјРѕС‚РёРїРѕРІ, РјРѕСЃС‚ consumptionв†’РѕРєРЅР°, РїСЂРѕРІРµСЂРєРё В§8/В§13; РёРјРµРЅР° вЂ” СЂР°Р±РѕС‡РёРµ Р·Р°РіР»СѓС€РєРё, СЃС…РµРјР° Р‘Р” substances/resources вЂ” СЃР»РµРґСѓСЋС‰РёР№ СЂРµР»РёР·",
+      "impacts": [
+        { "on": "config/races.json", "kind": "reads", "reason": "consumption (13 РѕСЃРµР№) вЂ” РёСЃС‚РѕС‡РЅРёРє РёСЃС‚РёРЅС‹; РјРѕСЃС‚ В§3 РІС‹РІРѕРґРёС‚ РѕРєРЅР° СЂР°СЃ РёР· РЅРµРіРѕ; forage.basic_resources РЅР°РїРѕР»РЅСЏРµС‚СЃСЏ РґР°РЅРЅС‹РјРё РєР°С‚Р°Р»РѕРіР°" },
+        { "on": "internal/resource/layer.go", "kind": "duplicates", "reason": "РєР°С‚Р°Р»РѕРі 20 СЂРµСЃСѓСЂСЃРѕРІ (В§5.3 РїРѕР»РЅС‹Рµ РїСЂРѕС„РёР»Рё) Р·Р°С„РёРєСЃРёСЂРѕРІР°РЅ РІ СЃРїРµРєРµ Рё РІ РєРѕРґРµ вЂ” РїСЂР°РІРєР° РѕРґРЅРѕРіРѕ = РїСЂР°РІРєР° РґСЂСѓРіРѕРіРѕ" },
+        { "on": "internal/resource/chemotypes.go", "kind": "duplicates", "reason": "13 С€Р°Р±Р»РѕРЅРѕРІ С…РµРјРѕС‚РёРїРѕРІ (В§3.1) вЂ” РІ СЃРїРµРєРµ Рё РєРѕРґРµ" },
+        { "on": "internal/resource/diet.go", "kind": "api", "reason": "DeriveDiet СЂРµР°Р»РёР·СѓРµС‚ РІС‹РІРѕРґ РѕРєРѕРЅ В§3.2 (РѕРєРЅР° РЅРµ С…СЂР°РЅСЏС‚СЃСЏ, РёРЅРІР°СЂРёР°РЅС‚ 8)" },
+        { "on": "internal/resource/checks.go", "kind": "api", "reason": "РїСЂРѕРІРµСЂРєРё В§8/В§13: РІСЃРµ-РЅР°РєРѕСЂРјР»РµРЅС‹, РїРѕСЃСЂРµРґСЃС‚РІРµРЅРЅРѕСЃС‚СЊ, РґРёР°РїР°Р·РѕРЅС‹, РєРѕСЂСЂРµР»СЏС†РёРё T, Р¶РёРІРѕСЃС‚СЊ РјРѕСЃС‚РѕРІС‹С…" },
+        { "on": "internal/handlers/admin_resources.go", "kind": "api", "reason": "РІРєР»Р°РґРєР° В«Р РµСЃСѓСЂСЃС‹В» Р°РґРјРёРЅРєРё: GET /admin/resources СЃРµСЂРёР°Р»РёР·СѓРµС‚ РєР°С‚Р°Р»РѕРі/С€Р°Р±Р»РѕРЅС‹/РїРѕРєСЂС‹С‚РёРµ" },
+        { "on": "99_roadmap.md", "kind": "docs", "reason": "СЃС‚СЂРѕРєР° В§99.2.5 вЂ” СЃС‚Р°С‚СѓСЃ Р±Р»РѕРєР°; 94a = РїРµСЂРІС‹Р№ С€Р°Рі (РєР°С‚Р°Р»РѕРі+РїРѕС‚СЂРµР±Р»РµРЅРёРµ)" },
+        { "on": "docs/specs/README.md", "kind": "docs", "reason": "РјР°РЅРёС„РµСЃС‚ СЃРїРµРє: СЃС‚СЂРѕРєР° 94a" },
+        { "on": "docs/gamedesign/09_resources.md", "kind": "duplicates", "reason": "РѕСЃРё В§9.1.2, СЃР»РѕР№ В§9.2.2, РЅРµРїРѕР»РЅРѕС‚Р° В§9.2.7 вЂ” С„СѓРЅРґР°РјРµРЅС‚ СЃРїРµРєРё; СЃСѓР±Р»РёРјР°С†РёСЏ РјРµРЅСЏРµС‚ РёРЅРІР°СЂРёР°РЅС‚ В§9.1.2 (СЂРµС€РµРЅРёРµ СЃРѕР·РґР°С‚РµР»СЏ)" }
       ]
     }
   ]

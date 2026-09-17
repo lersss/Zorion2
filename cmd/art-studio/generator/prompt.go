@@ -169,11 +169,17 @@ func BuildPromptWide(rng *rand.Rand, fam config.Family, raceIdx int, famID strin
 		if len(fam.AnthroClothes) > 0 {
 			clothes = " wearing " + fam.AnthroClothes[rng.Intn(len(fam.AnthroClothes))]
 		}
-		// «natural skin texture» убрано: тянет к человеческой коже; «face» убрано:
-		// тянет к человеческому лицу и мешает звериным/ксено-морфам; остаётся
-		// только «looking directly at viewer» — взгляд на зрителя
-		prompt = fmt.Sprintf("realistic portrait of an alien humanoid race, FRONT VIEW, looking directly at viewer, %s made of %s, %s, head and shoulders,%s torso extending down below the frame, anchored, centered, %s, game avatar, no text, no watermark",
-			form, mat, glow, clothes, scene)
+		if morph == "anthro" {
+			// антропо: человеческое тело, лицо, взгляд на зрителя
+			prompt = fmt.Sprintf("realistic portrait of an alien humanoid race, FRONT VIEW, looking directly at viewer, %s made of %s, %s, head and shoulders,%s torso extending down below the frame, anchored, centered, %s, game avatar, no text, no watermark",
+				form, mat, glow, clothes, scene)
+		} else {
+			// морфы (зверо/ксено/аморф/кристалл/мех/титан): НЕ «humanoid race»,
+			// НЕ «head and shoulders» — иначе SDXL тянет к человеку; существо
+			// смотрит на зрителя, но тело/форму задаёт форма морфа
+			prompt = fmt.Sprintf("realistic portrait of an alien creature, FRONT VIEW, looking directly at viewer, %s made of %s, %s,%s anchored, centered, %s, game avatar, no text, no watermark",
+				form, mat, glow, clothes, scene)
+		}
 		return prompt, race.ID, race.Name
 	}
 	form := RandomForm(rng, fc, famID)

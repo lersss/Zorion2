@@ -146,8 +146,11 @@ func TestBuildPromptWide(t *testing.T) {
 		t.Errorf("антропо: %s", prompt2)
 	}
 	prompt3, _, _ := BuildPromptWide(rng, fam["F4"], -1, "F4", "beast", fc)
-	if !strings.Contains(prompt3, "alien humanoid race") {
+	if !strings.Contains(prompt3, "alien creature") {
 		t.Errorf("beast: %s", prompt3)
+	}
+	if strings.Contains(prompt3, "humanoid race") {
+		t.Errorf("beast: не должен содержать humanoid race: %s", prompt3)
 	}
 	formOK := false
 	for _, f := range fam["F4"].BeastForms {

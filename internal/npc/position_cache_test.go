@@ -31,8 +31,8 @@ func TestInterpolatePositionFlying(t *testing.T) {
 	depart := time.Now()
 	arrive := depart.Add(100 * time.Second)
 	grid := buildGrid([]mapcache.World{
-		{ID: "w1", X: 0, Y: 0},
-		{ID: "w2", X: 100, Y: 0},
+		{ID: "w1", Name: "Alpha", X: 0, Y: 0},
+		{ID: "w2", Name: "Beta", X: 100, Y: 0},
 	})
 
 	agent := models.NPCAgent{
@@ -49,6 +49,10 @@ func TestInterpolatePositionFlying(t *testing.T) {
 	require.InDelta(t, 0.0, p.Y, 0.001)
 	require.NotNil(t, p.TargetWorldID)
 	require.Equal(t, "w2", *p.TargetWorldID)
+	// Имена миров для тултипа агента (идея 2026-09-18): названия, не айди.
+	require.Equal(t, "Alpha", p.CurrentWorldName)
+	require.NotNil(t, p.TargetWorldName)
+	require.Equal(t, "Beta", *p.TargetWorldName)
 
 	// После прибытия (progress=1) — позиция цели.
 	p, _ = interpolatePosition(agent, grid, arrive.Add(time.Hour))

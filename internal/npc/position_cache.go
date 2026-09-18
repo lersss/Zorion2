@@ -9,15 +9,18 @@ import (
 
 // InterpolatedPosition — позиция агента для карты (спека §8: x, y, status,
 // target). Значения уже интерполированы на момент `now` — клиент не знает
-// кортежей полёта (спека §7).
+// кортежей полёта (спека §7). Имена миров (CurrentWorldName/TargetWorldName) —
+// для тултипа агента: названия вместо айди (идея 2026-09-18).
 type InterpolatedPosition struct {
-	ID             string               `json:"id"`
-	Name           string               `json:"name"`
-	X              float64              `json:"x"`
-	Y              float64              `json:"y"`
-	Status         models.NPCAgentStatus `json:"status"`
-	CurrentWorldID string               `json:"current_world_id"`
-	TargetWorldID  *string              `json:"target_world_id,omitempty"`
+	ID               string               `json:"id"`
+	Name             string               `json:"name"`
+	X                float64              `json:"x"`
+	Y                float64              `json:"y"`
+	Status           models.NPCAgentStatus `json:"status"`
+	CurrentWorldID   string               `json:"current_world_id"`
+	TargetWorldID    *string              `json:"target_world_id,omitempty"`
+	CurrentWorldName string               `json:"current_world_name"`
+	TargetWorldName  *string              `json:"target_world_name,omitempty"`
 }
 
 // PositionCache — in-memory snapshot позиций всех агентов (спека §2.2.B).
@@ -71,6 +74,14 @@ func interpolatePosition(a models.NPCAgent, g *worldGrid, now time.Time) (Interp
 		Status:         a.Status,
 		CurrentWorldID: a.CurrentWorldID,
 		TargetWorldID:  a.TargetWorldID,
+	}
+	if n, ok := g.nameOf(a.CurrentWorldID); ok {
+		p.CurrentWorldName = n
+	}
+	if a.TargetWorldID != nil {
+		if n, ok := g.nameOf(*a.TargetWorldID); ok {
+			p.TargetWorldName = &n
+		}
 	}
 
 	if a.Status == models.NPCAgentStatusFlying &&

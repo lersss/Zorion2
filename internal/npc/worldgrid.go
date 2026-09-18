@@ -63,6 +63,16 @@ func (g *worldGrid) coordsOf(id string) (float64, float64, bool) {
 	return w.x, w.y, ok
 }
 
+// nameOf — имя мира по id (ok=false — мира нет в сетке). Для тултипа агента:
+// названия миров вместо айди (идея 2026-09-18).
+func (g *worldGrid) nameOf(id string) (string, bool) {
+	if g == nil {
+		return "", false
+	}
+	w, ok := g.byID[id]
+	return w.name, ok
+}
+
 // pickTarget — целевой мир для полёта из позиции (x, y) (спека §3.2):
 //  1. случайный мир в радиусе routeRadius (клетка + 8 соседей, dist ≤ 1000);
 //     все миры радиуса гарантированно в 3×3 окне клеток (клетка = радиус);

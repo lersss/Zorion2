@@ -324,12 +324,14 @@ export function showNPCTooltip(agent, screenX, screenY) {
         `;
         document.body.appendChild(npcTooltipEl);
     }
-    const short = id => id ? id.slice(0, 8) + '…' : '—';
+    // worldLabel — название мира из позиции; фолбэк на обрезанный айди, если
+    // имени нет (защитно: позиция без мира в сетке не отдаётся — имя есть).
+    const worldLabel = (id, name) => name || (id ? id.slice(0, 8) + '…' : '—');
     npcTooltipEl.innerHTML = `
         <div style="font-weight:600;margin-bottom:4px;">👁️ ${escHtml(agent.name || '—')}</div>
         <div>Статус: <b>${escHtml(agent.status || '—')}</b></div>
-        <div>Текущий мир: <span title="${escHtml(agent.current_world_id || '')}">${short(agent.current_world_id)}</span></div>
-        <div>Целевой мир: <span title="${escHtml(agent.target_world_id || '')}">${agent.target_world_id ? short(agent.target_world_id) : '—'}</span></div>
+        <div>Текущий мир: ${escHtml(worldLabel(agent.current_world_id, agent.current_world_name))}</div>
+        <div>Целевой мир: ${agent.target_world_id ? escHtml(worldLabel(agent.target_world_id, agent.target_world_name)) : '—'}</div>
     `;
     // Смещение от курсора (12px); у правого края — влево, чтобы не уходить за экран.
     const left = screenX + 14 + npcTooltipEl.offsetWidth > window.innerWidth

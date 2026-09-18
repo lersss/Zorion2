@@ -183,6 +183,10 @@ export function draw() {
     // события мыши, отдельный rAF-цикл NPC-агентов на близком зуме) чистит
     // канвас целиком — рисуем плашку последней, чтобы её не стирало.
     drawFpsOverlay(ctx, canvasWidth, canvasHeight);
+
+    // Стрелка-маркер «ты здесь» (пожелание 2026-09-18): DOM-элемент поверх
+    // канваса — позиция обновляется на каждом кадре, анимация в CSS.
+    updatePlayerArrow();
 }
 
 // ==================== ОТРИСОВКА ЭЛЕМЕНТОВ ====================
@@ -524,6 +528,52 @@ function roundRectPath(ctx, x, y, w, h, r) {
     ctx.arcTo(x, y + h, x, y, r);
     ctx.arcTo(x, y, x + w, y, r);
     ctx.closePath();
+}
+
+// ==================== СТРЕЛКА НАД ЗВЕЗДОЙ ИГРОКА (пожелание 2026-09-18) ====================
+
+// playerArrowEl — DOM-элемент #player-arrow (web/map.html): SVG-пин с остриём
+// вниз, анимация покачивания — CSS (transform, композиторный поток, без
+// перерисовки канваса). Позиция обновляется в draw() — панорамирование/зум/
+// события всё равно рисуют кадр, стрелка всегда синхронна с картой.
+const playerArrowEl = document.getElementById('player-arrow');
+
+// updatePlayerArrow — показывает стрелку над звездой, где стоит игрок
+// (currentWorldId), и прячет её, когда она не нужна или звезда вне кадра:
+// в полёте корабль и так виден (drawFlight); на малом зуме звёзды не рисуются
+// (чистые регионы) — и стрелке нечего указывать. Остриё (низ элемента) —
+// точно над точкой звезды: transform translate(-50%, -100%) в CSS.
+function updatePlayerArrow() {
+    const el = playerArrowEl;
+    if (!el) return;
+    if (state.isFlying || !state.currentWorldId) { el.hidden = true; return; }
+    if (state.scale < mapCfg.regionNamesZoom) { el.hidden = true; return; }
+
+    // Позиция звезды игрока: одиночная из кластеров (как рисуется), иначе —
+    // координаты мира из state.worlds (данные /me → fetchWorldByID).
+    let wx = null, wy = null;
+    const clusters = state.clusters || [];
+    for (const c of clusters) {
+        if (c.cnt === 1 && c.sid === state.currentWorldId) { wx = c.x; wy = c.y; break; }
+    }
+    if (wx === null) {
+        const w = (state.worlds || []).find(w => w.id === state.currentWorldId);
+        if (w && typeof w.coord_x === 'number' && typeof w.coord_y === 'number') {
+            wx = w.coord_x; wy = w.coord_y;
+        }
+    }
+    if (wx === null) { el.hidden = true; return; }
+
+    const px = wx * state.scale + state.offsetX;
+    const py = wy * state.scale + state.offsetY;
+    if (!isFiniteNumber(px) || !isFiniteNumber(py) ||
+        px < -50 || py < -50 || px > state.canvasWidth + 50 || py > state.canvasHeight + 50) {
+        el.hidden = true;
+        return;
+    }
+    el.hidden = false;
+    el.style.left = px + 'px';
+    el.style.top = py + 'px';
 }
 
 // ==================== РЕГИОНЫ (малый зум) ====================

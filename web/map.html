@@ -103,6 +103,22 @@
     </div>
     <div id="canvas-wrapper">
         <canvas id="mapCanvas"></canvas>
+        <!-- Стрелка-маркер «ты здесь» над звездой игрока (пожелание 2026-09-18):
+             DOM-элемент поверх канваса, позиция из map_render.js (updatePlayerArrow),
+             анимация — CSS transform (без перерисовки канваса). Остриё — внизу. -->
+        <div id="player-arrow" hidden aria-hidden="true">
+            <svg viewBox="0 0 24 32" fill="none">
+                <defs>
+                    <linearGradient id="playerArrowGrad" x1="12" y1="2" x2="12" y2="30" gradientUnits="userSpaceOnUse">
+                        <stop offset="0" stop-color="#fde68a"/>
+                        <stop offset="1" stop-color="#f59e0b"/>
+                    </linearGradient>
+                </defs>
+                <path d="M12 2 C 18 2 22 8.5 22 14.5 C 22 21.5 12.6 29.4 12.35 29.65 C 12.16 29.84 11.84 29.84 11.65 29.65 C 11.4 29.4 2 21.5 2 14.5 C 2 8.5 6 2 12 2 Z"
+                      fill="url(#playerArrowGrad)" stroke="#fff7ed" stroke-width="1.5"/>
+                <circle cx="12" cy="14" r="3.2" fill="#fff7ed" opacity="0.9"/>
+            </svg>
+        </div>
         <div id="loading">⏳ Загрузка данных...</div>
         <div id="tooltip">
             <h3 id="tooltipName">—</h3>

@@ -286,6 +286,40 @@
         { "on": "web/static/js/dashboard/*.js", "kind": "reads", "reason": "энциклопедия/журнал/разделы рендерятся в дашборд" },
         { "on": "web/static/js/map/ship_sprites.js", "kind": "reads", "reason": "перекраска спрайтов корабля (превью/сетка) из ship_sprites" }
       ]
+    },
+    {
+      "id": "real.go",
+      "type": "code",
+      "path": "internal/resource/real.go",
+      "note": "витрина 111 реальных веществ (10 осей + T_melt/T_boil, 22 семейства) для оценки ёмкости модели осей; НЕ игровой контент (решение создателя 2026-09-18): категории по физ. смыслу — мина при переносе в контент; граница «витрина ≠ слой 94a» фиксируется в 99.2.5",
+      "impacts": [
+        { "on": "internal/resource/distance.go", "kind": "reads", "reason": "различимость 86/107/43 считается по каталогу витрины" },
+        { "on": "internal/handlers/admin_resources.go", "kind": "api", "reason": "GET /admin/resources отдаёт real/real_summary/families/chemotypes" },
+        { "on": "web/static/js/admin/realResources.js", "kind": "reads", "reason": "6 форматов визуализации профиля витрины" },
+        { "on": "docs/gamedesign/ideas/2026-09-18_емкость-модели-осей-ресурсов.md", "kind": "duplicates", "reason": "таблица 111 веществ — артефакт оценки ёмкости (идея §4б)" },
+        { "on": "docs/PITFALLS.md", "kind": "duplicates", "reason": "ловушка сублимации (He/He-3 кламп к 10 K — механически «сублимирующие»)" }
+      ]
+    },
+    {
+      "id": "distance.go",
+      "type": "code",
+      "path": "internal/resource/distance.go",
+      "note": "проверка различимости профилей: коллизия = все 10 осей в пределах <10; T-разрешение ≥10 K; живая проверка минимального расстояния для будущего генератора полей",
+      "impacts": [
+        { "on": "internal/resource/real.go", "kind": "reads", "reason": "считает различимость каталога витрины" },
+        { "on": "internal/handlers/admin_resources.go", "kind": "api", "reason": "real_summary (by_axes/with_t/collisions) из distance.go" },
+        { "on": "docs/gamedesign/ideas/2026-09-18_емкость-модели-осей-ресурсов.md", "kind": "duplicates", "reason": "числа 86/107/43 зафиксированы в идее §4а/§4б" }
+      ]
+    },
+    {
+      "id": "семейство (хим. группа)",
+      "type": "doc",
+      "path": "web/static/js/admin/resources.js",
+      "note": "терминологическая коллизия: «семейство» занято семействами рас F1–F10 (22_races.md, 99.2.21 §16); поле Family ресурса витрины в UI раздела «Ресурсы»; кандидат в GLOSSARY при сессии глоссария",
+      "impacts": [
+        { "on": "22_races.md", "kind": "duplicates", "reason": "термин «семейство» уже используется для семейств рас — коллизия в UI раздела «Ресурсы»" },
+        { "on": "docs/GLOSSARY.md", "kind": "reads", "reason": "термин не определён; кандидат на уточнение" }
+      ]
     }
   ]
 }

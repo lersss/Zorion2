@@ -76,7 +76,7 @@ func newTravelHarness(t *testing.T) (*TravelHandlers, *travel.Manager, sqlmock.S
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
-	tm := travel.NewManager()
+	tm := travel.NewManager(nil)
 	return NewTravelHandlers(
 		repository.NewWorldRepository(db),
 		repository.NewUserRepository(db),

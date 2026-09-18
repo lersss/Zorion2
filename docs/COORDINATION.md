@@ -18,7 +18,32 @@
 
 | Файл | Кто правит | До какого коммита |
 |---|---|---|
-| _нет активных меток_ | | |
+| `cmd/server/main.go` | @developer (97a) | коммит 97a |
+| `internal/travel/manager.go` | @developer (97a) | коммит 97a |
+| `internal/travel/manager_test.go` | @developer (97a) | коммит 97a |
+| `internal/models/player_flight.go` | @developer (97a) | коммит 97a |
+| `internal/repository/player_flight_repository.go` | @developer (97a) | коммит 97a |
+| `internal/repository/player_flight_repository_test.go` | @developer (97a) | коммит 97a |
+| `migrations/000044_create_player_flights.sql` | @developer (97a) | коммит 97a |
+| `internal/handlers/auth_handlers_test.go` | @developer (97a) | коммит 97a |
+| `internal/handlers/travel_handlers_test.go` | @developer (97a) | коммит 97a |
+| `internal/handlers/visibility_test.go` | @developer (97a) | коммит 97a |
+| `internal/handlers/visibility_handlers_test.go` | @developer (97a) | коммит 97a |
+| `docs/DB.md` | @developer (97a) | коммит 97a |
+| `docs/ARCHITECTURE.md` | @developer (97a) | коммит 97a |
+| `docs/PITFALLS.md` | @developer (97a) | коммит 97a |
+| `cmd/art-studio/config/config_types.go` | @developer (98a) | коммит 98a |
+| `cmd/art-studio/config/load.go` | @developer (98a) | коммит 98a |
+| `cmd/art-studio/config/load_test.go` | @developer (98a) | коммит 98a |
+| `cmd/art-studio/generator/prompt.go` | @developer (98a) | коммит 98a |
+| `cmd/art-studio/generator/prompt_test.go` | @developer (98a) | коммит 98a |
+| `config/art/families.json` | @developer (98a) | коммит 98a |
+| `docs/gamedesign/races/coastal.md` | @developer (98a) | коммит 98a |
+| `docs/gamedesign/races/methane_plankton.md` | @developer (98a) | коммит 98a |
+| `docs/gamedesign/races/deep_dwellers.md` | @developer (98a) | коммит 98a |
+| `docs/gamedesign/races/cryo_swarms.md` | @developer (98a) | коммит 98a |
+| `docs/gamedesign/races/mist_swarms.md` | @developer (98a) | коммит 98a |
+| `docs/gamedesign/races/saltfolk.md` | @developer (98a) | коммит 98a |
 
 ---
 

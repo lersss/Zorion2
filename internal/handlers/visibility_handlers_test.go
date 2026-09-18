@@ -46,7 +46,7 @@ func visAdminHandlers(t *testing.T) (*AdminHandlers, sqlmock.Sqlmock) {
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
 
-	tm := travel.NewManager()
+	tm := travel.NewManager(nil)
 	mc := mapcache.NewManager()
 	mc.Replace(visWorlds())
 
@@ -303,7 +303,7 @@ func TestNPCPositionsFilteredByRadius(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
 
-	tm := travel.NewManager()
+	tm := travel.NewManager(nil)
 	mc := mapcache.NewManager()
 	mc.Replace(visWorlds())
 	userRepo := repository.NewUserRepository(db)
@@ -346,7 +346,7 @@ func TestNPCSearchHidesCoordsOutsideRadius(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
 
-	tm := travel.NewManager()
+	tm := travel.NewManager(nil)
 	mc := mapcache.NewManager()
 	mc.Replace(visWorlds())
 	userRepo := repository.NewUserRepository(db)
@@ -511,7 +511,7 @@ func visWorldHandlers(t *testing.T) (*WorldHandlers, sqlmock.Sqlmock, *travel.Ma
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
 
-	tm := travel.NewManager()
+	tm := travel.NewManager(nil)
 	mc := mapcache.NewManager()
 	mc.Replace(visWorlds())
 	userRepo := repository.NewUserRepository(db)
@@ -683,7 +683,7 @@ func TestPlayersPositionsFilteredByRadius(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
 
-	tm := travel.NewManager()
+	tm := travel.NewManager(nil)
 	mc := mapcache.NewManager()
 	mc.Replace(visWorlds())
 	userRepo := repository.NewUserRepository(db)
@@ -732,7 +732,7 @@ func TestPlayersPositionsOnlyFlying(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
 
-	tm := travel.NewManager()
+	tm := travel.NewManager(nil)
 	mc := mapcache.NewManager()
 	mc.Replace(visWorlds())
 	userRepo := repository.NewUserRepository(db)
@@ -778,7 +778,7 @@ func TestPlayersPositionsAdminOnlyFlying(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
 
-	tm := travel.NewManager()
+	tm := travel.NewManager(nil)
 	mc := mapcache.NewManager()
 	mc.Replace(visWorlds())
 	userRepo := repository.NewUserRepository(db)
@@ -823,7 +823,7 @@ func TestNPCPositionsOnlyFlying(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
 
-	tm := travel.NewManager()
+	tm := travel.NewManager(nil)
 	mc := mapcache.NewManager()
 	mc.Replace(visWorlds())
 	userRepo := repository.NewUserRepository(db)
@@ -864,7 +864,7 @@ func TestNPCPositionsAdminOnlyFlying(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
 
-	tm := travel.NewManager()
+	tm := travel.NewManager(nil)
 	mc := mapcache.NewManager()
 	mc.Replace(visWorlds())
 	userRepo := repository.NewUserRepository(db)

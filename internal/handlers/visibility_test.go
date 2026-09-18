@@ -26,7 +26,7 @@ func newVisibilityHarness(t *testing.T) (*Visibility, sqlmock.Sqlmock, *travel.M
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
 
-	tm := travel.NewManager()
+	tm := travel.NewManager(nil)
 	mc := mapcache.NewManager()
 	mc.Replace(mapcache.NewSnapshot([]mapcache.World{
 		{ID: "w1", Name: "Мир1", X: 0, Y: 0},

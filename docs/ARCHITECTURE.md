@@ -38,7 +38,7 @@
 | `NPCManager.settings` (лимиты §2.4) | `RWMutex` (тик читает, админ-ручка пишет) |
 | `NPCManager.gridPtr` (сетка миров) | `atomic.Pointer` (тик пишет, хендлер читает `RandomWorld`/`WorldName`) |
 | `NotificationBatch` (буфер прибытий) | `sync.Mutex` (тик менеджера добавляет, таймер WSNotifier отправляет) |
-| `TravelManager.flights` | `RWMutex` + проверка `current == flight` |
+| `TravelManager.flights` | `RWMutex` + проверка `current == flight`; БД-строка `player_flights` (97a) — удаляет ТОЛЬКО актуальный полёт и ПОСЛЕ onArrival (гвард «новый полёт уже стартовал → не удалять») |
 | `StatusManager.jobs` | `RWMutex` + `TryStart` |
 | `CompatibilityMatrix` (кеш) | `RWMutex` |
 | `archetypeCache` | Только чтение после инициализации |
@@ -86,7 +86,7 @@ internal/handlers/                       — HTTP-хендлеры
 internal/models/                         — модели БД
 internal/repository/                     — репозитории
 internal/auth/                           — JWT, middleware
-internal/travel/                         — TravelManager (полёты)
+internal/travel/                         — TravelManager (полёты; персистентность 97a — таблица player_flights)
 internal/config/                         — загрузка конфига из env
 config/planet_archetypes.json            — архетипы планет
 config/compatibility_defaults.json       — дефолты матрицы совместимости
@@ -128,6 +128,7 @@ docs/gamedesign/                         — GDD (семейство доков,
 | Раздел «Пользователи» | `internal/handlers/admin_users.go` |
 | Модели | `internal/models/` (экзотика — `stellar_mods.go`; конфиг — `generation_config.go`) |
 | Репозитории | `internal/repository/` |
+| Полёты игрока (идея 97a) | `internal/travel/manager.go` (TravelManager: in-memory map + горутина на полёт; персистентность — `FlightStore`-интерфейс, `Restore(now, worldExists, onArrival)` при старте: прошлый `arrive_at` → прибытие сразу, будущий → перерегистрация с оригинальными StartTime/Duration и остатком `waitFor`, битый мир → не восстанавливать + Delete); `internal/repository/player_flight_repository.go` (Upsert/Delete/ListAll, таблица `player_flights`, миграция `000044`); модель — `internal/models/player_flight.go`; обвязка — `cmd/server/main.go` (Restore до старта HTTP) |
 | NPC-агенты (спека `20a.1`) | `internal/models/npc_agent.go`, `internal/repository/npc_repository.go` (этап 1: модель, курсорные batch-выборки, Insert/Delete/GetByID/Update); `internal/npc/` (этап 2: `manager.go` — планировщик, `agent_cache.go` — in-memory кэш агентов для позиций (идея 26c A2: один ListAll при старте/инвалидации, инкремент стартами/прибытиями тика, dirty-флаг от внешних мутаций), `worldgrid.go` — выбор маршрута по сетке миров, `position_cache.go` — snapshot позиций, `settings.go` — лимиты §2.4; этап 5: `notification_batch.go` — буфер прибытий с дросселем §2.2.C); ручки (этап 4): `internal/handlers/admin_npc.go` (CRUD), `npc_settings.go` (настройки менеджера), `npc_positions.go` (позиции для карты); уведомления (этап 5): `internal/handlers/ws_notifier.go` (batch → `WSHub.Broadcast`), `websocket_hub.go` (`Broadcast`) |
 | JWT + роли | `internal/auth/jwt.go`, `internal/auth/middleware.go`, `internal/auth/admin_auth.go` |
 | Визуал кораблей (спека `61b`) | реестр/маппинг/палитра — `internal/models/ship_sprites.go` (Go-константы: 21 PNG, маппинг legacy `ship_icon`→PNG, палитра 9 + «Оригинал»); клиент — `web/static/js/map/ship_sprites.js` (перекраска hue+destination-in, прелоадер, агенты {спрайт,цвет} от id), `map_render.js`/`npc_agents.js` (рендер); PNG — `web/static/sprites/*.png` (21 ассет); `PUT /me/ship-color` (`internal/handlers/user_handlers.go`) |

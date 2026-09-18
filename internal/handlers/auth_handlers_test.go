@@ -26,7 +26,7 @@ func newAuthHandlersHarness(t *testing.T) (*AuthHandlers, sqlmock.Sqlmock, *trav
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
-	tm := travel.NewManager()
+	tm := travel.NewManager(nil)
 	return NewAuthHandlers(
 		repository.NewUserRepository(db),
 		repository.NewWorldRepository(db),

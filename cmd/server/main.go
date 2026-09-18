@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
@@ -197,7 +198,23 @@ func main() {
 	assignmentRepo := repository.NewAssignmentRepository(db)
 	userRepo := repository.NewUserRepository(db)
 
-	travelManager := travel.NewManager()
+	// Активные полёты игроков (97a): персистентность в БД — полёт переживает
+	// рестарт сервера. Restore — ДО старта HTTP (гонок нет): прошлые прибытия
+	// засчитываются сразу (как у NPC), будущие — перерегистрируются с
+	// оставшимся временем; битые миры (перегенерация) — полёт не восстанавливается.
+	playerFlightRepo := repository.NewPlayerFlightRepository(db)
+	travelManager := travel.NewManager(playerFlightRepo)
+	travelManager.Restore(time.Now(),
+		func(id string) bool {
+			w, err := worldRepo.GetByID(id)
+			return err == nil && w != nil
+		},
+		func(userID, worldID string) {
+			if err := userRepo.UpdateCurrentWorld(userID, worldID); err != nil {
+				log.Printf("Failed to update current world for user %s: %v", userID, err)
+			}
+		},
+	)
 	wsHub := handlers.NewWebSocketHub()
 
 	testHandlers := handlers.NewTestHandlers(worldRepo, locationRepo, assignmentRepo)

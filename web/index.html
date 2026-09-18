@@ -45,6 +45,39 @@
             padding: 0;
         }
         #ship-section-stats { border-top: 1px solid #334155; padding-top: 10px; font-size: 0.85rem; }
+        /* Вкладки дашборда (идея 2026-09-18): паттерн админки (.tab-btn/.tab-pane),
+           стиль — в тон дашборда (тёмная тема). Активная вкладка — localStorage
+           dashboardActiveTab, дефолт «Корабль». */
+        .dashboard-tabs {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 1.5rem;
+            border-bottom: 1px solid #334155;
+            padding-bottom: 4px;
+            flex-wrap: wrap;
+        }
+        .dashboard-tabs button {
+            background: none;
+            border: none;
+            margin: 0;
+            padding: 8px 16px;
+            color: #94a3b8;
+            cursor: pointer;
+            font-size: 0.9rem;
+            border-radius: 4px 4px 0 0;
+            transition: background 0.2s, color 0.2s;
+        }
+        .dashboard-tabs button:hover {
+            background: #1e293b;
+            color: #e2e8f0;
+        }
+        .dashboard-tabs button.active {
+            background: #1e293b;
+            color: #f1f5f9;
+            border-bottom: 2px solid #3b82f6;
+        }
+        .tab-pane { display: none; }
+        .tab-pane.active { display: block; }
     </style>
 </head>
 <body>
@@ -62,54 +95,69 @@
             <button class="btn-secondary" id="logoutBtn">🚪 Выйти</button>
         </div>
 
-        <div class="card">
-            <h2>🛸 Корабль</h2>
-            <div id="ship-section">
-                <div id="ship-section-header">
-                    <span id="shipSectionPreview"></span>
-                    <span id="shipSectionModelName">—</span>
+        <div class="dashboard-tabs">
+            <button class="tab-btn" data-tab="tab-ship">🛸 Корабль</button>
+            <button class="tab-btn" data-tab="tab-look">🎨 Внешний вид</button>
+            <button class="tab-btn" data-tab="tab-stats">📊 Статистика</button>
+            <button class="tab-btn" data-tab="tab-encyclopedia">📖 Энциклопедия</button>
+        </div>
+
+        <div class="tab-pane" id="tab-ship">
+            <div class="card">
+                <h2>🛸 Корабль</h2>
+                <div id="ship-section">
+                    <div id="ship-section-header">
+                        <span id="shipSectionPreview"></span>
+                        <span id="shipSectionModelName">—</span>
+                    </div>
+                    <div id="ship-silhouette">
+                        <!-- Схематичный силуэт корабля (спека 91a §4.1): кодовая
+                             SVG-фигура, без новых ассетов. Ячейки-слоты — HTML
+                             поверх силуэта: радар (нос), сканер (центр), двигатель
+                             (корма) + пустые ячейки будущих слотов (по бортам). -->
+                        <svg viewBox="0 0 300 170" style="width:100%; display:block;">
+                            <path d="M150 10 L205 55 L205 105 L150 160 L95 105 L95 55 Z" fill="#0f172a" stroke="#475569" stroke-width="2"/>
+                            <path d="M150 10 L172 48 L128 48 Z" fill="#1e293b" stroke="#475569" stroke-width="1.5"/>
+                            <path d="M150 160 L172 118 L128 118 Z" fill="#1e293b" stroke="#475569" stroke-width="1.5"/>
+                            <path d="M95 72 L58 90 L58 102 L95 94 Z" fill="#1e293b" stroke="#475569" stroke-width="1.5"/>
+                            <path d="M205 72 L242 90 L242 102 L205 94 Z" fill="#1e293b" stroke="#475569" stroke-width="1.5"/>
+                            <line x1="150" y1="48" x2="150" y2="118" stroke="#334155" stroke-width="1.5" stroke-dasharray="4 4"/>
+                        </svg>
+                        <div class="ship-slot" id="slot-radar" style="top:6%; left:50%;"></div>
+                        <div class="ship-slot" id="slot-scanner" style="top:40%; left:50%;"></div>
+                        <div class="ship-slot" id="slot-engine" style="top:74%; left:50%;"></div>
+                        <div class="ship-slot ship-slot-future" style="top:28%; left:16%;"></div>
+                        <div class="ship-slot ship-slot-future" style="top:28%; left:84%;"></div>
+                        <div class="ship-slot ship-slot-future" style="top:52%; left:10%;"></div>
+                        <div class="ship-slot ship-slot-future" style="top:52%; left:90%;"></div>
+                    </div>
+                    <div id="ship-section-stats"></div>
                 </div>
-                <div id="ship-silhouette">
-                    <!-- Схематичный силуэт корабля (спека 91a §4.1): кодовая
-                         SVG-фигура, без новых ассетов. Ячейки-слоты — HTML
-                         поверх силуэта: радар (нос), сканер (центр), двигатель
-                         (корма) + пустые ячейки будущих слотов (по бортам). -->
-                    <svg viewBox="0 0 300 170" style="width:100%; display:block;">
-                        <path d="M150 10 L205 55 L205 105 L150 160 L95 105 L95 55 Z" fill="#0f172a" stroke="#475569" stroke-width="2"/>
-                        <path d="M150 10 L172 48 L128 48 Z" fill="#1e293b" stroke="#475569" stroke-width="1.5"/>
-                        <path d="M150 160 L172 118 L128 118 Z" fill="#1e293b" stroke="#475569" stroke-width="1.5"/>
-                        <path d="M95 72 L58 90 L58 102 L95 94 Z" fill="#1e293b" stroke="#475569" stroke-width="1.5"/>
-                        <path d="M205 72 L242 90 L242 102 L205 94 Z" fill="#1e293b" stroke="#475569" stroke-width="1.5"/>
-                        <line x1="150" y1="48" x2="150" y2="118" stroke="#334155" stroke-width="1.5" stroke-dasharray="4 4"/>
-                    </svg>
-                    <div class="ship-slot" id="slot-radar" style="top:6%; left:50%;"></div>
-                    <div class="ship-slot" id="slot-scanner" style="top:40%; left:50%;"></div>
-                    <div class="ship-slot" id="slot-engine" style="top:74%; left:50%;"></div>
-                    <div class="ship-slot ship-slot-future" style="top:28%; left:16%;"></div>
-                    <div class="ship-slot ship-slot-future" style="top:28%; left:84%;"></div>
-                    <div class="ship-slot ship-slot-future" style="top:52%; left:10%;"></div>
-                    <div class="ship-slot ship-slot-future" style="top:52%; left:90%;"></div>
-                </div>
-                <div id="ship-section-stats"></div>
             </div>
         </div>
 
-        <div class="card">
-            <h2>📊 Статистика</h2>
-            <div id="stats"></div>
-            <div class="journal-note">Журнал открытий хранится в этом браузере (localStorage).</div>
+        <div class="tab-pane" id="tab-look">
+            <div class="card">
+                <h2>🎨 Внешний вид</h2>
+                <div id="ship-sel" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(64px, 1fr)); gap:8px; margin-top:10px;"></div>
+                <div id="ship-palette" style="display:flex; gap:8px; margin-top:12px; align-items:center; flex-wrap:wrap;"></div>
+                <div id="ship-status" style="margin-top:10px; font-size:0.8rem; color:#94a3b8;"></div>
+            </div>
         </div>
 
-        <div class="card">
-            <h2>📖 Энциклопедия</h2>
-            <div id="encyclopedia"></div>
+        <div class="tab-pane" id="tab-stats">
+            <div class="card">
+                <h2>📊 Статистика</h2>
+                <div id="stats"></div>
+                <div class="journal-note">Журнал открытий хранится в этом браузере (localStorage).</div>
+            </div>
         </div>
 
-        <div class="card">
-            <h2>🚀 Корабль</h2>
-            <div id="ship-sel" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(64px, 1fr)); gap:8px; margin-top:10px;"></div>
-            <div id="ship-palette" style="display:flex; gap:8px; margin-top:12px; align-items:center; flex-wrap:wrap;"></div>
-            <div id="ship-status" style="margin-top:10px; font-size:0.8rem; color:#94a3b8;"></div>
+        <div class="tab-pane" id="tab-encyclopedia">
+            <div class="card">
+                <h2>📖 Энциклопедия</h2>
+                <div id="encyclopedia"></div>
+            </div>
         </div>
     </div>
 
@@ -497,6 +545,31 @@
         loadUser();
         loadShipSelector();
         loadEncyclopedia();
+
+        // ==================== ВКЛАДКИ ДАШБОРДА ====================
+        // Паттерн админки (web/static/js/admin/tabs.js): .tab-btn/.tab-pane,
+        // активная вкладка в localStorage. Ключ dashboardActiveTab не
+        // пересекается с adminActiveTab/token/shipIcon/shipColor/zorion.journal.
+        // Вкладки только показывают/скрывают панели — все загрузки идут при
+        // старте как раньше, ленивая загрузка не нужна.
+        const DASHBOARD_TAB_KEY = 'dashboardActiveTab';
+
+        function activateDashboardTab(tabId) {
+            if (!document.getElementById(tabId)) {
+                tabId = 'tab-ship';
+            }
+            document.querySelectorAll('.tab-btn').forEach(b =>
+                b.classList.toggle('active', b.dataset.tab === tabId));
+            document.querySelectorAll('.tab-pane').forEach(p =>
+                p.classList.toggle('active', p.id === tabId));
+            localStorage.setItem(DASHBOARD_TAB_KEY, tabId);
+        }
+
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', () => activateDashboardTab(btn.dataset.tab));
+        });
+
+        activateDashboardTab(localStorage.getItem(DASHBOARD_TAB_KEY) || 'tab-ship');
 
         // Выход из аккаунта (мелкая правка 2026-09-17): чистим игровой
         // токен из localStorage и уходим на страницу входа. Игровой токен

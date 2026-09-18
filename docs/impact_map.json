@@ -320,6 +320,20 @@
         { "on": "22_races.md", "kind": "duplicates", "reason": "термин «семейство» уже используется для семейств рас — коллизия в UI раздела «Ресурсы»" },
         { "on": "docs/GLOSSARY.md", "kind": "reads", "reason": "термин не определён; кандидат на уточнение" }
       ]
+    },
+    {
+      "id": "player_flights",
+      "type": "table",
+      "path": "db:player_flights",
+      "note": "активный полёт игрока (миграция 000044, идея 97a): одна запись на игрока (PK user_id), from/to/start_x/start_y/start_time/arrive_at (абсолютное); переживает рестарт сервера",
+      "impacts": [
+        { "on": "internal/travel/manager.go", "kind": "writes", "reason": "travel.Manager: Upsert при старте/редиректе 61a, Delete при прибытии/отмене, Restore при старте сервера (97a)" },
+        { "on": "internal/repository/player_flight_repository.go", "kind": "writes", "reason": "репозиторий Upsert/Delete/ListAll — единственный доступ к таблице" },
+        { "on": "internal/handlers/travel_handlers.go", "kind": "reads", "reason": "старт полёта → строка в player_flights через Manager.StartFlight; редирект 61a заменяет сегмент (ON CONFLICT DO UPDATE)" },
+        { "on": "internal/handlers/auth_handlers.go", "kind": "reads", "reason": "/me отдаёт flight из GetFlight; после Restore восстановленный полёт виден (42a)" },
+        { "on": "docs/specs/20a.1-npc-agents-v1.md", "kind": "docs", "reason": "эталон-паттерн: NPC-полёты переживают рестарт через абсолютный arrive_at (§3.1 «Отказной режим»)" },
+        { "on": "migrations/000044_create_player_flights.sql", "kind": "duplicates", "reason": "схема таблицы — в миграции и здесь" }
+      ]
     }
   ]
 }

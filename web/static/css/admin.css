@@ -3,12 +3,15 @@ body {
     background: #0f172a;
     color: #e0e0e0;
     font-family: system-ui, -apple-system, sans-serif;
-    padding: 20px;
+    padding: 12px 14px;
     margin: 0;
 }
 .container {
-    max-width: 1400px;
-    margin: 0 auto;
+    /* Админка занимает всё пространство экрана (решение создателя
+       2026-09-18): без фиксированной ширины, чтобы инструменты
+       (визуализация ресурсов и т.п.) были крупнее. */
+    width: 100%;
+    max-width: none;
 }
 h1, h2 {
     color: #f1f5f9;

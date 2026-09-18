@@ -749,8 +749,13 @@
         </div>
     </div>
 
-    <!-- Вкладка: Ресурсы (спека 94a, read-only) -->
+    <!-- Вкладка: Ресурсы (спека 94a + идея 2026-09-18 §4б) -->
     <div id="tab-resources" class="tab-pane">
+        <div class="admin-tabs gen-subtabs">
+            <button class="res-subtab-btn active" data-res-sub="base" onclick="switchResSubTab('base')">Базовый слой</button>
+            <button class="res-subtab-btn" data-res-sub="real" onclick="switchResSubTab('real')">Реальные вещества</button>
+        </div>
+        <div id="resSub-base" class="res-sub">
         <div class="card">
             <h2>📦 Каталог ресурсов и покрытие рас</h2>
             <p class="hint">
@@ -844,6 +849,106 @@
             <div id="resourcesT1Block" style="margin-top:8px; font-size:0.85rem; line-height:1.6; color:#cbd5e1;">
                 <span style="color:#94a3b8;">Выберите расу в фильтре выше — покажу, что ей нужно на 1 тире.</span>
             </div>
+        </div>
+        </div>
+
+        <div id="resSub-real" class="res-sub" style="display:none;">
+        <div class="card">
+            <h2>🧪 Реальные вещества — ёмкость модели осей</h2>
+            <p class="hint">
+                111 реальных веществ, оцифрованных по 10 осям свойств + T_melt/T_boil
+                (оценка ёмкости, идея 2026-09-18 §4а/§4б). Модель осей «узнаёт»
+                реальную химию: алмаз — твёрдость 100, уран — радиоактивность 80,
+                ртуть жидкая при комнатной температуре, гелий кипит при 10 K.
+                Read-only каталог-витрина — в генерацию не входит.
+            </p>
+            <div class="compact-row">
+                <span id="realSummary" style="color:#e0e0e0;"></span>
+            </div>
+
+            <!-- Режимы просмотра (идея 2026-09-18 §4б, этап 2) -->
+            <div class="admin-tabs gen-subtabs" style="margin-top:10px;">
+                <button class="real-mode-btn active" data-real-mode="single" onclick="switchRealMode('single')">Один ресурс</button>
+                <button class="real-mode-btn" data-real-mode="all" onclick="switchRealMode('all')">Все форматы</button>
+                <button class="real-mode-btn" data-real-mode="compare" onclick="switchRealMode('compare')">Сравнить</button>
+                <button class="real-mode-btn" data-real-mode="list" onclick="switchRealMode('list')">Список</button>
+            </div>
+
+            <!-- Режим 1: Один ресурс -->
+            <div id="realMode-single" class="real-mode" style="margin-top:10px;">
+                <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start;">
+                    <div style="flex:1; min-width:260px;">
+                        <div><label>Семейство</label>
+                            <select id="realFamilyFilter"><option value="">Все семейства</option></select>
+                        </div>
+                        <div id="realList" style="margin-top:6px;"></div>
+                    </div>
+                    <div style="flex:3; min-width:460px;">
+                        <div class="compact-row">
+                            <div><label>Формат</label>
+                                <select id="realFormatSelect"></select>
+                            </div>
+                            <div><label>Окна</label>
+                                <select id="realWindowSel">
+                                    <option value="off">выкл</option>
+                                    <option value="goods" selected>товары (демо)</option>
+                                    <option value="races">расы (хемотипы)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div id="realDetail" style="margin-top:8px;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Режим 2: Все форматы -->
+            <div id="realMode-all" class="real-mode" style="display:none; margin-top:10px;">
+                <div class="compact-row">
+                    <div><label>Окна</label>
+                        <select id="realAllWindowSel">
+                            <option value="off">выкл</option>
+                            <option value="goods" selected>товары (демо)</option>
+                            <option value="races">расы (хемотипы)</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="realAllFormats" style="margin-top:8px;"></div>
+            </div>
+
+            <!-- Режим 3: Сравнить -->
+            <div id="realMode-compare" class="real-mode" style="display:none; margin-top:10px;">
+                <div class="compact-row">
+                    <div><label>Первый</label><select id="realCompareA"></select></div>
+                    <div><label>Второй</label><select id="realCompareB"></select></div>
+                    <div><label>Формат</label><select id="realCompareFormat"></select></div>
+                    <div><label>Окна</label>
+                        <select id="realCompareWindowSel">
+                            <option value="off">выкл</option>
+                            <option value="goods" selected>товары (демо)</option>
+                            <option value="races">расы (хемотипы)</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="realCompareDetail" style="margin-top:8px;"></div>
+            </div>
+
+            <!-- Режим 4: Список -->
+            <div id="realMode-list" class="real-mode" style="display:none; margin-top:10px;">
+                <div class="compact-row">
+                    <div><label>Семейство</label><select id="realListFamily"></select></div>
+                    <div><label>Топ-5 по оси</label><select id="realAxisTop"></select></div>
+                    <div><label>Окна</label>
+                        <select id="realListWindowSel">
+                            <option value="off">выкл</option>
+                            <option value="goods" selected>товары (демо)</option>
+                            <option value="races">расы (хемотипы)</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="realTop5" style="margin-top:8px;"></div>
+                <div id="realStripList" style="margin-top:8px;"></div>
+            </div>
+        </div>
         </div>
     </div>
 

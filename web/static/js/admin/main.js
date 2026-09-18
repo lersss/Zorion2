@@ -21,7 +21,7 @@ import {
     clearAllAgents
 } from './npc.js';
 import { saveSettlementSettings, updateSettlementNetto } from './settlementSettings.js';
-import { loadResources, toggleAxesCell, toggleRacesCell } from './resources.js';
+import { loadResources, toggleAxesCell, toggleRacesCell, switchResSubTab, selectReal, switchRealMode, sortReal } from './resources.js';
 
 // Глобальные функции для onclick в HTML
 window.adminLogin = adminLogin;
@@ -69,6 +69,10 @@ window.regeneratePlanets = regeneratePlanets;
 window.loadResources = loadResources;
 window.toggleAxesCell = toggleAxesCell;
 window.toggleRacesCell = toggleRacesCell;
+window.switchResSubTab = switchResSubTab;
+window.selectReal = selectReal;
+window.switchRealMode = switchRealMode;
+window.sortReal = sortReal;
 
 // Ключ в localStorage читает web/static/js/modal/panel.js (карточка планеты
 // в игровых страницах) — держать строку синхронной при переименовании.

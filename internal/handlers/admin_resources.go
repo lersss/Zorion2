@@ -63,6 +63,78 @@ type adminResourcesResponse struct {
 	Templates []adminTemplateDTO     `json:"templates"`
 	Races     []adminRaceCoverageDTO `json:"races"`
 	Gaps      []resource.FedGap      `json:"gaps"`
+
+	// Каталог реальных веществ (оценка ёмкости, идея 2026-09-18 §4б):
+	// 111 веществ + сводка различимости (distance.go) + семейства.
+	Real        []adminRealResourceDTO `json:"real"`
+	RealSummary adminRealSummaryDTO    `json:"real_summary"`
+	Families    []string               `json:"families"`
+
+	// Шаблоны хемотипов (спека 94a §3.1) — реальные окна «расы» для витрины
+	// форматов подвкладки «Реальные вещества» (окна товаров — демо в JS,
+	// реестр §5.2.2 не зафиксирован).
+	Chemotypes []adminChemotypeDTO `json:"chemotypes"`
+}
+
+// adminChemotypeDTO — шаблон хемотипа для витрины окон (спека 94a §3.1):
+// окна T_melt/T_boil, окна по осям свойств, уместные категории, фаза.
+type adminChemotypeDTO struct {
+	Axis        string               `json:"axis"`
+	Phase       string               `json:"phase"`
+	Sublimating bool                 `json:"sublimating"`
+	TMelt       *adminIntervalDTO    `json:"t_melt,omitempty"`
+	TBoil       *adminIntervalDTO    `json:"t_boil,omitempty"`
+	Windows     []adminAxisWindowDTO `json:"windows"`
+	Categories  []string             `json:"categories"`
+}
+
+// adminIntervalDTO — включительный интервал [Lo, Hi] (границы входят).
+type adminIntervalDTO struct {
+	Lo float64 `json:"lo"`
+	Hi float64 `json:"hi"`
+}
+
+// adminAxisWindowDTO — окно по оси свойств (имя оси — русское, как в Go).
+type adminAxisWindowDTO struct {
+	Axis string  `json:"axis"`
+	Lo   float64 `json:"lo"`
+	Hi   float64 `json:"hi"`
+}
+
+// adminRealResourceDTO — реальное вещество каталога-витрины (проекция
+// resource.RealResource).
+type adminRealResourceDTO struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Family   string `json:"family"`
+	Category string `json:"category"`
+	Icon     string `json:"category_icon"`
+
+	// 10 осей свойств 0–100.
+	Hardness         float64 `json:"hardness"`
+	Elasticity       float64 `json:"elasticity"`
+	Conductivity     float64 `json:"conductivity"`
+	Density          float64 `json:"density"`
+	EnergyDensity    float64 `json:"energy_density"`
+	Biocompatibility float64 `json:"biocompatibility"`
+	Radioactivity    float64 `json:"radioactivity"`
+	Toxicity         float64 `json:"toxicity"`
+	Flammability     float64 `json:"flammability"`
+	ChemicalActivity float64 `json:"chemical_activity"`
+
+	TMelt         float64 `json:"t_melt"`
+	TBoil         float64 `json:"t_boil"`
+	Sublimating   bool    `json:"sublimating"`
+	Supercritical bool    `json:"supercritical"`
+}
+
+// adminRealSummaryDTO — сводка различимости каталога реальных веществ
+// (числа оценки §4а, считаются distance.go).
+type adminRealSummaryDTO struct {
+	Total      int `json:"total"`
+	ByAxes     int `json:"by_axes"`
+	WithT      int `json:"with_t"`
+	Collisions int `json:"collisions"`
 }
 
 // GetAdminResources — GET /admin/resources: каталог слоя + шаблоны + покрытие.
@@ -134,5 +206,56 @@ func (h *AdminHandlers) GetAdminResources(w http.ResponseWriter, r *http.Request
 	if resp.Gaps == nil {
 		resp.Gaps = []resource.FedGap{} // пустой список, не null
 	}
+
+	// Каталог реальных веществ + сводка различимости (идея 2026-09-18 §4б).
+	realCatalog := resource.RealCatalog()
+	byAxes, withT, collisions := resource.DistinctCount(realCatalog)
+	resp.Real = make([]adminRealResourceDTO, 0, len(realCatalog))
+	for _, rr := range realCatalog {
+		resp.Real = append(resp.Real, adminRealResourceDTO{
+			ID: rr.ID, Name: rr.Name, Family: rr.Family, Category: rr.Category,
+			Icon:   resource.GetCategory(rr.Category).Icon,
+			Hardness: rr.Hardness, Elasticity: rr.Elasticity,
+			Conductivity: rr.Conductivity, Density: rr.Density,
+			EnergyDensity: rr.EnergyDensity, Biocompatibility: rr.Biocompatibility,
+			Radioactivity: rr.Radioactivity, Toxicity: rr.Toxicity,
+			Flammability: rr.Flammability, ChemicalActivity: rr.ChemicalActivity,
+			TMelt: rr.TMelt, TBoil: rr.TBoil,
+			Sublimating: rr.Sublimating(), Supercritical: false,
+		})
+	}
+	resp.RealSummary = adminRealSummaryDTO{
+		Total:      len(realCatalog),
+		ByAxes:     byAxes,
+		WithT:      withT,
+		Collisions: len(collisions),
+	}
+	resp.Families = resource.RealFamilies()
+
+	// Шаблоны хемотипов — в каноническом порядке 13 consumption-осей
+	// (окна «расы» для витрины форматов).
+	resp.Chemotypes = make([]adminChemotypeDTO, 0, len(templates))
+	for _, axis := range resource.ConsumptionAxes() {
+		tpl, ok := templates[axis]
+		if !ok {
+			continue
+		}
+		ct := adminChemotypeDTO{
+			Axis: tpl.Axis, Phase: string(tpl.Phase), Sublimating: tpl.Sublimating,
+			Windows:    make([]adminAxisWindowDTO, 0, len(tpl.Windows)),
+			Categories: tpl.Categories,
+		}
+		if tpl.TMelt != nil {
+			ct.TMelt = &adminIntervalDTO{Lo: tpl.TMelt.Lo, Hi: tpl.TMelt.Hi}
+		}
+		if tpl.TBoil != nil {
+			ct.TBoil = &adminIntervalDTO{Lo: tpl.TBoil.Lo, Hi: tpl.TBoil.Hi}
+		}
+		for _, w := range tpl.Windows {
+			ct.Windows = append(ct.Windows, adminAxisWindowDTO{Axis: w.Axis, Lo: w.Lo, Hi: w.Hi})
+		}
+		resp.Chemotypes = append(resp.Chemotypes, ct)
+	}
+
 	writeJSONStatus(w, http.StatusOK, resp)
 }

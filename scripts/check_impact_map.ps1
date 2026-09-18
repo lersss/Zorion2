@@ -44,8 +44,8 @@ if ($data.updated_at -notmatch '^\d{4}-\d{2}-\d{2}$') {
     $errors += "updated_at должен быть YYYY-MM-DD (найдено: $($data.updated_at))"
 }
 
-$validTypes = @('config','table','balance','spec','doc','test','art','api','code','migration')
-$validKinds = @('reads','writes','duplicates','derives','schema','test','api','docs')
+$validTypes = @('config','table','balance','spec','doc','test','art','api','code','migration','mechanic')
+$validKinds = @('reads','writes','duplicates','derives','schema','test','api','docs','affects')
 
 $entities = @($data.entities)
 

@@ -241,6 +241,51 @@
         { "on": "docs/specs/README.md", "kind": "docs", "reason": "manifest speki 91a" },
         { "on": "99_roadmap.md", "kind": "docs", "reason": "stroka 99.2: 91a — status fi chi" }
       ]
+    },
+    {
+      "id": "86a",
+      "type": "spec",
+      "path": "docs/specs/86a-player-dashboard-encyclopedia.md",
+      "note": "спека «Дашборд игрока + Энциклопедия» (86a, 2026-09-17): профиль, статистика, энциклопедия (расы/звёзды/планеты/ресурсы/корабли/лор-термины), силуэты рас, журнал открытий (клиентский localStorage), логаут",
+      "impacts": [
+        { "on": "web/index.html", "kind": "reads", "reason": "дашборд игрока: профиль, статистика, энциклопедия, логаут" },
+        { "on": "web/static/js/dashboard/encyclopedia.js", "kind": "reads", "reason": "разделы энциклопедии рендерятся в дашборд" },
+        { "on": "web/static/js/dashboard/journal.js", "kind": "reads", "reason": "журнал открытий (клиентский localStorage); фильтр типов планет по реестру" },
+        { "on": "web/static/js/dashboard/races_section.js", "kind": "reads", "reason": "раздел «Расы» энциклопедии (силуэты до встречи)" },
+        { "on": "web/static/js/dashboard/planet_types.js", "kind": "reads", "reason": "справочник типов планет для энциклопедии" },
+        { "on": "config/race_lore.json", "kind": "writes", "reason": "машиночитаемая проекция 22_races.md §3/§4 (лор рас для энциклопедии); эталон config/races.json не трогаем" },
+        { "on": "web/static/js/modal/index.js", "kind": "reads", "reason": "хуки журнала открытий при просмотре модалки системы" },
+        { "on": "web/static/js/map/flight.js", "kind": "reads", "reason": "хук журнала открытий при прибытии в мир" },
+        { "on": "99_roadmap.md", "kind": "docs", "reason": "строка §99.2 — статус 86a" },
+        { "on": "docs/specs/README.md", "kind": "docs", "reason": "манифест спеки 86a" }
+      ]
+    },
+    {
+      "id": "61b",
+      "type": "spec",
+      "path": "docs/specs/61b-static-ship-sprites.md",
+      "note": "спека «Статичные спрайты кораблей вместо генератора» (61b): сетка 21 спрайта + палитра 9 цветов + «Оригинал» (NULL); селектор внешнего вида — вкладка «Внешний вид» дашборда (2026-09-18)",
+      "impacts": [
+        { "on": "web/index.html", "kind": "reads", "reason": "селектор внешнего вида: сетка 21 спрайта + палитра + статус сохранения" },
+        { "on": "web/static/js/map/ship_sprites.js", "kind": "reads", "reason": "recolorShipSprite, SHIP_COLOR_PALETTE (единый источник палитры на клиенте)" },
+        { "on": "internal/handlers/auth_handlers.go", "kind": "api", "reason": "/me.ship_options; PUT /me/ship-icon, PUT /me/ship-color" },
+        { "on": "web/static/js/map/*.js", "kind": "reads", "reason": "спрайты кораблей на карте (рендер из ship_sprites)" },
+        { "on": "docs/specs/README.md", "kind": "docs", "reason": "манифест спеки 61b" },
+        { "on": "99_roadmap.md", "kind": "docs", "reason": "строка §99.2 — статус 61b" }
+      ]
+    },
+    {
+      "id": "web/index.html",
+      "type": "code",
+      "path": "web/index.html",
+      "note": "дашборд игрока: профиль, раздел «Корабль» (91a), статистика, энциклопедия (86a), селектор внешнего вида (61b); вкладки .tab-btn/.tab-pane, ключ dashboardActiveTab (2026-09-18)",
+      "impacts": [
+        { "on": "91a", "kind": "reads", "reason": "раздел «Корабль» (силуэт, слоты, характеристики) рендерится на дашборде" },
+        { "on": "86a", "kind": "reads", "reason": "профиль/статистика/энциклопедия/логаут — на дашборде" },
+        { "on": "61b", "kind": "reads", "reason": "селектор внешнего вида (сетка + палитра) — вкладка «Внешний вид»" },
+        { "on": "web/static/js/dashboard/*.js", "kind": "reads", "reason": "энциклопедия/журнал/разделы рендерятся в дашборд" },
+        { "on": "web/static/js/map/ship_sprites.js", "kind": "reads", "reason": "перекраска спрайтов корабля (превью/сетка) из ship_sprites" }
+      ]
     }
   ]
 }

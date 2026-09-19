@@ -396,7 +396,25 @@
         { "on": "docs/gamedesign/05_economy.md", "kind": "reads", "reason": "§5.2.1 категории (13) и метод «товар существует, если есть потребитель»; §5.2.5 мегапроекты — сток качества" },
         { "on": "docs/gamedesign/13_settlements.md", "kind": "reads", "reason": "§13.10.1 корзина верхних тиров поселений; §13.9.6 автозаводы — потоковый спрос на сложные детали" },
         { "on": "docs/gamedesign/11_contracts.md", "kind": "reads", "reason": "§11.3.1 контрактные окна качества 70/85 — целевые пороги топ-товаров" },
-        { "on": "docs/gamedesign/17_decay.md", "kind": "reads", "reason": "§17.5.1 кризисы — всплесковый спрос (медикаменты, топливо, оружие/броня)" }
+{ "on": "docs/gamedesign/17_decay.md", "kind": "reads", "reason": "§17.5.1 кризисы — всплесковый спрос (медикаменты, топливо, оружие/броня)" }
+      ]
+    },
+    {
+      "id": "cmd/goods-studio",
+      "type": "mechanic",
+      "path": "cmd/goods-studio/",
+      "note": "Студия товаров (99a.1/99a.2/99a.3, 2026-09-19): отдельный локальный инструмент (бинарь zorion-goods-studio.exe, порт 8799) — категории/товары/слоты/статусы, граф рецептов, тир-оверрайд, справочник, попапы; состояние goods_data/state.json вне git",
+      "impacts": [
+        { "on": "docs/gamedesign/05_economy.md", "kind": "reads", "reason": "§5.2 номенклатура товаров (13 стартовых); §5.2.4 рецепты — студия производит рецепты как данные (источник истины при закрытии 99a)" },
+        { "on": "docs/gamedesign/11_production.md", "kind": "reads", "reason": "§11.1.1 сложность = тир; тир-оверрайд меняет источник значения (экспорт complexity)" },
+        { "on": "docs/gamedesign/13_tiers.md", "kind": "reads", "reason": "§13.9.1 гейт тир поселения ≥ сложности рецепта" },
+        { "on": "internal/resource/layer.go", "kind": "reads", "reason": "слой 20 ресурсов — листья графа (94a)" },
+        { "on": "internal/resource/real.go", "kind": "reads", "reason": "витрина 111 — база листьев графа (99a; граница 99.2.5 развёрнута)" },
+        { "on": "docs/GLOSSARY.md", "kind": "duplicates", "reason": "термин «составляющая товара»/«компонент рецепта» — кандидат (99a)" },
+        { "on": "cmd/art-studio", "kind": "affects", "reason": "арт-студия — образец продукта (отдельный бинарь, embed HTML)" },
+        { "on": "goods_data/*", "kind": "writes", "reason": "экспорт/состояние студии (state.json, export.json — вне git)" },
+        { "on": "docs/specs/99a.1-goods-studio.md", "kind": "affects", "reason": "спека продукта 99a.1 — реализована кодом" },
+        { "on": "docs/specs/99a.3-goods-studio-focus-graph-spravochnik.md", "kind": "affects", "reason": "спека 99a.3 (фокус-подграф, тир-оверрайд, справочник) — реализована кодом" }
       ]
     }
   ]

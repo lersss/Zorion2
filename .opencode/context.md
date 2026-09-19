@@ -6,7 +6,7 @@
 > их читай, только если задача требует глубины. Один факт — одно место: здесь
 > только ссылки и текущее состояние, не история.
 
-**Обновлено:** 2026-09-19
+**Обновлено:** 2026-09-20
 
 ## Фокус
 
@@ -81,6 +81,8 @@
   race_lore.json (kind, niche, size_individual, size_group, home_words, lore,
   attributes_words 60×6 слов), словари/шкалы в internal/races/lore.go,
   валидация §9; спека `docs/specs/99.2.26-race-card-player-facing.md`
+- Переходы админка ↔ карта (идея 2026-09-19, файлы: web/admin.html, web/map.html,
+  admin/main.js, map/data.js, main.js).
 
 ## FAQ-счётчик эталонов
 

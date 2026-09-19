@@ -18,6 +18,7 @@ import (
 	"zorion/internal/generator/planet"
 	"zorion/internal/generator/settlement"
 	"zorion/internal/goodsstudio"
+	"zorion/internal/goodsstudio/ai"
 	"zorion/internal/handlers"
 	"zorion/internal/mapcache"
 	"zorion/internal/models"
@@ -393,7 +394,11 @@ func main() {
 	// Студия товаров (спека переноса-студии-товаров-iterA §6): каталог
 	// товаров/ресурсов на БД. API — только admin/skycomposer (player → 403);
 	// HTML-страница — публична (паттерн админки, JWT в localStorage).
-	studioHandlers := handlers.NewStudioHandlers(db)
+	// ИИ «заполнить комплектующие» (iterC §4): конфиг opencode из env
+	// (OPENCODE_URL/MODEL/TIMEOUT_S/MAX_RETRIES, дефолты из studio.json);
+	// на проде env не заданы — fill честно падает «ИИ недоступен».
+	aiClient := ai.NewClient(cfg.OpenCodeURL, cfg.OpenCodeModel, cfg.OpenCodeTimeout, cfg.OpenCodeMaxRetries)
+	studioHandlers := handlers.NewStudioHandlers(db, aiClient, cfg.OpenCodeModel)
 	http.HandleFunc("/studio/api/state", auth.AdminAuth(studioHandlers.State))
 	http.HandleFunc("/studio/api/resources", auth.AdminAuth(studioHandlers.Resources))
 	http.HandleFunc("/studio/api/categories", auth.AdminAuth(studioHandlers.Categories))
@@ -402,6 +407,8 @@ func main() {
 	// bulk — отдельный роут: subtree /studio/api/goods/ (GoodByID) парсит
 	// первый сегмент как id и вернул бы 404 на "bulk" (ревью iterA).
 	http.HandleFunc("/studio/api/goods/bulk", auth.AdminAuth(studioHandlers.Goods))
+	// fill/apply/cancel — ветки в GoodByID (паттерн status/tier/slots, спека
+	// iterC §5: отдельные роуты не нужны — конфликта парсинга id нет).
 	http.HandleFunc("/studio/api/goods/", auth.AdminAuth(studioHandlers.GoodByID))
 	http.HandleFunc("/studio/api/validate", auth.AdminAuth(studioHandlers.Validate))
 

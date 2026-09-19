@@ -51,6 +51,17 @@
 | `cmd/art-studio/generator/ref_job.go` | @developer (98b) | коммит 98b |
 | `cmd/art-studio/web/index.html` | @developer (98b) | коммит 98b |
 | `cmd/art-studio/handlers/race_handlers_test.go` | @developer (98b) | коммит 98b |
+| `internal/goodsstudio/ai/` (move из cmd/goods-studio/ai) | @developer (перенос студии C) | коммит iterC |
+| `internal/handlers/studio_handlers.go` (+test) | @developer (перенос студии C) | коммит iterC |
+| `internal/repository/goods_repository.go` (+test) | @developer (перенос студии C) | коммит iterC |
+| `internal/handlers/admin_resources.go` | @developer (перенос студии C) | коммит iterC |
+| `internal/config/config.go` (+test) | @developer (перенос студии C) | коммит iterC |
+| `web/studio.html` | @developer (перенос студии C) | коммит iterC |
+| `web/static/js/auth.js` (новый) | @developer (перенос студии C) | коммит iterC |
+| `web/static/js/studio/auth.js` (новый) | @developer (перенос студии C) | коммит iterC |
+| `web/static/js/admin/auth.js` | @developer (перенос студии C) | коммит iterC |
+| `cmd/server/main.go` (только блок /studio/api/*) | @developer (перенос студии C) | коммит iterC |
+| `tools/e2e/goods-studio-server-check.js` | @developer (перенос студии C) | коммит iterC |
 | `cmd/goods-studio/web/index.html` | @developer (деревья Т8) | коммит деревьев Т8 |
 | `cmd/goods-studio/catalog/trees.go` | @developer (деревья Т8) | коммит деревьев Т8 |
 | `cmd/goods-studio/catalog/trees_test.go` | @developer (деревья Т8) | коммит деревьев Т8 |

@@ -18,6 +18,10 @@ type Config struct {
 	SkycomposerBootstrapPassword string
 	BalancerPresetsFile          string
 	RaceBalancerFile             string
+	OpenCodeURL                  string
+	OpenCodeModel                string
+	OpenCodeTimeout              time.Duration
+	OpenCodeMaxRetries           int
 }
 
 func Load() *Config {
@@ -73,6 +77,35 @@ func Load() *Config {
 		rfile = "config/race_balancer.json"
 	}
 
+	// Конфиг opencode — ИИ «заполнить комплектующие» (спека
+	// переноса-студии-товаров-iterC §4): env с дефолтами из старого
+	// config/goods/studio.json (удаляется со старой студией). На проде env
+	// не заданы — fill честно падает «ИИ недоступен» (dev-инструмент).
+	ocURL := os.Getenv("OPENCODE_URL")
+	if ocURL == "" {
+		ocURL = "http://127.0.0.1:3456"
+	}
+	ocModel := os.Getenv("OPENCODE_MODEL")
+	if ocModel == "" {
+		ocModel = "opencode/deepseek-v4-flash"
+	}
+	ocTimeoutS := os.Getenv("OPENCODE_TIMEOUT_S")
+	if ocTimeoutS == "" {
+		ocTimeoutS = "120"
+	}
+	ocTimeout, err := strconv.Atoi(ocTimeoutS)
+	if err != nil {
+		log.Fatalf("invalid OPENCODE_TIMEOUT_S: %v", err)
+	}
+	ocRetries := os.Getenv("OPENCODE_MAX_RETRIES")
+	if ocRetries == "" {
+		ocRetries = "2"
+	}
+	ocMaxRetries, err := strconv.Atoi(ocRetries)
+	if err != nil {
+		log.Fatalf("invalid OPENCODE_MAX_RETRIES: %v", err)
+	}
+
 	return &Config{
 		ServerPort:                   port,
 		DBURL:                        dbURL,
@@ -83,5 +116,9 @@ func Load() *Config {
 		SkycomposerBootstrapPassword: skyPassword,
 		BalancerPresetsFile:          pfile,
 		RaceBalancerFile:             rfile,
+		OpenCodeURL:                  ocURL,
+		OpenCodeModel:                ocModel,
+		OpenCodeTimeout:              time.Duration(ocTimeout) * time.Second,
+		OpenCodeMaxRetries:           ocMaxRetries,
 	}
 }

@@ -18,6 +18,7 @@ import (
 
 	"github.com/lib/pq"
 
+	"zorion/internal/goodsstudio/ai"
 	"zorion/internal/goodsstudio/graph"
 	"zorion/internal/goodsstudio/model"
 )
@@ -74,6 +75,15 @@ type ResourceView struct {
 // RealResourceRow — real-ресурс витрины 94a из БД (спека iterB §5.3):
 // goods kind=resource с props ? 'family' + code категории (джойн).
 type RealResourceRow struct {
+	ID       int64
+	Name     string
+	Category string // code из categories.code
+	Props    []byte // props JSONB (русские ключи осей)
+}
+
+// LayerResourceRow — layer-ресурс «Базового слоя» из БД (спека iterC §7.2):
+// goods kind=resource с props ? 'closes' + code категории (джойн).
+type LayerResourceRow struct {
 	ID       int64
 	Name     string
 	Category string // code из categories.code
@@ -209,6 +219,165 @@ func (r *GoodsRepository) RealResources() ([]RealResourceRow, error) {
 		out = append(out, v)
 	}
 	return out, rows.Err()
+}
+
+// LayerResources — layer-ресурсы «Базового слоя» (спека iterC §7.2): источник —
+// БД (С1), не LayerCatalog. Дискриминатор — props ? 'closes' (есть у всех 20
+// layer-ресурсов сида, нет у real и пользовательских — props NULL).
+func (r *GoodsRepository) LayerResources() ([]LayerResourceRow, error) {
+	rows, err := r.db.Query(
+		`SELECT g.id, g.name, c.code, g.props
+		 FROM goods g
+		 JOIN categories c ON c.id = g.category_id
+		 WHERE g.kind = 'resource' AND g.props ? 'closes'
+		 ORDER BY g.id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []LayerResourceRow
+	for rows.Next() {
+		var v LayerResourceRow
+		if err := rows.Scan(&v.ID, &v.Name, &v.Category, &v.Props); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+// ApplyProposals — применение принятых предложений ИИ (спека iterC §5.4):
+// одна транзакция с advisory lock (сериализация с другими мутациями каталога).
+// Снимок каталога собирается в tx (свежий — между фазами никто не вмешается
+// под lock), ai.ApplyProposals решает на нём (per-slot, дропы С1–С3 в отчёт),
+// write-back: новые товары INSERT (draft/source=ai, категория из попапа —
+// всегда валидна), слоты UPDATE по конкретным pos (component_id из
+// мутированного state: "gN" → realID по карте созданных, иначе числовой id).
+// Возвращает applied (число фактически записанных пунктов, дропы не входят,
+// М3) + отчёт. Товар удалён между фазами — отчёт «товар не найден», не ошибка
+// (М2: ответ 200).
+func (r *GoodsRepository) ApplyProposals(goodID int64, items []ai.ProposalItem) (int, []string, error) {
+	tx, err := r.beginMutation()
+	if err != nil {
+		return 0, nil, err
+	}
+	defer tx.Rollback()
+
+	cats, err := loadCategories(tx)
+	if err != nil {
+		return 0, nil, err
+	}
+	goods, err := loadGoods(tx)
+	if err != nil {
+		return 0, nil, err
+	}
+	slots, err := loadSlots(tx)
+	if err != nil {
+		return 0, nil, err
+	}
+	for i := range goods {
+		goods[i].Recipe = slots[goods[i].ID]
+	}
+	st := &model.State{
+		SchemaVersion: model.SchemaVersion,
+		Categories:    make([]model.Category, 0, len(cats)),
+		Goods:         goods,
+	}
+	for _, c := range cats {
+		st.Categories = append(st.Categories, model.Category{
+			ID: strconv.FormatInt(c.ID, 10), Name: c.Name, Kind: model.Kind(c.Kind),
+		})
+	}
+	origLen := len(st.Goods)
+
+	targetID := strconv.FormatInt(goodID, 10)
+	gi := indexOfGood(st.Goods, targetID)
+	if gi < 0 {
+		return 0, []string{"товар не найден"}, nil // М2: 200 + отчёт, не 404
+	}
+	// слоты целевого товара до применения — для diff write-back (заполнены
+	// только те, что были пусты и приняты; C3-дропы не трогают слот)
+	before := make([]string, len(st.Goods[gi].Recipe))
+	for i, s := range st.Goods[gi].Recipe {
+		before[i] = s.GoodID
+	}
+
+	applied, report := ai.ApplyProposals(st, targetID, items)
+
+	// write-back 1: новые товары (в конец st.Goods) → INSERT, карта "gN"→realID
+	gNToReal := make(map[string]int64, len(st.Goods)-origLen)
+	failedG := make(map[string]bool)
+	for i := origLen; i < len(st.Goods); i++ {
+		g := st.Goods[i]
+		catID, err := strconv.ParseInt(g.Category, 10, 64)
+		if err != nil {
+			return 0, nil, fmt.Errorf("apply: категория нового товара %s: %w", g.Name, err)
+		}
+		var id int64
+		err = tx.QueryRow(
+			`INSERT INTO goods (name, name_norm, category_id, kind, status, source) VALUES ($1, $2, $3, 'good', 'draft', 'ai') RETURNING id`,
+			g.Name, graph.NormalizeName(g.Name), catID,
+		).Scan(&id)
+		if err != nil {
+			if isUniqueViolation(err) {
+				// страховка от гонки (как BulkCreateGoods): дубликат имени — дроп
+				// пункта + отчёт; слот не заполняется (failedG)
+				applied--
+				report = append(report, fmt.Sprintf("товар с таким именем уже есть: %s — пропущено", g.Name))
+				failedG[g.ID] = true
+				continue
+			}
+			return 0, nil, err
+		}
+		gNToReal[g.ID] = id
+	}
+
+	// write-back 2: слоты целевого товара (diff: был пуст → заполнен)
+	for _, item := range items {
+		if item.Slot < 0 || item.Slot >= len(st.Goods[gi].Recipe) {
+			continue
+		}
+		if before[item.Slot] != "" {
+			continue // слот был заполнен до применения — не наш (C3-дроп)
+		}
+		compID := st.Goods[gi].Recipe[item.Slot].GoodID
+		if compID == "" {
+			continue // не применён (дроп)
+		}
+		var realID int64
+		if real, ok := gNToReal[compID]; ok {
+			realID = real // создан в этом прогоне (М4: маппинг по id слота)
+		} else if failedG[compID] {
+			continue // INSERT упал (23505) — слот не заполняем
+		} else {
+			realID, err = strconv.ParseInt(compID, 10, 64)
+			if err != nil {
+				return 0, nil, fmt.Errorf("apply: component_id %s: %w", compID, err)
+			}
+		}
+		if _, err := tx.Exec(
+			`UPDATE goods_slots SET component_id = $1, reason = $2 WHERE good_id = $3 AND pos = $4`,
+			realID, st.Goods[gi].Recipe[item.Slot].Reason, goodID, item.Slot,
+		); err != nil {
+			return 0, nil, err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, nil, err
+	}
+	return applied, report, nil
+}
+
+// indexOfGood — индекс товара по id (для ApplyProposals-транзакции).
+func indexOfGood(goods []model.Good, id string) int {
+	for i := range goods {
+		if goods[i].ID == id {
+			return i
+		}
+	}
+	return -1
 }
 
 // --- категории ---

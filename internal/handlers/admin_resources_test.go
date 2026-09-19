@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"zorion/internal/races"
+	"zorion/internal/resource"
 )
 
 // realRows — строки real-ресурсов витрины (props JSONB, русские ключи осей).
@@ -32,11 +33,50 @@ func expectRealQuery(mock sqlmock.Sqlmock) {
 		WillReturnRows(realRows())
 }
 
+// layerRows — строки layer-ресурсов «Базового слоя» из БД (спека iterC §7.2):
+// props JSONB с ключами сида (seed.go layerProps) — значения из LayerCatalog
+// (эталон сида): сверка маппинга на сиде.
+func layerRows() *sqlmock.Rows {
+	rows := sqlmock.NewRows([]string{"id", "name", "code", "props"})
+	for i, r := range resource.LayerCatalog() {
+		props := map[string]interface{}{
+			resource.AxisHardness:         r.Hardness,
+			resource.AxisElasticity:       r.Elasticity,
+			resource.AxisConductivity:     r.Conductivity,
+			resource.AxisDensity:          r.Density,
+			resource.AxisEnergyDensity:    r.EnergyDensity,
+			resource.AxisBiocompatibility: r.Biocompatibility,
+			resource.AxisRadioactivity:    r.Radioactivity,
+			resource.AxisToxicity:         r.Toxicity,
+			resource.AxisFlammability:     r.Flammability,
+			resource.AxisChemicalActivity: r.ChemicalActivity,
+			"t_melt_k":                    r.TMelt,
+			"t_boil_k":                    r.TBoil,
+			"closes":                      r.Closes,
+			"bridge":                      r.Bridge,
+			"supercritical":               r.Supercritical,
+		}
+		b, err := json.Marshal(props)
+		if err != nil {
+			panic(err)
+		}
+		rows.AddRow(int64(i+1), r.Name, r.Category, string(b))
+	}
+	return rows
+}
+
+// expectLayerQuery — ожидание layer-запроса «Базового слоя» (спека iterC §7.2).
+func expectLayerQuery(mock sqlmock.Sqlmock) {
+	mock.ExpectQuery(`SELECT g\.id, g\.name, c\.code, g\.props FROM goods g JOIN categories c ON c\.id = g\.category_id WHERE g\.kind = 'resource' AND g\.props \? 'closes' ORDER BY g\.id`).
+		WillReturnRows(layerRows())
+}
+
 func TestAdminResources(t *testing.T) {
 	require.NoError(t, races.LoadCatalog("../../config/races.json"))
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
 	defer db.Close()
+	expectLayerQuery(mock)
 	expectRealQuery(mock)
 
 	h := NewAdminHandlers(nil, db, nil)
@@ -92,22 +132,58 @@ func TestAdminResources(t *testing.T) {
 		}
 	}
 
-	// Спот-проверка флагов: CO₂-лёд сублимирующий, сверхкритический флюид —
-	// сверхкритический, вода — обычный.
-	byID := map[string]struct {
+	// Спот-проверка флагов по имени (id — числовые строки БД, спека iterC §7.4):
+	// CO₂-лёд сублимирующий, сверхкритический флюид — сверхкритический,
+	// вода — обычный.
+	byName := map[string]struct {
 		Sublimating   bool
 		Supercritical bool
 	}{}
 	for _, r := range resp.Resources {
-		byID[r.ID] = struct {
+		byName[r.Name] = struct {
 			Sublimating   bool
 			Supercritical bool
 		}{r.Sublimating, r.Supercritical}
 	}
-	require.True(t, byID["co2_ice"].Sublimating, "CO₂-лёд сублимирующий")
-	require.False(t, byID["co2_ice"].Supercritical)
-	require.True(t, byID["supercritical_fluid"].Supercritical, "сверхкритический флюид")
-	require.False(t, byID["water"].Sublimating, "вода-ресурс не сублимирующий")
+	require.True(t, byName["CO₂-лёд"].Sublimating, "CO₂-лёд сублимирующий")
+	require.False(t, byName["CO₂-лёд"].Supercritical)
+	require.True(t, byName["сверхкритический флюид"].Supercritical, "сверхкритический флюид")
+	require.False(t, byName["вода-ресурс"].Sublimating, "вода-ресурс не сублимирующий")
+}
+
+// TestLayerResourcesFromDB — маппинг layer-строки БД → resource.Resource
+// (спека iterC §7.3): поля совпадают с LayerCatalog по значениям (сверка на
+// сиде); id — числовая строка; category — code.
+func TestLayerResourcesFromDB(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+	expectLayerQuery(mock)
+
+	h := NewAdminHandlers(nil, db, nil)
+	list, err := h.layerResourcesFromDB()
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+	require.Len(t, list, 20)
+
+	// сверка по имени с LayerCatalog (эталон сида)
+	byName := map[string]*resource.Resource{}
+	for _, r := range list {
+		byName[r.Name] = r
+	}
+	for _, ref := range resource.LayerCatalog() {
+		got, ok := byName[ref.Name]
+		require.True(t, ok, "ресурс %s из БД", ref.Name)
+		require.Equal(t, ref.Category, got.Category, "%s: категория (code)", ref.Name)
+		require.Equal(t, ref.Hardness, got.Hardness, "%s: твёрдость", ref.Name)
+		require.Equal(t, ref.TMelt, got.TMelt, "%s: t_melt", ref.Name)
+		require.Equal(t, ref.TBoil, got.TBoil, "%s: t_boil", ref.Name)
+		require.Equal(t, ref.Closes, got.Closes, "%s: closes", ref.Name)
+		require.Equal(t, ref.Bridge, got.Bridge, "%s: bridge", ref.Name)
+		require.Equal(t, ref.Supercritical, got.Supercritical, "%s: supercritical", ref.Name)
+	}
+	// id — числовая строка (BIGSERIAL → string)
+	require.Equal(t, "1", list[0].ID)
 }
 
 // TestAdminResourcesRealFromDB — real-секция /admin/resources из БД
@@ -119,6 +195,7 @@ func TestAdminResourcesRealFromDB(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
 	defer db.Close()
+	expectLayerQuery(mock)
 	expectRealQuery(mock)
 
 	h := NewAdminHandlers(nil, db, nil)
@@ -177,6 +254,7 @@ func TestAdminResourcesNoRaceCatalog(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
 	defer db.Close()
+	expectLayerQuery(mock)
 	expectRealQuery(mock)
 
 	h := NewAdminHandlers(nil, db, nil)

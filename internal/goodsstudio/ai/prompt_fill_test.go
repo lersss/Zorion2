@@ -1,0 +1,58 @@
+package ai
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	"zorion/internal/goodsstudio/model"
+)
+
+// TestFillPromptUsesComputedTier — промпт «заполнить комплектующие» получает
+// ВЫЧИСЛЕННЫЙ тир: оверрайд не влияет на генерацию (99a.3 §4.2, критик №10;
+// перенос TestFillPromptUsesComputedTier из cmd/goods-studio/handlers/
+// handlers_test.go:783 на model.State, спека iterC §5.4).
+func TestFillPromptUsesComputedTier(t *testing.T) {
+	st := &model.State{
+		SchemaVersion: 1,
+		Categories:    []model.Category{{ID: "1", Name: "Корабли", Kind: model.KindGood}},
+		Goods: []model.Good{
+			{ID: "g1", Name: "A", Category: "1", Status: model.StatusDraft, Kind: model.KindGood, Recipe: []model.Slot{}},
+			{ID: "g2", Name: "B", Category: "1", Status: model.StatusDraft, Kind: model.KindGood, Recipe: []model.Slot{{GoodID: "g1"}}},
+		},
+	}
+	// оверрайд 9 на B — вычисленный тир B = 1 (A с пустым рецептом = 0)
+	tier := 9
+	st.Goods[1].TierOverride = &tier
+	prompt := BuildFillPrompt(st, "g2")
+	require.Contains(t, prompt, "тир: 1")
+	require.NotContains(t, prompt, "тир: 9")
+}
+
+// TestFillPromptContents — промпт несёт заполненные слоты, бан, ресурсы,
+// категории ("id: имя"), число пустых слотов и слоты с галкой ресурса.
+func TestFillPromptContents(t *testing.T) {
+	st := &model.State{
+		SchemaVersion: 1,
+		Categories: []model.Category{
+			{ID: "1", Name: "Корабли", Kind: model.KindGood},
+			{ID: "7", Name: "Минералы", Kind: model.KindResource},
+		},
+		Goods: []model.Good{
+			{ID: "1", Name: "Корабль", Category: "1", Status: model.StatusDraft, Kind: model.KindGood,
+				Recipe: []model.Slot{{GoodID: "2"}, {}, {AllowResource: true}}},
+			{ID: "2", Name: "Сталь", Category: "1", Status: model.StatusApproved, Kind: model.KindGood},
+			{ID: "3", Name: "Запрещёнка", Category: "1", Status: model.StatusBanned, Kind: model.KindGood},
+			{ID: "4", Name: "Железо Fe", Category: "7", Status: model.StatusApproved, Kind: model.KindResource},
+		},
+	}
+	prompt := BuildFillPrompt(st, "1")
+	require.Contains(t, prompt, "Сталь")          // заполненный слот
+	require.Contains(t, prompt, "Запрещёнка")     // бан
+	require.Contains(t, prompt, "Железо Fe")      // ресурсы
+	require.Contains(t, prompt, "1: Корабли")     // категории "id: имя"
+	require.Contains(t, prompt, "7: Минералы")
+	require.Contains(t, prompt, "Пустых слотов: 2")
+	require.Contains(t, prompt, "допускающие ресурсы")
+	require.Contains(t, prompt, "2") // 1-базовая позиция пустого слота с галкой
+}

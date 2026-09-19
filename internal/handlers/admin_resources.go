@@ -152,7 +152,11 @@ func (h *AdminHandlers) GetAdminResources(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	catalog := resource.LayerCatalog()
+	catalog, err := h.layerResourcesFromDB()
+	if err != nil {
+		writeJSONError(w, "ошибка чтения слоя: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 	templates := resource.LayerTemplates()
 	allRaces := races.Catalog()
 
@@ -270,6 +274,66 @@ func (h *AdminHandlers) GetAdminResources(w http.ResponseWriter, r *http.Request
 	}
 
 	writeJSONStatus(w, http.StatusOK, resp)
+}
+
+// layerResourcesFromDB — layer-ресурсы «Базового слоя» из БД (спека iterC
+// §7.3): props JSONB (русские ключи осей) → []*resource.Resource. Источник —
+// БД (С1), не LayerCatalog; LayerCatalog остаётся сидом и эталоном тестов.
+func (h *AdminHandlers) layerResourcesFromDB() ([]*resource.Resource, error) {
+	rows, err := repository.NewGoodsRepository(h.db).LayerResources()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*resource.Resource, 0, len(rows))
+	for _, row := range rows {
+		res, err := layerResourceFromRow(row)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, res)
+	}
+	return out, nil
+}
+
+// layerResourceFromRow — строка БД (props JSONB) → resource.Resource.
+// Маппинг русских ключей осей → поля (как realResourceFromRow, iterB §5.3);
+// closes/bridge/supercritical — только layer (сид, seed.go layerProps).
+func layerResourceFromRow(row repository.LayerResourceRow) (*resource.Resource, error) {
+	var props map[string]interface{}
+	if err := json.Unmarshal(row.Props, &props); err != nil {
+		return nil, fmt.Errorf("props %s: %w", row.Name, err)
+	}
+	axis := func(key string) float64 {
+		if v, ok := props[key].(float64); ok {
+			return v
+		}
+		return 0
+	}
+	res := &resource.Resource{
+		ID:       strconv.FormatInt(row.ID, 10), // id — строка (BIGSERIAL → string)
+		Name:     row.Name,
+		Category: row.Category, // code из categories.code
+		Hardness: axis(resource.AxisHardness), Elasticity: axis(resource.AxisElasticity),
+		Conductivity: axis(resource.AxisConductivity), Density: axis(resource.AxisDensity),
+		EnergyDensity: axis(resource.AxisEnergyDensity), Biocompatibility: axis(resource.AxisBiocompatibility),
+		Radioactivity: axis(resource.AxisRadioactivity), Toxicity: axis(resource.AxisToxicity),
+		Flammability: axis(resource.AxisFlammability), ChemicalActivity: axis(resource.AxisChemicalActivity),
+		TMelt: axis("t_melt_k"), TBoil: axis("t_boil_k"), // в K (клиент k2c)
+	}
+	if closes, ok := props["closes"].([]interface{}); ok {
+		for _, c := range closes {
+			if s, ok := c.(string); ok {
+				res.Closes = append(res.Closes, s)
+			}
+		}
+	}
+	if b, ok := props["bridge"].(bool); ok {
+		res.Bridge = b
+	}
+	if sc, ok := props["supercritical"].(bool); ok {
+		res.Supercritical = sc
+	}
+	return res, nil
 }
 
 // realResourcesFromDB — real-ресурсы витрины из БД (спека iterB §5.3):

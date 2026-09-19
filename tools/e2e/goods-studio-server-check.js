@@ -2,6 +2,11 @@
 // Browser test for the Goods Studio UI on the game server (/studio, iterB):
 // авторизация JWT (localStorage adminToken), «+ ресурс», кириллица,
 // OR-фильтры справочника, попап ресурса (тир/статусы), удаление.
+// Итерация C (спека iterC §11 п.9): шаг fill — создание товара с пустым
+// слотом → POST fill → 202 → опрос state до generating=false → report непуст
+// («Ошибка ИИ» — opencode в CI недоступен, детерминировано; если opencode
+// локально запущен — proposals непуст, попап открывается, apply применяет
+// принятое) → cleanup. Таймаут опроса ≥ OPENCODE_TIMEOUT_S + 15 c.
 // Старая студия (8799) — отдельный смоук goods-studio-check.js (до C).
 //
 // Run: node goods-studio-server-check.js
@@ -94,6 +99,25 @@ async function main() {
   const resCount = st.data.goods.filter(g => g.kind === 'resource').length;
   report('preflight /studio/api/state', 'PASS', `goods=${st.data.goods.length} cats=${st.data.categories.length} resources=${resCount}`);
 
+  // очистка зависших proposals от прошлого прогона (иначе попап «Предложения
+  // ИИ» авто-откроется и перехватит клики в шаге 3): товар жив → cancel;
+  // удалён → apply (М2: 200 «товар не найден» + сброс proposals)
+  if ((st.data.proposals || []).length > 0) {
+    const pid = st.data.proposals_good_id;
+    const goodExists = st.data.goods.some(g => g.id === pid);
+    if (goodExists) {
+      await api('POST', `/studio/api/goods/${pid}/fill/cancel`);
+    } else {
+      const accepted = st.data.proposals.map((p, i) => {
+        const item = { i };
+        if (p.kind === 'new') item.category_id = p.category_valid ? p.category_id : goodCatId;
+        return item;
+      });
+      await api('POST', `/studio/api/goods/${pid}/fill/apply`, { accepted });
+    }
+    report('preflight stale proposals', 'PASS', `cleared ${st.data.proposals.length} proposals for good ${pid}`);
+  }
+
   const exe = findExecutable();
   if (!exe) { report('setup browser', 'FAIL', 'no Chrome/Edge found'); return finish(1); }
   console.log('browser: ' + exe.name + ' (' + exe.path + ')');
@@ -140,11 +164,12 @@ async function main() {
     await page.keyboard.press('Enter');
     await waitFor((name) => state.goods.some(g => g.name === name), 8000, 'renamed in state', 'QA_Ресурс_2');
     const renamed = await page.evaluate(() => state.goods.some(g => g.name === 'QA_Ресурс_2'));
-    // дубликат имени через UI → 409-тост (api() показывает e.error)
+    // дубликат имени через UI → 409-тост (api() показывает e.error); ждём
+    // именно текст «уже есть» — отчёт-тост мог быть занят прошлым fill-отчётом
     await page.fill('#spravNewResName', 'QA_Ресурс_2');
     await page.selectOption('#spravNewResCat', String(resCatId));
     await page.click('#btnSpravAddRes');
-    await waitFor(() => document.getElementById('report').style.display === 'block', 8000, 'dup 409 toast');
+    await waitFor(() => document.getElementById('report').textContent.includes('уже есть'), 8000, 'dup 409 toast');
     const dupToast = await page.evaluate(() => document.getElementById('report').textContent);
     report('3 cyrillic rename + dup 409', (renamed && dupToast.includes('уже есть')) ? 'PASS' : 'FAIL',
       `renamed=${renamed} toast="${dupToast.replace(/\n/g, ' | ').slice(0, 80)}"`);
@@ -230,6 +255,60 @@ async function main() {
     // ============ Step 7: no JS errors + screenshot ============
     report('7 no page JS errors', pageErrors.length === 0 ? 'PASS' : 'FAIL', pageErrors.length ? pageErrors.join(' | ').slice(0, 300) : 'clean');
     await page.screenshot({ path: path.join(ARTIFACTS_DIR, 'goods-studio-server.png') });
+
+    // ============ Step 8: fill (спека iterC §11 п.9) ============
+    // Товар с пустым слотом → POST fill → 202 → опрос state до
+    // generating=false → report непуст. Детерминировано в CI: opencode
+    // недоступен → «Ошибка ИИ», proposals пусты; локально с opencode —
+    // proposals непуст, apply применяет принятое.
+    const fillGood = (await api('POST', '/studio/api/goods', { name: 'QA_Fill', category_id: goodCatId })).data;
+    await waitFor((id) => state.goods.some(g => g.id === id), 8000, 'QA_Fill in state', fillGood.id);
+    // явно добавить пустой слот перед fill (ревью iterC: не полагаемся на
+    // слоты от CreateGood — fill без пустых слотов вернул бы 400)
+    await api('POST', `/studio/api/goods/${fillGood.id}/slots`);
+    await waitFor((id) => {
+      const g = state.goods.find(x => x.id === id);
+      return g && (g.recipe || []).some(s => !s.good_id);
+    }, 8000, 'empty slot in state', fillGood.id);
+    const fillResp = await api('POST', `/studio/api/goods/${fillGood.id}/fill`);
+    report('8 fill start', fillResp.status === 202 ? 'PASS' : 'FAIL', 'status=' + fillResp.status);
+    // опрос state до завершения fill (через API, не страницу: страница
+    // опрашивает раз в 3 с и может не успеть увидеть generating=true —
+    // waitFor по !generating резолвился бы сразу на устаревшем state, ревью
+    // iterC). Завершён = generating=false И (report непуст ИЛИ proposals
+    // непуст) — BuildProposals всегда даёт одно из двух. Таймаут ≥
+    // OPENCODE_TIMEOUT_S + 15 c (fill может висеть до таймаута клиента).
+    let fillState = null;
+    const fillDeadline = Date.now() + 135000;
+    while (Date.now() < fillDeadline) {
+      const s = (await api('GET', '/studio/api/state')).data;
+      if (!s.generating && ((s.report || []).length > 0 || (s.proposals || []).length > 0)) {
+        fillState = s;
+        break;
+      }
+      await new Promise(r => setTimeout(r, 2000));
+    }
+    if (!fillState) {
+      report('8 fill negative', 'FAIL', 'fill не завершился за 135 c (таймаут опроса)');
+    } else {
+      const hasError = fillState.report.some(l => l.includes('Ошибка ИИ'));
+      if (fillState.proposals.length > 0) {
+        // opencode локально: proposals непуст, попап открылся (авто-открытие
+        // в fetchState), применяем принятое (kind=new — категория из
+        // селекта/дефолта)
+        const accepted = fillState.proposals.map((p, i) => {
+          const item = { i };
+          if (p.kind === 'new') item.category_id = p.category_valid ? p.category_id : goodCatId;
+          return item;
+        });
+        const applyResp = await api('POST', `/studio/api/goods/${fillGood.id}/fill/apply`, { accepted });
+        report('8 fill apply', applyResp.status === 200 ? 'PASS' : 'FAIL',
+          `applied=${applyResp.data && applyResp.data.applied} proposals=${fillState.proposals.length}`);
+      } else {
+        report('8 fill negative', hasError ? 'PASS' : 'FAIL',
+          `generating=${fillState.generating} report="${fillState.report.join(' | ').slice(0, 120)}"`);
+      }
+    }
 
   } catch (err) {
     report('UNCAUGHT', 'FAIL', String(err && err.message ? err.message : err));

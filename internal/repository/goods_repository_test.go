@@ -15,6 +15,7 @@ import (
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 
+	"zorion/internal/goodsstudio/ai"
 	"zorion/internal/goodsstudio/model"
 )
 
@@ -681,5 +682,153 @@ func TestCreateGoodUniqueViolation409(t *testing.T) {
 	var ce *ErrCatalog
 	require.True(t, errors.As(err, &ce))
 	require.Equal(t, 409, ce.Status)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// --- ApplyProposals (спека iterC §5.4/§11) ---
+
+// applySnapshotRows — ожидания снимка каталога в tx: категория 5 (good),
+// товар 1 «Корабль» с двумя пустыми слотами (pos 0, 1).
+func applySnapshotRows(mock sqlmock.Sqlmock) {
+	mock.ExpectQuery(`SELECT id, name, kind, code, is_system FROM categories ORDER BY id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "code", "is_system"}).
+			AddRow(int64(5), "Комплектующие", "good", nil, false))
+	mock.ExpectQuery(`SELECT id, name, category_id, kind, status, source, tier_override, banned_at, created_at FROM goods ORDER BY id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "status", "source", "tier_override", "banned_at", "created_at"}).
+			AddRow(int64(1), "Корабль", int64(5), "good", "draft", "manual", nil, nil, time.Now()))
+	mock.ExpectQuery(`SELECT good_id, pos, component_id, quantity, reason, allow_resource FROM goods_slots ORDER BY good_id, pos`).
+		WillReturnRows(sqlmock.NewRows([]string{"good_id", "pos", "component_id", "quantity", "reason", "allow_resource"}).
+			AddRow(int64(1), 0, nil, 1, nil, false).
+			AddRow(int64(1), 1, nil, 1, nil, false))
+}
+
+// TestApplyProposalsWriteBack — два принятых пункта kind=new: новые товары
+// INSERT (draft/ai, категория из попапа), слоты UPDATE по конкретным pos,
+// маппинг "gN"→real id, applied = 2, отчёт пуст.
+func TestApplyProposalsWriteBack(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectMutationBegin(mock)
+	applySnapshotRows(mock)
+	mock.ExpectQuery(`INSERT INTO goods \(name, name_norm, category_id, kind, status, source\) VALUES \(\$1, \$2, \$3, 'good', 'draft', 'ai'\) RETURNING id`).
+		WithArgs("Сталь", "сталь", int64(5)).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(10)))
+	mock.ExpectQuery(`INSERT INTO goods \(name, name_norm, category_id, kind, status, source\) VALUES \(\$1, \$2, \$3, 'good', 'draft', 'ai'\) RETURNING id`).
+		WithArgs("Топливо", "топливо", int64(5)).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(11)))
+	mock.ExpectExec(`UPDATE goods_slots SET component_id = \$1, reason = \$2 WHERE good_id = \$3 AND pos = \$4`).
+		WithArgs(int64(10), "", int64(1), 0).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`UPDATE goods_slots SET component_id = \$1, reason = \$2 WHERE good_id = \$3 AND pos = \$4`).
+		WithArgs(int64(11), "", int64(1), 1).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	applied, report, err := NewGoodsRepository(db).ApplyProposals(1, []ai.ProposalItem{
+		{Slot: 0, Name: "Сталь", CategoryID: "5", Kind: "new"},
+		{Slot: 1, Name: "Топливо", CategoryID: "5", Kind: "new"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, 2, applied)
+	require.Empty(t, report)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestApplyProposalsGoodGoneM2 — товар удалён между фазами → отчёт «товар
+// не найден», не ошибка (М2: ответ 200), никаких записей.
+func TestApplyProposalsGoodGoneM2(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectMutationBegin(mock)
+	mock.ExpectQuery(`SELECT id, name, kind, code, is_system FROM categories ORDER BY id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "code", "is_system"}).
+			AddRow(int64(5), "Комплектующие", "good", nil, false))
+	mock.ExpectQuery(`SELECT id, name, category_id, kind, status, source, tier_override, banned_at, created_at FROM goods ORDER BY id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "status", "source", "tier_override", "banned_at", "created_at"}).
+			AddRow(int64(2), "Другой", int64(5), "good", "draft", "manual", nil, nil, time.Now()))
+	mock.ExpectQuery(`SELECT good_id, pos, component_id, quantity, reason, allow_resource FROM goods_slots ORDER BY good_id, pos`).
+		WillReturnRows(sqlmock.NewRows([]string{"good_id", "pos", "component_id", "quantity", "reason", "allow_resource"}))
+	mock.ExpectRollback() // ничего не записано — ранний return, rollback
+
+	applied, report, err := NewGoodsRepository(db).ApplyProposals(1, []ai.ProposalItem{
+		{Slot: 0, Name: "Сталь", CategoryID: "5", Kind: "new"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, 0, applied)
+	require.Len(t, report, 1)
+	require.Contains(t, report[0], "товар не найден")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestApplyProposalsLinkGoneC1 — link-цель удалена между фазами → дроп +
+// отчёт «ссылка исчезла», новый товар НЕ создаётся (С1), applied = 0.
+func TestApplyProposalsLinkGoneC1(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectMutationBegin(mock)
+	applySnapshotRows(mock)
+	mock.ExpectCommit()
+
+	applied, report, err := NewGoodsRepository(db).ApplyProposals(1, []ai.ProposalItem{
+		{Slot: 0, Name: "Сталь", Kind: "link"}, // Сталь удалена между фазами
+	})
+	require.NoError(t, err)
+	require.Equal(t, 0, applied)
+	require.Len(t, report, 1)
+	require.Contains(t, report[0], "ссылка исчезла")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestApplyProposalsUniqueDrop — INSERT нового товара упал на UNIQUE (23505):
+// дроп пункта + отчёт, applied уменьшен, слот не заполняется (страховка).
+func TestApplyProposalsUniqueDrop(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectMutationBegin(mock)
+	applySnapshotRows(mock)
+	mock.ExpectQuery(`INSERT INTO goods \(name, name_norm, category_id, kind, status, source\) VALUES \(\$1, \$2, \$3, 'good', 'draft', 'ai'\) RETURNING id`).
+		WithArgs("Сталь", "сталь", int64(5)).
+		WillReturnError(&pq.Error{Code: "23505"})
+	mock.ExpectCommit()
+
+	applied, report, err := NewGoodsRepository(db).ApplyProposals(1, []ai.ProposalItem{
+		{Slot: 0, Name: "Сталь", CategoryID: "5", Kind: "new"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, 0, applied) // 1 принят − 1 дроп (23505)
+	require.Len(t, report, 1)
+	require.Contains(t, report[0], "уже есть")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// --- LayerResources (спека iterC §7.2) ---
+
+// TestLayerResources — только props ? 'closes' (дискриминатор слоя), джойн
+// категорий по code, порядок по id.
+func TestLayerResources(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectQuery(`SELECT g\.id, g\.name, c\.code, g\.props FROM goods g JOIN categories c ON c\.id = g\.category_id WHERE g\.kind = 'resource' AND g\.props \? 'closes' ORDER BY g\.id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "code", "props"}).
+			AddRow(int64(1), "вода-ресурс", "water", []byte(`{"closes":["вода"],"bridge":false}`)).
+			AddRow(int64(2), "сера-ресурс", "mineral", []byte(`{"closes":["сера"]}`)))
+
+	rows, err := NewGoodsRepository(db).LayerResources()
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+	require.Equal(t, int64(1), rows[0].ID)
+	require.Equal(t, "вода-ресурс", rows[0].Name)
+	require.Equal(t, "water", rows[0].Category)
+	require.Contains(t, string(rows[0].Props), "closes")
 	require.NoError(t, mock.ExpectationsWereMet())
 }

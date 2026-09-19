@@ -9,24 +9,41 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
+	"zorion/internal/goodsstudio/ai"
 	"zorion/internal/goodsstudio/graph"
 	"zorion/internal/goodsstudio/model"
 	"zorion/internal/goodsstudio/validate"
 	"zorion/internal/repository"
 )
 
-// StudioHandlers — хендлеры студии товаров (каталог в БД).
+// StudioHandlers — хендлеры студии товаров (каталог в БД). Статус fill +
+// proposals — in-memory под fillMu (спека переноса-студии-товаров-iterC §5.2:
+// транзиентное состояние инструмента, не таблица; рестарт сбрасывает).
 type StudioHandlers struct {
-	repo *repository.GoodsRepository
+	repo    *repository.GoodsRepository
+	ai      *ai.Client
+	aiModel string
+
+	fillMu               sync.Mutex
+	fillGenerating       bool
+	fillReport           []string
+	fillProposals        []ProposalView // предложения последнего завершённого fill
+	fillProposalsGoodID  string         // товар, для которого предложения
 }
 
-func NewStudioHandlers(db *sql.DB) *StudioHandlers {
-	return &StudioHandlers{repo: repository.NewGoodsRepository(db)}
+func NewStudioHandlers(db *sql.DB, aiClient *ai.Client, aiModel string) *StudioHandlers {
+	return &StudioHandlers{
+		repo:    repository.NewGoodsRepository(db),
+		ai:      aiClient,
+		aiModel: aiModel,
+	}
 }
 
 // --- представления (спека §7) ---
@@ -67,20 +84,40 @@ type GoodView struct {
 }
 
 // StateView — полное состояние для UI (спека §7, GET /studio/api/state).
+// Поля fill (report/proposals/proposals_good_id) — аддитивны к iterA §7
+// (спека iterC §5.3): существующие не меняются.
 type StateView struct {
-	Categories    []CategoryView     `json:"categories"`
-	Goods         []GoodView         `json:"goods"`
-	Banned        []GoodView         `json:"banned"`
-	Unused        []GoodView         `json:"unused"`
-	Warnings      []validate.Warning `json:"warnings"`
-	Model         string             `json:"model"`
-	Generating    bool               `json:"generating"`
-	AutoRefreshMS int                `json:"auto_refresh_ms"`
+	Categories       []CategoryView     `json:"categories"`
+	Goods            []GoodView         `json:"goods"`
+	Banned           []GoodView         `json:"banned"`
+	Unused           []GoodView         `json:"unused"`
+	Warnings         []validate.Warning `json:"warnings"`
+	Model            string             `json:"model"`
+	Generating       bool               `json:"generating"`
+	AutoRefreshMS    int                `json:"auto_refresh_ms"`
+	Report           []string           `json:"report"`
+	Proposals        []ProposalView     `json:"proposals"`
+	ProposalsGoodID  string             `json:"proposals_good_id,omitempty"`
+}
+
+// ProposalView — предложение ИИ для попапа (спека iterC §5.3): kind new/link,
+// category_valid — производное; link_id/link_name — только для kind=link.
+type ProposalView struct {
+	Slot          int    `json:"slot"`
+	Name          string `json:"name"`
+	Category      string `json:"category"`
+	CategoryID    int64  `json:"category_id"`
+	CategoryValid bool   `json:"category_valid"`
+	Reason        string `json:"reason"`
+	Kind          string `json:"kind"`
+	LinkID        string `json:"link_id,omitempty"`
+	LinkName      string `json:"link_name,omitempty"`
 }
 
 // --- GET /studio/api/state ---
 
-// State — полное состояние каталога (снимок REPEATABLE READ, §8.1).
+// State — полное состояние каталога (снимок REPEATABLE READ, §8.1) +
+// статус fill (generating/model/report/proposals, спека iterC §5.3).
 func (h *StudioHandlers) State(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		studioErr(w, "только GET", http.StatusMethodNotAllowed)
@@ -91,12 +128,13 @@ func (h *StudioHandlers) State(w http.ResponseWriter, r *http.Request) {
 		studioErr(w, "ошибка чтения каталога: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	studioJSON(w, http.StatusOK, buildStateView(snap))
+	studioJSON(w, http.StatusOK, h.buildStateView(snap))
 }
 
 // buildStateView — StateView из снимка (banned новые сверху, unused —
 // in-degree 0, не banned, kind=good; warnings — прогон валидаторов).
-func buildStateView(snap *repository.CatalogSnapshot) StateView {
+// Fill-поля — копии под fillMu (слайсы не мутировать извне).
+func (h *StudioHandlers) buildStateView(snap *repository.CatalogSnapshot) StateView {
 	byID := graph.ByID(snap.Goods)
 	view := StateView{
 		Categories: make([]CategoryView, 0, len(snap.Categories)),
@@ -104,9 +142,14 @@ func buildStateView(snap *repository.CatalogSnapshot) StateView {
 		Banned:     []GoodView{},
 		Unused:     []GoodView{},
 		Warnings:   validate.Validate(&model.State{SchemaVersion: model.SchemaVersion, Goods: snap.Goods}),
-		Generating: false,
-		Model:      "",
 	}
+	h.fillMu.Lock()
+	view.Model = h.aiModel
+	view.Generating = h.fillGenerating
+	view.Report = append([]string{}, h.fillReport...)
+	view.Proposals = append([]ProposalView{}, h.fillProposals...)
+	view.ProposalsGoodID = h.fillProposalsGoodID
+	h.fillMu.Unlock()
 	for _, c := range snap.Categories {
 		cv := CategoryView{ID: c.ID, Name: c.Name, Kind: c.Kind, IsSystem: c.IsSystem}
 		if c.Code.Valid {
@@ -328,8 +371,14 @@ func (h *StudioHandlers) GoodByID(w http.ResponseWriter, r *http.Request) {
 		h.goodTier(w, r, id)
 	case len(parts) == 2 && parts[1] == "slots":
 		h.addSlot(w, r, id)
+	case len(parts) == 2 && parts[1] == "fill":
+		h.goodFill(w, r, id)
 	case len(parts) == 3 && parts[1] == "slots":
 		h.slot(w, r, id, parts[2])
+	case len(parts) == 3 && parts[1] == "fill" && parts[2] == "apply":
+		h.goodFillApply(w, r, id)
+	case len(parts) == 3 && parts[1] == "fill" && parts[2] == "cancel":
+		h.goodFillCancel(w, r, id)
 	case len(parts) == 4 && parts[1] == "slots" && parts[3] == "component":
 		h.clearSlot(w, r, id, parts[2])
 	case len(parts) == 4 && parts[1] == "slots" && parts[3] == "allow_resource":
@@ -500,6 +549,264 @@ func (h *StudioHandlers) slotAllowResource(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	studioJSON(w, http.StatusOK, map[string]interface{}{"id": id, "pos": pos})
+}
+
+// --- fill: «заполнить комплектующие» (спека iterC §5) ---
+
+// goodFill — POST /studio/api/goods/{id}/fill: запуск ИИ (асинхронно).
+// Ответ ИИ разбирается в предложения (proposals), НЕ применяется (двухфазный
+// fill «предложи → подтверди в попапе», решение создателя 2026-09-20).
+// 202 {"started":"true"} · 400 нет пустых слотов · 404 нет товара ·
+// 409 уже идёт генерация (TryStart).
+func (h *StudioHandlers) goodFill(w http.ResponseWriter, r *http.Request, id int64) {
+	if r.Method != http.MethodPost {
+		studioErr(w, "только POST", http.StatusMethodNotAllowed)
+		return
+	}
+	snap, err := h.repo.Snapshot()
+	if err != nil {
+		studioErr(w, "ошибка чтения каталога: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	goodID := strconv.FormatInt(id, 10)
+	gi := indexOfGood(snap.Goods, goodID)
+	if gi < 0 {
+		studioErr(w, "товар не найден", http.StatusNotFound)
+		return
+	}
+	if len(emptySlots(snap.Goods[gi].Recipe)) == 0 {
+		studioErr(w, "нет пустых слотов", http.StatusBadRequest)
+		return
+	}
+	prompt := ai.BuildFillPrompt(snapshotState(snap), goodID)
+	if !h.tryStartFill() {
+		studioErr(w, "уже идёт генерация", http.StatusConflict)
+		return
+	}
+	go h.runFill(goodID, prompt)
+	studioJSON(w, http.StatusAccepted, map[string]string{"started": "true"})
+}
+
+// runFill — фоновая генерация (эталон state.go:743–759, изменён: разбор →
+// proposals, НЕ применение): запрос к ИИ → разбор → BuildProposals на свежем
+// снимке → setProposals + finishFill (дропы бана/ресурса/цикла — в отчёте
+// сразу; proposals — в state для попапа).
+func (h *StudioHandlers) runFill(goodID, prompt string) {
+	raw, err := h.ai.FillComponents(prompt)
+	if err != nil {
+		h.finishFill([]string{"Ошибка ИИ: " + err.Error()})
+		return
+	}
+	comps, err := ai.ParseFillResponse(raw)
+	if err != nil {
+		h.finishFill([]string{"Мусор в ответе ИИ: " + err.Error()})
+		return
+	}
+	snap, err := h.repo.Snapshot()
+	if err != nil {
+		h.finishFill([]string{"Ошибка чтения каталога: " + err.Error()})
+		return
+	}
+	proposals, dropReport := ai.BuildProposals(snapshotState(snap), goodID, comps)
+	h.setProposals(proposalViews(proposals), goodID)
+	h.finishFill(dropReport)
+}
+
+// proposalViews — ai.Proposal → ProposalView (state-представление, спека
+// iterC §5.3: те же поля, JSON-теги).
+func proposalViews(ps []ai.Proposal) []ProposalView {
+	out := make([]ProposalView, 0, len(ps))
+	for _, p := range ps {
+		out = append(out, ProposalView{
+			Slot: p.Slot, Name: p.Name, Category: p.Category,
+			CategoryID: p.CategoryID, CategoryValid: p.CategoryValid,
+			Reason: p.Reason, Kind: p.Kind,
+			LinkID: p.LinkID, LinkName: p.LinkName,
+		})
+	}
+	return out
+}
+
+// goodFillApply — POST /studio/api/goods/{id}/fill/apply {accepted: [{i,
+// category_id}]}: применение принятых предложений (одна транзакция с
+// advisory lock, repo.ApplyProposals). 200 {"applied": N} · 400 пустой/битый
+// accepted · 409 нет предложений / идёт генерация · товар удалён между
+// фазами → 200 + отчёт «товар не найден» (М2).
+func (h *StudioHandlers) goodFillApply(w http.ResponseWriter, r *http.Request, id int64) {
+	if r.Method != http.MethodPost {
+		studioErr(w, "только POST", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Accepted []struct {
+			I          int    `json:"i"`
+			CategoryID *int64 `json:"category_id"`
+		} `json:"accepted"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		studioErr(w, "невалидный JSON", http.StatusBadRequest)
+		return
+	}
+	goodID := strconv.FormatInt(id, 10)
+	h.fillMu.Lock()
+	if h.fillGenerating {
+		h.fillMu.Unlock()
+		studioErr(w, "идёт генерация", http.StatusConflict)
+		return
+	}
+	if len(h.fillProposals) == 0 || h.fillProposalsGoodID != goodID {
+		h.fillMu.Unlock()
+		studioErr(w, "нет предложений", http.StatusConflict)
+		return
+	}
+	proposals := append([]ProposalView{}, h.fillProposals...)
+	h.fillMu.Unlock()
+
+	if len(body.Accepted) == 0 {
+		studioErr(w, "accepted пуст", http.StatusBadRequest)
+		return
+	}
+	items := make([]ai.ProposalItem, 0, len(body.Accepted))
+	for _, a := range body.Accepted {
+		if a.I < 0 || a.I >= len(proposals) {
+			studioErr(w, "индекс вне диапазона", http.StatusBadRequest)
+			return
+		}
+		p := proposals[a.I]
+		item := ai.ProposalItem{Slot: p.Slot, Name: p.Name, Reason: p.Reason, Kind: p.Kind}
+		if p.Kind == "new" {
+			// category_id обязателен для kind=new (выбор попапа); для link
+			// игнорируется. Существование категории НЕ проверяется здесь —
+			// только в транзакции под lock (С2, TOCTOU).
+			if a.CategoryID == nil || *a.CategoryID <= 0 {
+				studioErr(w, "category_id обязателен для нового товара", http.StatusBadRequest)
+				return
+			}
+			item.CategoryID = strconv.FormatInt(*a.CategoryID, 10)
+		}
+		items = append(items, item)
+	}
+
+	applied, rep, err := h.repo.ApplyProposals(id, items)
+	if err != nil {
+		writeCatalogErr(w, err)
+		return
+	}
+	// отчёт: «пропущено: X (не принято)» для отклонённых пользователем +
+	// результат repo.ApplyProposals + «Применено: N» (N — из ответа, М3)
+	report := make([]string, 0, len(rep)+2)
+	if rejected := len(proposals) - len(body.Accepted); rejected > 0 {
+		report = append(report, fmt.Sprintf("пропущено: %d (не принято)", rejected))
+	}
+	report = append(report, rep...)
+	report = append(report, fmt.Sprintf("Применено: %d", applied))
+	h.finishFill(report)
+	h.clearProposals()
+	studioJSON(w, http.StatusOK, map[string]int{"applied": applied})
+}
+
+// goodFillCancel — POST /studio/api/goods/{id}/fill/cancel: сброс предложений
+// (Отмена в попапе). 200 · 404 нет товара · 409 идёт генерация — отмена
+// после завершения (М5).
+func (h *StudioHandlers) goodFillCancel(w http.ResponseWriter, r *http.Request, id int64) {
+	if r.Method != http.MethodPost {
+		studioErr(w, "только POST", http.StatusMethodNotAllowed)
+		return
+	}
+	h.fillMu.Lock()
+	generating := h.fillGenerating
+	h.fillMu.Unlock()
+	if generating {
+		studioErr(w, "идёт генерация — отмена после завершения", http.StatusConflict)
+		return
+	}
+	snap, err := h.repo.Snapshot()
+	if err != nil {
+		studioErr(w, "ошибка чтения каталога: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if indexOfGood(snap.Goods, strconv.FormatInt(id, 10)) < 0 {
+		studioErr(w, "товар не найден", http.StatusNotFound)
+		return
+	}
+	h.clearProposals()
+	studioJSON(w, http.StatusOK, map[string]string{"cancelled": "true"})
+}
+
+// tryStartFill — атомарный старт генерации (TryStart, спека iterC §5.2);
+// сбрасывает предыдущие proposals (повторный fill — новые предложения).
+func (h *StudioHandlers) tryStartFill() bool {
+	h.fillMu.Lock()
+	defer h.fillMu.Unlock()
+	if h.fillGenerating {
+		return false
+	}
+	h.fillGenerating = true
+	h.fillReport = nil
+	h.fillProposals = nil
+	h.fillProposalsGoodID = ""
+	return true
+}
+
+// finishFill — завершение генерации (успех или ошибка).
+func (h *StudioHandlers) finishFill(report []string) {
+	h.fillMu.Lock()
+	defer h.fillMu.Unlock()
+	h.fillGenerating = false
+	h.fillReport = report
+}
+
+// setProposals — запись предложений под fillMu (из runFill).
+func (h *StudioHandlers) setProposals(proposals []ProposalView, goodID string) {
+	h.fillMu.Lock()
+	defer h.fillMu.Unlock()
+	h.fillProposals = proposals
+	h.fillProposalsGoodID = goodID
+}
+
+// clearProposals — сброс предложений (apply/cancel; новый fill — tryStartFill).
+func (h *StudioHandlers) clearProposals() {
+	h.fillMu.Lock()
+	defer h.fillMu.Unlock()
+	h.fillProposals = nil
+	h.fillProposalsGoodID = ""
+}
+
+// snapshotState — model.State из снимка каталога (для BuildFillPrompt/
+// BuildProposals): категории с kind (С2-проверка в ApplyProposals).
+func snapshotState(snap *repository.CatalogSnapshot) *model.State {
+	st := &model.State{
+		SchemaVersion: model.SchemaVersion,
+		Categories:    make([]model.Category, 0, len(snap.Categories)),
+		Goods:         snap.Goods,
+	}
+	for _, c := range snap.Categories {
+		st.Categories = append(st.Categories, model.Category{
+			ID: strconv.FormatInt(c.ID, 10), Name: c.Name, Kind: model.Kind(c.Kind),
+		})
+	}
+	return st
+}
+
+// emptySlots — индексы пустых слотов рецепта (0-based).
+func emptySlots(recipe []model.Slot) []int {
+	var out []int
+	for i := range recipe {
+		if recipe[i].GoodID == "" {
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
+// indexOfGood — индекс товара по id (для fill-хендлеров).
+func indexOfGood(goods []model.Good, id string) int {
+	for i := range goods {
+		if goods[i].ID == id {
+			return i
+		}
+	}
+	return -1
 }
 
 // --- GET /studio/api/validate ---

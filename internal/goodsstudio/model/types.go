@@ -34,9 +34,12 @@ const (
 )
 
 // Category — категория студии (свободное множество, спека 99a.1 §5.1).
+// Kind — good/resource (спека переноса-студии-товаров-iterC §5.4, C2:
+// категория нового товара от ИИ должна существовать и быть kind=good).
 type Category struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+	Kind Kind   `json:"kind,omitempty"`
 }
 
 // ResourceRef — ссылка импортированного ресурса на каталог сервера

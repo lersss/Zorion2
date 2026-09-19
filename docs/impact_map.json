@@ -335,8 +335,44 @@
         { "on": "migrations/000044_create_player_flights.sql", "kind": "duplicates", "reason": "схема таблицы — в миграции и здесь" }
       ]
     },
+{
+      "id": "config/art/families.json",
+      "type": "config",
+      "path": "config/art/families.json",
+      "note": "семейства рас для арт-студии: forms/materials/glows, морф-наборы (F1–F10); с 98a у рас появились поля appearance (внешность для промта) и blocked (запрещённые теги, substring-матчинг)",
+      "impacts": [
+        { "on": "cmd/art-studio/generator/prompt.go", "kind": "reads", "reason": "appearance вставляется в промпт, blocked фильтрует пулы выбора (98a §12)" },
+        { "on": "cmd/art-studio/config/load.go", "kind": "reads", "reason": "валидация новых полей appearance/blocked (нормализация lowercase/trim, дедуп) (98a)" },
+        { "on": "cmd/art-studio/config/load_test.go", "kind": "test", "reason": "новые тесты валидации + кросс-конфиг-тест blocked (98a)" },
+        { "on": "docs/gamedesign/races/*.md", "kind": "duplicates", "reason": "машинная проекция раздела «Внешний вид» (как имена рас: races.json ↔ 22_races.md); правка внешности = правка обоих мест (98a §4.2)" }
+      ]
+    },
     {
-"id": "goods_data/*",
+      "id": "config/art/forms.json",
+      "type": "config",
+      "path": "config/art/forms.json",
+      "note": "глобальные словари форм арт-студии (character/parts/shapes/struct/морф-списки, palette_accents); с 98a пулы фильтруются blocked по расе",
+      "impacts": [
+        { "on": "cmd/art-studio/generator/prompt.go", "kind": "reads", "reason": "пулы словаря фильтруются blocked по расе (98a; связь усилена)" },
+        { "on": "config/art/families.json", "kind": "reads", "reason": "блокированный токен расы проверяется на совпадение со словарями форм (кросс-конфиг-тест, 98a §5.6)" }
+      ]
+    },
+    {
+      "id": "98a",
+      "type": "spec",
+      "path": "docs/specs/98a-внешность-рас-арт-фильтр.md",
+      "note": "спека «Внешность рас + фильтрация шума в генераторе картинок» (98a, пилот 6 рас) + 98b (поле доп. тегов, панель итогового промпта); ✅ реализовано 2026-09-19",
+      "impacts": [
+        { "on": "config/art/families.json", "kind": "writes", "reason": "поля appearance/blocked у 6 пилотных рас (98a)" },
+        { "on": "config/art/forms.json", "kind": "writes", "reason": "фильтрация пулов форм по blocked (98a)" },
+        { "on": "cmd/art-studio/*", "kind": "api", "reason": "студия читает конфиги при старте; после правки конфигов — перезапуск" },
+        { "on": "docs/gamedesign/races/*.md", "kind": "writes", "reason": "раздел «Внешний вид» в 6 лор-файлах пилота (98a)" },
+        { "on": "docs/specs/README.md", "kind": "docs", "reason": "манифест спеки 98a (строка добавлена дизайнером)" },
+        { "on": "99_roadmap.md", "kind": "docs", "reason": "строка §99.2 — статус 98a/98b (дельта @dispatcher)" }
+      ]
+    },
+    {
+      "id": "goods_data/*",
       "type": "config",
       "path": "goods_data/*",
       "note": "Каталог топ-товаров (100 верхушек) + 2 полных дерева Т8 («Гелиос», «Кремний-9»), идея 2026-09-19: 465 узлов, 183 имени, 70 ресурсов из каталогов, пул 21; затравка для студии товаров 99a",

@@ -17,7 +17,7 @@ import (
 func (s *Server) handleRaceInfo(w http.ResponseWriter, r *http.Request) {
 	fam := r.URL.Query().Get("fam")
 	race := r.URL.Query().Get("race")
-	f, ok := s.families[fam]
+	f, ok := s.family(fam)
 	if !ok {
 		writeJSON(w, map[string]string{"race": race, "name": "", "basis": "", "lore": ""})
 		return

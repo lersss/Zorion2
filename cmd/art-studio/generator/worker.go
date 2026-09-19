@@ -69,6 +69,30 @@ func NewRunner(cfg *config.StudioConfig, forms *config.FormsConfig, families con
 	return &Runner{cfg: cfg, forms: forms, families: families, humans: humans, comfy: comfy}
 }
 
+// family возвращает семейство по id (чтение под r.mu: ReloadFamilies может
+// заменить конфиг в памяти — без мьютекса concurrent map read/write).
+func (r *Runner) family(famID string) (config.Family, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	f, ok := r.families[famID]
+	return f, ok
+}
+
+// ReloadFamilies перечитывает families.json с диска и заменяет конфиг в памяти
+// (кнопка «Пересобрать промт»: машинная проекция appearance/blocked обновилась).
+// Замена под r.mu: джобы читают families только при старте (GenRef/GenVar),
+// хендлеры — при запросе; гонки на чтение во время замены нет.
+func (r *Runner) ReloadFamilies(path string) error {
+	fam, err := config.LoadFamilies(path)
+	if err != nil {
+		return err
+	}
+	r.mu.Lock()
+	r.families = fam
+	r.mu.Unlock()
+	return nil
+}
+
 // TryStart запускает джоб, если ни одна генерация не активна.
 // Проверка+действие атомарны (инвариант 67a.1 §11.2); учитывает status.json
 // обоих пулов (переживает рестарт студии). Возвращает false + текущий статус,

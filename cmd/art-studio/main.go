@@ -65,7 +65,7 @@ func main() {
 		fmt.Println("Ошибка чтения UI:", err)
 		os.Exit(1)
 	}
-	srv := handlers.NewServer(cfg, forms, families, humans, runner, uiHTML)
+	srv := handlers.NewServer(cfg, forms, families, humans, runner, uiHTML, "config/art/families.json")
 
 	fmt.Printf("Арт-студия: http://127.0.0.1:%d\n", cfg.Port)
 	fmt.Printf("Пулы: %s\n", cfg.PoolRoot)

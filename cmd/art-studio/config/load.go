@@ -103,6 +103,13 @@ func LoadFamilies(path string) (FamiliesConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	return ParseFamilies(data, path)
+}
+
+// ParseFamilies — валидация families.json из байтов (общая для LoadFamilies
+// и пересборки промпта: результат записи appearance/blocked проверяется
+// до записи на диск).
+func ParseFamilies(data []byte, path string) (FamiliesConfig, error) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)

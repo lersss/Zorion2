@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"image"
 	"image/png"
 	"net/http/httptest"
@@ -38,7 +39,18 @@ func (f *recordingComfy) Submit(wf map[string]interface{}) (string, error) {
 
 func (f *recordingComfy) WaitAndDownload(pid, outPath string) (bool, error) {
 	img := image.NewNRGBA(image.Rect(0, 0, 64, 64))
-	fh, err := os.Create(outPath)
+	// Windows: свежесозданный каталог может быть мгновенно недоступен
+	// (Defender сканирует) — os.Create даёт транзиентный ERROR_PATH_NOT_FOUND;
+	// ретрай (флак TestHandleGenRefRace, 2026-09-20).
+	var fh *os.File
+	var err error
+	for i := 0; i < 10; i++ {
+		fh, err = os.Create(outPath)
+		if err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 	if err != nil {
 		return false, err
 	}
@@ -54,9 +66,20 @@ func (f *recordingComfy) promptsCopy() []string {
 }
 
 // newTestStudio — Server арт-студии на временных пулах с фейковым Comfy.
+// families.json копируется во временный файл: /rebuild-prompt пишет в него,
+// не трогая реальный конфиг. loreDir/raceSlug — реальные (для /rebuild-prompt
+// и /race-info).
 func newTestStudio(t *testing.T) (*Server, *recordingComfy, string) {
 	t.Helper()
-	fam, err := config.LoadFamilies("../../../config/art/families.json")
+	famPath := filepath.Join(t.TempDir(), "families.json")
+	famData, err := os.ReadFile("../../../config/art/families.json")
+	if err != nil {
+		t.Fatalf("ReadFile families.json: %v", err)
+	}
+	if err := os.WriteFile(famPath, famData, 0o644); err != nil {
+		t.Fatalf("WriteFile families.json: %v", err)
+	}
+	fam, err := config.LoadFamilies(famPath)
 	if err != nil {
 		t.Fatalf("LoadFamilies: %v", err)
 	}
@@ -69,15 +92,28 @@ func newTestStudio(t *testing.T) (*Server, *recordingComfy, string) {
 		t.Fatalf("LoadHumans: %v", err)
 	}
 	pool := t.TempDir()
+	// фейковый python для тестов: копирует inPath → outPath (эмуляция rembg,
+	// чтобы кандидаты доходили до меты ref_cands/meta.json). Ретрай copy:
+	// свежий файл может быть мгновенно недоступен (Defender сканирует) —
+	// copy даёт транзиентный «file not found» (флак TestHandleGenRefRace,
+	// 2026-09-20).
+	fakePy := filepath.Join(t.TempDir(), "fake_python.cmd")
+	if err := os.WriteFile(fakePy, []byte("@echo off\r\nfor /L %%i in (1,1,20) do (\r\n  copy %2 %3 >nul 2>&1\r\n  if exist %3 exit /b 0\r\n  ping -n 1 -w 100 192.0.2.1 >nul\r\n)\r\nexit /b 1\r\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile fake_python: %v", err)
+	}
 	cfg := &config.StudioConfig{
 		PoolRoot:   pool,
 		ComfyInput: t.TempDir(),
 		Workers:    1,
 		MaxCount:   100,
+		PythonCmd:  fakePy,
+		RembgCLI:   "rembg_cli.py",
 	}
 	fake := &recordingComfy{}
 	runner := generator.NewRunner(cfg, fc, fam, humans, fake)
-	srv := NewServer(cfg, fc, fam, humans, runner, []byte("<html></html>"))
+	srv := NewServer(cfg, fc, fam, humans, runner, []byte("<html></html>"), famPath)
+	srv.loreDir = "../../../docs/gamedesign/races"
+	srv.raceSlug = loadRaceSlug("../../../config/races.json")
 	return srv, fake, pool
 }
 
@@ -86,14 +122,21 @@ func newTestStudio(t *testing.T) (*Server, *recordingComfy, string) {
 // Проверка существования файла обязательна: если стартовая запись статуса
 // упала (Windows-гонка rename, см. WriteStatus), status.json ещё не создан —
 // без неё тест вернулся бы раньше, чем джоб дописал файлы пула.
+// Читаем status.json напрямую (не через ReadStatus): ReadStatus проглатывает
+// транзиентную ошибку чтения (файл залочен на время rename писателя, Windows)
+// и возвращает Status{} с Running=false — тест вернулся бы раньше, чем джоб
+// дописал meta.json (флак TestHandleGenRefRace 2026-09-20).
 func waitJobDone(t *testing.T, fake *recordingComfy, pool string) {
 	t.Helper()
 	statusPath := filepath.Join(pool, "races_pool", "status.json")
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		st := generator.ReadStatus(filepath.Join(pool, "races_pool"))
-		if !st.Running && len(fake.promptsCopy()) > 0 && fileExists(statusPath) {
-			return
+		data, err := os.ReadFile(statusPath)
+		if err == nil {
+			var st generator.Status
+			if json.Unmarshal(data, &st) == nil && !st.Running && len(fake.promptsCopy()) > 0 {
+				return
+			}
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -195,5 +238,47 @@ func TestHandleGenRefAutoVariety(t *testing.T) {
 	}
 	if len(seen) < 2 {
 		t.Errorf("авто-промпты одинаковые (%d уникальных): %v", len(seen), ps)
+	}
+}
+
+// TestHandleGenRefRace — идея 2026-09-20: /genref с выбранной расой — ВСЕ
+// кандидаты имеют RaceID = выбранная раса (мета ref_cands/meta.json),
+// readCands отдаёт raceId (предзаполнение селекта на карточке);
+// несуществующая раса — ошибка без запуска джоба.
+func TestHandleGenRefRace(t *testing.T) {
+	srv, fake, pool := newTestStudio(t)
+	req := httptest.NewRequest("GET", "/genref?fam=F2&race=5&n=3&morph=&size=512", nil)
+	rr := httptest.NewRecorder()
+	srv.handleGenRef(rr, req)
+	waitJobDone(t, fake, pool)
+	meta := generator.ReadCandMeta(filepath.Join(pool, "races_pool", "ref_cands"))
+	if len(meta) != 3 {
+		t.Fatalf("кандидатов %d, want 3", len(meta))
+	}
+	for file, cm := range meta {
+		if cm.RaceID != "5" {
+			t.Errorf("%s: RaceID = %s, want 5", file, cm.RaceID)
+		}
+	}
+	// readCands (для предзаполнения селекта на карточке) отдаёт raceId
+	cands := srv.readCands(filepath.Join(pool, "races_pool"))
+	if len(cands) != 3 {
+		t.Fatalf("cands %d, want 3", len(cands))
+	}
+	for _, c := range cands {
+		if c["raceId"] != "5" {
+			t.Errorf("%s: raceId = %s, want 5", c["file"], c["raceId"])
+		}
+	}
+	// несуществующая раса → ошибка без запуска джоба
+	req2 := httptest.NewRequest("GET", "/genref?fam=F2&race=999&n=1&morph=&size=512", nil)
+	rr2 := httptest.NewRecorder()
+	srv.handleGenRef(rr2, req2)
+	var j map[string]string
+	if err := json.Unmarshal(rr2.Body.Bytes(), &j); err != nil {
+		t.Fatalf("не-JSON ответ: %v", err)
+	}
+	if !strings.Contains(j["msg"], "нет расы") {
+		t.Errorf("нет расы: msg = %q", j["msg"])
 	}
 }

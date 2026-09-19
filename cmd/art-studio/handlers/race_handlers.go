@@ -53,7 +53,7 @@ func (s *Server) handleRaces(w http.ResponseWriter, r *http.Request) {
 	if fam == "" {
 		fam = "F2"
 	}
-	f, ok := s.families[fam]
+	f, ok := s.family(fam)
 	if !ok {
 		writeJSON(w, map[string]interface{}{"races": []interface{}{}})
 		return
@@ -94,7 +94,7 @@ func (s *Server) handleRef(w http.ResponseWriter, r *http.Request) {
 	var raceStatus []map[string]interface{}
 	raceOptions := ""
 	raceBasis := map[string]string{}
-	if f, ok := s.families[fam]; ok {
+	if f, ok := s.family(fam); ok {
 		for _, rc := range f.Races {
 			has := fileExists(filepath.Join(pool, RefFileName(fam, rc.ID)))
 			raceStatus = append(raceStatus, map[string]interface{}{"id": rc.ID, "name": rc.Name, "has": has})
@@ -143,7 +143,7 @@ func (s *Server) handleRefSet(w http.ResponseWriter, r *http.Request) {
 			msg = "ошибка копирования: " + err.Error()
 		} else {
 			raceName := race
-			if f, ok := s.families[fam]; ok {
+			if f, ok := s.family(fam); ok {
 				for _, rc := range f.Races {
 					if rc.ID == race {
 						raceName = rc.Name
@@ -175,7 +175,7 @@ func (s *Server) handleRefSetPool(w http.ResponseWriter, r *http.Request) {
 			msg = "ошибка копирования: " + err.Error()
 		} else {
 			raceName := race
-			if f, ok := s.families[fam]; ok {
+			if f, ok := s.family(fam); ok {
 				for _, rc := range f.Races {
 					if rc.ID == race {
 						raceName = rc.Name
@@ -214,7 +214,7 @@ func (s *Server) handleRefSetAccepted(w http.ResponseWriter, r *http.Request) {
 			msg = "ошибка копирования: " + err.Error()
 		} else {
 			raceName := race
-			if f, ok := s.families[fam]; ok {
+			if f, ok := s.family(fam); ok {
 				for _, rc := range f.Races {
 					if rc.ID == race {
 						raceName = rc.Name
@@ -271,7 +271,7 @@ func (s *Server) handleGenRef(w http.ResponseWriter, r *http.Request) {
 	personage := q.Get("personage") == "1"
 	tags := q.Get("tags")
 	promptOverride := q.Get("prompt_override")
-	msg, _ := s.runner.GenRef(q.Get("fam"), n, morph, size, personage, tags, promptOverride)
+	msg, _ := s.runner.GenRef(q.Get("fam"), q.Get("race"), n, morph, size, personage, tags, promptOverride)
 	writeJSON(w, map[string]string{"msg": msg})
 }
 
@@ -291,7 +291,7 @@ func (s *Server) handlePrompt(w http.ResponseWriter, r *http.Request) {
 	}
 	personage := q.Get("personage") == "1"
 	tags := q.Get("tags")
-	fam, ok := s.families[famID]
+	fam, ok := s.family(famID)
 	if !ok {
 		writeJSON(w, map[string]string{"error": "нет семейства " + famID})
 		return
@@ -424,7 +424,7 @@ func (s *Server) handleGalleryImg(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) raceNames(famID string) map[string]string {
 	out := map[string]string{}
-	if f, ok := s.families[famID]; ok {
+	if f, ok := s.family(famID); ok {
 		for _, rc := range f.Races {
 			out[rc.ID] = rc.Name
 		}

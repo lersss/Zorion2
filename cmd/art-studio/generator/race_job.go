@@ -25,7 +25,7 @@ import (
 // используется как промпт для ВСЕХ N вариаций (BuildPrompt не вызывается);
 // пустая — авто-промпт на каждый i (разнообразие).
 func (r *Runner) GenVar(famID, raceID string, n int, denoise, cnStrength, cnEnd float64, size, palette int, personage bool, tags string, promptOverride string) (string, Status) {
-	fam, ok := r.families[famID]
+	fam, ok := r.family(famID)
 	if !ok {
 		return "нет семейства " + famID, Status{}
 	}

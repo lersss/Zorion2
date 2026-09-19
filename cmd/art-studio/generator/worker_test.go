@@ -3,7 +3,10 @@ package generator
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"zorion/cmd/art-studio/config"
 )
 
 // TestAggregateStatus — /status-агрегация обоих пулов, приоритет running
@@ -69,5 +72,73 @@ func TestAppendPoolMeta(t *testing.T) {
 	}
 	if all[1].File != "r02.png" || all[1].RaceID != "6" {
 		t.Errorf("вторая запись: %+v", all[1])
+	}
+}
+
+// testFamiliesJSON — минимальный families.json для тестов Runner.
+const testFamiliesJSON = `{
+  "F1": {
+    "name": "Тест",
+    "races": [
+      {
+        "id": "1",
+        "name": "1 Тест",
+        "basis": "тест",
+        "forms": ["a test form one", "a test form two"],
+        "materials": ["test material one", "test material two"],
+        "glows": ["test glow one", "test glow two"],
+        "appearance": "old appearance",
+        "blocked": ["old"]
+      }
+    ],
+    "extra": ["no face"],
+    "anchor": ["anchored"],
+    "scene": "on flat background",
+    "neg": "text"
+  }
+}`
+
+// TestRunnerReloadFamilies — ReloadFamilies перечитывает families.json с диска
+// и заменяет конфиг в памяти (кнопка «Пересобрать промт»): после reload
+// r.families содержит обновлённые appearance/blocked; невалидный файл —
+// ошибка без замены конфига.
+func TestRunnerReloadFamilies(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "families.json")
+	if err := os.WriteFile(path, []byte(testFamiliesJSON), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	fam, err := config.LoadFamilies(path)
+	if err != nil {
+		t.Fatalf("LoadFamilies: %v", err)
+	}
+	r := NewRunner(&config.StudioConfig{}, nil, fam, nil, nil)
+	if got := r.families["F1"].Races[0].Appearance; got != "old appearance" {
+		t.Fatalf("до reload: appearance = %q", got)
+	}
+	// файл изменён (машинная проекция обновилась) → reload
+	updated := strings.Replace(testFamiliesJSON, "old appearance", "new appearance", 1)
+	updated = strings.Replace(updated, `"blocked": ["old"]`, `"blocked": ["new1", "new2"]`, 1)
+	if err := os.WriteFile(path, []byte(updated), 0o644); err != nil {
+		t.Fatalf("WriteFile updated: %v", err)
+	}
+	if err := r.ReloadFamilies(path); err != nil {
+		t.Fatalf("ReloadFamilies: %v", err)
+	}
+	rc := r.families["F1"].Races[0]
+	if rc.Appearance != "new appearance" {
+		t.Errorf("после reload: appearance = %q, want new", rc.Appearance)
+	}
+	if len(rc.Blocked) != 2 || rc.Blocked[0] != "new1" || rc.Blocked[1] != "new2" {
+		t.Errorf("после reload: blocked = %v", rc.Blocked)
+	}
+	// невалидный файл → ошибка, конфиг не заменён
+	if err := os.WriteFile(path, []byte("{broken"), 0o644); err != nil {
+		t.Fatalf("WriteFile broken: %v", err)
+	}
+	if err := r.ReloadFamilies(path); err == nil {
+		t.Error("невалидный файл: ошибки нет")
+	}
+	if rc2 := r.families["F1"].Races[0]; rc2.Appearance != "new appearance" {
+		t.Errorf("после неудачного reload: appearance = %q, want new (конфиг не заменён)", rc2.Appearance)
 	}
 }

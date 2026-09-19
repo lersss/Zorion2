@@ -42,6 +42,7 @@
     <span id="promptRaceName" style="font-size:12px;color:#2a7"></span>
     <span id="promptMode" style="font-size:12px;color:#8cf">авто</span>
     <button class="gen" style="background:#555;padding:4px 10px;font-size:12px" onclick="refreshPrompt()" title="Новый случайный seed — виден разброс вариантов">Обновить пример</button>
+    <button class="gen" style="background:#555;padding:4px 10px;font-size:12px" onclick="rebuildPrompt()" title="Перечитать раздел «Внешний вид» лор-файла расы и обновить appearance/blocked в families.json">Пересобрать промт</button>
     <button class="gen" id="btnRevertAuto" style="background:#a62;padding:4px 10px;font-size:12px;display:none" onclick="revertAuto()" title="Вернуть автоматический промпт для текущего выбора">↺ Вернуть авто</button>
   </div>
   <textarea id="promptPanel" rows="4" style="width:100%;box-sizing:border-box;color:#8cf;font-size:13px;line-height:1.4;background:#1c1c1c;border:1px solid #333;border-radius:6px;padding:8px 10px;font-family:inherit;resize:vertical" oninput="onPromptInput()">выберите расу</textarea>
@@ -97,6 +98,8 @@
   <div class="toolbar">
     <span>Семейство:</span>
     <select id="famRef"></select>
+    <span>Раса:</span>
+    <select id="raceRefPool" title="Кандидаты от конкретной расы (материалы/свечения/формы/внешность); «все расы» — случайная раса на каждого кандидата"></select>
     <span>Штук:</span>
     <input id="cntRef" type="number" value="8" min="1" max="100">
     <button class="gen" id="btnCands" onclick="genCandsPool()">СГЕНЕРИРОВАТЬ ЭТАЛОНЫ (8)</button>
@@ -286,6 +289,19 @@ async function loadRaces(){
   updateVarBtn();
   schedulePromptUpdate();
 }
+// селект расы на «Эталон» (идея 2026-09-20): «все расы» + конкретные расы
+// семейства; персистентность через UI_STATE_KEY (85a)
+async function loadRacesRef(){
+  const fam=document.getElementById('famRef').value;
+  const sel=document.getElementById('raceRefPool');
+  const r=await fetch('/races?fam='+fam); const j=await r.json();
+  let h='<option value="">все расы</option>';
+  j.races.forEach(x=>{ h+=`<option value="${x.id}">${x.name}</option>`; });
+  sel.innerHTML=h;
+  const saved=getUIState('raceRefPool');
+  if(saved && [...sel.options].some(o=>o.value===saved)) sel.value=saved;
+  schedulePromptUpdate();
+}
 async function updateVarBtn(){
   const btn=document.getElementById('btnVar');
   const race=document.getElementById('racePool').value;
@@ -323,13 +339,14 @@ async function genVarPool(){
 }
 async function genCandsPool(){
   const fam=document.getElementById('famRef').value;
+  const race=document.getElementById('raceRefPool').value;
   const n=document.getElementById('cntRef').value;
   const morph=document.getElementById('morphRef').value;
   const personage=document.getElementById('personageRef').checked? '1':'0';
   const tags=document.getElementById('tags').value;
   const override=promptOverride? document.getElementById('promptPanel').value : '';
   document.getElementById('doneRef').textContent='Генерация кандидатов эталона...';
-  const r=await fetch('/genref?fam='+fam+'&n='+n+'&morph='+morph+'&size=512&personage='+personage+'&tags='+encodeURIComponent(tags)+(override? '&prompt_override='+encodeURIComponent(override) : '')); const j=await r.json();
+  const r=await fetch('/genref?fam='+fam+'&race='+race+'&n='+n+'&morph='+morph+'&size=512&personage='+personage+'&tags='+encodeURIComponent(tags)+(override? '&prompt_override='+encodeURIComponent(override) : '')); const j=await r.json();
   document.getElementById('doneRef').textContent=j.msg;
   loadRef();
 }
@@ -531,7 +548,12 @@ async function loadRef(){
       }
     }
     const sel=d.querySelector('select');
-    if(prevSel['raceSel-'+it.file]!==undefined) sel.value=prevSel['raceSel-'+it.file];
+    if(prevSel['raceSel-'+it.file]!==undefined){
+      sel.value=prevSel['raceSel-'+it.file];
+    } else if(it.raceId && [...sel.options].some(o=>o.value===it.raceId)){
+      // предзаполнение: кандидат сгенерирован от выбранной расы (идея 2026-09-20)
+      sel.value=it.raceId;
+    }
     if(it.raceId && j.raceStatus){
       const st2=j.raceStatus.find(x=>x.id===it.raceId);
       if(st2 && st2.has){
@@ -652,7 +674,7 @@ function getUIState(id){
 function restoreUIState(){
   let st={};
   try{ st=JSON.parse(localStorage.getItem(UI_STATE_KEY)||'{}'); }catch(e){ return; }
-  ['fam','racePool','sizePool','famRef','morphRef','famGallery','raceGallery'].forEach(id=>{
+  ['fam','racePool','sizePool','famRef','raceRefPool','morphRef','famGallery','raceGallery'].forEach(id=>{
     const el=document.getElementById(id);
     if(!el || el.tagName!=='SELECT' || st[id]===undefined) return;
     if([...el.options].some(o=>o.value===String(st[id]))) el.value=st[id];
@@ -712,6 +734,7 @@ function showTab(name){
 function restoreState(){
   restoreUIState(); // восстанавливает все поля + активную вкладку (85a)
   loadRaces();
+  loadRacesRef();
   loadGalleryRaces();
 }
 async function pollStatus(){
@@ -848,6 +871,55 @@ function refreshPrompt(){
   clearTimeout(promptTimer);
   updatePromptPanel();
 }
+// «Пересобрать промт» (идея 2026-09-20): перечитать раздел «Внешний вид»
+// лор-файла расы → обновить appearance/blocked в families.json → пересобрать
+// авто-промпт в панели. Раса: на «Эталонах» — выбранная (или ВСЕ расы
+// семейства при «все расы» — массовый режим), на «Отборе» — выбранная racePool.
+async function rebuildPrompt(){
+  const poolTab = document.getElementById('tab-pool').style.display !== 'none';
+  const fam = poolTab ? document.getElementById('fam').value : document.getElementById('famRef').value;
+  const doneEl = poolTab ? document.getElementById('done') : document.getElementById('doneRef');
+  let race;
+  if(poolTab){
+    race=document.getElementById('racePool').value;
+  } else {
+    race=document.getElementById('raceRefPool').value;
+  }
+  if(!race){
+    if(poolTab){
+      if(doneEl) doneEl.textContent='сначала выбери расу';
+      return;
+    }
+    // «все расы» на «Эталонах»: массовая пересборка всех рас семейства
+    try{
+      const r=await fetch('/rebuild-prompt?fam='+fam); const j=await r.json();
+      if(!j.ok){
+        if(doneEl) doneEl.textContent='Пересобрать промт: '+(j.error||'не пересобрано ни одной расы');
+        return;
+      }
+      const names=(j.updated||[]).map(u=>u.name);
+      let msg='Пересобрано '+names.length+' рас(ы): '+names.join(', ');
+      const sk=j.skipped||[];
+      if(sk.length) msg+='. Пропущено '+sk.length+': '+sk.map(s=>s.name+' — '+s.reason).join('; ');
+      if(doneEl) doneEl.textContent=msg;
+      refreshPrompt(); // пересобрать авто-промпт в панели
+    }catch(e){
+      if(doneEl) doneEl.textContent='Ошибка запроса: '+e.message;
+    }
+    return;
+  }
+  try{
+    const r=await fetch('/rebuild-prompt?fam='+fam+'&race='+race); const j=await r.json();
+    if(j.error){
+      if(doneEl) doneEl.textContent='Пересобрать промт: '+j.error;
+      return;
+    }
+    if(doneEl) doneEl.textContent='Промт расы '+j.race_name+' пересобран (appearance/blocked обновлены)';
+    refreshPrompt(); // пересобрать авто-промпт в панели
+  }catch(e){
+    if(doneEl) doneEl.textContent='Ошибка запроса: '+e.message;
+  }
+}
 function setOverrideMode(on){
   promptOverride=on;
   const mode=document.getElementById('promptMode');
@@ -870,12 +942,15 @@ async function updatePromptPanel(){
   } else {
     fam=document.getElementById('famRef').value;
     morph=document.getElementById('morphRef').value;
-    // на «Эталон» раса не выбирается (кандидаты — все расы семейства):
-    // показываем первую расу как представителя
-    try{
-      const rr=await fetch('/races?fam='+fam); const jr=await rr.json();
-      race=(jr.races||[]).length? jr.races[0].id : '';
-    }catch(e){ race=''; }
+    // на «Эталон»: выбранная раса (raceRefPool) или первая как представитель
+    // (идея 2026-09-20)
+    race=document.getElementById('raceRefPool').value;
+    if(!race){
+      try{
+        const rr=await fetch('/races?fam='+fam); const jr=await rr.json();
+        race=(jr.races||[]).length? jr.races[0].id : '';
+      }catch(e){ race=''; }
+    }
   }
   if(!race){
     if(!promptOverride) el.value='выберите расу';
@@ -922,11 +997,12 @@ async function initFamSelects(){
   let h='';
   fams.forEach(x=>{ h+=`<option value="${x[0]}">${x[1]}</option>`; });
   sel.innerHTML=h; selRef.innerHTML=h; selGal.innerHTML=h;
-  document.getElementById('famRef').onchange = e=>{ saveUIState('famRef', e.target.value); schedulePromptUpdate(); };
+  document.getElementById('famRef').onchange = e=>{ saveUIState('famRef', e.target.value); loadRacesRef(); schedulePromptUpdate(); };
   document.getElementById('fam').onchange = e=>{ saveUIState('fam', e.target.value); loadRaces(); schedulePromptUpdate(); };
   document.getElementById('famGallery').onchange = e=>{ saveUIState('famGallery', e.target.value); loadGalleryRaces(); };
   document.getElementById('raceGallery').onchange = e=>{ saveUIState('raceGallery', e.target.value); loadGallery(); };
   document.getElementById('racePool').onchange = e=>{ saveUIState('racePool', e.target.value); updateVarBtn(); load(); schedulePromptUpdate(); };
+  document.getElementById('raceRefPool').onchange = e=>{ saveUIState('raceRefPool', e.target.value); schedulePromptUpdate(); };
   document.getElementById('morphRef').onchange = e=>{ saveUIState('morphRef', e.target.value); schedulePromptUpdate(); };
   document.getElementById('personageRef').onchange = e=>{ saveUIState('personageRef', e.target.checked ? 'true' : 'false'); schedulePromptUpdate(); };
   document.getElementById('cnt').oninput = e=>{

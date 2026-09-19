@@ -219,7 +219,9 @@ func TestBuildPromptWideTags(t *testing.T) {
 
 // TestBuildPromptWideFormFromRace — кандидат эталона (morph="") берёт форму из
 // race.Forms выбранной расы (78a решение 4, вариант «б»), а не из общего
-// словаря форм; серия вызовов даёт разброс форм и промптов (решение 5).
+// словаря форм; материал/свечение — из race.Materials/race.Glows (идея
+// 2026-09-20: расовые пулы при фиксированном raceIdx); серия вызовов даёт
+// разброс форм и промптов (решение 5).
 func TestBuildPromptWideFormFromRace(t *testing.T) {
 	fam := loadFamilies(t)
 	fc := loadForms(t)
@@ -246,6 +248,26 @@ func TestBuildPromptWideFormFromRace(t *testing.T) {
 		}
 		if !formOK {
 			t.Errorf("форма не из race.Forms расы %s: %s", race.ID, prompt)
+		}
+		matOK := false
+		for _, m := range race.Materials {
+			if strings.Contains(prompt, m) {
+				matOK = true
+				break
+			}
+		}
+		if !matOK {
+			t.Errorf("материал не из race.Materials расы %s: %s", race.ID, prompt)
+		}
+		glowOK := false
+		for _, g := range race.Glows {
+			if strings.Contains(prompt, g) {
+				glowOK = true
+				break
+			}
+		}
+		if !glowOK {
+			t.Errorf("свечение не из race.Glows расы %s: %s", race.ID, prompt)
 		}
 		promptsSeen[prompt] = true
 	}

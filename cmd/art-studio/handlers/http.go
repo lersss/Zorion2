@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	"zorion/cmd/art-studio/config"
 	"zorion/cmd/art-studio/generator"
@@ -20,29 +21,55 @@ import (
 
 // Server — HTTP-сервер арт-студии.
 type Server struct {
-	cfg      *config.StudioConfig
-	forms    *config.FormsConfig
-	families config.FamiliesConfig
-	humans   *config.HumansConfig
-	runner   *generator.Runner
-	uiHTML   []byte
-	raceSlug map[string]string // name (races.json) → slug (id) для лора рас
-	loreDir  string            // каталог docs/gamedesign/races/
+	cfg          *config.StudioConfig
+	forms        *config.FormsConfig
+	families     config.FamiliesConfig
+	familiesPath string            // config/art/families.json — запись+reload при пересборке промпта
+	humans       *config.HumansConfig
+	runner       *generator.Runner
+	uiHTML       []byte
+	raceSlug     map[string]string // name (races.json) → slug (id) для лора рас
+	loreDir      string            // каталог docs/gamedesign/races/
+	famMu        sync.RWMutex      // защита families при reload (пересборка промпта)
 }
 
 // NewServer создаёт Server. uiHTML — содержимое web/index.html (embed в main).
+// familiesPath — путь к families.json (для /rebuild-prompt: запись + reload).
 // При старте читает config/races.json (маппинг name→slug для /race-info).
-func NewServer(cfg *config.StudioConfig, forms *config.FormsConfig, families config.FamiliesConfig, humans *config.HumansConfig, runner *generator.Runner, uiHTML []byte) *Server {
+func NewServer(cfg *config.StudioConfig, forms *config.FormsConfig, families config.FamiliesConfig, humans *config.HumansConfig, runner *generator.Runner, uiHTML []byte, familiesPath string) *Server {
 	return &Server{
-		cfg:      cfg,
-		forms:    forms,
-		families: families,
-		humans:   humans,
-		runner:   runner,
-		uiHTML:   uiHTML,
-		raceSlug: loadRaceSlug("config/races.json"),
-		loreDir:  "docs/gamedesign/races",
+		cfg:          cfg,
+		forms:        forms,
+		families:     families,
+		familiesPath: familiesPath,
+		humans:       humans,
+		runner:       runner,
+		uiHTML:       uiHTML,
+		raceSlug:     loadRaceSlug("config/races.json"),
+		loreDir:      "docs/gamedesign/races",
 	}
+}
+
+// family возвращает семейство по id (чтение под famMu: reloadFamilies может
+// заменить конфиг в памяти — без мьютекса concurrent map read/write).
+func (s *Server) family(famID string) (config.Family, bool) {
+	s.famMu.RLock()
+	defer s.famMu.RUnlock()
+	f, ok := s.families[famID]
+	return f, ok
+}
+
+// reloadFamilies перечитывает families.json с диска и заменяет конфиг в памяти
+// (пересборка промпта: машинная проекция appearance/blocked обновилась).
+func (s *Server) reloadFamilies(path string) error {
+	fam, err := config.LoadFamilies(path)
+	if err != nil {
+		return err
+	}
+	s.famMu.Lock()
+	s.families = fam
+	s.famMu.Unlock()
+	return nil
 }
 
 // Handler возвращает роутер со всеми эндпоинтами (спека 67a.1 §6).
@@ -65,6 +92,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/genvar", s.handleGenVar)
 	mux.HandleFunc("/genref", s.handleGenRef)
 	mux.HandleFunc("/prompt", s.handlePrompt)
+	mux.HandleFunc("/rebuild-prompt", s.handleRebuildPrompt)
 	mux.HandleFunc("/status", s.handleStatus)
 	mux.HandleFunc("/stop", s.handleStop)
 	mux.HandleFunc("/clearpool", s.handleClearPool)

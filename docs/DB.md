@@ -144,9 +144,11 @@ ClearUniverse его не трогает).
   name_norm), UNIQUE (kind, id) для составного FK), `goods` (kind/status/
   source/tier_override/banned_at/created_at, `name_norm` generated + UNIQUE
   (одно пространство имён), JSONB `props` только для kind=resource — профиль
-  реального вещества (оси + T_melt/T_boil + `family`), `family` — признак
-  real-ресурса: витрина «Реальные вещества» (94a, итерация B) читает real/
-  real_summary/families из `goods` kind=resource c props ? 'family' (`?` — JSONB
+  реального вещества (оси + T_melt/T_boil + `family`), дискриминаторы props:
+  `family` — признак real-ресурса (итерация B): витрина «Реальные вещества»
+  (94a) читает real/real_summary/families из `goods` kind=resource c props ?
+  'family'; `closes` — признак ресурса слоя 20 (итерация C): вкладка «Ресурсы»
+  (слой/покрытие рас/gaps) читает из БД по props ? 'closes' (`?` — JSONB
   existence-оператор), составной
   FK `(kind, category_id) → categories(kind, id)` — категория соответствует
   kind на уровне БД), `goods_slots` (good_id FK ON DELETE CASCADE, pos,
@@ -157,7 +159,8 @@ ClearUniverse его не трогает).
   6 ресурсных + 13 товарных категорий; маркер — ключ `goods_catalog_seed`
   в `generation_config` (payload `{"applied_at", "resources", "categories"}`):
   повторные старты не перезаписывают правки студии, удалённый ресурс не
-  возвращается (С1).
+  возвращается (С1). Первичный источник каталога — сид 131 в БД; Go-каталог
+  `internal/resource` — только сид и эталон (iterC 2026-09-20).
 - Миграции, вступающие в силу на старте, требуют перезапуска сервера
   (`AGENTS.md` §4 п.13).
 - `VACUUM` внутрь миграции не положить — не работает внутри транзакции

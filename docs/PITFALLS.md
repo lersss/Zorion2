@@ -448,14 +448,15 @@
 
 - **opencode serve: контракт HTTP-API (студия товаров 99a.1 §7.5, белое пятно
   спеки — решено на разработке).** Локальный opencode (`opencode serve`, порт
-  по умолчанию 4096; в `config/goods/studio.json` — `opencode_url`) отдаёт
+  по умолчанию 4096; конфиг — env `OPENCODE_URL/MODEL/TIMEOUT_S/MAX_RETRIES`
+  (файл `config/goods/studio.json` удалён, iterC 2026-09-20)) отдаёт
   OpenAPI-спеку на `/doc`. Рабочий путь «заполнить комплектующие»:
   `POST {url}/session` → `{id}`; `POST {url}/session/{id}/message` с телом
   `{model, parts:[{type:"text", text: prompt}]}` → `{info, parts[]}` — текст
   ответа собирается из `parts` с `type=="text"`. Модель передаётся явно в теле
   (решение создателя: «модель должна быть явно указана»). 5xx/сетевые ошибки —
   retryable (`max_retries`), 4xx/парсинг — нет. Реализация:
-  `cmd/goods-studio/ai/client.go`.
+  `internal/goodsstudio/ai/client.go` (перенос iterC 2026-09-20).
   **`default_agent` из `opencode.json` ломает fill:** проект задаёт
   `"default_agent": "manager"` — сессия без явного агента отвечает приветствием
   менеджера (7 векторов), а не JSON-составом: fill падает «invalid character
@@ -464,12 +465,11 @@
   2026-09-19). Модель (deepseek-v4-flash) при этом иногда возвращает не-JSON —
   ретрай fill лечит (транзиентно).
 
-- **Студия товаров embed'ит HTML в бинарь (`cmd/goods-studio/main.go`,
-  `//go:embed web/index.html`) — правки index.html не видны до пересборки и
-  рестарта.** В отличие от игрового сервера (статика с диска, noCache), студия
-  отдаёт UI из памяти бинаря: `go run`/пересборка обязательны после любой
-  правки `web/index.html` (проверено 2026-09-19, Пакет 2 UX 99a). Симптом
-  «правка не работает» при живом процессе — почти всегда забытый рестарт.
+- **Студия товаров больше не embed'ит HTML (ловушка устарела, iterC
+  2026-09-20).** `cmd/goods-studio` (который embed'ил `web/index.html` в
+  бинарь — правки не видны до пересборки и рестарта) удалён; UI студии —
+  `web/studio.html` — статика игрового сервера с диска (noCache), правки видны
+  без пересборки.
 
 - **Go-каталог `internal/resource` (layer.go/real.go) — больше НЕ источник
   каталога после сида (С1, спека переноса-студии-товаров-iterA §5).** Сидер

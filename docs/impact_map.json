@@ -513,6 +513,57 @@
         { "on": "races/ships/*.md", "kind": "affects", "reason": "«кабина студии» (техподложка композита) разведена с «кабиной корабля расы» (контент)" },
         { "on": "связь-с-кораблём", "kind": "affects", "reason": "аватары рас + композит на кабину — контент будущего экрана связи" }
       ]
+    },
+    {
+      "id": "users.current_position",
+      "type": "table",
+      "path": "db:users.current_position",
+      "note": "внутрисистемная позиция игрока (000046, 99.2.27): JSONB NULL = вне системы; orbit {object_type, object_id, level, biome} / in_flight {from, to, start_time, arrive_at}; уровни orbit/surface+biome — задел под высадку",
+      "impacts": [
+        { "on": "IntrasystemManager", "kind": "writes", "reason": "старт → in_flight, прибытие → orbit (атомарно со строкой полётов); С1: старт /travel → NULL" },
+        { "on": "internal/handlers/planet_handler.go", "kind": "reads", "reason": "my_position в API планет (все роли); NULL → «орбита звезды» (ИП-4)" },
+        { "on": "internal/handlers/auth_handlers.go", "kind": "reads", "reason": "/me: current_position (orbit/in_flight/null)" },
+        { "on": "internal/handlers/travel_handlers.go", "kind": "writes", "reason": "С1-дельта: старт /travel → позиция NULL + отмена intra (атомарно); ИП-2: прибытие → current_world_id + orbit звезды одним UPDATE" },
+        { "on": "web/static/js/modal/*", "kind": "reads", "reason": "модалка: маркер «я здесь», полоса полёта (in_flight), слежение, «Найти меня» (interstellarFlight из /me)" },
+        { "on": "99.2.27", "kind": "duplicates", "reason": "модель позиции (§2), переходы orbit↔in_flight, ИП-1/ИП-2/ИП-4" }
+      ]
+    },
+    {
+      "id": "player_intrasystem_flights",
+      "type": "table",
+      "path": "db:player_intrasystem_flights",
+      "note": "активный внутрисистемный полёт (000046, 99.2.27): PK user_id, world_id, from/to type+id TEXT (синтетические id компаньонов), start_time, arrive_at; паттерн 97a",
+      "impacts": [
+        { "on": "IntrasystemManager", "kind": "writes", "reason": "StartIntraFlight/ArriveAtomic/CancelAtomic (TOCTOU-гварды), Restore при старте" },
+        { "on": "internal/repository/player_intrasystem_flight_repository.go", "kind": "writes", "reason": "единственный доступ к таблице (Upsert/Delete/ListAll + атомарные транзакции)" },
+        { "on": "cmd/server/main.go", "kind": "reads", "reason": "Restore-порядок: межзвёздные (player_flights) первыми, intra без onArrival при наличии межзвёздной (С-1)" },
+        { "on": "migrations/000046_intrasystem_flight.sql", "kind": "duplicates", "reason": "схема таблицы — в миграции и здесь" },
+        { "on": "99.2.27", "kind": "duplicates", "reason": "схема, редирект-сегменты, идемпотентность (to_type+to_id), авто-знание при прибытии" }
+      ]
+    },
+    {
+      "id": "IntrasystemManager",
+      "type": "code",
+      "path": "internal/travel/intrasystem_manager.go",
+      "note": "менеджер внутрисистемных полётов (99.2.27, паттерн 97a): RWMutex-карта, CancelChan, TOCTOU-гвард удаления строки, Restore",
+      "impacts": [
+        { "on": "internal/handlers/intrasystem_handlers.go", "kind": "api", "reason": "POST /api/intrasystem-flight: валидации (двигатель 91a, межзвёздный, цель в системе, идемпотентность, «уже на орбите»), старт/редирект" },
+        { "on": "internal/handlers/travel_handlers.go", "kind": "api", "reason": "С1: старт /travel отменяет внутрисистемный (CancelIntraFlight + CancelAtomic)" },
+        { "on": "player_intrasystem_flights", "kind": "writes", "reason": "персистентность через репозиторий (Upsert/Delete/ListAll)" },
+        { "on": "users.current_position", "kind": "writes", "reason": "позиция in_flight/orbit атомарно со строкой полётов" }
+      ]
+    },
+    {
+      "id": "players_positions_90a",
+      "type": "api",
+      "path": "internal/handlers/players_positions.go",
+      "note": "/api/players/positions — правило 90a ИЗМЕНЕНО (99.2.27, решение создателя): показываются не только летящие, но и стоящие на орбитах (в радиусе 77a); координаты = звезда системы; статусы с именем объекта от сервера; фолбэк «в системе X»",
+      "impacts": [
+        { "on": "web/static/js/map/map_render.js", "kind": "reads", "reason": "drawPlayerPositions: status-строка под именем (С-2), бейдж скопления N≥2" },
+        { "on": "web/static/js/modal/index.js", "kind": "reads", "reason": "модалка: опрос /api/players/positions (5 с) — чужие игроки на канвасе, «Корабли на орбите: N»" },
+        { "on": "77a", "kind": "duplicates", "reason": "статусы §5.3 (терминология «в системе X / в полёте» расширена: «у планеты X», «у компаньона X»)" },
+        { "on": "99.2.27", "kind": "duplicates", "reason": "видимость §6: стоящие видны, статусы, координаты = звезда, офлайн-игроки (звоночек §11.3)" }
+      ]
     }
   ]
 }

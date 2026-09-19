@@ -500,6 +500,19 @@
         { "on": "67a.1", "kind": "affects", "reason": "аватары рас (200×200 PNG) — композит на кабину; экран связи показывает аватар + кабину" },
         { "on": "86a", "kind": "affects", "reason": "энциклопедия: аватары/корабли рас в карточках (кандидат ГД-сущности §9)" }
       ]
+    },
+    {
+      "id": "67a.1",
+      "type": "spec",
+      "path": "docs/specs/67a.1-art-studio-go.md",
+      "note": "арт-студия (Go, cmd/art-studio): генерация аватаров рас 200×200, композит на кабину cockpit_1024.png (техподложка — «кабина студии»), пулы словарей config/art/*.json; код — cmd/art-studio (generator/handlers)",
+      "impacts": [
+        { "on": "cmd/art-studio/*", "kind": "api", "reason": "хендлеры студии, генератор (race_job/ref_job), пайплайн ComfyUI" },
+        { "on": "config/art/*.json", "kind": "writes", "reason": "forms/families — пулы словарей; появление полей appearance/blocked (98a)" },
+        { "on": "86a", "kind": "affects", "reason": "аватары рас — кандидат ГД-сущности (§5.4 «аватары не проектируем»; кабина-композит)" },
+        { "on": "races/ships/*.md", "kind": "affects", "reason": "«кабина студии» (техподложка композита) разведена с «кабиной корабля расы» (контент)" },
+        { "on": "связь-с-кораблём", "kind": "affects", "reason": "аватары рас + композит на кабину — контент будущего экрана связи" }
+      ]
     }
   ]
 }

@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"zorion/cmd/goods-studio/graph"
-	"zorion/cmd/goods-studio/model"
-	"zorion/cmd/goods-studio/validate"
+	"zorion/internal/goodsstudio/graph"
+	"zorion/internal/goodsstudio/model"
+	"zorion/internal/goodsstudio/validate"
 )
 
 // TreesCatalog — формат goods_data/trees_t8.json (schema_version 2): полные

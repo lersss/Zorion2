@@ -13,7 +13,13 @@
 (реестр конфигов генерации, миграция `000031`, спека `99.2.3` §3:
 `key` TEXT PK + `payload` JSONB — паттерн «дефолты в коде + override в БД»,
 как матрица совместимости), `player_flights` (активные полёты игроков,
-миграция `000044`, идея 97a: одна запись на игрока, PK `user_id`).
+миграция `000044`, идея 97a: одна запись на игрока, PK `user_id`),
+`categories`/`goods`/`goods_slots` (каталог товаров и ресурсов студии,
+миграция `000045`, спека `перенос-студии-товаров-iterA` §4: единая таблица
+категорий — товарные + 6 системных ресурсных (составной FK
+`goods(kind, category_id) → categories(kind, id)`), товары/ресурсы по `kind`,
+слоты рецептов отдельной таблицей; каталог — контент, не данные вселенной:
+ClearUniverse его не трогает).
 
 Проектные масштабы для расчётов нагрузки: 100k миров, ~320k планет.
 
@@ -131,6 +137,23 @@
    `internal/repository/player_flight_repository.go`); строка удаляется при
    прибытии (после onArrival), отмене и обработке Restore
    (`internal/travel/manager.go`).
+- `000045` — каталог товаров и ресурсов студии (спека
+  `перенос-студии-товаров-iterA` §4, 2026-09-19): `categories` (единая:
+  товарные + 6 системных ресурсных, `kind` CHECK good/resource, `code` —
+  только ресурсные, `is_system`, `name_norm` generated + UNIQUE (kind,
+  name_norm), UNIQUE (kind, id) для составного FK), `goods` (kind/status/
+  source/tier_override/banned_at/created_at, `name_norm` generated + UNIQUE
+  (одно пространство имён), JSONB `props` только для kind=resource, составной
+  FK `(kind, category_id) → categories(kind, id)` — категория соответствует
+  kind на уровне БД), `goods_slots` (good_id FK ON DELETE CASCADE, pos,
+  component_id FK ON DELETE SET NULL, quantity CHECK ≥ 1, reason,
+  allow_resource, UNIQUE (good_id, pos), индекс по component_id — обратные
+  рёбра). Сидер (`internal/goodsstudio/seed.go`) при первом старте сеет
+  131 ресурс (слой 20 + витрина 111, approved/palette, props из каталога) +
+  6 ресурсных + 13 товарных категорий; маркер — ключ `goods_catalog_seed`
+  в `generation_config` (payload `{"applied_at", "resources", "categories"}`):
+  повторные старты не перезаписывают правки студии, удалённый ресурс не
+  возвращается (С1).
 - Миграции, вступающие в силу на старте, требуют перезапуска сервера
   (`AGENTS.md` §4 п.13).
 - `VACUUM` внутрь миграции не положить — не работает внутри транзакции

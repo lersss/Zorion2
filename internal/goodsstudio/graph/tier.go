@@ -2,7 +2,7 @@
 // нормализация имён и дубликаты.
 package graph
 
-import "zorion/cmd/goods-studio/model"
+import "zorion/internal/goodsstudio/model"
 
 // Tier — тир товара в графе (спека 99a.1 §6.1). Производный, не хранится:
 //
@@ -34,15 +34,17 @@ func Tier(g *model.Good, byID map[string]*model.Good) int {
 	return 1 + max
 }
 
-// EffectiveTier — эффективный тир (99a.3 §4.2): ручной оверрайд если задан,
-// иначе вычисленный; ресурс всегда 0. Оверрайд не влияет на структуру графа
-// (Tier остаётся вычисленным для промпта ИИ, валидаторов, глубины — §4.2).
+// EffectiveTier — эффективный тир (99a.3 §4.2 + решение С3, спека
+// переноса-студии-товаров-iterA §8.2): ручной оверрайд если задан — теперь
+// и для ресурсов (С3: назначенный тир — любой); иначе вычисленный
+// (ресурс = 0). Оверрайд не влияет на структуру графа (Tier остаётся
+// вычисленным для промпта ИИ, валидаторов, глубины — §4.2).
 func EffectiveTier(g *model.Good, byID map[string]*model.Good) int {
-	if g.Kind == model.KindResource {
-		return 0
-	}
 	if g.TierOverride != nil {
 		return *g.TierOverride
+	}
+	if g.Kind == model.KindResource {
+		return 0
 	}
 	return Tier(g, byID)
 }

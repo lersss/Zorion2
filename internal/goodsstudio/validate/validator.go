@@ -5,8 +5,8 @@ package validate
 import (
 	"fmt"
 
-	"zorion/cmd/goods-studio/graph"
-	"zorion/cmd/goods-studio/model"
+	"zorion/internal/goodsstudio/graph"
+	"zorion/internal/goodsstudio/model"
 )
 
 // Warning — предупреждение валидатора.
@@ -56,8 +56,14 @@ func Validate(st *model.State) []Warning {
 	}
 
 	// 2. Неполные цепочки: согласованные товары с пустым рецептом (тир = 0).
+	// Ресурсы пропускаются по kind (критика №1, спека переноса-студии-товаров
+	// iterA §8.3): ресурс — лист по определению, пустой рецепт не «недострой»
+	// (иначе 131 approved-ресурс без слотов флагался бы каждый).
 	for i := range st.Goods {
 		g := &st.Goods[i]
+		if g.Kind == model.KindResource {
+			continue
+		}
 		if g.Status == model.StatusApproved && !hasFilledSlots(g.Recipe) {
 			out = append(out, Warning{
 				Code:    "incomplete_chain",
@@ -68,6 +74,9 @@ func Validate(st *model.State) []Warning {
 
 	// 3. Ссылки на не-согласованных: рецепт согласованного товара ссылается
 	// на draft/excluded/banned составляющего (выгрузка будет с битой ссылкой).
+	// Составляющие kind=resource пропускаются (критика №1, §8.3): ресурс —
+	// валидный лист независимо от статуса; его статус управляет экспортом,
+	// а не структурой ссылки.
 	for i := range st.Goods {
 		g := &st.Goods[i]
 		if g.Status != model.StatusApproved {
@@ -79,6 +88,9 @@ func Validate(st *model.State) []Warning {
 			}
 			comp := byID[slot.GoodID]
 			if comp == nil {
+				continue
+			}
+			if comp.Kind == model.KindResource {
 				continue
 			}
 			if comp.Status != model.StatusApproved && comp.Status != model.StatusResource {

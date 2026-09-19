@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"zorion/cmd/goods-studio/model"
+	"zorion/internal/goodsstudio/model"
 )
 
 // helper: строит состояние из товаров (id → Good).

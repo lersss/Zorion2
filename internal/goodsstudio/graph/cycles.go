@@ -1,6 +1,6 @@
 package graph
 
-import "zorion/cmd/goods-studio/model"
+import "zorion/internal/goodsstudio/model"
 
 // WouldCreateCycle — true, если добавление составляющей `from` в слот
 // товара `to` создаст цикл: `to` достижим из `from` по составляющим (DFS)

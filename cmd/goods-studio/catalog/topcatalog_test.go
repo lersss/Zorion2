@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"zorion/cmd/goods-studio/model"
+	"zorion/internal/goodsstudio/model"
 )
 
 // testCatalogJSON — малая валидная фикстура каталога (не реальный файл):

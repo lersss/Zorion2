@@ -7,9 +7,9 @@ package export
 import (
 	"time"
 
-	"zorion/cmd/goods-studio/graph"
-	"zorion/cmd/goods-studio/model"
-	"zorion/cmd/goods-studio/validate"
+	"zorion/internal/goodsstudio/graph"
+	"zorion/internal/goodsstudio/model"
+	"zorion/internal/goodsstudio/validate"
 )
 
 // Slot — слот выгрузки (quantity = количество слота, ≥ 1; 99a.2 §6.3).

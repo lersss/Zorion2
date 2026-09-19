@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"zorion/cmd/goods-studio/model"
+	"zorion/internal/goodsstudio/model"
 )
 
 // --- Эффективный тир (99a.3 §4.2): override ?? вычисленный; ресурс = 0 ---
@@ -40,12 +40,17 @@ func TestEffectiveTierOverride(t *testing.T) {
 	require.Equal(t, 0, EffectiveTier(&goods[1], byID))
 }
 
-// TestEffectiveTierResourceZero — ресурс всегда 0, даже если оверрайд
-// проставлен в данных (API запрещает, но функция не должна падать).
-func TestEffectiveTierResourceZero(t *testing.T) {
+// TestEffectiveTierResourceOverride — ресурс с оверрайдом: эффективный =
+// оверрайд (С3, спека переноса-студии-товаров-iterA §8.2), вычисленный = 0.
+func TestEffectiveTierResourceOverride(t *testing.T) {
 	goods := mkGoods(res("r1", "Железо"))
-	goods[0].TierOverride = intPtr(5)
-	require.Equal(t, 0, EffectiveTier(&goods[0], ByID(goods)))
+	goods[0].TierOverride = intPtr(3)
+	byID := ByID(goods)
+	require.Equal(t, 3, EffectiveTier(&goods[0], byID))
+	require.Equal(t, 0, Tier(&goods[0], byID))
+	// без оверрайда ресурс = 0
+	goods[0].TierOverride = nil
+	require.Equal(t, 0, EffectiveTier(&goods[0], byID))
 }
 
 // TestTierUnaffectedByOverride — вычисленный Tier не зависит от оверрайда

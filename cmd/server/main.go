@@ -17,6 +17,7 @@ import (
 	economySettlement "zorion/internal/economy/settlement"
 	"zorion/internal/generator/planet"
 	"zorion/internal/generator/settlement"
+	"zorion/internal/goodsstudio"
 	"zorion/internal/handlers"
 	"zorion/internal/mapcache"
 	"zorion/internal/models"
@@ -87,6 +88,15 @@ func main() {
 		log.Fatalf("❌ Ошибка применения миграций: %v", err)
 	}
 	log.Println("✅ Миграции актуальны")
+
+	// Сидер каталога товаров/ресурсов (спека переноса-студии-товаров-iterA
+	// §5): при первом старте (маркер goods_catalog_seed в generation_config)
+	// сеет 6 ресурсных + 13 товарных категорий и 131 ресурс. Ошибка —
+	// log.Fatal: сервер без базового каталога не стартует (решение гейта №4).
+	if err := goodsstudio.Seed(db); err != nil {
+		log.Fatalf("❌ Сидер каталога товаров: %v", err)
+	}
+	log.Println("✅ Каталог товаров: сид актуален")
 
 	// Каталог оборудования (спека 77a §3): справочник из БД (миграция 000040),
 	// дефолты при пустой БД. Нужен до старта HTTP — радиус радара считается
@@ -379,6 +389,26 @@ func main() {
 	// Позиции чужих игроков (спека 77a §5.3): игровой JWT, фильтр по радиусу
 	// радара запрашивающего на сервере (И1).
 	http.HandleFunc("/api/players/positions", auth.AuthMiddleware(adminHandlers.PlayersPositions))
+
+	// Студия товаров (спека переноса-студии-товаров-iterA §6): каталог
+	// товаров/ресурсов на БД. API — только admin/skycomposer (player → 403);
+	// HTML-страница — публична (паттерн админки, JWT в localStorage).
+	studioHandlers := handlers.NewStudioHandlers(db)
+	http.HandleFunc("/studio/api/state", auth.AdminAuth(studioHandlers.State))
+	http.HandleFunc("/studio/api/resources", auth.AdminAuth(studioHandlers.Resources))
+	http.HandleFunc("/studio/api/categories", auth.AdminAuth(studioHandlers.Categories))
+	http.HandleFunc("/studio/api/categories/", auth.AdminAuth(studioHandlers.CategoryByID))
+	http.HandleFunc("/studio/api/goods", auth.AdminAuth(studioHandlers.Goods))
+	// bulk — отдельный роут: subtree /studio/api/goods/ (GoodByID) парсит
+	// первый сегмент как id и вернул бы 404 на "bulk" (ревью iterA).
+	http.HandleFunc("/studio/api/goods/bulk", auth.AdminAuth(studioHandlers.Goods))
+	http.HandleFunc("/studio/api/goods/", auth.AdminAuth(studioHandlers.GoodByID))
+	http.HandleFunc("/studio/api/validate", auth.AdminAuth(studioHandlers.Validate))
+
+	http.Handle("/studio", noCache(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "./web/studio.html")
+	})))
+	http.Handle("/studio/", noCache(http.StripPrefix("/studio/", http.FileServer(http.Dir("./web/static/studio")))))
 
 	http.Handle("/admin", noCache(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./web/admin.html")

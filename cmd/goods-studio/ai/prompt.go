@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"zorion/cmd/goods-studio/model"
+	"zorion/internal/goodsstudio/model"
 )
 
 // BuildPrompt собирает промпт «заполнить комплектующие» (спека 99a.1 §7.2,

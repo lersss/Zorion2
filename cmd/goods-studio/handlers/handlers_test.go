@@ -13,7 +13,7 @@ import (
 
 	"zorion/cmd/goods-studio/ai"
 	"zorion/cmd/goods-studio/config"
-	"zorion/cmd/goods-studio/model"
+	"zorion/internal/goodsstudio/model"
 )
 
 // validateWarning — локальная копия validate.Warning для разбора ответа.

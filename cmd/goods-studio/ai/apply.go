@@ -3,8 +3,8 @@ package ai
 import (
 	"fmt"
 
-	"zorion/cmd/goods-studio/graph"
-	"zorion/cmd/goods-studio/model"
+	"zorion/internal/goodsstudio/graph"
+	"zorion/internal/goodsstudio/model"
 )
 
 // ApplyFill применяет ответ ИИ к пустым слотам товара (спека 99a.1 §7.4):

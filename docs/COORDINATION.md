@@ -76,6 +76,16 @@
 | `docs/ARCHITECTURE.md` | @developer (99a) | коммит 99a |
 | `docs/PITFALLS.md` | @developer (99a) | коммит 99a |
 | `.gitignore` | @developer (99a) | коммит 99a |
+| `migrations/000045_create_goods_catalog.sql` | @developer (перенос студии A) | коммит iterA |
+| `internal/goodsstudio/` (model/graph/validate/seed) | @developer (перенос студии A) | коммит iterA |
+| `internal/repository/goods_repository.go` (+test) | @developer (перенос студии A) | коммит iterA |
+| `internal/handlers/studio_handlers.go` (+test) | @developer (перенос студии A) | коммит iterA |
+| `cmd/server/main.go` | @developer (перенос студии A) | коммит iterA |
+| `cmd/goods-studio/*` (импорты на internal/goodsstudio) | @developer (перенос студии A) | коммит iterA |
+| `web/studio.html` | @developer (перенос студии A) | коммит iterA |
+| `docs/DB.md` | @developer (перенос студии A) | коммит iterA |
+| `docs/ARCHITECTURE.md` | @developer (перенос студии A) | коммит iterA |
+| `docs/PITFALLS.md` | @developer (перенос студии A) | коммит iterA |
 
 ---
 

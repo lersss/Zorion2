@@ -13,9 +13,9 @@ import (
 	"zorion/cmd/goods-studio/ai"
 	"zorion/cmd/goods-studio/catalog"
 	"zorion/cmd/goods-studio/export"
-	"zorion/cmd/goods-studio/graph"
-	"zorion/cmd/goods-studio/model"
-	"zorion/cmd/goods-studio/validate"
+	"zorion/internal/goodsstudio/graph"
+	"zorion/internal/goodsstudio/model"
+	"zorion/internal/goodsstudio/validate"
 )
 
 // SlotView — слот в представлении состояния (имя/тир/статус разрешены).

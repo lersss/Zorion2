@@ -16,7 +16,7 @@ import (
 	"zorion/cmd/goods-studio/catalog"
 	"zorion/cmd/goods-studio/config"
 	"zorion/cmd/goods-studio/handlers"
-	"zorion/cmd/goods-studio/model"
+	"zorion/internal/goodsstudio/model"
 )
 
 //go:embed web/index.html

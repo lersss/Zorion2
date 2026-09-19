@@ -3,7 +3,7 @@ package graph
 import (
 	"strings"
 
-	"zorion/cmd/goods-studio/model"
+	"zorion/internal/goodsstudio/model"
 )
 
 // NormalizeName — нормализация имени: lowercase, trim, схлопывание пробелов

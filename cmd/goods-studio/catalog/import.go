@@ -7,7 +7,7 @@ package catalog
 import (
 	"fmt"
 
-	"zorion/cmd/goods-studio/model"
+	"zorion/internal/goodsstudio/model"
 	"zorion/internal/resource"
 )
 

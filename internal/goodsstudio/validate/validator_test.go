@@ -1,11 +1,12 @@
 package validate
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
-	"zorion/cmd/goods-studio/model"
+	"zorion/internal/goodsstudio/model"
 )
 
 // mkState — состояние с категорией c1 и товарами.
@@ -127,4 +128,32 @@ func TestSafetyDuplicateName(t *testing.T) {
 	)
 	w := Validate(st)
 	require.Contains(t, codes(w), "duplicate_name")
+}
+
+// --- Ресурсы по kind (критика №1, спека переноса-студии-товаров iterA §8.3) ---
+
+// TestApprovedResourcesNoIncompleteChain — 131 approved-ресурс без слотов
+// не даёт «неполных цепочек» (иначе сид флагался бы каждый ресурс).
+func TestApprovedResourcesNoIncompleteChain(t *testing.T) {
+	goods := make([]model.Good, 0, 131)
+	for i := 0; i < 131; i++ {
+		goods = append(goods, model.Good{
+			ID: fmt.Sprintf("r%d", i), Name: fmt.Sprintf("Ресурс %d", i),
+			Category: "mineral", Status: model.StatusApproved, Kind: model.KindResource,
+		})
+	}
+	w := Validate(mkState(goods...))
+	require.NotContains(t, codes(w), "incomplete_chain")
+	require.NotContains(t, codes(w), "missing_resource")
+}
+
+// TestNonApprovedRefResourceByKind — ссылка approved-товара на draft-ресурс
+// не флагается (ресурс — валидный лист независимо от статуса, §8.3 п.3).
+func TestNonApprovedRefResourceByKind(t *testing.T) {
+	st := mkState(
+		good("g1", "Согласованный", model.StatusApproved, model.Slot{GoodID: "r1"}),
+		model.Good{ID: "r1", Name: "Железо Fe", Category: "mineral", Status: model.StatusDraft, Kind: model.KindResource},
+	)
+	w := Validate(st)
+	require.NotContains(t, codes(w), "non_approved_ref")
 }

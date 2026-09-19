@@ -160,6 +160,7 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
       <span id="modelInfo">Модель ИИ: —</span>
       <span id="genIndicator"></span>
     </span>
+    <button onclick="location.href='/admin'" title="Перейти в админку (общий админский токен)" style="background:#2b2b2b; border:1px solid #4a4a4a; color:#ddd; border-radius:6px; padding:5px 12px; font-size:12px; cursor:pointer;">⚙️ Админка</button>
   </div>
   <div class="head-row head-tools">
     <div class="tool-seg" id="segGraph">
@@ -260,6 +261,15 @@ let state = {categories:[], goods:[], banned:[], unused:[], warnings:[], model:"
 let selected = null;
 let popupGoodId = null; // товар попапа-детали, отдельно от selected (99a.3 §10.3, вердикт критика С1)
 let tierSel = new Set(); // выбранные тиры-пилюли справочника; пусто = фильтр выключен = все тиры (99a.3-ui §5.3)
+// Шкала тиров каталога 0..8 (решение создателя 2026-09-19: верхний тир = Т8).
+// Пилюли 0..8 показываются ВСЕГДА (создатель 2026-09-20), даже если товаров
+// такого тира в базе нет — пусто видно сразу; тиры выше 8 (оверрайд) — динамически.
+const TIER_FILTER_MAX = 8;
+function spravTiers() {
+  const base = Array.from({ length: TIER_FILTER_MAX + 1 }, (_, i) => i);
+  const extra = [...new Set(state.goods.map(g => g.tier))].filter(t => t > TIER_FILTER_MAX).sort((a, b) => a - b);
+  return [...base, ...extra];
+}
 let zoom = parseFloat(localStorage.getItem("gs_zoom") || "1");
 let panX = parseFloat(localStorage.getItem("gs_panX") || "0");
 let panY = parseFloat(localStorage.getItem("gs_panY") || "0");
@@ -1252,8 +1262,8 @@ function renderSprav() {
   // выключенная — её группа скрыта. Категория и поиск только сужают (AND), сами показ не включают.
   const hasTier = tierSel.size > 0;
   const hasFlag = fUsed || fUnused || fBanned;
-  // пилюли тиров: «все» первой + уникальные эффективные тиры (g.tier из GoodView), по возрастанию
-  const tiers = [...new Set(state.goods.map(g => g.tier))].sort((a, b) => a - b);
+  // пилюли тиров: «все» первой + фиксированные 0..8 + тиры выше 8 из каталога (если есть)
+  const tiers = spravTiers();
   // «все» активна, только когда выбраны ВСЕ тиры (показывается всё); при пустом
   // выборе фильтр тиров выключен — список пуст (создатель 2026-09-19)
   const allOn = tierSel.size === tiers.length;
@@ -1295,12 +1305,12 @@ function toggleTier(t, checked) {
   renderSprav();
 }
 // пилюля «все» (создатель 2026-09-19): что-то выбрано → сброс (все тиры);
-// пусто → выбрать все актуальные тиры
+// пусто → выбрать все актуальные тиры (фиксированные 0..8 + тиры выше 8, если есть)
 function toggleAllTiers() {
   if (tierSel.size > 0) {
     tierSel.clear();
   } else {
-    [...new Set(state.goods.map(g => g.tier))].forEach(t => tierSel.add(t));
+    spravTiers().forEach(t => tierSel.add(t));
   }
   saveTierSel();
   renderSprav();

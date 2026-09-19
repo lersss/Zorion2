@@ -159,7 +159,9 @@ func TestBuildPromptWide(t *testing.T) {
 	if !strings.Contains(prompt2, "humanoid race") {
 		t.Errorf("антропо: %s", prompt2)
 	}
-	prompt3, _, _ := BuildPromptWide(rng, fam["F4"], -1, "F4", "beast", fc, false, "")
+	// beast: фиксированная раса-существо F4 (Серные гнёзда, idx 0) — у не-существ
+	// морфы недоступны структурно (покрыто TestBuildPromptWideMorphBlocked)
+	prompt3, _, _ := BuildPromptWide(rng, fam["F4"], 0, "F4", "beast", fc, false, "")
 	if !strings.Contains(prompt3, "realistic portrait of a creature") {
 		t.Errorf("beast: %s", prompt3)
 	}

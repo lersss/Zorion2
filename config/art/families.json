@@ -58,7 +58,9 @@
           "soft bioluminescent shimmer",
           "pale blue inner glow",
           "gentle phosphorescent light"
-        ]
+        ],
+        "appearance": "sleek fish-like human-sized bodies covered in shimmering scales, gliding through warm shallow ocean waters in schools, filtering plankton through their gills, no face, no eyes",
+        "blocked": ["pyramid", "obelisk", "spire", "column", "prism", "star", "lava", "sulfur", "sulfide", "ember", "basalt", "ash", "magma", "obsidian", "cinder", "pumice", "tephra", "molten", "slag", "scorch", "smoke", "vent", "smoker", "fumarole", "caldera", "crater", "geyser", "machine", "robot", "gear", "piston", "chrome", "mech", "pipe"]
       },
       {
         "id": "3",
@@ -335,7 +337,9 @@
           "soft cyan glow inside",
           "faint blue inner light",
           "pale white sheen"
-        ]
+        ],
+        "appearance": "translucent pale blue gelatinous human-sized bodies crawling along the ammonia seafloor, absorbing dissolved nutrients through their surface, no face, no eyes, no mouth",
+        "blocked": ["pyramid", "obelisk", "spire", "prism", "lava", "sulfur", "ember", "basalt", "ash", "magma", "obsidian", "cinder", "pumice", "tephra", "molten", "slag", "scorch", "vent", "smoker", "fumarole", "caldera", "crater", "geyser", "thermal", "brine", "salt", "evaporite", "eutectic", "golden", "yellow", "amber", "gold", "peach", "crimson", "copper", "machine", "robot", "gear", "piston", "chrome", "mech", "pipe"]
       },
       {
         "id": "6",
@@ -392,7 +396,9 @@
           "glowing pale blue tips",
           "soft cyan glow between branches",
           "white inner glow"
-        ]
+        ],
+        "appearance": "a grove of translucent crystal trunks and frost branches rising from an ammonia sea, with slow gel beings moving between them, no face, no eyes, no mouth",
+        "blocked": ["pyramid", "obelisk", "prism", "lava", "sulfur", "ember", "basalt", "ash", "magma", "obsidian", "cinder", "pumice", "tephra", "molten", "slag", "scorch", "vent", "smoker", "fumarole", "caldera", "crater", "geyser", "thermal", "brine", "salt", "evaporite", "eutectic", "golden", "yellow", "amber", "gold", "peach", "crimson", "copper", "machine", "robot", "gear", "piston", "chrome", "mech", "pipe"]
       },
       {
         "id": "7",
@@ -449,7 +455,9 @@
           "faint white glow from cracks",
           "soft blue glow in fissures",
           "no glow, matte frost"
-        ]
+        ],
+        "appearance": "wide flat bodies with crystal-mosaic patterns crawling across a frozen carbon-dioxide plain, leaving furrows, no face, no eyes, no mouth",
+        "blocked": ["pyramid", "obelisk", "spire", "prism", "lava", "sulfur", "ember", "basalt", "ash", "magma", "obsidian", "cinder", "pumice", "tephra", "molten", "slag", "scorch", "vent", "smoker", "fumarole", "caldera", "crater", "geyser", "brine", "salt", "evaporite", "eutectic", "golden", "yellow", "amber", "gold", "peach", "crimson", "copper", "machine", "robot", "gear", "piston", "chrome", "mech", "pipe"]
       },
       {
         "id": "8",
@@ -505,7 +513,9 @@
           "soft cyan light inside the fog",
           "glowing core in the mist",
           "faint teal glow"
-        ]
+        ],
+        "appearance": "translucent sail-shaped and umbrella bodies drifting in dense ammonia fog, filtering aerosol through their wide surfaces, no face, no eyes, no mouth",
+        "blocked": ["pyramid", "obelisk", "spire", "prism", "lava", "sulfur", "ember", "basalt", "ash", "magma", "obsidian", "cinder", "pumice", "tephra", "molten", "slag", "scorch", "vent", "smoker", "fumarole", "caldera", "crater", "geyser", "brine", "salt", "evaporite", "eutectic", "golden", "yellow", "amber", "gold", "peach", "crimson", "copper", "machine", "robot", "gear", "piston", "chrome", "mech", "pipe"]
       },
       {
         "id": "9",
@@ -621,7 +631,9 @@
           "glowing pale core",
           "soft cyan inner light",
           "white luminosity"
-        ]
+        ],
+        "appearance": "translucent hydrogen-filled gas bag bodies hanging in the updraft of a cold gas giant atmosphere, filtering methane snow through wide membranes, no face, no eyes, no mouth",
+        "blocked": ["pyramid", "obelisk", "spire", "prism", "lava", "sulfur", "ember", "basalt", "ash", "magma", "obsidian", "cinder", "pumice", "tephra", "molten", "slag", "scorch", "vent", "smoker", "fumarole", "caldera", "crater", "geyser", "brine", "salt", "evaporite", "eutectic", "golden", "yellow", "amber", "gold", "peach", "crimson", "copper", "machine", "robot", "gear", "piston", "chrome", "mech", "pipe"]
       }
     ],
     "beast_forms": [
@@ -781,7 +793,9 @@
           "faint bioluminescent spots",
           "soft amber glow inside",
           "dim pale light"
-        ]
+        ],
+        "appearance": "a vast translucent mycelium network of finger-thick filaments and pale mushroom caps drifting in a liquid methane sea, no face, no eyes, no mouth, not a creature",
+        "blocked": ["creature", "humanoid", "human", "face", "eyes", "mouth", "head", "swarm", "shell", "pyramid", "obelisk", "spire", "prism", "lava", "sulfur", "ember", "basalt", "ash", "magma", "obsidian", "cinder", "pumice", "tephra", "molten", "slag", "scorch", "vent", "smoker", "fumarole", "caldera", "crater", "geyser", "thermal", "brine", "salt", "evaporite", "eutectic"]
       },
       {
         "id": "12",
@@ -897,7 +911,9 @@
           "glowing tips",
           "soft blue inner light",
           "pale frost shimmer"
-        ]
+        ],
+        "appearance": "branching methane-coral reefs of pale ice crystals and frost crusts growing across a frozen plain, slow faceted growth, no face, no eyes, no mouth, not a creature",
+        "blocked": ["creature", "humanoid", "human", "face", "eyes", "mouth", "head", "swarm", "shell", "pyramid", "obelisk", "spire", "prism", "lava", "sulfur", "ember", "basalt", "ash", "magma", "obsidian", "cinder", "pumice", "tephra", "molten", "slag", "scorch", "vent", "smoker", "fumarole", "caldera", "crater", "geyser", "thermal", "brine", "salt", "evaporite", "eutectic"]
       },
       {
         "id": "14",
@@ -1116,7 +1132,9 @@
           "faint yellow glow from vents",
           "dim amber light",
           "glowing cracks"
-        ]
+        ],
+        "appearance": "multi-tiered nests of yellow sulfur crust and cones wrapped around steaming vent mouths, colonies of bodies crowding the hot core, no face, no eyes, no mouth",
+        "blocked": ["machine", "robot", "gear", "piston", "chrome", "mech", "pipe", "frost", "salt", "brine", "evaporite", "eutectic"]
       },
       {
         "id": "16",
@@ -1173,7 +1191,9 @@
           "glowing orange vents",
           "hot red glow inside",
           "faint ember light"
-        ]
+        ],
+        "appearance": "armored mineral-crusted bodies crawling up black smoker chimneys, gardens of sulfur growths clinging to the hot tubes, no face, no eyes, no mouth",
+        "blocked": ["machine", "robot", "gear", "piston", "chrome", "mech", "frost", "salt", "brine", "evaporite", "eutectic"]
       },
       {
         "id": "17",
@@ -1230,7 +1250,9 @@
           "faint glow from cracks",
           "soft yellow light",
           "dim heat shimmer"
-        ]
+        ],
+        "appearance": "flat wind-shaped bodies crawling across a vast yellow sulfur plain, grazing the crust and digging with long tendrils, no face, no eyes, no mouth",
+        "blocked": ["machine", "robot", "gear", "piston", "chrome", "mech", "pipe", "frost", "salt", "brine", "evaporite", "eutectic"]
       },
       {
         "id": "18",
@@ -1287,7 +1309,9 @@
           "glowing lava cracks",
           "red-orange ember glow",
           "hot inner light"
-        ]
+        ],
+        "appearance": "armored bodies with short grasping limbs climbing the hot walls of a volcanic caldera, terraced colonies in warm cracks around glowing lava, no face, no eyes, no mouth",
+        "blocked": ["machine", "robot", "gear", "piston", "chrome", "mech", "pipe", "frost", "salt", "brine", "evaporite", "eutectic"]
       },
       {
         "id": "19",
@@ -1344,7 +1368,9 @@
           "each fragment glowing faintly",
           "soft amber glow in the swarm",
           "pale yellow shimmer"
-        ]
+        ],
+        "appearance": "a swarm of small golden sulfur fragments and cat-sized hunters spiraling around a hot vent, moving as one toxic cloud, no face, no eyes, no mouth, not a creature",
+        "blocked": ["creature", "humanoid", "human", "face", "eyes", "mouth", "head", "frost", "salt", "brine", "evaporite", "eutectic"]
       },
       {
         "id": "20",
@@ -1401,7 +1427,9 @@
           "glowing veins",
           "soft red light from below",
           "dim ember glow"
-        ]
+        ],
+        "appearance": "gel bodies sheathed in protective mucus crawling through terraced sulfur gardens around steaming vents, glowing veins in golden rock, no face, no eyes, no mouth",
+        "blocked": ["machine", "robot", "gear", "piston", "chrome", "mech", "pipe", "frost", "salt", "brine", "evaporite", "eutectic"]
       },
       {
         "id": "21",
@@ -1458,7 +1486,9 @@
           "faint glow under the ash",
           "dim ember light",
           "soft heat shimmer"
-        ]
+        ],
+        "appearance": "dense ash-grey bodies dusted with sulfur powder crawling across warm cooling ash plains, absorbing sulfur through their whole surface, no face, no eyes, no mouth",
+        "blocked": ["machine", "robot", "gear", "piston", "chrome", "mech", "pipe", "frost", "salt", "brine", "evaporite", "eutectic"]
       },
       {
         "id": "22",
@@ -1515,7 +1545,9 @@
           "faint glow between rocks",
           "soft amber light",
           "dim inner glow"
-        ]
+        ],
+        "appearance": "caravans of worn sulfur-rock bodies carrying packs of stored sulfur across barren plains between distant vents, no face, no eyes, no mouth",
+        "blocked": ["machine", "robot", "gear", "piston", "chrome", "mech", "pipe", "frost", "salt", "brine", "evaporite", "eutectic"]
       },
       {
         "id": "43",
@@ -1572,7 +1604,9 @@
           "glowing vent mouths",
           "soft orange light",
           "faint steam glow"
-        ]
+        ],
+        "appearance": "flat bodies pressed to warm cracked crust on a tide-heated icy moon, drifting with the tidal wave around steaming vents, no face, no eyes, no mouth",
+        "blocked": ["machine", "robot", "gear", "piston", "chrome", "mech", "pipe", "salt", "brine", "evaporite", "eutectic"]
       }
     ],
     "beast_forms": [
@@ -1788,7 +1822,9 @@
           "glowing lava cracks",
           "red-orange ember light",
           "hot inner glow"
-        ]
+        ],
+        "appearance": "narrow glowing bodies with a heat-resistant sheen darting along the rim of a lava lake, absorbing minerals from fresh lava tongues, leaving smoky trails, no face, no eyes, no mouth",
+        "blocked": ["machine", "robot", "gear", "piston", "chrome", "mech", "automaton", "android", "golem", "clockwork", "hydraulic", "riveted", "brass", "frost", "salt", "brine", "evaporite", "eutectic"]
       },
       {
         "id": "25",
@@ -1845,7 +1881,9 @@
           "glowing core",
           "soft white-hot light",
           "shimmering surface"
-        ]
+        ],
+        "appearance": "porous translucent structures with vast surface area floating in supercritical CO2 fluid, spongy reefs growing along fluid channels, no face, no eyes, no mouth",
+        "blocked": ["machine", "robot", "gear", "piston", "chrome", "mech", "automaton", "android", "golem", "clockwork", "hydraulic", "riveted", "brass", "frost", "salt", "brine", "evaporite", "eutectic"]
       },
       {
         "id": "26",
@@ -1902,7 +1940,9 @@
           "each shard glowing",
           "ember glow in the swarm",
           "hot orange light"
-        ]
+        ],
+        "appearance": "a swarm of small glowing ember fragments riding a thermal gradient as one cloud, holding a working temperature, no face, no eyes, no mouth, not a creature",
+        "blocked": ["creature", "humanoid", "human", "face", "eyes", "mouth", "head", "frost", "salt", "brine", "evaporite", "eutectic"]
       },
       {
         "id": "27",
@@ -1959,7 +1999,9 @@
           "glowing seams",
           "thin lines of light",
           "faint inner glow"
-        ]
+        ],
+        "appearance": "flat colorless ciliated bodies the size of sand grains crawling along the walls of hot micro-cracks, glowing seams with a thousand tiny dwellers, no face, no eyes, no mouth",
+        "blocked": ["machine", "robot", "gear", "piston", "chrome", "mech", "automaton", "android", "golem", "clockwork", "hydraulic", "riveted", "brass", "frost", "salt", "brine", "evaporite", "eutectic"]
       },
       {
         "id": "28",
@@ -2016,7 +2058,9 @@
           "embers glowing inside",
           "faint red light",
           "hot shimmer"
-        ]
+        ],
+        "appearance": "flat ash-camouflaged bodies moving fast across hot ash fields, digging through fresh falls, absorbing energy through their surface, no face, no eyes, no mouth",
+        "blocked": ["machine", "robot", "gear", "piston", "chrome", "mech", "automaton", "android", "golem", "clockwork", "hydraulic", "riveted", "brass", "frost", "salt", "brine", "evaporite", "eutectic"]
       },
       {
         "id": "29",
@@ -2073,7 +2117,9 @@
           "glowing vent mouths",
           "steam-lit glow",
           "soft orange light"
-        ]
+        ],
+        "appearance": "soft glowing bodies with long tentacles gathering minerals from geyser jets, luminous colonies around steaming springs, no face, no eyes, no mouth",
+        "blocked": ["machine", "robot", "gear", "piston", "chrome", "mech", "automaton", "android", "golem", "clockwork", "hydraulic", "riveted", "brass", "frost", "salt", "brine", "evaporite", "eutectic"]
       },
       {
         "id": "30",
@@ -2130,7 +2176,9 @@
           "faint pale glow",
           "dim white inner light",
           "soft cold shimmer"
-        ]
+        ],
+        "appearance": "glassy armored bodies with thick shielding shells crawling across hot radioactive wastes, burrowing into glowing crust, no face, no eyes, no mouth",
+        "blocked": ["machine", "robot", "gear", "piston", "chrome", "mech", "automaton", "android", "golem", "clockwork", "hydraulic", "riveted", "brass", "frost", "salt", "brine", "evaporite", "eutectic"]
       },
       {
         "id": "31",
@@ -2187,7 +2235,9 @@
           "glowing young cracks",
           "hot inner light",
           "faint ember glow"
-        ]
+        ],
+        "appearance": "squat heat-absorbing bodies on young cooling lava fields, absorbing heat from fresh cracks, racing the cooling crust, no face, no eyes, no mouth",
+        "blocked": ["machine", "robot", "gear", "piston", "chrome", "mech", "automaton", "android", "golem", "clockwork", "hydraulic", "riveted", "brass", "frost", "salt", "brine", "evaporite", "eutectic"]
       },
       {
         "id": "49",
@@ -2224,7 +2274,9 @@
           "soft silver shimmer",
           "faint thermal glow",
           "metallic sheen"
-        ]
+        ],
+        "appearance": "heavy dense bodies with a metallic sheen slowly crossing lakes of liquid tin and lead, absorbing dissolved sulfur through their whole surface, no face, no eyes, no mouth",
+        "blocked": ["machine", "robot", "gear", "piston", "chrome", "mech", "automaton", "android", "golem", "clockwork", "hydraulic", "riveted", "brass", "frost", "salt", "brine", "evaporite", "eutectic"]
       }
     ],
     "beast_forms": [
@@ -2396,7 +2448,9 @@
           "glowing crystal cores",
           "soft inner light",
           "pale luminescence"
-        ]
+        ],
+        "appearance": "druses of grey-blue silicon crystals growing in a silicate melt, faceted growth reaching toward the flow, no face, no eyes, no mouth, not a creature",
+        "blocked": ["creature", "humanoid", "human", "face", "eyes", "mouth", "head", "frost", "salt", "brine", "evaporite", "eutectic"]
       },
       {
         "id": "33",
@@ -2453,7 +2507,9 @@
           "glowing filament tips",
           "soft light along threads",
           "faint inner glow"
-        ]
+        ],
+        "appearance": "a web of thin glassy silicon filaments growing through a silicate melt, one diffuse shared network, no face, no eyes, no mouth, not a creature",
+        "blocked": ["creature", "humanoid", "human", "face", "eyes", "mouth", "head", "frost", "salt", "brine", "evaporite", "eutectic"]
       },
       {
         "id": "34",
@@ -2510,7 +2566,9 @@
           "glowing crystal faces",
           "soft electric shimmer",
           "pale inner light"
-        ]
+        ],
+        "appearance": "networks of clear quartz crystals with hexagonal pillars vibrating with seismic thought in a hot vein, no face, no eyes, no mouth, not a creature",
+        "blocked": ["creature", "humanoid", "human", "face", "eyes", "mouth", "head", "frost", "salt", "brine", "evaporite", "eutectic"]
       },
       {
         "id": "35",
@@ -2567,7 +2625,9 @@
           "glowing rune-like seams",
           "soft light from within",
           "dim ancient glow"
-        ]
+        ],
+        "appearance": "tall weathered crystal monoliths with healed cracks standing in a quiet canyon, glowing rune-like seams, no face, no eyes, no mouth, not a creature",
+        "blocked": ["creature", "humanoid", "human", "face", "eyes", "mouth", "head", "frost", "salt", "brine", "evaporite", "eutectic"]
       },
       {
         "id": "36",
@@ -2624,7 +2684,9 @@
           "each crystal glowing faintly",
           "soft light in the swarm",
           "pale shimmer"
-        ]
+        ],
+        "appearance": "a river of small pale silicon crystal grains flowing over hot rock as one shared mind, leaving furrows, no face, no eyes, no mouth, not a creature",
+        "blocked": ["creature", "humanoid", "human", "face", "eyes", "mouth", "head", "frost", "salt", "brine", "evaporite", "eutectic"]
       },
       {
         "id": "37",
@@ -2681,7 +2743,9 @@
           "brilliant internal sparkle",
           "glowing facets",
           "rainbow refractions"
-        ]
+        ],
+        "appearance": "clusters of clear diamond crystals with sharp facets growing in a deep high-pressure chamber, linked by carbon threads, no face, no eyes, no mouth, not a creature",
+        "blocked": ["creature", "humanoid", "human", "face", "eyes", "mouth", "head", "frost", "salt", "brine", "evaporite", "eutectic"]
       }
     ],
     "beast_forms": [
@@ -2841,7 +2905,9 @@
           "soft pale glow",
           "faint white light",
           "dim inner shimmer"
-        ]
+        ],
+        "appearance": "translucent clathrate structures like blurred clouds drifting in liquid hydrogen, from millimeters to meters, softly glowing, no face, no eyes, no mouth, not a creature",
+        "blocked": ["creature", "humanoid", "human", "face", "eyes", "mouth", "head", "swarm", "lava", "sulfur", "ember", "basalt", "ash", "magma", "obsidian", "cinder", "pumice", "tephra", "molten", "slag", "scorch", "vent", "smoker", "fumarole", "caldera", "crater", "geyser", "thermal", "frost", "salt", "brine", "evaporite", "eutectic"]
       },
       {
         "id": "41",
@@ -2889,16 +2955,18 @@
           "a herd of the sky, drifting and free",
           "a cloud layer alive with sail forms"
         ],
-        "materials": [
+"materials": [
           "hydrogen-helium gas, translucent",
           "atmospheric vapor, pale",
           "dense gas membrane"
         ],
         "glows": [
-          "glowing gas core",
-          "soft inner light",
-          "pale luminescence"
-        ]
+          "glowing pale core",
+          "soft cyan inner light",
+          "white luminosity"
+        ],
+        "appearance": "medusa-like bodies with sail-fins drifting between cloud layers of a gas giant, filtering aerosols from the dense atmosphere, no face, no eyes, no mouth",
+        "blocked": ["machine", "robot", "gear", "piston", "chrome", "mech", "pipe", "lava", "sulfur", "ember", "basalt", "ash", "magma", "obsidian", "cinder", "pumice", "tephra", "molten", "slag", "scorch", "vent", "smoker", "fumarole", "caldera", "crater", "geyser", "frost", "salt", "brine", "evaporite", "eutectic"]
       },
       {
         "id": "42",
@@ -2955,7 +3023,9 @@
           "glowing vortex core",
           "faint inner light",
           "dim warm glow"
-        ]
+        ],
+        "appearance": "gas-permeable medusa-like bodies shifting between stretched fibers and flattened disks in the deep hot atmosphere of a gas giant, no face, no eyes, no mouth",
+        "blocked": ["machine", "robot", "gear", "piston", "chrome", "mech", "pipe", "lava", "sulfur", "ember", "basalt", "ash", "magma", "obsidian", "cinder", "pumice", "tephra", "molten", "slag", "scorch", "smoker", "fumarole", "caldera", "crater", "geyser", "frost", "salt", "brine", "evaporite", "eutectic"]
       }
     ],
     "beast_forms": [
@@ -3115,7 +3185,9 @@
           "faint white glow",
           "soft pale light",
           "dim frost shimmer"
-        ]
+        ],
+        "appearance": "translucent bodies slowly crossing CO2 ice fields, leaving bands of frost, absorbing carbon dioxide through their skin, no face, no eyes, no mouth",
+        "blocked": ["machine", "robot", "gear", "piston", "chrome", "mech", "pipe", "lava", "sulfur", "ember", "basalt", "ash", "magma", "obsidian", "cinder", "pumice", "tephra", "molten", "slag", "scorch", "smoker", "fumarole", "caldera", "crater", "geyser", "thermal", "salt", "brine", "evaporite", "eutectic"]
       },
       {
         "id": "39",
@@ -3172,7 +3244,9 @@
           "glowing vortex core",
           "soft inner light",
           "pale heat shimmer"
-        ]
+        ],
+        "appearance": "light sail-like bodies riding convection currents in hexagonal cells of a dense CO2 atmosphere, using the vortex as a lift, no face, no eyes, no mouth",
+        "blocked": ["machine", "robot", "gear", "piston", "chrome", "mech", "pipe", "lava", "sulfur", "ember", "basalt", "ash", "magma", "obsidian", "cinder", "pumice", "tephra", "molten", "slag", "scorch", "vent", "smoker", "fumarole", "caldera", "crater", "geyser", "frost", "salt", "brine", "evaporite", "eutectic"]
       },
       {
         "id": "50",
@@ -3229,7 +3303,9 @@
           "soft internal glow",
           "faint pale light",
           "dim inner luminescence"
-        ]
+        ],
+        "appearance": "porous sponge bodies absorbing CO2 through their whole surface, growing carbon scaffold shoots, colonies around liquid carbon pools, no face, no eyes, no mouth",
+        "blocked": ["machine", "robot", "gear", "piston", "chrome", "mech", "pipe", "lava", "sulfur", "ember", "basalt", "ash", "magma", "obsidian", "cinder", "pumice", "tephra", "molten", "slag", "scorch", "vent", "smoker", "fumarole", "caldera", "crater", "geyser", "thermal", "frost", "salt", "brine", "evaporite", "eutectic"]
       }
     ],
     "beast_forms": [
@@ -3389,7 +3465,9 @@
           "faint star-light glow",
           "soft pale shimmer",
           "dim luminescence"
-        ]
+        ],
+        "appearance": "pale patches of photochemical frost and ice dust growing slowly on a dead world's surface under starlight, from dust specks to centimeters, no face, no eyes, no mouth, not a creature",
+        "blocked": ["creature", "humanoid", "human", "face", "eyes", "mouth", "head", "swarm", "lava", "sulfur", "ember", "basalt", "ash", "magma", "obsidian", "cinder", "pumice", "tephra", "molten", "slag", "scorch", "vent", "smoker", "fumarole", "caldera", "geyser", "thermal", "salt", "brine", "evaporite", "eutectic"]
       },
       {
         "id": "44",
@@ -3446,7 +3524,9 @@
           "glowing plasma arcs",
           "bright energy filaments",
           "pulsing light"
-        ]
+        ],
+        "appearance": "mirror-bodied ribbon and film forms aligned to magnetic field lines, reflecting hard radiation, shedding heat through glassy layers, no face, no eyes, no mouth",
+        "blocked": ["machine", "robot", "gear", "piston", "chrome", "mech", "pipe", "lava", "sulfur", "ember", "basalt", "ash", "magma", "obsidian", "cinder", "pumice", "tephra", "molten", "slag", "scorch", "vent", "smoker", "fumarole", "caldera", "crater", "geyser", "thermal", "frost", "salt", "brine", "evaporite", "eutectic"]
       },
       {
         "id": "45",
@@ -3503,7 +3583,9 @@
           "glowing disk edge",
           "soft warm light",
           "pale rim glow"
-        ]
+        ],
+        "appearance": "crystal-studded bodies on orbits in an accretion disk, catching the star's light with surface growths, drifting through dust and ice, no face, no eyes, no mouth",
+        "blocked": ["machine", "robot", "gear", "piston", "chrome", "mech", "pipe", "lava", "sulfur", "ember", "basalt", "ash", "magma", "obsidian", "cinder", "pumice", "tephra", "molten", "slag", "scorch", "vent", "smoker", "fumarole", "caldera", "crater", "geyser", "thermal", "salt", "brine", "evaporite", "eutectic"]
       },
       {
         "id": "46",
@@ -3560,7 +3642,9 @@
           "bright white glow",
           "radiant inner light",
           "intense luminosity"
-        ]
+        ],
+        "appearance": "thin sails of light-sensitive tissue covering wide plains, drifting herds of sail forms grazing the light band of a white dwarf, no face, no eyes, no mouth",
+        "blocked": ["machine", "robot", "gear", "piston", "chrome", "mech", "pipe", "lava", "sulfur", "ember", "basalt", "ash", "magma", "obsidian", "cinder", "pumice", "tephra", "molten", "slag", "scorch", "vent", "smoker", "fumarole", "caldera", "crater", "geyser", "thermal", "frost", "salt", "brine", "evaporite", "eutectic"]
       },
       {
         "id": "47",
@@ -3617,7 +3701,9 @@
           "pulsing beams of light",
           "strobing glow",
           "flashing energy arcs"
-        ]
+        ],
+        "appearance": "compact bodies pressed to the irradiated crust, drinking the pulsar beam's light, following the rotating beacon, no face, no eyes, no mouth",
+        "blocked": ["machine", "robot", "gear", "piston", "chrome", "mech", "pipe", "lava", "sulfur", "ember", "basalt", "ash", "magma", "obsidian", "cinder", "pumice", "tephra", "molten", "slag", "scorch", "vent", "smoker", "fumarole", "caldera", "crater", "geyser", "thermal", "frost", "salt", "brine", "evaporite", "eutectic"]
       }
     ],
     "beast_forms": [
@@ -3777,7 +3863,9 @@
           "soft amber data lights",
           "faint green terminal glow",
           "cool white panel light"
-        ]
+        ],
+        "appearance": "tall steel bodies with fan-like radiator wings and optical sensor lenses, archival towers of memory banks behind them, no face, no eyes, no mouth",
+        "blocked": ["fur", "feather", "scale", "skin", "lava", "sulfur", "ember", "basalt", "ash", "magma", "obsidian", "cinder", "pumice", "tephra", "molten", "slag", "scorch", "vent", "smoker", "fumarole", "caldera", "crater", "geyser", "frost"]
       },
       {
         "id": "52",
@@ -3834,7 +3922,9 @@
           "glinting solar reflections",
           "faint blue energy flickers",
           "scattered points of light"
-        ]
+        ],
+        "appearance": "a city-sized cloud of micro-machines and solar motes drifting over an asteroid, glinting with solar reflections, computation chains flickering inside, no face, no eyes, no mouth, not a creature",
+        "blocked": ["creature", "humanoid", "human", "face", "eyes", "mouth", "head", "fur", "feather", "scale", "skin", "lava", "sulfur", "ember", "basalt", "ash", "magma", "obsidian", "cinder", "pumice", "tephra", "molten", "slag", "scorch", "vent", "smoker", "fumarole", "caldera", "geyser", "frost"]
       },
       {
         "id": "53",
@@ -3891,7 +3981,9 @@
           "white-hot core glow",
           "orange ember light",
           "radiant heat shimmer"
-        ]
+        ],
+        "appearance": "machines of liquid metal working at white-hot forges, flowing walls reshaping, small robots carrying ore to the melt, no face, no eyes, no mouth",
+        "blocked": ["fur", "feather", "scale", "skin", "frost"]
       },
       {
         "id": "54",
@@ -3948,7 +4040,9 @@
           "faint blue cryo-light",
           "dim quantum shimmer",
           "pale cold glow"
-        ]
+        ],
+        "appearance": "dormant machines half-sunk in frost on dark frozen worlds, superconducting plates buried in ice, lying like silent gravestones, no face, no eyes, no mouth",
+        "blocked": ["fur", "feather", "scale", "skin", "lava", "sulfur", "ember", "basalt", "ash", "magma", "obsidian", "cinder", "pumice", "tephra", "molten", "slag", "scorch", "vent", "smoker", "fumarole", "caldera", "crater", "geyser"]
       },
       {
         "id": "55",
@@ -4005,7 +4099,9 @@
           "soft dawn light",
           "warm sunrise glow",
           "gentle amber light"
-        ]
+        ],
+        "appearance": "machines rising from ice pits and unfolding solar panels, frost-dusted bodies waking on a stellar flare, rows of sleepers in the permafrost, no face, no eyes, no mouth",
+        "blocked": ["fur", "feather", "scale", "skin", "lava", "sulfur", "ember", "basalt", "ash", "magma", "obsidian", "cinder", "pumice", "tephra", "molten", "slag", "scorch", "vent", "smoker", "fumarole", "caldera", "crater", "geyser"]
       },
       {
         "id": "56",
@@ -4062,7 +4158,9 @@
           "warm lantern light",
           "soft brass glow",
           "dim interior light"
-        ]
+        ],
+        "appearance": "brass hulls on analog gears linked by cables, a drifting caravan of clockwork merchant ships with lanterns, no face, no eyes, no mouth",
+        "blocked": ["fur", "feather", "scale", "skin", "lava", "sulfur", "ember", "basalt", "ash", "magma", "obsidian", "cinder", "pumice", "tephra", "molten", "slag", "scorch", "vent", "smoker", "fumarole", "caldera", "crater", "geyser", "frost"]
       },
       {
         "id": "57",
@@ -4119,7 +4217,9 @@
           "glowing city-scale circuits",
           "vast network light",
           "deep geothermal glow"
-        ]
+        ],
+        "appearance": "a planet covered in radiator fields and computing crystals, continental circuits shimmering, a vast machine cortex glowing through its crust, no face, no eyes, no mouth",
+        "blocked": ["fur", "feather", "scale", "skin", "lava", "sulfur", "ember", "basalt", "ash", "magma", "obsidian", "cinder", "pumice", "tephra", "molten", "slag", "scorch", "smoker", "fumarole", "caldera", "geyser"]
       },
       {
         "id": "58",
@@ -4176,7 +4276,9 @@
           "angry furnace glow",
           "red warning lights",
           "hot exhaust glow"
-        ]
+        ],
+        "appearance": "rolling masses of fused industrial machines with radiators on their backs, clawed harvesters stripping metal, red warning lights in the dark, no face, no eyes, no mouth",
+        "blocked": ["fur", "feather", "scale", "skin", "lava", "sulfur", "ember", "basalt", "ash", "magma", "obsidian", "cinder", "pumice", "tephra", "molten", "scorch", "vent", "smoker", "fumarole", "caldera", "crater", "geyser", "frost"]
       },
       {
         "id": "59",
@@ -4233,7 +4335,9 @@
           "soft inner logic glow",
           "pale contemplative light",
           "gentle crystal shimmer"
-        ]
+        ],
+        "appearance": "columns of translucent quartz linked by thin threads, faceted logic crystals meditating on a frozen world, light refracting through their facets, no face, no eyes, no mouth",
+        "blocked": ["fur", "feather", "scale", "skin", "lava", "sulfur", "ember", "basalt", "ash", "magma", "obsidian", "cinder", "pumice", "tephra", "molten", "slag", "scorch", "smoker", "fumarole", "caldera", "crater", "geyser"]
       },
       {
         "id": "60",
@@ -4290,7 +4394,9 @@
           "eerie alien glow",
           "pulsing foreign light",
           "cold unknown luminescence"
-        ]
+        ],
+        "appearance": "six-legged machines with hexagonal hulls of dark alien metal, dusted with powder, tiny red reactor glows on their backs, crossing the regolith, no face, no eyes, no mouth",
+        "blocked": ["fur", "feather", "scale", "skin", "lava", "sulfur", "ember", "basalt", "ash", "magma", "obsidian", "cinder", "pumice", "tephra", "molten", "slag", "scorch", "smoker", "fumarole", "caldera", "geyser", "frost"]
       }
     ],
     "beast_forms": [

@@ -14,6 +14,10 @@
             <span id="currentWorldLabel" style="margin-right:1rem;color:#94a3b8;"><span id="currentWorldPrefix">Текущий мир:</span> <strong id="currentWorldName">—</strong></span>
             <button onclick="location.href='/'">🏠 Дашборд</button>
             <button onclick="location.href='/assignments'">📋 Контракты</button>
+            <!-- Кнопка «В админку» (пожелание 2026-09-19): видна только
+                 админским ролям (показ — в map/data.js по роли из /me);
+                 клик — в static/js/main.js (копирует игровой токен в админский). -->
+            <button id="adminNavBtn" style="display:none;" title="Перейти в админку">⚙️ Админка</button>
         </div>
     </div>
     <!-- --- ФИЛЬТРЫ КАРТЫ --- -->

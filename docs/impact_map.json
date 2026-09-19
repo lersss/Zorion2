@@ -416,6 +416,18 @@
         { "on": "docs/specs/99a.1-goods-studio.md", "kind": "affects", "reason": "спека продукта 99a.1 — реализована кодом" },
         { "on": "docs/specs/99a.3-goods-studio-focus-graph-spravochnik.md", "kind": "affects", "reason": "спека 99a.3 (фокус-подграф, тир-оверрайд, справочник) — реализована кодом" }
       ]
+    },
+    {
+      "id": "nav-admin-map",
+      "type": "code",
+      "path": "web/map.html",
+      "note": "Переходы админка ↔ карта (2026-09-19): синхронизация JWT между ключами token/adminToken при навигации; клик по 🌍 в шапке админки → карта, кнопка «⚙️ Админка» на карте (admin/skycomposer)",
+      "impacts": [
+        { "on": "web/admin.html", "kind": "writes", "reason": "шапка: клик по 🌍 → goToMap (adminToken → token), редирект /map" },
+        { "on": "web/static/js/admin/main.js", "kind": "writes", "reason": "goToMap: копирование adminToken → token (тот же JWT от /login)" },
+        { "on": "web/static/js/main.js", "kind": "writes", "reason": "клик «⚙️ Админка»: копирование token → adminToken, редирект /admin" },
+        { "on": "web/static/js/map/data.js", "kind": "reads", "reason": "показ кнопки по user.role из /me (admin/skycomposer)" }
+      ]
     }
   ]
 }

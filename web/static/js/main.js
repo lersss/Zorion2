@@ -128,6 +128,18 @@ function init() {
         });
     }
 
+    // --- Переход в админку (пожелание 2026-09-19): кнопка видна только
+    // админским ролям (показ — в data.js по роли из /me); игровой токен
+    // копируется в админский ключ — тот же JWT, что и у админки. ---
+    const adminNavBtn = document.getElementById('adminNavBtn');
+    if (adminNavBtn) {
+        adminNavBtn.addEventListener('click', () => {
+            const t = localStorage.getItem('token');
+            if (t) localStorage.setItem('adminToken', t);
+            window.location.href = '/admin';
+        });
+    }
+
     // --- Автоматическое применение фильтров ---
     const filterInputs = document.querySelectorAll('#filters-bar input, #filters-bar select');
     let timeoutId = null;

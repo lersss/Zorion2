@@ -344,6 +344,12 @@ export async function loadUserData(force = false) {
 
         if (user.id) state.userId = user.id;
         if (user.role) state.userRole = user.role;
+        // Кнопка «В админку» (пожелание 2026-09-19): видна только админским
+        // ролям; обычным игрокам не показывается вовсе.
+        const adminNavBtn = document.getElementById('adminNavBtn');
+        if (adminNavBtn) {
+            adminNavBtn.style.display = (user.role === 'admin' || user.role === 'skycomposer') ? '' : 'none';
+        }
         // Радиус радара (спека 77a §4.2): для отрисовки границы видимости.
         if (typeof user.radar_radius === 'number') state.radarRadius = user.radar_radius;
         // Двигатель (спека 91a §6.1): без установленного двигателя полёт

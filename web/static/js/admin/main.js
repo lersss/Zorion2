@@ -74,6 +74,16 @@ window.selectReal = selectReal;
 window.switchRealMode = switchRealMode;
 window.sortReal = sortReal;
 
+// goToMap — переход из админки на карту (пожелание 2026-09-19): админский
+// токен — тот же JWT, что и игровой; копируем его в игровой ключ, чтобы
+// карта открылась сразу, без повторного логина.
+function goToMap() {
+    const t = localStorage.getItem('adminToken');
+    if (t) localStorage.setItem('token', t);
+    window.location.href = '/map';
+}
+window.goToMap = goToMap;
+
 // Ключ в localStorage читает web/static/js/modal/panel.js (карточка планеты
 // в игровых страницах) — держать строку синхронной при переименовании.
 const AUTO_REFRESH_PLANET_KEY = 'debugAutoRefreshPlanet';

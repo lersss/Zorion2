@@ -564,6 +564,18 @@
         { "on": "77a", "kind": "duplicates", "reason": "статусы §5.3 (терминология «в системе X / в полёте» расширена: «у планеты X», «у компаньона X»)" },
         { "on": "99.2.27", "kind": "duplicates", "reason": "видимость §6: стоящие видны, статусы, координаты = звезда, офлайн-игроки (звоночек §11.3)" }
       ]
+    },
+    {
+      "id": "99.2.27",
+      "type": "spec",
+      "path": "docs/specs/99.2.27-intrasystem-flight.md",
+      "note": "спека «Внутрисистемный полёт» (99.2.27, 2026-09-20, сдана «доделаем потом»): позиция (users.current_position), player_intrasystem_flights (000046), IntrasystemManager, длительность (двухрежимная), видимость (90a-изменение), UX модалки; недоработки — идея 2026-09-20 §8/§10",
+      "impacts": [
+        { "on": "users.current_position", "kind": "duplicates", "reason": "модель позиции §2, переходы orbit↔in_flight, ИП-1/ИП-2/ИП-4" },
+        { "on": "player_intrasystem_flights", "kind": "duplicates", "reason": "схема, редирект, идемпотентность, авто-знание presence" },
+        { "on": "docs/specs/README.md", "kind": "docs", "reason": "манифест спек: строка 99.2.27 (статус/дата)" },
+        { "on": "99_roadmap.md", "kind": "docs", "reason": "строка §99.2 — статус фичи" }
+      ]
     }
   ]
 }

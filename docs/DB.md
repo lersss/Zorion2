@@ -143,7 +143,11 @@ ClearUniverse его не трогает).
   только ресурсные, `is_system`, `name_norm` generated + UNIQUE (kind,
   name_norm), UNIQUE (kind, id) для составного FK), `goods` (kind/status/
   source/tier_override/banned_at/created_at, `name_norm` generated + UNIQUE
-  (одно пространство имён), JSONB `props` только для kind=resource, составной
+  (одно пространство имён), JSONB `props` только для kind=resource — профиль
+  реального вещества (оси + T_melt/T_boil + `family`), `family` — признак
+  real-ресурса: витрина «Реальные вещества» (94a, итерация B) читает real/
+  real_summary/families из `goods` kind=resource c props ? 'family' (`?` — JSONB
+  existence-оператор), составной
   FK `(kind, category_id) → categories(kind, id)` — категория соответствует
   kind на уровне БД), `goods_slots` (good_id FK ON DELETE CASCADE, pos,
   component_id FK ON DELETE SET NULL, quantity CHECK ≥ 1, reason,

@@ -20,7 +20,11 @@ import (
 // активен (end_percent). Обе ручки «близость к эталону» (решение создателя 2026-09-17).
 // size — 512 (быстро, дефолт) или 1024. palette — отклонение палитры 0–100.
 // personage — эксперимент 82a: субъект «a personage» вместо «an abstract structure».
-func (r *Runner) GenVar(famID, raceID string, n int, denoise, cnStrength, cnEnd float64, size, palette int, personage bool) (string, Status) {
+// tags — дополнительные теги с фронта (98b), передаются в BuildPrompt.
+// promptOverride — хирургическая правка (98b-дополнение 2): непустая строка
+// используется как промпт для ВСЕХ N вариаций (BuildPrompt не вызывается);
+// пустая — авто-промпт на каждый i (разнообразие).
+func (r *Runner) GenVar(famID, raceID string, n int, denoise, cnStrength, cnEnd float64, size, palette int, personage bool, tags string, promptOverride string) (string, Status) {
 	fam, ok := r.families[famID]
 	if !ok {
 		return "нет семейства " + famID, Status{}
@@ -43,7 +47,7 @@ func (r *Runner) GenVar(famID, raceID string, n int, denoise, cnStrength, cnEnd 
 		return "НЕТ эталона расы " + raceID + " — сначала сделай эталон", st
 	}
 	started, st := r.TryStart(func(ctx *JobCtx) {
-		ctx.genVarJob(famID, fam, raceIdx, n, ref, denoise, cnStrength, cnEnd, size, palette, personage)
+		ctx.genVarJob(famID, fam, raceIdx, n, ref, denoise, cnStrength, cnEnd, size, palette, personage, tags, promptOverride)
 	})
 	if !started {
 		return fmt.Sprintf("Уже идёт генерация: %d/%d", st.Done, st.Total), st
@@ -51,7 +55,7 @@ func (r *Runner) GenVar(famID, raceID string, n int, denoise, cnStrength, cnEnd 
 	return fmt.Sprintf("Вариации от эталона расы: %d шт (denoise %.2f)", n, denoise), Status{}
 }
 
-func (c *JobCtx) genVarJob(famID string, fam config.Family, raceIdx, n int, ref string, denoise, cnStrength, cnEnd float64, size, palette int, personage bool) {
+func (c *JobCtx) genVarJob(famID string, fam config.Family, raceIdx, n int, ref string, denoise, cnStrength, cnEnd float64, size, palette int, personage bool, tags string, promptOverride string) {
 	pool := c.PoolPath("races_pool")
 	// НЕ чистим пул: новая генерация дописывает к существующим вариантам
 	// (решение создателя 2026-09-17). Очистка — отдельной кнопкой «Очистить результаты».
@@ -70,7 +74,16 @@ func (c *JobCtx) genVarJob(famID string, fam config.Family, raceIdx, n int, ref 
 		// локальный rand на вызов (AGENTS.md §0: общий *rand.Rand не потокобезопасен)
 		rng := rand.New(rand.NewSource(time.Now().UnixNano() + int64(i)))
 		seed := rng.Intn(999999999) + 1
-		prompt, rid, rname := BuildPrompt(rng, fam, raceIdx, famID, c.r.forms, palette, personage)
+		// override (98b-дополнение 2): фиксированная строка на все N; иначе —
+		// авто-промпт на каждый i (разнообразие). seed остаётся разным — разброс
+		// картинок у SDXL сохраняется.
+		var prompt, rid, rname string
+		if promptOverride != "" {
+			prompt = promptOverride
+			rid, rname = race.ID, race.Name
+		} else {
+			prompt, rid, rname = BuildPrompt(rng, fam, raceIdx, famID, c.r.forms, palette, personage, tags)
+		}
 		raw := filepath.Join(pool, fmt.Sprintf("_raw_%02d.png", i+1))
 		numMu.Lock()
 		nn := nextNum

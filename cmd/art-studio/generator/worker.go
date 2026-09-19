@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"zorion/cmd/art-studio/config"
 )
@@ -207,6 +208,10 @@ func (c *JobCtx) runParallel(pool string, total int, work func(i int) bool, onDo
 }
 
 // WriteStatus пишет status.json атомарно (tmp + rename, спека 67a.1 §3).
+// Windows: os.Rename поверх открытого файла падает «Access is denied» —
+// читатель (UI-поллинг /status, тесты) держит файл открытым микросекунды;
+// окно короткое, поэтому rename ретраится (иначе status.json застревает
+// на старом значении — UI видит «running» вечно).
 func WriteStatus(poolDir string, s Status) {
 	data, err := json.Marshal(s)
 	if err != nil {
@@ -216,7 +221,13 @@ func WriteStatus(poolDir string, s Status) {
 	if err := os.WriteFile(tmp, data, 0644); err != nil {
 		return
 	}
-	os.Rename(tmp, filepath.Join(poolDir, "status.json"))
+	dst := filepath.Join(poolDir, "status.json")
+	for i := 0; i < 5; i++ {
+		if err := os.Rename(tmp, dst); err == nil {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 }
 
 // ReadStatus читает status.json пула (пустой Status, если файла нет).

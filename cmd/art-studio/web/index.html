@@ -32,6 +32,20 @@
 <h1>Арт-студия генерации аватаров</h1>
 <div class="note">ОТБОР: генерация + принять/удалить. ЭТАЛОН: кандидаты (широкий поиск формы) -&gt; выбрать эталон -&gt; вариации (узко вокруг эталона). ЛЮДИ: портреты F0.
 <br><span style="color:#fa0">Для антропоморфных (гуманоидов): разнообразие 52 / свобода формы 47 / отпускание 25.</span></div>
+<div class="toolbar" style="margin-bottom:12px">
+  <span title="Дополнительные теги для экспериментов: добавляются в конец промпта перед финальной частью (высокий вес в SDXL). Пусто — как обычно.">Дополнительные теги:</span>
+  <input id="tags" type="text" placeholder="например: intricate details, volumetric lighting" style="width:340px">
+</div>
+<div style="margin-bottom:12px">
+  <div style="display:flex;gap:8px;align-items:center;margin-bottom:4px;flex-wrap:wrap">
+    <span style="color:#ddd;font-size:13px">Итоговый промпт:</span>
+    <span id="promptRaceName" style="font-size:12px;color:#2a7"></span>
+    <span id="promptMode" style="font-size:12px;color:#8cf">авто</span>
+    <button class="gen" style="background:#555;padding:4px 10px;font-size:12px" onclick="refreshPrompt()" title="Новый случайный seed — виден разброс вариантов">Обновить пример</button>
+    <button class="gen" id="btnRevertAuto" style="background:#a62;padding:4px 10px;font-size:12px;display:none" onclick="revertAuto()" title="Вернуть автоматический промпт для текущего выбора">↺ Вернуть авто</button>
+  </div>
+  <textarea id="promptPanel" rows="4" style="width:100%;box-sizing:border-box;color:#8cf;font-size:13px;line-height:1.4;background:#1c1c1c;border:1px solid #333;border-radius:6px;padding:8px 10px;font-family:inherit;resize:vertical" oninput="onPromptInput()">выберите расу</textarea>
+</div>
 <div class="tabs">
   <button class="tab active" id="tabbtn-pool" onclick="showTab('pool')">Отбор</button>
   <button class="tab" id="tabbtn-ref" onclick="showTab('ref')">Эталон</button>
@@ -270,6 +284,7 @@ async function loadRaces(){
   const saved=getUIState('racePool');
   if(saved && [...sel.options].some(o=>o.value===saved)) sel.value=saved;
   updateVarBtn();
+  schedulePromptUpdate();
 }
 async function updateVarBtn(){
   const btn=document.getElementById('btnVar');
@@ -296,8 +311,12 @@ async function genVarPool(){
   const size=document.getElementById('sizePool').value;
   const palette=document.getElementById('palettePct').value;
   const personage=document.getElementById('personageRef').checked? '1':'0';
+  const tags=document.getElementById('tags').value;
+  // override (98b-дополнение 2): ручная строка на все N; в авто — не передаём
+  // (иначе зафиксировали бы один случайный промпт на все N)
+  const override=promptOverride? document.getElementById('promptPanel').value : '';
   document.getElementById('done').textContent='Генерация вариаций...';
-  const r=await fetch('/genvar?fam='+fam+'&race='+race+'&n='+n+'&denoise='+denoise+'&cn_strength='+cnStrength+'&cn_end='+cnEnd+'&size='+size+'&palette='+palette+'&personage='+personage); const j=await r.json();
+  const r=await fetch('/genvar?fam='+fam+'&race='+race+'&n='+n+'&denoise='+denoise+'&cn_strength='+cnStrength+'&cn_end='+cnEnd+'&size='+size+'&palette='+palette+'&personage='+personage+'&tags='+encodeURIComponent(tags)+(override? '&prompt_override='+encodeURIComponent(override) : '')); const j=await r.json();
   // сообщение в процентах ползунков (не абсолютные значения воркфлоу)
   document.getElementById('done').textContent='Вариации от эталона расы: '+n+' шт (разнообразие '+d+'% · свобода формы '+s+'% · отпускание '+e+'% · палитра '+palette+'% · '+size+')';
   load();
@@ -307,8 +326,10 @@ async function genCandsPool(){
   const n=document.getElementById('cntRef').value;
   const morph=document.getElementById('morphRef').value;
   const personage=document.getElementById('personageRef').checked? '1':'0';
+  const tags=document.getElementById('tags').value;
+  const override=promptOverride? document.getElementById('promptPanel').value : '';
   document.getElementById('doneRef').textContent='Генерация кандидатов эталона...';
-  const r=await fetch('/genref?fam='+fam+'&n='+n+'&morph='+morph+'&size=512&personage='+personage); const j=await r.json();
+  const r=await fetch('/genref?fam='+fam+'&n='+n+'&morph='+morph+'&size=512&personage='+personage+'&tags='+encodeURIComponent(tags)+(override? '&prompt_override='+encodeURIComponent(override) : '')); const j=await r.json();
   document.getElementById('doneRef').textContent=j.msg;
   loadRef();
 }
@@ -657,8 +678,20 @@ function restoreUIState(){
     if(st.personageRef===undefined) pg.checked=true; // первый запуск — checked
     else pg.checked = st.personageRef==='true';
   }
+  const tagsEl=document.getElementById('tags');
+  if(tagsEl && st.tags!==undefined) tagsEl.value=st.tags;
+  // override-режим (98b-дополнение 2): ручной текст + флаг восстанавливаются;
+  // авто-значение пересчитается фоновым updatePromptPanel
+  if(st.promptOverride==='true'){
+    const el=document.getElementById('promptPanel');
+    if(el && st.promptOverrideText!==undefined){
+      el.value=st.promptOverrideText;
+      setOverrideMode(true);
+    }
+  }
   const tab=st.raceTab || 'pool';
   showTab(tab);
+  schedulePromptUpdate();
 }
 function showTab(name){
   document.getElementById('tab-pool').style.display = name==='pool' ? '' : 'none';
@@ -674,6 +707,7 @@ function showTab(name){
   if(name==='pool') updateVarBtn();
   if(name==='humans') loadHumans();
   if(name==='gallery') loadGallery();
+  schedulePromptUpdate();
 }
 function restoreState(){
   restoreUIState(); // восстанавливает все поля + активную вкладку (85a)
@@ -797,6 +831,88 @@ async function act(file, what){
   load();
 }
 
+// ---------- ИТОГОВЫЙ ПРОМПТ (98b-дополнение) ----------
+// Панель контроля: полная строка промпта для текущего выбора (fam/race/morph/
+// personage/теги) ДО генерации, через GET /prompt (без запуска джоба).
+// Авто-режим: поле не тронуто — автообновляется при смене параметров.
+// Override-режим: ручная правка — поле не перезаписывается, генерация идёт
+// с ручной строкой (prompt_override на все N).
+let promptTimer=null;
+let lastAutoPrompt='';    // последнее авто-значение (для «↺ Вернуть авто»)
+let promptOverride=false; // override-режим: поле с ручным текстом
+function schedulePromptUpdate(){
+  clearTimeout(promptTimer);
+  promptTimer=setTimeout(updatePromptPanel, 300);
+}
+function refreshPrompt(){
+  clearTimeout(promptTimer);
+  updatePromptPanel();
+}
+function setOverrideMode(on){
+  promptOverride=on;
+  const mode=document.getElementById('promptMode');
+  const btn=document.getElementById('btnRevertAuto');
+  const el=document.getElementById('promptPanel');
+  if(mode) mode.textContent=on? 'override' : 'авто';
+  if(btn) btn.style.display=on? 'inline-block' : 'none';
+  if(el) el.style.borderColor=on? '#a62' : '#333';
+}
+async function updatePromptPanel(){
+  const el=document.getElementById('promptPanel');
+  if(!el) return;
+  const poolTab = document.getElementById('tab-pool').style.display !== 'none';
+  const refTab = document.getElementById('tab-ref').style.display !== 'none';
+  if(!poolTab && !refTab){ if(!promptOverride) el.value='—'; return; }
+  let fam, race, morph='';
+  if(poolTab){
+    fam=document.getElementById('fam').value;
+    race=document.getElementById('racePool').value;
+  } else {
+    fam=document.getElementById('famRef').value;
+    morph=document.getElementById('morphRef').value;
+    // на «Эталон» раса не выбирается (кандидаты — все расы семейства):
+    // показываем первую расу как представителя
+    try{
+      const rr=await fetch('/races?fam='+fam); const jr=await rr.json();
+      race=(jr.races||[]).length? jr.races[0].id : '';
+    }catch(e){ race=''; }
+  }
+  if(!race){
+    if(!promptOverride) el.value='выберите расу';
+    return;
+  }
+  const personage=document.getElementById('personageRef').checked? '1':'0';
+  const tags=document.getElementById('tags').value;
+  const seed=Math.floor(Math.random()*1e9)+1;
+  try{
+    const r=await fetch('/prompt?fam='+fam+'&race='+race+'&morph='+morph+'&personage='+personage+'&tags='+encodeURIComponent(tags)+'&seed='+seed);
+    const j=await r.json();
+    if(j.error){ if(!promptOverride) el.value=j.error; return; }
+    const rn=document.getElementById('promptRaceName');
+    if(rn) rn.textContent=j.race_name||'';
+    lastAutoPrompt=j.prompt;
+    // в override-режиме поле не трогаем — авто-значение обновляется в фоне
+    if(!promptOverride) el.value=j.prompt;
+  }catch(e){
+    if(!promptOverride) el.value='ошибка запроса';
+  }
+}
+function onPromptInput(){
+  const el=document.getElementById('promptPanel');
+  if(!el) return;
+  setOverrideMode(el.value !== lastAutoPrompt);
+  saveUIState('promptOverride', promptOverride ? 'true' : 'false');
+  saveUIState('promptOverrideText', el.value);
+}
+function revertAuto(){
+  const el=document.getElementById('promptPanel');
+  if(!el) return;
+  setOverrideMode(false);
+  el.value=lastAutoPrompt;
+  saveUIState('promptOverride', 'false');
+  saveUIState('promptOverrideText', '');
+}
+
 // ---------- ИНИЦИАЛИЗАЦИЯ ----------
 async function initFamSelects(){
   const fams=[['F1','F1 Водные'],['F2','F2 Крио-аммиачные'],['F3','F3 Метановые'],['F4','F4 Серные'],['F5','F5 Терморедокс'],['F6','F6 Кремниевые'],['F7','F7 Небесные'],['F8','F8 Углекислые'],['F9','F9 Экзотика'],['F10','F10 Роботы и AI']];
@@ -806,13 +922,13 @@ async function initFamSelects(){
   let h='';
   fams.forEach(x=>{ h+=`<option value="${x[0]}">${x[1]}</option>`; });
   sel.innerHTML=h; selRef.innerHTML=h; selGal.innerHTML=h;
-  document.getElementById('famRef').onchange = e=>saveUIState('famRef', e.target.value);
-  document.getElementById('fam').onchange = e=>{ saveUIState('fam', e.target.value); loadRaces(); };
+  document.getElementById('famRef').onchange = e=>{ saveUIState('famRef', e.target.value); schedulePromptUpdate(); };
+  document.getElementById('fam').onchange = e=>{ saveUIState('fam', e.target.value); loadRaces(); schedulePromptUpdate(); };
   document.getElementById('famGallery').onchange = e=>{ saveUIState('famGallery', e.target.value); loadGalleryRaces(); };
   document.getElementById('raceGallery').onchange = e=>{ saveUIState('raceGallery', e.target.value); loadGallery(); };
-  document.getElementById('racePool').onchange = e=>{ saveUIState('racePool', e.target.value); updateVarBtn(); load(); };
-  document.getElementById('morphRef').onchange = e=>saveUIState('morphRef', e.target.value);
-  document.getElementById('personageRef').onchange = e=>saveUIState('personageRef', e.target.checked ? 'true' : 'false');
+  document.getElementById('racePool').onchange = e=>{ saveUIState('racePool', e.target.value); updateVarBtn(); load(); schedulePromptUpdate(); };
+  document.getElementById('morphRef').onchange = e=>{ saveUIState('morphRef', e.target.value); schedulePromptUpdate(); };
+  document.getElementById('personageRef').onchange = e=>{ saveUIState('personageRef', e.target.checked ? 'true' : 'false'); schedulePromptUpdate(); };
   document.getElementById('cnt').oninput = e=>{
     saveUIState('cnt', e.target.value);
     document.getElementById('btnVar').textContent='СГЕНЕРИРОВАТЬ РАСУ ('+e.target.value+')';
@@ -822,6 +938,7 @@ async function initFamSelects(){
     document.getElementById('btnCands').textContent='СГЕНЕРИРОВАТЬ ЭТАЛОНЫ ('+e.target.value+')';
   };
   document.getElementById('cntHumans').oninput = e=>saveUIState('cntHumans', e.target.value);
+  document.getElementById('tags').oninput = e=>{ saveUIState('tags', e.target.value); schedulePromptUpdate(); };
   document.getElementById('denoisePct').oninput = e=>{ saveUIState('denoisePct', e.target.value); document.getElementById('denoisePctLbl').textContent=e.target.value+'%'; };
   document.getElementById('cnStrengthPct').oninput = e=>{ saveUIState('cnStrengthPct', e.target.value); document.getElementById('cnStrengthPctLbl').textContent=e.target.value+'%'; };
   document.getElementById('cnEndPct').oninput = e=>{ saveUIState('cnEndPct', e.target.value); document.getElementById('cnEndPctLbl').textContent=e.target.value+'%'; };

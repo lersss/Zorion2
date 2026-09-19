@@ -1,6 +1,11 @@
 package config
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
 
 const (
 	formsPath    = "../../../config/art/forms.json"
@@ -172,5 +177,95 @@ func TestLoadStudio(t *testing.T) {
 	}
 	if cfg.DenoiseRef != 0.35 {
 		t.Errorf("denoise_ref = %v, want 0.35", cfg.DenoiseRef)
+	}
+}
+
+// writeFamilies пишет минимальный families.json во временный файл.
+func writeFamilies(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "families.json")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	return path
+}
+
+const minimalFamily = `{
+  "F1": {
+    "name": "Тест",
+    "races": [
+      {
+        "id": "1",
+        "name": "1 Тест",
+        "basis": "тест",
+        "forms": ["a test form one", "a test form two"],
+        "materials": ["test material one", "test material two"],
+        "glows": ["test glow one", "test glow two"]
+      }
+    ],
+    "extra": ["no face"],
+    "anchor": ["anchored"],
+    "scene": "on flat background",
+    "neg": "text"
+  }
+}`
+
+// TestLoadFamiliesAppearanceBlocked — валидация appearance/blocked (98a §4.3):
+// длина appearance ≤ 200, без \n; blocked — непустые токены без пробелов,
+// нормализация lowercase+trim, дедуп (тихо, порядок первого вхождения).
+func TestLoadFamiliesAppearanceBlocked(t *testing.T) {
+	// валидные appearance + blocked: нормализация (lowercase/trim/дедуп)
+	path := writeFamilies(t, strings.Replace(minimalFamily,
+		`"glows": ["test glow one", "test glow two"]`,
+		`"glows": ["test glow one", "test glow two"],
+        "appearance": "test appearance phrase",
+        "blocked": ["Lava", " lava ", "lava", "Sulfur"]`, 1))
+	fam, err := LoadFamilies(path)
+	if err != nil {
+		t.Fatalf("LoadFamilies: %v", err)
+	}
+	rc := fam["F1"].Races[0]
+	if rc.Appearance != "test appearance phrase" {
+		t.Errorf("appearance = %q", rc.Appearance)
+	}
+	want := []string{"lava", "sulfur"}
+	if len(rc.Blocked) != 2 || rc.Blocked[0] != want[0] || rc.Blocked[1] != want[1] {
+		t.Errorf("blocked = %v, want %v", rc.Blocked, want)
+	}
+
+	// appearance > 200 символов → ошибка
+	path = writeFamilies(t, strings.Replace(minimalFamily,
+		`"glows": ["test glow one", "test glow two"]`,
+		`"glows": ["test glow one", "test glow two"],
+        "appearance": "`+strings.Repeat("x", 201)+`"`, 1))
+	if _, err := LoadFamilies(path); err == nil {
+		t.Error("appearance > 200 символов: ошибки нет")
+	}
+
+	// appearance с \n → ошибка
+	path = writeFamilies(t, strings.Replace(minimalFamily,
+		`"glows": ["test glow one", "test glow two"]`,
+		`"glows": ["test glow one", "test glow two"],
+        "appearance": "line one\nline two"`, 1))
+	if _, err := LoadFamilies(path); err == nil {
+		t.Error("appearance с \\n: ошибки нет")
+	}
+
+	// blocked с пробелом → ошибка
+	path = writeFamilies(t, strings.Replace(minimalFamily,
+		`"glows": ["test glow one", "test glow two"]`,
+		`"glows": ["test glow one", "test glow two"],
+        "blocked": ["bad token"]`, 1))
+	if _, err := LoadFamilies(path); err == nil {
+		t.Error("blocked с пробелом: ошибки нет")
+	}
+
+	// blocked с пустым токеном → ошибка
+	path = writeFamilies(t, strings.Replace(minimalFamily,
+		`"glows": ["test glow one", "test glow two"]`,
+		`"glows": ["test glow one", "test glow two"],
+        "blocked": ["lava", ""]`, 1))
+	if _, err := LoadFamilies(path); err == nil {
+		t.Error("blocked с пустым токеном: ошибки нет")
 	}
 }

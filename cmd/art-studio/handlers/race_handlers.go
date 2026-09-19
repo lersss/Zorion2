@@ -2,11 +2,14 @@ package handlers
 
 import (
 	"fmt"
+	"math/rand"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"zorion/cmd/art-studio/generator"
 	"zorion/cmd/art-studio/postproc"
@@ -254,7 +257,9 @@ func (s *Server) handleGenVar(w http.ResponseWriter, r *http.Request) {
 	size := clampSize(atoiDefault(q.Get("size"), 512))
 	palette := clampPalette(atoiDefault(q.Get("palette"), 0))
 	personage := q.Get("personage") == "1"
-	msg, _ := s.runner.GenVar(q.Get("fam"), q.Get("race"), n, denoise, cnStrength, cnEnd, size, palette, personage)
+	tags := q.Get("tags")
+	promptOverride := q.Get("prompt_override")
+	msg, _ := s.runner.GenVar(q.Get("fam"), q.Get("race"), n, denoise, cnStrength, cnEnd, size, palette, personage, tags, promptOverride)
 	writeJSON(w, map[string]string{"msg": msg})
 }
 
@@ -264,8 +269,58 @@ func (s *Server) handleGenRef(w http.ResponseWriter, r *http.Request) {
 	morph := q.Get("morph")
 	size := clampSize(atoiDefault(q.Get("size"), 512))
 	personage := q.Get("personage") == "1"
-	msg, _ := s.runner.GenRef(q.Get("fam"), n, morph, size, personage)
+	tags := q.Get("tags")
+	promptOverride := q.Get("prompt_override")
+	msg, _ := s.runner.GenRef(q.Get("fam"), n, morph, size, personage, tags, promptOverride)
 	writeJSON(w, map[string]string{"msg": msg})
+}
+
+// handlePrompt — панель контроля полного промпта (98b-дополнение): строит
+// ПОЛНУЮ строку промпта для текущего выбора (fam + race + morph + personage +
+// tags) БЕЗ запуска генерации (не пишет файлы, не трогает пулы).
+// morph пуст или «-» → вариация (BuildPrompt); иначе — кандидат эталона
+// (BuildPromptWide). seed — воспроизводимость (число), иначе случайный.
+// Возвращает {prompt, race_id, race_name} или {error}.
+func (s *Server) handlePrompt(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	famID := q.Get("fam")
+	raceID := q.Get("race")
+	morph := q.Get("morph")
+	if morph == "-" {
+		morph = ""
+	}
+	personage := q.Get("personage") == "1"
+	tags := q.Get("tags")
+	fam, ok := s.families[famID]
+	if !ok {
+		writeJSON(w, map[string]string{"error": "нет семейства " + famID})
+		return
+	}
+	raceIdx := -1
+	for i, rc := range fam.Races {
+		if rc.ID == raceID {
+			raceIdx = i
+			break
+		}
+	}
+	if raceIdx < 0 {
+		writeJSON(w, map[string]string{"error": "нет расы " + raceID + " в " + famID})
+		return
+	}
+	seed := time.Now().UnixNano()
+	if sv := q.Get("seed"); sv != "" {
+		if n, err := strconv.ParseInt(sv, 10, 64); err == nil {
+			seed = n
+		}
+	}
+	rng := rand.New(rand.NewSource(seed))
+	var prompt, rid, rname string
+	if morph == "" {
+		prompt, rid, rname = generator.BuildPrompt(rng, fam, raceIdx, famID, s.forms, 0, personage, tags)
+	} else {
+		prompt, rid, rname = generator.BuildPromptWide(rng, fam, raceIdx, famID, morph, s.forms, personage, tags)
+	}
+	writeJSON(w, map[string]interface{}{"prompt": prompt, "race_id": rid, "race_name": rname})
 }
 
 func (s *Server) handleAct(w http.ResponseWriter, r *http.Request) {

@@ -64,6 +64,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/refclear", s.handleRefClear)
 	mux.HandleFunc("/genvar", s.handleGenVar)
 	mux.HandleFunc("/genref", s.handleGenRef)
+	mux.HandleFunc("/prompt", s.handlePrompt)
 	mux.HandleFunc("/status", s.handleStatus)
 	mux.HandleFunc("/stop", s.handleStop)
 	mux.HandleFunc("/clearpool", s.handleClearPool)

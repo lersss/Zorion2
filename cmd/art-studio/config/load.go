@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 )
 
 // LoadStudio читает и валидирует config/art/studio.json.
@@ -125,7 +126,8 @@ func LoadFamilies(path string) (FamiliesConfig, error) {
 		if len(f.Races) == 0 {
 			return nil, fmt.Errorf("%s: %s: races пуст", path, fid)
 		}
-		for _, rc := range f.Races {
+		for i := range f.Races {
+			rc := &f.Races[i]
 			if rc.ID == "" || rc.Name == "" {
 				return nil, fmt.Errorf("%s: %s: раса с пустым id/name", path, fid)
 			}
@@ -138,7 +140,42 @@ func LoadFamilies(path string) (FamiliesConfig, error) {
 			if len(rc.Glows) < 2 || len(rc.Glows) > 3 {
 				return nil, fmt.Errorf("%s: %s/%s: glows %d (нужно 2–3)", path, fid, rc.ID, len(rc.Glows))
 			}
+			// appearance (98a §4.3): если задан — непустой после trim,
+			// ≤ 200 символов, без \n.
+			if rc.Appearance != "" {
+				if strings.TrimSpace(rc.Appearance) == "" {
+					return nil, fmt.Errorf("%s: %s/%s: appearance пуст после trim", path, fid, rc.ID)
+				}
+				if len(rc.Appearance) > 200 {
+					return nil, fmt.Errorf("%s: %s/%s: appearance %d символов (нужно ≤ 200)", path, fid, rc.ID, len(rc.Appearance))
+				}
+				if strings.Contains(rc.Appearance, "\n") {
+					return nil, fmt.Errorf("%s: %s/%s: appearance содержит перенос строки", path, fid, rc.ID)
+				}
+			}
+			// blocked (98a §4.3): нормализация lowercase+trim, дедуп (тихо,
+			// порядок первого вхождения); токены непустые, без пробелов
+			// (слово или дефисная группа).
+			if len(rc.Blocked) > 0 {
+				seen := make(map[string]bool, len(rc.Blocked))
+				norm := make([]string, 0, len(rc.Blocked))
+				for _, tok := range rc.Blocked {
+					t := strings.ToLower(strings.TrimSpace(tok))
+					if t == "" {
+						return nil, fmt.Errorf("%s: %s/%s: blocked содержит пустой токен", path, fid, rc.ID)
+					}
+					if strings.ContainsAny(t, " \t") {
+						return nil, fmt.Errorf("%s: %s/%s: blocked токен %q содержит пробел", path, fid, rc.ID, t)
+					}
+					if !seen[t] {
+						seen[t] = true
+						norm = append(norm, t)
+					}
+				}
+				rc.Blocked = norm
+			}
 		}
+		fam[fid] = f
 		if len(f.Extra) == 0 || len(f.Anchor) == 0 || f.Scene == "" || f.Neg == "" {
 			return nil, fmt.Errorf("%s: %s: extra/anchor/scene/neg неполны", path, fid)
 		}

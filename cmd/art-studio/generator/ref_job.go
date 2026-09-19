@@ -18,13 +18,17 @@ import (
 // size — 512 (быстро, дефолт) или 1024. morph — морф генерации
 // ("" = не-антропо, иначе один из 7 морфов). personage — эксперимент 82a:
 // субъект «a personage» вместо «an abstract object» в не-антропо ветке.
-func (r *Runner) GenRef(famID string, n int, morph string, size int, personage bool) (string, Status) {
+// tags — дополнительные теги с фронта (98b), передаются в BuildPromptWide.
+// promptOverride — хирургическая правка (98b-дополнение 2): непустая строка
+// используется как промпт для ВСЕХ N кандидатов (BuildPromptWide не
+// вызывается); пустая — авто-промпт на каждый i (разнообразие).
+func (r *Runner) GenRef(famID string, n int, morph string, size int, personage bool, tags string, promptOverride string) (string, Status) {
 	fam, ok := r.families[famID]
 	if !ok {
 		return "нет семейства " + famID, Status{}
 	}
 	started, st := r.TryStart(func(ctx *JobCtx) {
-		ctx.genRefJob(famID, fam, n, morph, size, personage)
+		ctx.genRefJob(famID, fam, n, morph, size, personage, tags, promptOverride)
 	})
 	if !started {
 		return fmt.Sprintf("Уже идёт генерация: %d/%d", st.Done, st.Total), st
@@ -36,7 +40,7 @@ func (r *Runner) GenRef(famID string, n int, morph string, size int, personage b
 	return fmt.Sprintf("Генерация %d кандидатов (все расы %s%s)...", n, famID, suffix), Status{}
 }
 
-func (c *JobCtx) genRefJob(famID string, fam config.Family, n int, morph string, size int, personage bool) {
+func (c *JobCtx) genRefJob(famID string, fam config.Family, n int, morph string, size int, personage bool, tags string, promptOverride string) {
 	pool := c.PoolPath("races_pool")
 	refdir := filepath.Join(pool, "ref_cands")
 	os.MkdirAll(refdir, 0755)
@@ -48,7 +52,17 @@ func (c *JobCtx) genRefJob(famID string, fam config.Family, n int, morph string,
 		// локальный rand на вызов (AGENTS.md §0: общий *rand.Rand не потокобезопасен)
 		rng := rand.New(rand.NewSource(time.Now().UnixNano() + int64(i)))
 		seed := rng.Intn(999999999) + 1
-		prompt, rid, rname := BuildPromptWide(rng, fam, -1, famID, morph, c.r.forms, personage)
+		// override (98b-дополнение 2): фиксированная строка на все N; иначе —
+		// авто-промпт на каждый i (разнообразие). Раса для меты при override —
+		// случайная (как BuildPromptWide с raceIdx=-1).
+		var prompt, rid, rname string
+		if promptOverride != "" {
+			prompt = promptOverride
+			ri := rng.Intn(len(fam.Races))
+			rid, rname = fam.Races[ri].ID, fam.Races[ri].Name
+		} else {
+			prompt, rid, rname = BuildPromptWide(rng, fam, -1, famID, morph, c.r.forms, personage, tags)
+		}
 		raw := filepath.Join(pool, fmt.Sprintf("_raw_ref_%02d.png", i+1))
 		out := filepath.Join(refdir, fmt.Sprintf("c%02d.png", i+1))
 		wf := comfy.Txt2ImgWorkflow(c.r.cfg.Checkpoint, prompt, NegFor(fam, morph), seed, c.r.cfg.Steps, c.r.cfg.Cfg, size, "race_pool")

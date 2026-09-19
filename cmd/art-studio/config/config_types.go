@@ -68,12 +68,14 @@ type Family struct {
 
 // Race — раса семейства (id — номер из 99.2.21, строка).
 type Race struct {
-	ID        string   `json:"id"`
-	Name      string   `json:"name"`
-	Basis     string   `json:"basis"`
-	Forms     []string `json:"forms"`
-	Materials []string `json:"materials"`
-	Glows     []string `json:"glows"`
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
+	Basis      string   `json:"basis"`
+	Forms      []string `json:"forms"`
+	Materials  []string `json:"materials"`
+	Glows      []string `json:"glows"`
+	Appearance string   `json:"appearance,omitempty"` // промпт-фраза внешности (98a §4.1)
+	Blocked    []string `json:"blocked,omitempty"`    // токены-запреты, substring-матчинг (98a §4.1)
 }
 
 // HumansConfig — студия людей (config/art/humans.json, спека 67a.1 §4.3).

@@ -115,7 +115,9 @@
           "dim bioluminescent glow",
           "faint blue-green chemosynthetic light",
           "scattered soft luminous spots"
-        ]
+        ],
+        "appearance": "soft-bodied deep-sea creatures with long trailing tentacles, mineral-crusted flesh, drifting in the dark water near a hydrothermal vent, no face, no eyes, no mouth",
+        "blocked": ["pyramid", "obelisk", "spire", "column", "prism", "star", "lava", "basalt", "ash", "magma", "obsidian", "cinder", "pumice", "tephra", "ember", "molten", "slag", "scorch", "caldera", "crater", "geyser", "fumarole", "machine", "robot", "gear", "piston", "chrome", "mech", "pipe"]
       },
       {
         "id": "4",
@@ -172,7 +174,9 @@
           "pale salt-glint in the sun",
           "soft reflective sheen",
           "warm amber light from stilt-homes"
-        ]
+        ],
+        "appearance": "humanoid amphibian figures with webbed hands and salt-crusted tough hide, standing waist-deep in warm shallow water, no face, no eyes, no mouth",
+        "blocked": ["pyramid", "obelisk", "spire", "column", "prism", "lava", "sulfur", "sulfide", "ember", "basalt", "ash", "magma", "obsidian", "cinder", "pumice", "tephra", "molten", "slag", "scorch", "smoke", "vent", "smoker", "fumarole", "caldera", "crater", "geyser", "machine", "robot", "gear", "piston", "chrome", "mech", "pipe"]
       }
     ],
     "beast_forms": [
@@ -558,7 +562,9 @@
           "each shard glowing faintly",
           "soft blue glow in the swarm",
           "pale shimmer"
-        ]
+        ],
+        "appearance": "a swarm of small translucent ice shards and pale blue orbs with thin tentacles, moving as one synchronized cloud in an ammonia-methane sea, no face, no eyes, no mouth, not a creature",
+        "blocked": ["creature", "humanoid", "human", "face", "eyes", "mouth", "head", "pyramid", "obelisk", "spire", "prism", "lava", "sulfur", "ember", "basalt", "ash", "magma", "obsidian", "cinder", "pumice", "tephra", "molten", "slag", "scorch", "vent", "smoker", "fumarole", "caldera", "crater", "geyser", "thermal", "brine", "salt", "evaporite", "eutectic", "golden", "yellow", "amber", "gold", "peach", "crimson", "copper"]
       },
       {
         "id": "48",
@@ -832,7 +838,9 @@
           "faint shimmer",
           "pale luminescence",
           "soft glow from within"
-        ]
+        ],
+        "appearance": "microscopic translucent snowflake-like bodies, dust-sized to a few millimeters, drifting alone in liquid methane, no face, no eyes, no mouth, not a creature, not an organism",
+        "blocked": ["creature", "humanoid", "human", "face", "eyes", "mouth", "head", "swarm", "shell", "pyramid", "obelisk", "spire", "prism", "lava", "sulfur", "ember", "basalt", "ash", "magma", "obsidian", "cinder", "pumice", "tephra", "molten", "slag", "vent", "smoker", "fumarole", "caldera", "crater", "geyser"]
       },
       {
         "id": "13",
@@ -946,7 +954,9 @@
           "soft glow inside the fog",
           "faint amber light",
           "dim inner luminescence"
-        ]
+        ],
+        "appearance": "a swarm of dust-sized translucent particles with tiny sail-like cilia, stretching across methane fog, drifting with the rising gas flow, no face, no eyes, no mouth, not a creature",
+        "blocked": ["creature", "humanoid", "human", "face", "eyes", "mouth", "head", "pyramid", "obelisk", "spire", "prism", "lava", "sulfur", "ember", "basalt", "ash", "magma", "obsidian", "cinder", "pumice", "tephra", "molten", "slag", "scorch", "vent", "smoker", "fumarole", "caldera", "crater", "geyser", "thermal", "brine", "salt", "evaporite", "eutectic", "shell"]
       }
     ],
     "beast_forms": [
@@ -1719,7 +1729,9 @@
           "glowing veins in the salt",
           "soft orange inner light",
           "hot shimmer"
-        ]
+        ],
+        "appearance": "bubbling structures of molten salt floating in a glowing eutectic pool, translucent white-pink and orange, constantly reshaping, no face, no eyes, no mouth",
+        "blocked": ["machine", "robot", "gear", "piston", "chrome", "mech", "automaton", "android", "golem", "clockwork", "hydraulic", "riveted", "brass", "frost"]
       },
       {
         "id": "24",

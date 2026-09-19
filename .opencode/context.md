@@ -75,8 +75,11 @@
   (goods_data/trees_t8.json, вне git; схемы в идее 2026-09-19); правила «товар =
   предмет», грань упрощения (язык простой, анатомия честная); открыт хвост —
   контекстное меню ПКМ в списке справочника (идея 99a.3).
-- Арт-студия (98a/98b): фильтрация словарей по blocked (appearance/blocked в
-  families.json, пилот 6 рас), доп. теги tags и override итогового промпта в UI
+- Арт-студия (98a/98b, 2026-09-20): фильтрация словарей по blocked (appearance/blocked в
+  families.json), доп. теги tags и override итогового промпта в UI; внешность рас 59/59
+  (appearance/blocked в families.json, разделы в races/*.md); выбор расы в эталонах +
+  пересборка промпта (кнопка, единичная/массовая, reload без рестарта); ловушка PITFALLS
+  «гонка status.json читательская»
 - Карточка расы — игровое восприятие (99.2.26, готово 2026-09-19): новые поля
   race_lore.json (kind, niche, size_individual, size_group, home_words, lore,
   attributes_words 60×6 слов), словари/шкалы в internal/races/lore.go,

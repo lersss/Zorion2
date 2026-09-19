@@ -1,9 +1,0 @@
-{
-  "port": 8799,
-  "data_dir": "goods_data",
-  "opencode_url": "http://127.0.0.1:3456",
-  "model": "opencode/deepseek-v4-flash",
-  "timeout_s": 120,
-  "max_retries": 2,
-  "auto_refresh_ms": 3000
-}

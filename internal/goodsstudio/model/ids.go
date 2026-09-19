@@ -13,15 +13,3 @@ func NextGoodID(goods []Good) string {
 	}
 	return fmt.Sprintf("g%d", max+1)
 }
-
-// NextCategoryID — следующий свободный id категории (c1, c2, ...).
-func NextCategoryID(cats []Category) string {
-	max := 0
-	for _, c := range cats {
-		var n int
-		if _, err := fmt.Sscanf(c.ID, "c%d", &n); err == nil && n > max {
-			max = n
-		}
-	}
-	return fmt.Sprintf("c%d", max+1)
-}

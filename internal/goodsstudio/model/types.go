@@ -42,13 +42,6 @@ type Category struct {
 	Kind Kind   `json:"kind,omitempty"`
 }
 
-// ResourceRef — ссылка импортированного ресурса на каталог сервера
-// (спека 99a.1 §5.1): catalog — layer|real, catalog_id — id в каталоге.
-type ResourceRef struct {
-	Catalog   string `json:"catalog"`
-	CatalogID string `json:"catalog_id"`
-}
-
 // Slot — элемент рецепта: ссылка на составляющий товар (или пустой).
 // Количество введено (99a.2 §6): quantity — единиц составляющей; 0 = не
 // задано (старый слот) → трактуется как 1 (нормализация при загрузке).
@@ -75,7 +68,6 @@ type Good struct {
 	Source      Source       `json:"source"`
 	Recipe      []Slot       `json:"recipe"`
 	CreatedAt   string       `json:"created_at"`
-	ResourceRef *ResourceRef `json:"resource_ref,omitempty"`
 	// TierOverride — ручной тир (99a.3 §4.1): null = вычисляется (текущее
 	// поведение); заданное значение — полная свобода (любое целое ≥ 0, в т.ч.
 	// ниже вычисленного). Эффективный тир = override ?? вычисленный; ресурс = 0.

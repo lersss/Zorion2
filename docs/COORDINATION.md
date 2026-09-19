@@ -51,52 +51,6 @@
 | `cmd/art-studio/generator/ref_job.go` | @developer (98b) | коммит 98b |
 | `cmd/art-studio/web/index.html` | @developer (98b) | коммит 98b |
 | `cmd/art-studio/handlers/race_handlers_test.go` | @developer (98b) | коммит 98b |
-| `internal/goodsstudio/ai/` (move из cmd/goods-studio/ai) | @developer (перенос студии C) | коммит iterC |
-| `internal/handlers/studio_handlers.go` (+test) | @developer (перенос студии C) | коммит iterC |
-| `internal/repository/goods_repository.go` (+test) | @developer (перенос студии C) | коммит iterC |
-| `internal/handlers/admin_resources.go` | @developer (перенос студии C) | коммит iterC |
-| `internal/config/config.go` (+test) | @developer (перенос студии C) | коммит iterC |
-| `web/studio.html` | @developer (перенос студии C) | коммит iterC |
-| `web/static/js/auth.js` (новый) | @developer (перенос студии C) | коммит iterC |
-| `web/static/js/studio/auth.js` (новый) | @developer (перенос студии C) | коммит iterC |
-| `web/static/js/admin/auth.js` | @developer (перенос студии C) | коммит iterC |
-| `cmd/server/main.go` (только блок /studio/api/*) | @developer (перенос студии C) | коммит iterC |
-| `tools/e2e/goods-studio-server-check.js` | @developer (перенос студии C) | коммит iterC |
-| `cmd/goods-studio/web/index.html` | @developer (деревья Т8) | коммит деревьев Т8 |
-| `cmd/goods-studio/catalog/trees.go` | @developer (деревья Т8) | коммит деревьев Т8 |
-| `cmd/goods-studio/catalog/trees_test.go` | @developer (деревья Т8) | коммит деревьев Т8 |
-| `cmd/goods-studio/catalog/topcatalog.go` | @developer (деревья Т8) | коммит деревьев Т8 |
-| `cmd/goods-studio/handlers/state.go` | @developer (деревья Т8) | коммит деревьев Т8 |
-| `cmd/goods-studio/handlers/handlers_test.go` | @developer (деревья Т8) | коммит деревьев Т8 |
-| `docs/ARCHITECTURE.md` | @developer (деревья Т8) | коммит деревьев Т8 |
-| `cmd/goods-studio/ai/apply.go` | @developer (99a.1) | коммит 99a.1 |
-| `cmd/goods-studio/ai/prompt.go` | @developer (99a.1) | коммит 99a.1 |
-| `cmd/goods-studio/ai/client.go` | @developer (99a.1) | коммит 99a.1 |
-| `cmd/goods-studio/ai/ai_test.go` | @developer (99a.1) | коммит 99a.1 |
-| `cmd/goods-studio/handlers/state.go` | @developer (99a.1) | коммит 99a.1 |
-| `tools/e2e/goods-studio-check.js` | @developer (99a.1) | коммит 99a.1 |
-| `cmd/goods-studio/model/types.go` | @developer (99a.3) | коммит 99a.3 |
-| `cmd/goods-studio/graph/tier.go` | @developer (99a.3) | коммит 99a.3 |
-| `cmd/goods-studio/graph/tier_test.go` | @developer (99a.3) | коммит 99a.3 |
-| `cmd/goods-studio/handlers/state.go` | @developer (99a.3) | коммит 99a.3 |
-| `cmd/goods-studio/handlers/handlers_test.go` | @developer (99a.3) | коммит 99a.3 |
-| `cmd/goods-studio/export/export.go` | @developer (99a.3) | коммит 99a.3 |
-| `cmd/goods-studio/export/export_test.go` | @developer (99a.3) | коммит 99a.3 |
-| `cmd/goods-studio/web/index.html` | @developer (99a.3) | коммит 99a.3 |
-| `tools/e2e/qa99a3-smoke.js` | @developer (99a.3) | коммит 99a.3 |
-| `docs/ARCHITECTURE.md` | @developer (99a) | коммит 99a |
-| `docs/PITFALLS.md` | @developer (99a) | коммит 99a |
-| `.gitignore` | @developer (99a) | коммит 99a |
-| `migrations/000045_create_goods_catalog.sql` | @developer (перенос студии A) | коммит iterA |
-| `internal/goodsstudio/` (model/graph/validate/seed) | @developer (перенос студии A) | коммит iterA |
-| `internal/repository/goods_repository.go` (+test) | @developer (перенос студии A) | коммит iterA |
-| `internal/handlers/studio_handlers.go` (+test) | @developer (перенос студии A) | коммит iterA |
-| `cmd/server/main.go` | @developer (перенос студии A) | коммит iterA |
-| `cmd/goods-studio/*` (импорты на internal/goodsstudio) | @developer (перенос студии A) | коммит iterA |
-| `web/studio.html` | @developer (перенос студии A) | коммит iterA |
-| `docs/DB.md` | @developer (перенос студии A) | коммит iterA |
-| `docs/ARCHITECTURE.md` | @developer (перенос студии A) | коммит iterA |
-| `docs/PITFALLS.md` | @developer (перенос студии A) | коммит iterA |
 
 ---
 

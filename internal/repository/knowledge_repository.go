@@ -135,3 +135,37 @@ func (r *KnowledgeRepository) ScanSystem(userID, worldID string) error {
 	}
 	return rows.Err()
 }
+
+// ScanPlanet — авто-знание об одной планете (спека 99.2.27 §3.6, С6): прибытие
+// на орбиту планеты = знание о ней (свежее, как физическое присутствие).
+// Данные — как у сканера (поверхность + поселения), source — 'presence'
+// (новое значение, 77a §8.1; CHECK-ограничения нет — миграция не нужна).
+// Осознанное отклонение от 77a И5 (М-5): v1 даёт скан-уровень, полный уровень
+// (недра/атмосфера/детали) — задел.
+func (r *KnowledgeRepository) ScanPlanet(userID, planetID, source string) error {
+	var surfaceDominant string
+	var surfaceRaw []byte
+	var settlementsCount int
+	err := r.db.QueryRow(
+		`SELECT COALESCE(p.data->>'surface_dominant', ''),
+		        COALESCE(p.data->'surface_composition', '{}'::jsonb),
+		        (SELECT COUNT(*) FROM settlements s WHERE s.planet_id = p.id)
+		 FROM planets p WHERE p.id = $1`,
+		planetID,
+	).Scan(&surfaceDominant, &surfaceRaw, &settlementsCount)
+	if err != nil {
+		return fmt.Errorf("scan planet: %w", err)
+	}
+	var surface map[string]interface{}
+	if len(surfaceRaw) > 0 && string(surfaceRaw) != "null" {
+		if err := json.Unmarshal(surfaceRaw, &surface); err != nil {
+			return fmt.Errorf("scan planet: %w", err)
+		}
+	}
+	data := map[string]interface{}{
+		"surface_dominant":   surfaceDominant,
+		"surface_composition": surface,
+		"settlements_count":  settlementsCount,
+	}
+	return r.UpsertKnowledge(userID, planetID, data, source)
+}

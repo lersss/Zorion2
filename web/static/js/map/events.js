@@ -173,6 +173,10 @@ export function handleCanvasClick(e) {
                 x: c.x,
                 y: c.y,
                 hasEngine: state.hasEngine, // спека 91a §6.1: блок «Перелететь» в модалке
+                // Спрайт игрока для маркера «я здесь»/корабля в полёте (спека
+                // 99.2.27 §5.8/§5.11): та же иконка/цвет, что на карте.
+                shipIcon: state.userShipIcon,
+                shipColor: state.userShipColor,
             });
         }
         elements.tooltip.classList.remove('active');

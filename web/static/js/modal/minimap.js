@@ -135,8 +135,10 @@ export function drawMiniMap(ctx, planets, width, height) {
     // ---- РАМКА ВИДИМОЙ ОБЛАСТИ (51a итер. 5, линейная шкала) ----
     // Центр viewport в мировых координатах → мини-координаты; размер — канвас
     // в мировых, умноженный на miniScale. В линейной шкале рамка честная.
-    const worldCenterX = (modalState.canvasWidth / 2 - modalState.offsetX) / modalState.zoom;
-    const worldCenterY = (modalState.canvasHeight / 2 - modalState.offsetY) / modalState.zoom;
+    // Слежение камеры (запрос создателя 99.2.27): followOffset сдвигает вид —
+    // рамка учитывает его, иначе во время полёта указывала бы не туда.
+    const worldCenterX = (modalState.canvasWidth / 2 - modalState.offsetX - (modalState.followOffsetX || 0)) / modalState.zoom;
+    const worldCenterY = (modalState.canvasHeight / 2 - modalState.offsetY - (modalState.followOffsetY || 0)) / modalState.zoom;
     const viewWidth = (modalState.canvasWidth / modalState.zoom) * miniScale;
     const viewHeight = (modalState.canvasHeight / modalState.zoom) * miniScale;
     const viewX = centerX + (worldCenterX - layout.cx) * miniScale - viewWidth / 2;

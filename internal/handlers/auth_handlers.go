@@ -183,7 +183,7 @@ func (h *AuthHandlers) GetMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.userRepo.GetByID(userID)
+	user, pos, err := h.userRepo.GetByIDWithPosition(userID)
 	if err != nil {
 		writeJSONError(w, "Пользователь не найден", http.StatusInternalServerError)
 		return
@@ -248,6 +248,11 @@ func (h *AuthHandlers) GetMe(w http.ResponseWriter, r *http.Request) {
 		"ship_model":   shipModel,
 		"ship_catalog": ship.AllEquipment(),
 		"flight":       flight,
+		// Спека 99.2.27 §4.3: внутрисистемная позиция (users.current_position
+		// JSONB) или null. При активном внутрисистемном полёте — status=in_flight
+		// с from/to/start_time/arrive_at: восстановление после рефреша (42a)
+		// идёт из позиции; отдельного поля intrasystem_flight нет (один источник).
+		"current_position": pos,
 	}
 	if ship.HasEngine(user.Equipment) {
 		response["ship_speed_factor"] = ship.EngineSpeed(user.Equipment)

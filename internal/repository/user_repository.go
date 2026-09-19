@@ -136,6 +136,86 @@ func (r *UserRepository) UpdateCurrentWorld(userID, worldID string) error {
 	return err
 }
 
+// UpdateCurrentWorldAndPosition — атомарно: current_world_id + current_position
+// одним UPDATE (спека 99.2.27 §3.6.3, С-1): прибытие межзвёздного полёта →
+// «орбита звезды» (ИП-2); позиция никогда не остаётся битой между двумя
+// апдейтами (краш-окно закрыто).
+func (r *UserRepository) UpdateCurrentWorldAndPosition(userID, worldID string, pos *models.CurrentPosition) error {
+	posJSON, err := json.Marshal(pos)
+	if err != nil {
+		return fmt.Errorf("update world+position: marshal: %w", err)
+	}
+	_, err = r.db.Exec(
+		`UPDATE users SET current_world_id = $1, current_position = $2, updated_at = NOW() WHERE id = $3`,
+		worldID, posJSON, userID,
+	)
+	return err
+}
+
+// ClearCurrentWorld — обнуляет current_world_id и current_position (игрок
+// «без мира»): дефенсив onArrival при съеденной цели (пакман, спека
+// 2026-09-20 §7.2) — вместо FK-violation на worlds.
+func (r *UserRepository) ClearCurrentWorld(userID string) error {
+	_, err := r.db.Exec(
+		`UPDATE users SET current_world_id = NULL, current_position = NULL, updated_at = NOW() WHERE id = $1`,
+		userID,
+	)
+	return err
+}
+
+// GetByIDWithPosition — GetByID + внутрисистемная позиция (спека 99.2.27
+// §4.3/§4.4): users.current_position JSONB. NULL-позиция → pos = nil.
+func (r *UserRepository) GetByIDWithPosition(id string) (*models.User, *models.CurrentPosition, error) {
+	query := `SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position FROM users WHERE id = $1`
+	row := r.db.QueryRow(query, id)
+	return scanUserWithPosition(row)
+}
+
+// scanUserWithPosition — сканирует строку users + current_position.
+func scanUserWithPosition(row *sql.Row) (*models.User, *models.CurrentPosition, error) {
+	var u models.User
+	var shipModelID sql.NullString
+	var equipmentRaw []byte
+	var posRaw []byte
+	err := row.Scan(
+		&u.ID,
+		&u.Username,
+		&u.PasswordHash,
+		&u.Email,
+		&u.AgentID,
+		&u.CurrentWorldID,
+		&u.ShipIcon,
+		&u.ShipColor,
+		&shipModelID,
+		&equipmentRaw,
+		&u.Role,
+		&u.CreatedAt,
+		&u.UpdatedAt,
+		&posRaw,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil, nil
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	if shipModelID.Valid {
+		u.ShipModelID = &shipModelID.String
+	}
+	if len(equipmentRaw) > 0 && string(equipmentRaw) != "null" {
+		if err := json.Unmarshal(equipmentRaw, &u.Equipment); err != nil {
+			return nil, nil, err
+		}
+	}
+	var pos *models.CurrentPosition
+	if len(posRaw) > 0 && string(posRaw) != "null" {
+		if err := json.Unmarshal(posRaw, &pos); err != nil {
+			return nil, nil, err
+		}
+	}
+	return &u, pos, nil
+}
+
 // UpdateShipIcon обновляет выбранную иконку корабля
 func (r *UserRepository) UpdateShipIcon(userID, icon string) error {
 	query := `UPDATE users SET ship_icon = $1, updated_at = NOW() WHERE id = $2`
@@ -353,12 +433,14 @@ func (r *UserRepository) CountByRole(role models.Role) (int, error) {
 }
 
 // PlayerPositions — игроки для карты (спека 77a §5.3): id, username,
-// ship_icon, ship_color, current_world_id, role. Без password_hash/email —
-// позиции чужих игроков не должны тянуть лишнее. При малом числе
-// онлайн-игроков — просто запрос с фильтром по радиусу на чтении (§11.3).
+// ship_icon, ship_color, current_world_id, role, current_position. Без
+// password_hash/email — позиции чужих игроков не должны тянуть лишнее.
+// current_position (спека 99.2.27 §4.5): стоящие на орбите видны в радиусе
+// (изменение 90a, решение создателя С2). При малом числе онлайн-игроков —
+// просто запрос с фильтром по радиусу на чтении (§11.3).
 func (r *UserRepository) PlayerPositions() ([]*models.User, error) {
 	rows, err := r.db.Query(
-		`SELECT id, username, ship_icon, ship_color, current_world_id, role FROM users`,
+		`SELECT id, username, ship_icon, ship_color, current_world_id, role, current_position FROM users`,
 	)
 	if err != nil {
 		return nil, err
@@ -368,8 +450,16 @@ func (r *UserRepository) PlayerPositions() ([]*models.User, error) {
 	var users []*models.User
 	for rows.Next() {
 		var u models.User
-		if err := rows.Scan(&u.ID, &u.Username, &u.ShipIcon, &u.ShipColor, &u.CurrentWorldID, &u.Role); err != nil {
+		var posRaw []byte
+		if err := rows.Scan(&u.ID, &u.Username, &u.ShipIcon, &u.ShipColor, &u.CurrentWorldID, &u.Role, &posRaw); err != nil {
 			return nil, err
+		}
+		if len(posRaw) > 0 && string(posRaw) != "null" {
+			var pos models.CurrentPosition
+			if err := json.Unmarshal(posRaw, &pos); err != nil {
+				return nil, err
+			}
+			u.CurrentPosition = &pos
 		}
 		users = append(users, &u)
 	}

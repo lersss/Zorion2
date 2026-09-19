@@ -25,4 +25,9 @@ type User struct {
 	Role           Role      `json:"role"`                       // player/admin/skycomposer
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
+
+	// CurrentPosition — внутрисистемная позиция (спека 99.2.27 §2.2):
+	// users.current_position JSONB; nil = вне системы. Заполняется только
+	// GetByIDWithPosition/PlayerPositions (обычный GetByID колонку не читает).
+	CurrentPosition *CurrentPosition `json:"current_position"`
 }

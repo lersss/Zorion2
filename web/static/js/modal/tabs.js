@@ -237,10 +237,22 @@ function renderGeneral(planet) {
 function renderSatelliteCard(planet, sat, container) {
     if (!sat) return;
 
+    // Внутрисистемная позиция (спека 99.2.27 §5.11): бейдж «● Вы на орбите»
+    // у спутника (позиция = спутник → маркер у родительской планеты, М-4).
+    const myPos = modalState.myPosition;
+    const onThisOrbit = myPos && myPos.status === 'orbit' &&
+        myPos.object_type === 'satellite' && myPos.object_id === sat.id;
+    const orbitBadge = onThisOrbit
+        ? `<span style="background:rgba(74,222,128,0.15); border:1px solid rgba(74,222,128,0.4); color:#4ade80; border-radius:10px; padding:2px 8px; font-size:0.8rem; margin-left:8px;">● Вы на орбите</span>`
+        : '';
+
     let html = `
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-            <h4 style="margin:0; font-size:1.1rem;">${capitalize(sat.name)}</h4>
-            <button data-sat-back style="background:#2a2a4a; border:none; color:#aaa; padding:6px 14px; border-radius:4px; cursor:pointer; font-size:0.95rem;">← К планете ${planet.name ? capitalize(planet.name) : ''}</button>
+            <h4 style="margin:0; font-size:1.1rem;">${capitalize(sat.name)}${orbitBadge}</h4>
+            <div style="display:flex; gap:8px;">
+                <button data-sat-fly style="background:#2a2a4a; border:none; color:#fde68a; padding:6px 14px; border-radius:4px; cursor:pointer; font-size:0.95rem;">🚀 Лететь</button>
+                <button data-sat-back style="background:#2a2a4a; border:none; color:#aaa; padding:6px 14px; border-radius:4px; cursor:pointer; font-size:0.95rem;">← К планете ${planet.name ? capitalize(planet.name) : ''}</button>
+            </div>
         </div>
     `;
 
@@ -278,6 +290,28 @@ function renderSatelliteCard(planet, sat, container) {
         backBtn.addEventListener('click', () => {
             renderTabContent('general', planet, container);
         });
+    }
+
+    // Кнопка «🚀 Лететь» (спека 99.2.27 §5.5): внутрисистемный полёт на орбиту
+    // спутника. Доступна только в своей системе; disabled при: нет двигателя,
+    // цель == текущая позиция, цель == активный полёт, летим ОТ этого спутника
+    // (запрос создателя «глупый тост»).
+    const flyBtn = container.querySelector('[data-sat-fly]');
+    if (flyBtn) {
+        const myPos = modalState.myPosition;
+        const disabled = !myPos || !modalState.hasEngine ||
+            (myPos.status === 'orbit' && myPos.object_type === 'satellite' && myPos.object_id === sat.id) ||
+            (myPos.status === 'in_flight' && myPos.to_type === 'satellite' && myPos.to_id === sat.id) ||
+            (myPos.status === 'in_flight' && myPos.from_type === 'satellite' && myPos.from_id === sat.id);
+        if (disabled) {
+            flyBtn.disabled = true;
+            flyBtn.style.opacity = '0.4';
+            flyBtn.style.cursor = 'not-allowed';
+        } else {
+            flyBtn.addEventListener('click', () => {
+                import('./events.js').then(m => m.startIntraFlight('satellite', sat.id));
+            });
+        }
     }
 }
 

@@ -307,14 +307,31 @@ function renderCard(panel, planets, selectedIndex) {
         return;
     }
 
+    // Внутрисистемная позиция игрока (спека 99.2.27 §5.11): бейдж «● Вы на
+    // орбите» в карточке объекта + строка «Корабли на орбите: N» (§5.12).
+    const myPos = modalState.myPosition;
+    const onThisOrbit = myPos && myPos.status === 'orbit' &&
+        myPos.object_type === 'planet' && myPos.object_id === planet.id;
+    const orbitBadge = onThisOrbit
+        ? `<span style="background:rgba(74,222,128,0.15); border:1px solid rgba(74,222,128,0.4); color:#4ade80; border-radius:10px; padding:2px 8px; font-size:0.8rem; margin-left:8px;">● Вы на орбите</span>`
+        : '';
+    const shipsHere = (modalState.systemPlayers || []).filter(p =>
+        p.object_type === 'planet' && p.object_id === planet.id
+    ).length;
+    const shipsLine = shipsHere > 0
+        ? `<div style="margin:4px 0; color:#94a3b8; font-size:0.85rem;">Корабли на орбите: ${shipsHere}</div>`
+        : '';
+
     panel.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <h3 style="margin: 0; font-size: 1.2rem; color: #aaa;">${capitalize(planet.name) || `Планета #${selectedIndex + 1}`}${planet.population ? ` (<span id="planet-pop-num">${formatPopulation(planetPopulationAt(planet, Date.now()))}</span>${populationTrendArrow(planet)})` : ''}</h3>
+            <h3 style="margin: 0; font-size: 1.2rem; color: #aaa;">${capitalize(planet.name) || `Планета #${selectedIndex + 1}`}${planet.population ? ` (<span id="planet-pop-num">${formatPopulation(planetPopulationAt(planet, Date.now()))}</span>${populationTrendArrow(planet)})` : ''}${orbitBadge}</h3>
             <div style="display:flex; gap:8px;">
+                <button id="intra-fly-btn" title="Внутрисистемный полёт на орбиту планеты (спека 99.2.27)" style="background: #2a2a4a; border: none; color: #fde68a; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 0.95rem;">🚀 Лететь</button>
                 <button id="refresh-planet-btn" title="Пересчитать население от среды и перезагрузить данные" style="background: #2a2a4a; border: none; color: #aaa; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 0.95rem;">🔄 Обновить</button>
                 <button id="back-to-list-btn" style="background: #2a2a4a; border: none; color: #aaa; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 0.95rem;">← Назад</button>
             </div>
         </div>
+        ${shipsLine}
         <div style="display: flex; gap: 8px; margin-bottom: 12px; border-bottom: 1px solid #333; padding-bottom: 8px;">
             <button class="tab-btn" data-tab="general" style="background: none; border: none; color: #888; padding: 4px 12px; cursor: pointer; font-size: 0.95rem; border-radius: 4px;">Общее</button>
             <button class="tab-btn" data-tab="resources" style="background: none; border: none; color: #888; padding: 4px 12px; cursor: pointer; font-size: 0.95rem; border-radius: 4px;">Ресурсы</button>
@@ -355,6 +372,32 @@ function renderCard(panel, planets, selectedIndex) {
         refreshBtn.addEventListener('click', () => {
             import('./index.js').then(mod => mod.refreshPlanets());
         });
+    }
+
+    // Кнопка «🚀 Лететь» (спека 99.2.27 §5.5/§5.6): внутрисистемный полёт на
+    // орбиту планеты. Доступна только в своей системе (my_position != null);
+    // disabled при: нет двигателя (91a), цель == текущая позиция, цель ==
+    // активный полёт, летим ОТ этой планеты (запрос создателя «глупый тост»).
+    // Модалка не закрывается — полоса полёта в тике.
+    const flyBtn = panel.querySelector('#intra-fly-btn');
+    if (flyBtn) {
+        const myPos = modalState.myPosition;
+        const disabled = !myPos || !modalState.hasEngine ||
+            (myPos.status === 'orbit' && myPos.object_type === 'planet' && myPos.object_id === planet.id) ||
+            (myPos.status === 'in_flight' && myPos.to_type === 'planet' && myPos.to_id === planet.id) ||
+            (myPos.status === 'in_flight' && myPos.from_type === 'planet' && myPos.from_id === planet.id);
+        if (disabled) {
+            flyBtn.disabled = true;
+            flyBtn.style.opacity = '0.4';
+            flyBtn.style.cursor = 'not-allowed';
+            if (!modalState.hasEngine) flyBtn.title = 'Двигатель не установлен';
+            else if (!myPos) flyBtn.title = 'Внутрисистемный полёт — только в своей системе';
+            else flyBtn.title = 'Вы уже на орбите этого объекта';
+        } else {
+            flyBtn.addEventListener('click', () => {
+                import('./events.js').then(m => m.startIntraFlight('planet', planet.id));
+            });
+        }
     }
 
     syncAutoRefreshTimer();

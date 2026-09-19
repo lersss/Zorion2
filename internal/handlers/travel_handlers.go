@@ -20,6 +20,10 @@ type TravelHandlers struct {
 	worldRepo     *repository.WorldRepository
 	userRepo      *repository.UserRepository
 	travelManager *travel.Manager
+	// Внутрисистемные полёты (спека 99.2.27 §4.2, С1): старт межзвёздного
+	// отменяет активный внутрисистемный полёт и NULL-ит позицию.
+	intraManager *travel.IntrasystemManager
+	intraRepo    *repository.PlayerIntrasystemFlightRepository
 }
 
 func NewTravelHandlers(
@@ -32,6 +36,13 @@ func NewTravelHandlers(
 		userRepo:      userRepo,
 		travelManager: travelManager,
 	}
+}
+
+// SetIntrasystem — подключает внутрисистемные полёты (С1-дельта /travel).
+// Сеттер (не параметр конструктора): менеджер создаётся позже в main.go.
+func (h *TravelHandlers) SetIntrasystem(intraManager *travel.IntrasystemManager, intraRepo *repository.PlayerIntrasystemFlightRepository) {
+	h.intraManager = intraManager
+	h.intraRepo = intraRepo
 }
 
 type TravelRequest struct {
@@ -211,11 +222,41 @@ func (h *TravelHandlers) StartTravel(w http.ResponseWriter, r *http.Request) {
 	// значение 0.3 (66a) не меняется, меняется источник (замысел 77a §1.3).
 	duration := calcTravelDuration(dist, ship.EngineSpeed(user.Equipment))
 
+	// Прибытие межзвёздного полёта (спека 99.2.27 §3.6.3/ИП-2): current_world_id
+	// + current_position = «орбита звезды» одним UPDATE (С-1) — позиция никогда
+	// не остаётся битой между двумя апдейтами.
 	onArrival := func(uid, worldID string) {
-		if err := h.userRepo.UpdateCurrentWorld(uid, worldID); err != nil {
+		// Дефенсив (пакман, спека 2026-09-20 §7.2): цель съедена между
+		// запросом и прибытием — обнуляем current_world_id/current_position
+		// вместо FK-violation (users.current_world_id → worlds NO ACTION).
+		w, err := h.worldRepo.GetByID(worldID)
+		if err != nil || w == nil {
+			if err := h.userRepo.ClearCurrentWorld(uid); err != nil {
+				log.Printf("Failed to clear current world for user %s: %v", uid, err)
+			}
+			return
+		}
+		if err := h.userRepo.UpdateCurrentWorldAndPosition(uid, worldID, models.StarOrbitPosition(worldID)); err != nil {
 			log.Printf("Failed to update current world for user %s: %v", uid, err)
 		}
 	}
+
+	// С1 (спека 99.2.27 §4.2): старт межзвёздного полёта отменяет активный
+	// внутрисистемный полёт и NULL-ит позицию (игрок покидает систему).
+	// Атомарность: отмена intra + позиция NULL — одной транзакцией
+	// (CancelAtomic), не остаётся окна, где intra отменён, а позиция ещё нет.
+	// Порядок: СНАЧАЛА транзакция (строка + позиция NULL), ПОТОМ in-memory
+	// отмена — при краше в окне между ними позиция уже NULL (не in_flight
+	// без строки полёта).
+	if h.intraRepo != nil {
+		if err := h.intraRepo.CancelAtomic(userID); err != nil {
+			log.Printf("⚠️ travel: cancel intrasystem (user %s): %v", userID, err)
+		}
+	}
+	if h.intraManager != nil {
+		h.intraManager.CancelIntraFlight(userID)
+	}
+
 	h.travelManager.StartFlight(userID, fromWorldID, req.WorldID, startX, startY, duration, onArrival)
 
 	newFlight := h.travelManager.GetFlight(userID)

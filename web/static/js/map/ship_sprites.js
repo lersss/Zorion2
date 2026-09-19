@@ -20,6 +20,14 @@ export function setRedrawCallback(cb) {
     redrawCallback = cb;
 }
 
+// getRedrawCallback — текущий колбэк перерисовки. Модалка сохраняет его при
+// открытии (ставит свой) и восстанавливает при закрытии, чтобы не сломать
+// карту (запрос создателя 99.2.27: спрайт игрока догрузился после открытия
+// модалки — перерисовывается модалка, а не карта).
+export function getRedrawCallback() {
+    return redrawCallback;
+}
+
 // shipFiles — порядок реестра ShipSprites с сервера (/me.ship_options,
 // спека §3.2: порядок фиксирован — он же источник индексов spriteForAgent).
 // Клиент НЕ дублирует список имён (И1): берёт его из /me.

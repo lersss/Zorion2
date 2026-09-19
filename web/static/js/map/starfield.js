@@ -90,9 +90,25 @@ export function drawStarfield(ctx, w, h, scale, offsetX, offsetY, timeMs) {
         prevScale = scale;
         prevOffsetX = offsetX;
         prevOffsetY = offsetY;
+        // Перепривязка фона при смене масштаба (запрос создателя «параллакс то
+        // работает, то нет»): при зуме аргумент offset скачет (zoom-пересчёт
+        // под курсор, в модалке ещё и ×4 + followOffset) — bgX/bgY НЕ
+        // компенсировались, разъезд накапливался от зума к зуму → фон
+        // «отвязывался» от мировой системы. Сброс накопления: фон
+        // перепривязывается к текущему виду (bgX=0), при пане/слежении
+        // накапливает от этой точки — согласованно. Для повторяющегося тайла
+        // перепривязка визуально незаметна (карта: фон при зуме и так стоит).
+        bgX = 0;
+        bgY = 0;
     } else {
-        bgX += (offsetX - prevOffsetX) * PARALLAX;
-        bgY += (offsetY - prevOffsetY) * PARALLAX;
+        // Накопление ПО МОДУЛЮ ТАЙЛА (запрос создателя «фон замирает»): bgX/bgY
+        // никогда не растут неограниченно — при огромных offset (слежение камеры
+        // в модалке) разница (offsetX - prevOffsetX) теряла точность float
+        // (прирост 0) → фон замирал. Модуль 256: тайл повторяющийся, оба знака
+        // корректны (отрицательный остаток эквивалентен положительному + 256).
+        // Поведение карты не меняется (нормальные offset — тот же результат).
+        bgX = ((bgX + (offsetX - prevOffsetX) * PARALLAX) % TILE_SIZE + TILE_SIZE) % TILE_SIZE;
+        bgY = ((bgY + (offsetY - prevOffsetY) * PARALLAX) % TILE_SIZE + TILE_SIZE) % TILE_SIZE;
         prevOffsetX = offsetX;
         prevOffsetY = offsetY;
     }

@@ -1,4 +1,4 @@
-// internal/handlers/visibility_handlers_test.go
+﻿// internal/handlers/visibility_handlers_test.go
 // Применение серверной видимости (спека 77a §11): гибрид «звёздное поле» в
 // /api/worlds/filter, 403 в модалке системы, фильтр NPC-агентов, скрытие
 // координат в поиске агента, валидация цели /travel, позиции чужих игроков.
@@ -69,6 +69,18 @@ func expectPlayerUser(mock sqlmock.Sqlmock, id string) {
 			"ship_icon", "ship_color", "ship_model_id", "equipment", "role", "created_at", "updated_at",
 		}).AddRow(id, "player", "hash", nil, nil, "w1", "ship_strela.svg", nil, "starter",
 			`{"radar":"radar_1","scanner":"scanner_1","engine":null}`, "player", now(), now()))
+}
+
+// expectPlayerUserWithPosition — ожидание GetByIDWithPosition игрока
+// (planet_handler, спека 99.2.27 §4.4: my_position для всех ролей, С-3).
+func expectPlayerUserWithPosition(mock sqlmock.Sqlmock, id, worldID string, posRaw interface{}) {
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position FROM users WHERE id = \$1`).
+		WithArgs(id).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "username", "password_hash", "email", "agent_id", "current_world_id",
+			"ship_icon", "ship_color", "ship_model_id", "equipment", "role", "created_at", "updated_at", "current_position",
+		}).AddRow(id, "player", "hash", nil, nil, worldID, "ship_strela.svg", nil, "starter",
+			`{"radar":"radar_1","scanner":"scanner_1","engine":null}`, "player", now(), now(), posRaw))
 }
 
 // expectKnownWorlds — ожидание KnownWorldIDs (пусто по умолчанию).
@@ -159,7 +171,7 @@ func TestGetPlanetsByWorldOutsideRadius(t *testing.T) {
 			"stellar_mass", "age", "temperature", "coord_x", "coord_y",
 		}).AddRow("Мир3", "M", "star", "single", nil, nil, nil, 3000, 1000, 0))
 
-	expectPlayerUser(mock, userID)
+	expectPlayerUserWithPosition(mock, userID, "w2", nil)
 	expectKnownWorlds(mock)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/worlds/w3/planets", nil)
@@ -198,7 +210,7 @@ func TestGetPlanetsByWorldInsideRadius(t *testing.T) {
 			"stellar_mass", "age", "temperature", "coord_x", "coord_y",
 		}).AddRow("Мир2", "K", "star", "single", nil, nil, nil, 4000, 100, 0))
 
-	expectPlayerUser(mock, userID)
+	expectPlayerUserWithPosition(mock, userID, "w2", nil)
 	expectKnownWorlds(mock)
 
 	// Сканер установлен → ленивый прогон ScanSystem.
@@ -267,7 +279,7 @@ func TestGetPlanetsByWorldIgnitedOutsideRadiusNoScan(t *testing.T) {
 			"stellar_mass", "age", "temperature", "coord_x", "coord_y",
 		}).AddRow("Мир3", "M", "star", "single", nil, nil, nil, 3000, 1000, 0))
 
-	expectPlayerUser(mock, userID)
+	expectPlayerUserWithPosition(mock, userID, "w2", nil)
 	expectKnownWorlds(mock, "w3")
 
 	// Чтение ИМЕЮЩЕГОСЯ знания: устаревшее (8 дней назад → fresh:false).
@@ -675,6 +687,260 @@ func TestGetAllWorldsAdminSeesAll(t *testing.T) {
 	require.Len(t, worlds, 1, "админ видит всё")
 }
 
+// ==================== /api/worlds/{id}/planets: my_position + КОМПАНЬОНЫ (спека 99.2.27 §4.4) ====================
+
+// my_position отдаётся для всех ролей (С-3), только если игрок в этой системе;
+// companion_id — синтетический id компаньона (решение создателя 2026-09-20).
+func TestGetPlanetsByWorldMyPositionAndCompanion(t *testing.T) {
+	h, mock := visAdminHandlers(t)
+	const userID = "u1"
+
+	// Планеты системы: p1 (без поселений).
+	mock.ExpectQuery(`SELECT id, world_id, name, orbit_index, data, created_at, updated_at FROM planets WHERE world_id = \$1 ORDER BY orbit_index ASC`).
+		WithArgs("w2").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "world_id", "name", "orbit_index", "data", "created_at", "updated_at"}).
+			AddRow("p1", "w2", "Планета1", 0, `{"type":"землеподобная","orbit_radius_au":1.0}`, now(), now()))
+
+	// Поселения планеты (пусто).
+	mock.ExpectQuery(`SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at, race_id FROM settlements WHERE planet_id = ANY\(\$1\) ORDER BY created_at ASC`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "planet_id", "population", "population_exact", "stability",
+			"computed_at", "created_at", "updated_at", "race_id",
+		}))
+
+	// Мир w2 — binary с компаньоном K.
+	mock.ExpectQuery(`SELECT name, COALESCE\(spectral_class,''\), star_type, system_type, stellar_mods, stellar_mass, age, temperature, coord_x, coord_y FROM worlds WHERE id = \$1`).
+		WithArgs("w2").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"name", "spectral_class", "star_type", "system_type", "stellar_mods",
+			"stellar_mass", "age", "temperature", "coord_x", "coord_y",
+		}).AddRow("Мир2", "K", "star", "binary", `{"binary_type":"wide","companion":"K","companion_sep_au":1000}`, nil, nil, 4000, 100, 0))
+
+	// Игрок в w2, позиция — орбита планеты p1.
+	pos := `{"status":"orbit","object_type":"planet","object_id":"p1","level":"orbit"}`
+	expectPlayerUserWithPosition(mock, userID, "w2", pos)
+	expectKnownWorlds(mock)
+
+	// Сканер установлен → ленивый прогон ScanSystem (w2 в радиусе).
+	mock.ExpectQuery(`SELECT p.id, COALESCE\(p.data->>'surface_dominant', ''\), COALESCE\(p.data->'surface_composition', '\{\}'::jsonb\), \(SELECT COUNT\(\*\) FROM settlements s WHERE s.planet_id = p.id\) FROM planets p WHERE p.world_id = \$1`).
+		WithArgs("w2").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "surface_dominant", "surface_composition", "settlements_count"}).
+			AddRow("p1", "вода", `{"вода":100}`, 0))
+	mock.ExpectExec(`INSERT INTO player_planet_knowledge.*ON CONFLICT.*DO UPDATE`).
+		WithArgs(userID, "p1", sqlmock.AnyArg(), "scanner").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(`SELECT user_id, planet_id, data, scanned_at, source FROM player_planet_knowledge WHERE user_id = \$1 AND planet_id = \$2`).
+		WithArgs(userID, "p1").
+		WillReturnRows(sqlmock.NewRows([]string{"user_id", "planet_id", "data", "scanned_at", "source"}).
+			AddRow(userID, "p1", `{"surface_dominant":"вода","settlements_count":0}`, now(), "scanner"))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/worlds/w2/planets", nil)
+	req = withUserID(req, userID)
+	req = withRole(req, string(models.RolePlayer))
+
+	rec := execJSON(h.GetPlanetsByWorld, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	var resp struct {
+		CompanionID string                   `json:"companion_id"`
+		MyPosition  *models.CurrentPosition  `json:"my_position"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Equal(t, "companion:w2", resp.CompanionID, "синтетический id компаньона")
+	require.NotNil(t, resp.MyPosition, "my_position отдаётся (С-3)")
+	require.Equal(t, "orbit", resp.MyPosition.Status)
+	require.Equal(t, "planet", resp.MyPosition.ObjectType)
+	require.Equal(t, "p1", resp.MyPosition.ObjectID)
+}
+
+// Игрок в ДРУГОЙ системе — my_position = null (модалка чужой системы).
+func TestGetPlanetsByWorldMyPositionOtherSystem(t *testing.T) {
+	h, mock := visAdminHandlers(t)
+	const userID = "u1"
+
+	// Планеты системы w2: p1.
+	mock.ExpectQuery(`SELECT id, world_id, name, orbit_index, data, created_at, updated_at FROM planets WHERE world_id = \$1 ORDER BY orbit_index ASC`).
+		WithArgs("w2").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "world_id", "name", "orbit_index", "data", "created_at", "updated_at"}).
+			AddRow("p1", "w2", "Планета1", 0, `{"type":"землеподобная"}`, now(), now()))
+
+	mock.ExpectQuery(`SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at, race_id FROM settlements WHERE planet_id = ANY\(\$1\) ORDER BY created_at ASC`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "planet_id", "population", "population_exact", "stability",
+			"computed_at", "created_at", "updated_at", "race_id",
+		}))
+
+	mock.ExpectQuery(`SELECT name, COALESCE\(spectral_class,''\), star_type, system_type, stellar_mods, stellar_mass, age, temperature, coord_x, coord_y FROM worlds WHERE id = \$1`).
+		WithArgs("w2").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"name", "spectral_class", "star_type", "system_type", "stellar_mods",
+			"stellar_mass", "age", "temperature", "coord_x", "coord_y",
+		}).AddRow("Мир2", "K", "star", "single", nil, nil, nil, 4000, 100, 0))
+
+	// Игрок в w1 (не в w2) — my_position = null.
+	expectPlayerUserWithPosition(mock, userID, "w1", nil)
+	expectKnownWorlds(mock)
+
+	// Сканер установлен → ленивый прогон ScanSystem (w2 в радиусе от w1).
+	mock.ExpectQuery(`SELECT p.id, COALESCE\(p.data->>'surface_dominant', ''\), COALESCE\(p.data->'surface_composition', '\{\}'::jsonb\), \(SELECT COUNT\(\*\) FROM settlements s WHERE s.planet_id = p.id\) FROM planets p WHERE p.world_id = \$1`).
+		WithArgs("w2").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "surface_dominant", "surface_composition", "settlements_count"}).
+			AddRow("p1", "вода", `{"вода":100}`, 0))
+	mock.ExpectExec(`INSERT INTO player_planet_knowledge.*ON CONFLICT.*DO UPDATE`).
+		WithArgs(userID, "p1", sqlmock.AnyArg(), "scanner").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(`SELECT user_id, planet_id, data, scanned_at, source FROM player_planet_knowledge WHERE user_id = \$1 AND planet_id = \$2`).
+		WithArgs(userID, "p1").
+		WillReturnRows(sqlmock.NewRows([]string{"user_id", "planet_id", "data", "scanned_at", "source"}).
+			AddRow(userID, "p1", `{"surface_dominant":"вода","settlements_count":0}`, now(), "scanner"))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/worlds/w2/planets", nil)
+	req = withUserID(req, userID)
+	req = withRole(req, string(models.RolePlayer))
+
+	rec := execJSON(h.GetPlanetsByWorld, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	var resp struct {
+		MyPosition *models.CurrentPosition `json:"my_position"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Nil(t, resp.MyPosition, "игрок не в этой системе — my_position null")
+}
+
+// ИП-4-фолбэк (спека 99.2.27 §2.3/§4.4, М-2): позиция указывает на планету,
+// удалённую перегенерацией → my_position = «орбита звезды», ничего не падает.
+func TestGetPlanetsByWorldMyPositionBrokenTargetFallback(t *testing.T) {
+	h, mock := visAdminHandlers(t)
+	const userID = "u1"
+
+	// Планеты системы w2: p1 (позиция игрока указывает на GONE — удалена).
+	mock.ExpectQuery(`SELECT id, world_id, name, orbit_index, data, created_at, updated_at FROM planets WHERE world_id = \$1 ORDER BY orbit_index ASC`).
+		WithArgs("w2").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "world_id", "name", "orbit_index", "data", "created_at", "updated_at"}).
+			AddRow("p1", "w2", "Планета1", 0, `{"type":"землеподобная"}`, now(), now()))
+
+	mock.ExpectQuery(`SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at, race_id FROM settlements WHERE planet_id = ANY\(\$1\) ORDER BY created_at ASC`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "planet_id", "population", "population_exact", "stability",
+			"computed_at", "created_at", "updated_at", "race_id",
+		}))
+
+	mock.ExpectQuery(`SELECT name, COALESCE\(spectral_class,''\), star_type, system_type, stellar_mods, stellar_mass, age, temperature, coord_x, coord_y FROM worlds WHERE id = \$1`).
+		WithArgs("w2").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"name", "spectral_class", "star_type", "system_type", "stellar_mods",
+			"stellar_mass", "age", "temperature", "coord_x", "coord_y",
+		}).AddRow("Мир2", "K", "star", "single", nil, nil, nil, 4000, 100, 0))
+
+	// Позиция игрока — орбита удалённой планеты GONE.
+	pos := `{"status":"orbit","object_type":"planet","object_id":"GONE","level":"orbit"}`
+	expectPlayerUserWithPosition(mock, userID, "w2", pos)
+	expectKnownWorlds(mock)
+
+	// Сканер установлен → ленивый прогон ScanSystem (w2 в радиусе).
+	mock.ExpectQuery(`SELECT p.id, COALESCE\(p.data->>'surface_dominant', ''\), COALESCE\(p.data->'surface_composition', '\{\}'::jsonb\), \(SELECT COUNT\(\*\) FROM settlements s WHERE s.planet_id = p.id\) FROM planets p WHERE p.world_id = \$1`).
+		WithArgs("w2").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "surface_dominant", "surface_composition", "settlements_count"}).
+			AddRow("p1", "вода", `{"вода":100}`, 0))
+	mock.ExpectExec(`INSERT INTO player_planet_knowledge.*ON CONFLICT.*DO UPDATE`).
+		WithArgs(userID, "p1", sqlmock.AnyArg(), "scanner").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(`SELECT user_id, planet_id, data, scanned_at, source FROM player_planet_knowledge WHERE user_id = \$1 AND planet_id = \$2`).
+		WithArgs(userID, "p1").
+		WillReturnRows(sqlmock.NewRows([]string{"user_id", "planet_id", "data", "scanned_at", "source"}).
+			AddRow(userID, "p1", `{"surface_dominant":"вода","settlements_count":0}`, now(), "scanner"))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/worlds/w2/planets", nil)
+	req = withUserID(req, userID)
+	req = withRole(req, string(models.RolePlayer))
+
+	rec := execJSON(h.GetPlanetsByWorld, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	var resp struct {
+		MyPosition *models.CurrentPosition `json:"my_position"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NotNil(t, resp.MyPosition, "битая позиция → фолбэк, ничего не падает (М-2)")
+	require.Equal(t, "orbit", resp.MyPosition.Status)
+	require.Equal(t, "star", resp.MyPosition.ObjectType)
+	require.Equal(t, "w2", resp.MyPosition.ObjectID, "фолбэк «орбита звезды»")
+}
+
+// extra_companions[].id — синтетические id внешних компаньонов кратной
+// (спека 99.2.27 §3.1/§4.4): extra:<world>:<i> по индексу.
+func TestGetPlanetsByWorldExtraCompanionIDs(t *testing.T) {
+	h, mock := visAdminHandlers(t)
+	const userID = "u1"
+
+	// Планеты системы w2: p1.
+	mock.ExpectQuery(`SELECT id, world_id, name, orbit_index, data, created_at, updated_at FROM planets WHERE world_id = \$1 ORDER BY orbit_index ASC`).
+		WithArgs("w2").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "world_id", "name", "orbit_index", "data", "created_at", "updated_at"}).
+			AddRow("p1", "w2", "Планета1", 0, `{"type":"землеподобная"}`, now(), now()))
+
+	mock.ExpectQuery(`SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at, race_id FROM settlements WHERE planet_id = ANY\(\$1\) ORDER BY created_at ASC`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "planet_id", "population", "population_exact", "stability",
+			"computed_at", "created_at", "updated_at", "race_id",
+		}))
+
+	// Мир w2 — кратная система с внешним компаньоном.
+	mock.ExpectQuery(`SELECT name, COALESCE\(spectral_class,''\), star_type, system_type, stellar_mods, stellar_mass, age, temperature, coord_x, coord_y FROM worlds WHERE id = \$1`).
+		WithArgs("w2").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"name", "spectral_class", "star_type", "system_type", "stellar_mods",
+			"stellar_mass", "age", "temperature", "coord_x", "coord_y",
+		}).AddRow("Мир2", "K", "star", "multiple",
+			`{"binary_type":"wide","companion":"K","companion_sep_au":1000,"extra_companions":[{"spectral_class":"M","sep_au":5000}]}`,
+			nil, nil, 4000, 100, 0))
+
+	// Игрок в w2, позиция NULL (легаси) → my_position = «орбита звезды».
+	expectPlayerUserWithPosition(mock, userID, "w2", nil)
+	expectKnownWorlds(mock)
+
+	// Сканер установлен → ленивый прогон ScanSystem (w2 в радиусе).
+	mock.ExpectQuery(`SELECT p.id, COALESCE\(p.data->>'surface_dominant', ''\), COALESCE\(p.data->'surface_composition', '\{\}'::jsonb\), \(SELECT COUNT\(\*\) FROM settlements s WHERE s.planet_id = p.id\) FROM planets p WHERE p.world_id = \$1`).
+		WithArgs("w2").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "surface_dominant", "surface_composition", "settlements_count"}).
+			AddRow("p1", "вода", `{"вода":100}`, 0))
+	mock.ExpectExec(`INSERT INTO player_planet_knowledge.*ON CONFLICT.*DO UPDATE`).
+		WithArgs(userID, "p1", sqlmock.AnyArg(), "scanner").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(`SELECT user_id, planet_id, data, scanned_at, source FROM player_planet_knowledge WHERE user_id = \$1 AND planet_id = \$2`).
+		WithArgs(userID, "p1").
+		WillReturnRows(sqlmock.NewRows([]string{"user_id", "planet_id", "data", "scanned_at", "source"}).
+			AddRow(userID, "p1", `{"surface_dominant":"вода","settlements_count":0}`, now(), "scanner"))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/worlds/w2/planets", nil)
+	req = withUserID(req, userID)
+	req = withRole(req, string(models.RolePlayer))
+
+	rec := execJSON(h.GetPlanetsByWorld, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	var resp struct {
+		StellarMods map[string]interface{} `json:"stellar_mods"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	ecs, ok := resp.StellarMods["extra_companions"].([]interface{})
+	require.True(t, ok, "extra_companions в stellar_mods")
+	require.Len(t, ecs, 1)
+	ec, ok := ecs[0].(map[string]interface{})
+	require.True(t, ok)
+	require.Equal(t, "extra:w2:0", ec["id"], "синтетический id внешнего компаньона")
+	require.Equal(t, "M", ec["spectral_class"], "старые поля не ломаются")
+}
+
 // ==================== /api/players/positions: ЧУЖИЕ ИГРОКИ В РАДИУСЕ ====================
 
 func TestPlayersPositionsFilteredByRadius(t *testing.T) {
@@ -701,11 +967,11 @@ func TestPlayersPositionsFilteredByRadius(t *testing.T) {
 	tm.StartFlight("p2", "w1", "w2", 0, 0, time.Hour, nil)
 	tm.StartFlight("p3", "w3", "w1", 1000, 0, time.Hour, nil)
 
-	mock.ExpectQuery(`SELECT id, username, ship_icon, ship_color, current_world_id, role FROM users`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "username", "ship_icon", "ship_color", "current_world_id", "role"}).
-			AddRow(userID, "player", "ship_strela.svg", nil, "w1", "player").
-			AddRow("p2", "alice", "shark.png", nil, "w2", "player").
-			AddRow("p3", "bob", "crescent.png", nil, "w3", "player"))
+	mock.ExpectQuery(`SELECT id, username, ship_icon, ship_color, current_world_id, role, current_position FROM users`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "username", "ship_icon", "ship_color", "current_world_id", "role", "current_position"}).
+			AddRow(userID, "player", "ship_strela.svg", nil, "w1", "player", nil).
+			AddRow("p2", "alice", "shark.png", nil, "w2", "player", nil).
+			AddRow("p3", "bob", "crescent.png", nil, "w3", "player", nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/players/positions", nil)
 	req = withUserID(req, userID)
@@ -748,11 +1014,11 @@ func TestPlayersPositionsOnlyFlying(t *testing.T) {
 	// p2 стоит в w2 (без полёта) — скрыт (90a); p3 летит w1→w2 — отдан.
 	tm.StartFlight("p3", "w1", "w2", 0, 0, time.Hour, nil)
 
-	mock.ExpectQuery(`SELECT id, username, ship_icon, ship_color, current_world_id, role FROM users`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "username", "ship_icon", "ship_color", "current_world_id", "role"}).
-			AddRow(userID, "player", "ship_strela.svg", nil, "w1", "player").
-			AddRow("p2", "alice", "shark.png", nil, "w2", "player").
-			AddRow("p3", "bob", "crescent.png", nil, "w3", "player"))
+	mock.ExpectQuery(`SELECT id, username, ship_icon, ship_color, current_world_id, role, current_position FROM users`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "username", "ship_icon", "ship_color", "current_world_id", "role", "current_position"}).
+			AddRow(userID, "player", "ship_strela.svg", nil, "w1", "player", nil).
+			AddRow("p2", "alice", "shark.png", nil, "w2", "player", nil).
+			AddRow("p3", "bob", "crescent.png", nil, "w3", "player", nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/players/positions", nil)
 	req = withUserID(req, userID)
@@ -793,11 +1059,11 @@ func TestPlayersPositionsAdminOnlyFlying(t *testing.T) {
 	// p2 стоит в w2 (без полёта) — скрыт (90a); p3 летит w3→w1 — отдан.
 	tm.StartFlight("p3", "w3", "w1", 1000, 0, time.Hour, nil)
 
-	mock.ExpectQuery(`SELECT id, username, ship_icon, ship_color, current_world_id, role FROM users`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "username", "ship_icon", "ship_color", "current_world_id", "role"}).
-			AddRow(userID, "player", "ship_strela.svg", nil, "w1", "player").
-			AddRow("p2", "alice", "shark.png", nil, "w2", "player").
-			AddRow("p3", "bob", "crescent.png", nil, "w3", "player"))
+	mock.ExpectQuery(`SELECT id, username, ship_icon, ship_color, current_world_id, role, current_position FROM users`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "username", "ship_icon", "ship_color", "current_world_id", "role", "current_position"}).
+			AddRow(userID, "player", "ship_strela.svg", nil, "w1", "player", nil).
+			AddRow("p2", "alice", "shark.png", nil, "w2", "player", nil).
+			AddRow("p3", "bob", "crescent.png", nil, "w3", "player", nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/players/positions", nil)
 	req = withUserID(req, userID)

@@ -2,6 +2,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -407,6 +408,67 @@ func TestStartTravelWithEngine(t *testing.T) {
 	require.NotNil(t, flight)
 	require.Equal(t, 3*time.Second, flight.Duration, "dist=10 → 3 сек (минимум 66a)")
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// ==================== ПРИБЫТИЕ: ПОЗИЦИЯ «ОРБИТА ЗВЕЗДЫ» (ИП-2, спека 99.2.27 §3.6.3) ====================
+
+// Прибытие межзвёздного полёта пишет current_world_id + current_position =
+// «орбита звезды» одним UPDATE (С-1): позиция никогда не остаётся битой.
+func TestStartTravelArrivalWritesStarOrbitPosition(t *testing.T) {
+	h, _, mock := newTravelHarness(t)
+	const userID = "11111111-1111-1111-1111-111111111111"
+	const fromWorld = "w1"
+	const target = "w2"
+
+	expectTravelQueries(mock, userID, fromWorld, 0, 0, target, 10, 0)
+	rec := execJSON(h.StartTravel, travelRequest(userID, target))
+	require.Equal(t, http.StatusAccepted, rec.Code)
+
+	// Прибытие (короткий полёт): дефенсив onArrival (пакман, спека 2026-09-20
+	// §7.2) проверяет существование цели → цель жива → атомарный UPDATE мира
+	// + позиции.
+	mock.ExpectQuery(`SELECT id, name, coord_x, coord_y, COALESCE\(spectral_class,''\), temperature, star_type, system_type, stellar_mods, stellar_mass, age, created_at, updated_at FROM worlds WHERE id = \$1`).
+		WithArgs(target).
+		WillReturnRows(travelWorldRow(target, 10, 0))
+	mock.ExpectExec(`UPDATE users SET current_world_id = \$1, current_position = \$2, updated_at = NOW\(\) WHERE id = \$3`).
+		WithArgs(target, sqlmock.AnyArg(), userID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	// Ждём, пока onArrival выполнит UPDATE (ExpectationsWereMet == nil — все
+	// ожидания, включая UPDATE, потреблены; полёт удаляется из map ДО onArrival,
+	// поэтому ждать GetFlight == nil недостаточно — под -race горутина может
+	// не успеть до закрытия БД в t.Cleanup).
+	require.Eventually(t, func() bool {
+		return mock.ExpectationsWereMet() == nil
+	}, 5*time.Second, 10*time.Millisecond)
+}
+
+// ==================== ДЕФЕНСИВ onArrival (пакман, спека 2026-09-20 §7.2) ====================
+
+// Цель съедена между запросом и прибытием: onArrival обнуляет
+// current_world_id/current_position (ClearCurrentWorld) вместо FK-violation
+// (users.current_world_id → worlds NO ACTION).
+func TestStartTravelArrivalEatenWorldClearsPosition(t *testing.T) {
+	h, _, mock := newTravelHarness(t)
+	const userID = "11111111-1111-1111-1111-111111111111"
+	const fromWorld = "w1"
+	const target = "w2"
+
+	expectTravelQueries(mock, userID, fromWorld, 0, 0, target, 10, 0)
+	rec := execJSON(h.StartTravel, travelRequest(userID, target))
+	require.Equal(t, http.StatusAccepted, rec.Code)
+
+	// Прибытие: цель съедена (GetByID → nil) → ClearCurrentWorld.
+	mock.ExpectQuery(`SELECT id, name, coord_x, coord_y, COALESCE\(spectral_class,''\), temperature, star_type, system_type, stellar_mods, stellar_mass, age, created_at, updated_at FROM worlds WHERE id = \$1`).
+		WithArgs(target).
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectExec(`UPDATE users SET current_world_id = NULL, current_position = NULL, updated_at = NOW\(\) WHERE id = \$1`).
+		WithArgs(userID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	require.Eventually(t, func() bool {
+		return mock.ExpectationsWereMet() == nil
+	}, 5*time.Second, 10*time.Millisecond)
 }
 
 // ==================== ВОЗВРАТ В МИР ОТПРАВЛЕНИЯ ====================

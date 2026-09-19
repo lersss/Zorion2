@@ -1,4 +1,4 @@
-// web/static/js/modal/events.js
+﻿// web/static/js/modal/events.js
 import { modalState } from './state.js';
 import { drawSystem, MIN_STAR_PX } from './modal_render.js';
 import { computeLayout, getOrbitRadius, getPlanetAngle, getPlanetSize, planetOrbitCenter } from './layout.js';
@@ -57,8 +57,11 @@ export function initEvents(canvas, spectralClass, planets, starRadius, starColor
         const rect = canvas.getBoundingClientRect();
         const mouseX = (e.clientX - rect.left) * (canvas.width / rect.width) / dpr;
         const mouseY = (e.clientY - rect.top) * (canvas.height / rect.height) / dpr;
-        const worldX = (mouseX - modalState.offsetX) / modalState.zoom;
-        const worldY = (mouseY - modalState.offsetY) / modalState.zoom;
+        // Слежение камеры (запрос создателя 99.2.27): followOffset сдвигает
+        // отрисовку — хит-тест обязан учитывать его, иначе клики/ховер/ПКМ
+        // во время полёта попадали бы мимо объектов.
+        const worldX = (mouseX - modalState.offsetX - (modalState.followOffsetX || 0)) / modalState.zoom;
+        const worldY = (mouseY - modalState.offsetY - (modalState.followOffsetY || 0)) / modalState.zoom;
         return { worldX, worldY };
     }
 
@@ -133,11 +136,28 @@ export function initEvents(canvas, spectralClass, planets, starRadius, starColor
             : 0.02;
         const newZoom = Math.min(Math.max(modalState.zoom * delta, minZoom), 5);
 
-        const worldX = (mouseX - modalState.offsetX) / modalState.zoom;
-        const worldY = (mouseY - modalState.offsetY) / modalState.zoom;
+        const worldX = (mouseX - modalState.offsetX - (modalState.followOffsetX || 0)) / modalState.zoom;
+        const worldY = (mouseY - modalState.offsetY - (modalState.followOffsetY || 0)) / modalState.zoom;
         modalState.zoom = newZoom;
-        modalState.offsetX = mouseX - worldX * modalState.zoom;
-        modalState.offsetY = mouseY - worldY * modalState.zoom;
+        // Ручной зум: если камера удерживалась на объекте прибытия
+        // (arrivalObject) — освобождаем: followOffset к 0 (вид системы) ДО
+        // пересчёта offsetX/Y. Иначе offsetX/Y считались с учётом followOffset,
+        // а он обнуляется в updateCameraFollow → вид «висит» в смещённой точке,
+        // объекты пропадают из кадра (запрос создателя «после зума пропадают
+        // все объекты»). Во время полёта (arrivalObject нет) followOffset —
+        // позиция слежения, не трогаем (зум вокруг видимого центра).
+        if (modalState.arrivalObject) {
+            modalState.arrivalObject = null;
+            modalState.followOffsetX = 0;
+            modalState.followOffsetY = 0;
+        }
+        modalState.followExact = false;
+        // Пользователь зумил — следующий клик «Найти меня» центрирует.
+        modalState.followDirty = true;
+        // Слежение камеры: followOffset отдельно — offsetX считаем с его учётом,
+        // чтобы точка под курсором не уезжала.
+        modalState.offsetX = mouseX - worldX * modalState.zoom - (modalState.followOffsetX || 0);
+        modalState.offsetY = mouseY - worldY * modalState.zoom - (modalState.followOffsetY || 0);
     }, { passive: false });
 
     // ---- DRAG ----
@@ -158,6 +178,19 @@ export function initEvents(canvas, spectralClass, planets, starRadius, starColor
             const dy = (e.clientY - modalState.dragStartY) / dpr;
             modalState.offsetX = modalState.dragStartOffsetX + dx;
             modalState.offsetY = modalState.dragStartOffsetY + dy;
+            // Ручной пан: слежение возвращается к смещению к цели (не точный
+            // центр после «Найти меня»); центрирование по прибытии снимается —
+            // followOffset к 0 (вид системы), иначе вид «висит» в смещённой
+            // точке (объекты пропадают, запрос создателя).
+            if (modalState.arrivalObject) {
+                modalState.arrivalObject = null;
+                modalState.followOffsetX = 0;
+                modalState.followOffsetY = 0;
+            }
+            modalState.followExact = false;
+            // Пользователь панировал — следующий клик «Найти меня» центрирует
+            // (а не выключает слежение).
+            modalState.followDirty = true;
             if (Math.hypot(dx, dy) > 3) {
                 modalState.dragMoved = true;
             }
@@ -199,6 +232,14 @@ export function initEvents(canvas, spectralClass, planets, starRadius, starColor
                 }
             });
             if (best) {
+                // Клик по миникарте — явный фокус: сбрасываем слежение камеры
+                // (иначе followOffset сдвинул бы вид от выбранного объекта).
+                modalState.followOffsetX = 0;
+                modalState.followOffsetY = 0;
+                modalState.followExact = false;
+                modalState.arrivalObject = null;
+                // Пользователь выбрал объект — следующий клик «Найти меня» центрирует.
+                modalState.followDirty = true;
                 modalState.offsetX = modalState.canvasWidth / 2 - best.world.x * modalState.zoom;
                 modalState.offsetY = modalState.canvasHeight / 2 - best.world.y * modalState.zoom;
                 drawSystem(canvas, spectralClass, planets, starRadius, starColor, modalState.canvasWidth, modalState.canvasHeight);
@@ -242,6 +283,13 @@ export function initEvents(canvas, spectralClass, planets, starRadius, starColor
         const hit = hitTest(worldX, worldY);
         if (hit === 'star') {
             showStarMenu(e.clientX, e.clientY);
+        } else if (hit && hit.type === 'star') {
+            // Компаньон/внешний компаньон (спека 99.2.27 §5.2, решение создателя
+            // 2026-09-20): ПКМ по компаньону → «На орбиту компаньона».
+            showCompanionMenu(e.clientX, e.clientY, hit.starIndex);
+        } else if (hit && hit.type === 'planet') {
+            // Планета (претензия создателя «как на карте»): ПКМ → «Лететь».
+            showPlanetMenu(e.clientX, e.clientY, hit.index);
         } else {
             hideStarMenu();
         }
@@ -405,9 +453,41 @@ function showStarMenu(x, y) {
     title.textContent = modalState.worldName || 'Система';
     menu.appendChild(title);
 
-    // «Перелететь» живёт только в игровой карте: из админки (authToken задан)
-    // полёт невозможен — #mapCanvas там нет, не показываем нерабочий пункт.
-    if (!modalState.authToken) {
+    // Внутрисистемный полёт доступен только в своей системе (спека 99.2.27
+    // §5.1): my_position != null. В своей системе «Перелететь» из модалки
+    // убирается (М-6, осознанно) — вместо него «На орбиту звезды».
+    if (modalState.myPosition) {
+        // ПКМ-пункт скрывается, если игрок уже на орбите звезды (§5.6) или
+        // летит ОТ этой звезды (запрос создателя «глупый тост»: цель == from
+        // полёта — полёт к ней запрещён, отмены в UI нет — пункт не показываем).
+        const pos = modalState.myPosition;
+        const onStarOrbit = pos.status === 'orbit' && pos.object_type === 'star' && pos.object_id === modalState.worldId;
+        const flyingFromStar = pos.status === 'in_flight' && pos.from_type === 'star' && pos.from_id === modalState.worldId;
+        if (!onStarOrbit && !flyingFromStar) {
+            const btn = document.createElement('div');
+            btn.style.cssText = `
+                padding: 8px 10px;
+                cursor: pointer;
+                border-radius: 6px;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            `;
+            btn.innerHTML = `🚀 <span>На орбиту звезды</span>`;
+            btn.addEventListener('mouseenter', () => { btn.style.background = '#2a2a44'; });
+            btn.addEventListener('mouseleave', () => { btn.style.background = 'none'; });
+            btn.addEventListener('click', async () => {
+                hideStarMenu();
+                if (!modalState.hasEngine) {
+                    notifyError('Двигатель не установлен — полёт невозможен');
+                    return;
+                }
+                await startIntraFlight('star', modalState.worldId);
+            });
+            menu.appendChild(btn);
+        }
+    } else if (!modalState.authToken) {
+        // Чужая система / 403: существующий «Перелететь» (межзвёздный, §5.5).
         const btn = document.createElement('div');
         btn.style.cssText = `
             padding: 8px 10px;
@@ -434,6 +514,207 @@ function showStarMenu(x, y) {
     }
 
     document.body.appendChild(menu);
+}
+
+// showCompanionMenu — ПКМ по компаньону/внешнему компаньону (спека §5.2):
+// «На орбиту компаньона» (внутрисистемный; скрыт, если уже на орбите этого
+// компаньона). Цель — синтетический id (companion:<world> / extra:<world>:<i>).
+function showCompanionMenu(x, y, starIndex) {
+    hideStarMenu();
+    if (!modalState.myPosition) return; // внутрисистемный полёт — только своя система
+
+    const layout = computeLayout(modalState.planets, modalState.starRadius, modalState.canvasWidth, modalState.canvasHeight);
+    const star = layout.stars[starIndex];
+    if (!star) return;
+
+    // Синтетический id цели: companion:<world> (главный компаньон) или
+    // extra:<world>:<i> (внешний компаньон кратной, stars[2..] ↔ extraCompanions).
+    let targetId = null;
+    let label = 'компаньон';
+    if (star.kind === 'companion') {
+        targetId = modalState.companionId;
+        label = modalState.companion ? 'компаньон ' + modalState.companion : 'компаньон';
+    } else if (star.kind === 'extra') {
+        const i = starIndex - 2;
+        const ec = (modalState.extraCompanions || [])[i];
+        targetId = 'extra:' + modalState.worldId + ':' + i;
+        label = ec && ec.spectral_class ? 'внешний компаньон ' + ec.spectral_class : 'внешний компаньон';
+    }
+    if (!targetId) return;
+
+    // Скрыт, если игрок уже на орбите этого компаньона (§5.6) или летит ОТ него
+    // (запрос создателя «глупый тост»: цель == from полёта — пункт не показываем).
+    const pos = modalState.myPosition;
+    if (pos.status === 'orbit' && pos.object_type === 'star' && pos.object_id === targetId) return;
+    if (pos.status === 'in_flight' && pos.from_type === 'star' && pos.from_id === targetId) return;
+
+    const menu = document.createElement('div');
+    menu.id = 'star-context-menu';
+    menu.style.cssText = `
+        position: fixed;
+        left: ${x}px;
+        top: ${y}px;
+        background: #1a1a2e;
+        border: 1px solid #334155;
+        border-radius: 8px;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+        padding: 4px;
+        min-width: 180px;
+        z-index: 1100;
+        font-size: 0.9rem;
+        color: #e0e0e0;
+    `;
+
+    const title = document.createElement('div');
+    title.style.cssText = `
+        padding: 6px 10px;
+        font-size: 0.75rem;
+        color: #888;
+        border-bottom: 1px solid #2a2a44;
+        margin-bottom: 4px;
+    `;
+    title.textContent = label;
+    menu.appendChild(title);
+
+    const btn = document.createElement('div');
+    btn.style.cssText = `
+        padding: 8px 10px;
+        cursor: pointer;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    `;
+    btn.innerHTML = `🚀 <span>На орбиту компаньона</span>`;
+    btn.addEventListener('mouseenter', () => { btn.style.background = '#2a2a44'; });
+    btn.addEventListener('mouseleave', () => { btn.style.background = 'none'; });
+    btn.addEventListener('click', async () => {
+        hideStarMenu();
+        if (!modalState.hasEngine) {
+            notifyError('Двигатель не установлен — полёт невозможен');
+            return;
+        }
+        await startIntraFlight('star', targetId);
+    });
+    menu.appendChild(btn);
+
+    document.body.appendChild(menu);
+}
+
+// showPlanetMenu — ПКМ по планете на канвасе (спека 99.2.27 §5.5, претензия
+// создателя «как на карте»): пункт «🚀 Лететь» — внутрисистемный полёт на
+// орбиту планеты (тот же POST /api/intrasystem-flight, что кнопка в карточке).
+// Пункт скрыт если: чужая/restricted система (полёт недоступен — как в
+// карточках), уже на орбите этой планеты, цель = активный полёт. Без
+// двигателя — пункт есть, клик → тост (как ПКМ звезды).
+function showPlanetMenu(x, y, planetIndex) {
+    hideStarMenu(); // скрыть предыдущее меню сразу (паттерн showStarMenu)
+    const planet = (modalState.planets || [])[planetIndex];
+    if (!planet) return;
+
+    const myPos = modalState.myPosition;
+    // Чужая/restricted система — полёт недоступен (my_position == null).
+    if (!myPos) return;
+    // Уже на орбите этой планеты / цель = активный полёт / летим ОТ неё
+    // (запрос создателя «глупый тост»: цель == from полёта) — пункт скрыт.
+    if (myPos.status === 'orbit' && myPos.object_type === 'planet' && myPos.object_id === planet.id) return;
+    if (myPos.status === 'in_flight' && myPos.to_type === 'planet' && myPos.to_id === planet.id) return;
+    if (myPos.status === 'in_flight' && myPos.from_type === 'planet' && myPos.from_id === planet.id) return;
+
+    const menu = document.createElement('div');
+    menu.id = 'star-context-menu';
+    menu.style.cssText = `
+        position: fixed;
+        left: ${x}px;
+        top: ${y}px;
+        background: #1a1a2e;
+        border: 1px solid #334155;
+        border-radius: 8px;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+        padding: 4px;
+        min-width: 160px;
+        z-index: 1100;
+        font-size: 0.9rem;
+        color: #e0e0e0;
+    `;
+
+    const title = document.createElement('div');
+    title.style.cssText = `
+        padding: 6px 10px;
+        font-size: 0.75rem;
+        color: #888;
+        border-bottom: 1px solid #2a2a44;
+        margin-bottom: 4px;
+    `;
+    title.textContent = planet.name || 'Планета';
+    menu.appendChild(title);
+
+    const btn = document.createElement('div');
+    btn.style.cssText = `
+        padding: 8px 10px;
+        cursor: pointer;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    `;
+    btn.innerHTML = `🚀 <span>Лететь</span>`;
+    btn.addEventListener('mouseenter', () => { btn.style.background = '#2a2a44'; });
+    btn.addEventListener('mouseleave', () => { btn.style.background = 'none'; });
+    btn.addEventListener('click', async () => {
+        hideStarMenu();
+        // Без двигателя полёт невозможен (спека 91a §6.1): блокируем с
+        // подсказкой; сервер валидирует тоже (админ/skycomposer — исключение).
+        if (!modalState.hasEngine) {
+            notifyError('Двигатель не установлен — полёт невозможен');
+            return;
+        }
+        await startIntraFlight('planet', planet.id);
+    });
+    menu.appendChild(btn);
+
+    document.body.appendChild(menu);
+}
+
+// startIntraFlight — старт внутрисистемного полёта (спека 99.2.27 §4.1):
+// POST /api/intrasystem-flight. Модалка НЕ закрывается (суть пожелания):
+// полоса полёта появляется из ответа (my_position = in_flight).
+// Экспорт — для кнопки «Лететь» в карточках (panel.js, динамический импорт).
+export async function startIntraFlight(objectType, objectId) {
+    const token = modalState.authToken || localStorage.getItem('token');
+    if (!token) return;
+    try {
+        const res = await fetch('/api/intrasystem-flight', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + token
+            },
+            body: JSON.stringify({ object_type: objectType, object_id: objectId })
+        });
+        const text = await res.text();
+        if (!res.ok) {
+            let msg = text;
+            try { msg = JSON.parse(text).error || text; } catch (e) { /* plain text */ }
+            notifyError('Ошибка: ' + msg);
+            return;
+        }
+        const data = JSON.parse(text);
+        // Позиция = полёт (решение создателя): модалка сразу показывает полосу.
+        // Новый полёт — центрирование по прибытии снимается (слежение берёт верх).
+        modalState.arrivalObject = null;
+        modalState.myPosition = {
+            status: 'in_flight',
+            from_type: data.from_type,
+            from_id: data.from_id,
+            to_type: data.to_type,
+            to_id: data.to_id,
+            start_time: data.start_time,
+            arrive_at: data.arrive_at,
+        };
+    } catch (e) {
+        notifyError('Ошибка: ' + e.message);
+    }
 }
 
 function hideStarMenu() {

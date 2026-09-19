@@ -117,11 +117,19 @@ function focusOnResult(res) {
     focusOnStar(res);
 
     if (res.kind === 'planet') {
-        openSystemModal(res.world_id, res.world_name, res.spectral, { planetId: res.id });
+        openSystemModal(res.world_id, res.world_name, res.spectral, { planetId: res.id }, null, {
+            // Спрайт игрока для маркера «я здесь» (спека 99.2.27 §5.11):
+            // та же иконка/цвет, что на карте (state из map/config.js).
+            shipIcon: state.userShipIcon,
+            shipColor: state.userShipColor,
+        });
     } else if (res.kind === 'satellite') {
         openSystemModal(res.world_id, res.world_name, res.spectral, {
             planetId: res.planet_id,
             satelliteId: res.id,
+        }, null, {
+            shipIcon: state.userShipIcon,
+            shipColor: state.userShipColor,
         });
     }
 }

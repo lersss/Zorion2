@@ -3,6 +3,28 @@ export const modalState = {
     zoom: 1,
     offsetX: 0,
     offsetY: 0,
+    // Слежение камеры за кораблём в полёте (запрос создателя 99.2.27):
+    // отдельное смещение отрисовки (не трогает offsetX/Y — drag/zoom/миникарта
+    // работают как раньше). Lerp-ом к цели во время полёта, к 0 по прибытии.
+    followOffsetX: 0,
+    followOffsetY: 0,
+    // followEnabled — режим слежения (паттерн 42a + решение менеджера 99.2.27):
+    // по умолчанию вкл при полёте (авто-слежение); кнопка «Найти меня»
+    // переключает вкл/выкл; подсветка кнопки = слежение активно.
+    followEnabled: true,
+    // followExact — точный центр на корабль (после клика «Найти меня»): без
+    // смещения к цели; сбрасывается при ручном пане/зуме пользователя.
+    followExact: false,
+    // followDirty — пользователь панировал/зумил (запрос создателя «слежение
+    // невозможно отключить»): dead-zone держит корабль в зоне ±25% — эвристика
+    // «корабль у центра» (offCenter) почти всегда false → выключение не
+    // срабатывало. Теперь: клик при followDirty → центр на корабль; клик без
+    // followDirty (пользователь не трогал вид) → выключить слежение.
+    followDirty: false,
+// arrivalObject — объект прибытия (запрос создателя 99.2.27): после прилёта
+// камера мягко центрирует на него и стоит (планета медленно орбитирует —
+// камера отслеживает); ручной пан/зум сбрасывает — камера свободна.
+arrivalObject: null,
     isDragging: false,
     dragStartX: 0,
     dragStartY: 0,
@@ -38,7 +60,20 @@ export const modalState = {
     authToken: null, // токен открытия модалки (админка); refreshPlanets использует его
     hasEngine: true, // установлен ли двигатель игрока (спека 91a §6.1): без него
                      // «Перелететь» из модалки блокируется; true = админка/не загружено
+    // Внутрисистемная позиция игрока (спека 99.2.27 §4.4): my_position из
+    // /api/worlds/{id}/planets; null = игрок не в этой системе. При активном
+    // внутрисистемном полёте — {status:'in_flight', from, to, start_time, arrive_at}.
+    myPosition: null,
+    companionId: null,   // синтетический id компаньона (companion:<world>, §3.1)
+    systemPlayers: [],   // чужие игроки в этой системе (опрос 5 с, §5.4): {id, username, status, object_type, object_id, ...}
+    shipIcon: '',        // спрайт игрока для маркера «я здесь»/корабля в полёте (спека 99.2.27 §5.8/§5.11)
+    shipColor: null,     // цвет перекраски спрайта (NULL = «Оригинал»)
+    // Активный межзвёздный полёт из /me (запрос создателя): my_position = null
+    // вне системы — надёжный признак; кнопка «Найти меня» в модалке при
+    // межзвёздном полёте закрывает модалку и ведёт себя как кнопка карты.
+    interstellarFlight: null,
     _rafId: null,
+    _playersTimer: null, // id setInterval опроса чужих игроков в системе (спека 99.2.27 §5.4)
     dragMoved: false,
     suppressNextClick: false,
     activeTab: 'general', // текущая вкладка карточки планеты, чтобы «Обновить» не сбрасывал на «Общее»
@@ -51,6 +86,12 @@ export function resetState() {
     modalState.zoom = 1;
     modalState.offsetX = 0;
     modalState.offsetY = 0;
+    modalState.followOffsetX = 0;
+    modalState.followOffsetY = 0;
+    modalState.followEnabled = true;
+    modalState.followExact = false;
+    modalState.followDirty = false;
+    modalState.arrivalObject = null;
     modalState.isDragging = false;
     modalState.hoveredObject = null;
     modalState.selectedObject = null;
@@ -60,6 +101,12 @@ export function resetState() {
     modalState.activeTab = 'general';
     modalState.authToken = null;
     modalState.restricted = false;
+    modalState.myPosition = null;
+    modalState.companionId = null;
+    modalState.systemPlayers = [];
+    modalState.shipIcon = '';
+    modalState.shipColor = null;
+    modalState.interstellarFlight = null;
     modalState.previousPopulation = {};
     modalState.previousSettlementPop = {};
     if (modalState._rafId !== null) {
@@ -69,5 +116,9 @@ export function resetState() {
     if (modalState.autoRefreshTimer !== null) {
         clearInterval(modalState.autoRefreshTimer);
         modalState.autoRefreshTimer = null;
+    }
+    if (modalState._playersTimer !== null) {
+        clearInterval(modalState._playersTimer);
+        modalState._playersTimer = null;
     }
 }

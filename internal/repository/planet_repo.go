@@ -100,6 +100,73 @@ func (r *PlanetRepository) GetPlanetByID(id string) (*models.Planet, error) {
 	return &planets[0], nil
 }
 
+// GetPlanetsLightByWorldID — планеты системы БЕЗ поселений (спека 99.2.27
+// §3.4): валидация цели внутрисистемного полёта + радиус орбиты. Лёгкий
+// вариант GetPlanetsByWorldID — без attachSettlements (пересчёт населения
+// для полёта не нужен и дорог).
+func (r *PlanetRepository) GetPlanetsLightByWorldID(worldID string) ([]models.Planet, error) {
+	query := `
+		SELECT id, world_id, name, orbit_index, data, created_at, updated_at
+		FROM planets
+		WHERE world_id = $1
+		ORDER BY orbit_index ASC
+	`
+	rows, err := r.db.Query(query, worldID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query planets: %w", err)
+	}
+	defer rows.Close()
+
+	var planets []models.Planet
+	for rows.Next() {
+		var p models.Planet
+		var dataJSON []byte
+		if err := rows.Scan(
+			&p.ID, &p.WorldID, &p.Name, &p.OrbitIndex,
+			&dataJSON, &p.CreatedAt, &p.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan planet: %w", err)
+		}
+		var data map[string]interface{}
+		if err := json.Unmarshal(dataJSON, &data); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal planet data: %w", err)
+		}
+		populatePlanetFromJSON(&p, data)
+		planets = append(planets, p)
+	}
+	return planets, rows.Err()
+}
+
+// FindPlanetBySatellite — родительская планета спутника (спека 99.2.27 §3.6):
+// спутник живёт в planets.data.satellites (UUID, models.PlanetSatellite.ID).
+// Не найдена — (nil, nil).
+func (r *PlanetRepository) FindPlanetBySatellite(worldID, satelliteID string) (*models.Planet, error) {
+	query := `
+		SELECT id, world_id, name, orbit_index, data, created_at, updated_at
+		FROM planets
+		WHERE world_id = $1
+		  AND EXISTS (SELECT 1 FROM jsonb_array_elements(data->'satellites') sat WHERE sat->>'id' = $2)
+	`
+	var p models.Planet
+	var dataJSON []byte
+	err := r.db.QueryRow(query, worldID, satelliteID).Scan(
+		&p.ID, &p.WorldID, &p.Name, &p.OrbitIndex,
+		&dataJSON, &p.CreatedAt, &p.UpdatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to query planet by satellite: %w", err)
+	}
+	var data map[string]interface{}
+	if err := json.Unmarshal(dataJSON, &data); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal planet data: %w", err)
+	}
+	populatePlanetFromJSON(&p, data)
+	return &p, nil
+}
+
 // attachSettlements — подтягивает поселения планет, пересчитывает их
 // население от среды на текущий момент (docs/gamedesign/18a_population_death.md
 // — открытие карточки планеты игроком триггерит ленивый пересчёт,

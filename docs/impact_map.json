@@ -1,7 +1,7 @@
-﻿{
+{
   "_comment": "Реестр каскадных влияний Zorion. Вопрос: «меняем X → смотрим на Y». Ведёт @manager при сдаче фич (идея 83a): дедупликация по entity.id, schema_version растёт только при изменении структуры, updated_at — дата правки. Сущность заводится при ≥2 потребителях или ≥2 влияниях.",
   "schema_version": 1,
-  "updated_at": "2026-09-18",
+  "updated_at": "2026-09-19",
   "entities": [
     {
       "id": "races.json",
@@ -333,6 +333,20 @@
         { "on": "internal/handlers/auth_handlers.go", "kind": "reads", "reason": "/me отдаёт flight из GetFlight; после Restore восстановленный полёт виден (42a)" },
         { "on": "docs/specs/20a.1-npc-agents-v1.md", "kind": "docs", "reason": "эталон-паттерн: NPC-полёты переживают рестарт через абсолютный arrive_at (§3.1 «Отказной режим»)" },
         { "on": "migrations/000044_create_player_flights.sql", "kind": "duplicates", "reason": "схема таблицы — в миграции и здесь" }
+      ]
+    },
+    {
+      "id": "goods_data/*",
+      "type": "data",
+      "path": "goods_data/ (top_catalog.json, trees_t8.json; вне git)",
+      "note": "Каталог топ-товаров (100 верхушек) + 2 полных дерева Т8 («Гелиос», «Кремний-9»), идея 2026-09-19: 465 узлов, 183 имени, 70 ресурсов из каталогов, пул 21; затравка для студии товаров 99a",
+      "impacts": [
+        { "on": "cmd/goods-studio (99a)", "kind": "writes", "reason": "ввод узлов деревьев как одна сеть из 263 узлов, база один раз; верхушки дублируют каталог 100 намеренно" },
+        { "on": "internal/resource/layer.go / real.go", "kind": "reads", "reason": "листья-ресурсы read-only, 70 имён дословно из каталогов; валидатор студии «каких ресурсов нет» (99a.1 §8)" },
+        { "on": "docs/gamedesign/05_economy.md", "kind": "reads", "reason": "§5.2.1 категории (13) и метод «товар существует, если есть потребитель»; §5.2.5 мегапроекты — сток качества" },
+        { "on": "docs/gamedesign/13_settlements.md", "kind": "reads", "reason": "§13.10.1 корзина верхних тиров поселений; §13.9.6 автозаводы — потоковый спрос на сложные детали" },
+        { "on": "docs/gamedesign/11_contracts.md", "kind": "reads", "reason": "§11.3.1 контрактные окна качества 70/85 — целевые пороги топ-товаров" },
+        { "on": "docs/gamedesign/17_decay.md", "kind": "reads", "reason": "§17.5.1 кризисы — всплесковый спрос (медикаменты, топливо, оружие/броня)" }
       ]
     }
   ]

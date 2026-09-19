@@ -71,6 +71,15 @@ type ResourceView struct {
 	Kind       string `json:"kind"`
 }
 
+// RealResourceRow — real-ресурс витрины 94a из БД (спека iterB §5.3):
+// goods kind=resource с props ? 'family' + code категории (джойн).
+type RealResourceRow struct {
+	ID       int64
+	Name     string
+	Category string // code из categories.code
+	Props    []byte // props JSONB (русские ключи осей)
+}
+
 // BulkCreated/BulkSkipped/BulkError/BulkReport — отчёт подгрузки списка
 // (99a.3 §9.2, спека iterA §7): created/skipped/errors, 1-based номера строк.
 type BulkCreated struct {
@@ -171,6 +180,32 @@ func (r *GoodsRepository) Resources() ([]ResourceView, error) {
 			return nil, err
 		}
 		v.Kind = "resource"
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+// RealResources — real-ресурсы витрины 94a (спека iterB §5.3): источник —
+// БД (С1), не real.go. Признак real-ресурса — props ? 'family'
+// (JSONB-оператор наличия ключа); категория — code из categories.code.
+func (r *GoodsRepository) RealResources() ([]RealResourceRow, error) {
+	rows, err := r.db.Query(
+		`SELECT g.id, g.name, c.code, g.props
+		 FROM goods g
+		 JOIN categories c ON c.id = g.category_id
+		 WHERE g.kind = 'resource' AND g.props ? 'family'
+		 ORDER BY g.id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []RealResourceRow
+	for rows.Next() {
+		var v RealResourceRow
+		if err := rows.Scan(&v.ID, &v.Name, &v.Category, &v.Props); err != nil {
+			return nil, err
+		}
 		out = append(out, v)
 	}
 	return out, rows.Err()

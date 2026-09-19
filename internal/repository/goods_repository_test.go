@@ -522,6 +522,29 @@ func TestSnapshot(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+// TestRealResources — real-ресурсы витрины 94a из БД (спека iterB §5.3):
+// goods kind=resource с props ? 'family' (JSONB-оператор наличия ключа) +
+// code категории (джойн по category_id). Источник витрины — БД (С1).
+func TestRealResources(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectQuery(`SELECT g\.id, g\.name, c\.code, g\.props FROM goods g JOIN categories c ON c\.id = g\.category_id WHERE g\.kind = 'resource' AND g\.props \? 'family' ORDER BY g\.id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "code", "props"}).
+			AddRow(int64(21), "Железо Fe", "mineral", `{"твёрдость":50,"family":"Металлы","t_melt_k":1811,"t_boil_k":3134}`).
+			AddRow(int64(22), "Вода H₂O", "water", `{"плотность":35,"family":"Вода и растворы","t_melt_k":273,"t_boil_k":373}`))
+
+	rows, err := NewGoodsRepository(db).RealResources()
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+	require.Equal(t, int64(21), rows[0].ID)
+	require.Equal(t, "Железо Fe", rows[0].Name)
+	require.Equal(t, "mineral", rows[0].Category, "category — code из categories.code")
+	require.Contains(t, string(rows[0].Props), "family")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 // TestResources — палитра: ресурсы, не banned.
 func TestResources(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))

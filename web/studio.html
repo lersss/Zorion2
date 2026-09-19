@@ -107,6 +107,14 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
   #modal .pline{font-size:12px;color:#ddd;padding:3px 6px;border-radius:4px;cursor:pointer}
   #modal .pline:hover{background:#242424;color:#8cf}
  #modal .mbtns{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
+  /* оверлей логина (спека iterB §4.1): инлайн-копия паттерна админки, стиль студии */
+  #studioLoginOverlay{position:fixed;inset:0;background:#111f;z-index:40;display:none;align-items:center;justify-content:center}
+  #studioLoginOverlay .login-card{background:#1c1c1c;border:1px solid #444;border-radius:10px;padding:20px;width:340px;box-sizing:border-box;box-shadow:0 8px 32px #000c}
+  #studioLoginOverlay h2{margin:0 0 4px;font-size:16px;color:#fff}
+  #studioLoginOverlay p{color:#888;font-size:12px;margin:0 0 12px}
+  #studioLoginOverlay input{width:100%;box-sizing:border-box;background:#222;border:1px solid #444;color:#ddd;padding:6px;border-radius:6px;margin-bottom:8px}
+  #studioLoginOverlay button{width:100%}
+  #studioLoginError{color:#f66;font-size:12px;margin-top:8px;min-height:16px}
   /* 99a.3: попап-деталь, справочник, режимы канваса */
   #detailOverlay{position:absolute;left:0;top:0;right:320px;bottom:0;background:#000a;z-index:10;display:none}
   #detailOverlay.expanded{right:0} /* панель свёрнута — подложка попапа на всю ширину канваса */
@@ -164,10 +172,7 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
       <label style="font-size:12px"><input type="checkbox" id="reverseEdges"> обратные рёбра</label>
       <button id="btnTop" title="Показать верхний тир (товары-верхушки)">⟲ на верхний тир</button>
     </div>
-    <div class="tool-seg" id="segActions">
-      <button class="warn" id="btnExport" title="Экспорт только согласованных в export.json">Экспорт</button>
-      <button class="warn" id="btnImport" title="Импорт каталога (top_catalog.json или деревья Т8 trees_t8.json): полная замена товаров студии (ресурсы не тронуты)">Импорт</button>
-    </div>
+    <!-- #segActions (Экспорт/Импорт) скрыт: итерация C (спека iterB §4.6) -->
   </div>
   <div class="head-row head-secondary">
     <button class="tool-seg" id="btnCatOpen" title="Управление категориями (создание/переименование/удаление)">Категории</button>
@@ -189,6 +194,11 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
         <input id="spravNewName" type="text" placeholder="имя товара">
         <select id="spravNewCat"></select>
         <button class="gen" id="btnSpravAdd">+ товар</button>
+      </div>
+      <div class="addrow">
+        <input id="spravNewResName" type="text" placeholder="имя ресурса">
+        <select id="spravNewResCat"></select>
+        <button class="gen" id="btnSpravAddRes">+ ресурс</button>
       </div>
       <button id="bulkToggle">▾ подгрузка списка</button>
       <div id="bulkBlock" style="display:none">
@@ -231,10 +241,22 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
 <div id="report"></div>
 <div id="ctxMenu"></div>
 <div id="modalOverlay"><div id="modal"><div id="modalBody"></div><div id="modalBtns"></div></div></div>
+<!-- Оверлей логина (спека iterB §4.1): общий токен с админкой (localStorage adminToken),
+     вход — POST /login; роли admin/skycomposer (player → «Недостаточно прав»). -->
+<div id="studioLoginOverlay">
+  <div class="login-card">
+    <h2>🔐 Вход в студию товаров</h2>
+    <p>Войдите под учёткой с ролью администратора или skycomposer.</p>
+    <input type="text" id="studioLoginUsername" placeholder="Логин">
+    <input type="password" id="studioLoginPassword" placeholder="Пароль" onkeydown="if (event.key === 'Enter') studioLogin()">
+    <button class="gen" onclick="studioLogin()">Войти</button>
+    <div id="studioLoginError"></div>
+  </div>
+</div>
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
-let state = {categories:[], goods:[], banned:[], unused:[], warnings:[], model:"", generating:false, report:[]};
+let state = {categories:[], goods:[], banned:[], unused:[], warnings:[], model:"", generating:false};
 let selected = null;
 let popupGoodId = null; // товар попапа-детали, отдельно от selected (99a.3 §10.3, вердикт критика С1)
 let tierSel = new Set(); // выбранные тиры-пилюли справочника; пусто = фильтр выключен = все тиры (99a.3-ui §5.3)
@@ -243,11 +265,91 @@ let panX = parseFloat(localStorage.getItem("gs_panX") || "0");
 let panY = parseFloat(localStorage.getItem("gs_panY") || "0");
 let lastGoodsJSON = "";
 let lastCatsJSON = ""; // категории тоже перерисовывают UI (попап категорий, селекты)
-let lastShownReport = "";
 let dragging = null; // {goodId, name}
-let loading = true;  // первичный /api/state ещё не пришёл
+let loading = true;  // первичный /studio/api/state ещё не пришёл
 let offline = false; // сеть потеряна (повтор идёт)
 let pendingCatFilter = localStorage.getItem("gs_catFilter") || "";
+
+// ---------- авторизация (спека iterB §4.1): инлайн-копия паттерна админки auth.js ----------
+// Общий токен с админкой: localStorage['adminToken']; вход — POST /login;
+// роли admin/skycomposer (player → «Недостаточно прав»).
+const ADMIN_ROLES = ['admin', 'skycomposer'];
+let studioToken = localStorage.getItem('adminToken') || '';
+
+function showStudioLogin(msg) {
+  $("studioLoginError").textContent = msg || "";
+  $("studioLoginOverlay").style.display = "flex";
+  $("studioLoginPassword").value = "";
+  setTimeout(() => $("studioLoginUsername").focus(), 0);
+}
+function hideStudioLogin() { $("studioLoginOverlay").style.display = "none"; }
+
+// ensureStudioAuth — проверка токена и роли на старте (паттерн ensureAdminAuth):
+// нет токена / 401 / роль player → оверлей логина. Сервер всё равно проверяет
+// роль на каждой /studio/api/* ручке — это UX, не защита.
+async function ensureStudioAuth() {
+  if (!studioToken) { showStudioLogin(); return false; }
+  try {
+    const res = await fetch("/me", { headers: { Authorization: "Bearer " + studioToken } });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const me = await res.json();
+    if (!ADMIN_ROLES.includes(me.role)) {
+      showStudioLogin("Недостаточно прав: нужна роль администратора");
+      return false;
+    }
+    hideStudioLogin();
+    return true;
+  } catch (e) {
+    studioToken = "";
+    localStorage.removeItem("adminToken");
+    showStudioLogin();
+    return false;
+  }
+}
+
+// studioLogin — вход из оверлея (паттерн adminLogin).
+async function studioLogin() {
+  const username = $("studioLoginUsername").value.trim();
+  const password = $("studioLoginPassword").value;
+  if (!username || !password) { $("studioLoginError").textContent = "Введите логин и пароль"; return; }
+  $("studioLoginError").textContent = "";
+  try {
+    const res = await fetch("/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password })
+    });
+    if (!res.ok) { $("studioLoginError").textContent = "Неверный логин или пароль"; return; }
+    const data = await res.json();
+    if (!ADMIN_ROLES.includes(data.user.role)) {
+      $("studioLoginError").textContent = "Недостаточно прав: нужна роль администратора";
+      return;
+    }
+    studioToken = data.token;
+    localStorage.setItem("adminToken", studioToken);
+    hideStudioLogin();
+    start();
+  } catch (e) {
+    $("studioLoginError").textContent = "Ошибка соединения с сервером";
+  }
+}
+
+// studioFetch — fetch с Bearer (паттерн fetchWithAuth); 401 — сброс токена,
+// оверлей + тост «Сессия истекла».
+async function studioFetch(url, options) {
+  const opts = options || {};
+  const headers = opts.headers || {};
+  headers["Authorization"] = "Bearer " + studioToken;
+  const res = await fetch(url, Object.assign({}, opts, { headers }));
+  if (res.status === 401) {
+    studioToken = "";
+    localStorage.removeItem("adminToken");
+    showStudioLogin();
+    showReport(["Сессия истекла — войдите снова"]);
+    throw new Error("Unauthorized");
+  }
+  return res;
+}
 
 const canvas = $("graph");
 const ctx = canvas.getContext("2d");
@@ -257,32 +359,27 @@ let dropTarget = null; // {goodId, slotIndex} — подсветка слота 
 // ---------- состояние ----------
 async function fetchState() {
   try {
-    const r = await fetch("/api/state");
+    const r = await studioFetch("/studio/api/state");
     if (!r.ok) return;
     state = await r.json();
     state.banned = state.banned || []; // сервер шлёт nil-слайс при 0 забаненных (BUG-1)
     loading = false;
     offline = false;
-    $("modelInfo").textContent = "Модель ИИ: " + (state.model || "не задана (studio.json)");
+    $("modelInfo").textContent = "Модель ИИ: — (итерация C)";
     $("genIndicator").textContent = state.generating ? "⚙ генерация… (" + (state.model || "модель не задана") + ")" : "";
-    // отчёт — один раз, по изменению содержимого (не мигает при опросах)
-    if (state.report && state.report.length) {
-      const key = JSON.stringify(state.report);
-      if (key !== lastShownReport) { lastShownReport = key; showReport(state.report); }
-    } else {
-      lastShownReport = "";
-    }
-    if (!window.__refreshStarted && state.auto_refresh_ms) {
+    // авто-обновление: сервер шлёт auto_refresh_ms=0 — клиентский дефолт 3000 (С1)
+    if (!window.__refreshStarted) {
       window.__refreshStarted = true;
-      setInterval(fetchState, state.auto_refresh_ms);
+      setInterval(fetchState, state.auto_refresh_ms || 3000);
     }
     const gj = JSON.stringify(state.goods);
     const cj = JSON.stringify(state.categories);
     if (gj !== lastGoodsJSON || cj !== lastCatsJSON) { lastGoodsJSON = gj; lastCatsJSON = cj; renderAll(); }
     updateOverlays();
   } catch (e) {
+    if (e && e.message === "Unauthorized") return; // 401 — оверлей показан, ретрай не нужен
     offline = true;
-    if (!window.__refreshStarted) { // повтор и при сбое первого /api/state (BUG-3)
+    if (!window.__refreshStarted) { // повтор и при сбое первого /studio/api/state (BUG-3)
       window.__refreshStarted = true;
       setInterval(fetchState, (state && state.auto_refresh_ms) || 3000);
     }
@@ -331,7 +428,7 @@ function visibleGoods() {
   return state.goods.filter(g => {
     if (g.status === "banned" && !$("showBanned").checked) return false;
     if (g.kind === "resource" && !showRes) return false; // ресурсы скрыты по умолчанию
-    if (cat && g.category !== cat && g.kind !== "resource") return false;
+    if (cat && String(g.category_id) !== cat && g.kind !== "resource") return false;
     if (q && !g.name.toLowerCase().includes(q)) return false;
     return true;
   });
@@ -528,7 +625,7 @@ function renderGraph() {
     ctx.fillText(trunc(g.name, 26), x + 8, y + 18);
     ctx.fillStyle = dim ? "#888" : "#bbb";
     ctx.font = "10px Arial";
-    ctx.fillText(catName(g.category), x + 8, y + 32);
+    ctx.fillText(catName(g.category_id), x + 8, y + 32);
     // бейджи: тир — эффективный из серверного поля (99a.3 §9.3, М5)
     const badges = [];
     badges.push({t: "тир " + g.tier, c: "#5a5a5a"});
@@ -583,10 +680,10 @@ function catName(id) {
   return c ? c.name : id;
 }
 function statusLabel(s) {
-  return {approved:"✓ согласовано", draft:"🔨 черновик", excluded:"✗ исключено", banned:"⛔ бан", resource:"ресурс"}[s] || s;
+  return {approved:"✓ согласовано", draft:"🔨 черновик", excluded:"✗ исключено", banned:"⛔ бан"}[s] || s;
 }
 function statusColor(s) {
-  return {approved:"#2a7", draft:"#a62", excluded:"#a33", banned:"#555", resource:"#26a"}[s] || "#444";
+  return {approved:"#2a7", draft:"#a62", excluded:"#a33", banned:"#555"}[s] || "#444";
 }
 
 // ---------- тултип карточки ----------
@@ -594,7 +691,7 @@ function showTip(ev, id) {
   const g = state.goods.find(x => x.id === id);
   if (!g) return;
   const tip = $("tip");
-  tip.innerHTML = '<b>' + esc(g.name) + '</b><br>' + esc(catName(g.category)) +
+  tip.innerHTML = '<b>' + esc(g.name) + '</b><br>' + esc(catName(g.category_id)) +
                   ' · тир ' + g.tier + ' · ' + esc(statusLabel(g.status));
   const rect = canvas.getBoundingClientRect();
   let x = ev.clientX - rect.left + 14, y = ev.clientY - rect.top + 14;
@@ -732,23 +829,27 @@ function centerOn(id) {
   saveView(); renderGraph();
 }
 
-// ---------- контекстное меню (правый клик по карточке товара) ----------
+// ---------- контекстное меню (правый клик по карточке товара/ресурса) ----------
 let ctxGoodId = null;
 function showCtxMenu(ev, goodId) {
   const g = state.goods.find(x => x.id === goodId);
-  if (!g || g.kind === "resource") return; // ресурсы read-only — меню только для товаров
+  if (!g) return;
   ctxGoodId = goodId;
-  const items = [
-    {label: "заполнить комплектующие", fn: () => { selectGood(goodId); openPopup(goodId); fillGood(); }},
-    {label: "+ слот", fn: () => { selectGood(goodId); openPopup(goodId); addSlot(); }},
-    {label: "добавить родителя", fn: () => { selectGood(goodId); openPopup(goodId); askAddParent(); }},
-    {label: "Согласовать", fn: () => { selectGood(goodId); openPopup(goodId); setStatus("approved"); }},
-    {label: "Исключить", fn: () => { selectGood(goodId); openPopup(goodId); setStatus("excluded"); }},
-    {label: "Забанить", fn: () => { selectGood(goodId); openPopup(goodId); setStatus("banned"); }},
-    {label: "переименовать", fn: () => { selectGood(goodId); openPopup(goodId); startRename(); }},
-    {label: "удалить", fn: () => { selectGood(goodId); openPopup(goodId); askDeleteGood(); }},
-    {label: "открыть деталь", fn: () => { selectGood(goodId); openPopup(goodId); }},
-  ];
+  const items = [];
+  // «+ слот» — только товарам (ресурс — лист, §4.5); «заполнить комплектующие» — C
+  if (g.kind !== "resource") items.push({label: "+ слот", fn: () => { selectGood(goodId); openPopup(goodId); addSlot(); }});
+  items.push({label: "добавить родителя", fn: () => { selectGood(goodId); openPopup(goodId); askAddParent(); }});
+  // статусы — по состоянию (как в попапе, 922–925): забаненный — «Вернуть»
+  if (g.status === "banned") {
+    items.push({label: "Вернуть", fn: () => { selectGood(goodId); openPopup(goodId); setStatus("unban"); }});
+  } else {
+    if (g.status !== "approved") items.push({label: "Согласовать", fn: () => { selectGood(goodId); openPopup(goodId); setStatus("approved"); }});
+    if (g.status !== "excluded") items.push({label: "Исключить", fn: () => { selectGood(goodId); openPopup(goodId); setStatus("excluded"); }});
+    items.push({label: "Забанить", fn: () => { selectGood(goodId); openPopup(goodId); setStatus("banned"); }});
+  }
+  items.push({label: "переименовать", fn: () => { selectGood(goodId); openPopup(goodId); startRename(); }});
+  items.push({label: "удалить", fn: () => { selectGood(goodId); openPopup(goodId); askDeleteGood(); }});
+  items.push({label: "открыть деталь", fn: () => { selectGood(goodId); openPopup(goodId); }});
   const menu = $("ctxMenu");
   menu.innerHTML = items.map((it, i) => '<button data-i="' + i + '">' + esc(it.label) + '</button>').join("");
   menu.querySelectorAll("button").forEach(b => b.addEventListener("click", () => {
@@ -793,27 +894,46 @@ function showSpravCtxMenu(ev, id) {
 }
 // статус по id (для контекстного меню списка; setStatus остаётся для попапа по popupGoodId)
 async function setStatusFor(id, s) {
-  await api("POST", "/api/goods/" + id + "/status", {status: s});
+  await api("POST", "/studio/api/goods/" + id + "/status", {status: s});
   fetchState();
 }
-// удаление по id (для контекстного меню списка): модалка подтверждения → DELETE;
-// ресурс — сервер вернёт 403 read-only → тост текстом сервера (api показывает)
+// удаление по id (для контекстного меню списка): модалка 1 → (N>0) модалка 2
+// → DELETE → тост с фактическим K из ответа (спека iterB §4.7)
 function askDeleteGoodFor(id) {
   const g = state.goods.find(x => x.id === id);
   if (!g) return;
   const n = state.goods.reduce((acc, p) => acc + (p.recipe || []).filter(s => s.good_id === g.id).length, 0);
   openModal(
     '<h3>Удалить товар</h3>' +
-    '<div>Удалить товар «' + esc(g.name) + '»? Слоты, ссылающиеся на него (' + n + '), очистятся.</div>',
+    '<div>Удалить товар «' + esc(g.name) + '»?</div>',
     [
-      {label: "Удалить", cls: "del", primary: true, action: () => doDeleteGoodFor(id)},
+      {label: "Удалить", cls: "del", primary: true, action: () => confirmDeleteGoodFor(g, n)},
       {label: "Отмена", cls: "", action: closeModal}
     ]
   );
 }
+function confirmDeleteGoodFor(g, n) {
+  if (n > 0) {
+    openModal(
+      '<h3>Удалить товар</h3>' +
+      '<div>Слоты, ссылающиеся на него (' + n + '), очистятся — рецепты этих товаров будут испорчены. Удалить всё равно?</div>',
+      [
+        {label: "Удалить и очистить " + n + " ссылок", cls: "del", primary: true, action: () => doDeleteGoodFor(g.id)},
+        {label: "Отмена", cls: "", action: closeModal}
+      ]
+    );
+    return;
+  }
+  doDeleteGoodFor(g.id);
+}
 async function doDeleteGoodFor(id) {
   closeModal();
-  const r = await api("DELETE", "/api/goods/" + id);
+  const r = await api("DELETE", "/studio/api/goods/" + id);
+  if (r) {
+    const out = await r.json();
+    const k = out && out.cleared_links !== undefined ? out.cleared_links : 0;
+    showReport([(k > 0 ? "⚠ " : "") + "Удалено. Очищено ссылок: " + k]);
+  }
   if (selected === id) selected = null;
   if (popupGoodId === id) closePopup();
   if (r) fetchState();
@@ -870,64 +990,54 @@ function renderPopup() {
   $("popupTitle").textContent = g.name;
   const isRes = g.kind === "resource";
   let html = '';
-  // имя: клик — inline-переименование (ресурсы read-only)
-  if (isRes) {
-    html += '<div class="dname">' + esc(g.name) + '</div>';
-  } else {
-    html += '<div class="dname"><span class="rename" onclick="startRename()" title="переименовать">' + esc(g.name) + '</span></div>';
-  }
-  // категория: селект — смена (ресурсы read-only)
+  // имя: клик — inline-переименование (ресурсы без привилегий, спека iterB §4.5)
+  html += '<div class="dname"><span class="rename" onclick="startRename()" title="переименовать">' + esc(g.name) + '</span></div>';
+  // категория: селект — смена (товарные/ресурсные раздельно, §4.5)
   html += '<div class="dmeta">';
-  if (isRes) {
-    html += esc(catName(g.category)) + ' · тир 0 · ' + statusLabel(g.status);
-  } else {
-    html += '<select class="dcat" onchange="changeCategory(this.value)">' +
-      state.categories.map(c => '<option value="' + c.id + '"' + (c.id === g.category ? ' selected' : '') + '>' + esc(c.name) + '</option>').join("") +
-      '</select>';
-    // тир-оверрайд (99a.3 §10.4): пусто = вычисленный; ввод → PUT tier; очистка → null
-    const ov = (g.tier_override !== null && g.tier_override !== undefined) ? g.tier_override : "";
-    html += ' · тир: <input id="tierInput" type="number" min="0" style="width:56px" value="' + ov + '" onchange="setTier(this.value)" title="ручной тир (оверрайд); пусто = вычисляется"> (вычислен ' + g.tier_computed + ')';
-    if (ov !== "" && ov !== g.tier_computed) {
-      html += '<div class="tier-warn">⚠ отличается от вычисленного (' + g.tier_computed + ')</div>';
-    }
-    html += ' · ' + statusLabel(g.status) + (g.source === "ai" ? ' · ИИ' : g.source === "import" ? ' · импорт' : '');
+  html += '<select class="dcat" onchange="changeCategory(this.value)">' +
+    state.categories.filter(c => c.kind === (isRes ? "resource" : "good")).map(c => '<option value="' + c.id + '"' + (c.id === g.category_id ? ' selected' : '') + '>' + esc(c.name) + '</option>').join("") +
+    '</select>';
+  // тир-оверрайд (99a.3 §10.4; ресурсам — тоже, С3): пусто = вычисленный;
+  // ввод → PUT tier; очистка → null
+  const ov = (g.tier_override !== null && g.tier_override !== undefined) ? g.tier_override : "";
+  html += ' · тир: <input id="tierInput" type="number" min="0" style="width:56px" value="' + ov + '" onchange="setTier(this.value)" title="ручной тир (оверрайд); пусто = вычисляется"> (вычислен ' + g.tier_computed + ')';
+  if (ov !== "" && ov !== g.tier_computed) {
+    html += '<div class="tier-warn">⚠ отличается от вычисленного (' + g.tier_computed + ')</div>';
   }
+  html += ' · ' + statusLabel(g.status) + (g.source === "ai" ? ' · ИИ' : g.source === "import" ? ' · импорт' : '');
   html += '</div>';
-  // слоты: заполненный и пустой — оба drop-target (замена в одно действие);
-  // тир в заполненном слоте — эффективный из SlotView.Tier (99a.3 §9.3)
-  (g.recipe || []).forEach((s, i) => {
-    if (s.good_id) {
-      html += '<div class="slot" ondragover="slotDragOver(event,this)" ondragleave="slotDragLeave(this)" ondrop="dropOnSlot(event,' + i + ')">' +
-              '<button onclick="clearSlot(' + i + ')" title="исключить из рецепта" aria-label="исключить из рецепта">×</button>' +
-              '<button class="delslot" onclick="delSlot(' + i + ')" title="удалить слот целиком" aria-label="удалить слот">🗑</button>' +
-              '<span class="sname">' + esc(s.name || s.good_id) + '</span>' +
-              ' <span style="color:#777">тир ' + s.tier + '</span>' +
-              ' <span style="color:#999">×</span> <input type="number" min="1" style="width:52px" value="' + (s.quantity || 1) + '" onchange="setQuantity(' + i + ', this.value)" title="количество единиц составляющей">' +
-              (s.reason ? '<div class="sreason">' + esc(s.reason) + '</div>' : '') + '</div>';
-    } else {
-      html += '<div class="slot empty" ondragover="slotDragOver(event,this)" ondragleave="slotDragLeave(this)" ondrop="dropOnSlot(event,' + i + ')">' +
-              '<button class="delslot" onclick="delSlot(' + i + ')" title="удалить слот целиком" aria-label="удалить слот">🗑</button>' +
-              'пусто — перетащите сюда карточку' +
-              '<label class="allowres" title="С галкой ИИ может предложить для этого слота ресурс; без галки — только товары"><input type="checkbox" onchange="setAllowResource(' + i + ', this.checked)"' + (s.allow_resource ? ' checked' : '') + '> заполнять ресурсом</label></div>';
-    }
-  });
-  // кнопки (ресурсы — только бан/вернуть)
+  // слоты: только у товаров (ресурс — лист, слотов нет, §4.5); заполненный и
+  // пустой — оба drop-target (замена в одно действие); тир в заполненном
+  // слоте — эффективный из SlotView.Tier (99a.3 §9.3)
+  if (!isRes) {
+    (g.recipe || []).forEach((s, i) => {
+      if (s.good_id) {
+        html += '<div class="slot" ondragover="slotDragOver(event,this)" ondragleave="slotDragLeave(this)" ondrop="dropOnSlot(event,' + i + ')">' +
+                '<button onclick="clearSlot(' + i + ')" title="исключить из рецепта" aria-label="исключить из рецепта">×</button>' +
+                '<button class="delslot" onclick="delSlot(' + i + ')" title="удалить слот целиком" aria-label="удалить слот">🗑</button>' +
+                '<span class="sname">' + esc(s.name || s.good_id) + '</span>' +
+                ' <span style="color:#777">тир ' + s.tier + '</span>' +
+                ' <span style="color:#999">×</span> <input type="number" min="1" style="width:52px" value="' + (s.quantity || 1) + '" onchange="setQuantity(' + i + ', this.value)" title="количество единиц составляющей">' +
+                (s.reason ? '<div class="sreason">' + esc(s.reason) + '</div>' : '') + '</div>';
+      } else {
+        html += '<div class="slot empty" ondragover="slotDragOver(event,this)" ondragleave="slotDragLeave(this)" ondrop="dropOnSlot(event,' + i + ')">' +
+                '<button class="delslot" onclick="delSlot(' + i + ')" title="удалить слот целиком" aria-label="удалить слот">🗑</button>' +
+                'пусто — перетащите сюда карточку' +
+                '<label class="allowres" title="С галкой ИИ может предложить для этого слота ресурс; без галки — только товары"><input type="checkbox" onchange="setAllowResource(' + i + ', this.checked)"' + (s.allow_resource ? ' checked' : '') + '> заполнять ресурсом</label></div>';
+      }
+    });
+  }
+  // кнопки (ресурсы — без слотов/fill, но со всеми статусами и удалением, §4.5)
   html += '<div class="btns">';
   html += '<button onclick="askAddParent()" title="Добавить этот товар составляющей в рецепт другого товара (новый слот)">добавить родителя</button>';
   if (!isRes) {
-    const hasEmpty = (g.recipe || []).some(s => !s.good_id);
-    const fillDisabled = state.generating || !hasEmpty;
     html += '<button class="gen" onclick="addSlot()">+ слот</button>';
-    html += '<button class="gen" onclick="fillGood()"' + (fillDisabled ? ' disabled title="' + (state.generating ? "идёт генерация" : "Сначала добавьте слот («+ слот»)") + '"' : '') + '>заполнить комплектующие</button>';
-    if (g.status !== "approved") html += '<button class="ok" onclick="setStatus(\'approved\')">Согласовать</button>';
-    if (g.status !== "excluded") html += '<button class="del" onclick="setStatus(\'excluded\')">Исключить</button>';
-    if (g.status !== "banned") html += '<button class="del" onclick="setStatus(\'banned\')">Забанить</button>';
-    if (g.status === "banned") html += '<button class="ok" onclick="setStatus(\'unban\')">Вернуть</button>';
-    html += '<button class="del" onclick="askDeleteGood()">удалить</button>';
-  } else {
-    if (g.status !== "banned") html += '<button class="del" onclick="setStatus(\'banned\')">Забанить</button>';
-    if (g.status === "banned") html += '<button class="ok" onclick="setStatus(\'unban\')">Вернуть</button>';
   }
+  if (g.status !== "approved") html += '<button class="ok" onclick="setStatus(\'approved\')">Согласовать</button>';
+  if (g.status !== "excluded") html += '<button class="del" onclick="setStatus(\'excluded\')">Исключить</button>';
+  if (g.status !== "banned") html += '<button class="del" onclick="setStatus(\'banned\')">Забанить</button>';
+  if (g.status === "banned") html += '<button class="ok" onclick="setStatus(\'unban\')">Вернуть</button>';
+  html += '<button class="del" onclick="askDeleteGood()">удалить</button>';
   html += '</div>';
   // «Используется в:» — клик по родителю = выбор родителя + попап на нём (99a.3 §10.3)
   const parents = state.goods.filter(p => (p.recipe || []).some(s => s.good_id === g.id));
@@ -949,7 +1059,7 @@ function openParent(id) {
 function selectGood(id) { selected = id; renderAll(); }
 function startRename() {
   const g = state.goods.find(x => x.id === popupGoodId);
-  if (!g || g.kind === "resource") return;
+  if (!g) return;
   const el = $("popupBody").querySelector(".dname");
   el.innerHTML = '<input id="renameInput" type="text" value="' + esc(g.name) + '" style="width:100%;box-sizing:border-box">';
   const inp = $("renameInput");
@@ -965,15 +1075,20 @@ async function commitRename() {
   if (!inp) return;
   const name = inp.value.trim();
   if (!name) { renderPopup(); return; }
-  const r = await api("PUT", "/api/goods/" + popupGoodId, {name});
+  const r = await api("PUT", "/studio/api/goods/" + popupGoodId, {name});
   if (r) fetchState(); else renderPopup();
 }
 async function changeCategory(catId) {
-  const r = await api("PUT", "/api/goods/" + popupGoodId, {category_id: catId});
+  const r = await api("PUT", "/studio/api/goods/" + popupGoodId, {category_id: Number(catId)});
   if (r) fetchState();
 }
 async function api(method, url, body) {
-  const r = await fetch(url, {method, headers: {"Content-Type": "application/json"}, body: body ? JSON.stringify(body) : undefined});
+  let r;
+  try {
+    r = await studioFetch(url, {method, headers: {"Content-Type": "application/json"}, body: body ? JSON.stringify(body) : undefined});
+  } catch (e) {
+    return null; // 401 — оверлей уже показан (studioFetch)
+  }
   if (!r.ok) {
     let msg = "ошибка " + r.status;
     try { const e = await r.json(); if (e.error) msg = e.error; } catch (e) {}
@@ -982,11 +1097,11 @@ async function api(method, url, body) {
   }
   return r;
 }
-async function addSlot() { await api("POST", "/api/goods/" + popupGoodId + "/slots"); fetchState(); }
-async function clearSlot(i) { await api("DELETE", "/api/goods/" + popupGoodId + "/slots/" + i + "/component"); fetchState(); }
-async function delSlot(i) { await api("DELETE", "/api/goods/" + popupGoodId + "/slots/" + i); fetchState(); }
+async function addSlot() { await api("POST", "/studio/api/goods/" + popupGoodId + "/slots"); fetchState(); }
+async function clearSlot(i) { await api("DELETE", "/studio/api/goods/" + popupGoodId + "/slots/" + i + "/component"); fetchState(); }
+async function delSlot(i) { await api("DELETE", "/studio/api/goods/" + popupGoodId + "/slots/" + i); fetchState(); }
 async function setAllowResource(i, checked) {
-  const r = await api("PUT", "/api/goods/" + popupGoodId + "/slots/" + i + "/allow_resource", {allow_resource: checked});
+  const r = await api("PUT", "/studio/api/goods/" + popupGoodId + "/slots/" + i + "/allow_resource", {allow_resource: checked});
   if (r) fetchState();
 }
 // количество единиц составляющей в слоте (99a.2 §6.5): change → PUT {quantity};
@@ -994,25 +1109,15 @@ async function setAllowResource(i, checked) {
 async function setQuantity(i, val) {
   const q = parseInt(val, 10);
   if (!q || q < 1) { renderPopup(); return; }
-  const r = await api("PUT", "/api/goods/" + popupGoodId + "/slots/" + i, {quantity: q});
+  const r = await api("PUT", "/studio/api/goods/" + popupGoodId + "/slots/" + i, {quantity: q});
   if (r) fetchState(); else renderPopup();
 }
-async function setStatus(s) { await api("POST", "/api/goods/" + popupGoodId + "/status", {status: s}); fetchState(); }
-async function fillGood() {
-  const g = state.goods.find(x => x.id === popupGoodId);
-  if (g && !(g.recipe || []).some(s => !s.good_id)) {
-    showReport(["Сначала добавьте слот («+ слот»)"]);
-    return;
-  }
-  const r = await api("POST", "/api/goods/" + popupGoodId + "/fill");
-  if (r) showReport(["Генерация запущена — карточки появятся в слотах"]);
-  fetchState();
-}
+async function setStatus(s) { await api("POST", "/studio/api/goods/" + popupGoodId + "/status", {status: s}); fetchState(); }
 // тир-оверрайд (99a.3 §10.4): ввод числа → PUT {tier}; очистка → PUT {tier: null}
 async function setTier(val) {
   const v = String(val).trim();
   const body = v === "" ? {tier: null} : {tier: parseInt(v, 10)};
-  const r = await api("PUT", "/api/goods/" + popupGoodId + "/tier", body);
+  const r = await api("PUT", "/studio/api/goods/" + popupGoodId + "/tier", body);
   if (r) fetchState(); else renderPopup();
 }
 function slotDragOver(ev, el) { ev.preventDefault(); el.classList.add("drop-target"); }
@@ -1022,7 +1127,8 @@ async function dropOnSlot(ev, i) {
   ev.currentTarget.classList.remove("drop-target");
   const goodId = ev.dataTransfer.getData("text/plain");
   if (!goodId) return;
-  const r = await api("PUT", "/api/goods/" + popupGoodId + "/slots/" + i, {good_id: goodId});
+  // good_id — число (сервер парсит *int64; строка → 400, вердикт критика С2)
+  const r = await api("PUT", "/studio/api/goods/" + popupGoodId + "/slots/" + i, {good_id: Number(goodId)});
   if (r) fetchState();
 }
 
@@ -1053,16 +1159,39 @@ function askDeleteGood() {
   const n = state.goods.reduce((acc, p) => acc + (p.recipe || []).filter(s => s.good_id === g.id).length, 0);
   openModal(
     '<h3>Удалить товар</h3>' +
-    '<div>Удалить товар «' + esc(g.name) + '»? Слоты, ссылающиеся на него (' + n + '), очистятся.</div>',
+    '<div>Удалить товар «' + esc(g.name) + '»?</div>',
     [
-      {label: "Удалить", cls: "del", primary: true, action: doDeleteGood},
+      {label: "Удалить", cls: "del", primary: true, action: () => confirmDeleteGood(g, n)},
       {label: "Отмена", cls: "", action: closeModal}
     ]
   );
 }
+// второе подтверждение при N > 0 (спека iterB §4.7): слоты других товаров,
+// ссылающиеся на удаляемого, очистятся — рецепты будут испорчены
+function confirmDeleteGood(g, n) {
+  if (n > 0) {
+    openModal(
+      '<h3>Удалить товар</h3>' +
+      '<div>Слоты, ссылающиеся на него (' + n + '), очистятся — рецепты этих товаров будут испорчены. Удалить всё равно?</div>',
+      [
+        {label: "Удалить и очистить " + n + " ссылок", cls: "del", primary: true, action: doDeleteGood},
+        {label: "Отмена", cls: "", action: closeModal}
+      ]
+    );
+    return;
+  }
+  doDeleteGood();
+}
 async function doDeleteGood() {
   closeModal();
-  const r = await api("DELETE", "/api/goods/" + popupGoodId);
+  const r = await api("DELETE", "/studio/api/goods/" + popupGoodId);
+  if (r) {
+    // фактический счётчик — из ответа (источник правды; K может отличаться
+    // от N при гонке/другой сессии между расчётом и ответом, §4.7)
+    const out = await r.json();
+    const k = out && out.cleared_links !== undefined ? out.cleared_links : 0;
+    showReport([(k > 0 ? "⚠ " : "") + "Удалено. Очищено ссылок: " + k]);
+  }
   if (selected === popupGoodId) selected = null; // удалённый был выбран — сброс (99a.3 §10.3, М3)
   closePopup();
   if (r) fetchState();
@@ -1082,20 +1211,24 @@ function askAddParent() {
     '<div style="font-size:12px;color:#999;margin-bottom:6px">«' + esc(g.name) + '» станет составляющей выбранного товара (новый слот).</div>' +
     '<div class="wlist">' + (candidates.length ? candidates.map(p =>
       '<div class="pline" onclick="addParent(\'' + p.id + '\')">' + esc(p.name) +
-      ' <span style="color:#777">· ' + esc(catName(p.category)) + ' · тир ' + p.tier + '</span></div>'
+      ' <span style="color:#777">· ' + esc(catName(p.category_id)) + ' · тир ' + p.tier + '</span></div>'
     ).join("") : '<div class="empty-note">нет товаров-кандидатов</div>') + '</div>';
   openModal(html, [{label: "Отмена", cls: "", action: closeModal}]);
 }
 async function addParent(parentId) {
   closeModal();
-  const r = await api("POST", "/api/goods/" + parentId + "/slots");
+  // Номер нового слота — из текущего состояния, НЕ из ответа POST: контракт
+  // iterA §7 возвращает {"id": id} без recipe (BUG-1, спека iterB §7.4);
+  // POST добавляет слот в конец (pos = MAX(pos)+1, репозиторий AddSlot).
+  const parent = state.goods.find(x => x.id === parentId);
+  if (!parent) return;
+  const n = parent.recipe.length;
+  const r = await api("POST", "/studio/api/goods/" + parentId + "/slots");
   if (!r) return;
-  const parent = await r.json();
-  const n = parent.recipe.length - 1;
-  const r2 = await api("PUT", "/api/goods/" + parentId + "/slots/" + n, {good_id: popupGoodId});
+  const r2 = await api("PUT", "/studio/api/goods/" + parentId + "/slots/" + n, {good_id: Number(popupGoodId)});
   if (!r2) {
     // откат: цикл 409 и т.п. — убрать только что добавленный пустой слот
-    await api("DELETE", "/api/goods/" + parentId + "/slots/" + n);
+    await api("DELETE", "/studio/api/goods/" + parentId + "/slots/" + n);
   }
   fetchState();
 }
@@ -1128,7 +1261,7 @@ function renderSprav() {
     '<label class="pill' + (allOn ? ' on' : '') + '" title="все тиры">' +
     '<input type="checkbox" style="display:none"' + (allOn ? ' checked' : '') + ' onchange="toggleAllTiers()">все</label>' +
     tiers.map(t =>
-      '<label class="pill' + (tierSel.has(t) ? ' on' : '') + '"' + (t === 0 ? ' title="тир 0 — ресурсы"' : '') + '>' +
+      '<label class="pill' + (tierSel.has(t) ? ' on' : '') + '"' + (t === 0 ? ' title="тир 0"' : '') + '>' +
       '<input type="checkbox" style="display:none"' + (tierSel.has(t) ? ' checked' : '') + ' onchange="toggleTier(' + t + ', this.checked)">' + t + '</label>'
     ).join("");
   const list = state.goods.filter(g => {
@@ -1142,7 +1275,7 @@ function renderSprav() {
     if (isBanned) { if (!fBanned) return false; }
     else if (isUsed) { if (!fUsed) return false; }
     else { if (!fUnused) return false; }
-    if (cat && g.category !== cat) return false;          // AND: фильтр по категории (сужает, не включает показ)
+    if (cat && String(g.category_id) !== cat) return false;          // AND: фильтр по категории (сужает, не включает показ)
     if (q && !g.name.toLowerCase().includes(q)) return false; // AND: поиск (сужает, не включает показ)
     return true;
   });
@@ -1150,7 +1283,7 @@ function renderSprav() {
   $("spravList").innerHTML = list.map(g =>
     '<div class="card' + (g.status === "banned" ? ' banned' : '') + '" draggable="true" ondragstart="dragStart(event,\'' + g.id + '\')" onclick="spravClick(\'' + g.id + '\')" ondblclick="spravDblClick(\'' + g.id + '\')" oncontextmenu="showSpravCtxMenu(event,\'' + g.id + '\');return false">' +
     '<div class="nm">' + esc(g.name) + '<button class="info" onclick="event.stopPropagation();openPopup(\'' + g.id + '\')" title="деталь (без смены выбора)">ⓘ</button></div>' +
-    '<div class="meta">' + esc(catName(g.category)) + ' · тир ' + g.tier + ' <span class="badge ' + badgeClass(g.status) + '">' + esc(statusLabel(g.status)) + '</span></div>' +
+    '<div class="meta">' + esc(catName(g.category_id)) + ' · тир ' + g.tier + ' <span class="badge ' + badgeClass(g.status) + '">' + esc(statusLabel(g.status)) + '</span></div>' +
     '</div>'
   ).join("") || '<div class="empty-note">' + (hasTier && hasFlag ? 'ничего не найдено' : 'ничего не выбрано — выберите тир и хотя бы одну галку') + '</div>';
   $("spravList").scrollTop = sc;
@@ -1177,7 +1310,7 @@ function saveTierSel() {
   localStorage.setItem("gs_tierSel", JSON.stringify([...tierSel]));
 }
 function badgeClass(s) {
-  return {approved:"b-approved", draft:"b-draft", excluded:"b-excluded", banned:"b-banned", resource:"b-resource"}[s] || "";
+  return {approved:"b-approved", draft:"b-draft", excluded:"b-excluded", banned:"b-banned"}[s] || "";
 }
 // клик по карточке = выбор на канвасе + подграф + авто-центрирование; попап НЕ открывается (99a.3 §8.3)
 function spravClick(id) {
@@ -1195,18 +1328,23 @@ function spravDblClick(id) {
 function dragStart(ev, id) { ev.dataTransfer.setData("text/plain", id); }
 
 // ---------- категории и товары ----------
+// Селекты разделены по kind (спека iterB §4.5): товарные — только
+// kind=good, ресурсные — только kind=resource (иначе POST → 400).
 function renderCatSelects() {
-  const opts = state.categories.map(c => '<option value="' + c.id + '">' + esc(c.name) + '</option>').join("");
+  const goodOpts = state.categories.filter(c => c.kind === "good").map(c => '<option value="' + c.id + '">' + esc(c.name) + '</option>').join("");
+  const resOpts = state.categories.filter(c => c.kind === "resource").map(c => '<option value="' + c.id + '">' + esc(c.name) + '</option>').join("");
   const cur = pendingCatFilter || $("catFilter").value;
-  $("catFilter").innerHTML = '<option value="">все категории</option>' + opts;
-  if (state.categories.some(c => c.id === cur)) $("catFilter").value = cur;
+  $("catFilter").innerHTML = '<option value="">все категории</option>' + goodOpts;
+  if (state.categories.some(c => String(c.id) === cur)) $("catFilter").value = cur;
   pendingCatFilter = "";
-  $("spravNewCat").innerHTML = opts;
+  $("spravNewCat").innerHTML = goodOpts;
+  $("spravNewResCat").innerHTML = resOpts;
+  $("btnSpravAddRes").disabled = !resOpts; // ресурсных категорий нет — «+ ресурс» недоступен
   // фильтр справочника по категории: сохранить текущий выбор при пересборке;
   // при старте опции ещё не заполнены — берём сохранённое из localStorage
   const sc = $("spravCat").value || localStorage.getItem("gs_spravCat") || "";
-  $("spravCat").innerHTML = '<option value="">все категории</option>' + opts;
-  if (state.categories.some(c => c.id === sc)) $("spravCat").value = sc;
+  $("spravCat").innerHTML = '<option value="">все категории</option>' + goodOpts;
+  if (state.categories.some(c => String(c.id) === sc)) $("spravCat").value = sc;
 }
 // ---------- попап категорий (99a.3-ui §14) ----------
 function openCatPopup() {
@@ -1218,19 +1356,21 @@ function closeCatPopup() {
   $("catPopup").style.display = "none";
   $("catOverlay").style.display = "none";
 }
-// список категорий: имя (dblclick/✏ = inline-rename) + счётчик товаров + корзина
+// список категорий: имя (dblclick/✏ = inline-rename) + счётчик по kind + корзина;
+// системные (is_system) — метка «системная», ✏/🗑 disabled (сервер 403, §4.5)
 function renderCatPopup() {
   const list = $("catList");
   if (!list) return;
   const counts = {};
-  state.goods.forEach(g => { if (g.kind === "good") counts[g.category] = (counts[g.category] || 0) + 1; });
+  state.goods.forEach(g => { counts[g.category_id] = (counts[g.category_id] || 0) + 1; });
   list.innerHTML = state.categories.map(c => {
     const n = counts[c.id] || 0;
+    const sys = c.is_system ? ' <span class="hint" title="системная категория — переименование/удаление запрещено">системная</span>' : '';
     return '<div class="cat-row">' +
-      '<button onclick="startCatRename(\'' + c.id + '\')" title="переименовать">✏</button>' +
-      '<span class="cname" ondblclick="startCatRename(\'' + c.id + '\')">' + esc(c.name) + '</span>' +
+      '<button onclick="startCatRename(\'' + c.id + '\')" title="переименовать"' + (c.is_system ? ' disabled' : '') + '>✏</button>' +
+      '<span class="cname" ondblclick="startCatRename(\'' + c.id + '\')">' + esc(c.name) + sys + '</span>' +
       '<span class="ccount">' + n + '</span>' +
-      '<button class="cat-del" onclick="askDeleteCategory(\'' + c.id + '\')"' + (n > 0 ? ' disabled title="сначала перекатегоризуйте товары (' + n + ')"' : ' title="удалить категорию"') + '>🗑</button>' +
+      '<button class="cat-del" onclick="askDeleteCategory(\'' + c.id + '\')"' + (c.is_system || n > 0 ? ' disabled title="' + (c.is_system ? "системная категория" : "сначала перекатегоризуйте товары (" + n + ")") + '"' : ' title="удалить категорию"') + '>🗑</button>' +
       '</div>';
   }).join("") || '<div class="empty-note">нет категорий</div>';
 }
@@ -1238,13 +1378,13 @@ function renderCatPopup() {
 async function addCategory() {
   const name = $("catNewName").value.trim();
   if (!name) return;
-  const r = await api("POST", "/api/categories", {name});
+  const r = await api("POST", "/studio/api/categories", {name});
   if (r) { $("catNewName").value = ""; fetchState(); }
 }
 // inline-переименование: двойной клик по имени / ✏ → input; Enter/Blur — PUT; Esc — отмена
 function startCatRename(id) {
   const c = state.categories.find(x => x.id === id);
-  if (!c) return;
+  if (!c || c.is_system) return; // системная — сервер 403, не предлагаем
   const row = [...document.querySelectorAll('#catList .cat-row')].find(r => r.querySelector('.cname') && r.querySelector('.cname').textContent === c.name);
   if (!row) return;
   const nameEl = row.querySelector('.cname');
@@ -1262,14 +1402,14 @@ async function commitCatRename(id) {
   if (!inp) return;
   const name = inp.value.trim();
   if (!name) { renderCatPopup(); return; }
-  const r = await api("PUT", "/api/categories/" + id, {name});
+  const r = await api("PUT", "/studio/api/categories/" + id, {name});
   if (r) fetchState(); else renderCatPopup(); // ошибка (409/400) — тост, имя возвращается
 }
-// удаление: пустая — модалка подтверждения; непустая — корзина disabled (счётчик)
+// удаление: пустая — модалка подтверждения; непустая/системная — корзина disabled (счётчик)
 function askDeleteCategory(id) {
   const c = state.categories.find(x => x.id === id);
-  if (!c) return;
-  const n = state.goods.filter(g => g.kind === "good" && g.category === id).length;
+  if (!c || c.is_system) return; // системная — сервер 403, не предлагаем
+  const n = state.goods.filter(g => g.category_id === id).length;
   if (n > 0) return; // корзина disabled — сюда не попадём
   openModal(
     '<h3>Удалить категорию</h3>' +
@@ -1282,7 +1422,7 @@ function askDeleteCategory(id) {
 }
 async function deleteCategory(id) {
   closeModal();
-  const r = await api("DELETE", "/api/categories/" + id);
+  const r = await api("DELETE", "/studio/api/categories/" + id);
   if (r) fetchState();
 }
 // «+ товар» в справочнике — единственный путь создания товара (addbar удалён
@@ -1291,17 +1431,31 @@ async function spravAddGood() {
   const name = $("spravNewName").value.trim();
   const cat = $("spravNewCat").value;
   if (!name || !cat) return;
-  const r = await api("POST", "/api/goods", {name, category_id: cat});
+  // category_id — число (строка → 400, спека iterB §4.3)
+  const r = await api("POST", "/studio/api/goods", {name, category_id: Number(cat)});
   if (!r) return;
   const g = await r.json();
   $("spravNewName").value = "";
   selected = g.id;
   fetchState();
 }
+// «+ ресурс» (спека iterB §4.5): ресурс без привилегий — создание через
+// справочник; категория — только ресурсная (иначе 400); слотов нет (лист)
+async function spravAddResource() {
+  const name = $("spravNewResName").value.trim();
+  const cat = $("spravNewResCat").value;
+  if (!name || !cat) return;
+  const r = await api("POST", "/studio/api/goods", {name, category_id: Number(cat), kind: "resource"});
+  if (!r) return;
+  const g = await r.json();
+  $("spravNewResName").value = "";
+  selected = g.id;
+  fetchState();
+}
 // подгрузка списка (99a.3 §8.5): POST /api/goods/bulk → тост-отчёт по строкам
 async function bulkCreate() {
   const lines = $("bulkText").value.split("\n");
-  const r = await api("POST", "/api/goods/bulk", {lines});
+  const r = await api("POST", "/studio/api/goods/bulk", {lines});
   if (!r) return;
   const out = await r.json();
   const lines2 = ["Создано " + (out.created || []).length + ", пропущено " + (out.skipped || []).length + ", ошибок " + (out.errors || []).length];
@@ -1309,66 +1463,6 @@ async function bulkCreate() {
   (out.errors || []).forEach(e => lines2.push("строка " + e.line + ": " + e.reason));
   showReport(lines2);
   $("bulkText").value = "";
-  fetchState();
-}
-async function doExport() {
-  if (state.warnings && state.warnings.length) {
-    openModal(
-      '<h3>Предупреждения перед экспортом</h3>' +
-      '<div class="wlist">' + state.warnings.map(w => '<div class="wline">⚠ ' + esc(w.message) + '</div>').join("") + '</div>' +
-      '<div style="margin-top:10px"><input id="exportPath" type="text" placeholder="goods_data/export.json" style="width:100%;box-sizing:border-box"></div>',
-      [
-        {label: "Экспортировать всё равно", cls: "warn", primary: true, action: () => runExport($("exportPath").value.trim())},
-        {label: "Отмена", cls: "", action: closeModal}
-      ]
-    );
-    return;
-  }
-  runExport("");
-}
-async function runExport(path) {
-  closeModal();
-  const r = await api("POST", "/api/export", {path});
-  if (!r) return;
-  const out = await r.json();
-  const lines = ["Экспорт записан: " + out.path];
-  (out.warnings || []).forEach(w => lines.push("⚠ " + w.message));
-  showReport(lines);
-}
-
-// ---------- импорт каталога (99a.2 §8 + деревья Т8) ----------
-// Кнопка «Импорт» → модалка подтверждения полной замены (ресурсы не
-// тронуты, бэкап state.json.bak) → POST /api/import → тост-отчёт.
-// Формат файла определяется сервером по schema_version: 1 — top-каталог,
-// 2 — деревья Т8 (goods_data/trees_t8.json — дефолтный путь).
-function askImport() {
-  const n = state.goods.filter(g => g.kind !== "resource").length;
-  openModal(
-    '<h3>Импорт каталога</h3>' +
-    '<div style="font-size:12px;color:#ddd;margin-bottom:8px">Файл заменит <b>все товары студии (' + n + ')</b> — черновики, согласованные, исключённые и забаненные будут снесены. Ресурсы не тронуты. Ручные правки после импорта будут потеряны при повторном импорте. Перед импортом создаётся бэкап <b>state.json.bak</b>.</div>' +
-    '<div style="font-size:12px;color:#999;margin-bottom:4px">Путь:</div>' +
-    '<input id="importPath" type="text" value="goods_data/trees_t8.json" style="width:100%;box-sizing:border-box">',
-    [
-      {label: "Импортировать", cls: "warn", primary: true, action: () => runImport($("importPath").value.trim())},
-      {label: "Отмена", cls: "", action: closeModal}
-    ]
-  );
-}
-async function runImport(path) {
-  closeModal();
-  const r = await api("POST", "/api/import", {path});
-  if (!r) return;
-  const out = await r.json();
-  const rep = out.report || {};
-  const lines = [];
-  if (rep.trees) {
-    // деревья Т8 (schema 2): деревьев/узлов/базы/снесено/категорий
-    lines.push("Импорт деревьев: " + rep.trees + ", +" + rep.imported + " узлов, база: −" + rep.base_deduplicated + " дублей, −" + rep.goods_removed + " снесено, категорий: " + rep.categories_created + ". Бэкап: " + (rep.backup || "—"));
-  } else {
-    lines.push("Импорт: +" + rep.imported + " товаров, +" + rep.components_created + " компонентов, −" + rep.goods_removed + " снесено, категорий: " + rep.categories_created + ". Бэкап: " + (rep.backup || "—"));
-  }
-  (rep.warnings || []).forEach(w => lines.push("⚠ " + w));
-  showReport(lines);
   fetchState();
 }
 
@@ -1463,10 +1557,10 @@ $("catNewName").addEventListener("keydown", ev => { if (ev.key === "Enter") addC
 $("catPopupClose").addEventListener("click", closeCatPopup);
 $("catOverlay").addEventListener("click", closeCatPopup);
 $("btnSpravAdd").addEventListener("click", spravAddGood);
-$("btnExport").addEventListener("click", doExport);
-$("btnImport").addEventListener("click", askImport);
+$("btnSpravAddRes").addEventListener("click", spravAddResource);
 $("btnTop").addEventListener("click", centerTop);
 $("spravNewName").addEventListener("keydown", ev => { if (ev.key === "Enter") spravAddGood(); });
+$("spravNewResName").addEventListener("keydown", ev => { if (ev.key === "Enter") spravAddResource(); });
 // подгрузка списка: сворачиваемый блок + «Создать из списка»
 $("bulkToggle").addEventListener("click", () => {
   const open = $("bulkBlock").style.display !== "none";
@@ -1544,7 +1638,9 @@ window.addEventListener("resize", () => { centerTop(); });
 
 updateOverlays(); // спиннер при первичной загрузке (BUG-2)
 applyModeUI();   // видимость топбар-элементов по режиму при старте
-fetchState();
+// старт: авторизация (спека iterB §4.1) → start() = fetchState + интервал
+function start() { fetchState(); }
+ensureStudioAuth().then(ok => { if (ok) start(); });
 // первичное центрирование на верхнем тире (если pan уехал от старого широкого канваса)
 window.addEventListener("load", () => setTimeout(() => {
   // если позиция уже сохранялась — оставить как была (решение создателя

@@ -114,3 +114,54 @@ func findRace(races []map[string]interface{}, id string) map[string]interface{} 
 	}
 	return nil
 }
+
+// Новые поля карточки «игровое восприятие» (спека 99.2.26 §3.2): kind/niche/
+// size_individual/size_group/home_words/lore/attributes_words в объекте lore;
+// size_group = null у людей, строка у коллективной (sulfur_swarms); у робота
+// (archivists) kind + origin на месте.
+func TestGetRacesNewLoreFields(t *testing.T) {
+	loadEncyclopediaFixtures(t)
+	h := NewEncyclopediaHandlers()
+	req := httptest.NewRequest(http.MethodGet, "/api/encyclopedia/races", nil)
+	rec := execJSON(h.GetRaces, withUserID(req, "user-1"))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Races []map[string]interface{} `json:"races"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Races, 60)
+
+	// Люди (неколлективная): новые поля в lore, size_group = null.
+	humans := findRace(resp.Races, "humans")
+	require.NotNil(t, humans)
+	lore, ok := humans["lore"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, "гуманоид", lore["kind"])
+	assert.Equal(t, "строитель", lore["niche"])
+	assert.Equal(t, "с человека", lore["size_individual"])
+	assert.Nil(t, lore["size_group"], "у людей size_group = null")
+	assert.NotEmpty(t, lore["home_words"])
+	assert.NotEmpty(t, lore["lore"])
+	aw, ok := lore["attributes_words"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Len(t, aw, 6)
+	assert.NotEmpty(t, aw["aggression"])
+	assert.NotEmpty(t, aw["reproduction"])
+
+	// Коллективная раса: size_group — строка.
+	swarms := findRace(resp.Races, "sulfur_swarms")
+	require.NotNil(t, swarms)
+	loreS, ok := swarms["lore"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, "рой", loreS["kind"])
+	assert.Equal(t, "рой-облако", loreS["size_group"])
+
+	// Робот: kind + origin на месте.
+	robots := findRace(resp.Races, "archivists")
+	require.NotNil(t, robots)
+	loreR, ok := robots["lore"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, "машина", loreR["kind"])
+	assert.NotEmpty(t, loreR["origin"])
+}

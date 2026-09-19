@@ -93,13 +93,22 @@ type encyclopediaRoboticMaterials struct {
 }
 
 // encyclopediaLore — лор из config/race_lore.json; origin — только у роботов
-// (null у био-рас).
+// (null у био-рас). Новые поля карточки «игровое восприятие» (спека 99.2.26
+// §3.2): kind/niche/size_individual/size_group/home_words/lore/attributes_words
+// — вкладываются в тот же объект lore (контракт аддитивен, 86a).
 type encyclopediaLore struct {
-	Character   string  `json:"character"`
-	HowLive     string  `json:"how_live"`
-	Why         string  `json:"why"`
-	Coexistence string  `json:"coexistence"`
-	Origin      *string `json:"origin"`
+	Character       string            `json:"character"`
+	HowLive         string            `json:"how_live"`
+	Why             string            `json:"why"`
+	Coexistence     string            `json:"coexistence"`
+	Origin          *string           `json:"origin"`
+	Kind            string            `json:"kind"`
+	Niche           string            `json:"niche"`
+	SizeIndividual  string            `json:"size_individual"`
+	SizeGroup       *string           `json:"size_group"`
+	HomeWords       string            `json:"home_words"`
+	Lore            string            `json:"lore"`
+	AttributesWords map[string]string `json:"attributes_words"`
 }
 
 // publicRace — маппинг карточки каталога в публичный срез (whitelist §5.1.1).
@@ -137,10 +146,17 @@ func publicRace(rc *races.Race, lore *races.RaceLore) encyclopediaRace {
 	if lore != nil {
 		out.Family = lore.Family
 		out.Lore = encyclopediaLore{
-			Character:   lore.Character,
-			HowLive:     lore.HowLive,
-			Why:         lore.Why,
-			Coexistence: lore.Coexistence,
+			Character:       lore.Character,
+			HowLive:         lore.HowLive,
+			Why:             lore.Why,
+			Coexistence:     lore.Coexistence,
+			Kind:            lore.Kind,
+			Niche:           lore.Niche,
+			SizeIndividual:  lore.SizeIndividual,
+			SizeGroup:       lore.SizeGroup,
+			HomeWords:       lore.HomeWords,
+			Lore:            lore.Lore,
+			AttributesWords: lore.AttributesWords,
 		}
 		if lore.Origin != "" {
 			origin := lore.Origin

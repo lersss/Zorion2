@@ -2,8 +2,8 @@
 // Раздел «Расы» энциклопедии (спека 86a §5.1): сетка 60 карточек. До встречи —
 // силуэт «—» с плейсхолдером (решение гейта 1, §12: имя/числа/лор открываются
 // только по действию); открытая карточка (раса в journal.metRaces; люди — по
-// умолчанию, §5.1.3) — имя, бейдж семейства, основа, окна, мини-бары
-// атрибутов, дом, корм + лор-блок.
+// умолчанию, §5.1.3) — имя, бейдж семейства, основа, окна, атрибуты-слова,
+// вид/ниша/размер, дом, корм + лор-блок (99.2.26 §2).
 
 import { kelvinToCelsius } from '../modal/panel.js';
 
@@ -15,7 +15,7 @@ const FAMILY_LABELS = {
     robotic: 'Роботы',
 };
 
-// ATTRIBUTE_LABELS — подписи мини-баров атрибутов (порядок карточки §3.2).
+// ATTRIBUTE_LABELS — подписи атрибутов-слов (порядок карточки §3.2).
 const ATTRIBUTE_LABELS = [
     ['aggression', 'Агрессия'],
     ['curiosity', 'Любопытство'],
@@ -51,23 +51,17 @@ function atmosphereLine(atm) {
     return parts.length ? `<div><strong>Атмосфера:</strong> ${parts.join('; ')}</div>` : '';
 }
 
-// attributeBars — мини-бары 6 атрибутов (0–100; reproduction — множитель,
-// бар капится на 100, число показывается как есть).
-function attributeBars(attrs) {
-    if (!attrs) return '';
+// attributeWords — 6 строк атрибутов-слов (спека 99.2.26 §2 п.4): подпись оси
+// + слово из race.lore.attributes_words; цифры и бары не показываются. При
+// отсутствии attributes_words — строка «—» (деградация при незагруженном
+// лоре, сервер живёт).
+function attributeWords(lore) {
+    const aw = (lore && lore.attributes_words) || {};
     return ATTRIBUTE_LABELS.map(([key, label]) => {
-        const v = attrs[key];
-        if (typeof v !== 'number') return '';
-        const width = Math.min(Math.max(v, 0), 100);
-        const text = key === 'reproduction' ? `×${v}` : String(v);
+        const word = aw[key] || '—';
         return `
-            <div style="margin-top:4px;">
-                <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:#94a3b8;">
-                    <span>${label}</span><span>${text}</span>
-                </div>
-                <div style="background:#0f172a; border-radius:4px; height:6px; overflow:hidden;">
-                    <div style="background:#3b82f6; height:100%; width:${width}%;"></div>
-                </div>
+            <div style="display:flex; justify-content:space-between; margin-top:4px; font-size:0.8rem;">
+                <span style="color:#94a3b8;">${label}</span><span style="color:#e2e8f0;">${word}</span>
             </div>`;
     }).join('');
 }
@@ -97,11 +91,24 @@ function openedCard(race) {
             </div>`;
     }
 
+    // «Вид · Ниша · Размер (+ Рой/стая)» (спека 99.2.26 §2 п.5): kind · niche ·
+    // size_individual; size_group выводится, только если не null.
+    const sizeParts = [lore.kind, lore.niche, lore.size_individual];
+    if (lore.size_group) sizeParts.push(lore.size_group);
+    const kindNicheSize = `
+        <div style="font-size:0.85rem; margin-top:8px; color:#e2e8f0;">
+            <div><strong>Вид · Ниша · Размер:</strong> ${sizeParts.filter(Boolean).join(' · ')}</div>
+        </div>`;
+
+    // «Дом»: home_words словами; фолбэк на коды home.star_classes +
+    // home.planet_niche, если home_words нет (спека 99.2.26 §2 п.6).
+    const homeLine = lore.home_words || `${(home.star_classes || []).join(', ')} · ${home.planet_niche || '—'}`;
+
+    // Лор-блок (спека 99.2.26 §2 п.9): lore абзацами (\n\n → блоки) вместо
+    // character/how_live/why; coexistence и origin (роботы) остаются.
     const loreBlock = `
         <div style="margin-top:8px; padding-top:8px; border-top:1px solid #334155; font-size:0.85rem; color:#cbd5e1;">
-            ${lore.character ? `<div style="margin-top:4px;"><strong>Характер:</strong> ${lore.character}</div>` : ''}
-            ${lore.how_live ? `<div style="margin-top:4px;"><strong>Как живут:</strong> ${lore.how_live}</div>` : ''}
-            ${lore.why ? `<div style="margin-top:4px;"><strong>Зачем:</strong> ${lore.why}</div>` : ''}
+            ${lore.lore ? lore.lore.split('\n\n').map(p => `<div style="margin-top:4px;">${p}</div>`).join('') : ''}
             ${lore.coexistence ? `<div style="margin-top:4px;"><strong>Сосуществование:</strong> ${lore.coexistence}</div>` : ''}
             ${lore.origin ? `<div style="margin-top:4px;"><strong>Происхождение:</strong> ${lore.origin}</div>` : ''}
         </div>`;
@@ -114,9 +121,10 @@ function openedCard(race) {
             </div>
             <div style="font-size:0.8rem; color:#94a3b8; margin-top:2px;">${race.basis || ''}</div>
             <div style="font-size:0.85rem; margin-top:8px; color:#e2e8f0;">${windows}</div>
-            <div style="margin-top:8px;">${attributeBars(race.attributes)}</div>
+            <div style="margin-top:8px;">${attributeWords(lore)}</div>
+            ${kindNicheSize}
             <div style="font-size:0.85rem; margin-top:8px; color:#e2e8f0;">
-                <div><strong>Дом:</strong> ${(home.star_classes || []).join(', ')} · ${home.planet_niche || '—'}</div>
+                <div><strong>Дом:</strong> ${homeLine}</div>
                 ${race.forage && race.forage.source ? `<div><strong>Корм:</strong> ${race.forage.source}</div>` : ''}
             </div>
             ${roboticBlock}

@@ -370,3 +370,9 @@ mushroom, octopus, pyramid, shark, shell, spiral, star_celestial, trident, volca
 - Роли: `20_admin_roles.md` (админка).
 - Модель корабля/оборудование: спека `77a-ship-equipment-radar.md` (И3: 77a не
   отменяет 61b; модель корабля не трогает `ship_icon`/`ship_color`).
+- **Расовые корабли** — новый слой визуала, не ломка: каталог
+  `docs/gamedesign/races/ships/` (60 описаний кораблей рас — внешний вид + кабина,
+  место аватара при связи; спека `2026-09-20-ships-races-template.md`). 21 спрайт —
+  **легаси** (не привязка к расе); `spriteForAgent` — единственная точка замены под
+  расовый визуал (И8); промпт-задел `texture`/`silhouette`/`blocked` — вход будущего
+  генератора арт-студии (отдельный релиз).

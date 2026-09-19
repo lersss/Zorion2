@@ -354,12 +354,13 @@
       "id": "config/art/families.json",
       "type": "config",
       "path": "config/art/families.json",
-      "note": "семейства рас для арт-студии: forms/materials/glows, морф-наборы (F1–F10); с 98a у рас появились поля appearance (внешность для промта) и blocked (запрещённые теги, substring-матчинг)",
+      "note": "семейства рас для арт-студии: forms/materials/glows, морф-наборы (F1–F10); с 98a у всех 59 рас появились поля appearance (внешность для промта) и blocked (запрещённые теги, substring-матчинг); с 2026-09-20 кнопка «Пересобрать промт» студии перезаписывает appearance/blocked из лор-файлов (rebuild_prompt.go, reload без рестарта)",
       "impacts": [
         { "on": "cmd/art-studio/generator/prompt.go", "kind": "reads", "reason": "appearance вставляется в промпт, blocked фильтрует пулы выбора (98a §12)" },
         { "on": "cmd/art-studio/config/load.go", "kind": "reads", "reason": "валидация новых полей appearance/blocked (нормализация lowercase/trim, дедуп) (98a)" },
         { "on": "cmd/art-studio/config/load_test.go", "kind": "test", "reason": "новые тесты валидации + кросс-конфиг-тест blocked (98a)" },
-        { "on": "docs/gamedesign/races/*.md", "kind": "duplicates", "reason": "машинная проекция раздела «Внешний вид» (как имена рас: races.json ↔ 22_races.md); правка внешности = правка обоих мест (98a §4.2)" }
+        { "on": "cmd/art-studio/handlers/rebuild_prompt.go", "kind": "writes", "reason": "кнопка «Пересобрать промт» перезаписывает appearance/blocked расы из раздела «Внешний вид» лор-файла (единично/все расы семейства, 2026-09-20)" },
+        { "on": "docs/gamedesign/races/*.md", "kind": "duplicates", "reason": "машинная проекция раздела «Внешний вид» во всех 59 расах (как имена рас: races.json ↔ 22_races.md); правка внешности = правка обоих мест; студия может регенерировать families.json из лор-файлов (98a §4.2, сессия 2)" }
       ]
     },
     {
@@ -376,12 +377,12 @@
       "id": "98a",
       "type": "spec",
       "path": "docs/specs/98a-внешность-рас-арт-фильтр.md",
-      "note": "спека «Внешность рас + фильтрация шума в генераторе картинок» (98a, пилот 6 рас) + 98b (поле доп. тегов, панель итогового промпта); ✅ реализовано 2026-09-19",
+      "note": "спека «Внешность рас + фильтрация шума в генераторе картинок» (98a, пилот 6 рас → расширено на все 59, контент 2026-09-20) + 98b (поле доп. тегов, панель итогового промпта); ✅ реализовано (98a/98b 2026-09-19, контент 59/59 + код выбора расы/пересборки промта 2026-09-20)",
       "impacts": [
-        { "on": "config/art/families.json", "kind": "writes", "reason": "поля appearance/blocked у 6 пилотных рас (98a)" },
+        { "on": "config/art/families.json", "kind": "writes", "reason": "поля appearance/blocked у всех 59 рас (98a; контент 2026-09-20)" },
         { "on": "config/art/forms.json", "kind": "writes", "reason": "фильтрация пулов форм по blocked (98a)" },
         { "on": "cmd/art-studio/*", "kind": "api", "reason": "студия читает конфиги при старте; после правки конфигов — перезапуск" },
-        { "on": "docs/gamedesign/races/*.md", "kind": "writes", "reason": "раздел «Внешний вид» в 6 лор-файлах пилота (98a)" },
+        { "on": "docs/gamedesign/races/*.md", "kind": "writes", "reason": "раздел «Внешний вид» во всех 59 лор-файлах (98a)" },
         { "on": "docs/specs/README.md", "kind": "docs", "reason": "манифест спеки 98a (строка добавлена дизайнером)" },
         { "on": "99_roadmap.md", "kind": "docs", "reason": "строка §99.2 — статус 98a/98b (дельта @dispatcher)" }
       ]

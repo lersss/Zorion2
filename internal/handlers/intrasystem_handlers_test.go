@@ -382,9 +382,10 @@ func TestIntraArrivalWritesKnowledge(t *testing.T) {
 	h, intraMgr, mock := newIntraHarness(t)
 	const userID = "11111111-1111-1111-1111-111111111111"
 
-	// Короткий полёт — прибытие в течение теста.
-	intraMgr.StartIntraFlight(userID, "w1", "star", "w1", "planet", "p1", 30*time.Millisecond,
-		NewIntraArrivalHandler(h.intraRepo, h.planetRepo, h.knowledgeRepo))
+	// Короткий полёт — прибытие в течение теста. ВАЖНО: ожидания БД
+	// регистрируются ДО StartIntraFlight — иначе гонка внутри теста
+	// (горутина onArrival стартует раньше, чем sqlmock-ожидания готовы),
+	// флейк ~1 раз на 7–20 прогонов.
 
 	// 1. Валидация цели прибытия: планета существует в системе.
 	mock.ExpectQuery(`SELECT id, world_id, name, orbit_index, data, created_at, updated_at FROM planets WHERE id = \$1`).
@@ -410,6 +411,9 @@ func TestIntraArrivalWritesKnowledge(t *testing.T) {
 	mock.ExpectExec(`INSERT INTO player_planet_knowledge.*ON CONFLICT.*DO UPDATE`).
 		WithArgs(userID, "p1", sqlmock.AnyArg(), "presence").
 		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	intraMgr.StartIntraFlight(userID, "w1", "star", "w1", "planet", "p1", 30*time.Millisecond,
+		NewIntraArrivalHandler(h.intraRepo, h.planetRepo, h.knowledgeRepo))
 
 	require.Eventually(t, func() bool {
 		return mock.ExpectationsWereMet() == nil

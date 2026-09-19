@@ -4,6 +4,20 @@
   "updated_at": "2026-09-19",
   "entities": [
     {
+      "id": "race_lore.json",
+      "type": "config",
+      "path": "config/race_lore.json",
+      "note": "лор рас (86a §5.1.1): старые поля character/how_live/why/coexistence/origin + новые поля карточки 99.2.26 (kind/niche/size_individual/size_group/home_words/lore/attributes_words 60×6=360 слов; слова — дериваты чисел races.json)",
+      "impacts": [
+        { "on": "web/static/js/dashboard/races_section.js", "kind": "reads", "reason": "карточка расы: attributeWords, «Вид · Ниша · Размер (+ Рой/стая)», home_words, lore (99.2.26)" },
+        { "on": "internal/races/lore.go", "kind": "reads", "reason": "LoadLore валидирует при старте: словари §4–§6, size_group у 17 коллективных, attributes_words из шкал (99.2.26 §9)" },
+        { "on": "internal/handlers/encyclopedia_handlers.go", "kind": "api", "reason": "маппинг новых полей в объект lore ответа (аддитивно, 99.2.26 §3.2)" },
+        { "on": "internal/races/lore_test.go", "kind": "test", "reason": "тест согласованности 60×6=360: слово == шкала числа races.json (DoD §9.3)" },
+        { "on": "22_races.md", "kind": "duplicates", "reason": "справочник §3/§4 — зеркало лора; правка race_lore.json синхронизируется при контент-проходе (99.2.26 §14 C2)" },
+        { "on": "config/races.json", "kind": "reads", "reason": "слова attributes_words — дериваты чисел; правка чисел = устаревшие слова роняют тест §9.3" }
+      ]
+    },
+    {
       "id": "races.json",
       "type": "config",
       "path": "config/races.json",

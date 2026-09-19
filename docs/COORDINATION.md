@@ -44,6 +44,38 @@
 | `docs/gamedesign/races/cryo_swarms.md` | @developer (98a) | коммит 98a |
 | `docs/gamedesign/races/mist_swarms.md` | @developer (98a) | коммит 98a |
 | `docs/gamedesign/races/saltfolk.md` | @developer (98a) | коммит 98a |
+| `cmd/art-studio/handlers/race_handlers.go` | @developer (98b) | коммит 98b |
+| `cmd/art-studio/handlers/http.go` | @developer (98b) | коммит 98b |
+| `cmd/art-studio/handlers/prompt_handlers_test.go` | @developer (98b) | коммит 98b |
+| `cmd/art-studio/generator/race_job.go` | @developer (98b) | коммит 98b |
+| `cmd/art-studio/generator/ref_job.go` | @developer (98b) | коммит 98b |
+| `cmd/art-studio/web/index.html` | @developer (98b) | коммит 98b |
+| `cmd/art-studio/handlers/race_handlers_test.go` | @developer (98b) | коммит 98b |
+| `cmd/goods-studio/web/index.html` | @developer (деревья Т8) | коммит деревьев Т8 |
+| `cmd/goods-studio/catalog/trees.go` | @developer (деревья Т8) | коммит деревьев Т8 |
+| `cmd/goods-studio/catalog/trees_test.go` | @developer (деревья Т8) | коммит деревьев Т8 |
+| `cmd/goods-studio/catalog/topcatalog.go` | @developer (деревья Т8) | коммит деревьев Т8 |
+| `cmd/goods-studio/handlers/state.go` | @developer (деревья Т8) | коммит деревьев Т8 |
+| `cmd/goods-studio/handlers/handlers_test.go` | @developer (деревья Т8) | коммит деревьев Т8 |
+| `docs/ARCHITECTURE.md` | @developer (деревья Т8) | коммит деревьев Т8 |
+| `cmd/goods-studio/ai/apply.go` | @developer (99a.1) | коммит 99a.1 |
+| `cmd/goods-studio/ai/prompt.go` | @developer (99a.1) | коммит 99a.1 |
+| `cmd/goods-studio/ai/client.go` | @developer (99a.1) | коммит 99a.1 |
+| `cmd/goods-studio/ai/ai_test.go` | @developer (99a.1) | коммит 99a.1 |
+| `cmd/goods-studio/handlers/state.go` | @developer (99a.1) | коммит 99a.1 |
+| `tools/e2e/goods-studio-check.js` | @developer (99a.1) | коммит 99a.1 |
+| `cmd/goods-studio/model/types.go` | @developer (99a.3) | коммит 99a.3 |
+| `cmd/goods-studio/graph/tier.go` | @developer (99a.3) | коммит 99a.3 |
+| `cmd/goods-studio/graph/tier_test.go` | @developer (99a.3) | коммит 99a.3 |
+| `cmd/goods-studio/handlers/state.go` | @developer (99a.3) | коммит 99a.3 |
+| `cmd/goods-studio/handlers/handlers_test.go` | @developer (99a.3) | коммит 99a.3 |
+| `cmd/goods-studio/export/export.go` | @developer (99a.3) | коммит 99a.3 |
+| `cmd/goods-studio/export/export_test.go` | @developer (99a.3) | коммит 99a.3 |
+| `cmd/goods-studio/web/index.html` | @developer (99a.3) | коммит 99a.3 |
+| `tools/e2e/qa99a3-smoke.js` | @developer (99a.3) | коммит 99a.3 |
+| `docs/ARCHITECTURE.md` | @developer (99a) | коммит 99a |
+| `docs/PITFALLS.md` | @developer (99a) | коммит 99a |
+| `.gitignore` | @developer (99a) | коммит 99a |
 
 ---
 

@@ -75,6 +75,10 @@
   простой, анатомия честная), ввод деревьев как одной сети.
 - Арт-студия (98a/98b): фильтрация словарей по blocked (appearance/blocked в
   families.json, пилот 6 рас), доп. теги tags и override итогового промпта в UI
+- Карточка расы — игровое восприятие (99.2.26, готово 2026-09-19): новые поля
+  race_lore.json (kind, niche, size_individual, size_group, home_words, lore,
+  attributes_words 60×6 слов), словари/шкалы в internal/races/lore.go,
+  валидация §9; спека `docs/specs/99.2.26-race-card-player-facing.md`
 
 ## FAQ-счётчик эталонов
 

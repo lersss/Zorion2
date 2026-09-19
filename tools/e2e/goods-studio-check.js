@@ -132,12 +132,22 @@ async function main() {
     }));
     report('4 topbar hidden in focus', Object.values(hidden).every(Boolean) ? 'PASS' : 'FAIL', JSON.stringify(hidden));
 
-    // ============ Step 5: sprav list + counter ============
-    const sprav = await page.evaluate(() => ({
+    // ============ Step 5: sprav — default empty, filter turns it on ============
+    // Новая семантика (создатель 2026-09-19): ничего не выбрано в фильтрах → список пуст
+    const spravEmpty = await page.evaluate(() => ({
+      title: document.getElementById('spravTitle').textContent,
+      cards: document.querySelectorAll('#spravList .card').length,
+      note: document.querySelector('#spravList .empty-note') ? document.querySelector('#spravList .empty-note').textContent : '',
+    }));
+    report('5a sprav default empty', (spravEmpty.cards === 0 && spravEmpty.title.includes('· 0') && spravEmpty.note.includes('ничего не выбрано')) ? 'PASS' : 'FAIL', JSON.stringify(spravEmpty));
+    await page.evaluate(() => toggleAllTiers()); // «все»-пилюля: выбрать все тиры
+    await page.check('#fUsed'); // показ требует «тир + галка» (создатель 2026-09-19) — включаем «используемые»
+    await page.waitForTimeout(200);
+    const spravOn = await page.evaluate(() => ({
       title: document.getElementById('spravTitle').textContent,
       cards: document.querySelectorAll('#spravList .card').length,
     }));
-    report('5 sprav list', (sprav.cards > 0 && sprav.title.includes('· ' + sprav.cards)) ? 'PASS' : 'FAIL', `title="${sprav.title}" cards=${sprav.cards}`);
+    report('5b sprav fills on filter', (spravOn.cards > 0 && spravOn.title.includes('· ' + spravOn.cards)) ? 'PASS' : 'FAIL', `title="${spravOn.title}" cards=${spravOn.cards}`);
 
     // ============ Step 6: sprav click selects + subgraph, popup NOT opened ============
     const firstId = await page.evaluate(() => {
@@ -236,29 +246,30 @@ async function main() {
     report('11b bulk textarea cleared', bulkTextCleared ? 'PASS' : 'FAIL', 'textarea emptied after create');
 
     // ============ Step 12: drag&drop sprav card into popup slot ============
-    // QA_Балк1 has 1 empty slot; open its popup, drag a resource card from sprav into the slot
+    // QA_Балк1 has 1 empty slot; open its popup, drag a visible sprav card into the slot
     const bulkGood = bulkCreated[0];
     await page.evaluate((id) => { selected = id; openPopup(id); renderAll(); }, bulkGood.id);
     await page.waitForTimeout(300);
     const slotCount = await page.evaluate(() => document.querySelectorAll('#popupBody .slot').length);
     const resName = (await api('GET', '/api/state')).data.goods.find(g => g.id === resIds[0]).name;
-    // T0 выкл по умолчанию скрывает ресурсы из справочника (99a.3, инверсия T0) —
-    // включаем, чтобы карточка ресурса была видна для drag (иначе шаг падает).
-    await page.check('#fT0');
+    // показ требует «тир + галка» (создатель 2026-09-19); «вода» (resIds[0]) не используется
+    // ни в одном рецепте → включаем «неиспользуемые» (сняв «используемые» от шага 5b), тиры «все» уже выбраны
+    await page.uncheck('#fUsed');
+    await page.check('#fUnused');
     await page.waitForTimeout(200);
-    try {
-      const srcCard = page.locator('#spravList .card', { hasText: resName });
-      await srcCard.dragTo(page.locator('#popupBody .slot').nth(0), { timeout: 5000 });
-    } catch (e) {
-      await page.evaluate(({ rid }) => {
-        const card = [...document.querySelectorAll('#spravList .card')].find(c => c.textContent.includes(rid));
-        const slot = document.querySelector('#popupBody .slot');
-        const dt = new DataTransfer();
-        card.dispatchEvent(new DragEvent('dragstart', { dataTransfer: dt, bubbles: true }));
-        slot.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }));
-        slot.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
-      }, { rid: resName });
-    }
+    // программный drag (DataTransfer) — устойчивее мышиного dragTo: авто-обновление
+    // перерисовывает список, мышиный drag теряет элемент; поиск карточки регистронезависимый
+    const dragSent = await page.evaluate(({ rid }) => {
+      const card = [...document.querySelectorAll('#spravList .card')].find(c => c.textContent.toLowerCase().includes(rid.toLowerCase()));
+      const slot = document.querySelector('#popupBody .slot');
+      if (!card || !slot) return false;
+      const dt = new DataTransfer();
+      card.dispatchEvent(new DragEvent('dragstart', { dataTransfer: dt, bubbles: true }));
+      slot.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }));
+      slot.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+      return true;
+    }, { rid: resName });
+    if (!dragSent) report('12 drag sprav -> popup slot', 'FAIL', 'source card or slot not found in DOM');
     await waitFor((gid) => {
       const g = state.goods.find(x => x.id === gid);
       return g && g.recipe && g.recipe[0] && g.recipe[0].good_id;
@@ -267,8 +278,10 @@ async function main() {
       const s = document.querySelector('#popupBody .slot .sname');
       return s && s.textContent.length > 0;
     });
-    report('12 drag sprav -> popup slot', (slotCount === 1 && dragOk) ? 'PASS' : 'FAIL', `slots=${slotCount} filled=${dragOk}`);
-    await page.uncheck('#fT0'); // вернуть дефолт: ресурсы скрыты из справочника
+    report('12 drag sprav -> popup slot', (dragSent && slotCount === 1 && dragOk) ? 'PASS' : 'FAIL', `slots=${slotCount} filled=${dragOk}`);
+    // вернуть фильтры к состоянию шага 5b (тиры «все» + «используемые»)
+    await page.uncheck('#fUnused');
+    await page.check('#fUsed');
     await page.keyboard.press('Escape'); // close popup so canvas clicks are not intercepted
 
     // ============ Step 13: focus subgraph — click parent/child on canvas rebuilds ============
@@ -285,12 +298,17 @@ async function main() {
       return { hasChild: ids.includes(cid), hasParent: ids.includes(pid), count: ids.length };
     }, { cid: bulkGood.id, pid: parentGood.id });
     report('13a subgraph = selected + parent', (subgraph.hasChild && subgraph.hasParent) ? 'PASS' : 'FAIL', JSON.stringify(subgraph));
-    // click parent card on canvas
+    // click parent card on canvas: сначала центрируем вид на родителе (устраняет
+    // флак позиции от авто-центрирований прошлых кликов по справочнику), затем реальный клик
     const parentPos = await page.evaluate((pid) => {
       const L = computeLayout(focusSubset(), selected);
       const p = L.pos[pid];
       const rect = document.getElementById('graph').getBoundingClientRect();
-      return p ? { x: rect.left + (p.x + 95) * zoom + panX, y: rect.top + (p.y + 43) * zoom + panY } : null;
+      if (!p) return null;
+      panX = rect.width / 2 - (p.x + 95) * zoom;
+      panY = rect.height / 2 - (p.y + 43) * zoom;
+      renderAll();
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
     }, parentGood.id);
     if (parentPos) {
       await page.mouse.click(parentPos.x, parentPos.y);

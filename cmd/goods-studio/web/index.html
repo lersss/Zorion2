@@ -1113,10 +1113,16 @@ function renderSprav() {
   const used = {};
   state.goods.forEach(g => (g.recipe || []).forEach(s => { if (s.good_id) used[s.good_id] = true; }));
   const fUsed = $("fUsed").checked, fUnused = $("fUnused").checked, fBanned = $("fBanned").checked;
+  // Семантика фильтров (создатель 2026-09-19): показ включается ТОЛЬКО при «тир + галка»:
+  // выбран хотя бы один тир И хотя бы одна галка. Галки — группы-РАСШИРЕНИЯ (OR):
+  // каждая включённая добавляет свою группу («используемые»/«неиспользуемые»/«забаненные»),
+  // выключенная — её группа скрыта. Категория и поиск только сужают (AND), сами показ не включают.
+  const hasTier = tierSel.size > 0;
+  const hasFlag = fUsed || fUnused || fBanned;
   // пилюли тиров: «все» первой + уникальные эффективные тиры (g.tier из GoodView), по возрастанию
   const tiers = [...new Set(state.goods.map(g => g.tier))].sort((a, b) => a - b);
   // «все» активна, только когда выбраны ВСЕ тиры (показывается всё); при пустом
-  // выборе ресурсы скрыты — «все» не активна (создатель 2026-09-19)
+  // выборе фильтр тиров выключен — список пуст (создатель 2026-09-19)
   const allOn = tierSel.size === tiers.length;
   $("tierFilters").innerHTML =
     '<label class="pill' + (allOn ? ' on' : '') + '" title="все тиры">' +
@@ -1126,17 +1132,18 @@ function renderSprav() {
       '<input type="checkbox" style="display:none"' + (tierSel.has(t) ? ' checked' : '') + ' onchange="toggleTier(' + t + ', this.checked)">' + t + '</label>'
     ).join("");
   const list = state.goods.filter(g => {
-    if (g.status === "banned" && !fBanned) return false; // забаненные — только при галке
-    if (tierSel.size) {
-      if (!tierSel.has(g.tier)) return false;            // выбранные тиры — только они
-    } else {
-      if (g.tier === 0) return false;                    // пусто = весь тир 0 скрыт (ресурсы И тир-0 товары; создатель 2026-09-19, отмена критика №5)
-    }
-    const isUsed = !!used[g.id];                          // входящая степень (вхождение в чей-то рецепт)
-    if (fUsed && !isUsed) return false;
-    if (fUnused && isUsed) return false;                  // неиспользуемые — без исключения бана (М1)
-    if (cat && g.category !== cat) return false;          // фильтр по категории (AND; ресурсы тоже фильтруются по категории-коду)
-    if (q && !g.name.toLowerCase().includes(q)) return false;
+    if (!hasTier || !hasFlag) return false;               // тир + галка обязательны (создатель 2026-09-19)
+    if (!tierSel.has(g.tier)) return false;               // выбранные тиры — только они
+    // галки — РАСШИРЕНИЕ (OR): каждая включает свою группу; выключенная — её группа
+    // скрыта. Забаненные — отдельная группа (только при галке «забаненные»),
+    // не смешивается с используемыми/неиспользуемыми (создатель 2026-09-19).
+    const isBanned = g.status === "banned";
+    const isUsed = !!used[g.id];
+    if (isBanned) { if (!fBanned) return false; }
+    else if (isUsed) { if (!fUsed) return false; }
+    else { if (!fUnused) return false; }
+    if (cat && g.category !== cat) return false;          // AND: фильтр по категории (сужает, не включает показ)
+    if (q && !g.name.toLowerCase().includes(q)) return false; // AND: поиск (сужает, не включает показ)
     return true;
   });
   $("spravTitle").textContent = "Справочник · " + list.length;
@@ -1145,7 +1152,7 @@ function renderSprav() {
     '<div class="nm">' + esc(g.name) + '<button class="info" onclick="event.stopPropagation();openPopup(\'' + g.id + '\')" title="деталь (без смены выбора)">ⓘ</button></div>' +
     '<div class="meta">' + esc(catName(g.category)) + ' · тир ' + g.tier + ' <span class="badge ' + badgeClass(g.status) + '">' + esc(statusLabel(g.status)) + '</span></div>' +
     '</div>'
-  ).join("") || '<div class="empty-note">ничего не найдено</div>';
+  ).join("") || '<div class="empty-note">' + (hasTier && hasFlag ? 'ничего не найдено' : 'ничего не выбрано — выберите тир и хотя бы одну галку') + '</div>';
   $("spravList").scrollTop = sc;
 }
 // клик по пилюле тира: пересборка списка без сброса scroll/выбора/попапа (99a.3-ui §5.3)

@@ -1,7 +1,7 @@
 {
   "_comment": "Реестр каскадных влияний Zorion. Вопрос: «меняем X → смотрим на Y». Ведёт @manager при сдаче фич (идея 83a): дедупликация по entity.id, schema_version растёт только при изменении структуры, updated_at — дата правки. Сущность заводится при ≥2 потребителях или ≥2 влияниях.",
   "schema_version": 1,
-  "updated_at": "2026-09-19",
+  "updated_at": "2026-09-20",
   "entities": [
     {
       "id": "race_lore.json",
@@ -305,7 +305,7 @@
       "id": "real.go",
       "type": "code",
       "path": "internal/resource/real.go",
-      "note": "витрина 111 реальных веществ (10 осей + T_melt/T_boil, 22 семейства) для оценки ёмкости модели осей; НЕ игровой контент (решение создателя 2026-09-18): категории по физ. смыслу — мина при переносе в контент; граница «витрина ≠ слой 94a» фиксируется в 99.2.5",
+      "note": "витрина 111 реальных веществ (10 осей + T_melt/T_boil, 22 семейства) для оценки ёмкости модели осей; с итерации B переноса (2026-09-20) витрина читает БД (goods kind=resource c props ? 'family' — сид 131 включает real), real.go остаётся первичным сидом и эталоном; категории по физ. смыслу — мина при переносе в контент; граница «витрина ≠ слой 94a» пересмотрена создателем (К1, 2026-09-19: витрина — контент)",
       "impacts": [
         { "on": "internal/resource/distance.go", "kind": "reads", "reason": "различимость 86/107/43 считается по каталогу витрины" },
         { "on": "internal/handlers/admin_resources.go", "kind": "api", "reason": "GET /admin/resources отдаёт real/real_summary/families/chemotypes" },
@@ -403,7 +403,7 @@
       "id": "cmd/goods-studio",
       "type": "mechanic",
       "path": "cmd/goods-studio/",
-      "note": "Студия товаров (99a.1/99a.2/99a.3, 2026-09-19): отдельный локальный инструмент (бинарь zorion-goods-studio.exe, порт 8799) — категории/товары/слоты/статусы, граф рецептов, тир-оверрайд, справочник, попапы; состояние goods_data/state.json вне git",
+      "note": "Студия товаров (99a.1/99a.2/99a.3, 2026-09-19): ОТДЕЛЬНЫЙ ЛОКАЛЬНЫЙ ИНСТРУМЕНТ (бинарь, порт 8799) ДО итерации C переноса (2026-09-19/20); с итерации A (000045) каталог живёт в БД игры (/studio), старая студия — легаси до C: категории/товары/слоты/статусы, граф рецептов, тир-оверрайд, справочник, попапы; состояние goods_data/state.json вне git",
       "impacts": [
         { "on": "docs/gamedesign/05_economy.md", "kind": "reads", "reason": "§5.2 номенклатура товаров (13 стартовых); §5.2.4 рецепты — студия производит рецепты как данные (источник истины при закрытии 99a)" },
         { "on": "docs/gamedesign/11_production.md", "kind": "reads", "reason": "§11.1.1 сложность = тир; тир-оверрайд меняет источник значения (экспорт complexity)" },
@@ -414,7 +414,50 @@
         { "on": "cmd/art-studio", "kind": "affects", "reason": "арт-студия — образец продукта (отдельный бинарь, embed HTML)" },
         { "on": "goods_data/*", "kind": "writes", "reason": "экспорт/состояние студии (state.json, export.json — вне git)" },
         { "on": "docs/specs/99a.1-goods-studio.md", "kind": "affects", "reason": "спека продукта 99a.1 — реализована кодом" },
-        { "on": "docs/specs/99a.3-goods-studio-focus-graph-spravochnik.md", "kind": "affects", "reason": "спека 99a.3 (фокус-подграф, тир-оверрайд, справочник) — реализована кодом" }
+        { "on": "docs/specs/99a.3-goods-studio-focus-graph-spravochnik.md", "kind": "affects", "reason": "спека 99a.3 (фокус-подграф, тир-оверрайд, справочник) — реализована кодом" },
+        { "on": "cmd/server", "kind": "affects", "reason": "перенос (iterA 000045): сущность меняет природу — каталог в БД, роуты /studio/*, UI web/studio.html; старая студия — легаси до C" },
+        { "on": "goods", "kind": "writes", "reason": "каталог номенклатуры в БД (categories/goods/goods_slots, миграция 000045) — источник правды (С1)" }
+      ]
+    },
+    {
+      "id": "goods",
+      "type": "table",
+      "path": "db:goods (categories/goods/goods_slots)",
+      "note": "каталог товаров/ресурсов в PostgreSQL (миграция 000045, перенос iterA): categories (товарные + 6 ресурсных системных), goods (name_norm UNIQUE, kind, status, source, tier_override, banned_at, props JSONB для ресурсов), goods_slots (рецепты, FK component_id, pos, quantity, allow_resource); сид 131 ресурс + 19 категорий (маркер goods_catalog_seed); БД — источник правды (С1)",
+      "impacts": [
+        { "on": "web/studio.html", "kind": "writes", "reason": "студия (UI на /studio) читает/пишет каталог через /studio/api/* (iterB)" },
+        { "on": "94a", "kind": "reads", "reason": "витрина «Реальные вещества» (iterB): real/real_summary/families из goods kind=resource c props ? 'family'" },
+        { "on": "cmd/goods-studio", "kind": "writes", "reason": "старая студия — легаси до C; данные переносится только сид (T0-ресурсы)" },
+        { "on": "internal/goodsstudio", "kind": "writes", "reason": "чистые пакеты (model/graph/validate/seed) — домен каталога, перенесены в internal" },
+        { "on": "internal/handlers/studio_handlers.go", "kind": "api", "reason": "CRUD каталога на SQL (iterA §7)" },
+        { "on": "docs/DB.md", "kind": "docs", "reason": "таблицы + миграция 000045 + маркер сидера (дельта iterA §16)" },
+        { "on": "docs/gamedesign/11_production.md", "kind": "affects", "reason": "§11.1.1 сложность рецепта = тир товара; каталог в БД — основа будущей экономики (FK на goods.id)" },
+        { "on": "docs/gamedesign/13_tiers.md", "kind": "affects", "reason": "§13.9.1 тир-оверрайд — источник complexity (99a.3)" }
+      ]
+    },
+    {
+      "id": "internal/goodsstudio",
+      "type": "code",
+      "path": "internal/goodsstudio/",
+      "note": "доменный пакет каталога (перенос iterA): model (Category/Good/Slot/Status/Kind/Source), graph (tier/cycles/names), validate (4 валидатора, ресурсы по kind), seed.go (сид 131 + 19, маркер); читается сервером (/studio/api/*) и старой студией (до C)",
+      "impacts": [
+        { "on": "goods", "kind": "writes", "reason": "сид наполняет каталог при первом старте (маркер goods_catalog_seed)" },
+        { "on": "internal/handlers/studio_handlers.go", "kind": "reads", "reason": "валидаторы/граф/тиры вызываются на снимке из БД (iterA §8)" },
+        { "on": "cmd/goods-studio", "kind": "reads", "reason": "старая студия импортирует model/graph/validate (импорты обновлены, iterA §3)" },
+        { "on": "docs/ARCHITECTURE.md", "kind": "docs", "reason": "пакет зарегистрирован (дельта iterA §16)" }
+      ]
+    },
+    {
+      "id": "web/studio.html",
+      "type": "code",
+      "path": "web/studio.html",
+      "note": "UI студии товаров на игровом сервере (перенос iterA/iterB): перенесённый cmd/goods-studio/web/index.html; с iterB подключён к /studio/api/* (JWT admin/skycomposer, общий adminToken с админкой, инлайн-паттерн auth.js), «+ ресурс», второе подтверждение удаления, OR-фильтры; кнопки C (экспорт/импорт/fill) скрыты до итерации C",
+      "impacts": [
+        { "on": "goods", "kind": "writes", "reason": "студия правит каталог через /studio/api/* (CRUD, статусы, тир-оверрайд, слоты, DELETE с cleared_links)" },
+        { "on": "cmd/goods-studio", "kind": "duplicates", "reason": "один и тот же UI: web/studio.html (сервер) и cmd/goods-studio/web/index.html (легаси до C)" },
+        { "on": "web/static/js/admin/auth.js", "kind": "duplicates", "reason": "паттерн авторизации инлайнится в студию (копия ~60 строк; в C — вынести общий модуль)" },
+        { "on": "internal/handlers/studio_handlers.go", "kind": "api", "reason": "все действия UI идут в /studio/api/* (iterA §7)" },
+        { "on": "docs/ARCHITECTURE.md", "kind": "docs", "reason": "роуты /studio + статика web/studio.html (дельта iterA §16)" }
       ]
     },
     {
@@ -426,7 +469,8 @@
         { "on": "web/admin.html", "kind": "writes", "reason": "шапка: клик по 🌍 → goToMap (adminToken → token), редирект /map" },
         { "on": "web/static/js/admin/main.js", "kind": "writes", "reason": "goToMap: копирование adminToken → token (тот же JWT от /login)" },
         { "on": "web/static/js/main.js", "kind": "writes", "reason": "клик «⚙️ Админка»: копирование token → adminToken, редирект /admin" },
-        { "on": "web/static/js/map/data.js", "kind": "reads", "reason": "показ кнопки по user.role из /me (admin/skycomposer)" }
+        { "on": "web/static/js/map/data.js", "kind": "reads", "reason": "показ кнопки по user.role из /me (admin/skycomposer)" },
+        { "on": "web/studio.html", "kind": "reads", "reason": "студия использует общий adminToken (iterB): вход в админку пускает в студию без повторного логина" }
       ]
     }
   ]

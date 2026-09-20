@@ -12,6 +12,7 @@ import (
 	"math"
 	"math/rand"
 
+	"zorion/internal/models"
 	"zorion/internal/races"
 	"zorion/internal/regionprofile"
 )
@@ -196,9 +197,12 @@ func bandForTemp(temp float64) cascadeBand {
 
 // cascadeBandByID — полоса из конфига архетипов (или дефолт).
 func cascadeBandByID(id string) cascadeBand {
-	if archetypeCache != nil {
-		for i := range archetypeCache.Climates {
-			c := &archetypeCache.Climates[i]
+	archetypeMu.RLock()
+	cache := archetypeCache
+	archetypeMu.RUnlock()
+	if cache != nil {
+		for i := range cache.Climates {
+			c := &cache.Climates[i]
 			if c.ID != id {
 				continue
 			}
@@ -322,6 +326,11 @@ type cascadeInput struct {
 	// (честный отказ при несовпадении — мир остаётся нетюнингованным).
 	CompositionOverride Composition // доли (0–1); пустое — нет оверрайда
 	CompositionRegime   string      // ожидаемый режим: "холодный"/"умеренный"/"горячий"
+
+	// Оверрайды прототипа поселения (99.2.28 §16.1): проводятся через каскад,
+	// чтобы биомы были согласованы с форсированными данными. 0 = нет оверрайда.
+	FinalTempOverride    float64 // применяется после жизненного прохода; флаг пересчитывается
+	WaterPercentOverride float64 // применяется до слоя 8
 }
 
 // cascadeResult — результат физического каскада.
@@ -348,6 +357,14 @@ type cascadeResult struct {
 	OrbitalPeriod                float64
 	Eccentricity                 float64
 	TidalLock                    bool
+
+	// Биомы и зоны недр объектами (99.2.28 §9): финальная поверхность/недра.
+	// Surface/Subterrain — производные карты из этих объектов (аддитивность).
+	Biomes          []models.Biome
+	SubterrainZones []models.SubterrainZone
+	// DraftSurface — пробная поверхность слоя 8 (транзит для мягких связей
+	// недр); в данные не пишется.
+	DraftSurface Composition
 }
 
 // ==================== КАСКАД: КАМЕНИСТАЯ/ЛЕДЯНАЯ ПЛАНЕТА ====================
@@ -490,17 +507,51 @@ func (g *Generator) runCascade(in cascadeInput) *cascadeResult {
 	// прохода), а не от предварительной. ---
 	res.LiquidWater = liquidWaterPossible(res.TFinal, pressure)
 
-	// --- Слой 8 — поверхность (гейт финальным флагом, финальная T) ---
-	baseSurface := copyWeights(bandSurface)
-	applyLiquidWaterGate(baseSurface, res.LiquidWater)
-	res.Surface = GenerateSurfaceComposition(baseSurface, res.TFinal, res.WaterPercent, g.rng)
-	res.Subterrain = GenerateSubterrainComposition(bandSubterrain, res.Surface, res.TFinal, res.WaterPercent, g.rng)
-
-	// ~3–4% планет — «примитивные» тела (1–2 типа поверхности и недр).
-	if g.rng.Float64() < primitivePlanetProbability {
-		res.Surface = simplifyComposition(res.Surface, g.rng)
-		res.Subterrain = simplifyComposition(res.Subterrain, g.rng)
+	// --- Оверрайды прототипа (99.2.28 §16.1): FinalTempOverride применяется
+	// после жизненного прохода; флаг пересчитывается от оверрайда
+	// (инвариант «флаг ⟺ (P, T_final)» сохраняется). ---
+	if in.FinalTempOverride > 0 {
+		res.TFinal = in.FinalTempOverride
+		res.LiquidWater = liquidWaterPossible(res.TFinal, pressure)
 	}
+
+	// --- Оверрайд воды прототипа (99.2.28 §16.1): применяется до слоя 8. ---
+	if in.WaterPercentOverride > 0 {
+		res.WaterPercent = in.WaterPercentOverride
+	}
+
+	// --- Слой 8 — draft поверхности (99.2.28 §4): пробник для мягких связей
+	// недр — физические веса биомов без джиттера/RNG (детерминизм по seed). ---
+	env := &biomeEnv{
+		TFinal:        res.TFinal,
+		PressureAtm:   pressure,
+		WaterPercent:  res.WaterPercent,
+		Flag:          res.LiquidWater,
+		Rock:          rock,
+		Iron:          iron,
+		Ice:           ice,
+		Gravity:       gravity,
+		Life:          life,
+		Atmosphere:    res.AtmosphereData.Composition,
+		V:             volcanicIndex(core.Activity, heatFlux),
+		Radioactivity: core.Radioactivity,
+		TidalLock:     res.TidalLock,
+		Band:          bandForTemp(res.TFinal).id,
+	}
+	draft := generateBiomeDraft(env, g.surfaceBias())
+	res.DraftSurface = draft
+	env.DraftOceans = draft.ShareOf(SurfaceOceans) / 100
+
+	// --- Слой 9 — недра объектами (99.2.28 §8): физические веса + bias +
+	// whitelist (bands) + мягкие связи от draft + джиттер + матрица. ---
+	res.SubterrainZones = generateSubterrain(env, g.subterrainBias(), draft, g.rng)
+	res.Subterrain = compositionFromZones(res.SubterrainZones)
+
+	// --- Слой 10 — биомы (99.2.28 §6.2): финальная поверхность объектами.
+	// Производные карты (surface_composition/surface_dominant) считаются из
+	// объектов одной функцией (аддитивность §9.2). ---
+	res.Biomes = generateBiomes(env, g.surfaceBias(), g.rng)
+	res.Surface = compositionFromBiomes(res.Biomes)
 
 	// --- Пригодность, спутники, политика ---
 	// Пригодность для людей — единый источник races.HumansSuitable (65a,

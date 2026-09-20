@@ -5,6 +5,7 @@ import { bindTestsButtons } from './tests.js';
 import { loadUsers } from './users.js';
 import { initNPC } from './npc.js';
 import { initSettlementSettings } from './settlementSettings.js';
+import { initBiomeCatalog } from './biomeCatalog.js';
 import { initBalancer } from './balancer.js';
 import { initResources } from './resources.js';
 import { applyGenSubTab } from './generation.js';
@@ -60,6 +61,7 @@ function activateTab(tabId) {
     }
     if (tabId === 'tab-main') {
         initSettlementSettings();
+        initBiomeCatalog();
     }
     if (tabId === 'tab-generation') {
         // Подвкладки генерации (99.2.3 §2; кнопки с 71a): восстановить сохранённую.

@@ -1,4 +1,11 @@
 // internal/generator/planet/classify.go
+//
+// Классификация типов планет (99.2.28 §11): тип — производный ярлык,
+// вычисляемый правилами справочника типов (секция planet_types файла
+// biome_catalog.json). Код — интерпретатор без чисел: порядок правил сверху
+// вниз, первое сработавшее → тип; фолбэк — fallback_type справочника.
+// Газовый гигант — отдельный флаг вне правил (как раньше: гигант →
+// радиоактивная → остальные). Пороги 15/20/25 — данные, не код.
 package planet
 
 // ==================== ГЕЙМДИЗАЙНЕРСКИЕ ТИПЫ ====================
@@ -19,6 +26,7 @@ const (
 )
 
 // AllGameDesignTypes — все возможные типы (для UI, фильтров, статистики).
+// Правила справочника покрывают 11 типов; «мёртвая» — ветка экзотики.
 var AllGameDesignTypes = []string{
 	TypeEarthlike,
 	TypeOceanic,
@@ -34,28 +42,6 @@ var AllGameDesignTypes = []string{
 	TypeDead,
 }
 
-// ==================== ПОРОГИ ====================
-
-const (
-	// Минимальная доля формы, при которой она считается «присутствующей»
-	// для классификации.
-	presenceThreshold = 15.0
-
-	// Порог для вулканической: сумма лавы + вулканических полей.
-	volcanicThreshold = 20.0
-
-	// Порог для пустынной: минимальная доля песков + максимум воды.
-	desertSandsThreshold = 25.0
-	desertWaterMax       = 25.0
-
-	// Порог температуры для ледяной: если доминируют ледники
-	// и температура ниже этой отметки — ледяная.
-	iceTempMax = 250.0
-
-	// Порог для органик: сумма биосферных форм (луга, леса, джунгли, болота, рифы).
-	biosphereSumThreshold = 25.0
-)
-
 // PlanetClassificationInput — входные данные для классификации.
 type PlanetClassificationInput struct {
 	IsGasGiant    bool
@@ -68,74 +54,117 @@ type PlanetClassificationInput struct {
 }
 
 // ClassifyGameDesignType — определяет геймдизайнерский тип планеты
-// на основе её свойств и композиции поверхности.
-//
-// Порядок проверок: от самых специфичных к общим. Fallback — скалистая.
+// правилами справочника типов (99.2.28 §11): порядок сверху вниз, первое
+// сработавшее → тип; фолбэк — fallback_type справочника.
 func ClassifyGameDesignType(in PlanetClassificationInput) string {
-	// 1. Газовый гигант
+	// 1. Газовый гигант — отдельный флаг вне правил (как в старом classify.go).
 	if in.IsGasGiant {
 		return TypeGasGiant
 	}
 
-	// 2. Радиоактивная
-	if in.IsRadioactive {
-		return TypeRadioactive
+	cat := GetBiomeCatalog()
+	for _, rule := range cat.PlanetTypes {
+		if evalPredicates(rule.Predicates, in, cat) {
+			return rule.ID
+		}
 	}
-
-	// 3. Землеподобная: пригодна под поселение + жизнь + горы + вода
-	if in.Settleable && in.Life &&
-		in.Surface.Has(SurfaceRocks) &&
-		(in.Surface.Has(SurfaceOceans) || in.Surface.Has(SurfaceLakes)) {
-		return TypeEarthlike
+	if cat.FallbackType != "" {
+		return cat.FallbackType
 	}
-
-	// 4. Океаническая: доминируют океаны, много воды
-	if in.Surface.DominantForm() == SurfaceOceans && in.WaterPercent > 60 {
-		return TypeOceanic
-	}
-
-	// 5. Ледяная: доминируют ледники И холодно
-	//    (раньше было "ИЛИ T < 200" — отсюда перекос)
-	if in.Surface.DominantForm() == SurfaceGlaciers && in.Temperature < iceTempMax {
-		return TypeIce
-	}
-	if in.Temperature < 150 {
-		return TypeIce
-	}
-
-	// 6. Вулканическая: заметная доля лавы или вулканических полей
-	if in.Surface.ShareOf(SurfaceLavaFields)+in.Surface.ShareOf(SurfaceVolcanicFields) >= volcanicThreshold {
-		return TypeVolcanic
-	}
-
-	// 7. Пустынная: много песков и мало воды
-	if in.Surface.ShareOf(SurfaceSands) >= desertSandsThreshold &&
-		in.WaterPercent < desertWaterMax {
-		return TypeDesert
-	}
-
-	// 8. Стеклянная
-	if in.Surface.ShareOf(SurfaceGlassFields) >= presenceThreshold {
-		return TypeGlass
-	}
-
-	// 9. Металлическая
-	if in.Surface.ShareOf(SurfaceMetalFields) >= presenceThreshold {
-		return TypeMetal
-	}
-
-	// 10. Органик — сумма биосферных форм >= 25% (луга, леса, джунгли, болота, рифы)
-	if in.Surface.BiosphereSum() >= biosphereSumThreshold {
-		return TypeOrganic
-	}
-
-	// 11. Fallback
 	return TypeRocky
+}
+
+// ==================== ИНТЕРПРЕТАТОР ПРЕДИКАТОВ ====================
+
+// evalPredicates — все предикаты правила должны выполниться (AND).
+func evalPredicates(preds []Predicate, in PlanetClassificationInput, cat *BiomeCatalog) bool {
+	for _, p := range preds {
+		if !evalPredicate(p, in, cat) {
+			return false
+		}
+	}
+	return true
+}
+
+// evalPredicate — один предикат (приложение §3).
+func evalPredicate(p Predicate, in PlanetClassificationInput, cat *BiomeCatalog) bool {
+	switch p.Type {
+	case "settleable":
+		return in.Settleable
+	case "life":
+		return in.Life
+	case "radioactive_core":
+		return in.IsRadioactive
+	case "is_gas_giant":
+		return in.IsGasGiant
+	case "dominant_form":
+		return in.Surface.DominantForm() == p.Form
+	case "share_of":
+		return in.Surface.ShareOf(p.Form) >= p.Min
+	case "tag_sum":
+		return tagSum(in.Surface, p.Tag, cat) >= p.Min
+	case "temperature":
+		if p.Lt > 0 && in.Temperature >= p.Lt {
+			return false
+		}
+		if p.Gt > 0 && in.Temperature <= p.Gt {
+			return false
+		}
+		return true
+	case "water_percent":
+		if p.Lt > 0 && in.WaterPercent >= p.Lt {
+			return false
+		}
+		if p.Gt > 0 && in.WaterPercent <= p.Gt {
+			return false
+		}
+		return true
+	case "any_of":
+		for _, form := range p.Forms {
+			if in.Surface.ShareOf(form) >= p.Min {
+				return true
+			}
+		}
+		return false
+	case "and":
+		return evalPredicates(p.Rules, in, cat)
+	case "or":
+		for _, r := range p.Rules {
+			if evalPredicate(r, in, cat) {
+				return true
+			}
+		}
+		return false
+	}
+	return false
+}
+
+// tagSum — сумма долей биомов с тегом типа (теги — из справочника).
+func tagSum(surface Composition, tag string, cat *BiomeCatalog) float64 {
+	total := 0.0
+	for form, share := range surface {
+		b := cat.BiomeByID(form)
+		if b != nil && hasTag(b.TypeTags, tag) {
+			total += share
+		}
+	}
+	return total
+}
+
+// hasTag — есть ли тег в списке тегов биома.
+func hasTag(tags []string, tag string) bool {
+	for _, t := range tags {
+		if t == tag {
+			return true
+		}
+	}
+	return false
 }
 
 // ==================== ХЕЛПЕРЫ ====================
 
 // isBiosphereForm — относится ли форма к биосферным (жизнь).
+// Используется Composition.BiosphereSum (легаси-хелпер композиции).
 func isBiosphereForm(form string) bool {
 	switch form {
 	case SurfaceMeadows,

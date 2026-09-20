@@ -61,7 +61,7 @@ func IsCompatible(category, a, b string) bool {
 	defer compatMu.RUnlock()
 
 	if compatMatrix == nil {
-		return true
+		return !autoIncompatible(category, a, b)
 	}
 	if a == b {
 		return true
@@ -69,12 +69,47 @@ func IsCompatible(category, a, b string) bool {
 	key := pairKey(a, b)
 	switch category {
 	case "surface":
-		return !compatMatrix.surfacePairs[key]
+		if compatMatrix.surfacePairs[key] {
+			return false
+		}
 	case "subterrain":
-		return !compatMatrix.subterrainPairs[key]
+		if compatMatrix.subterrainPairs[key] {
+			return false
+		}
 	}
-	return true
+	return !autoIncompatible(category, a, b)
 }
+
+// autoIncompatible — авто-часть матрицы несовместимости (99.2.28 §5.6):
+// пары с разными жидкими средами из {вода, метан, аммиак, co2} запрещены
+// на одной поверхности; лава/магмовый океан несовместимы с водными.
+// Считается от справочника биомов (liquid_medium/volcanism).
+func autoIncompatible(category, a, b string) bool {
+	if category != "surface" || a == b {
+		return false
+	}
+	cat := GetBiomeCatalog()
+	ba := cat.BiomeByID(a)
+	bb := cat.BiomeByID(b)
+	if ba == nil || bb == nil {
+		return false
+	}
+	la, lb := ba.LiquidMedium, bb.LiquidMedium
+	if la != lb && liquidSet[la] && liquidSet[lb] {
+		return true
+	}
+	// Лава/магмовый океан vs водные (крио-водные — в ручной матрице).
+	if (ba.Volcanism == "hot" || ba.Volcanism == "magma") && lb == "вода" {
+		return true
+	}
+	if (bb.Volcanism == "hot" || bb.Volcanism == "magma") && la == "вода" {
+		return true
+	}
+	return false
+}
+
+// liquidSet — жидкие среды, участвующие в авто-несовместимости.
+var liquidSet = map[string]bool{"вода": true, "метан": true, "аммиак": true, "co2": true}
 
 // IsCompositionValid — все ли пары форм в композиции совместимы
 func IsCompositionValid(category string, c Composition) bool {

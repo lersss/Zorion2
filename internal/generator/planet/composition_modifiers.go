@@ -13,26 +13,6 @@ func applyRandomJitter(c map[string]float64, rng *rand.Rand) {
 	}
 }
 
-// ==================== ПОВЕРХНОСТЬ: ГЕЙТ ЖИДКОЙ ВОДЫ (99.2.20 §3.8) ====================
-
-// applyLiquidWaterGate — гейт флага жидкой воды: при flag false обнуляет
-// водные (океаны, озёра_реки) и биосферные (луга_степи, леса, джунгли,
-// болота, коралловые_рифы) формы в копии базовых весов. Вызывается до
-// температурных модификаторов (GenerateSurfaceComposition). Остаются
-// литосферные/вулканические/ледяные формы.
-func applyLiquidWaterGate(c map[string]float64, flag bool) {
-	if flag {
-		return
-	}
-	delete(c, SurfaceOceans)
-	delete(c, SurfaceLakes)
-	delete(c, SurfaceMeadows)
-	delete(c, SurfaceForests)
-	delete(c, SurfaceJungles)
-	delete(c, SurfaceSwamps)
-	delete(c, SurfaceCoralReefs)
-}
-
 // ==================== ПОВЕРХНОСТЬ: ТЕМПЕРАТУРА ====================
 
 // applySurfaceTempModifiers — корректирует веса поверхности по температуре.
@@ -238,15 +218,11 @@ func applySubterrainWaterModifiers(c map[string]float64, waterPercent float64) {
 // ==================== НЕДРА: СВЯЗЬ С ПОВЕРХНОСТЬЮ ====================
 
 // applySurfaceToSubterrainLinks — мягкое влияние поверхности на недра.
+// Читает draft поверхности (слой 8, 99.2.28 §6.3). Костыль «лава → магмакамеры»
+// удалён (99.2.28 §7): вулканизм поверхности и недр — один корень V.
 func applySurfaceToSubterrainLinks(c map[string]float64, surface Composition) {
 	if len(surface) == 0 {
 		return
-	}
-
-	if surface.ShareOf(SurfaceLavaFields)+surface.ShareOf(SurfaceVolcanicFields) > 25 {
-		multiplyIfExists(c, SubterrainMagmaChambers, 1.4)
-		multiplyIfExists(c, SubterrainMagmaticRocks, 1.2)
-		multiplyIfExists(c, SubterrainOreVeins, 1.2)
 	}
 
 	if surface.ShareOf(SurfaceOceans) > 30 {

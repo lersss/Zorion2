@@ -21,6 +21,7 @@ import {
     clearAllAgents
 } from './npc.js';
 import { saveSettlementSettings, updateSettlementNetto } from './settlementSettings.js';
+import { initBiomeCatalog, switchBiomeSub, saveBiomeCatalog, resetBiomeCatalog } from './biomeCatalog.js';
 import { loadResources, toggleAxesCell, toggleRacesCell, switchResSubTab, selectReal, switchRealMode, sortReal } from './resources.js';
 
 // Глобальные функции для onclick в HTML
@@ -60,6 +61,10 @@ window.loadNPCMetrics = loadNPCMetrics;
 window.clearAllAgents = clearAllAgents;
 window.saveSettlementSettings = saveSettlementSettings;
 window.updateSettlementNetto = updateSettlementNetto;
+window.initBiomeCatalog = initBiomeCatalog;
+window.switchBiomeSub = switchBiomeSub;
+window.saveBiomeCatalog = saveBiomeCatalog;
+window.resetBiomeCatalog = resetBiomeCatalog;
 window.switchGenSubTab = switchGenSubTab;
 window.showTab = showTab;
 window.loadGenConfig = loadGenConfig;

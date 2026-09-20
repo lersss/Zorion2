@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"zorion/internal/models"
 )
@@ -283,6 +284,35 @@ func TestPopulatePlanetFromJSONEmpty(t *testing.T) {
 	assert.NotNil(t, p.SurfaceComposition)
 	assert.NotNil(t, p.SubterrainComposition)
 	assert.InDelta(t, 0.0, p.SurfaceComposition["все"], 0.0001)
+	// Биомы/недры-объекты: отсутствие ключа → nil (старый мир), не ошибка.
+	assert.Nil(t, p.Biomes)
+	assert.Nil(t, p.Subterrain)
+}
+
+func TestPopulatePlanetFromJSONBiomes(t *testing.T) {
+	// Whitelist API (99.2.28 §9.3): biomes/subterrain отдаются; отсутствие
+	// ключа → nil (PITFALLS «новый ключ молча пропадает»).
+	data := map[string]interface{}{
+		"biomes": []interface{}{
+			map[string]interface{}{"form": "горы", "share": 60.0},
+			map[string]interface{}{"form": "океаны", "share": 40.0},
+		},
+		"subterrain": []interface{}{
+			map[string]interface{}{"type": "пустая_порода", "share": 70.0},
+			map[string]interface{}{"type": "рудные_жилы", "share": 30.0},
+		},
+	}
+	p := models.Planet{}
+	populatePlanetFromJSON(&p, data)
+
+	require.Len(t, p.Biomes, 2)
+	assert.Equal(t, "горы", p.Biomes[0].Form)
+	assert.InDelta(t, 60.0, p.Biomes[0].Share, 0.0001)
+	assert.Equal(t, "океаны", p.Biomes[1].Form)
+
+	require.Len(t, p.Subterrain, 2)
+	assert.Equal(t, "пустая_порода", p.Subterrain[0].Type)
+	assert.InDelta(t, 30.0, p.Subterrain[1].Share, 0.0001)
 }
 
 func TestPopulatePlanetFromJSONRealSerialized(t *testing.T) {

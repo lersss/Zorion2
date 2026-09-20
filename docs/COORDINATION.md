@@ -18,6 +18,31 @@
 
 | Файл | Кто правит | До какого коммита |
 |---|---|---|
+| `internal/generator/planet/biome_*.go` (+seed.json, biome_test.go) | @developer (99.2.28) | коммит 99.2.28 |
+| `internal/generator/planet/cascade.go` / `classify.go` / `composition_*.go` / `planet_data*.go` / `circumbinary.go` | @developer (99.2.28) | коммит 99.2.28 |
+| `internal/models/planet.go` | @developer (99.2.28) | коммит 99.2.28 |
+| `internal/repository/planet_repo.go` | @developer (99.2.28) | коммит 99.2.28 |
+| `internal/audit/planet/checks_biomes.go` (+test), `rules.go` | @developer (99.2.28) | коммит 99.2.28 |
+| `config/biome_catalog.json` | @developer (99.2.28) | коммит 99.2.28 |
+| `cmd/server/main.go` (только блок загрузки справочника биомов) | @developer (99.2.28) | коммит 99.2.28 |
+| `migrations/000046_intrasystem_flight.sql` | @developer (99.2.27) | коммит 99.2.27 |
+| `internal/models/current_position.go` | @developer (99.2.27) | коммит 99.2.27 |
+| `internal/models/player_intrasystem_flight.go` | @developer (99.2.27) | коммит 99.2.27 |
+| `internal/models/user.go` | @developer (99.2.27) | коммит 99.2.27 |
+| `internal/repository/player_intrasystem_flight_repository.go` (+test) | @developer (99.2.27) | коммит 99.2.27 |
+| `internal/repository/user_repository.go` | @developer (99.2.27) | коммит 99.2.27 |
+| `internal/repository/knowledge_repository.go` | @developer (99.2.27) | коммит 99.2.27 |
+| `internal/repository/planet_repo.go` | @developer (99.2.27) | коммит 99.2.27 |
+| `internal/travel/intrasystem_manager.go` (+test) | @developer (99.2.27) | коммит 99.2.27 |
+| `internal/handlers/intrasystem_handlers.go` (+test) | @developer (99.2.27) | коммит 99.2.27 |
+| `internal/handlers/players_positions.go` (+test) | @developer (99.2.27) | коммит 99.2.27 |
+| `internal/handlers/travel_handlers.go` (+test) | @developer (99.2.27) | коммит 99.2.27 |
+| `internal/handlers/auth_handlers.go` (+test) | @developer (99.2.27) | коммит 99.2.27 |
+| `internal/handlers/planet_handler.go` | @developer (99.2.27) | коммит 99.2.27 |
+| `internal/handlers/visibility_handlers_test.go` | @developer (99.2.27) | коммит 99.2.27 |
+| `cmd/server/main.go` | @developer (99.2.27) | коммит 99.2.27 |
+| `web/static/js/modal/*.js` (state/index/events/panel/tabs/modal_render) | @developer (99.2.27) | коммит 99.2.27 |
+| `web/static/js/map/map_render.js` | @developer (99.2.27) | коммит 99.2.27 |
 | `cmd/server/main.go` | @developer (97a) | коммит 97a |
 | `internal/travel/manager.go` | @developer (97a) | коммит 97a |
 | `internal/travel/manager_test.go` | @developer (97a) | коммит 97a |

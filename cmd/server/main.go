@@ -428,6 +428,14 @@ func main() {
 	// универсального слоя (admin + skycomposer).
 	http.HandleFunc("/admin/resources", auth.AdminAuth(adminHandlers.GetAdminResources))
 
+	// Справочник биомов (99.2.28 §22): правка — admin, чтение — admin +
+	// skycomposer (роль проверяется в хендлере для PATCH/POST — AdminAuth
+	// пропускает обе роли). Атомарная запись файла + hot-reload store.
+	http.HandleFunc("/admin/biome-catalog", auth.AdminAuth(adminHandlers.HandleBiomeCatalog))
+	http.HandleFunc("/admin/biome-catalog/reset", auth.AdminAuth(adminHandlers.ResetBiomeCatalog))
+	// Полосы климатов (99.2.28 §22.4): веса/списки planet_archetypes.json.
+	http.HandleFunc("/admin/planet-archetypes", auth.AdminAuth(adminHandlers.HandlePlanetArchetypes))
+
 	// Конфиг генерации и пересчёт планет (99.2.3 §4.5/§5)
 	http.HandleFunc("/admin/generation/config", auth.AdminAuth(adminHandlers.HandleGenerationConfig))
 	http.HandleFunc("/admin/regenerate-planets", auth.AdminAuth(adminHandlers.RegeneratePlanets))

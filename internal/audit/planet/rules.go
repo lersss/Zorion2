@@ -78,6 +78,12 @@ func AllRules() []audit.Rule[View] {
 		// === Физический каскад (99.2.20 §6.2): атмосфера-объект, флаг воды ===
 		{Check: checkAtmosphereSumNot100},
 		{Check: checkLiquidWaterMismatch},
+
+		// === Биомы (99.2.28 §14): биосфера без условий, пустые биомы/недры,
+		// биом вне справочника ===
+		{Check: checkBiosphereWithoutConditions},
+		{Check: checkEmptyBiomes},
+		{Check: checkBiomeNotInCatalog},
 	}
 }
 

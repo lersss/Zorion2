@@ -344,7 +344,7 @@ func (g *Generator) generatePlanet(worldID, worldName string, orbitIndex int, sp
 	}
 
 	// --- СТАНДАРТНАЯ ГЕНЕРАЦИЯ ЧЕРЕЗ ФИЗИЧЕСКИЙ КАСКАД ---
-	return g.generateStandardPlanet(worldID, worldName, orbitIndex, sp, false, tune)
+	return g.generateStandardPlanet(worldID, worldName, orbitIndex, sp, false, tune, nil)
 }
 
 // generateStandardPlanet — планета по физическому каскаду (стандартный путь).
@@ -352,12 +352,16 @@ func (g *Generator) generatePlanet(worldID, worldName string, orbitIndex int, sp
 // жизненный проход даёт азотно-кислородную атмосферу, консистентную
 // с контрактом инструмента). tune — подкрутка расы-дома (99.2.22): сдвиг
 // орбиты, бюджет летучих, состав, поверхность-альбедо; nil — без подкрутки.
+// proto — оверрайды прототипа поселения (99.2.28 §16.1): проводятся через
+// каскад (FinalTempOverride/WaterPercentOverride), чтобы биомы были
+// согласованы с форсированными данными; nil — без оверрайдов.
 func (g *Generator) generateStandardPlanet(
 	worldID, worldName string,
 	orbitIndex int,
 	sp StellarParams,
 	forceLife bool,
 	tune *raceTune,
+	proto *prototypeOverrides,
 ) *PlanetData {
 	orbitRadius := orbitRadiusScaled(orbitIndex, sp.Luminosity)
 	if tune != nil && tune.orbitMult > 0 {
@@ -372,6 +376,10 @@ func (g *Generator) generateStandardPlanet(
 		OrbitRadiusAU: orbitRadius,
 		OrbitIndex:    orbitIndex,
 		ForceLife:     forceLife,
+	}
+	if proto != nil {
+		in.FinalTempOverride = proto.finalTempK
+		in.WaterPercentOverride = proto.waterPercent
 	}
 	if tune != nil {
 		// Ручки 2–4, 7/7-холод: сдвиг входов каскада (99.2.22 §3.3).
@@ -463,6 +471,11 @@ func (g *Generator) generateStandardPlanet(
 		"radioactive":            radioactive,
 		"core":                   coreToJSON(res.Core),
 
+		// Биомы и зоны недр объектами (99.2.28 §9): финальная поверхность/недра.
+		// surface_composition/subterrain_composition — производные от них.
+		"biomes":     biomesToJSON(res.Biomes),
+		"subterrain": zonesToJSON(res.SubterrainZones),
+
 		"description": GenerateDescription(descCtx),
 	}
 
@@ -486,27 +499,32 @@ func (g *Generator) generateStandardPlanet(
 	}
 }
 
+// prototypeOverrides — оверрайды прототипа поселения (99.2.28 §16.1):
+// проводятся через каскад как оверрайды входов, чтобы биомы были
+// согласованы с форсированными данными (находка @critic №1).
+type prototypeOverrides struct {
+	finalTempK   float64 // FinalTempOverride: применяется после жизненного прохода
+	waterPercent float64 // WaterPercentOverride: применяется до слоя 8
+}
+
 // GeneratePrototypePlanet — землеподобная планета для прототипа поселения.
 // Контракт инструмента (99.2.20 §6.9): полоса «умеренный», T = 288 K,
-// флаг true, вода 80%, жизнь true — явные оверрайды после каскада
-// (прототипу разрешено форсировать физику; без форсирования орбита 1
-// G-звезды дала бы T_final ≈ 365 K — вне пресета [200, 350]).
-// forceLife=true в каскаде: жизненный проход даёт азотно-кислородную
-// атмосферу (atmosphere_data консистентен с life=true).
+// флаг true, вода 80%, жизнь true. Оверрайды проводятся ЧЕРЕЗ КАСКАД
+// (99.2.28 §16.1): FinalTempOverride=288 / WaterPercentOverride=80 /
+// ForceLife=true — биомы генерируются от форсированных значений и
+// согласованы с данными (леса/луга/океаны при T=288, вода=80, life).
+// В данные пишется отметка "prototype_forced": true (для аудита/осознанности).
 // Население задаётся отдельной вставкой поселения в admin_universe.go.
 func (g *Generator) GeneratePrototypePlanet(worldID, worldName, spectralClass string) *PlanetData {
 	sp := stellarParamsFromClass(spectralClass, 0, g.rng)
-	pd := g.generateStandardPlanet(worldID, worldName, 1, sp, true, nil)
+	pd := g.generateStandardPlanet(worldID, worldName, 1, sp, true, nil,
+		&prototypeOverrides{finalTempK: 288, waterPercent: 80})
 
 	var data map[string]interface{}
 	if err := json.Unmarshal(pd.Data, &data); err != nil {
 		return pd
 	}
-	data["archetype"] = "умеренный"
-	data["temperature"] = 288.0
-	data["liquid_water_possible"] = true
-	data["water_percent"] = 80.0
-	data["life"] = true
+	data["prototype_forced"] = true
 	data["political_system"] = "демократия"
 	data["development_level"] = 0.5
 	dataJSON, _ := json.Marshal(data)

@@ -302,6 +302,11 @@ func populatePlanetFromJSON(p *models.Planet, data map[string]interface{}) {
 	p.SurfaceComposition = getFloatMap(data, "surface_composition")
 	p.SubterrainComposition = getFloatMap(data, "subterrain_composition")
 
+	// Биомы и зоны недр объектами (99.2.28 §9.3): отсутствие ключа → nil
+	// (старый мир), не ошибка.
+	p.Biomes = parseBiomes(data)
+	p.Subterrain = parseSubterrain(data)
+
 	// Ядро
 	p.Core = parseCore(data)
 
@@ -361,6 +366,48 @@ func parseSatellites(data map[string]interface{}) []models.PlanetSatellite {
 			SurfaceComposition:    getFloatMap(m, "surface_composition"),
 			SubterrainComposition: getFloatMap(m, "subterrain_composition"),
 			Description:           getStr(m, "description"),
+		})
+	}
+	return result
+}
+
+// parseBiomes — читает биомы поверхности из JSON (99.2.28 §9.3).
+// Отсутствие ключа → nil (старый мир), не ошибка.
+func parseBiomes(data map[string]interface{}) []models.Biome {
+	raw, ok := data["biomes"].([]interface{})
+	if !ok {
+		return nil
+	}
+	result := make([]models.Biome, 0, len(raw))
+	for _, item := range raw {
+		m, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		result = append(result, models.Biome{
+			Form:  getStr(m, "form"),
+			Share: getFloat(m, "share"),
+		})
+	}
+	return result
+}
+
+// parseSubterrain — читает зоны недр из JSON (99.2.28 §9.3).
+// Отсутствие ключа → nil (старый мир), не ошибка.
+func parseSubterrain(data map[string]interface{}) []models.SubterrainZone {
+	raw, ok := data["subterrain"].([]interface{})
+	if !ok {
+		return nil
+	}
+	result := make([]models.SubterrainZone, 0, len(raw))
+	for _, item := range raw {
+		m, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		result = append(result, models.SubterrainZone{
+			Type:  getStr(m, "type"),
+			Share: getFloat(m, "share"),
 		})
 	}
 	return result

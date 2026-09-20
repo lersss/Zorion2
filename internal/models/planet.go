@@ -56,6 +56,12 @@ type Planet struct {
 	SurfaceComposition    map[string]float64 `json:"surface_composition"`
 	SubterrainComposition map[string]float64 `json:"subterrain_composition"`
 
+	// Биомы и зоны недр объектами (99.2.28 §9.3): финальная поверхность/недра.
+	// Отсутствие ключа = старый мир (фолбэк nil, не ошибка); газовые гиганты
+	// — пусто/отсутствует.
+	Biomes     []Biome          `json:"biomes,omitempty"`
+	Subterrain []SubterrainZone `json:"subterrain,omitempty"`
+
 	// Ядро
 	Core *PlanetCore `json:"core,omitempty"`
 
@@ -79,6 +85,20 @@ type Planet struct {
 	Radioactive bool      `json:"radioactive,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// Biome — биом поверхности планеты (99.2.28 §3.1): объект {form, share},
+// form — id из справочника биомов, share — доля поверхности в %.
+type Biome struct {
+	Form  string  `json:"form"`
+	Share float64 `json:"share"`
+}
+
+// SubterrainZone — зона недр планеты (99.2.28 §3.2): объект {type, share},
+// type — id типа недр из справочника.
+type SubterrainZone struct {
+	Type  string  `json:"type"`
+	Share float64 `json:"share"`
 }
 
 // PlanetKnowledgeView — знание игрока о планете в ответе модалки (спека 77a

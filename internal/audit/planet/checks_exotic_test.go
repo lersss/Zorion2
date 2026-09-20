@@ -17,8 +17,9 @@ import (
 func TestAllRulesCount42(t *testing.T) {
 	// Счётчик правил: 40 базовых + 2 спец-правила экзотики + 2 правила
 	// физического каскада (99.2.20 §6.2: atmosphere_sum_not_100,
-	// liquid_water_mismatch) = 44.
-	require.Len(t, AllRules(), 44, "число правил аудита планет")
+	// liquid_water_mismatch) + 3 правила биомов (99.2.28 §14:
+	// biosphere_without_conditions, empty_biomes, biome_not_in_catalog) = 47.
+	require.Len(t, AllRules(), 47, "число правил аудита планет")
 }
 
 // exoticDeadPlanet — планета остатка по ветке §5.3: вода 0, жизнь 0,

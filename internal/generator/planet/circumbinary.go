@@ -142,6 +142,10 @@ func (g *Generator) generateCircumbinaryRocky(w WorldInfo, rP float64, sp Stella
 		"radioactive":            radioactive,
 		"core":                   coreToJSON(res.Core),
 
+		// Биомы и зоны недр объектами (99.2.28 §9): финальная поверхность/недра.
+		"biomes":     biomesToJSON(res.Biomes),
+		"subterrain": zonesToJSON(res.SubterrainZones),
+
 		// Орбитальный контекст P-планеты (35b §2.2): вокруг барицентра пары.
 		"orbit_center":    "barycenter",
 		"orbit_radius_au": rP,

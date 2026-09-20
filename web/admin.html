@@ -63,6 +63,36 @@
                 Настройки в памяти: после рестарта сервера — дефолты (СПЖ 50 лет, k=2).
             </p>
         </div>
+
+        <!-- Справочник биомов (99.2.28 §22, UI-спека 99.2.28-ui): карточка
+             ниже «Настройки населения». Правка — admin; чтение — admin +
+             skycomposer (read-only). Правки применяются к новым мирам. -->
+        <div class="card" id="biomeCatalogCard">
+            <h2>📖 Справочник биомов <span id="biomeCatalogSub" style="color:#94a3b8;font-size:0.85rem;"></span>
+                <span id="biomeCatalogLock" title="Режим чтения: правка — роль admin" style="display:none;">🔒</span>
+            </h2>
+            <p class="hint">
+                Биомы пишутся при генерации планет; правки справочника применяются
+                к новым мирам (бэкфилл запрещён). Чтобы применить — перегенерируйте планеты.
+            </p>
+            <div class="seg" id="biomeCatalogSeg" style="margin-bottom:12px;">
+                <button class="seg-btn active" data-bc-sub="biomes" onclick="switchBiomeSub('biomes')">Биомы</button>
+                <button class="seg-btn" data-bc-sub="subterrain" onclick="switchBiomeSub('subterrain')">Типы недр</button>
+                <button class="seg-btn" data-bc-sub="planetTypes" onclick="switchBiomeSub('planetTypes')">Типы планет</button>
+                <button class="seg-btn" data-bc-sub="bands" onclick="switchBiomeSub('bands')">Полосы климатов</button>
+                <button class="seg-btn" data-bc-sub="compat" onclick="switchBiomeSub('compat')">Несовместимость</button>
+                <button class="seg-btn" data-bc-sub="params" onclick="switchBiomeSub('params')">Параметры</button>
+            </div>
+            <div id="biomeCatalogContent">
+                <p class="hint">Загрузка справочника…</p>
+            </div>
+            <div class="compact-row" style="margin-top:12px;">
+                <button class="btn success" id="biomeCatalogSaveBtn">💾 Сохранить</button>
+                <button class="btn secondary" id="biomeCatalogResetBtn">↺ Сбросить к заводским</button>
+                <button class="btn" id="biomeCatalogRegenBtn">🪐 Перегенерировать планеты</button>
+                <span id="biomeCatalogStatus" class="hint" style="margin:0;align-self:center;">✓ сохранено</span>
+            </div>
+        </div>
     </div>
 
     <!-- Вкладка: Генерация (подвкладки-кнопки, спека 99.2.3 §2, 71a) -->

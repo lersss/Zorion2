@@ -479,6 +479,30 @@ func composeToJSON(c Composition) map[string]float64 {
 	return out
 }
 
+// biomesToJSON — объекты биомов → JSON-массив {form, share} (99.2.28 §9.1).
+func biomesToJSON(biomes []models.Biome) []map[string]interface{} {
+	if len(biomes) == 0 {
+		return []map[string]interface{}{}
+	}
+	out := make([]map[string]interface{}, 0, len(biomes))
+	for _, b := range biomes {
+		out = append(out, map[string]interface{}{"form": b.Form, "share": b.Share})
+	}
+	return out
+}
+
+// zonesToJSON — зоны недр → JSON-массив {type, share} (99.2.28 §9.1).
+func zonesToJSON(zones []models.SubterrainZone) []map[string]interface{} {
+	if len(zones) == 0 {
+		return []map[string]interface{}{}
+	}
+	out := make([]map[string]interface{}, 0, len(zones))
+	for _, z := range zones {
+		out = append(out, map[string]interface{}{"type": z.Type, "share": z.Share})
+	}
+	return out
+}
+
 func uuidShort() string {
 	return uuid.New().String()[:8]
 }

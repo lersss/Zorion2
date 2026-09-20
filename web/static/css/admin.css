@@ -728,3 +728,26 @@ table tr:hover { background: #1a1a2e; }
     pointer-events: none;
     white-space: normal;
 }
+
+/* Справочник биомов (99.2.28-ui): поля редактора вне .compact-row —
+   тема админки (select/input по умолчанию — браузерные). */
+#biomeCatalogContent select,
+#biomeCatalogContent input[type="text"],
+#biomeCatalogContent input[type="number"] {
+    background: #0f172a;
+    border: 1px solid #334155;
+    color: #e0e0e0;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 0.82rem;
+}
+#biomeCatalogContent select:disabled,
+#biomeCatalogContent input:disabled {
+    opacity: 0.55;
+}
+#biomeCatalogContent label {
+    color: #94a3b8;
+    font-size: 0.75rem;
+    display: block;
+    margin-bottom: 2px;
+}

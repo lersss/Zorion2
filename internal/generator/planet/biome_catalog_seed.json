@@ -1,0 +1,113 @@
+{
+  "biomes": [
+    { "id": "горы", "name": "Горы", "category": "литосфера", "bands": ["э","ж","у","х"], "type_tags": ["каменный"], "weight_base": 1.0, "albedo": 0.15 },
+    { "id": "пески_пустыни", "name": "Пески пустыни", "category": "литосфера", "t_min": 280, "t_max": 500, "water_max": 30, "bands": ["ж","у"], "type_tags": ["пустынный"], "weight_base": 1.2, "albedo": 0.25 },
+    { "id": "кратеры", "name": "Кратеры", "category": "литосфера", "p_max": 10, "bands": ["э","ж","у","х"], "type_tags": ["каменный"], "weight_base": 0.5, "albedo": 0.10 },
+    { "id": "каменные_пустоши", "name": "Каменные пустоши", "category": "литосфера", "t_min": 180, "t_max": 300, "p_min": 0.005, "p_max": 0.02, "water_max": 10, "bands": ["у","х"], "type_tags": ["каменный"], "weight_base": 1.0, "albedo": 0.18 },
+    { "id": "соляные_чаши", "name": "Соляные чаши", "category": "литосфера", "t_min": 250, "t_max": 400, "water_max": 15, "bands": ["ж","у"], "type_tags": ["пустынный"], "weight_base": 0.6, "albedo": 0.35 },
+    { "id": "раковинная_пустыня", "name": "Раковинная пустыня", "category": "литосфера", "t_min": 250, "t_max": 330, "water_max": 10, "bands": ["у"], "type_tags": ["пустынный"], "weight_base": 0.5, "albedo": 0.45 },
+    { "id": "танцующие_пески", "name": "Танцующие пески", "category": "литосфера", "t_min": 250, "t_max": 400, "water_max": 15, "bands": ["ж","у"], "type_tags": ["пустынный"], "weight_base": 0.5, "albedo": 0.22 },
+    { "id": "грозовая_степь", "name": "Грозовая степь", "category": "литосфера", "t_min": 250, "t_max": 400, "water_max": 20, "iron_min": 0.2, "bands": ["ж","у"], "type_tags": ["каменный"], "weight_base": 0.5, "albedo": 0.15 },
+    { "id": "углеродные_нагорья", "name": "Углеродные нагорья", "category": "литосфера", "t_min": 100, "t_max": 700, "rock_min": 0.5, "bands": ["э","ж","у","х"], "type_tags": ["каменный"], "weight_base": 0.4, "albedo": 0.08 },
+    { "id": "металлорудные_возвышенности", "name": "Металлорудные возвышенности", "category": "литосфера", "t_min": 100, "t_max": 700, "p_max": 0.1, "iron_min": 0.4, "bands": ["э","ж","у","х"], "type_tags": ["металлический"], "weight_base": 0.4, "albedo": 0.30 },
+    { "id": "стеклянные_поля", "name": "Стеклянные поля", "category": "литосфера", "t_min": 480, "t_max": 600, "bands": ["э"], "type_tags": ["стеклянный"], "weight_base": 1.0, "albedo": 0.30 },
+    { "id": "металлические_поля", "name": "Металлические поля", "category": "литосфера", "t_min": 480, "t_max": 600, "iron_min": 0.3, "bands": ["э"], "type_tags": ["металлический"], "weight_base": 1.0, "albedo": 0.35 },
+    { "id": "лавовые_поля", "name": "Лавовые поля", "category": "вулканизм", "t_min": 500, "volcanism": "hot", "bands": ["э"], "type_tags": ["вулканический"], "weight_base": 0.35, "albedo": 0.55 },
+    { "id": "вулканические_поля", "name": "Вулканические поля", "category": "вулканизм", "volcanism": "any", "bands": ["э","ж","у","х"], "type_tags": ["вулканический"], "weight_base": 0.25, "albedo": 0.12 },
+    { "id": "обсидиановые_поля", "name": "Обсидиановые поля", "category": "вулканизм", "t_min": 300, "t_max": 600, "volcanism": "any", "bands": ["э","ж","у"], "type_tags": ["вулканический"], "weight_base": 0.4, "albedo": 0.08 },
+    { "id": "серные_поля", "name": "Серные поля", "category": "вулканизм", "t_min": 110, "t_max": 900, "volcanism": "any", "bands": ["э","ж","у","х"], "type_tags": ["вулканический"], "weight_base": 0.5, "albedo": 0.30 },
+    { "id": "магмовый_океан", "name": "Магмовый океан", "category": "вулканизм", "t_min": 1200, "t_max": 2000, "volcanism": "magma", "bands": ["э"], "type_tags": ["вулканический"], "weight_base": 0.6, "albedo": 0.60 },
+    { "id": "венерианские_плоскогорья", "name": "Венерианские плоскогорья", "category": "вулканизм", "t_min": 650, "t_max": 750, "p_min": 50, "atmosphere_ok": ["dense","co2"], "bands": ["э"], "type_tags": ["каменный"], "weight_base": 0.8, "albedo": 0.70 },
+    { "id": "криовулканические_поля", "name": "Криовулканические поля", "category": "вулканизм", "t_min": 90, "t_max": 200, "volcanism": "any", "bands": ["х"], "type_tags": ["ледяной"], "weight_base": 0.5, "albedo": 0.40 },
+    { "id": "океаны", "name": "Океаны", "category": "вода", "t_min": 273, "t_max": 373, "p_min": 0.006, "water_min": 40, "liquid_medium": "вода", "bands": ["ж","у"], "type_tags": ["водный"], "weight_base": 2.0, "albedo": 0.06 },
+    { "id": "озёра_реки", "name": "Озёра и реки", "category": "вода", "t_min": 273, "t_max": 373, "p_min": 0.006, "water_min": 10, "water_max": 60, "liquid_medium": "вода", "bands": ["ж","у"], "type_tags": ["водный"], "weight_base": 1.2, "albedo": 0.10 },
+    { "id": "мелководья_заливные", "name": "Мелководья заливные", "category": "вода", "t_min": 280, "t_max": 320, "water_min": 30, "water_max": 70, "liquid_medium": "вода", "bands": ["у"], "type_tags": ["водный"], "weight_base": 0.8, "albedo": 0.08 },
+    { "id": "планктонные_моря", "name": "Планктонные моря", "category": "вода", "t_min": 273, "t_max": 320, "water_min": 50, "liquid_medium": "вода", "atmosphere_ok": ["no_toxic"], "requires_life": true, "bands": ["у"], "type_tags": ["водный","биосферный"], "weight_base": 0.7, "albedo": 0.07 },
+    { "id": "термальные_террасы", "name": "Термальные террасы", "category": "вода", "t_min": 280, "t_max": 350, "water_min": 20, "liquid_medium": "вода", "volcanism": "any", "bands": ["ж","у"], "type_tags": ["водный"], "weight_base": 0.6, "albedo": 0.15 },
+    { "id": "метановые_моря", "name": "Метановые моря", "category": "вода", "t_min": 92, "t_max": 95, "p_min": 1, "p_max": 2, "ice_min": 0.3, "liquid_medium": "метан", "atmosphere_ok": ["oxygen_free","methane"], "bands": ["х"], "type_tags": ["ледяной"], "weight_base": 0.8, "albedo": 0.20 },
+    { "id": "углеводородные_равнины", "name": "Углеводородные равнины", "category": "вода", "t_min": 80, "t_max": 110, "p_min": 1, "p_max": 2, "ice_min": 0.3, "liquid_medium": "метан", "atmosphere_ok": ["oxygen_free","methane"], "bands": ["х"], "type_tags": ["ледяной"], "weight_base": 0.6, "albedo": 0.13 },
+    { "id": "аммиачные_крио-океаны", "name": "Аммиачные крио-океаны", "category": "вода", "t_min": 176, "t_max": 240, "ice_min": 0.2, "liquid_medium": "аммиак", "atmosphere_ok": ["oxygen_free"], "bands": ["х"], "type_tags": ["ледяной"], "weight_base": 0.5, "albedo": 0.45 },
+    { "id": "подлёдные_океаны", "name": "Подлёдные океаны", "category": "вода", "t_min": 90, "t_max": 130, "water_min": 0.01, "ice_min": 0.3, "bands": ["х"], "type_tags": ["ледяной"], "weight_base": 0.6, "albedo": 0.55 },
+    { "id": "co2_океаны", "name": "CO₂-океаны", "category": "вода", "t_min": 216, "t_max": 304, "p_min": 5.1, "liquid_medium": "co2", "atmosphere_ok": ["co2"], "bands": ["у","х"], "type_tags": ["ледяной"], "weight_base": 0.4, "albedo": 0.60 },
+    { "id": "ледники", "name": "Ледники", "category": "крио", "t_max": 273, "water_min": 0.01, "bands": ["у","х"], "type_tags": ["ледяной"], "weight_base": 0.9, "albedo": 0.65 },
+    { "id": "мёрзлые_газы", "name": "Мёрзлые газы", "category": "крио", "t_max": 170, "ice_min": 0.2, "bands": ["х"], "type_tags": ["ледяной"], "weight_base": 0.8, "albedo": 0.50 },
+    { "id": "азотно-ледяная_тундра", "name": "Азотно-ледяная тундра", "category": "крио", "t_min": 35, "t_max": 60, "ice_min": 0.3, "atmosphere_ok": ["co2","oxygen_free"], "bands": ["х"], "type_tags": ["ледяной"], "weight_base": 0.6, "albedo": 0.60 },
+    { "id": "сухой_лёд", "name": "Сухой лёд", "category": "крио", "t_max": 195, "ice_min": 0.2, "atmosphere_ok": ["co2"], "bands": ["х"], "type_tags": ["ледяной"], "weight_base": 0.5, "albedo": 0.70 },
+    { "id": "инеевые_рощи", "name": "Инеевые рощи", "category": "крио", "t_min": 90, "t_max": 100, "ice_min": 0.3, "liquid_medium": "метан", "atmosphere_ok": ["oxygen_free","methane"], "bands": ["х"], "type_tags": ["ледяной"], "weight_base": 0.4, "albedo": 0.35 },
+    { "id": "луга_степи", "name": "Луга и степи", "category": "биосфера", "t_min": 250, "t_max": 330, "water_min": 20, "water_max": 45, "liquid_medium": "вода", "atmosphere_ok": ["no_toxic"], "requires_life": true, "bands": ["у"], "type_tags": ["биосферный"], "weight_base": 1.0, "albedo": 0.20 },
+    { "id": "леса", "name": "Леса", "category": "биосфера", "t_min": 250, "t_max": 330, "water_min": 15, "water_max": 40, "liquid_medium": "вода", "atmosphere_ok": ["no_toxic"], "requires_life": true, "bands": ["у"], "type_tags": ["биосферный"], "weight_base": 1.2, "albedo": 0.15 },
+    { "id": "джунгли", "name": "Джунгли", "category": "биосфера", "t_min": 290, "t_max": 360, "water_min": 40, "water_max": 70, "liquid_medium": "вода", "atmosphere_ok": ["no_toxic"], "requires_life": true, "bands": ["ж","у"], "type_tags": ["биосферный"], "weight_base": 1.4, "albedo": 0.12 },
+    { "id": "болота", "name": "Болота", "category": "биосфера", "t_min": 260, "t_max": 330, "water_min": 35, "water_max": 60, "liquid_medium": "вода", "atmosphere_ok": ["no_toxic"], "requires_life": true, "bands": ["у"], "type_tags": ["биосферный"], "weight_base": 1.0, "albedo": 0.10 },
+    { "id": "коралловые_рифы", "name": "Коралловые рифы", "category": "биосфера", "t_min": 275, "t_max": 300, "liquid_medium": "вода", "atmosphere_ok": ["no_toxic"], "requires_life": true, "bands": ["у"], "type_tags": ["биосферный","водный"], "weight_base": 0.8, "albedo": 0.10 },
+    { "id": "багровые_степи", "name": "Багровые степи", "category": "биосфера", "t_min": 250, "t_max": 330, "water_min": 10, "water_max": 40, "atmosphere_ok": ["no_toxic"], "requires_life": true, "bands": ["у"], "type_tags": ["биосферный"], "weight_base": 0.8, "albedo": 0.14 },
+    { "id": "светящиеся_чащи", "name": "Светящиеся чащи", "category": "биосфера", "t_min": 260, "t_max": 320, "water_min": 30, "liquid_medium": "вода", "atmosphere_ok": ["no_toxic"], "requires_life": true, "needs_light": false, "bands": ["у"], "type_tags": ["биосферный"], "weight_base": 0.6, "albedo": 0.10 },
+    { "id": "тихие_рощи_низкой_гравитации", "name": "Тихие рощи низкой гравитации", "category": "биосфера", "t_min": 250, "t_max": 320, "water_min": 20, "g_max": 0.5, "liquid_medium": "вода", "atmosphere_ok": ["no_toxic"], "requires_life": true, "bands": ["у"], "type_tags": ["биосферный"], "weight_base": 0.6, "albedo": 0.16 },
+    { "id": "блуждающие_рощи", "name": "Блуждающие рощи", "category": "биосфера", "t_min": 250, "t_max": 320, "water_min": 30, "liquid_medium": "вода", "atmosphere_ok": ["no_toxic"], "requires_life": true, "bands": ["у"], "type_tags": ["биосферный"], "weight_base": 0.6, "albedo": 0.13 },
+    { "id": "металлические_рощи", "name": "Металлические рощи", "category": "биосфера", "t_min": 250, "t_max": 330, "water_min": 20, "iron_min": 0.15, "liquid_medium": "вода", "atmosphere_ok": ["no_toxic"], "requires_life": true, "bands": ["у"], "type_tags": ["биосферный"], "weight_base": 0.5, "albedo": 0.18 },
+    { "id": "кислотные_дебри", "name": "Кислотные дебри", "category": "биосфера", "t_min": 260, "t_max": 320, "water_min": 30, "water_max": 60, "liquid_medium": "вода", "atmosphere_ok": ["toxic"], "requires_life": true, "bands": ["у"], "type_tags": ["биосферный"], "weight_base": 0.7, "albedo": 0.09 },
+    { "id": "хемосинтетические_сады", "name": "Хемосинтетические сады", "category": "биосфера", "t_min": 280, "t_max": 380, "water_min": 20, "liquid_medium": "вода", "volcanism": "any", "requires_life": true, "needs_light": false, "bands": ["ж","у"], "type_tags": ["биосферный"], "weight_base": 0.6, "albedo": 0.12 },
+    { "id": "радиационные_ковры", "name": "Радиационные ковры", "category": "биосфера", "t_min": 200, "t_max": 350, "p_max": 0.5, "water_min": 0.01, "requires_radiation": true, "requires_life": true, "needs_light": false, "bands": ["у","х"], "type_tags": ["биосферный"], "weight_base": 0.5, "albedo": 0.20 },
+    { "id": "кристальные_рощи", "name": "Кристальные рощи", "category": "экзотика", "t_min": 200, "t_max": 400, "rock_min": 0.3, "bands": ["ж","у","х"], "type_tags": ["каменный"], "weight_base": 0.5, "albedo": 0.30 },
+    { "id": "кремниевые_рощи", "name": "Кремниевые рощи", "category": "экзотика", "t_min": 300, "t_max": 600, "rock_min": 0.3, "volcanism": "any", "bands": ["э","ж","у"], "type_tags": ["каменный"], "weight_base": 0.4, "albedo": 0.25 },
+    { "id": "металлические_щетинные_поля", "name": "Металлические щетинные поля", "category": "экзотика", "t_min": 100, "t_max": 300, "iron_min": 0.2, "bands": ["у","х"], "type_tags": ["металлический"], "weight_base": 0.4, "albedo": 0.30 },
+    { "id": "карбидно-алмазные_заросли", "name": "Карбидно-алмазные заросли", "category": "экзотика", "t_min": 1500, "t_max": 2500, "rock_min": 0.4, "volcanism": "any", "bands": ["э"], "type_tags": ["каменный"], "weight_base": 0.3, "albedo": 0.25 },
+    { "id": "струнные_рощи", "name": "Струнные рощи", "category": "экзотика", "t_min": 250, "t_max": 330, "p_min": 1, "water_min": 20, "bands": ["у"], "type_tags": ["каменный"], "weight_base": 0.5, "albedo": 0.17 },
+    { "id": "радиационные_пустоши", "name": "Радиационные пустоши", "category": "экзотика", "t_min": 100, "t_max": 400, "p_max": 0.1, "requires_radiation": true, "bands": ["ж","у","х"], "type_tags": ["каменный"], "weight_base": 0.5, "albedo": 0.20 },
+    { "id": "терминаторная_зона", "name": "Терминаторная зона", "category": "экзотика", "t_min": 100, "t_max": 300, "requires_tidal_lock": true, "bands": ["у","х"], "type_tags": ["каменный"], "weight_base": 0.5, "albedo": 0.15 },
+    { "id": "пружинная_тундра", "name": "Пружинная тундра", "category": "экзотика", "t_min": 250, "t_max": 330, "p_min": 1, "water_min": 10, "g_min": 1.5, "atmosphere_ok": ["dense"], "bands": ["у"], "type_tags": ["каменный"], "weight_base": 0.4, "albedo": 0.18 },
+    { "id": "химический_иней", "name": "Химический иней", "category": "экзотика", "t_min": 150, "t_max": 300, "atmosphere_ok": ["toxic"], "bands": ["у","х"], "type_tags": ["каменный"], "weight_base": 0.4, "albedo": 0.25 },
+    { "id": "пещерный_мир_с_потолком", "name": "Пещерный мир с потолком", "category": "экзотика", "t_min": 250, "t_max": 350, "p_min": 2, "water_min": 10, "liquid_medium": "вода", "atmosphere_ok": ["dense"], "bands": ["у"], "type_tags": ["каменный"], "weight_base": 0.5, "albedo": 0.45 }
+  ],
+  "subterrain_types": [
+    { "id": "пустая_порода", "name": "Пустая порода", "category": "породы", "bands": ["э","ж","у","х"], "weight_base": 0.30, "conditions": { "v_max": 0.5 } },
+    { "id": "магматические_породы", "name": "Магматические породы", "category": "вулканические", "bands": ["э","ж","у","х"], "weight_base": 0.15, "conditions": { "v_min": 0.01, "rock_min": 0.3 } },
+    { "id": "метаморфические_породы", "name": "Метаморфические породы", "category": "породы", "bands": ["э","ж","у","х"], "weight_base": 0.12, "conditions": { "v_max": 0.5, "rock_min": 0.2 } },
+    { "id": "осадочные_породы", "name": "Осадочные породы", "category": "осадочные", "bands": ["ж","у","х"], "weight_base": 0.25, "conditions": { "flag_required": true, "p_min": 1.0 } },
+    { "id": "рудные_жилы", "name": "Рудные жилы", "category": "рудные", "bands": ["э","ж","у","х"], "weight_base": 0.12, "conditions": { "iron_min": 0.1 } },
+    { "id": "редкоземельные_жилы", "name": "Редкоземельные жилы", "category": "рудные", "bands": ["э","ж","у","х"], "weight_base": 0.05, "conditions": { "v_max": 0.5 } },
+    { "id": "радиоактивные_зоны", "name": "Радиоактивные зоны", "category": "радиоактивные", "bands": ["э","ж","у","х"], "weight_base": 0.15, "conditions": { "radioactivity_min": 10.0 } },
+    { "id": "угольные_пласты", "name": "Угольные пласты", "category": "биогенные", "bands": ["ж","у"], "weight_base": 0.15, "conditions": { "life_required": true } },
+    { "id": "нефтяные_карманы", "name": "Нефтяные карманы", "category": "биогенные", "bands": ["ж","у"], "weight_base": 0.10, "conditions": { "life_required": true, "draft_oceans": true } },
+    { "id": "газовые_карманы", "name": "Газовые карманы", "category": "породы", "bands": ["э","ж","у","х"], "weight_base": 0.08, "conditions": { "ice_min": 0.1 } },
+    { "id": "подземные_воды", "name": "Подземные воды", "category": "водные", "bands": ["ж","у"], "weight_base": 0.20, "conditions": { "flag_required": true } },
+    { "id": "подземные_льды", "name": "Подземные льды", "category": "ледяные", "bands": ["у","х"], "weight_base": 0.20, "conditions": { "t_max": 273.0, "water_min": 0.01 } },
+    { "id": "магматические_камеры", "name": "Магматические камеры", "category": "вулканические", "bands": ["э","ж","у","х"], "weight_base": 0.30, "conditions": { "v_min": 0.01 } },
+    { "id": "кристаллические_жилы", "name": "Кристаллические жилы", "category": "породы", "bands": ["э","ж","у","х"], "weight_base": 0.08, "conditions": { "v_max": 0.5 } },
+    { "id": "соляные_купола", "name": "Соляные купола", "category": "осадочные", "bands": ["ж","у"], "weight_base": 0.06, "conditions": { "draft_oceans": true } },
+    { "id": "пещерные_системы", "name": "Пещерные системы", "category": "карстовые", "bands": ["ж","у","х"], "weight_base": 0.05, "conditions": { "water_min": 0.01, "v_max": 0.5 } },
+    { "id": "металлические_ядра", "name": "Металлические ядра", "category": "рудные", "bands": ["э","ж","у","х"], "weight_base": 0.10, "conditions": { "iron_min": 0.2 } }
+  ],
+  "planet_types": [
+    { "id": "радиоактивная", "predicates": [ { "type": "radioactive_core" } ] },
+    { "id": "землеподобная", "predicates": [
+        { "type": "settleable" }, { "type": "life" },
+        { "type": "share_of", "form": "горы", "min": 0.01 },
+        { "type": "any_of", "forms": ["океаны", "озёра_реки"], "min": 0.01 } ] },
+    { "id": "океаническая", "predicates": [
+        { "type": "dominant_form", "form": "океаны" },
+        { "type": "water_percent", "gt": 60 } ] },
+    { "id": "ледяная", "predicates": [
+        { "type": "or", "rules": [
+            { "type": "and", "rules": [
+                { "type": "dominant_form", "form": "ледники" },
+                { "type": "temperature", "lt": 250 } ] },
+            { "type": "temperature", "lt": 150 } ] } ] },
+    { "id": "вулканическая", "predicates": [
+        { "type": "tag_sum", "tag": "вулканический", "min": 20.0 } ] },
+    { "id": "пустынная", "predicates": [
+        { "type": "tag_sum", "tag": "пустынный", "min": 25.0 },
+        { "type": "water_percent", "lt": 25.0 } ] },
+    { "id": "стеклянная", "predicates": [
+        { "type": "share_of", "form": "стеклянные_поля", "min": 15.0 } ] },
+    { "id": "металлическая", "predicates": [
+        { "type": "share_of", "form": "металлические_поля", "min": 15.0 } ] },
+    { "id": "органик", "predicates": [
+        { "type": "tag_sum", "tag": "биосферный", "min": 25.0 } ] }
+  ],
+  "fallback_type": "скалистая (базовая)",
+  "params": {
+    "toxic_thresholds": {
+      "SO2": 0.1, "H2S": 0.1, "Cl2": 0.1, "NH3": 1.0, "CO": 1.0, "CH4": 1.0, "H2SO4": 0.1
+    }
+  }
+}

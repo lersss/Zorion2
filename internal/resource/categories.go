@@ -44,7 +44,7 @@ var Categories = map[string]Category{
 		Code:    CategoryFuel,
 		Name:    "Топливо",
 		Icon:    "🔥",
-		Purpose: "Энергия для заводов, транспорт",
+		Purpose: "Энергия для фабрик, транспорт",
 	},
 	CategoryWater: {
 		Code:    CategoryWater,

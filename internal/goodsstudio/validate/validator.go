@@ -121,6 +121,26 @@ func Validate(st *model.State) []Warning {
 		}
 		seen[norm] = st.Goods[i].Name
 	}
+
+	// 5. Approved-товар без веса/объёма (спека 2026-09-20-фабрики §3.1,
+	// решение 3b.6.4): NULL-каталог запрещён — механика грузов/трюма
+	// опирается на данные каталога. Ресурсы (kind=resource) пропускаются —
+	// сырьё не имеет объёма/веса как товар (добывается платформой).
+	for i := range st.Goods {
+		g := &st.Goods[i]
+		if g.Kind == model.KindResource {
+			continue
+		}
+		if g.Status != model.StatusApproved {
+			continue
+		}
+		if g.Volume == nil || g.Weight == nil {
+			out = append(out, Warning{
+				Code:    "missing_volume_weight",
+				Message: fmt.Sprintf("Согласованный товар %s без веса/объёма (NULL-каталог запрещён)", g.Name),
+			})
+		}
+	}
 	return out
 }
 

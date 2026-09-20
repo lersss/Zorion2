@@ -1,0 +1,203 @@
+// internal/goodsstudio/seed_producers.go
+// Сидер каталога типов производителей и предметов (спека
+// 2026-09-20-фабрики §10.1 п.2): при первом старте (маркер
+// producer_catalog_seed в generation_config) в одной транзакции сеет
+// 8 типов производителей (поселение, фабрика, автофабрика, добывающая
+// платформа, энергостанция, 3 лаборатории), 4 предмета (чертёж, сертификат
+// анализа, модуль корабля, кирка) и связи лабораторий с предметами.
+// Категории (categories) к этому моменту уже посеяны goodsstudio.Seed —
+// сид вызывается после него (cmd/server/main.go). Повторные старты —
+// пропуск (маркер): правки студии сидом не перезаписываются (С1-паттерн).
+package goodsstudio
+
+import (
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"zorion/internal/goodsstudio/graph"
+)
+
+// ProducerSeedMarkerKey — ключ маркера сидера производителей в
+// generation_config: payload {"applied_at", "producers", "items", "links"}.
+const ProducerSeedMarkerKey = "producer_catalog_seed"
+
+// seedProducer — тип производителя сида (спека §2/§4.1).
+type seedProducer struct {
+	Name       string
+	Kind       string // goods/items/energy
+	Category   string // name_norm категории (kind=goods), "" = NULL
+	RaceFamily string // "" = NULL (универсальный)
+	Output     string // JSONB
+	Input      string // JSONB
+	Params     string // JSONB
+}
+
+// seedItem — предмет сида (спека §2/§4.2).
+type seedItem struct {
+	Name     string
+	SlotType string
+	Unlocks  string // JSONB, "" = NULL
+	Params   string // JSONB, "" = NULL
+}
+
+// seedProducerItem — связь «лаборатория → предмет» (producer_items).
+type seedProducerItem struct {
+	Producer string
+	Item     string
+}
+
+// seedProducers — базовые типы производителей (спека §10.1 п.2).
+// Автофабрика — корзина роботов: энергия + детали + комплектующие, НЕ еда
+// (решение 3b.6.1). Добывающая платформа — сырьё (kind=resource), категория
+// «Минералы» (сид-приближение, студия уточняет).
+var seedProducers = []seedProducer{
+	{Name: "Поселение", Kind: "goods", Output: `{"residual": true}`, Input: `{"people": {"capacity": 100}}`, Params: `{}`},
+	{Name: "Фабрика", Kind: "goods", Output: `{}`, Input: `{"people": {"capacity": 50}, "energy": true, "consumables": []}`, Params: `{"efficiency": 1.0}`},
+	{Name: "Автофабрика", Kind: "goods", Output: `{}`, Input: `{"robots": true, "energy": true, "consumables": ["детали", "комплектующие"]}`, Params: `{"robot_cost": 100}`},
+	{Name: "Добывающая платформа", Kind: "goods", Category: "минералы", Output: `{}`, Input: `{"energy": true, "consumables": []}`, Params: `{}`},
+	{Name: "Энергостанция", Kind: "energy", Output: `{"energy": 100}`, Input: `{"people": {"capacity": 10}, "fuel": true}`, Params: `{}`},
+	{Name: "Лаборатория исследовательская", Kind: "items", Output: `{"items": ["Чертёж", "Сертификат анализа"]}`, Input: `{"people": {"capacity": 10}, "energy": true, "consumables": []}`, Params: `{}`},
+	{Name: "Лаборатория корабельных модулей", Kind: "items", Output: `{"items": ["Модуль корабля"]}`, Input: `{"people": {"capacity": 10}, "energy": true, "consumables": []}`, Params: `{}`},
+	{Name: "Лаборатория инструментов игрока", Kind: "items", Output: `{"items": ["Кирка"]}`, Input: `{"people": {"capacity": 10}, "energy": true, "consumables": []}`, Params: `{}`},
+}
+
+// seedItems — базовые предметы (спека §10.1 п.2): типы «что бывает»;
+// экземпляры живут в инвентаре, не здесь (§1).
+var seedItems = []seedItem{
+	{Name: "Чертёж", SlotType: "чертёж", Unlocks: `[]`, Params: `{}`},
+	{Name: "Сертификат анализа", SlotType: "сертификат", Params: `{}`},
+	{Name: "Модуль корабля", SlotType: "модуль", Params: `{}`},
+	{Name: "Кирка", SlotType: "инструмент", Params: `{}`},
+}
+
+// seedProducerItems — связи лабораторий с предметами (спека §2).
+var seedProducerItems = []seedProducerItem{
+	{Producer: "Лаборатория исследовательская", Item: "Чертёж"},
+	{Producer: "Лаборатория исследовательская", Item: "Сертификат анализа"},
+	{Producer: "Лаборатория корабельных модулей", Item: "Модуль корабля"},
+	{Producer: "Лаборатория инструментов игрока", Item: "Кирка"},
+}
+
+// SeedProducers — сидер каталога производителей (спека §10.1 п.2).
+// Маркер producer_catalog_seed в generation_config; повторные старты —
+// пропуск. Ошибка — возвращается; вызывающий (cmd/server/main.go) делает
+// log.Fatal.
+func SeedProducers(db *sql.DB) error {
+	var exists bool
+	if err := db.QueryRow(
+		`SELECT EXISTS(SELECT 1 FROM generation_config WHERE key = $1)`, ProducerSeedMarkerKey,
+	).Scan(&exists); err != nil {
+		return fmt.Errorf("seed producers: маркер: %w", err)
+	}
+	if exists {
+		return nil
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("seed producers: begin: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Категории по name_norm (посеяны goodsstudio.Seed до этого сида).
+	catByName := make(map[string]int64)
+	rows, err := tx.Query(`SELECT id, name_norm FROM categories`)
+	if err != nil {
+		return fmt.Errorf("seed producers: категории: %w", err)
+	}
+	for rows.Next() {
+		var id int64
+		var norm string
+		if err := rows.Scan(&id, &norm); err != nil {
+			rows.Close()
+			return fmt.Errorf("seed producers: категории: %w", err)
+		}
+		catByName[norm] = id
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("seed producers: категории: %w", err)
+	}
+
+	// Типы производителей.
+	producerIDs := make(map[string]int64, len(seedProducers))
+	for _, p := range seedProducers {
+		var catID interface{}
+		if p.Category != "" {
+			id, ok := catByName[p.Category]
+			if !ok {
+				return fmt.Errorf("seed producers: категория %q не найдена", p.Category)
+			}
+			catID = id
+		}
+		var id int64
+		if err := tx.QueryRow(
+			`INSERT INTO producer_types (name, name_norm, kind, category_id, race_family, output, input, params, status)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'approved') RETURNING id`,
+			p.Name, graph.NormalizeName(p.Name), p.Kind, catID, nullStr(p.RaceFamily),
+			p.Output, p.Input, p.Params,
+		).Scan(&id); err != nil {
+			return fmt.Errorf("seed producers: тип %s: %w", p.Name, err)
+		}
+		producerIDs[p.Name] = id
+	}
+
+	// Предметы.
+	itemIDs := make(map[string]int64, len(seedItems))
+	for _, it := range seedItems {
+		var id int64
+		if err := tx.QueryRow(
+			`INSERT INTO items (name, name_norm, slot_type, status, unlocks, params)
+			 VALUES ($1, $2, $3, 'approved', $4, $5) RETURNING id`,
+			it.Name, graph.NormalizeName(it.Name), it.SlotType, nullStr(it.Unlocks), nullStr(it.Params),
+		).Scan(&id); err != nil {
+			return fmt.Errorf("seed producers: предмет %s: %w", it.Name, err)
+		}
+		itemIDs[it.Name] = id
+	}
+
+	// Связи лабораторий с предметами.
+	for _, link := range seedProducerItems {
+		pid, ok1 := producerIDs[link.Producer]
+		iid, ok2 := itemIDs[link.Item]
+		if !ok1 || !ok2 {
+			return fmt.Errorf("seed producers: связь %s→%s: не найдены", link.Producer, link.Item)
+		}
+		if _, err := tx.Exec(
+			`INSERT INTO producer_items (producer_type_id, item_id) VALUES ($1, $2)`, pid, iid,
+		); err != nil {
+			return fmt.Errorf("seed producers: связь %s→%s: %w", link.Producer, link.Item, err)
+		}
+	}
+
+	// Маркер — в той же транзакции: сид атомарен.
+	marker, err := json.Marshal(map[string]interface{}{
+		"applied_at": time.Now().UTC().Format(time.RFC3339),
+		"producers":  len(seedProducers),
+		"items":      len(seedItems),
+		"links":      len(seedProducerItems),
+	})
+	if err != nil {
+		return fmt.Errorf("seed producers: маркер: %w", err)
+	}
+	if _, err := tx.Exec(
+		`INSERT INTO generation_config (key, payload) VALUES ($1, $2)`, ProducerSeedMarkerKey, string(marker),
+	); err != nil {
+		return fmt.Errorf("seed producers: маркер: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("seed producers: commit: %w", err)
+	}
+	return nil
+}
+
+// nullStr — пустая строка → NULL (для nullable JSONB/TEXT).
+func nullStr(s string) interface{} {
+	if s == "" {
+		return nil
+	}
+	return s
+}

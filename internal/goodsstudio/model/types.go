@@ -73,6 +73,12 @@ type Good struct {
 	// ниже вычисленного). Эффективный тир = override ?? вычисленный; ресурс = 0.
 	// Старые state.json без поля = null — миграции не нужны (zero value).
 	TierOverride *int `json:"tier_override,omitempty"`
+	// Volume/Weight — данные каталога (спека 2026-09-20-фабрики §3.1,
+	// решение 3b.6.4): NULL у draft; approved-товар без веса/объёма не
+	// проходит валидацию (NULL-каталог запрещён). Механика грузов/трюма —
+	// будущая фича, поля — данные каталога.
+	Volume *float64 `json:"volume,omitempty"`
+	Weight *float64 `json:"weight,omitempty"`
 }
 
 // State — полное состояние студии (один state.json, спека 99a.1 §5).

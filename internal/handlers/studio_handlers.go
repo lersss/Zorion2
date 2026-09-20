@@ -81,11 +81,42 @@ type GoodView struct {
 	TierOverride *int       `json:"tier_override"`
 	Recipe       []SlotView `json:"recipe"`
 	BannedAt     *string    `json:"banned_at"`
+	Volume       *float64   `json:"volume"` // данные каталога (3b.6.4); NULL у draft
+	Weight       *float64   `json:"weight"`
+}
+
+// ProducerTypeView — тип производителя в представлении состояния (спека
+// 2026-09-20-фабрики §4.1): карточка типа (имя, kind, категория, семейство
+// рас, вход/выход, параметры). Items — привязанные предметы (kind=items).
+type ProducerTypeView struct {
+	ID           int64           `json:"id"`
+	Name         string          `json:"name"`
+	Kind         string          `json:"kind"`
+	CategoryID   *int64          `json:"category_id"`
+	CategoryName string          `json:"category_name,omitempty"`
+	RaceFamily   string          `json:"race_family,omitempty"`
+	Output       json.RawMessage `json:"output"`
+	Input        json.RawMessage `json:"input"`
+	Params       json.RawMessage `json:"params"`
+	Status       string          `json:"status"`
+	Items        []ItemView      `json:"items,omitempty"`
+}
+
+// ItemView — предмет в представлении состояния (спека §4.2): единый
+// справочник «что бывает»; экземпляры — в инвентаре, не здесь.
+type ItemView struct {
+	ID       int64           `json:"id"`
+	Name     string          `json:"name"`
+	SlotType string          `json:"slot_type"`
+	Status   string          `json:"status"`
+	Unlocks  json.RawMessage `json:"unlocks"`
+	Params   json.RawMessage `json:"params"`
 }
 
 // StateView — полное состояние для UI (спека §7, GET /studio/api/state).
 // Поля fill (report/proposals/proposals_good_id) — аддитивны к iterA §7
-// (спека iterC §5.3): существующие не меняются.
+// (спека iterC §5.3): существующие не меняются. ProducerTypes/Items —
+// аддитивны (спека 2026-09-20-фабрики §4).
 type StateView struct {
 	Categories       []CategoryView     `json:"categories"`
 	Goods            []GoodView         `json:"goods"`
@@ -98,6 +129,8 @@ type StateView struct {
 	Report           []string           `json:"report"`
 	Proposals        []ProposalView     `json:"proposals"`
 	ProposalsGoodID  string             `json:"proposals_good_id,omitempty"`
+	ProducerTypes    []ProducerTypeView `json:"producer_types"`
+	Items            []ItemView         `json:"items"`
 }
 
 // ProposalView — предложение ИИ для попапа (спека iterC §5.3): kind new/link,
@@ -137,11 +170,13 @@ func (h *StudioHandlers) State(w http.ResponseWriter, r *http.Request) {
 func (h *StudioHandlers) buildStateView(snap *repository.CatalogSnapshot) StateView {
 	byID := graph.ByID(snap.Goods)
 	view := StateView{
-		Categories: make([]CategoryView, 0, len(snap.Categories)),
-		Goods:      make([]GoodView, 0, len(snap.Goods)),
-		Banned:     []GoodView{},
-		Unused:     []GoodView{},
-		Warnings:   validate.Validate(&model.State{SchemaVersion: model.SchemaVersion, Goods: snap.Goods}),
+		Categories:    make([]CategoryView, 0, len(snap.Categories)),
+		Goods:         make([]GoodView, 0, len(snap.Goods)),
+		Banned:        []GoodView{},
+		Unused:        []GoodView{},
+		Warnings:      validate.Validate(&model.State{SchemaVersion: model.SchemaVersion, Goods: snap.Goods}),
+		ProducerTypes: make([]ProducerTypeView, 0, len(snap.ProducerTypes)),
+		Items:         make([]ItemView, 0, len(snap.Items)),
 	}
 	h.fillMu.Lock()
 	view.Model = h.aiModel
@@ -180,6 +215,8 @@ func (h *StudioHandlers) buildStateView(snap *repository.CatalogSnapshot) StateV
 			TierComputed: graph.Tier(g, byID),
 			TierOverride: g.TierOverride,
 			BannedAt:     g.BannedAt,
+			Volume:       g.Volume,
+			Weight:       g.Weight,
 			Recipe:       []SlotView{},
 		}
 		for _, slot := range g.Recipe {
@@ -211,6 +248,61 @@ func (h *StudioHandlers) buildStateView(snap *repository.CatalogSnapshot) StateV
 		}
 		return *bi > *bj
 	})
+
+	// Типы производителей + предметы (спека 2026-09-20-фабрики §4):
+	// карточка типа — имя/kind/категория/семейство/вход/выход/параметры;
+	// для kind=items — привязанные предметы (producer_items).
+	catByID := make(map[int64]string, len(snap.Categories))
+	for _, c := range snap.Categories {
+		catByID[c.ID] = c.Name
+	}
+	itemByID := make(map[int64]ItemView, len(snap.Items))
+	for _, it := range snap.Items {
+		iv := ItemView{ID: it.ID, Name: it.Name, SlotType: it.SlotType, Status: it.Status}
+		if it.Unlocks != nil {
+			iv.Unlocks = json.RawMessage(it.Unlocks)
+		}
+		if it.Params != nil {
+			iv.Params = json.RawMessage(it.Params)
+		}
+		itemByID[it.ID] = iv
+		view.Items = append(view.Items, iv)
+	}
+	producerItems := make(map[int64][]ItemView, len(snap.ProducerItems))
+	for _, pi := range snap.ProducerItems {
+		if iv, ok := itemByID[pi.ItemID]; ok {
+			producerItems[pi.ProducerTypeID] = append(producerItems[pi.ProducerTypeID], iv)
+		}
+	}
+	for _, p := range snap.ProducerTypes {
+		pv := ProducerTypeView{
+			ID:     p.ID,
+			Name:   p.Name,
+			Kind:   p.Kind,
+			Status: p.Status,
+		}
+		if p.CategoryID.Valid {
+			id := p.CategoryID.Int64
+			pv.CategoryID = &id
+			pv.CategoryName = catByID[id]
+		}
+		if p.RaceFamily.Valid {
+			pv.RaceFamily = p.RaceFamily.String
+		}
+		if p.Output != nil {
+			pv.Output = json.RawMessage(p.Output)
+		}
+		if p.Input != nil {
+			pv.Input = json.RawMessage(p.Input)
+		}
+		if p.Params != nil {
+			pv.Params = json.RawMessage(p.Params)
+		}
+		if items := producerItems[p.ID]; len(items) > 0 {
+			pv.Items = items
+		}
+		view.ProducerTypes = append(view.ProducerTypes, pv)
+	}
 	return view
 }
 
@@ -393,14 +485,16 @@ func (h *StudioHandlers) good(w http.ResponseWriter, r *http.Request, id int64) 
 	switch r.Method {
 	case http.MethodPut:
 		var body struct {
-			Name       *string `json:"name"`
-			CategoryID *int64  `json:"category_id"`
+			Name       *string  `json:"name"`
+			CategoryID *int64   `json:"category_id"`
+			Volume     *float64 `json:"volume"`
+			Weight     *float64 `json:"weight"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			studioErr(w, "невалидный JSON", http.StatusBadRequest)
 			return
 		}
-		if err := h.repo.UpdateGood(id, body.Name, body.CategoryID); err != nil {
+		if err := h.repo.UpdateGood(id, body.Name, body.CategoryID, body.Volume, body.Weight); err != nil {
 			writeCatalogErr(w, err)
 			return
 		}
@@ -549,6 +643,291 @@ func (h *StudioHandlers) slotAllowResource(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	studioJSON(w, http.StatusOK, map[string]interface{}{"id": id, "pos": pos})
+}
+
+// --- типы производителей (спека 2026-09-20-фабрики §4.1) ---
+
+// Producers — POST /studio/api/producers {name, kind, category_id}:
+// создание типа производителя (kind=goods — категория обязательна).
+func (h *StudioHandlers) Producers(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		studioErr(w, "только POST", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Name       string `json:"name"`
+		Kind       string `json:"kind"`
+		CategoryID *int64 `json:"category_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		studioErr(w, "невалидный JSON", http.StatusBadRequest)
+		return
+	}
+	p, err := h.repo.CreateProducerType(body.Name, body.Kind, body.CategoryID)
+	if err != nil {
+		writeCatalogErr(w, err)
+		return
+	}
+	studioJSON(w, http.StatusCreated, producerTypeView(p, "", nil))
+}
+
+// ProducerByID — PUT/DELETE /studio/api/producers/{id} и под-пути
+// (status, items, items/{itemId}).
+func (h *StudioHandlers) ProducerByID(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/studio/api/producers/")
+	parts := strings.Split(rest, "/")
+	if len(parts) == 0 || parts[0] == "" {
+		studioErr(w, "не найдено", http.StatusNotFound)
+		return
+	}
+	id, err := parseID(parts[0])
+	if err != nil {
+		studioErr(w, "не найдено", http.StatusNotFound)
+		return
+	}
+	switch {
+	case len(parts) == 1:
+		h.producer(w, r, id)
+	case len(parts) == 2 && parts[1] == "status":
+		h.producerStatus(w, r, id)
+	case len(parts) == 2 && parts[1] == "items":
+		h.producerLinkItem(w, r, id)
+	case len(parts) == 3 && parts[1] == "items":
+		itemID, err := parseID(parts[2])
+		if err != nil {
+			studioErr(w, "не найдено", http.StatusNotFound)
+			return
+		}
+		h.producerUnlinkItem(w, r, id, itemID)
+	default:
+		studioErr(w, "не найдено", http.StatusNotFound)
+	}
+}
+
+// producer — PUT/DELETE /studio/api/producers/{id}.
+func (h *StudioHandlers) producer(w http.ResponseWriter, r *http.Request, id int64) {
+	switch r.Method {
+	case http.MethodPut:
+		var body struct {
+			Name       *string `json:"name"`
+			CategoryID *int64  `json:"category_id"`
+			RaceFamily *string `json:"race_family"`
+			Output     *string `json:"output"`
+			Input      *string `json:"input"`
+			Params     *string `json:"params"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			studioErr(w, "невалидный JSON", http.StatusBadRequest)
+			return
+		}
+		if err := h.repo.UpdateProducerType(id, body.Name, body.CategoryID, body.RaceFamily, body.Output, body.Input, body.Params); err != nil {
+			writeCatalogErr(w, err)
+			return
+		}
+		studioJSON(w, http.StatusOK, map[string]int64{"id": id})
+	case http.MethodDelete:
+		if err := h.repo.DeleteProducerType(id); err != nil {
+			writeCatalogErr(w, err)
+			return
+		}
+		studioJSON(w, http.StatusOK, map[string]int64{"deleted": id})
+	default:
+		studioErr(w, "только PUT/DELETE", http.StatusMethodNotAllowed)
+	}
+}
+
+// producerStatus — POST /studio/api/producers/{id}/status {status}.
+func (h *StudioHandlers) producerStatus(w http.ResponseWriter, r *http.Request, id int64) {
+	if r.Method != http.MethodPost {
+		studioErr(w, "только POST", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		studioErr(w, "невалидный JSON", http.StatusBadRequest)
+		return
+	}
+	if err := h.repo.SetProducerTypeStatus(id, body.Status); err != nil {
+		writeCatalogErr(w, err)
+		return
+	}
+	studioJSON(w, http.StatusOK, map[string]interface{}{"id": id, "status": body.Status})
+}
+
+// producerLinkItem — POST /studio/api/producers/{id}/items {item_id}:
+// привязать предмет к производителю (kind=items).
+func (h *StudioHandlers) producerLinkItem(w http.ResponseWriter, r *http.Request, id int64) {
+	if r.Method != http.MethodPost {
+		studioErr(w, "только POST", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		ItemID       int64   `json:"item_id"`
+		Requirements *string `json:"requirements"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		studioErr(w, "невалидный JSON", http.StatusBadRequest)
+		return
+	}
+	if body.ItemID <= 0 {
+		studioErr(w, "item_id обязателен", http.StatusBadRequest)
+		return
+	}
+	if err := h.repo.LinkProducerItem(id, body.ItemID, body.Requirements); err != nil {
+		writeCatalogErr(w, err)
+		return
+	}
+	studioJSON(w, http.StatusOK, map[string]interface{}{"producer_type_id": id, "item_id": body.ItemID})
+}
+
+// producerUnlinkItem — DELETE /studio/api/producers/{id}/items/{itemId}.
+func (h *StudioHandlers) producerUnlinkItem(w http.ResponseWriter, r *http.Request, id, itemID int64) {
+	if r.Method != http.MethodDelete {
+		studioErr(w, "только DELETE", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := h.repo.UnlinkProducerItem(id, itemID); err != nil {
+		writeCatalogErr(w, err)
+		return
+	}
+	studioJSON(w, http.StatusOK, map[string]interface{}{"producer_type_id": id, "item_id": itemID})
+}
+
+// --- предметы (спека 2026-09-20-фабрики §4.2) ---
+
+// Items — POST /studio/api/items {name, slot_type}: создание предмета.
+func (h *StudioHandlers) Items(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		studioErr(w, "только POST", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Name     string `json:"name"`
+		SlotType string `json:"slot_type"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		studioErr(w, "невалидный JSON", http.StatusBadRequest)
+		return
+	}
+	it, err := h.repo.CreateItem(body.Name, body.SlotType)
+	if err != nil {
+		writeCatalogErr(w, err)
+		return
+	}
+	studioJSON(w, http.StatusCreated, itemView(it))
+}
+
+// ItemByID — PUT/DELETE /studio/api/items/{id} и под-пути (status).
+func (h *StudioHandlers) ItemByID(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/studio/api/items/")
+	parts := strings.Split(rest, "/")
+	if len(parts) == 0 || parts[0] == "" {
+		studioErr(w, "не найдено", http.StatusNotFound)
+		return
+	}
+	id, err := parseID(parts[0])
+	if err != nil {
+		studioErr(w, "не найдено", http.StatusNotFound)
+		return
+	}
+	switch {
+	case len(parts) == 1:
+		h.item(w, r, id)
+	case len(parts) == 2 && parts[1] == "status":
+		h.itemStatus(w, r, id)
+	default:
+		studioErr(w, "не найдено", http.StatusNotFound)
+	}
+}
+
+// item — PUT/DELETE /studio/api/items/{id}.
+func (h *StudioHandlers) item(w http.ResponseWriter, r *http.Request, id int64) {
+	switch r.Method {
+	case http.MethodPut:
+		var body struct {
+			Name     *string `json:"name"`
+			SlotType *string `json:"slot_type"`
+			Unlocks  *string `json:"unlocks"`
+			Params   *string `json:"params"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			studioErr(w, "невалидный JSON", http.StatusBadRequest)
+			return
+		}
+		if err := h.repo.UpdateItem(id, body.Name, body.SlotType, body.Unlocks, body.Params); err != nil {
+			writeCatalogErr(w, err)
+			return
+		}
+		studioJSON(w, http.StatusOK, map[string]int64{"id": id})
+	case http.MethodDelete:
+		if err := h.repo.DeleteItem(id); err != nil {
+			writeCatalogErr(w, err)
+			return
+		}
+		studioJSON(w, http.StatusOK, map[string]int64{"deleted": id})
+	default:
+		studioErr(w, "только PUT/DELETE", http.StatusMethodNotAllowed)
+	}
+}
+
+// itemStatus — POST /studio/api/items/{id}/status {status}.
+func (h *StudioHandlers) itemStatus(w http.ResponseWriter, r *http.Request, id int64) {
+	if r.Method != http.MethodPost {
+		studioErr(w, "только POST", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		studioErr(w, "невалидный JSON", http.StatusBadRequest)
+		return
+	}
+	if err := h.repo.SetItemStatus(id, body.Status); err != nil {
+		writeCatalogErr(w, err)
+		return
+	}
+	studioJSON(w, http.StatusOK, map[string]interface{}{"id": id, "status": body.Status})
+}
+
+// producerTypeView — ProducerTypeRow → ProducerTypeView (catName — имя
+// категории, items — привязанные предметы; nil — не заполнять).
+func producerTypeView(p repository.ProducerTypeRow, catName string, items []ItemView) ProducerTypeView {
+	pv := ProducerTypeView{ID: p.ID, Name: p.Name, Kind: p.Kind, Status: p.Status, CategoryName: catName}
+	if p.CategoryID.Valid {
+		id := p.CategoryID.Int64
+		pv.CategoryID = &id
+	}
+	if p.RaceFamily.Valid {
+		pv.RaceFamily = p.RaceFamily.String
+	}
+	if p.Output != nil {
+		pv.Output = json.RawMessage(p.Output)
+	}
+	if p.Input != nil {
+		pv.Input = json.RawMessage(p.Input)
+	}
+	if p.Params != nil {
+		pv.Params = json.RawMessage(p.Params)
+	}
+	if len(items) > 0 {
+		pv.Items = items
+	}
+	return pv
+}
+
+// itemView — ItemRow → ItemView.
+func itemView(it repository.ItemRow) ItemView {
+	iv := ItemView{ID: it.ID, Name: it.Name, SlotType: it.SlotType, Status: it.Status}
+	if it.Unlocks != nil {
+		iv.Unlocks = json.RawMessage(it.Unlocks)
+	}
+	if it.Params != nil {
+		iv.Params = json.RawMessage(it.Params)
+	}
+	return iv
 }
 
 // --- fill: «заполнить комплектующие» (спека iterC §5) ---

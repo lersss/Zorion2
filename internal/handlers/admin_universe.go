@@ -50,14 +50,13 @@ func recoverErr(r interface{}) string {
 // Список таблиц — все, что прямо или косвенно ссылаются на worlds
 // (кроме users):
 //   worlds    ← locations, assignments, planets, npc_agents
-//   locations ← production_units
 //   planets   ← factions, settlements
 //
 // Если появится новая таблица с FK на любую из этих — TRUNCATE упадёт
 // с ошибкой "cannot truncate a table referenced in a foreign key
 // constraint". Тогда добавь её в этот список.
 
-const truncateTables = `worlds, locations, planets, assignments, production_units, factions, settlements, settlement_log, regions, npc_agents, player_planet_knowledge`
+const truncateTables = `worlds, locations, planets, assignments, factions, settlements, settlement_log, regions, npc_agents, player_planet_knowledge`
 
 // clearUniverseTx — очистка внутри уже начатой транзакции.
 // Вызывающий делает Begin/Commit/Rollback.

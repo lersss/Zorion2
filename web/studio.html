@@ -157,6 +157,11 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
   #bulkToggle:hover{background:#363636}
   #bulkBlock textarea{width:100%;box-sizing:border-box;background:#222;border:1px solid #444;color:#ddd;border-radius:6px;padding:5px;font-size:12px;font-family:inherit}
   #bulkBlock button{width:100%;margin-top:4px}
+  /* разделы студии (спека 2026-09-20-фабрики §4): Товары/Производители/Предметы */
+  .branch-btn{background:#2b2b2b;border:1px solid #4a4a4a;color:#ddd;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer}
+  .branch-btn:hover{background:#363636}
+  .branch-btn.on{background:#26a;border-color:#26a;color:#fff}
+  .popup-body textarea{background:#222;border:1px solid #444;color:#ddd;border-radius:6px;padding:4px;font-size:12px;font-family:inherit}
 </style></head><body>
 <header id="headbar" class="headbar">
   <div class="head-row head-title">
@@ -181,6 +186,12 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
     <!-- #segActions (Экспорт/Импорт) скрыт: итерация C (спека iterB §4.6) -->
   </div>
   <div class="head-row head-secondary">
+    <div class="tool-seg" id="segBranch">
+      <span class="seg-label">Раздел</span>
+      <button class="branch-btn on" id="branchGoods" title="Товары и ресурсы (граф рецептов)">Товары</button>
+      <button class="branch-btn" id="branchProducers" title="Типы производителей (спека 2026-09-20-фабрики §4.1)">Производители</button>
+      <button class="branch-btn" id="branchItems" title="Предметы — единый справочник «что бывает» (§4.2)">Предметы</button>
+    </div>
     <button class="tool-seg" id="btnCatOpen" title="Управление категориями (создание/переименование/удаление)">Категории</button>
   </div>
 </header>
@@ -190,18 +201,18 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
         <h3 id="spravTitle">Справочник</h3>
         <input id="spravSearch" type="text" placeholder="поиск по справочнику" style="width:100%;box-sizing:border-box;margin-bottom:6px">
         <select id="spravCat" title="Фильтр справочника по категории" style="width:100%;box-sizing:border-box;margin-bottom:6px"><option value="">все категории</option></select>
-        <div class="filters">
+        <div class="filters" id="filters">
         <label><input type="checkbox" id="fUsed"> используемые</label>
         <label><input type="checkbox" id="fUnused"> неиспользуемые</label>
         <label><input type="checkbox" id="fBanned"> забаненные</label>
       </div>
       <div class="tierf" id="tierFilters"></div>
-      <div class="addrow">
+      <div class="addrow" id="goodsAddRow">
         <input id="spravNewName" type="text" placeholder="имя товара">
         <select id="spravNewCat"></select>
         <button class="gen" id="btnSpravAdd">+ товар</button>
       </div>
-      <div class="addrow">
+      <div class="addrow" id="resAddRow">
         <input id="spravNewResName" type="text" placeholder="имя ресурса">
         <select id="spravNewResCat"></select>
         <button class="gen" id="btnSpravAddRes">+ ресурс</button>
@@ -210,6 +221,19 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
       <div id="bulkBlock" style="display:none">
         <textarea id="bulkText" rows="4" placeholder="название | категория"></textarea>
         <button id="btnBulk">Создать из списка</button>
+      </div>
+      <!-- ветка «Производители» (спека 2026-09-20-фабрики §4.1) -->
+      <div class="addrow" id="prodAddRow" style="display:none">
+        <input id="prodNewName" type="text" placeholder="имя типа">
+        <select id="prodNewKind" title="класс выхода"><option value="goods">товары</option><option value="items">предметы</option><option value="energy">энергия</option></select>
+        <select id="prodNewCat" title="категория (kind=goods)"></select>
+        <button class="gen" id="btnProdAdd">+ тип</button>
+      </div>
+      <!-- ветка «Предметы» (спека 2026-09-20-фабрики §4.2) -->
+      <div class="addrow" id="itemAddRow" style="display:none">
+        <input id="itemNewName" type="text" placeholder="имя предмета">
+        <select id="itemNewSlot" title="тип слота"><option value="чертёж">чертёж</option><option value="модуль">модуль</option><option value="инструмент">инструмент</option><option value="сертификат">сертификат</option></select>
+        <button class="gen" id="btnItemAdd">+ предмет</button>
       </div>
     </div>
     <div id="spravList"></div>
@@ -293,6 +317,9 @@ let dragging = null; // {goodId, name}
 let loading = true;  // первичный /studio/api/state ещё не пришёл
 let offline = false; // сеть потеряна (повтор идёт)
 let pendingCatFilter = localStorage.getItem("gs_catFilter") || "";
+// Раздел студии (спека 2026-09-20-фабрики §4): goods (граф рецептов) /
+// producers (типы производителей) / items (предметы). Сохраняется.
+let branch = localStorage.getItem("gs_branch") || "goods";
 
 const canvas = $("graph");
 const ctx = canvas.getContext("2d");
@@ -976,6 +1003,10 @@ function renderPopup() {
   }
   html += ' · ' + statusLabel(g.status) + (g.source === "ai" ? ' · ИИ' : g.source === "import" ? ' · импорт' : '');
   html += '</div>';
+  // объём/вес — данные каталога (спека 2026-09-20-фабрики §3.1, 3b.6.4):
+  // NULL у draft; approved без веса/объёма не проходит валидацию
+  html += '<div class="dmeta">объём: <input id="volInput" type="number" min="0" step="any" style="width:70px" value="' + (g.volume !== null && g.volume !== undefined ? g.volume : "") + '" onchange="setVolumeWeight(this.value, null)" title="объём единицы товара (NULL у draft)">' +
+    ' · вес: <input id="wgtInput" type="number" min="0" step="any" style="width:70px" value="' + (g.weight !== null && g.weight !== undefined ? g.weight : "") + '" onchange="setVolumeWeight(null, this.value)" title="вес единицы товара (NULL у draft)"></div>';
   // слоты: только у товаров (ресурс — лист, слотов нет, §4.5); заполненный и
   // пустой — оба drop-target (замена в одно действие); тир в заполненном
   // слоте — эффективный из SlotView.Tier (99a.3 §9.3)
@@ -1191,6 +1222,21 @@ async function setTier(val) {
   const r = await api("PUT", "/studio/api/goods/" + popupGoodId + "/tier", body);
   if (r) fetchState(); else renderPopup();
 }
+// объём/вес (спека 2026-09-20-фабрики §3.1, 3b.6.4): ввод числа → PUT;
+// очистка → null (draft может быть без значений)
+async function setVolumeWeight(vol, wgt) {
+  const body = {};
+  if (vol !== null) {
+    const v = String(vol).trim();
+    body.volume = v === "" ? null : parseFloat(v);
+  }
+  if (wgt !== null) {
+    const v = String(wgt).trim();
+    body.weight = v === "" ? null : parseFloat(v);
+  }
+  const r = await api("PUT", "/studio/api/goods/" + popupGoodId, body);
+  if (r) fetchState(); else renderPopup();
+}
 function slotDragOver(ev, el) { ev.preventDefault(); el.classList.add("drop-target"); }
 function slotDragLeave(el) { el.classList.remove("drop-target"); }
 async function dropOnSlot(ev, i) {
@@ -1309,6 +1355,8 @@ async function addParent(parentId) {
 // галки-фильтры (ортогональны, по умолчанию выключены), карточки draggable
 // (источник drag&drop в слоты попапа), клик = выбор, двойной клик / ⓘ = попап.
 function renderSprav() {
+  if (branch === "producers") { renderProdSprav(); return; }
+  if (branch === "items") { renderItemSprav(); return; }
   const sc = $("spravList").scrollTop; // сохранить scroll списка при пересборке (поиск/пилюли/галки)
   const q = $("spravSearch").value.trim().toLowerCase();
   // фильтр по категории (пусто = все); при старте renderSprav идёт до renderCatSelects —
@@ -1359,6 +1407,275 @@ function renderSprav() {
   ).join("") || '<div class="empty-note">' + (hasTier && hasFlag ? 'ничего не найдено' : 'ничего не выбрано — выберите тир и хотя бы одну галку') + '</div>';
   $("spravList").scrollTop = sc;
 }
+// ---------- справочник производителей (спека 2026-09-20-фабрики §4.1) ----------
+function renderProdSprav() {
+  const sc = $("spravList").scrollTop;
+  const q = $("spravSearch").value.trim().toLowerCase();
+  const list = state.producer_types.filter(p => !q || p.name.toLowerCase().includes(q));
+  $("spravTitle").textContent = "Производители · " + list.length;
+  $("spravList").innerHTML = list.map(p =>
+    '<div class="card" onclick="prodClick(' + p.id + ')" ondblclick="prodDblClick(' + p.id + ')">' +
+    '<div class="nm">' + esc(p.name) + '<button class="info" onclick="event.stopPropagation();openProdPopup(' + p.id + ')" title="деталь (без смены выбора)">ⓘ</button></div>' +
+    '<div class="meta">' + esc(kindLabel(p.kind)) + (p.category_name ? ' · ' + esc(p.category_name) : '') +
+    ' <span class="badge ' + badgeClass(p.status) + '">' + esc(statusLabel(p.status)) + '</span></div>' +
+    '</div>'
+  ).join("") || '<div class="empty-note">нет типов производителей</div>';
+  $("spravList").scrollTop = sc;
+}
+function prodClick(id) { selected = id; renderAll(); }
+function prodDblClick(id) { selected = id; openProdPopup(id); renderAll(); }
+function openProdPopup(id) {
+  popupGoodId = id;
+  $("detailPopup").style.display = "flex";
+  $("detailOverlay").style.display = "block";
+  renderProdPopup();
+}
+function renderProdPopup() {
+  const el = $("popupBody");
+  if (!popupGoodId) return;
+  const p = state.producer_types.find(x => x.id === popupGoodId);
+  if (!p) { closePopup(); return; }
+  $("popupTitle").textContent = p.name;
+  let html = '';
+  html += '<div class="dname"><span class="rename" onclick="startProdRename()" title="переименовать">' + esc(p.name) + '</span></div>';
+  html += '<div class="dmeta">' + esc(kindLabel(p.kind)) + ' · ' + esc(statusLabel(p.status)) + '</div>';
+  if (p.kind === "goods") {
+    html += '<div class="dmeta">категория: <select class="dcat" onchange="changeProdCategory(this.value)">' +
+      state.categories.map(c => '<option value="' + c.id + '"' + (c.id === p.category_id ? ' selected' : '') + '>' + esc(c.name) + '</option>').join("") +
+      '</select></div>';
+  }
+  html += '<div class="dmeta">семейство рас: <input id="prodRaceFamily" type="text" value="' + esc(p.race_family || "") + '" style="width:140px" onchange="saveProdRaceFamily(this.value)" placeholder="F1–F10 / пусто = универсальный"></div>';
+  html += '<div class="dmeta">вход (input): <textarea id="prodInput" rows="3">' + esc(jsonText(p.input)) + '</textarea></div>';
+  html += '<div class="dmeta">выход (output): <textarea id="prodOutput" rows="2">' + esc(jsonText(p.output)) + '</textarea></div>';
+  html += '<div class="dmeta">параметры (params): <textarea id="prodParams" rows="2">' + esc(jsonText(p.params)) + '</textarea></div>';
+  html += '<div class="btns"><button class="gen" onclick="saveProdJSON()">сохранить JSON</button></div>';
+  if (p.kind === "items") {
+    html += '<div class="usedin"><div class="usedin-h">Производит предметы:</div>';
+    (p.items || []).forEach(it => {
+      html += '<div class="usedin-item">' + esc(it.name) + ' <span style="color:#777">· ' + esc(it.slot_type) + '</span>' +
+        '<button class="del" style="float:right" onclick="unlinkItem(' + it.id + ')">отвязать</button></div>';
+    });
+    const free = state.items.filter(it => !(p.items || []).some(x => x.id === it.id));
+    html += '<div class="addrow" style="margin-top:6px"><select id="prodLinkItemSel">' +
+      (free.length ? free.map(it => '<option value="' + it.id + '">' + esc(it.name) + '</option>').join("") : '<option value="">нет свободных</option>') +
+      '</select><button class="gen" onclick="linkItem()"' + (free.length ? '' : ' disabled') + '>+ предмет</button></div>';
+    html += '</div>';
+  }
+  html += '<div class="btns">';
+  if (p.status !== "approved") html += '<button class="ok" onclick="setProdStatus(\'approved\')">Согласовать</button>';
+  if (p.status !== "excluded") html += '<button class="del" onclick="setProdStatus(\'excluded\')">Исключить</button>';
+  if (p.status !== "banned") html += '<button class="del" onclick="setProdStatus(\'banned\')">Забанить</button>';
+  if (p.status === "banned") html += '<button class="ok" onclick="setProdStatus(\'unban\')">Вернуть</button>';
+  html += '<button class="del" onclick="askDeleteProducer()">удалить</button>';
+  html += '</div>';
+  el.innerHTML = html;
+}
+function startProdRename() {
+  const p = state.producer_types.find(x => x.id === popupGoodId);
+  if (!p) return;
+  const el = $("popupBody").querySelector(".dname");
+  el.innerHTML = '<input id="renameInput" type="text" value="' + esc(p.name) + '" style="width:100%;box-sizing:border-box">';
+  const inp = $("renameInput");
+  inp.focus(); inp.select();
+  inp.addEventListener("keydown", ev => {
+    if (ev.key === "Enter") commitProdRename();
+    if (ev.key === "Escape") renderProdPopup();
+  });
+  inp.addEventListener("blur", commitProdRename);
+}
+async function commitProdRename() {
+  const inp = $("renameInput");
+  if (!inp) return;
+  const name = inp.value.trim();
+  if (!name) { renderProdPopup(); return; }
+  const r = await api("PUT", "/studio/api/producers/" + popupGoodId, {name});
+  if (r) fetchState(); else renderProdPopup();
+}
+async function changeProdCategory(catId) {
+  const r = await api("PUT", "/studio/api/producers/" + popupGoodId, {category_id: Number(catId)});
+  if (r) fetchState();
+}
+async function saveProdRaceFamily(v) {
+  const r = await api("PUT", "/studio/api/producers/" + popupGoodId, {race_family: v.trim()});
+  if (r) fetchState();
+}
+async function saveProdJSON() {
+  const body = {};
+  const fields = [["input", "prodInput"], ["output", "prodOutput"], ["params", "prodParams"]];
+  for (const [key, elId] of fields) {
+    const v = $(elId).value.trim();
+    if (v === "") { body[key] = null; continue; }
+    try { JSON.parse(v); } catch (e) { showReport(["ошибка: " + key + " — невалидный JSON"]); return; }
+    body[key] = v;
+  }
+  const r = await api("PUT", "/studio/api/producers/" + popupGoodId, body);
+  if (r) fetchState();
+}
+async function setProdStatus(s) {
+  await api("POST", "/studio/api/producers/" + popupGoodId + "/status", {status: s});
+  fetchState();
+}
+function askDeleteProducer() {
+  const p = state.producer_types.find(x => x.id === popupGoodId);
+  if (!p) return;
+  openModal(
+    '<h3>Удалить тип производителя</h3>' +
+    '<div>Удалить тип «' + esc(p.name) + '»? Связи с предметами удалятся.</div>',
+    [
+      {label: "Удалить", cls: "del", primary: true, action: doDeleteProducer},
+      {label: "Отмена", cls: "", action: closeModal}
+    ]
+  );
+}
+async function doDeleteProducer() {
+  closeModal();
+  const r = await api("DELETE", "/studio/api/producers/" + popupGoodId);
+  if (selected === popupGoodId) selected = null;
+  closePopup();
+  if (r) fetchState();
+}
+async function linkItem() {
+  const sel = $("prodLinkItemSel");
+  if (!sel || !sel.value) return;
+  const r = await api("POST", "/studio/api/producers/" + popupGoodId + "/items", {item_id: Number(sel.value)});
+  if (r) fetchState();
+}
+async function unlinkItem(itemId) {
+  const r = await api("DELETE", "/studio/api/producers/" + popupGoodId + "/items/" + itemId);
+  if (r) fetchState();
+}
+async function prodAdd() {
+  const name = $("prodNewName").value.trim();
+  const kind = $("prodNewKind").value;
+  const cat = $("prodNewCat").value;
+  if (!name) return;
+  const body = {name, kind};
+  if (kind === "goods" && cat) body.category_id = Number(cat);
+  const r = await api("POST", "/studio/api/producers", body);
+  if (!r) return;
+  const p = await r.json();
+  $("prodNewName").value = "";
+  selected = p.id;
+  fetchState();
+}
+
+// ---------- справочник предметов (спека 2026-09-20-фабрики §4.2) ----------
+function renderItemSprav() {
+  const sc = $("spravList").scrollTop;
+  const q = $("spravSearch").value.trim().toLowerCase();
+  const list = state.items.filter(it => !q || it.name.toLowerCase().includes(q));
+  $("spravTitle").textContent = "Предметы · " + list.length;
+  $("spravList").innerHTML = list.map(it =>
+    '<div class="card" onclick="itemClick(' + it.id + ')" ondblclick="itemDblClick(' + it.id + ')">' +
+    '<div class="nm">' + esc(it.name) + '<button class="info" onclick="event.stopPropagation();openItemPopup(' + it.id + ')" title="деталь (без смены выбора)">ⓘ</button></div>' +
+    '<div class="meta">' + esc(it.slot_type) + ' <span class="badge ' + badgeClass(it.status) + '">' + esc(statusLabel(it.status)) + '</span></div>' +
+    '</div>'
+  ).join("") || '<div class="empty-note">нет предметов</div>';
+  $("spravList").scrollTop = sc;
+}
+function itemClick(id) { selected = id; renderAll(); }
+function itemDblClick(id) { selected = id; openItemPopup(id); renderAll(); }
+function openItemPopup(id) {
+  popupGoodId = id;
+  $("detailPopup").style.display = "flex";
+  $("detailOverlay").style.display = "block";
+  renderItemPopup();
+}
+function renderItemPopup() {
+  const el = $("popupBody");
+  if (!popupGoodId) return;
+  const it = state.items.find(x => x.id === popupGoodId);
+  if (!it) { closePopup(); return; }
+  $("popupTitle").textContent = it.name;
+  let html = '';
+  html += '<div class="dname"><span class="rename" onclick="startItemRename()" title="переименовать">' + esc(it.name) + '</span></div>';
+  html += '<div class="dmeta">тип слота: <select class="dcat" onchange="changeItemSlot(this.value)">' +
+    ["чертёж", "модуль", "инструмент", "сертификат"].map(s => '<option value="' + s + '"' + (s === it.slot_type ? ' selected' : '') + '>' + esc(s) + '</option>').join("") +
+    '</select> · ' + esc(statusLabel(it.status)) + '</div>';
+  html += '<div class="dmeta">unlocks (предмет-рецепт): <textarea id="itemUnlocks" rows="2">' + esc(jsonText(it.unlocks)) + '</textarea></div>';
+  html += '<div class="dmeta">params: <textarea id="itemParams" rows="2">' + esc(jsonText(it.params)) + '</textarea></div>';
+  html += '<div class="btns"><button class="gen" onclick="saveItemJSON()">сохранить JSON</button></div>';
+  html += '<div class="btns">';
+  if (it.status !== "approved") html += '<button class="ok" onclick="setItemStatus(\'approved\')">Согласовать</button>';
+  if (it.status !== "excluded") html += '<button class="del" onclick="setItemStatus(\'excluded\')">Исключить</button>';
+  if (it.status !== "banned") html += '<button class="del" onclick="setItemStatus(\'banned\')">Забанить</button>';
+  if (it.status === "banned") html += '<button class="ok" onclick="setItemStatus(\'unban\')">Вернуть</button>';
+  html += '<button class="del" onclick="askDeleteItem()">удалить</button>';
+  html += '</div>';
+  el.innerHTML = html;
+}
+function startItemRename() {
+  const it = state.items.find(x => x.id === popupGoodId);
+  if (!it) return;
+  const el = $("popupBody").querySelector(".dname");
+  el.innerHTML = '<input id="renameInput" type="text" value="' + esc(it.name) + '" style="width:100%;box-sizing:border-box">';
+  const inp = $("renameInput");
+  inp.focus(); inp.select();
+  inp.addEventListener("keydown", ev => {
+    if (ev.key === "Enter") commitItemRename();
+    if (ev.key === "Escape") renderItemPopup();
+  });
+  inp.addEventListener("blur", commitItemRename);
+}
+async function commitItemRename() {
+  const inp = $("renameInput");
+  if (!inp) return;
+  const name = inp.value.trim();
+  if (!name) { renderItemPopup(); return; }
+  const r = await api("PUT", "/studio/api/items/" + popupGoodId, {name});
+  if (r) fetchState(); else renderItemPopup();
+}
+async function changeItemSlot(v) {
+  const r = await api("PUT", "/studio/api/items/" + popupGoodId, {slot_type: v});
+  if (r) fetchState();
+}
+async function saveItemJSON() {
+  const body = {};
+  const fields = [["unlocks", "itemUnlocks"], ["params", "itemParams"]];
+  for (const [key, elId] of fields) {
+    const v = $(elId).value.trim();
+    if (v === "") { body[key] = null; continue; }
+    try { JSON.parse(v); } catch (e) { showReport(["ошибка: " + key + " — невалидный JSON"]); return; }
+    body[key] = v;
+  }
+  const r = await api("PUT", "/studio/api/items/" + popupGoodId, body);
+  if (r) fetchState();
+}
+async function setItemStatus(s) {
+  await api("POST", "/studio/api/items/" + popupGoodId + "/status", {status: s});
+  fetchState();
+}
+function askDeleteItem() {
+  const it = state.items.find(x => x.id === popupGoodId);
+  if (!it) return;
+  openModal(
+    '<h3>Удалить предмет</h3>' +
+    '<div>Удалить предмет «' + esc(it.name) + '»? Связи с производителями удалятся.</div>',
+    [
+      {label: "Удалить", cls: "del", primary: true, action: doDeleteItem},
+      {label: "Отмена", cls: "", action: closeModal}
+    ]
+  );
+}
+async function doDeleteItem() {
+  closeModal();
+  const r = await api("DELETE", "/studio/api/items/" + popupGoodId);
+  if (selected === popupGoodId) selected = null;
+  closePopup();
+  if (r) fetchState();
+}
+async function itemAdd() {
+  const name = $("itemNewName").value.trim();
+  const slot = $("itemNewSlot").value;
+  if (!name) return;
+  const r = await api("POST", "/studio/api/items", {name, slot_type: slot});
+  if (!r) return;
+  const it = await r.json();
+  $("itemNewName").value = "";
+  selected = it.id;
+  fetchState();
+}
+
 // клик по пилюле тира: пересборка списка без сброса scroll/выбора/попапа (99a.3-ui §5.3)
 function toggleTier(t, checked) {
   if (checked) tierSel.add(t); else tierSel.delete(t);
@@ -1411,6 +1728,9 @@ function renderCatSelects() {
   $("spravNewCat").innerHTML = goodOpts;
   $("spravNewResCat").innerHTML = resOpts;
   $("btnSpravAddRes").disabled = !resOpts; // ресурсных категорий нет — «+ ресурс» недоступен
+  // ветка «Производители»: категория для kind=goods (все категории каталога)
+  const allCatOpts = state.categories.map(c => '<option value="' + c.id + '">' + esc(c.name) + '</option>').join("");
+  $("prodNewCat").innerHTML = '<option value="">—</option>' + allCatOpts;
   // фильтр справочника по категории: сохранить текущий выбор при пересборке;
   // при старте опции ещё не заполнены — берём сохранённое из localStorage
   const sc = $("spravCat").value || localStorage.getItem("gs_spravCat") || "";
@@ -1542,11 +1862,12 @@ function updateOverlays() {
   $("loadingOverlay").style.display = loading ? "flex" : "none";
   $("right").classList.toggle("disabled", loading);
   const empty = !loading && state.goods.length === 0;
-  $("emptyOverlay").style.display = empty ? "flex" : "none";
+  // оверлеи канваса — только ветка «Товары» (производители/предметы — списки)
+  $("emptyOverlay").style.display = (branch === "goods" && empty) ? "flex" : "none";
   // фокус-режим без выбора: «Кликните товар в справочнике» (99a.3 §5.3)
-  const focusEmpty = !loading && !empty && !fullTreeMode() && !selected;
+  const focusEmpty = !loading && !empty && branch === "goods" && !fullTreeMode() && !selected;
   $("focusEmptyOverlay").style.display = focusEmpty ? "flex" : "none";
-  const noRes = !loading && !empty && fullTreeMode() && visibleGoods().length === 0;
+  const noRes = !loading && !empty && branch === "goods" && fullTreeMode() && visibleGoods().length === 0;
   $("noResultsOverlay").style.display = noRes ? "flex" : "none";
   $("offlinePill").style.display = offline ? "block" : "none";
 }
@@ -1571,14 +1892,58 @@ function renderAll() {
   // выбранный товар удалён (авто-обновление/импорт) → сброс к пустому состоянию (99a.3 §5.3)
   if (selected && !state.goods.some(g => g.id === selected)) selected = null;
   const sc = $("spravList").scrollTop; // сохранить scroll списка справочника при пересборке
-  renderGraph();
-  renderPopup();
-  renderCatPopup(); // авто-обновление попапа категорий (если открыт)
-  renderSprav();
-  renderCatSelects();
+  applyBranchUI();
+  if (branch === "goods") {
+    renderGraph();
+    renderPopup();
+    renderCatPopup(); // авто-обновление попапа категорий (если открыт)
+    renderSprav();
+    renderCatSelects();
+  } else {
+    renderSprav();
+  }
   updateOverlays();
   applyModeUI();
   $("spravList").scrollTop = sc;
+}
+
+// ---------- разделы студии (спека 2026-09-20-фабрики §4) ----------
+// Товары — граф рецептов + справочник; Производители/Предметы — списки
+// справочников в правой панели (канвас скрыт).
+function setBranch(b) {
+  branch = b;
+  localStorage.setItem("gs_branch", b);
+  $("branchGoods").classList.toggle("on", b === "goods");
+  $("branchProducers").classList.toggle("on", b === "producers");
+  $("branchItems").classList.toggle("on", b === "items");
+  selected = null;
+  popupGoodId = null;
+  closePopup();
+  renderAll();
+}
+function applyBranchUI() {
+  const isGoods = branch === "goods";
+  $("segGraph").style.display = isGoods ? "" : "none";
+  $("btnCatOpen").style.display = isGoods ? "" : "none";
+  $("canvasWrap").style.display = isGoods ? "" : "none";
+  $("spravSearch").style.display = isGoods ? "" : "none";
+  $("spravCat").style.display = isGoods ? "" : "none";
+  $("filters").style.display = isGoods ? "" : "none";
+  $("tierFilters").style.display = isGoods ? "" : "none";
+  $("goodsAddRow").style.display = isGoods ? "" : "none";
+  $("resAddRow").style.display = isGoods ? "" : "none";
+  $("bulkToggle").style.display = isGoods ? "" : "none";
+  $("bulkBlock").style.display = "none";
+  $("prodAddRow").style.display = branch === "producers" ? "" : "none";
+  $("itemAddRow").style.display = branch === "items" ? "" : "none";
+}
+function kindLabel(k) {
+  return {goods: "товары", items: "предметы", energy: "энергия"}[k] || k;
+}
+function jsonText(v) {
+  if (v === null || v === undefined) return "";
+  if (typeof v === "string") return v;
+  return JSON.stringify(v, null, 1);
 }
 $("catFilter").addEventListener("change", () => { localStorage.setItem("gs_catFilter", $("catFilter").value); renderAll(); });
 $("spravSearch").addEventListener("input", () => {
@@ -1635,6 +2000,14 @@ $("btnSpravAddRes").addEventListener("click", spravAddResource);
 $("btnTop").addEventListener("click", centerTop);
 $("spravNewName").addEventListener("keydown", ev => { if (ev.key === "Enter") spravAddGood(); });
 $("spravNewResName").addEventListener("keydown", ev => { if (ev.key === "Enter") spravAddResource(); });
+// разделы студии (спека 2026-09-20-фабрики §4): переключение веток
+$("branchGoods").addEventListener("click", () => setBranch("goods"));
+$("branchProducers").addEventListener("click", () => setBranch("producers"));
+$("branchItems").addEventListener("click", () => setBranch("items"));
+$("btnProdAdd").addEventListener("click", prodAdd);
+$("btnItemAdd").addEventListener("click", itemAdd);
+$("prodNewName").addEventListener("keydown", ev => { if (ev.key === "Enter") prodAdd(); });
+$("itemNewName").addEventListener("keydown", ev => { if (ev.key === "Enter") itemAdd(); });
 // подгрузка списка: сворачиваемый блок + «Создать из списка»
 $("bulkToggle").addEventListener("click", () => {
   const open = $("bulkBlock").style.display !== "none";
@@ -1712,6 +2085,11 @@ window.addEventListener("resize", () => { centerTop(); });
 
 updateOverlays(); // спиннер при первичной загрузке (BUG-2)
 applyModeUI();   // видимость топбар-элементов по режиму при старте
+// разделы студии: активная ветка при старте (спека 2026-09-20-фабрики §4)
+$("branchGoods").classList.toggle("on", branch === "goods");
+$("branchProducers").classList.toggle("on", branch === "producers");
+$("branchItems").classList.toggle("on", branch === "items");
+applyBranchUI();
 // старт: авторизация (спека iterC §8.3) → start() = fetchState + интервал;
 // bootstrap — в модуле web/static/js/studio/auth.js (после парсинга документа)
 function start() { fetchState(); }

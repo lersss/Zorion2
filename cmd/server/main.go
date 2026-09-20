@@ -99,6 +99,15 @@ func main() {
 	}
 	log.Println("✅ Каталог товаров: сид актуален")
 
+	// Сидер каталога типов производителей и предметов (спека
+	// 2026-09-20-фабрики §10.1 п.2): после goodsstudio.Seed — категории
+	// уже посеяны (producer_types.category_id → categories). Маркер
+	// producer_catalog_seed в generation_config; повторные старты — пропуск.
+	if err := goodsstudio.SeedProducers(db); err != nil {
+		log.Fatalf("❌ Сидер каталога производителей: %v", err)
+	}
+	log.Println("✅ Каталог производителей: сид актуален")
+
 	// Каталог оборудования (спека 77a §3): справочник из БД (миграция 000040),
 	// дефолты при пустой БД. Нужен до старта HTTP — радиус радара считается
 	// из него (спека 77a §4.2).
@@ -493,6 +502,12 @@ func main() {
 	// iterC §5: отдельные роуты не нужны — конфликта парсинга id нет).
 	http.HandleFunc("/studio/api/goods/", auth.AdminAuth(studioHandlers.GoodByID))
 	http.HandleFunc("/studio/api/validate", auth.AdminAuth(studioHandlers.Validate))
+	// Ветки «Производители»/«Предметы» (спека 2026-09-20-фабрики §4):
+	// producer_types/items/producer_items — тот же контракт, что goods.
+	http.HandleFunc("/studio/api/producers", auth.AdminAuth(studioHandlers.Producers))
+	http.HandleFunc("/studio/api/producers/", auth.AdminAuth(studioHandlers.ProducerByID))
+	http.HandleFunc("/studio/api/items", auth.AdminAuth(studioHandlers.Items))
+	http.HandleFunc("/studio/api/items/", auth.AdminAuth(studioHandlers.ItemByID))
 
 	http.Handle("/studio", noCache(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./web/studio.html")

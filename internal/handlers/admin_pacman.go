@@ -398,7 +398,7 @@ func (h *AdminHandlers) eatPacmanBatchOnce(ids []string) (pacmanBatchStats, erro
 	}
 
 	// 5. Миры — каскад на всё остальное (planets/locations/assignments/
-	// settlements/factions/production_units/planet_resources/settlement_log).
+	// settlements/factions/planet_resources/settlement_log).
 	res, err = tx.ExecContext(context.Background(), `DELETE FROM worlds WHERE id = ANY($1)`, pq.Array(ids))
 	if err != nil {
 		return stats, err

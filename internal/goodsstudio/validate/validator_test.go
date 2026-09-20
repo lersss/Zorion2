@@ -102,12 +102,34 @@ func TestNonApprovedRefResource(t *testing.T) {
 
 // TestCleanState — валидное состояние без предупреждений.
 func TestCleanState(t *testing.T) {
+	v, w := 1.0, 2.0
 	st := mkState(
 		good("g1", "Сталь", model.StatusApproved, model.Slot{GoodID: "res:zhelezo"}),
 		res("res:zhelezo", "Железо Fe"),
 	)
-	w := Validate(st)
-	require.Empty(t, w)
+	st.Goods[0].Volume = &v
+	st.Goods[0].Weight = &w
+	require.Empty(t, Validate(st))
+}
+
+// TestMissingVolumeWeight — approved-товар без веса/объёма → warning
+// (спека 2026-09-20-фабрики §3.1, решение 3b.6.4: NULL-каталог запрещён);
+// ресурсы пропускаются (сырьё не имеет объёма/веса как товар).
+func TestMissingVolumeWeight(t *testing.T) {
+	v, w := 1.0, 2.0
+	st := mkState(
+		good("g1", "Сталь", model.StatusApproved, model.Slot{GoodID: "res:zhelezo"}),
+		res("res:zhelezo", "Железо Fe"),
+	)
+	require.Contains(t, codes(Validate(st)), "missing_volume_weight")
+
+	st.Goods[0].Volume = &v
+	st.Goods[0].Weight = &w
+	require.NotContains(t, codes(Validate(st)), "missing_volume_weight")
+
+	// draft без веса/объёма — не флагается (NULL у draft разрешён).
+	st2 := mkState(good("g2", "Черновик", model.StatusDraft))
+	require.NotContains(t, codes(Validate(st2)), "missing_volume_weight")
 }
 
 // TestSafetyCycle — страховка: цикл в состоянии ловится.

@@ -58,10 +58,14 @@ type CategoryRow struct {
 }
 
 // CatalogSnapshot — согласованный снимок каталога (одна транзакция
-// REPEATABLE READ, §8.1): категории + товары со слотами.
+// REPEATABLE READ, §8.1): категории + товары со слотами + типы
+// производителей + предметы + связи (спека 2026-09-20-фабрики §3.1).
 type CatalogSnapshot struct {
-	Categories []CategoryRow
-	Goods      []model.Good
+	Categories    []CategoryRow
+	Goods         []model.Good
+	ProducerTypes []ProducerTypeRow
+	Items         []ItemRow
+	ProducerItems []ProducerItemRow
 }
 
 // ResourceView — ресурс палитры (GET /studio/api/resources, спека §7).
@@ -168,10 +172,28 @@ func (r *GoodsRepository) Snapshot() (*CatalogSnapshot, error) {
 	for i := range goods {
 		goods[i].Recipe = slots[goods[i].ID]
 	}
+	producerTypes, err := loadProducerTypes(tx)
+	if err != nil {
+		return nil, err
+	}
+	items, err := loadItems(tx)
+	if err != nil {
+		return nil, err
+	}
+	producerItems, err := loadProducerItems(tx)
+	if err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
-	return &CatalogSnapshot{Categories: cats, Goods: goods}, nil
+	return &CatalogSnapshot{
+		Categories:    cats,
+		Goods:         goods,
+		ProducerTypes: producerTypes,
+		Items:         items,
+		ProducerItems: producerItems,
+	}, nil
 }
 
 // Resources — палитра: ресурсы kind=resource, не banned (спека §7).
@@ -579,10 +601,11 @@ func (r *GoodsRepository) CreateGood(name string, categoryID int64, kind model.K
 	return g, nil
 }
 
-// UpdateGood — переименование/смена категории (спека §7): категория должна
-// соответствовать kind — 400; дубликат имени — 409. Для ресурсов разрешено
-// (С1: без привилегий).
-func (r *GoodsRepository) UpdateGood(id int64, name *string, categoryID *int64) error {
+// UpdateGood — переименование/смена категории/веса/объёма (спека §7):
+// категория должна соответствовать kind — 400; дубликат имени — 409.
+// volume/weight — данные каталога (3b.6.4): NULL = очистить; отрицательные
+// значения — 400. Для ресурсов разрешено (С1: без привилегий).
+func (r *GoodsRepository) UpdateGood(id int64, name *string, categoryID *int64, volume, weight *float64) error {
 	tx, err := r.beginMutation()
 	if err != nil {
 		return err
@@ -629,6 +652,22 @@ func (r *GoodsRepository) UpdateGood(id int64, name *string, categoryID *int64) 
 			return errCatalog(400, "категория не соответствует kind товара")
 		}
 		if _, err := tx.Exec(`UPDATE goods SET category_id = $1 WHERE id = $2`, *categoryID, id); err != nil {
+			return err
+		}
+	}
+	if volume != nil {
+		if *volume < 0 {
+			return errCatalog(400, "объём не может быть отрицательным")
+		}
+		if _, err := tx.Exec(`UPDATE goods SET volume = $1 WHERE id = $2`, *volume, id); err != nil {
+			return err
+		}
+	}
+	if weight != nil {
+		if *weight < 0 {
+			return errCatalog(400, "вес не может быть отрицательным")
+		}
+		if _, err := tx.Exec(`UPDATE goods SET weight = $1 WHERE id = $2`, *weight, id); err != nil {
 			return err
 		}
 	}
@@ -1085,7 +1124,7 @@ func loadCategories(q queryer) ([]CategoryRow, error) {
 // loadGoods — все товары каталога (id/категория — строки для graph).
 func loadGoods(q queryer) ([]model.Good, error) {
 	rows, err := q.Query(
-		`SELECT id, name, category_id, kind, status, source, tier_override, banned_at, created_at FROM goods ORDER BY id`)
+		`SELECT id, name, category_id, kind, status, source, tier_override, banned_at, created_at, volume, weight FROM goods ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -1099,7 +1138,8 @@ func loadGoods(q queryer) ([]model.Good, error) {
 		var tier sql.NullInt64
 		var bannedAt sql.NullTime
 		var createdAt time.Time
-		if err := rows.Scan(&id, &g.Name, &catID, &kind, &status, &source, &tier, &bannedAt, &createdAt); err != nil {
+		var volume, weight sql.NullFloat64
+		if err := rows.Scan(&id, &g.Name, &catID, &kind, &status, &source, &tier, &bannedAt, &createdAt, &volume, &weight); err != nil {
 			return nil, err
 		}
 		g.ID = strconv.FormatInt(id, 10)
@@ -1114,6 +1154,14 @@ func loadGoods(q queryer) ([]model.Good, error) {
 		if bannedAt.Valid {
 			s := bannedAt.Time.UTC().Format(time.RFC3339)
 			g.BannedAt = &s
+		}
+		if volume.Valid {
+			v := volume.Float64
+			g.Volume = &v
+		}
+		if weight.Valid {
+			w := weight.Float64
+			g.Weight = &w
 		}
 		g.CreatedAt = createdAt.UTC().Format(time.RFC3339)
 		out = append(out, g)

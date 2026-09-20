@@ -3,7 +3,6 @@ description: Go-разработчик Zorion. Реализует фичи и ч
   DoD go build/vet/test, хирургические правки. Работает по гейтам — после реализации
   останавливается и ждёт одобрения. Вызывай @developer (обычно через @manager).
 mode: subagent
-model: opencode/deepseek-v4-flash
 temperature: 0.1
 permission:
   edit: allow

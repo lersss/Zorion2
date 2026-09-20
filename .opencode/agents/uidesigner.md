@@ -6,7 +6,6 @@ description: UI-дизайнер Zorion. Анализирует имеющиес
   Вызывай @uidesigner, когда нужен дизайн или доработка интерфейсов (обычно через
   @manager).
 mode: subagent
-model: opencode/deepseek-v4-flash
 temperature: 0.7
 permission:
   edit: allow

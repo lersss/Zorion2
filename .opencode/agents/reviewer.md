@@ -3,7 +3,6 @@ description: Быстрый ревьюер кода Zorion. Смотрит ди�
   (только крупные фичи): инварианты конкурентности AGENTS.md §0, хирургичность,
   DoD. Работает быстро: не читает лишнего, не копает вглубь. Вызывай через @manager.
 mode: subagent
-model: opencode/deepseek-v4-flash
 temperature: 0.2
 permission:
   edit: deny

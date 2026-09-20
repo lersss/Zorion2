@@ -6,7 +6,6 @@ description: Художник Zorion. Генерирует спрайты игр
   останавливается и ждёт отбора создателя. Код игры НЕ пишет. Вызывай @artist,
   когда нужны новые спрайты/визуал сущностей (обычно через @manager).
 mode: subagent
-model: opencode/deepseek-v4-flash
 temperature: 0.6
 permission:
   edit: allow

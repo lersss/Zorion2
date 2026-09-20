@@ -5,7 +5,6 @@ description: Графический дизайнер Zorion. Визуальны�
   одобрения. Вызывай @gdesigner, когда нужен внешний вид (корабли, планеты,
   UI-стиль) или аудит + ТЗ на визуальные улучшения (обычно через @manager).
 mode: subagent
-model: opencode/deepseek-v4-flash
 temperature: 0.9
 permission:
   edit: allow

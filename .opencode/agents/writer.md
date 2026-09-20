@@ -5,7 +5,6 @@ description: Эмпатический тестировщик гипотез Zori
   которому правда сюжета ощущается, а не вычисляется. Вызывай @writer, когда гипотезу
   нужно «почувствовать» перед решением/эталоном (обычно через @manager).
 mode: subagent
-model: opencode/deepseek-v4-flash
 temperature: 0.9
 permission:
   edit: deny

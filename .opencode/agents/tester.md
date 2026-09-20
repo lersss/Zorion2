@@ -3,7 +3,6 @@ description: Ручной тестировщик Zorion. Проверяет ре
   и пишет отчёт в журнал прогонов docs/QA/checklists/ (файл на прогон). Вызывай через
   @tester <что проверить>, когда нужен независимый прогон и второй взгляд на код.
 mode: subagent
-model: opencode/deepseek-v4-flash
 temperature: 0.2
 permission:
   edit: allow

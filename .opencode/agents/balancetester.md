@@ -4,7 +4,6 @@ description: Тестер баланса Zorion (адекватность гей
   здравому смыслу и эталону создателя. Вызывай @balancetester после @designer, до
   создателя, для дизайн-фич с числами (калибровки, кривые, ресурсы).
 mode: subagent
-model: opencode/deepseek-v4-flash
 temperature: 0.1
 permission:
   edit: deny

@@ -6,7 +6,6 @@ description: Аналитик-оптимизатор промтов и стру�
   зацикливание). Продукт — отчёт с дословными дельтами; сам НЕ правит и НЕ
   коммитит. Вызывается через @manager: регулярно в паузу и по запросу создателя.
 mode: subagent
-model: opencode/deepseek-v4-flash
 temperature: 0.2
 permission:
   edit: deny

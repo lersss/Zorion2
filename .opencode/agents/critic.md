@@ -4,7 +4,6 @@ description: Критик геймдизайна Zorion. Проверяет ид
   бьёт новое о смежные механики и о старое (нагрузочный тест). Вызывай @critic
   после каждой идеи и спеки дизайн-фич, до гейта создателя (обычно через @manager).
 mode: subagent
-model: opencode/deepseek-v4-flash
 temperature: 0.1
 permission:
   edit: deny

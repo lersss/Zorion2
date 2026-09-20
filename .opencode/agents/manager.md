@@ -4,7 +4,7 @@ description: Менеджер-приёмная пожеланий Zorion. Соб
   после каждого этапа останавливается и ждёт одобрения создательа. Вызывай @manager в
   отдельной вкладке, когда хочешь наговорить фичи или баги.
 mode: primary
-model: opencode/deepseek-v4-flash
+model: opencode-go/deepseek-v4.1-flash
 temperature: 0.5
 permission:
   edit: allow

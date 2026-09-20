@@ -5,7 +5,6 @@ description: Диспетчер горячих доков Zorion. Единств
   («Разнос по докам» в идеях) механически, в паузу. Вызывается ТОЛЬКО создателем:
   «@dispatcher, разнеси дельты». Менеджерам команд порождать его запрещено.
 mode: subagent
-model: opencode/deepseek-v4-flash
 temperature: 0.1
 permission:
   edit: allow

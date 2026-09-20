@@ -1,4 +1,4 @@
-{
+﻿{
   "_comment": "Реестр каскадных влияний Zorion. Вопрос: «меняем X → смотрим на Y». Ведёт @manager при сдаче фич (идея 83a): дедупликация по entity.id, schema_version растёт только при изменении структуры, updated_at — дата правки. Сущность заводится при ≥2 потребителях или ≥2 влияниях.",
   "schema_version": 1,
   "updated_at": "2026-09-20",
@@ -92,11 +92,11 @@
         { "on": "internal/repository/planet_repo.go", "kind": "reads", "reason": "attachSettlements читает лог (settlements[].log, 3 записи)" },
         { "on": "web/static/js/modal/tabs.js", "kind": "reads", "reason": "settlementLogRows: код причины → текст, блок лога в карточке поселения" },
         { "on": "migrations/000024_create_settlement_log.sql", "kind": "duplicates", "reason": "схема таблицы и анти-дубль — в доке и миграции" },
-        { "on": "docs/specs/99.2.12-temperature-mortality-calibration.md", "kind": "duplicates", "reason": "спека ссылается на «событие „Вымерло“» → 18b §Дата смерти" },
-        { "on": "docs/specs/99.2.16-natality-life-expectancy.md", "kind": "duplicates", "reason": "связи: механизм 18a + лог 18b; DeathCause — в 18b" },
-        { "on": "docs/specs/99.2.21-races-v1.md", "kind": "duplicates", "reason": "связи: R-модель 18a, лог «Вымерло» 18b" },
+        { "on": "docs/specs/_archive/99.2.12-temperature-mortality-calibration.md", "kind": "duplicates", "reason": "спека ссылается на «событие „Вымерло“» → 18b §Дата смерти" },
+        { "on": "docs/specs/_archive/99.2.16-natality-life-expectancy.md", "kind": "duplicates", "reason": "связи: механизм 18a + лог 18b; DeathCause — в 18b" },
+        { "on": "docs/specs/_archive/99.2.21-races-v1.md", "kind": "duplicates", "reason": "связи: R-модель 18a, лог «Вымерло» 18b" },
         { "on": "docs/specs/99.2.23-race-r-curves-twins.md", "kind": "duplicates", "reason": "упоминание лога «Вымерло» → 18b" },
-        { "on": "docs/specs/99.2.24-robots-ai.md", "kind": "duplicates", "reason": "settlement_log, механизм 18a → 18b" },
+        { "on": "docs/specs/_archive/99.2.24-robots-ai.md", "kind": "duplicates", "reason": "settlement_log, механизм 18a → 18b" },
         { "on": "docs/GLOSSARY.md", "kind": "duplicates", "reason": "термин «Лог поселения» → 18b (источник)" },
         { "on": "docs/PITFALLS.md", "kind": "duplicates", "reason": "ловушка «событие vs лог» → 18b" },
         { "on": "docs/DB.md", "kind": "duplicates", "reason": "ссылка на срез лога → 18b" }
@@ -111,9 +111,9 @@
         { "on": "18b_settlement_log.md", "kind": "reads", "reason": "18a ссылается на 18b (лог вынесен); R-модель и лог — смежные темы" },
         { "on": "config/race_balancer.json", "kind": "reads", "reason": "R-модель использует active-кривые (пересчёт населения)" },
         { "on": "internal/economy/settlement/*.go", "kind": "reads", "reason": "пересчёт населения по R-модели, чек-точка, DeathTime (death.go)" },
-        { "on": "docs/specs/99.2.12-temperature-mortality-calibration.md", "kind": "duplicates", "reason": "калибровка температурного профиля — источник чисел 18a" },
-        { "on": "docs/specs/99.2.13-other-factors-r-model.md", "kind": "duplicates", "reason": "R-модель — источник механики" },
-        { "on": "docs/specs/99.2.16-natality-life-expectancy.md", "kind": "duplicates", "reason": "рождаемость реализована — связь с 18a" },
+        { "on": "docs/specs/_archive/99.2.12-temperature-mortality-calibration.md", "kind": "duplicates", "reason": "калибровка температурного профиля — источник чисел 18a" },
+        { "on": "docs/specs/_archive/99.2.13-other-factors-r-model.md", "kind": "duplicates", "reason": "R-модель — источник механики" },
+        { "on": "docs/specs/_archive/99.2.16-natality-life-expectancy.md", "kind": "duplicates", "reason": "рождаемость реализована — связь с 18a" },
         { "on": "docs/GLOSSARY.md", "kind": "duplicates", "reason": "термины смертности/R-модели — глоссарий" }
       ]
     },
@@ -133,7 +133,7 @@
     {
       "id": "99.2.21",
       "type": "spec",
-      "path": "docs/specs/99.2.21-races-v1.md",
+      "path": "docs/specs/_archive/99.2.21-races-v1.md",
       "note": "спека «Расы» + строка роадмапа §99.2.21 (✅ Реализовано 2026-09-17)",
       "impacts": [
         { "on": "races.json", "kind": "duplicates", "reason": "числа карточек (§5) и инварианты (§16) — источник конфига; правка спеки = правка конфига" },
@@ -215,7 +215,7 @@
     {
       "id": "88a.1",
       "type": "spec",
-      "path": "docs/specs/88a.1-art-studio-water-f1.md",
+      "path": "docs/specs/_archive/88a.1-art-studio-water-f1.md",
       "note": "спека арт-студии: семейство F1 «Водные» (расы 2–4), люди → F0 (88a, 2026-09-17)",
       "impacts": [
         { "on": "config/art/families.json", "kind": "writes", "reason": "семейство F1 добавлено в families.json (88a); люди перенесены на F0" },
@@ -227,7 +227,7 @@
     {
       "id": "94a",
       "type": "spec",
-      "path": "docs/specs/94a-consumption-catalog.md",
+      "path": "docs/specs/_archive/94a-consumption-catalog.md",
       "note": "спека «Каталог ресурсов + потребление рас» (94a, 2026-09-18): универсальный слой 20 ресурсов, 13 шаблонов хемотипов, мост consumption→окна, проверки §8/§13; имена — рабочие заглушки, схема БД substances/resources — следующий релиз",
       "impacts": [
         { "on": "config/races.json", "kind": "reads", "reason": "consumption (13 осей) — источник истины; мост §3 выводит окна рас из него; forage.basic_resources наполняется данными каталога" },
@@ -244,7 +244,7 @@
     {
       "id": "91a",
       "type": "spec",
-      "path": "docs/specs/91a-ship-section-dashboard.md",
+      "path": "docs/specs/_archive/91a-ship-section-dashboard.md",
       "note": "speca 91a (2026-09-18): razdel «Korabl» v dashboarde (siluet so slotami), dvigatel engine_1 kak nastoyashchiy modul (migraciya 000043), skorost poleta iz ustanovlennogo dvigatelya, polet bez dvigatelya zapreshchen dlya player",
       "impacts": [
         { "on": "equipment", "kind": "reads", "reason": "engine_1 v kataloge equipment (migraciya 000043); users.equipment — ustanovlennye moduli" },
@@ -260,7 +260,7 @@
     {
       "id": "86a",
       "type": "spec",
-      "path": "docs/specs/86a-player-dashboard-encyclopedia.md",
+      "path": "docs/specs/_archive/86a-player-dashboard-encyclopedia.md",
       "note": "спека «Дашборд игрока + Энциклопедия» (86a, 2026-09-17): профиль, статистика, энциклопедия (расы/звёзды/планеты/ресурсы/корабли/лор-термины), силуэты рас, журнал открытий (клиентский localStorage), логаут",
       "impacts": [
         { "on": "web/index.html", "kind": "reads", "reason": "дашборд игрока: профиль, статистика, энциклопедия, логаут" },
@@ -346,7 +346,7 @@
         { "on": "internal/repository/player_flight_repository.go", "kind": "writes", "reason": "репозиторий Upsert/Delete/ListAll — единственный доступ к таблице" },
         { "on": "internal/handlers/travel_handlers.go", "kind": "reads", "reason": "старт полёта → строка в player_flights через Manager.StartFlight; редирект 61a заменяет сегмент (ON CONFLICT DO UPDATE)" },
         { "on": "internal/handlers/auth_handlers.go", "kind": "reads", "reason": "/me отдаёт flight из GetFlight; после Restore восстановленный полёт виден (42a)" },
-        { "on": "docs/specs/20a.1-npc-agents-v1.md", "kind": "docs", "reason": "эталон-паттерн: NPC-полёты переживают рестарт через абсолютный arrive_at (§3.1 «Отказной режим»)" },
+        { "on": "docs/specs/_archive/20a.1-npc-agents-v1.md", "kind": "docs", "reason": "эталон-паттерн: NPC-полёты переживают рестарт через абсолютный arrive_at (§3.1 «Отказной режим»)" },
         { "on": "migrations/000044_create_player_flights.sql", "kind": "duplicates", "reason": "схема таблицы — в миграции и здесь" }
       ]
     },
@@ -376,7 +376,7 @@
     {
       "id": "98a",
       "type": "spec",
-      "path": "docs/specs/98a-внешность-рас-арт-фильтр.md",
+      "path": "docs/specs/_archive/98a-внешность-рас-арт-фильтр.md",
       "note": "спека «Внешность рас + фильтрация шума в генераторе картинок» (98a, пилот 6 рас → расширено на все 59, контент 2026-09-20) + 98b (поле доп. тегов, панель итогового промпта); ✅ реализовано (98a/98b 2026-09-19, контент 59/59 + код выбора расы/пересборки промта 2026-09-20)",
       "impacts": [
         { "on": "config/art/families.json", "kind": "writes", "reason": "поля appearance/blocked у всех 59 рас (98a; контент 2026-09-20)" },
@@ -402,10 +402,10 @@
         { "on": "docs/DB.md", "kind": "docs", "reason": "таблицы + миграция 000045 + маркер сидера (дельта iterA §16)" },
         { "on": "docs/gamedesign/11_production.md", "kind": "affects", "reason": "§11.1.1 сложность рецепта = тир товара; каталог в БД — основа будущей экономики (FK на goods.id)" },
         { "on": "docs/gamedesign/13_tiers.md", "kind": "affects", "reason": "§13.9.1 тир-оверрайд — источник complexity (99a.3)" },
-        { "on": "docs/specs/99a.1-goods-studio.md", "kind": "docs", "reason": "спека студии товаров: каталог, миграция 000045, /studio/api/* (источник механики)" },
+        { "on": "docs/specs/_archive/99a.1-goods-studio.md", "kind": "docs", "reason": "спека студии товаров: каталог, миграция 000045, /studio/api/* (источник механики)" },
         { "on": "docs/specs/99a.1-goods-studio-ui.md", "kind": "docs", "reason": "UI-спека студии (перенос интерфейса, 99a.1)" },
-        { "on": "docs/specs/99a.2-goods-studio-import-top-catalog.md", "kind": "docs", "reason": "импорт top-каталога отменён решением создателя 2026-09-20 — спека-источник решения" },
-        { "on": "docs/specs/99a.3-goods-studio-focus-graph-spravochnik.md", "kind": "docs", "reason": "фокус-граф/справочник каталога (99a.3); ПКМ-хвост открыт" },
+        { "on": "docs/specs/_archive/99a.2-goods-studio-import-top-catalog.md", "kind": "docs", "reason": "импорт top-каталога отменён решением создателя 2026-09-20 — спека-источник решения" },
+        { "on": "docs/specs/_archive/99a.3-goods-studio-focus-graph-spravochnik.md", "kind": "docs", "reason": "фокус-граф/справочник каталога (99a.3); ПКМ-хвост открыт" },
         { "on": "docs/specs/перенос-студии-товаров-iterC-доводка.md", "kind": "docs", "reason": "доводка iterC: fill «предложи → подтверди», auth.js, слой из БД" }
       ]
     },

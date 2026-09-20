@@ -1,4 +1,4 @@
-# 2026-09-20 — Пакман: вайп галактики с поеданием миров (все видят)
+﻿# 2026-09-20 — Пакман: вайп галактики с поеданием миров (все видят)
 
 **Статус:** 🔄 дизайн (готова к проверке создателем; числа производительности — оценка, замер @tester)
 **Дата:** 2026-09-20
@@ -8,7 +8,7 @@
 джобы админки — `internal/generator/status.go` (StatusManager, TryStart/Progress/Done/Fail/Cancel),
 `internal/handlers/admin_universe.go` (ClearUniverse, clearUniverseTx, GenerateUniverse/Planets);
 очистка и FK — `docs/ARCHITECTURE.md` §4.1, `docs/PITFALLS.md` (БД и шелл);
-NPC-агенты — спека `docs/specs/20a.1-npc-agents-v1.md`, `internal/npc/manager.go`
+NPC-агенты — спека `docs/specs/_archive/20a.1-npc-agents-v1.md`, `internal/npc/manager.go`
 (OnAgentsDeleted, сетка миров, кэш позиций 26c A2);
 WS — `internal/handlers/websocket_hub.go` (Broadcast/SendToUser), `internal/handlers/ws_notifier.go`
 (паттерн дросселя: интервал + лимит деталей + total), клиент `web/static/js/map/npc_agents.js`

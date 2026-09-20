@@ -1,4 +1,4 @@
-# docs/DB.md — база данных Zorion
+﻿# docs/DB.md — база данных Zorion
 
 > БД, таблицы, миграции. Правила работы с БД на практике — `docs/PITFALLS.md`.
 > Текущее состояние дева/прода — `STATUS.md` (не дублировать сюда).
@@ -42,7 +42,7 @@ ClearUniverse его не трогает).
   см. `18b_settlement_log.md`, §«Лог поселения»). Миграция `000023` (поля
   `died_at`/`death_cause`) отменена до создания.
 - `000025` — роль пользователя `users.role` (`TEXT NOT NULL DEFAULT 'player'`
-  + CHECK `player`/`admin`/`skycomposer`), спека `99.2.14-role-model-admin-users.md` §2.
+  + CHECK `player`/`admin`/`skycomposer`), спека `docs/specs/_archive/99.2.14-role-model-admin-users.md` §2.
   Существующие учётки получили `player`; первый skycomposer создаётся
   бутстрапом на старте (env `SKYCOMPOSER_BOOTSTRAP_*`), см. §5 спеки.
 - `000026` — таблица `npc_agents` (спека `20a.1` §2.1): id UUID PK, name,
@@ -116,7 +116,7 @@ ClearUniverse его не трогает).
   всех, включая бэкфилл 000040). Дефолты-страховка в коде:
   `models.RadarRadiusDefault = 800.0` (`internal/models/ship.go`),
   `defaultEquipment` в `internal/ship/catalog.go`.
-- `000043` — двигатель — настоящий модуль (спека `91a-ship-section-dashboard.md`
+- `000043` — двигатель — настоящий модуль (спека `docs/specs/_archive/91a-ship-section-dashboard.md`
   §7.1/§7.4, 2026-09-18): `engine_1` («Двигатель-1», params
   `{"speed_factor": 0.3}`) в каталог `equipment` (тип `engine` уже в CHECK
   77a §3.2) + бэкфилл существующих игроков: `jsonb_set(equipment, '{engine}',

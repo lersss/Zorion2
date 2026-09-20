@@ -4,6 +4,7 @@ package planet
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"math/rand"
 
 	"github.com/google/uuid"
@@ -114,8 +115,13 @@ func capRemnant(n int) int {
 // n = floor(mean) + Бернулли(frac), потолок 8 (Kepler-90). При mean < 1 —
 // n ∈ {0, 1} («чаще 0»), верхний предел остатков — 1 (решение §4к.1).
 //
-// Дефолты — физический реализм (ревизия астронома §4е, решения §4ж/§4и.3):
-// M ~2.5, K ~2, G/F ~1.75, A ~1, O/B ~0.3, L/T/Y ~1; экзотика: ЧД 0.1,
+// Дефолты — физический реализм (ревизия астронома §4е, решения §4ж/§4и.3;
+// спека 2026-09-20 «Реализм распределения» §5.1 — решение создателя
+// 2026-09-20 «число планет поднять, 4–8»): G/F ~6.5, K/M ~5.5 (Солнце — 8,
+// TRAPPIST-1 — 7, Kepler-90 — 8 — ориентиры диапазона, не обещание
+// генератора: mean 6.5 → n ∈ {6, 7}, mean 5.5 → n ∈ {5, 6}; 8 достижимо
+// только множителями — ручка 6 расы ×1.3 → 8.45 → кламп 8, конфиг админки),
+// A ~1, O/B ~0.3, L/T/Y ~1 (n ≡ 1, pre-existing); экзотика: ЧД 0.1,
 // НЗ 0.05, WD 0.3, протозвезда 0 (диск), прочая экзотика 0.1; двойные
 // широкие ×0.9, тесные mean 0.2, кратные ×0.9.
 type PlanetMeans struct {
@@ -146,10 +152,10 @@ type PlanetMeans struct {
 	Max int `json:"max"`
 }
 
-// DefaultPlanetMeans — физические дефолты (99.2.4 §5.2).
+// DefaultPlanetMeans — физические дефолты (99.2.4 §5.2; спека 2026-09-20 §5.1).
 func DefaultPlanetMeans() PlanetMeans {
 	return PlanetMeans{
-		O: 0.3, B: 0.3, A: 1, F: 1.75, G: 1.75, K: 2, M: 2.5, L: 1, T: 1, Y: 1,
+		O: 0.3, B: 0.3, A: 1, F: 6.5, G: 6.5, K: 5.5, M: 5.5, L: 1, T: 1, Y: 1,
 		BlackHole: 0.1, Neutron: 0.05, WhiteDwarf: 0.3, Protostar: 0, Exotic: 0.1,
 		BinaryWideFactor: 0.9, BinaryCloseMean: 0.2, MultipleFactor: 0.9,
 		Max: 8,
@@ -234,38 +240,108 @@ func determineSystemAge(spectralClass string, rng *rand.Rand) float64 {
 
 // ==================== ГАЗОВЫЕ ГИГАНТЫ ====================
 
-// gasGiantChance — шанс газового гиганта на дальней орбите
-// в зависимости от спектрального класса звезды.
+// gasGiantChance — базовый шанс газового гиганта по спектральному классу
+// (спека 2026-09-20 §5.2, per-системный ролл «есть гигант»). Перевёрнут
+// под реальность: O/B 0.5% (практически не наблюдаются), A 2% (β Pic,
+// HR 8799), F/G/K 10% (Cumming 2008), M 3% (Endl 2006 / Kepler: 2–5%),
+// L/T/Y 0.5% (коричневые карлики: планеты редки, 2M1207).
 func gasGiantChance(spectralClass string) float64 {
 	switch spectralClass {
-	case "O", "B", "A":
-		return 0.8
-	case "F", "G":
-		return 0.5
-	case "K", "M":
-		return 0.3
+	case "O", "B":
+		return 0.005
+	case "A":
+		return 0.02
+	case "F", "G", "K":
+		return 0.10
+	case "M":
+		return 0.03
 	case "L", "T", "Y":
-		return 0.1
+		return 0.005
 	default:
-		return 0.3
+		return 0.01
 	}
 }
 
-// gasGiantChanceShifted — шанс гиганта с профилем региона (59a §8 P4):
-// gas_giant_shift ±0.2 с клампом [0.05, 0.95] на местах вызова. Гиганты
-// не исчезают и не доминируют (инвариант §11.5).
-func (g *Generator) gasGiantChanceShifted(spectralClass string) float64 {
-	c := gasGiantChance(spectralClass)
+// giantChanceEffective — P_giant_eff (спека 2026-09-20 §4.4): шанс гиганта
+// по классу (§5.2) × множитель металличности 10^(0.5×[Fe/H]) (Fischer &
+// Valenti 2005: гиганты чаще у металличных звёзд; k = 0.5 — умеренный,
+// E[10^(0.5×[Fe/H])] = 1.045 по фактической механике N(0,0.3)+кламп
+// [−0.8,+0.5]). Кламп [0.001, 0.5].
+func giantChanceEffective(sp StellarParams) float64 {
+	p := gasGiantChance(sp.SpectralClass) * math.Pow(10, 0.5*sp.Metallicity)
+	if p < 0.001 {
+		p = 0.001
+	}
+	if p > 0.5 {
+		p = 0.5
+	}
+	return p
+}
+
+// gasGiantChanceShifted — эффективный шанс гиганта с профилем региона
+// (спека 2026-09-20 §4.5, рескейл контракта 99.2.10 §8 P4):
+// P_eff = clamp(P_base × (1 + shift/0.3), 0.001, 0.5), где P_base —
+// P_giant_eff (класс × металличность, §4.4), shift — gas_giant_shift
+// профиля. При старой опорной базе 0.3 (K/M) поведение идентично старому
+// аддитивному (0.3×(1±0.667) = 0.1/0.5); при малых базах сдвиг
+// масштабируется (G 10% × 1.667 = 16.7%, M 3% → 5%/1%). Кламп [0.001, 0.5]:
+// пол «почти ноль» (металло-бедный регион без гигантов), потолок «не
+// доминируют» (>50% звёзд с гигантом — абсурд). Без профиля — P_giant_eff.
+func (g *Generator) gasGiantChanceShifted(sp StellarParams) float64 {
+	c := giantChanceEffective(sp)
 	if g.profile != nil {
-		c += g.profile.GasGiantShift(g.profileIntensity)
-		if c < 0.05 {
-			c = 0.05
+		c *= 1 + g.profile.GasGiantShift(g.profileIntensity)/0.3
+		if c < 0.001 {
+			c = 0.001
 		}
-		if c > 0.95 {
-			c = 0.95
+		if c > 0.5 {
+			c = 0.5
 		}
 	}
 	return c
+}
+
+// hotGiantChance — шанс миграции гиганта к звезде (P_hot|giant, спека
+// 2026-09-20 §5.3): F/G/K/M — 10% (миграция), A — 10% (но n ≡ 1 — фолбэк
+// «горячий по необходимости»), O/B и L/T/Y — 0 (фолбэк, миграции нет).
+func hotGiantChance(spectralClass string) float64 {
+	switch spectralClass {
+	case "A", "F", "G", "K", "M":
+		return 0.10
+	default:
+		return 0
+	}
+}
+
+// rollGiantOrbit — per-системное решение гиганта (спека 2026-09-20 §4.2):
+// 0 — гиганта нет; иначе индекс орбиты гиганта. Ролл «есть гигант» —
+// P_giant_eff (класс × металличность × профиль, §5.2/§4.4/§4.5); при
+// наличии — ролл «мигрировал?» (P_hot|giant, §5.3): да → орбита 1–2,
+// нет → равномерно в [3, planetCount]. planetCount < 3 — гигант на орбите
+// 1–2 («горячий по необходимости», §5.4; при planetCount = 1 — орбита 1).
+// Решение — один раз на систему, до цикла орбит (не потребляет энтропию
+// в циклах; при planetCount = 0 — без ролла).
+func (g *Generator) rollGiantOrbit(sp StellarParams, planetCount int) int {
+	if planetCount <= 0 {
+		return 0
+	}
+	if g.rng.Float64() >= g.gasGiantChanceShifted(sp) {
+		return 0
+	}
+	// Гигант есть.
+	if planetCount < 3 {
+		// Фолбэк «горячий по необходимости» (§5.4): орбита 1–2.
+		if planetCount == 1 {
+			return 1
+		}
+		return 1 + g.rng.Intn(2)
+	}
+	if g.rng.Float64() < hotGiantChance(sp.SpectralClass) {
+		// Миграция: орбита 1–2.
+		return 1 + g.rng.Intn(2)
+	}
+	// Дальняя орбита: равномерно в [3, planetCount].
+	return 3 + g.rng.Intn(planetCount-2)
 }
 
 // ==================== ПАРАМЕТРЫ ЗВЕЗДЫ (99.2.20 §3.1) ====================
@@ -322,9 +398,10 @@ func stellarParamsFromClass(spectralClass string, temperature int, rng *rand.Ran
 // ==================== ОБЫЧНАЯ ПЛАНЕТА ====================
 
 // generatePlanet — планета обычной звезды (99.2.20): газовый гигант на
-// дальней орбите (существующий триггер) или физический каскад. Подветки
-// океанических/радиоактивных растворены в каскаде (типы возникают из
-// физики: гидросфера «океаны» + вода > 60; core.radioactivity > 50).
+// орбите giantOrbit (per-системное решение, спека 2026-09-20 §4.2) или
+// физический каскад. Подветки океанических/радиоактивных растворены в
+// каскаде (типы возникают из физики: гидросфера «океаны» + вода > 60;
+// core.radioactivity > 50).
 func (g *Generator) generatePlanet(worldID, worldName string, orbitIndex int, sp StellarParams) *PlanetData {
 	// --- ПОДКРУТКА ПОД РАСУ-ДОМА (99.2.22 §3.3–§4) ---
 	// Слой 2: ролл «планета подстроена» в фиксированной позиции (до каскада,
@@ -336,11 +413,12 @@ func (g *Generator) generatePlanet(worldID, worldName string, orbitIndex int, sp
 		sp.AgeGyr = tune.ageGyr
 	}
 
-	// --- ГАЗОВЫЙ ГИГАНТ ---
-	if orbitIndex >= 3 {
-		if g.rng.Float64() < g.gasGiantChanceShifted(sp.SpectralClass) {
-			return g.generateGasGiant(worldID, worldName, orbitIndex, sp, tune)
-		}
+	// --- ГАЗОВЫЙ ГИГАНТ (спека 2026-09-20 §4.2) ---
+	// Per-системное решение: гигант только на орбите giantOrbit (0 = нет).
+	// Решение вынесено из цикла орбит (generateWorldWithCountIntoBuffer /
+	// GeneratePlanetsForWorld) — здесь только проверка, без ролла.
+	if orbitIndex == g.giantOrbit {
+		return g.generateGasGiant(worldID, worldName, orbitIndex, sp, tune)
 	}
 
 	// --- СТАНДАРТНАЯ ГЕНЕРАЦИЯ ЧЕРЕЗ ФИЗИЧЕСКИЙ КАСКАД ---

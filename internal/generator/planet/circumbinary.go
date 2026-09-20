@@ -47,8 +47,11 @@ func (g *Generator) generateCircumbinaryPlanet(w WorldInfo) *PlanetData {
 		sp.AgeGyr = tune.ageGyr
 	}
 
-	// Гиганты P-типа разрешены: шанс от спектра главной, орбита — та же 3a.
-	if g.rng.Float64() < g.gasGiantChanceShifted(w.SpectralClass) {
+	// Гиганты P-типа разрешены: шанс от спектра главной — P_giant_eff
+	// (класс × металличность × профиль, спека 2026-09-20 §4.2/§4.4/§4.5,
+	// М2 @critic: металличность применяется, как ко всем обычным звёздам),
+	// орбита — та же 3a. Один ролл на систему (одна P-планета).
+	if g.rng.Float64() < g.gasGiantChanceShifted(sp) {
 		return g.generateCircumbinaryGiant(w, rP, sp, tune)
 	}
 	return g.generateCircumbinaryRocky(w, rP, sp, tune)

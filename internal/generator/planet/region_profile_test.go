@@ -20,21 +20,22 @@ func TestProfilePlanetCountMult(t *testing.T) {
 	g := NewGenerator(nil, 1)
 	g.means = DefaultPlanetMeans()
 
-	// Без профиля — дефолт.
+	// Без профиля — дефолт (спека 2026-09-20 §5.1: G mean 6.5).
 	avgBase := planetCountAverage(g, "G", 20_000)
-	assert.InDelta(t, 1.75, avgBase, 0.1)
+	assert.InDelta(t, 6.5, avgBase, 0.1)
 
-	// С профилем ×1.3 — mean × mult перед потолком 8.
+	// С профилем ×1.3 — mean × mult перед потолком 8: 6.5×1.3 = 8.45 → кламп 8
+	// (спека §4.6: потолок 8 держит, n ≡ 8 на краю конфигурации).
 	g.profile = &regionprofile.Profile{Planet: regionprofile.PlanetMods{PlanetCountMult: fp(1.3)}}
 	g.profileIntensity = regionprofile.Strong
 	avgBoosted := planetCountAverage(g, "G", 20_000)
-	assert.InDelta(t, 1.75*1.3, avgBoosted, 0.15)
+	assert.InDelta(t, 8.0, avgBoosted, 0.15)
 	assert.LessOrEqual(t, avgBoosted, 8.0, "потолок 8 не нарушается")
 
 	// Слабый профиль — слабый сдвиг.
 	g.profileIntensity = regionprofile.Weak
 	avgWeak := planetCountAverage(g, "G", 20_000)
-	assert.InDelta(t, 1.75*(1+(1.3-1)*0.3), avgWeak, 0.15)
+	assert.InDelta(t, 6.5*(1+(1.3-1)*0.3), avgWeak, 0.15)
 }
 
 // TestProfilePlanetCountPerWorld — регрессия stale-профиля (ревью гейта 2):
@@ -65,9 +66,9 @@ func TestProfilePlanetCountPerWorld(t *testing.T) {
 		fields := row.([]interface{})
 		counts[fields[1].(string)]++
 	}
-	// w1: mean 1.75 × 1.3 = 2.275; w2: mean 1.75 × 0.7 = 1.225.
-	assert.InDelta(t, 1.75*1.3, float64(counts["w1"])/n, 0.15, "мир 1 считает по своему региону")
-	assert.InDelta(t, 1.75*0.7, float64(counts["w2"])/n, 0.15, "мир 2 считает по своему региону, а не по предыдущему")
+	// w1: mean 6.5 × 1.3 = 8.45 → кламп 8 (спека §4.6); w2: mean 6.5 × 0.7 = 4.55.
+	assert.InDelta(t, 8.0, float64(counts["w1"])/n, 0.15, "мир 1 считает по своему региону")
+	assert.InDelta(t, 6.5*0.7, float64(counts["w2"])/n, 0.15, "мир 2 считает по своему региону, а не по предыдущему")
 }
 
 func planetCountAverage(g *Generator, cls string, n int) float64 {
@@ -82,22 +83,26 @@ func planetCountAverage(g *Generator, cls string, n int) float64 {
 
 func TestProfileGasGiantShiftClamped(t *testing.T) {
 	g := NewGenerator(nil, 1)
+	sp := func(cls string) StellarParams {
+		return StellarParams{SpectralClass: cls, Metallicity: 0}
+	}
 
-	// L/T/Y: 0.1 + 0.2 = 0.3 (в диапазоне).
+	// Рескейл к базе (спека 2026-09-20 §4.5): P_eff = P_base × (1 + shift/0.3),
+	// кламп [0.001, 0.5]. L/T/Y: 0.005 × (1 + 0.2/0.3) = 0.00833.
 	g.profile = &regionprofile.Profile{Planet: regionprofile.PlanetMods{GasGiantShift: 0.2}}
 	g.profileIntensity = regionprofile.Strong
-	assert.InDelta(t, 0.3, g.gasGiantChanceShifted("L"), 0.001)
+	assert.InDelta(t, 0.005*(1+0.2/0.3), g.gasGiantChanceShifted(sp("L")), 0.001)
 
-	// O/B/A: 0.8 + 0.2 = 1.0 → кламп 0.95.
-	assert.InDelta(t, 0.95, g.gasGiantChanceShifted("O"), 0.001)
+	// O: база 0.5% — 0.005 × 1.667 = 0.00833 (флип с 0.8).
+	assert.InDelta(t, 0.005*(1+0.2/0.3), g.gasGiantChanceShifted(sp("O")), 0.001)
 
-	// 0.1 − 0.2 = −0.1 → кламп 0.05.
+	// L − 0.2: 0.005 × (1 − 0.2/0.3) = 0.00167 (пол 0.001 не срабатывает).
 	g.profile = &regionprofile.Profile{Planet: regionprofile.PlanetMods{GasGiantShift: -0.2}}
-	assert.InDelta(t, 0.05, g.gasGiantChanceShifted("L"), 0.001)
+	assert.InDelta(t, 0.005*(1-0.2/0.3), g.gasGiantChanceShifted(sp("L")), 0.001)
 
 	// Без профиля — дефолт.
 	g.profile = nil
-	assert.InDelta(t, 0.1, g.gasGiantChanceShifted("L"), 0.001)
+	assert.InDelta(t, 0.005, g.gasGiantChanceShifted(sp("L")), 0.001)
 }
 
 // ==================== ВЕСА ПОЛОСЫ (59a §8, ограничение O4) ====================

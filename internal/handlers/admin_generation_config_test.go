@@ -37,10 +37,10 @@ func TestGetGenerationConfigDefaults(t *testing.T) {
 
 	var cfg GenerationConfigPayload
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cfg))
-	require.Equal(t, DefaultGenerationConfig(), cfg, "дефолты: веса 85/5/2/1/1/2/1/3, mean M=2.5")
+	require.Equal(t, DefaultGenerationConfig(), cfg, "дефолты: веса 85/5/2/1/1/2/1/3, mean M=5.5 (спека 2026-09-20 §5.1)")
 	require.InDelta(t, 32.0, cfg.StarWeights.Spectral["M"], 0.001)
 	require.InDelta(t, 85.0, cfg.StarWeights.SystemTypes["single"], 0.001)
-	require.InDelta(t, 2.5, cfg.PlanetMeans.M, 0.001)
+	require.InDelta(t, 5.5, cfg.PlanetMeans.M, 0.001)
 }
 
 // TestGetGenerationConfigMergesStored — сохранённые ключи накладываются поверх дефолтов.
@@ -156,7 +156,7 @@ func TestPutGenerationConfigSaves(t *testing.T) {
 
 	var resp GenerationConfigPayload
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	require.InDelta(t, 2.5, resp.PlanetMeans.M, 0.001)
+	require.InDelta(t, 5.5, resp.PlanetMeans.M, 0.001)
 }
 
 // planetMeansJSON — валидный JSON средних (дефолты).

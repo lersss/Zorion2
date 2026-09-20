@@ -204,7 +204,7 @@ func TestPlanetCountForBinaryTypes(t *testing.T) {
 			Mods: &models.StellarMods{BinaryType: "close"},
 		}))
 	}
-	assert.InDelta(t, 1.75*0.9, sumWide/n, 0.05, "S-тип: ×0.9 (99.2.4 §5.2)")
+	assert.InDelta(t, 6.5*0.9, sumWide/n, 0.05, "S-тип: ×0.9 (99.2.4 §5.2; спека 2026-09-20 §5.1: G mean 6.5)")
 	assert.InDelta(t, 0.2, sumClose/n, 0.05, "P-тип: mean 0.2")
 
 	// Протозвезда и без модов — 0.

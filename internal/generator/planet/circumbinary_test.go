@@ -142,8 +142,9 @@ func TestCircumbinaryNoArchetypeClamp(t *testing.T) {
 	assert.LessOrEqual(t, got, 2500.0, "в [20, 2500]")
 }
 
-// TestCircumbinaryGiantAllowed — гиганты P-типа разрешены (шанс
-// gasGiantChance(спектр главной)); на выборке тесных двойных гиганты есть.
+// TestCircumbinaryGiantAllowed — гиганты P-типа разрешены (шанс по классу
+// главной — G 10%, спека 2026-09-20 §5.2); на выборке тесных двойных
+// гиганты есть.
 func TestCircumbinaryGiantAllowed(t *testing.T) {
 	g := NewGenerator(nil, 13)
 	giants := 0
@@ -157,7 +158,7 @@ func TestCircumbinaryGiantAllowed(t *testing.T) {
 		}
 		assert.Equal(t, "barycenter", data["orbit_center"])
 	}
-	assert.Greater(t, giants, 10, "гиганты P-типа должны встречаться (шанс 0.3–0.8)")
+	assert.Greater(t, giants, 10, "гиганты P-типа должны встречаться (шанс по классу G 10%)")
 }
 
 // TestCircumbinaryWaterLifeByBands — вода/жизнь по каскаду: G+G при a=0.5

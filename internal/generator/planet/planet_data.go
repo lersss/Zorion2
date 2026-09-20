@@ -53,6 +53,14 @@ type Generator struct {
 	// §3.3 ручка 6): mean × mult перед потолком 8. Дефолт 1.1, диапазон
 	// 0.7–1.3 (админка, generation_config).
 	racePlanetCountMult float64
+
+	// giantOrbit — орбита газового гиганта системы (спека 2026-09-20 §4.2):
+	// 0 — гиганта нет; иначе индекс орбиты. Per-системное решение,
+	// выставляется один раз до цикла орбит (generateWorldWithCountIntoBuffer /
+	// GeneratePlanetsForWorld); generatePlanet проверяет orbitIndex ==
+	// giantOrbit без ролла (не потребляет энтропию в циклах). Генерация
+	// однопоточная на мир — поле безопасно (как profile).
+	giantOrbit int
 }
 
 // NewGenerator — создаёт генератор. Если seed = 0 — берётся time.Now().
@@ -89,6 +97,11 @@ func (g *Generator) SetRaceTuning(softness, planetCountMult float64) {
 //
 // Для массовой генерации (100k миров) — использовать GeneratePlanetsForWorlds,
 // там батчи по многим мирам в одной транзакции.
+//
+// ВАЖНО (регрессия П1): легаси-путь без WorldInfo/Mods — сверхгигантов
+// («прочая экзотика», фаза I + lbv/wr) не различает и может дать им гиганта
+// (ролл по классу O/B/A на орбиту 1 фолбэком). Вызовов в коде нет; продакшн-
+// поток — generateWorldWithCountIntoBuffer (там сверхгиганты исключены).
 func (g *Generator) GeneratePlanetsForWorld(worldID, worldName, spectralClass string, temperature int) (int, error) {
 	planetCount := g.determinePlanetCount(spectralClass)
 	if planetCount == 0 {
@@ -96,6 +109,10 @@ func (g *Generator) GeneratePlanetsForWorld(worldID, worldName, spectralClass st
 	}
 
 	sp := stellarParamsFromClass(spectralClass, temperature, g.rng)
+
+	// Per-системное решение гиганта (спека 2026-09-20 §4.2): один ролл до
+	// цикла орбит.
+	g.giantOrbit = g.rollGiantOrbit(sp, planetCount)
 
 	tx, err := g.db.Begin()
 	if err != nil {
@@ -244,6 +261,15 @@ func (g *Generator) generateWorldWithCountIntoBuffer(w WorldInfo, count int, buf
 	isCircumbinary := !isExoticObject(w.StarType) && w.Mods != nil &&
 		w.Mods.BinaryType == "close" && w.Mods.CompanionSepAU != nil
 
+	// Per-системное решение гиганта (спека 2026-09-20 §4.2): один ролл до
+	// цикла орбит. Экзотика (ЧД/НЗ/WD/протозвезда/сверхгиганты) — гигантов
+	// нет (99.2.4 §5.3); P-ветка — свой ролл (generateCircumbinaryPlanet,
+	// одна P-планета на систему).
+	g.giantOrbit = 0
+	if !isExoticObject(w.StarType) && !isCircumbinary && !isSupergiantExotic(w) {
+		g.giantOrbit = g.rollGiantOrbit(stellarParamsFromWorld(w, g.rng), count)
+	}
+
 	for i := 0; i < count; i++ {
 		orbitIndex := i + 1
 		if isExoticObject(w.StarType) {
@@ -284,6 +310,14 @@ func isExoticObject(starType string) bool {
 		return false
 	}
 	return true
+}
+
+// isSupergiantExotic — «прочая экзотика»: сверхгигант горячего класса
+// (фаза I + подтип lbv/wr, 99.2.4 §4.4). Гигантов не генерирует (99.2.4
+// §5.3) — исключается из per-системного ролла (регрессия П1: старый
+// триггер orbitIndex >= 3 при n ≤ 1 гиганта не давал).
+func isSupergiantExotic(w WorldInfo) bool {
+	return w.Mods != nil && w.Mods.IsSupergiantExotic()
 }
 
 // flushAndCommit — флашит буфер в БД одной транзакцией.

@@ -30,7 +30,10 @@ console.log(`журнал сторожа: ${JOURNAL_PATH}`);
 console.log(`проект: ${PROJECT} · сессий: ${sessions} · из кэша: ${cached}`);
 
 // Тяжёлые счётчики досчитываются в фоне порциями, чтобы сервис отвечал сразу.
+// Проход не выключается: сессии, которые работают прямо сейчас, попадают в
+// пересчёт по мере изменений.
 let scanning = true;
+let idle = false;
 function scanStep() {
   if (!scanning) return;
   let batch;
@@ -42,11 +45,15 @@ function scanStep() {
     return;
   }
   if (batch.scanned === 0) {
-    scanning = false;
-    store.saveCache();
-    console.log(`разбор завершён за ${Math.round((Date.now() - started) / 1000)} c`);
+    if (!idle) {
+      idle = true;
+      store.saveCache();
+      console.log(`разбор завершён за ${Math.round((Date.now() - started) / 1000)} c`);
+    }
+    setTimeout(scanStep, 3000);
     return;
   }
+  idle = false;
   setTimeout(scanStep, 5);
 }
 setTimeout(scanStep, 50);
@@ -77,11 +84,18 @@ const server = http.createServer((req, res) => {
     }
     report.period = period;
     report.server = { port: PORT, uptimeSec: Math.round((Date.now() - started) / 1000), scanning };
+    report.limits = {
+      memWarn: Number(process.env.GUARD_MEM_WARN || 700000),
+      memStop: Number(process.env.GUARD_MEM_STOP || 900000),
+    };
+    report.liveWindowMs = 5 * 60 * 1000;
     return send(res, 200, "application/json", JSON.stringify(report));
   }
-  if (url.pathname === "/" || url.pathname === "/index.html") {
+  if (url.pathname === "/") return send(res, 200, "text/html; charset=utf-8", fs.readFileSync(path.join(HERE, "index.html")));
+  if (url.pathname === "/index.html") {
     return send(res, 200, "text/html; charset=utf-8", fs.readFileSync(path.join(HERE, "index.html")));
   }
+  if (url.pathname === "/favicon.ico") return send(res, 204, "image/x-icon", "");
   send(res, 404, "text/plain", "нет такой страницы");
 });
 

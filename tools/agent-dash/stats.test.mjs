@@ -70,7 +70,7 @@ session("s5", "нет-такого", "manager", "Осиротевшая", yester
 
 message("m1", "s1", yesterdayNoon, 1.0, 10, 1000);
 message("m2", "s1", todayNoon, 2.0, 20, 2000);
-message("m3", "s2", todayNoon, 0.5, 5, 60000);
+message("m3", "s2", Date.now(), 0.5, 5, 60000);
 message("m4", "s3", todayNoon, 0.25, 5, 100);
 message("m5", "s4", yesterdayNoon, 3.0, 30, 3000);
 
@@ -97,7 +97,8 @@ fs.writeFileSync(
   "utf8"
 );
 
-const cachePath = path.join(dir, "cache.json");const store = createStore({ dbPath, project: "Zorion", cachePath, journalPath });
+const cachePath = path.join(dir, "cache.json");
+const store = createStore({ dbPath, project: "Zorion", cachePath, journalPath, refreshGapMs: 0 });
 const loaded = store.load();
 check("загружены все сессии проекта", loaded.sessions === 5, JSON.stringify(loaded));
 
@@ -129,6 +130,10 @@ check("цена второй фичи", featureB.cost === 3, JSON.stringify(feat
 check("сессия без работы не засоряет список фич", !all.features.some((f) => f.label === "Осиротевшая"), JSON.stringify(all.features.map((f) => f.label)));
 
 const today = store.report({ since: todayMidnight });
+const liveRow = today.active.find((a) => a.id === "s2");
+check("активная сессия попадает в верхний блок", !!liveRow && liveRow.live === true, JSON.stringify(today.active.map((a) => [a.id, a.live])));
+check("в записи активной сессии есть цена, память и роль", !!liveRow && liveRow.cost > 0 && liveRow.peak > 0 && liveRow.agent === "developer", JSON.stringify(liveRow));
+check("в записи активной сессии есть заголовок фичи", liveRow?.parent === "Фича А", JSON.stringify(liveRow?.parent));
 check("период «сегодня» режет по дням", Math.abs(today.totals.cost - 2.75) < 1e-9, JSON.stringify(today.totals.cost));
 check("в периоде «сегодня» три сессии", today.totals.sessions === 3, JSON.stringify(today.totals.sessions));
 check("вчерашняя фича не попала в «сегодня»", !today.features.some((f) => f.label === "Фича Б"), JSON.stringify(today.features.map((f) => f.label)));
@@ -140,7 +145,7 @@ check("обрыв сессии виден во «всё время»", all.total
 
 store.saveCache();
 
-const store2 = createStore({ dbPath, project: "Zorion", cachePath, journalPath });
+const store2 = createStore({ dbPath, project: "Zorion", cachePath, journalPath, refreshGapMs: 0 });
 const loaded2 = store2.load();
 check("кэш ускоряет второй запуск", loaded2.cached === 5, JSON.stringify(loaded2));
 const all2 = store2.report({});
@@ -156,6 +161,35 @@ fs.appendFileSync(
 );
 const live = store2.report({});
 check("новая строка журнала подхватывается на лету", live.totals.guardBlocked === 3, JSON.stringify(live.totals));
+
+// Сессия, которая работает прямо сейчас, должна появляться без перезапуска.
+const writer = new DatabaseSync(dbPath);
+const nowMs = Date.now();
+writer.prepare("INSERT INTO session VALUES (?,?,?,?,?,?,?,?,?,?,?)").run("s6", "s1", "developer", "Работающая сейчас", 0, 10, 1, 1, nowMs, nowMs, "C:\\Zorion2");
+writer.prepare("INSERT INTO message VALUES (?,?,?,?,?)").run(
+  "m9",
+  "s6",
+  nowMs,
+  nowMs,
+  JSON.stringify({ role: "assistant", cost: 4, tokens: { input: 10, output: 1, cache: { read: 640000 } } })
+);
+writer.prepare("UPDATE session SET time_updated=?, cost=5 WHERE id='s4'").run(nowMs);
+writer.prepare("INSERT INTO message VALUES (?,?,?,?,?)").run(
+  "m10",
+  "s4",
+  nowMs,
+  nowMs,
+  JSON.stringify({ role: "assistant", cost: 2, tokens: { input: 10, output: 1, cache: { read: 100000 } } })
+);
+writer.close();
+
+const after = store2.report({});
+const fresh = (after.active || []).find((a) => a.id === "s6");
+check("новая сессия появляется без перезапуска", !!fresh && fresh.live === true, JSON.stringify(after.active.map((a) => a.id)));
+check("у новой сессии видна цена и память", !!fresh && fresh.cost === 4 && fresh.peak === 640010, JSON.stringify(fresh));
+const s4 = after.features.find((f) => f.label === "Фича Б");
+check("дописанная цена подхватывается", s4.cost === 5, JSON.stringify(s4?.cost));
+check("дописанная память подхватывается", s4.peak === 100010, JSON.stringify(s4?.peak));
 
 store.close();
 store2.close();

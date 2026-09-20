@@ -136,6 +136,7 @@ export function createStore({
   project = "Zorion",
   cachePath = null,
   journalPath = null,
+  refreshGapMs = 8000,
 } = {}) {
   const db = new DatabaseSync(dbPath, { readOnly: true });
   const cache = readCache(cachePath);
@@ -144,8 +145,24 @@ export function createStore({
   let byId = new Map();
   let children = new Map();
   let journal = { byId: new Map(), lines: 0, bad: 0 };
+  let lastRefresh = 0;
   const stats = new Map();
   const scanned = new Set();
+
+  const sessionRows = () =>
+    db
+      .prepare(
+        "SELECT id,parent_id,agent,title,cost,tokens_input,tokens_output,tokens_cache_read," +
+          "time_created,time_updated FROM session WHERE lower(directory) LIKE ?"
+      )
+      .all("%" + String(project).toLowerCase() + "%");
+
+  const dayAgg = db.prepare(
+    `SELECT strftime('%Y-%m-%d', time_created/1000, 'unixepoch', 'localtime') day,
+            COUNT(*) turns, SUM(json_extract(data,'$.cost')) cost,
+            MAX(${CTX}) peak, MAX(time_created) last
+     FROM message WHERE session_id=? AND ${AS_ASSISTANT} GROUP BY 1`
+  );
 
   const toolGroups = db.prepare(
     `SELECT COUNT(*) c FROM part WHERE session_id=? AND ${AS_TOOL}
@@ -158,42 +175,62 @@ export function createStore({
      FROM part WHERE session_id=?`
   );
 
-  function load() {
-    const like = "%" + String(project).toLowerCase() + "%";
-    const rows = db
-      .prepare(
-        "SELECT id,parent_id,agent,title,cost,tokens_input,tokens_output,tokens_cache_read," +
-          "time_created,time_updated FROM session WHERE lower(directory) LIKE ?"
-      )
-      .all(like);
-    const ids = new Set(rows.map((r) => r.id));
-    sessions = rows.map((r) => ({
+  function newSession(r) {
+    return {
       id: r.id,
-      parentID: ids.has(r.parent_id) ? r.parent_id : null,
+      parentID: r.parent_id || null,
       agent: r.agent || "—",
       title: r.title || "",
       cost: r.cost || 0,
       tokensIn: r.tokens_input || 0,
       tokensOut: r.tokens_output || 0,
-      cacheRead: r.tokens_cache_read || 0,
       created: r.time_created || 0,
       updated: r.time_updated || 0,
       turns: 0,
       peak: 0,
       last: r.time_updated || 0,
       days: new Map(),
-    }));
-    byId = new Map(sessions.map((s) => [s.id, s]));
+    };
+  }
 
+  // Активность сессии по дням — по отметкам сообщений.
+  function fillDays(s) {
+    s.days = new Map();
+    s.turns = 0;
+    s.peak = 0;
+    s.last = s.updated || 0;
+    for (const r of dayAgg.all(s.id)) {
+      if (!r.day) continue;
+      s.days.set(r.day, {
+        cost: r.cost || 0,
+        turns: r.turns || 0,
+        peak: r.peak || 0,
+        last: r.last || 0,
+      });
+      s.turns += r.turns || 0;
+      s.peak = Math.max(s.peak, r.peak || 0);
+      if (r.last > s.last) s.last = r.last;
+    }
+  }
+
+  function linkParents() {
+    const ids = new Set(sessions.map((s) => s.id));
+    for (const s of sessions) s.parentID = ids.has(s.parentID) ? s.parentID : null;
     children = new Map();
     for (const s of sessions) {
       if (!s.parentID) continue;
       if (!children.has(s.parentID)) children.set(s.parentID, []);
       children.get(s.parentID).push(s);
     }
+  }
 
-    // Разрез по дням: период считается по настоящей активности, а не по дате
-    // последнего касания сессии.
+  // Полная загрузка: сессии проекта и разрез их активности по дням.
+  function load() {
+    const rows = sessionRows();
+    sessions = rows.map(newSession);
+    byId = new Map(sessions.map((s) => [s.id, s]));
+    linkParents();
+
     const days = db
       .prepare(
         `SELECT session_id id,
@@ -227,7 +264,53 @@ export function createStore({
     }
 
     journal = loadJournal(journalPath);
+    lastRefresh = Date.now();
     return { sessions: sessions.length, cached: stats.size, journalLines: journal.lines };
+  }
+
+  // Догрузка изменений: сессии, которые работают прямо сейчас, появляются на
+  // странице без перезапуска сервиса (новые сессии, новая цена, память, время).
+  function refresh(gapMs = refreshGapMs) {
+    const now = Date.now();
+    if (now - lastRefresh < gapMs) return 0;
+    lastRefresh = now;
+    const rows = sessionRows();
+    const seen = new Set();
+    let changed = 0;
+    const next = [];
+    for (const r of rows) {
+      seen.add(r.id);
+      const prev = byId.get(r.id);
+      if (!prev) {
+        const s = newSession(r);
+        fillDays(s);
+        next.push(s);
+        changed++;
+        continue;
+      }
+      if (prev.updated !== r.time_updated) {
+        prev.updated = r.time_updated;
+        prev.cost = r.cost || 0;
+        prev.tokensIn = r.tokens_input || 0;
+        prev.tokensOut = r.tokens_output || 0;
+        prev.agent = r.agent || "—";
+        prev.title = r.title || "";
+        fillDays(prev);
+        scanned.delete(prev.id); // тяжёлые счётчики пересчитает фоновый проход
+        changed++;
+      }
+      next.push(prev);
+    }
+    for (const id of [...byId.keys()]) {
+      if (seen.has(id)) continue;
+      byId.delete(id);
+      stats.delete(id);
+      scanned.delete(id);
+    }
+    sessions = next;
+    byId = new Map(sessions.map((s) => [s.id, s]));
+    linkParents();
+    return changed;
   }
 
   const statOf = (id) => stats.get(id) || EMPTY_STAT;
@@ -322,6 +405,7 @@ export function createStore({
   }
 
   function report({ since = 0 } = {}) {
+    refresh();
     refreshJournal();
     const sinceDay = since ? dayKey(since) : null;
     const rows = [];
@@ -392,6 +476,7 @@ export function createStore({
         .sort((x, y) => y.activity.last - x.activity.last)
         .slice(0, 40)
         .map(({ s, activity, stat, guard }) => ({
+          id: s.id,
           agent: s.agent,
           title: s.title,
           parent: s.parentID ? byId.get(s.parentID)?.title || "" : "",
@@ -417,7 +502,7 @@ export function createStore({
     }
   }
 
-  return { load, scanBatch, saveCache, report, close: () => db.close() };
+  return { load, refresh, scanBatch, saveCache, report, close: () => db.close() };
 }
 
 function readCache(cachePath) {

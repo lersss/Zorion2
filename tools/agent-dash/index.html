@@ -59,6 +59,18 @@
       .hi { color: var(--warn); }
       .bad { color: var(--bad); }
       .scroll { max-height: 46vh; overflow: auto; }
+      .liveblock { margin-top: 16px; }
+      .livehead { display: flex; align-items: baseline; gap: 12px; }
+      .livehead h2 { margin: 0; color: var(--text); }
+      .now { font-variant-numeric: tabular-nums; font-weight: 600; font-size: 16px; }
+      .delta { font-size: 12.5px; color: var(--dim); }
+      .delta.up { color: var(--warn); }
+      .bar { display: inline-block; width: 90px; height: 7px; border-radius: 4px; background: #2a2f38; vertical-align: middle; overflow: hidden; }
+      .bar i { display: block; height: 100%; background: var(--accent); }
+      .bar.warn i { background: var(--warn); }
+      .bar.bad i { background: var(--bad); }
+      .sub { color: var(--dim); font-size: 12px; }
+      .idle { color: var(--dim); padding: 10px 0; }
       footer { margin-top: 22px; font-size: 12.5px; color: var(--dim); }
     </style>
   </head>
@@ -80,6 +92,14 @@
       и появляются с новых сессий. Память — пиковый размер рабочего контекста агента.
     </p>
 
+    <section class="liveblock">
+      <div class="livehead">
+        <h2>Активные сейчас</h2>
+        <span class="dim" id="livecount"></span>
+      </div>
+      <div id="livetable"></div>
+    </section>
+
     <div class="cards" id="cards"></div>
 
     <h2>По субагентам</h2>
@@ -92,12 +112,21 @@
     <div class="scroll"><table id="active"></table></div>
 
     <footer>
-      Сервис читает хранилище сессий opencode только на чтение и обновляется сам каждые 5 секунд.
+      Сервис читает хранилище сессий opencode только на чтение. Цифры обновляются раз в 20 секунд,
+      таймер активности — каждую секунду.
       <span id="scan"></span>
     </footer>
 
     <script>
-      const state = { period: "today", report: null, sort: { agents: ["cost", -1], features: ["cost", -1] }, updatedAt: 0 };
+      const state = {
+        period: "today",
+        report: null,
+        sort: { agents: ["cost", -1], features: ["cost", -1] },
+        updatedAt: 0,
+        limits: { memWarn: 700000, memStop: 900000 },
+        prev: new Map(),
+        deltas: new Map(),
+      };
 
       const money = (v) => "$" + (v < 10 ? v.toFixed(2) : v.toFixed(1));
       const tok = (v) => (v >= 1e6 ? (v / 1e6).toFixed(1) + "M" : v >= 1000 ? Math.round(v / 1000) + "k" : String(v || 0));
@@ -109,6 +138,56 @@
         return today ? time : d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" }) + " " + time;
       };
       const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+      const ago = (ms, now) => {
+        const s = Math.max(0, Math.round((now - ms) / 1000));
+        if (s < 60) return s + " с";
+        const m = Math.floor(s / 60);
+        return m < 60 ? m + " мин" : Math.floor(m / 60) + " ч " + (m % 60) + " мин";
+      };
+
+      // Верхний блок: кто работает прямо сейчас, с ценой, остатком бюджета памяти
+      // и дельтой с прошлого обновления. Перерисовывается каждую секунду (таймер),
+      // цифры приходят раз в 20 секунд.
+      function renderLive() {
+        const box = document.getElementById("livetable");
+        const r = state.report;
+        if (!box) return;
+        const now = Date.now();
+        const all = (r?.active || []).filter((a) => now - a.last < (r?.liveWindowMs || 300000));
+        document.getElementById("livecount").textContent = all.length
+          ? all.length + (all.length === 1 ? " сессия" : " сессий") + " · обновление раз в 20 с"
+          : "";
+        if (!all.length) {
+          box.innerHTML = '<div class="idle">Сейчас никто не работает.</div>';
+          return;
+        }
+        const stop = state.limits.memStop || 900000;
+        const warn = state.limits.memWarn || 700000;
+        const cells = all.map((a) => {
+          const key = a.id || a.agent + "|" + a.title;
+          const d = state.deltas.get(key);
+          const pct = Math.min(100, Math.round((a.peak / stop) * 100));
+          const cls = a.peak >= stop ? "bad" : a.peak >= warn ? "warn" : "";
+          const left = Math.max(0, stop - a.peak);
+          return `<tr>
+            <td>${esc(a.agent)}</td>
+            <td class="name"><div>${esc(a.title)}</div>${a.parent ? `<div class="sub">${esc(a.parent)}</div>` : ""}</td>
+            <td class="num now">${money(a.cost)}</td>
+            <td class="num delta ${d && d.cost > 0 ? "up" : ""}">${d ? (d.cost > 0 ? "+" + d.cost.toFixed(3) : "0") : "—"}</td>
+            <td class="num now">${tok(a.peak)}</td>
+            <td><span class="bar ${cls}"><i style="width:${pct}%"></i></span> <span class="delta">${pct}%${left > 0 ? ", осталось " + tok(left) : ", предел"}</span></td>
+            <td class="num">${a.turns}</td>
+            <td class="num delta">${d ? (d.turns > 0 ? "+" + d.turns : "0") : "—"}</td>
+            <td class="num ${a.guard ? "bad" : ""}">${a.guard || 0}</td>
+            <td class="delta">${ago(a.last, now)} назад</td>
+          </tr>`;
+        });
+        box.innerHTML = `<table><thead><tr>
+            <th>Роль</th><th>Сессия</th><th class="num">Цена</th><th class="num">Δ цены</th>
+            <th class="num">Память</th><th>Бюджет памяти</th><th class="num">Ответов</th><th class="num">Δ</th>
+            <th class="num">Сторож</th><th>Действие</th>
+          </tr></thead><tbody>${cells.join("")}</tbody></table>`;
+      }
 
       function sortBy(rows, key, dir) {
         return rows.slice().sort((a, b) => {
@@ -271,9 +350,26 @@
       async function refresh() {
         try {
           const res = await fetch(`/api/stats?period=${state.period}`);
-          state.report = await res.json();
+          const report = await res.json();
+          state.limits = report.limits || state.limits;
+          // Дельты «с последнего обновления» считаем здесь: раз в 20 секунд.
+          state.deltas = new Map();
+          for (const a of report.active || []) {
+            const key = a.id || a.agent + "|" + a.title;
+            const was = state.prev.get(key);
+            if (was) {
+              state.deltas.set(key, {
+                cost: a.cost - was.cost,
+                turns: a.turns - was.turns,
+                guard: (a.guard || 0) - was.guard,
+              });
+            }
+            state.prev.set(key, { cost: a.cost, turns: a.turns, guard: a.guard || 0 });
+          }
+          state.report = report;
           state.updatedAt = Date.now();
           render();
+          renderLive();
           status();
         } catch (e) {
           document.getElementById("status").textContent = "нет связи с сервисом";
@@ -283,6 +379,8 @@
       document.querySelectorAll("button[data-period]").forEach((b) => {
         b.addEventListener("click", () => {
           state.period = b.dataset.period;
+          state.prev = new Map();
+          state.deltas = new Map();
           document.querySelectorAll("button[data-period]").forEach((x) => x.classList.toggle("on", x === b));
           refresh();
         });
@@ -300,8 +398,11 @@
 
       document.querySelector('button[data-period="today"]').classList.add("on");
       refresh();
-      setInterval(refresh, 5000);
-      setInterval(status, 1000);
+      setInterval(refresh, 20000);
+      setInterval(() => {
+        renderLive();
+        status();
+      }, 1000);
     </script>
   </body>
 </html>

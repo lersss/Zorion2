@@ -41,7 +41,7 @@ const (
 // при ЛЮБОЙ визуальной правке генератора (форма/свет/атмосфера/заглушка).
 // Входит в in-memory кэш-ключ и в префикс диск-кэша; стартовый клин удаляет
 // файлы не с текущим префиксом (включая легаси без префикса, M1).
-const ImageGenVersion = "v3"
+const ImageGenVersion = "v4"
 
 // ImageSize — типоразмер (спека §5.1): малая (канвас 256) / большая (512).
 type ImageSize string
@@ -360,9 +360,13 @@ func zoneAllowed(zone string, zones []string) bool {
 	return false
 }
 
-// randomSpherePoint — равномерная случайная точка единичной сферы.
+// randomSpherePoint — равномерная случайная точка ВИДИМОЙ (передней)
+// полусферы единичной сферы (z ≥ 0). Регионы размещаются только на видимой
+// стороне: задняя полусфера не видна на диске (spherePoint даёт z ≥ 0), и
+// регион там не дал бы площади на картинке — бюджет долей (S2/C1) разъехался
+// бы, особенно у биомов с одним регионом (PITFALLS 2026-09-21).
 func randomSpherePoint(rng *rand.Rand) [3]float64 {
-	z := rng.Float64()*2 - 1
+	z := rng.Float64() // [0,1] — передняя полусфера
 	a := rng.Float64() * 2 * math.Pi
 	r := math.Sqrt(1 - z*z)
 	return [3]float64{r * math.Cos(a), r * math.Sin(a), z}
@@ -398,10 +402,33 @@ func surfaceRegions(seed int64, biomes []models.Biome) []region {
 		}
 		for j := 0; j < n; j++ {
 			c := placeRegion(rng, noise, b, scale)
-			out = append(out, region{cx: c[0], cy: c[1], cz: c[2], r: regionRadius(b, n, rng, c, scale), id: b.Form})
+			r := regionRadius(b, n, rng, c, scale)
+			// Перекрытия отбрасываются при размещении: иначе мелкий регион
+			// «проглатывается» крупным соседом — его клетка Вороного
+			// схлопывается, доли разъезжаются (PITFALLS 2026-09-21). Допуск
+			// ×0.8 оставляет лёгкое слияние (рваные материки), но не даёт
+			// центру утонуть внутри соседа.
+			for attempt := 0; attempt < 24 && overlaps(c, r*0.8, out); attempt++ {
+				c = placeRegion(rng, noise, b, scale)
+				r = regionRadius(b, n, rng, c, scale)
+			}
+			out = append(out, region{cx: c[0], cy: c[1], cz: c[2], r: r, id: b.Form})
 		}
 	}
 	return out
+}
+
+// overlaps — пересекается ли шар (центр c, радиус r) с каким-либо регионом.
+func overlaps(c [3]float64, r float64, regs []region) bool {
+	for _, e := range regs {
+		dx := c[0] - e.cx
+		dy := c[1] - e.cy
+		dz := c[2] - e.cz
+		if dx*dx+dy*dy+dz*dz < (r+e.r)*(r+e.r) {
+			return true
+		}
+	}
+	return false
 }
 
 // placeRegion — центр региона: случайная точка сферы с мягким зона-байасом
@@ -434,12 +461,12 @@ func placeRegion(rng *rand.Rand, noise *valueNoise, b models.Biome, scale float6
 func regionRadius(b models.Biome, n int, rng *rand.Rand, c [3]float64, scale float64) float64 {
 	beta := math.Acos(c[2] / scale) // угловое расстояние от оси наблюдения
 	k := 1.0
-	if cosBeta := math.Cos(beta); cosBeta > 0.25 {
+	if cosBeta := math.Cos(beta); cosBeta > 0.1 {
 		k = 1 / math.Sqrt(cosBeta)
 	} else {
-		k = 2.0
+		k = 1 / math.Sqrt(0.1) // кламп у самого лимба (~3.16)
 	}
-	return scale * math.Sqrt(b.Share/100/float64(n)) * (0.9 + 0.2*rng.Float64()) * k
+	return scale * math.Sqrt(b.Share/100/float64(n)) * (0.95 + 0.1*rng.Float64()) * k
 }
 
 // ==================== ЧЕСТНАЯ КАРТИНКА (спека §4) ====================
@@ -501,14 +528,26 @@ func clearDisk(img *image.RGBA, size int) {
 	}
 }
 
-// generateBiomeSurface — поверхность из биомов (спека §4.1, контракт A):
-// «поле высот + регионы» — регионы биомов по зонам высот (мягкий байас),
-// растеризация на сфере (spherePoint): первый регион в порядке убывания share,
-// где dist3D(p, c) < r·(1+0.3·n) — мягкие границы fbm; остаток → доминирующий
-// биом. Рельеф: лёгкая модуляция яркости fbm, ridged для «гористых» категорий.
+// generateBiomeSurface — поверхность из биомов (спека §4.1, контракт A +
+// дельта 2026-09-21 «агрессивная рваность материков»): регионы биомов по
+// зонам высот (мягкий байас), растеризация на сфере (spherePoint):
+// СОГЛАСОВАННЫЙ двухслойный доменный варп точки и центров регионов (Д1a),
+// поле модуляции fbm + ridged (Д1b), модуляция радиуса по агрессии размера
+// региона (Д1c), назначение пикселя — взвешенный Вороной (Д2, клетка
+// площади ∝ r² — бюджет S2/C1). Рельеф: лёгкая модуляция яркости fbm,
+// ridged для «гористых» категорий — без изменений.
 func generateBiomeSurface(img *image.RGBA, size int, seed int64, in PlanetImageInput) {
 	noise := newValueNoise(seed)
 	regs := surfaceRegions(seed, in.Biomes)
+	// Д1a (согласованное искривление): центры регионов варпятся тем же
+	// warpBoundary ОДИН раз заранее — они фиксированы при заданном seed.
+	// Сравнение расстояний идёт в искривлённом пространстве (варпнутый
+	// пиксель против варпнутых центров). Если варпить только пиксель, а не
+	// центры, «владение» пикселем перекашивается и доли разъезжаются
+	// (PITFALLS 2026-09-21).
+	for i := range regs {
+		regs[i].cx, regs[i].cy, regs[i].cz = warpBoundary(noise, regs[i].cx, regs[i].cy, regs[i].cz)
+	}
 
 	radius := float64(size)/2 - 2
 	cx, cy := float64(size)/2, float64(size)/2
@@ -523,38 +562,47 @@ func generateBiomeSurface(img *image.RGBA, size int, seed int64, in PlanetImageI
 				continue
 			}
 			px, py, pz := spherePoint(dx, dy, radius, scale)
-			// Поле высот: границы регионов + яркость (один сэмпл, детерминизм).
-			n := elevationAt(noise, [3]float64{px, py, pz}, 1.0)
+			// Д1a: двухслойный доменный варп точки — тот же, что для центров.
+			// Слой 1 — крупные заливы ±0.25 мира; слой 2 — полуострова
+			// ±0.067 на частоте ×2.6; деление /2.6 возвращает масштаб мира.
+			// Сила подобрана, чтобы рваность держалась (>0.35), а бюджет
+			// долей не разъезжался (сильный варп рвёт доли — PITFALLS
+			// 2026-09-21).
+			qx, qy, qz := warpBoundary(noise, px, py, pz)
+			// Д1b: поле модуляции — один сэмпл на пиксель (детерминизм).
+			// n — основа [0,1], h — «зубцы» [0,1] (отдельная ridged-октава,
+			// частота ×3.2).
+			n := noise.fbm(qx, qy, qz, 3, 2.0, 0.5)
+			h := noise.ridged(qx*3.2, qy*3.2, qz*3.2, 2, 2.0, 0.5)
+			// Д2: взвешенный Вороной — пиксель принадлежит региону с
+			// минимальным d/(r·mi) (клетка площади ∝ r² — бюджет долей
+			// S2/C1, независимо от порядка регионов). Модуляция радиуса mi
+			// (нулевое среднее, Д1c) искажает границу, не ломая бюджет.
+			// Взвешенный Вороной вместо «hit test + зазоры»: первый регион
+			// по убыванию share при пересечении перекашивал доли (порядок
+			// давал доминантам лишнее — PITFALLS 2026-09-21).
+			best := math.MaxFloat64
 			form := ""
-			found := false
 			for _, r := range regs {
-				bdx := px - r.cx
-				bdy := py - r.cy
-				bdz := pz - r.cz
-				if math.Sqrt(bdx*bdx+bdy*bdy+bdz*bdz) < r.r*(1+0.3*n) {
+				// Д1c: модуляция радиуса региона i по агрессии размера
+				// (нулевое среднее — иначе доминанты раздуваются и рвут
+				// бюджет S2/C1): c_i = clamp(r_i/0.3, 0.6, 1.0); крупные
+				// массы r ≥ 0.3 → m ∈ [0.66, 1.34], вкрапления r ≈ 0.1 →
+				// m ∈ [0.80, 1.20].
+				ci := clamp(r.r/0.3, 0.6, 1.0)
+				mi := 1 + 0.5*ci*(n-0.5) + 0.18*ci*(h-0.5)
+				bdx := qx - r.cx
+				bdy := qy - r.cy
+				bdz := qz - r.cz
+				if d := math.Sqrt(bdx*bdx+bdy*bdy+bdz*bdz) / (r.r * mi); d < best {
+					best = d
 					form = r.id
-					found = true
-					break
-				}
-			}
-			if !found {
-				// Остаток (зазоры между регионами) → ближайший регион:
-				// распределяется пропорционально долям (бюджет S2/C1).
-				bestD := math.MaxFloat64
-				for _, r := range regs {
-					bdx := px - r.cx
-					bdy := py - r.cy
-					bdz := pz - r.cz
-					if d := bdx*bdx + bdy*bdy + bdz*bdz; d < bestD {
-						bestD = d
-						form = r.id
-					}
 				}
 			}
 			c := biomeColorFor(form, in)
-			// Рельеф: лёгкая модуляция яркости fbm.
-			bright := 0.88 + 0.24*n
-			// ridged для «гористых» категорий (литосфера/вулканизм).
+			// Рельеф/яркость — БЕЗ ИЗМЕНЕНИЙ (дельта Д3): elevationAt(p).
+			bright := 0.88 + 0.24*elevationAt(noise, [3]float64{px, py, pz}, 1.0)
+			// ridged для «гористых» категорий (литосфера/вулканизм) — без изменений.
 			if cat := categoryOf(form); cat == "литосфера" || cat == "вулканизм" {
 				rn := noise.ridged(px, py, pz, 3, 2.0, 0.5)
 				bright += (rn - 0.5) * 0.15
@@ -562,6 +610,17 @@ func generateBiomeSurface(img *image.RGBA, size int, seed int64, in PlanetImageI
 			img.SetRGBA(x, y, scaleBrightness(c, bright))
 		}
 	}
+}
+
+// warpBoundary — двухслойный доменный варп точки (дельта Д1a):
+// слой 1 — крупные заливы ±0.25 мира (amount 0.5); слой 2 — полуострова
+// ±0.067 на частоте ×2.6 (amount 0.35, деление /2.6 возвращает масштаб
+// мира). Потолок стиля А: варп слой 1 ≤ 1.2. Тот же варп применяется и к
+// центрам регионов (согласованно) — см. generateBiomeSurface.
+func warpBoundary(noise *valueNoise, x, y, z float64) (float64, float64, float64) {
+	wx, wy, wz := noise.warp(x, y, z, 0.5)
+	qx, qy, qz := noise.warp(wx*2.6, wy*2.6, wz*2.6, 0.35)
+	return qx / 2.6, qy / 2.6, qz / 2.6
 }
 
 // categoryOf — категория биома по id (каталог или фолбэк по имени).

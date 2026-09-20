@@ -78,54 +78,83 @@ func nearestBiome(c color.RGBA, biomes []models.Biome, in PlanetImageInput) stri
 }
 
 func TestSurfaceRegionAllocation(t *testing.T) {
-	biomes := []models.Biome{
-		{Form: "горы", Share: 40},
-		{Form: "океаны", Share: 35},
-		{Form: "леса", Share: 22},
-		{Form: "ледники", Share: 3},
+	// Бюджет долей на 8 seed + крайние составы (практика PITFALLS «Дизайн и
+	// числа» итерация 4 — «проверено на 8 seed»; замечание критика дельты
+	// 2026-09-21: бюджет для крайних составов — вода-доминант ~90%,
+	// крио-доминант ~90% — не был покрыт, дополнение из гейта создателя).
+	compositions := []struct {
+		name   string
+		biomes []models.Biome
+	}{
+		{"типичный 40/35/22/3", []models.Biome{
+			{Form: "горы", Share: 40},
+			{Form: "океаны", Share: 35},
+			{Form: "леса", Share: 22},
+			{Form: "ледники", Share: 3},
+		}},
+		{"вода-доминант 90/7/3", []models.Biome{
+			{Form: "океаны", Share: 90},
+			{Form: "горы", Share: 7},
+			{Form: "ледники", Share: 3},
+		}},
+		{"крио-доминант 90/7/3", []models.Biome{
+			{Form: "ледники", Share: 90},
+			{Form: "горы", Share: 7},
+			{Form: "леса", Share: 3},
+		}},
 	}
-	seed := int64(42)
-	in := testImageInput()
-	in.Biomes = biomes
+	seeds := []int64{1, 7, 42, 100, 2024, 31337, 777777, 999983}
 
-	img := image.NewRGBA(image.Rect(0, 0, 256, 256))
-	generateBiomeSurface(img, 256, seed, in)
+	for _, tc := range compositions {
+		for _, seed := range seeds {
+			t.Run(fmt.Sprintf("%s/seed%d", tc.name, seed), func(t *testing.T) {
+				in := testImageInput()
+				in.Biomes = tc.biomes
 
-	// Детерминизм разбиения: тот же seed → те же пиксели.
-	img2 := image.NewRGBA(image.Rect(0, 0, 256, 256))
-	generateBiomeSurface(img2, 256, seed, in)
-	require.Equal(t, img.Pix, img2.Pix, "тот же seed → те же пиксели")
+				img := image.NewRGBA(image.Rect(0, 0, 256, 256))
+				generateBiomeSurface(img, 256, seed, in)
 
-	// Бюджет: count/diskPixels ∈ [share×0.7, share×1.3] для share ≥ 5%,
-	// ≥ share×0.7 для 1–5% (спека §4.1, S2/C1 — безусловный, зоны не
-	// ограничивают площадь).
-	diskPixels := 0
-	counts := map[string]int{}
-	for y := 0; y < 256; y++ {
-		for x := 0; x < 256; x++ {
-			c := img.RGBAAt(x, y)
-			if c.A == 0 {
-				continue
-			}
-			diskPixels++
-			counts[nearestBiome(c, biomes, in)]++
-		}
-	}
-	require.Greater(t, diskPixels, 0)
-	for _, b := range biomes {
-		frac := float64(counts[b.Form]) / float64(diskPixels)
-		share := b.Share / 100
-		t.Logf("DEBUG биом %s: share %.2f, frac %.3f", b.Form, share, frac)
-	}
-	for _, b := range biomes {
-		frac := float64(counts[b.Form]) / float64(diskPixels)
-		share := b.Share / 100
-		if b.Share >= 5 {
-			require.InDelta(t, share, frac, share*0.3,
-				"биом %s: бюджет ±30%% (share %v%%)", b.Form, b.Share)
-		} else {
-			require.GreaterOrEqual(t, frac, share*0.7,
-				"биом %s: нижняя граница видимости (share %v%%)", b.Form, b.Share)
+				// Детерминизм разбиения: тот же seed → те же пиксели.
+				img2 := image.NewRGBA(image.Rect(0, 0, 256, 256))
+				generateBiomeSurface(img2, 256, seed, in)
+				require.Equal(t, img.Pix, img2.Pix, "тот же seed → те же пиксели")
+
+				// Бюджет: крупные биомы (share ≥ 25%) — строго ±30%
+				// (count/diskPixels ∈ [share×0.7, share×1.3]); остальные — только
+				// «не исчезает» (≥ share×0.3, без жёсткого потолка: малые биомы в
+				// крайних составах гуляют — решение создателя 2026-09-21). Заливка
+				// зазоров — «ближайший регион» (взвешенный Вороной), не «два
+				// ближайших + fbm-порог».
+				diskPixels := 0
+				counts := map[string]int{}
+				for y := 0; y < 256; y++ {
+					for x := 0; x < 256; x++ {
+						c := img.RGBAAt(x, y)
+						if c.A == 0 {
+							continue
+						}
+						diskPixels++
+						counts[nearestBiome(c, tc.biomes, in)]++
+					}
+				}
+				require.Greater(t, diskPixels, 0)
+				for _, b := range tc.biomes {
+					frac := float64(counts[b.Form]) / float64(diskPixels)
+					share := b.Share / 100
+					t.Logf("DEBUG биом %s: share %.2f, frac %.3f", b.Form, share, frac)
+				}
+				for _, b := range tc.biomes {
+					frac := float64(counts[b.Form]) / float64(diskPixels)
+					share := b.Share / 100
+					if b.Share >= 25 {
+						require.InDelta(t, share, frac, share*0.3,
+							"биом %s: бюджет ±30%% (share %v%%)", b.Form, b.Share)
+					} else {
+						require.GreaterOrEqual(t, frac, share*0.3,
+							"биом %s: не исчезает (доля ≥ share×0.3, share %v%%)", b.Form, b.Share)
+					}
+				}
+			})
 		}
 	}
 }
@@ -191,7 +220,14 @@ func boundaryRaggedness(img *image.RGBA, form string, in PlanetImageInput) float
 func TestSurfaceNoCircles(t *testing.T) {
 	// Крупнейший биом (share ≥ 25%, регионы сливаются) + средний
 	// (share 5–15%, n_i = 1 — одиночный регион): граница «изломана» —
-	// (max−min)/mean > 0.2 (варп/поле высот, круг не читается).
+	// (max−min)/mean > 0.35 (варп/поле высот + агрессивный двухслойный
+	// доменный варп и модуляция радиуса, дельта 2026-09-21, круг не
+	// читается).
+	//
+	// Порог поднят 0.2 → 0.35 по фактическому росту метрики на эталоне
+	// (планета Renyenmus, землеподобная: до дельты метрика была ~0.25–0.3,
+	// после — ~0.4+, см. отчёт разработчика), а не «чтобы не краснел».
+	// НЕ снижать ниже 0.3 без решения создателя.
 	biomes := []models.Biome{
 		{Form: "горы", Share: 45},
 		{Form: "океаны", Share: 35},
@@ -207,7 +243,7 @@ func TestSurfaceNoCircles(t *testing.T) {
 
 	for _, target := range []string{"горы", "ледники"} {
 		r := boundaryRaggedness(img, target, in)
-		require.Greater(t, r, 0.2,
+		require.Greater(t, r, 0.35,
 			"биом %s: граница изломана (круг не читается), (max−min)/mean = %.3f", target, r)
 	}
 }

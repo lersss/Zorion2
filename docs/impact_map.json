@@ -466,6 +466,28 @@
       ]
     },
     {
+      "id": "pacman_job",
+      "type": "mechanic",
+      "path": "internal/handlers/admin_pacman.go",
+      "note": "Пакман-вайп (идея 2026-09-20, спека 2026-09-20-pacman-galaxy-wipe): админ-джоб ест миры целиком по траектории nearest (жадный ближайший сосед через сетку; spiral/snake опции), скорость float64 >0..10000 с адаптивным батчом=1 (поедание по одной в кинорежиме); событие видно ВСЕМ игрокам через WS (жёлтый пакман 34 px, рот 0→69°, нимб, след, баннер N/M, слежение, поздние подключения видят); звёзды лопаются при прибытии пакмана (снапшот не пересобирается на батч, клиент скрывает по eaten + eatenIds)",
+      "impacts": [
+        { "on": "worlds", "kind": "writes", "reason": "порционный DELETE миров (каскады вниз: planets→settlements/factions/planet_resources→settlement_log, locations→production_units, assignments); снапшот карты пересобирается LoadAsync в конце джоба" },
+        { "on": "npc_agents", "kind": "writes", "reason": "DELETE агентов съеденных миров (current/from/target, FK NO ACTION 000026); индексы 000047; OnAgentsDeleted в конце" },
+        { "on": "player_planet_knowledge", "kind": "writes", "reason": "DELETE знаний о съеденных планетах (вайп, решение создателя «всё удалять, игроки остаются»; FK NO ACTION 000040)" },
+        { "on": "db:users.current_world_id", "kind": "schema", "reason": "UPDATE current_world_id/current_position = NULL у затронутых (игроки остаются; FK динамический NO ACTION/SET NULL)" },
+        { "on": "player_flights", "kind": "writes", "reason": "отмена полётов к съеденным мирам после COMMIT батча (шаг 6); дефенсив onArrival — битая цель → NULL вместо FK" },
+        { "on": "player_intrasystem_flights", "kind": "writes", "reason": "DELETE строк съеденных миров (000046); самозалечивание in-memory" },
+        { "on": "regions", "kind": "writes", "reason": "пересчёт world_count по NearestRegionIndex + DELETE опустевших (решение создателя «регионы тоже должны куда-то деваться»)" },
+        { "on": "mapcache", "kind": "reads", "reason": "траектория из снапшота (in-memory); снапшот НЕ пересобирается на каждый батч — перезапросы области не «спойлерят» съеденные раньше пакмана" },
+        { "on": "WebSocketHub", "kind": "api", "reason": "Broadcast pacman_start/position/eaten/end + SendToUser notices; PacmanNotifier с дросселем (позиция ≤10 Гц, поедание ≤200 миров/событие), джоб не блокируется на WS" },
+        { "on": "StatusManager", "kind": "api", "reason": "JobPacman; конфликт-гварды 9 хендлеров + ClearUniverse + GeneratePrototypePlanet (409); universeMutationMu (TryLock обе стороны, TRUNCATE vs порционный DELETE)" },
+        { "on": "web/static/js/map/pacman.js", "kind": "writes", "reason": "клиент: состояние/рендер/слежение/лопание у рта (pendingEaten)/поздняя активация/баннер; data.js фильтр eatenIds ∖ pendingEatenIds" },
+        { "on": "web/static/js/map/data.js", "kind": "reads", "reason": "loadClusters вычитает съеденные (кроме «долетающих») — звёзды лопаются при прибытии пакмана" },
+        { "on": "docs/specs/2026-09-20-pacman-galaxy-wipe.md", "kind": "duplicates", "reason": "спека — источник механики (джоб, батчи, WS, фронт, числа, DoD)" },
+        { "on": "docs/gamedesign/ideas/2026-09-20_пакман-зачистка-галактики.md", "kind": "duplicates", "reason": "идея — пожелание/решения/разнос по докам" }
+      ]
+    },
+    {
       "id": "races/ships/*.md",
       "type": "doc",
       "path": "docs/gamedesign/races/ships/*.md",

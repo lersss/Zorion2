@@ -831,17 +831,33 @@
       "id": "producer_types",
       "type": "table",
       "path": "db:producer_types (items, producer_items)",
-      "note": "каталог типов производителей/предметов (миграция 000048; 2026-09-21 дерево построек — 000051: parent_id BIGINT NULL REFERENCES producer_types(id) ON DELETE RESTRICT — базовый тип, race TEXT NULL — уровень расы; семейство — race_family F0–F9|robotic). Структура дерева: Строения → классы (товары/предметы/энергия/Другие — фиксированные) → типы (parent_id NULL) → подтипы (parent_id задан, категория только у подтипов kind=goods); автоматика категорий у Фабрики/Автофабрики (13 товарных) и Платформы (6 ресурсных); уникальность подтипа (parent_id, category_id, race_family, race); переименование не рвёт связи (producer_items/goods_slots по id)",
+      "note": "каталог типов производителей/предметов (миграция 000048; 2026-09-21 дерево построек — 000051: parent_id BIGINT NULL REFERENCES producer_types(id) ON DELETE RESTRICT — базовый тип, race TEXT NULL — уровень расы; семейство — race_family F0–F9|robotic; 2026-09-21 слоты — 000052: колонка hidden первой волны СНЯТА, набор категорий типа = producer_slots, автоматика по имени удалена). Структура дерева: Строения → классы (товары/предметы/энергия/Другие — фиксированные) → типы (parent_id NULL) → подтипы (parent_id задан, категория только у подтипов kind=goods и только при слоте родителя); уникальность подтипа (parent_id, category_id, race_family, race); переименование не рвёт связи (producer_items/goods_slots по id)",
       "impacts": [
-        { "on": "web/studio.html", "kind": "writes", "reason": "дерево построек на канвасе (ветка «Производители»), попапы детали/создания, переключатель расовости (спека 2026-09-21-студия-дерево-построек)" },
-        { "on": "internal/handlers/studio_handlers.go", "kind": "api", "reason": "CRUD producer_types/items + GET /studio/api/races (семейства+расы из internal/races)" },
-        { "on": "internal/repository/producer_repository.go", "kind": "writes", "reason": "валидации инвариантов дерева (глубина 1, категория только у подтипов, уникальность кортежа 409, RESTRICT удаления)" },
-        { "on": "internal/races", "kind": "reads", "reason": "валидация «раса → семейство» по каталогу (race_family/race записи producer_types)" },
+        { "on": "web/studio.html", "kind": "writes", "reason": "дерево построек на канвасе (ветка «Производители»), попапы детали/создания, переключатель расовости (спека 2026-09-21-студия-дерево-построек), редактор слотов в карточке родителя (спека скрытых)" },
+        { "on": "internal/handlers/studio_handlers.go", "kind": "api", "reason": "CRUD producer_types/items + GET /studio/api/races (семейства+расы из internal/races) + POST/PUT/DELETE /studio/api/slots" },
+        { "on": "internal/repository/producer_repository.go", "kind": "writes", "reason": "валидации инвариантов дерева (глубина 1, категория только у подтипов при слоте родителя, уникальность кортежа 409, RESTRICT удаления) + CRUD слотов" },
+        { "on": "internal/races", "kind": "reads", "reason": "валидация «раса → семейство» по каталогу (race_family/race записи producer_types и producer_slots)" },
         { "on": "race_lore.json", "kind": "reads", "reason": "инвариант «раса → семейство» (family у 60 рас, роботы — robotic; семейства F0–F9 — люди вынесены в F0, 2026-09-21)" },
         { "on": "docs/specs/2026-09-21-люди-f0-отдельное-семейство.md", "kind": "duplicates", "reason": "спека «Люди → F0»: семейства F0–F9|robotic, список семейств студии (переключатель расовости) — 11 семейств" },
-        { "on": "docs/DB.md", "kind": "docs", "reason": "таблицы 000048, миграция 000051 (parent_id/race, data-миграция лабораторий)" },
+        { "on": "docs/DB.md", "kind": "docs", "reason": "таблицы 000048, миграция 000051 (parent_id/race, data-миграция лабораторий), 000052 (producer_slots, DROP hidden)" },
         { "on": "docs/specs/2026-09-20-фабрики-сущность-производства.md", "kind": "duplicates", "reason": "родительская спека фабрик: классификация §2, ветка «Производители» §4.1, race_family §3.1" },
-        { "on": "docs/specs/2026-09-21-студия-дерево-построек-канвас.md", "kind": "duplicates", "reason": "спека дерева построек: модель parent_id/race, автоматика категорий, расовость двух уровней" }
+        { "on": "docs/specs/2026-09-21-студия-дерево-построек-канвас.md", "kind": "duplicates", "reason": "спека дерева построек: модель parent_id/race, автоматика категорий (заменена слотами), расовость двух уровней" },
+        { "on": "docs/specs/2026-09-21-студия-скрытые-категории-строений.md", "kind": "duplicates", "reason": "спека скрытых: слоты родителя (конфигурация категорий), правило видимости «самая конкретная решает», инвариант С4" }
+      ]
+    },
+    {
+      "id": "producer_slots",
+      "type": "table",
+      "path": "db:producer_slots",
+      "note": "слоты родителя — конфигурация категорий строений у типа kind=goods (миграция 000052, спека 2026-09-21-студия-скрытые-категории-строений): (parent_id, category_id, race_family, race, hidden), UNIQUE NULLS NOT DISTINCT, FK CASCADE (категория/родитель), CHECK race→family; слот = «родитель предлагает категорию на уровне расовости», hidden = «предлагает, но скрыто» (скрытость перекрывает наследуемое); наследование: универсальная база видна всем, семейные/расовые переопределения поверх; инвариант С4 — подтип kind=goods возможен только при применяемом слоте (400), удаление слота при заводах — 409",
+      "impacts": [
+        { "on": "web/studio.html", "kind": "writes", "reason": "дерево из слотов (не автоматика по имени), карточка родителя — редактор слотов (галки «скрытая», «+»/«−»), заглушка скрытой пустой категории, галка «показать скрытые»" },
+        { "on": "internal/handlers/studio_handlers.go", "kind": "api", "reason": "POST/PUT/DELETE /studio/api/slots, state + producer_slots (имена родителя/категории)" },
+        { "on": "internal/repository/producer_repository.go", "kind": "writes", "reason": "CRUD слотов (pg_advisory_xact_lock), инвариант С4 (слот обязателен для подтипа kind=goods), RESTRICT удаления" },
+        { "on": "internal/goodsstudio/seed_producers.go", "kind": "writes", "reason": "сид базовых слотов (Фабрика/Автофабрика — 13 товарных, Платформа — 6 ресурсных, универсальный уровень)" },
+        { "on": "categories", "kind": "reads", "reason": "категории слотов; удаление категории — CASCADE слотов" },
+        { "on": "docs/DB.md", "kind": "docs", "reason": "миграция 000052 (producer_slots, DROP hidden, data-миграция)" },
+        { "on": "docs/specs/2026-09-21-студия-дерево-построек-канвас.md", "kind": "duplicates", "reason": "автоматика категорий §2.2 заменена конфигурацией слотов (дельта при сдаче)" }
       ]
     }
   ]

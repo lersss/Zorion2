@@ -141,6 +141,7 @@
           ["Фич", t.features],
           ["Вызовов инструментов", t.calls],
           ["Повторов", `<span class="${t.repeats ? "hi" : ""}">${t.repeats}</span>`],
+          ["Сторож: напомнил про бюджет", t.guardReminds || 0],
           ["Сторож: обрезал вызов", `<span class="${t.guardBlocked ? "hi" : ""}">${t.guardBlocked}</span>`],
           ["Сторож: погасил сессию", `<span class="${t.guardAborted ? "bad" : ""}">${t.guardAborted}</span>`],
         ];

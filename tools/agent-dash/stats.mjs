@@ -54,9 +54,10 @@ function loadJournal(journalPath) {
         let days = byId.get(e.session);
         if (!days) byId.set(e.session, (days = new Map()));
         const day = dayKey(e.at);
-        const cur = days.get(day) || { blocked: 0, aborted: 0 };
+        const cur = days.get(day) || { blocked: 0, aborted: 0, remind: 0 };
         if (e.action === "aborted") cur.aborted++;
-        else cur.blocked++;
+        else if (e.action === "blocked") cur.blocked++;
+        else if (e.action === "remind") cur.remind++;
         days.set(day, cur);
       }
     } catch {
@@ -257,15 +258,17 @@ export function createStore({
   // Срабатывания сторожа по сессии за период (из его журнала).
   function guardOf(id, sinceDay) {
     const days = journal.byId.get(id);
-    if (!days) return { blocked: 0, aborted: 0 };
+    if (!days) return { blocked: 0, aborted: 0, remind: 0 };
     let blocked = 0;
     let aborted = 0;
+    let remind = 0;
     for (const [day, c] of days) {
       if (sinceDay && day < sinceDay) continue;
       blocked += c.blocked;
       aborted += c.aborted;
+      remind += c.remind;
     }
-    return { blocked, aborted };
+    return { blocked, aborted, remind };
   }
 
   // Активность сессии внутри периода; null — в этом периоде сессия не работала.
@@ -350,6 +353,7 @@ export function createStore({
         guard: rows.reduce((a, r) => a + r.guard.blocked + r.guard.aborted, 0),
         guardBlocked: rows.reduce((a, r) => a + r.guard.blocked, 0),
         guardAborted: rows.reduce((a, r) => a + r.guard.aborted, 0),
+        guardReminds: rows.reduce((a, r) => a + r.guard.remind, 0),
         features: featureList.length,
       },
       journal: { lines: journal.lines, broken: journal.bad },

@@ -91,6 +91,7 @@ fs.writeFileSync(
     JSON.stringify({ at: todayNoon, session: "s2", tool: "bash", times: 5, action: "blocked" }),
     JSON.stringify({ at: todayNoon + 1000, session: "s2", tool: "bash", times: 6, action: "blocked" }),
     JSON.stringify({ at: yesterdayNoon, session: "s2", tool: "read", times: 41, action: "aborted" }),
+    JSON.stringify({ at: todayNoon + 2000, session: "s3", tool: "bash", action: "remind", reason: "память 750k" }),
     "мусорная строка",
   ].join("\n"),
   "utf8"
@@ -116,7 +117,9 @@ check("повторы считаются сверх трёх", agent("developer"
 check("вызовы инструментов без служебных частей", agent("developer").calls === 8, JSON.stringify(agent("developer")?.calls));
 check("срабатывания сторожа — из журнала", agent("developer").guard === 3, JSON.stringify(agent("developer")?.guard));
 check("сжатие памяти посчитано", agent("developer").compactions === 1);
-check("журнал прочитан, битые строки отмечены", all.journal.lines === 3 && all.journal.broken === 1, JSON.stringify(all.journal));
+check("журнал прочитан, битые строки отмечены", all.journal.lines === 4 && all.journal.broken === 1, JSON.stringify(all.journal));
+check("напоминания про бюджет не считаются вмешательством", agent("tester").guard === 0, JSON.stringify(agent("tester")?.guard));
+check("напоминания про бюджет видны отдельным счётчиком", all.totals.guardReminds === 1, JSON.stringify(all.totals));
 
 check("фич в отчёте две", all.features.length === 2, JSON.stringify(all.features.map((f) => f.label)));
 const featureA = all.features.find((f) => f.label === "Фича А");

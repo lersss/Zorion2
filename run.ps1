@@ -16,4 +16,4 @@ Write-Host "PostgreSQL: $env:DATABASE_URL" -ForegroundColor Yellow
 Write-Host "Redis: $env:REDIS_URL" -ForegroundColor Yellow
 Write-Host "Порт: $env:SERVER_PORT" -ForegroundColor Yellow
 
-go run cmd/server/main.go
+go run ./cmd/server

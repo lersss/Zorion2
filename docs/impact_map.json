@@ -480,6 +480,8 @@
         { "on": "db:npc_agents", "kind": "writes", "reason": "DELETE агентов съеденных миров (current/from/target, FK NO ACTION 000026); индексы 000047; OnAgentsDeleted в конце" },
         { "on": "player_planet_knowledge", "kind": "writes", "reason": "DELETE знаний о съеденных планетах (вайп, решение создателя «всё удалять, игроки остаются»; FK NO ACTION 000040)" },
         { "on": "db:users.current_world_id", "kind": "schema", "reason": "UPDATE current_world_id/current_position = NULL у затронутых (игроки остаются; FK динамический NO ACTION/SET NULL)" },
+        { "on": "users.current_position", "kind": "schema", "reason": "шаг 1: current_position = NULL у затронутых (игроки остаются); связь существовала с 99.2.27, в реестре отсутствовала — внесена 2026-09-21" },
+        { "on": "users.pending_destination", "kind": "schema", "reason": "шаг 4.5 (99.2.30): UPDATE pending_destination = NULL по world_id съеденных миров — намерение к съеденной системе (событие, не атрибут)" },
         { "on": "player_flights", "kind": "writes", "reason": "отмена полётов к съеденным мирам после COMMIT батча (шаг 6); дефенсив onArrival — битая цель → NULL вместо FK" },
         { "on": "player_intrasystem_flights", "kind": "writes", "reason": "DELETE строк съеденных миров (000046); самозалечивание in-memory" },
         { "on": "db:regions", "kind": "writes", "reason": "пересчёт world_count по NearestRegionIndex + DELETE опустевших (решение создателя «регионы тоже должны куда-то деваться»)" },
@@ -548,6 +550,21 @@
         { "on": "internal/handlers/travel_handlers.go", "kind": "writes", "reason": "С1-дельта: старт /travel → позиция NULL + отмена intra (атомарно); ИП-2: прибытие → current_world_id + orbit звезды одним UPDATE" },
         { "on": "web/static/js/modal/*", "kind": "reads", "reason": "модалка: маркер «я здесь», полоса полёта (in_flight), слежение, «Найти меня» (interstellarFlight из /me)" },
         { "on": "99.2.27", "kind": "duplicates", "reason": "модель позиции (§2), переходы orbit↔in_flight, ИП-1/ИП-2/ИП-4" }
+      ]
+    },
+    {
+      "id": "users.pending_destination",
+      "type": "table",
+      "path": "db:users.pending_destination",
+      "note": "серверное намерение композитного маршрута (000049, 99.2.30): JSONB NULL = нет намерения; {world_id, object_type, object_id}; object_type ∈ {planet, satellite, companion} (companion — синтетический id companion:<world>/extra:<world>:<i>, 2026-09-21); живёт только во время межзвёздного сегмента",
+      "impacts": [
+        { "on": "internal/handlers/travel_handlers.go", "kind": "writes", "reason": "старт /travel с destination → запись намерения (атомарно, M1/M2); onArrival → чтение + автостарт внутрисистемного сегмента; старт без объекта/разворот → очистка/перезапись" },
+        { "on": "internal/repository/player_intrasystem_flight_repository.go", "kind": "writes", "reason": "CancelAtomicWithDestination/SetPendingDestination/CancelAtomic (одна транзакция с intra-строкой и позицией) + ClearPendingDestination" },
+        { "on": "internal/handlers/admin_pacman.go", "kind": "writes", "reason": "шаг 4.5: UPDATE pending_destination = NULL по world_id съеденных миров (намерение к съеденной системе)" },
+        { "on": "internal/handlers/auth_handlers.go", "kind": "reads", "reason": "/me: аддитивное поле pending_destination (автооткрытие модалки, M5)" },
+        { "on": "cmd/server/main.go", "kind": "reads", "reason": "RestorePendingDestinations (фаза 3): автостарт для живых целей, очистка призраков/битых/съеденных" },
+        { "on": "web/static/js/modal/*", "kind": "reads", "reason": "автооткрытие модалки по прибытии (признак 1: pending_destination == current_world_id), сессионный маркер compositeRoute" },
+        { "on": "99.2.30", "kind": "duplicates", "reason": "модель намерения (§2), ИН-1..ИН-4, шесть точек очистки (§2.3)" }
       ]
     },
     {
@@ -689,6 +706,23 @@
         { "on": "99_roadmap.md", "kind": "docs", "reason": "строка §99.2.28 — статус фичи (дельта @dispatcher)" },
         { "on": "docs/specs/99.2.28-appendix-biome-catalog.md", "kind": "docs", "reason": "приложение к спеке: каталог 57 биомов/17 недр/9 правил (полный справочник)" },
         { "on": "docs/specs/99.2.28-ui-admin-biome-catalog.md", "kind": "docs", "reason": "UI-спека админки справочника биомов (вкладка «Основное»)" }
+      ]
+    },
+    {
+      "id": "99.2.30",
+      "type": "spec",
+      "path": "docs/specs/99.2.30-composite-route.md",
+      "note": "спека «Композитный маршрут: полёт к планете чужой системы из модалки» (99.2.30, 2026-09-20, обновлено 2026-09-21, ✅ реализовано коммит 910c067): цепочка межзвёздный (/travel) + внутрисистемный (/api/intrasystem-flight) сегмент по одному действию; серверное намерение users.pending_destination; автостарт по onArrival через общий ArrivalHandler (работает и для восстановленных полётов); разворот 61a; цели — планета/спутник/компаньон (companion, 2026-09-21); точки входа — ПКМ-меню «Лететь» (планета/компаньон) и кнопка спутника; автооткрытие модалки по прибытии (M5, сессионный маркер compositeRoute); слежение карты «лететь из модалки = камера ведёт корабль»",
+      "impacts": [
+        { "on": "users.pending_destination", "kind": "duplicates", "reason": "сущность намерения (§2.1–2.3), ИН-1..ИН-4, шесть точек очистки" },
+        { "on": "player_intrasystem_flights", "kind": "writes", "reason": "автостарт/разворот: запись и отмена intra-строки (атомарно с намерением/позицией)" },
+        { "on": "IntrasystemManager", "kind": "api", "reason": "автостарт внутрисистемного сегмента по прибытии (StartIntraFlight) + NewIntraArrivalHandler" },
+        { "on": "users.current_position", "kind": "writes", "reason": "С1/ИП-2: старт /travel → NULL, прибытие → orbit звезды; автостарт → in_flight" },
+        { "on": "99.2.27", "kind": "affects", "reason": "надстройка над внутрисистемным полётом; дельта §5.1/§5.5 (чужие системы — «Лететь» через ПКМ, в т.ч. компаньоны)" },
+        { "on": "77a", "kind": "reads", "reason": "видимость/знание: цель доступна, если планеты/компаньон видны (модалка не 403)" },
+        { "on": "pacman_job", "kind": "writes", "reason": "очистка намерения при съедении мира-цели (M3)" },
+        { "on": "docs/specs/README.md", "kind": "docs", "reason": "манифест спек: строка 99.2.30 (статус/дата)" },
+        { "on": "99_roadmap.md", "kind": "docs", "reason": "строка §99.2.30 — статус фичи (дельта @dispatcher)" }
       ]
     },
     {

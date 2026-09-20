@@ -113,7 +113,7 @@ foreach ($e in $entities) {
 
 $exceptions = @(
     '.opencode/', 'docs/gamedesign/ideas/', 'scripts/', '.githooks/', 'docs/impact_map.json',
-    'docs/impact_map.md',
+    'docs/impact_map.md', 'run.ps1',
     'docs/specs/_archive/',
     # код реализации и вспомогательные зоны — не сущности реестра (2026-09-18, 77a/88a/90a)
     'internal/', 'web/', 'cmd/', 'tools/', 'migrations/',

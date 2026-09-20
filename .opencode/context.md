@@ -92,6 +92,14 @@
 - Корабли рас — готово (2026-09-20): каталог docs/gamedesign/races/ships/ (60
   файлов, кабина — место аватара); кандидаты: связь-с-кораблём, генератор
   внешности кораблей.
+- Пакман-вайп (2026-09-20): админ-кнопка «Запустить Пакмана» рядом с «Удалить
+  все миры» — джоб ест миры по траектории nearest (скорость float64 >0..10000,
+  адаптивный батч=1), событие видно всем игрокам на карте (WS-пакман, баннер
+  N/M, «Следить», поздние подключения видят), звёзды лопаются при прибытии;
+  файлы: internal/handlers/admin_pacman.go, internal/handlers/pacman_notifier.go,
+  web/static/js/map/pacman.js, web/map.html, web/static/js/map/data.js,
+  web/static/js/admin/generation.js, web/admin.html, migrations/000047
+  (npc_agents world indexes); спека `docs/specs/2026-09-20-pacman-galaxy-wipe.md`.
 
 ## FAQ-счётчик эталонов
 

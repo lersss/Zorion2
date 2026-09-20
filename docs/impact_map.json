@@ -604,7 +604,8 @@
         { "on": "internal/handlers/admin_biome_catalog.go", "kind": "api", "reason": "GET/PATCH /admin/biome-catalog + reset (правка — admin, чтение — admin+skycomposer; валидация UTF-8, bands из {э,ж,у,х})" },
         { "on": "web/static/js/admin/biomeCatalog.js", "kind": "reads", "reason": "вкладка «Основное»: 6 подразделов (Биомы/Недра/Типы планет/Полосы/Несовместимость/Параметры), редактор, drag&drop, read-only для skycomposer" },
         { "on": "config/planet_archetypes.json", "kind": "reads", "reason": "полосы климатов (веса альбедо-прокси слоя 5 и предварительных недр ядра); whitelist биомов — в bands биома, не в полосах" },
-        { "on": "docs/gamedesign/ideas/2026-09-20_иконки-биомов-поверхности.md", "kind": "reads", "reason": "иконки биомов (пачка 1, 23 шт) именуются по id каталога — правка id = переименование файлов иконок" }
+        { "on": "docs/gamedesign/ideas/2026-09-20_иконки-биомов-поверхности.md", "kind": "reads", "reason": "иконки биомов (пачка 1, 23 шт) именуются по id каталога — правка id = переименование файлов иконок" },
+        { "on": "planet_image", "kind": "reads", "reason": "контракт «биом → цвет»: поле color/visual в каталоге (редактируется админкой, дрейф приемлем) или детерминированная функция от категории (идея 2026-09-20, С2)" }
       ]
     },
     {
@@ -618,7 +619,8 @@
         { "on": "internal/audit/planet/*", "kind": "reads", "reason": "проверки биомов (empty/biome_not_in_catalog/biosphere_without_conditions) и существующие lava_in_cold/volcanic" },
         { "on": "web/static/js/modal/tabs.js", "kind": "reads", "reason": "renderComposition показывает состав (иконка + имя); визуализация иконок — следующий релиз (идея 2026-09-20)" },
         { "on": "users.current_position", "kind": "affects", "reason": "уровень orbit/surface+biome (99.2.27) — биом планеты поставляется отсюда для будущей высадки" },
-        { "on": "internal/resource/generator.go", "kind": "reads", "reason": "94a: генерация ресурсов по доминантному составу/категориям (маппинг на теги справочника — дельта §26)" }
+        { "on": "internal/resource/generator.go", "kind": "reads", "reason": "94a: генерация ресурсов по доминантному составу/категориям (маппинг на теги справочника — дельта §26)" },
+        { "on": "planet_image", "kind": "reads", "reason": "картинка планеты из биомов (объекты {form,share} → пятна/цвет поверхности; идея 2026-09-20, в работе)" }
       ]
     },
     {
@@ -676,6 +678,52 @@
         { "on": "99.2.22", "kind": "affects", "reason": "ручки — входы каскада, не меняются; SurfaceOverride — только альбедо T₀; токсичные tuned-миры — экстремофилы/серные поля (дельта §26)" },
         { "on": "docs/specs/README.md", "kind": "docs", "reason": "манифест спек: строка 99.2.28 (статус/дата)" },
         { "on": "99_roadmap.md", "kind": "docs", "reason": "строка §99.2.28 — статус фичи (дельта @dispatcher)" }
+      ]
+    },
+    {
+      "id": "planet_image",
+      "type": "code",
+      "path": "internal/generator/planet/planet_image.go",
+      "note": "процедурный генератор картинки планеты (файлы: planet_image.go + postprocessing.go + handlers/planet_image_handler.go; на лету, кэш по seed; /api/planet-image публичный, входы seed/starType/climateId/radius; клиент textures.js, радиус 20–40 px, сервер 256px): СЕЙЧАС — косметическая текстура по visualType (rocky/earth/ice/lava/gas) с ободком атмосферы по флагу, картинка НЕ отражает планету; ЗАДАЧА 2026-09-20 «визуализация атмосферы и поверхности» — честная картинка из биомов + атмосферы по параметрам, большая «вид с орбиты» в модалке (99.2.27), 3 типоразмера (канвас орбит / большая / иконки), один генератор; производительность: нагрузка от числа уникальных планет (кэш по seed), не от юзеров; ~1000 пользователей; большая — диск-кэш/лимит (С3)",
+      "impacts": [
+        { "on": "biomes", "kind": "reads", "reason": "картинка из биомов {form,share} → пятна/цвет поверхности (идея 2026-09-20, в работе)" },
+        { "on": "biome_catalog.json", "kind": "reads", "reason": "контракт «биом → цвет» (С2: поле color/visual или функция от категории; дрейф приемлем)" },
+        { "on": "atmosphere_data", "kind": "reads", "reason": "атмосфера по параметрам: состав/давление/τ_IR/cloudFraction → дымка/облака/свечение (read-only потребитель, эталон 99.2.20 не трогаем)" },
+        { "on": "77a", "kind": "reads", "reason": "гейт видимости: картинка строится из данных, доступных клиенту (инвариант И1 «клиент не получает скрытых данных»); атмосфера для player скрыта (planet_visibility.go); полный гейт — после просмотра картинок создателем (С1, отложен)" },
+        { "on": "99.2.27", "kind": "reads", "reason": "большая картинка «вид с орбиты» при позиции orbit {planet} (модалка планеты, внутрисистемный полёт)" },
+        { "on": "web/static/js/modal/textures.js", "kind": "api", "reason": "клиент грузит /api/planet-image (seed = hash id планеты; кэш-коллизии хэша — мелкая М3)" },
+        { "on": "web/static/js/modal/modal_render.js", "kind": "api", "reason": "слой 3 канваса орбит — планеты текстурами (грузятся для всех планет без проверки знания — С1)" },
+        { "on": "web/static/js/modal/tabs.js", "kind": "affects", "reason": "иконки биомов рядом с составом (встраивание пачки 1, 23 шт) + показ большой картинки в карточке планеты" }
+      ]
+    },
+    {
+      "id": "atmosphere_data",
+      "type": "mechanic",
+      "path": "internal/generator/planet/atmosphere.go",
+      "note": "атмосфера-объект (99.2.20 §4.1, слой 6 каскада; в данных planets.data.atmosphere_data): состав газов %, давление, парниковый эффект τ_IR, масса, высота, средняя мол. масса; тип классифицируется (classifyAtmosphere); cloudFraction(label, pressure) — производная функция облачности (не отдельный параметр); кандидат сущности реестра (2+ потребителя, находка @critic 2026-09-20)",
+      "impacts": [
+        { "on": "internal/generator/planet/cascade.go", "kind": "writes", "reason": "слой 6 каскада производит AtmosphereData (99.2.20)" },
+        { "on": "internal/races/suitable.go", "kind": "reads", "reason": "пригодность рас: pressure_atm, composition (99.2.21/22, обитаемость)" },
+        { "on": "internal/audit/planet/checks_biomes.go", "kind": "reads", "reason": "токсичность атмосферы — условия биомов (99.2.28)" },
+        { "on": "internal/audit/planet/checks_cascade.go", "kind": "reads", "reason": "проверки каскада (состав/τ_IR)" },
+        { "on": "web/static/js/modal/tabs.js", "kind": "reads", "reason": "давление в карточке планеты (pressure_atm)" },
+        { "on": "internal/handlers/planet_visibility.go", "kind": "reads", "reason": "77a: атмосфера для player скрыта (AtmosphereData = nil) — защита рынка отчётов" },
+        { "on": "internal/generator/settlement/fields.go", "kind": "reads", "reason": "поле «Давление атмосферы» в проверке гипотез (99.2.17)" },
+        { "on": "planet_image", "kind": "reads", "reason": "картинка атмосферы по параметрам (идея 2026-09-20, в работе)" },
+        { "on": "docs/specs/99.2.20-planet-physics-cascade.md", "kind": "duplicates", "reason": "модель атмосферы — спека 99.2.20 §4.1" }
+      ]
+    },
+    {
+      "id": "biome_icons",
+      "type": "art",
+      "path": "web/static/sprites",
+      "note": "иконки биомов (идея 2026-09-20 «иконки биомов поверхности»): стиль B мини-пейзаж, исходник 48×48, на экране ~24 px; имена файлов = id каталога; пачка 1 (23 шт, в ai_drafts/biomes/processed_p1B/) принята создателем полностью; встраивание (копирование в web/static/sprites + показ в карточке/модалке рядом с биомом) — в задаче «визуализация атмосферы и поверхности»; остальные ~34 биома — добивка пачками @artist по «го»",
+      "impacts": [
+        { "on": "biome_catalog.json", "kind": "reads", "reason": "имена файлов = id каталога; правка id = переименование файлов иконок" },
+        { "on": "biomes", "kind": "reads", "reason": "показ иконки рядом с биомом в составе (renderComposition)" },
+        { "on": "web/static/js/modal/tabs.js", "kind": "reads", "reason": "renderComposition: FORM_ICONS (16 старых форм) → иконки биомов; фолбэк для 34 без иконок — «•»/цвет (М1)" },
+        { "on": "ai_drafts/biomes/processed_p1B/", "kind": "duplicates", "reason": "исходники пачки 1 (23 PNG) — вне git" },
+        { "on": "docs/gamedesign/ideas/2026-09-20_иконки-биомов-поверхности.md", "kind": "duplicates", "reason": "идея иконок: стиль B, размер, пачка 1, фиксы отбора" }
       ]
     }
   ]

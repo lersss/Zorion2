@@ -55,6 +55,18 @@ func TestSeedProducersFull(t *testing.T) {
 			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(1)))
 	}
 
+	// Слоты родителя (спека скрытых §1.3, путь 2): категории по kind —
+	// Фабрика/Автофабрика × good (продовольствие), Платформа × resource
+	// (минералы); 3 слота ON CONFLICT DO NOTHING.
+	mock.ExpectQuery(`SELECT id, kind FROM categories`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "kind"}).
+			AddRow(int64(7), "resource").
+			AddRow(int64(8), "good"))
+	for i := 0; i < 3; i++ {
+		mock.ExpectExec(`INSERT INTO producer_slots \(parent_id, category_id\) VALUES \(\$1, \$2\)\s+ON CONFLICT DO NOTHING`).
+			WillReturnResult(sqlmock.NewResult(0, 1))
+	}
+
 	// 4 предмета (approved).
 	for range seedItems {
 		mock.ExpectQuery(`INSERT INTO items \(name, name_norm, slot_type, status, unlocks, params\)\s+VALUES \(\$1, \$2, \$3, 'approved', \$4, \$5\) RETURNING id`).
@@ -82,7 +94,7 @@ func TestSeedProducersFull(t *testing.T) {
 // автофабрика, добывающая платформа, энергостанция, лаборатория-родитель,
 // 3 лаборатории-подтипа, фабрика продовольствия), 4 предмета (чертёж,
 // сертификат, модуль, кирка), 4 связи; автофабрика — корзина роботов
-// (энергия + детали + комплектующие, НЕ еда); дерево построек: лаборатории —
+// (энергия + механика + электроника, НЕ еда); дерево построек: лаборатории —
 // подтипы «Лаборатории», фабрика продовольствия — подтип «Фабрики» с
 // категорией, платформа — без категории.
 func TestSeedProducersContent(t *testing.T) {
@@ -98,8 +110,8 @@ func TestSeedProducersContent(t *testing.T) {
 	}
 	require.NotNil(t, autoFactory, "автофабрика в сиде")
 	require.Equal(t, "goods", autoFactory.Kind)
-	require.Contains(t, autoFactory.Input, "детали")
-	require.Contains(t, autoFactory.Input, "комплектующие")
+	require.Contains(t, autoFactory.Input, "механика")
+	require.Contains(t, autoFactory.Input, "электроника")
 	require.Contains(t, autoFactory.Input, "energy")
 	require.NotContains(t, autoFactory.Input, "еда")
 

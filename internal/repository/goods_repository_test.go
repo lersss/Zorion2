@@ -518,6 +518,8 @@ func TestSnapshot(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "slot_type", "status", "unlocks", "params", "created_at"}))
 	mock.ExpectQuery(`SELECT producer_type_id, item_id, requirements FROM producer_items ORDER BY producer_type_id, item_id`).
 		WillReturnRows(sqlmock.NewRows([]string{"producer_type_id", "item_id", "requirements"}))
+	mock.ExpectQuery(`SELECT id, parent_id, category_id, race_family, race, hidden, created_at FROM producer_slots ORDER BY id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "parent_id", "category_id", "race_family", "race", "hidden", "created_at"}))
 	mock.ExpectCommit()
 
 	snap, err := NewGoodsRepository(db).Snapshot()

@@ -225,6 +225,22 @@ ClearUniverse его не трогает), `producer_types`/`items`/`producer_it
   «Фабрика», сброс `category_id` «Добывающей платформы» в NULL (чистый тип
   уровня 3). Для свежих БД — обновлённый сид `seed_producers.go` (оба пути
   дают одинаковый результат).
+- `000052` — слоты родителя (спека
+  `2026-09-21-студия-скрытые-категории-строений` §1.2/§1.3, 2026-09-21,
+  переписана: первая волна — колонка `hidden` у `producer_types`, снята):
+  `DROP COLUMN IF EXISTS hidden` (фича не релизнута) + `CREATE TABLE
+  producer_slots` (конфигурация категорий типа kind=goods: `parent_id`/
+  `category_id` FK → CASCADE, `race_family`/`race` — уровень расовости,
+  `hidden BOOL NOT NULL DEFAULT false`, `CHECK (race IS NULL OR race_family
+  IS NOT NULL)`, `UNIQUE NULLS NOT DISTINCT (parent_id, category_id,
+  race_family, race)` — NULL-safe уникальность на уровне БД). Data-миграция
+  для существующих БД (путь 1): слоты под все существующие подтипы
+  kind=goods (`SELECT DISTINCT ... ON CONFLICT DO NOTHING`) + базовый сид
+  универсального уровня (Фабрика/Автофабрика × товарные категории, Платформа
+  × ресурсные; по `name_norm` родителей, литералы нижнего регистра — коллация
+  C). Для свежих БД — слоты в сиде `seed_producers.go` (путь 2, оба пути
+  дают одинаковый результат). Инвариант С4: подтип kind=goods без применяемого
+  слота — 400; удаление слота с заводами категории — 409 (RESTRICT).
 - Миграции, вступающие в силу на старте, требуют перезапуска сервера
   (`AGENTS.md` §4 п.13).
 - `VACUUM` внутрь миграции не положить — не работает внутри транзакции

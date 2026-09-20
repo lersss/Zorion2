@@ -64,6 +64,17 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
  .b-draft{background:#a62;color:#fff}
  .b-excluded{background:#a33;color:#fff}
  .b-banned{background:#555;color:#ccc}
+  .b-hidden{background:#333;color:#aaa} /* бейдж «скрыта» (спека скрытых §3.3) */
+  .b-override{background:#26a;color:#fff} /* бейдж «переопределён» (редактор слотов, §3.2) */
+  /* редактор слотов родителя (спека скрытых §3.2): список категорий набора */
+  .prod-slots-list{max-height:200px;overflow-y:auto;border:1px solid #333;border-radius:6px;padding:4px 6px;margin:4px 0 6px}
+  .pslot{display:flex;align-items:center;gap:8px;padding:4px 4px;border-radius:6px;font-size:12px}
+  .pslot:hover{background:#242424}
+  .pslot.hidden{background:#222}
+  .pslot.hidden .cname{color:#999} /* скрытая строка — фон/имя, БЕЗ opacity: галка кликабельна */
+  .pslot .cname{flex:1;min-width:0;color:#ddd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pslot button{background:none;border:none;color:#999;cursor:pointer;font-size:13px;padding:2px 4px;min-width:24px;min-height:24px;border-radius:4px}
+  .pslot button:hover{background:#333;color:#f66}
  .b-resource{background:#26a;color:#fff}
  .b-tier{background:#444;color:#ddd}
 .popup-body .dname{font-size:15px;color:#fff;margin-bottom:4px}
@@ -148,6 +159,7 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
   .tier-warn{color:#fa0;font-size:11px;margin-top:2px}
   #modeBadge{position:absolute;left:10px;bottom:10px;background:#1c1c1ccc;color:#666;font-size:11px;padding:3px 8px;border-radius:6px;z-index:4;pointer-events:none}
   .card.banned{opacity:.55;background:#222;border-color:#444}
+  .card.hidden{opacity:.55;background:#222;border-color:#444} /* скрытая категория строений (спека скрытых §3.3) — зеркало .banned */
   .card .info{background:none;border:none;color:#8cf;cursor:pointer;font-size:12px;padding:0 2px;float:right}
   .card .info:hover{color:#fff}
   #sprav .addrow{display:flex;gap:6px;margin-bottom:6px}
@@ -204,6 +216,9 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
       </select>
       <select id="prodRaceFamilySel" onchange="setProdRaceFamily(this.value)" title="семейство рас (F0–F10)" style="display:none"></select>
       <select id="prodRaceSel" onchange="setProdRace(this.value)" title="конкретная раса (60)" style="display:none"></select>
+      <!-- Галка «показать скрытые» (спека скрытых §3.1): скрытые узлы — затемнённые
+           карточки с пометкой «скрыта»; состояние — localStorage, дефолт выключена -->
+      <label style="font-size:12px"><input type="checkbox" id="prodShowHidden" title="Показать скрытые категории построек (затемнённые карточки) на выбранном уровне расовости"> показать скрытые</label>
     </div>
   </div>
 </header>
@@ -323,6 +338,8 @@ let panX = parseFloat(localStorage.getItem("gs_panX") || "0");
 let panY = parseFloat(localStorage.getItem("gs_panY") || "0");
 let lastGoodsJSON = "";
 let lastCatsJSON = ""; // категории тоже перерисовывают UI (попап категорий, селекты)
+let lastProdSlotsJSON = "";
+let lastProdTypesJSON = ""; // ветка «Производители»: слоты/типы тоже перерисовывают UI (баг B3)
 let lastShownReport = ""; // отчёт fill — один раз, по изменению содержимого (спека iterC §6.4)
 let lastProposalsKey = ""; // ключ предложений ИИ — авто-открытие попапа один раз (iterC §6.5, М1)
 let proposalsAccepted = {}; // {index: {accepted, category_id}} — выбор в попапе «Предложения ИИ»
@@ -338,6 +355,7 @@ let branch = localStorage.getItem("gs_branch") || "goods";
 let prodRaceLevel = localStorage.getItem("gs_prodRaceLevel") || "universal";
 let prodRaceFamily = localStorage.getItem("gs_prodRaceFamily") || "";
 let prodRace = localStorage.getItem("gs_prodRace") || "";
+let prodShowHidden = localStorage.getItem("gs_prodShowHidden") === "1"; // галка «показать скрытые» (спека скрытых §3.1)
 let racesData = null; // {families, races} из /studio/api/races (спека §3)
 let racesLoaded = false;
 
@@ -388,7 +406,15 @@ async function fetchState() {
     }
     const gj = JSON.stringify(state.goods);
     const cj = JSON.stringify(state.categories);
-    if (gj !== lastGoodsJSON || cj !== lastCatsJSON) { lastGoodsJSON = gj; lastCatsJSON = cj; renderAll(); }
+    // Ветка «Производители»: слоты родителя (producer_slots) и типы тоже
+    // перерисовывают UI (редактор слотов в попапе, дерево, список справа) —
+    // иначе мутация /slots или подтипа не перерисовывала UI, пока не менялись
+    // goods/categories (баг B3, 2026-09-21).
+    const pj = JSON.stringify(state.producer_slots);
+    const tj = JSON.stringify(state.producer_types);
+    if (gj !== lastGoodsJSON || cj !== lastCatsJSON || pj !== lastProdSlotsJSON || tj !== lastProdTypesJSON) {
+      lastGoodsJSON = gj; lastCatsJSON = cj; lastProdSlotsJSON = pj; lastProdTypesJSON = tj; renderAll();
+    }
     updateOverlays();
   } catch (e) {
     if (e && e.message === "Unauthorized") return; // 401 — оверлей показан, ретрай не нужен
@@ -1481,16 +1507,30 @@ function renderSprav() {
 function renderProdSprav() {
   const sc = $("spravList").scrollTop;
   const q = $("spravSearch").value.trim().toLowerCase();
-  const list = state.producer_types.filter(p => !q || p.name.toLowerCase().includes(q));
+  // Фильтр по правилу видимости+скрытости дерева (спека скрытых §3.5):
+  // расовость (prodVisible) + скрытость КАТЕГОРИИ-СЛОТА (галка, catHidden) +
+  // узел в дереве («клик не повисает», prodNodeVisible) + поиск (AND).
+  const list = state.producer_types.filter(p => {
+    if (!prodVisible(p)) return false;                          // расовость (п.1)
+    const t = p.parent_id ? state.producer_types.find(x => x.id === p.parent_id) : null;
+    const catHidden = !!(t && t.kind === "goods" && prodCatHidden(t, p.category_id));
+    if (catHidden && !prodShowHidden) return false;             // скрытость категории (п.2)
+    if (!prodNodeVisible(p)) return false;                      // «клик не повисает» (п.3)
+    if (q && !p.name.toLowerCase().includes(q)) return false;   // поиск (п.4)
+    return true;
+  });
   $("spravTitle").textContent = "Производители · " + list.length;
-  $("spravList").innerHTML = list.map(p =>
-    '<div class="card" onclick="prodClick(' + p.id + ')" ondblclick="prodDblClick(' + p.id + ')">' +
+  $("spravList").innerHTML = list.map(p => {
+    const t = p.parent_id ? state.producer_types.find(x => x.id === p.parent_id) : null;
+    const catHidden = !!(t && t.kind === "goods" && prodCatHidden(t, p.category_id));
+    return '<div class="card' + (catHidden ? ' hidden' : '') + '" onclick="prodClick(' + p.id + ')" ondblclick="prodDblClick(' + p.id + ')">' +
     '<div class="nm">' + esc(p.name) + '<button class="info" onclick="event.stopPropagation();openProdPopup(' + p.id + ')" title="деталь (без смены выбора)">ⓘ</button></div>' +
     '<div class="meta">' + esc(kindLabel(p.kind)) + (p.category_name ? ' · ' + esc(p.category_name) : '') +
     (p.parent_name ? ' · ← ' + esc(p.parent_name) : '') +
-    ' <span class="badge ' + badgeClass(p.status) + '">' + esc(statusLabel(p.status)) + '</span></div>' +
-    '</div>'
-  ).join("") || '<div class="empty-note">нет типов производителей</div>';
+    ' <span class="badge ' + badgeClass(p.status) + '">' + esc(statusLabel(p.status)) + '</span>' +
+    (catHidden ? ' <span class="badge b-hidden" title="категория скрыта на этом уровне расовости">скрыта</span>' : '') + '</div>' +
+    '</div>';
+  }).join("") || '<div class="empty-note">нет типов производителей</div>';
   $("spravList").scrollTop = sc;
 }
 function prodClick(id) {
@@ -1527,10 +1567,12 @@ function renderProdPopup() {
     const parent = state.producer_types.find(x => x.id === p.parent_id);
     html += '<div class="dmeta">родитель: <b>' + esc(parent ? parent.name : p.parent_id) + '</b></div>';
   }
-  // категория — только у подтипов kind=goods (спека §1.2 п.4): тип абстрактен
+  // категория — только у подтипов kind=goods (спека §1.2 п.4): тип абстрактен;
+  // select — категории с применяемым слотом родителя на уровне записи
+  // (инвариант С4, спека скрытых §3.4/§1.4 п.1)
   if (p.kind === "goods" && p.parent_id) {
     html += '<div class="dmeta">категория: <select class="dcat" onchange="changeProdCategory(this.value)">' +
-      state.categories.map(c => '<option value="' + c.id + '"' + (c.id === p.category_id ? ' selected' : '') + '>' + esc(c.name) + '</option>').join("") +
+      prodCategoryOptions(p) +
       '</select></div>';
   }
   // семейство + раса (спека §5): каскад семейство → расы семейства; запись —
@@ -1539,6 +1581,11 @@ function renderProdPopup() {
     '<option value="">универсальный</option>' + (racesData ? racesData.families.map(f =>
       '<option value="' + f.id + '"' + (f.id === p.race_family ? ' selected' : '') + '>' + esc(familyLabelById(f.id)) + '</option>').join("") : '') +
     '</select> · раса: <select id="popupRaceSel" onchange="popupRaceChanged()">' + prodRaceOptions(p.race) + '</select></div>';
+  // Карточка родителя — редактор слотов (спека скрытых §3.2): только тип
+  // kind=goods (items/energy — без секции, §1.4 п.3)
+  if (p.kind === "goods" && !p.parent_id) {
+    html += prodSlotEditor(p);
+  }
   html += '<div class="dmeta">вход (input): <textarea id="prodInput" rows="3">' + esc(jsonText(p.input)) + '</textarea></div>';
   html += '<div class="dmeta">выход (output): <textarea id="prodOutput" rows="2">' + esc(jsonText(p.output)) + '</textarea></div>';
   html += '<div class="dmeta">параметры (params): <textarea id="prodParams" rows="2">' + esc(jsonText(p.params)) + '</textarea></div>';
@@ -1610,6 +1657,147 @@ async function saveProdRace() {
   const raceSel = $("popupRaceSel");
   if (!famSel || !raceSel) return;
   const r = await api("PUT", "/studio/api/producers/" + popupGoodId, {race_family: famSel.value, race: raceSel.value});
+  if (r) fetchState();
+}
+// --- редактор слотов родителя (спека 2026-09-21-скрытые §3.2) ---
+// Скрытость живёт на СЛОТЕ родителя, не на записи (С6): галки «скрытая»
+// расставляются из карточки типа kind=goods на текущем уровне расовости.
+
+// prodSlotAppliesTo(s, p) — применим ли слот к уровню расовости ЗАПИСИ p
+// (спека скрытых §2.1): универсальный слот (race_family IS NULL) — всем;
+// семейный (race_family=Fk, race NULL) — записям с race_family=Fk (включая
+// расовые записи семейства — у них race_family=Fk); расовый (race=R) —
+// только записям с race=R.
+function prodSlotAppliesTo(s, p) {
+  if (!s.race_family) return true;
+  if (s.race) return s.race === p.race;
+  return s.race_family === p.race_family;
+}
+
+// prodCategoryOptions(p) — категории с применяемым слотом родителя на уровне
+// расовости ЗАПИСИ p (её race_family/race, спека скрытых §3.4), не текущего
+// уровня UI: универсальная запись при уровне UI «Семейство F4» видит
+// универсальные/наследуемые слоты, семейная запись при «Универсальном» — свои
+// (иначе 400 «категория не настроена у родителя на этом уровне», инвариант С4).
+function prodCategoryOptions(p) {
+  const t = state.producer_types.find(x => x.id === p.parent_id);
+  if (!t) return '';
+  const slots = prodSlots(t).filter(s => prodSlotAppliesTo(s, p));
+  const catIDs = [...new Set(slots.map(s => s.category_id))];
+  return catIDs.map(catID => {
+    const c = state.categories.find(x => x.id === catID);
+    if (!c) return '';
+    return '<option value="' + c.id + '"' + (c.id === p.category_id ? ' selected' : '') + '>' + esc(c.name) + '</option>';
+  }).join("");
+}
+
+// prodSlotEditor(t) — HTML секции «Слоты категорий» (редактор слотов):
+// список категорий набора на текущем уровне с галками «скрытая», пометками
+// «унаследован/переопределён», «− слот»; внизу «+ слот категории».
+function prodSlotEditor(t) {
+  const levelLabel = prodRaceLevel === "universal" ? "Универсальный (база)"
+    : prodRaceLevel === "family" ? "Семейство " + familyLabelById(prodRaceFamily)
+    : "Раса " + raceName(prodRace);
+  const applied = prodAppliedSlots(t);
+  const catIDs = [...new Set(applied.map(s => s.category_id))];
+  let html = '<div class="usedin" style="margin-top:8px"><div class="usedin-h">Слоты категорий <span class="seg-sub">· ' + esc(levelLabel) + '</span></div>';
+  if (!catIDs.length) {
+    html += '<div class="empty-note">слотов нет — добавьте категории ниже</div>';
+  } else {
+    html += '<div class="prod-slots-list">';
+    catIDs.forEach(catID => {
+      const cat = state.categories.find(c => c.id === catID);
+      if (!cat) return;
+      const recs = applied.filter(s => s.category_id === catID);
+      const most = prodMostSpecificSlot(recs);
+      const own = recs.find(prodSlotOwned) || null; // слот текущего уровня (переопределение) / база на universal
+      const base = recs.find(s => !s.race_family && !s.race) || null;
+      const inherited = !own; // на universal own = база → переопределения нет
+      // Обратный кейс (§3.2): скрытая база + видимое переопределение — хинт
+      const baseHiddenHint = (base && own && own !== base && base.hidden && !own.hidden)
+        ? '<span style="color:#777;font-size:10px"> база скрыта</span>' : '';
+      const labelHtml = inherited
+        ? '<span style="color:#777;font-size:10px">унаследован</span>'
+        : '<span class="badge b-override">переопределён</span>';
+      const removeBtn = own
+        ? '<button onclick="removeProdSlot(' + t.id + ',' + catID + ')" title="' +
+          (own.race_family ? 'снять переопределение' : 'убрать из набора родителя') + '">−</button>'
+        : '';
+      html += '<div class="pslot' + (most.hidden ? ' hidden' : '') + '">' +
+        '<label style="font-size:12px"><input type="checkbox"' + (most.hidden ? ' checked' : '') +
+        ' onchange="toggleProdSlot(' + t.id + ',' + catID + ',this.checked)" title="Не показывать категорию на этом уровне расовости"> скрытая</label>' +
+        '<span class="cname" title="' + esc(cat.name) + '">' + esc(cat.name) + '</span>' + labelHtml + baseHiddenHint + removeBtn +
+        '</div>';
+    });
+    html += '</div>';
+  }
+  // «+ слот категории»: категории ВНЕ набора на текущем уровне
+  const free = state.categories.filter(c => !catIDs.includes(c.id));
+  html += '<div class="addrow" style="margin-top:4px"><select id="prodNewSlotCat">' +
+    (free.length ? free.map(c => '<option value="' + c.id + '">' + esc(c.name) + '</option>').join("") : '<option value="">нет свободных</option>') +
+    '</select><button class="gen" onclick="addProdSlot(' + t.id + ')"' + (free.length ? '' : ' disabled') + '>+ слот</button></div>';
+  html += '</div>';
+  return html;
+}
+
+// toggleProdSlot — галка «скрытая» в редакторе (§3.2): собственный слот
+// уровня → PUT {hidden}; унаследованный → создать переопределение уровня
+// (POST) с новым значением (база не трогается).
+async function toggleProdSlot(tid, catID, checked) {
+  const t = state.producer_types.find(x => x.id === tid);
+  if (!t) return;
+  const applied = prodAppliedSlots(t);
+  const recs = applied.filter(s => s.category_id === catID);
+  const own = recs.find(prodSlotOwned) || null;
+  if (own) {
+    await api("PUT", "/studio/api/slots/" + own.id, {hidden: checked});
+  } else {
+    const body = {parent_id: tid, category_id: catID, hidden: checked};
+    if (prodRaceLevel === "family") body.race_family = prodRaceFamily;
+    if (prodRaceLevel === "race") { body.race_family = raceFamilyOf(prodRace); body.race = prodRace; }
+    await api("POST", "/studio/api/slots", body);
+  }
+  fetchState();
+}
+
+// removeProdSlot — «− слот» (§3.2/§5.3): снятие переопределения уровня — без
+// подтверждения (обратимо); удаление базового слота из набора родителя —
+// подтверждение-модалка (RESTRICT 409 при заводах).
+function removeProdSlot(tid, catID) {
+  const t = state.producer_types.find(x => x.id === tid);
+  if (!t) return;
+  const recs = prodAppliedSlots(t).filter(s => s.category_id === catID);
+  const own = recs.find(prodSlotOwned) || null;
+  if (!own) return;
+  if (!own.race_family && prodRaceLevel === "universal") {
+    const cat = state.categories.find(c => c.id === catID);
+    openModal(
+      '<h3>Убрать категорию из набора</h3>' +
+      '<div>Убрать «' + esc(cat ? cat.name : catID) + '» из набора родителя на универсальном уровне? Заводы категории останутся.</div>',
+      [
+        {label: "Убрать", cls: "del", primary: true, action: () => doRemoveProdSlot(own.id)},
+        {label: "Отмена", cls: "", action: closeModal}
+      ]
+    );
+    return;
+  }
+  doRemoveProdSlot(own.id); // снять переопределение уровня — обратимо
+}
+async function doRemoveProdSlot(slotId) {
+  closeModal();
+  const r = await api("DELETE", "/studio/api/slots/" + slotId);
+  if (r) fetchState();
+}
+
+// addProdSlot — «+ слот категории»: POST слот уровня/базы (категория вне
+// набора на текущем уровне).
+async function addProdSlot(tid) {
+  const sel = $("prodNewSlotCat");
+  if (!sel || !sel.value) return;
+  const body = {parent_id: tid, category_id: Number(sel.value)};
+  if (prodRaceLevel === "family") body.race_family = prodRaceFamily;
+  if (prodRaceLevel === "race") { body.race_family = raceFamilyOf(prodRace); body.race = prodRace; }
+  const r = await api("POST", "/studio/api/slots", body);
   if (r) fetchState();
 }
 async function saveProdJSON() {
@@ -1705,18 +1893,78 @@ function prodVisible(p) {
   return !p.race_family || (p.race_family === fam && !p.race) || p.race === prodRace;
 }
 
-// Автоматика категорий (спека §2.2): под Фабрикой/Автофабрикой раскрываются
-// 13 товарных категорий, под Добывающей платформой — 6 ресурсных. Типы —
-// сид-константы фиксированной структуры дерева (§2.1); переименование типа
-// снимает автоматику (риск зафиксирован в отчёте).
-function prodAutoCategories(t) {
-  if (t.name === "Фабрика" || t.name === "Автофабрика") {
-    return state.categories.filter(c => c.kind === "good");
-  }
-  if (t.name === "Добывающая платформа") {
-    return state.categories.filter(c => c.kind === "resource");
-  }
-  return null;
+// Применяемые записи узла (тип t, категория catID — ЧИСЛО id категории) на
+// текущем уровне расовости (спека дерева §2.4): подтипы с parent_id=t.id и
+// category_id=catID, видимые по prodVisible.
+function prodAppliedRecords(t, catID) {
+  return state.producer_types.filter(s => s.parent_id === t.id && s.category_id === catID && prodVisible(s));
+}
+
+// --- слоты родителя (спека 2026-09-21-скрытые-категории-строений §2) ---
+// Слот = «родитель предлагает категорию на уровне расовости»; конфигурация
+// типа kind=goods. Дерево строит категории ИЗ СЛОТОВ (автоматика по имени
+// типа удалена, §2.3); скрытость живёт на слоте (одна ось).
+
+// prodSlots(t) — все слоты типа t (конфигурация, без фильтра расовости).
+function prodSlots(t) {
+  return state.producer_slots.filter(s => s.parent_id === t.id);
+}
+// prodSlotVisible(s) — применим ли слот на текущем уровне расовости (§2.1,
+// та же логика, что prodVisible у записей): универсальный — race_family IS
+// NULL; семейство Fk — NULL или Fk; раса R — NULL или (family(R), race NULL)
+// или race=R.
+function prodSlotVisible(s) {
+  if (prodRaceLevel === "universal") return !s.race_family;
+  if (prodRaceLevel === "family") return !s.race_family || s.race_family === prodRaceFamily;
+  const fam = raceFamilyOf(prodRace);
+  return !s.race_family || (s.race_family === fam && !s.race) || s.race === prodRace;
+}
+function prodSlotSpecificity(s) {
+  if (s.race) return 2;
+  if (s.race_family) return 1;
+  return 0;
+}
+// prodAppliedSlots(t) — применяемые слоты типа на текущем уровне (§2.1).
+function prodAppliedSlots(t) {
+  return prodSlots(t).filter(prodSlotVisible);
+}
+// prodMostSpecificSlot(applied) — самая конкретная применяемая запись
+// (race > family > universal); UNIQUE NULLS NOT DISTINCT гарантирует
+// однозначность на уровне.
+function prodMostSpecificSlot(applied) {
+  return applied.reduce((a, b) => prodSlotSpecificity(b) > prodSlotSpecificity(a) ? b : a);
+}
+// prodSlotOwned(s) — слот принадлежит ТЕКУЩЕМУ уровню расовости (не наследуется).
+function prodSlotOwned(s) {
+  if (prodRaceLevel === "universal") return !s.race_family;
+  if (prodRaceLevel === "family") return s.race_family === prodRaceFamily && !s.race;
+  return s.race === prodRace;
+}
+// prodCatInSet(t, catID) — категория входит в набор родителя на уровне
+// (есть применяемый слот). Вне набора категория не рисуется вовсе (§2.1).
+function prodCatInSet(t, catID) {
+  return prodAppliedSlots(t).some(s => s.category_id === catID);
+}
+// prodCatHidden(t, catID) — категория скрыта на уровне (самая конкретная
+// применяемая запись hidden=true, вариант б, §2.1). Вне набора — false
+// (отсутствует, не «скрыта»).
+function prodCatHidden(t, catID) {
+  const applied = prodAppliedSlots(t).filter(s => s.category_id === catID);
+  if (!applied.length) return false;
+  return prodMostSpecificSlot(applied).hidden;
+}
+
+// prodNodeVisible(p) — рисуется ли узел записи p в дереве при текущем уровне
+// расовости и галке (спека скрытых §2.2/§3.5): категория записи входит в
+// набор родителя (слот-управляемый) и не скрыта (или галка включена).
+// Типы items/energy без слотов — без оси скрытости.
+function prodNodeVisible(p) {
+  if (!p.parent_id) return true; // типы не скрываются (§1.4 п.1)
+  const t = state.producer_types.find(x => x.id === p.parent_id);
+  if (!t || t.kind !== "goods") return true; // items/energy — как раньше
+  if (!prodCatInSet(t, p.category_id)) return false; // категория вне набора уровня
+  if (prodCatHidden(t, p.category_id) && !prodShowHidden) return false; // скрыта, галки нет
+  return true;
 }
 
 // prodNodeId — id узла дерева для записи producer_types ("type:N"/"sub:N").
@@ -1728,9 +1976,14 @@ function prodNodeById(id) {
   return state.producer_types.find(p => p.id === Number(m[2]));
 }
 
-// buildProdTree — дерево построек (спека §2.1): корень → классы (фиксированные
-// узлы UI, не записи БД) → типы (parent_id NULL, по классам через kind) →
-// подтипы (parent_id NOT NULL) + узлы-приглашения категорий (автоматика).
+// buildProdTree — дерево построек (спека §2.1 + скрытые §2.1/§2.2): корень →
+// классы (фиксированные узлы UI, не записи БД) → типы (parent_id NULL, по
+// классам через kind) → подтипы + узлы-приглашения. Тип kind=goods раскрывает
+// категории ИЗ СЛОТОВ родителя (применяемые на уровне): вне набора — не
+// рисуется; скрытая категория — state 2 (без галки ничего, с галкой —
+// затемнённые карточки записей или заглушка); видимая — карточки записей +
+// приглашение, если записей нет. Типы items/energy — подтипы как раньше
+// (по prodVisible), без оси скрытости.
 function buildProdTree() {
   const classes = [
     {id: "class-goods", label: "Производители товаров", cls: "goods", children: []},
@@ -1740,22 +1993,48 @@ function buildProdTree() {
   ];
   const root = {id: "root", label: "Строения", kind: "root", children: classes};
   const types = state.producer_types.filter(p => !p.parent_id && prodVisible(p));
+  const subtypeNode = (s, isHidden) => ({id: prodNodeId(s), label: s.name, kind: "subtype", ref: s, children: [], hidden: isHidden});
   types.forEach(t => {
     const cls = classes.find(c => c.cls === t.kind);
     if (!cls) return;
     const node = {id: prodNodeId(t), label: t.name, kind: "type", ref: t, children: []};
     cls.children.push(node);
-    // подтипы (видимые на выбранном уровне расовости)
-    state.producer_types.filter(s => s.parent_id === t.id && prodVisible(s)).forEach(s => {
-      node.children.push({id: prodNodeId(s), label: s.name, kind: "subtype", ref: s, children: []});
-    });
-    // автоматика категорий: категория без видимого подтипа — узел-приглашение
-    const cats = prodAutoCategories(t);
-    if (cats) {
-      cats.forEach(c => {
-        const has = state.producer_types.some(s => s.parent_id === t.id && s.category_id === c.id && prodVisible(s));
-        if (has) return;
-        node.children.push({id: "invite:" + t.id + ":" + c.id, label: c.name, kind: "invite", ref: {type: t, cat: c}, children: []});
+    if (t.kind === "goods") {
+      // Слоты родителя (спека скрытых §2.1/§2.2): категории = применяемые
+      // слоты на текущем уровне; вне набора — категория не рисуется вовсе.
+      const applied = prodAppliedSlots(t);
+      const catIDs = [...new Set(applied.map(s => s.category_id))];
+      catIDs.forEach(catID => {
+        const cat = state.categories.find(c => c.id === catID);
+        if (!cat) return;
+        const recs = applied.filter(s => s.category_id === catID);
+        const most = prodMostSpecificSlot(recs);
+        const records = state.producer_types.filter(s => s.parent_id === t.id && s.category_id === catID && prodVisible(s));
+        if (most.hidden) {
+          // state 2 «скрыто»: без галки ничего; с галкой — затемнённые карточки
+          // записей категории; записей нет — карточка-заглушка категории (§2.2 п.2)
+          if (!prodShowHidden) return;
+          if (!records.length) {
+            node.children.push({id: "hstub:" + t.id + ":" + catID, label: cat.name, kind: "hiddenStub", ref: {type: t, catID}, children: []});
+          } else {
+            records.forEach(s => node.children.push(subtypeNode(s, true)));
+          }
+        } else {
+          // видимо: карточки записей «своё + универсальное» + приглашение,
+          // если записей нет (§2.2 п.1/п.3)
+          if (!records.length) {
+            node.children.push({id: "invite:" + t.id + ":" + catID, label: cat.name, kind: "invite", ref: {type: t, cat}, children: []});
+          } else {
+            records.forEach(s => node.children.push(subtypeNode(s, false)));
+          }
+        }
+      });
+      // записи подтипов с категорией ВНЕ набора уровня не рисуются (§2.1)
+    } else {
+      // Типы items/energy: подтипы как раньше (по prodVisible), без оси
+      // скрытости (§3.3; у записей hidden снят).
+      state.producer_types.filter(s => s.parent_id === t.id && prodVisible(s)).forEach(s => {
+        node.children.push(subtypeNode(s, false));
       });
     }
   });
@@ -1829,29 +2108,64 @@ function renderProdTree() {
       ctx.fillText("создать", x + 8, y + 18);
       ctx.font = "10px Arial";
       ctx.fillText(trunc(n.label, 24), x + 8, y + 32);
-    } else {
-      ctx.fillStyle = isFixed ? "#2a2a2a" : (n.ref && n.ref.status === "banned" ? "#3a3a3a" : "#3d3d3d");
-      ctx.strokeStyle = sel ? "#8cf" : (isFixed ? "#666" : "#5a5a5a");
+    } else if (n.kind === "hiddenStub") {
+      // Карточка-заглушка скрытой пустой категории (спека скрытых §2.2 п.2):
+      // сплошная затемнённая карточка, подпись «нет заводов», бейдж «скрыта»;
+      // клик/двойной клик открывает карточку родителя (§3.2, путь «открыть»).
+      ctx.fillStyle = "#3a3a3a";
+      ctx.strokeStyle = sel ? "#8cf" : "#4a4a4a";
       ctx.lineWidth = sel ? 2 : 1;
       roundRect(x, y, CARD_W, CARD_H, 8);
       ctx.fill(); ctx.stroke();
-      ctx.fillStyle = "#fff";
+      ctx.fillStyle = "#ddd";
       ctx.font = "12px Arial";
       ctx.fillText(trunc(n.label, 26), x + 8, y + 18);
-      ctx.fillStyle = "#bbb";
+      ctx.fillStyle = "#888";
+      ctx.font = "10px Arial";
+      ctx.fillText("нет заводов", x + 8, y + 32);
+      const b = "скрыта";
+      const w = ctx.measureText(b).width + 10;
+      ctx.fillStyle = "#333";
+      roundRect(x + 8, y + 40, w, 16, 4); ctx.fill();
+      ctx.fillStyle = "#aaa";
+      ctx.fillText(b, x + 13, y + 52);
+    } else {
+      const isHidden = !!n.hidden;
+      // Скрытая запись (спека скрытых §3.4): затемнение ЦВЕТАМИ (fill/border/
+      // имя/подпись), не globalAlpha — выделение #8cf остаётся ярким.
+      ctx.fillStyle = isFixed ? "#2a2a2a" : isHidden ? "#3a3a3a" : (n.ref && n.ref.status === "banned" ? "#3a3a3a" : "#3d3d3d");
+      ctx.strokeStyle = sel ? "#8cf" : (isFixed ? "#666" : isHidden ? "#4a4a4a" : "#5a5a5a");
+      ctx.lineWidth = sel ? 2 : 1;
+      roundRect(x, y, CARD_W, CARD_H, 8);
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = isHidden ? "#ddd" : "#fff";
+      ctx.font = "12px Arial";
+      ctx.fillText(trunc(n.label, 26), x + 8, y + 18);
+      ctx.fillStyle = isHidden ? "#888" : "#bbb";
       ctx.font = "10px Arial";
       const sub = n.kind === "type" ? kindLabel(n.ref.kind)
         : n.kind === "subtype" ? (n.ref.category_name || kindLabel(n.ref.kind))
         : (n.id === "class-other" ? "задел" : "фиксированный класс");
       ctx.fillText(sub, x + 8, y + 32);
-      // бейдж статуса (типы/подтипы)
+      // бейджи (статус + «скрыта») — ряд на y+40 (паттерн статусных бейджей,
+      // measureText+10, radius 4)
+      let bx = x + 8;
       if (n.ref && n.ref.status) {
         const b = statusLabel(n.ref.status);
         const w = ctx.measureText(b).width + 10;
         ctx.fillStyle = statusColor(n.ref.status);
-        roundRect(x + 8, y + 40, w, 16, 4); ctx.fill();
+        roundRect(bx, y + 40, w, 16, 4); ctx.fill();
         ctx.fillStyle = "#fff";
-        ctx.fillText(b, x + 13, y + 52);
+        ctx.fillText(b, bx + 5, y + 52);
+        bx += w + 4;
+      }
+      if (isHidden) {
+        const b = "скрыта";
+        const w = ctx.measureText(b).width + 10;
+        ctx.fillStyle = "#333";
+        roundRect(bx, y + 40, w, 16, 4); ctx.fill();
+        ctx.fillStyle = "#aaa";
+        ctx.fillText(b, bx + 5, y + 52);
       }
     }
     n.children.forEach(draw);
@@ -1875,6 +2189,19 @@ function openProdNodePopup(id) {
   const n = prodNodeById(id);
   if (n) { openProdPopup(n.id); return; }
   if (id && id.indexOf("invite:") === 0) { openProdCreatePopup(id); return; }
+  // Заглушка скрытой пустой категории (спека скрытых §2.2 п.2): клик →
+  // карточка родителя (путь «открыть» скрытую категорию, §3.2).
+  if (id && id.indexOf("hstub:") === 0) {
+    const parts = id.split(":");
+    const t = state.producer_types.find(x => x.id === Number(parts[1]));
+    if (t) {
+      selected = prodNodeId(t);
+      openProdPopup(t.id);
+      renderAll();
+      centerOn(selected);
+    }
+    return;
+  }
   const label = id === "root" ? "Строения"
     : id === "class-other" ? "Другие"
     : id === "class-goods" ? "Производители товаров"
@@ -1998,8 +2325,11 @@ function showProdTip(ev, id) {
   const n = prodNodeById(id);
   const tip = $("tip");
   if (n) {
+    const t = n.parent_id ? state.producer_types.find(x => x.id === n.parent_id) : null;
+    const catHidden = !!(t && t.kind === "goods" && prodCatHidden(t, n.category_id));
     tip.innerHTML = '<b>' + esc(n.name) + '</b><br>' + esc(kindLabel(n.kind)) + ' · ' + esc(statusLabel(n.status)) +
-      (n.category_name ? ' · ' + esc(n.category_name) : '') + (n.parent_name ? ' · ← ' + esc(n.parent_name) : '');
+      (n.category_name ? ' · ' + esc(n.category_name) : '') + (n.parent_name ? ' · ← ' + esc(n.parent_name) : '') +
+      (catHidden ? '<br><span style="color:#aaa">скрыта</span>' : '');
   } else if (id === "root") {
     tip.innerHTML = '<b>Строения</b><br>корень дерева построек';
   } else if (id === "class-other") {
@@ -2008,6 +2338,10 @@ function showProdTip(ev, id) {
     tip.innerHTML = '<b>' + esc(id === "class-goods" ? "Производители товаров" : id === "class-items" ? "Производители предметов" : "Производители энергии") + '</b><br>фиксированный класс';
   } else if (id && id.indexOf("invite:") === 0) {
     tip.innerHTML = '<b>создать</b><br>подтип не заведён — клик создаст';
+  } else if (id && id.indexOf("hstub:") === 0) {
+    const parts = id.split(":");
+    const cat = state.categories.find(c => c.id === Number(parts[2]));
+    tip.innerHTML = '<b>' + esc(cat ? cat.name : "категория") + '</b><br>скрытая категория · нет заводов — клик откроет карточку родителя';
   } else {
     hideTip(); return;
   }
@@ -2450,6 +2784,13 @@ $("fullTree").addEventListener("change", () => {
   applyModeUI();
   renderAll();
 });
+// галка «показать скрытые» (спека скрытых §3.1): клиентский фильтр —
+// renderAll без сброса zoom/pan и без запроса к серверу
+$("prodShowHidden").addEventListener("change", () => {
+  prodShowHidden = $("prodShowHidden").checked;
+  localStorage.setItem("gs_prodShowHidden", prodShowHidden ? "1" : "0");
+  renderAll();
+});
 // галки-фильтры справочника (99a.3 §8.2): пересборка списка, выбор не сбрасывается;
 // состояние сохраняется в localStorage (создатель 2026-09-19: «при перезагрузке
 // страницы не снимать выбранные фильтры»)
@@ -2530,6 +2871,7 @@ $("showBanned").checked = localStorage.getItem("gs_showBanned") === "1";
 $("showResources").checked = localStorage.getItem("gs_showResources") === "1";
 $("reverseEdges").checked = localStorage.getItem("gs_reverseEdges") === "1";
 $("fullTree").checked = localStorage.getItem("gs_fullTree") === "1";
+$("prodShowHidden").checked = prodShowHidden;
 // фильтры справочника восстанавливаются (создатель 2026-09-19: «при перезагрузке
 // страницы не снимать выбранные фильтры»); renderSprav соберёт пилюли с .on
 $("fBanned").checked = localStorage.getItem("gs_spravBanned") === "1";

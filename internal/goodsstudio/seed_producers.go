@@ -57,8 +57,8 @@ type seedProducerItem struct {
 }
 
 // seedProducers — базовые типы производителей (спека §10.1 п.2 + дерево
-// построек §1.4/§2.1). Автофабрика — корзина роботов: энергия + детали +
-// комплектующие, НЕ еда (решение 3b.6.1). Добывающая платформа — чистый тип
+// построек §1.4/§2.1). Автофабрика — корзина роботов: энергия + механика +
+// электроника, НЕ еда (решение 3b.6.1). Добывающая платформа — чистый тип
 // уровня 3 (без категории: категории живут в подтипах-платформах, §2.2).
 // Лаборатория — тип-родитель (kind=items); три лаборатории — подтипы
 // (Parent: "Лаборатория"). «Фабрика продовольствия» — подтип Фабрики
@@ -67,7 +67,7 @@ type seedProducerItem struct {
 var seedProducers = []seedProducer{
 	{Name: "Поселение", Kind: "goods", Output: `{"residual": true}`, Input: `{"people": {"capacity": 100}}`, Params: `{}`},
 	{Name: "Фабрика", Kind: "goods", Output: `{}`, Input: `{"people": {"capacity": 50}, "energy": true, "consumables": []}`, Params: `{"efficiency": 1.0}`},
-	{Name: "Автофабрика", Kind: "goods", Output: `{}`, Input: `{"robots": true, "energy": true, "consumables": ["детали", "комплектующие"]}`, Params: `{"robot_cost": 100}`},
+	{Name: "Автофабрика", Kind: "goods", Output: `{}`, Input: `{"robots": true, "energy": true, "consumables": ["механика", "электроника"]}`, Params: `{"robot_cost": 100}`},
 	{Name: "Добывающая платформа", Kind: "goods", Output: `{}`, Input: `{"energy": true, "consumables": []}`, Params: `{}`},
 	{Name: "Энергостанция", Kind: "energy", Output: `{"energy": 100}`, Input: `{"people": {"capacity": 10}, "fuel": true}`, Params: `{}`},
 	{Name: "Лаборатория", Kind: "items", Output: `{}`, Input: `{"people": {"capacity": 10}, "energy": true, "consumables": []}`, Params: `{}`},
@@ -179,6 +179,14 @@ func SeedProducers(db *sql.DB) error {
 		producerIDs[p.Name] = id
 	}
 
+	// Слоты родителя (спека 2026-09-21-скрытые §1.3, путь 2 — свежие БД):
+	// базовый сид универсального уровня + покрытие сид-подтипов. Прямые INSERT
+	// мимо валидаций репозитория — инвариант С4 (слот обязателен для подтипа
+	// kind=goods) к сиду не применяется: слоты создаются тем же сидом/миграцией.
+	if err := seedProducerSlots(tx, producerIDs); err != nil {
+		return err
+	}
+
 	// Предметы.
 	itemIDs := make(map[string]int64, len(seedItems))
 	for _, it := range seedItems {
@@ -235,4 +243,59 @@ func nullStr(s string) interface{} {
 		return nil
 	}
 	return s
+}
+
+// seedProducerSlots — базовые слоты универсального уровня (спека скрытых
+// §1.3, путь 2): Фабрика/Автофабрика × все товарные категории (kind='good',
+// 13), Добывающая платформа × ресурсные (kind='resource', 6). Сид-подтип
+// «Фабрика продовольствия» покрыт базовыми 13 (продовольствие — товарная
+// категория) — отдельный слот не нужен. Идемпотентно (ON CONFLICT DO NOTHING).
+func seedProducerSlots(tx *sql.Tx, producerIDs map[string]int64) error {
+	rows, err := tx.Query(`SELECT id, kind FROM categories`)
+	if err != nil {
+		return fmt.Errorf("seed producers: слоты: категории: %w", err)
+	}
+	var goodsCats, resCats []int64
+	for rows.Next() {
+		var id int64
+		var kind string
+		if err := rows.Scan(&id, &kind); err != nil {
+			rows.Close()
+			return fmt.Errorf("seed producers: слоты: категории: %w", err)
+		}
+		switch kind {
+		case "good":
+			goodsCats = append(goodsCats, id)
+		case "resource":
+			resCats = append(resCats, id)
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("seed producers: слоты: категории: %w", err)
+	}
+	insert := func(parent string, cats []int64) error {
+		pid, ok := producerIDs[parent]
+		if !ok {
+			return nil // тип не создан (переименован/удалён) — слоты не создаём
+		}
+		for _, cid := range cats {
+			if _, err := tx.Exec(
+				`INSERT INTO producer_slots (parent_id, category_id) VALUES ($1, $2)
+				 ON CONFLICT DO NOTHING`, pid, cid,
+			); err != nil {
+				return fmt.Errorf("seed producers: слот %s×%d: %w", parent, cid, err)
+			}
+		}
+		return nil
+	}
+	for _, name := range []string{"Фабрика", "Автофабрика"} {
+		if err := insert(name, goodsCats); err != nil {
+			return err
+		}
+	}
+	if err := insert("Добывающая платформа", resCats); err != nil {
+		return err
+	}
+	return nil
 }

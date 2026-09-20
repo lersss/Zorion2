@@ -33,6 +33,10 @@ func TestStudioCreateProducer(t *testing.T) {
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM categories WHERE id = \$1\)`).
 		WithArgs(int64(3)).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	// слот-инвариант С4: применяемый слот родителя
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_slots WHERE parent_id = \$1 AND category_id = \$2 AND \(race_family IS NULL OR race_family = \$3 OR race = \$4\)\)`).
+		WithArgs(int64(1), int64(3), nil, nil).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_types WHERE name_norm = \$1\)`).
 		WithArgs("фабрика продовольствия").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
@@ -247,6 +251,9 @@ func TestStudioStateProducersFields(t *testing.T) {
 	mock.ExpectQuery(`SELECT producer_type_id, item_id, requirements FROM producer_items ORDER BY producer_type_id, item_id`).
 		WillReturnRows(sqlmock.NewRows([]string{"producer_type_id", "item_id", "requirements"}).
 			AddRow(int64(1), int64(1), nil))
+	mock.ExpectQuery(`SELECT id, parent_id, category_id, race_family, race, hidden, created_at FROM producer_slots ORDER BY id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "parent_id", "category_id", "race_family", "race", "hidden", "created_at"}).
+			AddRow(int64(5), int64(2), int64(1), nil, nil, false, time.Now()))
 	mock.ExpectCommit()
 
 	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
@@ -269,4 +276,162 @@ func TestStudioStateProducersFields(t *testing.T) {
 	require.Equal(t, "goods", view.ProducerTypes[1].Kind)
 	require.NotNil(t, view.ProducerTypes[1].CategoryID)
 	require.Equal(t, "Корабли", view.ProducerTypes[1].CategoryName)
+	// слоты родителя: в state, с именами родителя/категории из снимка
+	require.Len(t, view.ProducerSlots, 1)
+	require.Equal(t, int64(2), view.ProducerSlots[0].ParentID)
+	require.Equal(t, "Фабрика", view.ProducerSlots[0].ParentName)
+	require.Equal(t, "Корабли", view.ProducerSlots[0].CategoryName)
+	require.False(t, view.ProducerSlots[0].Hidden)
+}
+
+// --- слоты родителя (спека 2026-09-21-студия-скрытые-категории-строений §4) ---
+
+// TestStudioCreateSlot — POST /studio/api/slots {parent_id, category_id}:
+// создание слота (переопределение уровня / база) → 201.
+func TestStudioCreateProducerSlot(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectStudioMutation(mock)
+	mock.ExpectQuery(`SELECT kind, parent_id IS NULL FROM producer_types WHERE id = \$1`).
+		WithArgs(int64(2)).
+		WillReturnRows(sqlmock.NewRows([]string{"kind", "parent_id_is_null"}).AddRow("goods", true))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM categories WHERE id = \$1\)`).
+		WithArgs(int64(3)).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_slots WHERE parent_id = \$1 AND category_id = \$2 AND race_family IS NOT DISTINCT FROM \$3 AND race IS NOT DISTINCT FROM \$4\)`).
+		WithArgs(int64(2), int64(3), nil, nil).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectQuery(`INSERT INTO producer_slots \(parent_id, category_id, race_family, race, hidden\) VALUES \(\$1, \$2, \$3, \$4, \$5\) RETURNING id, parent_id, category_id, race_family, race, hidden, created_at`).
+		WithArgs(int64(2), int64(3), nil, nil, false).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "parent_id", "category_id", "race_family", "race", "hidden", "created_at"}).
+			AddRow(int64(10), int64(2), int64(3), nil, nil, false, time.Now()))
+	mock.ExpectCommit()
+
+	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
+	req := httptest.NewRequest(http.MethodPost, "/studio/api/slots",
+		strings.NewReader(`{"parent_id":2,"category_id":3}`))
+	rec := httptest.NewRecorder()
+	h.Slots(rec, req)
+
+	require.Equal(t, http.StatusCreated, rec.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	var sv ProducerSlotView
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sv))
+	require.Equal(t, int64(10), sv.ID)
+	require.Equal(t, int64(2), sv.ParentID)
+	require.False(t, sv.Hidden)
+}
+
+// TestStudioSlotHidden — PUT /studio/api/slots/10 {hidden:true} → 200.
+func TestStudioSlotHidden(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectStudioMutation(mock)
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_slots WHERE id = \$1 FOR UPDATE\)`).
+		WithArgs(int64(10)).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectExec(`UPDATE producer_slots SET hidden = \$1 WHERE id = \$2`).
+		WithArgs(true, int64(10)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
+	req := httptest.NewRequest(http.MethodPut, "/studio/api/slots/10",
+		strings.NewReader(`{"hidden":true}`))
+	rec := httptest.NewRecorder()
+	h.SlotByID(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestStudioSlotDelete — DELETE /studio/api/slots/10 (снять переопределение /
+// убрать из базы) → 200.
+func TestStudioSlotDelete(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectStudioMutation(mock)
+	mock.ExpectQuery(`SELECT parent_id, category_id, race_family, race FROM producer_slots WHERE id = \$1 FOR UPDATE`).
+		WithArgs(int64(10)).
+		WillReturnRows(sqlmock.NewRows([]string{"parent_id", "category_id", "race_family", "race"}).
+			AddRow(int64(2), int64(3), nil, nil))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_types pt WHERE pt.parent_id = \$1 AND pt.category_id = \$2 AND pt.kind = 'goods' AND \(\$3::text IS NULL OR \(\(\$4::text IS NOT NULL AND pt.race = \$4::text\) OR \(\$4::text IS NULL AND pt.race_family = \$3::text\)\)\)\)`).
+		WithArgs(int64(2), int64(3), nil, nil).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectExec(`DELETE FROM producer_slots WHERE id = \$1`).
+		WithArgs(int64(10)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
+	req := httptest.NewRequest(http.MethodDelete, "/studio/api/slots/10", nil)
+	rec := httptest.NewRecorder()
+	h.SlotByID(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestStudioSlotDeleteRestrict — DELETE слота с заводами категории → 409
+// (RESTRICT, §1.4 п.2).
+func TestStudioSlotDeleteRestrict(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectStudioMutation(mock)
+	mock.ExpectQuery(`SELECT parent_id, category_id, race_family, race FROM producer_slots WHERE id = \$1 FOR UPDATE`).
+		WithArgs(int64(10)).
+		WillReturnRows(sqlmock.NewRows([]string{"parent_id", "category_id", "race_family", "race"}).
+			AddRow(int64(2), int64(3), nil, nil))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_types pt WHERE pt.parent_id = \$1 AND pt.category_id = \$2 AND pt.kind = 'goods' AND \(\$3::text IS NULL OR \(\(\$4::text IS NOT NULL AND pt.race = \$4::text\) OR \(\$4::text IS NULL AND pt.race_family = \$3::text\)\)\)\)`).
+		WithArgs(int64(2), int64(3), nil, nil).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
+	req := httptest.NewRequest(http.MethodDelete, "/studio/api/slots/10", nil)
+	rec := httptest.NewRecorder()
+	h.SlotByID(rec, req)
+
+	require.Equal(t, http.StatusConflict, rec.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestStudioCreateProducerNoSlot — POST подтипа kind=goods без применяемого
+// слота родителя → 400 «категория не настроена у родителя на этом уровне»
+// (инвариант С4, §1.4 п.1).
+func TestStudioCreateProducerNoSlot(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectStudioMutation(mock)
+	mock.ExpectQuery(`SELECT kind, parent_id IS NULL FROM producer_types WHERE id = \$1`).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"kind", "parent_id_is_null"}).AddRow("goods", true))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM categories WHERE id = \$1\)`).
+		WithArgs(int64(3)).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_slots WHERE parent_id = \$1 AND category_id = \$2 AND \(race_family IS NULL OR race_family = \$3 OR race = \$4\)\)`).
+		WithArgs(int64(1), int64(3), nil, nil).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
+	req := httptest.NewRequest(http.MethodPost, "/studio/api/producers",
+		strings.NewReader(`{"name":"Фабрика продовольствия","kind":"goods","category_id":3,"parent_id":1}`))
+	rec := httptest.NewRecorder()
+	h.Producers(rec, req)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	var errBody map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errBody))
+	require.Contains(t, errBody["error"], "категория не настроена у родителя на этом уровне")
+	require.NoError(t, mock.ExpectationsWereMet())
 }

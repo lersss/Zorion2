@@ -59,13 +59,15 @@ type CategoryRow struct {
 
 // CatalogSnapshot — согласованный снимок каталога (одна транзакция
 // REPEATABLE READ, §8.1): категории + товары со слотами + типы
-// производителей + предметы + связи (спека 2026-09-20-фабрики §3.1).
+// производителей + предметы + связи + слоты родителя (спека
+// 2026-09-20-фабрики §3.1 + спека скрытых §1.1).
 type CatalogSnapshot struct {
 	Categories    []CategoryRow
 	Goods         []model.Good
 	ProducerTypes []ProducerTypeRow
 	Items         []ItemRow
 	ProducerItems []ProducerItemRow
+	ProducerSlots []ProducerSlotRow
 }
 
 // ResourceView — ресурс палитры (GET /studio/api/resources, спека §7).
@@ -130,6 +132,7 @@ func NewGoodsRepository(db *sql.DB) *GoodsRepository {
 // queryer — общий интерфейс чтения для *sql.DB и *sql.Tx.
 type queryer interface {
 	Query(query string, args ...interface{}) (*sql.Rows, error)
+	QueryRow(query string, args ...interface{}) *sql.Row
 }
 
 // beginMutation — транзакция мутации каталога с глобальным advisory lock
@@ -184,6 +187,10 @@ func (r *GoodsRepository) Snapshot() (*CatalogSnapshot, error) {
 	if err != nil {
 		return nil, err
 	}
+	producerSlots, err := loadProducerSlots(tx)
+	if err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
@@ -193,6 +200,7 @@ func (r *GoodsRepository) Snapshot() (*CatalogSnapshot, error) {
 		ProducerTypes: producerTypes,
 		Items:         items,
 		ProducerItems: producerItems,
+		ProducerSlots: producerSlots,
 	}, nil
 }
 

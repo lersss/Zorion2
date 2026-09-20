@@ -34,6 +34,19 @@ type ProducerTypeRow struct {
 	CreatedAt  time.Time
 }
 
+// ProducerSlotRow — слот родителя (спека 2026-09-21-скрытые §1.1): «родитель
+// (тип kind=goods) предлагает категорию на уровне расовости»; hidden —
+// «предлагает, но скрыто». Расовая привязка — существующие race_family/race.
+type ProducerSlotRow struct {
+	ID         int64
+	ParentID   int64
+	CategoryID int64
+	RaceFamily sql.NullString
+	Race       sql.NullString
+	Hidden     bool
+	CreatedAt  time.Time
+}
+
 // ItemRow — тип предмета из БД (спека §3.1; экземпляры — в инвентаре, не здесь).
 type ItemRow struct {
 	ID        int64
@@ -66,6 +79,19 @@ func nullStrPtr(s *string) interface{} {
 		return nil
 	}
 	return *s
+}
+
+// nullStrNS — *string → sql.NullString (типизированный NULL). Баг B2
+// (2026-09-21): untyped nil от nullStr/nullStrPtr в предикате «$n IS NULL»
+// DeleteProducerSlot ронял запрос «could not determine data type of parameter»
+// — PostgreSQL не выводит тип параметра без типизированного контекста.
+// Nullable текстовые параметры слотов передаются как sql.NullString
+// (database/sql конвертирует через driver.Value → NULL/string).
+func nullStrNS(s *string) sql.NullString {
+	if s == nil || *s == "" {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: *s, Valid: true}
 }
 
 // subtypeTupleChanged — изменился ли кортеж подтипа (parent_id, category_id,
@@ -104,6 +130,23 @@ func subtypeTupleChanged(curParent, curCategory sql.NullInt64, curFamily, curRac
 	return curR != newR
 }
 
+// producerSlotApplied — существует ли применяемый к уровню расовости записи
+// слот родителя (спека скрытых §1.4 п.1/§2.1): слот с race_family IS NULL
+// (база, покрывает все уровни), или race_family = семейства записи, или
+// race = расы записи. Наследуемая база засчитывается; скрытость слота
+// ортогональна (не блокирует — карточка завода прячется, завод существует).
+// family/race — sql.NullString (типизированный NULL, баг B2).
+func producerSlotApplied(q queryer, parentID, categoryID int64, family, race sql.NullString) (bool, error) {
+	var ok bool
+	err := q.QueryRow(
+		`SELECT EXISTS(SELECT 1 FROM producer_slots
+		 WHERE parent_id = $1 AND category_id = $2
+		   AND (race_family IS NULL OR race_family = $3 OR race = $4))`,
+		parentID, categoryID, family, race,
+	).Scan(&ok)
+	return ok, err
+}
+
 // --- снимок ---
 
 // loadProducerTypes — все типы производителей каталога.
@@ -124,6 +167,27 @@ func loadProducerTypes(q queryer) ([]ProducerTypeRow, error) {
 			return nil, err
 		}
 		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// loadProducerSlots — все слоты родителя (конфигурация категорий, спека §1.1).
+func loadProducerSlots(q queryer) ([]ProducerSlotRow, error) {
+	rows, err := q.Query(
+		`SELECT id, parent_id, category_id, race_family, race, hidden, created_at
+		 FROM producer_slots ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []ProducerSlotRow
+	for rows.Next() {
+		var s ProducerSlotRow
+		if err := rows.Scan(&s.ID, &s.ParentID, &s.CategoryID, &s.RaceFamily, &s.Race, &s.Hidden, &s.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
 	}
 	return out, rows.Err()
 }
@@ -171,14 +235,16 @@ func loadProducerItems(q queryer) ([]ProducerItemRow, error) {
 // --- типы производителей ---
 
 // CreateProducerType — создание типа производителя (спека §4.1 + дерево
-// построек 2026-09-21 §1.2): kind goods/items/energy; parent_id — базовый
-// тип (подтип → тип-родитель). Инварианты §1.2: глубина 1 (родитель обязан
-// быть типом), kind подтипа = kind родителя, категория — только у подтипов
-// kind=goods (тип kind=goods абстрактен, категория = NULL), уникальность
-// подтипа (parent_id, category_id, race_family, race) — 409, дубликат
-// нормализованного имени — 409. Соответствие race → race_family каталогу рас
-// проверяет хендлер (races.LoreByID); здесь — структурная проверка
-// «раса задана → семейство задано».
+// построек 2026-09-21 §1.2 + спека скрытых §1.4): kind goods/items/energy;
+// parent_id — базовый тип (подтип → тип-родитель). Инварианты §1.2: глубина 1
+// (родитель обязан быть типом), kind подтипа = kind родителя, категория —
+// только у подтипов kind=goods (тип kind=goods абстрактен, категория = NULL),
+// уникальность подтипа (parent_id, category_id, race_family, race) — 409,
+// дубликат нормализованного имени — 409. Слот-инвариант С4 (спека скрытых
+// §1.4 п.1): подтип kind=goods требует применяемого слота родителя
+// (parent_id, category_id, уровень расовости записи) — иначе 400. Соответствие
+// race → race_family каталогу рас проверяет хендлер (races.LoreByID); здесь —
+// структурная проверка «раса задана → семейство задано».
 func (r *GoodsRepository) CreateProducerType(name, kind string, categoryID *int64, parentID *int64, raceFamily, race *string) (ProducerTypeRow, error) {
 	tx, err := r.beginMutation()
 	if err != nil {
@@ -234,6 +300,18 @@ func (r *GoodsRepository) CreateProducerType(name, kind string, categoryID *int6
 			return ProducerTypeRow{}, errCatalog(400, "категория не найдена")
 		}
 	}
+	// Слот-инвариант С4 (спека скрытых §1.4 п.1): подтип kind=goods требует
+	// применяемого слота родителя на уровне расовости записи (§2.1).
+	// Наследуемый слот базы засчитывается.
+	if parentID != nil && kind == "goods" && categoryID != nil {
+		hasSlot, err := producerSlotApplied(tx, *parentID, *categoryID, nullStrNS(raceFamily), nullStrNS(race))
+		if err != nil {
+			return ProducerTypeRow{}, err
+		}
+		if !hasSlot {
+			return ProducerTypeRow{}, errCatalog(400, "категория не настроена у родителя на этом уровне")
+		}
+	}
 	// Раса задана → семейство задано (соответствие каталогу — в хендлере).
 	if race != nil && *race != "" && (raceFamily == nil || *raceFamily == "") {
 		return ProducerTypeRow{}, errCatalog(400, "раса задана — семейство рас обязательно")
@@ -281,13 +359,15 @@ func (r *GoodsRepository) CreateProducerType(name, kind string, categoryID *int6
 }
 
 // UpdateProducerType — переименование/смена категории/семейства/расы/
-// родителя/JSON-полей (спека §4.1 + дерево построек 2026-09-21 §1.2):
-// те же инварианты, что в CreateProducerType (глубина 1, kind наследуется,
-// категория только у подтипов kind=goods, уникальность подтипа — 409);
-// дубликат имени — 409. parentID — **int64: nil = не менять, &id = новый
+// родителя/JSON-полей (спека §4.1 + дерево построек 2026-09-21 §1.2 + спека
+// скрытых §1.4): те же инварианты, что в CreateProducerType (глубина 1, kind
+// наследуется, категория только у подтипов kind=goods, уникальность подтипа —
+// 409); дубликат имени — 409. parentID — **int64: nil = не менять, &id = новый
 // родитель. Снятие родителя (подтип → тип) через API не поддерживается
 // (UI родителя не редактирует); тип с подтипами нельзя сделать подтипом
-// (глубина 2) — 409. JSON-поля (output/input/params) — валидный JSON.
+// (глубина 2) — 409. Слот-инвариант С4 (§1.4 п.1): смена категории у подтипа
+// kind=goods требует применяемого слота нового родителя. JSON-поля
+// (output/input/params) — валидный JSON.
 func (r *GoodsRepository) UpdateProducerType(id int64, name *string, categoryID *int64, parentID **int64, raceFamily *string, race *string, output, input, params *string) error {
 	tx, err := r.beginMutation()
 	if err != nil {
@@ -327,6 +407,21 @@ func (r *GoodsRepository) UpdateProducerType(id int64, name *string, categoryID 
 	finalRace := race
 	if finalRace == nil && curRace.Valid {
 		finalRace = &curRace.String
+	}
+	// Слот-инвариант С4 (спека скрытых §1.4 п.1): подтип kind=goods требует
+	// применяемого слота родителя на ИТОГОВОМ уровне расовости записи.
+	// Проверяется при изменении кортежа (категория/семейство/раса могли уйти
+	// на уровень без слота); наследуемая база засчитывается (для сид-типов с
+	// universal-слотами 400 не возникает).
+	if kind == "goods" && finalParent != nil && finalCategory != nil &&
+		(categoryID != nil || raceFamily != nil || race != nil) {
+		hasSlot, err := producerSlotApplied(tx, *finalParent, *finalCategory, nullStrNS(finalRaceFamily), nullStrNS(finalRace))
+		if err != nil {
+			return err
+		}
+		if !hasSlot {
+			return errCatalog(400, "категория не настроена у родителя на этом уровне")
+		}
 	}
 	if parentID != nil {
 		// Снятие родителя (подтип → тип) через API не поддерживается: UI
@@ -402,6 +497,7 @@ func (r *GoodsRepository) UpdateProducerType(id int64, name *string, categoryID 
 			if !exists {
 				return errCatalog(400, "категория не найдена")
 			}
+			// Применяемый слот проверен выше (С4, §1.4 п.1) по итоговому уровню.
 		}
 		if _, err := tx.Exec(`UPDATE producer_types SET category_id = $1 WHERE id = $2`, *categoryID, id); err != nil {
 			return err
@@ -490,6 +586,152 @@ func (r *GoodsRepository) DeleteProducerType(id int64) error {
 		return errCatalog(409, "сначала удалите подтипы")
 	}
 	if _, err := tx.Exec(`DELETE FROM producer_types WHERE id = $1`, id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// --- слоты родителя (спека 2026-09-21-скрытые §1.1/§1.4/§4) ---
+
+// CreateSlot — создать слот родителя (переопределение уровня / база на
+// универсальном): «родитель предлагает категорию на уровне расовости».
+// Валидации (§1.4 п.3): родитель — тип kind=goods (400); категория существует
+// (400); раса задана → семейство задано (структурно; каталог — хендлер).
+// Дубликат кортежа (parent_id, category_id, race_family, race), NULL-safe —
+// 409 (UNIQUE NULLS NOT DISTINCT — страховка на уровне БД).
+func (r *GoodsRepository) CreateProducerSlot(parentID, categoryID int64, raceFamily, race *string, hidden bool) (ProducerSlotRow, error) {
+	tx, err := r.beginMutation()
+	if err != nil {
+		return ProducerSlotRow{}, err
+	}
+	defer tx.Rollback()
+
+	var parentKind string
+	var parentIsType bool
+	err = tx.QueryRow(
+		`SELECT kind, parent_id IS NULL FROM producer_types WHERE id = $1`, parentID,
+	).Scan(&parentKind, &parentIsType)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ProducerSlotRow{}, errCatalog(400, "родитель не найден")
+	}
+	if err != nil {
+		return ProducerSlotRow{}, err
+	}
+	if !parentIsType || parentKind != "goods" {
+		return ProducerSlotRow{}, errCatalog(400, "слоты только у типов kind=goods")
+	}
+	var catExists bool
+	if err := tx.QueryRow(
+		`SELECT EXISTS(SELECT 1 FROM categories WHERE id = $1)`, categoryID,
+	).Scan(&catExists); err != nil {
+		return ProducerSlotRow{}, err
+	}
+	if !catExists {
+		return ProducerSlotRow{}, errCatalog(400, "категория не найдена")
+	}
+	if race != nil && *race != "" && (raceFamily == nil || *raceFamily == "") {
+		return ProducerSlotRow{}, errCatalog(400, "раса задана — семейство рас обязательно")
+	}
+	var dup bool
+	if err := tx.QueryRow(
+		`SELECT EXISTS(SELECT 1 FROM producer_slots
+		 WHERE parent_id = $1 AND category_id = $2
+		   AND race_family IS NOT DISTINCT FROM $3 AND race IS NOT DISTINCT FROM $4)`,
+		parentID, categoryID, nullStrNS(raceFamily), nullStrNS(race),
+	).Scan(&dup); err != nil {
+		return ProducerSlotRow{}, err
+	}
+	if dup {
+		return ProducerSlotRow{}, errCatalog(409, "слот с такими (родитель, категория, семейство, раса) уже есть")
+	}
+	var s ProducerSlotRow
+	if err := tx.QueryRow(
+		`INSERT INTO producer_slots (parent_id, category_id, race_family, race, hidden)
+		 VALUES ($1, $2, $3, $4, $5) RETURNING id, parent_id, category_id, race_family, race, hidden, created_at`,
+		parentID, categoryID, nullStrNS(raceFamily), nullStrNS(race), hidden,
+	).Scan(&s.ID, &s.ParentID, &s.CategoryID, &s.RaceFamily, &s.Race, &s.Hidden, &s.CreatedAt); err != nil {
+		if isUniqueViolation(err) {
+			return ProducerSlotRow{}, errCatalog(409, "слот с такими (родитель, категория, семейство, раса) уже есть")
+		}
+		return ProducerSlotRow{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return ProducerSlotRow{}, err
+	}
+	return s, nil
+}
+
+// UpdateSlotHidden — переключение скрытости слота (PUT /slots/{id} {hidden}).
+// hidden не входит в кортеж уникальности — 409 не триггерится (как М1 первой
+// волны, §1.4 п.4).
+func (r *GoodsRepository) UpdateProducerSlotHidden(id int64, hidden bool) error {
+	tx, err := r.beginMutation()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var exists bool
+	if err := tx.QueryRow(
+		`SELECT EXISTS(SELECT 1 FROM producer_slots WHERE id = $1 FOR UPDATE)`, id,
+	).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return errCatalog(404, "слот не найден")
+	}
+	if _, err := tx.Exec(`UPDATE producer_slots SET hidden = $1 WHERE id = $2`, hidden, id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// DeleteSlot — удалить слот (снять переопределение уровня / убрать категорию
+// из набора родителя). RESTRICT (§1.4 п.2): при существующих подтипах
+// kind=goods (parent_id, category_id), применяемых к слоту — 409 «сначала
+// удалите заводы категории». Применяемость по §2.1 (обратное направление):
+// универсальный слот (race_family IS NULL) покрывает ВСЕ записи уровня;
+// семейный (race_family=Fk, race NULL) — записи с race_family=Fk (семейные и
+// расовые семейства); расовый (race=R) — ТОЛЬКО записи с race=R (не семейные
+// записи того же семейства). Записей нет → удаление свободно.
+func (r *GoodsRepository) DeleteProducerSlot(id int64) error {
+	tx, err := r.beginMutation()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var parentID, categoryID int64
+	var slotFamily, slotRace sql.NullString
+	err = tx.QueryRow(
+		`SELECT parent_id, category_id, race_family, race FROM producer_slots WHERE id = $1 FOR UPDATE`, id,
+	).Scan(&parentID, &categoryID, &slotFamily, &slotRace)
+	if errors.Is(err, sql.ErrNoRows) {
+		return errCatalog(404, "слот не найден")
+	}
+	if err != nil {
+		return err
+	}
+	// Предикат применяемости: универсальный ($3 NULL) — все; семейный
+	// ($4 NULL) — race_family = $3; расовый ($4 задан) — race = $4.
+	// $3/$4 — nullable; касты ::text фиксируют тип параметра В SQL
+	// (драйвер-независимо): lib/pq шлёт NULL с OID 0, и PostgreSQL не выводит
+	// тип из «$n IS NULL»/«$n IS NOT NULL» — «could not determine data type
+	// of parameter $3» (баг B2, 2026-09-21, третий раунд).
+	var hasFactories bool
+	if err := tx.QueryRow(
+		`SELECT EXISTS(SELECT 1 FROM producer_types pt
+		 WHERE pt.parent_id = $1 AND pt.category_id = $2 AND pt.kind = 'goods'
+		   AND ($3::text IS NULL OR (($4::text IS NOT NULL AND pt.race = $4::text)
+		                          OR ($4::text IS NULL AND pt.race_family = $3::text))))`,
+		parentID, categoryID, slotFamily, slotRace,
+	).Scan(&hasFactories); err != nil {
+		return err
+	}
+	if hasFactories {
+		return errCatalog(409, "сначала удалите заводы категории")
+	}
+	if _, err := tx.Exec(`DELETE FROM producer_slots WHERE id = $1`, id); err != nil {
 		return err
 	}
 	return tx.Commit()

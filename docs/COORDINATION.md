@@ -108,6 +108,14 @@
 | `web/static/js/map/flight.js` / `data.js` / `config.js` / `animation.js` | @developer (99.2.30) | коммит 99.2.30 |
 | `web/static/js/modal/panel.js` / `events.js` / `index.js` / `tabs.js` | @developer (99.2.30) | коммит 99.2.30 |
 | `docs/DB.md` / `docs/ARCHITECTURE.md` / `docs/PITFALLS.md` (99.2.30) | @developer (99.2.30) | коммит 99.2.30 |
+| `internal/generator/planet/planet_data*.go` / `circumbinary.go` / `region_profile_test.go` / `exotic_test.go` / `circumbinary_test.go` / `cascade_test.go` / `giant_distribution_test.go` (новый) | @developer (реализм распределения 2026-09-20) | коммит реализма распределения |
+| `migrations/000051_producer_tree.sql` (новый) | @developer (дерево построек 2026-09-21) | коммит дерева построек |
+| `internal/goodsstudio/seed_producers.go` (+test) | @developer (дерево построек 2026-09-21) | коммит дерева построек |
+| `internal/repository/producer_repository.go` (+test) | @developer (дерево построек 2026-09-21) | коммит дерева построек |
+| `internal/handlers/studio_handlers.go` (+tests) | @developer (дерево построек 2026-09-21) | коммит дерева построек |
+| `cmd/server/main.go` (роут `/studio/api/races`) | @developer (дерево построек 2026-09-21) | коммит дерева построек |
+| `web/studio.html` (дерево построек на канвасе) | @developer (дерево построек 2026-09-21) | коммит дерева построек |
+| `docs/DB.md` / `docs/ARCHITECTURE.md` / `docs/PITFALLS.md` (дерево построек) | @developer (дерево построек 2026-09-21) | коммит дерева построек |
 
 ---
 

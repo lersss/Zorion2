@@ -56,6 +56,8 @@ func TestStudioState(t *testing.T) {
 	mock.ExpectQuery(`SELECT producer_type_id, item_id, requirements FROM producer_items ORDER BY producer_type_id, item_id`).
 		WillReturnRows(sqlmock.NewRows([]string{"producer_type_id", "item_id", "requirements"}).
 			AddRow(int64(1), int64(1), nil))
+	mock.ExpectQuery(`SELECT id, parent_id, category_id, race_family, race, hidden, created_at FROM producer_slots ORDER BY id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "parent_id", "category_id", "race_family", "race", "hidden", "created_at"}))
 	mock.ExpectCommit()
 
 	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
@@ -367,11 +369,13 @@ func fillSnapshotRows(mock sqlmock.Sqlmock) {
 		WillReturnRows(sqlmock.NewRows([]string{"good_id", "pos", "component_id", "quantity", "reason", "allow_resource"}).
 			AddRow(int64(1), 0, nil, 1, nil, false))
 	mock.ExpectQuery(`SELECT id, name, kind, category_id, race_family, parent_id, race, output, input, params, status, created_at FROM producer_types ORDER BY id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "parent_id", "race", "output", "input", "params", "status", "created_at"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "parent_id", "race", "hidden", "output", "input", "params", "status", "created_at"}))
 	mock.ExpectQuery(`SELECT id, name, slot_type, status, unlocks, params, created_at FROM items ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "slot_type", "status", "unlocks", "params", "created_at"}))
 	mock.ExpectQuery(`SELECT producer_type_id, item_id, requirements FROM producer_items ORDER BY producer_type_id, item_id`).
 		WillReturnRows(sqlmock.NewRows([]string{"producer_type_id", "item_id", "requirements"}))
+	mock.ExpectQuery(`SELECT id, parent_id, category_id, race_family, race, hidden, created_at FROM producer_slots ORDER BY id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "parent_id", "category_id", "race_family", "race", "hidden", "created_at"}))
 	mock.ExpectCommit()
 }
 
@@ -395,11 +399,13 @@ func TestStudioFillNotFound404(t *testing.T) {
 	mock.ExpectQuery(`SELECT good_id, pos, component_id, quantity, reason, allow_resource FROM goods_slots ORDER BY good_id, pos`).
 		WillReturnRows(sqlmock.NewRows([]string{"good_id", "pos", "component_id", "quantity", "reason", "allow_resource"}))
 	mock.ExpectQuery(`SELECT id, name, kind, category_id, race_family, parent_id, race, output, input, params, status, created_at FROM producer_types ORDER BY id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "parent_id", "race", "output", "input", "params", "status", "created_at"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "parent_id", "race", "hidden", "output", "input", "params", "status", "created_at"}))
 	mock.ExpectQuery(`SELECT id, name, slot_type, status, unlocks, params, created_at FROM items ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "slot_type", "status", "unlocks", "params", "created_at"}))
 	mock.ExpectQuery(`SELECT producer_type_id, item_id, requirements FROM producer_items ORDER BY producer_type_id, item_id`).
 		WillReturnRows(sqlmock.NewRows([]string{"producer_type_id", "item_id", "requirements"}))
+	mock.ExpectQuery(`SELECT id, parent_id, category_id, race_family, race, hidden, created_at FROM producer_slots ORDER BY id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "parent_id", "category_id", "race_family", "race", "hidden", "created_at"}))
 	mock.ExpectCommit()
 
 	h := newFillHandlers(db)
@@ -428,11 +434,13 @@ func TestStudioFillNoEmptySlots400(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"good_id", "pos", "component_id", "quantity", "reason", "allow_resource"}).
 			AddRow(int64(1), 0, int64(2), 1, nil, false))
 	mock.ExpectQuery(`SELECT id, name, kind, category_id, race_family, parent_id, race, output, input, params, status, created_at FROM producer_types ORDER BY id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "parent_id", "race", "output", "input", "params", "status", "created_at"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "parent_id", "race", "hidden", "output", "input", "params", "status", "created_at"}))
 	mock.ExpectQuery(`SELECT id, name, slot_type, status, unlocks, params, created_at FROM items ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "slot_type", "status", "unlocks", "params", "created_at"}))
 	mock.ExpectQuery(`SELECT producer_type_id, item_id, requirements FROM producer_items ORDER BY producer_type_id, item_id`).
 		WillReturnRows(sqlmock.NewRows([]string{"producer_type_id", "item_id", "requirements"}))
+	mock.ExpectQuery(`SELECT id, parent_id, category_id, race_family, race, hidden, created_at FROM producer_slots ORDER BY id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "parent_id", "category_id", "race_family", "race", "hidden", "created_at"}))
 	mock.ExpectCommit()
 
 	h := newFillHandlers(db)
@@ -715,11 +723,13 @@ func TestStudioStateFillFields(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"good_id", "pos", "component_id", "quantity", "reason", "allow_resource"}).
 			AddRow(int64(1), 0, nil, 1, nil, false))
 	mock.ExpectQuery(`SELECT id, name, kind, category_id, race_family, parent_id, race, output, input, params, status, created_at FROM producer_types ORDER BY id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "parent_id", "race", "output", "input", "params", "status", "created_at"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "parent_id", "race", "hidden", "output", "input", "params", "status", "created_at"}))
 	mock.ExpectQuery(`SELECT id, name, slot_type, status, unlocks, params, created_at FROM items ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "slot_type", "status", "unlocks", "params", "created_at"}))
 	mock.ExpectQuery(`SELECT producer_type_id, item_id, requirements FROM producer_items ORDER BY producer_type_id, item_id`).
 		WillReturnRows(sqlmock.NewRows([]string{"producer_type_id", "item_id", "requirements"}))
+	mock.ExpectQuery(`SELECT id, parent_id, category_id, race_family, race, hidden, created_at FROM producer_slots ORDER BY id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "parent_id", "category_id", "race_family", "race", "hidden", "created_at"}))
 	mock.ExpectCommit()
 
 	h := newFillHandlers(db)

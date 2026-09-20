@@ -107,6 +107,21 @@ type ProducerTypeView struct {
 	Items        []ItemView      `json:"items,omitempty"`
 }
 
+// ProducerSlotView — слот родителя в представлении состояния (спека скрытых
+// §4): id/parent/category/расовость/hidden; имена родителя и категории — из
+// снимка (как parent_name/category_name у записей). «Унаследован/переопределён»
+// считает клиент по уровню расовости.
+type ProducerSlotView struct {
+	ID           int64  `json:"id"`
+	ParentID     int64  `json:"parent_id"`
+	ParentName   string `json:"parent_name,omitempty"`
+	CategoryID   int64  `json:"category_id"`
+	CategoryName string `json:"category_name,omitempty"`
+	RaceFamily   string `json:"race_family,omitempty"`
+	Race         string `json:"race,omitempty"`
+	Hidden       bool   `json:"hidden"`
+}
+
 // ItemView — предмет в представлении состояния (спека §4.2): единый
 // справочник «что бывает»; экземпляры — в инвентаре, не здесь.
 type ItemView struct {
@@ -136,6 +151,7 @@ type StateView struct {
 	ProposalsGoodID  string             `json:"proposals_good_id,omitempty"`
 	ProducerTypes    []ProducerTypeView `json:"producer_types"`
 	Items            []ItemView         `json:"items"`
+	ProducerSlots    []ProducerSlotView `json:"producer_slots"`
 }
 
 // ProposalView — предложение ИИ для попапа (спека iterC §5.3): kind new/link,
@@ -320,6 +336,28 @@ func (h *StudioHandlers) buildStateView(snap *repository.CatalogSnapshot) StateV
 			pv.Items = items
 		}
 		view.ProducerTypes = append(view.ProducerTypes, pv)
+	}
+	// Слоты родителя (спека скрытых §4): все слоты каталога с именами
+	// родителя/категории из снимка.
+	view.ProducerSlots = make([]ProducerSlotView, 0, len(snap.ProducerSlots))
+	for _, s := range snap.ProducerSlots {
+		sv := ProducerSlotView{
+			ID:         s.ID,
+			ParentID:   s.ParentID,
+			ParentName: prodNameByID[s.ParentID],
+			CategoryID: s.CategoryID,
+			Hidden:     s.Hidden,
+		}
+		if name, ok := catByID[s.CategoryID]; ok {
+			sv.CategoryName = name
+		}
+		if s.RaceFamily.Valid {
+			sv.RaceFamily = s.RaceFamily.String
+		}
+		if s.Race.Valid {
+			sv.Race = s.Race.String
+		}
+		view.ProducerSlots = append(view.ProducerSlots, sv)
 	}
 	return view
 }
@@ -668,7 +706,8 @@ func (h *StudioHandlers) slotAllowResource(w http.ResponseWriter, r *http.Reques
 // Producers — POST /studio/api/producers {name, kind, category_id, parent_id,
 // race_family, race}: создание типа производителя (дерево построек §1.2:
 // категория — только у подтипов kind=goods; parent_id — базовый тип;
-// race → race_family по каталогу рас).
+// race → race_family по каталогу рас; слот-инвариант С4 — подтип kind=goods
+// требует применяемого слота родителя, §1.4 п.1 спеки скрытых).
 func (h *StudioHandlers) Producers(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		studioErr(w, "только POST", http.StatusMethodNotAllowed)
@@ -826,6 +865,101 @@ func (h *StudioHandlers) producerUnlinkItem(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	studioJSON(w, http.StatusOK, map[string]interface{}{"producer_type_id": id, "item_id": itemID})
+}
+
+// --- слоты родителя (спека 2026-09-21-скрытые §4) ---
+
+// Slots — POST /studio/api/slots {parent_id, category_id, race_family, race,
+// hidden?}: создать слот родителя (переопределение уровня / база на
+// универсальном). Валидации §1.4 п.3: родитель — тип kind=goods (400);
+// категория существует (400); race→family (400); дубликат кортежа NULL-safe
+// (409).
+func (h *StudioHandlers) Slots(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		studioErr(w, "только POST", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		ParentID   int64   `json:"parent_id"`
+		CategoryID int64   `json:"category_id"`
+		RaceFamily *string `json:"race_family"`
+		Race       *string `json:"race"`
+		Hidden     *bool   `json:"hidden"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		studioErr(w, "невалидный JSON", http.StatusBadRequest)
+		return
+	}
+	if body.ParentID <= 0 || body.CategoryID <= 0 {
+		studioErr(w, "parent_id и category_id обязательны", http.StatusBadRequest)
+		return
+	}
+	if err := validateRaceFamily(body.Race, body.RaceFamily); err != nil {
+		writeCatalogErr(w, err)
+		return
+	}
+	s, err := h.repo.CreateProducerSlot(body.ParentID, body.CategoryID, body.RaceFamily, body.Race, body.Hidden != nil && *body.Hidden)
+	if err != nil {
+		writeCatalogErr(w, err)
+		return
+	}
+	studioJSON(w, http.StatusCreated, producerSlotView(s, "", ""))
+}
+
+// SlotByID — PUT/DELETE /studio/api/slots/{id}.
+func (h *StudioHandlers) SlotByID(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(strings.TrimPrefix(r.URL.Path, "/studio/api/slots/"))
+	if err != nil {
+		studioErr(w, "не найдено", http.StatusNotFound)
+		return
+	}
+	switch r.Method {
+	case http.MethodPut:
+		var body struct {
+			Hidden *bool `json:"hidden"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			studioErr(w, "невалидный JSON", http.StatusBadRequest)
+			return
+		}
+		if body.Hidden == nil {
+			studioErr(w, "hidden обязателен", http.StatusBadRequest)
+			return
+		}
+		if err := h.repo.UpdateProducerSlotHidden(id, *body.Hidden); err != nil {
+			writeCatalogErr(w, err)
+			return
+		}
+		studioJSON(w, http.StatusOK, map[string]interface{}{"id": id, "hidden": *body.Hidden})
+	case http.MethodDelete:
+		if err := h.repo.DeleteProducerSlot(id); err != nil {
+			writeCatalogErr(w, err)
+			return
+		}
+		studioJSON(w, http.StatusOK, map[string]int64{"deleted": id})
+	default:
+		studioErr(w, "только PUT/DELETE", http.StatusMethodNotAllowed)
+	}
+}
+
+// producerSlotView — ProducerSlotRow → ProducerSlotView (catName/parentName —
+// имена из снимка; пустые — не заполнять).
+func producerSlotView(s repository.ProducerSlotRow, catName, parentName string) ProducerSlotView {
+	sv := ProducerSlotView{
+		ID:           s.ID,
+		ParentID:     s.ParentID,
+		ParentName:   parentName,
+		CategoryID:   s.CategoryID,
+		CategoryName: catName,
+		Hidden:       s.Hidden,
+	}
+	if s.RaceFamily.Valid {
+		sv.RaceFamily = s.RaceFamily.String
+	}
+	if s.Race.Valid {
+		sv.Race = s.Race.String
+	}
+	return sv
 }
 
 // --- уровни расовости (дерево построек, спека 2026-09-21 §3/§5) ---

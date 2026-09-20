@@ -148,6 +148,22 @@
   Upsert). `CancelFlight` чистит БД под локом — иначе DELETE мог бы снести
   строку нового полёта, стартовавшего между разблокировкой и удалением.
 
+- **Композитный маршрут (99.2.30): Restore-колбэк межзвёздного полёта обязан
+  идти через общий `TravelHandlers.ArrivalHandler`, а не через простой
+  UPDATE.** Фаза 1 Restore (`travelManager.Restore` в main.go) передаёт
+  onArrival-колбэк; если он делает только `UpdateCurrentWorldAndPosition`
+  (как было до фикса ревью 2026-09-21), автостарт внутрисистемного сегмента
+  по намерению (`users.pending_destination`) не сработает для восстановленного
+  полёта: игрок прилетит к звезде, намерение останется в БД и «выстрелит»
+  неожиданным intra-стартом при следующем рестарте (намерение-призрак, И6).
+  Правило: live-onArrival и Restore-колбэк — один общий `ArrivalHandler`
+  (ИП-2 + чтение намерения + автостарт). Вторая ловушка той же зоны:
+  автостарт корректен только при `current_world_id == dest.WorldID` (прибытие
+  засчитано onArrival до краша); краш между `CancelAtomicWithDestination` и
+  `StartFlight` оставляет намерение при current_world_id мира отправления —
+  фаза 3а Restore обязана очистить намерение, а не стартовать intra (иначе
+  рассинхрон current_world_id/current_position, ИП-1 99.2.27).
+
 - **gorilla/websocket: чтение с истёкшим дедлайном необратимо ломает
   соединение.** `Conn.ReadMessage` при ошибке (в т.ч. i/o timeout по
   `SetReadDeadline`) фиксирует `readErr` — все последующие `ReadMessage` на

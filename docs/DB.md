@@ -197,9 +197,13 @@ ClearUniverse его не трогает), `producer_types`/`items`/`producer_it
   предметов — Go (`internal/goodsstudio/seed_producers.go`, маркер
   `producer_catalog_seed` в `generation_config`), вызывается после
   `goodsstudio.Seed` (категории уже посеяны).
-- `000049` — `users.pending_destination` (спека `99.2.30-composite-route`,
-  чужая параллельная работа, 2026-09-20): намерение следующего сегмента
-  составного маршрута; очищается при прибытии/отмене.
+- `000049` — `users.pending_destination` JSONB (спека `99.2.30-composite-route`,
+  2026-09-20): `ALTER TABLE users ADD COLUMN pending_destination JSONB` —
+  намерение композитного маршрута; NULL = намерения нет; цели
+  planet/satellite/companion (`companion` на границе транслируется во
+  внутрисистемное `star` + синтетический id); очищается при
+  прибытии/отмене/развороте/неактуальности, пакман чистит намерения
+  съеденных миров.
 - `000050` — снос легаси-таблицы `production_units` (эпоха 000018, спека
   `2026-09-20-фабрики` §11.6, решение создателя 3b.6.8 — СНЕСТИ): DROP
   TABLE; удалён `internal/repository/production_unit_repository.go`,

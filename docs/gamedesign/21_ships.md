@@ -4,7 +4,7 @@
 
 > Закрывает заметку `STATUS.md` §1 о недокументированном блоке «корабли / полёты /
 > UI»: существующий блок описан в §21.1, модель визуала — §21.2–§21.6, эталоны —
-> §21.7. Спека разработки — `docs/specs/61b-static-ship-sprites.md` (параметрический
+> §21.7. Спека разработки — `docs/specs/_archive/61b-static-ship-sprites.md` (параметрический
 > генератор `99.2.15` отменён решением 2026-09-16, идея 61b).
 
 ---
@@ -360,7 +360,7 @@ mushroom, octopus, pyramid, shark, shell, spiral, star_celestial, trident, volca
 
 ## 21.8. Связи
 
-- Спека: `docs/specs/61b-static-ship-sprites.md` (реализация, API, план).
+- Спека: `docs/specs/_archive/61b-static-ship-sprites.md` (реализация, API, план).
   Спека `99.2.15-ship-visual-generator.md` — **отменена** (генератор деталей, идея
   `24a`).
 - Идея: `docs/gamedesign/ideas/61b. Статичные спрайты кораблей вместо генератора.md`.

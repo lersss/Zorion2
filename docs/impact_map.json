@@ -1,4 +1,4 @@
-﻿{
+{
   "_comment": "Реестр каскадных влияний Zorion. Вопрос: «меняем X → смотрим на Y». Ведёт @manager при сдаче фич (идея 83a): дедупликация по entity.id, schema_version растёт только при изменении структуры, updated_at — дата правки. Сущность заводится при ≥2 потребителях или ≥2 влияниях.",
   "schema_version": 1,
   "updated_at": "2026-09-20",
@@ -278,7 +278,7 @@
     {
       "id": "61b",
       "type": "spec",
-      "path": "docs/specs/61b-static-ship-sprites.md",
+      "path": "docs/specs/_archive/61b-static-ship-sprites.md",
       "note": "спека «Статичные спрайты кораблей вместо генератора» (61b): сетка 21 спрайта + палитра 9 цветов + «Оригинал» (NULL); селектор внешнего вида — вкладка «Внешний вид» дашборда (2026-09-18)",
       "impacts": [
         { "on": "web/index.html", "kind": "reads", "reason": "селектор внешнего вида: сетка 21 спрайта + палитра + статус сохранения" },
@@ -406,7 +406,7 @@
         { "on": "docs/specs/99a.1-goods-studio-ui.md", "kind": "docs", "reason": "UI-спека студии (перенос интерфейса, 99a.1)" },
         { "on": "docs/specs/_archive/99a.2-goods-studio-import-top-catalog.md", "kind": "docs", "reason": "импорт top-каталога отменён решением создателя 2026-09-20 — спека-источник решения" },
         { "on": "docs/specs/_archive/99a.3-goods-studio-focus-graph-spravochnik.md", "kind": "docs", "reason": "фокус-граф/справочник каталога (99a.3); ПКМ-хвост открыт" },
-        { "on": "docs/specs/перенос-студии-товаров-iterC-доводка.md", "kind": "docs", "reason": "доводка iterC: fill «предложи → подтверди», auth.js, слой из БД" }
+        { "on": "docs/specs/_archive/перенос-студии-товаров-iterC-доводка.md", "kind": "docs", "reason": "доводка iterC: fill «предложи → подтверди», auth.js, слой из БД" }
       ]
     },
     {

@@ -140,11 +140,23 @@ export async function loadClusters(boundsOverride = null) {
         if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
 
         const clusters = await res.json();
-        state.clusters = Array.isArray(clusters) ? clusters : [];
+        // Пакман (2026-09-20): снапшот сервера НЕ пересобирается на каждый
+        // батч — полный ответ вычитаем по eatenIds, НО «долетающие» звёзды
+        // (pendingEatenIds: пакман ещё летит к ним) остаются видимыми, чтобы
+        // лопнуть в момент его прибытия (не «сами» и не заранее).
+        const pacmanEaten = (state.pacman && state.pacman.eatenIds) || new Set();
+        const pacmanPending = (state.pacman && state.pacman.pendingEatenIds) || new Set();
+        let clustersArr = Array.isArray(clusters) ? clusters : [];
+        if (pacmanEaten.size > 0) {
+            clustersArr = clustersArr.filter(c => !(c.cnt === 1 && c.sid &&
+                pacmanEaten.has(c.sid) && !pacmanPending.has(c.sid)));
+        }
+        state.clusters = clustersArr;
         lastFetchedBounds = bounds;
 
         for (const c of state.clusters) {
             if (c.cnt === 1 && c.sid) {
+                if (pacmanEaten.has(c.sid) && !pacmanPending.has(c.sid)) continue; // съедено и лопнуло
                 if (!state.worlds.some(w => w.id === c.sid)) {
                     state.worlds.push({
                         id: c.sid,

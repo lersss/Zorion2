@@ -73,6 +73,13 @@ func (h *AdminHandlers) GenerateRaceSettlements(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	// Пакман ест миры (спека 2026-09-20 §2.2): поселения рас пишут в
+	// settlements — генерация поверх пакмана не стартует.
+	if statusManager.IsRunning(generator.JobPacman) {
+		http.Error(w, "Generation is running, cancel it first", http.StatusConflict)
+		return
+	}
+
 	// Контекст от фоновой задачи, НЕ от запроса (как GenerateSettlements).
 	ctx, cancel := context.WithCancel(context.Background())
 	if !statusManager.TryStart(generator.JobGenerateRaceSettlements, total, cancel) {

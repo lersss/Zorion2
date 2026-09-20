@@ -365,6 +365,35 @@ export async function clearUniverse() {
     }
 }
 
+// startPacman — запуск пакмана (спека 2026-09-20 §2.1): порционный вайп
+// галактики по спирали; событие видно всем игрокам на карте. Скорость —
+// из инпута (миров/с, дефолт 1700); прогресс — pollJob('pacman', ...).
+export async function startPacman() {
+    const speedInput = document.getElementById('pacmanSpeed');
+    // Любая положительная скорость, дробная допустима (0.01 — «кинорежим»).
+    const worldsPerSecond = parseFloat(speedInput ? speedInput.value : '1700') || 1700;
+    try {
+        const res = await fetchWithAuth('/admin/pacman/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ worlds_per_second: worldsPerSecond, batch_size: 200, trajectory: 'spiral' }),
+        });
+        const text = await res.text();
+        const resultEl = document.getElementById('pacmanResult');
+        if (res.status === 202) {
+            resultEl.textContent = '👾 Пакман запущен!';
+            document.getElementById('pacmanProgress').style.display = 'block';
+            pollIntervals['pacman'] = setInterval(() => pollJob('pacman', 'pacmanProgress', 'pacmanResult', 'cancelPacmanBtn'), 1000);
+        } else if (res.status === 200) {
+            resultEl.textContent = 'Галактика уже пуста';
+        } else {
+            resultEl.textContent = '❌ ' + text;
+        }
+    } catch (e) {
+        document.getElementById('pacmanResult').textContent = '❌ ' + e.message;
+    }
+}
+
 // ---------- ПОДВКЛАДКИ ГЕНЕРАЦИИ (99.2.3 §2) ----------
 
 // switchGenSubTab — переключение подвкладки раздела «Генерация» (кнопки

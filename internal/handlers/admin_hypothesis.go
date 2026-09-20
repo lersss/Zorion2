@@ -51,6 +51,13 @@ func (h *AdminHandlers) RunHypothesis(w http.ResponseWriter, r *http.Request) {
 		total += g.PlanetsPerWorld
 	}
 
+	// Пакман ест миры (спека 2026-09-20 §2.2): гипотезы пишут в
+	// worlds/planets/settlements — прогон поверх пакмана не стартует.
+	if statusManager.IsRunning(generator.JobPacman) {
+		http.Error(w, "Generation is running, cancel it first", http.StatusConflict)
+		return
+	}
+
 	// Контекст от фоновой задачи, НЕ от запроса: контекст запроса отменяется,
 	// когда handler возвращает ответ.
 	ctx, cancel := context.WithCancel(context.Background())

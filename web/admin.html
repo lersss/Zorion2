@@ -145,9 +145,21 @@
                     <button class="btn danger" onclick="cancelGeneration('generate_universe')" id="cancelUniverseBtn" style="display:none;">Остановить</button>
                 </div>
                 <div style="margin-top:8px;">
-                    <button class="btn danger" onclick="clearUniverse()">🗑️ Удалить все миры</button>
+                    <button class="btn danger" onclick="clearUniverse()" id="clearUniverseBtn">🗑️ Удалить все миры</button>
+                    <!-- Пакман (спека 2026-09-20 §2.1): порционный вайп по
+                         траектории, событие видно всем игрокам на карте. -->
+                    <button class="btn" onclick="startPacman()" id="pacmanStartBtn" title="Пакман съедает миры по спирали — событие видно всем игрокам">👾 Запустить Пакмана</button>
+                    <label style="margin-left:8px;">Скорость (миров/с)
+                        <input type="number" id="pacmanSpeed" value="1700" min="0" step="any" style="width:90px;">
+                    </label>
+                    <button class="btn danger" onclick="cancelGeneration('pacman')" id="cancelPacmanBtn" style="display:none;">Остановить</button>
                 </div>
                 <div id="clearResult" class="result"></div>
+                <div id="pacmanResult" class="result"></div>
+                <div id="pacmanProgress" class="progress-container" style="display:none;">
+                    <span class="progress-text" id="pacmanProgressText">0 из 0</span>
+                    <progress id="pacmanProgressBar" class="progress-bar" value="0" max="100"></progress>
+                </div>
                 <div id="genResult" class="result"></div>
                 <div id="genProgress" class="progress-container">
                     <span class="progress-text" id="genProgressText">0 из 0</span>

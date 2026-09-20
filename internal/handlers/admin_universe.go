@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,6 +21,12 @@ import (
 )
 
 var statusManager = generator.NewStatusManager()
+
+// universeMutationMu — разделяемый мьютекс между ClearUniverse (TRUNCATE) и
+// пакманом (порционный DELETE, спека 2026-09-20 §2.2): операции не
+// пересекаются; окно гонки «клик Clear в момент старта пакмана» закрыто.
+// ClearUniverse держит lock на время операции, StartPacman — до конца джоба.
+var universeMutationMu sync.Mutex
 
 func recoverErr(r interface{}) string {
 	if r == nil {
@@ -238,7 +245,10 @@ func (h *AdminHandlers) GenerateUniverse(w http.ResponseWriter, r *http.Request)
 
 	// Взаимная блокировка: не стартуем, пока крутится пересчёт планет
 	// (джобы пишут в одни таблицы и не знают о соседе, AGENTS.md §23).
-	if statusManager.IsRunning(generator.JobRegeneratePlanets) {
+	// Пакман ест миры (спека 2026-09-20 §2.2) — генерация поверх него не
+	// стартует (иначе новые миры переживут вайп).
+	if statusManager.IsRunning(generator.JobRegeneratePlanets) ||
+		statusManager.IsRunning(generator.JobPacman) {
 		http.Error(w, "Generation already running", http.StatusConflict)
 		return
 	}
@@ -392,7 +402,10 @@ func (h *AdminHandlers) GeneratePlanets(w http.ResponseWriter, r *http.Request) 
 
 	// Взаимная блокировка: не стартуем, пока крутится пересчёт планет
 	// (джобы пишут в одни таблицы и не знают о соседе, AGENTS.md §23).
-	if statusManager.IsRunning(generator.JobRegeneratePlanets) {
+	// Пакман ест миры (спека 2026-09-20 §2.2) — генерация планет поверх
+	// него не стартует.
+	if statusManager.IsRunning(generator.JobRegeneratePlanets) ||
+		statusManager.IsRunning(generator.JobPacman) {
 		http.Error(w, "Generation already running", http.StatusConflict)
 		return
 	}
@@ -519,6 +532,13 @@ func (h *AdminHandlers) clearPlanets() (int, error) {
 // землеподобная планета (население 10) с поселением 1 уровня для первого мира.
 // Ничего не очищает и не удаляет — состояние вселенной в руках оператора.
 func (h *AdminHandlers) GeneratePrototypePlanet(w http.ResponseWriter, r *http.Request) {
+	// Пакман ест миры (спека 2026-09-20 §2.2, правка Н1): синхронный писатель
+	// в planets+settlements — иначе прото-планета вставится в выживший мир
+	// посреди пакмана и переживёт вайп.
+	if statusManager.IsRunning(generator.JobPacman) {
+		http.Error(w, "Generation is running, cancel it first", http.StatusConflict)
+		return
+	}
 	worlds, err := h.worldRepo.GetAll()
 	if err != nil {
 		http.Error(w, "Failed to fetch worlds: "+err.Error(), http.StatusInternalServerError)
@@ -609,6 +629,13 @@ func (h *AdminHandlers) GenerateFactions(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Пакман ест миры (спека 2026-09-20 §2.2): фракции пишут в planets —
+	// генерация поверх пакмана не стартует.
+	if statusManager.IsRunning(generator.JobPacman) {
+		http.Error(w, "Generation is running, cancel it first", http.StatusConflict)
+		return
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	if !statusManager.TryStart(generator.JobGenerateFactions, total, cancel) {
 		cancel()
@@ -692,10 +719,19 @@ func (h *AdminHandlers) GenerateStatus(w http.ResponseWriter, r *http.Request) {
 func (h *AdminHandlers) ClearUniverse(w http.ResponseWriter, r *http.Request) {
 	if statusManager.IsRunning(generator.JobGenerateUniverse) ||
 		statusManager.IsRunning(generator.JobGeneratePlanets) ||
-		statusManager.IsRunning(generator.JobRegeneratePlanets) {
+		statusManager.IsRunning(generator.JobRegeneratePlanets) ||
+		statusManager.IsRunning(generator.JobPacman) {
 		http.Error(w, "Generation is running, cancel it first", http.StatusConflict)
 		return
 	}
+
+	// Разделяемый мьютекс с пакманом (спека 2026-09-20 §2.2): TRUNCATE и
+	// порционный DELETE не пересекаются. Lock занят пакманом → 409.
+	if !universeMutationMu.TryLock() {
+		http.Error(w, "Pacman is eating, stop it first", http.StatusConflict)
+		return
+	}
+	defer universeMutationMu.Unlock()
 
 	tStart := time.Now()
 

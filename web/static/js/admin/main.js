@@ -7,7 +7,7 @@ import {
     generateRaceSettlements, loadSettlementFields,
     cancelGeneration, clearUniverse, clearSettlements, applyPreset,
     switchGenSubTab, showTab, loadGenConfig, saveGenConfig, recalcGenWeights,
-    regeneratePlanets
+    regeneratePlanets, startPacman
 } from './generation.js';
 import { ensureAdminAuth, setAfterLogin, getAdminRole, adminLogin } from './auth.js';
 import {
@@ -66,6 +66,7 @@ window.loadGenConfig = loadGenConfig;
 window.saveGenConfig = saveGenConfig;
 window.recalcGenWeights = recalcGenWeights;
 window.regeneratePlanets = regeneratePlanets;
+window.startPacman = startPacman;
 window.loadResources = loadResources;
 window.toggleAxesCell = toggleAxesCell;
 window.toggleRacesCell = toggleRacesCell;

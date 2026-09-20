@@ -25,6 +25,11 @@ const (
 	// JobRegeneratePlanets — ручной пересчёт планет (99.2.3 §5): удаляет
 	// планеты выбранных миров и генерирует заново по полям формы.
 	JobRegeneratePlanets JobType = "regenerate_planets"
+	// JobPacman — «Пакман» (спека 2026-09-20-pacman-galaxy-wipe.md): админ-джоб
+	// вайпа галактики порциями по траектории; событие видно всем игрокам
+	// через WebSocket Broadcast. Отмена/статус — существующие ручки
+	// /admin/generate-cancel и /admin/generate-status с job=pacman.
+	JobPacman JobType = "pacman"
 )
 
 type JobStatus struct {

@@ -294,6 +294,13 @@ func (h *AdminNPCHandlers) GenerateNPC(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
 		return
 	}
+	// Пакман ест миры (спека 2026-09-20 §2.2): агенты в съеденных мирах
+	// исчезают — массовая генерация поверх пакмана не стартует (fail fast,
+	// до выборки миров).
+	if statusManager.IsRunning(generator.JobPacman) {
+		writeJSONError(w, "Генерация уже идёт", http.StatusConflict)
+		return
+	}
 	var req struct {
 		Count *int `json:"count"`
 	}
@@ -397,7 +404,8 @@ func (h *AdminNPCHandlers) ClearAllAgents(w http.ResponseWriter, r *http.Request
 		writeJSONError(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
 		return
 	}
-	if statusManager.IsRunning(generator.JobGenerateNPC) {
+	if statusManager.IsRunning(generator.JobGenerateNPC) ||
+		statusManager.IsRunning(generator.JobPacman) {
 		writeJSONError(w, "Генерация уже идёт", http.StatusConflict)
 		return
 	}

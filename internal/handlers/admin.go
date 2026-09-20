@@ -29,6 +29,11 @@ type AdminHandlers struct {
 	// чужих игроков в полёте интерполируются. nil в тестах.
 	travelManager *travel.Manager
 
+	// pacmanNotifier — WS-рассылка событий пакмана (спека 2026-09-20 §5):
+	// джоб пишет неблокирующе, рассылку делает горутина нотификатора.
+	// nil в тестах, где нотификатор не подключён.
+	pacmanNotifier *PacmanNotifier
+
 	planetStatsMu sync.RWMutex
 	planetStats   *PlanetStats
 }
@@ -60,4 +65,12 @@ func (h *AdminHandlers) SetVisibility(v *Visibility) {
 // чужих игроков в полёте интерполируются. Сеттер (не параметр конструктора).
 func (h *AdminHandlers) SetTravelManager(m *travel.Manager) {
 	h.travelManager = m
+}
+
+// SetPacmanNotifier — подключает нотификатор пакмана (спека 2026-09-20 §2.1):
+// джоб пишет события неблокирующе, рассылку делает горутина нотификатора.
+// Сеттер (не параметр конструктора): нотификатор строится из WebSocketHub,
+// который создаётся позже adminHandlers в main.go.
+func (h *AdminHandlers) SetPacmanNotifier(n *PacmanNotifier) {
+	h.pacmanNotifier = n
 }

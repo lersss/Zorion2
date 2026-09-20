@@ -246,6 +246,13 @@ func main() {
 	adminHandlers.SetTravelManager(travelManager)
 	worldHandlers.SetVisibility(visibility)
 
+	// Нотификатор пакмана (спека 2026-09-20 §5): события вайпа видны всем
+	// игрокам на карте через WebSocket Broadcast; джоб пишет неблокирующе,
+	// рассылку делает горутина нотификатора (джоб не блокируется на WS).
+	pacmanNotifier := handlers.NewPacmanNotifier(wsHub)
+	pacmanNotifier.Start()
+	adminHandlers.SetPacmanNotifier(pacmanNotifier)
+
 	// Снапшот карты подхватывается в фоне — сервер отвечает сразу,
 	// карта заполняется за пару секунд после старта.
 	mapCache.LoadAsync(db)
@@ -320,6 +327,7 @@ func main() {
 	http.HandleFunc("/admin/stats/planets", auth.AdminAuth(adminHandlers.GetPlanetStatsHandler))
 	http.HandleFunc("/admin/generate-status", auth.AdminAuth(adminHandlers.GenerateStatus))
 	http.HandleFunc("/admin/clear", auth.AdminAuth(adminHandlers.ClearUniverse))
+	http.HandleFunc("/admin/pacman/start", auth.AdminAuth(adminHandlers.StartPacman))
 	http.HandleFunc("/admin/generate-planets", auth.AdminAuth(adminHandlers.GeneratePlanets))
 	http.HandleFunc("/admin/generate-prototype-planet", auth.AdminAuth(adminHandlers.GeneratePrototypePlanet))
 	http.HandleFunc("/admin/generate-factions", auth.AdminAuth(adminHandlers.GenerateFactions))

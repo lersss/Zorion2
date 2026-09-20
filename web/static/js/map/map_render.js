@@ -3,6 +3,7 @@ import { state, elements } from './config.js';
 import { isFiniteNumber, worldToCanvas, getStarColor, getStarShade } from './utils.js';
 import { CONFIG } from '../config.js';
 import { drawNPCAgents } from './npc_agents.js';
+import { drawPacman } from './pacman.js';
 import { recolorShipSprite } from './ship_sprites.js';
 import { drawStarfield, initStarfield } from './starfield.js';
 
@@ -171,6 +172,9 @@ export function draw() {
 
     // --- NPC-агенты (спека 20a.1 §7): иконки поверх звёзд ---
     drawNPCAgents(ctx, canvasWidth, canvasHeight);
+
+    // --- Пакман (спека 2026-09-20 §6.2): поверх кластеров/звёзд, под баннером ---
+    drawPacman(ctx, canvasWidth, canvasHeight);
 
     // --- Анимация полёта ---
     if (isFlying && flyFrom && flyTo) {

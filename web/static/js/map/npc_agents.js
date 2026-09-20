@@ -12,6 +12,7 @@ import { notifyInfo } from '../ui/toast.js';
 import { handleUnauthorized } from './data.js';
 import { recolorShipSprite, spriteForAgent } from './ship_sprites.js';
 import { focusAgent } from './navigation.js';
+import { handlePacmanMessage } from './pacman.js';
 // draw — циклический импорт map_render.js (map_render импортирует
 // drawNPCAgents из этого модуля): ES-модули допускают цикл, доступ к draw
 // только в рантайме (loadNPCPositions), после инициализации обоих модулей.
@@ -118,11 +119,17 @@ function connectNPCSocket() {
         } catch (err) {
             return;
         }
-        if (data.type !== 'npc_arrivals_batch') return;
-        const n = (data.arrivals || []).length;
-        const extra = data.total > 0 ? ` (ещё ${data.total})` : '';
-        notifyInfo(`👁️ NPC-агент${n > 1 ? 'ы' : ''} прибыл${extra}`);
-        loadNPCPositions();
+        if (data.type === 'npc_arrivals_batch') {
+            const n = (data.arrivals || []).length;
+            const extra = data.total > 0 ? ` (ещё ${data.total})` : '';
+            notifyInfo(`👁️ NPC-агент${n > 1 ? 'ы' : ''} прибыл${extra}`);
+            loadNPCPositions();
+            return;
+        }
+        // Пакман (спека 2026-09-20 §5.2): события вайпа видны всем игрокам.
+        if (data.type && data.type.indexOf('pacman_') === 0) {
+            handlePacmanMessage(data);
+        }
     };
     ws.onclose = () => {
         wsReconnectAttempts++;

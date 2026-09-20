@@ -27,11 +27,21 @@ export async function pollJob(jobType, progressId, resultId, cancelBtnId) {
             cancelBtn.style.display = (status === 'running') ? 'inline-block' : 'none';
         }
 
+        // Пакман (спека 2026-09-20 §2.1): пока пакман ест, «Удалить все миры»
+        // недоступна; кнопка пакмана дизейблится на любой идущий джоб
+        // (клиентская защита; серверная — 409).
+        const clearBtn = document.getElementById('clearUniverseBtn');
+        if (clearBtn) clearBtn.disabled = (jobType === 'pacman' && status === 'running');
+        const pacmanBtn = document.getElementById('pacmanStartBtn');
+        if (pacmanBtn) pacmanBtn.disabled = (status === 'running');
+
         if (status === 'done' || status === 'error' || status === 'canceled') {
             clearInterval(pollIntervals[jobType]);
             delete pollIntervals[jobType];
             document.getElementById(progressId).style.display = 'none';
             if (cancelBtn) cancelBtn.style.display = 'none';
+            if (clearBtn) clearBtn.disabled = false;
+            if (pacmanBtn) pacmanBtn.disabled = false;
             const resultEl = document.getElementById(resultId);
             if (status === 'done') {
                 resultEl.textContent = `✅ Готово! (${total} объектов)`;
@@ -62,6 +72,11 @@ export async function pollJob(jobType, progressId, resultId, cancelBtnId) {
                     // «Не заселились (N из 50): ...» (копилка для разбора
                     // причин); все 50 заселились — отчёта нет, generic.
                     resultEl.textContent = data.report || `✅ Поселения рас сгенерированы`;
+                } else if (jobType === 'pacman') {
+                    // Пакман (спека 2026-09-20 §2.1): отчёт «Пакман съел N
+                    // миров за X сек» + обновить статистику.
+                    resultEl.textContent = data.report || `✅ Пакман съел ${progress} миров`;
+                    loadStats();
                 }
             } else if (status === 'canceled') {
                 resultEl.textContent = `⏹️ Остановлено пользователем`;

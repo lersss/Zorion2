@@ -48,8 +48,11 @@ func (h *AdminHandlers) RegeneratePlanets(w http.ResponseWriter, r *http.Request
 	// Взаимная блокировка с генерацией вселенной/планет (AGENTS.md §23,
 	// 99.2.3 §5: «без параллельных с генерацией вселенной»). Проверка до
 	// выборки миров — fail fast, без лишней нагрузки на БД.
+	// Пакман ест миры (спека 2026-09-20 §2.2) — пересчёт поверх него не
+	// стартует.
 	if statusManager.IsRunning(generator.JobGenerateUniverse) ||
-		statusManager.IsRunning(generator.JobGeneratePlanets) {
+		statusManager.IsRunning(generator.JobGeneratePlanets) ||
+		statusManager.IsRunning(generator.JobPacman) {
 		http.Error(w, "Generation already running", http.StatusConflict)
 		return
 	}

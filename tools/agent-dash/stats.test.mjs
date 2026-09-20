@@ -181,12 +181,25 @@ writer.prepare("INSERT INTO message VALUES (?,?,?,?,?)").run(
   nowMs,
   JSON.stringify({ role: "assistant", cost: 2, tokens: { input: 10, output: 1, cache: { read: 100000 } } })
 );
+// Пять одинаковых вызовов только что — это повторы «в рамках текущей задачи».
+for (let i = 0; i < 5; i++) {
+  writer.prepare("INSERT INTO part VALUES (?,?,?,?,?,?)").run(
+    "rp" + i,
+    "rm" + i,
+    "s6",
+    nowMs,
+    nowMs,
+    JSON.stringify({ type: "tool", tool: "bash", callID: "rc" + i, state: { input: { command: "git log -1" }, title: "git log -1" } })
+  );
+}
 writer.close();
 
 const after = store2.report({});
 const fresh = (after.active || []).find((a) => a.id === "s6");
 check("новая сессия появляется без перезапуска", !!fresh && fresh.live === true, JSON.stringify(after.active.map((a) => a.id)));
 check("у новой сессии видна цена и память", !!fresh && fresh.cost === 4 && fresh.peak === 640010, JSON.stringify(fresh));
+check("повторы считаются в рамках текущей задачи", fresh.recentRepeats === 2, JSON.stringify(fresh));
+check("в записи указано окно задачи", fresh.recentMinutes === 15 && fresh.recentCalls === 5, JSON.stringify(fresh));
 const s4 = after.features.find((f) => f.label === "Фича Б");
 check("дописанная цена подхватывается", s4.cost === 5, JSON.stringify(s4?.cost));
 check("дописанная память подхватывается", s4.peak === 100010, JSON.stringify(s4?.peak));

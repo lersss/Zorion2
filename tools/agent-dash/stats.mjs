@@ -137,6 +137,7 @@ export function createStore({
   cachePath = null,
   journalPath = null,
   refreshGapMs = 8000,
+  recentWindowMs = Number(process.env.DASH_RECENT_MIN || 15) * 60 * 1000,
 } = {}) {
   const db = new DatabaseSync(dbPath, { readOnly: true });
   const cache = readCache(cachePath);
@@ -166,6 +167,11 @@ export function createStore({
 
   const toolGroups = db.prepare(
     `SELECT COUNT(*) c FROM part WHERE session_id=? AND ${AS_TOOL}
+     GROUP BY json_extract(data,'$.tool'), json_extract(data,'$.state.input')`
+  );
+  // То же, но только за последние минуты — «в рамках задачи, которую агент делает сейчас».
+  const recentGroups = db.prepare(
+    `SELECT COUNT(*) c FROM part WHERE session_id=? AND ${AS_TOOL} AND time_created >= ?
      GROUP BY json_extract(data,'$.tool'), json_extract(data,'$.state.input')`
   );
   const miscOf = db.prepare(
@@ -381,6 +387,20 @@ export function createStore({
     journal = loadJournal(journalPath);
   }
 
+  // Повторы за последние минуты: видно, крутится ли агент прямо сейчас.
+  function recentOf(id) {
+    let calls = 0;
+    let worst = 0;
+    let repeats = 0;
+    for (const g of recentGroups.all(id, Date.now() - recentWindowMs)) {
+      const c = g.c || 0;
+      calls += c;
+      if (c > worst) worst = c;
+      if (c > 3) repeats += c - 3;
+    }
+    return { calls, worst, repeats };
+  }
+
   // Активность сессии внутри периода; null — в этом периоде сессия не работала.
   function activityOf(s, sinceDay) {
     if (!sinceDay) {
@@ -475,19 +495,26 @@ export function createStore({
         .slice()
         .sort((x, y) => y.activity.last - x.activity.last)
         .slice(0, 40)
-        .map(({ s, activity, stat, guard }) => ({
-          id: s.id,
-          agent: s.agent,
-          title: s.title,
-          parent: s.parentID ? byId.get(s.parentID)?.title || "" : "",
-          cost: round(activity.cost),
-          peak: activity.peak,
-          turns: activity.turns,
-          last: activity.last,
-          live: now - activity.last < 5 * 60 * 1000,
-          guard: guard.blocked + guard.aborted,
-          repeats: stat.repeats,
-        })),
+        .map(({ s, activity, stat, guard }) => {
+          const recent = recentOf(s.id);
+          return {
+            id: s.id,
+            agent: s.agent,
+            title: s.title,
+            parent: s.parentID ? byId.get(s.parentID)?.title || "" : "",
+            cost: round(activity.cost),
+            peak: activity.peak,
+            turns: activity.turns,
+            last: activity.last,
+            live: now - activity.last < 5 * 60 * 1000,
+            guard: guard.blocked + guard.aborted,
+            repeats: stat.repeats,
+            recentCalls: recent.calls,
+            recentRepeats: recent.repeats,
+            recentWorst: recent.worst,
+            recentMinutes: Math.round(recentWindowMs / 60000),
+          };
+        }),
     };
   }
 

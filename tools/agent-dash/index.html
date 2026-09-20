@@ -76,6 +76,10 @@
       .lcard .l2 { display: flex; flex-wrap: wrap; gap: 20px; align-items: center; margin-top: 8px; }
       .lcard .l3 { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 8px; }
       .role { display: inline-block; padding: 1px 10px; border-radius: 999px; background: rgba(109, 179, 242, 0.16); color: var(--accent); font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.85em; }
+      .pill { display: inline-block; padding: 1px 10px; border-radius: 999px; background: rgba(139, 147, 161, 0.16); color: var(--dim); font-weight: 700; font-size: 0.85em; white-space: nowrap; }
+      .pill.hi { background: rgba(224, 163, 62, 0.18); color: var(--warn); }
+      .pill.bad { background: rgba(224, 108, 108, 0.18); color: var(--bad); }
+      .pill.ok { background: rgba(110, 231, 160, 0.14); color: #6ee7a0; }
       td strong { font-weight: 700; color: #fff; }
       .liveblock { margin-top: 16px; }
       .livehead { display: flex; align-items: baseline; gap: 12px; }
@@ -206,7 +210,8 @@
               </div>
               <div class="l3">
                 <span class="delta">${a.turns} ответов${d && d.turns > 0 ? " (+" + d.turns + ")" : ""}</span>
-                <span class="delta">сторож: ${a.guard || 0}</span>
+                <span class="pill ${a.recentRepeats > 50 ? "bad" : a.recentRepeats > 0 ? "hi" : ""}">повторов за ${a.recentMinutes || 15} мин: ${a.recentRepeats || 0}</span>
+                <span class="pill ${a.guard ? "bad" : ""}">сторож: ${a.guard || 0}</span>
                 <span class="delta">${ago(a.last, now)} назад</span>
                 ${a.live ? '<span class="live">работает</span>' : ""}
               </div>
@@ -230,7 +235,10 @@
       }
 
       // Роль — плашкой, название и цена — заметно, чтобы не сливалось с остальным.
+      // Повторы и срабатывания сторожа — тоже плашками: сразу видно, где беда.
       const cell = (col, value) => {
+        if (col.id === "repeats") return `<span class="pill ${value > 100 ? "bad" : value > 0 ? "hi" : ""}">${value || 0}</span>`;
+        if (col.id === "guard") return `<span class="pill ${value ? "bad" : ""}">${value || 0}</span>`;
         if (col.fmt) return col.fmt(value);
         if (col.id === "agent") return `<span class="role">${esc(value)}</span>`;
         if (col.id === "label") return `<strong>${esc(value)}</strong>`;

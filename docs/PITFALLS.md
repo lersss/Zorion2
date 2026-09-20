@@ -277,6 +277,16 @@
   различающим `Total` (`!Running && Total == N` второго джоба) —
   `TestGenShipsJobSizePropagates` в `ships_job_test.go`.
 
+- **Арт-студия: чекпоинт SDXL читается джобами ТОЛЬКО под `r.mu`
+  (`c.r.checkpoint()`), не напрямую из `c.r.cfg.Checkpoint`.** Селект «Модель»
+  (2026-09-20) меняет `cfg.Checkpoint` в памяти через `Runner.SetCheckpoint`
+  (под `r.mu`) — джобы (`race_job`/`ref_job`/`human_job`/`ships_job`) строят
+  воркфлоу в воркер-горутинах, и прямое чтение `c.r.cfg.Checkpoint` дало бы
+  data race с хендлером (Go убивает процесс, `-race` ловит). Правило: джобы
+  читают актуальное значение на каждый воркфлоу через `c.r.checkpoint()`
+  (паттерн `family()`), не кэшируют при старте — выбор модели применяется
+  к следующим генерациям без рестарта.
+
 ## Дизайн и числа
 
 - **Гейты типов недр (99.2.28 §8): захардкоженный switch по ID ≠ данные
@@ -516,6 +526,16 @@
   блокируют и «frost»). Аналогичная коллизия в парсере модулей: «бледный»
   содержит «лед» (б-л-е-д) — холодный стем корпуса «лед» давал ложный
   cold_hull; стемы «лёд»/«ледян» покрывают реальные слова без коллизии.
+
+- **Go-структура с nil-слайсом сериализуется в JSON как `null`, а Python-скрипт
+  силуэтов падает на `spec.get('modules', [])`.** `SilhouetteSpecJSON`
+  (`cmd/art-studio/generator/ship_prompt.go`) маршалит `SilhouetteSpec.Modules`
+  (nil, если в ТЗ нет секции «модули:») в `"modules": null` — скрипт
+  `tools/make_ship_silhouettes.py` получал `None` из `.get('modules', [])`
+  (ключ есть, значение null) и падал `TypeError: 'NoneType' object is not
+  iterable` (проверено 2026-09-20 на пиксельных тестах форм без модулей).
+  Правило: Python-чтение опциональных полей spec — `spec.get('modules') or []`
+  (и `has_cockpit` — тот же паттерн), не `.get(key, [])`.
 
 - **opencode serve: контракт HTTP-API (студия товаров 99a.1 §7.5, белое пятно
   спеки — решено на разработке).** Локальный opencode (`opencode serve`, порт

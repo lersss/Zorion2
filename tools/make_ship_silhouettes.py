@@ -43,103 +43,194 @@ def new_canvas():
 # --- Библиотека форм (13 шт, параметрические: нос справа) ---
 # Каждая форма принимает цвет корпуса (hull): крем по умолчанию, холодный
 # бледно-голубой — для холодных рас (диагноз визуального аудита).
+# Общие требования (диагноз визуального аудита, 2026-09-20): каждая форма —
+# выразительный характерный силуэт (не овал): яркая асимметрия «нос справа,
+# корма слева» (масса справа заметно ≠ 50%, диапазон на форму — в комментарии
+# и пиксельном тесте), разнообразная заполненность bbox по Y (у форм с
+# крыльями/оперением размах по Y заметный), палитра art_ships §2.1 (корпус
+# крем/холодный, крылья сталь, хвост бронза, дюзы тёмные, кабина светлая,
+# границы (12,12,12)), запас ~90 px от краёв.
 
 def draw_wing(d, hull=CREAM):
-    # крыло: широкий нос справа, сужающаяся корма слева
+    # крыло (humans): корпус-фюзеляж (широкий, чуть левее центра) + носовой
+    # конус (справа) + стальные стреловидные крылья с размахом по Y (~90% H).
+    # Дюзы слева, кабина справа. Корма-форма: масса ~40-48% справа (крылья
+    # уходят назад-влево), y-протяжённость ≥ 40% холста.
+    d.rounded_rectangle([X0 + W * 0.05, Y0 + H * 0.28, X0 + W * 0.85, Y0 + H * 0.72],
+                        radius=40, fill=hull, outline=BORDER, width=5)
     d.polygon([
-        (X0, Y0 + H * 0.38), (X0 + W * 0.72, Y0 + H * 0.12),
-        (X0 + W, Y0 + H * 0.35), (X0 + W, Y0 + H * 0.65),
-        (X0 + W * 0.72, Y0 + H * 0.88), (X0, Y0 + H * 0.62),
+        (X0 + W * 0.85, Y0 + H * 0.42), (X0 + W, Y0 + H * 0.5),
+        (X0 + W * 0.85, Y0 + H * 0.58),
     ], fill=hull, outline=BORDER, width=5)
+    d.polygon([
+        (X0 + W * 0.5, Y0 + H * 0.4), (X0 + W * 0.06, Y0 + H * 0.04),
+        (X0 + W * 0.14, Y0 + H * 0.22), (X0 + W * 0.5, Y0 + H * 0.4),
+    ], fill=STEEL, outline=BORDER, width=5)
+    d.polygon([
+        (X0 + W * 0.5, Y0 + H * 0.6), (X0 + W * 0.06, Y0 + H * 0.96),
+        (X0 + W * 0.14, Y0 + H * 0.78), (X0 + W * 0.5, Y0 + H * 0.6),
+    ], fill=STEEL, outline=BORDER, width=5)
 
 
 def draw_capsule(d, hull=CREAM):
-    d.ellipse([X0, Y0, X0 + W, Y0 + H], fill=hull, outline=BORDER, width=5)
+    # капсула: широкий скруглённый корпус-корма (слева) + чёткий нос-конус
+    # (справа). Не гладкий овал: сужение к носу, расширение к корме.
+    # Корма-форма: масса ~40-48% справа.
+    d.ellipse([X0, Y0 + H * 0.12, X0 + W * 0.85, Y0 + H * 0.88],
+              fill=hull, outline=BORDER, width=5)
+    d.polygon([
+        (X0 + W * 0.85, Y0 + H * 0.38), (X0 + W, Y0 + H * 0.5),
+        (X0 + W * 0.85, Y0 + H * 0.62),
+    ], fill=hull, outline=BORDER, width=5)
 
 
 def draw_barge(d, hull=CREAM):
-    d.rounded_rectangle([X0, Y0 + H * 0.25, X0 + W, Y0 + H * 0.75],
-                        radius=40, fill=hull, outline=BORDER, width=5)
+    # баржа: широкая плоскодонная корма (слева), обрубленный нос (справа),
+    # стальная надстройка-палуба (второй ярус) в средней части.
+    # Корма-форма: масса ~40-48% справа.
+    d.rounded_rectangle([X0 + W * 0.02, Y0 + H * 0.28, X0 + W * 0.95, Y0 + H * 0.72],
+                        radius=30, fill=hull, outline=BORDER, width=5)
+    d.rounded_rectangle([X0 + W * 0.15, Y0 + H * 0.4, X0 + W * 0.55, Y0 + H * 0.6],
+                        radius=20, fill=STEEL, outline=BORDER, width=5)
 
 
 def draw_crucible(d, hull=CREAM):
-    # тигель: широкая середина, суженные нос/корма
+    # тигель: корпус, расширяющийся кверху (широкий верх, узкая устойчивая
+    # база), уши-ручки (сталь) по бокам, нос-выступ справа.
+    # Нос-форма: масса ~55-65% справа.
     d.polygon([
-        (X0, Y0 + H * 0.35), (X0 + W * 0.3, Y0 + H * 0.18),
-        (X0 + W * 0.7, Y0 + H * 0.18), (X0 + W, Y0 + H * 0.35),
-        (X0 + W, Y0 + H * 0.65), (X0 + W * 0.7, Y0 + H * 0.82),
-        (X0 + W * 0.3, Y0 + H * 0.82), (X0, Y0 + H * 0.65),
+        (X0 + W * 0.25, Y0 + H * 0.18), (X0 + W * 0.87, Y0 + H * 0.18),
+        (X0 + W * 0.73, Y0 + H * 0.82), (X0 + W * 0.37, Y0 + H * 0.82),
+    ], fill=hull, outline=BORDER, width=5)
+    d.ellipse([X0 + W * 0.42, Y0 + H * 0.02, X0 + W * 0.58, Y0 + H * 0.18],
+              fill=STEEL, outline=BORDER, width=5)
+    d.ellipse([X0 + W * 0.42, Y0 + H * 0.82, X0 + W * 0.58, Y0 + H * 0.98],
+              fill=STEEL, outline=BORDER, width=5)
+    d.polygon([
+        (X0 + W * 0.87, Y0 + H * 0.32), (X0 + W, Y0 + H * 0.5),
+        (X0 + W * 0.87, Y0 + H * 0.68),
     ], fill=hull, outline=BORDER, width=5)
 
 
 def draw_envelope(d, hull=CREAM):
-    # оболочка-«дирижабль»: округлый баллон
-    d.ellipse([X0, Y0 + H * 0.15, X0 + W, Y0 + H * 0.85],
+    # оболочка/баллон: округлый корпус-баллон (чуть левее центра) +
+    # бронзовое хвостовое оперение слева (вверх и вниз).
+    # Корма-форма: масса ~40-48% справа.
+    d.ellipse([X0 + W * 0.07, Y0 + H * 0.15, X0 + W * 0.87, Y0 + H * 0.85],
               fill=hull, outline=BORDER, width=5)
+    d.polygon([
+        (X0 + W * 0.12, Y0 + H * 0.3), (X0, Y0 + H * 0.08),
+        (X0 + W * 0.05, Y0 + H * 0.35), (X0 + W * 0.12, Y0 + H * 0.3),
+    ], fill=BRONZE, outline=BORDER, width=5)
+    d.polygon([
+        (X0 + W * 0.12, Y0 + H * 0.7), (X0, Y0 + H * 0.92),
+        (X0 + W * 0.05, Y0 + H * 0.65), (X0 + W * 0.12, Y0 + H * 0.7),
+    ], fill=BRONZE, outline=BORDER, width=5)
 
 
 def draw_vessel(d, hull=CREAM):
-    # сосуд: округлое тело + суженная корма
-    d.ellipse([X0 + W * 0.15, Y0 + H * 0.1, X0 + W * 0.85, Y0 + H * 0.9],
+    # сосуд: бутыль на боку — широкое тело (эллипс), узкое горлышко-нос
+    # (справа), суженное дно (слева). Корма-форма: масса ~40-48% справа.
+    d.ellipse([X0 + W * 0.1, Y0 + H * 0.15, X0 + W * 0.75, Y0 + H * 0.85],
               fill=hull, outline=BORDER, width=5)
+    d.rectangle([X0 + W * 0.75, Y0 + H * 0.4, X0 + W * 0.97, Y0 + H * 0.6],
+                fill=hull, outline=BORDER, width=5)
     d.polygon([
-        (X0 + W * 0.15, Y0 + H * 0.35), (X0, Y0 + H * 0.45),
-        (X0, Y0 + H * 0.55), (X0 + W * 0.15, Y0 + H * 0.65),
+        (X0 + W * 0.1, Y0 + H * 0.3), (X0, Y0 + H * 0.5),
+        (X0 + W * 0.1, Y0 + H * 0.7),
     ], fill=hull, outline=BORDER, width=5)
 
 
 def draw_flask(d, hull=CREAM):
-    # склянка: круглое тело + узкое горло слева
-    d.ellipse([X0 + W * 0.25, Y0 + H * 0.2, X0 + W * 0.95, Y0 + H * 0.8],
-              fill=hull, outline=BORDER, width=5)
-    d.rectangle([X0, Y0 + H * 0.4, X0 + W * 0.3, Y0 + H * 0.6],
+    # колба: широкое круглое тело, узкое горлышко-нос (справа), плоское дно
+    # (слева). Корма-форма: масса ~40-48% справа.
+    d.rounded_rectangle([X0 + W * 0.1, Y0 + H * 0.2, X0 + W * 0.8, Y0 + H * 0.8],
+                        radius=40, fill=hull, outline=BORDER, width=5)
+    d.rectangle([X0 + W * 0.8, Y0 + H * 0.42, X0 + W * 0.95, Y0 + H * 0.58],
                 fill=hull, outline=BORDER, width=5)
 
 
 def draw_drop(d, hull=CREAM):
-    # капля: округлый нос справа, сужающийся хвост слева
-    d.ellipse([X0 + W * 0.35, Y0 + H * 0.15, X0 + W * 0.95, Y0 + H * 0.85],
-              fill=hull, outline=BORDER, width=5)
+    # капля: каплевидная — заострённый нос (справа), широкая скруглённая
+    # корма (слева). Яркая асимметрия. Корма-форма: масса ~40-48% справа.
     d.polygon([
-        (X0 + W * 0.35, Y0 + H * 0.35), (X0, Y0 + H * 0.5),
-        (X0 + W * 0.35, Y0 + H * 0.65),
+        (X0 + W, Y0 + H * 0.5), (X0 + W * 0.72, Y0 + H * 0.3),
+        (X0 + W * 0.45, Y0 + H * 0.16), (X0 + W * 0.2, Y0 + H * 0.18),
+        (X0 + W * 0.1, Y0 + H * 0.36), (X0 + W * 0.1, Y0 + H * 0.64),
+        (X0 + W * 0.2, Y0 + H * 0.82), (X0 + W * 0.45, Y0 + H * 0.84),
+        (X0 + W * 0.72, Y0 + H * 0.7),
     ], fill=hull, outline=BORDER, width=5)
 
 
 def draw_wedge(d, hull=CREAM):
-    # клин: широкий нос справа, узкая корма слева
+    # клин: треугольный в плане — широкая корма (слева), острый нос (справа).
+    # Корма-форма: масса ~38-48% справа.
     d.polygon([
-        (X0, Y0 + H * 0.5), (X0 + W, Y0 + H * 0.15), (X0 + W, Y0 + H * 0.85),
+        (X0 + W * 0.25, Y0 + H * 0.15), (X0 + W * 0.25, Y0 + H * 0.85),
+        (X0 + W, Y0 + H * 0.5),
     ], fill=hull, outline=BORDER, width=5)
 
 
 def draw_disc(d, hull=CREAM):
-    d.ellipse([X0, Y0 + H * 0.35, X0 + W, Y0 + H * 0.65],
+    # диск: сплюснутый (малый размах по Y), яйцевидный — шире к корме (слева),
+    # выступ-кабина (сталь) в носу справа, дюзы по корме слева.
+    # Корма-форма: масса ~42-48% справа.
+    d.ellipse([X0 + W * 0.02, Y0 + H * 0.3, X0 + W * 0.8, Y0 + H * 0.7],
               fill=hull, outline=BORDER, width=5)
+    d.rounded_rectangle([X0 + W * 0.78, Y0 + H * 0.38, X0 + W * 0.95, Y0 + H * 0.62],
+                        radius=20, fill=STEEL, outline=BORDER, width=5)
 
 
 def draw_ring(d, hull=CREAM):
-    # кольцо: обод с отверстием
-    d.ellipse([X0, Y0 + H * 0.2, X0 + W, Y0 + H * 0.8],
+    # кольцо: круг-обод с центральной ступицей-корпусом (чуть правее центра)
+    # и носом-выступом (справа). Нос-форма: масса ~52-60% справа.
+    cx, cy = X0 + W * 0.5, Y0 + H * 0.5
+    r_out = int(W * 0.38)
+    r_in = int(W * 0.2)
+    d.ellipse([cx - r_out, cy - r_out, cx + r_out, cy + r_out],
               fill=hull, outline=BORDER, width=5)
-    d.ellipse([X0 + W * 0.25, Y0 + H * 0.35, X0 + W * 0.75, Y0 + H * 0.65],
+    d.ellipse([cx - r_in, cy - r_in, cx + r_in, cy + r_in],
               fill=BG, outline=BORDER, width=5)
+    r_hub = int(W * 0.11)
+    hx = cx + int(W * 0.02)
+    d.ellipse([hx - r_hub, cy - r_hub, hx + r_hub, cy + r_hub],
+              fill=hull, outline=BORDER, width=5)
+    d.rounded_rectangle([cx + r_out - 20, cy - int(H * 0.22), cx + r_out + int(W * 0.12), cy + int(H * 0.22)],
+                        radius=25, fill=hull, outline=BORDER, width=5)
 
 
 def draw_sphere(d, hull=CREAM):
-    r = int(min(W, H) * 0.45)
-    cx, cy = X0 + W // 2, Y0 + H // 2
+    # шар: круглый корпус (смещён вправо), кабина-выступ (сталь) в носу
+    # справа, хвостовые стабилизаторы (бронза) слева.
+    # Нос-форма: масса ~55-62% справа.
+    r = int(W * 0.32)
+    cx, cy = X0 + W * 0.56, Y0 + H * 0.5
     d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=hull, outline=BORDER, width=5)
+    d.rounded_rectangle([cx + r - 15, cy - int(H * 0.2), cx + r + int(W * 0.11), cy + int(H * 0.2)],
+                        radius=25, fill=STEEL, outline=BORDER, width=5)
+    d.polygon([
+        (cx - r + 10, cy - 10), (X0 + W * 0.02, cy - int(H * 0.3)),
+        (X0 + W * 0.02, cy - int(H * 0.12)), (cx - r + 10, cy - 10),
+    ], fill=BRONZE, outline=BORDER, width=5)
+    d.polygon([
+        (cx - r + 10, cy + 10), (X0 + W * 0.02, cy + int(H * 0.3)),
+        (X0 + W * 0.02, cy + int(H * 0.12)), (cx - r + 10, cy + 10),
+    ], fill=BRONZE, outline=BORDER, width=5)
 
 
 def draw_swarm(d, hull=CREAM):
-    # рой: кластер мелких корпусов (детерминированный random)
-    rng = random.Random(42)
-    cx, cy = X0 + W // 2, Y0 + H // 2
-    for _ in range(9):
-        x = cx + rng.randint(-W // 3, W // 3)
-        y = cy + rng.randint(-H // 3, H // 3)
-        r = rng.randint(40, 70)
+    # рой: россыпь мелких модулей-осколков в общем контуре (не сплошной блоб):
+    # плотный рой в носу (справа), редкий шлейф к корме (слева).
+    # Нос-форма: масса ~55-65% справа.
+    mods = [
+        (0.82, 0.5, 30), (0.78, 0.3, 26), (0.74, 0.7, 28), (0.7, 0.45, 34),
+        (0.66, 0.6, 24), (0.62, 0.25, 30), (0.58, 0.75, 26),
+        (0.52, 0.42, 32), (0.48, 0.62, 28), (0.44, 0.2, 24), (0.4, 0.8, 26),
+        (0.32, 0.5, 30), (0.26, 0.3, 22), (0.2, 0.7, 24), (0.14, 0.45, 20),
+    ]
+    for fx, fy, r in mods:
+        x = X0 + int(W * fx)
+        y = Y0 + int(H * fy)
         d.ellipse([x - r, y - r, x + r, y + r], fill=hull, outline=BORDER, width=4)
 
 
@@ -268,13 +359,13 @@ def main():
     # цвет корпуса: модуль hull (крем по умолчанию, холодный бледно-голубой
     # для холодных рас — диагноз визуального аудита)
     hull_col = CREAM
-    for m in spec.get('modules', []):
+    for m in spec.get('modules') or []:
         if m.get('type') == 'hull':
             hull_col = COLOR_MAP.get(m.get('color', 'cream'), CREAM)
             break
     draw_fn(d, hull_col)
-    draw_modules(d, spec.get('modules', []))
-    has_cockpit = any(m.get('type') == 'cockpit' for m in spec.get('modules', []))
+    draw_modules(d, spec.get('modules') or [])
+    has_cockpit = any(m.get('type') == 'cockpit' for m in spec.get('modules') or [])
     if spec.get('light_nose') and not has_cockpit:
         draw_light_nose(d)
     if spec.get('warm_glow'):

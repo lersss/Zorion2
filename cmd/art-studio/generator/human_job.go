@@ -40,7 +40,7 @@ func (c *JobCtx) genHumansJob(n int) {
 		}
 		raw := filepath.Join(pool, fmt.Sprintf("_raw_%02d.png", i+1))
 		out := filepath.Join(pool, fmt.Sprintf("h%02d_%s.png", i+1, sex))
-		wf := comfy.Txt2ImgWorkflow(c.r.cfg.Checkpoint, prompt, c.r.humans.Neg, seed, c.r.humans.Params.Steps, c.r.humans.Params.Cfg, 1024, "human_pool")
+		wf := comfy.Txt2ImgWorkflow(c.r.checkpoint(), prompt, c.r.humans.Neg, seed, c.r.humans.Params.Steps, c.r.humans.Params.Cfg, 1024, "human_pool")
 		pid, err := c.r.comfy.Submit(wf)
 		if err != nil {
 			return false

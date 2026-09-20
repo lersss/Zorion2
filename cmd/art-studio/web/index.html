@@ -35,6 +35,8 @@
 <div class="toolbar" style="margin-bottom:12px">
   <span title="Дополнительные теги для экспериментов: добавляются в конец промпта перед финальной частью (высокий вес в SDXL). Пусто — как обычно.">Дополнительные теги:</span>
   <input id="tags" type="text" placeholder="например: intricate details, volumetric lighting" style="width:340px">
+  <span style="margin-left:12px" title="Чекпоинт SDXL для всех генераций (расы/эталоны/люди/корабли). Выбор на сессию: рестарт студии вернёт модель из studio.json.">Модель:</span>
+  <select id="checkpoint" title="Чекпоинт SDXL для всех генераций (расы/эталоны/люди/корабли). Выбор на сессию: рестарт студии вернёт модель из studio.json."></select>
 </div>
 <div style="margin-bottom:12px">
   <div style="display:flex;gap:8px;align-items:center;margin-bottom:4px;flex-wrap:wrap">
@@ -921,12 +923,45 @@ function showTab(name){
   if(name==='gallery') loadGallery();
   schedulePromptUpdate();
 }
+// ---------- ЧЕКПОИНТ SDXL (селект «Модель») ----------
+// Список моделей отдаёт сервер (GET /checkpoint → {current, list}); выбор —
+// на сессию (POST /checkpoint?name=), диск не переписывается: рестарт студии
+// вернёт модель из studio.json. Персистентность — как у остальных полей UI
+// (saveUIState/getUIState): сохранённый выбор применяется к серверу при загрузке.
+async function loadCheckpoint(){
+  const sel=document.getElementById('checkpoint');
+  if(!sel) return;
+  let j={};
+  try{ const r=await fetch('/checkpoint'); j=await r.json(); }catch(e){ return; }
+  const list=j.list||[];
+  sel.innerHTML=list.map(c=>`<option value="${c}">${c.replace('.safetensors','')}</option>`).join('');
+  if(!list.length) return;
+  // дефолт — текущий чекпоинт сервера; сохранённый выбор (localStorage) — поверх
+  let cur=list.includes(j.current)? j.current : list[0];
+  const saved=getUIState('checkpoint');
+  if(saved && list.includes(saved) && saved!==cur){
+    cur=saved;
+    try{ await fetch('/checkpoint?name='+encodeURIComponent(saved), {method:'POST'}); }catch(e){}
+  }
+  sel.value=cur;
+}
+async function setCheckpoint(){
+  const sel=document.getElementById('checkpoint');
+  const name=sel.value;
+  try{
+    const r=await fetch('/checkpoint?name='+encodeURIComponent(name), {method:'POST'});
+    const j=await r.json();
+    if(j.error){ alert('Модель: '+j.error); return; }
+    saveUIState('checkpoint', name);
+  }catch(e){ alert('Ошибка запроса: '+e.message); }
+}
 function restoreState(){
   restoreUIState(); // восстанавливает все поля + активную вкладку (85a)
   loadRaces();
   loadRacesRef();
   loadShipsRaces();
   loadGalleryRaces();
+  loadCheckpoint();
 }
 async function pollStatus(){
   const r=await fetch('/status'); const s=await r.json();
@@ -1224,6 +1259,7 @@ async function initFamSelects(){
   document.getElementById('cnEndPct').oninput = e=>{ saveUIState('cnEndPct', e.target.value); document.getElementById('cnEndPctLbl').textContent=e.target.value+'%'; };
   document.getElementById('palettePct').oninput = e=>{ saveUIState('palettePct', e.target.value); document.getElementById('palettePctLbl').textContent=e.target.value+'%'; };
   document.getElementById('sizePool').onchange = e=>saveUIState('sizePool', e.target.value);
+  document.getElementById('checkpoint').onchange = setCheckpoint;
 }
 // авто-обновление: НЕ трогает текущую вкладку, дифф-рендер не сбрасывает карточки
 setInterval(()=>{

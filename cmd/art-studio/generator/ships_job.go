@@ -129,7 +129,7 @@ func (c *JobCtx) genShipsJob(races []string, per int, tags, p1o, p2o string, siz
 		}
 		// (3) этап 1: форма (ControlNet Canny + img2img)
 		raw1 := filepath.Join(pool, fmt.Sprintf("_raw_%02d_1.png", i+1))
-		wf1 := comfy.ShipStage1Workflow(c.r.cfg.Checkpoint, prompt1, LightNeg(), silName, seed, steps, c.r.cfg.Cfg, c.r.cfg.CNStrength, wfSize, "ship_pool")
+		wf1 := comfy.ShipStage1Workflow(c.r.checkpoint(), prompt1, LightNeg(), silName, seed, steps, c.r.cfg.Cfg, c.r.cfg.CNStrength, wfSize, "ship_pool")
 		pid, err := c.r.comfy.Submit(wf1)
 		if err != nil {
 			return false
@@ -146,7 +146,7 @@ func (c *JobCtx) genShipsJob(races []string, per int, tags, p1o, p2o string, siz
 			return false
 		}
 		raw2 := filepath.Join(pool, fmt.Sprintf("_raw_%02d_2.png", i+1))
-		wf2 := comfy.ShipStage2Workflow(c.r.cfg.Checkpoint, prompt2, LightNeg(), raw1Name, seed, steps, c.r.cfg.CfgImg, 0.5, wfSize, "ship_pool")
+		wf2 := comfy.ShipStage2Workflow(c.r.checkpoint(), prompt2, LightNeg(), raw1Name, seed, steps, c.r.cfg.CfgImg, 0.5, wfSize, "ship_pool")
 		pid2, err := c.r.comfy.Submit(wf2)
 		if err != nil {
 			os.Remove(raw1)

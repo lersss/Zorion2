@@ -169,6 +169,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/ships/vote", s.handleShipsVote)
 	mux.HandleFunc("/ships/status", s.handleStatus)
 	mux.HandleFunc("/ships/stop", s.handleStop)
+	mux.HandleFunc("/checkpoint", s.handleCheckpoint)
 	return noCache(mux)
 }
 
@@ -183,6 +184,37 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, s.runner.ReadStatusAny())
+}
+
+// GetCheckpoint — текущий чекпоинт SDXL (делегирует Runner).
+func (s *Server) GetCheckpoint() string {
+	return s.runner.GetCheckpoint()
+}
+
+// SetCheckpoint — смена чекпоинта SDXL на сессию (делегирует Runner).
+func (s *Server) SetCheckpoint(name string) {
+	s.runner.SetCheckpoint(name)
+}
+
+// handleCheckpoint — GET /checkpoint → {current, list} (текущий + доступные);
+// POST /checkpoint?name= → установить чекпоинт на сессию (валидация:
+// имя ∈ KnownCheckpoints; диск не переписывается, применяется к следующим
+// генерациям). Ответ POST — {ok, current}.
+func (s *Server) handleCheckpoint(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		name := r.URL.Query().Get("name")
+		if !config.IsKnownCheckpoint(name) {
+			writeJSON(w, map[string]string{"error": "неизвестный чекпоинт: " + name})
+			return
+		}
+		s.SetCheckpoint(name)
+		writeJSON(w, map[string]interface{}{"ok": true, "current": name})
+		return
+	}
+	writeJSON(w, map[string]interface{}{
+		"current": s.GetCheckpoint(),
+		"list":    config.KnownCheckpoints,
+	})
 }
 
 func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {

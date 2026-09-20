@@ -90,7 +90,7 @@ func (c *JobCtx) genVarJob(famID string, fam config.Family, raceIdx, n int, ref 
 		nextNum++
 		numMu.Unlock()
 		out := filepath.Join(pool, fmt.Sprintf("r%02d.png", nn))
-		wf := comfy.Img2ImgWorkflow(c.r.cfg.Checkpoint, prompt, LightNeg(), refName, seed, c.r.cfg.Steps, c.r.cfg.CfgImg, denoise, cnStrength, cnEnd, size, "race_pool")
+		wf := comfy.Img2ImgWorkflow(c.r.checkpoint(), prompt, LightNeg(), refName, seed, c.r.cfg.Steps, c.r.cfg.CfgImg, denoise, cnStrength, cnEnd, size, "race_pool")
 		pid, err := c.r.comfy.Submit(wf)
 		if err != nil {
 			return false

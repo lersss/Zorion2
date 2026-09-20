@@ -86,6 +86,16 @@
 | `tools/make_ship_silhouettes.py` | @developer (ships-races-generator) | коммит ships-races-generator |
 | `tools/process_ship.py` | @developer (ships-races-generator, 98c: --canvas эскиз) | коммит ships-races-generator |
 | `cmd/art-studio/web/index.html` (loadShipsList cache-busting) | @developer (баг превью-сетки кораблей) | коммит бага превью-сетки |
+| `cmd/art-studio/config/config_types.go` (KnownCheckpoints) | @developer (селект чекпоинта SDXL) | коммит селекта чекпоинта |
+| `cmd/art-studio/generator/worker.go` (SetCheckpoint/GetCheckpoint/checkpoint) | @developer (селект чекпоинта SDXL) | коммит селекта чекпоинта |
+| `cmd/art-studio/generator/{race_job,ref_job,human_job,ships_job}.go` (checkpoint()) | @developer (селект чекпоинта SDXL) | коммит селекта чекпоинта |
+| `cmd/art-studio/handlers/http.go` (/checkpoint) | @developer (селект чекпоинта SDXL) | коммит селекта чекпоинта |
+| `cmd/art-studio/handlers/checkpoint_handlers_test.go` | @developer (селект чекпоинта SDXL) | коммит селекта чекпоинта |
+| `cmd/art-studio/generator/checkpoint_test.go` | @developer (селект чекпоинта SDXL) | коммит селекта чекпоинта |
+| `cmd/art-studio/web/index.html` (селект «Модель») | @developer (селект чекпоинта SDXL) | коммит селекта чекпоинта |
+| `tools/make_ship_silhouettes.py` (выразительные формы 13 шт) | @developer (формы силуэтов) | коммит форм силуэтов |
+| `cmd/art-studio/generator/ships_silhouette_forms_test.go` | @developer (формы силуэтов) | коммит форм силуэтов |
+| `docs/PITFALLS.md` (запись про null-модули скрипта силуэтов) | @developer (формы силуэтов) | коммит форм силуэтов |
 
 ---
 

@@ -105,7 +105,7 @@ func (c *JobCtx) genRefJob(famID string, fam config.Family, raceIdx, n int, morp
 			}
 			raw := filepath.Join(pool, fmt.Sprintf("_raw_ref_%02d.png", i+1))
 			out := filepath.Join(refdir, fmt.Sprintf("c%02d.png", i+1))
-			wf := comfy.Txt2ImgWorkflow(c.r.cfg.Checkpoint, prompt, NegFor(fam, morph), seed, c.r.cfg.Steps, c.r.cfg.Cfg, size, "race_pool")
+			wf := comfy.Txt2ImgWorkflow(c.r.checkpoint(), prompt, NegFor(fam, morph), seed, c.r.cfg.Steps, c.r.cfg.Cfg, size, "race_pool")
 			pid, err := c.r.comfy.Submit(wf)
 			if err != nil {
 				continue

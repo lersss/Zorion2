@@ -100,6 +100,30 @@ func (r *Runner) SetShips(ships config.ShipsConfig, dict *config.ShipDictConfig,
 	r.racesPath = racesPath
 }
 
+// SetCheckpoint — смена чекпоинта SDXL на сессию (селект «Модель» в UI).
+// Диск (studio.json) НЕ переписывается: рестарт студии вернёт cfg.Checkpoint.
+// Применяется к следующим генерациям (джобы читают актуальное значение).
+func (r *Runner) SetCheckpoint(name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.cfg.Checkpoint = name
+}
+
+// GetCheckpoint — текущий чекпоинт SDXL.
+func (r *Runner) GetCheckpoint() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.cfg.Checkpoint
+}
+
+// checkpoint — текущий чекпоинт под r.mu (SetCheckpoint может заменить его
+// в памяти; джобы читают актуальное значение на каждый воркфлоу, не кэшируют).
+func (r *Runner) checkpoint() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.cfg.Checkpoint
+}
+
 // shipsSnapshot — конфиги кораблей под r.mu (ReloadShips может заменить их
 // в памяти; джоб читает снапшот при старте).
 func (r *Runner) shipsSnapshot() (config.ShipsConfig, *config.ShipDictConfig) {

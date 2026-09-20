@@ -24,6 +24,25 @@ type StudioConfig struct {
 	MaxCount        int     `json:"max_count"`
 }
 
+// KnownCheckpoints — доступные чекпоинты SDXL (селект «Модель» в UI).
+// Список захардкожен (не ходим в ComfyUI за списком); дефолт — cfg.Checkpoint
+// из studio.json. Выбор на сессию: диск не переписывается, рестарт студии
+// вернёт cfg.Checkpoint.
+var KnownCheckpoints = []string{
+	"juggernaut-xl-v9.safetensors",
+	"dreamshaper-xl-v1.safetensors",
+}
+
+// IsKnownCheckpoint — имя ∈ KnownCheckpoints (валидация POST /checkpoint).
+func IsKnownCheckpoint(name string) bool {
+	for _, c := range KnownCheckpoints {
+		if c == name {
+			return true
+		}
+	}
+	return false
+}
+
 // FormsConfig — словарь форм (config/art/forms.json, спека 67a.1 §4.1).
 // Комбинаторный: phrase_template + shapes x struct x character x parts.
 type FormsConfig struct {

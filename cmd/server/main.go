@@ -136,6 +136,18 @@ func main() {
 		log.Println("✅ Архетипы планет загружены")
 	}
 
+	// Справочник биомов (99.2.28 §15.1): биомы поверхности, типы недр,
+	// правила типов планет, параметры токсичности. Нет файла/битый JSON/
+	// невалидный каталог → встроенный сид (сервер не падает, паттерн
+	// LoadCompatibilityMatrix).
+	if err := planet.LoadBiomeCatalog("config/biome_catalog.json"); err != nil {
+		log.Printf("⚠️ Справочник биомов: %v — использую встроенный сид", err)
+	} else {
+		cat := planet.GetBiomeCatalog()
+		log.Printf("✅ Справочник биомов загружен: %d биомов, %d типов недр, %d правил типов",
+			len(cat.Biomes), len(cat.SubterrainTypes), len(cat.PlanetTypes))
+	}
+
 	// Каталог профилей регионов (59a, спека 99.2.10 §9): один JSON на класс.
 	// Имена форм — точные константы composition_forms.go (валидация §9).
 	// Ошибка загрузки — регионы остаются фоновыми (профиля нет), сервер живёт.
@@ -221,10 +233,52 @@ func main() {
 			return err == nil && w != nil
 		},
 		func(userID, worldID string) {
-			if err := userRepo.UpdateCurrentWorld(userID, worldID); err != nil {
+			// Прибытие межзвёздного (ИП-2, спека 99.2.27 §3.6.3): current_world_id
+			// + current_position = «орбита звезды» одним UPDATE (С-1).
+			if err := userRepo.UpdateCurrentWorldAndPosition(userID, worldID, models.StarOrbitPosition(worldID)); err != nil {
 				log.Printf("Failed to update current world for user %s: %v", userID, err)
 			}
 		},
+	)
+
+	// Внутрисистемные полёты (спека 99.2.27 §3.3/§3.5): персистентность в БД,
+	// Restore ПОСЛЕ межзвёздных (С-1) — межзвёздная строка побеждает, intra
+	// удаляется без onArrival (иначе позиция {planet, старый мир} запишется
+	// при новом current_world_id — нарушение ИП-1).
+	planetRepo := repository.NewPlanetRepository(db)
+	knowledgeRepo := repository.NewKnowledgeRepository(db)
+	intraFlightRepo := repository.NewPlayerIntrasystemFlightRepository(db)
+	intraManager := travel.NewIntrasystemManager(intraFlightRepo)
+	intraManager.RestoreIntra(time.Now(),
+		func(worldID, objType, objID string) bool {
+			w, err := worldRepo.GetByID(worldID)
+			if err != nil || w == nil {
+				return false
+			}
+			switch objType {
+			case "star":
+				if objID == worldID {
+					return true
+				}
+				return handlers.IsValidCompanionID(w, objID)
+			case "planet":
+				p, err := planetRepo.GetPlanetByID(objID)
+				return err == nil && p != nil && p.WorldID == worldID
+			case "satellite":
+				p, err := planetRepo.FindPlanetBySatellite(worldID, objID)
+				return err == nil && p != nil
+			}
+			return false
+		},
+		func(userID string) bool { return travelManager.IsInFlight(userID) },
+		func(userID string) string {
+			u, err := userRepo.GetByID(userID)
+			if err != nil || u == nil || u.CurrentWorldID == nil {
+				return ""
+			}
+			return *u.CurrentWorldID
+		},
+		handlers.NewIntraArrivalHandler(intraFlightRepo, planetRepo, knowledgeRepo),
 	)
 	wsHub := handlers.NewWebSocketHub()
 
@@ -232,6 +286,11 @@ func main() {
 	worldHandlers := handlers.NewWorldHandlers(worldRepo, locationRepo, assignmentRepo)
 	authHandlers := handlers.NewAuthHandlers(userRepo, worldRepo, travelManager)
 	travelHandlers := handlers.NewTravelHandlers(worldRepo, userRepo, travelManager)
+	travelHandlers.SetIntrasystem(intraManager, intraFlightRepo)
+	// Внутрисистемные полёты (спека 99.2.27 §4.1): POST /api/intrasystem-flight.
+	intrasystemHandlers := handlers.NewIntrasystemHandlers(
+		worldRepo, userRepo, planetRepo, intraFlightRepo, knowledgeRepo, travelManager, intraManager,
+	)
 	wsHandler := handlers.NewWebSocketHandler(wsHub)
 	contractHandlers := handlers.NewContractHandlers(assignmentRepo, userRepo)
 	mapCache := mapcache.NewManager()
@@ -240,7 +299,6 @@ func main() {
 
 	// Серверная видимость игрока (спека 77a §11): круг радара для role=player.
 	// Подключается к хендлерам карты/полёта; admin/skycomposer — без фильтра (И7).
-	knowledgeRepo := repository.NewKnowledgeRepository(db)
 	visibility := handlers.NewVisibility(userRepo, travelManager, mapCache, knowledgeRepo)
 	adminHandlers.SetVisibility(visibility)
 	adminHandlers.SetTravelManager(travelManager)
@@ -286,6 +344,7 @@ func main() {
 	http.HandleFunc("/worlds", auth.AuthMiddleware(worldHandlers.GetAllWorlds))
 	http.HandleFunc("/worlds/", auth.AuthMiddleware(worldHandlers.GetWorld))
 	http.HandleFunc("/travel", auth.AuthMiddleware(travelHandlers.StartTravel))
+	http.HandleFunc("/api/intrasystem-flight", auth.AuthMiddleware(intrasystemHandlers.StartIntraFlight))
 	http.HandleFunc("/me", auth.AuthMiddleware(authHandlers.GetMe))
 	http.HandleFunc("/me/ship-icon", auth.AuthMiddleware(authHandlers.UpdateShipIcon))
 	http.HandleFunc("/me/ship-color", auth.AuthMiddleware(authHandlers.UpdateShipColor))

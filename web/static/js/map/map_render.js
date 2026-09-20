@@ -409,11 +409,15 @@ function drawRadarBoundary(ctx, canvasWidth, canvasHeight) {
     }
 }
 
-// ==================== ЧУЖИЕ ИГРОКИ (спека 77a §5.3) ====================
+// ==================== ЧУЖИЕ ИГРОКИ (спека 77a §5.3 + 99.2.27 §4.5/§6) ====================
 
 // drawPlayerPositions — чужие игроки в радиусе радара: мини-спрайт корабля
 // (61b) или фолбэк-ромб, имя под иконкой при достаточном зуме. Сервер уже
 // отфильтровал по радиусу (И1) — клиент рисует как есть.
+// Спека 99.2.27 §6 (С-2): под именем — status-строка (готовая, с именем
+// объекта от сервера: «у планеты Nemurzan II», «в полёте (система X)»).
+// Скопление у планеты (§5.12, вариант A @uidesigner): бейдж-счётчик N при
+// N ≥ 2 у одного объекта (N = 1 — обычный маркер).
 function drawPlayerPositions(ctx, canvasWidth, canvasHeight) {
     const positions = state.playerPositions || [];
     if (positions.length === 0) return;
@@ -421,6 +425,15 @@ function drawPlayerPositions(ctx, canvasWidth, canvasHeight) {
 
     const { scale, offsetX, offsetY } = state;
     const size = Math.max(3.5, 4.5 * scale);
+
+    // Группировка стоящих по объекту (object_type+object_id) для бейджа N≥2.
+    const groups = new Map();
+    for (const p of positions) {
+        if (!p.object_type || !p.object_id) continue;
+        const key = p.object_type + ':' + p.object_id;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(p);
+    }
 
     for (const p of positions) {
         const px = p.x * scale + offsetX;
@@ -455,6 +468,36 @@ function drawPlayerPositions(ctx, canvasWidth, canvasHeight) {
         ctx.textAlign = 'center';
         ctx.fillStyle = '#7dd3fc';
         ctx.fillText(p.username || '—', px, py + size + fontSize);
+
+        // Статус-строка под именем (спека 99.2.27 §6, С-2): готовая строка
+        // с именем объекта от сервера; клиент карты не знает планет чужих систем.
+        if (p.status) {
+            ctx.font = `${Math.max(9, fontSize - 2)}px system-ui`;
+            ctx.fillStyle = '#94a3b8';
+            ctx.fillText(p.status, px, py + size + fontSize + (fontSize - 2) + 2);
+        }
+
+        // Бейдж скопления N≥2 (спека §5.12, вариант A): у объекта с несколькими
+        // кораблями — счётчик; N = 1 — обычный маркер.
+        if (p.object_type && p.object_id) {
+            const group = groups.get(p.object_type + ':' + p.object_id);
+            if (group && group.length >= 2) {
+                const badgeR = 9;
+                ctx.beginPath();
+                ctx.arc(px + size, py - size, badgeR, 0, 2 * Math.PI);
+                ctx.fillStyle = '#f59e0b';
+                ctx.fill();
+                ctx.strokeStyle = '#0f172a';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+                ctx.fillStyle = '#0f172a';
+                ctx.font = `700 ${Math.max(9, badgeR + 1)}px system-ui`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(String(group.length), px + size, py - size + 1);
+                ctx.textBaseline = 'alphabetic';
+            }
+        }
     }
 }
 

@@ -830,7 +830,7 @@ func (h *StudioHandlers) producerUnlinkItem(w http.ResponseWriter, r *http.Reque
 
 // --- уровни расовости (дерево построек, спека 2026-09-21 §3/§5) ---
 
-// RaceFamilyView — семейство рас для переключателя (спека §3): F1–F9 +
+// RaceFamilyView — семейство рас для переключателя (спека §3): F0–F9 +
 // robotic (в UI — «F10 Роботы»).
 type RaceFamilyView struct {
 	ID   string `json:"id"`
@@ -852,15 +852,15 @@ type RacesView struct {
 	Races    []RaceView       `json:"races"`
 }
 
-// raceFamilyNames — имена семейств (22_races.md §2.2/§4): F1–F9 + robotic.
+// raceFamilyNames — имена семейств (22_races.md §2.2/§4): F0–F9 + robotic.
 var raceFamilyNames = map[string]string{
-	"F1": "Водные", "F2": "Крио-аммиачные", "F3": "Метановые",
+	"F0": "Люди", "F1": "Водные", "F2": "Крио-аммиачные", "F3": "Метановые",
 	"F4": "Серные", "F5": "Терморедокс", "F6": "Кремниевые",
 	"F7": "Водородные/небесные", "F8": "Углекислые", "F9": "Экзотика",
 	"robotic": "Роботы",
 }
 
-// Races — GET /studio/api/races: семейства (F1–F9 + robotic) и расы
+// Races — GET /studio/api/races: семейства (F0–F9 + robotic) и расы
 // (id, name, family) из races.Catalog() + races.LoreCatalog() (Go-конфиги,
 // единый источник; дублирования в БД нет — «один факт — одно место»).
 func (h *StudioHandlers) Races(w http.ResponseWriter, r *http.Request) {
@@ -873,7 +873,7 @@ func (h *StudioHandlers) Races(w http.ResponseWriter, r *http.Request) {
 		famByID[l.ID] = l.Family
 	}
 	view := RacesView{Families: []RaceFamilyView{}, Races: []RaceView{}}
-	for _, id := range []string{"F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "robotic"} {
+	for _, id := range []string{"F0", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "robotic"} {
 		view.Families = append(view.Families, RaceFamilyView{ID: id, Name: raceFamilyNames[id]})
 	}
 	for _, rc := range races.Catalog() {

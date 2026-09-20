@@ -212,7 +212,8 @@ ClearUniverse его не трогает), `producer_types`/`items`/`producer_it
   `producer_types` + `parent_id BIGINT NULL FK → producer_types(id) ON DELETE
   RESTRICT` (базовый тип/подтип: подтип → тип-родитель; тип с подтипами не
   удаляется) и `race TEXT NULL` (второй уровень расовости: id расы из
-  `config/races.json`; задана → `race_family` обязана быть задана и
+  `config/races.json`; семейство расы — из `config/race_lore.json`
+  (`F0`–`F9`|`robotic`); задана → `race_family` обязана быть задана и
   соответствовать). Data-миграция для существующих БД (сид `producer_catalog_seed`
   уже отработал): тип «Лаборатория» (kind=items, `ON CONFLICT DO NOTHING`),
   переименование трёх лабораторий по `name_norm` (пропуск если не найдено),

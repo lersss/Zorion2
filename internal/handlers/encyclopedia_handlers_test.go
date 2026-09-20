@@ -52,7 +52,7 @@ func TestGetRacesWhitelist(t *testing.T) {
 	humans := findRace(resp.Races, "humans")
 	require.NotNil(t, humans)
 	assert.Equal(t, "Люди", humans["name"])
-	assert.Equal(t, "F1", humans["family"], "family из лора на верхнем уровне")
+	assert.Equal(t, "F0", humans["family"], "family из лора на верхнем уровне")
 	assert.Equal(t, "cold", humans["bulge"])
 
 	// Запрещённые поля отсутствуют (И5).

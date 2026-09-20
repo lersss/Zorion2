@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 )
 
-// RaceLore — лорная запись расы: family (F1–F9 / "robotic"), character
+// RaceLore — лорная запись расы: family (F0–F9 / "robotic"), character
 // («характер» словами), how_live («как живут»), why («зачем»/ниша),
 // coexistence («сосуществование»); origin — только у роботов (происхождение:
 // люди/самозародившийся/другие био/другие ИИ, 22_races.md §4.2).
@@ -43,9 +43,10 @@ type RaceLore struct {
 // старте до горутин — блокировка не нужна, паттерн catalog).
 var loreCatalog []*RaceLore
 
-// loreFamilies — допустимые семейства (22_races.md §2.2/§4).
+// loreFamilies — допустимые семейства (22_races.md §2.2/§4): F0–F9 + robotic
+// (F0 «Люди» — отдельное семейство, решение создателя 2026-09-17).
 var loreFamilies = map[string]bool{
-	"F1": true, "F2": true, "F3": true, "F4": true, "F5": true,
+	"F0": true, "F1": true, "F2": true, "F3": true, "F4": true, "F5": true,
 	"F6": true, "F7": true, "F8": true, "F9": true, "robotic": true,
 }
 
@@ -231,7 +232,7 @@ func LoreByID(id string) *RaceLore {
 }
 
 // Validate — инварианты лора (спека 86a §5.1.1): id есть в каталоге рас,
-// family из набора F1–F9/robotic, character/how_live/why/coexistence непусты;
+// family из набора F0–F9/robotic, character/how_live/why/coexistence непусты;
 // у роботов origin обязателен, у био-рас — пуст (происхождение био-рас не
 // описано, 22_races.md §3).
 func (l *RaceLore) Validate() error {
@@ -242,7 +243,7 @@ func (l *RaceLore) Validate() error {
 		return fmt.Errorf("id %q нет в каталоге рас", l.ID)
 	}
 	if !loreFamilies[l.Family] {
-		return fmt.Errorf("family = %q, ожидается F1–F9|robotic", l.Family)
+		return fmt.Errorf("family = %q, ожидается F0–F9|robotic", l.Family)
 	}
 	for name, v := range map[string]string{
 		"character": l.Character, "how_live": l.HowLive,

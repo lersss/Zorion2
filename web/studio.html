@@ -194,7 +194,7 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
     </div>
     <button class="tool-seg" id="btnCatOpen" title="Управление категориями (создание/переименование/удаление)">Категории</button>
     <!-- Переключатель уровня расовости дерева построек (спека 2026-09-21 §5):
-         универсальный → семейство (F1–F10) → конкретная раса (60). -->
+         универсальный → семейство (F0–F10) → конкретная раса (60). -->
     <div class="tool-seg" id="segProdRace" style="display:none">
       <span class="seg-label">Расовость</span>
       <select id="prodRaceLevelSel" onchange="setProdRaceLevel(this.value)" title="уровень расовости дерева построек">
@@ -202,7 +202,7 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
         <option value="family">Семейство</option>
         <option value="race">Раса</option>
       </select>
-      <select id="prodRaceFamilySel" onchange="setProdRaceFamily(this.value)" title="семейство рас (F1–F10)" style="display:none"></select>
+      <select id="prodRaceFamilySel" onchange="setProdRaceFamily(this.value)" title="семейство рас (F0–F10)" style="display:none"></select>
       <select id="prodRaceSel" onchange="setProdRace(this.value)" title="конкретная раса (60)" style="display:none"></select>
     </div>
   </div>
@@ -334,7 +334,7 @@ let pendingCatFilter = localStorage.getItem("gs_catFilter") || "";
 // producers (типы производителей) / items (предметы). Сохраняется.
 let branch = localStorage.getItem("gs_branch") || "goods";
 // Уровень расовости дерева построек (спека 2026-09-21 §2.4/§5):
-// universal → family (F1–F10) → race (60). Состояние — в localStorage.
+// universal → family (F0–F10) → race (60). Состояние — в localStorage.
 let prodRaceLevel = localStorage.getItem("gs_prodRaceLevel") || "universal";
 let prodRaceFamily = localStorage.getItem("gs_prodRaceFamily") || "";
 let prodRace = localStorage.getItem("gs_prodRace") || "";
@@ -1926,7 +1926,7 @@ async function doProdCreate(type, cat) {
 }
 
 // --- переключатель уровня расовости (спека §5) ---
-// Универсальный / Семейство (F1–F10) / Раса (60, сгруппированы по семействам).
+// Универсальный / Семейство (F0–F10) / Раса (60, сгруппированы по семействам).
 // Выбор расы фиксирует её семейство (каскад), выбор семейства сбрасывает расу.
 function setProdRaceLevel(v) {
   prodRaceLevel = v;

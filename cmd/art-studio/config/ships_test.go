@@ -14,7 +14,7 @@ func TestParseShips(t *testing.T) {
 	data := []byte(`{
   "humans": {
     "race_name": "Люди",
-    "family": "F1",
+    "family": "F0",
     "texture": "paneled white-grey metal hull",
     "silhouette": "крыло-корпус в плане: нос справа, корма с дюзами слева",
     "blocked": ["Tentacle", "organic", "tentacle", " crystal "]
@@ -25,7 +25,7 @@ func TestParseShips(t *testing.T) {
 		t.Fatalf("ParseShips: %v", err)
 	}
 	e := ships["humans"]
-	if e.RaceName != "Люди" || e.Family != "F1" {
+	if e.RaceName != "Люди" || e.Family != "F0" {
 		t.Errorf("race_name/family = %q/%q", e.RaceName, e.Family)
 	}
 	want := []string{"tentacle", "organic", "crystal"}
@@ -73,7 +73,7 @@ func TestLoadShips(t *testing.T) {
 		t.Errorf("записей = %d, want 60", len(ships))
 	}
 	e, ok := ships["humans"]
-	if !ok || e.RaceName != "Люди" || e.Family != "F1" {
+	if !ok || e.RaceName != "Люди" || e.Family != "F0" {
 		t.Errorf("humans = %+v", e)
 	}
 	if e.Texture == "" || e.Silhouette == "" || len(e.Blocked) == 0 {
@@ -194,7 +194,7 @@ func TestLoadShipDict(t *testing.T) {
 func TestParseShipSection(t *testing.T) {
 	md := `# Люди — корабль (humans)
 
-**Семейство:** F1 Водные
+**Семейство:** F0 Люди
 **ID:** ` + "`humans`" + `
 
 ## Корабль (внешний вид)
@@ -224,8 +224,8 @@ func TestParseShipSection(t *testing.T) {
 	if len(blocked) != 3 || blocked[0] != "tentacle" || blocked[2] != "crystal" {
 		t.Errorf("blocked = %v", blocked)
 	}
-	if family != "F1" {
-		t.Errorf("family = %q, want F1", family)
+	if family != "F0" {
+		t.Errorf("family = %q, want F0", family)
 	}
 }
 

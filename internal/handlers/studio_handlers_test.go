@@ -745,7 +745,7 @@ func TestStudioStateFillFields(t *testing.T) {
 
 // --- уровни расовости (дерево построек, спека 2026-09-21 §3) ---
 
-// TestStudioRaces — GET /studio/api/races: семейства F1–F9 + robotic и расы
+// TestStudioRaces — GET /studio/api/races: семейства F0–F9 + robotic и расы
 // (id, name, family) из каталога (Go-конфиги, единый источник).
 func TestStudioRaces(t *testing.T) {
 	require.NoError(t, races.LoadCatalog("../../config/races.json"))
@@ -763,14 +763,24 @@ func TestStudioRaces(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	var view RacesView
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &view))
-	require.Len(t, view.Families, 10, "F1–F9 + robotic")
-	require.Equal(t, "F1", view.Families[0].ID)
-	require.Equal(t, "robotic", view.Families[9].ID)
-	require.Equal(t, "Роботы", view.Families[9].Name)
+	require.Len(t, view.Families, 11, "F0–F9 + robotic")
+	require.Equal(t, "F0", view.Families[0].ID)
+	require.Equal(t, "Люди", view.Families[0].Name)
+	require.Equal(t, "robotic", view.Families[10].ID)
+	require.Equal(t, "Роботы", view.Families[10].Name)
 	require.Len(t, view.Races, 60, "60 рас каталога")
 	for _, rc := range view.Races {
 		require.NotEmpty(t, rc.Family, "у каждой расы есть семейство из лора")
 	}
+	// Люди — единственная раса F0; водные F1 — ровно расы 2–4.
+	famByRace := map[string]string{}
+	for _, rc := range view.Races {
+		famByRace[rc.ID] = rc.Family
+	}
+	require.Equal(t, "F0", famByRace["humans"], "люди вынесены в F0")
+	require.Equal(t, "F1", famByRace["oceanids"])
+	require.Equal(t, "F1", famByRace["deep_dwellers"])
+	require.Equal(t, "F1", famByRace["coastal"])
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -792,8 +802,8 @@ func TestValidateRaceFamily(t *testing.T) {
 	// семейство не соответствует расе — 400.
 	err = validateRaceFamily(strp("humans"), strp("F2"))
 	require.Error(t, err)
-	// ок: humans → F1; робот → robotic.
-	require.NoError(t, validateRaceFamily(strp("humans"), strp("F1")))
+	// ок: humans → F0; робот → robotic.
+	require.NoError(t, validateRaceFamily(strp("humans"), strp("F0")))
 	require.NoError(t, validateRaceFamily(strp("archivists"), strp("robotic")))
 }
 

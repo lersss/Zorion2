@@ -17,7 +17,7 @@ CREATE TABLE producer_types (
     name_norm   TEXT NOT NULL,             -- graph.NormalizeName(name) из Go
     kind        TEXT NOT NULL CHECK (kind IN ('goods', 'items', 'energy')),
     category_id BIGINT NULL REFERENCES categories (id),  -- kind=goods: категория товаров/ресурсов
-    race_family TEXT NULL,                 -- семейство рас (F1–F10) или NULL = универсальный
+    race_family TEXT NULL,                 -- семейство рас (F0–F10) или NULL = универсальный
     output      JSONB NULL,                -- спецификация выхода (items/energy; goods — категория)
     input       JSONB NULL,                -- спецификация входа/снабжения (люди, энергия, расходники)
     params      JSONB NULL,                -- эффективность, ёмкость населения, содержание, цена

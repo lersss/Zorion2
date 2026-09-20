@@ -34,7 +34,8 @@ func TestLoreCoversEveryRace(t *testing.T) {
 	}
 }
 
-// Family — из набора F1–F9/robotic (22_races.md §2.2/§4).
+// Family — из набора F0–F9/robotic (22_races.md §2.2/§4, канон F0–F9
+// с 2026-09-21: люди вынесены в F0).
 func TestLoreFamiliesValid(t *testing.T) {
 	require.NoError(t, LoadCatalog("../../config/races.json"))
 	require.NoError(t, LoadLore("../../config/race_lore.json"))
@@ -72,6 +73,32 @@ func TestLoreRejectsBadFamily(t *testing.T) {
 	err := l.Validate()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "family")
+}
+
+// F0 — допустимое семейство (люди вынесены в отдельное семейство, 2026-09-21).
+func TestLoreAcceptsF0Family(t *testing.T) {
+	require.NoError(t, LoadCatalog("../../config/races.json"))
+	l := validLore()
+	l.Family = "F0"
+	require.NoError(t, l.Validate())
+}
+
+// Инвариант 2026-09-21: люди — единственная био-раса F0; F1 «Водные» —
+// ровно расы 2–4 (oceanids, deep_dwellers, coastal).
+func TestLoreF0IsHumansOnly(t *testing.T) {
+	require.NoError(t, LoadCatalog("../../config/races.json"))
+	require.NoError(t, LoadLore("../../config/race_lore.json"))
+	var f0, f1 []string
+	for _, l := range LoreCatalog() {
+		switch l.Family {
+		case "F0":
+			f0 = append(f0, l.ID)
+		case "F1":
+			f1 = append(f1, l.ID)
+		}
+	}
+	assert.Equal(t, []string{"humans"}, f0, "F0 — только люди")
+	assert.ElementsMatch(t, []string{"oceanids", "deep_dwellers", "coastal"}, f1, "F1 — чисто водные (2–4)")
 }
 
 // Валидация ловит пустое текстовое поле.

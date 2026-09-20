@@ -33,6 +33,11 @@ arrivalObject: null,
     hoveredObject: null,
     selectedObject: null,      // { type: 'star' } | { type: 'planet', index }
     selectedPlanetIndex: null,
+    // Выбранный спутник (баг 2026-09-21: карточка спутника сбрасывалась на
+    // карточку планеты при фоновом обновлении). Хранит { planetId, satelliteId }
+    // — по id, чтобы пережить перечитку данных (refreshPlanets). null — карточка
+    // спутника закрыта (показана вкладка карточки планеты).
+    selectedSatellite: null,
     canvasWidth: 0,
     canvasHeight: 0,
     starRadius: 60,
@@ -99,6 +104,7 @@ export function resetState() {
     modalState.hoveredObject = null;
     modalState.selectedObject = null;
     modalState.selectedPlanetIndex = null;
+    modalState.selectedSatellite = null;
     modalState.dragMoved = false;
     modalState.suppressNextClick = false;
     modalState.activeTab = 'general';

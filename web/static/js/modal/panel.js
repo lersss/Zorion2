@@ -1,7 +1,7 @@
 // web/static/js/modal/panel.js
 import { modalState } from './state.js';
 import { drawSystem } from './modal_render.js';
-import { renderTabContent } from './tabs.js';
+import { renderTabContent, renderSatelliteCard } from './tabs.js';
 import { planetPopulationAt } from './extrapolate.js';
 
 // Перевод Кельвинов в Цельсии (для таблицы планет). Экспорт — для
@@ -353,12 +353,35 @@ function renderCard(panel, planets, selectedIndex) {
     }
 
     tabBtns.forEach(btn => {
-        btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+        btn.addEventListener('click', () => {
+            // Переключение вкладки карточки планеты — сбрасываем выбор спутника
+            // (баг 2026-09-21), иначе при перерисовке панели карточка спутника
+            // «воскреснет» поверх обычной вкладки.
+            modalState.selectedSatellite = null;
+            switchTab(btn.dataset.tab);
+        });
     });
 
     // Открытие карточки — с «Общее»; обновление данных (см. refreshPlanets в
     // index.js) не трогает вкладку, на которой стоял игрок.
     switchTab(modalState.activeTab || 'general');
+
+    // Карточка спутника (баг 2026-09-21): если открыта карточка спутника
+    // текущей планеты, перерисовка панели (refreshPlanets, /me) восстанавливает
+    // её вместо обычной вкладки. Идентификация по id — переживает перечитку
+    // данных; если спутник исчез или панель показывает другую планету — выбор
+    // сбрасывается.
+    const satSel = modalState.selectedSatellite;
+    if (satSel && satSel.planetId === planet.id) {
+        const sat = (planet.satellites || []).find(s => s.id === satSel.satelliteId);
+        if (sat) {
+            renderSatelliteCard(planet, sat, tabContent);
+        } else {
+            modalState.selectedSatellite = null;
+        }
+    } else if (satSel) {
+        modalState.selectedSatellite = null;
+    }
 
     // Обновить — перечитывает планеты мира заново, без пересоздания модалки
     // и без сброса текущей вкладки. Пересчёт населения от среды происходит
@@ -380,6 +403,9 @@ function renderCard(panel, planets, selectedIndex) {
         backBtn.addEventListener('click', () => {
             modalState.selectedPlanetIndex = null;
             modalState.selectedObject = null;
+            // «← Назад» в список планет — сбрасываем выбор спутника (баг
+            // 2026-09-21), чтобы он не «воскрес» при следующем открытии планеты.
+            modalState.selectedSatellite = null;
             renderRightPanel(planets, null);
             const canvas = document.getElementById('system-canvas');
             if (canvas) {

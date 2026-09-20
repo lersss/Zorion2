@@ -332,7 +332,9 @@ function compositeSatTooltip() {
 
 // renderSatelliteCard — карточка спутника по клику из списка планеты.
 // Кнопка «назад» возвращает к общей вкладке планеты.
-function renderSatelliteCard(planet, sat, container) {
+// Экспорт — panel.js восстанавливает карточку при перерисовке панели
+// (refreshPlanets, /me): выбор хранится в modalState.selectedSatellite.
+export function renderSatelliteCard(planet, sat, container) {
     if (!sat) return;
 
     // Внутрисистемная позиция (спека 99.2.27 §5.11): бейдж «● Вы на орбите»
@@ -394,6 +396,10 @@ function renderSatelliteCard(planet, sat, container) {
     const backBtn = container.querySelector('[data-sat-back]');
     if (backBtn) {
         backBtn.addEventListener('click', () => {
+            // «← К планете» — сбрасываем выбор спутника (баг 2026-09-21),
+            // иначе при следующей перерисовке панели карточка спутника
+            // «воскреснет».
+            modalState.selectedSatellite = null;
             renderTabContent('general', planet, container);
         });
     }
@@ -641,6 +647,11 @@ export function renderTabContent(tab, planet, container) {
         li.addEventListener('click', () => {
             const idx = parseInt(li.dataset.satIdx, 10);
             const sat = planet.satellites && planet.satellites[idx];
+            // Запоминаем выбор в состоянии (баг 2026-09-21): по id планеты и
+            // спутника, а не по индексу — переживает перечитку данных.
+            modalState.selectedSatellite = sat
+                ? { planetId: planet.id, satelliteId: sat.id }
+                : null;
             renderSatelliteCard(planet, sat, container);
         });
     });

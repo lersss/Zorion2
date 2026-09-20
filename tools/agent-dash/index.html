@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Учёт агентов — Zorion</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #14161a;
+        --panel: #1c1f25;
+        --line: #2a2f38;
+        --dim: #8b93a1;
+        --text: #e6e9ee;
+        --accent: #6db3f2;
+        --warn: #e0a33e;
+        --bad: #e06c6c;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 18px 22px 60px;
+        background: var(--bg);
+        color: var(--text);
+        font: 14px/1.45 "Segoe UI", system-ui, sans-serif;
+      }
+      h1 { font-size: 19px; margin: 0 0 4px; }
+      h2 { font-size: 15px; margin: 26px 0 8px; color: var(--dim); font-weight: 600; }
+      header { display: flex; flex-wrap: wrap; gap: 14px; align-items: baseline; }
+      .dim { color: var(--dim); }
+      .note { font-size: 12.5px; color: var(--dim); margin: 2px 0 0; }
+      button {
+        background: var(--panel);
+        color: var(--text);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 5px 11px;
+        cursor: pointer;
+        font: inherit;
+      }
+      button.on { border-color: var(--accent); color: var(--accent); }
+      .cards { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 10px 14px;
+        min-width: 132px;
+      }
+      .card b { display: block; font-size: 20px; margin-top: 2px; }
+      table { border-collapse: collapse; width: 100%; background: var(--panel); border-radius: 8px; overflow: hidden; }
+      th, td { padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+      th { font-size: 12px; color: var(--dim); cursor: pointer; user-select: none; font-weight: 600; }
+      th.num, td.num { text-align: right; }
+      tr:last-child td { border-bottom: none; }
+      tbody tr:hover td { background: #232833; }
+      td.name { white-space: normal; min-width: 220px; }
+      .live { color: #6ee7a0; }
+      .hi { color: var(--warn); }
+      .bad { color: var(--bad); }
+      .scroll { max-height: 46vh; overflow: auto; }
+      footer { margin-top: 22px; font-size: 12.5px; color: var(--dim); }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Учёт агентов</h1>
+      <span class="dim" id="project"></span>
+      <span style="flex: 1"></span>
+      <span>
+        <button data-period="today">Сегодня</button>
+        <button data-period="7">7 дней</button>
+        <button data-period="all">Всё время</button>
+      </span>
+      <span class="dim" id="status">загружаю…</span>
+    </header>
+    <p class="note">
+      Цена и память считаются по периоду. Повторы — по истории сессий за всё время сессии.
+      Срабатывания сторожа берутся из его журнала (<span class="dim">.opencode/loop-guard.log</span>)
+      и появляются с новых сессий. Память — пиковый размер рабочего контекста агента.
+    </p>
+
+    <div class="cards" id="cards"></div>
+
+    <h2>По субагентам</h2>
+    <div class="scroll"><table id="agents"></table></div>
+
+    <h2>По фичам (вкладка менеджера + её подсессии)</h2>
+    <div class="scroll"><table id="features"></table></div>
+
+    <h2>Последние сессии</h2>
+    <div class="scroll"><table id="active"></table></div>
+
+    <footer>
+      Сервис читает хранилище сессий opencode только на чтение и обновляется сам каждые 5 секунд.
+      <span id="scan"></span>
+    </footer>
+
+    <script>
+      const state = { period: "today", report: null, sort: { agents: ["cost", -1], features: ["cost", -1] }, updatedAt: 0 };
+
+      const money = (v) => "$" + (v < 10 ? v.toFixed(2) : v.toFixed(1));
+      const tok = (v) => (v >= 1e6 ? (v / 1e6).toFixed(1) + "M" : v >= 1000 ? Math.round(v / 1000) + "k" : String(v || 0));
+      const when = (ms) => {
+        if (!ms) return "—";
+        const d = new Date(ms);
+        const today = new Date().toDateString() === d.toDateString();
+        const time = d.toTimeString().slice(0, 5);
+        return today ? time : d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" }) + " " + time;
+      };
+      const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+      function sortBy(rows, key, dir) {
+        return rows.slice().sort((a, b) => {
+          const x = a[key];
+          const y = b[key];
+          if (typeof x === "string" || typeof y === "string") return String(x).localeCompare(String(y)) * dir;
+          return ((x || 0) - (y || 0)) * dir;
+        });
+      }
+
+      function head(columns, key) {
+        return (
+          "<thead><tr>" +
+          columns
+            .map((c) => {
+              const active = state.sort[key] && state.sort[key][0] === c.id;
+              const arrow = active ? (state.sort[key][1] === -1 ? " ↓" : " ↑") : "";
+              return `<th class="${c.num ? "num" : ""}" data-table="${key}" data-col="${c.id}">${c.title}${arrow}</th>`;
+            })
+            .join("") +
+          "</tr></thead>"
+        );
+      }
+
+      function cards(r) {
+        const t = r.totals;
+        const items = [
+          ["Потрачено за период", money(t.cost)],
+          ["Сессий", t.sessions],
+          ["Фич", t.features],
+          ["Вызовов инструментов", t.calls],
+          ["Повторов", `<span class="${t.repeats ? "hi" : ""}">${t.repeats}</span>`],
+          ["Сторож: обрезал вызов", `<span class="${t.guardBlocked ? "hi" : ""}">${t.guardBlocked}</span>`],
+          ["Сторож: погасил сессию", `<span class="${t.guardAborted ? "bad" : ""}">${t.guardAborted}</span>`],
+        ];
+        document.getElementById("cards").innerHTML = items
+          .map(([k, v]) => `<div class="card"><span class="dim">${k}</span><b>${v}</b></div>`)
+          .join("");
+      }
+
+      function render() {
+        const r = state.report;
+        if (!r) return;
+        document.getElementById("project").textContent = r.project + " · период " + (r.period === "today" ? "сегодня" : r.period === "7" ? "7 дней" : "всё время");
+        cards(r);
+
+        const agentCols = [
+          { id: "label", title: "Роль" },
+          { id: "sessions", title: "Сессий", num: true },
+          { id: "cost", title: "Цена", num: true, fmt: money },
+          { id: "turns", title: "Ответов", num: true },
+          { id: "peak", title: "Пик памяти", num: true, fmt: tok },
+          { id: "calls", title: "Вызовов", num: true },
+          { id: "repeats", title: "Повторов", num: true, cls: "hi" },
+          { id: "guard", title: "Сторож", num: true, cls: "bad" },
+          { id: "compactions", title: "Сжатий", num: true },
+          { id: "last", title: "Последняя активность", fmt: when },
+        ];
+        const agents = state.sort.agents ? sortBy(r.agents, state.sort.agents[0], state.sort.agents[1]) : r.agents;
+        document.getElementById("agents").innerHTML =
+          head(agentCols, "agents") +
+          "<tbody>" +
+          agents
+            .map(
+              (a) =>
+                "<tr>" +
+                agentCols
+                  .map((c) => {
+                    const v = a[c.id];
+                    const text = c.fmt ? c.fmt(v) : esc(v);
+                    return `<td class="${c.num ? "num" : ""} ${c.cls && v ? c.cls : ""}">${text}</td>`;
+                  })
+                  .join("") +
+                "</tr>"
+            )
+            .join("") +
+          "</tbody>";
+
+        const featCols = [
+          { id: "label", title: "Фича" },
+          { id: "agents", title: "Роли", fmt: (v) => esc((v || []).join(", ")) },
+          { id: "sessions", title: "Сессий", num: true },
+          { id: "cost", title: "Цена", num: true, fmt: money },
+          { id: "turns", title: "Ответов", num: true },
+          { id: "peak", title: "Пик памяти", num: true, fmt: tok },
+          { id: "repeats", title: "Повторов", num: true, cls: "hi" },
+          { id: "guard", title: "Сторож", num: true, cls: "bad" },
+          { id: "last", title: "Последняя активность", fmt: when },
+        ];
+        const features = state.sort.features ? sortBy(r.features, state.sort.features[0], state.sort.features[1]) : r.features;
+        document.getElementById("features").innerHTML =
+          head(featCols, "features") +
+          "<tbody>" +
+          features
+            .slice(0, 60)
+            .map(
+              (f) =>
+                "<tr>" +
+                featCols
+                  .map((c) => {
+                    const v = f[c.id];
+                    const text = c.fmt ? c.fmt(v) : esc(v);
+                    return `<td class="${c.num ? "num" : ""} ${c.cls && v ? c.cls : ""}">${text}</td>`;
+                  })
+                  .join("") +
+                "</tr>"
+            )
+            .join("") +
+          "</tbody>";
+
+        const activeCols = [
+          { id: "agent", title: "Роль" },
+          { id: "title", title: "Сессия" },
+          { id: "parent", title: "Фича" },
+          { id: "cost", title: "Цена", num: true, fmt: money },
+          { id: "peak", title: "Пик памяти", num: true, fmt: tok },
+          { id: "turns", title: "Ответов", num: true },
+          { id: "last", title: "Активность", fmt: when },
+          { id: "live", title: "Сейчас", fmt: (v) => (v ? '<span class="live">работает</span>' : "") },
+          { id: "guard", title: "Сторож", num: true, cls: "bad" },
+        ];
+        document.getElementById("active").innerHTML =
+          "<thead><tr>" +
+          activeCols.map((c) => `<th class="${c.num ? "num" : ""}">${c.title}</th>`).join("") +
+          "</tr></thead><tbody>" +
+          r.active
+            .map(
+              (a) =>
+                "<tr>" +
+                activeCols
+                  .map((c) => {
+                    const v = a[c.id];
+                    let text;
+                    if (c.id === "title") text = '<span class="name">' + esc(v) + "</span>";
+                    else if (c.fmt) text = c.fmt(v);
+                    else if (c.num) text = v;
+                    else text = esc(v);
+                    return `<td class="${c.num ? "num" : ""} ${c.id === "title" ? "name" : ""} ${c.cls && v ? c.cls : ""}">${text}</td>`;
+                  })
+                  .join("") +
+                "</tr>"
+            )
+            .join("") +
+          "</tbody>";
+
+        const s = r.scanning;
+        document.getElementById("scan").textContent = s.finished
+          ? ` Счётчики досчитаны (${s.total} сессий).`
+          : ` Досчитываю счётчики: ${s.done} из ${s.total} сессий — цифры повторов и сторожа появляются сверху вниз.`;
+      }
+
+      function status() {
+        const el = document.getElementById("status");
+        if (!state.report) return;
+        const sec = Math.round((Date.now() - state.updatedAt) / 1000);
+        el.textContent = `обновлено ${sec} с назад`;
+      }
+
+      async function refresh() {
+        try {
+          const res = await fetch(`/api/stats?period=${state.period}`);
+          state.report = await res.json();
+          state.updatedAt = Date.now();
+          render();
+          status();
+        } catch (e) {
+          document.getElementById("status").textContent = "нет связи с сервисом";
+        }
+      }
+
+      document.querySelectorAll("button[data-period]").forEach((b) => {
+        b.addEventListener("click", () => {
+          state.period = b.dataset.period;
+          document.querySelectorAll("button[data-period]").forEach((x) => x.classList.toggle("on", x === b));
+          refresh();
+        });
+      });
+
+      document.addEventListener("click", (e) => {
+        const th = e.target.closest("th[data-col]");
+        if (!th) return;
+        const key = th.dataset.table;
+        const col = th.dataset.col;
+        const cur = state.sort[key] || ["cost", -1];
+        state.sort[key] = [col, cur[0] === col ? -cur[1] : -1];
+        render();
+      });
+
+      document.querySelector('button[data-period="today"]').classList.add("on");
+      refresh();
+      setInterval(refresh, 5000);
+      setInterval(status, 1000);
+    </script>
+  </body>
+</html>

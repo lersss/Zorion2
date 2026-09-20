@@ -1,12 +1,34 @@
 // Сторож зацикливания: один и тот же вызов инструмента в одной сессии
-// блокируется, когда перестаёт давать новые результаты (см. 100b).
+// блокируется, когда перестаёт давать новые результаты (см. идею 100b).
+// Срабатывания показываются всплывашкой и пишутся в журнал (.opencode/loop-guard.log).
 
-export const LoopGuard = async ({ client }) => {
+import fs from "node:fs"
+import path from "node:path"
+
+export const LoopGuard = async ({ client, directory }) => {
   const SAME_OUTPUT_STREAK = 4
   const SAME_ARGS_LIMIT = 40
   const MAX_BLOCKS = 5
 
+  const journalPath = directory ? path.join(directory, ".opencode", "loop-guard.log") : null
   const sessions = new Map()
+  let journalReady = false
+
+  const journal = (sessionID, tool, times, action) => {
+    if (!journalPath) return
+    try {
+      if (!journalReady) {
+        fs.mkdirSync(path.dirname(journalPath), { recursive: true })
+        journalReady = true
+      }
+      fs.appendFileSync(
+        journalPath,
+        JSON.stringify({ at: Date.now(), session: sessionID, tool, times, action }) + "\n"
+      )
+    } catch {
+      // журнал — необязательная запись, работе сторожа не мешает
+    }
+  }
 
   const bucket = (sessionID) => {
     let b = sessions.get(sessionID)
@@ -36,20 +58,40 @@ export const LoopGuard = async ({ client }) => {
     return h
   }
 
-  const refuse = async (sessionID, b, reason) => {
+  const toast = async (variant, title, message) => {
+    try {
+      await client.tui.showToast({
+        body: { title, message, variant, duration: variant === "error" ? 15000 : 8000 },
+        query: directory ? { directory } : undefined,
+      })
+    } catch {
+      // приложение может не уметь показывать уведомления — работе это не мешает
+    }
+  }
+
+  const refuse = async (sessionID, b, tool, times, reason) => {
     b.blocks += 1
-    if (b.blocks > MAX_BLOCKS) {
-      sessions.delete(sessionID)
-      try {
-        await client.session.abort({ path: { id: sessionID } })
-      } catch {
-        // сессия могла уже завершиться — это не ошибка
-      }
-      throw new Error(
-        "Сторож зацикливания: сессия остановлена. Агент не прекратил повторять уже сделанное."
+    const fatal = b.blocks > MAX_BLOCKS
+    if (b.blocks === 1 || fatal) {
+      await toast(
+        fatal ? "error" : "warning",
+        fatal ? "Сторож: сессия остановлена" : "Сторож: вызов обрезан",
+        fatal
+          ? `Агент повторял «${tool}» ${times} раз без нового результата — сессия погашена.`
+          : `Агент повторяет «${tool}» (${times} раз) без нового результата — попросил сменить подход.`
       )
     }
-    throw new Error(reason)
+    journal(sessionID, tool, times, fatal ? "aborted" : "blocked")
+    if (!fatal) throw new Error(reason)
+    sessions.delete(sessionID)
+    try {
+      await client.session.abort({ path: { id: sessionID } })
+    } catch {
+      // сессия могла уже завершиться — это не ошибка
+    }
+    throw new Error(
+      "Сторож зацикливания: сессия остановлена. Агент не прекратил повторять уже сделанное."
+    )
   }
 
   const stopMessage = (input, times) =>
@@ -69,10 +111,10 @@ export const LoopGuard = async ({ client }) => {
       b.calls.set(sig, times)
       const same = b.outputs.get(sig)
       if (same && same.streak >= SAME_OUTPUT_STREAK) {
-        await refuse(input.sessionID, b, stopMessage(input, times))
+        await refuse(input.sessionID, b, input.tool, times, stopMessage(input, times))
       }
       if (times > SAME_ARGS_LIMIT) {
-        await refuse(input.sessionID, b, stopMessage(input, times))
+        await refuse(input.sessionID, b, input.tool, times, stopMessage(input, times))
       }
     },
     "tool.execute.after": async (input, output) => {

@@ -7,8 +7,9 @@ import {
     generateRaceSettlements, loadSettlementFields,
     cancelGeneration, clearUniverse, clearSettlements, applyPreset,
     switchGenSubTab, showTab, loadGenConfig, saveGenConfig, recalcGenWeights,
-    regeneratePlanets, startPacman
+    regeneratePlanets, startPacman, stopRunningJob
 } from './generation.js';
+import { restoreJobStates } from './poll.js';
 import { ensureAdminAuth, setAfterLogin, getAdminRole, adminLogin } from './auth.js';
 import {
     loadUsers, createUser, toggleCreateUserForm, openUserProfile,
@@ -72,6 +73,7 @@ window.saveGenConfig = saveGenConfig;
 window.recalcGenWeights = recalcGenWeights;
 window.regeneratePlanets = regeneratePlanets;
 window.startPacman = startPacman;
+window.stopRunningJob = stopRunningJob;
 window.loadResources = loadResources;
 window.toggleAxesCell = toggleAxesCell;
 window.toggleRacesCell = toggleRacesCell;
@@ -131,4 +133,7 @@ function initAdminData() {
     loadWorlds(1);
     initWorldsSorting();
     initAutoRefreshToggle();
+    // Восстановление состояния джобов после перезагрузки (идея 2026-09-20):
+    // идущий джоб (в т.ч. пакман) снова виден и останавливаем.
+    restoreJobStates();
 }

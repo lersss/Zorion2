@@ -9,6 +9,7 @@ import { initBiomeCatalog } from './biomeCatalog.js';
 import { initBalancer } from './balancer.js';
 import { initResources } from './resources.js';
 import { applyGenSubTab } from './generation.js';
+import { restoreJobStates } from './poll.js';
 
 // Активная вкладка сохраняется между обновлениями страницы.
 const STORAGE_KEY = 'adminActiveTab';
@@ -66,6 +67,9 @@ function activateTab(tabId) {
     if (tabId === 'tab-generation') {
         // Подвкладки генерации (99.2.3 §2; кнопки с 71a): восстановить сохранённую.
         applyGenSubTab();
+        // Восстановление состояния джобов (идея 2026-09-20): после F5 идущий
+        // джоб снова виден и останавливаем (красная кнопка-стоп).
+        restoreJobStates();
     }
 }
 

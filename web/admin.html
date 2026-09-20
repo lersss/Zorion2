@@ -100,7 +100,16 @@
 
         <!-- Кнопки-подвкладки (вместо дропдауна, 71a) -->
         <div class="card">
-            <h2>🌌 Генерация</h2>
+            <!-- Красная кнопка-стоп (идея 2026-09-20): видна, пока крутится
+                 любой джоб генерации (в т.ч. пакман); скрыта по умолчанию,
+                 показ/скрытие — poll.js (runningJobs). -->
+            <h2 style="display:flex; align-items:center; gap:10px;">
+                🌌 Генерация
+                <button id="genStopBtn" onclick="stopRunningJob()"
+                        title="Остановить текущий джоб генерации"
+                        aria-label="Остановить текущий джоб генерации"
+                        style="display:none; width:20px; height:20px; background:#dc2626; border:none; border-radius:4px; cursor:pointer; padding:0; flex:none;"></button>
+            </h2>
             <div class="admin-tabs gen-subtabs">
                 <button class="gen-subtab-btn active" data-gen-sub="stars" onclick="switchGenSubTab('stars')">Звёзды</button>
                 <button class="gen-subtab-btn" data-gen-sub="planets" onclick="switchGenSubTab('planets')">Планеты</button>

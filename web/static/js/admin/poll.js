@@ -6,6 +6,36 @@ import { loadNPC, loadNPCMetrics } from './npc.js';
 
 export const pollIntervals = {};
 
+// JOB_UI — реестр джобов генерации (идея 2026-09-20): jobType (значение
+// /admin/generate-status) → ключ интервала pollIntervals (как в стартовых
+// функциях generation.js/npc.js/hypothesis.js), id прогресс-контейнера,
+// id результата, id кнопки «Остановить» в секции. У джобов без контейнера
+// в админке (generate_resources) id пустые — для них работает только
+// красная кнопка-стоп у заголовка «Генерация».
+const JOB_UI = {
+    generate_universe:         { key: 'universe',         progressId: 'genProgress',           resultId: 'genResult',           cancelBtnId: 'cancelUniverseBtn' },
+    generate_planets:          { key: 'planets',          progressId: 'planetProgress',        resultId: 'planetResult',        cancelBtnId: 'cancelPlanetsBtn' },
+    generate_factions:         { key: 'factions',         progressId: 'factionProgress',       resultId: 'factionResult',       cancelBtnId: 'cancelFactionsBtn' },
+    generate_resources:        { key: 'resources',        progressId: 'resourceProgress',      resultId: 'resourceResult',      cancelBtnId: 'cancelResourcesBtn' },
+    generate_race_settlements: { key: 'race_settlements', progressId: 'raceSettlementProgress', resultId: 'raceSettlementResult', cancelBtnId: 'cancelRaceSettlementsBtn' },
+    regenerate_planets:        { key: 'regenerate',       progressId: 'regenerateProgress',    resultId: 'regenerateResult',    cancelBtnId: 'cancelRegenerateBtn' },
+    generate_npc:              { key: 'generate_npc',     progressId: 'npcBulkProgress',       resultId: 'npcBulkResult',       cancelBtnId: '' },
+    hypothesis:                { key: 'hypothesis',       progressId: 'hypothesisProgress',    resultId: 'hypothesisResult',    cancelBtnId: 'cancelHypothesisBtn' },
+    pacman:                    { key: 'pacman',           progressId: 'pacmanProgress',        resultId: 'pacmanResult',        cancelBtnId: 'cancelPacmanBtn' },
+};
+
+// runningJobs — множество jobType, у которых последний опрос дал 'running'.
+// Питается из pollJob (все интервалы) и restoreJobStates; на нём работает
+// красная кнопка-стоп у заголовка «Генерация».
+export const runningJobs = new Set();
+
+// updateGenStopBtn — красная кнопка-стоп (идея 2026-09-20): видна, пока
+// крутится хоть один джоб генерации; скрывается, когда джобов нет.
+function updateGenStopBtn() {
+    const btn = document.getElementById('genStopBtn');
+    if (btn) btn.style.display = runningJobs.size > 0 ? 'inline-block' : 'none';
+}
+
 export async function pollJob(jobType, progressId, resultId, cancelBtnId) {
     try {
         const res = await fetchWithAuth(`/admin/generate-status?job=${jobType}`);
@@ -13,6 +43,15 @@ export async function pollJob(jobType, progressId, resultId, cancelBtnId) {
         const progress = data.processed || 0;
         const total = data.total || 0;
         const status = data.status || 'running';
+
+        // Красная кнопка-стоп (идея 2026-09-20): running-джобы копятся в
+        // runningJobs, кнопка показывается/скрывается по их наличию.
+        if (status === 'running') {
+            runningJobs.add(jobType);
+        } else {
+            runningJobs.delete(jobType);
+        }
+        updateGenStopBtn();
 
         const textEl = document.getElementById(progressId + 'Text');
         const barEl = document.getElementById(progressId + 'Bar');
@@ -36,14 +75,20 @@ export async function pollJob(jobType, progressId, resultId, cancelBtnId) {
         if (pacmanBtn) pacmanBtn.disabled = (status === 'running');
 
         if (status === 'done' || status === 'error' || status === 'canceled') {
-            clearInterval(pollIntervals[jobType]);
-            delete pollIntervals[jobType];
-            document.getElementById(progressId).style.display = 'none';
+            // Ключ интервала — из реестра JOB_UI: стартовые функции хранят
+            // интервалы под короткими ключами ('universe', 'planets', ...),
+            // а не под jobType — иначе интервал не очищается и поллит вечно.
+            const ui = JOB_UI[jobType];
+            const intervalKey = ui ? ui.key : jobType;
+            clearInterval(pollIntervals[intervalKey]);
+            delete pollIntervals[intervalKey];
+            const progressEl = document.getElementById(progressId);
+            if (progressEl) progressEl.style.display = 'none';
             if (cancelBtn) cancelBtn.style.display = 'none';
             if (clearBtn) clearBtn.disabled = false;
             if (pacmanBtn) pacmanBtn.disabled = false;
             const resultEl = document.getElementById(resultId);
-            if (status === 'done') {
+            if (resultEl && status === 'done') {
                 resultEl.textContent = `✅ Готово! (${total} объектов)`;
                 if (jobType === 'generate_universe') {
                     // Недобор миров — штатная ситуация: при плотном запросе
@@ -78,13 +123,48 @@ export async function pollJob(jobType, progressId, resultId, cancelBtnId) {
                     resultEl.textContent = data.report || `✅ Пакман съел ${progress} миров`;
                     loadStats();
                 }
-            } else if (status === 'canceled') {
+            } else if (resultEl && status === 'canceled') {
                 resultEl.textContent = `⏹️ Остановлено пользователем`;
-            } else if (status === 'error') {
+            } else if (resultEl && status === 'error') {
                 resultEl.textContent = `❌ Ошибка: ${data.error || 'неизвестная'}`;
             }
         }
     } catch (e) {
         console.error('Poll error:', e);
+    }
+}
+
+// restoreJobStates — восстановление состояния джобов после перезагрузки
+// (идея 2026-09-20): опрос статусов всех джобов генерации; для running —
+// показать прогресс-контейнер, добавить в runningJobs (красная кнопка-стоп)
+// и запустить интервал pollJob, если его ещё нет. Вызывается при загрузке
+// админки (initAdminData) и при активации вкладки «Генерация».
+let restoreInFlight = false;
+
+export async function restoreJobStates() {
+    if (restoreInFlight) return;
+    restoreInFlight = true;
+    try {
+        for (const [jobType, ui] of Object.entries(JOB_UI)) {
+            if (pollIntervals[ui.key]) continue; // интервал уже крутится
+            let data;
+            try {
+                const res = await fetchWithAuth(`/admin/generate-status?job=${jobType}`);
+                data = await res.json();
+            } catch (e) {
+                console.error('Restore status error:', e);
+                continue;
+            }
+            if (data.status !== 'running') continue;
+            runningJobs.add(jobType);
+            updateGenStopBtn();
+            const progressEl = document.getElementById(ui.progressId);
+            if (progressEl) progressEl.style.display = 'block';
+            pollIntervals[ui.key] = setInterval(
+                () => pollJob(jobType, ui.progressId, ui.resultId, ui.cancelBtnId),
+                jobType === 'pacman' ? 1000 : 1500);
+        }
+    } finally {
+        restoreInFlight = false;
     }
 }

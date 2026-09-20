@@ -2,7 +2,7 @@
 import { fetchWithAuth } from './auth.js';
 import { loadStats } from './stats.js';
 import { loadWorlds } from './worlds.js';
-import { pollJob, pollIntervals } from './poll.js';
+import { pollJob, pollIntervals, runningJobs } from './poll.js';
 import { notifyError, notifyInfo } from '../ui/toast.js';
 
 // Пресеты генерации вселенной (проверены: 100k миров, 200 кластеров).
@@ -320,7 +320,12 @@ export async function cancelGeneration(jobType) {
                           jobType === 'generate_race_settlements' ? 'cancelRaceSettlementsBtn' :
                           jobType === 'hypothesis' ? 'cancelHypothesisBtn' :
                           'cancelResourcesBtn';
-            document.getElementById(btnId).style.display = 'none';
+            // Кнопки в секции есть не у всех джобов (pacman, regenerate,
+            // generate_npc) — null-guard, иначе после успешной отмены
+            // падаем на null.style (красная кнопка-стоп переиспользует
+            // cancelGeneration для любого jobType).
+            const btn = document.getElementById(btnId);
+            if (btn) btn.style.display = 'none';
         } else {
             const text = await res.text();
             notifyError('Ошибка: ' + text);
@@ -328,6 +333,17 @@ export async function cancelGeneration(jobType) {
     } catch (e) {
         notifyError('Ошибка: ' + e.message);
     }
+}
+
+// stopRunningJob — красная кнопка-стоп у заголовка «Генерация» (идея
+// 2026-09-20): отменяет первый найденный running-джоб (на практике джобы
+// взаимоисключают друг друга серверно, 409). Тот же confirm и POST, что
+// в cancelGeneration — без дублирования; кнопка скрывается следующим
+// тиком pollJob (runningJobs очищается).
+export async function stopRunningJob() {
+    const jobType = runningJobs.values().next().value;
+    if (!jobType) return;
+    await cancelGeneration(jobType);
 }
 
 export async function clearSettlements() {

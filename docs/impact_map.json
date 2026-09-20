@@ -589,6 +589,94 @@
         { "on": "docs/specs/README.md", "kind": "docs", "reason": "манифест спек: строка 99.2.27 (статус/дата)" },
         { "on": "99_roadmap.md", "kind": "docs", "reason": "строка §99.2 — статус фичи" }
       ]
+    },
+    {
+      "id": "biome_catalog.json",
+      "type": "config",
+      "path": "config/biome_catalog.json",
+      "note": "справочник биомов (99.2.28, 2026-09-20): 57 биомов поверхности, 17 типов недр, 9 правил типов планет, параметры токсичности; заводской сид — biome_catalog_seed.json (go:embed); редактируется из админки (вкладка «Основное», PATCH /admin/biome-catalog, атомарная запись tmp+rename, hot-reload store под RWMutex); правки применяются к новым мирам, бэкфилл запрещён",
+      "impacts": [
+        { "on": "internal/generator/planet/biome_catalog.go", "kind": "reads", "reason": "store под RWMutex (LoadBiomeCatalog/RebuildBiomeCatalog/ResetBiomeCatalogToSeed), валидация инварианта 17 (bands не пусты, признаки §0, bands↔t_range)" },
+        { "on": "internal/generator/planet/biome_physics.go", "kind": "reads", "reason": "веса биомов (weight_base × категория-формула × гейты условий), subterrainGates читает Conditions недр (данные — источник истины)" },
+        { "on": "internal/generator/planet/classify.go", "kind": "reads", "reason": "интерпретатор правил типов планет (без чисел в коде): порядок сверху вниз, первое сработавшее, фолбэк" },
+        { "on": "internal/generator/planet/composition_compatibility.go", "kind": "reads", "reason": "матрица несовместимости (авто от liquid_medium + ручные пары)" },
+        { "on": "internal/audit/planet/checks_biomes.go", "kind": "reads", "reason": "правила аудита: biosphere_without_conditions, empty_biomes, biome_not_in_catalog (пороги токсичности — числа справочника)" },
+        { "on": "internal/handlers/admin_biome_catalog.go", "kind": "api", "reason": "GET/PATCH /admin/biome-catalog + reset (правка — admin, чтение — admin+skycomposer; валидация UTF-8, bands из {э,ж,у,х})" },
+        { "on": "web/static/js/admin/biomeCatalog.js", "kind": "reads", "reason": "вкладка «Основное»: 6 подразделов (Биомы/Недра/Типы планет/Полосы/Несовместимость/Параметры), редактор, drag&drop, read-only для skycomposer" },
+        { "on": "config/planet_archetypes.json", "kind": "reads", "reason": "полосы климатов (веса альбедо-прокси слоя 5 и предварительных недр ядра); whitelist биомов — в bands биома, не в полосах" },
+        { "on": "docs/gamedesign/ideas/2026-09-20_иконки-биомов-поверхности.md", "kind": "reads", "reason": "иконки биомов (пачка 1, 23 шт) именуются по id каталога — правка id = переименование файлов иконок" }
+      ]
+    },
+    {
+      "id": "biomes",
+      "type": "mechanic",
+      "path": "planets.data.biomes",
+      "note": "биомы планеты (99.2.28, слой 10 каскада после недр): объекты {form, share}, сумма 100%; физические веса от свойств планеты (T/вода/состав/гравитация/вулканизм V), whitelist-гейт bands биома, джиттер ±20%, авто-матрица жидкости; производные surface_composition/surface_dominant считаются из объектов; газовые гиганты — без биомов; аддитивный формат (старые миры без ключа — фолбэк nil)",
+      "impacts": [
+        { "on": "surface_composition", "kind": "derives", "reason": "сводная карта долей форм считается из биомов (compositionFromBiomes)" },
+        { "on": "classify.go", "kind": "reads", "reason": "тип планеты — правила справочника по производному составу (после биомов)" },
+        { "on": "internal/audit/planet/*", "kind": "reads", "reason": "проверки биомов (empty/biome_not_in_catalog/biosphere_without_conditions) и существующие lava_in_cold/volcanic" },
+        { "on": "web/static/js/modal/tabs.js", "kind": "reads", "reason": "renderComposition показывает состав (иконка + имя); визуализация иконок — следующий релиз (идея 2026-09-20)" },
+        { "on": "users.current_position", "kind": "affects", "reason": "уровень orbit/surface+biome (99.2.27) — биом планеты поставляется отсюда для будущей высадки" },
+        { "on": "internal/resource/generator.go", "kind": "reads", "reason": "94a: генерация ресурсов по доминантному составу/категориям (маппинг на теги справочника — дельта §26)" }
+      ]
+    },
+    {
+      "id": "subterrain",
+      "type": "mechanic",
+      "path": "planets.data.subterrain",
+      "note": "недра планеты (99.2.28, слой 9): объекты {type, share}, сумма 100%; веса от физики + subterrain_bias + whitelist bands + мягкие связи (читают draft-пробник слоя 8) + джиттер + матрица + нормализация + примитивные 3.5%; условия — данные справочника (Conditions); производная subterrain_composition",
+      "impacts": [
+        { "on": "subterrain_composition", "kind": "derives", "reason": "сводная карта типов недр считается из объектов (compositionFromZones)" },
+        { "on": "internal/audit/planet/*", "kind": "reads", "reason": "empty_biomes (недра пусты у не-гиганта), biome_not_in_catalog (тип вне справочника)" },
+        { "on": "web/static/js/modal/tabs.js", "kind": "reads", "reason": "блок недр в модалке системы (SUBTERRAIN_ICONS/COLORS)" },
+        { "on": "internal/resource/generator.go", "kind": "reads", "reason": "94a: ресурсы недр (minSubterrainShare) по типам" }
+      ]
+    },
+    {
+      "id": "surface_composition",
+      "type": "mechanic",
+      "path": "planets.data.surface_composition",
+      "note": "сводный состав поверхности — ПРОИЗВОДНАЯ от биомов (99.2.28): map[форма]доля, считается одной функцией; 8 потребителей; вне реестра было находкой @critic",
+      "impacts": [
+        { "on": "web/static/js/modal/tabs.js", "kind": "reads", "reason": "модалка: renderComposition(surface_composition, FORM_ICONS, FORM_COLORS)" },
+        { "on": "internal/audit/planet/*", "kind": "reads", "reason": "правила аудита читают сводный состав (legacy и новые)" },
+        { "on": "internal/resource/generator.go", "kind": "reads", "reason": "94a: ресурсы по доминантному составу" },
+        { "on": "internal/repository/planet_repo.go", "kind": "reads", "reason": "populatePlanetFromJSON — whitelist полей (biomes читается аддитивно)" },
+        { "on": "internal/generator/planet/twin.go", "kind": "reads", "reason": "твин-генератор (99.2.24) — состав планеты" },
+        { "on": "internal/generator/planet/planet_data.go", "kind": "reads", "reason": "GenerateDescription — описание по составу" },
+        { "on": "PlanetKnowledgeView", "kind": "reads", "reason": "77a: знания о планете (surface_composition в знании)" }
+      ]
+    },
+    {
+      "id": "subterrain_composition",
+      "type": "mechanic",
+      "path": "planets.data.subterrain_composition",
+      "note": "сводный состав недр — ПРОИЗВОДНАЯ от объектов недр (99.2.28); потребители те же, что у surface_composition; вне реестра было находкой @critic",
+      "impacts": [
+        { "on": "web/static/js/modal/tabs.js", "kind": "reads", "reason": "модалка: блок недр (SUBTERRAIN_ICONS/COLORS)" },
+        { "on": "internal/audit/planet/*", "kind": "reads", "reason": "правила аудита читают состав недр" },
+        { "on": "internal/resource/generator.go", "kind": "reads", "reason": "94a: ресурсы недр по типам (minSubterrainShare = 5)" },
+        { "on": "internal/repository/planet_repo.go", "kind": "reads", "reason": "populatePlanetFromJSON — whitelist полей" },
+        { "on": "internal/generator/planet/twin.go", "kind": "reads", "reason": "твин-генератор — недра планеты" }
+      ]
+    },
+    {
+      "id": "99.2.28",
+      "type": "spec",
+      "path": "docs/specs/99.2.28-biomes-planet-surface.md",
+      "note": "спека «Генерация биомов планеты» (99.2.28, 2026-09-20, ✅ реализована): справочник biome_catalog.json, слой 10 биомов после недр, слой 8 — draft-пробник, классификация — интерпретатор правил без чисел, прототип через оверрайды каскада, админка справочника; + приложение (каталог 57/17/9) и UI-спека; пороги 15/20/25 убраны из кода (решение создателя)",
+      "impacts": [
+        { "on": "biome_catalog.json", "kind": "writes", "reason": "каталог создан по спеке + приложению (57 биомов, 17 недр, 9 правил)" },
+        { "on": "biomes", "kind": "writes", "reason": "механика биомов по спеке §5–§12" },
+        { "on": "subterrain", "kind": "writes", "reason": "недра объектами по спеке §7–§9" },
+        { "on": "config/planet_archetypes.json", "kind": "writes", "reason": "контент-дельта §15.2 (веса вулканических/крио/серных/магмового для альбедо-прокси и недр ядра)" },
+        { "on": "99.2.20", "kind": "affects", "reason": "порядок слоёв: слой 10 «биомы» после недр; слой 8 — draft-пробник; классификация после биомов; формулы не меняются (дельта §26)" },
+        { "on": "99.2.10", "kind": "affects", "reason": "surface_bias/subterrain_bias — точка применения физические веса (дельта §26)" },
+        { "on": "99.2.22", "kind": "affects", "reason": "ручки — входы каскада, не меняются; SurfaceOverride — только альбедо T₀; токсичные tuned-миры — экстремофилы/серные поля (дельта §26)" },
+        { "on": "docs/specs/README.md", "kind": "docs", "reason": "манифест спек: строка 99.2.28 (статус/дата)" },
+        { "on": "99_roadmap.md", "kind": "docs", "reason": "строка §99.2.28 — статус фичи (дельта @dispatcher)" }
+      ]
     }
   ]
 }

@@ -512,8 +512,8 @@ func TestSnapshot(t *testing.T) {
 	mock.ExpectQuery(`SELECT good_id, pos, component_id, quantity, reason, allow_resource FROM goods_slots ORDER BY good_id, pos`).
 		WillReturnRows(sqlmock.NewRows([]string{"good_id", "pos", "component_id", "quantity", "reason", "allow_resource"}).
 			AddRow(int64(1), 0, int64(2), 1, nil, false))
-	mock.ExpectQuery(`SELECT id, name, kind, category_id, race_family, output, input, params, status, created_at FROM producer_types ORDER BY id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "output", "input", "params", "status", "created_at"}))
+	mock.ExpectQuery(`SELECT id, name, kind, category_id, race_family, parent_id, race, output, input, params, status, created_at FROM producer_types ORDER BY id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "parent_id", "race", "output", "input", "params", "status", "created_at"}))
 	mock.ExpectQuery(`SELECT id, name, slot_type, status, unlocks, params, created_at FROM items ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "slot_type", "status", "unlocks", "params", "created_at"}))
 	mock.ExpectQuery(`SELECT producer_type_id, item_id, requirements FROM producer_items ORDER BY producer_type_id, item_id`).

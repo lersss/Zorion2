@@ -507,7 +507,8 @@
         { "on": "61b", "kind": "affects", "reason": "расовые корабли — новый слой визуала; spriteForAgent — точка замены под расовый визуал (21 спрайт — легаси)" },
         { "on": "docs/specs/2026-09-20-ships-races-generator.md", "kind": "docs", "reason": "спека генератора спрайтов кораблей рас (конвейер силуэт→ControlNet→детализация, ships.json/ship_dict.json) — источник формата каталога" },
         { "on": "docs/gamedesign/21_ships.md", "kind": "duplicates", "reason": "GDD-справочник кораблей рас — сводный док по каталогу (2026-09-20)" },
-        { "on": "docs/specs/2026-09-20-ships-races-template.md", "kind": "docs", "reason": "шаблон лор-файла корабля расы (структура/поля каталога, 2026-09-20)" }
+        { "on": "docs/specs/2026-09-20-ships-races-template.md", "kind": "docs", "reason": "шаблон лор-файла корабля расы (структура/поля каталога, 2026-09-20)" },
+        { "on": "config/art/ships.json", "kind": "derives", "reason": "проекция лор-файлов кораблей рас: /ships/rebuild (ships_rebuild.go) читает «Семейство» из races/ships/*.md и пишет family в ships.json — правка family у людей F1→F0 обязана идти в обоих (2026-09-21)" }
       ]
     },
     {
@@ -796,13 +797,14 @@
       "id": "producer_types",
       "type": "table",
       "path": "db:producer_types (items, producer_items)",
-      "note": "каталог типов производителей/предметов (миграция 000048; 2026-09-21 дерево построек — 000051: parent_id BIGINT NULL REFERENCES producer_types(id) ON DELETE RESTRICT — базовый тип, race TEXT NULL — уровень расы; семейство — race_family F1–F9|robotic). Структура дерева: Строения → классы (товары/предметы/энергия/Другие — фиксированные) → типы (parent_id NULL) → подтипы (parent_id задан, категория только у подтипов kind=goods); автоматика категорий у Фабрики/Автофабрики (13 товарных) и Платформы (6 ресурсных); уникальность подтипа (parent_id, category_id, race_family, race); переименование не рвёт связи (producer_items/goods_slots по id)",
+      "note": "каталог типов производителей/предметов (миграция 000048; 2026-09-21 дерево построек — 000051: parent_id BIGINT NULL REFERENCES producer_types(id) ON DELETE RESTRICT — базовый тип, race TEXT NULL — уровень расы; семейство — race_family F0–F9|robotic). Структура дерева: Строения → классы (товары/предметы/энергия/Другие — фиксированные) → типы (parent_id NULL) → подтипы (parent_id задан, категория только у подтипов kind=goods); автоматика категорий у Фабрики/Автофабрики (13 товарных) и Платформы (6 ресурсных); уникальность подтипа (parent_id, category_id, race_family, race); переименование не рвёт связи (producer_items/goods_slots по id)",
       "impacts": [
         { "on": "web/studio.html", "kind": "writes", "reason": "дерево построек на канвасе (ветка «Производители»), попапы детали/создания, переключатель расовости (спека 2026-09-21-студия-дерево-построек)" },
         { "on": "internal/handlers/studio_handlers.go", "kind": "api", "reason": "CRUD producer_types/items + GET /studio/api/races (семейства+расы из internal/races)" },
         { "on": "internal/repository/producer_repository.go", "kind": "writes", "reason": "валидации инвариантов дерева (глубина 1, категория только у подтипов, уникальность кортежа 409, RESTRICT удаления)" },
         { "on": "internal/races", "kind": "reads", "reason": "валидация «раса → семейство» по каталогу (race_family/race записи producer_types)" },
-        { "on": "race_lore.json", "kind": "reads", "reason": "инвариант «раса → семейство» (family у 60 рас, роботы — robotic)" },
+        { "on": "race_lore.json", "kind": "reads", "reason": "инвариант «раса → семейство» (family у 60 рас, роботы — robotic; семейства F0–F9 — люди вынесены в F0, 2026-09-21)" },
+        { "on": "docs/specs/2026-09-21-люди-f0-отдельное-семейство.md", "kind": "duplicates", "reason": "спека «Люди → F0»: семейства F0–F9|robotic, список семейств студии (переключатель расовости) — 11 семейств" },
         { "on": "docs/DB.md", "kind": "docs", "reason": "таблицы 000048, миграция 000051 (parent_id/race, data-миграция лабораторий)" },
         { "on": "docs/specs/2026-09-20-фабрики-сущность-производства.md", "kind": "duplicates", "reason": "родительская спека фабрик: классификация §2, ветка «Производители» §4.1, race_family §3.1" },
         { "on": "docs/specs/2026-09-21-студия-дерево-построек-канвас.md", "kind": "duplicates", "reason": "спека дерева построек: модель parent_id/race, автоматика категорий, расовость двух уровней" }

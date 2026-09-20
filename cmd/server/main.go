@@ -506,6 +506,9 @@ func main() {
 	// producer_types/items/producer_items — тот же контракт, что goods.
 	http.HandleFunc("/studio/api/producers", auth.AdminAuth(studioHandlers.Producers))
 	http.HandleFunc("/studio/api/producers/", auth.AdminAuth(studioHandlers.ProducerByID))
+	// Уровни расовости дерева построек (спека 2026-09-21-студия-дерево-построек-канвас §3):
+	// семейства F1–F9 + robotic и расы из internal/races (Go-конфиги, единый источник).
+	http.HandleFunc("/studio/api/races", auth.AdminAuth(studioHandlers.Races))
 	http.HandleFunc("/studio/api/items", auth.AdminAuth(studioHandlers.Items))
 	http.HandleFunc("/studio/api/items/", auth.AdminAuth(studioHandlers.ItemByID))
 

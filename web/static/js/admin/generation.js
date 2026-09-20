@@ -382,8 +382,9 @@ export async function clearUniverse() {
 }
 
 // startPacman — запуск пакмана (спека 2026-09-20 §2.1): порционный вайп
-// галактики по спирали; событие видно всем игрокам на карте. Скорость —
-// из инпута (миров/с, дефолт 1700); прогресс — pollJob('pacman', ...).
+// галактики по ближайшим (nearest, решение создателя 2026-09-20); событие
+// видно всем игрокам на карте. Скорость — из инпута (миров/с, дефолт 1700);
+// прогресс — pollJob('pacman', ...).
 export async function startPacman() {
     const speedInput = document.getElementById('pacmanSpeed');
     // Любая положительная скорость, дробная допустима (0.01 — «кинорежим»).
@@ -392,7 +393,7 @@ export async function startPacman() {
         const res = await fetchWithAuth('/admin/pacman/start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ worlds_per_second: worldsPerSecond, batch_size: 200, trajectory: 'spiral' }),
+            body: JSON.stringify({ worlds_per_second: worldsPerSecond, batch_size: 200, trajectory: 'nearest' }),
         });
         const text = await res.text();
         const resultEl = document.getElementById('pacmanResult');

@@ -58,6 +58,9 @@ arrivalObject: null,
     stellarMods: null,       // модификаторы звезды (41a): {subtype, disk_state, ...} — для ветки «аккреция» ЧД
     worldAge: null,          // возраст системы в млрд лет (41a); null — нет данных (старые миры/обычные звёзды)
     authToken: null, // токен открытия модалки (админка); refreshPlanets использует его
+    // Роль игрока из /me (спека 2026-09-20 §6.2): admin/skycomposer видят
+    // «Вид с орбиты» всегда (гейт 2); null — роль ещё не загружена.
+    role: null,
     hasEngine: true, // установлен ли двигатель игрока (спека 91a §6.1): без него
                      // «Перелететь» из модалки блокируется; true = админка/не загружено
     // Внутрисистемная позиция игрока (спека 99.2.27 §4.4): my_position из
@@ -100,6 +103,7 @@ export function resetState() {
     modalState.suppressNextClick = false;
     modalState.activeTab = 'general';
     modalState.authToken = null;
+    modalState.role = null;
     modalState.restricted = false;
     modalState.myPosition = null;
     modalState.companionId = null;

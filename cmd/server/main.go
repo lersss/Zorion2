@@ -371,8 +371,15 @@ func main() {
 	// API поиска объектов (звезда/планета/спутник) по имени
 	http.HandleFunc("/api/entities/search", auth.AuthMiddleware(adminHandlers.SearchEntitiesHandler))
 
-	// API изображения планет
-	http.HandleFunc("/api/planet-image", handlers.PlanetImageHandler)
+	// API изображения планет (спека 2026-09-20 §3.2): авторизованный
+	// /api/planet-image (planet_id + size, JWT обязателен; режим честная/
+	// заглушка решает сервер). Диск-кэш большой картинки — каталог при старте
+	// (MkdirAll, спека §5.2); на проде env PLANET_IMAGE_CACHE_DIR.
+	if err := handlers.InitPlanetImageCacheDir(cfg.PlanetImageCacheDir); err != nil {
+		log.Printf("⚠️ Диск-кэш картинок планет: %v", err)
+	}
+	planetImageHandler := handlers.NewPlanetImageHandler(planetRepo, userRepo, knowledgeRepo, cfg.PlanetImageCacheDir)
+	http.HandleFunc("/api/planet-image", auth.AuthMiddleware(planetImageHandler.ServeHTTP))
 
 	// WebSocket
 	http.HandleFunc("/ws", auth.AuthMiddleware(wsHandler.ServeWS))

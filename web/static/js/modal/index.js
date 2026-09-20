@@ -6,6 +6,7 @@ import { initEvents } from './events.js';
 import { clearTextureCache } from './textures.js';
 import { getStarColor, getStarSize, starTypeLabel, systemTypeLabel, starModsBadges } from './utils.js';
 import { renderRightPanel } from './panel.js';
+import { cleanupOrbitView } from './tabs.js';
 import { notifyError } from '../ui/toast.js';
 import { repaintPopulationNumbers } from './extrapolate.js';
 import { record } from '../dashboard/journal.js';
@@ -85,6 +86,16 @@ export function openSystemModal(worldId, worldName, spectralClass, focusOpts, au
             // системы — надёжный признак; кнопка «Найти меня» в модалке при
             // межзвёздном полёте закроет её и поведёт как кнопка карты.
             modalState.interstellarFlight = (me && me.flight) || null;
+            // Роль (спека 2026-09-20 §6.2): admin/skycomposer видят «Вид с
+            // орбиты» всегда. /me асинхронный — если модалка уже открыта и
+            // планета выбрана, перерисовываем карточку (гвард: роль пришла
+            // после рендера — иначе блок не появится до следующего refresh).
+            modalState.role = me.role || null;
+            if (modalState.role && document.getElementById('system-modal-overlay') &&
+                modalState.selectedPlanetIndex !== null &&
+                modalState.planets && modalState.planets[modalState.selectedPlanetIndex]) {
+                renderRightPanel(modalState.planets, modalState.selectedPlanetIndex);
+            }
         })
         .catch(() => { /* тихий сбой: остаётся фолбэк-примитив (И4) */ });
 
@@ -262,11 +273,15 @@ function renderModal(worldId, worldName, spectralClass, data) {
     // Спрайт игрока (запрос создателя 99.2.27): openSystemModal мог установить
     // его из starInfo или /me — resetState его сбрасывает (иначе фолбэк-ромб
     // навсегда: /me-фетч для карты не запускался, т.к. starInfo имел иконку).
+    // Роль (спека 2026-09-20 §6.2) — та же гонка: /me мог вернуться ДО
+    // renderModal, resetState сбросил бы её — сохраняем и восстанавливаем.
     const shipIcon = modalState.shipIcon;
     const shipColor = modalState.shipColor;
+    const role = modalState.role;
     resetState();
     modalState.shipIcon = shipIcon;
     modalState.shipColor = shipColor;
+    modalState.role = role;
 
     const planets = Array.isArray(data && data.planets) ? data.planets : [];
     const starType = (data && data.star_type) || 'star';
@@ -891,6 +906,9 @@ async function loadSystemPlayers() {
 export function closeModal() {
     const overlay = document.getElementById('system-modal-overlay');
     if (overlay) overlay.remove();
+    // Большая картинка «Вид с орбиты» (спека 2026-09-20 §6.2): сброс
+    // состояния при закрытии модалки (revoke object URL, если есть).
+    cleanupOrbitView();
     resetState();
     // Восстанавливаем колбэк перерисовки карты/дашборда (запрос создателя
     // 99.2.27): модалка закрыта — её колбэк больше не нужен.

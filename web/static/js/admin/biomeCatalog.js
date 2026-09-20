@@ -409,6 +409,10 @@ function renderBiomeEditor(panel, b, isNew) {
     textInput(row1, 'id (🔒 не редактируется)', b.id, v => { b.id = v; upd(); }, { disabled: !isNew, width: '160px' });
     textInput(row1, 'Отображаемое имя', b.name, v => { b.name = v; upd(); }, { disabled, width: '160px' });
     selectInput(row1, 'Категория', b.category, CATEGORIES.map(c => ({ value: c, label: c })), v => { b.category = v; upd(); }, disabled);
+    // Цвет поверхности (спека 2026-09-20 §4.2): необязательный hex #RRGGBB —
+    // переопределяет базу категории в картинке планеты. Валидация — на
+    // сервере (инвариант 17, PATCH /admin/biome-catalog → 422 при битом hex).
+    textInput(row1, 'Цвет (#RRGGBB)', b.color, v => { b.color = v; upd(); }, { disabled, width: '100px' });
     main.appendChild(row1);
     const descRow = el('div');
     const descLab = el('label', '', 'Описание');

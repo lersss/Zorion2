@@ -211,7 +211,7 @@ export async function drawSystem(canvas, spectralClass, planets, starRadius, sta
         const loadPromises = planets.map(async (p, idx) => {
             let texture = null;
             try {
-                texture = await getPlanetTexture(p, spectralClass, sizeMultiplier);
+                texture = await getPlanetTexture(p, 'small');
             } catch (e) {
                 console.warn('Failed to load texture for planet', p.id, e);
             }

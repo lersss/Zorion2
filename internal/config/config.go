@@ -18,6 +18,7 @@ type Config struct {
 	SkycomposerBootstrapPassword string
 	BalancerPresetsFile          string
 	RaceBalancerFile             string
+	PlanetImageCacheDir          string
 	OpenCodeURL                  string
 	OpenCodeModel                string
 	OpenCodeTimeout              time.Duration
@@ -77,6 +78,15 @@ func Load() *Config {
 		rfile = "config/race_balancer.json"
 	}
 
+	// Путь к каталогу диск-кэша большой картинки планеты (спека 2026-09-20
+	// §5.2): дефолт data/planet_images (локально); env PLANET_IMAGE_CACHE_DIR
+	// переопределяет (паттерн BALANCER_PRESETS_FILE) — на проде задаётся в
+	// место с правом записи (data/ может быть read-only, DEPLOY.md §1).
+	pimgDir := os.Getenv("PLANET_IMAGE_CACHE_DIR")
+	if pimgDir == "" {
+		pimgDir = "data/planet_images"
+	}
+
 	// Конфиг opencode — ИИ «заполнить комплектующие» (спека
 	// переноса-студии-товаров-iterC §4): env с дефолтами из старого
 	// config/goods/studio.json (удаляется со старой студией). На проде env
@@ -116,6 +126,7 @@ func Load() *Config {
 		SkycomposerBootstrapPassword: skyPassword,
 		BalancerPresetsFile:          pfile,
 		RaceBalancerFile:             rfile,
+		PlanetImageCacheDir:          pimgDir,
 		OpenCodeURL:                  ocURL,
 		OpenCodeModel:                ocModel,
 		OpenCodeTimeout:              time.Duration(ocTimeout) * time.Second,

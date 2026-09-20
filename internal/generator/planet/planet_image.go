@@ -90,6 +90,19 @@ type ClimateInfo struct {
 
 // ---------- Конструктор ----------
 
+// newPlanetGeneratorBase — базовая инициализация генератора (общая для
+// NewPlanetGenerator и NewImageGenerator).
+func newPlanetGeneratorBase() *PlanetGenerator {
+	return &PlanetGenerator{
+		canvasSize:   128,
+		enableCache:  true,
+		cache:        make(map[string]*CachedPlanet),
+		cacheOrder:   []string{},
+		maxCacheSize: 2000,
+		rand:         rand.New(rand.NewSource(time.Now().UnixNano())),
+	}
+}
+
 func NewPlanetGenerator(climateFile string, opts ...func(*PlanetGenerator)) (*PlanetGenerator, error) {
 	data, err := os.ReadFile(climateFile)
 	if err != nil {
@@ -99,19 +112,24 @@ func NewPlanetGenerator(climateFile string, opts ...func(*PlanetGenerator)) (*Pl
 	if err := json.Unmarshal(data, &climateData); err != nil {
 		return nil, err
 	}
-	pg := &PlanetGenerator{
-		climates:     climateData.Climates,
-		canvasSize:   128,
-		enableCache:  true,
-		cache:        make(map[string]*CachedPlanet),
-		cacheOrder:   []string{},
-		maxCacheSize: 2000,
-		rand:         rand.New(rand.NewSource(time.Now().UnixNano())),
-	}
+	pg := newPlanetGeneratorBase()
+	pg.climates = climateData.Climates
 	for _, opt := range opts {
 		opt(pg)
 	}
 	return pg, nil
+}
+
+// NewImageGenerator — генератор картинок без климат-файла (спека 2026-09-20):
+// GeneratePlanetImage не использует climates (входы — только видимые параметры,
+// §3.1); климат-файл нужен только старому GeneratePlanet (фолбэк старых миров
+// в generateHonest его не использует).
+func NewImageGenerator(opts ...func(*PlanetGenerator)) *PlanetGenerator {
+	pg := newPlanetGeneratorBase()
+	for _, opt := range opts {
+		opt(pg)
+	}
+	return pg
 }
 
 func WithCanvasSize(size int) func(*PlanetGenerator) {

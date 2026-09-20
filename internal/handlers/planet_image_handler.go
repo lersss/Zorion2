@@ -1,93 +1,174 @@
 // internal/handlers/planet_image_handler.go
+//
+// Авторизованный эндпоинт картинки планеты (спека 2026-09-20 §3.2):
+// GET /api/planet-image?planet_id=<UUID>&size=small|big (или radius).
+// JWT обязателен (401 без токена); режим картинки (честная/заглушка) решает
+// сервер (§3.3): admin/skycomposer → честная; своя система → честная; знание
+// о планете (любая запись, включая протухшую) → честная; иначе заглушка.
+// Кэш: in-memory (планета, режим, размер) + диск-кэш PNG для большой (§5.2).
 package handlers
 
 import (
+	"bytes"
 	"image/png"
 	"log"
 	"net/http"
 	"strconv"
 	"sync"
-	"time"
 
+	"zorion/internal/auth"
 	"zorion/internal/generator/planet"
+	"zorion/internal/models"
+	"zorion/internal/repository"
 )
 
-func PlanetImageHandler(w http.ResponseWriter, r *http.Request) {
-	seedStr := r.URL.Query().Get("seed")
-	starType := r.URL.Query().Get("starType")
-	climateID := r.URL.Query().Get("climateId")
-	radiusStr := r.URL.Query().Get("radius")
-	if radiusStr == "" {
-		radiusStr = "20"
-	}
-	radius, err := strconv.Atoi(radiusStr)
-	if err != nil || radius < 1 || radius > 80 {
-		radius = 20
-	}
-	var seed int64 = 0
-	if seedStr != "" {
-		seed, err = strconv.ParseInt(seedStr, 10, 64)
-		if err != nil {
-			seed = 0
-		}
-	}
-	if seed == 0 {
-		seed = time.Now().UnixNano()
-	}
+// PlanetImageHandler — хендлер картинки планеты.
+type PlanetImageHandler struct {
+	planetRepo *repository.PlanetRepository
+	userRepo   *repository.UserRepository
+	knowledge  *repository.KnowledgeRepository
+	gen        *planet.PlanetGenerator
+	cacheDir   string
+}
 
-	gen, err := getPlanetGenerator()
-	if err != nil {
-		log.Printf("❌ Failed to get planet generator: %v", err)
-		http.Error(w, "Generator not available", http.StatusInternalServerError)
-		return
-	}
-
-	opts := []func(*planet.GenerateOptions){
-		planet.WithRadius(radius),
-		planet.WithSeed(seed),
-	}
-	if starType != "" {
-		opts = append(opts, planet.WithStarType(starType))
-	}
-	if climateID != "" {
-		opts = append(opts, planet.WithClimateID(climateID))
-	}
-
-	cachedPlanet, err := gen.GeneratePlanet(radius, opts...)
-	if err != nil {
-		log.Printf("❌ Failed to generate planet: %v", err)
-		http.Error(w, "Failed to generate planet", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "image/png")
-	if err := png.Encode(w, cachedPlanet.Image); err != nil {
-		log.Printf("❌ Failed to encode image: %v", err)
-		http.Error(w, "Failed to encode image", http.StatusInternalServerError)
-		return
+// NewPlanetImageHandler — конструктор. cacheDir — каталог диск-кэша большой
+// картинки (env PLANET_IMAGE_CACHE_DIR, дефолт data/planet_images); пусто —
+// диск-кэш отключён (тесты).
+func NewPlanetImageHandler(
+	planetRepo *repository.PlanetRepository,
+	userRepo *repository.UserRepository,
+	knowledge *repository.KnowledgeRepository,
+	cacheDir string,
+) *PlanetImageHandler {
+	return &PlanetImageHandler{
+		planetRepo: planetRepo,
+		userRepo:   userRepo,
+		knowledge:  knowledge,
+		gen:        getPlanetImageGenerator(),
+		cacheDir:   cacheDir,
 	}
 }
 
+// ServeHTTP — GET /api/planet-image.
+func (h *PlanetImageHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	planetID := r.URL.Query().Get("planet_id")
+	if planetID == "" {
+		writeJSONError(w, "planet_id обязателен", http.StatusBadRequest)
+		return
+	}
+	size := parseImageSize(r)
+
+	p, err := h.planetRepo.GetPlanetByID(planetID)
+	if err != nil {
+		log.Printf("❌ planet-image: планета %s: %v", planetID, err)
+		writeJSONError(w, "Внутренняя ошибка", http.StatusInternalServerError)
+		return
+	}
+	if p == nil {
+		writeJSONError(w, "Планета не найдена", http.StatusNotFound)
+		return
+	}
+
+	mode := h.resolveMode(r, p)
+
+	// Диск-кэш большой (спека §5.2): PNG 512 в {dir}/{sha256(planet_id|mode)}.png.
+	if size == planet.ImageSizeBig && h.cacheDir != "" {
+		if data, ok := diskCacheGet(h.cacheDir, planetID, mode); ok {
+			writePNG(w, data)
+			return
+		}
+	}
+
+	in := planet.PlanetImageInput{
+		PlanetID:     p.ID,
+		Mode:         mode,
+		Size:         size,
+		Biomes:       p.Biomes,
+		Type:         p.Type,
+		IsGasGiant:   p.IsGasGiant,
+		Temperature:  p.Temperature,
+		WaterPercent: p.WaterPercent,
+		Habitable:    p.Habitable,
+		Life:         p.Life,
+	}
+	img, err := h.gen.GeneratePlanetImage(in)
+	if err != nil {
+		log.Printf("❌ planet-image: генерация %s: %v", planetID, err)
+		writeJSONError(w, "Внутренняя ошибка", http.StatusInternalServerError)
+		return
+	}
+
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		log.Printf("❌ planet-image: encode %s: %v", planetID, err)
+		writeJSONError(w, "Внутренняя ошибка", http.StatusInternalServerError)
+		return
+	}
+	if size == planet.ImageSizeBig && h.cacheDir != "" {
+		diskCachePut(h.cacheDir, planetID, mode, buf.Bytes())
+	}
+	writePNG(w, buf.Bytes())
+}
+
+// parseImageSize — типоразмер из запроса (спека §3.2): size=small|big —
+// явный выбор (radius игнорируется); иначе radius: ≤ 40 → малая, ≥ 128 →
+// большая, промежуточные — малая (канвас 256).
+func parseImageSize(r *http.Request) planet.ImageSize {
+	switch r.URL.Query().Get("size") {
+	case "big":
+		return planet.ImageSizeBig
+	case "small":
+		return planet.ImageSizeSmall
+	}
+	if radiusStr := r.URL.Query().Get("radius"); radiusStr != "" {
+		if radius, err := strconv.Atoi(radiusStr); err == nil && radius >= 128 {
+			return planet.ImageSizeBig
+		}
+	}
+	return planet.ImageSizeSmall
+}
+
+// resolveMode — режим картинки (спека §3.2, порядок): роль admin/skycomposer →
+// честная; своя система (current_world_id == world_id) → честная; знание о
+// планете (любая запись, включая протухшую, С3) → честная; иначе заглушка.
+func (h *PlanetImageHandler) resolveMode(r *http.Request, p *models.Planet) planet.ImageMode {
+	role, _ := r.Context().Value(auth.RoleKey).(string)
+	if role == string(auth.RoleAdmin) || role == string(auth.RoleSkycomposer) {
+		return planet.ImageModeHonest
+	}
+	userID, _ := r.Context().Value(auth.UserIDKey).(string)
+	user, err := h.userRepo.GetByID(userID)
+	if err == nil && user != nil && user.CurrentWorldID != nil && *user.CurrentWorldID == p.WorldID {
+		return planet.ImageModeHonest
+	}
+	k, err := h.knowledge.GetKnowledge(userID, p.ID)
+	if err == nil && k != nil {
+		return planet.ImageModeHonest
+	}
+	return planet.ImageModeStub
+}
+
+// writePNG — ответ PNG.
+func writePNG(w http.ResponseWriter, data []byte) {
+	w.Header().Set("Content-Type", "image/png")
+	w.Write(data)
+}
+
 var (
-	planetGenOnce sync.Once
-	planetGen     *planet.PlanetGenerator
-	planetGenErr  error
+	planetImageGenOnce sync.Once
+	planetImageGen     *planet.PlanetGenerator
 )
 
-func getPlanetGenerator() (*planet.PlanetGenerator, error) {
-	planetGenOnce.Do(func() {
-		const climateFile = "config/planet_archetypes.json"
-		pg, err := planet.NewPlanetGenerator(climateFile,
-			planet.WithCanvasSize(256), // <-- увеличена базовая текстура (детализация при зуме)
+// getPlanetImageGenerator — синглтон генератора картинок (in-memory кэш
+// 1000 FIFO, спека §5.2). Без климат-файла: GeneratePlanetImage не использует
+// climates (входы — видимые параметры, §3.1).
+func getPlanetImageGenerator() *planet.PlanetGenerator {
+	planetImageGenOnce.Do(func() {
+		planetImageGen = planet.NewImageGenerator(
+			planet.WithCanvasSize(256),
 			planet.WithCacheEnabled(true),
 			planet.WithMaxCacheSize(1000),
 		)
-		if err != nil {
-			log.Printf("⚠️ Failed to load planet generator: %v", err)
-			planetGenErr = err
-			return
-		}
-		planetGen = pg
 	})
-	return planetGen, planetGenErr
+	return planetImageGen
 }

@@ -61,6 +61,11 @@ type BiomeDef struct {
 	TypeTags   []string `json:"type_tags,omitempty"` // теги типа планеты (вулканический/биосферный/...)
 	WeightBase float64  `json:"weight_base"`         // 0–10: насколько биом вообще распространён
 	Albedo     float64  `json:"albedo"`              // 0–1: альбедо поверхности (слой 5)
+
+	// Color — переопределение цвета поверхности (спека 2026-09-20 §4.2):
+	// необязательный hex #RRGGBB; пусто = база категории + сдвиги. Правка —
+	// только через админку (вкладка «Основное», редактор биома).
+	Color string `json:"color,omitempty"`
 }
 
 // SubterrainTypeDef — определение типа недр (99.2.28 §5.5, приложение §2).
@@ -304,6 +309,11 @@ func (c *BiomeCatalog) Validate() error {
 		}
 		if b.WeightBase <= 0 {
 			return fmt.Errorf("биом %q: weight_base <= 0", b.ID)
+		}
+		if b.Color != "" {
+			if _, ok := parseHexColor(b.Color); !ok {
+				return fmt.Errorf("биом %q: color %q — невалидный hex #RRGGBB (инвариант 17)", b.ID, b.Color)
+			}
 		}
 	}
 	seenSub := make(map[string]bool, len(c.SubterrainTypes))

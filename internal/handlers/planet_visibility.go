@@ -49,6 +49,11 @@ func stripPlanetDetails(p models.Planet, view *models.PlanetKnowledgeView) model
 	p.SurfaceDominant = ""
 	p.SurfaceComposition = nil
 	p.SubterrainComposition = nil
+	// Биомы/недры объектами (99.2.28 §9.3) — тоже скрыты для player: утечка
+	// И1 с релиза 99.2.28 (находка 2026-09-20 §10.5). Картинка планеты из
+	// биомов при этом остаётся допустимой — вид разрешён создателем (С1/гейт 2).
+	p.Biomes = nil
+	p.Subterrain = nil
 	p.Atmosphere = ""
 	p.Hydrosphere = ""
 	p.Biosphere = ""

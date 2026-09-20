@@ -1,6 +1,7 @@
 // web/static/js/modal/tabs.js
 import { populationAt, planetPopulationAt } from './extrapolate.js';
 import { modalState } from './state.js';
+import { getPlanetTexture } from './textures.js';
 
 // ---------- УТИЛИТЫ ----------
 
@@ -90,9 +91,21 @@ const SUBTERRAIN_COLORS = {
 
 // ---------- РЕНДЕР КОМПОЗИЦИИ ----------
 
+// biomeIconHtml — иконка биома: PNG из /static/sprites/biomes/<id>.png
+// (пачка 1, 23 шт, спека 2026-09-20 §6.3), если файл есть; onerror →
+// эмодзи FORM_ICONS[form] / «•» (34 биома без иконок — фолбэк, М1).
+// Список id не хардкодим — фолбэк по ошибке загрузки.
+function biomeIconHtml(form) {
+    const fallback = FORM_ICONS[form] || '•';
+    return `<img src="/static/sprites/biomes/${encodeURIComponent(form)}.png" alt=""
+        data-biome-fallback="${fallback}"
+        style="width:22px; height:22px; vertical-align:middle; margin-right:4px;">`;
+}
+
 // Рисует полоску + полный список форм. Без обрезки и кнопки «показать все»
 // (69a: в блоках Поверхность/Недра остаток был 1–2 строки, кнопка бесполезна).
-function renderComposition(composition, icons, colors) {
+// pngIcons — true для поверхности (биомы, PNG-иконки §6.3); недры — эмодзи.
+function renderComposition(composition, icons, colors, pngIcons) {
     if (!composition || Object.keys(composition).length === 0) {
         return '<p style="color:#666; margin: 4px 0;">— нет данных —</p>';
     }
@@ -110,7 +123,7 @@ function renderComposition(composition, icons, colors) {
 
     // Список
     const renderRow = ([form, pct]) => {
-        const icon = icons[form] || '•';
+        const icon = pngIcons ? biomeIconHtml(form) : (icons[form] || '•');
         return `<li style="margin: 2px 0; display:flex; justify-content:space-between;">
             <span>${icon} ${prettyName(form)}</span>
             <span style="color:#888;">${pct.toFixed(1)}%</span>
@@ -124,10 +137,80 @@ function renderComposition(composition, icons, colors) {
     return bar + list;
 }
 
+// ---------- ВИД С ОРБИТЫ (спека 2026-09-20 §6.2) ----------
+
+// orbitViewState — состояние загрузки большой картинки: {status} —
+// 'loading' | 'ok' | 'error'. Object URL revoke делает textures.js после
+// декодирования; cleanupOrbitView сбрасывает состояние при закрытии модалки
+// и перед новой загрузкой.
+let orbitViewState = null;
+
+// isAdmin — роль из /me (спека §6.2): admin/skycomposer видят всё (гейт 2).
+function isAdmin() {
+    return modalState.role === 'admin' || modalState.role === 'skycomposer';
+}
+
+// orbitViewHtml — контейнер «Вид с орбиты» (заполняется renderOrbitView
+// после вставки в DOM: асинхронная загрузка картинки). Показывается, когда
+// игрок на орбите этой планеты (99.2.27 §4.4/§5.11) или роль админ.
+function orbitViewHtml(planet) {
+    const myPos = modalState.myPosition;
+    const onThisOrbit = myPos && myPos.status === 'orbit' &&
+        myPos.object_type === 'planet' && myPos.object_id === planet.id;
+    if (!onThisOrbit && !isAdmin()) return '';
+    return `
+        <div class="orbit-view" data-orbit-view>
+            <div style="color:#888; font-size:0.9rem; text-transform:uppercase; margin:8px 0 4px 0;">Вид с орбиты</div>
+            <div class="orbit-view-frame" style="width:288px; max-width:100%; border-radius:12px; overflow:hidden; background:#0d0d1a; border:1px solid #2a2a4a;">
+                <div class="orbit-view-body" style="display:flex; align-items:center; justify-content:center; min-height:180px; color:#94a3b8; font-size:0.85rem;">Загрузка…</div>
+            </div>
+        </div>
+    `;
+}
+
+// renderOrbitView — загрузка большой картинки (size=big, 512px PNG,
+// CSS-масштаб): состояния Загрузка… / Успех / Не удалось загрузить вид.
+function renderOrbitView(planet, container) {
+    const wrap = container.querySelector('[data-orbit-view]');
+    if (!wrap) return;
+    const body = wrap.querySelector('.orbit-view-body');
+    if (!body) return;
+
+    cleanupOrbitView();
+    orbitViewState = { status: 'loading' };
+
+    getPlanetTexture(planet, 'big')
+        .then(img => {
+            if (!body.isConnected) return; // карточка перерисована
+            body.innerHTML = '';
+            body.appendChild(img);
+            img.style.width = '100%';
+            img.style.height = 'auto';
+            img.style.display = 'block';
+            orbitViewState = { status: 'ok' };
+        })
+        .catch(() => {
+            if (!body.isConnected) return;
+            body.innerHTML = '<span>Не удалось загрузить вид</span>';
+            orbitViewState = { status: 'error' };
+        });
+}
+
+// cleanupOrbitView — сброс состояния большой картинки (спека §6.2).
+// Вызывается при закрытии модалки (index.js closeModal) и перед новой
+// загрузкой. Object URL revoke делает textures.js после декодирования.
+export function cleanupOrbitView() {
+    orbitViewState = null;
+}
+
 // ---------- ОБЩАЯ ВКЛАДКА ----------
 
 function renderGeneral(planet) {
     let html = '';
+
+    // Большая картинка «Вид с орбиты» (спека 2026-09-20 §6.2): вверху
+    // карточки, над блоком «Тип»; заполняется renderOrbitView после вставки.
+    html += orbitViewHtml(planet);
 
     // Тип (название в шапке карточки)
     html += `<p style="margin:4px 0;"><strong>Тип:</strong> ${planet.type || '—'}</p>`;
@@ -189,11 +272,11 @@ function renderGeneral(planet) {
     html += `<p style="margin:8px 0 4px 0; color:#888; font-size:0.9rem; text-transform:uppercase;">Поверхность</p>`;
     const surfaceComp = planet.knowledge && planet.knowledge.surface_composition
         ? planet.knowledge.surface_composition : planet.surface_composition;
-    html += renderComposition(surfaceComp, FORM_ICONS, FORM_COLORS);
+    html += renderComposition(surfaceComp, FORM_ICONS, FORM_COLORS, true);
 
     // Недра
     html += `<p style="margin:8px 0 4px 0; color:#888; font-size:0.9rem; text-transform:uppercase;">Недра</p>`;
-    html += renderComposition(planet.subterrain_composition, SUBTERRAIN_ICONS, SUBTERRAIN_COLORS);
+    html += renderComposition(planet.subterrain_composition, SUBTERRAIN_ICONS, SUBTERRAIN_COLORS, false);
 
     // Жизнь
     html += `<p style="margin:8px 0 4px 0; color:#888; font-size:0.9rem; text-transform:uppercase;">Жизнь</p>`;
@@ -271,12 +354,12 @@ function renderSatelliteCard(planet, sat, container) {
 
     if (sat.surface_composition && Object.keys(sat.surface_composition).length) {
         html += `<p style="margin:8px 0 4px 0; color:#888; font-size:0.9rem; text-transform:uppercase;">Поверхность</p>`;
-        html += renderComposition(sat.surface_composition, FORM_ICONS, FORM_COLORS);
+        html += renderComposition(sat.surface_composition, FORM_ICONS, FORM_COLORS, true);
     }
 
     if (sat.subterrain_composition && Object.keys(sat.subterrain_composition).length) {
         html += `<p style="margin:8px 0 4px 0; color:#888; font-size:0.9rem; text-transform:uppercase;">Недра</p>`;
-        html += renderComposition(sat.subterrain_composition, SUBTERRAIN_ICONS, SUBTERRAIN_COLORS);
+        html += renderComposition(sat.subterrain_composition, SUBTERRAIN_ICONS, SUBTERRAIN_COLORS, false);
     }
 
     if (sat.description) {
@@ -456,6 +539,9 @@ export function renderTabContent(tab, planet, container) {
     switch (tab) {
         case 'general':
             container.innerHTML = renderGeneral(planet);
+            // Большая картинка «Вид с орбиты» (спека 2026-09-20 §6.2):
+            // асинхронная загрузка после вставки контейнера в DOM.
+            renderOrbitView(planet, container);
             break;
         case 'resources':
             container.innerHTML = renderResources(planet);
@@ -470,6 +556,15 @@ export function renderTabContent(tab, planet, container) {
             container.innerHTML = '<p style="color: #666;">Неизвестная вкладка</p>';
     }
 
+    // Иконки биомов (спека 2026-09-20 §6.3): PNG-иконка не загрузилась
+    // (файла нет) → фолбэк эмодзи/«•» (onerror-биндинг, список id не
+    // хардкодим — фолбэк по ошибке загрузки).
+    container.querySelectorAll('img[data-biome-fallback]').forEach(img => {
+        img.addEventListener('error', () => {
+            img.outerHTML = img.dataset.biomeFallback;
+        });
+    });
+
     // Клик по спутнику — карточка спутника
     container.querySelectorAll('[data-sat-idx]').forEach(li => {
         li.addEventListener('click', () => {
@@ -478,4 +573,17 @@ export function renderTabContent(tab, planet, container) {
             renderSatelliteCard(planet, sat, container);
         });
     });
+}
+
+// Стиль «Вид с орбиты» (спека 2026-09-20 §6.2): рамка 288px, на узких
+// экранах (<900px) — 192px.
+if (!document.getElementById('orbit-view-style')) {
+    const style = document.createElement('style');
+    style.id = 'orbit-view-style';
+    style.textContent = `
+        @media (max-width: 900px) {
+            .orbit-view-frame { width: 192px !important; }
+        }
+    `;
+    document.head.appendChild(style);
 }

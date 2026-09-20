@@ -706,8 +706,8 @@
         { "on": "web/static/js/modal/textures.js", "kind": "api", "reason": "клиент грузит /api/planet-image; ключ клиентского кэша own|known|unknown (три режима, 2026-09-21)" },
         { "on": "web/static/js/modal/modal_render.js", "kind": "api", "reason": "слой 3 канваса орбит — планеты текстурами (сервер решает режим; своя система → full)" },
         { "on": "web/static/js/modal/tabs.js", "kind": "affects", "reason": "иконки биомов рядом с составом (57/57 PNG + onerror-фолбэк) + показ большой картинки в карточке планеты" },
-        { "on": "postprocessing.go / rings.go", "kind": "affects", "reason": "блик от L(seed), приглушённый спекл по типам, освещённые кольца, заглушка без блика (S3/M4, 2026-09-21)" },
-        { "on": "(imageGenVersion)", "kind": "reads", "reason": "константа v3 в кэш-ключе и префиксе диск-кэша — инвалидация при визуальных правках (S1); не сущность реестра" }
+        { "on": "internal/generator/planet/postprocessing.go", "kind": "affects", "reason": "блик от L(seed), приглушённый спекл по типам, заглушка без блика (S3/M4, 2026-09-21)" },
+        { "on": "internal/generator/planet/rings.go", "kind": "affects", "reason": "кольца освещены — день/ночь, тень планеты на кольце (S3, 2026-09-21)" }
       ]
     },
     {

@@ -69,8 +69,10 @@ export function showFlightLabel(fromName, toName) {
 // ==================== НАЧАЛО ПЕРЕЛЁТА ====================
 
 // startFlight — отправляет /travel, подгружает миры, запускает полёт и показывает панель.
+// destination — необязательная цель композитного маршрута (спека 99.2.30 §3.1):
+// {object_type: 'planet'|'satellite'|'companion', object_id} — тело {world_id, destination}.
 // Возвращает true при успехе, false при ошибке.
-export async function startFlight(worldId, token) {
+export async function startFlight(worldId, token, destination) {
     if (!worldId) {
         notifyError('Не выбран мир назначения');
         return false;
@@ -86,7 +88,9 @@ export async function startFlight(worldId, token) {
                 'Content-Type': 'application/json',
                 'Authorization': 'Bearer ' + token
             },
-            body: JSON.stringify({ world_id: worldId })
+            body: JSON.stringify(destination
+                ? { world_id: worldId, destination }
+                : { world_id: worldId })
         });
         const text = await res.text();
         if (!res.ok) {
@@ -124,4 +128,15 @@ export async function startFlight(worldId, token) {
         notifyError('Ошибка: ' + e.message);
         return false;
     }
+}
+
+// returnToMapInFlight — «вернулся на карту в полёте» (спека 99.2.30 §6.7):
+// слежение как кнопка «🎯 Найти меня» карты (centerBtn.click() — followShip +
+// sessionStorage.followShip + centerOnAgent + подсветка, events.js:515-525).
+// Общий для «Перелететь» и «Лететь · через систему» — единое поведение
+// «лететь из модалки = камера карты ведёт корабль» (гейт создателя, идея §8
+// п.7в). В админке (карты нет) — no-op.
+export function returnToMapInFlight() {
+    const centerBtn = document.getElementById('centerBtn');
+    if (centerBtn) centerBtn.click();
 }

@@ -236,19 +236,6 @@ func main() {
 	// оставшимся временем; битые миры (перегенерация) — полёт не восстанавливается.
 	playerFlightRepo := repository.NewPlayerFlightRepository(db)
 	travelManager := travel.NewManager(playerFlightRepo)
-	travelManager.Restore(time.Now(),
-		func(id string) bool {
-			w, err := worldRepo.GetByID(id)
-			return err == nil && w != nil
-		},
-		func(userID, worldID string) {
-			// Прибытие межзвёздного (ИП-2, спека 99.2.27 §3.6.3): current_world_id
-			// + current_position = «орбита звезды» одним UPDATE (С-1).
-			if err := userRepo.UpdateCurrentWorldAndPosition(userID, worldID, models.StarOrbitPosition(worldID)); err != nil {
-				log.Printf("Failed to update current world for user %s: %v", userID, err)
-			}
-		},
-	)
 
 	// Внутрисистемные полёты (спека 99.2.27 §3.3/§3.5): персистентность в БД,
 	// Restore ПОСЛЕ межзвёздных (С-1) — межзвёздная строка побеждает, intra
@@ -258,6 +245,28 @@ func main() {
 	knowledgeRepo := repository.NewKnowledgeRepository(db)
 	intraFlightRepo := repository.NewPlayerIntrasystemFlightRepository(db)
 	intraManager := travel.NewIntrasystemManager(intraFlightRepo)
+
+	// Композитный маршрут (спека 99.2.30 §4.3): автостарт внутрисистемного
+	// сегмента по onArrival межзвёздного полёта — нужны planetRepo
+	// (валидация «объект жив») и knowledgeRepo (авто-знание presence).
+	// Хендлер создаётся ДО Restore-фаз: onArrival-колбэк фазы 1 идёт через
+	// общий ArrivalHandler (автостарт работает и для восстановленных полётов).
+	travelHandlers := handlers.NewTravelHandlers(worldRepo, userRepo, travelManager)
+	travelHandlers.SetIntrasystem(intraManager, intraFlightRepo)
+	travelHandlers.SetIntrasystemAutostart(planetRepo, knowledgeRepo)
+
+	// Фаза 1: Restore межзвёздных (97a) — onArrival через общий ArrivalHandler
+	// (спека 99.2.30 §4/И6): прибывшие засчитываются сразу (ИП-2 + автостарт
+	// композитного маршрута по намерению), летящие продолжаются с остатка.
+	travelManager.Restore(time.Now(),
+		func(id string) bool {
+			w, err := worldRepo.GetByID(id)
+			return err == nil && w != nil
+		},
+		travelHandlers.ArrivalHandler,
+	)
+
+	// Фаза 2: Restore внутрисистемных (99.2.27) — ПОСЛЕ межзвёздных (С-1).
 	intraManager.RestoreIntra(time.Now(),
 		func(worldID, objType, objID string) bool {
 			w, err := worldRepo.GetByID(worldID)
@@ -289,13 +298,15 @@ func main() {
 		},
 		handlers.NewIntraArrivalHandler(intraFlightRepo, planetRepo, knowledgeRepo),
 	)
+	// Фаза 3: намерения композитного маршрута (спека 99.2.30 §4.5) — ПОСЛЕ
+	// фаз 1–2: автостарт для живых целей, очистка призраков/битых/съеденных.
+	// O(игроки с намерением).
+	travelHandlers.RestorePendingDestinations()
 	wsHub := handlers.NewWebSocketHub()
 
 	testHandlers := handlers.NewTestHandlers(worldRepo, locationRepo, assignmentRepo)
 	worldHandlers := handlers.NewWorldHandlers(worldRepo, locationRepo, assignmentRepo)
 	authHandlers := handlers.NewAuthHandlers(userRepo, worldRepo, travelManager)
-	travelHandlers := handlers.NewTravelHandlers(worldRepo, userRepo, travelManager)
-	travelHandlers.SetIntrasystem(intraManager, intraFlightRepo)
 	// Внутрисистемные полёты (спека 99.2.27 §4.1): POST /api/intrasystem-flight.
 	intrasystemHandlers := handlers.NewIntrasystemHandlers(
 		worldRepo, userRepo, planetRepo, intraFlightRepo, knowledgeRepo, travelManager, intraManager,

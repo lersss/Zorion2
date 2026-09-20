@@ -285,7 +285,7 @@ export function initEvents(canvas, spectralClass, planets, starRadius, starColor
             showStarMenu(e.clientX, e.clientY);
         } else if (hit && hit.type === 'star') {
             // Компаньон/внешний компаньон (спека 99.2.27 §5.2, решение создателя
-            // 2026-09-20): ПКМ по компаньону → «На орбиту компаньона».
+            // 2026-09-20): ПКМ по компаньону → «Лететь».
             showCompanionMenu(e.clientX, e.clientY, hit.starIndex);
         } else if (hit && hit.type === 'planet') {
             // Планета (претензия создателя «как на карте»): ПКМ → «Лететь».
@@ -454,8 +454,8 @@ function showStarMenu(x, y) {
     menu.appendChild(title);
 
     // Внутрисистемный полёт доступен только в своей системе (спека 99.2.27
-    // §5.1): my_position != null. В своей системе «Перелететь» из модалки
-    // убирается (М-6, осознанно) — вместо него «На орбиту звезды».
+    // §5.1): my_position != null. В своей системе «Лететь» из модалки
+    // убирается (М-6, осознанно) — вместо него «Лететь».
     if (modalState.myPosition) {
         // ПКМ-пункт скрывается, если игрок уже на орбите звезды (§5.6) или
         // летит ОТ этой звезды (запрос создателя «глупый тост»: цель == from
@@ -473,7 +473,7 @@ function showStarMenu(x, y) {
                 align-items: center;
                 gap: 8px;
             `;
-            btn.innerHTML = `🚀 <span>На орбиту звезды</span>`;
+            btn.innerHTML = `🚀 <span>Лететь</span>`;
             btn.addEventListener('mouseenter', () => { btn.style.background = '#2a2a44'; });
             btn.addEventListener('mouseleave', () => { btn.style.background = 'none'; });
             btn.addEventListener('click', async () => {
@@ -487,7 +487,7 @@ function showStarMenu(x, y) {
             menu.appendChild(btn);
         }
     } else if (!modalState.authToken) {
-        // Чужая система / 403: существующий «Перелететь» (межзвёздный, §5.5).
+        // Чужая система / 403: существующий «Лететь» (межзвёздный, §5.5).
         const btn = document.createElement('div');
         btn.style.cssText = `
             padding: 8px 10px;
@@ -497,7 +497,7 @@ function showStarMenu(x, y) {
             align-items: center;
             gap: 8px;
         `;
-        btn.innerHTML = `🚀 <span>Перелететь</span>`;
+        btn.innerHTML = `🚀 <span>Лететь</span>`;
         btn.addEventListener('mouseenter', () => { btn.style.background = '#2a2a44'; });
         btn.addEventListener('mouseleave', () => { btn.style.background = 'none'; });
         btn.addEventListener('click', async () => {
@@ -516,12 +516,17 @@ function showStarMenu(x, y) {
     document.body.appendChild(menu);
 }
 
-// showCompanionMenu — ПКМ по компаньону/внешнему компаньону (спека §5.2):
-// «На орбиту компаньона» (внутрисистемный; скрыт, если уже на орбите этого
-// компаньона). Цель — синтетический id (companion:<world> / extra:<world>:<i>).
+// showCompanionMenu — ПКМ по компаньону/внешнему компаньону (спека 99.2.27
+// §5.2 + 99.2.30 §6.1, решение создателя 2026-09-21): пункт «🚀 Лететь».
+// Своя система (my_position != null) — внутрисистемный полёт (startIntraFlight,
+// цель — синтетический id companion:<world> / extra:<world>:<i>); чужая система
+// (my_position == null, компаньон виден на канвасе) — композитный маршрут
+// (startCompositeFlight('companion', targetId), модалка закрывается, карта ведёт
+// корабль). В своей системе пункт скрыт если: уже на орбите этого компаньона,
+// летим ОТ него, активный межзвёздный (иначе старт даст 400 «Вы в межзвёздном
+// полёте»). Без двигателя — пункт есть, клик → тост (как ПКМ звезды/планеты).
 function showCompanionMenu(x, y, starIndex) {
     hideStarMenu();
-    if (!modalState.myPosition) return; // внутрисистемный полёт — только своя система
 
     const layout = computeLayout(modalState.planets, modalState.starRadius, modalState.canvasWidth, modalState.canvasHeight);
     const star = layout.stars[starIndex];
@@ -542,11 +547,18 @@ function showCompanionMenu(x, y, starIndex) {
     }
     if (!targetId) return;
 
-    // Скрыт, если игрок уже на орбите этого компаньона (§5.6) или летит ОТ него
-    // (запрос создателя «глупый тост»: цель == from полёта — пункт не показываем).
-    const pos = modalState.myPosition;
-    if (pos.status === 'orbit' && pos.object_type === 'star' && pos.object_id === targetId) return;
-    if (pos.status === 'in_flight' && pos.from_type === 'star' && pos.from_id === targetId) return;
+    // Своя система — внутрисистемный полёт (как раньше); чужая — композитный
+    // маршрут (спека 99.2.30 §6.1, решение создателя 2026-09-21).
+    const myPos = modalState.myPosition;
+    if (myPos) {
+        // Скрыт, если игрок уже на орбите этого компаньона (§5.6) или летит ОТ
+        // него (запрос создателя «глупый тост»: цель == from полёта).
+        if (myPos.status === 'orbit' && myPos.object_type === 'star' && myPos.object_id === targetId) return;
+        if (myPos.status === 'in_flight' && myPos.from_type === 'star' && myPos.from_id === targetId) return;
+        // Своя система: при активном межзвёздном полёте внутрисистемный старт
+        // даст 400 «Вы в межзвёздном полёте» (спека 99.2.30 §6.2) — не показываем.
+        if (modalState.interstellarFlight) return;
+    }
 
     const menu = document.createElement('div');
     menu.id = 'star-context-menu';
@@ -585,7 +597,7 @@ function showCompanionMenu(x, y, starIndex) {
         align-items: center;
         gap: 8px;
     `;
-    btn.innerHTML = `🚀 <span>На орбиту компаньона</span>`;
+    btn.innerHTML = `🚀 <span>Лететь</span>`;
     btn.addEventListener('mouseenter', () => { btn.style.background = '#2a2a44'; });
     btn.addEventListener('mouseleave', () => { btn.style.background = 'none'; });
     btn.addEventListener('click', async () => {
@@ -594,32 +606,42 @@ function showCompanionMenu(x, y, starIndex) {
             notifyError('Двигатель не установлен — полёт невозможен');
             return;
         }
-        await startIntraFlight('star', targetId);
+        if (myPos) {
+            await startIntraFlight('star', targetId);
+        } else {
+            await startCompositeFlight('companion', targetId);
+        }
     });
     menu.appendChild(btn);
 
     document.body.appendChild(menu);
 }
 
-// showPlanetMenu — ПКМ по планете на канвасе (спека 99.2.27 §5.5, претензия
-// создателя «как на карте»): пункт «🚀 Лететь» — внутрисистемный полёт на
-// орбиту планеты (тот же POST /api/intrasystem-flight, что кнопка в карточке).
-// Пункт скрыт если: чужая/restricted система (полёт недоступен — как в
-// карточках), уже на орбите этой планеты, цель = активный полёт. Без
-// двигателя — пункт есть, клик → тост (как ПКМ звезды).
+// showPlanetMenu — ПКМ по планете на канвасе (спека 99.2.27 §5.5 + 99.2.30
+// §6.1, решение создателя 2026-09-21 «как на карте»): пункт «🚀 Лететь» —
+// своя система (my_position != null) — внутрисистемный полёт на орбиту планеты
+// (POST /api/intrasystem-flight); чужая система (my_position == null, планеты
+// видны — не 403) — композитный маршрут (startCompositeFlight, модалка
+// закрывается, карта ведёт корабль). Пункт скрыт если: уже на орбите этой
+// планеты, цель = активный полёт, летим ОТ неё, активный межзвёздный в своей
+// системе (иначе старт даст 400 «Вы в межзвёздном полёте»). Без двигателя —
+// пункт есть, клик → тост (как ПКМ звезды).
 function showPlanetMenu(x, y, planetIndex) {
     hideStarMenu(); // скрыть предыдущее меню сразу (паттерн showStarMenu)
     const planet = (modalState.planets || [])[planetIndex];
     if (!planet) return;
 
     const myPos = modalState.myPosition;
-    // Чужая/restricted система — полёт недоступен (my_position == null).
-    if (!myPos) return;
-    // Уже на орбите этой планеты / цель = активный полёт / летим ОТ неё
-    // (запрос создателя «глупый тост»: цель == from полёта) — пункт скрыт.
-    if (myPos.status === 'orbit' && myPos.object_type === 'planet' && myPos.object_id === planet.id) return;
-    if (myPos.status === 'in_flight' && myPos.to_type === 'planet' && myPos.to_id === planet.id) return;
-    if (myPos.status === 'in_flight' && myPos.from_type === 'planet' && myPos.from_id === planet.id) return;
+    if (myPos) {
+        // Уже на орбите этой планеты / цель = активный полёт / летим ОТ неё
+        // (запрос создателя «глупый тост»: цель == from полёта) — пункт скрыт.
+        if (myPos.status === 'orbit' && myPos.object_type === 'planet' && myPos.object_id === planet.id) return;
+        if (myPos.status === 'in_flight' && myPos.to_type === 'planet' && myPos.to_id === planet.id) return;
+        if (myPos.status === 'in_flight' && myPos.from_type === 'planet' && myPos.from_id === planet.id) return;
+        // Своя система: при активном межзвёздном полёте внутрисистемный старт
+        // даст 400 «Вы в межзвёздном полёте» (спека 99.2.30 §6.2) — не показываем.
+        if (modalState.interstellarFlight) return;
+    }
 
     const menu = document.createElement('div');
     menu.id = 'star-context-menu';
@@ -669,7 +691,11 @@ function showPlanetMenu(x, y, planetIndex) {
             notifyError('Двигатель не установлен — полёт невозможен');
             return;
         }
-        await startIntraFlight('planet', planet.id);
+        if (myPos) {
+            await startIntraFlight('planet', planet.id);
+        } else {
+            await startCompositeFlight('planet', planet.id);
+        }
     });
     menu.appendChild(btn);
 
@@ -729,10 +755,44 @@ async function startTravelToStar() {
     // динамический: map/ тянется только по клику «Перелететь» и не роняет
     // админку при загрузке (map/config.js требует canvas карты).
     const token = modalState.authToken || localStorage.getItem('token');
-    const { startFlight } = await import('../map/flight.js');
+    const { startFlight, returnToMapInFlight } = await import('../map/flight.js');
     const ok = await startFlight(worldId, token);
     if (ok) {
+        // Спека 99.2.30 §6.8: успешный старт обычного «Перелететь» стирает
+        // сессионный маркер композитного маршрута (игрок явно ушёл от
+        // маршрута, M1).
+        sessionStorage.removeItem('compositeRoute');
         // Модалка закрывается — панель перелёта видна на карте в шапке.
         closeModal();
+        // Спека 99.2.30 §6.7: «лететь из модалки = камера карты ведёт корабль»
+        // (гейт создателя, идея §8 п.7в) — слежение как кнопка «Найти меня».
+        returnToMapInFlight();
     }
+}
+
+// startCompositeFlight — старт композитного маршрута (спека 99.2.30 §6.1/§6.7):
+// POST /travel с телом {world_id, destination: {object_type, object_id}} —
+// расширение startFlight. Успех → модалка закрывается, карта показывает
+// межзвёздный полёт со слежением; сессионный маркер compositeRoute пишется
+// (автооткрытие модалки по прибытии, §6.8). Ошибка → модалка остаётся
+// открытой, тост с текстом сервера (§6.7 п.5). Экспорт — для композитной
+// кнопки в карточках (panel.js/tabs.js, динамический импорт).
+export async function startCompositeFlight(objectType, objectId) {
+    const worldId = modalState.worldId;
+    const token = modalState.authToken || localStorage.getItem('token');
+    const { startFlight, returnToMapInFlight } = await import('../map/flight.js');
+    const ok = await startFlight(worldId, token, { object_type: objectType, object_id: objectId });
+    if (ok) {
+        // Сессионный маркер композитного маршрута (§6.8): пишется при успешном
+        // композитном старте (вместе со слежением); стирается при автооткрытии,
+        // при успешном «Перелететь» (M1), если current_world_id не совпал.
+        sessionStorage.setItem('compositeRoute', worldId);
+        // Модалка закрывается — карта показывает межзвёздный полёт (полоса,
+        // камера со слежением — существующее, 61a/42a).
+        closeModal();
+        // Слежение после старта из модалки (§6.7): followShip + centerOnAgent
+        // + подсветка centerBtn (общий хелпер «вернулся на карту в полёте»).
+        returnToMapInFlight();
+    }
+    return ok;
 }

@@ -166,6 +166,10 @@ func expectPacmanBatchAttempt(mock sqlmock.Sqlmock, failWorldsDelete bool, world
 	mock.ExpectExec(`DELETE FROM player_intrasystem_flights\s+WHERE world_id = ANY\(\$1\)`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 2))
+	// 4.5. Намерения композитного маршрута к съеденным мирам (спека 99.2.30 §5, M3).
+	mock.ExpectExec(`UPDATE users SET pending_destination = NULL\s+WHERE \(pending_destination->>'world_id'\)::uuid = ANY\(\$1\)`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	// Счётчики планет/поселений — до удаления миров (каскад не отдаёт RowsAffected).
 	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM planets WHERE world_id = ANY\(\$1\)`).
 		WithArgs(sqlmock.AnyArg()).
@@ -207,6 +211,29 @@ func TestEatPacmanBatchSQL(t *testing.T) {
 	require.Equal(t, 3, stats.agents)
 	require.Equal(t, 5, stats.knowledge)
 	require.Equal(t, 1, stats.users, "RETURNING id вернул одного игрока")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// M3 (спека 99.2.30 §5): намерение к съеденному миру очищается отдельным
+// UPDATE — игрок с намерением летит из другой системы, шаг 1
+// (current_world_id = ANY($1)) его не трогает. Каст (…)::uuid обязателен:
+// ->> даёт text, в $1 — массив uuid.
+func TestEatPacmanClearsPendingDestination(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`UPDATE users SET pending_destination = NULL\s+WHERE \(pending_destination->>'world_id'\)::uuid = ANY\(\$1\)`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	h := &AdminHandlers{db: db}
+	tx, err := db.Begin()
+	require.NoError(t, err)
+	require.NoError(t, h.clearPendingDestinationsForWorlds(tx, []string{"w1", "w2"}))
+	require.NoError(t, tx.Commit())
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

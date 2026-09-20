@@ -394,3 +394,53 @@ func TestCountByRole(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 	require.Equal(t, 1, n)
 }
+
+// ==================== НАМЕРЕНИЕ КОМПОЗИТНОГО МАРШРУТА (спека 99.2.30) ====================
+
+// SetPendingDestination (M2, спека 99.2.30 §3.5): запись намерения на
+// 202-идемпотентном пути /travel (полёт уже идёт, позиция уже NULL).
+func TestUserSetPendingDestination(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectExec(`UPDATE users SET pending_destination = \$1, updated_at = NOW\(\) WHERE id = \$2`).
+		WithArgs(sqlmock.AnyArg(), "u1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	err = NewUserRepository(db).SetPendingDestination("u1", &models.PendingDestination{
+		WorldID: "w2", ObjectType: "satellite", ObjectID: "s1",
+	})
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// SetPendingDestination(nil) — очистка намерения на 202-пути без destination.
+func TestUserSetPendingDestinationNil(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectExec(`UPDATE users SET pending_destination = \$1, updated_at = NOW\(\) WHERE id = \$2`).
+		WithArgs(sqlmock.AnyArg(), "u1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	err = NewUserRepository(db).SetPendingDestination("u1", nil)
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// ClearPendingDestination (спека 99.2.30 §4.4): очистка намерения.
+func TestUserClearPendingDestination(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectExec(`UPDATE users SET pending_destination = NULL, updated_at = NOW\(\) WHERE id = \$1`).
+		WithArgs("u1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	err = NewUserRepository(db).ClearPendingDestination("u1")
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}

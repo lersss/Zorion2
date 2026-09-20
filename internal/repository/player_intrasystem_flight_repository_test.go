@@ -118,8 +118,9 @@ func TestIntraFlightArriveAtomic(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// CancelAtomic (С1): удаление строки + current_position = NULL одной
-// транзакцией — не остаётся окна, где intra отменён, а позиция ещё не NULL.
+// CancelAtomic (С1): удаление строки + current_position = NULL + намерение
+// NULL (M1, спека 99.2.30 §3.3) одной транзакцией — не остаётся окна, где
+// intra отменён, а позиция ещё не NULL.
 func TestIntraFlightCancelAtomic(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
@@ -129,12 +130,36 @@ func TestIntraFlightCancelAtomic(t *testing.T) {
 	mock.ExpectExec(`DELETE FROM player_intrasystem_flights WHERE user_id = \$1`).
 		WithArgs("u1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(`UPDATE users SET current_position = NULL, updated_at = NOW\(\) WHERE id = \$1`).
-		WithArgs("u1").
+	mock.ExpectExec(`UPDATE users SET current_position = NULL, pending_destination = \$1, updated_at = NOW\(\) WHERE id = \$2`).
+		WithArgs(sqlmock.AnyArg(), "u1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
 	err = NewPlayerIntrasystemFlightRepository(db).CancelAtomic("u1")
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// CancelAtomicWithDestination (ИН-4, спека 99.2.30 §3.2): удаление строки +
+// current_position = NULL + pending_destination = $dest одной транзакцией —
+// намерение пишется атомарно со стартом /travel.
+func TestIntraFlightCancelAtomicWithDestination(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`DELETE FROM player_intrasystem_flights WHERE user_id = \$1`).
+		WithArgs("u1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`UPDATE users SET current_position = NULL, pending_destination = \$1, updated_at = NOW\(\) WHERE id = \$2`).
+		WithArgs(sqlmock.AnyArg(), "u1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	err = NewPlayerIntrasystemFlightRepository(db).CancelAtomicWithDestination("u1", &models.PendingDestination{
+		WorldID: "w2", ObjectType: "planet", ObjectID: "p1",
+	})
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 }

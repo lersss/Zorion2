@@ -30,4 +30,10 @@ type User struct {
 	// users.current_position JSONB; nil = вне системы. Заполняется только
 	// GetByIDWithPosition/PlayerPositions (обычный GetByID колонку не читает).
 	CurrentPosition *CurrentPosition `json:"current_position"`
+
+	// PendingDestination — намерение композитного маршрута (спека 99.2.30
+	// §2.2): users.pending_destination JSONB; nil = намерения нет. Заполняется
+	// только GetByIDWithPosition/ListPendingDestinations (обычный GetByID
+	// колонку не читает).
+	PendingDestination *PendingDestination `json:"pending_destination"`
 }

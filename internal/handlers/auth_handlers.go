@@ -183,7 +183,7 @@ func (h *AuthHandlers) GetMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, pos, err := h.userRepo.GetByIDWithPosition(userID)
+	user, pos, pendingDest, err := h.userRepo.GetByIDWithPosition(userID)
 	if err != nil {
 		writeJSONError(w, "Пользователь не найден", http.StatusInternalServerError)
 		return
@@ -253,6 +253,11 @@ func (h *AuthHandlers) GetMe(w http.ResponseWriter, r *http.Request) {
 		// с from/to/start_time/arrive_at: восстановление после рефреша (42a)
 		// идёт из позиции; отдельного поля intrasystem_flight нет (один источник).
 		"current_position": pos,
+		// Спека 99.2.30 §6.3: намерение композитного маршрута
+		// (users.pending_destination JSONB) или null. Аддитивное поле —
+		// существующие не меняются; клиент карты распознаёт автостарт
+		// внутрисистемного сегмента по прибытии (M5, §6.8).
+		"pending_destination": pendingDest,
 	}
 	if ship.HasEngine(user.Equipment) {
 		response["ship_speed_factor"] = ship.EngineSpeed(user.Equipment)

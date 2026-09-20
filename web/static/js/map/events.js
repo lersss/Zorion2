@@ -382,7 +382,7 @@ function showWorldMenu(x, y, worldId, name) {
         align-items: center;
         gap: 8px;
     `;
-    flyBtn.innerHTML = `🚀 <span>Перелететь</span>`;
+    flyBtn.innerHTML = `🚀 <span>Лететь</span>`;
     flyBtn.addEventListener('mouseenter', () => { flyBtn.style.background = '#2a2a44'; });
     flyBtn.addEventListener('mouseleave', () => { flyBtn.style.background = 'none'; });
     flyBtn.addEventListener('click', async () => {

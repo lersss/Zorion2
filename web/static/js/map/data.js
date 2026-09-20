@@ -3,6 +3,12 @@ import { state, elements } from './config.js';
 import { draw, setShipIcon, setShipColor, galaxyRadiusFromRegions, updateFitZoom } from './map_render.js';
 import { setShipOptions } from './ship_sprites.js';
 import { filterState } from '../filters.js';
+// Модалка системы (спека 99.2.30 §6.8): автооткрытие по прибытии композитного
+// маршрута — только на странице карты (data.js — модуль карты). modalState —
+// для проверки «модалка уже открыта на системе прибытия».
+import { modalState } from '../modal/state.js';
+import { openSystemModal, closeModal, refreshPlanets } from '../modal/index.js';
+import { notifyInfo } from '../ui/toast.js';
 
 // Размер ячейки кластеризации на экране, в пикселях.
 export const CLUSTER_CELL_PX = 40;
@@ -432,10 +438,128 @@ export async function loadUserData(force = false) {
                 console.warn('loadUserData: не удалось восстановить полёт — миры from/to не загрузились');
             }
         }
+        // Спека 99.2.30 §6.8 (триггер B): возврат/рефреш — первый loadUserData.
+        // Распознавание автостарта композитного маршрута: маркер compositeRoute
+        // совпал с current_world_id (автостарт идёт или завершён) → автооткрытие
+        // модалки; маркер есть, но полёта к нему нет и мир не совпал → маркер
+        // устарел (игрок явно ушёл от маршрута).
+        if (!currentWorldIdLoaded && user.current_world_id) {
+            const marker = sessionStorage.getItem('compositeRoute');
+            if (marker) {
+                const enRoute = user.flight && user.flight.to === marker;
+                if (enRoute) {
+                    // Ещё летим к системе маршрута — маркер живёт (автооткрытие по прибытии).
+                } else if (marker === user.current_world_id) {
+                    checkCompositeArrival(user);
+                } else {
+                    sessionStorage.removeItem('compositeRoute');
+                }
+            }
+        }
         currentWorldIdLoaded = true;
+        return user;
     } catch (e) {
         console.warn('loadUserData error:', e);
     }
+}
+
+// ==================== КОМПОЗИТНЫЙ МАРШРУТ: АВТООТКРЫТИЕ ПО ПРИБЫТИИ (спека 99.2.30 §6.8) ====================
+
+// checkCompositeArrival — распознавание автостарта композитного маршрута (M5):
+// три серверных признака в порядке — (1) pending_destination в /me и
+// pending_destination.world_id == current_world_id (намерение пережило
+// клиентский таймер — гонка §6.3); (2) current_position.status == 'in_flight'
+// (автостарт уже запущен сервером); (3) сессионный маркер compositeRoute ==
+// world_id (намерение уже исполнено — автостарт идёт или завершён, а клиент
+// вернулся на карту с задержкой). Автооткрытие модалки системы прибытия:
+// открыта другая система — закрыть; открыта система прибытия — только
+// refreshPlanets(). Фокус по current_position.to_type/to_id (планета →
+// planetId; спутник → satelliteId); позиция уже orbit — фокус на объекте
+// позиции. Тост «🚀 Прибыли в систему <X>» (notifyInfo, ~4 с). Маркер
+// стирается после потребления. Гонка таймеров (клиентский раньше серверного
+// onArrival): автооткрытие по признаку 1 — повторный /me-чек через ~1 с,
+// одноразово, конвергентно (полоса появится → refreshPlanets()).
+export async function checkCompositeArrival(user) {
+    const worldId = user && user.current_world_id;
+    if (!worldId) return;
+    const marker = sessionStorage.getItem('compositeRoute');
+    const pending = user.pending_destination;
+    const pos = user.current_position;
+    const sign1 = !!(pending && pending.world_id === worldId);
+    const sign2 = !!(pos && pos.status === 'in_flight');
+    const sign3 = marker === worldId;
+    if (!sign1 && !sign2 && !sign3) return;
+
+    // Маркер потреблён (автооткрытие) — стираем.
+    if (sign3) sessionStorage.removeItem('compositeRoute');
+
+    // Имя мира прибытия — для тоста и модалки (кэш карты, фолбэк — запрос).
+    let world = state.worlds.find(w => w.id === worldId);
+    if (!world) {
+        const token = localStorage.getItem('token');
+        world = await fetchWorldByID(worldId, token);
+        if (world) state.worlds.push(world);
+    }
+    const worldName = world ? world.name : '—';
+
+    // Фокус по current_position.to_type/to_id; позиция уже orbit (успел
+    // долететь за время отсутствия) — фокус на объекте позиции.
+    const focusOpts = {};
+    if (pos && pos.status === 'in_flight') {
+        if (pos.to_type === 'planet') focusOpts.planetId = pos.to_id;
+        else if (pos.to_type === 'satellite') focusOpts.satelliteId = pos.to_id;
+    } else if (pos && pos.status === 'orbit') {
+        if (pos.object_type === 'planet') focusOpts.planetId = pos.object_id;
+        else if (pos.object_type === 'satellite') focusOpts.satelliteId = pos.object_id;
+    }
+
+    // Модалка уже открыта на системе прибытия — не переоткрывать, только
+    // refreshPlanets() (модалка подхватит полосу из my_position).
+    if (document.getElementById('system-modal-overlay') && modalState.worldId === worldId) {
+        refreshPlanets();
+        notifyInfo('🚀 Прибыли в систему ' + worldName);
+        // Гонка таймеров: автооткрытие по признаку 1 (позиция ещё не in_flight) —
+        // повторный /me-чек через ~1 с, одноразово, конвергентно.
+        if (sign1 && !sign2) scheduleCompositeArrivalRecheck();
+        return;
+    }
+    // Модалка открыта на другой системе — закрыть (игрок физически в системе
+    // прибытия, «камера там, где игрок», решение 1).
+    if (document.getElementById('system-modal-overlay')) {
+        closeModal();
+    }
+    openSystemModal(worldId, worldName, world ? world.spectral_class : '', focusOpts, null, {
+        hasEngine: state.hasEngine,
+        shipIcon: state.userShipIcon,
+        shipColor: state.userShipColor,
+    });
+    notifyInfo('🚀 Прибыли в систему ' + worldName);
+    // Гонка таймеров — повторный /me-чек (см. выше).
+    if (sign1 && !sign2) scheduleCompositeArrivalRecheck();
+}
+
+// scheduleCompositeArrivalRecheck — повторный /me-чек через ~1 с (спека 99.2.30
+// §6.8): автооткрытие по признаку 1 (намерение есть, позиция ещё не in_flight) —
+// модалка подхватит старт своим refreshPlanets(); если через ~1 с полоса не
+// появилась (позиция всё ещё не in_flight) — повторный чек, при in_flight →
+// refreshPlanets(). Одноразово, конвергентно: крайнее окно захлопывается за
+// ≤ 2 циклов.
+function scheduleCompositeArrivalRecheck() {
+    setTimeout(async () => {
+        try {
+            const token = localStorage.getItem('token');
+            if (!token) return;
+            const res = await fetch('/me', { headers: { 'Authorization': 'Bearer ' + token } });
+            if (!res.ok) return;
+            const me = await res.json();
+            if (me.current_position && me.current_position.status === 'in_flight' &&
+                document.getElementById('system-modal-overlay')) {
+                refreshPlanets();
+            }
+        } catch (e) {
+            // Тихий сбой: модалка подхватит старт своим refreshPlanets().
+        }
+    }, 1000);
 }
 
 // fetchWorldByID — загружает один мир по ID через /worlds/{id}.

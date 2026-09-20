@@ -142,7 +142,30 @@ func (r *PlayerIntrasystemFlightRepository) ArriveAtomic(userID string, pos *mod
 // CancelAtomic — отмена внутрисистемного полёта при старте межзвёздного (С1,
 // спека 99.2.27 §4.2): удаление строки + current_position = NULL одной
 // транзакцией — не остаётся окна, где intra отменён, а позиция ещё не NULL.
+// Дельта 99.2.30 §3.3 (M1): в той же транзакции очищается намерение
+// композитного маршрута (pending_destination = NULL) — любой /travel-старт
+// без объекта цели снимает намерение (ИН-1 «намерение только в сегменте»).
 func (r *PlayerIntrasystemFlightRepository) CancelAtomic(userID string) error {
+	return r.cancelAtomic(userID, nil)
+}
+
+// CancelAtomicWithDestination — отмена внутрисистемного полёта при старте
+// межзвёздного с намерением композитного маршрута (спека 99.2.30 §3.2, ИН-4):
+// одна транзакция — DELETE строки player_intrasystem_flights + UPDATE users
+// SET current_position = NULL, pending_destination = $dest. Намерение пишется
+// атомарно со стартом /travel; окно «намерение без полёта» (краш между
+// транзакцией и StartFlight) закрыто Restore-обработкой (§4.5).
+func (r *PlayerIntrasystemFlightRepository) CancelAtomicWithDestination(userID string, dest *models.PendingDestination) error {
+	return r.cancelAtomic(userID, dest)
+}
+
+// cancelAtomic — общая транзакция отмены intra + позиция NULL + намерение.
+// dest == nil → pending_destination = NULL (M1); dest != nil → запись (ИН-4).
+func (r *PlayerIntrasystemFlightRepository) cancelAtomic(userID string, dest *models.PendingDestination) error {
+	destJSON, err := marshalDestination(dest)
+	if err != nil {
+		return fmt.Errorf("cancel intra flight: marshal destination: %w", err)
+	}
 	tx, err := r.db.Begin()
 	if err != nil {
 		return fmt.Errorf("cancel intra flight: begin: %w", err)
@@ -152,11 +175,23 @@ func (r *PlayerIntrasystemFlightRepository) CancelAtomic(userID string) error {
 	if _, err := tx.Exec(`DELETE FROM player_intrasystem_flights WHERE user_id = $1`, userID); err != nil {
 		return fmt.Errorf("cancel intra flight: delete row: %w", err)
 	}
-	if _, err := tx.Exec(`UPDATE users SET current_position = NULL, updated_at = NOW() WHERE id = $1`, userID); err != nil {
+	if _, err := tx.Exec(`UPDATE users SET current_position = NULL, pending_destination = $1, updated_at = NOW() WHERE id = $2`, destJSON, userID); err != nil {
 		return fmt.Errorf("cancel intra flight: clear position: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("cancel intra flight: commit: %w", err)
 	}
 	return nil
+}
+
+// marshalDestination — JSONB-значение намерения: nil → NULL (SQL NULL).
+func marshalDestination(dest *models.PendingDestination) (interface{}, error) {
+	if dest == nil {
+		return nil, nil
+	}
+	b, err := json.Marshal(dest)
+	if err != nil {
+		return nil, err
+	}
+	return string(b), nil
 }

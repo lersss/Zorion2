@@ -12,6 +12,7 @@ package handlers
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -385,6 +386,16 @@ func (h *AdminHandlers) eatPacmanBatchOnce(ids []string) (pacmanBatchStats, erro
 		return stats, err
 	}
 
+	// 4.5. Намерения композитного маршрута к съеденным мирам (спека 99.2.30
+	// §5, M3): игрок с намерением к съеденному миру летит из другой системы —
+	// шаг 1 (current_world_id = ANY($1)) его не трогает, нужен отдельный
+	// UPDATE. Счётчик в отчёт не добавляется (намерение — состояние, не
+	// сущность отчёта). Плюс дефенсив onArrival (§4.2 спеки 99.2.30) как
+	// страховка от гонки.
+	if err := h.clearPendingDestinationsForWorlds(tx, ids); err != nil {
+		return stats, err
+	}
+
 	// Счётчики планет/поселений — до удаления миров (каскад не отдаёт
 	// RowsAffected; отчёт §3.4).
 	if err := tx.QueryRowContext(context.Background(), `
@@ -427,6 +438,19 @@ func (h *AdminHandlers) eatPacmanBatchOnce(ids []string) (pacmanBatchStats, erro
 	}
 
 	return stats, nil
+}
+
+// clearPendingDestinationsForWorlds — очистка намерений композитного маршрута
+// к съеденным мирам (спека 99.2.30 §5, M3): игрок с намерением к съеденному
+// миру летит из другой системы — шаг 1 (current_world_id = ANY($1)) его не
+// трогает, нужен отдельный UPDATE. Каст (…)::uuid: ->> даёт text, в $1 —
+// массив uuid; без каста text = ANY(uuid[]) может не скомпилироваться в PG.
+func (h *AdminHandlers) clearPendingDestinationsForWorlds(tx *sql.Tx, ids []string) error {
+	_, err := tx.ExecContext(context.Background(), `
+		UPDATE users SET pending_destination = NULL
+		WHERE (pending_destination->>'world_id')::uuid = ANY($1)`,
+		pq.Array(ids))
+	return err
 }
 
 // cancelFlightsTo — отмена межзвёздных полётов к съеденным мирам (спека §7.2,

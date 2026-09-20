@@ -165,18 +165,22 @@ func (r *UserRepository) ClearCurrentWorld(userID string) error {
 
 // GetByIDWithPosition — GetByID + внутрисистемная позиция (спека 99.2.27
 // §4.3/§4.4): users.current_position JSONB. NULL-позиция → pos = nil.
-func (r *UserRepository) GetByIDWithPosition(id string) (*models.User, *models.CurrentPosition, error) {
-	query := `SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position FROM users WHERE id = $1`
+// Аддитивно (99.2.30 §6.3): users.pending_destination JSONB — намерение
+// композитного маршрута; NULL → dest = nil.
+func (r *UserRepository) GetByIDWithPosition(id string) (*models.User, *models.CurrentPosition, *models.PendingDestination, error) {
+	query := `SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination FROM users WHERE id = $1`
 	row := r.db.QueryRow(query, id)
 	return scanUserWithPosition(row)
 }
 
-// scanUserWithPosition — сканирует строку users + current_position.
-func scanUserWithPosition(row *sql.Row) (*models.User, *models.CurrentPosition, error) {
+// scanUserWithPosition — сканирует строку users + current_position +
+// pending_destination.
+func scanUserWithPosition(row *sql.Row) (*models.User, *models.CurrentPosition, *models.PendingDestination, error) {
 	var u models.User
 	var shipModelID sql.NullString
 	var equipmentRaw []byte
 	var posRaw []byte
+	var destRaw []byte
 	err := row.Scan(
 		&u.ID,
 		&u.Username,
@@ -192,28 +196,113 @@ func scanUserWithPosition(row *sql.Row) (*models.User, *models.CurrentPosition, 
 		&u.CreatedAt,
 		&u.UpdatedAt,
 		&posRaw,
+		&destRaw,
 	)
 	if err == sql.ErrNoRows {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if shipModelID.Valid {
 		u.ShipModelID = &shipModelID.String
 	}
 	if len(equipmentRaw) > 0 && string(equipmentRaw) != "null" {
 		if err := json.Unmarshal(equipmentRaw, &u.Equipment); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 	}
 	var pos *models.CurrentPosition
 	if len(posRaw) > 0 && string(posRaw) != "null" {
 		if err := json.Unmarshal(posRaw, &pos); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 	}
-	return &u, pos, nil
+	var dest *models.PendingDestination
+	if len(destRaw) > 0 && string(destRaw) != "null" {
+		if err := json.Unmarshal(destRaw, &dest); err != nil {
+			return nil, nil, nil, err
+		}
+	}
+	return &u, pos, dest, nil
+}
+
+// GetPendingDestination — намерение композитного маршрута игрока (спека
+// 99.2.30 §4.1): users.pending_destination JSONB; nil = намерения нет.
+func (r *UserRepository) GetPendingDestination(userID string) (*models.PendingDestination, error) {
+	var destRaw []byte
+	err := r.db.QueryRow(`SELECT pending_destination FROM users WHERE id = $1`, userID).Scan(&destRaw)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if len(destRaw) == 0 || string(destRaw) == "null" {
+		return nil, nil
+	}
+	var dest models.PendingDestination
+	if err := json.Unmarshal(destRaw, &dest); err != nil {
+		return nil, err
+	}
+	return &dest, nil
+}
+
+// ListPendingDestinations — игроки с намерением композитного маршрута
+// (спека 99.2.30 §4.5, фаза 3 Restore): SELECT id, pending_destination FROM
+// users WHERE pending_destination IS NOT NULL. Стоимость — O(игроки с
+// намерением) (И8).
+func (r *UserRepository) ListPendingDestinations() ([]*models.User, error) {
+	rows, err := r.db.Query(`SELECT id, pending_destination FROM users WHERE pending_destination IS NOT NULL`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []*models.User
+	for rows.Next() {
+		var u models.User
+		var destRaw []byte
+		if err := rows.Scan(&u.ID, &destRaw); err != nil {
+			return nil, err
+		}
+		if len(destRaw) > 0 && string(destRaw) != "null" {
+			var dest models.PendingDestination
+			if err := json.Unmarshal(destRaw, &dest); err != nil {
+				return nil, err
+			}
+			u.PendingDestination = &dest
+		}
+		users = append(users, &u)
+	}
+	return users, rows.Err()
+}
+
+// SetPendingDestination — запись/очистка намерения композитного маршрута
+// (спека 99.2.30 §3.5, M2): 202-идемпотентный путь /travel (полёт к req.WorldID
+// уже идёт, позиция уже NULL) — отдельный UPDATE (полёт не перезапускается).
+// dest == nil → NULL (игрок явно «перелетел» к звезде).
+func (r *UserRepository) SetPendingDestination(userID string, dest *models.PendingDestination) error {
+	destJSON, err := marshalDestination(dest)
+	if err != nil {
+		return fmt.Errorf("set pending destination: marshal: %w", err)
+	}
+	_, err = r.db.Exec(
+		`UPDATE users SET pending_destination = $1, updated_at = NOW() WHERE id = $2`,
+		destJSON, userID,
+	)
+	return err
+}
+
+// ClearPendingDestination — очистка намерения (спека 99.2.30 §4.4/§4.5):
+// UPDATE users SET pending_destination = NULL. Точки: исполнение автостарта
+// (в любом исходе), дефенсив onArrival (мир не совпал / съеден), Restore.
+func (r *UserRepository) ClearPendingDestination(userID string) error {
+	_, err := r.db.Exec(
+		`UPDATE users SET pending_destination = NULL, updated_at = NOW() WHERE id = $1`,
+		userID,
+	)
+	return err
 }
 
 // UpdateShipIcon обновляет выбранную иконку корабля

@@ -358,7 +358,7 @@ func (h *IntrasystemHandlers) StartIntraFlight(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	user, pos, err := h.userRepo.GetByIDWithPosition(userID)
+	user, pos, _, err := h.userRepo.GetByIDWithPosition(userID)
 	if err != nil || user == nil {
 		writeJSONError(w, "Пользователь не найден", http.StatusNotFound)
 		return

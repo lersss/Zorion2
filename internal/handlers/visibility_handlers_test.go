@@ -72,15 +72,16 @@ func expectPlayerUser(mock sqlmock.Sqlmock, id string) {
 }
 
 // expectPlayerUserWithPosition — ожидание GetByIDWithPosition игрока
-// (planet_handler, спека 99.2.27 §4.4: my_position для всех ролей, С-3).
+// (planet_handler, спека 99.2.27 §4.4: my_position для всех ролей, С-3;
+// + pending_destination, спека 99.2.30 §6.3).
 func expectPlayerUserWithPosition(mock sqlmock.Sqlmock, id, worldID string, posRaw interface{}) {
-	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position FROM users WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination FROM users WHERE id = \$1`).
 		WithArgs(id).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "username", "password_hash", "email", "agent_id", "current_world_id",
-			"ship_icon", "ship_color", "ship_model_id", "equipment", "role", "created_at", "updated_at", "current_position",
+			"ship_icon", "ship_color", "ship_model_id", "equipment", "role", "created_at", "updated_at", "current_position", "pending_destination",
 		}).AddRow(id, "player", "hash", nil, nil, worldID, "ship_strela.svg", nil, "starter",
-			`{"radar":"radar_1","scanner":"scanner_1","engine":null}`, "player", now(), now(), posRaw))
+			`{"radar":"radar_1","scanner":"scanner_1","engine":null}`, "player", now(), now(), posRaw, nil))
 }
 
 // expectKnownWorlds — ожидание KnownWorldIDs (пусто по умолчанию).

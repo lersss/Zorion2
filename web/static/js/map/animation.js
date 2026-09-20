@@ -1,7 +1,7 @@
 // web/static/js/map/animation.js
 import { state, elements } from './config.js';
 import { draw, updateFpsCounter } from './map_render.js';
-import { loadClusters, loadUserData, maybeReloadClusters, resetFlightReloadTimer, waitForLoadIdle } from './data.js';
+import { loadClusters, loadUserData, maybeReloadClusters, resetFlightReloadTimer, waitForLoadIdle, checkCompositeArrival } from './data.js';
 import { centerOnAgent } from './navigation.js';
 import { updateFlightPanel, hideFlightPanel } from './flight.js';
 import { recordFlight } from '../dashboard/journal.js';
@@ -28,7 +28,7 @@ export function animationLoop() {
             // Сначала центр, потом загрузка: центр ставит камеру на точку
             // прибытия, loadClusters грузит звёзды уже вокруг неё (иначе —
             // пустой экран до следующего перезапроса).
-            loadUserData(true).then(async () => {
+            loadUserData(true).then(async (user) => {
                 if (state.currentWorldId) {
                     centerOnAgent();
                 }
@@ -38,7 +38,11 @@ export function animationLoop() {
                 // до дебаунса +180 мс). Порядок «центр → загрузка» (фикс 37a)
                 // сохраняется.
                 await waitForLoadIdle();
-                return loadClusters();
+                await loadClusters();
+                // Спека 99.2.30 §6.8 (триггер A): живое прибытие — распознавание
+                // композитного маршрута (автооткрытие модалки системы прибытия,
+                // M5). Признаки 1–3 проверяются по свежему /me (user).
+                if (user) checkCompositeArrival(user);
             }).catch(err => console.error('Arrival reload error:', err));
         } else {
             updateFlightPanel();

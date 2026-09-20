@@ -315,6 +315,21 @@ function renderGeneral(planet) {
 
 // ---------- КАРТОЧКА СПУТНИКА ----------
 
+// compositeSatTooltip — тултип композитной кнопки спутника (спека 99.2.30
+// §6.10). Локальная копия тултипа композитной кнопки планеты: статический
+// импорт из panel.js дал бы цикл модулей (panel.js импортирует tabs.js).
+function compositeSatTooltip() {
+    const flight = modalState.interstellarFlight;
+    if (flight) {
+        if (flight.to === modalState.worldId) {
+            return 'Вы уже летите к этой системе — маршрут дополнится полётом к спутнику';
+        }
+        const name = modalState.interstellarFlightName;
+        return 'Маршрут развернётся: полёт к ' + (name || 'другой системе') + ' и до орбиты спутника';
+    }
+    return 'Перелёт к системе и полёт до орбиты спутника — в 2 этапа';
+}
+
 // renderSatelliteCard — карточка спутника по клику из списка планеты.
 // Кнопка «назад» возвращает к общей вкладке планеты.
 function renderSatelliteCard(planet, sat, container) {
@@ -329,11 +344,19 @@ function renderSatelliteCard(planet, sat, container) {
         ? `<span style="background:rgba(74,222,128,0.15); border:1px solid rgba(74,222,128,0.4); color:#4ade80; border-radius:10px; padding:2px 8px; font-size:0.8rem; margin-left:8px;">● Вы на орбите</span>`
         : '';
 
+    // Кнопка полёта (спека 99.2.27 §5.5 + 99.2.30 §6.1/§6.5): своя система —
+    // внутрисистемная «🚀 Лететь»; чужая (my_position == null, планеты видны)
+    // — композитная «🚀 Лететь · через систему». Две кнопки никогда не видны
+    // одновременно (§6.5).
+    const satFlyBtnHtml = myPos
+        ? `<button data-sat-fly style="background:#2a2a4a; border:none; color:#fde68a; padding:6px 14px; border-radius:4px; cursor:pointer; font-size:0.95rem;">🚀 Лететь</button>`
+        : `<button data-sat-composite-fly title="${compositeSatTooltip()}" style="background:#2a2a4a; border:none; color:#fde68a; padding:6px 14px; border-radius:4px; cursor:pointer; font-size:0.95rem;">🚀 Лететь · через систему</button>`;
+
     let html = `
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
             <h4 style="margin:0; font-size:1.1rem;">${capitalize(sat.name)}${orbitBadge}</h4>
             <div style="display:flex; gap:8px;">
-                <button data-sat-fly style="background:#2a2a4a; border:none; color:#fde68a; padding:6px 14px; border-radius:4px; cursor:pointer; font-size:0.95rem;">🚀 Лететь</button>
+                ${satFlyBtnHtml}
                 <button data-sat-back style="background:#2a2a4a; border:none; color:#aaa; padding:6px 14px; border-radius:4px; cursor:pointer; font-size:0.95rem;">← К планете ${planet.name ? capitalize(planet.name) : ''}</button>
             </div>
         </div>
@@ -378,11 +401,12 @@ function renderSatelliteCard(planet, sat, container) {
     // Кнопка «🚀 Лететь» (спека 99.2.27 §5.5): внутрисистемный полёт на орбиту
     // спутника. Доступна только в своей системе; disabled при: нет двигателя,
     // цель == текущая позиция, цель == активный полёт, летим ОТ этого спутника
-    // (запрос создателя «глупый тост»).
+    // (запрос создателя «глупый тост»), активный межзвёздный полёт (спека
+    // 99.2.30 §6.2, мелкое 4 — иначе старт даст 400 «Вы в межзвёздном полёте»).
     const flyBtn = container.querySelector('[data-sat-fly]');
     if (flyBtn) {
         const myPos = modalState.myPosition;
-        const disabled = !myPos || !modalState.hasEngine ||
+        const disabled = !myPos || !modalState.hasEngine || !!modalState.interstellarFlight ||
             (myPos.status === 'orbit' && myPos.object_type === 'satellite' && myPos.object_id === sat.id) ||
             (myPos.status === 'in_flight' && myPos.to_type === 'satellite' && myPos.to_id === sat.id) ||
             (myPos.status === 'in_flight' && myPos.from_type === 'satellite' && myPos.from_id === sat.id);
@@ -390,9 +414,56 @@ function renderSatelliteCard(planet, sat, container) {
             flyBtn.disabled = true;
             flyBtn.style.opacity = '0.4';
             flyBtn.style.cursor = 'not-allowed';
+            if (!modalState.hasEngine) flyBtn.title = 'Двигатель не установлен';
+            else if (modalState.interstellarFlight) flyBtn.title = 'Вы в межзвёздном полёте — дождитесь прибытия';
+            else if (!myPos) flyBtn.title = 'Внутрисистемный полёт — только в своей системе';
+            else flyBtn.title = 'Вы уже на орбите этого объекта';
         } else {
             flyBtn.addEventListener('click', () => {
                 import('./events.js').then(m => m.startIntraFlight('satellite', sat.id));
+            });
+        }
+        // Асинхронный фолбэк (спека 99.2.30 §6.6): клик до резолва /me —
+        // синхронный mapState.isFlying (динамический импорт только на странице
+        // карты; в админке import-граф карты не тянется).
+        if (!modalState.interstellarFlight && document.getElementById('mapCanvas')) {
+            import('../map/config.js').then(m => {
+                if (m.state.isFlying && flyBtn && !flyBtn.disabled) {
+                    flyBtn.disabled = true;
+                    flyBtn.style.opacity = '0.4';
+                    flyBtn.style.cursor = 'not-allowed';
+                    flyBtn.title = 'Вы в межзвёздном полёте — дождитесь прибытия';
+                }
+            }).catch(() => {});
+        }
+    }
+
+    // Композитная кнопка спутника «🚀 Лететь · через систему» (спека 99.2.30
+    // §6.1/§6.6): чужая система — полёт к спутнику через систему (2 сегмента).
+    // Disabled без двигателя (91a); НЕ блокируется при активном межзвёздном
+    // (это /travel 202/редирект, работает, §3.4/§3.5).
+    const compositeBtn = container.querySelector('[data-sat-composite-fly]');
+    if (compositeBtn) {
+        if (!modalState.hasEngine) {
+            compositeBtn.disabled = true;
+            compositeBtn.style.opacity = '0.4';
+            compositeBtn.style.cursor = 'not-allowed';
+            compositeBtn.title = 'Двигатель не установлен — полёт невозможен';
+        } else {
+            compositeBtn.addEventListener('click', async () => {
+                // Двойной клик: пока запрос /travel в полёте — кнопка disabled
+                // (защита от дублей старта, §6.6).
+                compositeBtn.disabled = true;
+                compositeBtn.style.opacity = '0.4';
+                compositeBtn.style.cursor = 'not-allowed';
+                const ok = await import('./events.js').then(m => m.startCompositeFlight('satellite', sat.id));
+                if (!ok) {
+                    // Ошибка старта: модалка остаётся открытой, тост с текстом
+                    // сервера, ничего не закрываем (§6.7 п.5) — кнопка снова активна.
+                    compositeBtn.disabled = false;
+                    compositeBtn.style.opacity = '';
+                    compositeBtn.style.cursor = '';
+                }
             });
         }
     }

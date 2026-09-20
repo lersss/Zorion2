@@ -3,6 +3,7 @@ package handlers
 
 import (
 	"database/sql"
+	"database/sql/driver"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -85,6 +86,26 @@ func newTravelHarness(t *testing.T) (*TravelHandlers, *travel.Manager, sqlmock.S
 	), tm, mock
 }
 
+// newTravelHarnessWithAutostart — харнесс + planetRepo/knowledgeRepo
+// (SetIntrasystemAutostart): валидация destination (спека 99.2.30 §3.1) и
+// автостарт требуют planetRepo. intraRepo/intraManager НЕ подключены — тесты
+// destination-пути не трогают CancelAtomic (как остальные тесты харнесса).
+func newTravelHarnessWithAutostart(t *testing.T) (*TravelHandlers, *travel.Manager, sqlmock.Sqlmock) {
+	t.Helper()
+	ship.LoadDefaults()
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	t.Cleanup(func() { db.Close() })
+	tm := travel.NewManager(nil)
+	h := NewTravelHandlers(
+		repository.NewWorldRepository(db),
+		repository.NewUserRepository(db),
+		tm,
+	)
+	h.SetIntrasystemAutostart(repository.NewPlanetRepository(db), repository.NewKnowledgeRepository(db))
+	return h, tm, mock
+}
+
 // travelWorldRow — строка мира для sqlmock (порядок worldColumns).
 func travelWorldRow(id string, x, y float64) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
@@ -92,6 +113,39 @@ func travelWorldRow(id string, x, y float64) *sqlmock.Rows {
 		"star_type", "system_type", "stellar_mods", "stellar_mass", "age",
 		"created_at", "updated_at",
 	}).AddRow(id, "Мир "+id, x, y, "G", 5772, "star", "single", nil, nil, nil, now(), now())
+}
+
+// travelWorldRowWithMods — строка мира со stellar_mods (компаньон, 99.2.27
+// §3.1): IsValidCompanionID читает companion/extra_companions.
+func travelWorldRowWithMods(id string, x, y float64, mods string) *sqlmock.Rows {
+	return sqlmock.NewRows([]string{
+		"id", "name", "coord_x", "coord_y", "spectral_class", "temperature",
+		"star_type", "system_type", "stellar_mods", "stellar_mass", "age",
+		"created_at", "updated_at",
+	}).AddRow(id, "Мир "+id, x, y, "G", 5772, "star", "binary", mods, nil, nil, now(), now())
+}
+
+// jsonContains — sqlmock-матчер аргумента: значение (строка/[]byte) содержит
+// все подстроки. Для проверки JSON позиции/намерения без привязки к порядку
+// полей вне проверяемого фрагмента.
+type jsonContains struct{ subs []string }
+
+func (m jsonContains) Match(v driver.Value) bool {
+	var s string
+	switch x := v.(type) {
+	case string:
+		s = x
+	case []byte:
+		s = string(x)
+	default:
+		return false
+	}
+	for _, sub := range m.subs {
+		if !strings.Contains(s, sub) {
+			return false
+		}
+	}
+	return true
 }
 
 // userRow — строка пользователя для sqlmock (текущий мир — fromWorld).
@@ -128,6 +182,13 @@ func expectWorld(mock sqlmock.Sqlmock, id string, x, y float64) {
 	mock.ExpectQuery(`SELECT id, name, coord_x, coord_y, COALESCE\(spectral_class,''\), temperature, star_type, system_type, stellar_mods, stellar_mass, age, created_at, updated_at FROM worlds WHERE id = \$1`).
 		WithArgs(id).
 		WillReturnRows(travelWorldRow(id, x, y))
+}
+
+// expectWorldWithMods — ожидание SELECT мира по id со stellar_mods.
+func expectWorldWithMods(mock sqlmock.Sqlmock, id string, x, y float64, mods string) {
+	mock.ExpectQuery(`SELECT id, name, coord_x, coord_y, COALESCE\(spectral_class,''\), temperature, star_type, system_type, stellar_mods, stellar_mass, age, created_at, updated_at FROM worlds WHERE id = \$1`).
+		WithArgs(id).
+		WillReturnRows(travelWorldRowWithMods(id, x, y, mods))
 }
 
 // expectUser — ожидание SELECT пользователя по id.
@@ -319,6 +380,11 @@ func TestStartTravelIdempotentSameTarget(t *testing.T) {
 
 	// Тот же целевой мир — полёт не перезапускается.
 	expectTravelQueriesIdempotent(mock, userID, fromWorld, 0, 0, target, 10, 0)
+	// Спека 99.2.30 §3.5 (M2): на 202-идемпотентном пути без destination
+	// намерение очищается (игрок явно «перелетел» к звезде).
+	mock.ExpectExec(`UPDATE users SET pending_destination = \$1, updated_at = NOW\(\) WHERE id = \$2`).
+		WithArgs(sqlmock.AnyArg(), userID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	rec = execJSON(h.StartTravel, travelRequest(userID, target))
 	require.Equal(t, http.StatusAccepted, rec.Code)
 
@@ -328,6 +394,211 @@ func TestStartTravelIdempotentSameTarget(t *testing.T) {
 	require.Equal(t, firstStart, flight.StartTime, "полёт не перезапущен: start_time не изменился")
 	require.Equal(t, firstStartX, flight.StartX, "стартовая точка не изменилась")
 	require.Equal(t, firstStartY, flight.StartY, "стартовая точка не изменилась")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// ==================== ДЕСТИНАЦИЯ КОМПОЗИТНОГО МАРШРУТА (спека 99.2.30 §3) ====================
+
+// Валидация destination (§3.1): object_type вне {planet, satellite, companion}
+// → 400 «Некорректный тип объекта назначения» (звезда — не цель destination,
+// решение 5: «звезда → простой Лететь без намерения»).
+func TestStartTravelDestinationValidationBadType(t *testing.T) {
+	h, _, mock := newTravelHarnessWithAutostart(t)
+	const userID = "11111111-1111-1111-1111-111111111111"
+	const fromWorld = "w1"
+	const target = "w2"
+
+	// Цель и пользователь — дальше валидация destination останавливает (400).
+	expectWorld(mock, target, 10, 0)
+	expectUser(mock, userID, fromWorld)
+
+	req := httptest.NewRequest(http.MethodPost, "/travel", strings.NewReader(
+		`{"world_id":"w2","destination":{"object_type":"star","object_id":"w2"}}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := execJSON(h.StartTravel, withUserID(req, userID))
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Contains(t, rec.Body.String(), "Некорректный тип объекта назначения")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Валидация destination (§3.1): объект не принадлежит системе world_id → 400
+// «Объект не найден в системе назначения» (битая цель — перегенерация между
+// модалкой и кликом; модалка обновится по refreshPlanets).
+func TestStartTravelDestinationValidationObjectNotInSystem(t *testing.T) {
+	h, _, mock := newTravelHarnessWithAutostart(t)
+	const userID = "11111111-1111-1111-1111-111111111111"
+	const fromWorld = "w1"
+	const target = "w2"
+
+	expectWorld(mock, target, 10, 0)
+	expectUser(mock, userID, fromWorld)
+	// Планеты системы w2: p1 есть, p999 — нет.
+	mock.ExpectQuery(`SELECT id, world_id, name, orbit_index, data, created_at, updated_at FROM planets WHERE world_id = \$1 ORDER BY orbit_index ASC`).
+		WithArgs(target).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "world_id", "name", "orbit_index", "data", "created_at", "updated_at"}).
+			AddRow("p1", target, "Планета1", 0, `{"type":"землеподобная","orbit_radius_au":1.0}`, now(), now()))
+
+	req := httptest.NewRequest(http.MethodPost, "/travel", strings.NewReader(
+		`{"world_id":"w2","destination":{"object_type":"planet","object_id":"p999"}}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := execJSON(h.StartTravel, withUserID(req, userID))
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Contains(t, rec.Body.String(), "Объект не найден в системе назначения")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// ==================== КОМПАНЬОН — ЦЕЛЬ КОМПОЗИТНОГО МАРШРУТА (решение создателя 2026-09-21) ====================
+
+// testCompanionMods — stellar_mods системы с главным компаньоном (99.2.27 §3.1).
+const testCompanionMods = `{"binary_type":"wide","companion":"K","companion_sep_au":1000}`
+
+// destination {companion, companion:<world>} при валидном компаньоне (есть в
+// stellar_mods системы) → принят: намерение-компаньон пишется атомарно со
+// стартом /travel (ИН-4). Формат object_id — синтетический id 99.2.27 §3.1.
+func TestStartTravelDestinationCompanionValid(t *testing.T) {
+	h, tm, _, mock := newTravelHarnessWithIntrasystem(t)
+	const userID = "11111111-1111-1111-1111-111111111111"
+	const fromWorld = "w1"
+	const target = "w2"
+
+	// Цель (существование) → пользователь → повторная загрузка мира для
+	// валидации компаньона (stellar_mods) → мир отправления (дважды).
+	expectWorldWithMods(mock, target, 10, 0, testCompanionMods)
+	expectUser(mock, userID, fromWorld)
+	expectWorldWithMods(mock, target, 10, 0, testCompanionMods)
+	expectWorld(mock, fromWorld, 0, 0)
+	expectWorld(mock, fromWorld, 0, 0)
+	// С1 + ИН-4: отмена intra + позиция NULL + намерение одной транзакцией.
+	mock.ExpectBegin()
+	mock.ExpectExec(`DELETE FROM player_intrasystem_flights WHERE user_id = \$1`).
+		WithArgs(userID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`UPDATE users SET current_position = NULL, pending_destination = \$1, updated_at = NOW\(\) WHERE id = \$2`).
+		WithArgs(`{"world_id":"w2","object_type":"companion","object_id":"companion:w2"}`, userID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	req := httptest.NewRequest(http.MethodPost, "/travel", strings.NewReader(
+		`{"world_id":"w2","destination":{"object_type":"companion","object_id":"companion:w2"}}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := execJSON(h.StartTravel, withUserID(req, userID))
+	require.Equal(t, http.StatusAccepted, rec.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	flight := tm.GetFlight(userID)
+	require.NotNil(t, flight, "межзвёздный сегмент запущен")
+	require.Equal(t, target, flight.ToWorld)
+}
+
+// destination-компаньон, которого нет в stellar_mods системы (чужой id,
+// компаньона нет вовсе, индекс внешнего вне диапазона) → 400 «Объект не
+// найден в системе назначения».
+func TestStartTravelDestinationCompanionInvalid(t *testing.T) {
+	tests := []struct {
+		name   string
+		mods   string
+		destID string
+	}{
+		{name: "чужой id (другая система)", mods: testCompanionMods, destID: "companion:w9"},
+		{name: "компаньона нет в системе", mods: `{"binary_type":"single"}`, destID: "companion:w2"},
+		{name: "внешний компаньон вне диапазона", mods: testCompanionMods, destID: "extra:w2:5"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h, _, mock := newTravelHarnessWithAutostart(t)
+			const userID = "11111111-1111-1111-1111-111111111111"
+			const fromWorld = "w1"
+			const target = "w2"
+
+			expectWorldWithMods(mock, target, 10, 0, tt.mods)
+			expectUser(mock, userID, fromWorld)
+			expectWorldWithMods(mock, target, 10, 0, tt.mods)
+
+			req := httptest.NewRequest(http.MethodPost, "/travel", strings.NewReader(
+				`{"world_id":"w2","destination":{"object_type":"companion","object_id":"`+tt.destID+`"}}`))
+			req.Header.Set("Content-Type", "application/json")
+			rec := execJSON(h.StartTravel, withUserID(req, userID))
+			require.Equal(t, http.StatusBadRequest, rec.Code)
+			require.Contains(t, rec.Body.String(), "Объект не найден в системе назначения")
+			require.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+}
+
+// 202-идемпотентный путь с destination-компаньоном (§3.5): полёт к req.WorldID
+// уже идёт — намерение-компаньон записывается отдельным UPDATE, полёт не
+// перезапускается (те же правила, что для planet/satellite).
+func TestStartTravelIdempotentWithCompanionDestination(t *testing.T) {
+	h, tm, mock := newTravelHarnessWithAutostart(t)
+	const userID = "11111111-1111-1111-1111-111111111111"
+	const fromWorld = "w1"
+	const target = "w2"
+
+	// Первый полёт: w1 -> w2 (обычный, без destination).
+	expectTravelQueries(mock, userID, fromWorld, 0, 0, target, 10, 0)
+	rec := execJSON(h.StartTravel, travelRequest(userID, target))
+	require.Equal(t, http.StatusAccepted, rec.Code)
+
+	// Повторный /travel с destination-компаньоном к той же системе: валидация
+	// (мир с stellar_mods) + запись намерения отдельным UPDATE. Порядок: цель →
+	// пользователь → мир (валидация companion) → fromWorld.
+	expectWorldWithMods(mock, target, 10, 0, testCompanionMods)
+	expectUser(mock, userID, fromWorld)
+	expectWorldWithMods(mock, target, 10, 0, testCompanionMods)
+	expectWorld(mock, fromWorld, 0, 0)
+	mock.ExpectExec(`UPDATE users SET pending_destination = \$1, updated_at = NOW\(\) WHERE id = \$2`).
+		WithArgs(`{"world_id":"w2","object_type":"companion","object_id":"companion:w2"}`, userID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	req := httptest.NewRequest(http.MethodPost, "/travel", strings.NewReader(
+		`{"world_id":"w2","destination":{"object_type":"companion","object_id":"companion:w2"}}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec = execJSON(h.StartTravel, withUserID(req, userID))
+	require.Equal(t, http.StatusAccepted, rec.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	flight := tm.GetFlight(userID)
+	require.NotNil(t, flight)
+	require.Equal(t, target, flight.ToWorld)
+}
+
+// 202-идемпотентный путь с destination (M2, §3.5): полёт к req.WorldID уже
+// идёт — намерение записывается отдельным UPDATE (полёт не перезапускается).
+func TestStartTravelIdempotentWithDestinationWrites(t *testing.T) {
+	h, tm, mock := newTravelHarnessWithAutostart(t)
+	const userID = "11111111-1111-1111-1111-111111111111"
+	const fromWorld = "w1"
+	const target = "w2"
+
+	// Первый полёт: w1 -> w2 (обычный, без destination).
+	expectTravelQueries(mock, userID, fromWorld, 0, 0, target, 10, 0)
+	rec := execJSON(h.StartTravel, travelRequest(userID, target))
+	require.Equal(t, http.StatusAccepted, rec.Code)
+
+	// Повторный /travel с destination к той же системе: 202-путь — валидация
+	// объекта (§3.1) + запись намерения отдельным UPDATE. Порядок запросов:
+	// цель → пользователь → планеты (валидация destination) → fromWorld.
+	expectWorld(mock, target, 10, 0)
+	expectUser(mock, userID, fromWorld)
+	mock.ExpectQuery(`SELECT id, world_id, name, orbit_index, data, created_at, updated_at FROM planets WHERE world_id = \$1 ORDER BY orbit_index ASC`).
+		WithArgs(target).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "world_id", "name", "orbit_index", "data", "created_at", "updated_at"}).
+			AddRow("p1", target, "Планета1", 0, `{"type":"землеподобная","orbit_radius_au":1.0}`, now(), now()))
+	expectWorld(mock, fromWorld, 0, 0)
+	mock.ExpectExec(`UPDATE users SET pending_destination = \$1, updated_at = NOW\(\) WHERE id = \$2`).
+		WithArgs(sqlmock.AnyArg(), userID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	req := httptest.NewRequest(http.MethodPost, "/travel", strings.NewReader(
+		`{"world_id":"w2","destination":{"object_type":"planet","object_id":"p1"}}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec = execJSON(h.StartTravel, withUserID(req, userID))
+	require.Equal(t, http.StatusAccepted, rec.Code)
+
+	// Полёт не перезапущен (202, без сброса прогресса).
+	flight := tm.GetFlight(userID)
+	require.NotNil(t, flight)
+	require.Equal(t, target, flight.ToWorld)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -433,6 +704,11 @@ func TestStartTravelArrivalWritesStarOrbitPosition(t *testing.T) {
 	mock.ExpectExec(`UPDATE users SET current_world_id = \$1, current_position = \$2, updated_at = NOW\(\) WHERE id = \$3`).
 		WithArgs(target, sqlmock.AnyArg(), userID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	// Спека 99.2.30 §4.1: после ИП-2 onArrival читает намерение — NULL →
+	// обычное прибытие (ничего не меняется).
+	mock.ExpectQuery(`SELECT pending_destination FROM users WHERE id = \$1`).
+		WithArgs(userID).
+		WillReturnRows(sqlmock.NewRows([]string{"pending_destination"}).AddRow(nil))
 
 	// Ждём, пока onArrival выполнит UPDATE (ExpectationsWereMet == nil — все
 	// ожидания, включая UPDATE, потреблены; полёт удаляется из map ДО onArrival,
@@ -463,6 +739,10 @@ func TestStartTravelArrivalEatenWorldClearsPosition(t *testing.T) {
 		WithArgs(target).
 		WillReturnError(sql.ErrNoRows)
 	mock.ExpectExec(`UPDATE users SET current_world_id = NULL, current_position = NULL, updated_at = NOW\(\) WHERE id = \$1`).
+		WithArgs(userID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	// ИН-3е (спека 99.2.30 §4.2): мир съеден — намерение тоже очищается.
+	mock.ExpectExec(`UPDATE users SET pending_destination = NULL, updated_at = NOW\(\) WHERE id = \$1`).
 		WithArgs(userID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -514,4 +794,387 @@ func TestStartTravelReturnToFromWorld(t *testing.T) {
 	require.Equal(t, flight.StartX, resp.StartX)
 	require.Equal(t, flight.StartY, resp.StartY)
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// ==================== АВТОСТАРТ КОМПОЗИТНОГО МАРШРУТА (спека 99.2.30 §4) ====================
+
+// newTravelHarnessWithIntrasystem — полный харнесс композитного маршрута:
+// intraRepo/intraManager (StartAtomic/StartIntraFlight) + planetRepo/
+// knowledgeRepo (валидация «объект жив», авто-знание). Для тестов
+// ArrivalHandler/autostartIntra/RestorePendingDestinations (спека 99.2.30 §4).
+func newTravelHarnessWithIntrasystem(t *testing.T) (*TravelHandlers, *travel.Manager, *travel.IntrasystemManager, sqlmock.Sqlmock) {
+	t.Helper()
+	ship.LoadDefaults()
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	t.Cleanup(func() { db.Close() })
+	tm := travel.NewManager(nil)
+	intraRepo := repository.NewPlayerIntrasystemFlightRepository(db)
+	intraManager := travel.NewIntrasystemManager(nil) // nil store — без БД-дубля Upsert
+	h := NewTravelHandlers(
+		repository.NewWorldRepository(db),
+		repository.NewUserRepository(db),
+		tm,
+	)
+	h.SetIntrasystem(intraManager, intraRepo)
+	h.SetIntrasystemAutostart(repository.NewPlanetRepository(db), repository.NewKnowledgeRepository(db))
+	return h, tm, intraManager, mock
+}
+
+// travelPlanetRow — строка планеты для sqlmock (порядок колонок GetPlanetByID/
+// GetPlanetsLightByWorldID). Имя с префиксом travel — в пакете уже есть
+// planetRow (intrasystem_handlers_test.go, другой формат).
+func travelPlanetRow(id, worldID, data string) *sqlmock.Rows {
+	return sqlmock.NewRows([]string{"id", "world_id", "name", "orbit_index", "data", "created_at", "updated_at"}).
+		AddRow(id, worldID, "Планета "+id, 0, data, now(), now())
+}
+
+// expectPlanetByID — ожидание GetPlanetByID (валидация «объект жив»,
+// arrivalTargetValid): планета + пустые поселения (attachSettlements без
+// записей — лог поселения не читается).
+func expectPlanetByID(mock sqlmock.Sqlmock, id, worldID string) {
+	mock.ExpectQuery(`SELECT id, world_id, name, orbit_index, data, created_at, updated_at FROM planets WHERE id = \$1`).
+		WithArgs(id).
+		WillReturnRows(travelPlanetRow(id, worldID, `{}`))
+	mock.ExpectQuery(`SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at, race_id FROM settlements WHERE planet_id = ANY\(\$1\) ORDER BY created_at ASC`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id"}))
+}
+
+// expectPlanetsLight — ожидание GetPlanetsLightByWorldID (радиус орбиты цели
+// для длительности автостарта).
+func expectPlanetsLight(mock sqlmock.Sqlmock, worldID string, rows *sqlmock.Rows) {
+	mock.ExpectQuery(`SELECT id, world_id, name, orbit_index, data, created_at, updated_at FROM planets WHERE world_id = \$1 ORDER BY orbit_index ASC`).
+		WithArgs(worldID).
+		WillReturnRows(rows)
+}
+
+// expectStartAtomic — ожидание StartAtomic (С-1): строка полёта +
+// current_position = in_flight одной транзакцией.
+func expectStartAtomic(mock sqlmock.Sqlmock, userID, worldID, toType, toID string) {
+	mock.ExpectBegin()
+	mock.ExpectExec(`INSERT INTO player_intrasystem_flights \(user_id, world_id, from_type, from_id, to_type, to_id, start_time, arrive_at\) VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8\) ON CONFLICT \(user_id\) DO UPDATE SET`).
+		WithArgs(userID, worldID, "star", worldID, toType, toID, sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(`UPDATE users SET current_position = \$1, updated_at = NOW\(\) WHERE id = \$2`).
+		WithArgs(sqlmock.AnyArg(), userID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+}
+
+// expectClearPendingDestination — ожидание очистки намерения.
+func expectClearPendingDestination(mock sqlmock.Sqlmock, userID string) {
+	mock.ExpectExec(`UPDATE users SET pending_destination = NULL, updated_at = NOW\(\) WHERE id = \$1`).
+		WithArgs(userID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+}
+
+// expectArrivalBase — ожидания ArrivalHandler до чтения намерения: дефенсив
+// мира (GetByID) + ИП-2 (current_world_id + позиция «орбита звезды»).
+func expectArrivalBase(mock sqlmock.Sqlmock, userID, target string, targetX, targetY float64) {
+	expectWorld(mock, target, targetX, targetY)
+	mock.ExpectExec(`UPDATE users SET current_world_id = \$1, current_position = \$2, updated_at = NOW\(\) WHERE id = \$3`).
+		WithArgs(target, sqlmock.AnyArg(), userID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+}
+
+// expectPendingDestination — ожидание чтения намерения.
+func expectPendingDestination(mock sqlmock.Sqlmock, userID, destJSON string) {
+	mock.ExpectQuery(`SELECT pending_destination FROM users WHERE id = \$1`).
+		WithArgs(userID).
+		WillReturnRows(sqlmock.NewRows([]string{"pending_destination"}).AddRow(destJSON))
+}
+
+// (а) Намерение совпало → автостарт: intra-строка + позиция in_flight +
+// очистка намерения (спека 99.2.30 §4.3/§4.4).
+func TestArrivalHandlerAutostartSuccess(t *testing.T) {
+	h, _, intraManager, mock := newTravelHarnessWithIntrasystem(t)
+	const userID = "11111111-1111-1111-1111-111111111111"
+	const target = "w2"
+
+	expectArrivalBase(mock, userID, target, 10, 0)
+	expectPendingDestination(mock, userID, `{"world_id":"w2","object_type":"planet","object_id":"p1"}`)
+	// autostartIntra: мир → объект жив → двигатель есть → current_world_id ==
+	// w2 → длительность от звезды → StartAtomic → очистка намерения.
+	expectWorld(mock, target, 10, 0)
+	expectPlanetByID(mock, "p1", target)
+	expectUser(mock, userID, target)
+	expectPlanetsLight(mock, target, travelPlanetRow("p1", target, `{"orbit_radius_au":1.0}`))
+	expectStartAtomic(mock, userID, target, "planet", "p1")
+	expectClearPendingDestination(mock, userID)
+
+	h.ArrivalHandler(userID, target)
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	f := intraManager.GetIntraFlight(userID)
+	require.NotNil(t, f, "автостарт запустил внутрисистемный полёт")
+	require.Equal(t, target, f.WorldID)
+	require.Equal(t, "planet", f.ToType)
+	require.Equal(t, "p1", f.ToID)
+}
+
+// (б) Битая цель → фолбэк «орбита звезды» + очистка, БЕЗ 400 (спека 99.2.30
+// §4.3.1): автостарт не запускается, намерение очищается.
+func TestArrivalHandlerAutostartBrokenTarget(t *testing.T) {
+	h, _, intraManager, mock := newTravelHarnessWithIntrasystem(t)
+	const userID = "11111111-1111-1111-1111-111111111111"
+	const target = "w2"
+
+	expectArrivalBase(mock, userID, target, 10, 0)
+	expectPendingDestination(mock, userID, `{"world_id":"w2","object_type":"planet","object_id":"p999"}`)
+	// autostartIntra: мир → объект бит (GetPlanetByID → nil) → очистка, без старта.
+	expectWorld(mock, target, 10, 0)
+	mock.ExpectQuery(`SELECT id, world_id, name, orbit_index, data, created_at, updated_at FROM planets WHERE id = \$1`).
+		WithArgs("p999").
+		WillReturnError(sql.ErrNoRows)
+	expectClearPendingDestination(mock, userID)
+
+	h.ArrivalHandler(userID, target)
+	require.NoError(t, mock.ExpectationsWereMet())
+	require.Nil(t, intraManager.GetIntraFlight(userID), "битая цель — полёт не стартует")
+}
+
+// (в) Двигатель снят → очистка, позиция «орбита звезды» (спека 99.2.30
+// §4.3.2): автостарт не запускается, намерение очищается.
+func TestArrivalHandlerAutostartNoEngine(t *testing.T) {
+	h, _, intraManager, mock := newTravelHarnessWithIntrasystem(t)
+	const userID = "11111111-1111-1111-1111-111111111111"
+	const target = "w2"
+
+	expectArrivalBase(mock, userID, target, 10, 0)
+	expectPendingDestination(mock, userID, `{"world_id":"w2","object_type":"planet","object_id":"p1"}`)
+	expectWorld(mock, target, 10, 0)
+	expectPlanetByID(mock, "p1", target)
+	// Игрок без двигателя (role=player) — автостарт не запускается.
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at FROM users WHERE id = \$1`).
+		WithArgs(userID).
+		WillReturnRows(userRowNoEngine(userID, target))
+	expectClearPendingDestination(mock, userID)
+
+	h.ArrivalHandler(userID, target)
+	require.NoError(t, mock.ExpectationsWereMet())
+	require.Nil(t, intraManager.GetIntraFlight(userID), "двигатель снят — полёт не стартует")
+}
+
+// (г) world_id не совпал → очистка (дефенсив, спека 99.2.30 §4.1): намерение
+// пишется только для цели полёта — несовпадение означает битое состояние.
+func TestArrivalHandlerWorldMismatch(t *testing.T) {
+	h, _, intraManager, mock := newTravelHarnessWithIntrasystem(t)
+	const userID = "11111111-1111-1111-1111-111111111111"
+	const target = "w2"
+
+	expectArrivalBase(mock, userID, target, 10, 0)
+	expectPendingDestination(mock, userID, `{"world_id":"w9","object_type":"planet","object_id":"p1"}`)
+	expectClearPendingDestination(mock, userID)
+
+	h.ArrivalHandler(userID, target)
+	require.NoError(t, mock.ExpectationsWereMet())
+	require.Nil(t, intraManager.GetIntraFlight(userID), "world_id не совпал — полёт не стартует")
+}
+
+// Задача 2 (ревью): автостарт корректен, только если игрок уже в системе-цели
+// (current_world_id == worldID). Краш между CancelAtomicWithDestination и
+// StartFlight оставляет намерение при current_world_id мира отправления —
+// намерение осиротело: очистить, позицию не трогать (ИП-1 99.2.27).
+func TestAutostartIntraWorldMismatchClears(t *testing.T) {
+	h, _, intraManager, mock := newTravelHarnessWithIntrasystem(t)
+	const userID = "11111111-1111-1111-1111-111111111111"
+	const target = "w2"
+	const departure = "w1"
+
+	// autostartIntra напрямую (фаза 3а Restore): объект жив, но игрок ещё в
+	// мире отправления (прибытие не засчитано) → очистка, без старта.
+	expectWorld(mock, target, 10, 0)
+	expectPlanetByID(mock, "p1", target)
+	expectUser(mock, userID, departure) // current_world_id = w1 != w2
+	expectClearPendingDestination(mock, userID)
+
+	h.autostartIntra(userID, target, &models.PendingDestination{WorldID: target, ObjectType: "planet", ObjectID: "p1"})
+	require.NoError(t, mock.ExpectationsWereMet())
+	require.Nil(t, intraManager.GetIntraFlight(userID), "игрок не в системе-цели — полёт не стартует")
+}
+
+// ==================== АВТОСТАРТ КОМПАНЬОНА (решение создателя 2026-09-21) ====================
+
+// Намерение {companion, companion:w2} → автостарт: внутрисистемный слой ждёт
+// ToType='star' + синтетический id (99.2.27 §3.1), позиция in_flight.
+func TestArrivalHandlerAutostartCompanion(t *testing.T) {
+	h, _, intraManager, mock := newTravelHarnessWithIntrasystem(t)
+	const userID = "11111111-1111-1111-1111-111111111111"
+	const target = "w2"
+
+	expectArrivalBase(mock, userID, target, 10, 0)
+	expectPendingDestination(mock, userID, `{"world_id":"w2","object_type":"companion","object_id":"companion:w2"}`)
+	// autostartIntra: мир (валидность компаньона) → двигатель → планеты (радиус).
+	expectWorldWithMods(mock, target, 10, 0, testCompanionMods)
+	expectUser(mock, userID, target)
+	expectPlanetsLight(mock, target, travelPlanetRow("p1", target, `{"orbit_radius_au":1.0}`))
+	// StartAtomic: строка полёта — ToType='star' (маппинг компаньона), позиция
+	// in_flight с теми же to_type/to_id.
+	mock.ExpectBegin()
+	mock.ExpectExec(`INSERT INTO player_intrasystem_flights \(user_id, world_id, from_type, from_id, to_type, to_id, start_time, arrive_at\) VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8\) ON CONFLICT \(user_id\) DO UPDATE SET`).
+		WithArgs(userID, target, "star", target, "star", "companion:w2", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(`UPDATE users SET current_position = \$1, updated_at = NOW\(\) WHERE id = \$2`).
+		WithArgs(jsonContains{[]string{`"status":"in_flight"`, `"from_type":"star"`, `"from_id":"w2"`, `"to_type":"star"`, `"to_id":"companion:w2"`}}, userID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	expectClearPendingDestination(mock, userID)
+
+	h.ArrivalHandler(userID, target)
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	f := intraManager.GetIntraFlight(userID)
+	require.NotNil(t, f, "автостарт компаньона запустил внутрисистемный полёт")
+	require.Equal(t, "star", f.ToType, "внутрисистемный слой ждёт ToType='star'")
+	require.Equal(t, "companion:w2", f.ToID, "синтетический id компаньона сохранён")
+}
+
+// Битая цель-компаньон (нет в stellar_mods) → очистка намерения + фолбэк
+// «орбита звезды», БЕЗ 400 (позиция уже выставлена onArrival, §4.3.1).
+func TestArrivalHandlerAutostartBrokenCompanion(t *testing.T) {
+	h, _, intraManager, mock := newTravelHarnessWithIntrasystem(t)
+	const userID = "11111111-1111-1111-1111-111111111111"
+	const target = "w2"
+
+	expectArrivalBase(mock, userID, target, 10, 0)
+	expectPendingDestination(mock, userID, `{"world_id":"w2","object_type":"companion","object_id":"companion:w9"}`)
+	// autostartIntra: мир загружен → IsValidCompanionID(companion:w9) == false.
+	expectWorldWithMods(mock, target, 10, 0, testCompanionMods)
+	expectClearPendingDestination(mock, userID)
+
+	h.ArrivalHandler(userID, target)
+	require.NoError(t, mock.ExpectationsWereMet())
+	require.Nil(t, intraManager.GetIntraFlight(userID), "битый компаньон — полёт не стартует")
+}
+
+// ==================== RESTORE НАМЕРЕНИЙ (спека 99.2.30 §4.5) ====================
+
+// expectListPendingDestinations — ожидание ListPendingDestinations.
+func expectListPendingDestinations(mock sqlmock.Sqlmock, rows *sqlmock.Rows) {
+	mock.ExpectQuery(`SELECT id, pending_destination FROM users WHERE pending_destination IS NOT NULL`).
+		WillReturnRows(rows)
+}
+
+// (а) Нет активного полёта, объект жив → автостарт (StartAtomic +
+// StartIntraFlight; намерение — через ветку «исполнение», §4.4).
+func TestRestorePendingDestinationsAutostart(t *testing.T) {
+	h, _, intraManager, mock := newTravelHarnessWithIntrasystem(t)
+	const userID = "11111111-1111-1111-1111-111111111111"
+	const target = "w2"
+
+	expectListPendingDestinations(mock, sqlmock.NewRows([]string{"id", "pending_destination"}).
+		AddRow(userID, `{"world_id":"w2","object_type":"planet","object_id":"p1"}`))
+	expectWorld(mock, target, 10, 0) // мир жив (ветка д не срабатывает)
+	// autostartIntra: мир → объект жив → двигатель есть → current_world_id ==
+	// w2 → StartAtomic → очистка.
+	expectWorld(mock, target, 10, 0)
+	expectPlanetByID(mock, "p1", target)
+	expectUser(mock, userID, target)
+	expectPlanetsLight(mock, target, travelPlanetRow("p1", target, `{"orbit_radius_au":1.0}`))
+	expectStartAtomic(mock, userID, target, "planet", "p1")
+	expectClearPendingDestination(mock, userID)
+
+	h.RestorePendingDestinations()
+	require.NoError(t, mock.ExpectationsWereMet())
+	require.NotNil(t, intraManager.GetIntraFlight(userID), "автостарт запустил внутрисистемный полёт")
+}
+
+// (б) Нет активного полёта, объект бит → очистка намерения (фолбэк «орбита
+// звезды», позиция уже выставлена onArrival).
+func TestRestorePendingDestinationsBrokenTarget(t *testing.T) {
+	h, _, intraManager, mock := newTravelHarnessWithIntrasystem(t)
+	const userID = "11111111-1111-1111-1111-111111111111"
+	const target = "w2"
+
+	expectListPendingDestinations(mock, sqlmock.NewRows([]string{"id", "pending_destination"}).
+		AddRow(userID, `{"world_id":"w2","object_type":"planet","object_id":"p999"}`))
+	expectWorld(mock, target, 10, 0)
+	expectWorld(mock, target, 10, 0)
+	mock.ExpectQuery(`SELECT id, world_id, name, orbit_index, data, created_at, updated_at FROM planets WHERE id = \$1`).
+		WithArgs("p999").
+		WillReturnError(sql.ErrNoRows)
+	expectClearPendingDestination(mock, userID)
+
+	h.RestorePendingDestinations()
+	require.NoError(t, mock.ExpectationsWereMet())
+	require.Nil(t, intraManager.GetIntraFlight(userID))
+}
+
+// (в) Нет активного межзвёздного, но есть активный внутрисистемный полёт в
+// world_id → намерение-призрак микро-окна StartAtomic→NULL: очистить.
+func TestRestorePendingDestinationsGhostIntra(t *testing.T) {
+	h, _, intraManager, mock := newTravelHarnessWithIntrasystem(t)
+	const userID = "11111111-1111-1111-1111-111111111111"
+	const target = "w2"
+
+	// Активный внутрисистемный полёт в w2 (исполнение уже произошло).
+	intraManager.StartIntraFlight(userID, target, "star", target, "planet", "p1", 3*time.Second, nil)
+
+	expectListPendingDestinations(mock, sqlmock.NewRows([]string{"id", "pending_destination"}).
+		AddRow(userID, `{"world_id":"w2","object_type":"planet","object_id":"p1"}`))
+	expectWorld(mock, target, 10, 0)
+	expectClearPendingDestination(mock, userID)
+
+	h.RestorePendingDestinations()
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// (г) Есть активный межзвёздный полёт к world_id → намерение живёт (автостарт
+// по прибытии; очистки нет).
+func TestRestorePendingDestinationsInterstellarAlive(t *testing.T) {
+	h, tm, _, mock := newTravelHarnessWithIntrasystem(t)
+	const userID = "11111111-1111-1111-1111-111111111111"
+	const target = "w2"
+
+	// Активный межзвёздный полёт к w2.
+	tm.StartFlight(userID, "w1", target, 0, 0, 3*time.Second, nil)
+
+	expectListPendingDestinations(mock, sqlmock.NewRows([]string{"id", "pending_destination"}).
+		AddRow(userID, `{"world_id":"w2","object_type":"planet","object_id":"p1"}`))
+	expectWorld(mock, target, 10, 0)
+
+	h.RestorePendingDestinations()
+	require.NoError(t, mock.ExpectationsWereMet())
+	// Намерение не очищено (нет ожидания ClearPendingDestination) — автостарт
+	// произойдёт по прибытии.
+}
+
+// (д) Мир world_id съеден/удалён → очистить намерение.
+func TestRestorePendingDestinationsWorldEaten(t *testing.T) {
+	h, _, _, mock := newTravelHarnessWithIntrasystem(t)
+	const userID = "11111111-1111-1111-1111-111111111111"
+
+	expectListPendingDestinations(mock, sqlmock.NewRows([]string{"id", "pending_destination"}).
+		AddRow(userID, `{"world_id":"w9","object_type":"planet","object_id":"p1"}`))
+	mock.ExpectQuery(`SELECT id, name, coord_x, coord_y, COALESCE\(spectral_class,''\), temperature, star_type, system_type, stellar_mods, stellar_mass, age, created_at, updated_at FROM worlds WHERE id = \$1`).
+		WithArgs("w9").
+		WillReturnError(sql.ErrNoRows)
+	expectClearPendingDestination(mock, userID)
+
+	h.RestorePendingDestinations()
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Задача 2 (ревью): фаза 3а Restore — автостарт корректен, только если игрок
+// уже в системе-цели. Краш между CancelAtomicWithDestination и StartFlight
+// оставил current_world_id = мир отправления → намерение осиротело: очистить,
+// позицию не трогать (ИП-1 99.2.27).
+func TestRestorePendingDestinationsWorldMismatchClears(t *testing.T) {
+	h, _, intraManager, mock := newTravelHarnessWithIntrasystem(t)
+	const userID = "11111111-1111-1111-1111-111111111111"
+	const target = "w2"
+	const departure = "w1"
+
+	expectListPendingDestinations(mock, sqlmock.NewRows([]string{"id", "pending_destination"}).
+		AddRow(userID, `{"world_id":"w2","object_type":"planet","object_id":"p1"}`))
+	expectWorld(mock, target, 10, 0)
+	expectWorld(mock, target, 10, 0)
+	expectPlanetByID(mock, "p1", target)
+	expectUser(mock, userID, departure) // current_world_id = w1 != w2
+	expectClearPendingDestination(mock, userID)
+
+	h.RestorePendingDestinations()
+	require.NoError(t, mock.ExpectationsWereMet())
+	require.Nil(t, intraManager.GetIntraFlight(userID), "игрок не в системе-цели — полёт не стартует")
 }

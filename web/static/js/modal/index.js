@@ -19,6 +19,17 @@ import { setRedrawCallback, getRedrawCallback } from '../map/ship_sprites.js';
 // (восстанавливается в closeModal, чтобы не сломать карту).
 let prevRedrawCallback = null;
 
+// Синхронный источник полёта карты (спека 99.2.30 §6.4/§6.9): mapState.isFlying
+// — фолбэк для клика 🎯 до резолва /me (modalState.interstellarFlight ещё null).
+// Динамический импорт map/config.js только на странице карты (в админке
+// import-граф карты не тянется — фолбэк просто закрыть модалку). Прогрев при
+// загрузке модуля: к моменту клика импорт уже резолвлен (карта грузит модалку
+// статически, модуль в кэше).
+let mapStateRef = null;
+if (document.getElementById('mapCanvas')) {
+    import('../map/config.js').then(m => { mapStateRef = m.state; }).catch(() => {});
+}
+
 // handleUnauthorized — локальная копия map/data.js: чистит игровой токен и
 // редиректит на логин. Не импортируем из ../map/ — тот тянет map/config.js,
 // который при загрузке требует #mapCanvas (его нет в админке) и роняет весь
@@ -86,12 +97,29 @@ export function openSystemModal(worldId, worldName, spectralClass, focusOpts, au
             // системы — надёжный признак; кнопка «Найти меня» в модалке при
             // межзвёздном полёте закроет её и поведёт как кнопка карты.
             modalState.interstellarFlight = (me && me.flight) || null;
+            // Имя системы-цели межзвёздного полёта (спека 99.2.30 §6.10):
+            // для тултипа композитной кнопки «Маршрут развернётся: полёт к
+            // <система>…». Источник — кэш миров карты (state.worlds / flyTo);
+            // динамический импорт только на странице карты.
+            modalState.interstellarFlightName = null;
+            if (modalState.interstellarFlight && document.getElementById('mapCanvas')) {
+                import('../map/config.js').then(m => {
+                    const flight = modalState.interstellarFlight;
+                    if (!flight) return;
+                    const w = m.state.worlds.find(x => x.id === flight.to) || m.state.flyTo;
+                    if (w && w.name) {
+                        modalState.interstellarFlightName = w.name;
+                    }
+                }).catch(() => {});
+            }
             // Роль (спека 2026-09-20 §6.2): admin/skycomposer видят «Вид с
             // орбиты» всегда. /me асинхронный — если модалка уже открыта и
             // планета выбрана, перерисовываем карточку (гвард: роль пришла
             // после рендера — иначе блок не появится до следующего refresh).
+            // То же для межзвёздного полёта (спека 99.2.30 §6.2): тултип
+            // композитной кнопки спутника зависит от цели полёта.
             modalState.role = me.role || null;
-            if (modalState.role && document.getElementById('system-modal-overlay') &&
+            if ((modalState.role || modalState.interstellarFlight) && document.getElementById('system-modal-overlay') &&
                 modalState.selectedPlanetIndex !== null &&
                 modalState.planets && modalState.planets[modalState.selectedPlanetIndex]) {
                 renderRightPanel(modalState.planets, modalState.selectedPlanetIndex);
@@ -720,11 +748,13 @@ function updateCameraFollow() {
 // Вне полёта (orbit): клик — центр на позицию игрока, слежение не включается
 // (42a), подсветки нет.
 function centerOnPlayer() {
-    // Межзвёздный полёт (запрос создателя): кнопка «Найти меня» в модалке
-    // закрывает модалку и ведёт себя как кнопка карты — центр на корабле по
-    // пути + слежение (centerOnAgent карты). Кнопки карты нет (админка/нет
-    // карты) — просто закрыть модалку, ничего не падает.
-    if (modalState.interstellarFlight) {
+    // Межзвёздный полёт (спека 99.2.30 §6.4/§6.9): кнопка «Найти меня» в
+    // модалке закрывает модалку и ведёт себя как кнопка карты — центр на
+    // корабле по пути + слежение (centerOnAgent карты). Условие —
+    // modalState.interstellarFlight (из /me) ИЛИ синхронный mapState.isFlying
+    // (клик до резолва /me — фикс §6.4). Кнопки карты нет (админка/нет карты)
+    // — просто закрыть модалку, ничего не падает.
+    if (modalState.interstellarFlight || (mapStateRef && mapStateRef.isFlying)) {
         closeModal();
         const centerBtn = document.getElementById('centerBtn');
         if (centerBtn) centerBtn.click();

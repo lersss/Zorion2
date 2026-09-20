@@ -401,7 +401,12 @@
         { "on": "internal/handlers/admin_resources.go", "kind": "reads", "reason": "слой 20/покрытие/gaps — из БД (props ? 'closes'), переиспользование CheckAllFed/CoveringResources (iterC §7)" },
         { "on": "docs/DB.md", "kind": "docs", "reason": "таблицы + миграция 000045 + маркер сидера (дельта iterA §16)" },
         { "on": "docs/gamedesign/11_production.md", "kind": "affects", "reason": "§11.1.1 сложность рецепта = тир товара; каталог в БД — основа будущей экономики (FK на goods.id)" },
-        { "on": "docs/gamedesign/13_tiers.md", "kind": "affects", "reason": "§13.9.1 тир-оверрайд — источник complexity (99a.3)" }
+        { "on": "docs/gamedesign/13_tiers.md", "kind": "affects", "reason": "§13.9.1 тир-оверрайд — источник complexity (99a.3)" },
+        { "on": "docs/specs/99a.1-goods-studio.md", "kind": "docs", "reason": "спека студии товаров: каталог, миграция 000045, /studio/api/* (источник механики)" },
+        { "on": "docs/specs/99a.1-goods-studio-ui.md", "kind": "docs", "reason": "UI-спека студии (перенос интерфейса, 99a.1)" },
+        { "on": "docs/specs/99a.2-goods-studio-import-top-catalog.md", "kind": "docs", "reason": "импорт top-каталога отменён решением создателя 2026-09-20 — спека-источник решения" },
+        { "on": "docs/specs/99a.3-goods-studio-focus-graph-spravochnik.md", "kind": "docs", "reason": "фокус-граф/справочник каталога (99a.3); ПКМ-хвост открыт" },
+        { "on": "docs/specs/перенос-студии-товаров-iterC-доводка.md", "kind": "docs", "reason": "доводка iterC: fill «предложи → подтверди», auth.js, слой из БД" }
       ]
     },
     {
@@ -471,16 +476,16 @@
       "path": "internal/handlers/admin_pacman.go",
       "note": "Пакман-вайп (идея 2026-09-20, спека 2026-09-20-pacman-galaxy-wipe): админ-джоб ест миры целиком по траектории nearest (жадный ближайший сосед через сетку; spiral/snake опции), скорость float64 >0..10000 с адаптивным батчом=1 (поедание по одной в кинорежиме); событие видно ВСЕМ игрокам через WS (жёлтый пакман 34 px, рот 0→69°, нимб, след, баннер N/M, слежение, поздние подключения видят); звёзды лопаются при прибытии пакмана (снапшот не пересобирается на батч, клиент скрывает по eaten + eatenIds)",
       "impacts": [
-        { "on": "worlds", "kind": "writes", "reason": "порционный DELETE миров (каскады вниз: planets→settlements/factions/planet_resources→settlement_log, locations→production_units, assignments); снапшот карты пересобирается LoadAsync в конце джоба" },
-        { "on": "npc_agents", "kind": "writes", "reason": "DELETE агентов съеденных миров (current/from/target, FK NO ACTION 000026); индексы 000047; OnAgentsDeleted в конце" },
+        { "on": "db:worlds", "kind": "writes", "reason": "порционный DELETE миров (каскады вниз: planets→settlements/factions/planet_resources→settlement_log, locations→production_units, assignments); снапшот карты пересобирается LoadAsync в конце джоба" },
+        { "on": "db:npc_agents", "kind": "writes", "reason": "DELETE агентов съеденных миров (current/from/target, FK NO ACTION 000026); индексы 000047; OnAgentsDeleted в конце" },
         { "on": "player_planet_knowledge", "kind": "writes", "reason": "DELETE знаний о съеденных планетах (вайп, решение создателя «всё удалять, игроки остаются»; FK NO ACTION 000040)" },
         { "on": "db:users.current_world_id", "kind": "schema", "reason": "UPDATE current_world_id/current_position = NULL у затронутых (игроки остаются; FK динамический NO ACTION/SET NULL)" },
         { "on": "player_flights", "kind": "writes", "reason": "отмена полётов к съеденным мирам после COMMIT батча (шаг 6); дефенсив onArrival — битая цель → NULL вместо FK" },
         { "on": "player_intrasystem_flights", "kind": "writes", "reason": "DELETE строк съеденных миров (000046); самозалечивание in-memory" },
-        { "on": "regions", "kind": "writes", "reason": "пересчёт world_count по NearestRegionIndex + DELETE опустевших (решение создателя «регионы тоже должны куда-то деваться»)" },
-        { "on": "mapcache", "kind": "reads", "reason": "траектория из снапшота (in-memory); снапшот НЕ пересобирается на каждый батч — перезапросы области не «спойлерят» съеденные раньше пакмана" },
-        { "on": "WebSocketHub", "kind": "api", "reason": "Broadcast pacman_start/position/eaten/end + SendToUser notices; PacmanNotifier с дросселем (позиция ≤10 Гц, поедание ≤200 миров/событие), джоб не блокируется на WS" },
-        { "on": "StatusManager", "kind": "api", "reason": "JobPacman; конфликт-гварды 9 хендлеров + ClearUniverse + GeneratePrototypePlanet (409); universeMutationMu (TryLock обе стороны, TRUNCATE vs порционный DELETE)" },
+        { "on": "db:regions", "kind": "writes", "reason": "пересчёт world_count по NearestRegionIndex + DELETE опустевших (решение создателя «регионы тоже должны куда-то деваться»)" },
+        { "on": "internal/mapcache/", "kind": "reads", "reason": "траектория из снапшота (in-memory); снапшот НЕ пересобирается на каждый батч — перезапросы области не «спойлерят» съеденные раньше пакмана" },
+        { "on": "internal/handlers/websocket_hub.go", "kind": "api", "reason": "Broadcast pacman_start/position/eaten/end + SendToUser notices; PacmanNotifier с дросселем (позиция ≤10 Гц, поедание ≤200 миров/событие), джоб не блокируется на WS" },
+        { "on": "internal/generator/status.go", "kind": "api", "reason": "JobPacman; конфликт-гварды 9 хендлеров + ClearUniverse + GeneratePrototypePlanet (409); universeMutationMu (TryLock обе стороны, TRUNCATE vs порционный DELETE)" },
         { "on": "web/static/js/map/pacman.js", "kind": "writes", "reason": "клиент: состояние/рендер/слежение/лопание у рта (pendingEaten)/поздняя активация/баннер; data.js фильтр eatenIds ∖ pendingEatenIds" },
         { "on": "web/static/js/map/data.js", "kind": "reads", "reason": "loadClusters вычитает съеденные (кроме «долетающих») — звёзды лопаются при прибытии пакмана" },
         { "on": "docs/specs/2026-09-20-pacman-galaxy-wipe.md", "kind": "duplicates", "reason": "спека — источник механики (джоб, батчи, WS, фронт, числа, DoD)" },
@@ -499,7 +504,8 @@
         { "on": "86a", "kind": "reads", "reason": "энциклопедия: карточка расы (вид/ниша/размер/лор) — контекст игрового восприятия корабля" },
         { "on": "67a.1", "kind": "reads", "reason": "«кабина студии» cockpit_1024.png — техподложка композита; термин разведён с «кабиной корабля расы»" },
         { "on": "связь-с-кораблём", "kind": "affects", "reason": "будущая механика «связь с кораблём» — потребитель кабины (место аватара при связи)" },
-        { "on": "61b", "kind": "affects", "reason": "расовые корабли — новый слой визуала; spriteForAgent — точка замены под расовый визуал (21 спрайт — легаси)" }
+        { "on": "61b", "kind": "affects", "reason": "расовые корабли — новый слой визуала; spriteForAgent — точка замены под расовый визуал (21 спрайт — легаси)" },
+        { "on": "docs/specs/2026-09-20-ships-races-generator.md", "kind": "docs", "reason": "спека генератора спрайтов кораблей рас (конвейер силуэт→ControlNet→детализация, ships.json/ship_dict.json) — источник формата каталога" }
       ]
     },
     {
@@ -611,11 +617,11 @@
     {
       "id": "biomes",
       "type": "mechanic",
-      "path": "planets.data.biomes",
+      "path": "db:planets.data.biomes",
       "note": "биомы планеты (99.2.28, слой 10 каскада после недр): объекты {form, share}, сумма 100%; физические веса от свойств планеты (T/вода/состав/гравитация/вулканизм V), whitelist-гейт bands биома, джиттер ±20%, авто-матрица жидкости; производные surface_composition/surface_dominant считаются из объектов; газовые гиганты — без биомов; аддитивный формат (старые миры без ключа — фолбэк nil)",
       "impacts": [
         { "on": "surface_composition", "kind": "derives", "reason": "сводная карта долей форм считается из биомов (compositionFromBiomes)" },
-        { "on": "classify.go", "kind": "reads", "reason": "тип планеты — правила справочника по производному составу (после биомов)" },
+        { "on": "internal/generator/planet/classify.go", "kind": "reads", "reason": "тип планеты — правила справочника по производному составу (после биомов)" },
         { "on": "internal/audit/planet/*", "kind": "reads", "reason": "проверки биомов (empty/biome_not_in_catalog/biosphere_without_conditions) и существующие lava_in_cold/volcanic" },
         { "on": "web/static/js/modal/tabs.js", "kind": "reads", "reason": "renderComposition показывает состав (иконка + имя); визуализация иконок — следующий релиз (идея 2026-09-20)" },
         { "on": "users.current_position", "kind": "affects", "reason": "уровень orbit/surface+biome (99.2.27) — биом планеты поставляется отсюда для будущей высадки" },
@@ -626,7 +632,7 @@
     {
       "id": "subterrain",
       "type": "mechanic",
-      "path": "planets.data.subterrain",
+      "path": "db:planets.data.subterrain",
       "note": "недра планеты (99.2.28, слой 9): объекты {type, share}, сумма 100%; веса от физики + subterrain_bias + whitelist bands + мягкие связи (читают draft-пробник слоя 8) + джиттер + матрица + нормализация + примитивные 3.5%; условия — данные справочника (Conditions); производная subterrain_composition",
       "impacts": [
         { "on": "subterrain_composition", "kind": "derives", "reason": "сводная карта типов недр считается из объектов (compositionFromZones)" },
@@ -638,7 +644,7 @@
     {
       "id": "surface_composition",
       "type": "mechanic",
-      "path": "planets.data.surface_composition",
+      "path": "db:planets.data.surface_composition",
       "note": "сводный состав поверхности — ПРОИЗВОДНАЯ от биомов (99.2.28): map[форма]доля, считается одной функцией; 8 потребителей; вне реестра было находкой @critic",
       "impacts": [
         { "on": "web/static/js/modal/tabs.js", "kind": "reads", "reason": "модалка: renderComposition(surface_composition, FORM_ICONS, FORM_COLORS)" },
@@ -647,13 +653,13 @@
         { "on": "internal/repository/planet_repo.go", "kind": "reads", "reason": "populatePlanetFromJSON — whitelist полей (biomes читается аддитивно)" },
         { "on": "internal/generator/planet/twin.go", "kind": "reads", "reason": "твин-генератор (99.2.24) — состав планеты" },
         { "on": "internal/generator/planet/planet_data.go", "kind": "reads", "reason": "GenerateDescription — описание по составу" },
-        { "on": "PlanetKnowledgeView", "kind": "reads", "reason": "77a: знания о планете (surface_composition в знании)" }
+        { "on": "internal/models/planet.go", "kind": "reads", "reason": "77a: знания о планете (surface_composition в знании, PlanetKnowledgeView)" }
       ]
     },
     {
       "id": "subterrain_composition",
       "type": "mechanic",
-      "path": "planets.data.subterrain_composition",
+      "path": "db:planets.data.subterrain_composition",
       "note": "сводный состав недр — ПРОИЗВОДНАЯ от объектов недр (99.2.28); потребители те же, что у surface_composition; вне реестра было находкой @critic",
       "impacts": [
         { "on": "web/static/js/modal/tabs.js", "kind": "reads", "reason": "модалка: блок недр (SUBTERRAIN_ICONS/COLORS)" },
@@ -673,11 +679,13 @@
         { "on": "biomes", "kind": "writes", "reason": "механика биомов по спеке §5–§12" },
         { "on": "subterrain", "kind": "writes", "reason": "недра объектами по спеке §7–§9" },
         { "on": "config/planet_archetypes.json", "kind": "writes", "reason": "контент-дельта §15.2 (веса вулканических/крио/серных/магмового для альбедо-прокси и недр ядра)" },
-        { "on": "99.2.20", "kind": "affects", "reason": "порядок слоёв: слой 10 «биомы» после недр; слой 8 — draft-пробник; классификация после биомов; формулы не меняются (дельта §26)" },
-        { "on": "99.2.10", "kind": "affects", "reason": "surface_bias/subterrain_bias — точка применения физические веса (дельта §26)" },
-        { "on": "99.2.22", "kind": "affects", "reason": "ручки — входы каскада, не меняются; SurfaceOverride — только альбедо T₀; токсичные tuned-миры — экстремофилы/серные поля (дельта §26)" },
+        { "on": "docs/specs/99.2.20-planet-physics-cascade.md", "kind": "affects", "reason": "порядок слоёв: слой 10 «биомы» после недр; слой 8 — draft-пробник; классификация после биомов; формулы не меняются (дельта §26)" },
+        { "on": "docs/specs/99.2.10-region-profiles.md", "kind": "affects", "reason": "surface_bias/subterrain_bias — точка применения физические веса (дельта §26)" },
+        { "on": "docs/specs/99.2.22-race-generator-tuning.md", "kind": "affects", "reason": "ручки — входы каскада, не меняются; SurfaceOverride — только альбедо T₀; токсичные tuned-миры — экстремофилы/серные поля (дельта §26)" },
         { "on": "docs/specs/README.md", "kind": "docs", "reason": "манифест спек: строка 99.2.28 (статус/дата)" },
-        { "on": "99_roadmap.md", "kind": "docs", "reason": "строка §99.2.28 — статус фичи (дельта @dispatcher)" }
+        { "on": "99_roadmap.md", "kind": "docs", "reason": "строка §99.2.28 — статус фичи (дельта @dispatcher)" },
+        { "on": "docs/specs/99.2.28-appendix-biome-catalog.md", "kind": "docs", "reason": "приложение к спеке: каталог 57 биомов/17 недр/9 правил (полный справочник)" },
+        { "on": "docs/specs/99.2.28-ui-admin-biome-catalog.md", "kind": "docs", "reason": "UI-спека админки справочника биомов (вкладка «Основное»)" }
       ]
     },
     {

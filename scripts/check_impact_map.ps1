@@ -117,6 +117,8 @@ $exceptions = @(
     'internal/', 'web/', 'cmd/', 'tools/', 'migrations/',
     'docs/QA/checklists/', 'docs/QA_CHECKLIST.md',
     'docs/ARCHITECTURE.md', 'docs/PITFALLS.md',
+    'docs/COORDINATION.md',
+    'goods_msg', 'config/goods/',
     'AGENTS.md', 'docs/INDEX.md',
     'go.mod', 'go.sum', '.gitignore'
 )

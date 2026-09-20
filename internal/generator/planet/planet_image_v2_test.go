@@ -7,7 +7,6 @@ package planet
 
 import (
 	"bytes"
-	"image"
 	"image/color"
 	"image/png"
 	"testing"
@@ -112,62 +111,8 @@ func TestBiomeColorHybrid(t *testing.T) {
 }
 
 // ==================== №4: АЛГОРИТМ «SHARE → ПЯТНА» ====================
-
-func TestBlobAllocation(t *testing.T) {
-	biomes := []models.Biome{
-		{Form: "горы", Share: 40},
-		{Form: "океаны", Share: 35},
-		{Form: "леса", Share: 25},
-	}
-	seed := int64(42)
-
-	// Каждый биом с share ≥ 1% присутствует (≥ 1 пятно, §4.3).
-	bl := blobs(seed, biomes, 256)
-	for _, b := range biomes {
-		found := false
-		for _, blob := range bl {
-			if blob.id == b.Form {
-				found = true
-				break
-			}
-		}
-		require.True(t, found, "биом %s должен иметь ≥ 1 пятно", b.Form)
-	}
-
-	// Детерминизм разбиения: тот же seed → те же пятна.
-	bl2 := blobs(seed, biomes, 256)
-	require.Equal(t, len(bl), len(bl2))
-	for i := range bl {
-		require.Equal(t, bl[i].id, bl2[i].id)
-		require.InDelta(t, bl[i].cx, bl2[i].cx, 1e-9)
-		require.InDelta(t, bl[i].cy, bl2[i].cy, 1e-9)
-		require.InDelta(t, bl[i].r, bl2[i].r, 1e-9)
-	}
-
-	// Пиксели цвета каждого биома присутствуют на поверхности (до атмосферы/
-	// постобработки — слой 1, §4.1). Толеранс — лёгкая модуляция яркости fbm.
-	img := image.NewRGBA(image.Rect(0, 0, 256, 256))
-	in := testImageInput()
-	in.Biomes = biomes
-	generateBiomeSurface(img, 256, seed, in)
-	for _, b := range biomes {
-		want := biomeColorFor(b.Form, in)
-		found := false
-		for y := 0; y < 256 && !found; y++ {
-			for x := 0; x < 256; x++ {
-				c := img.RGBAAt(x, y)
-				if c.A == 0 {
-					continue
-				}
-				if colorClose(c, want, 70) {
-					found = true
-					break
-				}
-			}
-		}
-		require.True(t, found, "биом %s должен иметь пиксели своего цвета", b.Form)
-	}
-}
+// Заменён на TestSurfaceRegionAllocation (спека 2026-09-21 §8.2 №2):
+// «поле высот + регионы» вместо blobs() — см. planet_image_v3_test.go.
 
 // colorClose — близость цветов в пределах tol по каждому каналу.
 func colorClose(a, b color.RGBA, tol int) bool {

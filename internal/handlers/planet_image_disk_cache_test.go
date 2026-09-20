@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -34,8 +35,8 @@ func TestDiskCacheBig(t *testing.T) {
 	rec1 := execJSON(h.ServeHTTP, req)
 	require.Equal(t, http.StatusOK, rec1.Code)
 
-	// Файл диск-кэша существует.
-	path := diskCachePath(dir, "p1", planet.ImageModeHonest)
+	// Файл диск-кэша существует (админ → режим full, спека §3.3).
+	path := diskCachePath(dir, "p1", planet.ImageModeFull)
 	_, err := os.Stat(path)
 	require.NoError(t, err, "файл диск-кэша создан")
 
@@ -70,4 +71,30 @@ func TestDiskCacheLimitLRU(t *testing.T) {
 	entries, err := os.ReadDir(dir)
 	require.NoError(t, err)
 	require.LessOrEqual(t, len(entries), diskCacheMaxFiles, "лимит 1000 файлов (LRU по mtime)")
+}
+
+// ==================== №10: СТАРТОВЫЙ КЛИН ПО ВЕРСИИ (S1, M1) ====================
+
+func TestDiskCacheVersionCleanup(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, InitPlanetImageCacheDir(dir))
+
+	// Старые файлы (другой префикс версии) + легаси без префикса (M1).
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "v2_abc.png"), []byte("x"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "def.png"), []byte("x"), 0o644))
+	// Текущий префикс версии.
+	require.NoError(t, os.WriteFile(filepath.Join(dir, planet.ImageGenVersion+"_ghi.png"), []byte("x"), 0o644))
+
+	// Повторный Init — стартовый клин (спека §5.2).
+	require.NoError(t, InitPlanetImageCacheDir(dir))
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	require.Contains(t, names, planet.ImageGenVersion+"_ghi.png", "текущий префикс остаётся")
+	require.NotContains(t, names, "v2_abc.png", "старый префикс удаляется")
+	require.NotContains(t, names, "def.png", "легаси без префикса удаляется (M1)")
 }

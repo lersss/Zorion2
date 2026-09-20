@@ -55,6 +55,7 @@
 | surface_composition | db:planets.data.surface_composition | сводный состав поверхности — ПРОИЗВОДНАЯ от биомов (99.2.28): map[форма]доля, считается одной функцией; 8 потребителей; вне рее… |
 | subterrain_composition | db:planets.data.subterrain_composition | сводный состав недр — ПРОИЗВОДНАЯ от объектов недр (99.2.28); потребители те же, что у surface_composition; вне реестра было на… |
 | 99.2.28 | docs/specs/99.2.28-biomes-planet-surface.md | спека «Генерация биомов планеты» (99.2.28, 2026-09-20, ✅ реализована): справочник biome_catalog.json, слой 10 биомов после недр… |
-| planet_image | internal/generator/planet/planet_image.go | процедурный генератор картинки планеты (файлы: planet_image.go + postprocessing.go + handlers/planet_image_handler.go; на лету,… |
+| 2026-09-21-планета | docs/specs/2026-09-21-планета-форма-поверхности-блик-и-реальная-атмосфера.md | спека «Планета: форма поверхности, блик и реальная атмосфера» (2026-09-21, ✅ реализована): поле высот + регионы вместо пятен-кругов;… |
+| planet_image | internal/generator/planet/planet_image_v2.go | честный генератор картинки планеты (planet_image_v2.go + postprocessing.go + rings.go; доработка 2026-09-21: поле высот + регионы, блик L(seed), реальная атмосфера full, кэш v3;… |
 | atmosphere_data | internal/generator/planet/atmosphere.go | атмосфера-объект (99.2.20 §4.1, слой 6 каскада; в данных planets.data.atmosphere_data): состав газов %, давление, парниковый эф… |
 | biome_icons | web/static/sprites | иконки биомов (идея 2026-09-20 «иконки биомов поверхности»): стиль B мини-пейзаж, исходник 48×48, на экране ~24 px; имена файло… |

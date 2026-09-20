@@ -274,9 +274,10 @@ func (pg *PlanetGenerator) GeneratePlanet(radius int, opts ...func(*GenerateOpti
 
 	size := pg.canvasSize
 	img := pg.generateTexture(visualType, size, rng, options, temperature)
-	applyPostProcessing(img, size, visualType, hasAtmosphere, rng)
+	fx := legacyPostFX(visualType, hasAtmosphere)
+	applyPostProcessing(img, size, fx, rng)
 	if hasRings {
-		drawRings(img, size, rng)
+		drawRings(img, size, rng, fx.L, color.RGBA{200, 180, 150, 255}, 0)
 	}
 	finalImg := scaleImage(img, radius)
 
@@ -450,4 +451,44 @@ func generateKey(seed int64, opts *GenerateOptions) string {
 	return fmt.Sprintf("%d|%d|%s|%s|%s|%s|%s|%s|%d",
 		seed, opts.Radius, opts.StarType, opts.ClimateID, opts.Surface,
 		opts.Hydrosphere, opts.Atmosphere, opts.Biosphere, rings)
+}
+
+// legacyPostFX — постобработка старого косметического генератора
+// (GeneratePlanet): фиксированный свет (-0.5,-0.4,0.2), тень/спекл по типу,
+// атмосферный ободок по флагу — сохранение прежнего вида (спека 2026-09-21
+// §4.2: контракт applyPostProcessing заменён на PostFX).
+func legacyPostFX(visualType string, hasAtmosphere bool) PostFX {
+	L := [3]float64{-0.5, -0.4, 0.2}
+	lenL := math.Sqrt(L[0]*L[0] + L[1]*L[1] + L[2]*L[2])
+	L = [3]float64{L[0] / lenL, L[1] / lenL, L[2] / lenL}
+	shadow := 0.6
+	highlight := 0.3
+	atmColor := color.RGBA{100, 150, 255, 50}
+	switch visualType {
+	case "ice":
+		shadow = 0.4
+		highlight = 0.8
+		atmColor = color.RGBA{200, 230, 255, 40}
+	case "lava":
+		shadow = 0.6
+		highlight = 0.2
+		atmColor = color.RGBA{255, 100, 50, 60}
+	case "earth":
+		shadow = 0.6
+		highlight = 0.3
+		atmColor = color.RGBA{70, 150, 255, 50}
+	case "gas":
+		shadow = 0.6
+		highlight = 0.2
+		atmColor = color.RGBA{200, 180, 150, 40}
+	}
+	fx := PostFX{
+		L:              L,
+		ShadowStrength: shadow,
+		Specular:       &Specular{Pow: 20, Strength: highlight, Color: color.RGBA{255, 255, 255, 230}},
+	}
+	if hasAtmosphere {
+		fx.AtmGlint = &Glint{GlowStrength: 0.2, Haze: atmColor}
+	}
+	return fx
 }

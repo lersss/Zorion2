@@ -3,14 +3,17 @@ import { modalState } from './state.js';
 
 const textureCache = new Map();
 
-// getPlanetTexture — текстура планеты (спека 2026-09-20 §6.1): авторизованный
-// /api/planet-image (planet_id + size, JWT), fetch+blob. Ключ кэша — (id, size,
-// own/foreign): режим картинки (честная/заглушка) решает сервер, клиент не
-// знает его заранее — own/foreign — прокси режима (своя система = честная).
-// 401 → reject без редиректа (фолбэк-круг на канвасе, §6.1).
+// getPlanetTexture — текстура планеты (спека 2026-09-20 §6.1 + дельта
+// 2026-09-21 §6.1): авторизованный /api/planet-image (planet_id + size, JWT),
+// fetch+blob. Ключ кэша — (id, size, own/known/unknown): прокси трёх режимов
+// (own = full — своя система, known = honest — есть Knowledge, unknown = stub);
+// сервер по-прежнему решает режим — клиентский ключ лишь не держит устаревший
+// PNG после скана чужой планеты. 401 → reject без редиректа (фолбэк-круг на
+// канвасе, §6.1).
 export function getPlanetTexture(planet, size) {
     const own = !!modalState.myPosition;
-    const key = `planet_${planet.id}_${size}_${own ? 'own' : 'foreign'}`;
+    const known = !!planet.knowledge;
+    const key = `planet_${planet.id}_${size}_${own ? 'own' : (known ? 'known' : 'unknown')}`;
     if (textureCache.has(key)) {
         return textureCache.get(key);
     }

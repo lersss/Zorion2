@@ -1,4 +1,10 @@
 // internal/generator/planet/postprocessing.go
+//
+// Постобработка картинки планеты (спека 2026-09-21 §4.2, контракт B/M3):
+// тень/терминатор/спекл/атмосферный ореол — от единого светового вектора L
+// (lightVector от seed). Контракт applyPostProcessing(img, size, fx PostFX, rng):
+// specular = nil — спекла нет (заглушка, контракт D); atmGlint = nil — ореола
+// нет (honest); оба — только full/честные.
 package planet
 
 import (
@@ -8,40 +14,40 @@ import (
 	"math/rand"
 )
 
-// applyPostProcessing добавляет тень, блик и атмосферу к изображению планеты
-func applyPostProcessing(img *image.RGBA, size int, visualType string, hasAtmosphere bool, rng *rand.Rand) {
+// PostFX — параметры постобработки (спека §4.2): единый световой вектор L,
+// сила тени, спекл (nil = нет), атмосферный ореол (nil = нет).
+type PostFX struct {
+	L              [3]float64
+	ShadowStrength float64
+	Specular       *Specular
+	AtmGlint       *Glint
+}
+
+// Specular — спекл-блик: pow, сила, цвет (спека §4.2, таблица типов).
+type Specular struct {
+	Pow      float64
+	Strength float64
+	Color    color.RGBA
+}
+
+// Glint — атмосферная составляющая (только full): сила ореола, цвет дымки.
+type Glint struct {
+	GlowStrength float64
+	Haze         color.RGBA
+}
+
+// applyPostProcessing — тень/терминатор/спекл/ореол от единого L (спека §4.2).
+// Параметр hasAtmosphere старой сигнатуры убран — атмосферный слой генератора
+// заменяет его (прошлая спека §4.1 п.6).
+func applyPostProcessing(img *image.RGBA, size int, fx PostFX, rng *rand.Rand) {
 	radius := float64(size)/2 - 2
 	cx, cy := float64(size)/2, float64(size)/2
-	shadowStrength := 0.6
-	highlightStrength := 0.3
-	atmStrength := 0.0
-	atmColor := color.RGBA{100, 150, 255, 50}
-	highlightColor := color.RGBA{255, 255, 255, 230}
-
-	if hasAtmosphere {
-		atmStrength = 0.2
+	L := fx.L
+	lenL := math.Sqrt(L[0]*L[0] + L[1]*L[1] + L[2]*L[2])
+	if lenL == 0 {
+		lenL = 1
 	}
-	switch visualType {
-	case "ice":
-		atmColor = color.RGBA{200, 230, 255, 40}
-		highlightStrength = 0.8
-		shadowStrength = 0.4
-	case "lava":
-		atmColor = color.RGBA{255, 100, 50, 60}
-		highlightStrength = 0.2
-		shadowStrength = 0.6
-		if hasAtmosphere {
-			atmStrength = 0.15
-		}
-	case "earth":
-		atmColor = color.RGBA{70, 150, 255, 50}
-		highlightStrength = 0.3
-		shadowStrength = 0.6
-	case "gas":
-		atmColor = color.RGBA{200, 180, 150, 40}
-		highlightStrength = 0.2
-		shadowStrength = 0.6
-	}
+	nx, ny, nz := L[0]/lenL, L[1]/lenL, L[2]/lenL
 
 	for y := 0; y < size; y++ {
 		for x := 0; x < size; x++ {
@@ -49,74 +55,63 @@ func applyPostProcessing(img *image.RGBA, size int, visualType string, hasAtmosp
 			dy := float64(y) - cy
 			dist := math.Sqrt(dx*dx + dy*dy)
 			normDist := dist / radius
-			if normDist > 1.2 {
-				img.SetRGBA(x, y, color.RGBA{0, 0, 0, 0})
-				continue
-			}
 			if normDist > 1 {
-				if hasAtmosphere && atmStrength > 0 {
-					outer := (normDist - 1) / 0.2
-					alpha := float64(atmColor.A) / 255.0 * (1 - outer) * 0.5
-					c := img.RGBAAt(x, y)
-					r := float64(c.R)*(1-alpha) + float64(atmColor.R)*alpha
-					g := float64(c.G)*(1-alpha) + float64(atmColor.G)*alpha
-					b := float64(c.B)*(1-alpha) + float64(atmColor.B)*alpha
-					img.SetRGBA(x, y, color.RGBA{uint8(r), uint8(g), uint8(b), uint8(float64(c.A)*(1-alpha) + 255*alpha)})
-				}
 				continue
 			}
 			c := img.RGBAAt(x, y)
-			lightX, lightY, lightZ := -0.5, -0.4, 0.2
-			lenL := math.Sqrt(lightX*lightX + lightY*lightY + lightZ*lightZ)
-			nx, ny, nz := lightX/lenL, lightY/lenL, lightZ/lenL
 			z := math.Sqrt(math.Max(0, radius*radius-dx*dx-dy*dy))
 			normLen := math.Sqrt(dx*dx + dy*dy + z*z)
 			if normLen == 0 {
 				continue
 			}
 			normDx, normDy, normDz := dx/normLen, dy/normLen, z/normLen
-diffuse := normDx*nx + normDy*ny + normDz*nz
-		if diffuse < 0 {
-			diffuse = 0
-		}
-		if diffuse > 1 {
-			diffuse = 1
-		}
-
-		// Мягкий терминатор: плавное затухание вместо резкого перехода 0/1
-		diffuse = softStep(diffuse)
-		shadow := 1 - shadowStrength*(1-diffuse)
-
-		// Рассеяние света у края диска (свет заходит на теневую сторону)
-		if hasAtmosphere {
-			edgeFactor := math.Max(0, normDist-0.55) / 0.45
-			scatter := 0.35 * edgeFactor
-			shadow = shadow + scatter*(1-shadow)
-		}
-		r := float64(c.R) * shadow
-		g := float64(c.G) * shadow
-		b := float64(c.B) * shadow
-
-			spec := math.Max(0, 2*diffuse*normDz-nz)
-			specIntensity := math.Pow(spec, 20) * highlightStrength * 2
-			if specIntensity > 0.01 {
-				hr := float64(highlightColor.R)
-				hg := float64(highlightColor.G)
-				hb := float64(highlightColor.B)
-				r = r + (hr-r)*specIntensity
-				g = g + (hg-g)*specIntensity
-				b = b + (hb-b)*specIntensity
+			diffuse := normDx*nx + normDy*ny + normDz*nz
+			if diffuse < 0 {
+				diffuse = 0
 			}
-			if hasAtmosphere && atmStrength > 0 && normDist > 0.7 {
-				edge := (normDist - 0.7) / 0.3
-				atmAlpha := atmStrength * edge * 0.8
-				ar := float64(atmColor.R)
-				ag := float64(atmColor.G)
-				ab := float64(atmColor.B)
-				r = r*(1-atmAlpha) + ar*atmAlpha
-				g = g*(1-atmAlpha) + ag*atmAlpha
-				b = b*(1-atmAlpha) + ab*atmAlpha
+			if diffuse > 1 {
+				diffuse = 1
 			}
+
+			// Мягкий терминатор: плавное затухание вместо резкого перехода 0/1.
+			diffuse = softStep(diffuse)
+			shadow := 1 - fx.ShadowStrength*(1-diffuse)
+
+			r := float64(c.R) * shadow
+			g := float64(c.G) * shadow
+			b := float64(c.B) * shadow
+
+			// Спекл (nil = нет — заглушка, контракт D/M4).
+			if fx.Specular != nil {
+				si := specIntensity(diffuse, normDz, nz, fx.Specular)
+				if si > 0.01 {
+					hr := float64(fx.Specular.Color.R)
+					hg := float64(fx.Specular.Color.G)
+					hb := float64(fx.Specular.Color.B)
+					r = r + (hr-r)*si
+					g = g + (hg-g)*si
+					b = b + (hb-b)*si
+				}
+			}
+
+			// Атмосферный ореол на дневном лимбе (только full):
+			// atmGlint = glowStrength·(0.5+0.5·diffuse)·edgeFactor, кламп ≤ 0.2.
+			if fx.AtmGlint != nil {
+				edgeFactor := math.Max(0, normDist-0.55) / 0.45
+				glint := fx.AtmGlint.GlowStrength * (0.5 + 0.5*diffuse) * edgeFactor
+				if glint > 0.2 {
+					glint = 0.2
+				}
+				if glint > 0.01 {
+					ar := float64(fx.AtmGlint.Haze.R)
+					ag := float64(fx.AtmGlint.Haze.G)
+					ab := float64(fx.AtmGlint.Haze.B)
+					r = r*(1-glint) + ar*glint
+					g = g*(1-glint) + ag*glint
+					b = b*(1-glint) + ab*glint
+				}
+			}
+
 			clamp := func(v float64) uint8 {
 				if v < 0 {
 					return 0

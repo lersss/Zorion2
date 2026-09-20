@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,18 +30,39 @@ const diskCacheMaxFiles = 1000
 // писать одновременно; AGENTS.md §0).
 var diskCacheMu sync.Mutex
 
-// InitPlanetImageCacheDir — MkdirAll каталога диск-кэша при старте.
+// InitPlanetImageCacheDir — MkdirAll каталога диск-кэша при старте + стартовый
+// клин (спека §5.2, S1/M1): удаляет файлы, чьё имя НЕ начинается с текущего
+// префикса версии {ImageGenVersion}_ — включая легаси-файлы без префикса
+// (старый путь писал {sha256}.png), иначе легаси остаются в LRU-лимите 1000
+// и вытесняют новые.
 func InitPlanetImageCacheDir(dir string) error {
 	if dir == "" {
 		return nil
 	}
-	return os.MkdirAll(dir, 0o755)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	prefix := planet.ImageGenVersion + "_"
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if !strings.HasPrefix(e.Name(), prefix) {
+			_ = os.Remove(filepath.Join(dir, e.Name()))
+		}
+	}
+	return nil
 }
 
-// diskCachePath — путь файла кэша: {dir}/{sha256(planet_id|mode)}.png.
+// diskCachePath — путь файла кэша: {dir}/{imageGenVersion}_{sha256(planet_id|mode)}.png
+// (префикс версии — явная сегрегация поколений, спека §5.2).
 func diskCachePath(dir, planetID string, mode planet.ImageMode) string {
 	sum := sha256.Sum256([]byte(planetID + "|" + string(mode)))
-	return filepath.Join(dir, hex.EncodeToString(sum[:])+".png")
+	return filepath.Join(dir, planet.ImageGenVersion+"_"+hex.EncodeToString(sum[:])+".png")
 }
 
 // diskCacheGet — чтение из диск-кэша. Битый/частичный файл → (nil, false)

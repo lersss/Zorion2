@@ -68,33 +68,35 @@ func expectNoKnowledge(mock sqlmock.Sqlmock, userID, planetID string) {
 		WillReturnError(sql.ErrNoRows)
 }
 
-// ==================== №5: РЕЖИМЫ ВИДИМОСТИ ====================
+// ==================== №5/№11: РЕЖИМЫ ВИДИМОСТИ (stub/honest/full) ====================
 
 func TestResolveMode(t *testing.T) {
 	h, mock := planetImageHarness(t)
 	p := &models.Planet{ID: "p1", WorldID: "w1"}
 
-	// admin / skycomposer → честная всегда (И7).
+	// admin / skycomposer → full всегда (И7, спека §3.3).
 	req := httptest.NewRequest(http.MethodGet, "/api/planet-image?planet_id=p1", nil)
 	req = withRole(req, "admin")
-	require.Equal(t, planet.ImageModeHonest, h.resolveMode(req, p))
+	require.Equal(t, planet.ImageModeFull, h.resolveMode(req, p))
 	req = withRole(req, "skycomposer")
-	require.Equal(t, planet.ImageModeHonest, h.resolveMode(req, p))
+	require.Equal(t, planet.ImageModeFull, h.resolveMode(req, p))
 
-	// player в своей системе (current_world_id == world_id) → честная.
+	// player в своей системе (current_world_id == world_id) → full
+	// (вся своя система, решение гейта §12.5-A).
 	req = withRole(req, "player")
 	req = withUserID(req, "u1")
 	expectUserFetch(mock, "u1", "w1")
-	require.Equal(t, planet.ImageModeHonest, h.resolveMode(req, p))
+	require.Equal(t, planet.ImageModeFull, h.resolveMode(req, p))
 	require.NoError(t, mock.ExpectationsWereMet())
 
-	// player в чужой системе без знания → заглушка.
+	// player в чужой системе без знания → stub.
 	expectUserFetch(mock, "u1", "w2")
 	expectNoKnowledge(mock, "u1", "p1")
 	require.Equal(t, planet.ImageModeStub, h.resolveMode(req, p))
 	require.NoError(t, mock.ExpectationsWereMet())
 
-	// player в чужой системе со знанием (любая запись, включая протухшую) → честная.
+	// player в чужой системе со знанием (любая запись, включая протухшую) →
+	// honest (НЕ full — знание атмосферу не вскрывает, K1/§3.3).
 	expectUserFetch(mock, "u1", "w2")
 	mock.ExpectQuery(`SELECT user_id, planet_id, data, scanned_at, source FROM player_planet_knowledge WHERE user_id = \$1 AND planet_id = \$2`).
 		WithArgs("u1", "p1").

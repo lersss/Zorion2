@@ -51,6 +51,7 @@
   <button class="tab active" id="tabbtn-pool" onclick="showTab('pool')">Отбор</button>
   <button class="tab" id="tabbtn-ref" onclick="showTab('ref')">Эталон</button>
   <button class="tab" id="tabbtn-humans" onclick="showTab('humans')">Люди</button>
+  <button class="tab" id="tabbtn-ships" onclick="showTab('ships')">Корабли рас</button>
   <button class="tab" id="tabbtn-gallery" onclick="showTab('gallery')">Галерея</button>
 </div>
 
@@ -66,7 +67,7 @@
   <button class="gen" style="background:#a62" id="btnVar" onclick="genVarPool()" disabled>СГЕНЕРИРОВАТЬ РАСУ (5)</button>
   <span>размер:</span>
   <select id="sizePool"><option value="512">512 (быстро)</option><option value="1024">1024</option></select>
-  <button class="gen" style="background:#a33;display:none" onclick="stopGen()" id="btnStopPool">СТОП</button>
+  <button class="gen" style="background:#a33;display:none" onclick="stopGen()" id="btnStopPool" data-text="СТОП">СТОП</button>
   <button class="gen" style="background:#555" onclick="clearPool()" title="Удалить все варианты r*.png (эталоны не трогает)">ОЧИСТИТЬ РЕЗУЛЬТАТЫ</button>
 </div>
 <div class="toolbar" style="margin-top:6px">
@@ -118,7 +119,7 @@
     <span style="margin-left:12px">Сброс эталона расы:</span>
     <select id="raceRefClear" style="background:#222;border:1px solid #444;color:#ddd;padding:4px;border-radius:4px"></select>
     <button class="gen" style="background:#a62" onclick="clearRef()">СБРОС ЭТАЛОНА</button>
-    <button class="gen" style="background:#a33;display:none" onclick="stopGen()" id="btnStop">СТОП</button>
+    <button class="gen" style="background:#a33;display:none" onclick="stopGen()" id="btnStop" data-text="СТОП">СТОП</button>
   </div>
   <div id="doneRef" class="done"></div>
   <div id="genState" style="margin-bottom:8px;color:#8cf;font-size:14px">Статус генератора: ...</div>
@@ -132,12 +133,48 @@
     <span>Сгенерировать:</span>
     <input id="cntHumans" type="number" value="8" min="1" max="100">
     <button class="gen" onclick="genHumans()">СГЕНЕРИРОВАТЬ</button>
-    <button class="gen" style="background:#a33;display:none" onclick="stopGen()" id="btnStopHumans">СТОП</button>
+    <button class="gen" style="background:#a33;display:none" onclick="stopGen()" id="btnStopHumans" data-text="СТОП">СТОП</button>
   </div>
   <div id="doneHumans" class="done"></div>
   <div id="genStateHumans" style="margin-bottom:8px;color:#8cf;font-size:14px">Статус генератора: ...</div>
   <div id="progHumans" class="prog" style="display:none;margin-bottom:12px;color:#8cf;font-size:14px"></div>
   <div class="grid" id="gridHumans"></div>
+</div>
+
+<div id="tab-ships" style="display:none">
+  <div class="toolbar">
+    <span>Раса:</span>
+    <select id="shipRace"></select>
+    <button class="gen" style="background:#555;padding:4px 10px;font-size:12px" onclick="rebuildShips()" title="Пересобрать запись расы в ships.json из лор-файла (texture/silhouette/blocked)">Пересобрать промт</button>
+    <button class="gen" style="background:#555;padding:4px 10px;font-size:12px" onclick="rebuildShipsAll()" title="Пересобрать все 60 рас в ships.json из каталога races/ships/">Пересобрать все (60)</button>
+    <span style="margin-left:12px">Штук:</span>
+    <input id="cntShips" type="number" value="3" min="1" max="100">
+    <button class="gen" id="btnShipSketch" style="background:#555;padding:4px 10px;font-size:12px" onclick="setShipSize(100)" title="Эскиз: 100×100, меньше steps — быстро поймать форму/стиль до полного прогона">ЭСКИЗ (100)</button>
+    <button class="gen" id="btnShipFull" style="background:#a62;padding:4px 10px;font-size:12px" onclick="setShipSize(200)" title="Полный: 200×200, полное качество">ПОЛНЫЙ (200)</button>
+    <button class="gen" style="background:#a62" onclick="genShips()">СГЕНЕРИРОВАТЬ (3)</button>
+    <button class="gen" style="background:#a62" onclick="genShipsBatch()" title="Пачка 10 рас × 3 = 30 (первые 10 каталога, по семействам F1→F10)">СГЕНЕРИРОВАТЬ ПАЧКУ (10×3)</button>
+    <button class="gen" style="background:#a33;display:none" onclick="stopGen()" id="btnStopShips" data-text="СТОП">СТОП</button>
+  </div>
+  <div class="toolbar" style="margin-top:6px">
+    <span style="color:#ddd;font-size:13px">Промпт формы (этап 1):</span>
+    <textarea id="shipPrompt1" rows="2" style="width:100%;box-sizing:border-box;color:#8cf;font-size:12px;line-height:1.4;background:#1c1c1c;border:1px solid #333;border-radius:6px;padding:6px 8px;font-family:inherit;resize:vertical" oninput="onShipPromptInput(1)"></textarea>
+    <button class="gen" id="btnShipRevert1" style="background:#a62;padding:2px 8px;font-size:11px;display:none" onclick="revertShipAuto(1)" title="Вернуть автоматический промпт">↺ Вернуть авто</button>
+  </div>
+  <div class="toolbar" style="margin-top:6px">
+    <span style="color:#ddd;font-size:13px">Промпт текстуры (этап 2):</span>
+    <textarea id="shipPrompt2" rows="2" style="width:100%;box-sizing:border-box;color:#8cf;font-size:12px;line-height:1.4;background:#1c1c1c;border:1px solid #333;border-radius:6px;padding:6px 8px;font-family:inherit;resize:vertical" oninput="onShipPromptInput(2)"></textarea>
+    <button class="gen" id="btnShipRevert2" style="background:#a62;padding:2px 8px;font-size:11px;display:none" onclick="revertShipAuto(2)" title="Вернуть автоматический промпт">↺ Вернуть авто</button>
+  </div>
+  <div class="toolbar" style="margin-top:6px">
+    <span style="color:#ddd;font-size:13px">Доп. теги:</span>
+    <input id="shipTags" style="flex:1;background:#222;border:1px solid #444;color:#ddd;padding:4px;border-radius:4px" placeholder="через запятую — в конец обоих промптов">
+    <button class="gen" style="background:#555;padding:4px 10px;font-size:12px" onclick="refreshShipsPrompt()">Обновить пример</button>
+    <span style="color:#888;font-size:12px;margin-left:8px" title="Задел: кабина (интерьер-фон) — будущий шаг, спека §7">Кабина — будущий шаг</span>
+  </div>
+  <div id="doneShips" class="done"></div>
+  <div id="genStateShips" style="margin-bottom:8px;color:#8cf;font-size:14px">Статус генератора: ...</div>
+  <div id="progShips" class="prog" style="display:none;margin-bottom:12px;color:#8cf;font-size:14px"></div>
+  <div class="grid" id="gridShips"></div>
 </div>
 
 <div id="tab-gallery" style="display:none">
@@ -601,6 +638,156 @@ async function actHuman(file, what){
   loadHumans();
 }
 
+// ---------- КОРАБЛИ РАС ----------
+let shipRacesCache=[];
+let shipSize=200; // 200 — полный, 100 — эскиз (98c: быстрее, ловит форму/стиль)
+let shipLastAuto1='', shipLastAuto2=''; // последние авто-промпты (для «↺ Вернуть авто»)
+let shipOverride1=false, shipOverride2=false; // override-режим окошек (98b)
+let shipVotes={}; // file → like/dislike/'' (98c, для повторного клика = снять)
+let shipBust=0; // cache-busting кандидатов: растёт на каждый «Сгенерировать» — URL ?t= меняется, браузер не отдаёт закэшированную старую картинку (s01..sNN перезаписываются)
+async function loadShipsRaces(){
+  const sel=document.getElementById('shipRace');
+  const r=await fetch('/ships/races'); const j=await r.json();
+  shipRacesCache=j.races||[];
+  let h='';
+  shipRacesCache.forEach(x=>{ h+=`<option value="${x.slug}">${x.name} (${x.slug})</option>`; });
+  sel.innerHTML=h;
+  const saved=getUIState('shipRace');
+  if(saved && [...sel.options].some(o=>o.value===saved)) sel.value=saved;
+  refreshShipsPrompt();
+  loadShipsList();
+}
+async function refreshShipsPrompt(){
+  const race=document.getElementById('shipRace').value;
+  if(!race) return;
+  const tags=document.getElementById('shipTags').value;
+  const r=await fetch('/ships/prompt?'+new URLSearchParams({race,tags}));
+  const j=await r.json();
+  if(j.error){ document.getElementById('doneShips').textContent=j.error; return; }
+  shipLastAuto1=j.prompt1; shipLastAuto2=j.prompt2;
+  // в override-режиме окошко не трогаем — авто-значение обновляется в фоне (98b)
+  if(!shipOverride1) document.getElementById('shipPrompt1').value=j.prompt1;
+  if(!shipOverride2) document.getElementById('shipPrompt2').value=j.prompt2;
+}
+function onShipPromptInput(idx){
+  const el=document.getElementById(idx===1?'shipPrompt1':'shipPrompt2');
+  const last=idx===1?shipLastAuto1:shipLastAuto2;
+  const on=el.value!==last;
+  if(idx===1) shipOverride1=on; else shipOverride2=on;
+  el.style.borderColor=on?'#a62':'#333';
+  document.getElementById(idx===1?'btnShipRevert1':'btnShipRevert2').style.display=on?'inline-block':'none';
+}
+function revertShipAuto(idx){
+  const el=document.getElementById(idx===1?'shipPrompt1':'shipPrompt2');
+  const last=idx===1?shipLastAuto1:shipLastAuto2;
+  el.value=last;
+  if(idx===1) shipOverride1=false; else shipOverride2=false;
+  el.style.borderColor='#333';
+  document.getElementById(idx===1?'btnShipRevert1':'btnShipRevert2').style.display='none';
+}
+function setShipSize(sz){
+  shipSize=sz;
+  document.getElementById('btnShipSketch').style.background=sz===100?'#a62':'#555';
+  document.getElementById('btnShipFull').style.background=sz===200?'#a62':'#555';
+}
+async function genShips(){
+  const race=document.getElementById('shipRace').value;
+  const n=document.getElementById('cntShips').value;
+  const tags=document.getElementById('shipTags').value;
+  const p1=shipOverride1? document.getElementById('shipPrompt1').value : '';
+  const p2=shipOverride2? document.getElementById('shipPrompt2').value : '';
+  const params=new URLSearchParams({race,n,tags,size:shipSize});
+  if(p1) params.set('prompt1_override',p1);
+  if(p2) params.set('prompt2_override',p2);
+  const r=await fetch('/ships/gen?'+params); const j=await r.json();
+  document.getElementById('doneShips').textContent=j.msg;
+  shipBust++; // повторная генерация перезаписывает s01..sNN — новый ?t= заставляет браузер перезагрузить картинки
+  loadShipsList();
+}
+async function genShipsBatch(){
+  // пачка: первые 10 рас каталога (по семействам F1→F10, спека §8)
+  const races=shipRacesCache.slice(0,10).map(x=>x.slug).join(',');
+  const per=document.getElementById('cntShips').value;
+  const tags=document.getElementById('shipTags').value;
+  const p1=shipOverride1? document.getElementById('shipPrompt1').value : '';
+  const p2=shipOverride2? document.getElementById('shipPrompt2').value : '';
+  const params=new URLSearchParams({races,per,tags,size:shipSize});
+  if(p1) params.set('prompt1_override',p1);
+  if(p2) params.set('prompt2_override',p2);
+  const r=await fetch('/ships/genbatch?'+params); const j=await r.json();
+  document.getElementById('doneShips').textContent=j.msg;
+  shipBust++; // повторная генерация перезаписывает s01..sNN — новый ?t= заставляет браузер перезагрузить картинки
+  loadShipsList();
+}
+async function loadShipsList(){
+  const r=await fetch('/ships/list'); const items=await r.json();
+  const g=document.getElementById('gridShips');
+  const existing={};
+  g.querySelectorAll('.cell[data-file]').forEach(c=>{ existing[c.dataset.file]=c; });
+  const seen={};
+  items.forEach(it=>{
+    seen[it.file]=true;
+    shipVotes[it.file]=it.vote||'';
+    let d=existing[it.file];
+    if(!d){
+      d=document.createElement('div'); d.className='cell'; d.dataset.file=it.file;
+      d.innerHTML=`<img src="/ships/img/${it.file}?t=${shipBust}" onclick="window.open('/ships/img/${it.file}','_blank')">
+      <div class="name">${it.race_name} · ${it.num}</div>
+      ${it.labels?`<div class="labels" style="color:#e8a33d;font-size:11px">${it.labels}</div>`:''}
+      <div class="btns">
+        <button class="ok" onclick="actShip('${it.file}','accept')">Принять</button>
+        <button class="del" onclick="actShip('${it.file}','reject')">Удалить</button>
+        <button class="ok" style="background:#2a6" onclick="voteShip('${it.file}','like')" title="Нравится — вердикт в мете (98c)">👍</button>
+        <button class="del" style="background:#a33" onclick="voteShip('${it.file}','dislike')" title="Не нравится — вердикт в мете (98c)">👎</button>
+      </div>`;
+      g.appendChild(d);
+    } else {
+      // существующая карточка: файл sNN.png мог быть перезаписан повторной
+      // генерацией — обновляем src с cache-busting (?t=), иначе браузер
+      // отдаст закэшированную старую картинку по тому же URL; карточку не
+      // пересоздаём — сохраняем кнопки/вердикт (дифф-рендер)
+      const img=d.querySelector('img');
+      if(img) img.src='/ships/img/'+it.file+'?t='+shipBust;
+    }
+    // вердикт (98c): метка на карточке, обновляется и у существующих
+    let vd=d.querySelector('.vote');
+    if(it.vote){
+      if(!vd){ vd=document.createElement('div'); vd.className='vote'; d.appendChild(vd); }
+      vd.textContent=it.vote==='like'?'👍 Нравится':'👎 Не нравится';
+      vd.style.color=it.vote==='like'?'#6c6':'#c66';
+      vd.style.fontSize='11px';
+    } else if(vd){
+      vd.remove();
+    }
+  });
+  Object.keys(existing).forEach(f=>{ if(!seen[f]){ delete shipVotes[f]; existing[f].remove(); } });
+}
+async function voteShip(file, vote){
+  // повторный клик по активному вердикту — снять (clear)
+  if(shipVotes[file]===vote) vote='clear';
+  const r=await fetch('/ships/vote?'+new URLSearchParams({file,vote})); const j=await r.json();
+  document.getElementById('doneShips').textContent=j.msg;
+  loadShipsList();
+}
+async function actShip(file, what){
+  const r=await fetch('/ships/act?'+new URLSearchParams({file,what}));
+  const j=await r.json();
+  document.getElementById('doneShips').textContent=j.msg;
+  loadShipsList();
+}
+async function rebuildShips(){
+  const race=document.getElementById('shipRace').value;
+  const r=await fetch('/ships/rebuild?race='+race); const j=await r.json();
+  document.getElementById('doneShips').textContent=j.error || ('Пересобрано: '+(j.updated||[]).join(', '));
+  refreshShipsPrompt();
+}
+async function rebuildShipsAll(){
+  const r=await fetch('/ships/rebuild'); const j=await r.json();
+  const msg=j.error || ('Пересобрано: '+j.updated.length+' рас'+(j.skipped.length? ', пропущено: '+j.skipped.length:''));
+  document.getElementById('doneShips').textContent=msg;
+  refreshShipsPrompt();
+}
+
 // ---------- ГАЛЕРЕЯ ----------
 async function loadGalleryRaces(){
   const fam=document.getElementById('famGallery').value;
@@ -719,15 +906,18 @@ function showTab(name){
   document.getElementById('tab-pool').style.display = name==='pool' ? '' : 'none';
   document.getElementById('tab-ref').style.display = name==='ref' ? '' : 'none';
   document.getElementById('tab-humans').style.display = name==='humans' ? '' : 'none';
+  document.getElementById('tab-ships').style.display = name==='ships' ? '' : 'none';
   document.getElementById('tab-gallery').style.display = name==='gallery' ? '' : 'none';
   document.getElementById('tabbtn-pool').classList.toggle('active', name==='pool');
   document.getElementById('tabbtn-ref').classList.toggle('active', name==='ref');
   document.getElementById('tabbtn-humans').classList.toggle('active', name==='humans');
+  document.getElementById('tabbtn-ships').classList.toggle('active', name==='ships');
   document.getElementById('tabbtn-gallery').classList.toggle('active', name==='gallery');
   saveUIState('raceTab', name);
   if(name==='ref') loadRef();
   if(name==='pool') updateVarBtn();
   if(name==='humans') loadHumans();
+  if(name==='ships') loadShipsRaces();
   if(name==='gallery') loadGallery();
   schedulePromptUpdate();
 }
@@ -735,6 +925,7 @@ function restoreState(){
   restoreUIState(); // восстанавливает все поля + активную вкладку (85a)
   loadRaces();
   loadRacesRef();
+  loadShipsRaces();
   loadGalleryRaces();
 }
 async function pollStatus(){
@@ -742,31 +933,40 @@ async function pollStatus(){
   const el=document.getElementById('prog');
   const elRef=document.getElementById('progRef');
   const elHumans=document.getElementById('progHumans');
+  const elShips=document.getElementById('progShips');
   const btn=document.getElementById('btnStop');
   const btnPool=document.getElementById('btnStopPool');
   const btnHumans=document.getElementById('btnStopHumans');
+  const btnShips=document.getElementById('btnStopShips');
   const st=document.getElementById('genState');
   const stp=document.getElementById('genStatePool');
   const sth=document.getElementById('genStateHumans');
+  const sts=document.getElementById('genStateShips');
   if(s.running){
     const txt='Генерация: '+s.done+'/'+s.total+' — '+s.current;
     el.style.display='block'; el.textContent=txt;
     elRef.style.display='block'; elRef.textContent='Эталон: '+txt;
     elHumans.style.display='block'; elHumans.textContent='Люди: '+txt;
+    if(elShips) elShips.style.display='block'; if(elShips) elShips.textContent='Корабли: '+txt;
     if(btn) btn.style.display='inline-block';
     if(btnPool) btnPool.style.display='inline-block';
     if(btnHumans) btnHumans.style.display='inline-block';
+    if(btnShips) btnShips.style.display='inline-block';
     const html='<span style="color:#fa0">⏳ Генерируется: '+s.done+'/'+s.total+' — '+s.current+'</span>';
     if(st) st.innerHTML=html;
     if(stp) stp.innerHTML=html;
     if(sth) sth.innerHTML=html;
+    if(sts) sts.innerHTML=html;
   } else {
     el.style.display='none';
     elRef.style.display='none';
     elHumans.style.display='none';
-    if(btn) btn.style.display='none';
-    if(btnPool) btnPool.style.display='none';
-    if(btnHumans) btnHumans.style.display='none';
+    if(elShips) elShips.style.display='none';
+    // отлипание СТОП: сброс disabled/opacity/текста после остановки —
+    // иначе следующая генерация показывает застрявшую кнопку
+    for(const b of [btn,btnPool,btnHumans,btnShips]){
+      if(b){ b.style.display='none'; b.disabled=false; b.style.opacity=''; b.textContent=b.dataset.text||'СТОП'; }
+    }
     const cur=s.current||'';
     const idle = cur==='остановлено' ? '<span style="color:#a33">⏹ Остановлено</span>'
       : (cur==='готово' ? '<span style="color:#2a7">✓ Простаивает (готово)</span>'
@@ -774,9 +974,10 @@ async function pollStatus(){
     if(st) st.innerHTML=idle;
     if(stp) stp.innerHTML=idle;
     if(sth) sth.innerHTML=idle;
+    if(sts) sts.innerHTML=idle;
     if(cur==='остановлено' || cur==='готово'){
       // очистить зелёные уведомления (висели бы вечно)
-      for(const id of ['done','doneRef','doneHumans']){
+      for(const id of ['done','doneRef','doneHumans','doneShips']){
         const dr=document.getElementById(id);
         if(dr && dr.textContent.indexOf('Останавливаю')!==-1) dr.textContent='';
       }
@@ -784,8 +985,8 @@ async function pollStatus(){
   }
 }
 async function stopGen(){
-  const btns=['btnStop','btnStopPool','btnStopHumans'];
-  const targets=['done','doneRef','doneHumans'];
+  const btns=['btnStop','btnStopPool','btnStopHumans','btnStopShips'];
+  const targets=['done','doneRef','doneHumans','doneShips'];
   let j={};
   try{ const r=await fetch('/stop'); j=await r.json(); }catch(e){ j={msg:'Ошибка запроса: '+e.message}; }
   const msg=j.msg||'';
@@ -1014,6 +1215,9 @@ async function initFamSelects(){
     document.getElementById('btnCands').textContent='СГЕНЕРИРОВАТЬ ЭТАЛОНЫ ('+e.target.value+')';
   };
   document.getElementById('cntHumans').oninput = e=>saveUIState('cntHumans', e.target.value);
+  document.getElementById('shipRace').onchange = e=>{ saveUIState('shipRace', e.target.value); refreshShipsPrompt(); };
+  document.getElementById('shipTags').oninput = e=>{ saveUIState('shipTags', e.target.value); refreshShipsPrompt(); };
+  document.getElementById('cntShips').oninput = e=>saveUIState('cntShips', e.target.value);
   document.getElementById('tags').oninput = e=>{ saveUIState('tags', e.target.value); schedulePromptUpdate(); };
   document.getElementById('denoisePct').oninput = e=>{ saveUIState('denoisePct', e.target.value); document.getElementById('denoisePctLbl').textContent=e.target.value+'%'; };
   document.getElementById('cnStrengthPct').oninput = e=>{ saveUIState('cnStrengthPct', e.target.value); document.getElementById('cnStrengthPctLbl').textContent=e.target.value+'%'; };
@@ -1027,6 +1231,7 @@ setInterval(()=>{
   if(poolVisible) load();
   loadRef();
   loadHumans();
+  loadShipsList();
   loadGallery();
   pollStatus();
 }, 3000);

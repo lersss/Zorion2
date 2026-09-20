@@ -1,4 +1,4 @@
-// Package handlers — HTTP-слой арт-студии (спека 67a.1 §6):
+﻿// Package handlers — HTTP-слой арт-студии (спека 67a.1 §6):
 // роутинг, статика UI, no-cache заголовки, общие хелперы.
 package handlers
 
@@ -29,8 +29,17 @@ type Server struct {
 	runner       *generator.Runner
 	uiHTML       []byte
 	raceSlug     map[string]string // name (races.json) → slug (id) для лора рас
+	raceNameBySlug map[string]string // slug (id) → name (races.json) для вкладки кораблей
 	loreDir      string            // каталог docs/gamedesign/races/
 	famMu        sync.RWMutex      // защита families при reload (пересборка промпта)
+
+	ships     config.ShipsConfig     // вкладка «Корабли рас» (nil — не подключена)
+	shipDict  *config.ShipDictConfig // словари кораблей (nil — не подключены)
+	shipsPath string                 // config/art/ships.json — запись+reload при пересборке
+	shipsMu   sync.RWMutex           // защита ships при reload
+
+	shipsDirPath string // каталог races/ships/ (в тестах — относительный путь)
+	racesPath    string // config/races.json (валидация ключей ships.json; в тестах — относительный)
 }
 
 // NewServer создаёт Server. uiHTML — содержимое web/index.html (embed в main).
@@ -46,8 +55,50 @@ func NewServer(cfg *config.StudioConfig, forms *config.FormsConfig, families con
 		runner:       runner,
 		uiHTML:       uiHTML,
 		raceSlug:     loadRaceSlug("config/races.json"),
+		raceNameBySlug: loadRaceNames("config/races.json"),
 		loreDir:      "docs/gamedesign/races",
 	}
+}
+
+// SetShips подключает конфиги кораблей (вкладка «Корабли рас»).
+func (s *Server) SetShips(ships config.ShipsConfig, dict *config.ShipDictConfig, shipsPath string) {
+	s.shipsMu.Lock()
+	defer s.shipsMu.Unlock()
+	s.ships = ships
+	s.shipDict = dict
+	s.shipsPath = shipsPath
+}
+
+// shipsEntry — запись корабля расы (чтение под shipsMu: reloadShips может
+// заменить конфиг в памяти).
+func (s *Server) shipsEntry(slug string) (config.ShipEntry, bool) {
+	s.shipsMu.RLock()
+	defer s.shipsMu.RUnlock()
+	if s.ships == nil {
+		return config.ShipEntry{}, false
+	}
+	e, ok := s.ships[slug]
+	return e, ok
+}
+
+// shipDictRef — словарь кораблей под shipsMu.
+func (s *Server) shipDictRef() *config.ShipDictConfig {
+	s.shipsMu.RLock()
+	defer s.shipsMu.RUnlock()
+	return s.shipDict
+}
+
+// reloadShips перечитывает ships.json с диска и заменяет конфиг в памяти
+// (пересборка промпта: машинная проекция texture/silhouette/blocked обновилась).
+func (s *Server) reloadShips(path string) error {
+	ships, err := config.LoadShipsRaces(path, s.racesPathOr("config/races.json"))
+	if err != nil {
+		return err
+	}
+	s.shipsMu.Lock()
+	s.ships = ships
+	s.shipsMu.Unlock()
+	return nil
 }
 
 // family возвращает семейство по id (чтение под famMu: reloadFamilies может
@@ -106,6 +157,18 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/humans/crop", s.handleHumansCrop)
 	mux.HandleFunc("/humans/preview", s.handleHumansPreview)
 	mux.HandleFunc("/humans/img/", s.handleHumansImg)
+	mux.HandleFunc("/ships/races", s.handleShipsRaces)
+	mux.HandleFunc("/ships/info", s.handleShipsInfo)
+	mux.HandleFunc("/ships/prompt", s.handleShipsPrompt)
+	mux.HandleFunc("/ships/rebuild", s.handleShipsRebuild)
+	mux.HandleFunc("/ships/gen", s.handleShipsGen)
+	mux.HandleFunc("/ships/genbatch", s.handleShipsGenBatch)
+	mux.HandleFunc("/ships/list", s.handleShipsList)
+	mux.HandleFunc("/ships/img/", s.handleShipsImg)
+	mux.HandleFunc("/ships/act", s.handleShipsAct)
+	mux.HandleFunc("/ships/vote", s.handleShipsVote)
+	mux.HandleFunc("/ships/status", s.handleStatus)
+	mux.HandleFunc("/ships/stop", s.handleStop)
 	return noCache(mux)
 }
 
@@ -126,7 +189,8 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 	// стоп-флаг в пуле активной генерации (одна активная генерация, спека §6.2)
 	races := generator.ReadStatus(filepath.Join(s.cfg.PoolRoot, "races_pool"))
 	humans := generator.ReadStatus(filepath.Join(s.cfg.PoolRoot, "humans_pool"))
-	if !races.Running && !humans.Running {
+	ships := generator.ReadStatus(filepath.Join(s.cfg.PoolRoot, "ships_pool"))
+	if !races.Running && !humans.Running && !ships.Running {
 		writeJSON(w, map[string]string{"msg": "Нет активной генерации"})
 		return
 	}
@@ -135,6 +199,9 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 	}
 	if humans.Running {
 		generator.CreateStopFlag(filepath.Join(s.cfg.PoolRoot, "humans_pool"))
+	}
+	if ships.Running {
+		generator.CreateStopFlag(filepath.Join(s.cfg.PoolRoot, "ships_pool"))
 	}
 	writeJSON(w, map[string]string{"msg": "Останавливаю генерацию..."})
 }

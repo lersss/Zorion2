@@ -41,6 +41,16 @@ func main() {
 		fmt.Println("Ошибка конфига humans.json:", err)
 		os.Exit(1)
 	}
+	ships, err := config.LoadShips("config/art/ships.json")
+	if err != nil {
+		fmt.Println("Ошибка конфига ships.json:", err)
+		os.Exit(1)
+	}
+	shipDict, err := config.LoadShipDict("config/art/ship_dict.json")
+	if err != nil {
+		fmt.Println("Ошибка конфига ship_dict.json:", err)
+		os.Exit(1)
+	}
 
 	// защита от дублей: bind порта при старте (спека 67a.1 §9.1)
 	addr := fmt.Sprintf("127.0.0.1:%d", cfg.Port)
@@ -52,7 +62,7 @@ func main() {
 
 	// сброс залипших статусов и stop.flag: рестарт убивает джобы, а status.json
 	// мог остаться running:true — иначе генерация заблокирована навсегда
-	for _, pool := range []string{"races_pool", "humans_pool"} {
+	for _, pool := range []string{"races_pool", "humans_pool", "ships_pool"} {
 		poolDir := filepath.Join(cfg.PoolRoot, pool)
 		generator.WriteStatus(poolDir, generator.Status{})
 		os.Remove(filepath.Join(poolDir, "stop.flag"))
@@ -60,12 +70,14 @@ func main() {
 
 	comfyClient := comfy.NewClient(cfg.ComfyURL, cfg.PollIntervalS, cfg.HistoryTimeoutS)
 	runner := generator.NewRunner(cfg, forms, families, humans, comfyClient)
+	runner.SetShips(ships, shipDict, "config/races.json")
 	uiHTML, err := uiFS.ReadFile("web/index.html")
 	if err != nil {
 		fmt.Println("Ошибка чтения UI:", err)
 		os.Exit(1)
 	}
 	srv := handlers.NewServer(cfg, forms, families, humans, runner, uiHTML, "config/art/families.json")
+	srv.SetShips(ships, shipDict, "config/art/ships.json")
 
 	fmt.Printf("Арт-студия: http://127.0.0.1:%d\n", cfg.Port)
 	fmt.Printf("Пулы: %s\n", cfg.PoolRoot)

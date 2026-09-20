@@ -70,6 +70,29 @@ func loadRaceSlug(path string) map[string]string {
 	return out
 }
 
+// loadRaceNames читает config/races.json и строит map slug (id) → name
+// (вкладка «Корабли рас»: имена рас для селекта и ships.json).
+func loadRaceNames(path string) map[string]string {
+	out := map[string]string{}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return out
+	}
+	var doc struct {
+		Races []struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"races"`
+	}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return out
+	}
+	for _, rc := range doc.Races {
+		out[rc.ID] = rc.Name
+	}
+	return out
+}
+
 // firstOnlySections — секции лора, где нужен только первый абзац
 // (вторые абзацы — наука/цифры, решение 79b §5).
 var firstOnlySections = map[string]bool{

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # Обработка кораблей Juggernaut XL: вырезание фона ПО ЦВЕТУ (фон ровный тёмный ~21,23,26),
 # кадрирование, вписывание в 200x200, нормализация ориентации (нос вправо), сглаживание границ.
-# Использование: python process_ship.py <in.png> <out.png> [--no-orient] [--smooth N]
+# Использование: python process_ship.py <in.png> <out.png> [--no-orient] [--smooth N] [--canvas N]
 import sys
 from PIL import Image, ImageOps
 import numpy as np
@@ -10,6 +10,12 @@ from scipy import ndimage
 CANVAS = 200
 PAD = 6
 BG_TOL = 40  # допуск расстояния до цвета фона
+
+# --canvas N: финальный размер кандидата (200 — полный, 100 — эскиз 98c:
+# быстрее и легче, ловит форму/стиль до полного прогона).
+if '--canvas' in sys.argv:
+    i = sys.argv.index('--canvas')
+    CANVAS = int(sys.argv[i + 1])
 
 NO_ORIENT = '--no-orient' in sys.argv
 SMOOTH = 2

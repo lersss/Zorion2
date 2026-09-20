@@ -76,6 +76,16 @@
 | `cmd/art-studio/generator/ref_job.go` | @developer (98b) | коммит 98b |
 | `cmd/art-studio/web/index.html` | @developer (98b) | коммит 98b |
 | `cmd/art-studio/handlers/race_handlers_test.go` | @developer (98b) | коммит 98b |
+| `cmd/art-studio/config/ships.go` / `ship_dict.go` / `ship_section.go` / `ships_test.go` | @developer (ships-races-generator) | коммит ships-races-generator |
+| `cmd/art-studio/generator/ship_prompt.go` / `ships_job.go` / `ship_prompt_test.go` / `ships_job_test.go` / `ships_pixel_test.go` | @developer (ships-races-generator) | коммит ships-races-generator |
+| `cmd/art-studio/comfy/ship_workflow.go` / `ship_workflow_test.go` | @developer (ships-races-generator) | коммит ships-races-generator |
+| `cmd/art-studio/handlers/ships_handlers.go` / `ships_patch.go` / `ships_rebuild.go` / `ships_handlers_test.go` | @developer (ships-races-generator) | коммит ships-races-generator |
+| `cmd/art-studio/postproc/ship.go` | @developer (ships-races-generator) | коммит ships-races-generator |
+| `cmd/art-studio/main.go` / `web/index.html` / `generator/worker.go` / `handlers/http.go` / `handlers/race_info.go` | @developer (ships-races-generator) | коммит ships-races-generator |
+| `config/art/ships.json` / `config/art/ship_dict.json` | @developer (ships-races-generator) | коммит ships-races-generator |
+| `tools/make_ship_silhouettes.py` | @developer (ships-races-generator) | коммит ships-races-generator |
+| `tools/process_ship.py` | @developer (ships-races-generator, 98c: --canvas эскиз) | коммит ships-races-generator |
+| `cmd/art-studio/web/index.html` (loadShipsList cache-busting) | @developer (баг превью-сетки кораблей) | коммит бага превью-сетки |
 
 ---
 

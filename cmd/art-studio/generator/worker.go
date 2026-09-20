@@ -46,6 +46,25 @@ type CandMeta struct {
 	Prompt string `json:"prompt"`
 }
 
+// ShipMetaItem — запись meta.json пула кораблей / ships_meta.json принятых
+// (спека 2026-09-20-ships-races-generator §5): [{file, race, race_name, seed,
+// texture, prompt1, prompt2}]. Labels — метки авто-фильтра кандидата
+// (палитра/форма/текстура, страховка, не авто-отклонение). Vote — вердикт
+// создателя (like/dislike/"", 98c: только метка, файл не перемещается).
+// Size — финальный размер кандидата (200 — полный, 100 — эскиз, 98c).
+type ShipMetaItem struct {
+	File     string   `json:"file"`
+	Race     string   `json:"race"`
+	RaceName string   `json:"race_name"`
+	Seed     int64    `json:"seed"`
+	Texture  string   `json:"texture"`
+	Prompt1  string   `json:"prompt1"`
+	Prompt2  string   `json:"prompt2"`
+	Labels   []string `json:"labels,omitempty"`
+	Vote     string   `json:"vote,omitempty"`
+	Size     int      `json:"size,omitempty"`
+}
+
 // ComfySubmitter — абстракция ComfyUI для тестов (реализация — comfy.Client).
 type ComfySubmitter interface {
 	Submit(wf map[string]interface{}) (string, error)
@@ -61,12 +80,50 @@ type Runner struct {
 	forms    *config.FormsConfig
 	families config.FamiliesConfig
 	humans   *config.HumansConfig
+	ships    config.ShipsConfig        // вкладка «Корабли рас» (nil — не подключена)
+	shipDict *config.ShipDictConfig    // словари кораблей (nil — не подключены)
+	racesPath string                   // config/races.json (валидация ключей ships.json)
 	comfy    ComfySubmitter
 }
 
 // NewRunner создаёт Runner.
 func NewRunner(cfg *config.StudioConfig, forms *config.FormsConfig, families config.FamiliesConfig, humans *config.HumansConfig, comfy ComfySubmitter) *Runner {
 	return &Runner{cfg: cfg, forms: forms, families: families, humans: humans, comfy: comfy}
+}
+
+// SetShips подключает конфиги кораблей (вкладка «Корабли рас»).
+func (r *Runner) SetShips(ships config.ShipsConfig, dict *config.ShipDictConfig, racesPath string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ships = ships
+	r.shipDict = dict
+	r.racesPath = racesPath
+}
+
+// shipsSnapshot — конфиги кораблей под r.mu (ReloadShips может заменить их
+// в памяти; джоб читает снапшот при старте).
+func (r *Runner) shipsSnapshot() (config.ShipsConfig, *config.ShipDictConfig) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.ships, r.shipDict
+}
+
+// ReloadShips перечитывает ships.json с диска и заменяет конфиг в памяти
+// (кнопка «Пересобрать промт»: машинная проекция texture/silhouette/blocked
+// обновилась).
+func (r *Runner) ReloadShips(path string) error {
+	rp := r.racesPath
+	if rp == "" {
+		rp = "config/races.json"
+	}
+	ships, err := config.LoadShipsRaces(path, rp)
+	if err != nil {
+		return err
+	}
+	r.mu.Lock()
+	r.ships = ships
+	r.mu.Unlock()
+	return nil
 }
 
 // family возвращает семейство по id (чтение под r.mu: ReloadFamilies может
@@ -141,11 +198,15 @@ func AggregateStatus(racesPool, humansPool string) Status {
 func (r *Runner) readStatusAny() Status {
 	races := ReadStatus(filepath.Join(r.cfg.PoolRoot, "races_pool"))
 	humans := ReadStatus(filepath.Join(r.cfg.PoolRoot, "humans_pool"))
+	ships := ReadStatus(filepath.Join(r.cfg.PoolRoot, "ships_pool"))
 	if races.Running {
 		return races
 	}
 	if humans.Running {
 		return humans
+	}
+	if ships.Running {
+		return ships
 	}
 	return races
 }
@@ -346,6 +407,82 @@ func appendHumanMeta(path string, item HumanMetaItem) {
 		return
 	}
 	os.WriteFile(path, out, 0644)
+}
+
+// appendShipMeta дописывает запись в meta.json пула кораблей.
+func appendShipMeta(path string, item ShipMetaItem) {
+	data, err := os.ReadFile(path)
+	var all []ShipMetaItem
+	if err == nil {
+		json.Unmarshal(data, &all)
+	}
+	all = append(all, item)
+	out, err := json.Marshal(all)
+	if err != nil {
+		return
+	}
+	os.WriteFile(path, out, 0644)
+}
+
+// ReadShipMeta читает meta.json пула кораблей.
+func ReadShipMeta(poolDir string) []ShipMetaItem {
+	data, err := os.ReadFile(filepath.Join(poolDir, "meta.json"))
+	if err != nil {
+		return nil
+	}
+	var m []ShipMetaItem
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil
+	}
+	return m
+}
+
+// RemoveShipMeta удаляет из meta.json пула кораблей запись с данным файлом.
+func RemoveShipMeta(poolDir, file string) {
+	all := ReadShipMeta(poolDir)
+	out := all[:0]
+	for _, m := range all {
+		if m.File != file {
+			out = append(out, m)
+		}
+	}
+	if len(out) == len(all) {
+		return
+	}
+	data, err := json.Marshal(out)
+	if err != nil {
+		return
+	}
+	os.WriteFile(filepath.Join(poolDir, "meta.json"), data, 0644)
+}
+
+// SetShipVote — вердикт создателя по кандидату корабля (like/dislike/clear)
+// в meta.json пула (98c: файл не перемещается, только метка; переживает
+// рестарт студии — meta.json уже файл). clear → пустая метка. Возвращает
+// false, если кандидата нет в мете.
+func SetShipVote(poolDir, file, vote string) bool {
+	all := ReadShipMeta(poolDir)
+	found := false
+	for i := range all {
+		if all[i].File == file {
+			if vote == "clear" {
+				all[i].Vote = ""
+			} else {
+				all[i].Vote = vote
+			}
+			found = true
+			break
+		}
+	}
+	if !found {
+		return false
+	}
+	data, err := json.Marshal(all)
+	if err != nil {
+		return false
+	}
+	os.WriteFile(filepath.Join(poolDir, "meta.json"), data, 0644)
+	return true
 }
 
 // writeCandMeta пишет ref_cands/meta.json целиком.

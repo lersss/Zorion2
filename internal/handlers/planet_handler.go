@@ -75,7 +75,7 @@ func (h *AdminHandlers) GetPlanetsByWorld(w http.ResponseWriter, r *http.Request
 	var myPosition *models.CurrentPosition
 	if h.visibility != nil {
 		userID, _ := r.Context().Value(auth.UserIDKey).(string)
-		user, pos, err := h.visibility.userRepo.GetByIDWithPosition(userID)
+		user, pos, _, err := h.visibility.userRepo.GetByIDWithPosition(userID)
 		if err != nil || user == nil {
 			writeJSONError(w, "Пользователь не найден", http.StatusNotFound)
 			return

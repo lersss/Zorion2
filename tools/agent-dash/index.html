@@ -7,6 +7,7 @@
     <style>
       :root {
         color-scheme: dark;
+        --zoom: 2;
         --bg: #14161a;
         --panel: #1c1f25;
         --line: #2a2f38;
@@ -17,12 +18,14 @@
         --bad: #e06c6c;
       }
       * { box-sizing: border-box; }
+      html { overflow-x: auto; }
       body {
         margin: 0;
         padding: 18px 22px 60px;
         background: var(--bg);
         color: var(--text);
         font: 14px/1.45 "Segoe UI", system-ui, sans-serif;
+        zoom: var(--zoom);
       }
       h1 { font-size: 19px; margin: 0 0 4px; }
       h2 { font-size: 15px; margin: 26px 0 8px; color: var(--dim); font-weight: 600; }
@@ -58,7 +61,22 @@
       .live { color: #6ee7a0; }
       .hi { color: var(--warn); }
       .bad { color: var(--bad); }
-      .scroll { max-height: 46vh; overflow: auto; }
+      .zoomctl { display: inline-flex; align-items: center; gap: 6px; margin-right: 10px; }
+      .scroll { max-height: none; overflow: visible; }
+      /* Крупный масштаб: узкие столбцы прячем, чтобы таблицы не расползались */
+      body.zoomxl .hide-xl { display: none; }
+      /* Карточки активных сессий: роль одним цветом, название слева, цена — крупно справа */
+      .lcard { display: flex; gap: 18px; align-items: stretch; background: var(--panel); border: 1px solid var(--line); border-left: 6px solid var(--line); border-radius: 8px; padding: 12px 16px; margin-bottom: 12px; }
+      .lcard .lmain { flex: 1 1 auto; min-width: 0; }
+      .lcard .lprice { flex: 0 0 auto; display: flex; flex-direction: column; align-items: flex-end; justify-content: center; border-left: 1px solid var(--line); padding-left: 18px; }
+      .lcard .l1 { display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline; }
+      .lcard .title { font-size: 1.18em; font-weight: 600; color: #fff; }
+      .lcard .money { font-size: 2.3em; font-weight: 700; color: #fff; line-height: 1; }
+      .lcard .mem { font-size: 1.3em; font-weight: 600; color: var(--text); }
+      .lcard .l2 { display: flex; flex-wrap: wrap; gap: 20px; align-items: center; margin-top: 8px; }
+      .lcard .l3 { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 8px; }
+      .role { display: inline-block; padding: 1px 10px; border-radius: 999px; background: rgba(109, 179, 242, 0.16); color: var(--accent); font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.85em; }
+      td strong { font-weight: 700; color: #fff; }
       .liveblock { margin-top: 16px; }
       .livehead { display: flex; align-items: baseline; gap: 12px; }
       .livehead h2 { margin: 0; color: var(--text); }
@@ -79,18 +97,19 @@
       <h1>Учёт агентов</h1>
       <span class="dim" id="project"></span>
       <span style="flex: 1"></span>
+      <span class="zoomctl">
+        <button id="zoomout" title="Мельче">A−</button>
+        <span class="dim" id="zoomval"></span>
+        <button id="zoomin" title="Крупнее">A+</button>
+      </span>
       <span>
         <button data-period="today">Сегодня</button>
         <button data-period="7">7 дней</button>
-        <button data-period="all">Всё время</button>
+        <button data-period="all">Всё</button>
       </span>
       <span class="dim" id="status">загружаю…</span>
     </header>
-    <p class="note">
-      Цена и память считаются по периоду. Повторы — по истории сессий за всё время сессии.
-      Срабатывания сторожа берутся из его журнала (<span class="dim">.opencode/loop-guard.log</span>)
-      и появляются с новых сессий. Память — пиковый размер рабочего контекста агента.
-    </p>
+    <p class="note"></p>
 
     <section class="liveblock">
       <div class="livehead">
@@ -102,8 +121,7 @@
 
     <div class="cards" id="cards"></div>
 
-    <h2>По субагентам</h2>
-    <div class="scroll"><table id="agents"></table></div>
+    <h2>По субагентам</h2>    <div class="scroll"><table id="agents"></table></div>
 
     <h2>По фичам (вкладка менеджера + её подсессии)</h2>
     <div class="scroll"><table id="features"></table></div>
@@ -112,8 +130,10 @@
     <div class="scroll"><table id="active"></table></div>
 
     <footer>
-      Сервис читает хранилище сессий opencode только на чтение. Цифры обновляются раз в 20 секунд,
-      таймер активности — каждую секунду.
+      Цена и память — по периоду; повторы — за всю сессию; срабатывания сторожа — из его журнала
+      (<span class="dim">.opencode/loop-guard.log</span>); память — пиковый рабочий контекст агента.
+      Сервис читает хранилище сессий opencode только на чтение, цифры обновляет раз в 20 секунд,
+      таймер активности — каждую секунду. Масштаб страницы — кнопками A−/A+.
       <span id="scan"></span>
     </footer>
 
@@ -121,7 +141,7 @@
       const state = {
         period: "today",
         report: null,
-        sort: { agents: ["cost", -1], features: ["cost", -1] },
+        sort: { agents: ["cost", -1], features: ["cost", -1], active: ["cost", -1] },
         updatedAt: 0,
         limits: { memWarn: 700000, memStop: 900000 },
         prev: new Map(),
@@ -153,7 +173,9 @@
         const r = state.report;
         if (!box) return;
         const now = Date.now();
-        const all = (r?.active || []).filter((a) => now - a.last < (r?.liveWindowMs || 300000));
+        const all = (r?.active || [])
+          .filter((a) => now - a.last < (r?.liveWindowMs || 300000))
+          .sort((x, y) => y.cost - x.cost);
         document.getElementById("livecount").textContent = all.length
           ? all.length + (all.length === 1 ? " сессия" : " сессий") + " · обновление раз в 20 с"
           : "";
@@ -169,24 +191,33 @@
           const pct = Math.min(100, Math.round((a.peak / stop) * 100));
           const cls = a.peak >= stop ? "bad" : a.peak >= warn ? "warn" : "";
           const left = Math.max(0, stop - a.peak);
-          return `<tr>
-            <td>${esc(a.agent)}</td>
-            <td class="name"><div>${esc(a.title)}</div>${a.parent ? `<div class="sub">${esc(a.parent)}</div>` : ""}</td>
-            <td class="num now">${money(a.cost)}</td>
-            <td class="num delta ${d && d.cost > 0 ? "up" : ""}">${d ? (d.cost > 0 ? "+" + d.cost.toFixed(3) : "0") : "—"}</td>
-            <td class="num now">${tok(a.peak)}</td>
-            <td><span class="bar ${cls}"><i style="width:${pct}%"></i></span> <span class="delta">${pct}%${left > 0 ? ", осталось " + tok(left) : ", предел"}</span></td>
-            <td class="num">${a.turns}</td>
-            <td class="num delta">${d ? (d.turns > 0 ? "+" + d.turns : "0") : "—"}</td>
-            <td class="num ${a.guard ? "bad" : ""}">${a.guard || 0}</td>
-            <td class="delta">${ago(a.last, now)} назад</td>
-          </tr>`;
+          const costDelta = !d ? "" : d.cost > 0 ? "+" + d.cost.toFixed(3) : "без изменений";
+          return `<div class="lcard">
+            <div class="lmain">
+              <div class="l1">
+                <span class="role">${esc(a.agent)}</span>
+                <span class="title">${esc(a.title)}</span>
+              </div>
+              ${a.parent ? `<div class="l3"><span class="sub">${esc(a.parent)}</span></div>` : ""}
+              <div class="l2">
+                <span class="mem">${tok(a.peak)}</span>
+                <span class="bar ${cls}"><i style="width:${pct}%"></i></span>
+                <span class="delta">${pct}%${left > 0 ? ", осталось " + tok(left) : ", предел"}</span>
+              </div>
+              <div class="l3">
+                <span class="delta">${a.turns} ответов${d && d.turns > 0 ? " (+" + d.turns + ")" : ""}</span>
+                <span class="delta">сторож: ${a.guard || 0}</span>
+                <span class="delta">${ago(a.last, now)} назад</span>
+                ${a.live ? '<span class="live">работает</span>' : ""}
+              </div>
+            </div>
+            <div class="lprice">
+              <div class="money">${money(a.cost)}</div>
+              ${costDelta ? `<div class="delta ${d && d.cost > 0 ? "up" : ""}">${costDelta}</div>` : ""}
+            </div>
+          </div>`;
         });
-        box.innerHTML = `<table><thead><tr>
-            <th>Роль</th><th>Сессия</th><th class="num">Цена</th><th class="num">Δ цены</th>
-            <th class="num">Память</th><th>Бюджет памяти</th><th class="num">Ответов</th><th class="num">Δ</th>
-            <th class="num">Сторож</th><th>Действие</th>
-          </tr></thead><tbody>${cells.join("")}</tbody></table>`;
+        box.innerHTML = cells.join("");
       }
 
       function sortBy(rows, key, dir) {
@@ -197,6 +228,15 @@
           return ((x || 0) - (y || 0)) * dir;
         });
       }
+
+      // Роль — плашкой, название и цена — заметно, чтобы не сливалось с остальным.
+      const cell = (col, value) => {
+        if (col.fmt) return col.fmt(value);
+        if (col.id === "agent") return `<span class="role">${esc(value)}</span>`;
+        if (col.id === "label") return `<strong>${esc(value)}</strong>`;
+        if (col.id === "cost") return `<strong>${money(value)}</strong>`;
+        return esc(value);
+      };
 
       function head(columns, key) {
         return (
@@ -258,7 +298,7 @@
                 agentCols
                   .map((c) => {
                     const v = a[c.id];
-                    const text = c.fmt ? c.fmt(v) : esc(v);
+                    const text = cell(c, v);
                     return `<td class="${c.num ? "num" : ""} ${c.cls && v ? c.cls : ""}">${text}</td>`;
                   })
                   .join("") +
@@ -290,7 +330,7 @@
                 featCols
                   .map((c) => {
                     const v = f[c.id];
-                    const text = c.fmt ? c.fmt(v) : esc(v);
+                    const text = cell(c, v);
                     return `<td class="${c.num ? "num" : ""} ${c.cls && v ? c.cls : ""}">${text}</td>`;
                   })
                   .join("") +
@@ -310,11 +350,13 @@
           { id: "live", title: "Сейчас", fmt: (v) => (v ? '<span class="live">работает</span>' : "") },
           { id: "guard", title: "Сторож", num: true, cls: "bad" },
         ];
+        const sortedActive = state.sort.active
+          ? sortBy(r.active, state.sort.active[0], state.sort.active[1])
+          : r.active;
         document.getElementById("active").innerHTML =
-          "<thead><tr>" +
-          activeCols.map((c) => `<th class="${c.num ? "num" : ""}">${c.title}</th>`).join("") +
-          "</tr></thead><tbody>" +
-          r.active
+          head(activeCols, "active") +
+          "<tbody>" +
+          sortedActive
             .map(
               (a) =>
                 "<tr>" +
@@ -322,7 +364,7 @@
                   .map((c) => {
                     const v = a[c.id];
                     let text;
-                    if (c.id === "title") text = '<span class="name">' + esc(v) + "</span>";
+                    if (c.id === "title") text = '<span class="name"><strong>' + esc(v) + "</strong></span>";
                     else if (c.fmt) text = c.fmt(v);
                     else if (c.num) text = v;
                     else text = esc(v);
@@ -398,6 +440,27 @@
 
       document.querySelector('button[data-period="today"]').classList.add("on");
       refresh();
+
+      // Размер страницы: создателю нужен крупный шрифт, поэтому масштаб
+      // запоминается в браузере и крутится кнопками A−/A+.
+      const ZOOM_KEY = "dashZoom";
+      const ZOOM_MIN = 1;
+      const ZOOM_MAX = 6;
+      function applyZoom(z) {
+        const v = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(z * 100) / 100));
+        document.documentElement.style.setProperty("--zoom", v);
+        document.getElementById("zoomval").textContent = Math.round(v * 100) + "%";
+        document.body.classList.toggle("zoomxl", v >= 2.5);
+        try {
+          localStorage.setItem(ZOOM_KEY, String(v));
+        } catch {}
+        return v;
+      }
+      let zoom = Number((() => { try { return localStorage.getItem(ZOOM_KEY); } catch { return null; } })()) || 2;
+      zoom = applyZoom(zoom);
+      document.getElementById("zoomin").addEventListener("click", () => { zoom = applyZoom(zoom + 0.25); });
+      document.getElementById("zoomout").addEventListener("click", () => { zoom = applyZoom(zoom - 0.25); });
+
       setInterval(refresh, 20000);
       setInterval(() => {
         renderLive();

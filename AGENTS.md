@@ -135,8 +135,8 @@ scripts/                 — автосверка impact map (`check_impact_map.
 
 | Группа | Авторизация | Примеры |
 |---|---|---|
-| Публичные | — | `/health`, `/status`, `/register`, `/login`, `/api/planet-image` |
-| Игровые | `Authorization: Bearer <JWT>` | `/me`, `/worlds`, `/worlds/{id}`, `/api/worlds/{id}/planets`, `/api/worlds/filter`, `/api/entities/search`, `/api/contracts`, `/travel`, `/ws` |
+| Публичные | — | `/health`, `/status`, `/register`, `/login` |
+| Игровые | `Authorization: Bearer <JWT>` | `/me`, `/worlds`, `/worlds/{id}`, `/api/worlds/{id}/planets`, `/api/worlds/filter`, `/api/entities/search`, `/api/contracts`, `/travel`, `/api/planet-image`, `/ws` |
 | Админка | JWT-роли `admin`/`skycomposer` | `/admin/worlds`, `/admin/generate*`, `/admin/clear`, `/admin/stats`, `/admin/audit`, `/admin/compatibility`, `/admin/tests` |
 
 Точные пути смотри в `internal/handlers/`.

@@ -96,6 +96,18 @@
 | `tools/make_ship_silhouettes.py` (выразительные формы 13 шт) | @developer (формы силуэтов) | коммит форм силуэтов |
 | `cmd/art-studio/generator/ships_silhouette_forms_test.go` | @developer (формы силуэтов) | коммит форм силуэтов |
 | `docs/PITFALLS.md` (запись про null-модули скрипта силуэтов) | @developer (формы силуэтов) | коммит форм силуэтов |
+| `docs/gamedesign/11_production.md`, `13_tiers.md`, `13_settlements.md`, `10_exploration.md`, `05_economy.md`, `04_composition.md`, `09_resources.md`, `19_robots.md`, `01_concept.md`, `06_factions.md`, `07_ui.md`, `11_contracts.md`, `docs/GLOSSARY.md` | @designer (спека «Фабрика» §8 — GDD-правки) | коммит фабрики-§8 |
+| `migrations/000049_add_users_pending_destination.sql` | @developer (99.2.30) | коммит 99.2.30 |
+| `internal/models/pending_destination.go` (+user.go) | @developer (99.2.30) | коммит 99.2.30 |
+| `internal/repository/player_intrasystem_flight_repository.go` (+test) | @developer (99.2.30) | коммит 99.2.30 |
+| `internal/repository/user_repository.go` | @developer (99.2.30) | коммит 99.2.30 |
+| `internal/handlers/travel_handlers.go` (+test) | @developer (99.2.30) | коммит 99.2.30 |
+| `internal/handlers/auth_handlers.go` (+test) | @developer (99.2.30) | коммит 99.2.30 |
+| `internal/handlers/admin_pacman.go` (+test) | @developer (99.2.30) | коммит 99.2.30 |
+| `cmd/server/main.go` (блок Restore намерений) | @developer (99.2.30) | коммит 99.2.30 |
+| `web/static/js/map/flight.js` / `data.js` / `config.js` / `animation.js` | @developer (99.2.30) | коммит 99.2.30 |
+| `web/static/js/modal/panel.js` / `events.js` / `index.js` / `tabs.js` | @developer (99.2.30) | коммит 99.2.30 |
+| `docs/DB.md` / `docs/ARCHITECTURE.md` / `docs/PITFALLS.md` (99.2.30) | @developer (99.2.30) | коммит 99.2.30 |
 
 ---
 

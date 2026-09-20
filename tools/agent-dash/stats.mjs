@@ -43,8 +43,14 @@ function loadJournal(journalPath) {
         try {
           e = JSON.parse(line);
         } catch {
-          bad++;
-          continue;
+          // Строка могла склеиться с предыдущей (журнал оборвался без перевода
+          // строки) — пробуем вытащить последний объект из строки.
+          try {
+            e = JSON.parse(line.slice(line.lastIndexOf("{")));
+          } catch {
+            bad++;
+            continue;
+          }
         }
         if (!e.session || !e.at) {
           bad++;
@@ -271,6 +277,27 @@ export function createStore({
     return { blocked, aborted, remind };
   }
 
+  // Срабатывания сторожа берём из его журнала: так надёжнее, чем искать текст
+  // отказа в частях сессии (текст встречается и в самих файлах проекта).
+  // Журнал перечитывается на каждый отчёт — он дописывается сторожем вживую.
+  let journalStamp = "";
+  function refreshJournal() {
+    if (!journalPath) return;
+    let size;
+    let mtime;
+    try {
+      const st = fs.statSync(journalPath);
+      size = st.size;
+      mtime = st.mtimeMs;
+    } catch {
+      return; // журнала ещё нет — появится, поймаем в следующий раз
+    }
+    const stamp = size + ":" + mtime;
+    if (stamp === journalStamp) return;
+    journalStamp = stamp;
+    journal = loadJournal(journalPath);
+  }
+
   // Активность сессии внутри периода; null — в этом периоде сессия не работала.
   function activityOf(s, sinceDay) {
     if (!sinceDay) {
@@ -295,6 +322,7 @@ export function createStore({
   }
 
   function report({ since = 0 } = {}) {
+    refreshJournal();
     const sinceDay = since ? dayKey(since) : null;
     const rows = [];
     for (const s of sessions) {

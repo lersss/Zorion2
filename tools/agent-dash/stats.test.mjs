@@ -97,8 +97,7 @@ fs.writeFileSync(
   "utf8"
 );
 
-const cachePath = path.join(dir, "cache.json");
-const store = createStore({ dbPath, project: "Zorion", cachePath, journalPath });
+const cachePath = path.join(dir, "cache.json");const store = createStore({ dbPath, project: "Zorion", cachePath, journalPath });
 const loaded = store.load();
 check("загружены все сессии проекта", loaded.sessions === 5, JSON.stringify(loaded));
 
@@ -141,13 +140,22 @@ check("обрыв сессии виден во «всё время»", all.total
 
 store.saveCache();
 
-const store2 = createStore({ dbPath, project: "Zorion", cachePath });
+const store2 = createStore({ dbPath, project: "Zorion", cachePath, journalPath });
 const loaded2 = store2.load();
 check("кэш ускоряет второй запуск", loaded2.cached === 5, JSON.stringify(loaded2));
 const all2 = store2.report({});
 check("из кэша цифры те же", all2.totals.cost === 6.75 && all2.totals.repeats === 3, JSON.stringify(all2.totals));
 
 check("день считается по локальной дате", dayKey(todayNoon) === dayKey(todayMidnight) && dayKey(todayNoon) !== dayKey(yesterdayNoon), dayKey(todayNoon) + " / " + dayKey(yesterdayNoon));
+
+// Сторож дописывает журнал вживую — учёт должен подхватывать без перезапуска.
+fs.appendFileSync(
+  journalPath,
+  JSON.stringify({ at: todayNoon + 5000, session: "s1", tool: "bash", action: "blocked" }) + "\n",
+  "utf8"
+);
+const live = store2.report({});
+check("новая строка журнала подхватывается на лету", live.totals.guardBlocked === 3, JSON.stringify(live.totals));
 
 store.close();
 store2.close();

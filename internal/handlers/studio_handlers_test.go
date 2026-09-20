@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"zorion/internal/goodsstudio/ai"
+	"zorion/internal/races"
 )
 
 // expectStudioMutation — Begin + advisory lock (как в репозитории).
@@ -46,9 +47,9 @@ func TestStudioState(t *testing.T) {
 	mock.ExpectQuery(`SELECT good_id, pos, component_id, quantity, reason, allow_resource FROM goods_slots ORDER BY good_id, pos`).
 		WillReturnRows(sqlmock.NewRows([]string{"good_id", "pos", "component_id", "quantity", "reason", "allow_resource"}).
 			AddRow(int64(1), 0, int64(2), 1, nil, false))
-	mock.ExpectQuery(`SELECT id, name, kind, category_id, race_family, output, input, params, status, created_at FROM producer_types ORDER BY id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "output", "input", "params", "status", "created_at"}).
-			AddRow(int64(1), "Лаборатория исследовательская", "items", nil, nil, []byte(`{"items":["Чертёж"]}`), []byte(`{}`), []byte(`{}`), "approved", time.Now()))
+	mock.ExpectQuery(`SELECT id, name, kind, category_id, race_family, parent_id, race, output, input, params, status, created_at FROM producer_types ORDER BY id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "parent_id", "race", "output", "input", "params", "status", "created_at"}).
+			AddRow(int64(1), "Лаборатория исследовательская", "items", nil, nil, nil, nil, []byte(`{"items":["Чертёж"]}`), []byte(`{}`), []byte(`{}`), "approved", time.Now()))
 	mock.ExpectQuery(`SELECT id, name, slot_type, status, unlocks, params, created_at FROM items ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "slot_type", "status", "unlocks", "params", "created_at"}).
 			AddRow(int64(1), "Чертёж", "чертёж", "approved", []byte(`[]`), []byte(`{}`), time.Now()))
@@ -365,8 +366,8 @@ func fillSnapshotRows(mock sqlmock.Sqlmock) {
 	mock.ExpectQuery(`SELECT good_id, pos, component_id, quantity, reason, allow_resource FROM goods_slots ORDER BY good_id, pos`).
 		WillReturnRows(sqlmock.NewRows([]string{"good_id", "pos", "component_id", "quantity", "reason", "allow_resource"}).
 			AddRow(int64(1), 0, nil, 1, nil, false))
-	mock.ExpectQuery(`SELECT id, name, kind, category_id, race_family, output, input, params, status, created_at FROM producer_types ORDER BY id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "output", "input", "params", "status", "created_at"}))
+	mock.ExpectQuery(`SELECT id, name, kind, category_id, race_family, parent_id, race, output, input, params, status, created_at FROM producer_types ORDER BY id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "parent_id", "race", "output", "input", "params", "status", "created_at"}))
 	mock.ExpectQuery(`SELECT id, name, slot_type, status, unlocks, params, created_at FROM items ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "slot_type", "status", "unlocks", "params", "created_at"}))
 	mock.ExpectQuery(`SELECT producer_type_id, item_id, requirements FROM producer_items ORDER BY producer_type_id, item_id`).
@@ -393,8 +394,8 @@ func TestStudioFillNotFound404(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "status", "source", "tier_override", "banned_at", "created_at", "volume", "weight"}))
 	mock.ExpectQuery(`SELECT good_id, pos, component_id, quantity, reason, allow_resource FROM goods_slots ORDER BY good_id, pos`).
 		WillReturnRows(sqlmock.NewRows([]string{"good_id", "pos", "component_id", "quantity", "reason", "allow_resource"}))
-	mock.ExpectQuery(`SELECT id, name, kind, category_id, race_family, output, input, params, status, created_at FROM producer_types ORDER BY id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "output", "input", "params", "status", "created_at"}))
+	mock.ExpectQuery(`SELECT id, name, kind, category_id, race_family, parent_id, race, output, input, params, status, created_at FROM producer_types ORDER BY id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "parent_id", "race", "output", "input", "params", "status", "created_at"}))
 	mock.ExpectQuery(`SELECT id, name, slot_type, status, unlocks, params, created_at FROM items ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "slot_type", "status", "unlocks", "params", "created_at"}))
 	mock.ExpectQuery(`SELECT producer_type_id, item_id, requirements FROM producer_items ORDER BY producer_type_id, item_id`).
@@ -426,8 +427,8 @@ func TestStudioFillNoEmptySlots400(t *testing.T) {
 	mock.ExpectQuery(`SELECT good_id, pos, component_id, quantity, reason, allow_resource FROM goods_slots ORDER BY good_id, pos`).
 		WillReturnRows(sqlmock.NewRows([]string{"good_id", "pos", "component_id", "quantity", "reason", "allow_resource"}).
 			AddRow(int64(1), 0, int64(2), 1, nil, false))
-	mock.ExpectQuery(`SELECT id, name, kind, category_id, race_family, output, input, params, status, created_at FROM producer_types ORDER BY id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "output", "input", "params", "status", "created_at"}))
+	mock.ExpectQuery(`SELECT id, name, kind, category_id, race_family, parent_id, race, output, input, params, status, created_at FROM producer_types ORDER BY id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "parent_id", "race", "output", "input", "params", "status", "created_at"}))
 	mock.ExpectQuery(`SELECT id, name, slot_type, status, unlocks, params, created_at FROM items ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "slot_type", "status", "unlocks", "params", "created_at"}))
 	mock.ExpectQuery(`SELECT producer_type_id, item_id, requirements FROM producer_items ORDER BY producer_type_id, item_id`).
@@ -713,8 +714,8 @@ func TestStudioStateFillFields(t *testing.T) {
 	mock.ExpectQuery(`SELECT good_id, pos, component_id, quantity, reason, allow_resource FROM goods_slots ORDER BY good_id, pos`).
 		WillReturnRows(sqlmock.NewRows([]string{"good_id", "pos", "component_id", "quantity", "reason", "allow_resource"}).
 			AddRow(int64(1), 0, nil, 1, nil, false))
-	mock.ExpectQuery(`SELECT id, name, kind, category_id, race_family, output, input, params, status, created_at FROM producer_types ORDER BY id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "output", "input", "params", "status", "created_at"}))
+	mock.ExpectQuery(`SELECT id, name, kind, category_id, race_family, parent_id, race, output, input, params, status, created_at FROM producer_types ORDER BY id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "parent_id", "race", "output", "input", "params", "status", "created_at"}))
 	mock.ExpectQuery(`SELECT id, name, slot_type, status, unlocks, params, created_at FROM items ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "slot_type", "status", "unlocks", "params", "created_at"}))
 	mock.ExpectQuery(`SELECT producer_type_id, item_id, requirements FROM producer_items ORDER BY producer_type_id, item_id`).
@@ -741,3 +742,59 @@ func TestStudioStateFillFields(t *testing.T) {
 	require.Equal(t, "Сталь", view.Proposals[0].Name)
 	require.Equal(t, "1", view.ProposalsGoodID)
 }
+
+// --- уровни расовости (дерево построек, спека 2026-09-21 §3) ---
+
+// TestStudioRaces — GET /studio/api/races: семейства F1–F9 + robotic и расы
+// (id, name, family) из каталога (Go-конфиги, единый источник).
+func TestStudioRaces(t *testing.T) {
+	require.NoError(t, races.LoadCatalog("../../config/races.json"))
+	require.NoError(t, races.LoadLore("../../config/race_lore.json"))
+
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
+	req := httptest.NewRequest(http.MethodGet, "/studio/api/races", nil)
+	rec := httptest.NewRecorder()
+	h.Races(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var view RacesView
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &view))
+	require.Len(t, view.Families, 10, "F1–F9 + robotic")
+	require.Equal(t, "F1", view.Families[0].ID)
+	require.Equal(t, "robotic", view.Families[9].ID)
+	require.Equal(t, "Роботы", view.Families[9].Name)
+	require.Len(t, view.Races, 60, "60 рас каталога")
+	for _, rc := range view.Races {
+		require.NotEmpty(t, rc.Family, "у каждой расы есть семейство из лора")
+	}
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestValidateRaceFamily — инвариант §1.2 п.6: раса задана → семейство задано
+// и соответствует каталогу (config/race_lore.json).
+func TestValidateRaceFamily(t *testing.T) {
+	require.NoError(t, races.LoadCatalog("../../config/races.json"))
+	require.NoError(t, races.LoadLore("../../config/race_lore.json"))
+
+	// раса не задана — ок (универсальный).
+	require.NoError(t, validateRaceFamily(nil, nil))
+	require.NoError(t, validateRaceFamily(strp(""), strp("F1")))
+	// раса задана, семейство нет — 400.
+	err := validateRaceFamily(strp("humans"), nil)
+	require.Error(t, err)
+	// раса не в каталоге — 400.
+	err = validateRaceFamily(strp("nope"), strp("F1"))
+	require.Error(t, err)
+	// семейство не соответствует расе — 400.
+	err = validateRaceFamily(strp("humans"), strp("F2"))
+	require.Error(t, err)
+	// ок: humans → F1; робот → robotic.
+	require.NoError(t, validateRaceFamily(strp("humans"), strp("F1")))
+	require.NoError(t, validateRaceFamily(strp("archivists"), strp("robotic")))
+}
+
+func strp(s string) *string { return &s }

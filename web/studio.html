@@ -193,6 +193,18 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
       <button class="branch-btn" id="branchItems" title="Предметы — единый справочник «что бывает» (§4.2)">Предметы</button>
     </div>
     <button class="tool-seg" id="btnCatOpen" title="Управление категориями (создание/переименование/удаление)">Категории</button>
+    <!-- Переключатель уровня расовости дерева построек (спека 2026-09-21 §5):
+         универсальный → семейство (F1–F10) → конкретная раса (60). -->
+    <div class="tool-seg" id="segProdRace" style="display:none">
+      <span class="seg-label">Расовость</span>
+      <select id="prodRaceLevelSel" onchange="setProdRaceLevel(this.value)" title="уровень расовости дерева построек">
+        <option value="universal">Универсальный</option>
+        <option value="family">Семейство</option>
+        <option value="race">Раса</option>
+      </select>
+      <select id="prodRaceFamilySel" onchange="setProdRaceFamily(this.value)" title="семейство рас (F1–F10)" style="display:none"></select>
+      <select id="prodRaceSel" onchange="setProdRace(this.value)" title="конкретная раса (60)" style="display:none"></select>
+    </div>
   </div>
 </header>
 <div id="right">
@@ -208,12 +220,12 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
       </div>
       <div class="tierf" id="tierFilters"></div>
       <div class="addrow" id="goodsAddRow">
-        <input id="spravNewName" type="text" placeholder="имя товара">
+        <input id="spravNewName" type="text" placeholder="имя товара" autocomplete="off">
         <select id="spravNewCat"></select>
         <button class="gen" id="btnSpravAdd">+ товар</button>
       </div>
       <div class="addrow" id="resAddRow">
-        <input id="spravNewResName" type="text" placeholder="имя ресурса">
+        <input id="spravNewResName" type="text" placeholder="имя ресурса" autocomplete="off">
         <select id="spravNewResCat"></select>
         <button class="gen" id="btnSpravAddRes">+ ресурс</button>
       </div>
@@ -222,16 +234,17 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
         <textarea id="bulkText" rows="4" placeholder="название | категория"></textarea>
         <button id="btnBulk">Создать из списка</button>
       </div>
-      <!-- ветка «Производители» (спека 2026-09-20-фабрики §4.1) -->
+      <!-- ветка «Производители» (спека 2026-09-20-фабрики §4.1): «+ тип» создаёт
+           тип (parent_id NULL); категории живут в подтипах (спека 2026-09-21 §1.2 п.4),
+           подтипы заводятся через узлы-приглашения дерева на канвасе -->
       <div class="addrow" id="prodAddRow" style="display:none">
-        <input id="prodNewName" type="text" placeholder="имя типа">
+        <input id="prodNewName" type="text" placeholder="имя типа" autocomplete="off">
         <select id="prodNewKind" title="класс выхода"><option value="goods">товары</option><option value="items">предметы</option><option value="energy">энергия</option></select>
-        <select id="prodNewCat" title="категория (kind=goods)"></select>
         <button class="gen" id="btnProdAdd">+ тип</button>
       </div>
       <!-- ветка «Предметы» (спека 2026-09-20-фабрики §4.2) -->
       <div class="addrow" id="itemAddRow" style="display:none">
-        <input id="itemNewName" type="text" placeholder="имя предмета">
+        <input id="itemNewName" type="text" placeholder="имя предмета" autocomplete="off">
         <select id="itemNewSlot" title="тип слота"><option value="чертёж">чертёж</option><option value="модуль">модуль</option><option value="инструмент">инструмент</option><option value="сертификат">сертификат</option></select>
         <button class="gen" id="btnItemAdd">+ предмет</button>
       </div>
@@ -261,7 +274,7 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
     <div class="popup-head" id="catPopupHead"><span class="ptitle">Категории</span><button id="catPopupClose" title="закрыть (Esc)">×</button></div>
     <div class="popup-body">
       <div class="cat-add">
-        <input id="catNewName" type="text" placeholder="имя категории">
+        <input id="catNewName" type="text" placeholder="имя категории" autocomplete="off">
         <button class="gen" id="catAddBtn">+ категория</button>
       </div>
       <div id="catList"></div>
@@ -320,6 +333,13 @@ let pendingCatFilter = localStorage.getItem("gs_catFilter") || "";
 // Раздел студии (спека 2026-09-20-фабрики §4): goods (граф рецептов) /
 // producers (типы производителей) / items (предметы). Сохраняется.
 let branch = localStorage.getItem("gs_branch") || "goods";
+// Уровень расовости дерева построек (спека 2026-09-21 §2.4/§5):
+// universal → family (F1–F10) → race (60). Состояние — в localStorage.
+let prodRaceLevel = localStorage.getItem("gs_prodRaceLevel") || "universal";
+let prodRaceFamily = localStorage.getItem("gs_prodRaceFamily") || "";
+let prodRace = localStorage.getItem("gs_prodRace") || "";
+let racesData = null; // {families, races} из /studio/api/races (спека §3)
+let racesLoaded = false;
 
 const canvas = $("graph");
 const ctx = canvas.getContext("2d");
@@ -333,6 +353,7 @@ async function fetchState() {
     if (!r.ok) return;
     state = await r.json();
     state.banned = state.banned || []; // сервер шлёт nil-слайс при 0 забаненных (BUG-1)
+    if (!racesLoaded) fetchRaces(); // уровни расовости дерева построек (спека 2026-09-21 §3)
     loading = false;
     offline = false;
     $("modelInfo").textContent = "Модель ИИ: " + (state.model || "—");
@@ -562,6 +583,9 @@ function orthoEdge(a, b) {
   ctx.stroke();
 }
 function renderGraph() {
+  // Ветка «Производители» — дерево построек на канвасе (спека 2026-09-21 §2.5);
+  // «Товары» — граф рецептов (как сейчас).
+  if (branch === "producers") { renderProdTree(); return; }
   const subset = fullTreeMode() ? null : focusSubset();
   const L = computeLayout(subset, fullTreeMode() ? null : selected);
   const {byId, goods, vis, pos} = L;
@@ -681,6 +705,7 @@ function statusColor(s) {
 
 // ---------- тултип карточки ----------
 function showTip(ev, id) {
+  if (branch === "producers") { showProdTip(ev, id); return; }
   const g = state.goods.find(x => x.id === id);
   if (!g) return;
   const tip = $("tip");
@@ -704,6 +729,7 @@ function hitTest(ev) {
   const rect = canvas.getBoundingClientRect();
   const mx = (ev.clientX - rect.left - panX) / zoom;
   const my = (ev.clientY - rect.top - panY) / zoom;
+  if (branch === "producers") return prodTreeHitTest(mx, my);
   const L = computeLayout(fullTreeMode() ? null : focusSubset(), fullTreeMode() ? null : selected);
   for (const g of L.goods) {
     const p = L.pos[g.id];
@@ -725,13 +751,22 @@ canvas.addEventListener("mousedown", ev => {
     downOnCard = hit && hit.type === "card" ? hit.id : null;
   }
   if (hit && hit.type === "card") {
-    selected = hit.id; renderAll();
-    // центрировать вид на выбранной карточке (зум сохраняется): в фокус-режиме
-    // подграф перестраивается и карточка могла уехать за край вьюпорта
-    // (требование создателя 2026-09-19); в полном дереве раскладка не меняется —
-    // карточка уже видна, центрирование не нужно; pan-драг начинается с пустого
-    // места (ветка else) — здесь не срабатывает
-    if (!fullTreeMode()) centerOn(hit.id);
+    if (branch === "producers") {
+      // дерево построек (спека 2026-09-21 §2.5): тип/подтип — выбор узла;
+      // узел-приглашение — попап создания; фиксированный узел — справка
+      const n = prodNodeById(hit.id);
+      if (n) { selected = hit.id; renderAll(); centerOn(hit.id); }
+      else if (hit.id.indexOf("invite:") === 0) { openProdCreatePopup(hit.id); }
+      else { openProdNodePopup(hit.id); }
+    } else {
+      selected = hit.id; renderAll();
+      // центрировать вид на выбранной карточке (зум сохраняется): в фокус-режиме
+      // подграф перестраивается и карточка могла уехать за край вьюпорта
+      // (требование создателя 2026-09-19); в полном дереве раскладка не меняется —
+      // карточка уже видна, центрирование не нужно; pan-драг начинается с пустого
+      // места (ветка else) — здесь не срабатывает
+      if (!fullTreeMode()) centerOn(hit.id);
+    }
   }
   else { panning = {x: ev.clientX, y: ev.clientY}; canvas.style.cursor = "grabbing"; }
 });
@@ -778,9 +813,16 @@ canvas.addEventListener("wheel", ev => {
   saveView(); renderGraph();
 });
 function saveView() {
-  localStorage.setItem("gs_zoom", zoom);
-  localStorage.setItem("gs_panX", panX);
-  localStorage.setItem("gs_panY", panY);
+  // Вид канваса по ветке: дерево построек — свой zoom/pan (спека §2.5).
+  if (branch === "producers") {
+    localStorage.setItem("gs_prodZoom", zoom);
+    localStorage.setItem("gs_prodPanX", panX);
+    localStorage.setItem("gs_prodPanY", panY);
+  } else {
+    localStorage.setItem("gs_zoom", zoom);
+    localStorage.setItem("gs_panX", panX);
+    localStorage.setItem("gs_panY", panY);
+  }
   localStorage.setItem("gs_viewPos", "1"); // позиция сохранена — при старте не центрировать
 }
 // Центрирование: показать верхний тир (товары-верхушки, не ресурсы).
@@ -788,6 +830,7 @@ function saveView() {
 // Только режим «всё дерево» (в фокусе кнопка скрыта); при resize/сворачивании
 // панели в фокусе — центрирование на выбранном (99a.3 §10.2).
 function centerTop() {
+  if (branch === "producers") { centerProdTree(); return; }
   if (!fullTreeMode()) {
     if (selected) { centerOn(selected); return; }
     zoom = 1; panX = 0; panY = 0; saveView(); renderGraph(); return;
@@ -810,9 +853,31 @@ function centerTop() {
   panY = rect.height / 2 - (p.y + CARD_H / 2) * zoom;
   saveView(); renderGraph();
 }
+// centerProdTree — центрирование дерева построек целиком (4 уровня в кадр).
+function centerProdTree() {
+  const L = prodTreeLayout();
+  const rect = canvas.getBoundingClientRect();
+  const w = L.maxCols * (CARD_W + GAP_X) - GAP_X + PAD * 2;
+  const h = 4 * (CARD_H + ROW_GAP) + PAD * 2; // 4 уровня дерева
+  const nz = Math.max(0.2, Math.min(1, Math.min((rect.width - 40) / w, (rect.height - 40) / h)));
+  zoom = Math.max(0.2, Math.min(4, nz));
+  panX = rect.width / 2 - (L.pos["root"].x + CARD_W / 2) * zoom;
+  panY = rect.height / 2 - (L.pos["root"].y + CARD_H / 2) * zoom;
+  saveView(); renderGraph();
+}
 // centerOn — центрировать вид на товаре (зум сохраняется): выбор из
 // справочника (99a.3 §10.2, гейт-вопрос 2).
 function centerOn(id) {
+  if (branch === "producers") {
+    const L = prodTreeLayout();
+    const p = L.pos[id];
+    if (!p) return;
+    const rect = canvas.getBoundingClientRect();
+    panX = rect.width / 2 - (p.x + CARD_W / 2) * zoom;
+    panY = rect.height / 2 - (p.y + CARD_H / 2) * zoom;
+    saveView(); renderGraph();
+    return;
+  }
   const L = computeLayout(fullTreeMode() ? null : focusSubset(), fullTreeMode() ? null : selected);
   const p = L.pos[id];
   if (!p) return;
@@ -936,6 +1001,7 @@ async function doDeleteGoodFor(id) {
 }
 canvas.addEventListener("contextmenu", ev => {
   ev.preventDefault();
+  if (branch !== "goods") { hideCtxMenu(); return; } // контекстное меню — только граф товаров
   const hit = hitTest(ev);
   if (hit && hit.type === "card") showCtxMenu(ev, hit.id);
   else hideCtxMenu();
@@ -965,6 +1031,8 @@ canvas.addEventListener("wheel", hideCtxMenu);
 // справочник. Попап привязан к popupGoodId (отдельно от selected): все
 // действия попапа идут в /api/goods/{popupGoodId} (вердикт критика С1).
 function openPopup(id) {
+  // Ветка «Производители»: узел дерева → попап детали/создания/справка (§2.5).
+  if (branch === "producers") { openProdNodePopup(id); return; }
   popupGoodId = id;
   $("detailPopup").style.display = "flex";
   $("detailOverlay").style.display = "block";
@@ -1408,6 +1476,8 @@ function renderSprav() {
   $("spravList").scrollTop = sc;
 }
 // ---------- справочник производителей (спека 2026-09-20-фабрики §4.1) ----------
+// Список — вспомогательный (спека 2026-09-21 §2.5): клик по карточке выбирает
+// узел в дереве на канвасе.
 function renderProdSprav() {
   const sc = $("spravList").scrollTop;
   const q = $("spravSearch").value.trim().toLowerCase();
@@ -1417,13 +1487,26 @@ function renderProdSprav() {
     '<div class="card" onclick="prodClick(' + p.id + ')" ondblclick="prodDblClick(' + p.id + ')">' +
     '<div class="nm">' + esc(p.name) + '<button class="info" onclick="event.stopPropagation();openProdPopup(' + p.id + ')" title="деталь (без смены выбора)">ⓘ</button></div>' +
     '<div class="meta">' + esc(kindLabel(p.kind)) + (p.category_name ? ' · ' + esc(p.category_name) : '') +
+    (p.parent_name ? ' · ← ' + esc(p.parent_name) : '') +
     ' <span class="badge ' + badgeClass(p.status) + '">' + esc(statusLabel(p.status)) + '</span></div>' +
     '</div>'
   ).join("") || '<div class="empty-note">нет типов производителей</div>';
   $("spravList").scrollTop = sc;
 }
-function prodClick(id) { selected = id; renderAll(); }
-function prodDblClick(id) { selected = id; openProdPopup(id); renderAll(); }
+function prodClick(id) {
+  const p = state.producer_types.find(x => x.id === id);
+  if (!p) return;
+  selected = prodNodeId(p); // выбор узла в дереве (спека §2.5)
+  renderAll();
+  centerOn(selected);
+}
+function prodDblClick(id) {
+  const p = state.producer_types.find(x => x.id === id);
+  if (!p) return;
+  selected = prodNodeId(p);
+  openProdPopup(id);
+  renderAll();
+}
 function openProdPopup(id) {
   popupGoodId = id;
   $("detailPopup").style.display = "flex";
@@ -1439,12 +1522,23 @@ function renderProdPopup() {
   let html = '';
   html += '<div class="dname"><span class="rename" onclick="startProdRename()" title="переименовать">' + esc(p.name) + '</span></div>';
   html += '<div class="dmeta">' + esc(kindLabel(p.kind)) + ' · ' + esc(statusLabel(p.status)) + '</div>';
-  if (p.kind === "goods") {
+  // родитель (дерево построек 2026-09-21 §1.2): подтип → тип-родитель
+  if (p.parent_id) {
+    const parent = state.producer_types.find(x => x.id === p.parent_id);
+    html += '<div class="dmeta">родитель: <b>' + esc(parent ? parent.name : p.parent_id) + '</b></div>';
+  }
+  // категория — только у подтипов kind=goods (спека §1.2 п.4): тип абстрактен
+  if (p.kind === "goods" && p.parent_id) {
     html += '<div class="dmeta">категория: <select class="dcat" onchange="changeProdCategory(this.value)">' +
       state.categories.map(c => '<option value="' + c.id + '"' + (c.id === p.category_id ? ' selected' : '') + '>' + esc(c.name) + '</option>').join("") +
       '</select></div>';
   }
-  html += '<div class="dmeta">семейство рас: <input id="prodRaceFamily" type="text" value="' + esc(p.race_family || "") + '" style="width:140px" onchange="saveProdRaceFamily(this.value)" placeholder="F1–F10 / пусто = универсальный"></div>';
+  // семейство + раса (спека §5): каскад семейство → расы семейства; запись —
+  // через PUT {race_family, race} (соответствие каталогу проверяет сервер)
+  html += '<div class="dmeta">семейство рас: <select id="popupRaceFamilySel" onchange="popupRaceFamilyChanged()">' +
+    '<option value="">универсальный</option>' + (racesData ? racesData.families.map(f =>
+      '<option value="' + f.id + '"' + (f.id === p.race_family ? ' selected' : '') + '>' + esc(familyLabelById(f.id)) + '</option>').join("") : '') +
+    '</select> · раса: <select id="popupRaceSel" onchange="popupRaceChanged()">' + prodRaceOptions(p.race) + '</select></div>';
   html += '<div class="dmeta">вход (input): <textarea id="prodInput" rows="3">' + esc(jsonText(p.input)) + '</textarea></div>';
   html += '<div class="dmeta">выход (output): <textarea id="prodOutput" rows="2">' + esc(jsonText(p.output)) + '</textarea></div>';
   html += '<div class="dmeta">параметры (params): <textarea id="prodParams" rows="2">' + esc(jsonText(p.params)) + '</textarea></div>';
@@ -1495,8 +1589,27 @@ async function changeProdCategory(catId) {
   const r = await api("PUT", "/studio/api/producers/" + popupGoodId, {category_id: Number(catId)});
   if (r) fetchState();
 }
-async function saveProdRaceFamily(v) {
-  const r = await api("PUT", "/studio/api/producers/" + popupGoodId, {race_family: v.trim()});
+// семейство/раса в попапе (спека §5): каскад — выбор расы фиксирует семейство,
+// выбор семейства сбрасывает расу; сохраняется через PUT {race_family, race}.
+function popupRaceFamilyChanged() {
+  const raceSel = $("popupRaceSel");
+  if (raceSel) raceSel.value = "";
+  saveProdRace();
+}
+function popupRaceChanged() {
+  const raceSel = $("popupRaceSel");
+  const famSel = $("popupRaceFamilySel");
+  if (raceSel && famSel && raceSel.value) {
+    const fam = raceFamilyOf(raceSel.value);
+    if (fam) famSel.value = fam;
+  }
+  saveProdRace();
+}
+async function saveProdRace() {
+  const famSel = $("popupRaceFamilySel");
+  const raceSel = $("popupRaceSel");
+  if (!famSel || !raceSel) return;
+  const r = await api("PUT", "/studio/api/producers/" + popupGoodId, {race_family: famSel.value, race: raceSel.value});
   if (r) fetchState();
 }
 async function saveProdJSON() {
@@ -1547,16 +1660,363 @@ async function unlinkItem(itemId) {
 async function prodAdd() {
   const name = $("prodNewName").value.trim();
   const kind = $("prodNewKind").value;
-  const cat = $("prodNewCat").value;
   if (!name) return;
+  // «+ тип» создаёт тип (parent_id NULL): категории у типов нет (спека
+  // 2026-09-21 §1.2 п.4 — категории живут в подтипах, их заводят через
+  // узлы-приглашения дерева на канвасе).
   const body = {name, kind};
-  if (kind === "goods" && cat) body.category_id = Number(cat);
   const r = await api("POST", "/studio/api/producers", body);
   if (!r) return;
   const p = await r.json();
   $("prodNewName").value = "";
-  selected = p.id;
+  selected = prodNodeId(p);
   fetchState();
+}
+
+// ---------- дерево построек на канвасе (спека 2026-09-21 §2) ----------
+// Уровни: Строения (корень) → Классы (фиксированные) → Типы (parent_id NULL)
+// → Подтипы + узлы-приглашения категорий (автоматика). Раскладка — свой
+// лейут (4 уровня-ряда), рёбра — орто (orthoEdge), pan/zoom — общие.
+
+function raceFamilyOf(raceId) {
+  if (!racesData) return "";
+  const r = racesData.races.find(x => x.id === raceId);
+  return r ? r.family : "";
+}
+function raceName(raceId) {
+  if (!racesData) return raceId;
+  const r = racesData.races.find(x => x.id === raceId);
+  return r ? r.name : raceId;
+}
+function familyLabelById(fid) {
+  if (!racesData) return fid;
+  const f = racesData.families.find(x => x.id === fid);
+  return f ? (f.id === "robotic" ? "F10 " + f.name : f.id + " " + f.name) : fid;
+}
+
+// Видимость записи при выбранном уровне расовости (спека §2.4, решение
+// создателя идея §2 п.6 «своё + универсальное»): универсальный — race_family
+// IS NULL; семейство Fk — NULL или Fk; раса R — NULL или (family(R) и race
+// IS NULL) или race = R.
+function prodVisible(p) {
+  if (prodRaceLevel === "universal") return !p.race_family;
+  if (prodRaceLevel === "family") return !p.race_family || p.race_family === prodRaceFamily;
+  const fam = raceFamilyOf(prodRace);
+  return !p.race_family || (p.race_family === fam && !p.race) || p.race === prodRace;
+}
+
+// Автоматика категорий (спека §2.2): под Фабрикой/Автофабрикой раскрываются
+// 13 товарных категорий, под Добывающей платформой — 6 ресурсных. Типы —
+// сид-константы фиксированной структуры дерева (§2.1); переименование типа
+// снимает автоматику (риск зафиксирован в отчёте).
+function prodAutoCategories(t) {
+  if (t.name === "Фабрика" || t.name === "Автофабрика") {
+    return state.categories.filter(c => c.kind === "good");
+  }
+  if (t.name === "Добывающая платформа") {
+    return state.categories.filter(c => c.kind === "resource");
+  }
+  return null;
+}
+
+// prodNodeId — id узла дерева для записи producer_types ("type:N"/"sub:N").
+function prodNodeId(p) { return (p.parent_id ? "sub:" : "type:") + p.id; }
+// prodNodeById — запись по id узла дерева (null для фиксированных/приглашений).
+function prodNodeById(id) {
+  const m = /^(type|sub):(\d+)$/.exec(id || "");
+  if (!m) return null;
+  return state.producer_types.find(p => p.id === Number(m[2]));
+}
+
+// buildProdTree — дерево построек (спека §2.1): корень → классы (фиксированные
+// узлы UI, не записи БД) → типы (parent_id NULL, по классам через kind) →
+// подтипы (parent_id NOT NULL) + узлы-приглашения категорий (автоматика).
+function buildProdTree() {
+  const classes = [
+    {id: "class-goods", label: "Производители товаров", cls: "goods", children: []},
+    {id: "class-items", label: "Производители предметов", cls: "items", children: []},
+    {id: "class-energy", label: "Производители энергии", cls: "energy", children: []},
+    {id: "class-other", label: "Другие", cls: "other", children: []},
+  ];
+  const root = {id: "root", label: "Строения", kind: "root", children: classes};
+  const types = state.producer_types.filter(p => !p.parent_id && prodVisible(p));
+  types.forEach(t => {
+    const cls = classes.find(c => c.cls === t.kind);
+    if (!cls) return;
+    const node = {id: prodNodeId(t), label: t.name, kind: "type", ref: t, children: []};
+    cls.children.push(node);
+    // подтипы (видимые на выбранном уровне расовости)
+    state.producer_types.filter(s => s.parent_id === t.id && prodVisible(s)).forEach(s => {
+      node.children.push({id: prodNodeId(s), label: s.name, kind: "subtype", ref: s, children: []});
+    });
+    // автоматика категорий: категория без видимого подтипа — узел-приглашение
+    const cats = prodAutoCategories(t);
+    if (cats) {
+      cats.forEach(c => {
+        const has = state.producer_types.some(s => s.parent_id === t.id && s.category_id === c.id && prodVisible(s));
+        if (has) return;
+        node.children.push({id: "invite:" + t.id + ":" + c.id, label: c.name, kind: "invite", ref: {type: t, cat: c}, children: []});
+      });
+    }
+  });
+  return root;
+}
+
+// prodTreeLayout — раскладка дерева (4 уровня-ряда, как computeLayout):
+// ширина поддерева = сумма детей, родитель центрируется над детьми.
+function prodTreeLayout() {
+  const root = buildProdTree();
+  const cols = {};
+  function colsOf(n) {
+    if (cols[n.id] !== undefined) return cols[n.id];
+    if (!n.children.length) { cols[n.id] = 1; return 1; }
+    let s = 0;
+    n.children.forEach(c => s += colsOf(c));
+    cols[n.id] = s;
+    return s;
+  }
+  const pos = {};
+  let maxCols = 1;
+  const rowH = CARD_H + ROW_GAP;
+  function place(n, x, depth) {
+    const blockW = colsOf(n) * (CARD_W + GAP_X) - GAP_X;
+    pos[n.id] = {x: x + (blockW - CARD_W) / 2, y: PAD + depth * rowH};
+    maxCols = Math.max(maxCols, x + blockW + GAP_X);
+    let cx = x;
+    n.children.forEach(c => { place(c, cx, depth + 1); cx += colsOf(c) * (CARD_W + GAP_X); });
+  }
+  place(root, PAD, 0);
+  return {root, pos, maxCols};
+}
+
+// renderProdTree — дерево построек на канвасе (спека §2.5): карточки уровней,
+// орто-рёбра, узлы-приглашения пунктиром, клик = выбор, двойной клик = попап.
+function renderProdTree() {
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = $("canvasWrap").clientWidth, cssH = $("canvasWrap").clientHeight;
+  canvas.width = Math.max(1, Math.round(cssW * dpr));
+  canvas.height = Math.max(1, Math.round(cssH * dpr));
+  ctx.setTransform(dpr * zoom, 0, 0, dpr * zoom, dpr * panX, dpr * panY);
+  ctx.clearRect(-panX/zoom, -panY/zoom, cssW/zoom, cssH/zoom);
+  const L = prodTreeLayout();
+  // рёбра (орто)
+  ctx.strokeStyle = "#555";
+  ctx.lineWidth = 1.5;
+  (function edges(n) {
+    n.children.forEach(c => {
+      if (L.pos[c.id]) orthoEdge(L.pos[n.id], L.pos[c.id]);
+      edges(c);
+    });
+  })(L.root);
+  // карточки
+  (function draw(n) {
+    const p = L.pos[n.id];
+    if (!p) return;
+    const x = p.x, y = p.y;
+    const isInvite = n.kind === "invite";
+    const isFixed = n.kind === "root" || n.kind === "class";
+    const sel = selected === n.id;
+    if (isInvite) {
+      ctx.setLineDash([5, 4]);
+      ctx.fillStyle = "#1a1a1a";
+      ctx.strokeStyle = "#777";
+      ctx.lineWidth = 1.5;
+      roundRect(x, y, CARD_W, CARD_H, 8);
+      ctx.fill(); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = "#999";
+      ctx.font = "12px Arial";
+      ctx.fillText("создать", x + 8, y + 18);
+      ctx.font = "10px Arial";
+      ctx.fillText(trunc(n.label, 24), x + 8, y + 32);
+    } else {
+      ctx.fillStyle = isFixed ? "#2a2a2a" : (n.ref && n.ref.status === "banned" ? "#3a3a3a" : "#3d3d3d");
+      ctx.strokeStyle = sel ? "#8cf" : (isFixed ? "#666" : "#5a5a5a");
+      ctx.lineWidth = sel ? 2 : 1;
+      roundRect(x, y, CARD_W, CARD_H, 8);
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = "#fff";
+      ctx.font = "12px Arial";
+      ctx.fillText(trunc(n.label, 26), x + 8, y + 18);
+      ctx.fillStyle = "#bbb";
+      ctx.font = "10px Arial";
+      const sub = n.kind === "type" ? kindLabel(n.ref.kind)
+        : n.kind === "subtype" ? (n.ref.category_name || kindLabel(n.ref.kind))
+        : (n.id === "class-other" ? "задел" : "фиксированный класс");
+      ctx.fillText(sub, x + 8, y + 32);
+      // бейдж статуса (типы/подтипы)
+      if (n.ref && n.ref.status) {
+        const b = statusLabel(n.ref.status);
+        const w = ctx.measureText(b).width + 10;
+        ctx.fillStyle = statusColor(n.ref.status);
+        roundRect(x + 8, y + 40, w, 16, 4); ctx.fill();
+        ctx.fillStyle = "#fff";
+        ctx.fillText(b, x + 13, y + 52);
+      }
+    }
+    n.children.forEach(draw);
+  })(L.root);
+}
+
+// prodTreeHitTest — карточка дерева под точкой (мировые координаты).
+function prodTreeHitTest(mx, my) {
+  const L = prodTreeLayout();
+  for (const id in L.pos) {
+    const p = L.pos[id];
+    if (mx >= p.x && mx <= p.x + CARD_W && my >= p.y && my <= p.y + CARD_H) return {type: "card", id: id};
+  }
+  return null;
+}
+
+// openProdNodePopup — попап по узлу дерева (спека §2.5): тип/подтип — деталь
+// (renderProdPopup); узел-приглашение — попап создания; фиксированный узел
+// (корень/класс) — справка «фиксированный узел», «Другие» — пометка «задел».
+function openProdNodePopup(id) {
+  const n = prodNodeById(id);
+  if (n) { openProdPopup(n.id); return; }
+  if (id && id.indexOf("invite:") === 0) { openProdCreatePopup(id); return; }
+  const label = id === "root" ? "Строения"
+    : id === "class-other" ? "Другие"
+    : id === "class-goods" ? "Производители товаров"
+    : id === "class-items" ? "Производители предметов" : "Производители энергии";
+  openModal(
+    '<h3>' + esc(label) + '</h3>' +
+    '<div>' + (id === "class-other" ? 'Задел — типы появятся позже.' : 'Фиксированный узел дерева построек (не редактируется).') + '</div>',
+    [{label: "Ок", cls: "", action: closeModal}]
+  );
+}
+
+// openProdCreatePopup — попап создания подтипа из узла-приглашения (спека
+// §2.3): name = «<Родитель> <категория>», kind/category_id/parent_id — из
+// узла, race_family/race — текущий уровень расовости. POST → draft.
+function openProdCreatePopup(id) {
+  const m = /^invite:(\d+):(\d+)$/.exec(id || "");
+  if (!m) return;
+  const type = state.producer_types.find(p => p.id === Number(m[1]));
+  const cat = state.categories.find(c => c.id === Number(m[2]));
+  if (!type || !cat) return;
+  const raceInfo = prodRaceLevel === "universal" ? ""
+    : prodRaceLevel === "family" ? familyLabelById(prodRaceFamily) : raceName(prodRace);
+  openModal(
+    '<h3>Создать подтип</h3>' +
+    '<div>Родитель: <b>' + esc(type.name) + '</b> · категория: <b>' + esc(cat.name) + '</b>' +
+    (raceInfo ? ' · расовость: <b>' + esc(raceInfo) + '</b>' : '') + '</div>' +
+    '<div style="margin-top:8px">Имя: <input id="prodCreateName" type="text" value="' + esc(type.name + " " + cat.name) + '" style="width:100%;box-sizing:border-box" autocomplete="off"></div>',
+    [
+      {label: "Создать", cls: "gen", primary: true, action: () => doProdCreate(type, cat)},
+      {label: "Отмена", cls: "", action: closeModal}
+    ]
+  );
+  const inp = $("prodCreateName");
+  inp.focus(); inp.select();
+  // Enter — глобальный обработчик модалки (клик по primary-кнопке «Создать»).
+}
+async function doProdCreate(type, cat) {
+  const name = $("prodCreateName").value.trim();
+  if (!name) return;
+  closeModal();
+  const body = {name, kind: type.kind, category_id: cat.id, parent_id: type.id};
+  if (prodRaceLevel === "family") body.race_family = prodRaceFamily;
+  if (prodRaceLevel === "race") { body.race_family = raceFamilyOf(prodRace); body.race = prodRace; }
+  const r = await api("POST", "/studio/api/producers", body);
+  if (!r) return;
+  const p = await r.json();
+  selected = prodNodeId(p);
+  fetchState();
+}
+
+// --- переключатель уровня расовости (спека §5) ---
+// Универсальный / Семейство (F1–F10) / Раса (60, сгруппированы по семействам).
+// Выбор расы фиксирует её семейство (каскад), выбор семейства сбрасывает расу.
+function setProdRaceLevel(v) {
+  prodRaceLevel = v;
+  localStorage.setItem("gs_prodRaceLevel", v);
+  if (v === "universal") { prodRaceFamily = ""; prodRace = ""; }
+  if (v === "family") prodRace = "";
+  localStorage.setItem("gs_prodRaceFamily", prodRaceFamily);
+  localStorage.setItem("gs_prodRace", prodRace);
+  renderProdRaceUI();
+  renderAll();
+}
+function setProdRaceFamily(v) {
+  prodRaceFamily = v;
+  prodRace = ""; // выбор семейства сбрасывает расу (спека §5)
+  localStorage.setItem("gs_prodRaceFamily", v);
+  localStorage.setItem("gs_prodRace", "");
+  renderProdRaceUI();
+  renderAll();
+}
+function setProdRace(v) {
+  prodRace = v;
+  if (v) {
+    const fam = raceFamilyOf(v);
+    if (fam) { prodRaceFamily = fam; localStorage.setItem("gs_prodRaceFamily", fam); }
+  }
+  localStorage.setItem("gs_prodRace", v);
+  renderProdRaceUI();
+  renderAll();
+}
+function renderProdRaceUI() {
+  const levelSel = $("prodRaceLevelSel");
+  const famSel = $("prodRaceFamilySel");
+  const raceSel = $("prodRaceSel");
+  if (!levelSel) return;
+  levelSel.value = prodRaceLevel;
+  famSel.innerHTML = (racesData ? racesData.families : []).map(f =>
+    '<option value="' + f.id + '"' + (f.id === prodRaceFamily ? ' selected' : '') + '>' + esc(familyLabelById(f.id)) + '</option>').join("");
+  raceSel.innerHTML = prodRaceOptions(prodRace);
+  famSel.style.display = prodRaceLevel === "universal" ? "none" : "";
+  raceSel.style.display = prodRaceLevel === "race" ? "" : "none";
+}
+function prodRaceOptions(sel) {
+  if (!racesData) return '<option value="">—</option>';
+  const byFam = {};
+  racesData.races.forEach(r => { (byFam[r.family] = byFam[r.family] || []).push(r); });
+  let html = '<option value="">—</option>';
+  racesData.families.forEach(f => {
+    const list = byFam[f.id] || [];
+    if (!list.length) return;
+    html += '<optgroup label="' + esc(familyLabelById(f.id)) + '">' +
+      list.map(r => '<option value="' + r.id + '"' + (r.id === sel ? ' selected' : '') + '>' + esc(r.name) + '</option>').join("") +
+      '</optgroup>';
+  });
+  return html;
+}
+async function fetchRaces() {
+  try {
+    const r = await studioFetch("/studio/api/races");
+    if (!r.ok) return;
+    racesData = await r.json();
+    racesLoaded = true;
+    renderProdRaceUI();
+    renderAll();
+  } catch (e) { /* 401 — оверлей уже показан (studioFetch) */ }
+}
+
+// showProdTip — тултип узла дерева построек.
+function showProdTip(ev, id) {
+  const n = prodNodeById(id);
+  const tip = $("tip");
+  if (n) {
+    tip.innerHTML = '<b>' + esc(n.name) + '</b><br>' + esc(kindLabel(n.kind)) + ' · ' + esc(statusLabel(n.status)) +
+      (n.category_name ? ' · ' + esc(n.category_name) : '') + (n.parent_name ? ' · ← ' + esc(n.parent_name) : '');
+  } else if (id === "root") {
+    tip.innerHTML = '<b>Строения</b><br>корень дерева построек';
+  } else if (id === "class-other") {
+    tip.innerHTML = '<b>Другие</b><br>задел — типы появятся позже';
+  } else if (id && id.indexOf("class-") === 0) {
+    tip.innerHTML = '<b>' + esc(id === "class-goods" ? "Производители товаров" : id === "class-items" ? "Производители предметов" : "Производители энергии") + '</b><br>фиксированный класс';
+  } else if (id && id.indexOf("invite:") === 0) {
+    tip.innerHTML = '<b>создать</b><br>подтип не заведён — клик создаст';
+  } else {
+    hideTip(); return;
+  }
+  const rect = canvas.getBoundingClientRect();
+  let x = ev.clientX - rect.left + 14, y = ev.clientY - rect.top + 14;
+  if (x + 220 > rect.width) x = ev.clientX - rect.left - 230;
+  if (y + 60 > rect.height) y = ev.clientY - rect.top - 60;
+  tip.style.left = x + "px"; tip.style.top = y + "px";
+  tip.style.display = "block";
 }
 
 // ---------- справочник предметов (спека 2026-09-20-фабрики §4.2) ----------
@@ -1728,9 +2188,6 @@ function renderCatSelects() {
   $("spravNewCat").innerHTML = goodOpts;
   $("spravNewResCat").innerHTML = resOpts;
   $("btnSpravAddRes").disabled = !resOpts; // ресурсных категорий нет — «+ ресурс» недоступен
-  // ветка «Производители»: категория для kind=goods (все категории каталога)
-  const allCatOpts = state.categories.map(c => '<option value="' + c.id + '">' + esc(c.name) + '</option>').join("");
-  $("prodNewCat").innerHTML = '<option value="">—</option>' + allCatOpts;
   // фильтр справочника по категории: сохранить текущий выбор при пересборке;
   // при старте опции ещё не заполнены — берём сохранённое из localStorage
   const sc = $("spravCat").value || localStorage.getItem("gs_spravCat") || "";
@@ -1889,8 +2346,11 @@ function applyModeUI() {
 
 // ---------- сборка ----------
 function renderAll() {
-  // выбранный товар удалён (авто-обновление/импорт) → сброс к пустому состоянию (99a.3 §5.3)
-  if (selected && !state.goods.some(g => g.id === selected)) selected = null;
+  // выбранный узел удалён (авто-обновление/импорт) → сброс к пустому состоянию
+  if (selected) {
+    if (branch === "goods" && !state.goods.some(g => g.id === selected)) selected = null;
+    if (branch === "producers" && !prodNodeById(selected)) selected = null;
+  }
   const sc = $("spravList").scrollTop; // сохранить scroll списка справочника при пересборке
   applyBranchUI();
   if (branch === "goods") {
@@ -1899,6 +2359,10 @@ function renderAll() {
     renderCatPopup(); // авто-обновление попапа категорий (если открыт)
     renderSprav();
     renderCatSelects();
+  } else if (branch === "producers") {
+    renderGraph(); // дерево построек на канвасе (спека 2026-09-21 §2)
+    renderProdPopup(); // попап производителя (если открыт)
+    renderSprav(); // список справочника — вспомогательный (§2.5)
   } else {
     renderSprav();
   }
@@ -1919,14 +2383,28 @@ function setBranch(b) {
   selected = null;
   popupGoodId = null;
   closePopup();
+  // вид канваса по ветке: дерево построек — свой zoom/pan (спека §2.5)
+  if (b === "producers") {
+    zoom = parseFloat(localStorage.getItem("gs_prodZoom") || "1");
+    panX = parseFloat(localStorage.getItem("gs_prodPanX") || "0");
+    panY = parseFloat(localStorage.getItem("gs_prodPanY") || "0");
+  } else {
+    zoom = parseFloat(localStorage.getItem("gs_zoom") || "1");
+    panX = parseFloat(localStorage.getItem("gs_panX") || "0");
+    panY = parseFloat(localStorage.getItem("gs_panY") || "0");
+  }
   renderAll();
 }
 function applyBranchUI() {
   const isGoods = branch === "goods";
+  const isProducers = branch === "producers";
   $("segGraph").style.display = isGoods ? "" : "none";
   $("btnCatOpen").style.display = isGoods ? "" : "none";
-  $("canvasWrap").style.display = isGoods ? "" : "none";
-  $("spravSearch").style.display = isGoods ? "" : "none";
+  // канвас показывается и в ветке «Производители» — дерево построек (спека §2.5)
+  $("canvasWrap").style.display = (isGoods || isProducers) ? "" : "none";
+  // переключатель уровня расовости — только ветка «Производители» (спека §5)
+  $("segProdRace").style.display = isProducers ? "" : "none";
+  $("spravSearch").style.display = (isGoods || isProducers) ? "" : "none";
   $("spravCat").style.display = isGoods ? "" : "none";
   $("filters").style.display = isGoods ? "" : "none";
   $("tierFilters").style.display = isGoods ? "" : "none";
@@ -1934,7 +2412,7 @@ function applyBranchUI() {
   $("resAddRow").style.display = isGoods ? "" : "none";
   $("bulkToggle").style.display = isGoods ? "" : "none";
   $("bulkBlock").style.display = "none";
-  $("prodAddRow").style.display = branch === "producers" ? "" : "none";
+  $("prodAddRow").style.display = isProducers ? "" : "none";
   $("itemAddRow").style.display = branch === "items" ? "" : "none";
 }
 function kindLabel(k) {
@@ -2090,6 +2568,13 @@ $("branchGoods").classList.toggle("on", branch === "goods");
 $("branchProducers").classList.toggle("on", branch === "producers");
 $("branchItems").classList.toggle("on", branch === "items");
 applyBranchUI();
+// вид канваса по ветке при старте: дерево построек — свой zoom/pan (спека §2.5)
+if (branch === "producers") {
+  zoom = parseFloat(localStorage.getItem("gs_prodZoom") || "1");
+  panX = parseFloat(localStorage.getItem("gs_prodPanX") || "0");
+  panY = parseFloat(localStorage.getItem("gs_prodPanY") || "0");
+}
+renderProdRaceUI(); // переключатель расовости (данные придут с /studio/api/races)
 // старт: авторизация (спека iterC §8.3) → start() = fetchState + интервал;
 // bootstrap — в модуле web/static/js/studio/auth.js (после парсинга документа)
 function start() { fetchState(); }

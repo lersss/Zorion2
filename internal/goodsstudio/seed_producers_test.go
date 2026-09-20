@@ -1,7 +1,9 @@
 // internal/goodsstudio/seed_producers_test.go
-// Тесты сидера каталога производителей (спека 2026-09-20-фабрики §10.1 п.2):
-// маркер producer_catalog_seed — пропуск; полный сид — 8 типов производителей
-// + 4 предмета + 4 связи + маркер, всё в одной транзакции.
+// Тесты сидера каталога производителей (спека 2026-09-20-фабрики §10.1 п.2 +
+// 2026-09-21-студия-дерево-построек-канвас §1.4): маркер producer_catalog_seed —
+// пропуск; полный сид — 10 типов производителей (включая «Лабораторию»-родителя
+// и «Фабрику продовольствия»-подтип) + 4 предмета + 4 связи + маркер, всё в
+// одной транзакции.
 package goodsstudio
 
 import (
@@ -27,7 +29,8 @@ func TestSeedProducersMarkerSkips(t *testing.T) {
 }
 
 // TestSeedProducersFull — нет маркера → полный сид в одной транзакции:
-// категории (для добывающей платформы), 8 типов, 4 предмета, 4 связи, маркер.
+// категории (минералы — не используется, продовольствие — для фабрики
+// продовольствия), 10 типов, 4 предмета, 4 связи, маркер.
 func TestSeedProducersFull(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
@@ -42,11 +45,13 @@ func TestSeedProducersFull(t *testing.T) {
 	// Категории по name_norm (посеяны goodsstudio.Seed до этого сида).
 	mock.ExpectQuery(`SELECT id, name_norm FROM categories`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name_norm"}).
-			AddRow(int64(7), "минералы"))
+			AddRow(int64(7), "минералы").
+			AddRow(int64(8), "продовольствие"))
 
-	// 8 типов производителей (approved).
+	// 10 типов производителей (approved; ON CONFLICT DO NOTHING — миграция
+	// 000051 могла создать «Лабораторию» на свежей БД).
 	for range seedProducers {
-		mock.ExpectQuery(`INSERT INTO producer_types \(name, name_norm, kind, category_id, race_family, output, input, params, status\)\s+VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, 'approved'\) RETURNING id`).
+		mock.ExpectQuery(`INSERT INTO producer_types \(name, name_norm, kind, category_id, race_family, parent_id, race, output, input, params, status\)\s+VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, \$9, \$10, 'approved'\)\s+ON CONFLICT \(name_norm\) DO NOTHING RETURNING id`).
 			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(1)))
 	}
 
@@ -73,12 +78,15 @@ func TestSeedProducersFull(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// TestSeedProducersContent — состав сида: 8 типов (поселение, фабрика,
-// автофабрика, добывающая платформа, энергостанция, 3 лаборатории),
-// 4 предмета (чертёж, сертификат, модуль, кирка), 4 связи; автофабрика —
-// корзина роботов (энергия + детали + комплектующие, НЕ еда).
+// TestSeedProducersContent — состав сида: 10 типов (поселение, фабрика,
+// автофабрика, добывающая платформа, энергостанция, лаборатория-родитель,
+// 3 лаборатории-подтипа, фабрика продовольствия), 4 предмета (чертёж,
+// сертификат, модуль, кирка), 4 связи; автофабрика — корзина роботов
+// (энергия + детали + комплектующие, НЕ еда); дерево построек: лаборатории —
+// подтипы «Лаборатории», фабрика продовольствия — подтип «Фабрики» с
+// категорией, платформа — без категории.
 func TestSeedProducersContent(t *testing.T) {
-	require.Len(t, seedProducers, 8, "поселение, фабрика, автофабрика, платформа, станция, 3 лаборатории")
+	require.Len(t, seedProducers, 10, "поселение, фабрика, автофабрика, платформа, станция, лаборатория, 3 лаборатории-подтипа, фабрика продовольствия")
 	require.Len(t, seedItems, 4, "чертёж, сертификат анализа, модуль корабля, кирка")
 	require.Len(t, seedProducerItems, 4, "3 лаборатории → предметы + сертификат")
 
@@ -95,12 +103,26 @@ func TestSeedProducersContent(t *testing.T) {
 	require.Contains(t, autoFactory.Input, "energy")
 	require.NotContains(t, autoFactory.Input, "еда")
 
-	// 3 лаборатории — kind=items.
+	// Лаборатория-родитель + 3 лаборатории-подтипа — kind=items.
 	labs := 0
 	for _, p := range seedProducers {
 		if p.Kind == "items" {
 			labs++
 		}
 	}
-	require.Equal(t, 3, labs, "3 лаборатории как типы предметов-производителей")
+	require.Equal(t, 4, labs, "лаборатория-родитель + 3 лаборатории как типы предметов-производителей")
+
+	// Дерево построек: подтипы ссылаются на родителей по имени.
+	byName := map[string]seedProducer{}
+	for _, p := range seedProducers {
+		byName[p.Name] = p
+	}
+	require.Equal(t, "Лаборатория", byName["Лаборатория космических технологий"].Parent)
+	require.Equal(t, "Лаборатория", byName["Лаборатория экипировки"].Parent)
+	require.Equal(t, "Исследовательская лаборатория", byName["Исследовательская лаборатория"].Name)
+	require.Equal(t, "Лаборатория", byName["Исследовательская лаборатория"].Parent)
+	require.Equal(t, "Фабрика", byName["Фабрика продовольствия"].Parent)
+	require.Equal(t, "продовольствие", byName["Фабрика продовольствия"].Category)
+	require.Equal(t, "", byName["Добывающая платформа"].Category, "платформа — чистый тип уровня 3, без категории")
+	require.Equal(t, "", byName["Лаборатория"].Parent, "лаборатория — тип-родитель")
 }

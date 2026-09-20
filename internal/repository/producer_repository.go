@@ -16,13 +16,17 @@ import (
 	"zorion/internal/goodsstudio/graph"
 )
 
-// ProducerTypeRow — тип производителя из БД (спека §3.1).
+// ProducerTypeRow — тип производителя из БД (спека §3.1 + дерево построек
+// 2026-09-21 §1.2): parent_id — базовый тип (подтип → тип-родитель),
+// race — второй уровень расовости (id расы из config/races.json).
 type ProducerTypeRow struct {
 	ID         int64
 	Name       string
 	Kind       string // goods/items/energy
 	CategoryID sql.NullInt64
 	RaceFamily sql.NullString
+	ParentID   sql.NullInt64
+	Race       sql.NullString
 	Output     []byte // JSONB
 	Input      []byte // JSONB
 	Params     []byte // JSONB
@@ -56,12 +60,56 @@ func nullStr(s string) interface{} {
 	return s
 }
 
+// nullStrPtr — *string → NULL (nil или пустая строка → NULL).
+func nullStrPtr(s *string) interface{} {
+	if s == nil || *s == "" {
+		return nil
+	}
+	return *s
+}
+
+// subtypeTupleChanged — изменился ли кортеж подтипа (parent_id, category_id,
+// race_family, race) относительно текущих значений записи. Пустая строка
+// эквивалентна NULL (nullStrPtr); итоговые значения уже учитывают «не менять»
+// (nil-указатель = текущее). Используется в UpdateProducerType: уникальность
+// подтипа проверяется ТОЛЬКО при фактическом изменении кортежа — чистое
+// переименование не проверяется (лаборатории легитимно делят кортеж, B1).
+func subtypeTupleChanged(curParent, curCategory sql.NullInt64, curFamily, curRace sql.NullString,
+	finalParent *int64, finalCategory *int64, finalFamily, finalRace *string) bool {
+	if (curParent.Valid && (finalParent == nil || *finalParent != curParent.Int64)) ||
+		(!curParent.Valid && finalParent != nil) {
+		return true
+	}
+	if (curCategory.Valid && (finalCategory == nil || *finalCategory != curCategory.Int64)) ||
+		(!curCategory.Valid && finalCategory != nil) {
+		return true
+	}
+	curFam, newFam := "", ""
+	if curFamily.Valid {
+		curFam = curFamily.String
+	}
+	if finalFamily != nil {
+		newFam = *finalFamily
+	}
+	if curFam != newFam {
+		return true
+	}
+	curR, newR := "", ""
+	if curRace.Valid {
+		curR = curRace.String
+	}
+	if finalRace != nil {
+		newR = *finalRace
+	}
+	return curR != newR
+}
+
 // --- снимок ---
 
 // loadProducerTypes — все типы производителей каталога.
 func loadProducerTypes(q queryer) ([]ProducerTypeRow, error) {
 	rows, err := q.Query(
-		`SELECT id, name, kind, category_id, race_family, output, input, params, status, created_at
+		`SELECT id, name, kind, category_id, race_family, parent_id, race, output, input, params, status, created_at
 		 FROM producer_types ORDER BY id`)
 	if err != nil {
 		return nil, err
@@ -72,7 +120,7 @@ func loadProducerTypes(q queryer) ([]ProducerTypeRow, error) {
 	for rows.Next() {
 		var p ProducerTypeRow
 		if err := rows.Scan(&p.ID, &p.Name, &p.Kind, &p.CategoryID, &p.RaceFamily,
-			&p.Output, &p.Input, &p.Params, &p.Status, &p.CreatedAt); err != nil {
+			&p.ParentID, &p.Race, &p.Output, &p.Input, &p.Params, &p.Status, &p.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
@@ -122,10 +170,16 @@ func loadProducerItems(q queryer) ([]ProducerItemRow, error) {
 
 // --- типы производителей ---
 
-// CreateProducerType — создание типа производителя (спека §4.1): kind
-// goods/items/energy; kind=goods — категория обязательна и должна
-// существовать (иначе 400); дубликат нормализованного имени — 409.
-func (r *GoodsRepository) CreateProducerType(name, kind string, categoryID *int64) (ProducerTypeRow, error) {
+// CreateProducerType — создание типа производителя (спека §4.1 + дерево
+// построек 2026-09-21 §1.2): kind goods/items/energy; parent_id — базовый
+// тип (подтип → тип-родитель). Инварианты §1.2: глубина 1 (родитель обязан
+// быть типом), kind подтипа = kind родителя, категория — только у подтипов
+// kind=goods (тип kind=goods абстрактен, категория = NULL), уникальность
+// подтипа (parent_id, category_id, race_family, race) — 409, дубликат
+// нормализованного имени — 409. Соответствие race → race_family каталогу рас
+// проверяет хендлер (races.LoreByID); здесь — структурная проверка
+// «раса задана → семейство задано».
+func (r *GoodsRepository) CreateProducerType(name, kind string, categoryID *int64, parentID *int64, raceFamily, race *string) (ProducerTypeRow, error) {
 	tx, err := r.beginMutation()
 	if err != nil {
 		return ProducerTypeRow{}, err
@@ -139,8 +193,35 @@ func (r *GoodsRepository) CreateProducerType(name, kind string, categoryID *int6
 	if kind != "goods" && kind != "items" && kind != "energy" {
 		return ProducerTypeRow{}, errCatalog(400, "неизвестный kind (goods/items/energy)")
 	}
-	if kind == "goods" && categoryID == nil {
-		return ProducerTypeRow{}, errCatalog(400, "для kind=goods категория обязательна")
+	// Родитель: существует, обязан быть типом (глубина 1), kind наследуется.
+	if parentID != nil {
+		var parentKind string
+		var parentIsType bool
+		err := tx.QueryRow(
+			`SELECT kind, parent_id IS NULL FROM producer_types WHERE id = $1`, *parentID,
+		).Scan(&parentKind, &parentIsType)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ProducerTypeRow{}, errCatalog(400, "родитель не найден")
+		}
+		if err != nil {
+			return ProducerTypeRow{}, err
+		}
+		if !parentIsType {
+			return ProducerTypeRow{}, errCatalog(400, "подтип подтипа запрещён (глубина 1)")
+		}
+		if kind != parentKind {
+			return ProducerTypeRow{}, errCatalog(400, "kind подтипа = kind родителя")
+		}
+	}
+	// Категория — только у подтипов kind=goods (спека §1.2 п.4): тип
+	// (parent_id NULL) с kind=goods абстрактен, категория = NULL.
+	if kind == "goods" {
+		if parentID == nil && categoryID != nil {
+			return ProducerTypeRow{}, errCatalog(400, "у типа kind=goods категория не задаётся — категории живут в подтипах")
+		}
+		if parentID != nil && categoryID == nil {
+			return ProducerTypeRow{}, errCatalog(400, "для подтипа kind=goods категория обязательна")
+		}
 	}
 	if categoryID != nil {
 		var exists bool
@@ -153,6 +234,10 @@ func (r *GoodsRepository) CreateProducerType(name, kind string, categoryID *int6
 			return ProducerTypeRow{}, errCatalog(400, "категория не найдена")
 		}
 	}
+	// Раса задана → семейство задано (соответствие каталогу — в хендлере).
+	if race != nil && *race != "" && (raceFamily == nil || *raceFamily == "") {
+		return ProducerTypeRow{}, errCatalog(400, "раса задана — семейство рас обязательно")
+	}
 	var exists bool
 	if err := tx.QueryRow(
 		`SELECT EXISTS(SELECT 1 FROM producer_types WHERE name_norm = $1)`, graph.NormalizeName(name),
@@ -162,13 +247,28 @@ func (r *GoodsRepository) CreateProducerType(name, kind string, categoryID *int6
 	if exists {
 		return ProducerTypeRow{}, errCatalog(409, "тип с таким именем уже есть")
 	}
+	// Уникальность подтипа: (parent_id, category_id, race_family, race) — 409.
+	if parentID != nil {
+		var dup bool
+		if err := tx.QueryRow(
+			`SELECT EXISTS(SELECT 1 FROM producer_types
+			 WHERE parent_id = $1 AND category_id IS NOT DISTINCT FROM $2
+			   AND race_family IS NOT DISTINCT FROM $3 AND race IS NOT DISTINCT FROM $4)`,
+			*parentID, categoryID, nullStrPtr(raceFamily), nullStrPtr(race),
+		).Scan(&dup); err != nil {
+			return ProducerTypeRow{}, err
+		}
+		if dup {
+			return ProducerTypeRow{}, errCatalog(409, "подтип с такими (родитель, категория, семейство, раса) уже есть")
+		}
+	}
 
 	var p ProducerTypeRow
 	if err := tx.QueryRow(
-		`INSERT INTO producer_types (name, name_norm, kind, category_id, status)
-		 VALUES ($1, $2, $3, $4, 'draft') RETURNING id, name, kind, category_id, race_family, output, input, params, status, created_at`,
-		name, graph.NormalizeName(name), kind, categoryID,
-	).Scan(&p.ID, &p.Name, &p.Kind, &p.CategoryID, &p.RaceFamily, &p.Output, &p.Input, &p.Params, &p.Status, &p.CreatedAt); err != nil {
+		`INSERT INTO producer_types (name, name_norm, kind, category_id, race_family, parent_id, race, status)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, 'draft') RETURNING id, name, kind, category_id, race_family, parent_id, race, output, input, params, status, created_at`,
+		name, graph.NormalizeName(name), kind, categoryID, nullStrPtr(raceFamily), parentID, nullStrPtr(race),
+	).Scan(&p.ID, &p.Name, &p.Kind, &p.CategoryID, &p.RaceFamily, &p.ParentID, &p.Race, &p.Output, &p.Input, &p.Params, &p.Status, &p.CreatedAt); err != nil {
 		if isUniqueViolation(err) {
 			return ProducerTypeRow{}, errCatalog(409, "тип с таким именем уже есть")
 		}
@@ -180,10 +280,15 @@ func (r *GoodsRepository) CreateProducerType(name, kind string, categoryID *int6
 	return p, nil
 }
 
-// UpdateProducerType — переименование/смена категории/семейства/JSON-полей
-// (спека §4.1): категория для kind=goods должна существовать (400);
-// дубликат имени — 409. JSON-поля (output/input/params) — валидный JSON.
-func (r *GoodsRepository) UpdateProducerType(id int64, name *string, categoryID *int64, raceFamily *string, output, input, params *string) error {
+// UpdateProducerType — переименование/смена категории/семейства/расы/
+// родителя/JSON-полей (спека §4.1 + дерево построек 2026-09-21 §1.2):
+// те же инварианты, что в CreateProducerType (глубина 1, kind наследуется,
+// категория только у подтипов kind=goods, уникальность подтипа — 409);
+// дубликат имени — 409. parentID — **int64: nil = не менять, &id = новый
+// родитель. Снятие родителя (подтип → тип) через API не поддерживается
+// (UI родителя не редактирует); тип с подтипами нельзя сделать подтипом
+// (глубина 2) — 409. JSON-поля (output/input/params) — валидный JSON.
+func (r *GoodsRepository) UpdateProducerType(id int64, name *string, categoryID *int64, parentID **int64, raceFamily *string, race *string, output, input, params *string) error {
 	tx, err := r.beginMutation()
 	if err != nil {
 		return err
@@ -191,12 +296,77 @@ func (r *GoodsRepository) UpdateProducerType(id int64, name *string, categoryID 
 	defer tx.Rollback()
 
 	var kind string
-	err = tx.QueryRow(`SELECT kind FROM producer_types WHERE id = $1 FOR UPDATE`, id).Scan(&kind)
+	var curParent sql.NullInt64
+	var curCategory sql.NullInt64
+	var curRaceFamily sql.NullString
+	var curRace sql.NullString
+	err = tx.QueryRow(
+		`SELECT kind, parent_id, category_id, race_family, race FROM producer_types WHERE id = $1 FOR UPDATE`, id,
+	).Scan(&kind, &curParent, &curCategory, &curRaceFamily, &curRace)
 	if errors.Is(err, sql.ErrNoRows) {
 		return errCatalog(404, "тип не найден")
 	}
 	if err != nil {
 		return err
+	}
+	// Итоговые значения: заданы в теле → они; иначе текущие.
+	var finalParent *int64
+	if parentID != nil {
+		finalParent = *parentID
+	} else if curParent.Valid {
+		finalParent = &curParent.Int64
+	}
+	finalCategory := categoryID
+	if finalCategory == nil && curCategory.Valid {
+		finalCategory = &curCategory.Int64
+	}
+	finalRaceFamily := raceFamily
+	if finalRaceFamily == nil && curRaceFamily.Valid {
+		finalRaceFamily = &curRaceFamily.String
+	}
+	finalRace := race
+	if finalRace == nil && curRace.Valid {
+		finalRace = &curRace.String
+	}
+	if parentID != nil {
+		// Снятие родителя (подтип → тип) через API не поддерживается: UI
+		// родителя не редактирует (задаётся при создании подтипа), из JSON
+		// null = «не менять» — ветка «снять» недостижима.
+		if *parentID == nil {
+			return errCatalog(400, "родитель не задан — снятие родителя через API не поддерживается")
+		}
+		np := **parentID
+		if np == id {
+			return errCatalog(400, "тип не может быть родителем сам себе")
+		}
+		var parentKind string
+		var parentIsType bool
+		err := tx.QueryRow(
+			`SELECT kind, parent_id IS NULL FROM producer_types WHERE id = $1`, np,
+		).Scan(&parentKind, &parentIsType)
+		if errors.Is(err, sql.ErrNoRows) {
+			return errCatalog(400, "родитель не найден")
+		}
+		if err != nil {
+			return err
+		}
+		if !parentIsType {
+			return errCatalog(400, "подтип подтипа запрещён (глубина 1)")
+		}
+		if kind != parentKind {
+			return errCatalog(400, "kind подтипа = kind родителя")
+		}
+		// Глубина 2 запрещена (§1.2 п.2): тип с подтипами нельзя сделать
+		// подтипом — его дети стали бы подтипами подтипа.
+		var hasSubtypes bool
+		if err := tx.QueryRow(
+			`SELECT EXISTS(SELECT 1 FROM producer_types WHERE parent_id = $1)`, id,
+		).Scan(&hasSubtypes); err != nil {
+			return err
+		}
+		if hasSubtypes {
+			return errCatalog(409, "нельзя сделать тип с подтипами подтипом — сначала удалите подтипы")
+		}
 	}
 	if name != nil {
 		trimmed := strings.TrimSpace(*name)
@@ -218,6 +388,10 @@ func (r *GoodsRepository) UpdateProducerType(id int64, name *string, categoryID 
 		}
 	}
 	if categoryID != nil {
+		// Категория — только у подтипов kind=goods (спека §1.2 п.4).
+		if kind == "goods" && finalParent == nil {
+			return errCatalog(400, "у типа kind=goods категория не задаётся — категории живут в подтипах")
+		}
 		if kind == "goods" {
 			var exists bool
 			if err := tx.QueryRow(
@@ -238,6 +412,41 @@ func (r *GoodsRepository) UpdateProducerType(id int64, name *string, categoryID 
 			return err
 		}
 	}
+	if race != nil {
+		// Раса задана → семейство задано (итоговое: новое или текущее).
+		if *race != "" && (finalRaceFamily == nil || *finalRaceFamily == "") {
+			return errCatalog(400, "раса задана — семейство рас обязательно")
+		}
+		if _, err := tx.Exec(`UPDATE producer_types SET race = $1 WHERE id = $2`, nullStr(*race), id); err != nil {
+			return err
+		}
+	}
+	// Уникальность подтипа: итоговый (parent_id, category_id, race_family, race).
+	// Проверяется ТОЛЬКО при фактическом изменении кортежа — чистое
+	// переименование не проверяется (лаборатории легитимно делят кортеж, B1).
+	if finalParent != nil && subtypeTupleChanged(curParent, curCategory, curRaceFamily, curRace,
+		finalParent, finalCategory, finalRaceFamily, finalRace) {
+		var dup bool
+		if err := tx.QueryRow(
+			`SELECT EXISTS(SELECT 1 FROM producer_types
+			 WHERE parent_id = $1 AND category_id IS NOT DISTINCT FROM $2
+			   AND race_family IS NOT DISTINCT FROM $3 AND race IS NOT DISTINCT FROM $4
+			   AND id <> $5)`,
+			*finalParent, finalCategory, nullStrPtr(finalRaceFamily), nullStrPtr(finalRace), id,
+		).Scan(&dup); err != nil {
+			return err
+		}
+		if dup {
+			return errCatalog(409, "подтип с такими (родитель, категория, семейство, раса) уже есть")
+		}
+	}
+	if parentID != nil {
+		// **int64: nil = не менять; &id = новый родитель (снятие родителя
+		// не поддерживается — проверено выше).
+		if _, err := tx.Exec(`UPDATE producer_types SET parent_id = $1 WHERE id = $2`, **parentID, id); err != nil {
+			return err
+		}
+	}
 	for col, v := range map[string]*string{"output": output, "input": input, "params": params} {
 		if v == nil {
 			continue
@@ -253,6 +462,9 @@ func (r *GoodsRepository) UpdateProducerType(id int64, name *string, categoryID 
 }
 
 // DeleteProducerType — удаление типа (связи producer_items — каскадом).
+// RESTRICT (спека 2026-09-21 §1.2 п.7): тип с подтипами не удаляется — 409
+// «сначала удалите подтипы» (каскад запрещён: снос Фабрики не должен уносить
+// фабрики категорий).
 func (r *GoodsRepository) DeleteProducerType(id int64) error {
 	tx, err := r.beginMutation()
 	if err != nil {
@@ -267,6 +479,15 @@ func (r *GoodsRepository) DeleteProducerType(id int64) error {
 	}
 	if !exists {
 		return errCatalog(404, "тип не найден")
+	}
+	var hasSubtypes bool
+	if err := tx.QueryRow(
+		`SELECT EXISTS(SELECT 1 FROM producer_types WHERE parent_id = $1)`, id,
+	).Scan(&hasSubtypes); err != nil {
+		return err
+	}
+	if hasSubtypes {
+		return errCatalog(409, "сначала удалите подтипы")
 	}
 	if _, err := tx.Exec(`DELETE FROM producer_types WHERE id = $1`, id); err != nil {
 		return err

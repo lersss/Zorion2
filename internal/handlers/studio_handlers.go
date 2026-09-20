@@ -20,6 +20,7 @@ import (
 	"zorion/internal/goodsstudio/graph"
 	"zorion/internal/goodsstudio/model"
 	"zorion/internal/goodsstudio/validate"
+	"zorion/internal/races"
 	"zorion/internal/repository"
 )
 
@@ -86,8 +87,9 @@ type GoodView struct {
 }
 
 // ProducerTypeView — тип производителя в представлении состояния (спека
-// 2026-09-20-фабрики §4.1): карточка типа (имя, kind, категория, семейство
-// рас, вход/выход, параметры). Items — привязанные предметы (kind=items).
+// 2026-09-20-фабрики §4.1 + дерево построек 2026-09-21 §1.2): карточка типа
+// (имя, kind, категория, семейство рас, родитель, раса, вход/выход,
+// параметры). Items — привязанные предметы (kind=items).
 type ProducerTypeView struct {
 	ID           int64           `json:"id"`
 	Name         string          `json:"name"`
@@ -95,6 +97,9 @@ type ProducerTypeView struct {
 	CategoryID   *int64          `json:"category_id"`
 	CategoryName string          `json:"category_name,omitempty"`
 	RaceFamily   string          `json:"race_family,omitempty"`
+	ParentID     *int64          `json:"parent_id,omitempty"`
+	ParentName   string          `json:"parent_name,omitempty"`
+	Race         string          `json:"race,omitempty"`
 	Output       json.RawMessage `json:"output"`
 	Input        json.RawMessage `json:"input"`
 	Params       json.RawMessage `json:"params"`
@@ -274,6 +279,11 @@ func (h *StudioHandlers) buildStateView(snap *repository.CatalogSnapshot) StateV
 			producerItems[pi.ProducerTypeID] = append(producerItems[pi.ProducerTypeID], iv)
 		}
 	}
+	// Имена родителей (дерево построек §1.2): parent_id → имя типа-родителя.
+	prodNameByID := make(map[int64]string, len(snap.ProducerTypes))
+	for _, p := range snap.ProducerTypes {
+		prodNameByID[p.ID] = p.Name
+	}
 	for _, p := range snap.ProducerTypes {
 		pv := ProducerTypeView{
 			ID:     p.ID,
@@ -288,6 +298,14 @@ func (h *StudioHandlers) buildStateView(snap *repository.CatalogSnapshot) StateV
 		}
 		if p.RaceFamily.Valid {
 			pv.RaceFamily = p.RaceFamily.String
+		}
+		if p.ParentID.Valid {
+			id := p.ParentID.Int64
+			pv.ParentID = &id
+			pv.ParentName = prodNameByID[id]
+		}
+		if p.Race.Valid {
+			pv.Race = p.Race.String
 		}
 		if p.Output != nil {
 			pv.Output = json.RawMessage(p.Output)
@@ -647,23 +665,32 @@ func (h *StudioHandlers) slotAllowResource(w http.ResponseWriter, r *http.Reques
 
 // --- типы производителей (спека 2026-09-20-фабрики §4.1) ---
 
-// Producers — POST /studio/api/producers {name, kind, category_id}:
-// создание типа производителя (kind=goods — категория обязательна).
+// Producers — POST /studio/api/producers {name, kind, category_id, parent_id,
+// race_family, race}: создание типа производителя (дерево построек §1.2:
+// категория — только у подтипов kind=goods; parent_id — базовый тип;
+// race → race_family по каталогу рас).
 func (h *StudioHandlers) Producers(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		studioErr(w, "только POST", http.StatusMethodNotAllowed)
 		return
 	}
 	var body struct {
-		Name       string `json:"name"`
-		Kind       string `json:"kind"`
-		CategoryID *int64 `json:"category_id"`
+		Name       string  `json:"name"`
+		Kind       string  `json:"kind"`
+		CategoryID *int64  `json:"category_id"`
+		ParentID   *int64  `json:"parent_id"`
+		RaceFamily *string `json:"race_family"`
+		Race       *string `json:"race"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		studioErr(w, "невалидный JSON", http.StatusBadRequest)
 		return
 	}
-	p, err := h.repo.CreateProducerType(body.Name, body.Kind, body.CategoryID)
+	if err := validateRaceFamily(body.Race, body.RaceFamily); err != nil {
+		writeCatalogErr(w, err)
+		return
+	}
+	p, err := h.repo.CreateProducerType(body.Name, body.Kind, body.CategoryID, body.ParentID, body.RaceFamily, body.Race)
 	if err != nil {
 		writeCatalogErr(w, err)
 		return
@@ -711,7 +738,9 @@ func (h *StudioHandlers) producer(w http.ResponseWriter, r *http.Request, id int
 		var body struct {
 			Name       *string `json:"name"`
 			CategoryID *int64  `json:"category_id"`
+			ParentID   **int64 `json:"parent_id"`
 			RaceFamily *string `json:"race_family"`
+			Race       *string `json:"race"`
 			Output     *string `json:"output"`
 			Input      *string `json:"input"`
 			Params     *string `json:"params"`
@@ -720,7 +749,11 @@ func (h *StudioHandlers) producer(w http.ResponseWriter, r *http.Request, id int
 			studioErr(w, "невалидный JSON", http.StatusBadRequest)
 			return
 		}
-		if err := h.repo.UpdateProducerType(id, body.Name, body.CategoryID, body.RaceFamily, body.Output, body.Input, body.Params); err != nil {
+		if err := validateRaceFamily(body.Race, body.RaceFamily); err != nil {
+			writeCatalogErr(w, err)
+			return
+		}
+		if err := h.repo.UpdateProducerType(id, body.Name, body.CategoryID, body.ParentID, body.RaceFamily, body.Race, body.Output, body.Input, body.Params); err != nil {
 			writeCatalogErr(w, err)
 			return
 		}
@@ -793,6 +826,81 @@ func (h *StudioHandlers) producerUnlinkItem(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	studioJSON(w, http.StatusOK, map[string]interface{}{"producer_type_id": id, "item_id": itemID})
+}
+
+// --- уровни расовости (дерево построек, спека 2026-09-21 §3/§5) ---
+
+// RaceFamilyView — семейство рас для переключателя (спека §3): F1–F9 +
+// robotic (в UI — «F10 Роботы»).
+type RaceFamilyView struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// RaceView — раса для переключателя/попапа (спека §3): id/name из
+// config/races.json, family из config/race_lore.json (единый источник —
+// internal/races, студия файлы не знает).
+type RaceView struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Family string `json:"family"`
+}
+
+// RacesView — GET /studio/api/races: уровни расовости для переключателя.
+type RacesView struct {
+	Families []RaceFamilyView `json:"families"`
+	Races    []RaceView       `json:"races"`
+}
+
+// raceFamilyNames — имена семейств (22_races.md §2.2/§4): F1–F9 + robotic.
+var raceFamilyNames = map[string]string{
+	"F1": "Водные", "F2": "Крио-аммиачные", "F3": "Метановые",
+	"F4": "Серные", "F5": "Терморедокс", "F6": "Кремниевые",
+	"F7": "Водородные/небесные", "F8": "Углекислые", "F9": "Экзотика",
+	"robotic": "Роботы",
+}
+
+// Races — GET /studio/api/races: семейства (F1–F9 + robotic) и расы
+// (id, name, family) из races.Catalog() + races.LoreCatalog() (Go-конфиги,
+// единый источник; дублирования в БД нет — «один факт — одно место»).
+func (h *StudioHandlers) Races(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		studioErr(w, "только GET", http.StatusMethodNotAllowed)
+		return
+	}
+	famByID := make(map[string]string, len(races.LoreCatalog()))
+	for _, l := range races.LoreCatalog() {
+		famByID[l.ID] = l.Family
+	}
+	view := RacesView{Families: []RaceFamilyView{}, Races: []RaceView{}}
+	for _, id := range []string{"F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "robotic"} {
+		view.Families = append(view.Families, RaceFamilyView{ID: id, Name: raceFamilyNames[id]})
+	}
+	for _, rc := range races.Catalog() {
+		view.Races = append(view.Races, RaceView{ID: rc.ID, Name: rc.Name, Family: famByID[rc.ID]})
+	}
+	studioJSON(w, http.StatusOK, view)
+}
+
+// validateRaceFamily — инвариант §1.2 п.6: race задана → race_family задана
+// и соответствует семейству расы по каталогу (config/race_lore.json,
+// internal/races.LoreByID). Проверка в хендлере: каталог рас загружен при
+// старте (cmd/server/main.go), репозиторий каталог не знает.
+func validateRaceFamily(race, raceFamily *string) error {
+	if race == nil || *race == "" {
+		return nil
+	}
+	if raceFamily == nil || *raceFamily == "" {
+		return &repository.ErrCatalog{Status: 400, Msg: "раса задана — семейство рас обязательно"}
+	}
+	lore := races.LoreByID(*race)
+	if lore == nil {
+		return &repository.ErrCatalog{Status: 400, Msg: "раса не найдена в каталоге"}
+	}
+	if lore.Family != *raceFamily {
+		return &repository.ErrCatalog{Status: 400, Msg: "семейство рас не соответствует расе (ожидается " + lore.Family + ")"}
+	}
+	return nil
 }
 
 // --- предметы (спека 2026-09-20-фабрики §4.2) ---
@@ -902,6 +1010,13 @@ func producerTypeView(p repository.ProducerTypeRow, catName string, items []Item
 	}
 	if p.RaceFamily.Valid {
 		pv.RaceFamily = p.RaceFamily.String
+	}
+	if p.ParentID.Valid {
+		id := p.ParentID.Int64
+		pv.ParentID = &id
+	}
+	if p.Race.Valid {
+		pv.Race = p.Race.String
 	}
 	if p.Output != nil {
 		pv.Output = json.RawMessage(p.Output)

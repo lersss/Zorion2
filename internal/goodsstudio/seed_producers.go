@@ -1,18 +1,25 @@
 // internal/goodsstudio/seed_producers.go
 // Сидер каталога типов производителей и предметов (спека
-// 2026-09-20-фабрики §10.1 п.2): при первом старте (маркер
-// producer_catalog_seed в generation_config) в одной транзакции сеет
-// 8 типов производителей (поселение, фабрика, автофабрика, добывающая
-// платформа, энергостанция, 3 лаборатории), 4 предмета (чертёж, сертификат
-// анализа, модуль корабля, кирка) и связи лабораторий с предметами.
+// 2026-09-20-фабрики §10.1 п.2 + 2026-09-21-студия-дерево-построек-канвас
+// §1.4): при первом старте (маркер producer_catalog_seed в
+// generation_config) в одной транзакции сеет 10 типов производителей
+// (поселение, фабрика, автофабрика, добывающая платформа, энергостанция,
+// лаборатория-родитель, 3 лаборатории-подтипа, фабрика продовольствия),
+// 4 предмета (чертёж, сертификат анализа, модуль корабля, кирка) и связи
+// лабораторий с предметами. Дерево построек: parent_id — тип-родитель
+// (подтип → тип), категория — только у подтипов kind=goods (спека §1.2).
 // Категории (categories) к этому моменту уже посеяны goodsstudio.Seed —
 // сид вызывается после него (cmd/server/main.go). Повторные старты —
 // пропуск (маркер): правки студии сидом не перезаписываются (С1-паттерн).
+// INSERT с ON CONFLICT (name_norm) DO NOTHING: миграция 000051 на свежей БД
+// уже создала тип «Лаборатория» (data-миграция §1.3) — не дублировать,
+// взять существующий id.
 package goodsstudio
 
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -23,11 +30,12 @@ import (
 // generation_config: payload {"applied_at", "producers", "items", "links"}.
 const ProducerSeedMarkerKey = "producer_catalog_seed"
 
-// seedProducer — тип производителя сида (спека §2/§4.1).
+// seedProducer — тип производителя сида (спека §2/§4.1 + дерево построек §1.4).
 type seedProducer struct {
 	Name       string
 	Kind       string // goods/items/energy
-	Category   string // name_norm категории (kind=goods), "" = NULL
+	Category   string // name_norm категории (kind=goods, только у подтипов), "" = NULL
+	Parent     string // имя типа-родителя (подтип), "" = тип (parent_id NULL)
 	RaceFamily string // "" = NULL (универсальный)
 	Output     string // JSONB
 	Input      string // JSONB
@@ -48,19 +56,25 @@ type seedProducerItem struct {
 	Item     string
 }
 
-// seedProducers — базовые типы производителей (спека §10.1 п.2).
-// Автофабрика — корзина роботов: энергия + детали + комплектующие, НЕ еда
-// (решение 3b.6.1). Добывающая платформа — сырьё (kind=resource), категория
-// «Минералы» (сид-приближение, студия уточняет).
+// seedProducers — базовые типы производителей (спека §10.1 п.2 + дерево
+// построек §1.4/§2.1). Автофабрика — корзина роботов: энергия + детали +
+// комплектующие, НЕ еда (решение 3b.6.1). Добывающая платформа — чистый тип
+// уровня 3 (без категории: категории живут в подтипах-платформах, §2.2).
+// Лаборатория — тип-родитель (kind=items); три лаборатории — подтипы
+// (Parent: "Лаборатория"). «Фабрика продовольствия» — подтип Фабрики
+// (категория продовольствие). Порядок: родители раньше подтипов (parent_id
+// резолвится по имени из уже вставленных).
 var seedProducers = []seedProducer{
 	{Name: "Поселение", Kind: "goods", Output: `{"residual": true}`, Input: `{"people": {"capacity": 100}}`, Params: `{}`},
 	{Name: "Фабрика", Kind: "goods", Output: `{}`, Input: `{"people": {"capacity": 50}, "energy": true, "consumables": []}`, Params: `{"efficiency": 1.0}`},
 	{Name: "Автофабрика", Kind: "goods", Output: `{}`, Input: `{"robots": true, "energy": true, "consumables": ["детали", "комплектующие"]}`, Params: `{"robot_cost": 100}`},
-	{Name: "Добывающая платформа", Kind: "goods", Category: "минералы", Output: `{}`, Input: `{"energy": true, "consumables": []}`, Params: `{}`},
+	{Name: "Добывающая платформа", Kind: "goods", Output: `{}`, Input: `{"energy": true, "consumables": []}`, Params: `{}`},
 	{Name: "Энергостанция", Kind: "energy", Output: `{"energy": 100}`, Input: `{"people": {"capacity": 10}, "fuel": true}`, Params: `{}`},
-	{Name: "Лаборатория исследовательская", Kind: "items", Output: `{"items": ["Чертёж", "Сертификат анализа"]}`, Input: `{"people": {"capacity": 10}, "energy": true, "consumables": []}`, Params: `{}`},
-	{Name: "Лаборатория корабельных модулей", Kind: "items", Output: `{"items": ["Модуль корабля"]}`, Input: `{"people": {"capacity": 10}, "energy": true, "consumables": []}`, Params: `{}`},
-	{Name: "Лаборатория инструментов игрока", Kind: "items", Output: `{"items": ["Кирка"]}`, Input: `{"people": {"capacity": 10}, "energy": true, "consumables": []}`, Params: `{}`},
+	{Name: "Лаборатория", Kind: "items", Output: `{}`, Input: `{"people": {"capacity": 10}, "energy": true, "consumables": []}`, Params: `{}`},
+	{Name: "Лаборатория космических технологий", Kind: "items", Parent: "Лаборатория", Output: `{"items": ["Модуль корабля"]}`, Input: `{"people": {"capacity": 10}, "energy": true, "consumables": []}`, Params: `{}`},
+	{Name: "Лаборатория экипировки", Kind: "items", Parent: "Лаборатория", Output: `{"items": ["Кирка"]}`, Input: `{"people": {"capacity": 10}, "energy": true, "consumables": []}`, Params: `{}`},
+	{Name: "Исследовательская лаборатория", Kind: "items", Parent: "Лаборатория", Output: `{"items": ["Чертёж", "Сертификат анализа"]}`, Input: `{"people": {"capacity": 10}, "energy": true, "consumables": []}`, Params: `{}`},
+	{Name: "Фабрика продовольствия", Kind: "goods", Category: "продовольствие", Parent: "Фабрика", Output: `{}`, Input: `{"people": {"capacity": 50}, "energy": true, "consumables": []}`, Params: `{"efficiency": 1.0}`},
 }
 
 // seedItems — базовые предметы (спека §10.1 п.2): типы «что бывает»;
@@ -72,12 +86,13 @@ var seedItems = []seedItem{
 	{Name: "Кирка", SlotType: "инструмент", Params: `{}`},
 }
 
-// seedProducerItems — связи лабораторий с предметами (спека §2).
+// seedProducerItems — связи лабораторий с предметами (спека §2; имена —
+// новые, решение создателя идея §2 п.4).
 var seedProducerItems = []seedProducerItem{
-	{Producer: "Лаборатория исследовательская", Item: "Чертёж"},
-	{Producer: "Лаборатория исследовательская", Item: "Сертификат анализа"},
-	{Producer: "Лаборатория корабельных модулей", Item: "Модуль корабля"},
-	{Producer: "Лаборатория инструментов игрока", Item: "Кирка"},
+	{Producer: "Исследовательская лаборатория", Item: "Чертёж"},
+	{Producer: "Исследовательская лаборатория", Item: "Сертификат анализа"},
+	{Producer: "Лаборатория космических технологий", Item: "Модуль корабля"},
+	{Producer: "Лаборатория экипировки", Item: "Кирка"},
 }
 
 // SeedProducers — сидер каталога производителей (спека §10.1 п.2).
@@ -121,7 +136,10 @@ func SeedProducers(db *sql.DB) error {
 		return fmt.Errorf("seed producers: категории: %w", err)
 	}
 
-	// Типы производителей.
+	// Типы производителей. Родители идут раньше подтипов (см. seedProducers) —
+	// parent_id резолвится по имени из уже вставленных. ON CONFLICT DO NOTHING:
+	// миграция 000051 на свежей БД уже создала «Лабораторию» (data-миграция
+	// §1.3) — не дублировать, взять существующий id.
 	producerIDs := make(map[string]int64, len(seedProducers))
 	for _, p := range seedProducers {
 		var catID interface{}
@@ -132,13 +150,30 @@ func SeedProducers(db *sql.DB) error {
 			}
 			catID = id
 		}
+		var parentID interface{}
+		if p.Parent != "" {
+			id, ok := producerIDs[p.Parent]
+			if !ok {
+				return fmt.Errorf("seed producers: родитель %q не найден (порядок: родители раньше подтипов)", p.Parent)
+			}
+			parentID = id
+		}
 		var id int64
-		if err := tx.QueryRow(
-			`INSERT INTO producer_types (name, name_norm, kind, category_id, race_family, output, input, params, status)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'approved') RETURNING id`,
+		err := tx.QueryRow(
+			`INSERT INTO producer_types (name, name_norm, kind, category_id, race_family, parent_id, race, output, input, params, status)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'approved')
+			 ON CONFLICT (name_norm) DO NOTHING RETURNING id`,
 			p.Name, graph.NormalizeName(p.Name), p.Kind, catID, nullStr(p.RaceFamily),
-			p.Output, p.Input, p.Params,
-		).Scan(&id); err != nil {
+			parentID, nil, p.Output, p.Input, p.Params,
+		).Scan(&id)
+		if errors.Is(err, sql.ErrNoRows) {
+			// уже есть (миграция 000051 на свежей БД) — существующий id.
+			if err := tx.QueryRow(
+				`SELECT id FROM producer_types WHERE name_norm = $1`, graph.NormalizeName(p.Name),
+			).Scan(&id); err != nil {
+				return fmt.Errorf("seed producers: тип %s: %w", p.Name, err)
+			}
+		} else if err != nil {
 			return fmt.Errorf("seed producers: тип %s: %w", p.Name, err)
 		}
 		producerIDs[p.Name] = id

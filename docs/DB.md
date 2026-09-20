@@ -6,7 +6,7 @@
 ## Таблицы
 
 `worlds`, `planets` (JSONB `data`), `locations`, `users`, `assignments`,
-`factions`, `events`, `production_units`, `settlements`, `factories`,
+`factions`, `events`, `settlements`,
 `goods_batches`, `planet_resources`, `compatibility_matrix`, `regions`,
 `settlement_log` (лог поселения, миграция `000024`), `npc_agents`
 (NPC-агенты, миграция `000026`, спека `20a.1` §2.1), `generation_config`
@@ -19,7 +19,18 @@
 категорий — товарные + 6 системных ресурсных (составной FK
 `goods(kind, category_id) → categories(kind, id)`), товары/ресурсы по `kind`,
 слоты рецептов отдельной таблицей; каталог — контент, не данные вселенной:
-ClearUniverse его не трогает).
+ClearUniverse его не трогает), `producer_types`/`items`/`producer_items`
+(каталог типов производителей и предметов студии, миграция `000048`, спека
+`2026-09-20-фабрики-сущность-производства` §3.1: BIGSERIAL-ключи как в
+000045; `producer_types` — типы производителей (kind goods/items/energy,
+`category_id` для kind=goods, `race_family`, вход/выход/параметры JSONB),
+`items` — справочник ТИПОВ предметов («что бывает», экземпляры — в
+инвентаре, не здесь), `producer_items` — связь «производитель предметов ↔
+предметы»; каталог — контент, ClearUniverse не трогает).
+
+Удалены: `production_units` (легаси 000018-эпохи, снос миграцией `000050`,
+спека `2026-09-20-фабрики` §11.6, решение создателя 3b.6.8), `factories`/
+`goods_batches` (миграция `000034` — имя `factories` свободно).
 
 Проектные масштабы для расчётов нагрузки: 100k миров, ~320k планет.
 
@@ -172,6 +183,30 @@ ClearUniverse его не трогает).
   seq-scan 46к агентов = ~670 мс/батч (33 мин на 100к миров); с индексами
   критерий «100к ≤ 90 с» выполняется. Индексы с `IF NOT EXISTS` — безопасны
   для существующих БД.
+- `000048` — каталог типов производителей и предметов (спека
+  `2026-09-20-фабрики-сущность-производства` §3.1, 2026-09-20):
+  `producer_types` (BIGSERIAL PK, name/name_norm UNIQUE, kind CHECK
+  goods/items/energy, `category_id BIGINT NULL FK → categories(id)` для
+  kind=goods, `race_family`, output/input/params JSONB, status), `items`
+  (BIGSERIAL PK, name/name_norm UNIQUE, slot_type, unlocks/params JSONB,
+  status), `producer_items` (PK (producer_type_id, item_id), FK ON DELETE
+  CASCADE, requirements JSONB). Дельта `goods` (решение 3b.6.4): колонки
+  `volume`/`weight` DOUBLE PRECISION NULL — данные каталога (механика
+  грузов/трюма — будущая фича); approved-товар без веса/объёма не проходит
+  валидацию (NULL-каталог запрещён, проверка в студии). Сид типов/
+  предметов — Go (`internal/goodsstudio/seed_producers.go`, маркер
+  `producer_catalog_seed` в `generation_config`), вызывается после
+  `goodsstudio.Seed` (категории уже посеяны).
+- `000049` — `users.pending_destination` (спека `99.2.30-composite-route`,
+  чужая параллельная работа, 2026-09-20): намерение следующего сегмента
+  составного маршрута; очищается при прибытии/отмене.
+- `000050` — снос легаси-таблицы `production_units` (эпоха 000018, спека
+  `2026-09-20-фабрики` §11.6, решение создателя 3b.6.8 — СНЕСТИ): DROP
+  TABLE; удалён `internal/repository/production_unit_repository.go`,
+  `production_units` снят из `truncateTables` (`admin_universe.go`) и
+  каскадов пакмана. Номер 000050 — как в спеке §11.6 (000049 занят чужой
+  миграцией `pending_destination`; 000050 спеки был назначен под `buildings`
+  релиза 2 — тот пойдёт 000051+).
 - Миграции, вступающие в силу на старте, требуют перезапуска сервера
   (`AGENTS.md` §4 п.13).
 - `VACUUM` внутрь миграции не положить — не работает внутри транзакции

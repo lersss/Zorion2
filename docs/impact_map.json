@@ -855,7 +855,7 @@
         { "on": "internal/handlers/studio_handlers.go", "kind": "api", "reason": "POST/PUT/DELETE /studio/api/slots, state + producer_slots (имена родителя/категории)" },
         { "on": "internal/repository/producer_repository.go", "kind": "writes", "reason": "CRUD слотов (pg_advisory_xact_lock), инвариант С4 (слот обязателен для подтипа kind=goods), RESTRICT удаления" },
         { "on": "internal/goodsstudio/seed_producers.go", "kind": "writes", "reason": "сид базовых слотов (Фабрика/Автофабрика — 13 товарных, Платформа — 6 ресурсных, универсальный уровень)" },
-        { "on": "categories", "kind": "reads", "reason": "категории слотов; удаление категории — CASCADE слотов" },
+        { "on": "goods", "kind": "reads", "reason": "категории слотов (categories в goods); удаление категории — CASCADE слотов" },
         { "on": "docs/DB.md", "kind": "docs", "reason": "миграция 000052 (producer_slots, DROP hidden, data-миграция)" },
         { "on": "docs/specs/2026-09-21-студия-дерево-построек-канвас.md", "kind": "duplicates", "reason": "автоматика категорий §2.2 заменена конфигурацией слотов (дельта при сдаче)" }
       ]

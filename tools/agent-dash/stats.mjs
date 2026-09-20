@@ -169,10 +169,13 @@ export function createStore({
     `SELECT COUNT(*) c FROM part WHERE session_id=? AND ${AS_TOOL}
      GROUP BY json_extract(data,'$.tool'), json_extract(data,'$.state.input')`
   );
-  // То же, но только за последние минуты — «в рамках задачи, которую агент делает сейчас».
+  // То же, но только по текущей задаче — «в рамках того, что агент делает сейчас».
   const recentGroups = db.prepare(
     `SELECT COUNT(*) c FROM part WHERE session_id=? AND ${AS_TOOL} AND time_created >= ?
      GROUP BY json_extract(data,'$.tool'), json_extract(data,'$.state.input')`
+  );
+  const lastUserMessage = db.prepare(
+    `SELECT MAX(time_created) m FROM message WHERE session_id=? AND data LIKE '%"role":"user"%'`
   );
   const miscOf = db.prepare(
     `SELECT SUM(CASE WHEN ${AS_TOOL} THEN 1 ELSE 0 END) calls,
@@ -387,18 +390,28 @@ export function createStore({
     journal = loadJournal(journalPath);
   }
 
-  // Повторы за последние минуты: видно, крутится ли агент прямо сейчас.
+  // Текущая задача = с последнего запроса пользователя в этой сессии; если
+  // запроса нет — берём последние минуты (recentWindowMs).
+  function taskWindow(id) {
+    const last = lastUserMessage.get(id)?.m;
+    if (last) return { from: last, label: "в задаче" };
+    const minutes = Math.round(recentWindowMs / 60000);
+    return { from: Date.now() - recentWindowMs, label: `за ${minutes} мин` };
+  }
+
+  // Повторы в рамках текущей задачи: видно, крутится ли агент прямо сейчас.
   function recentOf(id) {
+    const win = taskWindow(id);
     let calls = 0;
     let worst = 0;
     let repeats = 0;
-    for (const g of recentGroups.all(id, Date.now() - recentWindowMs)) {
+    for (const g of recentGroups.all(id, win.from)) {
       const c = g.c || 0;
       calls += c;
       if (c > worst) worst = c;
       if (c > 3) repeats += c - 3;
     }
-    return { calls, worst, repeats };
+    return { calls, worst, repeats, label: win.label };
   }
 
   // Активность сессии внутри периода; null — в этом периоде сессия не работала.
@@ -512,7 +525,7 @@ export function createStore({
             recentCalls: recent.calls,
             recentRepeats: recent.repeats,
             recentWorst: recent.worst,
-            recentMinutes: Math.round(recentWindowMs / 60000),
+            recentLabel: recent.label,
           };
         }),
     };

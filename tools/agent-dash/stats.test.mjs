@@ -198,8 +198,27 @@ const after = store2.report({});
 const fresh = (after.active || []).find((a) => a.id === "s6");
 check("новая сессия появляется без перезапуска", !!fresh && fresh.live === true, JSON.stringify(after.active.map((a) => a.id)));
 check("у новой сессии видна цена и память", !!fresh && fresh.cost === 4 && fresh.peak === 640010, JSON.stringify(fresh));
-check("повторы считаются в рамках текущей задачи", fresh.recentRepeats === 2, JSON.stringify(fresh));
-check("в записи указано окно задачи", fresh.recentMinutes === 15 && fresh.recentCalls === 5, JSON.stringify(fresh));
+check("повторы считаются в рамках текущей задачи", fresh.recentRepeats === 2 && fresh.recentCalls === 5, JSON.stringify(fresh));
+check("в записи указано, за что считали", fresh.recentLabel === "за 15 мин", JSON.stringify(fresh.recentLabel));
+
+// Новый запрос пользователя = новая задача: счётчик повторов по задаче начинается заново.
+const writer2 = new DatabaseSync(dbPath);
+writer2.prepare("INSERT INTO message VALUES (?,?,?,?,?)").run(
+  "m11",
+  "s6",
+  nowMs + 1000,
+  nowMs + 1000,
+  JSON.stringify({ role: "user", time: { created: nowMs + 1000 } })
+);
+writer2.prepare("UPDATE session SET time_updated=? WHERE id='s6'").run(nowMs + 1000);
+writer2.close();
+const afterTask = store2.report({});
+const freshTask = afterTask.active.find((a) => a.id === "s6");
+check(
+  "с новым запросом задача новая — счётчик повторов обнуляется",
+  freshTask.recentRepeats === 0 && freshTask.recentLabel === "в задаче",
+  JSON.stringify(freshTask)
+);
 const s4 = after.features.find((f) => f.label === "Фича Б");
 check("дописанная цена подхватывается", s4.cost === 5, JSON.stringify(s4?.cost));
 check("дописанная память подхватывается", s4.peak === 100010, JSON.stringify(s4?.peak));

@@ -75,6 +75,8 @@
       .lcard .mem { font-size: 1.3em; font-weight: 600; color: var(--text); }
       .lcard .l2 { display: flex; flex-wrap: wrap; gap: 20px; align-items: center; margin-top: 8px; }
       .lcard .l3 { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 8px; }
+      .dot { display: inline-block; width: 0.6em; height: 0.6em; border-radius: 50%; background: #6ee7a0; vertical-align: middle; margin-right: 0.35em; }
+      .dot.calm { background: var(--dim); }
       .role { display: inline-block; padding: 1px 10px; border-radius: 999px; background: rgba(109, 179, 242, 0.16); color: var(--accent); font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.85em; }
       .pill { display: inline-block; padding: 1px 10px; border-radius: 999px; background: rgba(139, 147, 161, 0.16); color: var(--dim); font-weight: 700; font-size: 0.85em; white-space: nowrap; }
       .pill.hi { background: rgba(224, 163, 62, 0.18); color: var(--warn); }
@@ -117,7 +119,7 @@
 
     <section class="liveblock">
       <div class="livehead">
-        <h2>Активные сейчас</h2>
+        <h2>Активные</h2>
         <span class="dim" id="livecount"></span>
       </div>
       <div id="livetable"></div>
@@ -181,10 +183,10 @@
           .filter((a) => now - a.last < (r?.liveWindowMs || 300000))
           .sort((x, y) => y.cost - x.cost);
         document.getElementById("livecount").textContent = all.length
-          ? all.length + (all.length === 1 ? " сессия" : " сессий") + " · обновление раз в 20 с"
+          ? `${all.length} ${all.length === 1 ? "сессия" : "сессий"} — работали за последние 5 минут · обновление раз в 20 с`
           : "";
         if (!all.length) {
-          box.innerHTML = '<div class="idle">Сейчас никто не работает.</div>';
+          box.innerHTML = '<div class="idle">За последние 5 минут никто не работал.</div>';
           return;
         }
         const stop = state.limits.memStop || 900000;
@@ -200,9 +202,8 @@
             <div class="lmain">
               <div class="l1">
                 <span class="role">${esc(a.agent)}</span>
-                <span class="title">${esc(a.title)}</span>
+                <span class="title" title="${esc(titleHint(a))}">${esc(shortTitle(a.title))}</span>
               </div>
-              ${a.parent ? `<div class="l3"><span class="sub">${esc(a.parent)}</span></div>` : ""}
               <div class="l2">
                 <span class="mem">${tok(a.peak)}</span>
                 <span class="bar ${cls}"><i style="width:${pct}%"></i></span>
@@ -210,10 +211,9 @@
               </div>
               <div class="l3">
                 <span class="delta">${a.turns} ответов${d && d.turns > 0 ? " (+" + d.turns + ")" : ""}</span>
-                <span class="pill ${a.recentRepeats > 50 ? "bad" : a.recentRepeats > 0 ? "hi" : ""}">повторов за ${a.recentMinutes || 15} мин: ${a.recentRepeats || 0}</span>
+                <span class="pill ${a.recentRepeats > 50 ? "bad" : a.recentRepeats > 0 ? "hi" : ""}">повторов ${a.recentLabel || "в задаче"}: ${a.recentRepeats || 0}</span>
                 <span class="pill ${a.guard ? "bad" : ""}">сторож: ${a.guard || 0}</span>
-                <span class="delta">${ago(a.last, now)} назад</span>
-                ${a.live ? '<span class="live">работает</span>' : ""}
+                <span class="delta"><span class="dot ${now - a.last < 60000 ? "" : "calm"}"></span>${ago(a.last, now)} назад</span>
               </div>
             </div>
             <div class="lprice">
@@ -233,6 +233,11 @@
           return ((x || 0) - (y || 0)) * dir;
         });
       }
+
+      // Роль и так показана плашкой, поэтому «(@developer subagent)» из названия убираем.
+      // Полное название и фича остаются в подсказке при наведении.
+      const shortTitle = (t) => String(t ?? "").replace(/\s*\(@[\w-]+ subagent\)\s*$/i, "");
+      const titleHint = (a) => [a.title, a.parent ? "Фича: " + a.parent : ""].filter(Boolean).join(" · ");
 
       // Роль — плашкой, название и цена — заметно, чтобы не сливалось с остальным.
       // Повторы и срабатывания сторожа — тоже плашками: сразу видно, где беда.

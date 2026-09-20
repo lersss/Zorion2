@@ -737,6 +737,19 @@
       ]
     },
     {
+      "id": "2026-09-20-визуализация-атмосферы-и-поверхности.md",
+      "type": "spec",
+      "path": "docs/specs/2026-09-20-визуализация-атмосферы-и-поверхности.md",
+      "note": "спека «Визуализация атмосферы и поверхности» (2026-09-20, ✅ реализована, коммит f579edf): честная картинка планеты из биомов+атмосферы (стиль А), авторизованный /api/planet-image (JWT, planet_id, режим честная/заглушка на сервере), заслонение из видимых данных (И1), «Вид с орбиты» при orbit {planet} (99.2.27), кэш (планета|режим|размер) + диск-кэш big через PLANET_IMAGE_CACHE_DIR, иконки биомов (пачка 1, 23 шт), админка — поле цвета биома, strip биомов §10.5",
+      "impacts": [
+        { "on": "planet_image", "kind": "reads", "reason": "контракт картинки: входы, режимы, кэш — источник для генератора и хендлера" },
+        { "on": "biome_catalog.json", "kind": "reads", "reason": "поле color биома — дельта §4.2 (редактор админки, валидация hex)" },
+        { "on": "web/static/js/modal/tabs.js", "kind": "reads", "reason": "«Вид с орбиты» + иконки биомов — контракт §6 (компоновка от @uidesigner)" },
+        { "on": "web/static/js/modal/textures.js", "kind": "reads", "reason": "новый загрузчик картинки (planet_id + JWT, fetch+blob) — контракт §6.1" },
+        { "on": "docs/specs/README.md", "kind": "docs", "reason": "манифест спек: строка 2026-09-20-визуализация (статус/дата)" }
+      ]
+    },
+    {
       "id": "planet_generator",
       "type": "code",
       "path": "internal/generator/planet/planet_data_generate.go",

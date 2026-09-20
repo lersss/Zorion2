@@ -363,7 +363,7 @@ mushroom, octopus, pyramid, shark, shell, spiral, star_celestial, trident, volca
 - Спека: `docs/specs/_archive/61b-static-ship-sprites.md` (реализация, API, план).
   Спека `99.2.15-ship-visual-generator.md` — **отменена** (генератор деталей, идея
   `24a`).
-- Идея: `docs/gamedesign/ideas/61b. Статичные спрайты кораблей вместо генератора.md`.
+- Идея: `docs/gamedesign/ideas/_archive/61b. Статичные спрайты кораблей вместо генератора.md`.
 - Полёт агентов/игроков: `06_factions.md` §6.7.7, `11_contracts.md` §11.3.4,
   спека `20a.1` (иконки агентов на карте).
 - UI: `07_ui.md` §7.1.3 (корабли в пути), §7.6 (дашборд).

@@ -311,7 +311,7 @@
         { "on": "internal/resource/distance.go", "kind": "reads", "reason": "различимость 86/107/43 считается по каталогу витрины" },
         { "on": "internal/handlers/admin_resources.go", "kind": "api", "reason": "GET /admin/resources отдаёт real/real_summary/families/chemotypes (real — из БД с B, слой/покрытие/gaps — из БД с C)" },
         { "on": "web/static/js/admin/realResources.js", "kind": "reads", "reason": "6 форматов визуализации профиля витрины" },
-        { "on": "docs/gamedesign/ideas/2026-09-18_емкость-модели-осей-ресурсов.md", "kind": "duplicates", "reason": "таблица 111 веществ — артефакт оценки ёмкости (идея §4б)" },
+        { "on": "docs/gamedesign/ideas/_archive/2026-09-18_емкость-модели-осей-ресурсов.md", "kind": "duplicates", "reason": "таблица 111 веществ — артефакт оценки ёмкости (идея §4б)" },
         { "on": "docs/PITFALLS.md", "kind": "duplicates", "reason": "ловушка сублимации (He/He-3 кламп к 10 K — механически «сублимирующие»)" }
       ]
     },
@@ -323,7 +323,7 @@
       "impacts": [
         { "on": "internal/resource/real.go", "kind": "reads", "reason": "считает различимость каталога витрины" },
         { "on": "internal/handlers/admin_resources.go", "kind": "api", "reason": "real_summary (by_axes/with_t/collisions) из distance.go" },
-        { "on": "docs/gamedesign/ideas/2026-09-18_емкость-модели-осей-ресурсов.md", "kind": "duplicates", "reason": "числа 86/107/43 зафиксированы в идее §4а/§4б" }
+        { "on": "docs/gamedesign/ideas/_archive/2026-09-18_емкость-модели-осей-ресурсов.md", "kind": "duplicates", "reason": "числа 86/107/43 зафиксированы в идее §4а/§4б" }
       ]
     },
     {
@@ -489,7 +489,7 @@
         { "on": "web/static/js/map/pacman.js", "kind": "writes", "reason": "клиент: состояние/рендер/слежение/лопание у рта (pendingEaten)/поздняя активация/баннер; data.js фильтр eatenIds ∖ pendingEatenIds" },
         { "on": "web/static/js/map/data.js", "kind": "reads", "reason": "loadClusters вычитает съеденные (кроме «долетающих») — звёзды лопаются при прибытии пакмана" },
         { "on": "docs/specs/2026-09-20-pacman-galaxy-wipe.md", "kind": "duplicates", "reason": "спека — источник механики (джоб, батчи, WS, фронт, числа, DoD)" },
-        { "on": "docs/gamedesign/ideas/2026-09-20_пакман-зачистка-галактики.md", "kind": "duplicates", "reason": "идея — пожелание/решения/разнос по докам" }
+        { "on": "docs/gamedesign/ideas/_archive/2026-09-20_пакман-зачистка-галактики.md", "kind": "duplicates", "reason": "идея — пожелание/решения/разнос по докам" }
       ]
     },
     {
@@ -610,7 +610,7 @@
         { "on": "internal/handlers/admin_biome_catalog.go", "kind": "api", "reason": "GET/PATCH /admin/biome-catalog + reset (правка — admin, чтение — admin+skycomposer; валидация UTF-8, bands из {э,ж,у,х})" },
         { "on": "web/static/js/admin/biomeCatalog.js", "kind": "reads", "reason": "вкладка «Основное»: 6 подразделов (Биомы/Недра/Типы планет/Полосы/Несовместимость/Параметры), редактор, drag&drop, read-only для skycomposer" },
         { "on": "config/planet_archetypes.json", "kind": "reads", "reason": "полосы климатов (веса альбедо-прокси слоя 5 и предварительных недр ядра); whitelist биомов — в bands биома, не в полосах" },
-        { "on": "docs/gamedesign/ideas/2026-09-20_иконки-биомов-поверхности.md", "kind": "reads", "reason": "иконки биомов (пачка 1, 23 шт) именуются по id каталога — правка id = переименование файлов иконок" },
+        { "on": "docs/gamedesign/ideas/_archive/2026-09-20_иконки-биомов-поверхности.md", "kind": "reads", "reason": "иконки биомов (пачка 1, 23 шт) именуются по id каталога — правка id = переименование файлов иконок" },
         { "on": "planet_image", "kind": "reads", "reason": "контракт «биом → цвет»: поле color/visual в каталоге (редактируется админкой, дрейф приемлем) или детерминированная функция от категории (идея 2026-09-20, С2)" }
       ]
     },
@@ -731,7 +731,7 @@
         { "on": "biomes", "kind": "reads", "reason": "показ иконки рядом с биомом в составе (renderComposition)" },
         { "on": "web/static/js/modal/tabs.js", "kind": "reads", "reason": "renderComposition: FORM_ICONS (16 старых форм) → иконки биомов; фолбэк для 34 без иконок — «•»/цвет (М1)" },
         { "on": "ai_drafts/biomes/processed_p1B/", "kind": "duplicates", "reason": "исходники пачки 1 (23 PNG) — вне git" },
-        { "on": "docs/gamedesign/ideas/2026-09-20_иконки-биомов-поверхности.md", "kind": "duplicates", "reason": "идея иконок: стиль B, размер, пачка 1, фиксы отбора" }
+        { "on": "docs/gamedesign/ideas/_archive/2026-09-20_иконки-биомов-поверхности.md", "kind": "duplicates", "reason": "идея иконок: стиль B, размер, пачка 1, фиксы отбора" }
       ]
     }
   ]

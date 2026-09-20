@@ -100,6 +100,13 @@
   web/static/js/map/pacman.js, web/map.html, web/static/js/map/data.js,
   web/static/js/admin/generation.js, web/admin.html, migrations/000047
   (npc_agents world indexes); спека `docs/specs/2026-09-20-pacman-galaxy-wipe.md`.
+- Биомы (99.2.28, сдано 2026-09-20): справочник config/biome_catalog.json (57
+  биомов/17 недр/9 правил типов, сид в go:embed, админка „Основное“ — правка
+  admin/чтение admin+skycomposer, атомарная запись); слой 10 биомов после недр,
+  классификация — правила справочника (пороги 15/20/25 убраны из кода); условия
+  недр — данные; прототип — оверрайды каскада; иконки биомов (пачка 1, 23 шт) в
+  ai_drafts/biomes/processed_p1B/ — встраивание в идее „визуализация атмосферы
+  и поверхности“.
 
 ## FAQ-счётчик эталонов
 

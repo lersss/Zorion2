@@ -1719,11 +1719,17 @@ async function applyDesc() {
   const r = await api("POST", "/studio/api/descriptions/apply", {accepted});
   if (r) { closeDescPopup(); fetchState(); }
 }
-// «Отмена» → POST cancel: идущий прогон останавливается, предложения
-// сохраняются (И7), попап остаётся; отчёт — тостом через fetchState
+// «Отмена» → POST cancel: при идущем прогоне он останавливается, предложения
+// сохраняются (И7), попап остаётся; при простое — отказ от набора: сервер
+// выбрасывает предложения, попап закрывается и не всплывает после перезагрузки
 async function cancelDesc() {
   const r = await api("POST", "/studio/api/descriptions/cancel", {});
-  if (r) fetchState();
+  if (!r) return;
+  const out = await r.json(); // {cancelled, discarded, done, total}
+  const discarded = !!out && out.discarded === "true";
+  if (discarded) closeDescPopup();
+  showReport([discarded ? "Набор предложений отброшен" : "Прогон остановлен — предложения сохранены"]);
+  fetchState();
 }
 // пакетный прогон «где пусто» (§9.6): подтверждение → fill {scope:"missing"}
 function runDescBatch() {

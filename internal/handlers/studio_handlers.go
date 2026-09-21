@@ -1558,8 +1558,11 @@ func (h *StudioHandlers) descriptionsApply(w http.ResponseWriter, r *http.Reques
 
 // descriptionsCancel — POST /studio/api/descriptions/cancel: остановка идущего
 // прогона (флаг; горутина завершает текущую порцию и останавливается, И7 —
-// предложения сохраняются). 200 {"cancelled":"true","done":M,"total":N}; если
-// джоб не идёт — 200 без изменений состояния (в отличие от fill-cancel 409 нет).
+// предложения сохраняются). 200 {"cancelled":"true","discarded":"false",
+// "done":M,"total":N}; если джоб не идёт — отказ от набора: предложения
+// выбрасываются (набор пуст, попап не всплывает после перезагрузки) —
+// 200 {"cancelled":"false","discarded":"true"} (в отличие от fill-cancel 409 нет).
+// Поле cancelled сохранено для совместимости (старый смоук/QA).
 func (h *StudioHandlers) descriptionsCancel(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		studioErr(w, "только POST", http.StatusMethodNotAllowed)
@@ -1570,11 +1573,14 @@ func (h *StudioHandlers) descriptionsCancel(w http.ResponseWriter, r *http.Reque
 		h.descCancel = true
 		done, total := h.descDone, h.descTotal
 		h.fillMu.Unlock()
-		studioJSON(w, http.StatusOK, map[string]interface{}{"cancelled": "true", "done": done, "total": total})
+		studioJSON(w, http.StatusOK, map[string]interface{}{"cancelled": "true", "discarded": "false", "done": done, "total": total})
 		return
 	}
+	// прогон не идёт — отказаться от набора: те же поля, что сбрасывают
+	// применение (clearDescProposals) и старт нового прогона (tryStartDesc).
+	h.clearDescProposalsLocked()
 	h.fillMu.Unlock()
-	studioJSON(w, http.StatusOK, map[string]interface{}{"cancelled": "false"})
+	studioJSON(w, http.StatusOK, map[string]interface{}{"cancelled": "false", "discarded": "true"})
 }
 
 // tryStartDesc — атомарный старт джоба описаний (И6: общий флаг с fill).
@@ -1628,12 +1634,19 @@ func (h *StudioHandlers) descCancelled() bool {
 	return h.descCancel
 }
 
-// clearDescProposals — сброс предложений описаний (после применения) вместе с
-// режимом джоба (descExplicit, И4). Cancel предложения сохраняет (И7) — режим
-// тоже сохраняется: apply после отмены обязан применить верный onlyIfEmpty.
+// clearDescProposals — сброс предложений описаний (после применения либо отказа
+// от набора при простое) вместе с режимом джоба (descExplicit, И4). Cancel
+// идущего прогона предложения сохраняет (И7) — режим тоже сохраняется: apply
+// после отмены обязан применить верный onlyIfEmpty.
 func (h *StudioHandlers) clearDescProposals() {
 	h.fillMu.Lock()
 	defer h.fillMu.Unlock()
+	h.clearDescProposalsLocked()
+}
+
+// clearDescProposalsLocked — тело clearDescProposals под уже взятым fillMu
+// (нужно descriptionsCancel: сброс и проверка descGenerating — под одним локом).
+func (h *StudioHandlers) clearDescProposalsLocked() {
 	h.descProposals = nil
 	h.descTotal = 0
 	h.descDone = 0

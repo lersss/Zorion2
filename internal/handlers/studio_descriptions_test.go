@@ -605,7 +605,7 @@ func TestStudioDescriptionsApplyEmptyText(t *testing.T) {
 // --- POST /studio/api/descriptions/cancel ---
 
 // TestStudioDescriptionsCancelRunning — идущий джоб: ставится флаг остановки,
-// 200 {cancelled:true, done, total}.
+// 200 {cancelled:true, done, total}; предложения сохраняются (И7), discarded=false.
 func TestStudioDescriptionsCancelRunning(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
@@ -613,6 +613,7 @@ func TestStudioDescriptionsCancelRunning(t *testing.T) {
 
 	h := newFillHandlers(db)
 	require.True(t, h.tryStartDesc(5, false))
+	setDescProposals(h, []DescProposalView{{ID: 1, Name: "Сталь", Kind: "good", Text: "x"}})
 	req := httptest.NewRequest(http.MethodPost, "/studio/api/descriptions/cancel", nil)
 	rec := httptest.NewRecorder()
 	h.Descriptions(rec, req)
@@ -621,18 +622,24 @@ func TestStudioDescriptionsCancelRunning(t *testing.T) {
 	var body map[string]interface{}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	require.Equal(t, "true", body["cancelled"])
+	require.Equal(t, "false", body["discarded"])
 	require.Equal(t, float64(5), body["total"])
 	require.True(t, h.descCancelled())
+	require.Len(t, h.descProposals, 1, "при идущем прогоне предложения сохраняются (И7)")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// TestStudioDescriptionsCancelIdle — джоб не идёт → 200 без изменений состояния.
+// TestStudioDescriptionsCancelIdle — джоб не идёт → отказ от набора: предложения
+// выбрасываются (набор пуст, попап не всплывает после перезагрузки), discarded=true.
 func TestStudioDescriptionsCancelIdle(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
 	defer db.Close()
 
 	h := newFillHandlers(db)
+	setDescProposals(h, []DescProposalView{{ID: 1, Name: "Сталь", Kind: "good", Text: "x"}})
+	h.descTotal = 1
+	h.descDone = 1
 	req := httptest.NewRequest(http.MethodPost, "/studio/api/descriptions/cancel", nil)
 	rec := httptest.NewRecorder()
 	h.Descriptions(rec, req)
@@ -641,6 +648,10 @@ func TestStudioDescriptionsCancelIdle(t *testing.T) {
 	var body map[string]interface{}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	require.Equal(t, "false", body["cancelled"])
+	require.Equal(t, "true", body["discarded"])
+	require.Empty(t, h.descProposals, "набор предложений отброшен")
+	require.Zero(t, h.descTotal)
+	require.Zero(t, h.descDone)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

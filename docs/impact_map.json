@@ -1,7 +1,7 @@
 {
   "_comment": "Реестр каскадных влияний Zorion. Вопрос: «меняем X → смотрим на Y». Ведёт @manager при сдаче фич (идея 83a): дедупликация по entity.id, schema_version растёт только при изменении структуры, updated_at — дата правки. Сущность заводится при ≥2 потребителях или ≥2 влияниях.",
   "schema_version": 1,
-  "updated_at": "2026-09-21",
+  "updated_at": "2026-09-22",
   "entities": [
     {
       "id": "ui/sound.js",
@@ -1047,7 +1047,42 @@
         { "on": "67a.1", "kind": "affects", "reason": "продукт студии: вкладка «Корабли рас» меняет способ генерации (§5.4)" },
         { "on": "86a", "kind": "affects", "reason": "корабли рас — кандидат показа в энциклопедии (§11)" },
         { "on": "docs/gamedesign/art/art_ships.md", "kind": "docs", "reason": "рецепт кораблей рас → пайплайн дока: §2.0, пометки §2.2/§2.3, `--keep-parts` §2.4, §Эталоны (FAQ) (§12.1)" },
-        { "on": "docs/gamedesign/21_ships.md", "kind": "docs", "reason": "§21.8: реестр кораблей — 21 базовый + расовые в конец, `spriteForAgent` — следствие роста пула (§7, §12.1)" }
+        { "on": "docs/gamedesign/21_ships.md", "kind": "docs", "reason": "§21.8: реестр кораблей — 21 базовый + расовые в конец, `spriteForAgent` — следствие роста пула (§7, §12.1)" },
+        { "on": "ship-sprite-orientation", "kind": "affects", "reason": "обратное ребро: рецепт/приёмка передают ориентацию потомку — пиксельный доворот снят, вырез идёт с `--no-orient` (спека 2026-09-21-угол-корабля-в-метаданных §5)" }
+      ]
+    },
+    {
+      "id": "ship-sprite-orientation",
+      "type": "mechanic",
+      "path": "docs/specs/2026-09-21-угол-корабля-в-метаданных.md",
+      "note": "ориентация спрайта корабля — пара (A, F) в метаданных вместо поворота пикселей (2026-09-21/22, коммит 25de447; спека-источник): приёмка больше не пересэмплирует PNG 200×200 (было два прохода — билинейный поворот + пере-вписывание в кадр, с накоплением мыла), угол и зеркало хранятся парой (угол в градусах по часовой, диапазон (−180, 180]; зеркало — точная операция без интерполяции) и применяются при показе: студия — CSS, игра — canvas. Вырез идёт с `--no-orient`, авто-нос (`profile_orientation`) сохраняется начальным значением пары; пиксели файла не меняются нигде, принятый PNG байт-идентичен кандидату. Реестр `ShipSprite` несёт `Angle`/`Flip` (легаси-21 и принятые до правки — нули). Антипереворот: при курсе влево корабль зеркалится по горизонтали, а не разворачивается на 180° — `rotate(H + V·A)` + `scale(F ? −1 : 1, V)`, `V = cos H < 0 ? −1 : 1` (исправлен баг «вверх ногами» у всех спрайтов, включая легаси). Шаг «принятое → игра» — `tools/import_ship_sprites.ps1`: сопоставление по sha256, гвард `orient_meta` (иначе двойной поворот).",
+      "impacts": [
+        { "on": "ships-quality-rework", "kind": "affects", "reason": "приёмка больше не переписывает пиксели; пара (A, F) — часть контракта приёмки (§4.1, §4.4)" },
+        { "on": "61b", "kind": "affects", "reason": "реестр `ShipSprite` получает `Angle`/`Flip`; легаси-21 — нули, отрисовка не меняется кроме исправленного антипереворота (§6.1, §6.3)" },
+        { "on": "internal/models/ship_sprites.go", "kind": "writes", "reason": "поля `Angle`/`Flip` (`omitempty`) + правила диапазона (−180, 180] (§6.1)" },
+        { "on": "internal/handlers/auth_handlers.go", "kind": "affects", "reason": "`/me.ship_options` несёт `angle`/`flip` (`omitempty` — форма легаси не меняется) (§6.1)" },
+        { "on": "internal/handlers/players_positions.go", "kind": "affects", "reason": "`ResolveShipIcon` питает `p.ship_icon` — по этому имени клиент ищет пару для чужих игроков на карте и в модалке (§6.2)" },
+        { "on": "web/static/js/map/data.js", "kind": "reads", "reason": "единственный вызов `setShipOptions(user.ship_options)` — точка заполнения индекса пары на карте (§6.2)" },
+        { "on": "web/static/js/map/ship_sprites.js", "kind": "affects", "reason": "индекс `file → (angle, flip)` + `shipDrawTransform` — единая конвенция (§6.2)" },
+        { "on": "cmd/art-studio/handlers/ships_handlers.go", "kind": "affects", "reason": "`GET /ships/list` несёт `angle`/`flip`; `setangle`/`auto`; `/ships/preview` удалён (§4.1, §4.2)" },
+        { "on": "cmd/art-studio/web/index.html", "kind": "affects", "reason": "CSS-предпросмотр без сервера, абсолютный слайдер, `applyAuto` → `what=auto`, `k = 1.25` (§4.2)" },
+        { "on": "tools/e2e/ship-sprites-humans-check.js", "kind": "affects", "reason": "число плиток считается от реестра, а не жёстко 24 — обновляется вместе с импортом (§9 п.15)" },
+        { "on": "tools/e2e/ships-accept-check.js", "kind": "affects", "reason": "использовал `/ships/preview` (роут удалён); приёмка/поворот проверяются по мете и хэшу (§9 п.14)" },
+        { "on": "tools/spike_ship_sprite_cut.py", "kind": "affects", "reason": "спайк остаётся историей замеров; рабочая детекция носа — стабильный `tools/ship_sprite_cut.py` (в т.ч. `/ships/auto`) (§4.1, §5)" },
+        { "on": "web/index.html", "kind": "affects", "reason": "дашборд: превью в шапке/раздел «Корабль» + сетка внешнего вида показывают пару (§6.2)" },
+        { "on": "web/static/js/map/npc_agents.js", "kind": "affects", "reason": "отрисовка агента: `rotate(H + V·A)`, зеркало и антипереворот (§6.2, §6.4)" },
+        { "on": "web/static/js/map/map_render.js", "kind": "affects", "reason": "полёт игрока (антипереворот; пунктир к цели — от курса `H`) и стоящие игроки на карте (§6.2, §6.4)" },
+        { "on": "web/static/js/modal/modal_render.js", "kind": "affects", "reason": "маркер «я здесь», внутрисистемный полёт (антипереворот), чужие игроки (§6.2, §6.4)" },
+        { "on": "cmd/art-studio/*", "kind": "affects", "reason": "действия ориентации пишут метаданные; CSS-предпросмотр; удаление `/ships/preview` (§4)" },
+        { "on": "cmd/art-studio/postproc/ship.go", "kind": "affects", "reason": "`ShipSpriteCut` → `--no-orient` (§5)" },
+        { "on": "tools/ship_sprite_cut.py", "kind": "affects", "reason": "отчёт `profile_orientation` при `--no-orient` (§5)" },
+        { "on": "ai_drafts/ships_pool", "kind": "writes", "reason": "`meta.json`: `Angle`/`Flip` — трансформ показа + начальная пара (§5)" },
+        { "on": "ai_drafts/final_accepted/ships", "kind": "writes", "reason": "`ships_meta.json`: пара + `orient_meta` для импорта в реестр (§4.4, §7)" },
+        { "on": "web/static/sprites/*", "kind": "writes", "reason": "принятые PNG копируются байт-в-байт при импорте (§7)" },
+        { "on": "docs/gamedesign/art/art_ships.md", "kind": "docs", "reason": "§2.0/§2.4/§Эталоны: доворот пикселей отменён, закрытая пара про поворот/зеркало и про полёт влево (§16)" },
+        { "on": "docs/gamedesign/21_ships.md", "kind": "docs", "reason": "§21.2 (константа поворота в `ship_sprites.js` → пара реестра), §21.3 (`spriteForAgent` → `{file, color, angle, flip}`), §21.8 (ориентация — метаданные реестра) (§15.1, §16 п.5)" },
+        { "on": "tools/import_ship_sprites.ps1", "kind": "docs", "reason": "шаг «принятое → игра»: копирование по sha256 + гвард `orient_meta` + печать строк реестра с парой (§7)" },
+        { "on": "tools/process_ship.py", "kind": "duplicates", "reason": "флаг `--no-orient` объявлен и в `tools/ship_sprite_cut.py`, и в `tools/process_ship.py` — менять синхронно (§5)" }
       ]
     },
     {

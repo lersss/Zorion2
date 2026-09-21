@@ -223,6 +223,28 @@ const s4 = after.features.find((f) => f.label === "Фича Б");
 check("дописанная цена подхватывается", s4.cost === 5, JSON.stringify(s4?.cost));
 check("дописанная память подхватывается", s4.peak === 100010, JSON.stringify(s4?.peak));
 
+// Часовой расход: своя точка фильтра, чтобы не мешали сессии основной проверки.
+const rateDb = new DatabaseSync(dbPath);
+const insideHour = Date.now() - 20 * 60 * 1000;
+const outsideHour = Date.now() - 90 * 60 * 1000;
+const rateMessage = (id, at, cost) =>
+  rateDb
+    .prepare("INSERT INTO message VALUES (?,?,?,?,?)")
+    .run(id, "r1", at, at, JSON.stringify({ role: "assistant", cost, tokens: { input: 1, output: 1, cache: { read: 0 } } }));
+rateDb
+  .prepare("INSERT INTO session VALUES (?,?,?,?,0,?,?,?,?,?,?)")
+  .run("r1", null, "developer", "Часовой расход", 0, 0, 0, outsideHour, insideHour, "C:\\rate-test");
+rateMessage("rm1", insideHour, 3);
+rateMessage("rm2", outsideHour, 10);
+rateDb.close();
+
+const rateStore = createStore({ dbPath, project: "rate-test", refreshGapMs: 0 });
+const rateReport = rateStore.report({});
+check("часовой расход — только свежие траты", Math.abs(rateReport.rate.perHour - 3) < 1e-9, JSON.stringify(rateReport.rate));
+check("окно часового расхода — час", rateReport.rate.windowMin === 60, JSON.stringify(rateReport.rate));
+check("часовой расход есть в обычном отчёте", typeof all.rate.perHour === "number", JSON.stringify(all.rate));
+rateStore.close();
+
 store.close();
 store2.close();
 fs.rmSync(dir, { recursive: true, force: true });

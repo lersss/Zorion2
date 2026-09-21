@@ -138,9 +138,11 @@ export function createStore({
   journalPath = null,
   refreshGapMs = 8000,
   recentWindowMs = Number(process.env.DASH_RECENT_MIN || 15) * 60 * 1000,
+  rateWindowMs = Number(process.env.DASH_RATE_MIN || 60) * 60 * 1000,
 } = {}) {
   const db = new DatabaseSync(dbPath, { readOnly: true });
   const cache = readCache(cachePath);
+  const projectLike = "%" + String(project).toLowerCase() + "%";
 
   let sessions = [];
   let byId = new Map();
@@ -156,7 +158,14 @@ export function createStore({
         "SELECT id,parent_id,agent,title,cost,tokens_input,tokens_output,tokens_cache_read," +
           "time_created,time_updated FROM session WHERE lower(directory) LIKE ?"
       )
-      .all("%" + String(project).toLowerCase() + "%");
+      .all(projectLike);
+
+  // Расход в час — настоящие деньги за последнее окно (по отметкам сообщений).
+  const windowCost = db.prepare(
+    `SELECT SUM(json_extract(m.data,'$.cost')) cost FROM message m
+     JOIN session s ON s.id = m.session_id
+     WHERE m.time_created >= ? AND lower(s.directory) LIKE ?`
+  );
 
   const dayAgg = db.prepare(
     `SELECT strftime('%Y-%m-%d', time_created/1000, 'unixepoch', 'localtime') day,
@@ -475,6 +484,7 @@ export function createStore({
     }
 
     const now = Date.now();
+    const rateCost = windowCost.get(now - rateWindowMs, projectLike)?.cost || 0;
     const agentList = [...agentMap.values()]
       .map(shrinkGroup)
       .sort((x, y) => y.cost - x.cost);
@@ -502,6 +512,7 @@ export function createStore({
         features: featureList.length,
       },
       journal: { lines: journal.lines, broken: journal.bad },
+      rate: { perHour: round(rateCost), windowMin: Math.round(rateWindowMs / 60000) },
       agents: agentList,
       features: featureList,
       active: rows

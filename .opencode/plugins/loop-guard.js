@@ -1,19 +1,21 @@
 // Сторож зацикливания: режет вызовы, которые перестали давать новое,
-// и напоминает агенту про бюджет, когда он ушёл в спираль (идея 100b/100c).
+// и напоминает агенту про бюджет, когда он ушёл в спираль (идея 100b/100c/100d).
 //
 // Правила:
 //  1) один и тот же вызов с неизменным результатом 5-й раз -> отказ;
 //  2) тот же вызов с любым результатом 41-й раз       -> отказ;
 //  3) серия отказов в сессии                          -> сессия гасится;
-//  4) память >= 700k или 25 переписываний файла, 15 прогонов семейства команд,
-//     3 одинаковых вывода агента подряд                -> напоминание в системную
+//  4) память >= 700k, или файл возвращается к уже виденному состоянию (5 раз),
+//     или файл переписан 60 раз, или 15 прогонов семейства команд,
+//     или 3 одинаковых вывода агента подряд            -> напоминание в системную
 //     память агента (один раз за сессию);
 //  5) память >= 900k или 15 действий после напоминания -> отказ и гашение.
 //
-// Срабатывания показываются всплывашкой и пишутся в журнал (.opencode/loop-guard.log).
+// Файл оценивается по РЕЗУЛЬТАТУ, а не по объёму (идея 100d): пока содержимое
+// меняется — идёт работа; спираль — когда файл возвращается к уже виденному
+// состоянию. Грубая страховка по объёму (60 правок одного файла) остаётся.
 //
-// ВРЕМЕННО: строки action="probe" в журнале — диагностика потока событий
-// (проверяем, что доходит до сторожа и в каком виде). Убрать пробник после проверки.
+// Срабатывания показываются всплывашкой и пишутся в журнал (.opencode/loop-guard.log).
 
 import fs from "node:fs"
 import path from "node:path"
@@ -23,19 +25,19 @@ export const LoopGuard = async ({ client, directory }) => {
   const SAME_ARGS_LIMIT = 40
   const MEM_WARN = 700000
   const MEM_STOP = 900000
-  const SAME_FILE_EDITS = 25
+  const SAME_FILE_EDITS = 60
+  const SAME_FILE_REPEATS = 5
+  const FILE_HASH_MIN_EDITS = 8
+  const FILE_HASH_MAX_BYTES = 1000000
   const SAME_CMD_FAMILY = 15
   const SAME_CONCLUSION = 3
   const AFTER_REMINDER = 15
   const STOP_BLOCKS = 5
   const STOP_MEMORY_BLOCKS = 2
-  // Диагностика событий: сколько строк писать за всё время работы плагина.
-  const PROBE_LIMIT = 12
 
   const journalPath = directory ? path.join(directory, ".opencode", "loop-guard.log") : null
   const sessions = new Map()
   let journalReady = false
-  let probeLines = 0
 
   const journal = (sessionID, action, reason, extra = {}) => {
     if (!journalPath) return
@@ -59,7 +61,7 @@ export const LoopGuard = async ({ client, directory }) => {
       b = {
         calls: new Map(),
         outputs: new Map(),
-        edits: new Map(),
+        files: new Map(),
         cmds: new Map(),
         blocks: new Map(),
         mem: 0,
@@ -105,6 +107,37 @@ export const LoopGuard = async ({ client, directory }) => {
     const cache = Number(tokens.cache?.read ?? tokens.cacheRead) || 0
     return input + cache
   }
+
+  const fileState = (files, file) => {
+    let s = files.get(file)
+    if (!s) {
+      s = { edits: 0, repeats: 0, seen: [] }
+      files.set(file, s)
+    }
+    return s
+  }
+
+  // Отпечаток содержимого: повтор уже виденного состояния = крутимся на месте.
+  const touchState = (s, text) => {
+    if (text === null || text === undefined) return
+    const seen = hash(String(text))
+    if (s.seen.includes(seen)) s.repeats += 1
+    else {
+      s.seen.push(seen)
+      if (s.seen.length > 40) s.seen.shift()
+    }
+  }
+
+  // Содержимое файла для сверки; большие файлы не читаем.
+  const readText = (file) => {
+    try {
+      if (fs.statSync(file).size > FILE_HASH_MAX_BYTES) return null
+      return fs.readFileSync(file, "utf8")
+    } catch {
+      return null
+    }
+  }
+
   const bump = (map, key) => {
     const n = (map.get(key) ?? 0) + 1
     map.set(key, n)
@@ -131,12 +164,20 @@ export const LoopGuard = async ({ client, directory }) => {
   // Признак спирали: агент делает много действий без результата.
   const spiral = (b) => {
     if (b.mem >= MEM_WARN) return `рабочая память ${kilos(b.mem)}`;
-    const file = over(b.edits, SAME_FILE_EDITS)
-    if (file) return `файл ${file.key} переписан ${file.max} раз`;
+    let looping = null;
+    let biggest = null;
+    for (const [file, s] of b.files) {
+      if (s.repeats >= SAME_FILE_REPEATS && (!looping || s.repeats > looping.s.repeats))
+        looping = { file, s };
+      if (s.edits >= SAME_FILE_EDITS && (!biggest || s.edits > biggest.s.edits))
+        biggest = { file, s };
+    }
+    if (looping) return `файл ${looping.file} возвращался к уже виденному состоянию ${looping.s.repeats} раз`;
+    if (biggest) return `файл ${biggest.file} переписан ${biggest.s.edits} раз (работа не сходится)`;
     const cmd = over(b.cmds, SAME_CMD_FAMILY)
     if (cmd) return `команда «${cmd.key}…» прогнана ${cmd.max} раз`;
     if (b.sameConclusion >= SAME_CONCLUSION) return `свой вывод повторён ${b.sameConclusion} раза подряд`;
-    return null
+    return null;
   }
 
   const report = (input, times) =>
@@ -175,17 +216,6 @@ export const LoopGuard = async ({ client, directory }) => {
     event: async ({ event }) => {
       const type = event?.type
       const props = event?.properties ?? {}
-
-      // Диагностика (временно): что реально доходит и в каком виде.
-      if (type && probeLines < PROBE_LIMIT) {
-        probeLines += 1
-        journal(props.sessionID ?? "?", "probe", type, {
-          propKeys: Object.keys(props).join(","),
-          infoKeys: props.info ? Object.keys(props.info).join(",") : "-",
-          kind: String(props.info?.role ?? props.info?.type ?? props.part?.type ?? "-"),
-          tokens: props.info?.tokens ? JSON.stringify(props.info.tokens) : "-",
-        })
-      }
 
       if (type === "session.deleted") {
         sessions.delete(props.info?.id ?? props.sessionID)
@@ -233,7 +263,11 @@ export const LoopGuard = async ({ client, directory }) => {
 
       if (input.tool === "edit" || input.tool === "write" || input.tool === "apply_patch") {
         const file = output.args?.filePath ?? output.args?.path ?? "?"
-        bump(b.edits, file)
+        const s = fileState(b.files, file)
+        s.edits += 1
+        // write и apply_patch знают итоговое содержимое сразу; edit — сверяем после вызова
+        const inline = input.tool === "write" ? output.args?.content : output.args?.patch
+        if (typeof inline === "string") touchState(s, inline)
       } else if (input.tool === "bash" && typeof output.args?.command === "string") {
         bump(b.cmds, output.args.command.trim().slice(0, 48))
       }
@@ -296,6 +330,13 @@ export const LoopGuard = async ({ client, directory }) => {
         current,
         streak: prev && prev.current === current ? prev.streak + 1 : 1,
       })
+
+      // Правку нельзя оценить по аргументам — смотрим, что стало с файлом.
+      if (input.tool === "edit") {
+        const file = input.args?.filePath ?? input.args?.path
+        const s = file ? b.files.get(file) : null
+        if (s && s.edits >= FILE_HASH_MIN_EDITS) touchState(s, readText(file))
+      }
     },
   }
 }

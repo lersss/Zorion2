@@ -407,13 +407,13 @@
       "id": "goods",
       "type": "table",
       "path": "db:goods (categories/goods)",
-      "note": "каталог товаров/ресурсов в PostgreSQL (миграция 000045, перенос iterA): categories (товарные + 6 ресурсных системных), goods (name_norm UNIQUE, kind, source, volume/weight NOT NULL DEFAULT 1, props JSONB для ресурсов); сид 131 ресурс + 19 категорий (маркер goods_catalog_seed); БД — источник правды (С1); iterC: fill пишет через ApplyProposals (товары source=ai), слой-ресурсы читает admin_resources (props ? 'closes'); 2026-09-21 рецепт-сущность (000055): состав переехал в recipe_components, сложность — в recipes.complexity, колонки goods_slots и goods.tier_override снесены; статусов/скрытия у товара нет (снято 000054)",
+      "note": "каталог товаров/ресурсов в PostgreSQL (миграция 000045, перенос iterA): categories (товарные + 6 ресурсных системных), goods (name_norm UNIQUE, kind, source, volume/weight NOT NULL DEFAULT 1, props JSONB для ресурсов); сид 131 ресурс + 19 категорий (маркер goods_catalog_seed); БД — источник правды (С1); iterC: fill пишет через ApplyProposals (товары source=ai), слой-ресурсы читает admin_resources (props ? 'closes'); 2026-09-21 рецепт-сущность (000055): состав переехал в recipe_components, сложность — в recipes.complexity, колонки goods_slots и goods.tier_override снесены; статусов/скрытия у товара нет (снято 000054); 2026-09-21 описание каталога (000057): goods.description TEXT NULL — одно поле для товаров и ресурсов (игровое + рабочее различение записей, NULL = нет описания), ИИ-потоки описаний (новые составляющие fill / одиночный по кнопке / пакетный порциями по 10), роуты /studio/api/descriptions/*",
       "impacts": [
         { "on": "web/studio.html", "kind": "writes", "reason": "студия (UI на /studio) читает/пишет каталог через /studio/api/* (iterB) + попап fill (iterC)" },
         { "on": "94a", "kind": "reads", "reason": "витрина «Реальные вещества» (iterB): real/real_summary/families из goods kind=resource c props ? 'family'; слой/покрытие/gaps — из props ? 'closes' (iterC)" },
         { "on": "internal/goodsstudio", "kind": "writes", "reason": "чистые пакеты (model/graph/validate/seed/ai) — домен каталога, перенесены в internal" },
-        { "on": "internal/handlers/studio_handlers.go", "kind": "api", "reason": "CRUD каталога на SQL (iterA §7) + fill/apply/cancel (iterC)" },
-        { "on": "internal/goodsstudio/ai", "kind": "writes", "reason": "ApplyProposals пишет новые товары и рецепты (состав — recipe_components) в одной транзакции с advisory lock (iterC §5; 2026-09-21)" },
+        { "on": "internal/handlers/studio_handlers.go", "kind": "api", "reason": "CRUD каталога на SQL (iterA §7) + fill/apply/cancel (iterC) + descriptions/fill|apply|cancel (2026-09-21)" },
+        { "on": "internal/goodsstudio/ai", "kind": "writes", "reason": "ApplyProposals пишет новые товары и рецепты (состав — recipe_components) в одной транзакции с advisory lock (iterC §5; 2026-09-21); описание нового товара из ИИ + UpdateDescriptions на применении (2026-09-21)" },
         { "on": "recipes", "kind": "affects", "reason": "рецепт = правило товара: выход (FK good_id CASCADE), сложность; удаление товара каскадит рецепт и чистит его из состава чужих рецептов (component_id SET NULL)" },
         { "on": "internal/handlers/admin_resources.go", "kind": "reads", "reason": "слой 20/покрытие/gaps — из БД (props ? 'closes'), переиспользование CheckAllFed/CoveringResources (iterC §7)" },
         { "on": "docs/DB.md", "kind": "docs", "reason": "таблицы + миграция 000045 + маркер сидера (дельта iterA §16)" },
@@ -424,7 +424,8 @@
         { "on": "docs/specs/_archive/99a.2-goods-studio-import-top-catalog.md", "kind": "docs", "reason": "импорт top-каталога отменён решением создателя 2026-09-20 — спека-источник решения" },
         { "on": "docs/specs/_archive/99a.3-goods-studio-focus-graph-spravochnik.md", "kind": "docs", "reason": "фокус-граф/справочник каталога (99a.3); ПКМ-хвост открыт" },
         { "on": "docs/specs/_archive/перенос-студии-товаров-iterC-доводка.md", "kind": "docs", "reason": "доводка iterC: fill «предложи → подтверди», auth.js, слой из БД" },
-        { "on": "docs/specs/2026-09-21-рецепт-сущность-и-граф-фабрики.md", "kind": "duplicates", "reason": "спека «рецепт как сущность» (000055): goods_slots и goods.tier_override сняты; состав — recipe_components, сложность — recipes.complexity" }
+        { "on": "docs/specs/2026-09-21-рецепт-сущность-и-граф-фабрики.md", "kind": "duplicates", "reason": "спека «рецепт как сущность» (000055): goods_slots и goods.tier_override сняты; состав — recipe_components, сложность — recipes.complexity" },
+        { "on": "docs/specs/2026-09-21-каталог-описание-товаров-и-ресурсов.md", "kind": "docs", "reason": "спека описания каталога (000057): поле у товаров/ресурсов, ручной ввод, три ИИ-потока описаний, третья колонка массовой подгрузки" }
       ]
     },
     {
@@ -443,12 +444,12 @@
       "id": "internal/goodsstudio/ai",
       "type": "code",
       "path": "internal/goodsstudio/ai/",
-      "note": "ИИ «заполнить комплектующие» (перенос cmd/goods-studio/ai, iterC 2026-09-20): client (opencode HTTP, env OPENCODE_URL/MODEL/TIMEOUT_S/MAX_RETRIES), prompt/prompt_fill, parse, BuildProposals (kind new/link, category_valid, дропы), ApplyProposals (per-slot, дропы С1–С3); двухфазный «предложи → подтверди»",
+      "note": "ИИ «заполнить комплектующие» (перенос cmd/goods-studio/ai, iterC 2026-09-20): client (opencode HTTP, env OPENCODE_URL/MODEL/AGENT/TIMEOUT_S/MAX_RETRIES), prompt/prompt_fill, parse, BuildProposals (kind new/link, category_valid, дропы), ApplyProposals (per-slot, дропы С1–С3); двухфазный «предложи → подтверди»; 2026-09-21 описание каталога: desc.go/prompt_desc.go (ParseDescriptionResponse/NormalizeDescription/MaxDescriptionRunes/BuildDescriptionPrompt, Component/Proposal/ProposalItem.Description), Client.FillComponents → Ask (generic, три потока), явный агент OPENCODE_AGENT (дефолт build — пустое значение резолвилось в default_agent manager и давало не-JSON), extractJSON (терпимый разбор ответа)",
       "impacts": [
         { "on": "goods", "kind": "writes", "reason": "ApplyProposals пишет новые товары и рецепты (состав — recipe_components; write-back, одна транзакция с advisory lock)" },
         { "on": "internal/handlers/studio_handlers.go", "kind": "api", "reason": "fill/apply/cancel хендлеры вызывают BuildProposals/ApplyProposals (in-memory статус, TryStart)" },
         { "on": "internal/config/config.go", "kind": "reads", "reason": "конфиг opencode — env с дефолтами (старые значения studio.json)" },
-        { "on": "web/studio.html", "kind": "api", "reason": "попап «Предложения ИИ» опрашивает state (proposals/report), отправляет apply/cancel" }
+        { "on": "web/studio.html", "kind": "api", "reason": "попап «Предложения ИИ» опрашивает state (proposals/report), отправляет apply/cancel; попап «Описания ИИ» — /studio/api/descriptions/* (2026-09-21)" }
       ]
     },
     {
@@ -467,14 +468,14 @@
       "id": "web/studio.html",
       "type": "code",
       "path": "web/studio.html",
-      "note": "UI студии товаров на игровом сервере (перенос iterA/iterB/iterC; 2026-09-21 рецепт-сущность): перенесённый cmd/goods-studio/web/index.html; подключён к /studio/api/* (JWT admin/skycomposer, общий adminToken), «+ ресурс», второе подтверждение удаления, OR-фильтры; iterC: кнопка «заполнить комплектующие» + попап «Предложения ИИ» (варианты, селект категорий, полный отчёт), авторизация через общий модуль auth.js (инлайн-паттерн удалён); 2026-09-21: селектор фабрики и граф её замыкания, фильтр справочника по семейству рас, попап «Состав рецепта»/«Сложность рецепта»/«Доступен фабрикам», drag&drop привязки рецепта на канвас, пункт контекст-меню «привязать к фабрике», счётчик «в наборе N», кнопка копирования набора рецептов (ветка «Производители»)",
+      "note": "UI студии товаров на игровом сервере (перенос iterA/iterB/iterC; 2026-09-21 рецепт-сущность): перенесённый cmd/goods-studio/web/index.html; подключён к /studio/api/* (JWT admin/skycomposer, общий adminToken), «+ ресурс», второе подтверждение удаления, OR-фильтры; iterC: кнопка «заполнить комплектующие» + попап «Предложения ИИ» (варианты, селект категорий, полный отчёт), авторизация через общий модуль auth.js (инлайн-паттерн удалён); 2026-09-21: селектор фабрики и граф её замыкания, фильтр справочника по семейству рас, попап «Состав рецепта»/«Сложность рецепта»/«Доступен фабрикам», drag&drop привязки рецепта на канвас, пункт контекст-меню «привязать к фабрике», счётчик «в наборе N», кнопка копирования набора рецептов (ветка «Производители»); 2026-09-21 описание каталога: textarea описания в попапе записи (сохранение по blur), кнопка «предложить описание», галка «описание ИИ» при создании, третья колонка массовой подгрузки, попап «Описания ИИ» (#descPopup — порции по 10, прогресс, принять/пропустить/отредактировать, отмена сохраняет предложения)",
       "impacts": [
         { "on": "goods", "kind": "writes", "reason": "студия правит каталог через /studio/api/* (CRUD, DELETE с cleared_links; 2026-09-21: тир-оверрайд и слоты заменены сложностью рецепта и recipe-роутами)" },
         { "on": "recipes", "kind": "writes", "reason": "состав и сложность рецепта правятся из попапа товара (/studio/api/recipes/{id}, .../components, allow_resource); создание товара создаёт рецепт (2026-09-21)" },
         { "on": "producer_recipes", "kind": "writes", "reason": "привязка/отвязка рецептов к фабрике (секция «Доступен фабрикам», drag&drop на канвас, контекст-меню, «+ товар» у фабрики), копирование набора из универсальной фабрики" },
         { "on": "web/static/js/auth.js", "kind": "reads", "reason": "студия: bootstrap и window.* из адаптера studio/auth.js (ядро auth.js), общий adminToken с админкой" },
         { "on": "internal/handlers/studio_handlers.go", "kind": "api", "reason": "все действия UI идут в /studio/api/* (iterA §7) + fill/apply/cancel (iterC)" },
-        { "on": "internal/goodsstudio/ai", "kind": "api", "reason": "попап «Предложения ИИ» опрашивает state (proposals/report), отправляет apply/cancel (iterC)" },
+        { "on": "internal/goodsstudio/ai", "kind": "api", "reason": "попап «Предложения ИИ» опрашивает state (proposals/report), отправляет apply/cancel (iterC); попап «Описания ИИ» — descriptions/fill|apply|cancel (2026-09-21)" },
         { "on": "docs/ARCHITECTURE.md", "kind": "docs", "reason": "роуты /studio + статика web/studio.html (дельта iterA §16)" },
         { "on": "docs/specs/2026-09-21-студия-товары-рецепты-ui.md", "kind": "docs", "reason": "UI-ТЗ рецептов (2026-09-21): селекторы фабрики/семейства, граф замыкания, попап «Состав рецепта»/«Сложность»/привязки, drag&drop, кнопка копирования набора" },
         { "on": "docs/specs/2026-09-21-рецепт-сущность-и-граф-фабрики.md", "kind": "duplicates", "reason": "модель/API рецептов (§4–§5): селектор фабрики, фильтр семейства, попап, роуты рецептов/привязок" }

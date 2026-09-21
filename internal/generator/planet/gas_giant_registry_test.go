@@ -44,15 +44,16 @@ func TestFieldRegistryCoversGenerator(t *testing.T) {
 	assert.LessOrEqual(t, *s.Min, 20.0-273.0, "temperature min")
 	assert.GreaterOrEqual(t, *s.Max, 2500.0-273.0, "temperature max")
 
-	// mass: минимум архетипов 0.1 (жаркий/холодный), гиганты до GasGiantMassMax.
+	// mass: физический каскад 0.02–8 (пол 0.02 — страховка реестра, спека
+	// 2026-09-21 §5.3), гиганты до GasGiantMassMax, экзотика 0.05–0.45.
 	s = requireSpec("mass")
-	assert.LessOrEqual(t, *s.Min, 0.1, "mass min")
+	assert.LessOrEqual(t, *s.Min, 0.02, "mass min")
 	assert.GreaterOrEqual(t, *s.Max, GasGiantMassMax, "mass max")
 
-	// size: реальный минимум генератора 0.425 (жаркий M=0.1, ρ=1.3),
-	// максимум — плато насыщения гигантов 11.2.
+	// size: страховка реестра от пола массы 0.02 → 0.25 (факт генератора
+	// ≈ 0.43); максимум — плато насыщения гигантов 11.2.
 	s = requireSpec("size")
-	assert.LessOrEqual(t, *s.Min, 0.425, "size min")
+	assert.LessOrEqual(t, *s.Min, 0.25, "size min")
 	assert.GreaterOrEqual(t, *s.Max, GasGiantRadiusMax, "size max")
 
 	// density: ρ(15.9)=0.0774 … ρ(4131)=2.9403.
@@ -60,9 +61,10 @@ func TestFieldRegistryCoversGenerator(t *testing.T) {
 	assert.LessOrEqual(t, *s.Min, GasGiantMassMin/math.Pow(GasGiantRadiusMin, 3), "density min")
 	assert.GreaterOrEqual(t, *s.Max, GasGiantMassMax/math.Pow(GasGiantRadiusMax, 3), "density max")
 
-	// gravity: g(0.1, ледники ρ=0.5)=0.29 … g(4131, 11.2)=32.93.
+	// gravity: страховка от пола массы 0.02 → 0.13 (факт генератора ≈ 0.33);
+	// верх — g(4131, 11.2) = 32.93.
 	s = requireSpec("gravity")
-	assert.LessOrEqual(t, *s.Min, 0.29, "gravity min")
+	assert.LessOrEqual(t, *s.Min, 0.13, "gravity min")
 	assert.GreaterOrEqual(t, *s.Max, GasGiantMassMax/(GasGiantRadiusMax*GasGiantRadiusMax), "gravity max")
 
 	// moons: 0…10 (гиганты 3–10, стандартные ≤ 4).

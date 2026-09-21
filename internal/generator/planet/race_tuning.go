@@ -106,12 +106,12 @@ func (g *Generator) raceTunePlanet(sp StellarParams, rNat float64, shiftOrbit bo
 
 	rt := &raceTune{}
 
-	// M_nom — номинальная масса аккреции без ζ (спека §3.3 ручка 3/4):
-	// M_nom = r^1.5·10^(0.5[Fe/H]). Для H_int и T_target₀ — на естественной
-	// орбите (до сдвига); для f_vol и возраста — на сдвинутой (каскад
-	// аккрецирует массу на in.OrbitRadiusAU — сдвинутой орбите, иначе
-	// давление систематически мимо P_target).
-	mNomNat := math.Pow(rNat, 1.5) * math.Pow(10, 0.5*sp.Metallicity)
+	// M_nom — номинальная масса аккреции без ζ и без B (спека §3.3 ручка 3/4):
+	// единый источник — ядро каскада (coreMass, §5.4 спеки 2026-09-21).
+	// Для H_int и T_target₀ — на естественной орбите (до сдвига); для f_vol и
+	// возраста — на сдвинутой (каскад аккрецирует массу на in.OrbitRadiusAU —
+	// сдвинутой орбите, иначе давление систематически мимо P_target).
+	mNomNat := coreMass(raceNominalANorm(rNat, sp.Luminosity, shiftOrbit), sp.Metallicity)
 	sqrtMNat := math.Sqrt(mNomNat)
 
 	// H_int — поправка на внутреннее тепло (спека §6): тепловые расы
@@ -140,8 +140,9 @@ func (g *Generator) raceTunePlanet(sp StellarParams, rNat float64, shiftOrbit bo
 	} else {
 		rt.orbitMult = 0
 	}
-	mNom := math.Pow(rEff, 1.5) * math.Pow(10, 0.5*sp.Metallicity)
+	mNom := coreMass(raceNominalANorm(rEff, sp.Luminosity, shiftOrbit), sp.Metallicity)
 	sqrtM := math.Sqrt(mNom)
+	rt.nominalMass = mNom
 
 	// Ручка 4: тепло — адаптивный возраст (заменяет determineSystemAge).
 	if t.FIntTarget > 0 {
@@ -183,9 +184,20 @@ type raceTune struct {
 	orbitMult         float64     // ручка 1: множитель орбиты (1.0 = без сдвига)
 	fVol              float64     // ручка 3: бюджет летучих (0 = каскад сам)
 	ageGyr            float64     // ручка 4: возраст (0 = каскад сам)
+	nominalMass       float64     // номинал ядра без ζ и B — единый источник (§5.4)
 	surface           Composition // ручки 7/7-холод: оверрайд поверхности (nil = нет)
 	composition       Composition // ручка 2: оверрайд состава (nil = нет)
 	compositionRegime string      // ожидаемый режим оверрайда состава
+}
+
+// raceNominalANorm — a_норм для номинала подкрутки: S-ветка r/√L (shiftOrbit);
+// P-ветка (shiftOrbit = false) — физическое r_P, нормализация √L не применима
+// (§4.1 спеки 2026-09-21-масса-каменистых-и-ледяных-планет).
+func raceNominalANorm(r, luminosity float64, shiftOrbit bool) float64 {
+	if shiftOrbit {
+		return aNormOf(r, luminosity)
+	}
+	return r
 }
 
 // racePTarget — целевое давление (ручка 3, спека §3.3): холодный/умеренный —

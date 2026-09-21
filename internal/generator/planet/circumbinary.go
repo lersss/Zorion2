@@ -69,6 +69,9 @@ func (g *Generator) generateCircumbinaryRocky(w WorldInfo, rP float64, sp Stella
 		TEff:          sp.TEff,
 		OrbitRadiusAU: rP,
 		OrbitIndex:    1,
+		// P-планеты: a_норм = r_P (физическое расстояние) — нормализация √L
+		// не применима (спека 2026-09-21 §4.1).
+		Circumbinary: true,
 	}
 	if tune != nil {
 		in.FVolOverride = tune.fVol

@@ -46,6 +46,19 @@ const (
 
 	// Номинальный парник предварительной атмосферы (99.2.20 §3.5 п.2).
 	nominalTau = 1.0
+
+	// Границы массы каменистых/ледяных планет (спека
+	// 2026-09-21-масса-каменистых-и-ледяных-планет §5): пол — страховка
+	// реестра (генератором не достигается), потолок — граница ветки
+	// газовых гигантов (эталон 99.2.15).
+	massMin = 0.02 // M⊕
+	massMax = 8.0  // M⊕
+
+	// Анкер и показатель аннулярной массы диска (§4 спеки 2026-09-21):
+	// a_⊕ = a₂ = 1.156 а.е. — орбита 2 солнцеподобной звезды = 1 M⊕;
+	// β = 0.5 — середина физического коридора [0.4, 0.6].
+	massAnchorAU = 1.156
+	massBeta     = 0.5
 )
 
 // ==================== СЛОЙ 2 — ОРБИТА (99.2.20 §3.2) ====================
@@ -68,13 +81,33 @@ func orbitalPeriod(orbitRadiusAU, stellarMass float64) float64 {
 
 // ==================== СЛОЙ 3 — ПЛАНЕТА (99.2.20 §3.3) ====================
 
+// coreMass — ядро массы по аккреции без случайных множителей (§4 спеки
+// 2026-09-21): M_ядро = M₀·(a_норм/a_⊕)^β·10^(0.5·[Fe/H]), M₀ = 1 M⊕.
+// Единый источник каскада и номинала подкрутки рас (§5.4, K1).
+func coreMass(aNorm, metallicity float64) float64 {
+	return math.Pow(aNorm/massAnchorAU, massBeta) * math.Pow(10, 0.5*metallicity)
+}
+
+// aNormOf — нормированное расстояние a_норм = r/√L (S-планеты, 99.2.20 §3.2):
+// «номер орбиты = одни условия» для всех классов (инсоляция, снеговая линия,
+// режим атмосферы). Для P-планет нормализация √L не применима (барицентр,
+// §4.1 спеки 2026-09-21) — вызывающий передаёт физическое r_P напрямую.
+func aNormOf(orbitRadiusAU, luminosity float64) float64 {
+	if luminosity <= 0 {
+		return orbitRadiusAU
+	}
+	return orbitRadiusAU / math.Sqrt(luminosity)
+}
+
 // accretionMass — масса по аккреции (заменяет рулетку архетипа):
-// M = clamp(r^1.5 × 10^(0.5·[Fe/H]) × ζ, 0.1, 8), ζ ~ logN(0, 0.4).
-// Калибровка: r = 1 а.е., [Fe/H] = 0, ζ = 1 → M = 1 M⊕ (Земля).
-func accretionMass(orbitRadiusAU, metallicity float64, rng *rand.Rand) float64 {
-	zeta := math.Exp(0.4 * rng.NormFloat64())
-	m := math.Pow(orbitRadiusAU, 1.5) * math.Pow(10, 0.5*metallicity) * zeta
-	return clamp(m, 0.1, 8.0)
+// M_ядро = M₀·(a_норм/a_⊕)^0.5·10^(0.5·[Fe/H])·ζ, ζ ~ logN(0, 0.4).
+// Чистая функция без RNG (§8 T6/T8); ролл ζ — на месте вызова (runCascade).
+// Возвращает СЫРОЕ ядро: кламп [0.02, 8] применяется ОДИН раз — к
+// произведению B·M_ядро (§4), в runCascade. Внутренний кламп ядра убран
+// (ревью 2026-09-21: двойной кламп занижал верхнюю метку 2.0% → 1.2%).
+// Светимость в массу не входит — каскад самоподобен по √L (§4.2 п.1).
+func accretionMass(aNorm, metallicity, zeta float64) float64 {
+	return coreMass(aNorm, metallicity) * zeta
 }
 
 // compositionByZone — объёмный состав (породы/железо/лёд) по зоне снеговой
@@ -311,6 +344,10 @@ type cascadeInput struct {
 	// Слой 2 — орбита.
 	OrbitRadiusAU float64 // а.е.
 	OrbitIndex    int
+	// Circumbinary — P-планета тесной двойной (99.2.18): a_норм = r_P
+	// (физическое расстояние) — нормализация √L не применима (§4.1 спеки
+	// 2026-09-21-масса-каменистых-и-ледяных-планет).
+	Circumbinary bool
 
 	// Оверрайды калибровок (§3.6): 0/пустое — вычислить каскадом.
 	MassOverride       float64     // M⊕
@@ -377,7 +414,15 @@ func (g *Generator) runCascade(in cascadeInput) *cascadeResult {
 	// --- Слой 3 — планета: масса, состав, плотность, радиус, гравитация ---
 	mass := in.MassOverride
 	if mass <= 0 {
-		mass = accretionMass(in.OrbitRadiusAU, in.Metallicity, g.rng)
+		// Масса — от нормированного расстояния (номер орбиты), светимость
+		// не входит (спека 2026-09-21 §4); ζ — ролл на месте вызова, B —
+		// per-системный бюджет (один ролл на систему, поле systemBudget).
+		zeta := math.Exp(0.4 * g.rng.NormFloat64())
+		aNorm := aNormOf(in.OrbitRadiusAU, in.Luminosity)
+		if in.Circumbinary {
+			aNorm = in.OrbitRadiusAU // P-планеты: физическое r_P (§4.1)
+		}
+		mass = clamp(g.systemBudget*accretionMass(aNorm, in.Metallicity, zeta), massMin, massMax)
 	}
 	rock, iron, ice := compositionByZone(in.OrbitRadiusAU, in.Luminosity, g.rng)
 	density := planetDensity(rock, iron, ice, mass)

@@ -399,43 +399,63 @@ func TestBiomeSmokeDistribution(t *testing.T) {
 	planets := 0
 	biomeCount := map[int]int{}
 
+	// Мировой поток (ревью 2026-09-21, правка 2): generateWorldWithCountIntoBuffer
+	// роллит per-системный бюджет B — смоук мерит реальный путь, а не runCascade
+	// напрямую (там бюджет = 1, числа не те, что уходят в игру).
+	buf := newBatchBuffers(64)
 	for i := 0; i < 20000; i++ {
 		cls := classes[g.rng.Intn(len(classes))]
-		orbit := 1 + g.rng.Intn(8)
-		pd := g.generatePlanet("w", "World", orbit, stellarParamsFromClass(cls, 0, g.rng))
-		require.NotNil(t, pd)
-		var data map[string]interface{}
-		require.NoError(t, json.Unmarshal(pd.Data, &data))
-
-		biomes, ok := data["biomes"].([]interface{})
-		if !ok {
-			continue // газовый гигант — без биомов (99.2.28 §9.5)
+		// Металличность [Fe/H] как в продакшне (galaxy.rollMetallicity):
+		// N(0, 0.3), кламп [−0.8, +0.5]. Входит в массу каскада, а через неё —
+		// в гравитацию/биомы; без неё поток не воспроизводит игру.
+		met := g.rng.NormFloat64() * 0.3
+		if met < -0.8 {
+			met = -0.8
 		}
-		planets++
-		require.NotEmpty(t, biomes, "не-гигант без биомов (страховка минимум 1)")
-		biomeCount[len(biomes)]++
+		if met > 0.5 {
+			met = 0.5
+		}
+		w := WorldInfo{ID: "w", Name: "World", SpectralClass: cls, StarType: "star",
+			Mods: &models.StellarMods{Metallicity: &met}}
+		count := g.planetCountFor(w)
+		buf.reset()
+		g.generateWorldWithCountIntoBuffer(w, count, buf)
 
-		sum := 0.0
-		for _, item := range biomes {
-			m := item.(map[string]interface{})
-			form := m["form"].(string)
-			share := m["share"].(float64)
-			sum += share
-			seen[form]++
-			if form == SurfaceLavaFields && data["temperature"].(float64) < 500 {
-				lavaInCold++
+		for _, row := range buf.planetRows {
+			fields := row.([]interface{})
+			var data map[string]interface{}
+			require.NoError(t, json.Unmarshal([]byte(fields[4].(string)), &data))
+
+			biomes, ok := data["biomes"].([]interface{})
+			if !ok {
+				continue // газовый гигант — без биомов (99.2.28 §9.5)
 			}
-			if form == SurfaceForests || form == SurfaceMeadows || form == SurfaceJungles {
-				if atm, ok := data["atmosphere_data"].(map[string]interface{}); ok {
-					if comp, ok := atm["composition"].(map[string]interface{}); ok {
-						if ch4, ok := comp["CH4"].(float64); ok && ch4 > 1 {
-							toxicForests++
+			planets++
+			require.NotEmpty(t, biomes, "не-гигант без биомов (страховка минимум 1)")
+			biomeCount[len(biomes)]++
+
+			sum := 0.0
+			for _, item := range biomes {
+				m := item.(map[string]interface{})
+				form := m["form"].(string)
+				share := m["share"].(float64)
+				sum += share
+				seen[form]++
+				if form == SurfaceLavaFields && data["temperature"].(float64) < 500 {
+					lavaInCold++
+				}
+				if form == SurfaceForests || form == SurfaceMeadows || form == SurfaceJungles {
+					if atm, ok := data["atmosphere_data"].(map[string]interface{}); ok {
+						if comp, ok := atm["composition"].(map[string]interface{}); ok {
+							if ch4, ok := comp["CH4"].(float64); ok && ch4 > 1 {
+								toxicForests++
+							}
 						}
 					}
 				}
 			}
+			assert.InDelta(t, 100, sum, 0.5, "сумма биомов = 100")
 		}
-		assert.InDelta(t, 100, sum, 0.5, "сумма биомов = 100")
 	}
 	require.Greater(t, planets, 10000, "смоук: достаточно не-гигантов")
 

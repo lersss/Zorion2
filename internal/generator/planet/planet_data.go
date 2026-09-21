@@ -61,6 +61,13 @@ type Generator struct {
 	// giantOrbit без ролла (не потребляет энтропию в циклах). Генерация
 	// однопоточная на мир — поле безопасно (как profile).
 	giantOrbit int
+
+	// systemBudget — бюджет системы B (спека 2026-09-21 §4): B ~ logN(0, 0.5),
+	// один ролл на систему (образец giantOrbit), множитель массы
+	// каменистых/ледяных планет. Не применяется к газовым гигантам
+	// (эталон 99.2.15) и экзотике (exotic.go). Дефолт 1.0 — нейтрально для
+	// прямых вызовов каскада; мировой поток перезаписывает роллом.
+	systemBudget float64
 }
 
 // NewGenerator — создаёт генератор. Если seed = 0 — берётся time.Now().
@@ -69,10 +76,11 @@ func NewGenerator(db *sql.DB, seed int64) *Generator {
 		seed = time.Now().UnixNano()
 	}
 	return &Generator{
-		db:        db,
-		rng:       rand.New(rand.NewSource(seed)),
-		usedNames: make(map[string]bool),
-		means:     DefaultPlanetMeans(),
+		db:           db,
+		rng:          rand.New(rand.NewSource(seed)),
+		usedNames:    make(map[string]bool),
+		means:        DefaultPlanetMeans(),
+		systemBudget: 1.0,
 	}
 }
 
@@ -113,6 +121,8 @@ func (g *Generator) GeneratePlanetsForWorld(worldID, worldName, spectralClass st
 	// Per-системное решение гиганта (спека 2026-09-20 §4.2): один ролл до
 	// цикла орбит.
 	g.giantOrbit = g.rollGiantOrbit(sp, planetCount)
+	// Бюджет системы B (спека 2026-09-21 §4): один ролл на систему.
+	g.systemBudget = g.rollSystemBudget()
 
 	tx, err := g.db.Begin()
 	if err != nil {
@@ -260,6 +270,14 @@ func (g *Generator) generateWorldWithCountIntoBuffer(w WorldInfo, count int, buf
 	// без companion_sep_au идут общим путём (фолбэк §2.4).
 	isCircumbinary := !isExoticObject(w.StarType) && w.Mods != nil &&
 		w.Mods.BinaryType == "close" && w.Mods.CompanionSepAU != nil
+
+	// Бюджет системы B (спека 2026-09-21 §4): один ролл до цикла орбит
+	// (образец giantOrbit). Диск кратной системы один — B наследуется
+	// компаньонами и P-планетами; экзотика (остатки) B не потребляет.
+	g.systemBudget = 1.0
+	if !isExoticObject(w.StarType) {
+		g.systemBudget = g.rollSystemBudget()
+	}
 
 	// Per-системное решение гиганта (спека 2026-09-20 §4.2): один ролл до
 	// цикла орбит. Экзотика (ЧД/НЗ/WD/протозвезда/сверхгиганты) — гигантов

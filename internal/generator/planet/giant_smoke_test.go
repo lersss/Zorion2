@@ -7,14 +7,17 @@
 package planet
 
 import (
+	"encoding/json"
 	"math"
 	"math/rand"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"zorion/internal/generator/galaxy"
 	"zorion/internal/models"
+	"zorion/internal/races"
 )
 
 // weightedPickTest — взвешенный выбор по map весов (копия galaxy.weightedPick
@@ -34,11 +37,32 @@ func weightedPickTest(rng *rand.Rand, weights map[string]float64, order []string
 	return order[len(order)-1]
 }
 
+// rollSmokeBinaryMods — модификаторы двойной/кратной системы для смоука:
+// wide ~70% / close ~30% (модель теста), у close — CompanionSepAU
+// (log-uniform [0.05, 0.9] — galaxy.closeSepMin/Max), чтобы сработала
+// P-ветка generateCircumbinaryPlanet (ревью 2026-09-21, правка 2).
+func rollSmokeBinaryMods(g *Generator, cls string) *models.StellarMods {
+	mods := &models.StellarMods{Companion: cls}
+	if g.rng.Float64() < 0.7 {
+		mods.BinaryType = "wide"
+	} else {
+		mods.BinaryType = "close"
+		sep := 0.05 * math.Pow(0.9/0.05, g.rng.Float64())
+		mods.CompanionSepAU = &sep
+	}
+	return mods
+}
+
 // TestSmoke20000Worlds — смоук 20 000 миров по критерию приёмки §11:
 // G/K/F с гигантом 8–12%, M 2–5%, O/B < 1%, A ≤ 3%, горячие юпитеры
 // глобально [0.5%, 1.0%], максимум планет M/G/K ≥ 4 и любой ≤ 8,
 // обитаемая доля ~2.5% (окно 2.3–4% — шум одного сида, решение создателя
 // «обитаемость как получится»).
+//
+// Мировой поток (ревью 2026-09-21, правка 2): планеты генерируются
+// generateWorldWithCountIntoBuffer, а не runCascade напрямую, — ролится
+// per-системный бюджет B (как в игре). Пригодность — настоящий флаг
+// Settleable (races.HumansSuitable, правка 3), а не широкая эвристика.
 func TestSmoke20000Worlds(t *testing.T) {
 	g := NewGenerator(nil, 20260920)
 	g.means = DefaultPlanetMeans()
@@ -54,98 +78,73 @@ func TestSmoke20000Worlds(t *testing.T) {
 	classGiants := map[string]int{}
 	hotJupiters := 0
 	totalPlanets := 0
-	habitable := 0
+	settleable := 0
+	broadHabitable := 0
 	maxPlanets := 0
 	maxPlanetsMGK := 0
 
+	buf := newBatchBuffers(64)
 	for i := 0; i < worlds; i++ {
 		st := weightedPickTest(g.rng, systemWeights, systemOrder)
 		cls := weightedPickTest(g.rng, weights, spectralOrder)
 		classWorlds[cls]++
 
-		// Экзотика: гигантов нет (99.2.4 §5.3), планеты не обитаемы.
-		if st != "single" && st != "binary" && st != "multiple" {
-			pc := g.planetCountFor(WorldInfo{StarType: st})
-			totalPlanets += pc
-			if pc > maxPlanets {
-				maxPlanets = pc
-			}
-			continue
+		// WorldInfo как в продакшне (handlers/admin_universe.go): обычные
+		// звёзды — StarType "star" + SystemType; экзотика — StarType.
+		w := WorldInfo{ID: "w", Name: "World", SpectralClass: cls, StarType: "star"}
+		switch st {
+		case "single":
+			// одиночная звезда — без модификаторов
+		case "binary", "multiple":
+			w.SystemType = st
+			w.Mods = rollSmokeBinaryMods(g, cls)
+		default:
+			// Экзотика (ЧД/НЗ/WD/протозвезда/прочая): гигантов нет,
+			// планеты не обитаемы (99.2.4 §5.3).
+			w.StarType = st
+			w.SpectralClass = ""
 		}
 
-		// Обычная звезда: счёт планет по типу системы (planetCountFor).
-		w := WorldInfo{SpectralClass: cls, StarType: "star", SystemType: st}
-		if st == "binary" {
-			// wide ~70% / close ~30% (галактика 99.2.4 §4.1).
-			if g.rng.Float64() < 0.7 {
-				w.Mods = &models.StellarMods{BinaryType: "wide"}
-			} else {
-				w.Mods = &models.StellarMods{BinaryType: "close"}
-			}
+		count := g.planetCountFor(w)
+		buf.reset()
+		generated := g.generateWorldWithCountIntoBuffer(w, count, buf)
+		totalPlanets += generated
+		if generated > maxPlanets {
+			maxPlanets = generated
 		}
-		planetCount := g.planetCountFor(w)
-		totalPlanets += planetCount
-		if planetCount > maxPlanets {
-			maxPlanets = planetCount
-		}
-		if (cls == "M" || cls == "G" || cls == "K") && planetCount > maxPlanetsMGK {
-			maxPlanetsMGK = planetCount
+		if (cls == "M" || cls == "G" || cls == "K") && generated > maxPlanetsMGK {
+			maxPlanetsMGK = generated
 		}
 
-		sp := stellarParamsFromClass(cls, 0, g.rng)
-
-		// Тесная двойная — P-ветка: одна P-планета, свой ролл гиганта
-		// (generateCircumbinaryPlanet, спека §4.2); орбита 1.
-		if w.Mods != nil && w.Mods.BinaryType == "close" {
-			if planetCount == 0 {
+		worldHasGiant := false
+		for _, row := range buf.planetRows {
+			fields := row.([]interface{})
+			orbit, _ := fields[3].(int)
+			var data map[string]interface{}
+			require.NoError(t, json.Unmarshal([]byte(fields[4].(string)), &data))
+			if data["is_gas_giant"] == true {
+				worldHasGiant = true
+				if orbit <= 2 {
+					hotJupiters++ // горячий юпитер (орбита 1–2)
+				}
 				continue
 			}
-			if g.rng.Float64() < g.gasGiantChanceShifted(sp) {
-				classGiants[cls]++
-				hotJupiters++ // P-гигант на единственной орбите 1 — «горячий»
+			// Настоящий флаг пригодности (races.HumansSuitable) — тот же
+			// источник, что res.Settleable в каскаде (65a).
+			if races.HumansSuitable(data) {
+				settleable++
 			}
-			// Обитаемость P-планеты: каскад при r_P = 3×sep (типичная тесная
-			// пара, компаньон того же класса — упрощение смоука).
-			sep := 0.05 * math.Pow(0.9/0.05, g.rng.Float64()) // log-uniform [0.05, 0.9]
-			res := g.runCascade(cascadeInput{
-				Luminosity:    sp.Luminosity * 2,
-				StellarMass:   sp.StellarMass * 2,
-				AgeGyr:        sp.AgeGyr,
-				Metallicity:   sp.Metallicity,
-				TEff:          sp.TEff,
-				OrbitRadiusAU: 3 * sep,
-				OrbitIndex:    1,
-			})
-			if res.LiquidWater && res.WaterPercent > 10 && res.TFinal > 200 && res.TFinal < 350 {
-				habitable++
+			// Широкая эвристика — информационная метрика (лог, без окна).
+			if data["liquid_water_possible"] == true {
+				tv, _ := data["temperature"].(float64)
+				wv, _ := data["water_percent"].(float64)
+				if wv > 10 && tv > 200 && tv < 350 {
+					broadHabitable++
+				}
 			}
-			continue
 		}
-
-		// Обычный путь: per-системное решение гиганта + каскад на орбитах.
-		giantOrbit := g.rollGiantOrbit(sp, planetCount)
-		if giantOrbit > 0 {
+		if worldHasGiant {
 			classGiants[cls]++
-			if giantOrbit <= 2 {
-				hotJupiters++
-			}
-		}
-		for orbit := 1; orbit <= planetCount; orbit++ {
-			if orbit == giantOrbit {
-				continue // гигант не обитаем (без поверхности, §3.6)
-			}
-			res := g.runCascade(cascadeInput{
-				Luminosity:    sp.Luminosity,
-				StellarMass:   sp.StellarMass,
-				AgeGyr:        sp.AgeGyr,
-				Metallicity:   sp.Metallicity,
-				TEff:          sp.TEff,
-				OrbitRadiusAU: orbitRadiusScaled(orbit, sp.Luminosity),
-				OrbitIndex:    orbit,
-			})
-			if res.LiquidWater && res.WaterPercent > 10 && res.TFinal > 200 && res.TFinal < 350 {
-				habitable++
-			}
 		}
 	}
 
@@ -162,7 +161,8 @@ func TestSmoke20000Worlds(t *testing.T) {
 	ob := rate("O", "B")
 	a := rate("A")
 	hotGlobal := float64(hotJupiters) / float64(worlds)
-	habFrac := float64(habitable) / float64(totalPlanets)
+	settleableFrac := float64(settleable) / float64(totalPlanets)
+	broadFrac := float64(broadHabitable) / float64(totalPlanets)
 
 	t.Logf("смоук 20 000 миров (спека 2026-09-20 §11):")
 	t.Logf("  G/K/F с гигантом: %.2f%% (цель 8–12%%)", gkf*100)
@@ -172,7 +172,8 @@ func TestSmoke20000Worlds(t *testing.T) {
 	t.Logf("  горячие юпитеры глобально: %.2f%% (цель 0.5–1.0%%)", hotGlobal*100)
 	t.Logf("  максимум планет (M/G/K): %d (цель ≥ 4)", maxPlanetsMGK)
 	t.Logf("  максимум планет (все): %d (цель ≤ 8)", maxPlanets)
-	t.Logf("  обитаемая доля: %.2f%% (цель ~2.5%%, окно 2.3–4%%)", habFrac*100)
+	t.Logf("  пригодная доля (Settleable): %.2f%% (цель ~2.5%%, окно 2.3–4%%)", settleableFrac*100)
+	t.Logf("  широкая эвристика (инфо, без окна): %.2f%%", broadFrac*100)
 	t.Logf("  планет всего: %d (спека §8: ≈ 76 000)", totalPlanets)
 
 	// Критерий приёмки §11.
@@ -183,8 +184,8 @@ func TestSmoke20000Worlds(t *testing.T) {
 	assert.InDelta(t, 0.007, hotGlobal, 0.003, "горячие юпитеры глобально 0.5–1.0%%")
 	assert.GreaterOrEqual(t, maxPlanetsMGK, 4, "максимум планет M/G/K ≥ 4")
 	assert.LessOrEqual(t, maxPlanets, 8, "максимум планет ≤ 8")
-	// Обитаемая доля ~2.5% (решение создателя: «как получится», шум одного
-	// сида — факт 2.47% на сиде 20260920; нижний пол 2.3%, чтобы шум не валил).
-	assert.GreaterOrEqual(t, habFrac, 0.023, "обитаемая доля ≥ 2.3%%")
-	assert.LessOrEqual(t, habFrac, 0.04, "обитаемая доля ≤ 4%%")
+	// Обитаемая доля ~2.5% (решение создателя: «как получится»; настоящий
+	// флаг Settleable — races.HumansSuitable, окно 2.3–4%%).
+	assert.GreaterOrEqual(t, settleableFrac, 0.023, "пригодная доля ≥ 2.3%%")
+	assert.LessOrEqual(t, settleableFrac, 0.04, "пригодная доля ≤ 4%%")
 }

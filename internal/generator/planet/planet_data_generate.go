@@ -344,6 +344,14 @@ func (g *Generator) rollGiantOrbit(sp StellarParams, planetCount int) int {
 	return 3 + g.rng.Intn(planetCount-2)
 }
 
+// rollSystemBudget — бюджет системы B (спека 2026-09-21 §4): B ~ logN(0, 0.5),
+// один ролл на систему (образец rollGiantOrbit): медиана 1 (калибровка
+// не сдвигается), «системы не близнецы». Применяется к массе каменистых/
+// ледяных; к газовым гигантам (эталон 99.2.15) и экзотике (exotic.go) — нет.
+func (g *Generator) rollSystemBudget() float64 {
+	return math.Exp(0.5 * g.rng.NormFloat64())
+}
+
 // ==================== ПАРАМЕТРЫ ЗВЕЗДЫ (99.2.20 §3.1) ====================
 
 // StellarParams — параметры звезды для каскада (слой 1).

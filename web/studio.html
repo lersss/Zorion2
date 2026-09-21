@@ -2392,6 +2392,9 @@ async function prodAdd() {
   // 2026-09-21 §1.2 п.4 — категории живут в подтипах, их заводят через
   // узлы-приглашения дерева на канвасе).
   const body = {name, kind};
+  // расовость из фильтра шапки — как в узле-приглашении (doProdCreate)
+  if (prodRaceLevel === "family") body.race_family = prodRaceFamily;
+  if (prodRaceLevel === "race") { body.race_family = raceFamilyOf(prodRace); body.race = prodRace; }
   const r = await api("POST", "/studio/api/producers", body);
   if (!r) return;
   const p = await r.json();

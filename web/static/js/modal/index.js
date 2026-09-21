@@ -8,6 +8,7 @@ import { getStarColor, getStarSize, starTypeLabel, systemTypeLabel, starModsBadg
 import { renderRightPanel } from './panel.js';
 import { cleanupOrbitView } from './tabs.js';
 import { notifyError } from '../ui/toast.js';
+import { playSound, startFlightHum, stopFlightHum, playArrival } from '../ui/sound.js';
 import { repaintPopulationNumbers } from './extrapolate.js';
 import { record } from '../dashboard/journal.js';
 // Колбэк перерисовки спрайтов (запрос создателя 99.2.27): при асинхронной
@@ -58,6 +59,10 @@ export function openSystemModal(worldId, worldName, spectralClass, focusOpts, au
         handleUnauthorized();
         return;
     }
+
+    // Звук открытия окна системы (ui_open). Только на карте: до activateSound
+    // (карта) playSound — no-op, поэтому админка молчит.
+    playSound('ui_open');
 
     // Сохраняем токен в состоянии: refreshPlanets (кнопка «Обновить») и
     // события используют его же, а не игровой localStorage (в админке его нет).
@@ -239,6 +244,10 @@ export function refreshPlanets() {
                 type: modalState.myPosition.object_type,
                 id: modalState.myPosition.object_id,
             };
+            // Прибытие внутрисистемного сегмента — глушим гул полёта и даём один
+            // сигнал прибытия (конец композитного маршрута, ловушка 5; тост
+            // автооткрытия notifyInfo молчит — В2=А, дубля звука нет).
+            playArrival();
         }
         const idx = modalState.selectedPlanetIndex;
         if (idx !== null && idx !== undefined && modalState.planets[idx]) {
@@ -571,6 +580,8 @@ function renderModal(worldId, worldName, spectralClass, data) {
 
     // Глобальная функция для events.js (клик по планете)
     window.updateRightPanel = (selectedIndex) => {
+        // Выбор планеты кликом по канвасу — звук ui_select (только карта).
+        if (selectedIndex !== null && selectedIndex !== undefined) playSound('ui_select');
         renderRightPanel(planets, selectedIndex);
     };
 
@@ -588,6 +599,8 @@ function renderModal(worldId, worldName, spectralClass, data) {
             if (!isNaN(idx) && idx >= 0 && idx < planets.length) {
                 if (modalState.selectedPlanetIndex !== idx) {
                     modalState.selectedPlanetIndex = idx;
+                    // Выбор планеты кликом по строке — звук ui_select (только карта).
+                    playSound('ui_select');
                     renderRightPanel(planets, idx);
                     drawSystem(canvas, spectralClass, planets, starRadius, starColor, width, height);
                 }
@@ -868,6 +881,10 @@ function updateFlightStrip() {
         strip.style.display = 'none';
         return;
     }
+    // Внутрисистемный сегмент (99.2.27) — держим гул полёта: на стыке
+    // композитного маршрута он уже звучит (непрерывность), у одиночного
+    // внутрисистемного полёта поднимаем здесь (идемпотентно).
+    startFlightHum();
     strip.style.display = 'flex';
     const now = Date.now();
     const total = (pos.arrive_at || 0) - (pos.start_time || 0);
@@ -937,6 +954,10 @@ async function loadSystemPlayers() {
 export function closeModal() {
     const overlay = document.getElementById('system-modal-overlay');
     if (overlay) overlay.remove();
+    // Гул: закрытие модалки на внутрисистемном полёте глушит гул (полоса
+    // сегмента больше не видна). В межзвёздном полёте гул принадлежит карте
+    // (flight.js/animation.js) — здесь не трогаем.
+    if (!(mapStateRef && mapStateRef.isFlying)) stopFlightHum();
     // Большая картинка «Вид с орбиты» (спека 2026-09-20 §6.2): сброс
     // состояния при закрытии модалки (revoke object URL, если есть).
     cleanupOrbitView();

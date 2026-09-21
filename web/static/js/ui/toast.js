@@ -1,5 +1,6 @@
 // web/static/js/ui/toast.js
 // Красивые попап-уведомления вместо стандартных alert().
+import { playToast } from './sound.js';
 
 let toastStyleAdded = false;
 
@@ -96,6 +97,9 @@ const ICONS = {
 function showToast(message, type = 'error', duration = 5000) {
     ensureStyle();
     const container = ensureContainer();
+
+    // Звук тоста: только ошибка/успех (решение создателя В2=А); info — молча.
+    if (type === 'error' || type === 'success') playToast(type);
 
     const el = document.createElement('div');
     el.className = 'toast toast-' + type;

@@ -589,6 +589,32 @@
   сохраняются кнопки/вердикт). Тот же паттерн в `loadHumans` (`/humans/img/`) —
   при перегенерации пула людей с теми же именами баг воспроизведётся.
 
+- **Аудио-модуль, попадающий в import-граф админки, обязан быть
+  Node-безопасным, а звук — активируемым по странице.** `web/static/js/ui/sound.js`
+  тянется в админку через `ui/toast.js`, а `web/frontend_test.go`
+  (`TestAdminFrontendLoadsInNode`) исполняет граф `admin/main.js` в Node под
+  DOM-стабом **без** `AudioContext`. Правило: ни одного обращения к
+  `document`/`AudioContext`/`fetch` на верхнем уровне модуля — `AudioContext`
+  создаётся лениво, буферы грузятся по роли внутри функций. Guard — именно
+  `typeof AudioContext` (в стабе `window === globalThis`, проверка `window` не
+  спасает). Промисы `resume()`/`decodeAudioData`/`fetch` глушить
+  (`p.catch(()=>{})`), иначе
+  unhandled rejection роняет e2e-смоук `tools/e2e/map-check.js` на любом
+  `pageerror`. Админка молчит через **флаг активации**: страница карты зовёт
+  `activateSound()`, до этого все play-функции — no-op (общий `ui/toast.js` сам
+  по себе звук не включает). Звуки — файлы Kenney CC0 (`web/static/audio/`,
+  OGG Vorbis).
+  **Гул — только Web Audio, НЕ `<audio loop>` (ловушка 8, баг 2026-09-21):**
+  `<audio loop>` вставляет разрыв ~0.3 с на стыке повтора (слышно «рвётся»),
+  даже если файл склеен в бесшовный луп. Лечение: `AudioBufferSourceNode` с
+  `loop = true`; остановка — ramp `GainNode` в 0 (без щелчка).
+  **F5/автоплей (ловушка 7):** `AudioContext` стартует `suspended`; гул, стартовавший
+  при инициализации, звучит только после `resume()` на первом жесте. При
+  `activateSound()` вешается **одноразовый** слушатель первого жеста
+  (`pointerdown`/`keydown`/`touchstart`): делает `resume()` и, если гул был
+  запрошен (`humRequested`), поднимает его; после жеста снимает себя.
+  Проверено 2026-09-21 (звук отклика и полёта).
+
 ## Прочее
 
 - **blocked_by текстурных тегов кораблей (ship_dict.json) — substring-матчинг

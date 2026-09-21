@@ -12,6 +12,7 @@ import { radarBoundaryVariant, setRadarBoundaryVariant } from './map/map_render.
 import { setRedrawCallback, preloadShipSprites } from './map/ship_sprites.js';
 import { showTextLoader } from './loader.js';
 import { notifyError } from './ui/toast.js';
+import { initSoundToggle, startFlightHum, activateSound } from './ui/sound.js';
 import { initEntitySearch } from './search.js';
 import { formatZoom } from './map/utils.js';
 import { startNPCLoop, initNPCSearch } from './map/npc_agents.js';
@@ -51,6 +52,10 @@ async function initMap() {
     // пути, а не к старой точке из sessionStorage.
     if (state.isFlying && state.flyFrom && state.flyTo) {
         showFlightPanel(state.flyFrom.name, state.flyTo.name);
+        // Полёт восстановлен после F5 (user.flight в data.js) — поднимаем гул,
+        // иначе «летим, но тихо» (ловушка 6). Стартовый сигнал не играем:
+        // это не новый запуск.
+        startFlightHum();
         // Идея 42a: если до рефреша слежение было включено — восстанавливаем.
         // Класс active кнопке добавит animationLoop на первом кадре (animation.js).
         if (sessionStorage.getItem('followShip') === '1') state.followShip = true;
@@ -99,6 +104,10 @@ async function initMap() {
 }
 
 function init() {
+    // Явная активация звука на странице карты (флаг звукового модуля): только
+    // здесь, поэтому админка (общий ui/toast.js) молчит. Все play-функции до
+    // активации — no-op.
+    activateSound();
     elements.canvas.addEventListener('click', handleCanvasClick);
     window.addEventListener('resize', resizeCanvas);
     // Перерисовка карты после асинхронной загрузки спрайтов кораблей
@@ -109,6 +118,8 @@ function init() {
     initHover();
     initContextMenu();
     initEntitySearch();
+    // Кнопка вкл/выкл звука в шапке карты (отражает состояние, переключает его).
+    initSoundToggle();
 
     // --- NPC-агенты на карте (спека 20a.1 §7): опрос позиций + WS ---
     startNPCLoop();

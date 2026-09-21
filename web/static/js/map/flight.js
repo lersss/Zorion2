@@ -6,6 +6,7 @@ import { state, elements } from './config.js';
 import { draw } from './map_render.js';
 import { fetchWorldByID, handleUnauthorized, resetFlightReloadTimer } from './data.js';
 import { notifyError } from '../ui/toast.js';
+import { playSound, startFlightHum, playArrival } from '../ui/sound.js';
 
 // ensureWorld — берёт мир из кэша или подгружает по ID (даже вне текущего кадра).
 async function ensureWorld(id, token) {
@@ -56,6 +57,13 @@ export function hideFlightPanel() {
     const panel = document.getElementById('flight-panel');
     if (panel) panel.classList.remove('flying');
     updateFlightPanel();
+    // Конец межзвёздного сегмента. Композитный маршрут (маркер compositeRoute)
+    // продолжается внутрисистемным сегментом (99.2.30/99.2.27): на стыке
+    // сегментов гул не глушим и «прибытие» не сигналим — оно только в конце
+    // маршрута (ловушка 5), чтобы не дублировать тост notifyInfo('🚀 Прибыли…').
+    if (!sessionStorage.getItem('compositeRoute')) {
+        playArrival();
+    }
 }
 
 // showFlightLabel — шапка карты в полёте: «В полёте: From → To» (61a).
@@ -122,6 +130,11 @@ export async function startFlight(worldId, token, destination) {
         elements.tooltip.classList.remove('active');
         showFlightPanel(fromWorld.name, toWorld.name);
         showFlightLabel(fromWorld.name, toWorld.name);
+        // Звук полёта: старт (flight_start) + зацикленный гул (flight_hum).
+        // startFlightHum идемпотентен — повторный старт (редирект/разворот 61a)
+        // не наслаивает гул (ловушка 6).
+        playSound('flight_start');
+        startFlightHum();
         draw();
         return true;
     } catch (e) {

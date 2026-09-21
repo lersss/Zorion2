@@ -1,0 +1,18 @@
+Звуковые файлы Zorion (web/static/audio/) — лицензия CC0 (public domain).
+Правообладатель не требует атрибуции; файлы включены с указанием источника.
+Полный текст лицензии: LICENSE-CC0-kenney.txt
+
+Источник: Kenney (https://kenney.nl), наборы CC0:
+  - Sci-Fi Sounds (https://kenney.nl/assets/sci-fi-sounds)
+  - Interface Sounds (https://kenney.nl/assets/interface-sounds)
+
+Выбор создателя (2026-09-21) — соответствие ролям:
+  interaction.ogg = click_003.ogg         (Interface Sounds) — клик/взаимодействие
+      с интерфейсом: открытие окна системы, выбор планеты, кнопки
+  confirm.ogg     = confirmation_004.ogg  (Interface Sounds) — подтверждение действия:
+      старт полёта, прибытие, успешное действие
+  error.ogg       = glitch_004.ogg        (Interface Sounds) — ошибка
+  flight_hum.ogg  = thrusterFire_004.ogg  (Sci-Fi Sounds, кроссфейд-луп 1 с)
+      — гул полёта (зациклен; склейка конец→начало с перекрытием 1 с, т.к.
+      оригинал не был рассчитан на зацикливание; создан 2026-09-21 в ffmpeg:
+      [tail=4..5] acrossfade d=1 с [head=0..1] + [body=1..4])

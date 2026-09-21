@@ -9,6 +9,7 @@ import { filterState } from '../filters.js';
 import { modalState } from '../modal/state.js';
 import { openSystemModal, closeModal, refreshPlanets } from '../modal/index.js';
 import { notifyInfo } from '../ui/toast.js';
+import { startFlightHum, playArrival } from '../ui/sound.js';
 
 // Размер ячейки кластеризации на экране, в пикселях.
 export const CLUSTER_CELL_PX = 40;
@@ -489,6 +490,18 @@ export async function checkCompositeArrival(user) {
     const sign2 = !!(pos && pos.status === 'in_flight');
     const sign3 = marker === worldId;
     if (!sign1 && !sign2 && !sign3) return;
+
+    // Гул полёта через сегменты (99.2.30/99.2.27): маршрут ещё продолжается
+    // (намерение — sign1, или внутрисистемный сегмент уже идёт — sign2) — гул
+    // держим (непрерывность через стык, «прибытие» не сигналим); распознан
+    // только по маркеру (sign3, намерение исполнено, позиция orbit/surface) —
+    // конец маршрута: глушим гул и сигналим прибытие один раз. Тост notifyInfo
+    // молчит (решение В2=А) — дубля звука прибытия нет.
+    if (sign1 || sign2) {
+        startFlightHum();
+    } else {
+        playArrival();
+    }
 
     // Маркер потреблён (автооткрытие) — стираем.
     if (sign3) sessionStorage.removeItem('compositeRoute');

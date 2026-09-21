@@ -34,17 +34,18 @@ func Tier(g *model.Good, byID map[string]*model.Good) int {
 	return 1 + max
 }
 
-// EffectiveTier — эффективный тир (99a.3 §4.2 + решение С3, спека
-// переноса-студии-товаров-iterA §8.2): ручной оверрайд если задан — теперь
-// и для ресурсов (С3: назначенный тир — любой); иначе вычисленный
-// (ресурс = 0). Оверрайд не влияет на структуру графа (Tier остаётся
-// вычисленным для промпта ИИ, валидаторов, глубины — §4.2).
+// EffectiveTier — эффективный тир (99a.3 §4.2 + спека
+// 2026-09-21-рецепт-сущность §2.3/§5): сложность рецепта
+// (Good.Complexity), если задана, иначе вычисленный; ресурс = 0 (рецепта у
+// ресурса нет — ручной сложности не существует). Сложность не влияет на
+// структуру графа (Tier остаётся вычисленным для промпта ИИ, валидаторов,
+// глубины — §4.4/§5).
 func EffectiveTier(g *model.Good, byID map[string]*model.Good) int {
-	if g.TierOverride != nil {
-		return *g.TierOverride
-	}
 	if g.Kind == model.KindResource {
 		return 0
+	}
+	if g.Complexity != nil {
+		return *g.Complexity
 	}
 	return Tier(g, byID)
 }

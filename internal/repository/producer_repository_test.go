@@ -429,6 +429,10 @@ func TestUpdateProducerTypeSubtypeTupleConflict(t *testing.T) {
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM categories WHERE id = \$1\)`).
 		WithArgs(int64(8)).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	// инвариант «выход = категория»: привязанных рецептов нет — смена свободна
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_recipes WHERE producer_type_id = \$1\)`).
+		WithArgs(int64(15)).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 	mock.ExpectExec(`UPDATE producer_types SET category_id = \$1 WHERE id = \$2`).
 		WithArgs(int64(8), int64(15)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -691,9 +695,9 @@ func TestSnapshotWithProducers(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, name, kind, code, is_system FROM categories ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "code", "is_system"}).
 			AddRow(int64(1), "Корабли", "good", nil, false))
-	mock.ExpectQuery(`SELECT id, name, category_id, kind, source, tier_override, created_at, volume, weight FROM goods ORDER BY id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "tier_override", "created_at", "volume", "weight"}))
-	mock.ExpectQuery(`SELECT good_id, pos, component_id, quantity, reason, allow_resource FROM goods_slots ORDER BY good_id, pos`).
+	mock.ExpectQuery(`SELECT g.id, g.name, g.category_id, g.kind, g.source, r.id, r.complexity, g.created_at, g.volume, g.weight FROM goods g LEFT JOIN recipes r ON r.good_id = g.id ORDER BY g.id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "recipe_id", "complexity", "created_at", "volume", "weight"}))
+	mock.ExpectQuery(`SELECT r\.good_id, c\.pos, c\.component_id, c\.quantity, c\.reason, c\.allow_resource FROM recipe_components c JOIN recipes r ON r\.id = c\.recipe_id ORDER BY r\.good_id, c\.pos`).
 		WillReturnRows(sqlmock.NewRows([]string{"good_id", "pos", "component_id", "quantity", "reason", "allow_resource"}))
 	mock.ExpectQuery(`SELECT id, name, kind, category_id, race_family, parent_id, race, output, input, params, hidden, created_at FROM producer_types ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "parent_id", "race", "output", "input", "params", "hidden", "created_at"}).
@@ -707,6 +711,8 @@ func TestSnapshotWithProducers(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, parent_id, category_id, race_family, race, hidden, created_at FROM producer_slots ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "parent_id", "category_id", "race_family", "race", "hidden", "created_at"}).
 			AddRow(int64(1), int64(2), int64(3), nil, nil, true, time.Now()))
+	mock.ExpectQuery(`SELECT pr.producer_type_id, pr.recipe_id, r.good_id FROM producer_recipes pr JOIN recipes r ON r.id = pr.recipe_id ORDER BY pr.producer_type_id, pr.recipe_id`).
+		WillReturnRows(sqlmock.NewRows([]string{"producer_type_id", "recipe_id", "good_id"}))
 	mock.ExpectCommit()
 
 	snap, err := NewGoodsRepository(db).Snapshot()
@@ -720,6 +726,7 @@ func TestSnapshotWithProducers(t *testing.T) {
 	require.Len(t, snap.ProducerSlots, 1)
 	require.True(t, snap.ProducerSlots[0].Hidden)
 	require.Equal(t, int64(2), snap.ProducerSlots[0].ParentID)
+	require.Empty(t, snap.Bindings)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -1098,5 +1105,328 @@ func TestDeleteProducerSlotRaceRaceRecord(t *testing.T) {
 	require.True(t, errors.As(err, &ce))
 	require.Equal(t, 409, ce.Status)
 	require.Contains(t, ce.Msg, "сначала удалите заводы категории")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// --- привязки рецептов к фабрикам (producer_recipes, спека 2026-09-21-рецепт-сущность §5) ---
+
+// TestBindRecipe — привязка рецепта к конкретной фабрике: выход рецепта =
+// категория фабрики, привязки нет → INSERT.
+func TestBindRecipe(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectMutationBegin(mock)
+	mock.ExpectQuery(`SELECT kind, parent_id, category_id FROM producer_types WHERE id = \$1 FOR UPDATE`).
+		WithArgs(int64(5)).
+		WillReturnRows(sqlmock.NewRows([]string{"kind", "parent_id", "category_id"}).
+			AddRow("goods", int64(2), int64(8)))
+	mock.ExpectQuery(`SELECT good_id FROM recipes WHERE id = \$1`).
+		WithArgs(int64(10)).
+		WillReturnRows(sqlmock.NewRows([]string{"good_id"}).AddRow(int64(20)))
+	mock.ExpectQuery(`SELECT kind, category_id FROM goods WHERE id = \$1`).
+		WithArgs(int64(20)).
+		WillReturnRows(sqlmock.NewRows([]string{"kind", "category_id"}).AddRow("good", int64(8)))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_recipes WHERE producer_type_id = \$1 AND recipe_id = \$2\)`).
+		WithArgs(int64(5), int64(10)).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectExec(`INSERT INTO producer_recipes \(producer_type_id, recipe_id\) VALUES \(\$1, \$2\)`).
+		WithArgs(int64(5), int64(10)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	require.NoError(t, NewGoodsRepository(db).BindRecipe(5, 10))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestBindRecipeWrongCategory400 — выход рецепта не категория фабрики → 400.
+func TestBindRecipeWrongCategory400(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectMutationBegin(mock)
+	mock.ExpectQuery(`SELECT kind, parent_id, category_id FROM producer_types WHERE id = \$1 FOR UPDATE`).
+		WithArgs(int64(5)).
+		WillReturnRows(sqlmock.NewRows([]string{"kind", "parent_id", "category_id"}).
+			AddRow("goods", int64(2), int64(8)))
+	mock.ExpectQuery(`SELECT good_id FROM recipes WHERE id = \$1`).
+		WithArgs(int64(10)).
+		WillReturnRows(sqlmock.NewRows([]string{"good_id"}).AddRow(int64(20)))
+	mock.ExpectQuery(`SELECT kind, category_id FROM goods WHERE id = \$1`).
+		WithArgs(int64(20)).
+		WillReturnRows(sqlmock.NewRows([]string{"kind", "category_id"}).AddRow("good", int64(7)))
+
+	err = NewGoodsRepository(db).BindRecipe(5, 10)
+	var ce *ErrCatalog
+	require.True(t, errors.As(err, &ce))
+	require.Equal(t, 400, ce.Status)
+	require.Contains(t, ce.Msg, "не категория фабрики")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestBindRecipeNotConcrete400 — тип (parent_id NULL) / не kind=goods → 400.
+func TestBindRecipeNotConcrete400(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectMutationBegin(mock)
+	mock.ExpectQuery(`SELECT kind, parent_id, category_id FROM producer_types WHERE id = \$1 FOR UPDATE`).
+		WithArgs(int64(2)).
+		WillReturnRows(sqlmock.NewRows([]string{"kind", "parent_id", "category_id"}).
+			AddRow("goods", nil, nil))
+
+	err = NewGoodsRepository(db).BindRecipe(2, 10)
+	var ce *ErrCatalog
+	require.True(t, errors.As(err, &ce))
+	require.Equal(t, 400, ce.Status)
+	require.Contains(t, ce.Msg, "конкретной фабрике")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestBindRecipeDuplicate409 — повторная привязка → 409.
+func TestBindRecipeDuplicate409(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectMutationBegin(mock)
+	mock.ExpectQuery(`SELECT kind, parent_id, category_id FROM producer_types WHERE id = \$1 FOR UPDATE`).
+		WithArgs(int64(5)).
+		WillReturnRows(sqlmock.NewRows([]string{"kind", "parent_id", "category_id"}).
+			AddRow("goods", int64(2), int64(8)))
+	mock.ExpectQuery(`SELECT good_id FROM recipes WHERE id = \$1`).
+		WithArgs(int64(10)).
+		WillReturnRows(sqlmock.NewRows([]string{"good_id"}).AddRow(int64(20)))
+	mock.ExpectQuery(`SELECT kind, category_id FROM goods WHERE id = \$1`).
+		WithArgs(int64(20)).
+		WillReturnRows(sqlmock.NewRows([]string{"kind", "category_id"}).AddRow("good", int64(8)))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_recipes WHERE producer_type_id = \$1 AND recipe_id = \$2\)`).
+		WithArgs(int64(5), int64(10)).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	err = NewGoodsRepository(db).BindRecipe(5, 10)
+	var ce *ErrCatalog
+	require.True(t, errors.As(err, &ce))
+	require.Equal(t, 409, ce.Status)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestBindRecipeResourceGood400 — рецепт на ресурс не привязывается → 400.
+func TestBindRecipeResourceGood400(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectMutationBegin(mock)
+	mock.ExpectQuery(`SELECT kind, parent_id, category_id FROM producer_types WHERE id = \$1 FOR UPDATE`).
+		WithArgs(int64(5)).
+		WillReturnRows(sqlmock.NewRows([]string{"kind", "parent_id", "category_id"}).
+			AddRow("goods", int64(2), int64(8)))
+	mock.ExpectQuery(`SELECT good_id FROM recipes WHERE id = \$1`).
+		WithArgs(int64(10)).
+		WillReturnRows(sqlmock.NewRows([]string{"good_id"}).AddRow(int64(20)))
+	mock.ExpectQuery(`SELECT kind, category_id FROM goods WHERE id = \$1`).
+		WithArgs(int64(20)).
+		WillReturnRows(sqlmock.NewRows([]string{"kind", "category_id"}).AddRow("resource", int64(8)))
+
+	err = NewGoodsRepository(db).BindRecipe(5, 10)
+	var ce *ErrCatalog
+	require.True(t, errors.As(err, &ce))
+	require.Equal(t, 400, ce.Status)
+	require.Contains(t, ce.Msg, "только товар")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestUnbindRecipe — отвязка существующей привязки → DELETE.
+func TestUnbindRecipe(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectMutationBegin(mock)
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_recipes WHERE producer_type_id = \$1 AND recipe_id = \$2\)`).
+		WithArgs(int64(5), int64(10)).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectExec(`DELETE FROM producer_recipes WHERE producer_type_id = \$1 AND recipe_id = \$2`).
+		WithArgs(int64(5), int64(10)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	require.NoError(t, NewGoodsRepository(db).UnbindRecipe(5, 10))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestUnbindRecipeNotFound404 — привязки нет → 404.
+func TestUnbindRecipeNotFound404(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectMutationBegin(mock)
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_recipes WHERE producer_type_id = \$1 AND recipe_id = \$2\)`).
+		WithArgs(int64(5), int64(10)).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	err = NewGoodsRepository(db).UnbindRecipe(5, 10)
+	var ce *ErrCatalog
+	require.True(t, errors.As(err, &ce))
+	require.Equal(t, 404, ce.Status)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// copyUniversalRows — общие ожидания цели copy-universal (фабрика 5,
+// категория 8, товарная).
+func copyUniversalRows(mock sqlmock.Sqlmock) {
+	mock.ExpectQuery(`SELECT kind, parent_id, category_id FROM producer_types WHERE id = \$1 FOR UPDATE`).
+		WithArgs(int64(5)).
+		WillReturnRows(sqlmock.NewRows([]string{"kind", "parent_id", "category_id"}).
+			AddRow("goods", int64(2), int64(8)))
+	mock.ExpectQuery(`SELECT kind FROM categories WHERE id = \$1`).
+		WithArgs(int64(8)).
+		WillReturnRows(sqlmock.NewRows([]string{"kind"}).AddRow("good"))
+}
+
+// TestCopyUniversalRecipes — added/skipped: рецепт 10 вставлен (added),
+// рецепт 11 уже привязан (skipped).
+func TestCopyUniversalRecipes(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectMutationBegin(mock)
+	copyUniversalRows(mock)
+	mock.ExpectQuery(`SELECT DISTINCT pr\.recipe_id FROM producer_recipes pr JOIN producer_types pt ON pt\.id = pr\.producer_type_id WHERE pt\.kind = 'goods' AND pt\.parent_id IS NOT NULL AND pt\.category_id = \$1 AND pt\.race_family IS NULL AND pt\.race IS NULL AND pt\.id <> \$2`).
+		WithArgs(int64(8), int64(5)).
+		WillReturnRows(sqlmock.NewRows([]string{"recipe_id"}).AddRow(int64(10)).AddRow(int64(11)))
+	mock.ExpectExec(`INSERT INTO producer_recipes \(producer_type_id, recipe_id\) VALUES \(\$1, \$2\) ON CONFLICT \(producer_type_id, recipe_id\) DO NOTHING`).
+		WithArgs(int64(5), int64(10)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO producer_recipes \(producer_type_id, recipe_id\) VALUES \(\$1, \$2\) ON CONFLICT \(producer_type_id, recipe_id\) DO NOTHING`).
+		WithArgs(int64(5), int64(11)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
+
+	added, skipped, err := NewGoodsRepository(db).CopyUniversalRecipes(5)
+	require.NoError(t, err)
+	require.Equal(t, 1, added)
+	require.Equal(t, 1, skipped)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestCopyUniversalRecipesIdempotent — повторный вызов: added=0, skipped=N.
+func TestCopyUniversalRecipesIdempotent(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectMutationBegin(mock)
+	copyUniversalRows(mock)
+	mock.ExpectQuery(`SELECT DISTINCT pr\.recipe_id FROM producer_recipes pr JOIN producer_types pt ON pt\.id = pr\.producer_type_id WHERE pt\.kind = 'goods' AND pt\.parent_id IS NOT NULL AND pt\.category_id = \$1 AND pt\.race_family IS NULL AND pt\.race IS NULL AND pt\.id <> \$2`).
+		WithArgs(int64(8), int64(5)).
+		WillReturnRows(sqlmock.NewRows([]string{"recipe_id"}).AddRow(int64(10)))
+	mock.ExpectExec(`INSERT INTO producer_recipes \(producer_type_id, recipe_id\) VALUES \(\$1, \$2\) ON CONFLICT \(producer_type_id, recipe_id\) DO NOTHING`).
+		WithArgs(int64(5), int64(10)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
+
+	added, skipped, err := NewGoodsRepository(db).CopyUniversalRecipes(5)
+	require.NoError(t, err)
+	require.Equal(t, 0, added)
+	require.Equal(t, 1, skipped)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestCopyUniversalRecipesEmptySource — пустой источник — не ошибка (0,0).
+func TestCopyUniversalRecipesEmptySource(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectMutationBegin(mock)
+	copyUniversalRows(mock)
+	mock.ExpectQuery(`SELECT DISTINCT pr\.recipe_id FROM producer_recipes pr JOIN producer_types pt ON pt\.id = pr\.producer_type_id WHERE pt\.kind = 'goods' AND pt\.parent_id IS NOT NULL AND pt\.category_id = \$1 AND pt\.race_family IS NULL AND pt\.race IS NULL AND pt\.id <> \$2`).
+		WithArgs(int64(8), int64(5)).
+		WillReturnRows(sqlmock.NewRows([]string{"recipe_id"}))
+	mock.ExpectCommit()
+
+	added, skipped, err := NewGoodsRepository(db).CopyUniversalRecipes(5)
+	require.NoError(t, err)
+	require.Equal(t, 0, added)
+	require.Equal(t, 0, skipped)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestCopyUniversalRecipesResourceCategory400 — категория ресурсная → 400.
+func TestCopyUniversalRecipesResourceCategory400(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectMutationBegin(mock)
+	mock.ExpectQuery(`SELECT kind, parent_id, category_id FROM producer_types WHERE id = \$1 FOR UPDATE`).
+		WithArgs(int64(5)).
+		WillReturnRows(sqlmock.NewRows([]string{"kind", "parent_id", "category_id"}).
+			AddRow("goods", int64(2), int64(3)))
+	mock.ExpectQuery(`SELECT kind FROM categories WHERE id = \$1`).
+		WithArgs(int64(3)).
+		WillReturnRows(sqlmock.NewRows([]string{"kind"}).AddRow("resource"))
+
+	_, _, err = NewGoodsRepository(db).CopyUniversalRecipes(5)
+	var ce *ErrCatalog
+	require.True(t, errors.As(err, &ce))
+	require.Equal(t, 400, ce.Status)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestCopyUniversalRecipesNotConcrete400 — цель не конкретная фабрика → 400.
+func TestCopyUniversalRecipesNotConcrete400(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectMutationBegin(mock)
+	mock.ExpectQuery(`SELECT kind, parent_id, category_id FROM producer_types WHERE id = \$1 FOR UPDATE`).
+		WithArgs(int64(5)).
+		WillReturnRows(sqlmock.NewRows([]string{"kind", "parent_id", "category_id"}).
+			AddRow("goods", nil, nil))
+
+	_, _, err = NewGoodsRepository(db).CopyUniversalRecipes(5)
+	var ce *ErrCatalog
+	require.True(t, errors.As(err, &ce))
+	require.Equal(t, 400, ce.Status)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestUpdateProducerTypeCategoryBound409 — смена категории фабрики с
+// привязанными рецептами → 409 (симметрия §2.4).
+func TestUpdateProducerTypeCategoryBound409(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectMutationBegin(mock)
+	mock.ExpectQuery(`SELECT kind, parent_id, category_id, race_family, race FROM producer_types WHERE id = \$1 FOR UPDATE`).
+		WithArgs(int64(15)).
+		WillReturnRows(sqlmock.NewRows([]string{"kind", "parent_id", "category_id", "race_family", "race"}).
+			AddRow("goods", int64(2), int64(7), nil, nil))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_slots WHERE parent_id = \$1 AND category_id = \$2 AND \(race_family IS NULL OR \(race_family = \$3 AND race IS NULL\) OR race = \$4\)\)`).
+		WithArgs(int64(2), int64(8), nil, nil).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM categories WHERE id = \$1\)`).
+		WithArgs(int64(8)).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_recipes WHERE producer_type_id = \$1\)`).
+		WithArgs(int64(15)).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	catID := int64(8)
+	err = NewGoodsRepository(db).UpdateProducerType(15, nil, &catID, nil, nil, nil, nil, nil, nil)
+	var ce *ErrCatalog
+	require.True(t, errors.As(err, &ce))
+	require.Equal(t, 409, ce.Status)
+	require.Contains(t, ce.Msg, "отвяжите рецепты")
 	require.NoError(t, mock.ExpectationsWereMet())
 }

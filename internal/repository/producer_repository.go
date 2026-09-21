@@ -501,6 +501,21 @@ func (r *GoodsRepository) UpdateProducerType(id int64, name *string, categoryID 
 				return errCatalog(400, "категория не найдена")
 			}
 			// Применяемый слот проверен выше (С4, §1.4 п.1) по итоговому уровню.
+			// Инвариант «выход рецепта = категория фабрики» (спека
+			// 2026-09-21-рецепт-сущность §2.4/§5): смена категории конкретной
+			// фабрики с привязанными рецептами запрещена — иначе выход
+			// привязанных рецептов перестанет быть категорией фабрики.
+			if !curCategory.Valid || *categoryID != curCategory.Int64 {
+				var boundRecipes bool
+				if err := tx.QueryRow(
+					`SELECT EXISTS(SELECT 1 FROM producer_recipes WHERE producer_type_id = $1)`, id,
+				).Scan(&boundRecipes); err != nil {
+					return err
+				}
+				if boundRecipes {
+					return errCatalog(409, "сначала отвяжите рецепты")
+				}
+			}
 		}
 		if _, err := tx.Exec(`UPDATE producer_types SET category_id = $1 WHERE id = $2`, *categoryID, id); err != nil {
 			return err
@@ -971,5 +986,193 @@ func (r *GoodsRepository) DeleteItem(id int64) error {
 		return err
 	}
 	return tx.Commit()
+}
+
+// --- рецепты фабрики (producer_recipes, спека 2026-09-21-рецепт-сущность §5) ---
+
+// BindRecipe — привязать рецепт к конкретной фабрике (POST
+// /studio/api/producers/{id}/recipes). Инварианты §2.4: фабрика — конкретная
+// (kind='goods', parent_id NOT NULL, category_id NOT NULL); рецепт
+// существует; выход рецепта — товар (kind='good') её категории (иначе 400);
+// повтор — 409.
+func (r *GoodsRepository) BindRecipe(producerTypeID, recipeID int64) error {
+	tx, err := r.beginMutation()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var kind string
+	var parentID, categoryID sql.NullInt64
+	err = tx.QueryRow(
+		`SELECT kind, parent_id, category_id FROM producer_types WHERE id = $1 FOR UPDATE`, producerTypeID,
+	).Scan(&kind, &parentID, &categoryID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return errCatalog(404, "тип не найден")
+	}
+	if err != nil {
+		return err
+	}
+	if kind != "goods" || !parentID.Valid || !categoryID.Valid {
+		return errCatalog(400, "рецепт привязывается только к конкретной фабрике (kind=goods, подтип с категорией)")
+	}
+	var goodID int64
+	err = tx.QueryRow(`SELECT good_id FROM recipes WHERE id = $1`, recipeID).Scan(&goodID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return errCatalog(404, "рецепт не найден")
+	}
+	if err != nil {
+		return err
+	}
+	var goodKind string
+	var goodCategory int64
+	err = tx.QueryRow(`SELECT kind, category_id FROM goods WHERE id = $1`, goodID).Scan(&goodKind, &goodCategory)
+	if errors.Is(err, sql.ErrNoRows) {
+		return errCatalog(404, "товар рецепта не найден")
+	}
+	if err != nil {
+		return err
+	}
+	if goodKind != "good" {
+		return errCatalog(400, "рецепт на ресурс не привязывается (выход — только товар)")
+	}
+	if goodCategory != categoryID.Int64 {
+		return errCatalog(400, "выход рецепта — не категория фабрики")
+	}
+	var exists bool
+	if err := tx.QueryRow(
+		`SELECT EXISTS(SELECT 1 FROM producer_recipes WHERE producer_type_id = $1 AND recipe_id = $2)`,
+		producerTypeID, recipeID,
+	).Scan(&exists); err != nil {
+		return err
+	}
+	if exists {
+		return errCatalog(409, "рецепт уже привязан к этой фабрике")
+	}
+	if _, err := tx.Exec(
+		`INSERT INTO producer_recipes (producer_type_id, recipe_id) VALUES ($1, $2)`,
+		producerTypeID, recipeID,
+	); err != nil {
+		if isUniqueViolation(err) {
+			return errCatalog(409, "рецепт уже привязан к этой фабрике")
+		}
+		return err
+	}
+	return tx.Commit()
+}
+
+// UnbindRecipe — отвязать рецепт от фабрики (DELETE
+// /studio/api/producers/{id}/recipes/{recipe_id}).
+func (r *GoodsRepository) UnbindRecipe(producerTypeID, recipeID int64) error {
+	tx, err := r.beginMutation()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var exists bool
+	if err := tx.QueryRow(
+		`SELECT EXISTS(SELECT 1 FROM producer_recipes WHERE producer_type_id = $1 AND recipe_id = $2)`,
+		producerTypeID, recipeID,
+	).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return errCatalog(404, "привязка не найдена")
+	}
+	if _, err := tx.Exec(
+		`DELETE FROM producer_recipes WHERE producer_type_id = $1 AND recipe_id = $2`,
+		producerTypeID, recipeID,
+	); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// CopyUniversalRecipes — скопировать набор рецептов в конкретную фабрику из
+// универсальных конкретных фабрик её категории (POST
+// /studio/api/producers/{id}/recipes/copy-universal). Источник — все
+// producer_types (kind='goods', parent_id NOT NULL, category_id = категория
+// цели, race_family IS NULL И race IS NULL), кроме самой цели; вставка —
+// ON CONFLICT DO NOTHING (идемпотентно). Пустой источник — не ошибка (0,0).
+// 400 — цель не конкретная фабрика или её категория не товарная.
+// added — реально созданные привязки, skipped — рецепты источника, уже
+// привязанные к цели.
+func (r *GoodsRepository) CopyUniversalRecipes(targetID int64) (int, int, error) {
+	tx, err := r.beginMutation()
+	if err != nil {
+		return 0, 0, err
+	}
+	defer tx.Rollback()
+
+	var kind string
+	var parentID, categoryID sql.NullInt64
+	err = tx.QueryRow(
+		`SELECT kind, parent_id, category_id FROM producer_types WHERE id = $1 FOR UPDATE`, targetID,
+	).Scan(&kind, &parentID, &categoryID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, 0, errCatalog(404, "тип не найден")
+	}
+	if err != nil {
+		return 0, 0, err
+	}
+	if kind != "goods" || !parentID.Valid || !categoryID.Valid {
+		return 0, 0, errCatalog(400, "копирование — только в конкретную фабрику (kind=goods, подтип с категорией)")
+	}
+	var catKind string
+	err = tx.QueryRow(`SELECT kind FROM categories WHERE id = $1`, categoryID.Int64).Scan(&catKind)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, 0, errCatalog(400, "категория не найдена")
+	}
+	if err != nil {
+		return 0, 0, err
+	}
+	if catKind != "good" {
+		return 0, 0, errCatalog(400, "у ресурсной фабрики рецептов не существует")
+	}
+	rows, err := tx.Query(
+		`SELECT DISTINCT pr.recipe_id FROM producer_recipes pr
+		 JOIN producer_types pt ON pt.id = pr.producer_type_id
+		 WHERE pt.kind = 'goods' AND pt.parent_id IS NOT NULL
+		   AND pt.category_id = $1 AND pt.race_family IS NULL AND pt.race IS NULL
+		   AND pt.id <> $2`, categoryID.Int64, targetID)
+	if err != nil {
+		return 0, 0, err
+	}
+	var ids []int64
+	for rows.Next() {
+		var rid int64
+		if err := rows.Scan(&rid); err != nil {
+			rows.Close()
+			return 0, 0, err
+		}
+		ids = append(ids, rid)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, 0, err
+	}
+	added, skipped := 0, 0
+	for _, rid := range ids {
+		res, err := tx.Exec(
+			`INSERT INTO producer_recipes (producer_type_id, recipe_id) VALUES ($1, $2)
+			 ON CONFLICT (producer_type_id, recipe_id) DO NOTHING`, targetID, rid)
+		if err != nil {
+			return 0, 0, err
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return 0, 0, err
+		}
+		if n > 0 {
+			added++
+		} else {
+			skipped++
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, 0, err
+	}
+	return added, skipped, nil
 }
 

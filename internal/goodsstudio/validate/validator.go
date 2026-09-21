@@ -4,6 +4,7 @@ package validate
 
 import (
 	"fmt"
+	"strconv"
 
 	"zorion/internal/goodsstudio/graph"
 	"zorion/internal/goodsstudio/model"
@@ -90,6 +91,29 @@ func Validate(st *model.State) []Warning {
 			out = append(out, Warning{
 				Code:    "missing_volume_weight",
 				Message: fmt.Sprintf("Согласованный товар %s без веса/объёма (NULL-каталог запрещён)", g.Name),
+			})
+		}
+	}
+
+	// 4. «Товар без привязки» (спека 2026-09-21-рецепт-сущность §5):
+	// товар (kind=good), чей рецепт не привязан ни к одной фабрике
+	// (producer_recipes) — «ничей» (спека фабрик §4.3); правится привязкой в
+	// студии. Источник — st.Bindings (recipe_id/producer_type_id/good_id).
+	// Носитель в UI — не этот warning: видимый маркер «не привязан» —
+	// бейдж в справочнике (ТЗ @uidesigner §6.5), warning остаётся уровнем API.
+	bound := make(map[string]bool, len(st.Bindings))
+	for _, b := range st.Bindings {
+		bound[strconv.FormatInt(b.GoodID, 10)] = true
+	}
+	for i := range st.Goods {
+		g := &st.Goods[i]
+		if g.Kind != model.KindGood {
+			continue
+		}
+		if !bound[g.ID] {
+			out = append(out, Warning{
+				Code:    "unbound_recipe",
+				Message: fmt.Sprintf("«Товар без привязки»: %s — рецепт не привязан ни к одной фабрике", g.Name),
 			})
 		}
 	}

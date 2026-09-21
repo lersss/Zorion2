@@ -1,12 +1,16 @@
 // tools/e2e/goods-studio-server-check.js
 // Browser test for the Goods Studio UI on the game server (/studio, iterB):
 // авторизация JWT (localStorage adminToken), «+ ресурс», кириллица,
-// OR-фильтры справочника, попап ресурса (тир), удаление.
+// OR-фильтры справочника, попап ресурса (поля сложности/тира нет), удаление.
+// Модель рецептов (спека 2026-09-21-рецепт-сущность §5): состав адресуется
+// recipe-роутами (/studio/api/recipes/{id}/components), сложность — свойство
+// рецепта (PUT /studio/api/recipes/{id}); шаг 9 — copy-universal
+// (POST /studio/api/producers/{id}/recipes/copy-universal).
 // Итерация C (спека iterC §11 п.9): шаг fill — создание товара с пустым
-// слотом → POST fill → 202 → опрос state до generating=false → report непуст
-// («Ошибка ИИ» — opencode в CI недоступен, детерминировано; если opencode
-// локально запущен — proposals непуст, попап открывается, apply применяет
-// принятое) → cleanup. Таймаут опроса ≥ OPENCODE_TIMEOUT_S + 15 c.
+// компонентом → POST fill → 202 → опрос state до generating=false → report
+// непуст («Ошибка ИИ» — opencode в CI недоступен, детерминировано; если
+// opencode локально запущен — proposals непуст, попап открывается, apply
+// применяет принятое) → cleanup. Таймаут опроса ≥ OPENCODE_TIMEOUT_S + 15 c.
 // Старая студия (8799) — отдельный смоук goods-studio-check.js (до C).
 //
 // Run: node goods-studio-server-check.js
@@ -208,40 +212,56 @@ async function main() {
     report('5 delete resource', (toast.includes('Удалено') && toast.includes('0')) ? 'PASS' : 'FAIL',
       `toast="${toast.replace(/\n/g, ' | ').slice(0, 120)}"`);
 
-    // ============ Step 6: попап ресурса — тир-поле ============
+    // ============ Step 6: попап ресурса — поля сложности/тира нет ============
+    // У ресурса рецепта нет (kind=resource), поэтому нет ни поля сложности,
+    // ни тир-оверрайда; tier производный = 0 (спека §6.2).
     const res2 = (await api('POST', '/studio/api/goods', { name: 'QA_Ресурс_3', category_id: resCatId, kind: 'resource' })).data;
     await waitFor((id) => state.goods.some(g => g.id === id), 8000, 'QA_Ресурс_3 in state', res2.id);
     await page.evaluate((id) => { selected = id; openPopup(id); renderAll(); }, res2.id);
     await page.waitForTimeout(300);
-    await page.fill('#tierInput', '3');
-    await page.dispatchEvent('#tierInput', 'change');
-    await waitFor((id) => { const g = state.goods.find(x => x.id === id); return g && g.tier_override === 3; }, 8000, 'tier override 3', res2.id);
-    const tierState = await page.evaluate(() => {
+    const resPopup = await page.evaluate(() => {
       const g = state.goods.find(x => x.id === selected);
-      const warn = document.querySelector('.tier-warn');
-      return { tier: g.tier, override: g.tier_override, warn: warn ? warn.textContent : '' };
+      return {
+        tier: g.tier, recipeId: g.recipe_id,
+        hasComplexity: !!document.getElementById('complexityInput'),
+        hasTierInput: !!document.getElementById('tierInput'),
+      };
     });
-    report('6 resource popup tier', (tierState.tier === 3 && tierState.override === 3 && tierState.warn.includes('отличается')) ? 'PASS' : 'FAIL', JSON.stringify(tierState));
+    report('6 resource popup no complexity/tier field',
+      (!resPopup.hasComplexity && !resPopup.hasTierInput && resPopup.tier === 0) ? 'PASS' : 'FAIL',
+      JSON.stringify(resPopup));
     await page.keyboard.press('Escape');
 
-    // ============ Step 6b: «добавить родителя» (BUG-1 iterB: номер слота из
-    // state, не из ответа POST slots — контракт iterA возвращает {"id": id}) ============
+    // ============ Step 6b: попап товара — сложность рецепта + состав через
+    // recipe-роуты (спека §5: рецепт создаётся вместе с товаром; состав —
+    // POST /studio/api/recipes/{id}/components) ============
     const parentGood = (await api('POST', '/studio/api/goods', { name: 'QA_Родитель', category_id: goodCatId })).data;
     await waitFor((id) => state.goods.some(g => g.id === id), 8000, 'QA_Родитель in state', parentGood.id);
-    await page.evaluate((id) => { selected = id; openPopup(id); renderAll(); }, res2.id);
+    const parentRecipeId = await page.evaluate((id) => (state.goods.find(g => g.id === id) || {}).recipe_id, parentGood.id);
+    report('6b good created with recipe', parentRecipeId ? 'PASS' : 'FAIL', 'recipe_id=' + parentRecipeId);
+    // сложность рецепта через попап (PUT /studio/api/recipes/{id})
+    await page.evaluate((id) => { selected = id; openPopup(id); renderAll(); }, parentGood.id);
     await page.waitForTimeout(300);
-    await page.click('#popupBody .btns button:has-text("добавить родителя")');
-    await waitFor(() => document.getElementById('modalOverlay').style.display === 'flex', 5000, 'add parent modal');
-    await page.click('#modalBody .pline:has-text("QA_Родитель")');
-    await waitFor((ids) => {
-      const p = state.goods.find(x => x.id === ids.pid);
-      return p && (p.recipe || []).some(s => s.good_id === ids.cid);
-    }, 8000, 'parent slot filled', { pid: parentGood.id, cid: res2.id });
-    const parentState = await page.evaluate((pid) => {
-      const p = state.goods.find(x => x.id === pid);
-      return { slots: (p.recipe || []).length, filled: (p.recipe || []).some(s => s.good_id) };
+    await page.fill('#complexityInput', '5');
+    await page.dispatchEvent('#complexityInput', 'change');
+    await waitFor((id) => { const g = state.goods.find(x => x.id === id); return g && g.complexity === 5; }, 8000, 'complexity 5', parentGood.id);
+    const cxState = await page.evaluate((id) => {
+      const g = state.goods.find(x => x.id === id);
+      const warn = document.querySelector('.tier-warn');
+      return { complexity: g.complexity, tier: g.tier, warn: warn ? warn.textContent : '' };
     }, parentGood.id);
-    report('6b add parent fills slot', (parentState.slots >= 1 && parentState.filled) ? 'PASS' : 'FAIL', JSON.stringify(parentState));
+    report('6b complexity field', (cxState.complexity === 5 && cxState.tier === 5) ? 'PASS' : 'FAIL', JSON.stringify(cxState));
+    // состав — пустой компонент через recipe-роут (замена снятого /goods/{id}/slots)
+    const addComp = await api('POST', `/studio/api/recipes/${parentRecipeId}/components`);
+    await waitFor((id) => {
+      const g = state.goods.find(x => x.id === id);
+      return g && (g.recipe || []).length >= 1 && (g.recipe || []).some(s => !s.good_id);
+    }, 8000, 'empty component in state', parentGood.id);
+    const compState = await page.evaluate((id) => {
+      const g = state.goods.find(x => x.id === id);
+      return { comps: (g.recipe || []).length, empty: (g.recipe || []).some(s => !s.good_id) };
+    }, parentGood.id);
+    report('6b recipe component route', (addComp.status === 200 && compState.comps >= 1 && compState.empty) ? 'PASS' : 'FAIL', JSON.stringify(compState));
     await page.keyboard.press('Escape');
 
     // ============ Step 7: no JS errors + screenshot ============
@@ -249,19 +269,21 @@ async function main() {
     await page.screenshot({ path: path.join(ARTIFACTS_DIR, 'goods-studio-server.png') });
 
     // ============ Step 8: fill (спека iterC §11 п.9) ============
-    // Товар с пустым слотом → POST fill → 202 → опрос state до
+    // Товар с пустым компонентом → POST fill → 202 → опрос state до
     // generating=false → report непуст. Детерминировано в CI: opencode
     // недоступен → «Ошибка ИИ», proposals пусты; локально с opencode —
     // proposals непуст, apply применяет принятое.
     const fillGood = (await api('POST', '/studio/api/goods', { name: 'QA_Fill', category_id: goodCatId })).data;
     await waitFor((id) => state.goods.some(g => g.id === id), 8000, 'QA_Fill in state', fillGood.id);
-    // явно добавить пустой слот перед fill (ревью iterC: не полагаемся на
-    // слоты от CreateGood — fill без пустых слотов вернул бы 400)
-    await api('POST', `/studio/api/goods/${fillGood.id}/slots`);
+    // явно добавить пустой компонент перед fill (ревью iterC: не полагаемся на
+    // состав от CreateGood — fill без пустых компонентов вернул бы 400);
+    // recipe-роут вместо снятого POST /goods/{id}/slots (спека рецептов §5)
+    const fillRecipeId = await page.evaluate((id) => (state.goods.find(g => g.id === id) || {}).recipe_id, fillGood.id);
+    await api('POST', `/studio/api/recipes/${fillRecipeId}/components`);
     await waitFor((id) => {
       const g = state.goods.find(x => x.id === id);
       return g && (g.recipe || []).some(s => !s.good_id);
-    }, 8000, 'empty slot in state', fillGood.id);
+    }, 8000, 'empty component in state', fillGood.id);
     const fillResp = await api('POST', `/studio/api/goods/${fillGood.id}/fill`);
     report('8 fill start', fillResp.status === 202 ? 'PASS' : 'FAIL', 'status=' + fillResp.status);
     // опрос state до завершения fill (через API, не страницу: страница
@@ -302,16 +324,84 @@ async function main() {
       }
     }
 
+    // ============ Step 9: copy-universal (спека рецептов §5, ТЗ §13) ============
+    // Цель — конкретная фабрика kind=goods товарной категории; источник —
+    // универсальные конкретные фабрики той же категории (parent_id NOT NULL,
+    // race_family IS NULL, race IS NULL), кроме цели. Цель создаём семейной,
+    // чтобы (parent, category, family) не конфликтовал с универсальным источником.
+    const live = (await api('GET', '/studio/api/state')).data;
+    const races = (await api('GET', '/studio/api/races')).data;
+    const allFamilies = (races && races.families ? races.families : []).map(f => f.id);
+    const catKind = (cid) => { const c = live.categories.find(x => x.id === cid); return c ? c.kind : null; };
+    const hasRec = (pid) => live.producer_recipes.some(pr => pr.producer_type_id === pid);
+    const freeFamily = (parentId, categoryId) =>
+      allFamilies.find(f => !live.producer_types.some(p =>
+        p.parent_id === parentId && p.category_id === categoryId && p.race_family === f && !p.race));
+    const makeTarget = async (parentId, categoryId, tag) => {
+      const fam = freeFamily(parentId, categoryId);
+      if (!fam) return { id: null, err: 'no free family' };
+      const t = await api('POST', '/studio/api/producers',
+        { name: 'QA_Копия_' + tag + '_' + Date.now(), kind: 'goods', category_id: categoryId, parent_id: parentId, race_family: fam });
+      return { id: t.data && t.data.id, err: t.status + ':' + JSON.stringify(t.data) };
+    };
+
+    // 9a: есть универсальный источник с рецептами → added>0; повтор → added:0/skipped>0
+    const uniSrc = live.producer_types.find(p =>
+      p.parent_id && p.kind === 'goods' && catKind(p.category_id) === 'good' && !p.race_family && !p.race && hasRec(p.id));
+    let copyFirst = [], copyAgain = [];
+    if (uniSrc) {
+      const t = await makeTarget(uniSrc.parent_id, uniSrc.category_id, 'add');
+      if (t.id) {
+        const r1 = await api('POST', `/studio/api/producers/${t.id}/recipes/copy-universal`);
+        const r2 = await api('POST', `/studio/api/producers/${t.id}/recipes/copy-universal`);
+        copyFirst = [r1.status, r1.data && r1.data.added, r1.data && r1.data.skipped];
+        copyAgain = [r2.status, r2.data && r2.data.added, r2.data && r2.data.skipped];
+      } else {
+        copyFirst = ['target-fail', t.err];
+      }
+    }
+    report('9a copy-universal added>0 + idempotent',
+      (copyFirst[0] === 200 && copyFirst[1] > 0 && copyAgain[0] === 200 && copyAgain[1] === 0 && copyAgain[2] > 0) ? 'PASS' : 'FAIL',
+      `src=${uniSrc && uniSrc.id} first=${JSON.stringify(copyFirst)} again=${JSON.stringify(copyAgain)}`);
+
+    // 9b: цель без универсального источника → 200 {added:0, skipped:0} (не ошибка)
+    const uniNoRec = live.producer_types.find(p =>
+      p.parent_id && p.kind === 'goods' && catKind(p.category_id) === 'good' && !p.race_family && !p.race && !hasRec(p.id));
+    let emptyRes = null;
+    if (uniNoRec) {
+      const t = await makeTarget(uniNoRec.parent_id, uniNoRec.category_id, 'empty');
+      if (t.id) {
+        const r = await api('POST', `/studio/api/producers/${t.id}/recipes/copy-universal`);
+        emptyRes = [r.status, r.data && r.data.added, r.data && r.data.skipped];
+      } else {
+        emptyRes = ['target-fail', t.err];
+      }
+    }
+    report('9b copy-universal empty source -> 0/0',
+      (emptyRes && emptyRes[0] === 200 && emptyRes[1] === 0 && emptyRes[2] === 0) ? 'PASS' : 'FAIL',
+      `src=${uniNoRec && uniNoRec.id} resp=${JSON.stringify(emptyRes)}`);
+
+    // 9c: 400 — не конкретная фабрика (тип без родителя) и ресурсная категория
+    const nonConcrete = live.producer_types.find(p => p.kind === 'goods' && !p.parent_id);
+    const resCatFac = live.producer_types.find(p => p.kind === 'goods' && p.parent_id && p.category_id && catKind(p.category_id) === 'resource');
+    const rNon = nonConcrete ? await api('POST', `/studio/api/producers/${nonConcrete.id}/recipes/copy-universal`) : null;
+    const rRes = resCatFac ? await api('POST', `/studio/api/producers/${resCatFac.id}/recipes/copy-universal`) : null;
+    report('9c copy-universal 400 (non-concrete / resource cat)',
+      (rNon && rNon.status === 400 && rRes && rRes.status === 400) ? 'PASS' : 'FAIL',
+      `non=${rNon && rNon.status}(${nonConcrete && nonConcrete.id}) res=${rRes && rRes.status}(${resCatFac && resCatFac.id})`);
+
   } catch (err) {
     report('UNCAUGHT', 'FAIL', String(err && err.message ? err.message : err));
   }
 
-  // ============ cleanup: delete QA_ goods ============
+  // ============ cleanup: delete QA_ goods + QA_ producers ============
   try {
     const st2 = (await api('GET', '/studio/api/state')).data;
-    const qa = st2.goods.filter(g => g.name.startsWith('QA_'));
-    for (const g of qa) await api('DELETE', `/studio/api/goods/${g.id}`);
-    report('cleanup', 'PASS', `deleted ${qa.length} QA_ goods`);
+    const qaGoods = st2.goods.filter(g => g.name.startsWith('QA_'));
+    for (const g of qaGoods) await api('DELETE', `/studio/api/goods/${g.id}`);
+    const qaProds = st2.producer_types.filter(p => p.name.startsWith('QA_'));
+    for (const p of qaProds) await api('DELETE', `/studio/api/producers/${p.id}`);
+    report('cleanup', 'PASS', `deleted ${qaGoods.length} QA_ goods, ${qaProds.length} QA_ producers`);
   } catch (e) {
     report('cleanup', 'FAIL', String(e && e.message ? e.message : e));
   }

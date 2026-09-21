@@ -9,9 +9,8 @@ import (
 )
 
 // TestFillPromptUsesComputedTier — промпт «заполнить комплектующие» получает
-// ВЫЧИСЛЕННЫЙ тир: оверрайд не влияет на генерацию (99a.3 §4.2, критик №10;
-// перенос TestFillPromptUsesComputedTier из cmd/goods-studio/handlers/
-// handlers_test.go:783 на model.State, спека iterC §5.4).
+// ВЫЧИСЛЕННЫЙ тир: сложность рецепта не влияет на генерацию (99a.3 §4.2,
+// критик №10; спека 2026-09-21-рецепт-сущность §4.4).
 func TestFillPromptUsesComputedTier(t *testing.T) {
 	st := &model.State{
 		SchemaVersion: 1,
@@ -21,9 +20,9 @@ func TestFillPromptUsesComputedTier(t *testing.T) {
 			{ID: "g2", Name: "B", Category: "1", Kind: model.KindGood, Recipe: []model.Slot{{GoodID: "g1"}}},
 		},
 	}
-	// оверрайд 9 на B — вычисленный тир B = 1 (A с пустым рецептом = 0)
+	// сложность 9 на B — вычисленный тир B = 1 (A с пустым рецептом = 0)
 	tier := 9
-	st.Goods[1].TierOverride = &tier
+	st.Goods[1].Complexity = &tier
 	prompt := BuildFillPrompt(st, "g2")
 	require.Contains(t, prompt, "тир: 1")
 	require.NotContains(t, prompt, "тир: 9")

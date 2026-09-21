@@ -112,7 +112,7 @@ func TestDeleteCategoryNotEmpty(t *testing.T) {
 
 // --- товары ---
 
-// TestCreateGood — товар-черновик с одним пустым слотом (quantity=1).
+// TestCreateGood — товар-черновик: рецепт + один пустой компонент (quantity=1).
 func TestCreateGood(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
@@ -128,8 +128,11 @@ func TestCreateGood(t *testing.T) {
 	mock.ExpectQuery(`INSERT INTO goods \(name, name_norm, category_id, kind, source\) VALUES \(\$1, \$2, \$3, \$4, 'manual'\) RETURNING id, created_at`).
 		WithArgs("Сталь", "сталь", int64(1), "good").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow(int64(1), time.Now()))
-	mock.ExpectExec(`INSERT INTO goods_slots \(good_id, pos, quantity\) VALUES \(\$1, 0, 1\)`).
+	mock.ExpectQuery(`INSERT INTO recipes \(good_id\) VALUES \(\$1\) RETURNING id`).
 		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(100)))
+	mock.ExpectExec(`INSERT INTO recipe_components \(recipe_id, pos, quantity\) VALUES \(\$1, 0, 1\)`).
+		WithArgs(int64(100)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
@@ -137,7 +140,8 @@ func TestCreateGood(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "1", g.ID)
 	require.Equal(t, model.KindGood, g.Kind)
-	require.Len(t, g.Recipe, 1, "товар — с одним пустым слотом")
+	require.Equal(t, int64(100), g.RecipeID, "рецепт создан вместе с товаром")
+	require.Len(t, g.Recipe, 1, "товар — с одним пустым компонентом")
 	require.Equal(t, 1, g.Recipe[0].Quantity)
 	// Р2: значение веса/объёма есть всегда — новые товары 1/1 (DEFAULT).
 	require.NotNil(t, g.Volume)
@@ -219,9 +223,9 @@ func TestUpdateGoodCategoryMismatch(t *testing.T) {
 	defer db.Close()
 
 	expectMutationBegin(mock)
-	mock.ExpectQuery(`SELECT kind FROM goods WHERE id = \$1 FOR UPDATE`).
+	mock.ExpectQuery(`SELECT kind, category_id FROM goods WHERE id = \$1 FOR UPDATE`).
 		WithArgs(int64(1)).
-		WillReturnRows(sqlmock.NewRows([]string{"kind"}).AddRow("good"))
+		WillReturnRows(sqlmock.NewRows([]string{"kind", "category_id"}).AddRow("good", int64(1)))
 	mock.ExpectQuery(`SELECT kind FROM categories WHERE id = \$1`).
 		WithArgs(int64(7)).
 		WillReturnRows(sqlmock.NewRows([]string{"kind"}).AddRow("resource"))
@@ -231,6 +235,60 @@ func TestUpdateGoodCategoryMismatch(t *testing.T) {
 	var ce *ErrCatalog
 	require.True(t, errors.As(err, &ce))
 	require.Equal(t, 400, ce.Status)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestUpdateGoodCategoryBound409 — смена категории товара с привязанным
+// рецептом → 409 (инвариант «выход рецепта = категория фабрики», §2.4/§5).
+func TestUpdateGoodCategoryBound409(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectMutationBegin(mock)
+	mock.ExpectQuery(`SELECT kind, category_id FROM goods WHERE id = \$1 FOR UPDATE`).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"kind", "category_id"}).AddRow("good", int64(1)))
+	mock.ExpectQuery(`SELECT kind FROM categories WHERE id = \$1`).
+		WithArgs(int64(5)).
+		WillReturnRows(sqlmock.NewRows([]string{"kind"}).AddRow("good"))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_recipes pr JOIN recipes r ON r\.id = pr\.recipe_id WHERE r\.good_id = \$1\)`).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	catID := int64(5)
+	err = NewGoodsRepository(db).UpdateGood(1, nil, &catID, nil, nil)
+	var ce *ErrCatalog
+	require.True(t, errors.As(err, &ce))
+	require.Equal(t, 409, ce.Status)
+	require.Contains(t, ce.Msg, "отвяжите")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestUpdateGoodCategoryUnboundFree — смена категории товара без привязок
+// свободна (409 не триггерится).
+func TestUpdateGoodCategoryUnboundFree(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectMutationBegin(mock)
+	mock.ExpectQuery(`SELECT kind, category_id FROM goods WHERE id = \$1 FOR UPDATE`).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"kind", "category_id"}).AddRow("good", int64(1)))
+	mock.ExpectQuery(`SELECT kind FROM categories WHERE id = \$1`).
+		WithArgs(int64(5)).
+		WillReturnRows(sqlmock.NewRows([]string{"kind"}).AddRow("good"))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_recipes pr JOIN recipes r ON r\.id = pr\.recipe_id WHERE r\.good_id = \$1\)`).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectExec(`UPDATE goods SET category_id = \$1 WHERE id = \$2`).
+		WithArgs(int64(5), int64(1)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	catID := int64(5)
+	require.NoError(t, NewGoodsRepository(db).UpdateGood(1, nil, &catID, nil, nil))
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -247,7 +305,7 @@ func TestDeleteGoodClearedLinks(t *testing.T) {
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM goods WHERE id = \$1 FOR UPDATE\)`).
 		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	mock.ExpectExec(`UPDATE goods_slots SET component_id = NULL, reason = '' WHERE component_id = \$1`).
+	mock.ExpectExec(`UPDATE recipe_components SET component_id = NULL, reason = '' WHERE component_id = \$1`).
 		WithArgs(int64(1)).
 		WillReturnResult(sqlmock.NewResult(0, 2))
 	mock.ExpectExec(`DELETE FROM goods WHERE id = \$1`).
@@ -271,7 +329,7 @@ func TestDeleteGoodNoLinks(t *testing.T) {
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM goods WHERE id = \$1 FOR UPDATE\)`).
 		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	mock.ExpectExec(`UPDATE goods_slots SET component_id = NULL, reason = '' WHERE component_id = \$1`).
+	mock.ExpectExec(`UPDATE recipe_components SET component_id = NULL, reason = '' WHERE component_id = \$1`).
 		WithArgs(int64(1)).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectExec(`DELETE FROM goods WHERE id = \$1`).
@@ -303,147 +361,230 @@ func TestDeleteGoodNotFound(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// --- слоты ---
+// --- состав рецепта (recipe_components, спека 2026-09-21-рецепт-сущность §5) ---
 
-// TestPutSlotCycle — составляющая создаёт цикл → 409 (проверка на снимке
-// графа из той же транзакции, §9.2).
-func TestPutSlotCycle(t *testing.T) {
+// TestPutRecipeComponentCycle — составляющая создаёт цикл → 409 (проверка на
+// снимке графа из той же транзакции).
+func TestPutRecipeComponentCycle(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
 	defer db.Close()
 
 	expectMutationBegin(mock)
-	mock.ExpectQuery(`SELECT kind FROM goods WHERE id = \$1 FOR UPDATE`).
+	mock.ExpectQuery(`SELECT good_id FROM recipes WHERE id = \$1 FOR UPDATE`).
 		WithArgs(int64(2)).
-		WillReturnRows(sqlmock.NewRows([]string{"kind"}).AddRow("good"))
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM goods_slots WHERE good_id = \$1 AND pos = \$2\)`).
+		WillReturnRows(sqlmock.NewRows([]string{"good_id"}).AddRow(int64(2)))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM recipe_components WHERE recipe_id = \$1 AND pos = \$2\)`).
 		WithArgs(int64(2), 0).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM goods WHERE id = \$1\)`).
 		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	// граф: g1 (id=1) содержит g2 (id=2) → класть g1 в слот g2 = цикл
-	mock.ExpectQuery(`SELECT id, name, category_id, kind, source, tier_override, created_at, volume, weight FROM goods ORDER BY id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "tier_override", "created_at", "volume", "weight"}).
-			AddRow(int64(1), "A", int64(1), "good", "manual", nil, time.Now(), nil, nil).
-			AddRow(int64(2), "B", int64(1), "good", "manual", nil, time.Now(), nil, nil))
-	mock.ExpectQuery(`SELECT good_id, pos, component_id, quantity, reason, allow_resource FROM goods_slots ORDER BY good_id, pos`).
+	// граф: g1 (id=1) содержит g2 (id=2) → класть g1 в компонент g2 = цикл
+	mock.ExpectQuery(`SELECT g.id, g.name, g.category_id, g.kind, g.source, r.id, r.complexity, g.created_at, g.volume, g.weight FROM goods g LEFT JOIN recipes r ON r.good_id = g.id ORDER BY g.id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "recipe_id", "complexity", "created_at", "volume", "weight"}).
+			AddRow(int64(1), "A", int64(1), "good", "manual", nil, nil, time.Now(), nil, nil).
+			AddRow(int64(2), "B", int64(1), "good", "manual", nil, nil, time.Now(), nil, nil))
+	mock.ExpectQuery(`SELECT r\.good_id, c\.pos, c\.component_id, c\.quantity, c\.reason, c\.allow_resource FROM recipe_components c JOIN recipes r ON r\.id = c\.recipe_id ORDER BY r\.good_id, c\.pos`).
 		WillReturnRows(sqlmock.NewRows([]string{"good_id", "pos", "component_id", "quantity", "reason", "allow_resource"}).
 			AddRow(int64(1), 0, int64(2), 1, nil, false))
 
 	q := 1
-	err = NewGoodsRepository(db).PutSlot(2, 0, 1, &q)
+	err = NewGoodsRepository(db).PutRecipeComponent(2, 0, 1, &q)
 	var ce *ErrCatalog
 	require.True(t, errors.As(err, &ce))
 	require.Equal(t, 409, ce.Status)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// TestPutSlotResource — слот ресурсу → 403 (решение №1).
-func TestPutSlotResource(t *testing.T) {
+// TestPutRecipeComponentNoRecipe — рецепта нет → 404.
+func TestPutRecipeComponentNoRecipe(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
 	defer db.Close()
 
 	expectMutationBegin(mock)
-	mock.ExpectQuery(`SELECT kind FROM goods WHERE id = \$1 FOR UPDATE`).
-		WithArgs(int64(3)).
-		WillReturnRows(sqlmock.NewRows([]string{"kind"}).AddRow("resource"))
+	mock.ExpectQuery(`SELECT good_id FROM recipes WHERE id = \$1 FOR UPDATE`).
+		WithArgs(int64(99)).
+		WillReturnRows(sqlmock.NewRows([]string{"good_id"}))
 
-	err = NewGoodsRepository(db).PutSlot(3, 0, 1, nil)
+	err = NewGoodsRepository(db).PutRecipeComponent(99, 0, 1, nil)
 	var ce *ErrCatalog
 	require.True(t, errors.As(err, &ce))
-	require.Equal(t, 403, ce.Status)
+	require.Equal(t, 404, ce.Status)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// TestAddSlotResource — добавить слот ресурсу → 403.
-func TestAddSlotResource(t *testing.T) {
+// TestAddRecipeComponentNoRecipe — рецепта нет → 404.
+func TestAddRecipeComponentNoRecipe(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
 	defer db.Close()
 
 	expectMutationBegin(mock)
-	mock.ExpectQuery(`SELECT kind FROM goods WHERE id = \$1 FOR UPDATE`).
-		WithArgs(int64(3)).
-		WillReturnRows(sqlmock.NewRows([]string{"kind"}).AddRow("resource"))
+	mock.ExpectQuery(`SELECT good_id FROM recipes WHERE id = \$1 FOR UPDATE`).
+		WithArgs(int64(99)).
+		WillReturnRows(sqlmock.NewRows([]string{"good_id"}))
 
-	err = NewGoodsRepository(db).AddSlot(3)
+	err = NewGoodsRepository(db).AddRecipeComponent(99)
 	var ce *ErrCatalog
 	require.True(t, errors.As(err, &ce))
-	require.Equal(t, 403, ce.Status)
+	require.Equal(t, 404, ce.Status)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// TestDeleteSlotShiftsPos — удаление слота сдвигает pos в той же транзакции.
-func TestDeleteSlotShiftsPos(t *testing.T) {
+// TestAddRecipeComponentAppendsPos — новый компонент pos = max+1.
+func TestAddRecipeComponentAppendsPos(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
 	defer db.Close()
 
 	expectMutationBegin(mock)
-	mock.ExpectQuery(`SELECT kind FROM goods WHERE id = \$1 FOR UPDATE`).
+	mock.ExpectQuery(`SELECT good_id FROM recipes WHERE id = \$1 FOR UPDATE`).
+		WithArgs(int64(5)).
+		WillReturnRows(sqlmock.NewRows([]string{"good_id"}).AddRow(int64(1)))
+	mock.ExpectQuery(`SELECT MAX\(pos\) FROM recipe_components WHERE recipe_id = \$1`).
+		WithArgs(int64(5)).
+		WillReturnRows(sqlmock.NewRows([]string{"max"}).AddRow(int64(1)))
+	mock.ExpectExec(`INSERT INTO recipe_components \(recipe_id, pos, quantity\) VALUES \(\$1, \$2, 1\)`).
+		WithArgs(int64(5), 2).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	require.NoError(t, NewGoodsRepository(db).AddRecipeComponent(5))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestDeleteRecipeComponentShiftsPos — удаление компонента сдвигает pos.
+func TestDeleteRecipeComponentShiftsPos(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectMutationBegin(mock)
+	mock.ExpectQuery(`SELECT good_id FROM recipes WHERE id = \$1 FOR UPDATE`).
 		WithArgs(int64(1)).
-		WillReturnRows(sqlmock.NewRows([]string{"kind"}).AddRow("good"))
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM goods_slots WHERE good_id = \$1 AND pos = \$2\)`).
+		WillReturnRows(sqlmock.NewRows([]string{"good_id"}).AddRow(int64(1)))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM recipe_components WHERE recipe_id = \$1 AND pos = \$2\)`).
 		WithArgs(int64(1), 0).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	mock.ExpectExec(`DELETE FROM goods_slots WHERE good_id = \$1 AND pos = \$2`).
+	mock.ExpectExec(`DELETE FROM recipe_components WHERE recipe_id = \$1 AND pos = \$2`).
 		WithArgs(int64(1), 0).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(`UPDATE goods_slots SET pos = pos - 1 WHERE good_id = \$1 AND pos > \$2`).
+	mock.ExpectExec(`UPDATE recipe_components SET pos = pos - 1 WHERE recipe_id = \$1 AND pos > \$2`).
 		WithArgs(int64(1), 0).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	require.NoError(t, NewGoodsRepository(db).DeleteSlot(1, 0))
+	require.NoError(t, NewGoodsRepository(db).DeleteRecipeComponent(1, 0))
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// --- тир ---
-
-// TestSetTierResource — тир ресурсу разрешён (С3).
-func TestSetTierResource(t *testing.T) {
+// TestClearRecipeComponent — очистка компонента (component_id → NULL).
+func TestClearRecipeComponent(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
 	defer db.Close()
 
 	expectMutationBegin(mock)
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM goods WHERE id = \$1 FOR UPDATE\)`).
+	mock.ExpectQuery(`SELECT good_id FROM recipes WHERE id = \$1 FOR UPDATE`).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"good_id"}).AddRow(int64(1)))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM recipe_components WHERE recipe_id = \$1 AND pos = \$2\)`).
+		WithArgs(int64(1), 0).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectExec(`UPDATE recipe_components SET component_id = NULL, reason = '' WHERE recipe_id = \$1 AND pos = \$2`).
+		WithArgs(int64(1), 0).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	require.NoError(t, NewGoodsRepository(db).ClearRecipeComponent(1, 0))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// --- сложность рецепта (PUT /recipes/{id}, спека 2026-09-21-рецепт-сущность §5) ---
+
+// TestSetRecipeComplexity — сложность задана → UPDATE recipes.complexity.
+func TestSetRecipeComplexity(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectMutationBegin(mock)
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM recipes WHERE id = \$1 FOR UPDATE\)`).
 		WithArgs(int64(3)).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	mock.ExpectExec(`UPDATE goods SET tier_override = \$1 WHERE id = \$2`).
+	mock.ExpectExec(`UPDATE recipes SET complexity = \$1 WHERE id = \$2`).
 		WithArgs(3, int64(3)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	tier := 3
-	require.NoError(t, NewGoodsRepository(db).SetTier(3, &tier))
+	c := 3
+	require.NoError(t, NewGoodsRepository(db).SetRecipeComplexity(3, &c))
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// TestSetTierNegative — отрицательный тир → 400.
-func TestSetTierNegative(t *testing.T) {
+// TestSetRecipeComplexityNull — null — очистить (сложность вычисляемая).
+func TestSetRecipeComplexityNull(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
 	defer db.Close()
 
 	expectMutationBegin(mock)
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM goods WHERE id = \$1 FOR UPDATE\)`).
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM recipes WHERE id = \$1 FOR UPDATE\)`).
+		WithArgs(int64(3)).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectExec(`UPDATE recipes SET complexity = NULL WHERE id = \$1`).
+		WithArgs(int64(3)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	require.NoError(t, NewGoodsRepository(db).SetRecipeComplexity(3, nil))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestSetRecipeComplexityNegative — отрицательная сложность → 400.
+func TestSetRecipeComplexityNegative(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectMutationBegin(mock)
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM recipes WHERE id = \$1 FOR UPDATE\)`).
 		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
-	tier := -1
-	err = NewGoodsRepository(db).SetTier(1, &tier)
+	c := -1
+	err = NewGoodsRepository(db).SetRecipeComplexity(1, &c)
 	var ce *ErrCatalog
 	require.True(t, errors.As(err, &ce))
 	require.Equal(t, 400, ce.Status)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+// TestSetRecipeComplexityNoRecipe — рецепта нет → 404.
+func TestSetRecipeComplexityNoRecipe(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectMutationBegin(mock)
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM recipes WHERE id = \$1 FOR UPDATE\)`).
+		WithArgs(int64(99)).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	c := 1
+	err = NewGoodsRepository(db).SetRecipeComplexity(99, &c)
+	var ce *ErrCatalog
+	require.True(t, errors.As(err, &ce))
+	require.Equal(t, 404, ce.Status)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 // --- снимок ---
 
-// TestSnapshot — согласованный снимок: категории + товары со слотами.
+// TestSnapshot — согласованный снимок: категории + товары с составом рецептов
+// и привязками (спека 2026-09-21-рецепт-сущность §5).
 func TestSnapshot(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
@@ -454,11 +595,11 @@ func TestSnapshot(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "code", "is_system"}).
 			AddRow(int64(1), "Корабли", "good", nil, false).
 			AddRow(int64(7), "Минералы", "resource", "mineral", true))
-	mock.ExpectQuery(`SELECT id, name, category_id, kind, source, tier_override, created_at, volume, weight FROM goods ORDER BY id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "tier_override", "created_at", "volume", "weight"}).
-			AddRow(int64(1), "Сталь", int64(1), "good", "manual", nil, time.Now(), nil, nil).
-			AddRow(int64(2), "Железо Fe", int64(7), "resource", "palette", nil, time.Now(), nil, nil))
-	mock.ExpectQuery(`SELECT good_id, pos, component_id, quantity, reason, allow_resource FROM goods_slots ORDER BY good_id, pos`).
+	mock.ExpectQuery(`SELECT g.id, g.name, g.category_id, g.kind, g.source, r.id, r.complexity, g.created_at, g.volume, g.weight FROM goods g LEFT JOIN recipes r ON r.good_id = g.id ORDER BY g.id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "recipe_id", "complexity", "created_at", "volume", "weight"}).
+			AddRow(int64(1), "Сталь", int64(1), "good", "manual", int64(100), 3, time.Now(), nil, nil).
+			AddRow(int64(2), "Железо Fe", int64(7), "resource", "palette", nil, nil, time.Now(), nil, nil))
+	mock.ExpectQuery(`SELECT r\.good_id, c\.pos, c\.component_id, c\.quantity, c\.reason, c\.allow_resource FROM recipe_components c JOIN recipes r ON r\.id = c\.recipe_id ORDER BY r\.good_id, c\.pos`).
 		WillReturnRows(sqlmock.NewRows([]string{"good_id", "pos", "component_id", "quantity", "reason", "allow_resource"}).
 			AddRow(int64(1), 0, int64(2), 1, nil, false))
 	mock.ExpectQuery(`SELECT id, name, kind, category_id, race_family, parent_id, race, output, input, params, hidden, created_at FROM producer_types ORDER BY id`).
@@ -469,14 +610,23 @@ func TestSnapshot(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"producer_type_id", "item_id", "requirements"}))
 	mock.ExpectQuery(`SELECT id, parent_id, category_id, race_family, race, hidden, created_at FROM producer_slots ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "parent_id", "category_id", "race_family", "race", "hidden", "created_at"}))
+	mock.ExpectQuery(`SELECT pr.producer_type_id, pr.recipe_id, r.good_id FROM producer_recipes pr JOIN recipes r ON r.id = pr.recipe_id ORDER BY pr.producer_type_id, pr.recipe_id`).
+		WillReturnRows(sqlmock.NewRows([]string{"producer_type_id", "recipe_id", "good_id"}).
+			AddRow(int64(62), int64(100), int64(1)))
 	mock.ExpectCommit()
 
 	snap, err := NewGoodsRepository(db).Snapshot()
 	require.NoError(t, err)
 	require.Len(t, snap.Categories, 2)
 	require.Len(t, snap.Goods, 2)
-	require.Len(t, snap.Goods[0].Recipe, 1, "слот Стали ссылается на Железо")
+	require.Len(t, snap.Goods[0].Recipe, 1, "компонент Стали ссылается на Железо")
 	require.Equal(t, "2", snap.Goods[0].Recipe[0].GoodID)
+	require.Equal(t, int64(100), snap.Goods[0].RecipeID, "проекция рецепта")
+	require.NotNil(t, snap.Goods[0].Complexity)
+	require.Equal(t, 3, *snap.Goods[0].Complexity)
+	require.Len(t, snap.Bindings, 1, "привязка рецепта к фабрике")
+	require.Equal(t, int64(62), snap.Bindings[0].ProducerTypeID)
+	require.Equal(t, int64(1), snap.Bindings[0].GoodID)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -603,8 +753,11 @@ func TestBulkCyrillicCaseDuplicate(t *testing.T) {
 	mock.ExpectQuery(`INSERT INTO goods \(name, name_norm, category_id, kind, source\) VALUES \(\$1, \$2, \$3, 'good', 'manual'\) RETURNING id`).
 		WithArgs("Товар", "товар", int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(5)))
-	mock.ExpectExec(`INSERT INTO goods_slots \(good_id, pos, quantity\) VALUES \(\$1, 0, 1\)`).
+	mock.ExpectQuery(`INSERT INTO recipes \(good_id\) VALUES \(\$1\) RETURNING id`).
 		WithArgs(int64(5)).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(50)))
+	mock.ExpectExec(`INSERT INTO recipe_components \(recipe_id, pos, quantity\) VALUES \(\$1, 0, 1\)`).
+		WithArgs(int64(50)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
@@ -645,23 +798,23 @@ func TestCreateGoodUniqueViolation409(t *testing.T) {
 // --- ApplyProposals (спека iterC §5.4/§11) ---
 
 // applySnapshotRows — ожидания снимка каталога в tx: категория 5 (good),
-// товар 1 «Корабль» с двумя пустыми слотами (pos 0, 1).
+// товар 1 «Корабль» (рецепт 100) с двумя пустыми компонентами (pos 0, 1).
 func applySnapshotRows(mock sqlmock.Sqlmock) {
 	mock.ExpectQuery(`SELECT id, name, kind, code, is_system FROM categories ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "code", "is_system"}).
 			AddRow(int64(5), "Комплектующие", "good", nil, false))
-	mock.ExpectQuery(`SELECT id, name, category_id, kind, source, tier_override, created_at, volume, weight FROM goods ORDER BY id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "tier_override", "created_at", "volume", "weight"}).
-			AddRow(int64(1), "Корабль", int64(5), "good", "manual", nil, time.Now(), nil, nil))
-	mock.ExpectQuery(`SELECT good_id, pos, component_id, quantity, reason, allow_resource FROM goods_slots ORDER BY good_id, pos`).
+	mock.ExpectQuery(`SELECT g.id, g.name, g.category_id, g.kind, g.source, r.id, r.complexity, g.created_at, g.volume, g.weight FROM goods g LEFT JOIN recipes r ON r.good_id = g.id ORDER BY g.id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "recipe_id", "complexity", "created_at", "volume", "weight"}).
+			AddRow(int64(1), "Корабль", int64(5), "good", "manual", int64(100), nil, time.Now(), nil, nil))
+	mock.ExpectQuery(`SELECT r\.good_id, c\.pos, c\.component_id, c\.quantity, c\.reason, c\.allow_resource FROM recipe_components c JOIN recipes r ON r\.id = c\.recipe_id ORDER BY r\.good_id, c\.pos`).
 		WillReturnRows(sqlmock.NewRows([]string{"good_id", "pos", "component_id", "quantity", "reason", "allow_resource"}).
 			AddRow(int64(1), 0, nil, 1, nil, false).
 			AddRow(int64(1), 1, nil, 1, nil, false))
 }
 
 // TestApplyProposalsWriteBack — два принятых пункта kind=new: новые товары
-// INSERT (draft/ai, категория из попапа), слоты UPDATE по конкретным pos,
-// маппинг "gN"→real id, applied = 2, отчёт пуст.
+// INSERT + рецепт (без состава, не-регресс §8.3), компоненты UPDATE по
+// конкретным pos рецепта цели, маппинг "gN"→real id, applied = 2, отчёт пуст.
 func TestApplyProposalsWriteBack(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
@@ -672,14 +825,20 @@ func TestApplyProposalsWriteBack(t *testing.T) {
 	mock.ExpectQuery(`INSERT INTO goods \(name, name_norm, category_id, kind, source\) VALUES \(\$1, \$2, \$3, 'good', 'ai'\) RETURNING id`).
 		WithArgs("Сталь", "сталь", int64(5)).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(10)))
+	mock.ExpectExec(`INSERT INTO recipes \(good_id\) VALUES \(\$1\)`).
+		WithArgs(int64(10)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(`INSERT INTO goods \(name, name_norm, category_id, kind, source\) VALUES \(\$1, \$2, \$3, 'good', 'ai'\) RETURNING id`).
 		WithArgs("Топливо", "топливо", int64(5)).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(11)))
-	mock.ExpectExec(`UPDATE goods_slots SET component_id = \$1, reason = \$2 WHERE good_id = \$3 AND pos = \$4`).
-		WithArgs(int64(10), "", int64(1), 0).
+	mock.ExpectExec(`INSERT INTO recipes \(good_id\) VALUES \(\$1\)`).
+		WithArgs(int64(11)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(`UPDATE goods_slots SET component_id = \$1, reason = \$2 WHERE good_id = \$3 AND pos = \$4`).
-		WithArgs(int64(11), "", int64(1), 1).
+	mock.ExpectExec(`UPDATE recipe_components SET component_id = \$1, reason = \$2 WHERE recipe_id = \$3 AND pos = \$4`).
+		WithArgs(int64(10), "", int64(100), 0).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`UPDATE recipe_components SET component_id = \$1, reason = \$2 WHERE recipe_id = \$3 AND pos = \$4`).
+		WithArgs(int64(11), "", int64(100), 1).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
@@ -704,10 +863,10 @@ func TestApplyProposalsGoodGoneM2(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, name, kind, code, is_system FROM categories ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "code", "is_system"}).
 			AddRow(int64(5), "Комплектующие", "good", nil, false))
-	mock.ExpectQuery(`SELECT id, name, category_id, kind, source, tier_override, created_at, volume, weight FROM goods ORDER BY id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "tier_override", "created_at", "volume", "weight"}).
-			AddRow(int64(2), "Другой", int64(5), "good", "manual", nil, time.Now(), nil, nil))
-	mock.ExpectQuery(`SELECT good_id, pos, component_id, quantity, reason, allow_resource FROM goods_slots ORDER BY good_id, pos`).
+	mock.ExpectQuery(`SELECT g.id, g.name, g.category_id, g.kind, g.source, r.id, r.complexity, g.created_at, g.volume, g.weight FROM goods g LEFT JOIN recipes r ON r.good_id = g.id ORDER BY g.id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "recipe_id", "complexity", "created_at", "volume", "weight"}).
+			AddRow(int64(2), "Другой", int64(5), "good", "manual", nil, nil, time.Now(), nil, nil))
+	mock.ExpectQuery(`SELECT r\.good_id, c\.pos, c\.component_id, c\.quantity, c\.reason, c\.allow_resource FROM recipe_components c JOIN recipes r ON r\.id = c\.recipe_id ORDER BY r\.good_id, c\.pos`).
 		WillReturnRows(sqlmock.NewRows([]string{"good_id", "pos", "component_id", "quantity", "reason", "allow_resource"}))
 	mock.ExpectRollback() // ничего не записано — ранний return, rollback
 

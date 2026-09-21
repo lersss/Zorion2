@@ -35,6 +35,8 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
   #main{flex:1;min-height:0;position:relative;display:block}
   #canvasWrap{position:absolute;left:0;top:0;bottom:0;right:320px;background:#101010;border:1px solid #3a3a3a;border-radius:8px;overflow:hidden}
   #canvasWrap.expanded{right:0} /* панель свёрнута — канвас на всю ширину (создатель 2026-09-19) */
+  /* подсветка канваса при перетаскивании карточки = привязка рецепта (ТЗ §7.3.3) */
+  #canvasWrap.dnd-over{border-color:#8cf;box-shadow:inset 0 0 0 2px #8cf}
   canvas{display:block;width:100%;height:100%;cursor:grab}
   /* правая колонка — от верха страницы на всю высоту (вне #main, absolute в body) */
   #right{position:absolute;top:0;right:0;bottom:0;width:320px;box-sizing:border-box;background:#181818f2;border-left:1px solid #444;border-radius:0 8px 8px 0;padding:10px;z-index:8;box-shadow:-4px 0 12px #0008;transition:transform .2s;display:flex;flex-direction:column;overflow:hidden}
@@ -71,8 +73,22 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
   .pslot .cname{flex:1;min-width:0;color:#ddd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .pslot button{background:none;border:none;color:#999;cursor:pointer;font-size:13px;padding:2px 4px;min-width:24px;min-height:24px;border-radius:4px}
   .pslot button:hover{background:#333;color:#f66}
- .b-resource{background:#26a;color:#fff}
- .b-tier{background:#444;color:#ddd}
+  .b-resource{background:#26a;color:#fff}
+  .b-tier{background:#444;color:#ddd}
+  /* бейджи рецепт-скопа (спека 2026-09-21-рецепт-сущность §5, ТЗ §6.4/§6.5):
+     «не привязан» (амбер) и «в наборе» выбранной фабрики (зелёный) */
+  .b-unbound{background:#a62;color:#fff}
+  .b-inset{background:#2a7;color:#fff}
+  /* скоп ветки «Товары»: селектор фабрики + фильтр семейства (ТЗ §2/§3/§4) */
+  #goodsFactorySel{max-width:280px}
+  #goodsFamilySel{max-width:170px}
+  /* список привязок рецепта к фабрикам (ТЗ §6.4) */
+  .bind-row{display:flex;align-items:center;gap:6px;font-size:12px;color:#ddd;padding:3px 6px;border-radius:4px}
+  .bind-row:hover{background:#242424}
+  .bind-del{background:#555;border:none;border-radius:4px;color:#fff;cursor:pointer;font-size:11px;padding:2px 6px;margin-left:auto}
+  .bind-del:hover{background:#666}
+  .bind-add{display:flex;gap:6px;margin-top:6px}
+  .bind-add select{flex:1;min-width:0;background:#222;border:1px solid #444;color:#ddd;padding:3px;border-radius:6px;font-size:12px}
 .popup-body .dname{font-size:15px;color:#fff;margin-bottom:4px}
   .popup-body .dname .rename{cursor:pointer;border-bottom:1px dashed #555}
   .popup-body .dname .rename:hover{color:#8cf;border-bottom-color:#8cf}
@@ -180,6 +196,14 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
     <button onclick="location.href='/admin'" title="Перейти в админку (общий админский токен)" style="background:#2b2b2b; border:1px solid #4a4a4a; color:#ddd; border-radius:6px; padding:5px 12px; font-size:12px; cursor:pointer;">⚙️ Админка</button>
   </div>
   <div class="head-row head-tools">
+    <!-- скоп ветки «Товары» (спека 2026-09-21-рецепт-сущность §4.1/§4.3, ТЗ §2):
+         селектор конкретной фабрики (граф её замыкания) + фильтр семейства рас -->
+    <div class="tool-seg" id="segGoodsScope">
+      <span class="seg-label">Фабрика</span>
+      <select id="goodsFactorySel" title="Граф выбранной фабрики (замыкание вниз)"><option value="">Все товары (обзор)</option></select>
+      <span class="seg-label">Семейство</span>
+      <select id="goodsFamilySel" title="Фильтр товаров по семейству рас"><option value="">Все семейства</option></select>
+    </div>
     <div class="tool-seg" id="segGraph">
       <span class="seg-label">Режим графа</span>
       <label style="font-size:12px"><input type="checkbox" id="fullTree" title="Полный граф (все товары рядами по глубине); выкл — фокус вокруг выбранного (99a.3 §6)"> всё дерево</label>
@@ -269,6 +293,7 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
     <div class="overlay" id="emptyOverlay">Реестр пуст — добавьте первый товар<button class="gen" onclick="focusNewGood()">+ товар</button></div>
     <div class="overlay" id="focusEmptyOverlay">Кликните товар в справочнике <span style="font-size:20px">→</span></div>
     <div class="overlay" id="noResultsOverlay">ничего не найдено</div>
+    <div class="overlay" id="factoryEmptyOverlay"></div>
     <div id="offlinePill">нет связи, повтор через 3 с</div>
     <div id="modeBadge"></div>
   </div>
@@ -333,6 +358,7 @@ let lastGoodsJSON = "";
 let lastCatsJSON = ""; // категории тоже перерисовывают UI (попап категорий, селекты)
 let lastProdSlotsJSON = "";
 let lastProdTypesJSON = ""; // ветка «Производители»: слоты/типы тоже перерисовывают UI (баг B3)
+let lastProdRecipesJSON = ""; // привязки рецептов — источник бейджей/графа фабрики (ТЗ §7.4)
 let lastShownReport = ""; // отчёт fill — один раз, по изменению содержимого (спека iterC §6.4)
 let lastProposalsKey = ""; // ключ предложений ИИ — авто-открытие попапа один раз (iterC §6.5, М1)
 let proposalsAccepted = {}; // {index: {accepted, category_id}} — выбор в попапе «Предложения ИИ»
@@ -351,6 +377,14 @@ let prodRace = localStorage.getItem("gs_prodRace") || "";
 let prodShowHidden = localStorage.getItem("gs_prodShowHidden") === "1"; // галка «показать скрытые» (спека скрытых §3.1)
 let racesData = null; // {families, races} из /studio/api/races (спека §3)
 let racesLoaded = false;
+// Скоп ветки «Товары» (спека 2026-09-21-рецепт-сущность §4.1/§4.3, ТЗ §3–§4):
+// выбранная конкретная фабрика ("" = «Все товары (обзор)») и фильтр семейства
+// рас ("" = «Все семейства»). Сохраняются в localStorage (§8 ТЗ).
+let goodsFactory = localStorage.getItem("gs_goodsFactory") || "";
+let goodsFamily = localStorage.getItem("gs_goodsFamily") || "";
+const bindingInFlight = new Set(); // recipe_id в полёте — защита от двойного POST привязки (ТЗ §7.3.2)
+let dndActive = false; // перетаскивание карточки на канвас — глушит зум/пан (ТЗ §7.3.3)
+let dndDepth = 0;      // счётчик dragenter/dragleave для подсветки канваса (ТЗ §7.3.3)
 
 const canvas = $("graph");
 const ctx = canvas.getContext("2d");
@@ -404,8 +438,9 @@ async function fetchState() {
     // goods/categories (баг B3, 2026-09-21).
     const pj = JSON.stringify(state.producer_slots);
     const tj = JSON.stringify(state.producer_types);
-    if (gj !== lastGoodsJSON || cj !== lastCatsJSON || pj !== lastProdSlotsJSON || tj !== lastProdTypesJSON) {
-      lastGoodsJSON = gj; lastCatsJSON = cj; lastProdSlotsJSON = pj; lastProdTypesJSON = tj; renderAll();
+    const prj = JSON.stringify(state.producer_recipes); // привязки рецептов (ТЗ §7.4)
+    if (gj !== lastGoodsJSON || cj !== lastCatsJSON || pj !== lastProdSlotsJSON || tj !== lastProdTypesJSON || prj !== lastProdRecipesJSON) {
+      lastGoodsJSON = gj; lastCatsJSON = cj; lastProdSlotsJSON = pj; lastProdTypesJSON = tj; lastProdRecipesJSON = prj; renderAll();
     }
     updateOverlays();
   } catch (e) {
@@ -435,7 +470,7 @@ function esc(s) { return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&l
 // Режимы канваса (99a.3 §5/§6): фокус-подграф по умолчанию, «всё дерево» —
 // галкой. Тиры для отображения берутся из серверных полей GoodView.tier /
 // SlotView.Tier (эффективный, 99a.3 §9.3) — клиент тиры не считает (М5).
-function fullTreeMode() { return $("fullTree").checked; }
+function fullTreeMode() { return factoryMode() ? true : $("fullTree").checked; } // режим фабрики — всегда «всё дерево» (ТЗ §5.2)
 // focusSubset — подграф «вокруг выбранного» (99a.3 §5.1): выбранный + прямые
 // родители (в чьих рецептах есть выбранный) + прямые дети (составляющие
 // рецепта выбранного). Ресурсы, попавшие в подграф, видны всегда.
@@ -452,17 +487,141 @@ function focusSubset() {
   (sel.recipe || []).forEach(s => { if (s.good_id) ids.add(s.good_id); });
   return state.goods.filter(g => ids.has(g.id));
 }
+// ---------- скоп ветки «Товары»: фабрика + семейство (ТЗ §3–§5) ----------
+// factoryType — выбранная конкретная фабрика (или null = обзор).
+function factoryType() {
+  if (!goodsFactory) return null;
+  return state.producer_types.find(p => String(p.id) === String(goodsFactory)) || null;
+}
+// factoryMode — ветка «Товары» И выбрана конкретная фабрика (ТЗ §5.2).
+function factoryMode() { return branch === "goods" && !!factoryType(); }
+// concreteGoodsFactories — конкретные фабрики kind=goods с товарной категорией (ТЗ §3).
+function concreteGoodsFactories() {
+  return state.producer_types.filter(p =>
+    p.parent_id && p.kind === "goods" && p.category_id != null &&
+    (state.categories.find(c => c.id === p.category_id) || {}).kind === "good");
+}
+// factoryLevelLabel — подпись уровня расовости фабрики (ТЗ §3).
+function factoryLevelLabel(p) {
+  if (p.race) return "Раса: " + raceName(p.race) + (p.race_family ? " (" + familyLabelById(p.race_family) + ")" : "");
+  if (p.race_family) return familyLabelById(p.race_family);
+  return "универсальная";
+}
+function factoryStepRank(p) { return p.race ? 2 : p.race_family ? 1 : 0; }
+// factoryRecipeIds — recipe_id, привязанные к фабрике (producer_recipes).
+function factoryRecipeIds(ptId) {
+  return (state.producer_recipes || []).filter(pr => String(pr.producer_type_id) === String(ptId)).map(pr => pr.recipe_id);
+}
+// factoryClosureGoodIds — замыкание вниз от выходов рецептов фабрики (ТЗ §5.2).
+function factoryClosureGoodIds(ptId) {
+  const byId = {};
+  state.goods.forEach(g => byId[g.id] = g);
+  const roots = factoryRecipeIds(ptId)
+    .map(rid => state.goods.find(g => g.recipe_id === rid))
+    .filter(Boolean).map(g => g.id);
+  const out = new Set();
+  const stack = [...roots];
+  while (stack.length) {
+    const id = stack.pop();
+    if (out.has(id)) continue;
+    out.add(id);
+    const g = byId[id];
+    if (!g || g.kind === "resource") continue;
+    (g.recipe || []).forEach(s => { if (s.good_id) stack.push(s.good_id); });
+  }
+  return out;
+}
+// universalSources — универсальные конкретные фабрики категории, кроме exceptId (ТЗ §13.2).
+function universalSources(categoryId, exceptId) {
+  return state.producer_types.filter(p =>
+    p.parent_id && p.kind === "goods" && p.category_id === categoryId &&
+    !p.race_family && !p.race && String(p.id) !== String(exceptId));
+}
+// mostSpecificFactories — записи самой конкретной ступени: race > family > universal.
+function mostSpecificFactories(list) {
+  if (list.some(p => p.race)) return list.filter(p => p.race);
+  if (list.some(p => p.race_family)) return list.filter(p => p.race_family && !p.race);
+  return list.filter(p => !p.race_family && !p.race);
+}
+function mostSpecificSlot(list) {
+  if (list.some(s => s.race)) return list.filter(s => s.race)[0];
+  if (list.some(s => s.race_family)) return list.filter(s => s.race_family && !s.race)[0];
+  return list.filter(s => !s.race_family && !s.race)[0];
+}
+// familyAppliedFactories — применяемые к выбранному семейству фабрики категории (ТЗ §4 п.1).
+function familyAppliedFactories(catId) {
+  return state.producer_types.filter(p =>
+    p.parent_id && p.kind === "goods" && p.category_id === catId &&
+    (!p.race_family || (p.race_family === goodsFamily && !p.race)));
+}
+// familyCatVisible — видима ли товарная категория выбранному семейству (обе оси, ТЗ §4 п.2–3).
+function familyCatVisible(catId) {
+  if (!goodsFamily) return true;
+  const applied = familyAppliedFactories(catId);
+  if (!applied.length) return false;
+  const most = mostSpecificFactories(applied);
+  if (most.some(p => p.hidden)) return false; // ось 1: скрытость записи-фабрики
+  const parentIds = new Set(most.map(p => p.parent_id));
+  const slots = (state.producer_slots || []).filter(s =>
+    parentIds.has(s.parent_id) && s.category_id === catId &&
+    (!s.race_family || (s.race_family === goodsFamily && !s.race)));
+  if (slots.length) {
+    const mostSlot = mostSpecificSlot(slots);
+    if (mostSlot && mostSlot.hidden) return false; // ось 2: скрытость слота родителя
+  }
+  return true;
+}
+// familyGoodsFilter — множество товаров, чей рецепт привязан к фабрике, которую
+// получает выбранное семейство (ТЗ §4 п.5); null = фильтр выключен. Ресурсы
+// фильтр не сужает (они — общий пул и листья графа, ТЗ §4 «Показываются товары»).
+function familyGoodsFilter() {
+  if (!goodsFamily) return null;
+  const allowed = new Set();
+  state.categories.filter(c => c.kind === "good").forEach(c => {
+    if (!familyCatVisible(c.id)) return;
+    const mostIds = new Set(mostSpecificFactories(familyAppliedFactories(c.id)).map(p => p.id));
+    state.goods.forEach(g => {
+      if ((g.bound_factories || []).some(fid => mostIds.has(fid))) allowed.add(g.id);
+    });
+  });
+  return allowed;
+}
+// isOtherFactoryComponent — компонент графа фабрики, произведённый ДРУГОЙ
+// фабрикой (ТЗ §5.3): бейдж «др. фабрика» и строка тултипа.
+function isOtherFactoryComponent(g) {
+  if (!factoryMode()) return false;
+  const ft = factoryType();
+  if (factoryRecipeIds(ft.id).includes(g.recipe_id)) return false; // корень набора
+  const bf = g.bound_factories || [];
+  return bf.length > 0 && !bf.includes(ft.id);
+}
+
 // visibleGoods: ресурсы (нижний ряд) видны всегда — фильтр категории их не
 // скрывает (спека 99a.1 §10.6), поиск фильтрует всех. Только режим «всё дерево».
+// Мемоизация до смены состояния/фильтров: hitTest зовёт её на каждом mousemove,
+// а внутри — замыкание фабрики и фильтр семейства (ТЗ §7, перф). Состояние —
+// новые массивы на каждый опрос (state = await r.json()), поэтому ключ по
+// ссылкам корректен; in-place мутаций state.* в файле нет.
+let visibleGoodsCache = null;
 function visibleGoods() {
   const cat = $("catFilter").value, q = $("search").value.trim().toLowerCase();
   const showRes = $("showResources").checked;
-  return state.goods.filter(g => {
+  const key = [state.goods, state.categories, state.producer_types, state.producer_slots,
+    state.producer_recipes, cat, q, showRes, goodsFactory, goodsFamily, branch];
+  if (visibleGoodsCache && visibleGoodsCache.key.length === key.length &&
+      visibleGoodsCache.key.every((v, i) => v === key[i])) return visibleGoodsCache.val;
+  const famAllowed = familyGoodsFilter(); // фильтр семейства (ТЗ §4), null = выключен
+  const factoryIds = factoryMode() ? factoryClosureGoodIds(factoryType().id) : null; // замыкание фабрики (ТЗ §5.2)
+  const result = state.goods.filter(g => {
+    if (factoryIds && !factoryIds.has(g.id)) return false; // режим фабрики: только её замыкание вниз
     if (g.kind === "resource" && !showRes) return false; // ресурсы скрыты по умолчанию
     if (cat && String(g.category_id) !== cat && g.kind !== "resource") return false;
+    if (g.kind !== "resource" && famAllowed && !famAllowed.has(g.id)) return false; // семейство — товары по привязке рецепта
     if (q && !g.name.toLowerCase().includes(q)) return false;
     return true;
   });
+  visibleGoodsCache = {key, val: result};
+  return result;
 }
 // depthOf — «глубина от верхушки» (сверху вниз): верхушка (никем не
 // используется как составляющая) = 0, её дочки = 1, и т.д. Раскладка идёт
@@ -663,6 +822,8 @@ function renderGraph() {
     // бейджи: тир — эффективный из серверного поля (99a.3 §9.3, М5)
     const badges = [];
     badges.push({t: "тир " + g.tier, c: "#5a5a5a"});
+    // маркер «производится другой фабрикой» в режиме фабрики (ТЗ §5.3)
+    if (isOtherFactoryComponent(g)) badges.push({t: "др. фабрика", c: "#357"});
     let bx = x + 8;
     badges.forEach(b => {
       const w = ctx.measureText(b.t).width + 10;
@@ -720,7 +881,8 @@ function showTip(ev, id) {
   if (!g) return;
   const tip = $("tip");
   tip.innerHTML = '<b>' + esc(g.name) + '</b><br>' + esc(catName(g.category_id)) +
-                  ' · тир ' + g.tier;
+                  ' · тир ' + g.tier +
+                  (isOtherFactoryComponent(g) ? '<br>производится другой фабрикой' : '');
   const rect = canvas.getBoundingClientRect();
   let x = ev.clientX - rect.left + 14, y = ev.clientY - rect.top + 14;
   if (x + 220 > rect.width) x = ev.clientX - rect.left - 230;
@@ -751,6 +913,7 @@ function hitTest(ev) {
 let panning = null, downPos = null, moved = false;
 let downOnCard = null; // id карточки под mousedown (для dblclick-fallback: карточка могла уехать после перестройки подграфа)
 canvas.addEventListener("mousedown", ev => {
+  if (dndActive) return; // во время перетаскивания карточки на канвас пан не стартует (ТЗ §7.3.3)
   hideCtxMenu();
   const hit = hitTest(ev);
   downPos = {x: ev.clientX, y: ev.clientY};
@@ -812,6 +975,7 @@ canvas.addEventListener("dblclick", ev => {
 });
 canvas.addEventListener("mouseleave", hideTip);
 canvas.addEventListener("wheel", ev => {
+  if (dndActive) return; // зум колесом во время перетаскивания не срабатывает (ТЗ §7.3.3)
   ev.preventDefault();
   const rect = canvas.getBoundingClientRect();
   const mx = ev.clientX - rect.left, my = ev.clientY - rect.top;
@@ -935,9 +1099,16 @@ function showSpravCtxMenu(ev, id) {
   const g = state.goods.find(x => x.id === id);
   if (!g) return;
   ctxGoodId = id;
-  const items = [
-    {label: "удалить", fn: () => askDeleteGoodFor(id)},
-  ];
+  const items = [];
+  // пункт «привязать к „{фабрика}“» (ТЗ §7.6): только в режиме фабрики и если
+  // товар ещё не в наборе; у ресурса/чужой категории клик даёт тост пречека
+  if (factoryMode()) {
+    const ft = factoryType();
+    if (!(g.bound_factories || []).includes(ft.id)) {
+      items.push({label: "привязать к „" + ft.name + "“", fn: () => ctxBindToFactory(id)});
+    }
+  }
+  items.push({label: "удалить", fn: () => askDeleteGoodFor(id)});
   const menu = $("ctxMenu");
   menu.innerHTML = items.map((it, i) => '<button data-i="' + i + '">' + esc(it.label) + '</button>').join("");
   menu.querySelectorAll("button").forEach(b => b.addEventListener("click", () => {
@@ -951,6 +1122,19 @@ function showSpravCtxMenu(ev, id) {
   if (y + mh > window.innerHeight) y = window.innerHeight - mh - 8;
   menu.style.left = x + "px"; menu.style.top = y + "px";
   menu.style.display = "block";
+}
+// ctxBindToFactory — клик пункта «привязать к „{фабрика}“» (ТЗ §7.6): те же
+// пречеки, что у drop (единый источник правды, §7.3.2).
+function ctxBindToFactory(id) {
+  const g = state.goods.find(x => x.id === id);
+  const ft = factoryMode() ? factoryType() : null;
+  if (!g || !ft) return;
+  if (g.kind === "resource") { showReport(["ресурс нельзя привязать как рецепт"]); return; }
+  if (g.category_id !== ft.category_id) {
+    showReport(["товар другой категории — фабрика производит только «" + catName(ft.category_id) + "»"]);
+    return;
+  }
+  bindRecipeToFactory(g, ft.id);
 }
 // удаление по id (для контекстного меню списка): модалка 1 → (N>0) модалка 2
 // → DELETE → тост с фактическим K из ответа (спека iterB §4.7)
@@ -1016,9 +1200,72 @@ document.addEventListener("keydown", ev => {
 });
 canvas.addEventListener("wheel", hideCtxMenu);
 
-// ---------- drag&drop на канвасе не используется ----------
-// Слоты на канвасе не рисуются (только линии) — drag&drop из палитры идёт в
-// правую панель (деталь, слоты там). Решение создателя 2026-09-19.
+// ---------- drag&drop карточки справочника на канвас = привязка (ТЗ §7.3) ----------
+// Новая функциональность (D1): канвас принимает drop — рецепт перетащенного
+// товара привязывается к ВЫБРАННОЙ фабрике. Бросок в любую точку канваса —
+// одно действие (привязка — свойство фабрики, не слота); состав рецепта drop
+// не меняет. Слоты попапа — отдельные цели (dropOnSlot), не конфликтуют.
+function dndReset() {
+  dndDepth = 0;
+  dndActive = false;
+  $("canvasWrap").classList.remove("dnd-over");
+}
+$("canvasWrap").addEventListener("dragenter", ev => {
+  if (branch !== "goods") return; // «Производители»: дерево не draggable — drop инертен
+  dndActive = true;
+  dndDepth++;
+  if (factoryMode()) $("canvasWrap").classList.add("dnd-over"); // подсветка только с выбранной фабрикой
+});
+$("canvasWrap").addEventListener("dragleave", ev => {
+  if (dndDepth > 0) dndDepth--;
+  if (dndDepth === 0) $("canvasWrap").classList.remove("dnd-over");
+});
+$("canvasWrap").addEventListener("dragover", ev => {
+  if (branch !== "goods") return; // без preventDefault — drop инертен
+  ev.preventDefault();
+  ev.dataTransfer.dropEffect = factoryMode() ? "copy" : "none";
+});
+$("canvasWrap").addEventListener("drop", ev => {
+  dndReset();
+  if (branch !== "goods") return;
+  ev.preventDefault();
+  const goodId = ev.dataTransfer.getData("text/plain");
+  const g = state.goods.find(x => x.id === goodId);
+  if (!factoryMode()) {
+    showReport(["Выберите фабрику в шапке — перетаскивание привяжет рецепт к ней"]);
+    return;
+  }
+  if (!g) { showReport(["товар не найден"]); return; }
+  const ft = factoryType();
+  if (g.kind === "resource") { showReport(["ресурс нельзя привязать как рецепт"]); return; }
+  if (g.category_id !== ft.category_id) {
+    showReport(["товар другой категории — фабрика производит только «" + catName(ft.category_id) + "»"]);
+    return;
+  }
+  if ((g.bound_factories || []).includes(ft.id)) { showReport(["уже в наборе фабрики"]); return; }
+  bindRecipeToFactory(g, ft.id);
+});
+// отмена переноса (Esc/drop вне цели/другая программа) — снять подсветку/счётчик
+// (делегированно: карточки справочника перерисовываются, ТЗ §7.3.3)
+document.addEventListener("dragend", dndReset);
+
+// bindRecipeToFactory — единый путь привязки рецепта к фабрике (drop §7.3.2,
+// контекстное меню §7.6, попап §6.4). Успех — без тоста (визуальная обратная
+// связь: узел в графе + бейдж «в наборе»); 4xx — тост api(). Защита от
+// двойного POST — bindingInFlight (ТЗ §7.3.2).
+async function bindRecipeToFactory(g, factoryId) {
+  if (!g) return false;
+  if (!g.recipe_id) { showReport(["рецепт не создан"]); return false; }
+  if (bindingInFlight.has(g.recipe_id)) return false;
+  bindingInFlight.add(g.recipe_id);
+  try {
+    const r = await api("POST", "/studio/api/producers/" + factoryId + "/recipes", {recipe_id: g.recipe_id});
+    if (r) { fetchState(); return true; }
+    return false;
+  } finally {
+    bindingInFlight.delete(g.recipe_id);
+  }
+}
 
 // ---------- попап-деталь (99a.3 §10.3) ----------
 // Деталь товара — модальное окно поверх канваса; правая панель = только
@@ -1052,16 +1299,27 @@ function renderPopup() {
   // имя: клик — inline-переименование (ресурсы без привилегий, спека iterB §4.5)
   html += '<div class="dname"><span class="rename" onclick="startRename()" title="переименовать">' + esc(g.name) + '</span></div>';
   // категория: селект — смена (товарные/ресурсные раздельно, §4.5)
+  const bound = g.bound_factories || [];
   html += '<div class="dmeta">';
-  html += '<select class="dcat" onchange="changeCategory(this.value)">' +
+  // смена категории привязанного товара — 409 на сервере (спека §5); селект
+  // заблокирован, чтобы не упираться в отказ (ТЗ §6.1). Ресурс привязок не имеет.
+  const catLocked = !isRes && bound.length > 0;
+  html += '<select class="dcat" onchange="changeCategory(this.value)"' +
+    (catLocked ? ' disabled title="Товар привязан к фабрикам — сначала отвяжите (секция «Доступен фабрикам»)"' : '') + '>' +
     state.categories.filter(c => c.kind === (isRes ? "resource" : "good")).map(c => '<option value="' + c.id + '"' + (c.id === g.category_id ? ' selected' : '') + '>' + esc(c.name) + '</option>').join("") +
     '</select>';
-  // тир-оверрайд (99a.3 §10.4; ресурсам — тоже, С3): пусто = вычисленный;
-  // ввод → PUT tier; очистка → null
-  const ov = (g.tier_override !== null && g.tier_override !== undefined) ? g.tier_override : "";
-  html += ' · тир: <input id="tierInput" type="number" min="0" style="width:56px" value="' + ov + '" onchange="setTier(this.value)" title="ручной тир (оверрайд); пусто = вычисляется"> (вычислен ' + g.tier_computed + ')';
-  if (ov !== "" && ov !== g.tier_computed) {
-    html += '<div class="tier-warn">⚠ отличается от вычисленного (' + g.tier_computed + ')</div>';
+  // сложность рецепта (recipes.complexity) вместо тир-оверрайда (ТЗ §6.2):
+  // пусто = вычисляется; у ресурса рецепта нет — поля нет вовсе
+  if (!isRes) {
+    if (g.recipe_id) {
+      const cx = (g.complexity !== null && g.complexity !== undefined) ? g.complexity : "";
+      html += ' · сложность рецепта: <input id="complexityInput" type="number" min="0" style="width:56px" value="' + cx + '" onchange="setComplexity(this.value)" title="сложность рецепта; пусто = вычисляется по графу"> (вычислен ' + g.tier_computed + ')';
+      if (cx !== "" && Number(cx) !== g.tier_computed) {
+        html += '<div class="tier-warn">⚠ отличается от вычисленного (' + g.tier_computed + ')</div>';
+      }
+    } else {
+      html += ' · <span class="hint">рецепт не создан</span>';
+    }
   }
   html += (g.source === "ai" ? ' · ИИ' : g.source === "import" ? ' · импорт' : '');
   html += '</div>';
@@ -1073,6 +1331,7 @@ function renderPopup() {
   // пустой — оба drop-target (замена в одно действие); тир в заполненном
   // слоте — эффективный из SlotView.Tier (99a.3 §9.3)
   if (!isRes) {
+    html += '<h3>Состав рецепта</h3>';
     (g.recipe || []).forEach((s, i) => {
       if (s.good_id) {
         html += '<div class="slot" ondragover="slotDragOver(event,this)" ondragleave="slotDragLeave(this)" ondrop="dropOnSlot(event,' + i + ')">' +
@@ -1086,7 +1345,7 @@ function renderPopup() {
         html += '<div class="slot empty" ondragover="slotDragOver(event,this)" ondragleave="slotDragLeave(this)" ondrop="dropOnSlot(event,' + i + ')">' +
                 '<button class="delslot" onclick="delSlot(' + i + ')" title="удалить слот целиком" aria-label="удалить слот">🗑</button>' +
                 'пусто — перетащите сюда карточку' +
-                '<label class="allowres" title="С галкой ИИ может предложить для этого слота ресурс; без галки — только товары"><input type="checkbox" onchange="setAllowResource(' + i + ', this.checked)"' + (s.allow_resource ? ' checked' : '') + '> заполнять ресурсом</label></div>';
+                '<label class="allowres" title="разрешить ресурс в этом компоненте (для ИИ): с галкой ИИ может предложить ресурс; без галки — только товары"><input type="checkbox" onchange="setAllowResource(' + i + ', this.checked)"' + (s.allow_resource ? ' checked' : '') + '> разрешить ресурс в этом компоненте (для ИИ)</label></div>';
       }
     });
   }
@@ -1101,6 +1360,8 @@ function renderPopup() {
   }
   html += '<button class="del" onclick="askDeleteGood()">удалить</button>';
   html += '</div>';
+  // секция «Доступен фабрикам:» — привязки рецепта (ТЗ §6.4, только товар)
+  if (!isRes) html += renderBindSection(g);
   // «Используется в:» — клик по родителю = выбор родителя + попап на нём (99a.3 §10.3)
   const parents = state.goods.filter(p => (p.recipe || []).some(s => s.good_id === g.id));
   html += '<div class="usedin"><div class="usedin-h">Используется в:</div>';
@@ -1111,6 +1372,65 @@ function renderPopup() {
   }
   html += '</div>';
   el.innerHTML = html;
+}
+// renderBindSection — секция «Доступен фабрикам:» попапа товара (ТЗ §6.4):
+// список привязок (bound_factories) с «− отвязать» + селект фабрик своей
+// категории (исключая уже привязанные) с «+ привязать».
+function renderBindSection(g) {
+  const ft = factoryMode() ? factoryType() : null;
+  const bound = g.bound_factories || [];
+  let html = '<div class="usedin"><div class="usedin-h">Доступен фабрикам:</div>';
+  if (bound.length) {
+    bound.forEach(fid => {
+      const p = state.producer_types.find(x => x.id === fid);
+      if (!p) return;
+      const inset = ft && ft.id === fid;
+      html += '<div class="bind-row">' +
+        (p.parent_name ? esc(p.parent_name) + ' · ' : '') + esc(p.category_name || catName(p.category_id)) + ' · ' + esc(factoryLevelLabel(p)) +
+        (inset ? ' <span class="badge b-inset" title="в наборе выбранной фабрики">в наборе</span>' : '') +
+        '<button class="bind-del" onclick="unbindFactory(' + fid + ')" title="отвязать рецепт от фабрики">− отвязать</button>' +
+        '</div>';
+    });
+  } else {
+    html += '<div class="empty-note">не привязан ни к одной фабрике</div>';
+  }
+  html += '</div>';
+  const avail = state.producer_types.filter(p =>
+    p.parent_id && p.kind === "goods" && p.category_id === g.category_id && !bound.includes(p.id));
+  html += '<div class="bind-add">';
+  if (avail.length) {
+    const groups = {}, order = [];
+    avail.forEach(p => {
+      const key = p.parent_name || "—";
+      if (!groups[key]) { groups[key] = []; order.push(key); }
+      groups[key].push(p);
+    });
+    html += '<select id="bindFactorySel">' + order.map(k =>
+      '<optgroup label="' + esc(k) + '">' + groups[k].map(p =>
+        '<option value="' + p.id + '">' + esc(k) + ' — ' + esc(factoryLevelLabel(p)) + '</option>').join("") + '</optgroup>').join("") + '</select>';
+    html += '<button class="gen" onclick="bindFactory()">+ привязать</button>';
+  } else {
+    const anyCat = state.producer_types.some(p => p.parent_id && p.kind === "goods" && p.category_id === g.category_id);
+    html += '<span class="hint">' + (anyCat
+      ? 'нет других фабрик категории «' + esc(catName(g.category_id)) + '»'
+      : 'Фабрик нет — раздел «Производители»') + '</span>';
+  }
+  html += '</div>';
+  return html;
+}
+// bindFactory — «+ привязать» из секции попапа (ТЗ §6.4).
+async function bindFactory() {
+  const sel = $("bindFactorySel");
+  const g = state.goods.find(x => x.id === popupGoodId);
+  if (!sel || !sel.value || !g) return;
+  await bindRecipeToFactory(g, Number(sel.value));
+}
+// unbindFactory — «− отвязать» (DELETE /producers/{id}/recipes/{recipe_id}).
+async function unbindFactory(fid) {
+  const g = state.goods.find(x => x.id === popupGoodId);
+  if (!g || !g.recipe_id) return;
+  const r = await api("DELETE", "/studio/api/producers/" + fid + "/recipes/" + g.recipe_id);
+  if (r) fetchState();
 }
 function openParent(id) {
   selected = id;
@@ -1159,19 +1479,26 @@ async function api(method, url, body) {
   }
   return r;
 }
-async function addSlot() { await api("POST", "/studio/api/goods/" + popupGoodId + "/slots"); fetchState(); }
-async function clearSlot(i) { await api("DELETE", "/studio/api/goods/" + popupGoodId + "/slots/" + i + "/component"); fetchState(); }
-async function delSlot(i) { await api("DELETE", "/studio/api/goods/" + popupGoodId + "/slots/" + i); fetchState(); }
+// popupRecipeId — recipe_id товара попапа (адресация состава рецепта, ТЗ §6.3).
+function popupRecipeId() {
+  const g = state.goods.find(x => x.id === popupGoodId);
+  return g ? g.recipe_id : 0;
+}
+// Состав рецепта адресуется по recipe_id товара, не по good_id (спека рецептов §5)
+async function addSlot() { const rid = popupRecipeId(); if (!rid) return; await api("POST", "/studio/api/recipes/" + rid + "/components"); fetchState(); }
+async function clearSlot(i) { const rid = popupRecipeId(); if (!rid) return; await api("DELETE", "/studio/api/recipes/" + rid + "/components/" + i + "/component"); fetchState(); }
+async function delSlot(i) { const rid = popupRecipeId(); if (!rid) return; await api("DELETE", "/studio/api/recipes/" + rid + "/components/" + i); fetchState(); }
 async function setAllowResource(i, checked) {
-  const r = await api("PUT", "/studio/api/goods/" + popupGoodId + "/slots/" + i + "/allow_resource", {allow_resource: checked});
+  const rid = popupRecipeId(); if (!rid) return;
+  const r = await api("PUT", "/studio/api/recipes/" + rid + "/components/" + i + "/allow_resource", {allow_resource: checked});
   if (r) fetchState();
 }
-// количество единиц составляющей в слоте (99a.2 §6.5): change → PUT {quantity};
-// ошибка — тост, значение возвращается (renderPopup перерисует из state)
+// количество единиц составляющей в компоненте (99a.2 §6.5): change → PUT {quantity}
 async function setQuantity(i, val) {
   const q = parseInt(val, 10);
   if (!q || q < 1) { renderPopup(); return; }
-  const r = await api("PUT", "/studio/api/goods/" + popupGoodId + "/slots/" + i, {quantity: q});
+  const rid = popupRecipeId(); if (!rid) return;
+  const r = await api("PUT", "/studio/api/recipes/" + rid + "/components/" + i, {quantity: q});
   if (r) fetchState(); else renderPopup();
 }
 // ---------- fill: «заполнить комплектующие» (спека iterC §6) ----------
@@ -1271,11 +1598,14 @@ async function cancelProposals() {
   const r = await api("POST", "/studio/api/goods/" + state.proposals_good_id + "/fill/cancel");
   if (r) { closeProposalsPopup(); fetchState(); }
 }
-// тир-оверрайд (99a.3 §10.4): ввод числа → PUT {tier}; очистка → PUT {tier: null}
-async function setTier(val) {
+// сложность рецепта (ТЗ §6.2): ввод числа → PUT /recipes/{id} {complexity};
+// очистка → {complexity: null} (вычисляемая по графу)
+async function setComplexity(val) {
+  const g = state.goods.find(x => x.id === popupGoodId);
+  if (!g || !g.recipe_id) return;
   const v = String(val).trim();
-  const body = v === "" ? {tier: null} : {tier: parseInt(v, 10)};
-  const r = await api("PUT", "/studio/api/goods/" + popupGoodId + "/tier", body);
+  const body = v === "" ? {complexity: null} : {complexity: parseInt(v, 10)};
+  const r = await api("PUT", "/studio/api/recipes/" + g.recipe_id, body);
   if (r) fetchState(); else renderPopup();
 }
 // объём/вес (спека 2026-09-20-фабрики §3.1, 3b.6.4; Р2 2026-09-21): ввод
@@ -1300,8 +1630,9 @@ async function dropOnSlot(ev, i) {
   ev.currentTarget.classList.remove("drop-target");
   const goodId = ev.dataTransfer.getData("text/plain");
   if (!goodId) return;
+  const rid = popupRecipeId(); if (!rid) return;
   // good_id — число (сервер парсит *int64; строка → 400, вердикт критика С2)
-  const r = await api("PUT", "/studio/api/goods/" + popupGoodId + "/slots/" + i, {good_id: Number(goodId)});
+  const r = await api("PUT", "/studio/api/recipes/" + rid + "/components/" + i, {good_id: Number(goodId)});
   if (r) fetchState();
 }
 
@@ -1390,18 +1721,20 @@ function askAddParent() {
 }
 async function addParent(parentId) {
   closeModal();
-  // Номер нового слота — из текущего состояния, НЕ из ответа POST: контракт
-  // iterA §7 возвращает {"id": id} без recipe (BUG-1, спека iterB §7.4);
-  // POST добавляет слот в конец (pos = MAX(pos)+1, репозиторий AddSlot).
+  // Номер нового компонента — из текущего состояния, НЕ из ответа POST: контракт
+  // §5 возвращает {"id": id} без рецепта; POST добавляет компонент в конец
+  // (pos = MAX(pos)+1, репозиторий AddRecipeComponent).
   const parent = state.goods.find(x => x.id === parentId);
   if (!parent) return;
+  const rid = parent.recipe_id;
+  if (!rid) { showReport(["рецепт не создан"]); return; }
   const n = parent.recipe.length;
-  const r = await api("POST", "/studio/api/goods/" + parentId + "/slots");
+  const r = await api("POST", "/studio/api/recipes/" + rid + "/components");
   if (!r) return;
-  const r2 = await api("PUT", "/studio/api/goods/" + parentId + "/slots/" + n, {good_id: Number(popupGoodId)});
+  const r2 = await api("PUT", "/studio/api/recipes/" + rid + "/components/" + n, {good_id: Number(popupGoodId)});
   if (!r2) {
-    // откат: цикл 409 и т.п. — убрать только что добавленный пустой слот
-    await api("DELETE", "/studio/api/goods/" + parentId + "/slots/" + n);
+    // откат: цикл 409 и т.п. — убрать только что добавленный пустой компонент
+    await api("DELETE", "/studio/api/recipes/" + rid + "/components/" + n);
   }
   fetchState();
 }
@@ -1427,6 +1760,7 @@ function renderSprav() {
   // выключенная — её группа скрыта. Категория и поиск только сужают (AND), сами показ не включают.
   const hasTier = tierSel.size > 0;
   const hasFlag = fUsed || fUnused;
+  const famAllowed = familyGoodsFilter(); // фильтр семейства (ТЗ §4), null = выключен
   // пилюли тиров: «все» первой + фиксированные 0..8 + тиры выше 8 из каталога (если есть)
   const tiers = spravTiers();
   // «все» активна, только когда выбраны ВСЕ тиры (показывается всё); при пустом
@@ -1448,16 +1782,25 @@ function renderSprav() {
     if (isUsed) { if (!fUsed) return false; }
     else { if (!fUnused) return false; }
     if (cat && String(g.category_id) !== cat) return false;          // AND: фильтр по категории (сужает, не включает показ)
+    if (g.kind !== "resource" && famAllowed && !famAllowed.has(g.id)) return false; // фильтр семейства (ТЗ §4 п.5)
     if (q && !g.name.toLowerCase().includes(q)) return false; // AND: поиск (сужает, не включает показ)
     return true;
   });
   $("spravTitle").textContent = "Справочник · " + list.length;
-  $("spravList").innerHTML = list.map(g =>
-    '<div class="card" draggable="true" ondragstart="dragStart(event,\'' + g.id + '\')" onclick="spravClick(\'' + g.id + '\')" ondblclick="spravDblClick(\'' + g.id + '\')" oncontextmenu="showSpravCtxMenu(event,\'' + g.id + '\');return false">' +
+  const ft = factoryMode() ? factoryType() : null;
+  $("spravList").innerHTML = list.map(g => {
+    // бейджи рецепт-скопа (ТЗ §6.5): «не привязан» / «в наборе» выбранной фабрики
+    const bound = g.bound_factories || [];
+    let badge = '';
+    if (g.kind === "good") {
+      if (bound.length === 0) badge = ' <span class="badge b-unbound" title="рецепт не привязан ни к одной фабрике">не привязан</span>';
+      else if (ft && bound.includes(ft.id)) badge = ' <span class="badge b-inset" title="в наборе выбранной фабрики">в наборе</span>';
+    }
+    return '<div class="card" draggable="true" ondragstart="dragStart(event,\'' + g.id + '\')" onclick="spravClick(\'' + g.id + '\')" ondblclick="spravDblClick(\'' + g.id + '\')" oncontextmenu="showSpravCtxMenu(event,\'' + g.id + '\');return false">' +
     '<div class="nm">' + esc(g.name) + '<button class="info" onclick="event.stopPropagation();openPopup(\'' + g.id + '\')" title="деталь (без смены выбора)">ⓘ</button></div>' +
-    '<div class="meta">' + esc(catName(g.category_id)) + ' · тир ' + g.tier + '</div>' +
-    '</div>'
-  ).join("") || '<div class="empty-note">' + (hasTier && hasFlag ? 'ничего не найдено' : 'ничего не выбрано — выберите тир и хотя бы одну галку') + '</div>';
+    '<div class="meta">' + esc(catName(g.category_id)) + ' · тир ' + g.tier + badge + '</div>' +
+    '</div>';
+  }).join("") || '<div class="empty-note">' + (hasTier && hasFlag ? 'ничего не найдено' : 'ничего не выбрано — выберите тир и хотя бы одну галку') + '</div>';
   $("spravList").scrollTop = sc;
 }
 // ---------- справочник производителей (спека 2026-09-20-фабрики §4.1) ----------
@@ -1534,6 +1877,8 @@ function renderProdPopup() {
     html += '<div class="dmeta">категория: <select class="dcat" onchange="changeProdCategory(this.value)">' +
       prodCategoryOptions(p) +
       '</select></div>';
+    // блок «набор рецептов» + кнопка копирования (ТЗ §13.2)
+    html += copyRecipesBlock(p);
   }
   // семейство + раса (спека §5): каскад семейство → расы семейства; запись —
   // через PUT {race_family, race} (соответствие каталогу проверяет сервер)
@@ -1591,6 +1936,66 @@ async function commitProdRename() {
 async function changeProdCategory(catId) {
   const r = await api("PUT", "/studio/api/producers/" + popupGoodId, {category_id: Number(catId)});
   if (r) fetchState();
+}
+// --- копирование набора рецептов универсальной фабрики (ТЗ §13) ---
+// copyRecipesCounts — клиентский расчёт K/M из state.producer_recipes (§13.2):
+// источник — универсальные конкретные фабрики категории, кроме целевой.
+function copyRecipesCounts(p) {
+  const srcs = universalSources(p.category_id, p.id);
+  const srcIds = new Set();
+  srcs.forEach(s => factoryRecipeIds(s.id).forEach(rid => srcIds.add(rid)));
+  const own = new Set(factoryRecipeIds(p.id));
+  let k = 0, m = 0;
+  srcIds.forEach(rid => { if (own.has(rid)) m++; else k++; });
+  return {srcs, srcIds, own, k, m};
+}
+// copyRecipesBlock — разметка блока «набор рецептов» в попапе фабрики (§13.2).
+function copyRecipesBlock(p) {
+  const {srcs, srcIds, k, m} = copyRecipesCounts(p);
+  const n = factoryRecipeIds(p.id).length;
+  const names = srcs.map(s => s.name).join('», «');
+  let disabled, hint;
+  if (!srcs.length) {
+    disabled = true;
+    hint = 'нет универсальной фабрики этой категории — копировать не из чего';
+  } else if (k === 0) {
+    disabled = true;
+    hint = srcIds.size > 0 ? 'копировать нечего: все рецепты уже в наборе' : 'копировать нечего: у источников нет рецептов';
+  } else {
+    disabled = false;
+    hint = 'источник: «' + names + '» · будет добавлено ' + k + ' (уже есть ' + m + ')';
+  }
+  return '<div class="dmeta">набор рецептов: ' + n + ' · ' +
+    '<button class="gen" onclick="copyRecipes(' + p.id + ')"' +
+    (disabled ? ' disabled title="' + esc(hint) + '"' : ' title="скопировать привязки универсальных фабрик категории"') +
+    '>скопировать набор универсальной фабрики</button></div>' +
+    '<div class="hint">' + esc(hint) + '</div>';
+}
+// copyRecipes — подтверждение перед копированием (§13.3): объём K понятен заранее.
+function copyRecipes(id) {
+  const p = state.producer_types.find(x => x.id === id);
+  if (!p) return;
+  const {srcs, k, m} = copyRecipesCounts(p);
+  const names = srcs.map(s => s.name).join('», «');
+  openModal(
+    '<h3>Скопировать набор рецептов</h3>' +
+    '<div>Скопировать набор рецептов в «' + esc(p.name) + '»? Будет добавлено <b>' + k + '</b> рецептов (уже в наборе: ' + m + '). Источник: «' + esc(names) + '».</div>',
+    [
+      {label: "Скопировать", cls: "gen", primary: true, action: () => doCopyRecipes(id)},
+      {label: "Отмена", cls: "", action: closeModal}
+    ]
+  );
+}
+// doCopyRecipes — POST copy-universal → тост «добавлено K, пропущено M» → fetchState (§13.3).
+async function doCopyRecipes(id) {
+  closeModal();
+  const r = await api("POST", "/studio/api/producers/" + id + "/recipes/copy-universal");
+  if (!r) return;
+  const out = await r.json();
+  const added = (out && out.added) || 0, skipped = (out && out.skipped) || 0;
+  if (added === 0 && skipped === 0) showReport(["копировать нечего"]);
+  else showReport(["добавлено " + added + ", пропущено " + skipped]);
+  fetchState();
 }
 // семейство/раса в попапе (спека §5): каскад — выбор расы фиксирует семейство,
 // выбор семейства сбрасывает расу; сохраняется через PUT {race_family, race}.
@@ -2208,11 +2613,20 @@ function openProdCreatePopup(id) {
   if (!type || !cat) return;
   const raceInfo = prodRaceLevel === "universal" ? ""
     : prodRaceLevel === "family" ? familyLabelById(prodRaceFamily) : raceName(prodRace);
+  // чекбокс копирования набора рецептов универсальной фабрики категории
+  // (ТЗ §13.5): показывается только если есть что копировать (K > 0)
+  const srcs = universalSources(cat.id, null);
+  const srcIds = new Set();
+  srcs.forEach(s => factoryRecipeIds(s.id).forEach(rid => srcIds.add(rid)));
+  const copyLine = srcIds.size > 0
+    ? '<label style="display:block;margin-top:8px;font-size:12px"><input type="checkbox" id="prodCreateCopy"> скопировать набор рецептов универсальной фабрики категории «' + esc(cat.name) + '» (' + srcIds.size + ' рецептов)</label>'
+    : '';
   openModal(
     '<h3>Создать подтип</h3>' +
     '<div>Родитель: <b>' + esc(type.name) + '</b> · категория: <b>' + esc(cat.name) + '</b>' +
     (raceInfo ? ' · расовость: <b>' + esc(raceInfo) + '</b>' : '') + '</div>' +
-    '<div style="margin-top:8px">Имя: <input id="prodCreateName" type="text" value="' + esc(type.name + " " + cat.name) + '" style="width:100%;box-sizing:border-box" autocomplete="off"></div>',
+    '<div style="margin-top:8px">Имя: <input id="prodCreateName" type="text" value="' + esc(type.name + " " + cat.name) + '" style="width:100%;box-sizing:border-box" autocomplete="off"></div>' +
+    copyLine,
     [
       {label: "Создать", cls: "gen", primary: true, action: () => doProdCreate(type, cat)},
       {label: "Отмена", cls: "", action: closeModal}
@@ -2225,6 +2639,9 @@ function openProdCreatePopup(id) {
 async function doProdCreate(type, cat) {
   const name = $("prodCreateName").value.trim();
   if (!name) return;
+  // чекбокс читаем ДО closeModal (элемент остаётся в DOM, но читать яснее сразу)
+  const copyChk = $("prodCreateCopy");
+  const doCopy = !!(copyChk && copyChk.checked);
   closeModal();
   const body = {name, kind: type.kind, category_id: cat.id, parent_id: type.id};
   if (prodRaceLevel === "family") body.race_family = prodRaceFamily;
@@ -2233,6 +2650,16 @@ async function doProdCreate(type, cat) {
   if (!r) return;
   const p = await r.json();
   selected = prodNodeId(p);
+  // копирование набора рецептов — только в СУЩЕСТВУЮЩУЮ фабрику (ТЗ §13.5)
+  if (doCopy) {
+    const rc = await api("POST", "/studio/api/producers/" + p.id + "/recipes/copy-universal");
+    if (rc) {
+      const out = await rc.json();
+      const added = (out && out.added) || 0, skipped = (out && out.skipped) || 0;
+      if (added === 0 && skipped === 0) showReport(["копировать нечего"]);
+      else showReport(["добавлено " + added + ", пропущено " + skipped]);
+    }
+  }
   fetchState();
 }
 
@@ -2482,6 +2909,58 @@ function spravDblClick(id) {
 }
 function dragStart(ev, id) { ev.dataTransfer.setData("text/plain", id); }
 
+// ---------- селекторы скопа ветки «Товары» (ТЗ §3/§4/§8) ----------
+// renderGoodsFactorySel — список конкретных фабрик с товарной категорией,
+// optgroup по родителю; первый пункт — «Все товары (обзор)». Значение сохраняется.
+function renderGoodsFactorySel() {
+  const sel = $("goodsFactorySel");
+  if (!sel) return;
+  const facs = concreteGoodsFactories();
+  const groups = {}, order = [];
+  facs.forEach(p => {
+    const key = p.parent_name || "—";
+    if (!groups[key]) { groups[key] = []; order.push(key); }
+    groups[key].push(p);
+  });
+  let html = '<option value="">Все товары (обзор)</option>';
+  order.forEach(k => {
+    const list = groups[k].slice().sort((a, b) => {
+      const ca = catName(a.category_id), cb = catName(b.category_id);
+      if (ca !== cb) return ca.localeCompare(cb);
+      return factoryStepRank(a) - factoryStepRank(b);
+    });
+    html += '<optgroup label="' + esc(k) + '">' + list.map(p =>
+      '<option value="' + p.id + '">' + esc(catName(p.category_id)) + ' · ' + esc(factoryLevelLabel(p)) + (p.hidden ? ' · скрыта' : '') + '</option>').join("") + '</optgroup>';
+  });
+  sel.innerHTML = html;
+  if (!facs.length) {
+    sel.disabled = true;
+    sel.title = "Конкретных фабрик нет — создайте в разделе «Производители»";
+    goodsFactory = "";
+  } else {
+    sel.disabled = false;
+    sel.title = "Граф выбранной фабрики (замыкание вниз)";
+  }
+  if (goodsFactory && !facs.some(p => String(p.id) === String(goodsFactory))) {
+    goodsFactory = "";
+    localStorage.removeItem("gs_goodsFactory"); // удалённая фабрика в ключе не ломает экран (ТЗ §9 п.11)
+  }
+  sel.value = goodsFactory;
+}
+// renderGoodsFamilySel — семейства F0–F10 из racesData (ТЗ §4).
+function renderGoodsFamilySel() {
+  const sel = $("goodsFamilySel");
+  if (!sel) return;
+  const fams = racesData ? racesData.families : [];
+  sel.innerHTML = '<option value="">Все семейства</option>' + fams.map(f =>
+    '<option value="' + f.id + '">' + esc(familyLabelById(f.id)) + '</option>').join("");
+  if (goodsFamily && !fams.some(f => f.id === goodsFamily)) {
+    goodsFamily = "";
+    localStorage.removeItem("gs_goodsFamily");
+  }
+  sel.value = goodsFamily;
+}
+
 // ---------- категории и товары ----------
 // Селекты разделены по kind (спека iterB §4.5): товарные — только
 // kind=good, ресурсные — только kind=resource (иначе POST → 400).
@@ -2492,7 +2971,18 @@ function renderCatSelects() {
   $("catFilter").innerHTML = '<option value="">все категории</option>' + goodOpts;
   if (state.categories.some(c => String(c.id) === cur)) $("catFilter").value = cur;
   pendingCatFilter = "";
-  $("spravNewCat").innerHTML = goodOpts;
+  // «+ товар»: при выбранной фабрике категория определяется фабрикой и
+  // селект заблокирован (ТЗ §7.2); #catFilter/#spravCat остаются общими
+  const ft = factoryMode() ? factoryType() : null;
+  if (ft && ft.category_id != null) {
+    $("spravNewCat").innerHTML = '<option value="' + ft.category_id + '">' + esc(catName(ft.category_id)) + '</option>';
+    $("spravNewCat").disabled = true;
+    $("spravNewCat").title = "категория определяется выбранной фабрикой";
+  } else {
+    $("spravNewCat").innerHTML = goodOpts;
+    $("spravNewCat").disabled = false;
+    $("spravNewCat").title = "";
+  }
   $("spravNewResCat").innerHTML = resOpts;
   $("btnSpravAddRes").disabled = !resOpts; // ресурсных категорий нет — «+ ресурс» недоступен
   // фильтр справочника по категории: сохранить текущий выбор при пересборке;
@@ -2592,6 +3082,15 @@ async function spravAddGood() {
   const g = await r.json();
   $("spravNewName").value = "";
   selected = g.id;
+  // при выбранной фабрике — сразу привязать рецепт нового товара (ТЗ §7.2)
+  if (factoryMode()) {
+    const ft = factoryType();
+    if (!g.recipe_id) {
+      showReport(["товар создан без рецепта — привяжите вручную"]);
+    } else if (g.category_id === ft.category_id) {
+      await api("POST", "/studio/api/producers/" + ft.id + "/recipes", {recipe_id: g.recipe_id});
+    }
+  }
   fetchState();
 }
 // «+ ресурс» (спека iterB §4.5): ресурс без привилегий — создание через
@@ -2622,16 +3121,37 @@ async function bulkCreate() {
 }
 
 // ---------- оверлеи состояний ----------
+// factoryOverlayText — текст оверлея режима фабрики (ТЗ §7.1 п.2–3): нет рецептов
+// у фабрики либо фабрика не входит в набор выбранного семейства; null = нет оверлея.
+function factoryOverlayText() {
+  if (!factoryMode()) return null;
+  const ft = factoryType();
+  if (goodsFamily) {
+    const applied = familyAppliedFactories(ft.category_id);
+    const most = applied.length ? mostSpecificFactories(applied) : [];
+    if (!most.some(p => p.id === ft.id)) {
+      return "Фабрика «" + ft.name + "» не входит в набор семейства «" + familyLabelById(goodsFamily) + "» — выберите другую или „Все товары (обзор)“";
+    }
+  }
+  if (factoryRecipeIds(ft.id).length === 0) {
+    return "У фабрики «" + ft.name + "» нет рецептов — перетащите товар из справочника или создайте («+ товар»)";
+  }
+  return null;
+}
 function updateOverlays() {
   $("loadingOverlay").style.display = loading ? "flex" : "none";
   $("right").classList.toggle("disabled", loading);
   const empty = !loading && state.goods.length === 0;
   // оверлеи канваса — только ветка «Товары» (производители/предметы — списки)
   $("emptyOverlay").style.display = (branch === "goods" && empty) ? "flex" : "none";
+  // оверлей режима фабрики (ТЗ §7.1) — приоритет выше focus/noResults
+  const fo = (!loading && !empty && branch === "goods") ? factoryOverlayText() : null;
+  $("factoryEmptyOverlay").style.display = fo ? "flex" : "none";
+  if (fo) $("factoryEmptyOverlay").textContent = fo;
   // фокус-режим без выбора: «Кликните товар в справочнике» (99a.3 §5.3)
-  const focusEmpty = !loading && !empty && branch === "goods" && !fullTreeMode() && !selected;
+  const focusEmpty = !loading && !empty && branch === "goods" && !fo && !fullTreeMode() && !selected;
   $("focusEmptyOverlay").style.display = focusEmpty ? "flex" : "none";
-  const noRes = !loading && !empty && branch === "goods" && fullTreeMode() && visibleGoods().length === 0;
+  const noRes = !loading && !empty && branch === "goods" && !fo && fullTreeMode() && visibleGoods().length === 0;
   $("noResultsOverlay").style.display = noRes ? "flex" : "none";
   $("offlinePill").style.display = offline ? "block" : "none";
 }
@@ -2641,13 +3161,21 @@ function focusNewGood() { $("spravNewName").focus(); } // «+ товар» в о
 // В фокус-режиме скрыты: поиск по графу, фильтр категорий, «показать ресурсы»,
 // «обратные рёбра», «⟲ на верхний тир». В «всё дерево» — видны.
 function applyModeUI() {
+  const fm = factoryMode();
   const full = fullTreeMode();
   $("search").style.display = full ? "" : "none";
   $("catFilter").style.display = full ? "" : "none";
   $("showResources").parentElement.style.display = full ? "" : "none";
   $("reverseEdges").parentElement.style.display = full ? "" : "none";
   $("btnTop").style.display = full ? "" : "none";
-  $("modeBadge").textContent = full ? "всё дерево" : "фокус: вокруг выбранного";
+  // галка «всё дерево» в режиме фабрики скрыта (ТЗ §5.2)
+  $("fullTree").parentElement.style.display = fm ? "none" : "";
+  if (fm) {
+    const ft = factoryType();
+    $("modeBadge").textContent = "фабрика: " + ft.name + " · всё дерево · в наборе " + factoryRecipeIds(ft.id).length;
+  } else {
+    $("modeBadge").textContent = full ? "всё дерево" : "фокус: вокруг выбранного";
+  }
 }
 
 // ---------- сборка ----------
@@ -2658,6 +3186,8 @@ function renderAll() {
     if (branch === "producers" && !prodNodeById(selected)) selected = null;
   }
   const sc = $("spravList").scrollTop; // сохранить scroll списка справочника при пересборке
+  renderGoodsFactorySel(); // селектор фабрики: пересборка опций с сохранением выбора (ТЗ §3)
+  renderGoodsFamilySel();  // фильтр семейства (ТЗ §4)
   applyBranchUI();
   if (branch === "goods") {
     renderGraph();
@@ -2704,6 +3234,7 @@ function setBranch(b) {
 function applyBranchUI() {
   const isGoods = branch === "goods";
   const isProducers = branch === "producers";
+  $("segGoodsScope").style.display = isGoods ? "" : "none"; // скоп ветки «Товары» (ТЗ §2)
   $("segGraph").style.display = isGoods ? "" : "none";
   $("btnCatOpen").style.display = isGoods ? "" : "none";
   // канвас показывается и в ветке «Производители» — дерево построек (спека §2.5)
@@ -2730,6 +3261,20 @@ function jsonText(v) {
   return JSON.stringify(v, null, 1);
 }
 $("catFilter").addEventListener("change", () => { localStorage.setItem("gs_catFilter", $("catFilter").value); renderAll(); });
+// селектор фабрики: клиент-only пересчёт графа/маркеров (ТЗ §3/§7.4)
+$("goodsFactorySel").addEventListener("change", () => {
+  goodsFactory = $("goodsFactorySel").value;
+  localStorage.setItem("gs_goodsFactory", goodsFactory);
+  selected = null; // смена фабрики — выбор сбрасывается (ТЗ §7.4)
+  renderAll();
+});
+// фильтр семейства: клиент-only пересчёт графа + справочника (ТЗ §4/§7.4)
+$("goodsFamilySel").addEventListener("change", () => {
+  goodsFamily = $("goodsFamilySel").value;
+  localStorage.setItem("gs_goodsFamily", goodsFamily);
+  if (selected && !visibleGoods().some(g => g.id === selected)) selected = null; // скрыт фильтром
+  renderAll();
+});
 $("spravSearch").addEventListener("input", () => {
   localStorage.setItem("gs_spravSearch", $("spravSearch").value);
   renderSprav();

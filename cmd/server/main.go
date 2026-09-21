@@ -518,6 +518,11 @@ func main() {
 	// iterC §5: отдельные роуты не нужны — конфликта парсинга id нет).
 	http.HandleFunc("/studio/api/goods/", auth.AdminAuth(studioHandlers.GoodByID))
 	http.HandleFunc("/studio/api/validate", auth.AdminAuth(studioHandlers.Validate))
+	// Рецепт как сущность (спека 2026-09-21-рецепт-сущность §5): рецепты и их
+	// состав адресуются по recipe_id (слоты/тир у goods сняты). Привязки
+	// рецептов к фабрикам (producers/{id}/recipes*) — ветки ProducerByID.
+	http.HandleFunc("/studio/api/recipes", auth.AdminAuth(studioHandlers.Recipes))
+	http.HandleFunc("/studio/api/recipes/", auth.AdminAuth(studioHandlers.RecipeByID))
 	// Ветки «Производители»/«Предметы» (спека 2026-09-20-фабрики §4):
 	// producer_types/items/producer_items — тот же контракт, что goods.
 	http.HandleFunc("/studio/api/producers", auth.AdminAuth(studioHandlers.Producers))

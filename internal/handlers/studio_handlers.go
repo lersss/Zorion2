@@ -69,18 +69,35 @@ type SlotView struct {
 
 // GoodView — товар/ресурс в представлении состояния. Статуса и скрытия у
 // товара/ресурса нет (спека 2026-09-21 §4.2): «убрать» — только удаление.
+// Рецепт как сущность (спека 2026-09-21-рецепт-сущность §5): recipe_id/
+// complexity/bound_factories; tier_override удалён (сложность — у рецепта).
 type GoodView struct {
-	ID           string     `json:"id"`
-	Name         string     `json:"name"`
-	CategoryID   int64      `json:"category_id"`
-	Kind         string     `json:"kind"`
-	Source       string     `json:"source"`
-	Tier         int        `json:"tier"`          // эффективный (override ?? вычисленный)
-	TierComputed int        `json:"tier_computed"` // вычисленный (graph.Tier)
-	TierOverride *int       `json:"tier_override"`
-	Recipe       []SlotView `json:"recipe"`
-	Volume       *float64   `json:"volume"` // данные каталога (3b.6.4); значение есть всегда (Р2)
-	Weight       *float64   `json:"weight"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	CategoryID   int64  `json:"category_id"`
+	Kind         string `json:"kind"`
+	Source       string `json:"source"`
+	Tier         int    `json:"tier"`          // эффективный (complexity ?? вычисленный)
+	TierComputed int    `json:"tier_computed"` // вычисленный (graph.Tier)
+	// RecipeID — id рецепта (recipes.id; 0 у ресурса — рецепта нет).
+	RecipeID int64 `json:"recipe_id"`
+	// Complexity — сложность рецепта (null = вычисляется по графу).
+	Complexity *int `json:"complexity"`
+	// BoundFactories — фабрики, держащие рецепт (producer_recipes, обратная
+	// привязка): маркер «в наборе фабрики»/«не привязан».
+	BoundFactories []int64    `json:"bound_factories"`
+	Recipe         []SlotView `json:"recipe"`
+	Volume         *float64   `json:"volume"` // данные каталога (3b.6.4); значение есть всегда (Р2)
+	Weight         *float64   `json:"weight"`
+}
+
+// RecipeBindingView — привязка рецепта к фабрике (producer_recipes) в
+// представлении состояния (спека 2026-09-21-рецепт-сущность §5,
+// верхнеуровневый producer_recipes).
+type RecipeBindingView struct {
+	ProducerTypeID int64 `json:"producer_type_id"`
+	RecipeID       int64 `json:"recipe_id"`
+	GoodID         int64 `json:"good_id"`
 }
 
 // ProducerTypeView — тип производителя в представлении состояния (спека
@@ -144,9 +161,10 @@ type StateView struct {
 	Report           []string           `json:"report"`
 	Proposals        []ProposalView     `json:"proposals"`
 	ProposalsGoodID  string             `json:"proposals_good_id,omitempty"`
-	ProducerTypes    []ProducerTypeView `json:"producer_types"`
-	Items            []ItemView         `json:"items"`
-	ProducerSlots    []ProducerSlotView `json:"producer_slots"`
+	ProducerTypes    []ProducerTypeView  `json:"producer_types"`
+	Items            []ItemView          `json:"items"`
+	ProducerSlots    []ProducerSlotView  `json:"producer_slots"`
+	ProducerRecipes  []RecipeBindingView `json:"producer_recipes"`
 }
 
 // ProposalView — предложение ИИ для попапа (спека iterC §5.3): kind new/link,
@@ -185,11 +203,12 @@ func (h *StudioHandlers) State(w http.ResponseWriter, r *http.Request) {
 // мутировать извне).
 func (h *StudioHandlers) buildStateView(snap *repository.CatalogSnapshot) StateView {
 	byID := graph.ByID(snap.Goods)
+	bindings := toModelBindings(snap.Bindings)
 	view := StateView{
 		Categories:    make([]CategoryView, 0, len(snap.Categories)),
 		Goods:         make([]GoodView, 0, len(snap.Goods)),
 		Unused:        []GoodView{},
-		Warnings:      validate.Validate(&model.State{SchemaVersion: model.SchemaVersion, Goods: snap.Goods}),
+		Warnings:      validate.Validate(&model.State{SchemaVersion: model.SchemaVersion, Goods: snap.Goods, Bindings: bindings}),
 		ProducerTypes: make([]ProducerTypeView, 0, len(snap.ProducerTypes)),
 		Items:         make([]ItemView, 0, len(snap.Items)),
 	}
@@ -216,21 +235,34 @@ func (h *StudioHandlers) buildStateView(snap *repository.CatalogSnapshot) StateV
 			}
 		}
 	}
+	// обратная привязка рецептов: good_id → [producer_type_id] (спека
+	// 2026-09-21-рецепт-сущность §5) — маркер «в наборе фабрики»/«не привязан».
+	boundByGood := make(map[int64][]int64, len(snap.Bindings))
+	for _, b := range snap.Bindings {
+		boundByGood[b.GoodID] = append(boundByGood[b.GoodID], b.ProducerTypeID)
+	}
 	for i := range snap.Goods {
 		g := &snap.Goods[i]
 		catID, _ := strconv.ParseInt(g.Category, 10, 64)
+		gID, _ := strconv.ParseInt(g.ID, 10, 64)
+		bound := boundByGood[gID]
+		if bound == nil {
+			bound = []int64{}
+		}
 		gv := GoodView{
-			ID:           g.ID,
-			Name:         g.Name,
-			CategoryID:   catID,
-			Kind:         string(g.Kind),
-			Source:       string(g.Source),
-			Tier:         graph.EffectiveTier(g, byID),
-			TierComputed: graph.Tier(g, byID),
-			TierOverride: g.TierOverride,
-			Volume:       g.Volume,
-			Weight:       g.Weight,
-			Recipe:       []SlotView{},
+			ID:             g.ID,
+			Name:           g.Name,
+			CategoryID:     catID,
+			Kind:           string(g.Kind),
+			Source:         string(g.Source),
+			Tier:           graph.EffectiveTier(g, byID),
+			TierComputed:   graph.Tier(g, byID),
+			RecipeID:       g.RecipeID,
+			Complexity:     g.Complexity,
+			BoundFactories: bound,
+			Volume:         g.Volume,
+			Weight:         g.Weight,
+			Recipe:         []SlotView{},
 		}
 		for _, slot := range g.Recipe {
 			q := slot.Quantity
@@ -339,7 +371,26 @@ func (h *StudioHandlers) buildStateView(snap *repository.CatalogSnapshot) StateV
 		}
 		view.ProducerSlots = append(view.ProducerSlots, sv)
 	}
+	// Привязки рецептов к фабрикам (спека 2026-09-21-рецепт-сущность §5):
+	// верхнеуровневый producer_recipes для селектора/фильтра семейства/маркеров.
+	view.ProducerRecipes = make([]RecipeBindingView, 0, len(snap.Bindings))
+	for _, b := range snap.Bindings {
+		view.ProducerRecipes = append(view.ProducerRecipes, RecipeBindingView{
+			ProducerTypeID: b.ProducerTypeID, RecipeID: b.RecipeID, GoodID: b.GoodID,
+		})
+	}
 	return view
+}
+
+// toModelBindings — RecipeBindingRow → model.RecipeBinding (для validator).
+func toModelBindings(rows []repository.RecipeBindingRow) []model.RecipeBinding {
+	out := make([]model.RecipeBinding, 0, len(rows))
+	for _, b := range rows {
+		out = append(out, model.RecipeBinding{
+			RecipeID: b.RecipeID, ProducerTypeID: b.ProducerTypeID, GoodID: b.GoodID,
+		})
+	}
+	return out
 }
 
 // --- GET /studio/api/resources ---
@@ -442,14 +493,17 @@ func (h *StudioHandlers) Goods(w http.ResponseWriter, r *http.Request) {
 	}
 	// контракт §7: категория в ответах — category_id (число), не строка
 	gv := GoodView{
-		ID:           g.ID,
-		Name:         g.Name,
-		CategoryID:   body.CategoryID,
-		Kind:         string(g.Kind),
-		Source:       string(g.Source),
-		Tier:         0,
-		TierComputed: 0,
-		Recipe:       []SlotView{},
+		ID:             g.ID,
+		Name:           g.Name,
+		CategoryID:     body.CategoryID,
+		Kind:           string(g.Kind),
+		Source:         string(g.Source),
+		Tier:           0,
+		TierComputed:   0,
+		RecipeID:       g.RecipeID,
+		Complexity:     g.Complexity,
+		BoundFactories: []int64{},
+		Recipe:         []SlotView{},
 	}
 	for _, slot := range g.Recipe {
 		gv.Recipe = append(gv.Recipe, SlotView{GoodID: slot.GoodID, Quantity: slot.Quantity, AllowResource: slot.AllowResource})
@@ -475,9 +529,10 @@ func (h *StudioHandlers) goodsBulk(w http.ResponseWriter, r *http.Request) {
 	studioJSON(w, http.StatusOK, rep)
 }
 
-// GoodByID — PUT/DELETE /studio/api/goods/{id} и под-пути
-// (tier, slots, slots/{n}, slots/{n}/component, slots/{n}/allow_resource,
-// fill/fill-apply/fill-cancel). Статусного роута у goods нет (спека §4.2).
+// GoodByID — PUT/DELETE /studio/api/goods/{id} и под-пути fill/fill-apply/
+// fill-cancel. Статусного роута у goods нет (спека §4.2). Слоты рецепта и
+// тир переехали на /studio/api/recipes* (спека 2026-09-21-рецепт-сущность §5:
+// одна модель — один адрес), у goods этих под-путей больше нет.
 func (h *StudioHandlers) GoodByID(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/studio/api/goods/")
 	parts := strings.Split(rest, "/")
@@ -493,22 +548,12 @@ func (h *StudioHandlers) GoodByID(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case len(parts) == 1:
 		h.good(w, r, id)
-	case len(parts) == 2 && parts[1] == "tier":
-		h.goodTier(w, r, id)
-	case len(parts) == 2 && parts[1] == "slots":
-		h.addSlot(w, r, id)
 	case len(parts) == 2 && parts[1] == "fill":
 		h.goodFill(w, r, id)
-	case len(parts) == 3 && parts[1] == "slots":
-		h.slot(w, r, id, parts[2])
 	case len(parts) == 3 && parts[1] == "fill" && parts[2] == "apply":
 		h.goodFillApply(w, r, id)
 	case len(parts) == 3 && parts[1] == "fill" && parts[2] == "cancel":
 		h.goodFillCancel(w, r, id)
-	case len(parts) == 4 && parts[1] == "slots" && parts[3] == "component":
-		h.clearSlot(w, r, id, parts[2])
-	case len(parts) == 4 && parts[1] == "slots" && parts[3] == "allow_resource":
-		h.slotAllowResource(w, r, id, parts[2])
 	default:
 		studioErr(w, "не найдено", http.StatusNotFound)
 	}
@@ -543,120 +588,6 @@ func (h *StudioHandlers) good(w http.ResponseWriter, r *http.Request, id int64) 
 	default:
 		studioErr(w, "только PUT/DELETE", http.StatusMethodNotAllowed)
 	}
-}
-
-// goodTier — PUT /studio/api/goods/{id}/tier {tier: int|null}.
-func (h *StudioHandlers) goodTier(w http.ResponseWriter, r *http.Request, id int64) {
-	if r.Method != http.MethodPut {
-		studioErr(w, "только PUT", http.StatusMethodNotAllowed)
-		return
-	}
-	var body struct {
-		Tier *int `json:"tier"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		studioErr(w, "невалидный JSON", http.StatusBadRequest)
-		return
-	}
-	if err := h.repo.SetTier(id, body.Tier); err != nil {
-		writeCatalogErr(w, err)
-		return
-	}
-	studioJSON(w, http.StatusOK, map[string]interface{}{"id": id, "tier": body.Tier})
-}
-
-// addSlot — POST /studio/api/goods/{id}/slots: добавить пустой слот
-// (ресурсу — 403).
-func (h *StudioHandlers) addSlot(w http.ResponseWriter, r *http.Request, id int64) {
-	if r.Method != http.MethodPost {
-		studioErr(w, "только POST", http.StatusMethodNotAllowed)
-		return
-	}
-	if err := h.repo.AddSlot(id); err != nil {
-		writeCatalogErr(w, err)
-		return
-	}
-	studioJSON(w, http.StatusOK, map[string]int64{"id": id})
-}
-
-// slot — PUT/DELETE /studio/api/goods/{id}/slots/{n}.
-func (h *StudioHandlers) slot(w http.ResponseWriter, r *http.Request, id int64, nStr string) {
-	pos, err := parseID(nStr)
-	if err != nil {
-		studioErr(w, "невалидный номер слота", http.StatusBadRequest)
-		return
-	}
-	switch r.Method {
-	case http.MethodPut:
-		var body struct {
-			GoodID   *int64 `json:"good_id"`
-			Quantity *int   `json:"quantity"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			studioErr(w, "невалидный JSON", http.StatusBadRequest)
-			return
-		}
-		var compID int64
-		if body.GoodID != nil {
-			compID = *body.GoodID
-		}
-		if err := h.repo.PutSlot(id, int(pos), compID, body.Quantity); err != nil {
-			writeCatalogErr(w, err)
-			return
-		}
-		studioJSON(w, http.StatusOK, map[string]interface{}{"id": id, "pos": pos})
-	case http.MethodDelete:
-		if err := h.repo.DeleteSlot(id, int(pos)); err != nil {
-			writeCatalogErr(w, err)
-			return
-		}
-		studioJSON(w, http.StatusOK, map[string]interface{}{"id": id, "pos": pos})
-	default:
-		studioErr(w, "только PUT/DELETE", http.StatusMethodNotAllowed)
-	}
-}
-
-// clearSlot — DELETE /studio/api/goods/{id}/slots/{n}/component.
-func (h *StudioHandlers) clearSlot(w http.ResponseWriter, r *http.Request, id int64, nStr string) {
-	if r.Method != http.MethodDelete {
-		studioErr(w, "только DELETE", http.StatusMethodNotAllowed)
-		return
-	}
-	pos, err := parseID(nStr)
-	if err != nil {
-		studioErr(w, "невалидный номер слота", http.StatusBadRequest)
-		return
-	}
-	if err := h.repo.ClearSlot(id, int(pos)); err != nil {
-		writeCatalogErr(w, err)
-		return
-	}
-	studioJSON(w, http.StatusOK, map[string]interface{}{"id": id, "pos": pos})
-}
-
-// slotAllowResource — PUT /studio/api/goods/{id}/slots/{n}/allow_resource.
-func (h *StudioHandlers) slotAllowResource(w http.ResponseWriter, r *http.Request, id int64, nStr string) {
-	if r.Method != http.MethodPut {
-		studioErr(w, "только PUT", http.StatusMethodNotAllowed)
-		return
-	}
-	var body struct {
-		AllowResource bool `json:"allow_resource"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		studioErr(w, "невалидный JSON", http.StatusBadRequest)
-		return
-	}
-	pos, err := parseID(nStr)
-	if err != nil {
-		studioErr(w, "невалидный номер слота", http.StatusBadRequest)
-		return
-	}
-	if err := h.repo.SetSlotAllowResource(id, int(pos), body.AllowResource); err != nil {
-		writeCatalogErr(w, err)
-		return
-	}
-	studioJSON(w, http.StatusOK, map[string]interface{}{"id": id, "pos": pos})
 }
 
 // --- типы производителей (спека 2026-09-20-фабрики §4.1) ---
@@ -696,7 +627,8 @@ func (h *StudioHandlers) Producers(w http.ResponseWriter, r *http.Request) {
 }
 
 // ProducerByID — PUT/DELETE /studio/api/producers/{id} и под-пути
-// (hidden, items, items/{itemId}).
+// (hidden, items, items/{itemId}, recipes, recipes/{recipe_id},
+// recipes/copy-universal).
 func (h *StudioHandlers) ProducerByID(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/studio/api/producers/")
 	parts := strings.Split(rest, "/")
@@ -716,6 +648,8 @@ func (h *StudioHandlers) ProducerByID(w http.ResponseWriter, r *http.Request) {
 		h.producerHidden(w, r, id)
 	case len(parts) == 2 && parts[1] == "items":
 		h.producerLinkItem(w, r, id)
+	case len(parts) == 2 && parts[1] == "recipes":
+		h.producerBindRecipe(w, r, id)
 	case len(parts) == 3 && parts[1] == "items":
 		itemID, err := parseID(parts[2])
 		if err != nil {
@@ -723,6 +657,15 @@ func (h *StudioHandlers) ProducerByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.producerUnlinkItem(w, r, id, itemID)
+	case len(parts) == 3 && parts[1] == "recipes" && parts[2] == "copy-universal":
+		h.producerCopyUniversal(w, r, id)
+	case len(parts) == 3 && parts[1] == "recipes":
+		recipeID, err := parseID(parts[2])
+		if err != nil {
+			studioErr(w, "не найдено", http.StatusNotFound)
+			return
+		}
+		h.producerUnbindRecipe(w, r, id, recipeID)
 	default:
 		studioErr(w, "не найдено", http.StatusNotFound)
 	}
@@ -1343,12 +1286,14 @@ func (h *StudioHandlers) clearProposals() {
 }
 
 // snapshotState — model.State из снимка каталога (для BuildFillPrompt/
-// BuildProposals): категории с kind (С2-проверка в ApplyProposals).
+// BuildProposals): категории с kind (С2-проверка в ApplyProposals) +
+// привязки рецептов (спека 2026-09-21-рецепт-сущность §5, риск 11).
 func snapshotState(snap *repository.CatalogSnapshot) *model.State {
 	st := &model.State{
 		SchemaVersion: model.SchemaVersion,
 		Categories:    make([]model.Category, 0, len(snap.Categories)),
 		Goods:         snap.Goods,
+		Bindings:      toModelBindings(snap.Bindings),
 	}
 	for _, c := range snap.Categories {
 		st.Categories = append(st.Categories, model.Category{
@@ -1392,7 +1337,7 @@ func (h *StudioHandlers) Validate(w http.ResponseWriter, r *http.Request) {
 		studioErr(w, "ошибка чтения каталога: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	warnings := validate.Validate(&model.State{SchemaVersion: model.SchemaVersion, Goods: snap.Goods})
+	warnings := validate.Validate(&model.State{SchemaVersion: model.SchemaVersion, Goods: snap.Goods, Bindings: toModelBindings(snap.Bindings)})
 	studioJSON(w, http.StatusOK, warnings)
 }
 

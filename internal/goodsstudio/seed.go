@@ -1,7 +1,7 @@
 // Package goodsstudio — домен каталога товаров/ресурсов игрового сервера
 // (спека переноса-студии-товаров-iterA §3): чистые пакеты студии
 // (model/graph/validate, перенесены из cmd/goods-studio) + сидер каталога.
-// Каталог живёт в БД (categories/goods/goods_slots); Go-каталог
+// Каталог живёт в БД (categories/goods, состав — recipes/recipe_components); Go-каталог
 // internal/resource — только первичное наполнение (С1).
 package goodsstudio
 

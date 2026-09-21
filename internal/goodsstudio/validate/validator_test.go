@@ -65,16 +65,36 @@ func TestMissingResourceCovered(t *testing.T) {
 	require.NotContains(t, codes(w), "missing_resource")
 }
 
-// TestCleanState — валидное состояние без предупреждений.
+// TestCleanState — валидное состояние без предупреждений (товар привязан
+// к фабрике — unbound_recipe не срабатывает).
 func TestCleanState(t *testing.T) {
 	v, w := 1.0, 1.0
 	st := mkState(
-		good("g1", "Сталь", model.Slot{GoodID: "res:zhelezo"}),
+		good("1", "Сталь", model.Slot{GoodID: "res:zhelezo"}),
 		res("res:zhelezo", "Железо Fe"),
 	)
 	st.Goods[0].Volume = &v
 	st.Goods[0].Weight = &w
+	st.Bindings = []model.RecipeBinding{{RecipeID: 10, ProducerTypeID: 2, GoodID: 1}}
 	require.Empty(t, Validate(st))
+}
+
+// TestUnboundRecipe — товар (kind=good), чей рецепт не привязан ни к одной
+// фабрике, — warning unbound_recipe (спека 2026-09-21-рецепт-сущность §5).
+func TestUnboundRecipe(t *testing.T) {
+	v, w := 1.0, 1.0
+	st := mkState(
+		good("1", "Сталь", model.Slot{GoodID: "res:zhelezo"}),
+		res("res:zhelezo", "Железо Fe"),
+	)
+	st.Goods[0].Volume = &v
+	st.Goods[0].Weight = &w
+	require.Contains(t, codes(Validate(st)), "unbound_recipe")
+	// привязан — warning уходит
+	st.Bindings = []model.RecipeBinding{{RecipeID: 10, ProducerTypeID: 2, GoodID: 1}}
+	require.NotContains(t, codes(Validate(st)), "unbound_recipe")
+	// ресурс без привязки не флагается (рецепта у ресурса нет)
+	require.NotContains(t, codes(Validate(mkState(res("r1", "Железо Fe")))), "unbound_recipe")
 }
 
 // TestMissingVolumeWeight — Р2 (2026-09-21): значение веса/объёма есть всегда

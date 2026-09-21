@@ -213,9 +213,9 @@ func TestStudioStateProducersFields(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, name, kind, code, is_system FROM categories ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "code", "is_system"}).
 			AddRow(int64(1), "Корабли", "good", nil, false))
-	mock.ExpectQuery(`SELECT id, name, category_id, kind, source, tier_override, created_at, volume, weight FROM goods ORDER BY id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "tier_override", "created_at", "volume", "weight"}))
-	mock.ExpectQuery(`SELECT good_id, pos, component_id, quantity, reason, allow_resource FROM goods_slots ORDER BY good_id, pos`).
+	mock.ExpectQuery(`SELECT g.id, g.name, g.category_id, g.kind, g.source, r.id, r.complexity, g.created_at, g.volume, g.weight FROM goods g LEFT JOIN recipes r ON r.good_id = g.id ORDER BY g.id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "recipe_id", "complexity", "created_at", "volume", "weight"}))
+	mock.ExpectQuery(`SELECT r\.good_id, c\.pos, c\.component_id, c\.quantity, c\.reason, c\.allow_resource FROM recipe_components c JOIN recipes r ON r\.id = c\.recipe_id ORDER BY r\.good_id, c\.pos`).
 		WillReturnRows(sqlmock.NewRows([]string{"good_id", "pos", "component_id", "quantity", "reason", "allow_resource"}))
 	mock.ExpectQuery(`SELECT id, name, kind, category_id, race_family, parent_id, race, output, input, params, hidden, created_at FROM producer_types ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "parent_id", "race", "output", "input", "params", "hidden", "created_at"}).
@@ -230,6 +230,8 @@ func TestStudioStateProducersFields(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, parent_id, category_id, race_family, race, hidden, created_at FROM producer_slots ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "parent_id", "category_id", "race_family", "race", "hidden", "created_at"}).
 			AddRow(int64(5), int64(2), int64(1), nil, nil, false, time.Now()))
+	mock.ExpectQuery(`SELECT pr.producer_type_id, pr.recipe_id, r.good_id FROM producer_recipes pr JOIN recipes r ON r.id = pr.recipe_id ORDER BY pr.producer_type_id, pr.recipe_id`).
+		WillReturnRows(sqlmock.NewRows([]string{"producer_type_id", "recipe_id", "good_id"}))
 	mock.ExpectCommit()
 
 	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
@@ -411,4 +413,102 @@ func TestStudioCreateProducerNoSlot(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errBody))
 	require.Contains(t, errBody["error"], "категория не настроена у родителя на этом уровне")
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// --- привязки рецептов к фабрикам (спека 2026-09-21-рецепт-сущность §5) ---
+
+// TestStudioBindRecipe — POST /studio/api/producers/5/recipes {recipe_id:10}
+// → 200.
+func TestStudioBindRecipe(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectStudioMutation(mock)
+	mock.ExpectQuery(`SELECT kind, parent_id, category_id FROM producer_types WHERE id = \$1 FOR UPDATE`).
+		WithArgs(int64(5)).
+		WillReturnRows(sqlmock.NewRows([]string{"kind", "parent_id", "category_id"}).
+			AddRow("goods", int64(2), int64(8)))
+	mock.ExpectQuery(`SELECT good_id FROM recipes WHERE id = \$1`).
+		WithArgs(int64(10)).
+		WillReturnRows(sqlmock.NewRows([]string{"good_id"}).AddRow(int64(20)))
+	mock.ExpectQuery(`SELECT kind, category_id FROM goods WHERE id = \$1`).
+		WithArgs(int64(20)).
+		WillReturnRows(sqlmock.NewRows([]string{"kind", "category_id"}).AddRow("good", int64(8)))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_recipes WHERE producer_type_id = \$1 AND recipe_id = \$2\)`).
+		WithArgs(int64(5), int64(10)).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectExec(`INSERT INTO producer_recipes \(producer_type_id, recipe_id\) VALUES \(\$1, \$2\)`).
+		WithArgs(int64(5), int64(10)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
+	req := httptest.NewRequest(http.MethodPost, "/studio/api/producers/5/recipes", strings.NewReader(`{"recipe_id":10}`))
+	rec := httptest.NewRecorder()
+	h.ProducerByID(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestStudioUnbindRecipe — DELETE /studio/api/producers/5/recipes/10 → 200.
+func TestStudioUnbindRecipe(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectStudioMutation(mock)
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_recipes WHERE producer_type_id = \$1 AND recipe_id = \$2\)`).
+		WithArgs(int64(5), int64(10)).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectExec(`DELETE FROM producer_recipes WHERE producer_type_id = \$1 AND recipe_id = \$2`).
+		WithArgs(int64(5), int64(10)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
+	req := httptest.NewRequest(http.MethodDelete, "/studio/api/producers/5/recipes/10", nil)
+	rec := httptest.NewRecorder()
+	h.ProducerByID(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestStudioCopyUniversalRecipes — POST
+// /studio/api/producers/5/recipes/copy-universal → 200 {added, skipped}.
+func TestStudioCopyUniversalRecipes(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectStudioMutation(mock)
+	mock.ExpectQuery(`SELECT kind, parent_id, category_id FROM producer_types WHERE id = \$1 FOR UPDATE`).
+		WithArgs(int64(5)).
+		WillReturnRows(sqlmock.NewRows([]string{"kind", "parent_id", "category_id"}).
+			AddRow("goods", int64(2), int64(8)))
+	mock.ExpectQuery(`SELECT kind FROM categories WHERE id = \$1`).
+		WithArgs(int64(8)).
+		WillReturnRows(sqlmock.NewRows([]string{"kind"}).AddRow("good"))
+	mock.ExpectQuery(`SELECT DISTINCT pr\.recipe_id FROM producer_recipes pr JOIN producer_types pt ON pt\.id = pr\.producer_type_id WHERE pt\.kind = 'goods' AND pt\.parent_id IS NOT NULL AND pt\.category_id = \$1 AND pt\.race_family IS NULL AND pt\.race IS NULL AND pt\.id <> \$2`).
+		WithArgs(int64(8), int64(5)).
+		WillReturnRows(sqlmock.NewRows([]string{"recipe_id"}).AddRow(int64(10)))
+	mock.ExpectExec(`INSERT INTO producer_recipes \(producer_type_id, recipe_id\) VALUES \(\$1, \$2\) ON CONFLICT \(producer_type_id, recipe_id\) DO NOTHING`).
+		WithArgs(int64(5), int64(10)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
+	req := httptest.NewRequest(http.MethodPost, "/studio/api/producers/5/recipes/copy-universal", nil)
+	rec := httptest.NewRecorder()
+	h.ProducerByID(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	var body map[string]int
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Equal(t, 1, body["added"])
+	require.Equal(t, 0, body["skipped"])
 }

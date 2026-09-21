@@ -1,6 +1,8 @@
 // internal/repository/goods_repository.go
 // SQL-доступ к каталогу товаров/ресурсов студии (спека
-// переноса-студии-товаров-iterA §7): categories/goods/goods_slots.
+// переноса-студии-товаров-iterA §7; рецепт как сущность — спека
+// 2026-09-21-рецепт-сущность §2.3/§5): categories/goods/recipes/
+// recipe_components/producer_recipes.
 // Каждая мутация — транзакция с pg_advisory_xact_lock (сериализация
 // мутаций каталога, §9.1); снимок state — одна транзакция чтения
 // REPEATABLE READ (§8.1). Ошибки — ErrCatalog с HTTP-статусом
@@ -58,9 +60,10 @@ type CategoryRow struct {
 }
 
 // CatalogSnapshot — согласованный снимок каталога (одна транзакция
-// REPEATABLE READ, §8.1): категории + товары со слотами + типы
-// производителей + предметы + связи + слоты родителя (спека
-// 2026-09-20-фабрики §3.1 + спека скрытых §1.1).
+// REPEATABLE READ, §8.1): категории + товары с составом рецептов + типы
+// производителей + предметы + связи + слоты родителя + привязки рецептов
+// (спека 2026-09-20-фабрики §3.1 + спека скрытых §1.1 + спека
+// 2026-09-21-рецепт-сущность §5).
 type CatalogSnapshot struct {
 	Categories    []CategoryRow
 	Goods         []model.Good
@@ -68,6 +71,16 @@ type CatalogSnapshot struct {
 	Items         []ItemRow
 	ProducerItems []ProducerItemRow
 	ProducerSlots []ProducerSlotRow
+	Bindings      []RecipeBindingRow
+}
+
+// RecipeBindingRow — привязка рецепта к конкретной фабрике (producer_recipes,
+// спека 2026-09-21-рецепт-сущность §2.3): good_id рецепта — джойном, для
+// проекции в State.Bindings и верхнеуровневого producer_recipes в state.
+type RecipeBindingRow struct {
+	ProducerTypeID int64
+	RecipeID       int64
+	GoodID         int64
 }
 
 // ResourceView — ресурс палитры (GET /studio/api/resources, спека §7).
@@ -191,6 +204,10 @@ func (r *GoodsRepository) Snapshot() (*CatalogSnapshot, error) {
 	if err != nil {
 		return nil, err
 	}
+	bindings, err := loadBindings(tx)
+	if err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
@@ -201,6 +218,7 @@ func (r *GoodsRepository) Snapshot() (*CatalogSnapshot, error) {
 		Items:         items,
 		ProducerItems: producerItems,
 		ProducerSlots: producerSlots,
+		Bindings:      bindings,
 	}, nil
 }
 
@@ -362,9 +380,17 @@ func (r *GoodsRepository) ApplyProposals(goodID int64, items []ai.ProposalItem) 
 			return 0, nil, err
 		}
 		gNToReal[g.ID] = id
+		// рецепт для ИИ-товара (спека 2026-09-21-рецепт-сущность §8.3):
+		// создаётся обязательно (иначе recipe_id в state пуст). Состав не
+		// создаётся — не-регресс: сегодня ApplyProposals товары без слотов.
+		if _, err := tx.Exec(`INSERT INTO recipes (good_id) VALUES ($1)`, id); err != nil {
+			return 0, nil, err
+		}
 	}
 
-	// write-back 2: слоты целевого товара (diff: был пуст → заполнен)
+	// write-back 2: слоты целевого товара (diff: был пуст → заполнен) — по
+	// (recipe_id, pos) рецепта цели (спека 2026-09-21-рецепт-сущность §5).
+	targetRecipeID := st.Goods[gi].RecipeID
 	for _, item := range items {
 		if item.Slot < 0 || item.Slot >= len(st.Goods[gi].Recipe) {
 			continue
@@ -388,8 +414,8 @@ func (r *GoodsRepository) ApplyProposals(goodID int64, items []ai.ProposalItem) 
 			}
 		}
 		if _, err := tx.Exec(
-			`UPDATE goods_slots SET component_id = $1, reason = $2 WHERE good_id = $3 AND pos = $4`,
-			realID, st.Goods[gi].Recipe[item.Slot].Reason, goodID, item.Slot,
+			`UPDATE recipe_components SET component_id = $1, reason = $2 WHERE recipe_id = $3 AND pos = $4`,
+			realID, st.Goods[gi].Recipe[item.Slot].Reason, targetRecipeID, item.Slot,
 		); err != nil {
 			return 0, nil, err
 		}
@@ -573,7 +599,7 @@ func (r *GoodsRepository) CreateGood(name string, categoryID int64, kind model.K
 		return model.Good{}, errCatalog(409, "товар с таким именем уже есть")
 	}
 
-	var id int64
+	var id, recipeID int64
 	var createdAt time.Time
 	if err := tx.QueryRow(
 		`INSERT INTO goods (name, name_norm, category_id, kind, source) VALUES ($1, $2, $3, $4, 'manual') RETURNING id, created_at`,
@@ -585,8 +611,16 @@ func (r *GoodsRepository) CreateGood(name string, categoryID int64, kind model.K
 		return model.Good{}, err
 	}
 	if kind == model.KindGood {
+		// рецепт создаётся вместе с товаром (спека 2026-09-21-рецепт-сущность
+		// §2.3/§11.3): пустой состав = один пустой компонент pos=0, quantity=1
+		// (как раньше goods_slots (good_id,0,1)).
+		if err := tx.QueryRow(
+			`INSERT INTO recipes (good_id) VALUES ($1) RETURNING id`, id,
+		).Scan(&recipeID); err != nil {
+			return model.Good{}, err
+		}
 		if _, err := tx.Exec(
-			`INSERT INTO goods_slots (good_id, pos, quantity) VALUES ($1, 0, 1)`, id,
+			`INSERT INTO recipe_components (recipe_id, pos, quantity) VALUES ($1, 0, 1)`, recipeID,
 		); err != nil {
 			return model.Good{}, err
 		}
@@ -609,6 +643,7 @@ func (r *GoodsRepository) CreateGood(name string, categoryID int64, kind model.K
 		CreatedAt: createdAt.UTC().Format(time.RFC3339),
 	}
 	if kind == model.KindGood {
+		g.RecipeID = recipeID
 		g.Recipe = []model.Slot{{Quantity: 1}}
 	}
 	return g, nil
@@ -627,7 +662,8 @@ func (r *GoodsRepository) UpdateGood(id int64, name *string, categoryID *int64, 
 	defer tx.Rollback()
 
 	var kind string
-	err = tx.QueryRow(`SELECT kind FROM goods WHERE id = $1 FOR UPDATE`, id).Scan(&kind)
+	var curCategoryID int64
+	err = tx.QueryRow(`SELECT kind, category_id FROM goods WHERE id = $1 FOR UPDATE`, id).Scan(&kind, &curCategoryID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return errCatalog(404, "товар не найден")
 	}
@@ -665,6 +701,23 @@ func (r *GoodsRepository) UpdateGood(id int64, name *string, categoryID *int64, 
 		if catKind != kind {
 			return errCatalog(400, "категория не соответствует kind товара")
 		}
+		// Инвариант «выход рецепта = категория фабрики» (спека
+		// 2026-09-21-рецепт-сущность §2.4/§5): смена категории товара с
+		// привязанным рецептом запрещена — иначе выход перестанет быть
+		// категорией фабрики. Без привязок — свободно; смена на ту же самую
+		// категорию — не изменение.
+		if kind == "good" && *categoryID != curCategoryID {
+			var bound bool
+			if err := tx.QueryRow(
+				`SELECT EXISTS(SELECT 1 FROM producer_recipes pr
+				 JOIN recipes r ON r.id = pr.recipe_id WHERE r.good_id = $1)`, id,
+			).Scan(&bound); err != nil {
+				return err
+			}
+			if bound {
+				return errCatalog(409, "товар привязан к фабрикам — сначала отвяжите")
+			}
+		}
 		if _, err := tx.Exec(`UPDATE goods SET category_id = $1 WHERE id = $2`, *categoryID, id); err != nil {
 			return err
 		}
@@ -689,9 +742,10 @@ func (r *GoodsRepository) UpdateGood(id int64, name *string, categoryID *int64, 
 }
 
 // DeleteGood — удаление товара/ресурса (спека §7, решение гейта №2):
-// всегда (в т.ч. ресурсы — без привилегий); слоты других товаров,
-// ссылающиеся на него, очищаются (component_id → NULL, reason → '') в той
-// же транзакции; свои слоты удаляются каскадом. Возвращает число
+// всегда (в т.ч. ресурсы — без привилегий); компоненты рецептов других
+// товаров, ссылающиеся на него, очищаются (component_id → NULL, reason → '')
+// в той же транзакции; свой рецепт и его компоненты удаляются каскадом
+// (recipes → recipe_components, producer_recipes). Возвращает число
 // очищенных ссылок (cleared_links, для UI-подтверждения в B).
 func (r *GoodsRepository) DeleteGood(id int64) (int, error) {
 	tx, err := r.beginMutation()
@@ -709,7 +763,7 @@ func (r *GoodsRepository) DeleteGood(id int64) (int, error) {
 		return 0, errCatalog(404, "товар не найден")
 	}
 	res, err := tx.Exec(
-		`UPDATE goods_slots SET component_id = NULL, reason = '' WHERE component_id = $1`, id,
+		`UPDATE recipe_components SET component_id = NULL, reason = '' WHERE component_id = $1`, id,
 	)
 	if err != nil {
 		return 0, err
@@ -727,9 +781,63 @@ func (r *GoodsRepository) DeleteGood(id int64) (int, error) {
 	return int(cleared), nil
 }
 
-// SetTier — тир-оверрайд (спека §7): ≥ 0, иначе 400; null — очистить.
-// Для ресурсов разрешено (С3: назначенный тир — любой).
-func (r *GoodsRepository) SetTier(id int64, tier *int) error {
+// CreateRecipe — восстановление рецепта товара (POST /studio/api/recipes,
+// спека 2026-09-21-рецепт-сущность §5): товар kind='good' (400 иначе),
+// дубликат рецепта на товар — 409; новый рецепт получает один пустой
+// компонент (pos=0, quantity=1 — как при создании товара). Возвращает id
+// рецепта.
+func (r *GoodsRepository) CreateRecipe(goodID int64, complexity *int) (int64, error) {
+	tx, err := r.beginMutation()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	var kind string
+	err = tx.QueryRow(`SELECT kind FROM goods WHERE id = $1 FOR UPDATE`, goodID).Scan(&kind)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, errCatalog(404, "товар не найден")
+	}
+	if err != nil {
+		return 0, err
+	}
+	if kind != "good" {
+		return 0, errCatalog(400, "рецепт — только у товара (kind=good)")
+	}
+	if complexity != nil && *complexity < 0 {
+		return 0, errCatalog(400, "сложность не может быть отрицательной")
+	}
+	var exists bool
+	if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM recipes WHERE good_id = $1)`, goodID).Scan(&exists); err != nil {
+		return 0, err
+	}
+	if exists {
+		return 0, errCatalog(409, "у товара уже есть рецепт")
+	}
+	var recipeID int64
+	if err := tx.QueryRow(
+		`INSERT INTO recipes (good_id, complexity) VALUES ($1, $2) RETURNING id`, goodID, complexity,
+	).Scan(&recipeID); err != nil {
+		if isUniqueViolation(err) {
+			return 0, errCatalog(409, "у товара уже есть рецепт")
+		}
+		return 0, err
+	}
+	if _, err := tx.Exec(
+		`INSERT INTO recipe_components (recipe_id, pos, quantity) VALUES ($1, 0, 1)`, recipeID,
+	); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return recipeID, nil
+}
+
+// SetRecipeComplexity — сложность рецепта (спека 2026-09-21-рецепт-сущность
+// §5, PUT /studio/api/recipes/{id}): ≥ 0, иначе 400; null — очистить
+// (сложность вычисляется по графу). Рецепта нет — 404.
+func (r *GoodsRepository) SetRecipeComplexity(recipeID int64, complexity *int) error {
 	tx, err := r.beginMutation()
 	if err != nil {
 		return err
@@ -738,20 +846,20 @@ func (r *GoodsRepository) SetTier(id int64, tier *int) error {
 
 	var exists bool
 	if err := tx.QueryRow(
-		`SELECT EXISTS(SELECT 1 FROM goods WHERE id = $1 FOR UPDATE)`, id,
+		`SELECT EXISTS(SELECT 1 FROM recipes WHERE id = $1 FOR UPDATE)`, recipeID,
 	).Scan(&exists); err != nil {
 		return err
 	}
 	if !exists {
-		return errCatalog(404, "товар не найден")
+		return errCatalog(404, "рецепт не найден")
 	}
-	if tier != nil && *tier < 0 {
-		return errCatalog(400, "тир не может быть отрицательным")
+	if complexity != nil && *complexity < 0 {
+		return errCatalog(400, "сложность не может быть отрицательной")
 	}
-	if tier != nil {
-		_, err = tx.Exec(`UPDATE goods SET tier_override = $1 WHERE id = $2`, *tier, id)
+	if complexity != nil {
+		_, err = tx.Exec(`UPDATE recipes SET complexity = $1 WHERE id = $2`, *complexity, recipeID)
 	} else {
-		_, err = tx.Exec(`UPDATE goods SET tier_override = NULL WHERE id = $1`, id)
+		_, err = tx.Exec(`UPDATE recipes SET complexity = NULL WHERE id = $1`, recipeID)
 	}
 	if err != nil {
 		return err
@@ -759,23 +867,35 @@ func (r *GoodsRepository) SetTier(id int64, tier *int) error {
 	return tx.Commit()
 }
 
-// --- слоты ---
+// --- состав рецепта (спека 2026-09-21-рецепт-сущность §5) ---
 
-// AddSlot — добавить пустой слот (quantity=1, спека §7); ресурсу — 403
-// (решение №1: у kind=resource слотов нет).
-func (r *GoodsRepository) AddSlot(goodID int64) error {
+// checkRecipe — рецепт существует (404); возвращает good_id рецепта (выход).
+func checkRecipe(tx *sql.Tx, recipeID int64) (int64, error) {
+	var goodID int64
+	err := tx.QueryRow(`SELECT good_id FROM recipes WHERE id = $1 FOR UPDATE`, recipeID).Scan(&goodID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, errCatalog(404, "рецепт не найден")
+	}
+	if err != nil {
+		return 0, err
+	}
+	return goodID, nil
+}
+
+// AddRecipeComponent — добавить пустой компонент (pos = max+1, quantity=1).
+func (r *GoodsRepository) AddRecipeComponent(recipeID int64) error {
 	tx, err := r.beginMutation()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	if err := checkGoodForSlots(tx, goodID); err != nil {
+	if _, err := checkRecipe(tx, recipeID); err != nil {
 		return err
 	}
 	var maxPos sql.NullInt64
 	if err := tx.QueryRow(
-		`SELECT MAX(pos) FROM goods_slots WHERE good_id = $1`, goodID,
+		`SELECT MAX(pos) FROM recipe_components WHERE recipe_id = $1`, recipeID,
 	).Scan(&maxPos); err != nil {
 		return err
 	}
@@ -784,34 +904,35 @@ func (r *GoodsRepository) AddSlot(goodID int64) error {
 		next = int(maxPos.Int64) + 1
 	}
 	if _, err := tx.Exec(
-		`INSERT INTO goods_slots (good_id, pos, quantity) VALUES ($1, $2, 1)`, goodID, next,
+		`INSERT INTO recipe_components (recipe_id, pos, quantity) VALUES ($1, $2, 1)`, recipeID, next,
 	); err != nil {
 		return err
 	}
 	return tx.Commit()
 }
 
-// PutSlot — положить составляющую / изменить количество (спека §7):
-// цикл — 409 (проверка достижимости на снимке графа из той же транзакции,
-// §9.2); quantity ≥ 1 (иначе 1); good_id пустой — только количество.
-func (r *GoodsRepository) PutSlot(goodID int64, pos int, componentID int64, quantity *int) error {
+// PutRecipeComponent — поставить составляющую / изменить количество (спека
+// §5): цикл — 409 (проверка достижимости на снимке графа из той же
+// транзакции); quantity ≥ 1 (иначе 1); componentID=0 — только количество.
+func (r *GoodsRepository) PutRecipeComponent(recipeID int64, pos int, componentID int64, quantity *int) error {
 	tx, err := r.beginMutation()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	if err := checkGoodForSlots(tx, goodID); err != nil {
+	targetGoodID, err := checkRecipe(tx, recipeID)
+	if err != nil {
 		return err
 	}
-	var slotExists bool
+	var exists bool
 	if err := tx.QueryRow(
-		`SELECT EXISTS(SELECT 1 FROM goods_slots WHERE good_id = $1 AND pos = $2)`, goodID, pos,
-	).Scan(&slotExists); err != nil {
+		`SELECT EXISTS(SELECT 1 FROM recipe_components WHERE recipe_id = $1 AND pos = $2)`, recipeID, pos,
+	).Scan(&exists); err != nil {
 		return err
 	}
-	if !slotExists {
-		return errCatalog(404, "слот не найден")
+	if !exists {
+		return errCatalog(404, "компонент не найден")
 	}
 	if componentID != 0 {
 		var compExists bool
@@ -823,8 +944,8 @@ func (r *GoodsRepository) PutSlot(goodID int64, pos int, componentID int64, quan
 		if !compExists {
 			return errCatalog(404, "составляющая не найдена")
 		}
-		// цикл-проверка внутри транзакции (§9.2): между проверкой и UPDATE
-		// никто не вставит ребро (advisory lock + FOR UPDATE на родителе).
+		// цикл-проверка внутри транзакции: между проверкой и UPDATE никто не
+		// вставит ребро (advisory lock + FOR UPDATE на рецепте).
 		goods, err := loadGoods(tx)
 		if err != nil {
 			return err
@@ -837,12 +958,12 @@ func (r *GoodsRepository) PutSlot(goodID int64, pos int, componentID int64, quan
 			goods[i].Recipe = slots[goods[i].ID]
 		}
 		byID := graph.ByID(goods)
-		if graph.WouldCreateCycle(strconv.FormatInt(componentID, 10), strconv.FormatInt(goodID, 10), byID) {
+		if graph.WouldCreateCycle(strconv.FormatInt(componentID, 10), strconv.FormatInt(targetGoodID, 10), byID) {
 			return errCatalog(409, "цикл: товар не может быть составляющей самого себя (рёбра только вверх)")
 		}
 		if _, err := tx.Exec(
-			`UPDATE goods_slots SET component_id = $1, reason = '' WHERE good_id = $2 AND pos = $3`,
-			componentID, goodID, pos,
+			`UPDATE recipe_components SET component_id = $1, reason = '' WHERE recipe_id = $2 AND pos = $3`,
+			componentID, recipeID, pos,
 		); err != nil {
 			return err
 		}
@@ -853,7 +974,7 @@ func (r *GoodsRepository) PutSlot(goodID int64, pos int, componentID int64, quan
 			q = 1
 		}
 		if _, err := tx.Exec(
-			`UPDATE goods_slots SET quantity = $1 WHERE good_id = $2 AND pos = $3`, q, goodID, pos,
+			`UPDATE recipe_components SET quantity = $1 WHERE recipe_id = $2 AND pos = $3`, q, recipeID, pos,
 		); err != nil {
 			return err
 		}
@@ -861,92 +982,92 @@ func (r *GoodsRepository) PutSlot(goodID int64, pos int, componentID int64, quan
 	return tx.Commit()
 }
 
-// DeleteSlot — удалить слот (сдвиг pos в той же транзакции, спека §7).
-func (r *GoodsRepository) DeleteSlot(goodID int64, pos int) error {
+// DeleteRecipeComponent — удалить компонент (сдвиг pos в той же транзакции).
+func (r *GoodsRepository) DeleteRecipeComponent(recipeID int64, pos int) error {
 	tx, err := r.beginMutation()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	if err := checkGoodForSlots(tx, goodID); err != nil {
+	if _, err := checkRecipe(tx, recipeID); err != nil {
 		return err
 	}
-	var slotExists bool
+	var exists bool
 	if err := tx.QueryRow(
-		`SELECT EXISTS(SELECT 1 FROM goods_slots WHERE good_id = $1 AND pos = $2)`, goodID, pos,
-	).Scan(&slotExists); err != nil {
+		`SELECT EXISTS(SELECT 1 FROM recipe_components WHERE recipe_id = $1 AND pos = $2)`, recipeID, pos,
+	).Scan(&exists); err != nil {
 		return err
 	}
-	if !slotExists {
-		return errCatalog(404, "слот не найден")
+	if !exists {
+		return errCatalog(404, "компонент не найден")
 	}
 	if _, err := tx.Exec(
-		`DELETE FROM goods_slots WHERE good_id = $1 AND pos = $2`, goodID, pos,
+		`DELETE FROM recipe_components WHERE recipe_id = $1 AND pos = $2`, recipeID, pos,
 	); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(
-		`UPDATE goods_slots SET pos = pos - 1 WHERE good_id = $1 AND pos > $2`, goodID, pos,
-	); err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
-// ClearSlot — очистить слот (товар остаётся в реестре, спека §7).
-func (r *GoodsRepository) ClearSlot(goodID int64, pos int) error {
-	tx, err := r.beginMutation()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	if err := checkGoodForSlots(tx, goodID); err != nil {
-		return err
-	}
-	var slotExists bool
-	if err := tx.QueryRow(
-		`SELECT EXISTS(SELECT 1 FROM goods_slots WHERE good_id = $1 AND pos = $2)`, goodID, pos,
-	).Scan(&slotExists); err != nil {
-		return err
-	}
-	if !slotExists {
-		return errCatalog(404, "слот не найден")
-	}
-	if _, err := tx.Exec(
-		`UPDATE goods_slots SET component_id = NULL, reason = '' WHERE good_id = $1 AND pos = $2`,
-		goodID, pos,
+		`UPDATE recipe_components SET pos = pos - 1 WHERE recipe_id = $1 AND pos > $2`, recipeID, pos,
 	); err != nil {
 		return err
 	}
 	return tx.Commit()
 }
 
-// SetSlotAllowResource — галка «заполнять ресурсом» (спека §7; влияет на
-// ИИ, C).
-func (r *GoodsRepository) SetSlotAllowResource(goodID int64, pos int, allow bool) error {
+// ClearRecipeComponent — очистить компонент (товар остаётся в реестре).
+func (r *GoodsRepository) ClearRecipeComponent(recipeID int64, pos int) error {
 	tx, err := r.beginMutation()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	if err := checkGoodForSlots(tx, goodID); err != nil {
+	if _, err := checkRecipe(tx, recipeID); err != nil {
 		return err
 	}
-	var slotExists bool
+	var exists bool
 	if err := tx.QueryRow(
-		`SELECT EXISTS(SELECT 1 FROM goods_slots WHERE good_id = $1 AND pos = $2)`, goodID, pos,
-	).Scan(&slotExists); err != nil {
+		`SELECT EXISTS(SELECT 1 FROM recipe_components WHERE recipe_id = $1 AND pos = $2)`, recipeID, pos,
+	).Scan(&exists); err != nil {
 		return err
 	}
-	if !slotExists {
-		return errCatalog(404, "слот не найден")
+	if !exists {
+		return errCatalog(404, "компонент не найден")
 	}
 	if _, err := tx.Exec(
-		`UPDATE goods_slots SET allow_resource = $1 WHERE good_id = $2 AND pos = $3`,
-		allow, goodID, pos,
+		`UPDATE recipe_components SET component_id = NULL, reason = '' WHERE recipe_id = $1 AND pos = $2`,
+		recipeID, pos,
+	); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// SetRecipeComponentAllowResource — галка «заполнять ресурсом» (подсказка
+// ИИ для пустого компонента, спека §2.5; поведение не меняется).
+func (r *GoodsRepository) SetRecipeComponentAllowResource(recipeID int64, pos int, allow bool) error {
+	tx, err := r.beginMutation()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := checkRecipe(tx, recipeID); err != nil {
+		return err
+	}
+	var exists bool
+	if err := tx.QueryRow(
+		`SELECT EXISTS(SELECT 1 FROM recipe_components WHERE recipe_id = $1 AND pos = $2)`, recipeID, pos,
+	).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return errCatalog(404, "компонент не найден")
+	}
+	if _, err := tx.Exec(
+		`UPDATE recipe_components SET allow_resource = $1 WHERE recipe_id = $2 AND pos = $3`,
+		allow, recipeID, pos,
 	); err != nil {
 		return err
 	}
@@ -1049,8 +1170,16 @@ func (r *GoodsRepository) BulkCreateGoods(lines []string) (BulkReport, error) {
 			}
 			return rep, err
 		}
+		// рецепт создаётся вместе с товаром (спека 2026-09-21-рецепт-сущность
+		// §2.3/§11.3): пустой состав = один пустой компонент pos=0, quantity=1.
+		var recipeID int64
+		if err := tx.QueryRow(
+			`INSERT INTO recipes (good_id) VALUES ($1) RETURNING id`, id,
+		).Scan(&recipeID); err != nil {
+			return rep, err
+		}
 		if _, err := tx.Exec(
-			`INSERT INTO goods_slots (good_id, pos, quantity) VALUES ($1, 0, 1)`, id,
+			`INSERT INTO recipe_components (recipe_id, pos, quantity) VALUES ($1, 0, 1)`, recipeID,
 		); err != nil {
 			return rep, err
 		}
@@ -1064,22 +1193,6 @@ func (r *GoodsRepository) BulkCreateGoods(lines []string) (BulkReport, error) {
 }
 
 // --- хелперы ---
-
-// checkGoodForSlots — товар существует (404) и не ресурс (403, решение №1).
-func checkGoodForSlots(tx *sql.Tx, goodID int64) error {
-	var kind string
-	err := tx.QueryRow(`SELECT kind FROM goods WHERE id = $1 FOR UPDATE`, goodID).Scan(&kind)
-	if errors.Is(err, sql.ErrNoRows) {
-		return errCatalog(404, "товар не найден")
-	}
-	if err != nil {
-		return err
-	}
-	if kind == "resource" {
-		return errCatalog(403, "у ресурса слотов нет")
-	}
-	return nil
-}
 
 // loadCategories — все категории каталога.
 func loadCategories(q queryer) ([]CategoryRow, error) {
@@ -1100,10 +1213,14 @@ func loadCategories(q queryer) ([]CategoryRow, error) {
 	return out, rows.Err()
 }
 
-// loadGoods — все товары каталога (id/категория — строки для graph).
+// loadGoods — все товары каталога (id/категория — строки для graph) с
+// проекцией рецепта: id рецепта и сложность (LEFT JOIN recipes — у ресурса
+// рецепта нет, recipe_id/complexity = NULL).
 func loadGoods(q queryer) ([]model.Good, error) {
 	rows, err := q.Query(
-		`SELECT id, name, category_id, kind, source, tier_override, created_at, volume, weight FROM goods ORDER BY id`)
+		`SELECT g.id, g.name, g.category_id, g.kind, g.source, r.id, r.complexity, g.created_at, g.volume, g.weight
+		 FROM goods g LEFT JOIN recipes r ON r.good_id = g.id
+		 ORDER BY g.id`)
 	if err != nil {
 		return nil, err
 	}
@@ -1114,19 +1231,22 @@ func loadGoods(q queryer) ([]model.Good, error) {
 		var g model.Good
 		var id, catID int64
 		var kind, source string
-		var tier sql.NullInt64
+		var recipeID, complexity sql.NullInt64
 		var createdAt time.Time
 		var volume, weight sql.NullFloat64
-		if err := rows.Scan(&id, &g.Name, &catID, &kind, &source, &tier, &createdAt, &volume, &weight); err != nil {
+		if err := rows.Scan(&id, &g.Name, &catID, &kind, &source, &recipeID, &complexity, &createdAt, &volume, &weight); err != nil {
 			return nil, err
 		}
 		g.ID = strconv.FormatInt(id, 10)
 		g.Category = strconv.FormatInt(catID, 10)
 		g.Kind = model.Kind(kind)
 		g.Source = model.Source(source)
-		if tier.Valid {
-			t := int(tier.Int64)
-			g.TierOverride = &t
+		if recipeID.Valid {
+			g.RecipeID = recipeID.Int64
+		}
+		if complexity.Valid {
+			t := int(complexity.Int64)
+			g.Complexity = &t
 		}
 		if volume.Valid {
 			v := volume.Float64
@@ -1142,10 +1262,14 @@ func loadGoods(q queryer) ([]model.Good, error) {
 	return out, rows.Err()
 }
 
-// loadSlots — все слоты каталога, сгруппированные по good_id (порядок по pos).
+// loadSlots — состав рецептов каталога (recipe_components), сгруппированный
+// по good_id выхода (порядок по pos) — проекция Good.Recipe (спека
+// 2026-09-21-рецепт-сущность §5: источник — recipe_components, не goods_slots).
 func loadSlots(q queryer) (map[string][]model.Slot, error) {
 	rows, err := q.Query(
-		`SELECT good_id, pos, component_id, quantity, reason, allow_resource FROM goods_slots ORDER BY good_id, pos`)
+		`SELECT r.good_id, c.pos, c.component_id, c.quantity, c.reason, c.allow_resource
+		 FROM recipe_components c JOIN recipes r ON r.id = c.recipe_id
+		 ORDER BY r.good_id, c.pos`)
 	if err != nil {
 		return nil, err
 	}
@@ -1171,4 +1295,28 @@ func loadSlots(q queryer) (map[string][]model.Slot, error) {
 		slots[key] = append(slots[key], s)
 	}
 	return slots, rows.Err()
+}
+
+// loadBindings — привязки рецептов к фабрикам (producer_recipes) с good_id
+// выхода — проекция CatalogSnapshot.Bindings (спека 2026-09-21-рецепт-сущность
+// §5).
+func loadBindings(q queryer) ([]RecipeBindingRow, error) {
+	rows, err := q.Query(
+		`SELECT pr.producer_type_id, pr.recipe_id, r.good_id
+		 FROM producer_recipes pr JOIN recipes r ON r.id = pr.recipe_id
+		 ORDER BY pr.producer_type_id, pr.recipe_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []RecipeBindingRow
+	for rows.Next() {
+		var b RecipeBindingRow
+		if err := rows.Scan(&b.ProducerTypeID, &b.RecipeID, &b.GoodID); err != nil {
+			return nil, err
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
 }

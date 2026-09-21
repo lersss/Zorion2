@@ -54,12 +54,15 @@ type Good struct {
 	Kind        Kind         `json:"kind"`
 	Source      Source       `json:"source"`
 	Recipe      []Slot       `json:"recipe"`
+	// RecipeID — id рецепта товара (recipes.id, спека
+	// 2026-09-21-рецепт-сущность §2.3); 0 у ресурса (рецепта нет).
+	RecipeID    int64        `json:"recipe_id,omitempty"`
 	CreatedAt   string       `json:"created_at"`
-	// TierOverride — ручной тир (99a.3 §4.1): null = вычисляется (текущее
-	// поведение); заданное значение — полная свобода (любое целое ≥ 0, в т.ч.
-	// ниже вычисленного). Эффективный тир = override ?? вычисленный; ресурс = 0.
-	// Старые state.json без поля = null — миграции не нужны (zero value).
-	TierOverride *int `json:"tier_override,omitempty"`
+	// Complexity — сложность рецепта (recipes.complexity, спека
+	// 2026-09-21-рецепт-сущность §2.3): null = вычисляется по графу; заданное —
+	// эффективное значение (тир = complexity ?? вычисленный). У ресурса поля
+	// нет (тир = 0): ручного тира/сложности у ресурса не существует.
+	Complexity *int `json:"complexity,omitempty"`
 	// Volume/Weight — данные каталога (спека 2026-09-20-фабрики §3.1,
 	// решение 3b.6.4): значение есть всегда (Р2, 2026-09-21) — дефолт 1/1,
 	// правится вручную. Механика грузов/трюма — будущая фича, поля — данные
@@ -68,11 +71,24 @@ type Good struct {
 	Weight *float64 `json:"weight,omitempty"`
 }
 
-// State — полное состояние студии (один state.json, спека 99a.1 §5).
+// RecipeBinding — привязка рецепта к конкретной фабрике (producer_recipes,
+// спека 2026-09-21-рецепт-сущность §2.3): проекция для валидатора
+// (`State.Bindings`) — производное «какие фабрики держат рецепт».
+type RecipeBinding struct {
+	RecipeID       int64 `json:"recipe_id"`
+	ProducerTypeID int64 `json:"producer_type_id"`
+	GoodID         int64 `json:"good_id"`
+}
+
+// State — полное состояние студии (спека 99a.1 §5; Bindings — спека
+// 2026-09-21-рецепт-сущность §5).
 type State struct {
 	SchemaVersion int        `json:"schema_version"`
 	Categories    []Category `json:"categories"`
 	Goods         []Good     `json:"goods"`
+	// Bindings — привязки рецептов к фабрикам (producer_recipes), заполняется
+	// снимком каталога; нужен валидатору (unbound_recipe).
+	Bindings []RecipeBinding `json:"bindings,omitempty"`
 }
 
 // NowISO — текущее время в ISO8601 (UTC).

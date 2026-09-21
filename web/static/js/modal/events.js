@@ -719,7 +719,15 @@ function showPlanetMenu(x, y, planetIndex) {
     // ПЕРВОЙ — у player biomes вырезаны сервером, 77a И1).
     if (onThisOrbit || onThisSurface) {
         if (onThisSurface) {
-            menu.appendChild(menuItem(`🚶 <span>Вы на поверхности</span>`));
+            // «Вы на поверхности» — осмысленный пункт (идея 2026-09-21 §3 п.1а):
+            // клик открывает прогулку заново (позиция уже surface — land
+            // идемпотентно вернёт тот же биом).
+            const surfaceItem = menuItem(`🚶 <span>Вы на поверхности</span>`);
+            surfaceItem.addEventListener('click', () => {
+                hideStarMenu();
+                window.location.href = '/surface.html?planet=' + encodeURIComponent(planet.id);
+            });
+            menu.appendChild(surfaceItem);
         } else if (planet.is_gas_giant) {
             const landItem = menuItem(`🚶 <span style="color:#64748b;">Высадиться</span>
                <span title="Высадка: биом случаен — чем больше доля, тем вероятнее"

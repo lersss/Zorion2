@@ -92,20 +92,30 @@ async function main() {
     await page.waitForFunction(() => document.getElementById('loadingOverlay').style.display === 'none', null, { timeout: 15000 });
     await page.waitForFunction(() => document.getElementById('prodRaceLevelSel').options.length >= 3, null, { timeout: 10000 });
     const branchOK = await page.evaluate(() => {
-      return document.getElementById('prodAddRow').style.display !== 'none'
+      return document.getElementById('btnProdNewOpen').style.display !== 'none'
         && document.getElementById('segProdRace').style.display !== 'none';
     });
     report('1 producers branch + real controls', branchOK ? 'PASS' : 'FAIL',
-      'prodAddRow/segProdRace visible=' + branchOK);
+      'btnProdNewOpen/segProdRace visible=' + branchOK);
 
     // выбрать уровень/семейство/расу РЕАЛЬНЫМИ селектами шапки (change → onchange)
     const setLevel = async (lvl) => { await page.selectOption('#prodRaceLevelSel', lvl); await page.waitForTimeout(150); };
     const setFamily = async (f) => { await page.selectOption('#prodRaceFamilySel', f); await page.waitForTimeout(150); };
     const setRace = async (r) => { await page.selectOption('#prodRaceSel', r); await page.waitForTimeout(150); };
 
-    // «+ тип»: заполнить имя и нажать РЕАЛЬНУЮ кнопку (fallback — DOM click,
-    // если попап «Описания ИИ» перехватывает мышь)
+    // «+ тип»: форма живёт в попапе (ТЗ §7.6) — открыть окно, заполнить имя,
+    // нажать РЕАЛЬНУЮ кнопку (fallback — DOM click, если попап «Описания ИИ»
+    // перехватывает мышь). Окно закрывается при успехе, поэтому открываем его
+    // заново на каждом вызове; при ошибке оно уже открыто.
     const createViaUI = async (name) => {
+      // closeModal() скрывает только overlay — разметка попапа остаётся в
+      // #modalBody, поэтому «поле есть в DOM» ≠ «окно открыто»: проверяем
+      // видимость, а не существование
+      const nameVisible = await page.locator('#prodNewName').isVisible().catch(() => false);
+      if (!nameVisible) {
+        await page.click('#btnProdNewOpen');
+        await page.waitForSelector('#prodNewName');
+      }
       await page.fill('#prodNewName', name);
       try {
         await page.click('#btnProdAdd', { timeout: 4000 });

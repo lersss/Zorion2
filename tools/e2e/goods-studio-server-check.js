@@ -151,6 +151,9 @@ async function main() {
     report('1 studio loads after login', loginGone ? 'PASS' : 'FAIL', 'login overlay hidden, spinner removed');
 
     // ============ Step 2: «+ ресурс» (UI) ============
+    // форма «+ ресурс» живёт в попапе (ТЗ §7.6): кнопка в шапке → ввод → создать
+    await page.click('#btnNewResOpen');
+    await page.waitForSelector('#spravNewResName');
     await page.fill('#spravNewResName', 'QA_Ресурс');
     await page.selectOption('#spravNewResCat', String(resCatId));
     await page.click('#btnSpravAddRes');
@@ -170,7 +173,11 @@ async function main() {
     await waitFor((name) => state.goods.some(g => g.name === name), 8000, 'renamed in state', 'QA_Ресурс_2');
     const renamed = await page.evaluate(() => state.goods.some(g => g.name === 'QA_Ресурс_2'));
     // дубликат имени через UI → 409-тост (api() показывает e.error); ждём
-    // именно текст «уже есть» — отчёт-тост мог быть занят прошлым fill-отчётом
+    // именно текст «уже есть» — отчёт-тост мог быть занят прошлым fill-отчётом.
+    // Форма — в попапе (ТЗ §7.6): открываем заново, т.к. после успеха шага 2
+    // окно закрылось. При ошибке 409 окно остаётся открытым (ТЗ §7.3).
+    await page.click('#btnNewResOpen');
+    await page.waitForSelector('#spravNewResName');
     await page.fill('#spravNewResName', 'QA_Ресурс_2');
     await page.selectOption('#spravNewResCat', String(resCatId));
     await page.click('#btnSpravAddRes');
@@ -178,6 +185,9 @@ async function main() {
     const dupToast = await page.evaluate(() => document.getElementById('report').textContent);
     report('3 cyrillic rename + dup 409', (renamed && dupToast.includes('уже есть')) ? 'PASS' : 'FAIL',
       `renamed=${renamed} toast="${dupToast.replace(/\n/g, ' | ').slice(0, 80)}"`);
+    // ошибка оставляет попап открытым — закрываем его, overlay перехватил бы
+    // клики следующих шагов по панели справа
+    await page.keyboard.press('Escape');
 
     // ============ Step 4: OR-фильтры + обратимость скрытия ============
     await page.evaluate(() => { toggleAllTiers(); });

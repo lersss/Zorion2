@@ -72,8 +72,23 @@ async function main() {
     report('1 studio loads + races', races.families.length > 0 ? 'PASS' : 'FAIL',
       `families=${races.families.length} pick=${famId}/${raceId}`);
 
-    // make(name) — тот же путь, что кнопка «+ тип»: выставить поля и вызвать prodAdd()
+    // студия стартует во вкладке «Товары» — переключаемся на «Производители»
+    // реальной вкладкой, иначе кнопка/форма «+ тип» скрыты (ТЗ §7.2)
+    await page.click('#branchProducers');
+    await page.waitForSelector('#btnProdNewOpen', { state: 'visible' });
+
+    // make(name) — тот же путь, что кнопка «+ тип»: открыть попап формы
+    // (ТЗ §7.6 — #prodNewName существует только пока окно открыто), выставить
+    // поля и вызвать prodAdd(). Успешное создание закрывает окно, поэтому
+    // открываем заново на каждом вызове; при ошибке оно уже открыто.
     const make = async (name) => {
+      // closeModal() скрывает только overlay — разметка попапа остаётся в
+      // #modalBody: проверяем видимость поля, а не его наличие в DOM
+      const nameVisible = await page.locator('#prodNewName').isVisible().catch(() => false);
+      if (!nameVisible) {
+        await page.click('#btnProdNewOpen');
+        await page.waitForSelector('#prodNewName');
+      }
       await page.evaluate((n) => {
         document.getElementById('prodNewName').value = n;
         document.getElementById('prodNewKind').value = 'goods';

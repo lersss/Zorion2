@@ -130,6 +130,9 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
   #modal .pline{font-size:12px;color:#ddd;padding:3px 6px;border-radius:4px;cursor:pointer}
   #modal .pline:hover{background:#242424;color:#8cf}
  #modal .mbtns{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
+  /* поля форм добавления в попапе (ТЗ §7.3): на всю ширину окна — формы переехали
+     из узкой панели #sprav (инлайн-строки .addrow удалены) */
+  #modal input[type=text],#modal select,#modal textarea{width:100%;box-sizing:border-box;display:block;margin:6px 0;background:#222;border:1px solid #444;color:#ddd;padding:5px;border-radius:6px;font-size:13px;font-family:inherit}
   /* оверлей логина (спека iterB §4.1): инлайн-копия паттерна админки, стиль студии */
   #studioLoginOverlay{position:fixed;inset:0;background:#111f;z-index:40;display:none;align-items:center;justify-content:center}
   #studioLoginOverlay .login-card{background:#1c1c1c;border:1px solid #444;border-radius:10px;padding:20px;width:340px;box-sizing:border-box;box-shadow:0 8px 32px #000c}
@@ -171,7 +174,7 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
   #descPopupBody textarea{width:100%;box-sizing:border-box;background:#222;border:1px solid #444;color:#ddd;border-radius:6px;padding:4px;font-size:12px;font-family:inherit;margin-top:4px}
   .descai{font-size:12px;color:#bbb;white-space:nowrap}
   .descai input{margin-right:4px;vertical-align:middle}
-  #btnDescBatch{width:100%;text-align:left;font-size:12px;background:#2b2b2b;border:1px solid #4a4a4a;color:#ddd;border-radius:6px;padding:5px 8px;cursor:pointer;margin-bottom:4px}
+  #btnDescBatch{font-size:12px;background:#2b2b2b;border:1px solid #4a4a4a;color:#ddd;border-radius:6px;padding:5px 8px;cursor:pointer}
   #btnDescBatch:hover{background:#363636}
   #btnDescBatch:disabled{opacity:.5;cursor:default}
   .popup-head{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid #333;cursor:move;user-select:none;font-size:14px;color:#fff;gap:8px}
@@ -184,13 +187,6 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
   .card.hidden{opacity:.55;background:#222;border-color:#444} /* скрытая запись-фабрика / скрытая категория строений (спека скрытых §3.3) */
   .card .info{background:none;border:none;color:#8cf;cursor:pointer;font-size:12px;padding:0 2px;float:right}
   .card .info:hover{color:#fff}
-  #sprav .addrow{display:flex;gap:6px;margin-bottom:6px}
-  #sprav .addrow input{flex:1;min-width:0;background:#222;border:1px solid #444;color:#ddd;padding:5px;border-radius:6px}
-  #sprav .addrow select{background:#222;border:1px solid #444;color:#ddd;padding:5px;border-radius:6px;max-width:110px}
-  #bulkToggle{width:100%;text-align:left;font-size:12px;background:#2b2b2b;border:1px solid #4a4a4a;color:#ddd;border-radius:6px;padding:5px 8px;cursor:pointer;margin-bottom:4px}
-  #bulkToggle:hover{background:#363636}
-  #bulkBlock textarea{width:100%;box-sizing:border-box;background:#222;border:1px solid #444;color:#ddd;border-radius:6px;padding:5px;font-size:12px;font-family:inherit}
-  #bulkBlock button{width:100%;margin-top:4px}
   /* разделы студии (спека 2026-09-20-фабрики §4): Товары/Производители/Предметы */
   .branch-btn{background:#2b2b2b;border:1px solid #4a4a4a;color:#ddd;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer}
   .branch-btn:hover{background:#363636}
@@ -205,6 +201,14 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
       <span id="genIndicator"></span>
     </span>
     <button onclick="location.href='/admin'" title="Перейти в админку (общий админский токен)" style="background:#2b2b2b; border:1px solid #4a4a4a; color:#ddd; border-radius:6px; padding:5px 12px; font-size:12px; cursor:pointer;">⚙️ Админка</button>
+  </div>
+  <div class="head-row head-tabs" id="headTabs">
+    <div class="tool-seg" id="segBranch">
+      <span class="seg-label">Раздел</span>
+      <button class="branch-btn on" id="branchGoods" title="Товары и ресурсы (граф рецептов)">Товары</button>
+      <button class="branch-btn" id="branchProducers" title="Типы производителей (спека 2026-09-20-фабрики §4.1)">Производители</button>
+      <button class="branch-btn" id="branchItems" title="Предметы — единый справочник «что бывает» (§4.2)">Предметы</button>
+    </div>
   </div>
   <div class="head-row head-tools">
     <!-- скоп ветки «Товары» (спека 2026-09-21-рецепт-сущность §4.1/§4.3, ТЗ §2):
@@ -224,16 +228,6 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
       <label style="font-size:12px"><input type="checkbox" id="reverseEdges"> обратные рёбра</label>
       <button id="btnTop" title="Показать верхний тир (товары-верхушки)">⟲ на верхний тир</button>
     </div>
-    <!-- #segActions (Экспорт/Импорт) скрыт: итерация C (спека iterB §4.6) -->
-  </div>
-  <div class="head-row head-secondary">
-    <div class="tool-seg" id="segBranch">
-      <span class="seg-label">Раздел</span>
-      <button class="branch-btn on" id="branchGoods" title="Товары и ресурсы (граф рецептов)">Товары</button>
-      <button class="branch-btn" id="branchProducers" title="Типы производителей (спека 2026-09-20-фабрики §4.1)">Производители</button>
-      <button class="branch-btn" id="branchItems" title="Предметы — единый справочник «что бывает» (§4.2)">Предметы</button>
-    </div>
-    <button class="tool-seg" id="btnCatOpen" title="Управление категориями (создание/переименование/удаление)">Категории</button>
     <!-- Переключатель уровня расовости дерева построек (спека 2026-09-21 §5):
          универсальный → семейство (F0–F10) → конкретная раса (60). -->
     <div class="tool-seg" id="segProdRace" style="display:none">
@@ -249,6 +243,18 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
            карточки с пометкой «скрыта»; состояние — localStorage, дефолт выключена -->
       <label style="font-size:12px"><input type="checkbox" id="prodShowHidden" title="Показать скрытые категории построек (затемнённые карточки) на выбранном уровне расовости"> показать скрытые</label>
     </div>
+    <!-- #segActions (Экспорт/Импорт) скрыт: итерация C (спека iterB §4.6) -->
+  </div>
+  <div class="head-row head-actions" id="headActions">
+    <!-- ряд действий активного раздела (ТЗ §7.2): все 7 кнопок в DOM всегда,
+         показ по ветке — в applyBranchUI(); сами формы — в попапах (#modal) -->
+    <button class="gen" id="btnNewGoodOpen" title="создать товар">+ товар</button>
+    <button class="gen" id="btnNewResOpen" title="создать ресурс">+ ресурс</button>
+    <button id="btnBulkOpen" title="создать несколько товаров из списка (название | категория | описание)">подгрузка списка</button>
+    <button id="btnCatOpen" title="Управление категориями (создание/переименование/удаление)">Категории</button>
+    <button id="btnDescBatch" title="ИИ предложит описания всем записям без описания">описания ИИ</button>
+    <button class="gen" id="btnProdNewOpen" title="создать тип производителя">+ тип</button>
+    <button class="gen" id="btnItemNewOpen" title="создать предмет">+ предмет</button>
   </div>
 </header>
 <div id="right">
@@ -262,39 +268,6 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
         <label><input type="checkbox" id="fUnused"> неиспользуемые</label>
       </div>
       <div class="tierf" id="tierFilters"></div>
-      <div class="addrow" id="goodsAddRow">
-        <input id="spravNewName" type="text" placeholder="имя товара" autocomplete="off">
-        <select id="spravNewCat"></select>
-        <button class="gen" id="btnSpravAdd">+ товар</button>
-        <label class="descai" title="после создания ИИ предложит описание"><input type="checkbox" id="newGoodDescAI" checked> описание ИИ</label>
-      </div>
-      <div class="addrow" id="resAddRow">
-        <input id="spravNewResName" type="text" placeholder="имя ресурса" autocomplete="off">
-        <select id="spravNewResCat"></select>
-        <button class="gen" id="btnSpravAddRes">+ ресурс</button>
-        <label class="descai" title="после создания ИИ предложит описание"><input type="checkbox" id="newResDescAI" checked> описание ИИ</label>
-      </div>
-      <button id="bulkToggle">▾ подгрузка списка</button>
-      <button id="btnDescBatch" title="ИИ предложит описания всем записям без описания">описания ИИ</button>
-      <div id="bulkBlock" style="display:none">
-        <textarea id="bulkText" rows="4" placeholder="название | категория | описание (необязательно)"></textarea>
-        <div class="hint">2 колонки — без описания; 3-я колонка — описание (пустая = без описания; символ «|» в описании допустим)</div>
-        <button id="btnBulk">Создать из списка</button>
-      </div>
-      <!-- ветка «Производители» (спека 2026-09-20-фабрики §4.1): «+ тип» создаёт
-           тип (parent_id NULL); категории живут в подтипах (спека 2026-09-21 §1.2 п.4),
-           подтипы заводятся через узлы-приглашения дерева на канвасе -->
-      <div class="addrow" id="prodAddRow" style="display:none">
-        <input id="prodNewName" type="text" placeholder="имя типа" autocomplete="off">
-        <select id="prodNewKind" title="класс выхода"><option value="goods">товары</option><option value="items">предметы</option><option value="energy">энергия</option></select>
-        <button class="gen" id="btnProdAdd">+ тип</button>
-      </div>
-      <!-- ветка «Предметы» (спека 2026-09-20-фабрики §4.2) -->
-      <div class="addrow" id="itemAddRow" style="display:none">
-        <input id="itemNewName" type="text" placeholder="имя предмета" autocomplete="off">
-        <select id="itemNewSlot" title="тип слота"><option value="чертёж">чертёж</option><option value="модуль">модуль</option><option value="инструмент">инструмент</option><option value="сертификат">сертификат</option></select>
-        <button class="gen" id="btnItemAdd">+ предмет</button>
-      </div>
     </div>
     <div id="spravList"></div>
   </div>
@@ -343,16 +316,18 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
 </div>
 <div id="report"></div>
 <div id="ctxMenu"></div>
-<div id="modalOverlay"><div id="modal"><div id="modalBody"></div><div id="modalBtns"></div></div></div>
+<div id="modalOverlay" autocomplete="off"><div id="modal" autocomplete="off"><div id="modalBody"></div><div id="modalBtns"></div></div></div>
 <!-- Оверлей логина (спека iterB §4.1): общий токен с админкой (localStorage adminToken),
      вход — POST /login; роли admin/skycomposer (player → «Недостаточно прав»). -->
 <div id="studioLoginOverlay">
   <div class="login-card">
     <h2>🔐 Вход в студию товаров</h2>
     <p>Войдите под учёткой с ролью администратора или skycomposer.</p>
-    <input type="text" id="studioLoginUsername" placeholder="Логин">
-    <input type="password" id="studioLoginPassword" placeholder="Пароль" onkeydown="if (event.key === 'Enter') studioLogin()">
-    <button class="gen" onclick="studioLogin()">Войти</button>
+    <form id="studioLoginForm" autocomplete="on" onsubmit="event.preventDefault(); studioLogin();">
+      <input type="text" id="studioLoginUsername" placeholder="Логин" autocomplete="username">
+      <input type="password" id="studioLoginPassword" placeholder="Пароль" autocomplete="current-password">
+      <button class="gen" type="submit">Войти</button>
+    </form>
     <div id="studioLoginError"></div>
   </div>
 </div>
@@ -1822,7 +1797,7 @@ async function dropOnSlot(ev, i) {
 function openModal(html, buttons) {
   $("modalBody").innerHTML = html;
   $("modalBtns").innerHTML = buttons.map((b, i) =>
-    '<button class="' + b.cls + '" data-idx="' + i + '"' + (b.primary ? ' data-primary="1"' : '') + '>' + esc(b.label) + '</button>').join("");
+    '<button class="' + b.cls + '" data-idx="' + i + '"' + (b.primary ? ' data-primary="1"' : '') + (b.id ? ' id="' + b.id + '"' : '') + '>' + esc(b.label) + '</button>').join("");
   $("modalBtns").querySelectorAll("button").forEach(btn => {
     btn.addEventListener("click", () => buttons[+btn.dataset.idx].action());
   });
@@ -1834,7 +1809,8 @@ function closeModal() { $("modalOverlay").style.display = "none"; }
 document.addEventListener("keydown", ev => {
   if ($("modalOverlay").style.display !== "flex") return;
   if (ev.key === "Escape") closeModal();
-  if (ev.key === "Enter") {
+  // Enter = primary, кроме textarea (там перенос строки — форма подгрузки, §7.3)
+  if (ev.key === "Enter" && ev.target.tagName !== "TEXTAREA") {
     const primary = $("modalBtns").querySelector("button[data-primary]");
     if (primary) primary.click();
   }
@@ -2391,7 +2367,9 @@ async function unlinkItem(itemId) {
   if (r) fetchState();
 }
 async function prodAdd() {
-  const name = $("prodNewName").value.trim();
+  const nameEl = $("prodNewName");
+  if (!nameEl) return; // форма доступна только из открытого попапа
+  const name = nameEl.value.trim();
   const kind = $("prodNewKind").value;
   if (!name) return;
   // «+ тип» создаёт тип (parent_id NULL): категории у типов нет (спека
@@ -2402,10 +2380,11 @@ async function prodAdd() {
   if (prodRaceLevel === "family") body.race_family = prodRaceFamily;
   if (prodRaceLevel === "race") { body.race_family = raceFamilyOf(prodRace); body.race = prodRace; }
   const r = await api("POST", "/studio/api/producers", body);
-  if (!r) return;
+  if (!r) return; // ошибка — попап остаётся открытым с введённым именем
   const p = await r.json();
-  $("prodNewName").value = "";
+  nameEl.value = "";
   selected = prodNodeId(p);
+  closeModal();
   fetchState();
 }
 
@@ -2810,7 +2789,7 @@ function openProdCreatePopup(id) {
     '<h3>Создать подтип</h3>' +
     '<div>Родитель: <b>' + esc(type.name) + '</b> · категория: <b>' + esc(cat.name) + '</b>' +
     (raceInfo ? ' · расовость: <b>' + esc(raceInfo) + '</b>' : '') + '</div>' +
-    '<div style="margin-top:8px">Имя: <input id="prodCreateName" type="text" value="' + esc(type.name + " " + cat.name) + '" style="width:100%;box-sizing:border-box" autocomplete="off"></div>' +
+    '<div style="margin-top:8px">Имя: <input id="prodCreateName" type="text" name="studio_new_subtype_name" value="' + esc(type.name + " " + cat.name) + '" style="width:100%;box-sizing:border-box" autocomplete="off"></div>' +
     copyLine,
     [
       {label: "Создать", cls: "gen", primary: true, action: () => doProdCreate(type, cat)},
@@ -3047,14 +3026,17 @@ async function doDeleteItem() {
   if (r) fetchState();
 }
 async function itemAdd() {
-  const name = $("itemNewName").value.trim();
+  const nameEl = $("itemNewName");
+  if (!nameEl) return; // форма доступна только из открытого попапа
+  const name = nameEl.value.trim();
   const slot = $("itemNewSlot").value;
   if (!name) return;
   const r = await api("POST", "/studio/api/items", {name, slot_type: slot});
-  if (!r) return;
+  if (!r) return; // ошибка — попап остаётся открытым с введённым именем
   const it = await r.json();
-  $("itemNewName").value = "";
+  nameEl.value = "";
   selected = it.id;
+  closeModal();
   fetchState();
 }
 
@@ -3157,19 +3139,34 @@ function renderCatSelects() {
   if (state.categories.some(c => String(c.id) === cur)) $("catFilter").value = cur;
   pendingCatFilter = "";
   // «+ товар»: при выбранной фабрике категория определяется фабрикой и
-  // селект заблокирован (ТЗ §7.2); #catFilter/#spravCat остаются общими
+  // селект заблокирован (ТЗ §7.2); #catFilter/#spravCat остаются общими.
+  // #spravNewCat/#spravNewResCat/#btnSpravAddRes существуют только при
+  // открытом попапе формы (ТЗ §7.6 п.1) — все обращения под null-защитой.
   const ft = factoryMode() ? factoryType() : null;
-  if (ft && ft.category_id != null) {
-    $("spravNewCat").innerHTML = '<option value="' + ft.category_id + '">' + esc(catName(ft.category_id)) + '</option>';
-    $("spravNewCat").disabled = true;
-    $("spravNewCat").title = "категория определяется выбранной фабрикой";
-  } else {
-    $("spravNewCat").innerHTML = goodOpts;
-    $("spravNewCat").disabled = false;
-    $("spravNewCat").title = "";
+  const newCat = $("spravNewCat");
+  if (newCat) {
+    if (ft && ft.category_id != null) {
+      newCat.innerHTML = '<option value="' + ft.category_id + '">' + esc(catName(ft.category_id)) + '</option>';
+      newCat.disabled = true;
+      newCat.title = "категория определяется выбранной фабрикой";
+    } else {
+      newCat.innerHTML = goodOpts;
+      newCat.disabled = false;
+      newCat.title = "";
+    }
   }
-  $("spravNewResCat").innerHTML = resOpts;
-  $("btnSpravAddRes").disabled = !resOpts; // ресурсных категорий нет — «+ ресурс» недоступен
+  const newResCat = $("spravNewResCat");
+  if (newResCat) newResCat.innerHTML = resOpts;
+  // ресурсных категорий нет — «+ ресурс» недоступен: кнопка в шапке + кнопка
+  // попапа (если открыт) — перенос #btnSpravAddRes.disabled (ТЗ §7.2)
+  const noResCats = !resOpts;
+  const resAddBtn = $("btnSpravAddRes");
+  if (resAddBtn) resAddBtn.disabled = noResCats;
+  const resOpenBtn = $("btnNewResOpen");
+  if (resOpenBtn) {
+    resOpenBtn.disabled = noResCats;
+    resOpenBtn.title = noResCats ? "нет ресурсных категорий — заведите их в „Категории“" : "создать ресурс";
+  }
   // фильтр справочника по категории: сохранить текущий выбор при пересборке;
   // при старте опции ещё не заполнены — берём сохранённое из localStorage
   const sc = $("spravCat").value || localStorage.getItem("gs_spravCat") || "";
@@ -3255,17 +3252,20 @@ async function deleteCategory(id) {
   const r = await api("DELETE", "/studio/api/categories/" + id);
   if (r) fetchState();
 }
-// «+ товар» в справочнике — единственный путь создания товара (addbar удалён
-// по решению создателя 2026-09-19; 99a.3-ui §13)
+// «+ товар» — единственный путь создания товара (addbar удалён по решению
+// создателя 2026-09-19; 99a.3-ui §13). Форма — в попапе (ТЗ §7.3): поля
+// существуют только пока окно открыто; при ошибке окно остаётся открытым.
 async function spravAddGood() {
-  const name = $("spravNewName").value.trim();
-  const cat = $("spravNewCat").value;
+  const nameEl = $("spravNewName"), catEl = $("spravNewCat");
+  if (!nameEl || !catEl) return; // форма доступна только из открытого попапа
+  const name = nameEl.value.trim();
+  const cat = catEl.value;
   if (!name || !cat) return;
   // category_id — число (строка → 400, спека iterB §4.3)
   const r = await api("POST", "/studio/api/goods", {name, category_id: Number(cat)});
-  if (!r) return;
+  if (!r) return; // ошибка (409 и т.п.) — окно открыто, имя сохранено
   const g = await r.json();
-  $("spravNewName").value = "";
+  nameEl.value = "";
   selected = g.id;
   // при выбранной фабрике — сразу привязать рецепт нового товара (ТЗ §7.2)
   if (factoryMode()) {
@@ -3277,40 +3277,146 @@ async function spravAddGood() {
     }
   }
   // галка «описание ИИ» (§9.3): после создания — одиночный прогон по записи
-  if ($("newGoodDescAI").checked) {
+  const aiChk = $("newGoodDescAI");
+  if (aiChk && aiChk.checked) {
     await api("POST", "/studio/api/descriptions/fill", {good_ids: [String(g.id)]});
   }
+  closeModal();
   fetchState();
 }
 // «+ ресурс» (спека iterB §4.5): ресурс без привилегий — создание через
 // справочник; категория — только ресурсная (иначе 400); слотов нет (лист)
 async function spravAddResource() {
-  const name = $("spravNewResName").value.trim();
-  const cat = $("spravNewResCat").value;
+  const nameEl = $("spravNewResName"), catEl = $("spravNewResCat");
+  if (!nameEl || !catEl) return; // форма доступна только из открытого попапа
+  const name = nameEl.value.trim();
+  const cat = catEl.value;
   if (!name || !cat) return;
   const r = await api("POST", "/studio/api/goods", {name, category_id: Number(cat), kind: "resource"});
-  if (!r) return;
+  if (!r) return; // ошибка — окно открыто, имя сохранено
   const g = await r.json();
-  $("spravNewResName").value = "";
+  nameEl.value = "";
   selected = g.id;
   // галка «описание ИИ» (§9.3): после создания — одиночный прогон по записи
-  if ($("newResDescAI").checked) {
+  const aiChk = $("newResDescAI");
+  if (aiChk && aiChk.checked) {
     await api("POST", "/studio/api/descriptions/fill", {good_ids: [String(g.id)]});
   }
+  closeModal();
   fetchState();
 }
 // подгрузка списка (99a.3 §8.5): POST /api/goods/bulk → тост-отчёт по строкам
 async function bulkCreate() {
-  const lines = $("bulkText").value.split("\n");
+  const ta = $("bulkText");
+  if (!ta) return; // форма доступна только из открытого попапа
+  const lines = ta.value.split("\n");
   const r = await api("POST", "/studio/api/goods/bulk", {lines});
-  if (!r) return;
+  if (!r) return; // ошибка — окно открыто, список сохранён
   const out = await r.json();
   const lines2 = ["Создано " + (out.created || []).length + ", пропущено " + (out.skipped || []).length + ", ошибок " + (out.errors || []).length];
   (out.skipped || []).forEach(s => lines2.push("строка " + s.line + ": " + s.reason + (s.name ? " («" + s.name + "»)" : "")));
   (out.errors || []).forEach(e => lines2.push("строка " + e.line + ": " + e.reason));
   showReport(lines2);
-  $("bulkText").value = "";
+  ta.value = "";
+  closeModal();
   fetchState();
+}
+// ---------- попапы форм добавления (ТЗ §7.3): форма живёт в #modal ----------
+// Поля (id) создаются вместе с разметкой попапа и существуют только пока он открыт.
+// Enter = primary, Esc закрывает — общий обработчик #modalOverlay (для textarea
+// Enter — перенос строки). Кнопки «Создать»/«Отмена» — штатные кнопки openModal.
+function openNewGoodPopup() {
+  const ft = factoryMode() ? factoryType() : null;
+  const catHint = (ft && ft.category_id != null) ? '<div class="hint">категория определяется выбранной фабрикой</div>' : '';
+  openModal(
+    '<h3>Новый товар</h3>' +
+    '<form autocomplete="off" onsubmit="return false">' +
+    '<input id="spravNewName" type="text" name="studio_new_good_name" placeholder="имя товара" autocomplete="off">' +
+    '<select id="spravNewCat"></select>' + catHint +
+    '<label class="descai" title="после создания ИИ предложит описание"><input type="checkbox" id="newGoodDescAI" checked> описание ИИ</label>' +
+    '</form>',
+    [
+      {label: "Создать", cls: "gen", primary: true, id: "btnSpravAdd", action: spravAddGood},
+      {label: "Отмена", cls: "", action: closeModal}
+    ]
+  );
+  renderCatSelects(); // наполнить селект + disabled при выбранной фабрике (ТЗ §7.6 п.1)
+  $("spravNewName").focus();
+}
+function openNewResPopup() {
+  openModal(
+    '<h3>Новый ресурс</h3>' +
+    '<form autocomplete="off" onsubmit="return false">' +
+    '<input id="spravNewResName" type="text" name="studio_new_res_name" placeholder="имя ресурса" autocomplete="off">' +
+    '<select id="spravNewResCat"></select>' +
+    '<label class="descai" title="после создания ИИ предложит описание"><input type="checkbox" id="newResDescAI" checked> описание ИИ</label>' +
+    '</form>',
+    [
+      {label: "Создать", cls: "gen", primary: true, id: "btnSpravAddRes", action: spravAddResource},
+      {label: "Отмена", cls: "", action: closeModal}
+    ]
+  );
+  renderCatSelects(); // селект ресурсных категорий + disabled «Создать», если их нет
+  $("spravNewResName").focus();
+}
+function openBulkPopup() {
+  openModal(
+    '<h3>Массовая подгрузка</h3>' +
+    '<form autocomplete="off" onsubmit="return false">' +
+    '<textarea id="bulkText" rows="8" placeholder="название | категория | описание (необязательно)"></textarea>' +
+    '<div class="hint">2 колонки — без описания; 3-я колонка — описание (пустая = без описания; символ «|» в описании допустим)</div>' +
+    '</form>',
+    [
+      {label: "Создать из списка", cls: "gen", primary: true, id: "btnBulk", action: bulkCreate},
+      {label: "Отмена", cls: "", action: closeModal}
+    ]
+  );
+  $("bulkText").focus(); // Enter в textarea — перенос строки (исключение в общем keydown)
+}
+// подсказка об уровне расовости, на котором будет создан тип (ТЗ §7.3 форма 3):
+// читает текущие значения фильтра шапки в момент открытия попапа
+function prodRaceLevelHint() {
+  if (prodRaceLevel === "family") {
+    return prodRaceFamily
+      ? "тип будет создан на уровне семейства: " + familyLabelById(prodRaceFamily)
+      : "семейство не выбрано — выберите его в шапке, иначе тип уйдёт на универсальный уровень";
+  }
+  if (prodRaceLevel === "race") {
+    return "тип будет создан на уровне расы: " + raceName(prodRace) + " (семейство " + familyLabelById(raceFamilyOf(prodRace)) + ")";
+  }
+  return "тип будет создан на универсальном уровне (без привязки к расе)";
+}
+// «+ тип» создаёт тип (parent_id NULL): категории у типов нет (спека 2026-09-21
+// §1.2 п.4 — категории живут в подтипах, их заводят через узлы-приглашения)
+function openProdNewPopup() {
+  openModal(
+    '<h3>Новый тип производителя</h3>' +
+    '<form autocomplete="off" onsubmit="return false">' +
+    '<input id="prodNewName" type="text" name="studio_new_prod_name" placeholder="имя типа" autocomplete="off">' +
+    '<select id="prodNewKind" title="класс выхода"><option value="goods">товары</option><option value="items">предметы</option><option value="energy">энергия</option></select>' +
+    '<div class="hint">' + esc(prodRaceLevelHint()) + '</div>' +
+    '</form>',
+    [
+      {label: "Создать", cls: "gen", primary: true, id: "btnProdAdd", action: prodAdd},
+      {label: "Отмена", cls: "", action: closeModal}
+    ]
+  );
+  $("prodNewName").focus();
+}
+// ветка «Предметы» (спека 2026-09-20-фабрики §4.2)
+function openItemNewPopup() {
+  openModal(
+    '<h3>Новый предмет</h3>' +
+    '<form autocomplete="off" onsubmit="return false">' +
+    '<input id="itemNewName" type="text" name="studio_new_item_name" placeholder="имя предмета" autocomplete="off">' +
+    '<select id="itemNewSlot" title="тип слота"><option value="чертёж">чертёж</option><option value="модуль">модуль</option><option value="инструмент">инструмент</option><option value="сертификат">сертификат</option></select>' +
+    '</form>',
+    [
+      {label: "Создать", cls: "gen", primary: true, id: "btnItemAdd", action: itemAdd},
+      {label: "Отмена", cls: "", action: closeModal}
+    ]
+  );
+  $("itemNewName").focus();
 }
 
 // ---------- оверлеи состояний ----------
@@ -3348,7 +3454,7 @@ function updateOverlays() {
   $("noResultsOverlay").style.display = noRes ? "flex" : "none";
   $("offlinePill").style.display = offline ? "block" : "none";
 }
-function focusNewGood() { $("spravNewName").focus(); } // «+ товар» в оверлее «Реестр пуст» → addrow справочника (addbar удалён, 99a.3-ui §13)
+function focusNewGood() { openNewGoodPopup(); } // «+ товар» в оверлее «Реестр пуст» → попап «Новый товар» (ТЗ §7.4)
 
 // ---------- режимы канваса (99a.3 §10.1 / 99a.3-ui §3.4) ----------
 // В фокус-режиме скрыты: поиск по графу, фильтр категорий, «показать ресурсы»,
@@ -3431,7 +3537,14 @@ function applyBranchUI() {
   const isProducers = branch === "producers";
   $("segGoodsScope").style.display = isGoods ? "" : "none"; // скоп ветки «Товары» (ТЗ §2)
   $("segGraph").style.display = isGoods ? "" : "none";
+  // ряд действий: кнопки вызова форм по активному разделу (ТЗ §7.2)
+  $("btnNewGoodOpen").style.display = isGoods ? "" : "none";
+  $("btnNewResOpen").style.display = isGoods ? "" : "none";
+  $("btnBulkOpen").style.display = isGoods ? "" : "none";
   $("btnCatOpen").style.display = isGoods ? "" : "none";
+  $("btnDescBatch").style.display = isGoods ? "" : "none";
+  $("btnProdNewOpen").style.display = isProducers ? "" : "none";
+  $("btnItemNewOpen").style.display = branch === "items" ? "" : "none";
   // канвас показывается и в ветке «Производители» — дерево построек (спека §2.5)
   $("canvasWrap").style.display = (isGoods || isProducers) ? "" : "none";
   // переключатель уровня расовости — только ветка «Производители» (спека §5)
@@ -3440,13 +3553,6 @@ function applyBranchUI() {
   $("spravCat").style.display = isGoods ? "" : "none";
   $("filters").style.display = isGoods ? "" : "none";
   $("tierFilters").style.display = isGoods ? "" : "none";
-  $("goodsAddRow").style.display = isGoods ? "" : "none";
-  $("resAddRow").style.display = isGoods ? "" : "none";
-  $("bulkToggle").style.display = isGoods ? "" : "none";
-  $("btnDescBatch").style.display = isGoods ? "" : "none";
-  $("bulkBlock").style.display = "none";
-  $("prodAddRow").style.display = isProducers ? "" : "none";
-  $("itemAddRow").style.display = branch === "items" ? "" : "none";
 }
 function kindLabel(k) {
   return {goods: "товары", items: "предметы", energy: "энергия"}[k] || k;
@@ -3523,26 +3629,18 @@ $("proposalsOverlay").addEventListener("click", closeProposalsPopup);
 $("descPopupClose").addEventListener("click", closeDescPopup);
 $("descOverlay").addEventListener("click", closeDescPopup);
 $("btnDescBatch").addEventListener("click", runDescBatch);
-$("btnSpravAdd").addEventListener("click", spravAddGood);
-$("btnSpravAddRes").addEventListener("click", spravAddResource);
+// кнопки вызова форм добавления (ТЗ §7.2): сами формы живут в попапах (#modal),
+// обработчики полей/кнопок навешивает openModal — при загрузке их в DOM нет
+$("btnNewGoodOpen").addEventListener("click", openNewGoodPopup);
+$("btnNewResOpen").addEventListener("click", openNewResPopup);
+$("btnBulkOpen").addEventListener("click", openBulkPopup);
+$("btnProdNewOpen").addEventListener("click", openProdNewPopup);
+$("btnItemNewOpen").addEventListener("click", openItemNewPopup);
 $("btnTop").addEventListener("click", centerTop);
-$("spravNewName").addEventListener("keydown", ev => { if (ev.key === "Enter") spravAddGood(); });
-$("spravNewResName").addEventListener("keydown", ev => { if (ev.key === "Enter") spravAddResource(); });
 // разделы студии (спека 2026-09-20-фабрики §4): переключение веток
 $("branchGoods").addEventListener("click", () => setBranch("goods"));
 $("branchProducers").addEventListener("click", () => setBranch("producers"));
 $("branchItems").addEventListener("click", () => setBranch("items"));
-$("btnProdAdd").addEventListener("click", prodAdd);
-$("btnItemAdd").addEventListener("click", itemAdd);
-$("prodNewName").addEventListener("keydown", ev => { if (ev.key === "Enter") prodAdd(); });
-$("itemNewName").addEventListener("keydown", ev => { if (ev.key === "Enter") itemAdd(); });
-// подгрузка списка: сворачиваемый блок + «Создать из списка»
-$("bulkToggle").addEventListener("click", () => {
-  const open = $("bulkBlock").style.display !== "none";
-  $("bulkBlock").style.display = open ? "none" : "block";
-  $("bulkToggle").textContent = open ? "▸ подгрузка списка" : "▾ подгрузка списка";
-});
-$("btnBulk").addEventListener("click", bulkCreate);
 // попап-деталь: закрытие (крестик/подложка), перетаскивание за заголовок
 $("popupClose").addEventListener("click", closePopup);
 $("detailOverlay").addEventListener("click", closePopup);

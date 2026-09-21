@@ -998,6 +998,31 @@
         { "on": "internal/handlers/admin_universe.go", "kind": "affects", "reason": "джоб generate_factions: поле capitals в ответе/логе; гейт Пакмана/универсального мьютекса перенесён ДО ветки total == 0" },
         { "on": "docs/gamedesign/06_factions.md", "kind": "duplicates", "reason": "новый §6.8 — эталон FAQ (число/место/тип столицы); §6.4.3 «Захват столицы» получил сущность-референт (механика захвата — вне скоупа)" }
       ]
+    },
+    {
+      "id": "planet_mass",
+      "type": "mechanic",
+      "path": "internal/generator/planet/cascade.go",
+      "note": "масса каменистых/ледяных планет (спека 2026-09-21-масса-каменистых-и-ледяных-планет, коммит a8a8304, приёмка создателя 2026-09-21): M = clamp(B·M₀·(a_норм/a_⊕)^0.5·10^(0.5·[Fe/H])·ζ, 0.02, 8), a_норм = r/√L (P-планеты — r_P), якорь a_⊕ = орбита 2 = 1.156 а.е., ζ ~ logN(0, 0.4); B ~ logN(0, 0.5) — один ролл на систему (образец giantOrbit), не применяется к гигантам (эталон 99.2.15) и к экзотике. До 2026-09-21 масса брала r^1.5 (скрытый двойной счёт L^0.75) → плоские полки: ровно 0.10 — 26–48% планет, ровно 8.00 — 16%. После правки в реальной галактике (40 504 системы, 182 616 планет): ровно 0.10 — 0%, ровно 8.00 — 1.85%, медиана 1.33, медианы по классам M/K/G/F = 1.33/1.31/1.49/1.49. Пол 0.02 — страховка реестра (не достигается); верхняя метка ровно 8 — временная, под обязательную задачу «перелив массы в гигантов» (идея 2026-09-21).",
+      "impacts": [
+        { "on": "planet_generator", "kind": "reads", "reason": "масса считается в runCascade на орбите, назначенной генератором; ролл B — per-системный, до цикла орбит" },
+        { "on": "internal/generator/planet/planet_data.go", "kind": "writes", "reason": "поле systemBudget (дефолт 1.0): ролл в generateWorldWithCountIntoBuffer/GeneratePlanetsForWorld — сдвигает поток RNG для seed-тестов" },
+        { "on": "internal/generator/galaxy/galaxy.go", "kind": "reads", "reason": "светимость класса (√L) — вход нормировки a_норм = r/√L; металличность [Fe/H] — множитель 10^(0.5·[Fe/H])" },
+        { "on": "atmosphere_data", "kind": "affects", "reason": "масса → P = f_atm·M·g/R² и escapeFactor(v_esc ∝ √(M/R)): давление смещается вместе с массой (у тусклых вверх, у ярких вниз); fAccretion ∝ √M — T⁴-баланс молодых систем" },
+        { "on": "biomes", "kind": "affects", "reason": "веса биомов читают Gravity (g = M/R²) — сдвиг долей; узкие биомы низкой гравитации стали редкими (но достижимы)" },
+        { "on": "internal/races/suitable.go", "kind": "affects", "reason": "окно гравитации расы (люди [0.5, 2]) проверяется в Settleable: покрытие окна 59.7% → 99.8%, при этом доля Settleable 2.47% — в документированной цели" },
+        { "on": "internal/generator/settlement/fields.go", "kind": "reads", "reason": "реестр полей: mass Min 0.02, size min 0.25, gravity min 0.13 (страховка реестра отделена от фактического минимума генератора)" },
+        { "on": "internal/generator/planet/race_tuning.go", "kind": "duplicates", "reason": "второй потребитель массы: подстройка рас-домов берёт то же ядро без ζ и B (была дословная реплика старой формулы); перекалибровка по замеру не потребовалась" },
+        { "on": "internal/generator/planet/exotic.go", "kind": "affects", "reason": "экзотика массу формулой не берёт (0.05–0.45 своим роллом); пол 0.02 закрывает ранее нарушенный инвариант покрытия реестра (99.2.15 §7.2)" },
+        { "on": "internal/audit/planet/checks_consistency.go", "kind": "reads", "reason": "согласованность R = cbrt(M/ρ) и g = M/R² — проверено на 251 434 планетах, нарушений нет" },
+        { "on": "web/static/js/admin/hypothesisPresets.js", "kind": "reads", "reason": "пресеты масс (0.3…317.8) проходят TwinSpec.Validate → validateFieldRanges по новым рамкам" },
+        { "on": "internal/generator/planet/twin.go", "kind": "reads", "reason": "MassOverride/близнецы: сверка массы с массовым диапазоном реестра" },
+        { "on": "docs/specs/99.2.20-planet-physics-cascade.md", "kind": "duplicates", "reason": "§3.3 — формула массы каскада; дельта при разносе (формула + снятие несходящейся калибровки «0.56·ζ»)" },
+        { "on": "docs/specs/99.2.22-race-generator-tuning.md", "kind": "affects", "reason": "§3.3 — номинал подстройки рас теперь = ядру каскада (единый источник); окна P_target сходятся" },
+        { "on": "docs/specs/2026-09-21-масса-каменистых-и-ледяных-планет.md", "kind": "duplicates", "reason": "спека-источник: формула §4, границы §5, калибровка §6, распределение §7, тесты §8" },
+        { "on": "docs/gamedesign/ideas/2026-09-21_перелив-массы-в-гигантов-мини-нептуны.md", "kind": "affects", "reason": "верхняя граница 8 — временная метка: тела выше порога должны уходить в ветку гигантов (обязательная задача)" },
+        { "on": "docs/gamedesign/03_planets.md", "kind": "docs", "reason": "δ при разносе: §3.4 (таблица масс — производные ярлыки), §3.10 (цель «малые редки» → следствие бедного диска), §3.11 (реестр mass 0.02, size 0.25, gravity 0.13)" }
+      ]
     }
   ]
 }

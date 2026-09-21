@@ -406,32 +406,35 @@
 {
       "id": "goods",
       "type": "table",
-      "path": "db:goods (categories/goods/goods_slots)",
-      "note": "каталог товаров/ресурсов в PostgreSQL (миграция 000045, перенос iterA): categories (товарные + 6 ресурсных системных), goods (name_norm UNIQUE, kind, status, source, tier_override, banned_at, props JSONB для ресурсов), goods_slots (рецепты, FK component_id, pos, quantity, allow_resource); сид 131 ресурс + 19 категорий (маркер goods_catalog_seed); БД — источник правды (С1); iterC: fill пишет через ApplyProposals (товары draft/source=ai, слоты), слой-ресурсы читает admin_resources (props ? 'closes')",
+      "path": "db:goods (categories/goods)",
+      "note": "каталог товаров/ресурсов в PostgreSQL (миграция 000045, перенос iterA): categories (товарные + 6 ресурсных системных), goods (name_norm UNIQUE, kind, source, volume/weight NOT NULL DEFAULT 1, props JSONB для ресурсов); сид 131 ресурс + 19 категорий (маркер goods_catalog_seed); БД — источник правды (С1); iterC: fill пишет через ApplyProposals (товары source=ai), слой-ресурсы читает admin_resources (props ? 'closes'); 2026-09-21 рецепт-сущность (000055): состав переехал в recipe_components, сложность — в recipes.complexity, колонки goods_slots и goods.tier_override снесены; статусов/скрытия у товара нет (снято 000054)",
       "impacts": [
         { "on": "web/studio.html", "kind": "writes", "reason": "студия (UI на /studio) читает/пишет каталог через /studio/api/* (iterB) + попап fill (iterC)" },
         { "on": "94a", "kind": "reads", "reason": "витрина «Реальные вещества» (iterB): real/real_summary/families из goods kind=resource c props ? 'family'; слой/покрытие/gaps — из props ? 'closes' (iterC)" },
         { "on": "internal/goodsstudio", "kind": "writes", "reason": "чистые пакеты (model/graph/validate/seed/ai) — домен каталога, перенесены в internal" },
         { "on": "internal/handlers/studio_handlers.go", "kind": "api", "reason": "CRUD каталога на SQL (iterA §7) + fill/apply/cancel (iterC)" },
-        { "on": "internal/goodsstudio/ai", "kind": "writes", "reason": "ApplyProposals пишет новые товары/слоты в одной транзакции с advisory lock (iterC §5)" },
+        { "on": "internal/goodsstudio/ai", "kind": "writes", "reason": "ApplyProposals пишет новые товары и рецепты (состав — recipe_components) в одной транзакции с advisory lock (iterC §5; 2026-09-21)" },
+        { "on": "recipes", "kind": "affects", "reason": "рецепт = правило товара: выход (FK good_id CASCADE), сложность; удаление товара каскадит рецепт и чистит его из состава чужих рецептов (component_id SET NULL)" },
         { "on": "internal/handlers/admin_resources.go", "kind": "reads", "reason": "слой 20/покрытие/gaps — из БД (props ? 'closes'), переиспользование CheckAllFed/CoveringResources (iterC §7)" },
         { "on": "docs/DB.md", "kind": "docs", "reason": "таблицы + миграция 000045 + маркер сидера (дельта iterA §16)" },
         { "on": "docs/gamedesign/11_production.md", "kind": "affects", "reason": "§11.1.1 сложность рецепта = тир товара; каталог в БД — основа будущей экономики (FK на goods.id)" },
-        { "on": "docs/gamedesign/13_tiers.md", "kind": "affects", "reason": "§13.9.1 тир-оверрайд — источник complexity (99a.3)" },
+        { "on": "docs/gamedesign/13_tiers.md", "kind": "affects", "reason": "§13.9.1: тир-оверрайд снят миграцией 000055 — сложность живёт в рецепте (recipes.complexity), тир товара производный (99a.3 → 2026-09-21)" },
         { "on": "docs/specs/_archive/99a.1-goods-studio.md", "kind": "docs", "reason": "спека студии товаров: каталог, миграция 000045, /studio/api/* (источник механики)" },
         { "on": "docs/specs/99a.1-goods-studio-ui.md", "kind": "docs", "reason": "UI-спека студии (перенос интерфейса, 99a.1)" },
         { "on": "docs/specs/_archive/99a.2-goods-studio-import-top-catalog.md", "kind": "docs", "reason": "импорт top-каталога отменён решением создателя 2026-09-20 — спека-источник решения" },
         { "on": "docs/specs/_archive/99a.3-goods-studio-focus-graph-spravochnik.md", "kind": "docs", "reason": "фокус-граф/справочник каталога (99a.3); ПКМ-хвост открыт" },
-        { "on": "docs/specs/_archive/перенос-студии-товаров-iterC-доводка.md", "kind": "docs", "reason": "доводка iterC: fill «предложи → подтверди», auth.js, слой из БД" }
+        { "on": "docs/specs/_archive/перенос-студии-товаров-iterC-доводка.md", "kind": "docs", "reason": "доводка iterC: fill «предложи → подтверди», auth.js, слой из БД" },
+        { "on": "docs/specs/2026-09-21-рецепт-сущность-и-граф-фабрики.md", "kind": "duplicates", "reason": "спека «рецепт как сущность» (000055): goods_slots и goods.tier_override сняты; состав — recipe_components, сложность — recipes.complexity" }
       ]
     },
     {
       "id": "internal/goodsstudio",
       "type": "code",
       "path": "internal/goodsstudio/",
-      "note": "доменный пакет каталога (перенос iterA, iterC): model (Category/Good/Slot/Status/Kind/Source), graph (tier/cycles/names), validate (4 валидатора, ресурсы по kind), seed.go (сид 131 + 19, маркер), ai (ИИ-заполнение, iterC); model/state.go (LoadState/SaveState) удалён в iterC — пакет только домен",
+      "note": "доменный пакет каталога (перенос iterA, iterC; 2026-09-21 рецепт-сущность): model (Category/Good/Recipe/Slot/Kind/Source — Good.Complexity/RecipeID, State.Bindings), graph (tier/cycles/names; EffectiveTier читает Good.Complexity, тир производный), validate (валидаторы без статусов + warning unbound_recipe — товар, чей рецепт не привязан ни к одной фабрике), seed.go (сид 131 + 19, маркер), ai (ИИ-заполнение, iterC); model/state.go (LoadState/SaveState) удалён в iterC — пакет только домен",
       "impacts": [
         { "on": "goods", "kind": "writes", "reason": "сид наполняет каталог при первом старте (маркер goods_catalog_seed)" },
+        { "on": "recipes", "kind": "reads", "reason": "проекция Good.Recipe/Complexity и State.Bindings собираются репозиторием из recipes/recipe_components/producer_recipes (Snapshot); graph/validate/ai работают по проекции (2026-09-21)" },
         { "on": "internal/handlers/studio_handlers.go", "kind": "reads", "reason": "валидаторы/граф/тиры вызываются на снимке из БД (iterA §8); BuildProposals/ApplyProposals — fill (iterC)" },
         { "on": "docs/ARCHITECTURE.md", "kind": "docs", "reason": "пакет зарегистрирован (дельта iterA §16)" }
       ]
@@ -442,7 +445,7 @@
       "path": "internal/goodsstudio/ai/",
       "note": "ИИ «заполнить комплектующие» (перенос cmd/goods-studio/ai, iterC 2026-09-20): client (opencode HTTP, env OPENCODE_URL/MODEL/TIMEOUT_S/MAX_RETRIES), prompt/prompt_fill, parse, BuildProposals (kind new/link, category_valid, дропы), ApplyProposals (per-slot, дропы С1–С3); двухфазный «предложи → подтверди»",
       "impacts": [
-        { "on": "goods", "kind": "writes", "reason": "ApplyProposals пишет новые товары/слоты (write-back, одна транзакция с advisory lock)" },
+        { "on": "goods", "kind": "writes", "reason": "ApplyProposals пишет новые товары и рецепты (состав — recipe_components; write-back, одна транзакция с advisory lock)" },
         { "on": "internal/handlers/studio_handlers.go", "kind": "api", "reason": "fill/apply/cancel хендлеры вызывают BuildProposals/ApplyProposals (in-memory статус, TryStart)" },
         { "on": "internal/config/config.go", "kind": "reads", "reason": "конфиг opencode — env с дефолтами (старые значения studio.json)" },
         { "on": "web/studio.html", "kind": "api", "reason": "попап «Предложения ИИ» опрашивает state (proposals/report), отправляет apply/cancel" }
@@ -464,13 +467,17 @@
       "id": "web/studio.html",
       "type": "code",
       "path": "web/studio.html",
-      "note": "UI студии товаров на игровом сервере (перенос iterA/iterB/iterC): перенесённый cmd/goods-studio/web/index.html; подключён к /studio/api/* (JWT admin/skycomposer, общий adminToken), «+ ресурс», второе подтверждение удаления, OR-фильтры; iterC: кнопка «заполнить комплектующие» + попап «Предложения ИИ» (варианты, селект категорий, полный отчёт), авторизация через общий модуль auth.js (инлайн-паттерн удалён)",
+      "note": "UI студии товаров на игровом сервере (перенос iterA/iterB/iterC; 2026-09-21 рецепт-сущность): перенесённый cmd/goods-studio/web/index.html; подключён к /studio/api/* (JWT admin/skycomposer, общий adminToken), «+ ресурс», второе подтверждение удаления, OR-фильтры; iterC: кнопка «заполнить комплектующие» + попап «Предложения ИИ» (варианты, селект категорий, полный отчёт), авторизация через общий модуль auth.js (инлайн-паттерн удалён); 2026-09-21: селектор фабрики и граф её замыкания, фильтр справочника по семейству рас, попап «Состав рецепта»/«Сложность рецепта»/«Доступен фабрикам», drag&drop привязки рецепта на канвас, пункт контекст-меню «привязать к фабрике», счётчик «в наборе N», кнопка копирования набора рецептов (ветка «Производители»)",
       "impacts": [
-        { "on": "goods", "kind": "writes", "reason": "студия правит каталог через /studio/api/* (CRUD, статусы, тир-оверрайд, слоты, DELETE с cleared_links)" },
+        { "on": "goods", "kind": "writes", "reason": "студия правит каталог через /studio/api/* (CRUD, DELETE с cleared_links; 2026-09-21: тир-оверрайд и слоты заменены сложностью рецепта и recipe-роутами)" },
+        { "on": "recipes", "kind": "writes", "reason": "состав и сложность рецепта правятся из попапа товара (/studio/api/recipes/{id}, .../components, allow_resource); создание товара создаёт рецепт (2026-09-21)" },
+        { "on": "producer_recipes", "kind": "writes", "reason": "привязка/отвязка рецептов к фабрике (секция «Доступен фабрикам», drag&drop на канвас, контекст-меню, «+ товар» у фабрики), копирование набора из универсальной фабрики" },
         { "on": "web/static/js/auth.js", "kind": "reads", "reason": "студия: bootstrap и window.* из адаптера studio/auth.js (ядро auth.js), общий adminToken с админкой" },
         { "on": "internal/handlers/studio_handlers.go", "kind": "api", "reason": "все действия UI идут в /studio/api/* (iterA §7) + fill/apply/cancel (iterC)" },
         { "on": "internal/goodsstudio/ai", "kind": "api", "reason": "попап «Предложения ИИ» опрашивает state (proposals/report), отправляет apply/cancel (iterC)" },
-        { "on": "docs/ARCHITECTURE.md", "kind": "docs", "reason": "роуты /studio + статика web/studio.html (дельта iterA §16)" }
+        { "on": "docs/ARCHITECTURE.md", "kind": "docs", "reason": "роуты /studio + статика web/studio.html (дельта iterA §16)" },
+        { "on": "docs/specs/2026-09-21-студия-товары-рецепты-ui.md", "kind": "docs", "reason": "UI-ТЗ рецептов (2026-09-21): селекторы фабрики/семейства, граф замыкания, попап «Состав рецепта»/«Сложность»/привязки, drag&drop, кнопка копирования набора" },
+        { "on": "docs/specs/2026-09-21-рецепт-сущность-и-граф-фабрики.md", "kind": "duplicates", "reason": "модель/API рецептов (§4–§5): селектор фабрики, фильтр семейства, попап, роуты рецептов/привязок" }
       ]
     },
     {
@@ -868,7 +875,7 @@
       "id": "producer_types",
       "type": "table",
       "path": "db:producer_types (items, producer_items)",
-      "note": "каталог типов производителей/предметов (миграция 000048; 2026-09-21 дерево построек — 000051: parent_id BIGINT NULL REFERENCES producer_types(id) ON DELETE RESTRICT — базовый тип, race TEXT NULL — уровень расы; семейство — race_family F0–F9|robotic; 2026-09-21 слоты — 000052: колонка hidden первой волны СНЯТА, набор категорий типа = producer_slots, автоматика по имени удалена). Структура дерева: Строения → классы (товары/предметы/энергия/Другие — фиксированные) → типы (parent_id NULL) → подтипы (parent_id задан, категория только у подтипов kind=goods и только при слоте родителя); уникальность подтипа (parent_id, category_id, race_family, race); переименование не рвёт связи (producer_items/goods_slots по id)",
+      "note": "каталог типов производителей/предметов (миграция 000048; 2026-09-21 дерево построек — 000051: parent_id BIGINT NULL REFERENCES producer_types(id) ON DELETE RESTRICT — базовый тип, race TEXT NULL — уровень расы; семейство — race_family F0–F9|robotic; 2026-09-21 слоты — 000052: набор категорий типа = producer_slots, автоматика по имени удалена; 000054 (снятие согласования каталога): статусы сняты, колонка `hidden` ВОЗВРАЩЕНА — скрытие записи-фабрики, вторая ось к producer_slots.hidden; 000055 (рецепты): конкретная фабрика держит набор рецептов — producer_recipes, подмножество рецептов своей категории). Структура дерева: Строения → классы (товары/предметы/энергия/Другие — фиксированные) → типы (parent_id NULL) → подтипы (parent_id задан, категория только у подтипов kind=goods и только при слоте родителя); уникальность подтипа (parent_id, category_id, race_family, race); переименование не рвёт связи (producer_items/producer_recipes по id)",
       "impacts": [
         { "on": "web/studio.html", "kind": "writes", "reason": "дерево построек на канвасе (ветка «Производители»), попапы детали/создания, переключатель расовости (спека 2026-09-21-студия-дерево-построек), редактор слотов в карточке родителя (спека скрытых)" },
         { "on": "internal/handlers/studio_handlers.go", "kind": "api", "reason": "CRUD producer_types/items + GET /studio/api/races (семейства+расы из internal/races) + POST/PUT/DELETE /studio/api/slots" },
@@ -879,14 +886,16 @@
         { "on": "docs/DB.md", "kind": "docs", "reason": "таблицы 000048, миграция 000051 (parent_id/race, data-миграция лабораторий), 000052 (producer_slots, DROP hidden)" },
         { "on": "docs/specs/2026-09-20-фабрики-сущность-производства.md", "kind": "duplicates", "reason": "родительская спека фабрик: классификация §2, ветка «Производители» §4.1, race_family §3.1" },
         { "on": "docs/specs/2026-09-21-студия-дерево-построек-канвас.md", "kind": "duplicates", "reason": "спека дерева построек: модель parent_id/race, автоматика категорий (заменена слотами), расовость двух уровней" },
-        { "on": "docs/specs/2026-09-21-студия-скрытые-категории-строений.md", "kind": "duplicates", "reason": "спека скрытых: слоты родителя (конфигурация категорий), правило видимости «самая конкретная решает», инвариант С4" }
+        { "on": "docs/specs/2026-09-21-студия-скрытые-категории-строений.md", "kind": "duplicates", "reason": "спека скрытых: слоты родителя (конфигурация категорий), правило видимости «самая конкретная решает», инвариант С4" },
+        { "on": "producer_recipes", "kind": "affects", "reason": "набор рецептов фабрики: привязка только к конкретной фабрике (kind=goods, parent_id, category_id); инвариант «выход рецепта = категория фабрики» (400); 409 при смене категории фабрики с привязанными рецептами (2026-09-21)" },
+        { "on": "docs/specs/2026-09-21-рецепт-сущность-и-граф-фабрики.md", "kind": "duplicates", "reason": "дельта §4.1: фабрика держит набор рецептов (подмножество категории), а не категорию целиком" }
       ]
     },
     {
       "id": "producer_slots",
       "type": "table",
       "path": "db:producer_slots",
-      "note": "слоты родителя — конфигурация категорий строений у типа kind=goods (миграция 000052, спека 2026-09-21-студия-скрытые-категории-строений): (parent_id, category_id, race_family, race, hidden), UNIQUE NULLS NOT DISTINCT, FK CASCADE (категория/родитель), CHECK race→family; слот = «родитель предлагает категорию на уровне расовости», hidden = «предлагает, но скрыто» (скрытость перекрывает наследуемое); наследование: универсальная база видна всем, семейные/расовые переопределения поверх; инвариант С4 — подтип kind=goods возможен только при применяемом слоте (400), удаление слота при заводах — 409",
+      "note": "слоты родителя — конфигурация категорий строений у типа kind=goods (миграция 000052, спека 2026-09-21-студия-скрытые-категории-строений): (parent_id, category_id, race_family, race, hidden), UNIQUE NULLS NOT DISTINCT, FK CASCADE (категория/родитель), CHECK race→family; слот = «родитель предлагает категорию на уровне расовости», hidden = «предлагает, но скрыто» (скрытость перекрывает наследуемое); наследование: универсальная база видна всем, семейные/расовые переопределения поверх; инвариант С4 — подтип kind=goods возможен только при применяемом слоте (400), удаление слота при заводах — 409; 2026-09-21 рецепты: набор рецептов фабрики (producer_recipes) живёт в категориях, настроенных слотами; фильтр семейства студии считает обе оси скрытости — запись-фабрику (предложение 000054) и слот",
       "impacts": [
         { "on": "web/studio.html", "kind": "writes", "reason": "дерево из слотов (не автоматика по имени), карточка родителя — редактор слотов (галки «скрытая», «+»/«−»), заглушка скрытой пустой категории, галка «показать скрытые»" },
         { "on": "internal/handlers/studio_handlers.go", "kind": "api", "reason": "POST/PUT/DELETE /studio/api/slots, state + producer_slots (имена родителя/категории)" },
@@ -894,7 +903,53 @@
         { "on": "internal/goodsstudio/seed_producers.go", "kind": "writes", "reason": "сид базовых слотов (Фабрика/Автофабрика — 13 товарных, Платформа — 6 ресурсных, универсальный уровень)" },
         { "on": "goods", "kind": "reads", "reason": "категории слотов (categories в goods); удаление категории — CASCADE слотов" },
         { "on": "docs/DB.md", "kind": "docs", "reason": "миграция 000052 (producer_slots, DROP hidden, data-миграция)" },
-        { "on": "docs/specs/2026-09-21-студия-дерево-построек-канвас.md", "kind": "duplicates", "reason": "автоматика категорий §2.2 заменена конфигурацией слотов (дельта при сдаче)" }
+        { "on": "docs/specs/2026-09-21-студия-дерево-построек-канвас.md", "kind": "duplicates", "reason": "автоматика категорий §2.2 заменена конфигурацией слотов (дельта при сдаче)" },
+        { "on": "producer_recipes", "kind": "affects", "reason": "набор рецептов фабрики живёт в категориях, настроенных слотами (С4); фильтр семейства студии берёт обе оси скрытости (запись-фабрика + слот) — 2026-09-21" }
+      ]
+    },
+    {
+      "id": "recipes",
+      "type": "table",
+      "path": "db:recipes",
+      "note": "справочник рецептов каталога (миграция 000055, спека 2026-09-21-рецепт-сущность): (id, good_id BIGINT NOT NULL FK goods ON DELETE CASCADE, complexity INT NULL CHECK >= 0, created_at); UNIQUE (good_id) — один рецепт на товар (снятие под альтернативные рецепты — простая миграция); выход рецепта — всегда товар kind='good'; complexity NULL = вычисляется по графу (тир производный); рецепт создаётся вместе с товаром (CreateGood/BulkCreateGoods/ApplyProposals), штатный роут восстановления POST /studio/api/recipes",
+      "impacts": [
+        { "on": "goods", "kind": "affects", "reason": "выход рецепта — товар (FK CASCADE, UNIQUE good_id); удаление товара каскадит рецепт" },
+        { "on": "recipe_components", "kind": "schema", "reason": "состав рецепта (recipe_id FK CASCADE): компоненты — товары/ресурсы общего словаря" },
+        { "on": "producer_recipes", "kind": "schema", "reason": "рецепт может быть привязан к нескольким фабрикам (M:N): одна «пища» — и человеческая, и водная фабрика" },
+        { "on": "internal/goodsstudio", "kind": "affects", "reason": "проекция Good.Recipe/Complexity (Snapshot); graph.EffectiveTier читает сложность; validate.unbound_recipe — рецепт без привязок; ai пишет состав (2026-09-21)" },
+        { "on": "internal/handlers/studio_handlers.go", "kind": "api", "reason": "роуты /studio/api/recipes* (создание, сложность, состав, allow_resource); GoodView + recipe_id/complexity, StateView + producer_recipes" },
+        { "on": "docs/DB.md", "kind": "docs", "reason": "таблица recipes, миграция 000055 (создание + перенос tier_override) — дельта при сдаче" },
+        { "on": "docs/GLOSSARY.md", "kind": "docs", "reason": "§5: термины «Рецепт»/«Состав рецепта» (новое значение); старый смысл §5.2.4 → «Требования рецепта (окна свойств)»" },
+        { "on": "docs/specs/2026-09-21-рецепт-сущность-и-граф-фабрики.md", "kind": "duplicates", "reason": "спека-источник: модель §2.3, инварианты §2.4, миграция §3, API §5" },
+        { "on": "docs/specs/2026-09-20-фабрики-сущность-производства.md", "kind": "duplicates", "reason": "дельта §3.1/§4.1/§4.3/§6.1: goods_slots → recipes/recipe_components; снабжение релиза 2 — по компонентам рецепта" }
+      ]
+    },
+    {
+      "id": "recipe_components",
+      "type": "table",
+      "path": "db:recipe_components",
+      "note": "состав рецепта (миграция 000055) — замена goods_slots: (id, recipe_id FK CASCADE, pos INT, component_id BIGINT NULL FK goods ON DELETE SET NULL, quantity INT NOT NULL DEFAULT 1 CHECK >= 1, reason TEXT NULL, allow_resource BOOLEAN NOT NULL DEFAULT false); UNIQUE (recipe_id, pos) + индекс по component_id (обратные рёбра); component_id NULL = пустой компонент (заполняет ИИ/вручную); компонент — любой товар или ресурс (в т.ч. другой категории), «компонент-ресурс» выводится по goods.kind; allow_resource — подсказка ИИ для пустого компонента (смысл не менялся); цикл (компонент = транзитивный выход) запрещён (409)",
+      "impacts": [
+        { "on": "recipes", "kind": "schema", "reason": "состав принадлежит рецепту (recipe_id FK CASCADE); адресация позиции — (recipe_id, pos)" },
+        { "on": "goods", "kind": "reads", "reason": "компоненты — общий словарь товаров/ресурсов (component_id FK, ON DELETE SET NULL); очистка ссылок при удалении товара (cleared_links)" },
+        { "on": "web/studio.html", "kind": "writes", "reason": "попап товара: секция «Состав рецепта» (drag&drop в слот, количество, галка «разрешить ресурс», очистка/удаление)" },
+        { "on": "internal/goodsstudio/ai", "kind": "affects", "reason": "ИИ-fill применяется по (recipe_id, pos); пустые компоненты — цель заполнения; allow_resource — подсказка (2026-09-21)" },
+        { "on": "docs/specs/2026-09-21-рецепт-сущность-и-граф-фабрики.md", "kind": "duplicates", "reason": "спека-источник §2.3/§2.5: структура состава и судьба allow_resource" }
+      ]
+    },
+    {
+      "id": "producer_recipes",
+      "type": "table",
+      "path": "db:producer_recipes",
+      "note": "набор рецептов фабрики (миграция 000055, M:N «конкретная фабрика ↔ рецепты»): (producer_type_id FK producer_types ON DELETE CASCADE, recipe_id FK recipes ON DELETE CASCADE, created_at), PK (producer_type_id, recipe_id), индекс по recipe_id (обратный: какие фабрики держат рецепт); привязка — только к конкретной фабрике kind=goods (parent_id и category_id заданы) и только рецепта своей категории (инвариант «выход рецепта = категория фабрики», 400); повтор — 409; копирование набора из универсальных фабрик категории — POST /studio/api/producers/{id}/recipes/copy-universal (идемпотентно, added/skipped)",
+      "impacts": [
+        { "on": "producer_types", "kind": "schema", "reason": "набор рецептов принадлежит конкретной фабрике-подтипу (FK CASCADE)" },
+        { "on": "recipes", "kind": "schema", "reason": "привязка рецептов (FK CASCADE); один рецепт — несколько фабрик" },
+        { "on": "producer_slots", "kind": "affects", "reason": "рецепты живут в категориях, настроенных слотами родителя (инвариант С4); фильтр семейства считает обе оси скрытости" },
+        { "on": "web/studio.html", "kind": "writes", "reason": "привязка/отвязка из попапа, drag&drop на канвас, контекст-меню, кнопка копирования набора в ветке «Производители»" },
+        { "on": "internal/repository/producer_repository.go", "kind": "writes", "reason": "BindRecipe/UnbindRecipe/CopyUniversalRecipes + 409 при смене категории фабрики с привязками (advisory lock)" },
+        { "on": "docs/specs/2026-09-21-рецепт-сущность-и-граф-фабрики.md", "kind": "duplicates", "reason": "спека-источник §2.3/§2.4 (инварианты), §5 (роуты привязок и copy-universal)" },
+        { "on": "docs/gamedesign/11_production.md", "kind": "affects", "reason": "§11.1.1: «фабрика держит набор рецептов» — модель производства для релиза 2" }
       ]
     }
   ]

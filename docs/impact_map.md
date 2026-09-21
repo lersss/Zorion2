@@ -1,6 +1,6 @@
 # Реестр каскадных влияний — индекс
 
-> Компактный обзор docs/impact_map.json (52 сущности, 315 связей, ~90 КБ — целиком НЕ читать). Вопрос реестра: «меняем X → смотрим на Y». Ведёт @manager при сдаче фич (идея 83a); валидатор — scripts/check_impact_map.ps1 после каждого коммита.
+> Компактный обзор docs/impact_map.json (64 сущности, 437 связей, ~120 КБ — целиком НЕ читать). Вопрос реестра: «меняем X → смотрим на Y». Ведёт @manager при сдаче фич (идея 83a); валидатор — scripts/check_impact_map.ps1 после каждого коммита.
 
 **Как читать:** нужна сущность — ищи её id/path в docs/impact_map.json через grep (одна сущность + её impacts[], ~1–3 КБ), целиком json не читай. Связанные сущности — по on-ссылкам (id или путь).
 
@@ -34,7 +34,7 @@
 | config/art/families.json | config/art/families.json | семейства рас для арт-студии: forms/materials/glows, морф-наборы (F1–F10); с 98a у всех 59 рас появились поля appearance (внешн… |
 | config/art/forms.json | config/art/forms.json | глобальные словари форм арт-студии (character/parts/shapes/struct/морф-списки, palette_accents); с 98a пулы фильтруются blocked… |
 | 98a | docs/specs/_archive/98a-внешность-рас-арт-фильтр.md | спека «Внешность рас + фильтрация шума в генераторе картинок» (98a, пилот 6 рас → расширено на все 59, контент 2026-09-20) + 98… |
-| goods | db:goods (categories/goods/goods_slots) | каталог товаров/ресурсов в PostgreSQL (миграция 000045, перенос iterA): categories (товарные + 6 ресурсных системных), goods (n… |
+| goods | db:goods (categories/goods) | каталог товаров/ресурсов в PostgreSQL (миграция 000045, перенос iterA): categories (товарные + 6 ресурсных системных), goods (n… |
 | internal/goodsstudio | internal/goodsstudio/ | доменный пакет каталога (перенос iterA, iterC): model (Category/Good/Slot/Status/Kind/Source), graph (tier/cycles/names), valid… |
 | internal/goodsstudio/ai | internal/goodsstudio/ai/ | ИИ «заполнить комплектующие» (перенос cmd/goods-studio/ai, iterC 2026-09-20): client (opencode HTTP, env OPENCODE_URL/MODEL/TIM… |
 | web/static/js/auth.js | web/static/js/auth.js | общий модуль авторизации (iterC 2026-09-20, «причеши»): ядро auth.js (getToken/setToken/validateToken/login/fetchWithAuth); тон… |
@@ -59,3 +59,6 @@
 | planet_image | internal/generator/planet/planet_image_v2.go | честный генератор картинки планеты (planet_image_v2.go + postprocessing.go + rings.go; доработка 2026-09-21: поле высот + регионы, блик L(seed), реальная атмосфера full, кэш v3;… |
 | atmosphere_data | internal/generator/planet/atmosphere.go | атмосфера-объект (99.2.20 §4.1, слой 6 каскада; в данных planets.data.atmosphere_data): состав газов %, давление, парниковый эф… |
 | biome_icons | web/static/sprites | иконки биомов (идея 2026-09-20 «иконки биомов поверхности»): стиль B мини-пейзаж, исходник 48×48, на экране ~24 px; имена файло… |
+| recipes | db:recipes | справочник рецептов каталога (миграция 000055, 2026-09-21): выход-товар (FK goods CASCADE, UNIQUE good_id), complexity INT NULL (тир производный), created_at; рецепт создаётся вместе с товаром; штатный роут восстановления POST /studio/api/recipes; проекция Good.Recipe/Complexity… |
+| recipe_components | db:recipe_components | состав рецепта — замена goods_slots (000055): (recipe_id FK CASCADE, pos, component_id FK goods SET NULL, quantity ≥1, reason, allow_resource), UNIQUE (recipe_id,pos) + индекс component_id (обратные рёбра); пустой компонент = component_id NULL; компонент — любой товар/ресурс, цикл запрещён (409)… |
+| producer_recipes | db:producer_recipes | набор рецептов фабрики — M:N «конкретная фабрика ↔ рецепты» (000055): PK (producer_type_id, recipe_id), индекс по recipe_id; привязка только к конкретной фабрике kind=goods и только рецепта своей категории (инвариант, 400), повтор 409, копирование набора из универсальных фабрик категории (POST /studio/api/producers/{id}/recipes/copy-universal)… |

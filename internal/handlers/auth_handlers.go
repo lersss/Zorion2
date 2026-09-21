@@ -24,6 +24,9 @@ type AuthHandlers struct {
 	travelManager *travel.Manager
 	// planetRepo — для пересчёта серверного HP на поверхности (§8.7, /me).
 	planetRepo *repository.PlanetRepository
+	// accountRepo — ленивая страховка счёта игрока при первом запросе
+	// (спека 2026-09-22-деньги-и-эскроу §3.4). nil в тестах без денег.
+	accountRepo *repository.AccountRepository
 }
 
 func NewAuthHandlers(userRepo *repository.UserRepository, worldRepo *repository.WorldRepository, travelManager *travel.Manager) *AuthHandlers {
@@ -38,6 +41,13 @@ func NewAuthHandlers(userRepo *repository.UserRepository, worldRepo *repository.
 // Отдельный сеттер: не менять сигнатуру конструктора (легаси-тесты).
 func (h *AuthHandlers) SetPlanetRepo(repo *repository.PlanetRepository) {
 	h.planetRepo = repo
+}
+
+// SetAccountRepo — подключение accountRepo для ленивой страховки счёта
+// игрока при первом запросе (§3.4). Отдельный сеттер: не менять сигнатуру
+// конструктора (легаси-тесты).
+func (h *AuthHandlers) SetAccountRepo(repo *repository.AccountRepository) {
+	h.accountRepo = repo
 }
 
 // recomputeSurfaceHP — hp на поверхности пересчитывается от landed_at и профиля
@@ -129,7 +139,11 @@ func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 	} else {
 		user.CurrentWorldID = spawnWorld
 	}
-	if err := h.userRepo.Create(user); err != nil {
+	// Счёт создаётся в ОДНОЙ транзакции с пользователем (спека
+	// 2026-09-22-деньги-и-эскроу §3.4): регистрация не может оставить
+	// игрока без счёта — иначе основная петля «новичок берёт перелёт и
+	// получает оплату» ломается на зачислении.
+	if err := h.userRepo.CreateWithAccount(user); err != nil {
 		var pgErr *pq.Error
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			// Гонка: имя заняли между pre-check'ом и INSERT'ом
@@ -222,6 +236,15 @@ func (h *AuthHandlers) GetMe(w http.ResponseWriter, r *http.Request) {
 	if user == nil {
 		writeJSONError(w, "Пользователь не найден", http.StatusNotFound)
 		return
+	}
+
+	// Ленивая идемпотентная страховка счёта игрока при первом запросе
+	// (спека 2026-09-22-деньги-и-эскроу §3.4): покрывает старых игроков и
+	// админ-созданные учётки. Best-effort — сбой не ломает /me.
+	if h.accountRepo != nil && user.Role == models.RolePlayer {
+		if err := h.accountRepo.EnsureAccount(models.AccountOwnerPlayer, userID, models.PlayerBalanceSeed); err != nil {
+			log.Printf("/me: ensureAccount(%s): %v", userID, err)
+		}
 	}
 
 	var currentWorldName string

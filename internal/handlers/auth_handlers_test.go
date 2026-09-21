@@ -409,11 +409,18 @@ func expectRegisterPrecheck(mock sqlmock.Sqlmock, username string) {
 		WillReturnRows(sqlmock.NewRows(authUserColsRegister))
 }
 
-// expectRegisterInsert — INSERT нового пользователя (current_world_id — как задан).
+// expectRegisterInsert — INSERT нового пользователя + счёт игрока в ОДНОЙ
+// транзакции (спека 2026-09-22-деньги-и-эскроу §3.4); current_world_id — как задан.
 func expectRegisterInsert(mock sqlmock.Sqlmock, username string, currentWorldID interface{}) {
+	mock.ExpectBegin()
 	mock.ExpectExec(`INSERT INTO users \(id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_model_id, equipment, role, created_at, updated_at\) VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, \$9, \$10, \$11, \$12\)`).
 		WithArgs(sqlmock.AnyArg(), username, sqlmock.AnyArg(), nil, nil, currentWorldID, "crescent.png", "starter", sqlmock.AnyArg(), "player", sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	// Счёт игрока: seed PlayerBalanceSeed, идемпотентно (ON CONFLICT DO NOTHING).
+	mock.ExpectExec(`INSERT INTO accounts \(owner_type, owner_id, balance, withdrawable, created_at, updated_at\)`).
+		WithArgs("player", sqlmock.AnyArg(), int64(models.PlayerBalanceSeed)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
 }
 
 // registerRequest — POST /register с телом {username, password}.
@@ -468,5 +475,36 @@ func TestRegisterFallbackClosestWorld(t *testing.T) {
 
 	rec := execJSON(h.Register, registerRequest("newbie"))
 	require.Equal(t, http.StatusCreated, rec.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// ==================== /me: ЛЕНИВАЯ СТРАХОВКА СЧЁТА (спека §3.4) ====================
+
+// /me идемпотентно гарантирует счёт игрока (страховка старых и
+// админ-созданных учёток) — INSERT ... ON CONFLICT DO NOTHING.
+func TestGetMeEnsuresPlayerAccount(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+	h := NewAuthHandlers(
+		repository.NewUserRepository(db),
+		repository.NewWorldRepository(db),
+		travel.NewManager(nil),
+	)
+	h.SetAccountRepo(repository.NewAccountRepository(db))
+
+	userID := "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination FROM users WHERE id = \$1`).
+		WithArgs(userID).
+		WillReturnRows(sqlmock.NewRows(authUserCols).
+			AddRow(userID, "bob", "hash", nil, nil, nil, "ship_strela.svg", nil, nil, nil, "player", now(), now(), nil, nil))
+	mock.ExpectExec(`INSERT INTO accounts \(owner_type, owner_id, balance, withdrawable, created_at, updated_at\)`).
+		WithArgs("player", userID, int64(models.PlayerBalanceSeed)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	req := httptest.NewRequest(http.MethodGet, "/me", nil)
+	rec := execJSON(h.GetMe, withUserID(req, userID))
+
+	require.Equal(t, http.StatusOK, rec.Code)
 	require.NoError(t, mock.ExpectationsWereMet())
 }

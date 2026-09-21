@@ -31,6 +31,32 @@ func NewUserRepository(db *sql.DB) *UserRepository {
 // equipment={radar:radar_1, scanner:scanner_1, engine:null} — если не заданы
 // явно (как дефолты 61b при регистрации).
 func (r *UserRepository) Create(user *models.User) error {
+	return createUser(r.db, user)
+}
+
+// CreateWithAccount — создание игрока и его стартового счёта в ОДНОЙ
+// транзакции (спека 2026-09-22-деньги-и-эскроу §3.4): регистрация не может
+// оставить игрока без счёта (С3). Регистрация — единственный путь с этим
+// требованием; bootstrap skycomposer и админ-создание идут через Create без
+// счёта (гарантируется ленивой страховкой при первом запросе, §3.4).
+func (r *UserRepository) CreateWithAccount(user *models.User) error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return fmt.Errorf("create user with account: begin: %w", err)
+	}
+	defer tx.Rollback()
+	if err := createUser(tx, user); err != nil {
+		return err
+	}
+	if err := ensureAccount(tx, models.AccountOwnerPlayer, user.ID, models.PlayerBalanceSeed); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// createUser — тело Create, общее для одиночной вставки и транзакции
+// регистрации (execer: *sql.DB или *sql.Tx).
+func createUser(q execer, user *models.User) error {
 	role := user.Role
 	if role == "" {
 		role = models.RolePlayer
@@ -53,7 +79,7 @@ func (r *UserRepository) Create(user *models.User) error {
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 	`
 	now := time.Now()
-	_, err = r.db.Exec(query,
+	_, err = q.Exec(query,
 		user.ID,
 		user.Username,
 		user.PasswordHash,

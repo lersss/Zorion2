@@ -40,8 +40,22 @@ ClearUniverse его не трогает), `recipes`/`recipe_components`/`produc
 building_type='capital'` — одна столица на фракцию; колонки
 `producer_type_id`/`population`/`slots`/`status`/`data`/`name` §3.2 спеки фабрик
 отложены до следующих итераций; чистится вместе с мирами; только столицы
-фракций, население/снабжение — потом; таблица — данные вселенной, ClearUniverse
-её TRUNCATE-ит).
+  фракций, население/снабжение — потом; таблица — данные вселенной, ClearUniverse
+  её TRUNCATE-ит), `accounts` (счёт актора — игрок/фракция/агент, миграция
+  `000061`, спека `2026-09-22-деньги-и-эскроу` §3.1: PK `(owner_type, owner_id)` —
+  один счёт на владельца, `owner_type` CHECK (player/faction/agent), `owner_id`
+  UUID без FK (владелец полиморфный), `balance` BIGINT CHECK `>= 0`,
+  `withdrawable` BIGINT — корзина «заработанное», CHECK `withdrawable <= balance`;
+  счёта поселений/построек нет — кошелёк поселения лимит, а не счёт, залог платит
+  владелец; кошелёк игрока переживает `ClearUniverse` — `accounts` НЕ в
+  `truncateTables`), `money_operations` (журнал движений по счёту, миграция
+  `000061`, спека §3.2: `delta`/`balance_after`/`kind` (открытый список:
+  escrow_lock/release/return, contract_work_earn, admin_seed, позже
+  mint/salary/transfer)/`contract_id` без FK (журнал переживает удаление
+  контракта)/`occurred_at`; индекс `idx_money_operations_owner (owner_type,
+  owner_id, occurred_at DESC)`). Колонка `npc_agents.owner_faction_id UUID NULL
+  REFERENCES factions(id) ON DELETE SET NULL` (миграция `000061` §6) — владелец
+  агента; NULL = не назначен.
 
 Удалены: `production_units` (легаси 000018-эпохи, снос миграцией `000050`,
 спека `2026-09-20-фабрики` §11.6, решение создателя 3b.6.8), `factories`/
@@ -311,6 +325,20 @@ building_type='capital'` — одна столица на фракцию; кол
   `CHECK (goods.props)` не затрагиваются; каталог — контент, `ClearUniverse`
   его не трогает. Показ описания игроку — будущая задача (игрового экрана
   товаров нет).
+- `000061` — деньги и эскроу, фундамент (спека `2026-09-22-деньги-и-эскроу`
+  §3/§7, 2026-09-22): `accounts` (счёт актора player/faction/agent, PK
+  `(owner_type, owner_id)`, `CHECK balance >= 0`, `CHECK withdrawable >= 0`,
+  `CHECK withdrawable <= balance`), `money_operations` (журнал движений + индекс
+  `idx_money_operations_owner`), `ALTER TABLE npc_agents ADD COLUMN
+  owner_faction_id UUID NULL REFERENCES factions(id) ON DELETE SET NULL`
+  (владелец-фракция агента, §6); бэкфилл — счёт каждому игроку
+  (`PlayerBalanceSeed=10000`) и фракции (`FactionBalanceSeed=10^15`),
+  `ON CONFLICT DO NOTHING` (идемпотентно). `accounts` НЕ входит в
+  `truncateTables` (кошелёк игрока переживает очистку вселенной, §3.5);
+  удаление faction/agent-счетов после очистки — отложено (нужна правка
+  `admin_universe.go`, follow-up). Залог/эскроу (lock/release/return) — этап B
+  (`000062_contracts.sql`). Номер `000061`: бронь менеджера (деньги `000061`,
+  контракты `000062`); `000060` пропущен (свободен).
 - Миграции, вступающие в силу на старте, требуют перезапуска сервера
   (`AGENTS.md` §4 п.13).
 - `VACUUM` внутрь миграции не положить — не работает внутри транзакции

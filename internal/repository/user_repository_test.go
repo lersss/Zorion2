@@ -6,6 +6,7 @@ package repository
 
 import (
 	"database/sql"
+	"errors"
 	"testing"
 	"time"
 
@@ -57,6 +58,47 @@ func TestCreateUserKeepsExplicitRole(t *testing.T) {
 	require.NoError(t, NewUserRepository(db).Create(user))
 	require.NoError(t, mock.ExpectationsWereMet())
 	require.Equal(t, models.RoleSkycomposer, user.Role)
+}
+
+// CreateWithAccount — игрок и его счёт в ОДНОЙ транзакции (спека
+// 2026-09-22-деньги-и-эскроу §3.4): регистрация не оставляет игрока без счёта.
+func TestCreateUserWithAccountSameTx(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`INSERT INTO users \(id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_model_id, equipment, role, created_at, updated_at\)\s*VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, \$9, \$10, \$11, \$12\)`).
+		WithArgs("u1", "bob", "hash", nil, nil, nil, sqlmock.AnyArg(), "starter", sqlmock.AnyArg(), "player", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO accounts \(owner_type, owner_id, balance, withdrawable, created_at, updated_at\)`).
+		WithArgs("player", "u1", int64(models.PlayerBalanceSeed)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	user := &models.User{ID: "u1", Username: "bob", PasswordHash: "hash"}
+	require.NoError(t, NewUserRepository(db).CreateWithAccount(user))
+	require.NoError(t, mock.ExpectationsWereMet())
+	require.Equal(t, models.RolePlayer, user.Role)
+}
+
+// Сбой вставки счёта откатывает транзакцию — пользователь не создаётся
+// «без счёта» (атомарность §3.4).
+func TestCreateUserWithAccountRollsBackOnAccountFailure(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`INSERT INTO users \(id, username, password_hash`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO accounts \(owner_type, owner_id, balance`).
+		WillReturnError(errors.New("boom"))
+	mock.ExpectRollback()
+
+	user := &models.User{ID: "u1", Username: "bob", PasswordHash: "hash"}
+	require.Error(t, NewUserRepository(db).CreateWithAccount(user))
+	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 // ==================== GET ====================

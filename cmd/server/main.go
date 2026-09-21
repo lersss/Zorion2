@@ -229,6 +229,8 @@ func main() {
 	locationRepo := repository.NewLocationRepository(db)
 	assignmentRepo := repository.NewAssignmentRepository(db)
 	userRepo := repository.NewUserRepository(db)
+	// Деньги (спека 2026-09-22-деньги-и-эскроу): счёт актора + журнал движений.
+	accountRepo := repository.NewAccountRepository(db)
 
 	// Активные полёты игроков (97a): персистентность в БД — полёт переживает
 	// рестарт сервера. Restore — ДО старта HTTP (гонок нет): прошлые прибытия
@@ -308,6 +310,10 @@ func main() {
 	worldHandlers := handlers.NewWorldHandlers(worldRepo, locationRepo, assignmentRepo)
 	authHandlers := handlers.NewAuthHandlers(userRepo, worldRepo, travelManager)
 	authHandlers.SetPlanetRepo(planetRepo) // §8.7: пересчёт HP на поверхности в /me
+	// §3.4: ленивая страховка счёта игрока при первом запросе /me.
+	authHandlers.SetAccountRepo(accountRepo)
+	// Деньги игрока (спека 2026-09-22-деньги-и-эскроу §3.2): GET /me/money.
+	moneyHandlers := handlers.NewMoneyHandlers(accountRepo)
 	// Внутрисистемные полёты (спека 99.2.27 §4.1): POST /api/intrasystem-flight.
 	intrasystemHandlers := handlers.NewIntrasystemHandlers(
 		worldRepo, userRepo, planetRepo, intraFlightRepo, knowledgeRepo, travelManager, intraManager,
@@ -371,6 +377,7 @@ func main() {
 	http.HandleFunc("/api/surface/land", auth.AuthMiddleware(surfaceHandlers.Land))
 	http.HandleFunc("/api/surface/leave", auth.AuthMiddleware(surfaceHandlers.Leave))
 	http.HandleFunc("/me", auth.AuthMiddleware(authHandlers.GetMe))
+	http.HandleFunc("/me/money", auth.AuthMiddleware(moneyHandlers.GetMyMoney))
 	http.HandleFunc("/me/ship-icon", auth.AuthMiddleware(authHandlers.UpdateShipIcon))
 	http.HandleFunc("/me/ship-color", auth.AuthMiddleware(authHandlers.UpdateShipColor))
 

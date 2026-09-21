@@ -138,6 +138,16 @@
   `ErrWaitDelay`; в фейке внук не должен наследовать пайп (`>nul 2>&1`).
   Действует для любого `exec.CommandContext` с таймаутом на Windows.
 
+- **Сторож `TestTruncateTablesCoverMigrationFK` приписывает `REFERENCES` после
+  последнего `CREATE TABLE` этой таблице.** Проверено 2026-09-22 (миграция
+  `000061_money.sql`): `ALTER TABLE npc_agents ... REFERENCES factions(id)` стоял
+  ПОСЛЕ `CREATE TABLE money_operations` — парсер теста (`reCreate` ищет
+  `CREATE TABLE`, блок тянется до следующего `CREATE` или EOF) отнёс FK к
+  `money_operations` и потребовал её в `truncateTables`. Реальная FK — от
+  `npc_agents` (обе таблицы уже в списке). Правило: `ALTER ... REFERENCES`
+  в миграции ставить **до** первого `CREATE TABLE` (или добавлять таблицу в
+  `truncateTables` осознанно) — иначе сторож падает на ложном срабатывании.
+
 ## Go и конкурентность
 
 - **Go: тег JSON на строке с несколькими полями применяется ко ВСЕМ полям
@@ -587,6 +597,24 @@
   орбиты» = одни условия у любой звезды. Любая новая величина, зависящая от `r`,
   не должна ещё раз зависеть от светимости: скрытый множитель `L^0.75` (масса
   брала `r^1.5` при `r ∝ √L`) дал плоские полки «ровно 0.10» и «ровно 8.00».
+
+- **Списание `accounts.balance` без урезания `withdrawable` отвергается CHECK
+  (деньги, 2026-09-22).** Инвариант `CHECK (withdrawable <= balance)` (спека
+  `2026-09-22-деньги-и-эскроу` §3.3): `withdrawable` — подмножество `balance`.
+  При **трате/прочей трате** (покупка, обычный расход) `withdrawable` урезается
+  до нового баланса в том же операторе: `withdrawable = LEAST(withdrawable,
+  balance - amount)` — иначе строка с `withdrawable > нового balance` даст ошибку
+  CHECK. В `SET` используются значения строки ДО `UPDATE`
+  (`LEAST(withdrawable, balance - $3)`) — это и нужно. Образец —
+  `internal/repository/account_repository.go`, `debitAccountSQL`.
+  **Запирание залога — ДРУГАЯ формула (метка не сгорает, а переносится на
+  контракт, §3.3):** `e = LEAST(withdrawable, amount)`,
+  `withdrawable = withdrawable - e`, `balance = balance - amount`, а `e` пишется
+  в `contracts.escrow_withdrawable`; возврат — `+amount` к `balance` и
+  `+escrow_withdrawable` к `withdrawable` (метка восстанавливается). Выпуск
+  (`escrow_release`, оплата труда) — метка сгорает: автору в `withdrawable` не
+  возвращается, исполнителю подряда — `+withdrawable` (обычному — только
+  `balance`). Не применять формулу траты к запиранию.
 
 ## Фронт и UI
 

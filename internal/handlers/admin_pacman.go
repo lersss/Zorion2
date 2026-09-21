@@ -355,6 +355,14 @@ func (h *AdminHandlers) eatPacmanBatchOnce(ids []string) (pacmanBatchStats, erro
 
 	// 2. NPC-агенты в съеденных мирах / летящие в них — исчезают (решение
 	// создателя): FK npc_agents → worlds NO ACTION (000026), явный DELETE.
+	// В итерации 1 агент — только исполнитель (не автор), поэтому удаление
+	// агента ДО возврата залога (шаг 4.6) безопасно: returnEscrowRow резолвит
+	// счёт АВТОРА, а не исполнителя. В B2 (агент-автор) порядок придётся
+	// изменить: сперва вернуть залог контрактов агента-автора (иначе
+	// resolvePayerAccountQ не найдёт удалённого агента и уронит батч), затем
+	// удалять агента; счёт агента (accounts owner_type='agent') тоже чистить —
+	// сейчас он остаётся сиротой (FK нет, спека денег §3.5 покрывает только
+	// очистку вселенной).
 	res, err := tx.ExecContext(context.Background(), `
 		DELETE FROM npc_agents
 		WHERE current_world_id = ANY($1) OR from_world_id = ANY($1) OR target_world_id = ANY($1)`,

@@ -66,7 +66,7 @@ func TestRunHypothesisJobPipeline(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectExec(`TRUNCATE TABLE ` + truncateTables).
 		WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectExec(`DELETE FROM accounts WHERE owner_type = 'faction'`).
+	mock.ExpectExec(`DELETE FROM accounts WHERE owner_type IN \('faction', 'agent'\)`).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectExec(`ALTER TABLE users ADD CONSTRAINT users_current_world_id_fkey`).
 		WillReturnResult(sqlmock.NewResult(0, 0))
@@ -277,7 +277,7 @@ func TestRunHypothesisRaceGate(t *testing.T) {
 			mock.ExpectExec(`UPDATE users SET current_world_id = NULL`).WillReturnResult(sqlmock.NewResult(0, 0))
 			mock.ExpectExec(`ALTER TABLE users DROP CONSTRAINT`).WillReturnResult(sqlmock.NewResult(0, 0))
 			mock.ExpectExec(`TRUNCATE TABLE ` + truncateTables).WillReturnResult(sqlmock.NewResult(0, 0))
-			mock.ExpectExec(`DELETE FROM accounts WHERE owner_type = 'faction'`).WillReturnResult(sqlmock.NewResult(0, 0))
+			mock.ExpectExec(`DELETE FROM accounts WHERE owner_type IN \('faction', 'agent'\)`).WillReturnResult(sqlmock.NewResult(0, 0))
 			mock.ExpectExec(`ALTER TABLE users ADD CONSTRAINT`).WillReturnResult(sqlmock.NewResult(0, 0))
 
 			// Звезда + 2 планеты.

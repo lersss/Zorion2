@@ -306,10 +306,15 @@ func TestContractCreateNotOnPlanet(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// Админ-публикация: автор-фракция, плательщик — казна фракции.
+// Админ-публикация: автор-фракция, планета берётся из factions.homeworld_id
+// (спека перелёта §3), плательщик — казна фракции.
 func TestContractAdminCreate(t *testing.T) {
 	h, mock := newContractHarness(t)
 
+	// Планета публикации резолвится по автору, а не из тела.
+	mock.ExpectQuery(`SELECT homeworld_id FROM factions WHERE id = \$1`).
+		WithArgs("f1").
+		WillReturnRows(sqlmock.NewRows([]string{"homeworld_id"}).AddRow("p1"))
 	expectPlanetByID(mock, "p1", "w1")
 	expectPublishChain(mock, "faction", "f1", "faction", "f1", "p1", 300, 1000000000000000)
 	expectContractGetByID(mock, contractRows("c1", "open", "public", 300))
@@ -320,5 +325,97 @@ func TestContractAdminCreate(t *testing.T) {
 	h.AdminCreateContract(rec, req)
 
 	require.Equal(t, http.StatusCreated, rec.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Админ-публикация игроком: планета — где стоит игрок (то же правило, что в
+// CreateContract), тело planet_id игнорируется.
+func TestContractAdminCreatePlayerFromPosition(t *testing.T) {
+	h, mock := newContractHarness(t)
+
+	expectSurfaceUserRole(mock, "u1", "w1", contractPlanetPos, "player")
+	expectPlanetByID(mock, "p1", "w1")
+	expectPublishChain(mock, "player", "u1", "player", "u1", "p1", 500, 10000)
+	expectContractGetByID(mock, contractRows("c1", "open", "public", 500))
+
+	// В теле указана чужая планета — она не должна использоваться.
+	req := httptest.NewRequest(http.MethodPost, "/admin/contracts", strings.NewReader(
+		`{"planet_id":"p-other","type":"travel","title":"T","reward":500,"author_type":"player","author_id":"u1"}`))
+	rec := httptest.NewRecorder()
+	h.AdminCreateContract(rec, req)
+
+	require.Equal(t, http.StatusCreated, rec.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Админ-публикация игроком не с планеты (на орбите звезды) → 400, без записи.
+func TestContractAdminCreatePlayerNotOnPlanet(t *testing.T) {
+	h, mock := newContractHarness(t)
+
+	expectSurfaceUserRole(mock, "u1", "w1", `{"status":"orbit","object_type":"star","object_id":"w1","level":"orbit"}`, "player")
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/contracts", strings.NewReader(
+		`{"planet_id":"p1","type":"travel","title":"T","reward":500,"author_type":"player","author_id":"u1"}`))
+	rec := httptest.NewRecorder()
+	h.AdminCreateContract(rec, req)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code, "игрок не на планете → 400")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Админ-публикация агентом: у агента нет планетного слоя — итерация 1 не
+// поддерживает агента-автора → 400, без записи.
+func TestContractAdminCreateAgentUnsupported(t *testing.T) {
+	h, mock := newContractHarness(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/contracts", strings.NewReader(
+		`{"planet_id":"p1","type":"travel","title":"T","reward":500,"author_type":"agent","author_id":"a1"}`))
+	rec := httptest.NewRecorder()
+	h.AdminCreateContract(rec, req)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code, "агент-автор не поддержан в итерации 1")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Админ-публикация постройкой: планета — buildings.planet_id, плательщик —
+// владелец постройки (резолв §4 — запрос внутри транзакции публикации).
+func TestContractAdminCreateBuilding(t *testing.T) {
+	h, mock := newContractHarness(t)
+
+	mock.ExpectQuery(`SELECT planet_id FROM buildings WHERE id = \$1`).
+		WithArgs("b1").
+		WillReturnRows(sqlmock.NewRows([]string{"planet_id"}).AddRow("p1"))
+	expectPlanetByID(mock, "p1", "w1")
+
+	// Публикация: Begin → резолв плательщика-постройки → залог → контракт → лог.
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT owner_type, owner_id FROM buildings WHERE id = \$1`).
+		WithArgs("b1").
+		WillReturnRows(sqlmock.NewRows([]string{"owner_type", "owner_id"}).AddRow("faction", "f1"))
+	mock.ExpectExec(`INSERT INTO accounts \(owner_type, owner_id, balance, withdrawable, created_at, updated_at\)`).
+		WithArgs("faction", "f1", int64(1000000000000000)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(`WITH acc AS`).
+		WithArgs("faction", "f1", int64(300)).
+		WillReturnRows(sqlmock.NewRows([]string{"balance", "withdrawable", "least"}).AddRow(1000, 0, 0))
+	mock.ExpectExec(`INSERT INTO contracts`).
+		WithArgs(sqlmock.AnyArg(), "travel", "building", "b1", "p1", "T", "",
+			sqlmock.AnyArg(), int64(300), "regular", int64(300), int64(0),
+			"deposit", "open", "public", nil, nil, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO contract_log`).WillReturnResult(sqlmock.NewResult(0, 1)) // published
+	mock.ExpectExec(`INSERT INTO contract_log`).WillReturnResult(sqlmock.NewResult(0, 1)) // escrow_locked
+	mock.ExpectExec(`INSERT INTO money_operations`).
+		WithArgs("faction", "f1", int64(-300), sqlmock.AnyArg(), "escrow_lock", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	expectContractGetByID(mock, contractRows("c1", "open", "public", 300))
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/contracts", strings.NewReader(
+		`{"planet_id":"p-other","type":"travel","title":"T","reward":300,"author_type":"building","author_id":"b1"}`))
+	rec := httptest.NewRecorder()
+	h.AdminCreateContract(rec, req)
+
+	require.Equal(t, http.StatusCreated, rec.Code, "body=%s", rec.Body.String())
 	require.NoError(t, mock.ExpectationsWereMet())
 }

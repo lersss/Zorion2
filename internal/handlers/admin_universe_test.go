@@ -80,8 +80,8 @@ func TestClearUniverseTx(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectExec(`TRUNCATE TABLE ` + truncateTables).
 		WillReturnResult(sqlmock.NewResult(0, 0))
-	// §3.5: счета фракций удаляются, кошелёк игрока остаётся.
-	mock.ExpectExec(`DELETE FROM accounts WHERE owner_type = 'faction'`).
+	// §3.5: счета фракций и агентов удаляются, кошелёк игрока остаётся.
+	mock.ExpectExec(`DELETE FROM accounts WHERE owner_type IN \('faction', 'agent'\)`).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectExec(regexp.QuoteMeta(`ALTER TABLE users ADD CONSTRAINT users_current_world_id_fkey FOREIGN KEY (current_world_id) REFERENCES worlds(id) ON DELETE SET NULL`)).
 		WillReturnResult(sqlmock.NewResult(0, 0))

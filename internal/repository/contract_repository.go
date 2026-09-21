@@ -33,6 +33,11 @@ var ErrInvalidReward = errors.New("цена контракта должна бы
 // денег §4: player/faction напрямую, building → владелец, agent → фракция).
 var ErrPayerUnresolved = errors.New("не удалось определить счёт плательщика")
 
+// ErrPublicationPlanetUnresolved — не удалось определить планету публикации по
+// автору (спека перелёта §3): игрок не стоит на планете, у фракции/постройки
+// нет родной планеты, агент-автор не поддержан в итерации 1.
+var ErrPublicationPlanetUnresolved = errors.New("не удалось определить планету публикации")
+
 // querier — общее для *sql.DB и *sql.Tx: методы репозитория работают и в
 // одиночной транзакции, и внутри уже открытой (пути удаления, §6.5).
 type querier interface {
@@ -43,12 +48,12 @@ type querier interface {
 
 // ContractScope — область действия ленивого истечения (§6.3) и возврата залога
 // (§6.5). Задаётся ровно одна область; приоритет — по порядку проверки.
+// Пустая область (все поля нулевые) = вся таблица (очистка вселенной).
 type ContractScope struct {
 	ContractID          string   // один контракт (проверка при прибытии)
 	PlanetID            string   // доска планеты (publication_planet_id)
 	WorldIDs            []string // планеты миров (удаление миров/планет)
 	PayloadDestWorldIDs []string // payload->>'dest_world_id' (мёртвая цель пакмана)
-	All                 bool     // вся таблица (очистка вселенной)
 }
 
 // clause — SQL-предикат и аргументы области. Плейсхолдеры начинаются с $1.
@@ -163,11 +168,14 @@ const cancelContractSQL = `
 	WHERE id = $1 AND status = 'open' AND author_type = $2 AND author_id = $3
 	RETURNING id, author_type, author_id, executor_id, escrow_amount, escrow_withdrawable`
 
-// Выполнение: атомарный flip taken→completed с проверкой исполнителя.
+// Выполнение: атомарный flip taken→completed с проверкой исполнителя и срока.
+// Просроченный взятый контракт НЕ завершается (0 строк): его закрывает ленивое
+// истечение ExpireDue (залог возвращается автору, лог failed, §6.3/§1.4).
+// Точка прибытия обязана сперва вызвать ExpireDue, затем Complete.
 const completeContractSQL = `
 	UPDATE contracts
 	SET status = 'completed', updated_at = NOW()
-	WHERE id = $1 AND status = 'taken' AND executor_id = $2
+	WHERE id = $1 AND status = 'taken' AND executor_id = $2 AND expires_at > NOW()
 	RETURNING id, author_type, author_id, executor_type, executor_id,
 	          escrow_amount, escrow_withdrawable, funding`
 
@@ -441,24 +449,10 @@ func (r *ContractRepository) ExpireDue(scope ContractScope) (int, error) {
 	return n, tx.Commit()
 }
 
-// ReturnEscrowForContracts — возврат залога всех живых контрактов области
-// атомарным статусным flip'ом (§6.5), отдельной транзакцией. Форма по статусу:
-// open→cancelled (лог cancelled), taken→expired (лог failed).
-func (r *ContractRepository) ReturnEscrowForContracts(scope ContractScope, reason string) (int, error) {
-	tx, err := r.db.Begin()
-	if err != nil {
-		return 0, err
-	}
-	defer tx.Rollback()
-	n, err := returnEscrowForContractsQ(tx, scope, reason)
-	if err != nil {
-		return 0, err
-	}
-	return n, tx.Commit()
-}
-
-// ReturnEscrowForContractsTx — то же, но в уже открытой транзакции вызывающего
+// ReturnEscrowForContractsTx — возврат залога всех живых контрактов области
+// атомарным статусным flip'ом (§6.5) в уже открытой транзакции вызывающего
 // (пути удаления контрактов: возврат и DELETE/TRUNCATE — одна транзакция, §6.5).
+// Форма по статусу: open→cancelled (лог cancelled), taken→expired (лог failed).
 func ReturnEscrowForContractsTx(tx *sql.Tx, scope ContractScope, reason string) (int, error) {
 	return returnEscrowForContractsQ(tx, scope, reason)
 }
@@ -590,6 +584,38 @@ func (r *ContractRepository) ListMine(ownerType, ownerID string) ([]*models.Cont
 		return nil, err
 	}
 	return contracts, nil
+}
+
+// ResolvePublicationPlanet — место публикации по автору (спека перелёта §3):
+// faction — factions.homeworld_id; building — buildings.planet_id; agent — не
+// поддержан в итерации 1 (у агента нет планетного слоя, только current_world_id)
+// → ErrPublicationPlanetUnresolved. Автор-player резолвится вызывающим по
+// позиции игрока (то же правило, что в игровом пути публикации).
+func (r *ContractRepository) ResolvePublicationPlanet(authorType, authorID string) (string, error) {
+	switch authorType {
+	case models.ContractActorFaction:
+		var planetID sql.NullString
+		err := r.db.QueryRow(`SELECT homeworld_id FROM factions WHERE id = $1`, authorID).Scan(&planetID)
+		if err == sql.ErrNoRows || !planetID.Valid {
+			return "", fmt.Errorf("%w: у фракции %s нет родной планеты", ErrPublicationPlanetUnresolved, authorID)
+		}
+		if err != nil {
+			return "", fmt.Errorf("resolve faction homeworld: %w", err)
+		}
+		return planetID.String, nil
+	case models.ContractActorBuilding:
+		var planetID string
+		err := r.db.QueryRow(`SELECT planet_id FROM buildings WHERE id = $1`, authorID).Scan(&planetID)
+		if err == sql.ErrNoRows {
+			return "", fmt.Errorf("%w: постройка %s не найдена", ErrPublicationPlanetUnresolved, authorID)
+		}
+		if err != nil {
+			return "", fmt.Errorf("resolve building planet: %w", err)
+		}
+		return planetID, nil
+	default:
+		return "", fmt.Errorf("%w: автор типа %q", ErrPublicationPlanetUnresolved, authorType)
+	}
 }
 
 // resolvePayerAccountQ — резолв плательщика (спека денег §4), глубина 1:

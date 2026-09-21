@@ -63,9 +63,10 @@ const truncateTables = `worlds, locations, planets, contracts, contract_requirem
 // Вызывающий делает Begin/Commit/Rollback.
 func clearUniverseTx(ctx context.Context, tx *sql.Tx) error {
 	// 0. Возврат залога живых контрактов автору ДО удаления контрактов (§6.5):
-	// деньги не исчезают без следа. Одна транзакция с TRUNCATE.
+	// деньги не исчезают без следа. Одна транзакция с TRUNCATE. Пустая область
+	// ContractScope{} = вся таблица (очистка вселенной).
 	if _, err := repository.ReturnEscrowForContractsTx(tx,
-		repository.ContractScope{All: true}, models.EscrowReasonWorldDeleted); err != nil {
+		repository.ContractScope{}, models.EscrowReasonWorldDeleted); err != nil {
 		return fmt.Errorf("return escrow: %w", err)
 	}
 
@@ -84,10 +85,11 @@ func clearUniverseTx(ctx context.Context, tx *sql.Tx) error {
 		return fmt.Errorf("truncate: %w", err)
 	}
 
-	// 4. Счета фракций удаляются (спека денег §3.5): фракции перегенерируются с
-	// новыми id, старые счета стали бы сиротами. Кошелёк игрока переживает очистку.
-	if _, err := tx.ExecContext(ctx, "DELETE FROM accounts WHERE owner_type = 'faction'"); err != nil {
-		return fmt.Errorf("delete faction accounts: %w", err)
+	// 4. Счета фракций и агентов удаляются (спека денег §3.5): фракции и агенты
+	// перегенерируются с новыми id, старые счета стали бы сиротами. Кошелёк
+	// игрока переживает очистку.
+	if _, err := tx.ExecContext(ctx, "DELETE FROM accounts WHERE owner_type IN ('faction', 'agent')"); err != nil {
+		return fmt.Errorf("delete faction/agent accounts: %w", err)
 	}
 
 	// 5. Возвращаем FK на место.
@@ -552,7 +554,7 @@ func (h *AdminHandlers) clearPlanets() (int, error) {
 	defer tx.Rollback()
 
 	if _, err := repository.ReturnEscrowForContractsTx(tx,
-		repository.ContractScope{All: true}, models.EscrowReasonWorldDeleted); err != nil {
+		repository.ContractScope{}, models.EscrowReasonWorldDeleted); err != nil {
 		return 0, fmt.Errorf("return escrow: %w", err)
 	}
 	var oldCount int

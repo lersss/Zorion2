@@ -247,7 +247,7 @@ func TestContractCompleteReleasesEscrow(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectBegin()
-	mock.ExpectQuery(`UPDATE contracts\s+SET status = 'completed'`).
+	mock.ExpectQuery(`(?s)UPDATE contracts\s+SET status = 'completed'.*expires_at > NOW\(\)`).
 		WithArgs("c1", "u1").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "author_type", "author_id", "executor_type", "executor_id",
@@ -269,6 +269,28 @@ func TestContractCompleteReleasesEscrow(t *testing.T) {
 	ok, err := NewContractRepository(db).Complete("c1", "u1")
 	require.NoError(t, err)
 	require.True(t, ok)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Просроченный взятый контракт НЕ завершается: условие expires_at > NOW() в том
+// же атомарном UPDATE даёт 0 строк → false, откат (залог вернёт ExpireDue).
+func TestContractCompleteExpiredNotCompleted(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`(?s)UPDATE contracts\s+SET status = 'completed'.*expires_at > NOW\(\)`).
+		WithArgs("c1", "u1").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "author_type", "author_id", "executor_type", "executor_id",
+			"escrow_amount", "escrow_withdrawable", "funding",
+		}))
+	mock.ExpectRollback()
+
+	ok, err := NewContractRepository(db).Complete("c1", "u1")
+	require.NoError(t, err)
+	require.False(t, ok, "просроченный taken не завершается (0 строк)")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -304,4 +326,44 @@ func TestResolvePayerAgent(t *testing.T) {
 	require.Equal(t, "faction", ownerType)
 	require.Equal(t, "f1", ownerID)
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Место публикации по автору (спека перелёта §3): фракция → homeworld_id,
+// постройка → planet_id, агент → ошибка (нет планетного слоя). Автор-player
+// резолвится вызывающим по позиции игрока (тест — на слое хендлеров).
+func TestResolvePublicationPlanet(t *testing.T) {
+	t.Run("фракция — homeworld_id", func(t *testing.T) {
+		db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+		require.NoError(t, err)
+		defer db.Close()
+		mock.ExpectQuery(`SELECT homeworld_id FROM factions WHERE id = \$1`).
+			WithArgs("f1").
+			WillReturnRows(sqlmock.NewRows([]string{"homeworld_id"}).AddRow("p1"))
+		got, err := NewContractRepository(db).ResolvePublicationPlanet("faction", "f1")
+		require.NoError(t, err)
+		require.Equal(t, "p1", got)
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("постройка — planet_id", func(t *testing.T) {
+		db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+		require.NoError(t, err)
+		defer db.Close()
+		mock.ExpectQuery(`SELECT planet_id FROM buildings WHERE id = \$1`).
+			WithArgs("b1").
+			WillReturnRows(sqlmock.NewRows([]string{"planet_id"}).AddRow("p2"))
+		got, err := NewContractRepository(db).ResolvePublicationPlanet("building", "b1")
+		require.NoError(t, err)
+		require.Equal(t, "p2", got)
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("агент — не поддержан", func(t *testing.T) {
+		db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+		require.NoError(t, err)
+		defer db.Close()
+		_, err = NewContractRepository(db).ResolvePublicationPlanet("agent", "a1")
+		require.ErrorIs(t, err, ErrPublicationPlanetUnresolved)
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
 }

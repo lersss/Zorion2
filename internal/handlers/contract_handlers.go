@@ -9,6 +9,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"strings"
@@ -151,7 +152,9 @@ func (h *ContractHandlers) GetMyContracts(w http.ResponseWriter, r *http.Request
 		writeJSONError(w, "Не авторизован", http.StatusUnauthorized)
 		return
 	}
-	if _, err := h.contractRepo.ExpireDue(repository.ContractScope{All: true}); err != nil {
+	// Пустая область ContractScope{} = вся таблица: «мои контракты» видят все
+	// статусы, поэтому истечение глобальное (не только по планете).
+	if _, err := h.contractRepo.ExpireDue(repository.ContractScope{}); err != nil {
 		log.Printf("GetMyContracts: expire due: %v", err)
 	}
 	contracts, err := h.contractRepo.ListMine(models.ContractActorPlayer, userID)
@@ -346,6 +349,9 @@ func (h *ContractHandlers) CreateContract(w http.ResponseWriter, r *http.Request
 
 // AdminCreateContract — POST /admin/contracts: публикация вручную остальными
 // авторами (фракция/постройка/агент) и отладка. UI — B3, серверная часть — B1.
+// Планета публикации определяется по автору (спека перелёта §3), а не берётся
+// из тела вслепую: player — где стоит игрок, faction — homeworld_id,
+// building — planet_id, agent — не поддержан в итерации 1 (4xx).
 func (h *ContractHandlers) AdminCreateContract(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSONError(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
@@ -367,7 +373,36 @@ func (h *ContractHandlers) AdminCreateContract(w http.ResponseWriter, r *http.Re
 		writeJSONError(w, "недопустимый author_type", http.StatusBadRequest)
 		return
 	}
+	planetID, err := h.resolvePublicationPlanet(req.AuthorType, req.AuthorID)
+	if err != nil {
+		if errors.Is(err, repository.ErrPublicationPlanetUnresolved) {
+			writeJSONError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSONError(w, "Не удалось определить планету публикации", http.StatusInternalServerError)
+		return
+	}
+	req.PlanetID = planetID
 	h.publish(w, req.AuthorType, req.AuthorID, req)
+}
+
+// resolvePublicationPlanet — место публикации по автору (спека перелёта §3).
+// Автор-player резолвится по позиции игрока — тем же правилом, что игровой
+// путь CreateContract (планета, где стоит игрок; на орбите звезды нельзя).
+// Остальные авторы — через репозиторий (faction/building); агент-автор в
+// итерации 1 не поддержан.
+func (h *ContractHandlers) resolvePublicationPlanet(authorType, authorID string) (string, error) {
+	if authorType == models.ContractActorPlayer {
+		_, pos, _, err := h.userRepo.GetByIDWithPosition(authorID)
+		if err != nil {
+			return "", err
+		}
+		if pos == nil || pos.Status == "in_flight" || pos.ObjectType != "planet" || pos.ObjectID == "" {
+			return "", repository.ErrPublicationPlanetUnresolved
+		}
+		return pos.ObjectID, nil
+	}
+	return h.contractRepo.ResolvePublicationPlanet(authorType, authorID)
 }
 
 // writePublishError — маппинг ошибок публикации в HTTP-коды.

@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"zorion/internal/auth"
+	"zorion/internal/models"
 	"zorion/internal/repository"
 	"zorion/internal/ship"
 	"zorion/internal/travel"
@@ -130,7 +131,7 @@ func TestGetMeWithoutFlight(t *testing.T) {
 
 // ==================== /me: МАППИНГ ship_icon (спека 61b §4) ====================
 
-// Legacy SVG-имя маппится в PNG-имя; ship_options — ровно 21 запись.
+// Legacy SVG-имя маппится в PNG-имя; ship_options — весь реестр спрайтов.
 func TestGetMeMapsLegacyShipIcon(t *testing.T) {
 	h, mock, _ := newAuthHandlersHarness(t)
 
@@ -150,7 +151,7 @@ func TestGetMeMapsLegacyShipIcon(t *testing.T) {
 	assert.Nil(t, resp["ship_color"], "NULL цвет = «Оригинал»")
 	opts, ok := resp["ship_options"].([]interface{})
 	require.True(t, ok, "ship_options должен быть массивом")
-	assert.Len(t, opts, 21, "ship_options — ровно 21 спрайт")
+	assert.Len(t, opts, len(models.ShipSprites), "ship_options — весь реестр спрайтов")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

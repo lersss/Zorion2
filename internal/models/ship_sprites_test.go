@@ -1,7 +1,8 @@
 // internal/models/ship_sprites_test.go
 // Тесты реестра статичных спрайтов кораблей (спека 61b §3.2, §4, §5.5):
-// ровно 21 запись, файлы существуют, маппинг legacy → PNG — биекция,
-// неизвестное имя → дефолт, палитра — 9 хроматических цветов.
+// 24 записи (21 базовый + 3 расовых «люди»), файлы существуют, расовая проба
+// только в хвосте, маппинг legacy → PNG — биекция, неизвестное имя → дефолт,
+// палитра — 9 хроматических цветов.
 package models
 
 import (
@@ -11,9 +12,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Реестр содержит ровно 21 запись (спека §3.2, И1).
+// Реестр содержит ровно 24 записи: 21 базовый (спека §3.2, И1) + 3 расовых
+// корабля «люди» (проба 2026-09-21).
 func TestShipSpritesRegistrySize(t *testing.T) {
-	require.Len(t, ShipSprites, 21)
+	require.Len(t, ShipSprites, 24)
+}
+
+// Расовая проба добавлена В КОНЕЦ реестра (И8): индексы первых 21 не
+// сдвигаются — spriteForAgent(id) = ShipSprites[FNV-1a(id) % len(reestr)].
+func TestShipSpritesRacialAppended(t *testing.T) {
+	tail := []ShipSprite{
+		{ID: "race_humans_starship", Name: "Звёздный корабль (люди)", File: "race_humans_starship.png"},
+		{ID: "race_humans_cruiser", Name: "Крейсер (люди)", File: "race_humans_cruiser.png"},
+		{ID: "race_humans_carrier", Name: "Носитель (люди)", File: "race_humans_carrier.png"},
+	}
+	require.Len(t, ShipSprites, 21+len(tail))
+	require.Equal(t, tail, ShipSprites[21:])
+	for _, s := range tail {
+		require.True(t, IsValidShipIcon(s.File), "%s должен быть в реестре", s.File)
+	}
 }
 
 // Каждый file существует в web/static/sprites/ (этап 1, §3.1).

@@ -1,8 +1,9 @@
 // internal/models/ship_sprites.go
-// Реестр статичных спрайтов кораблей (спека 61b §3.2): 21 PNG из
-// web/static/sprites/, порядок фиксирован — он же источник индексов для
-// spriteForAgent(id) на клиенте (добавление нового спрайта — только в конец,
-// И8). Маппинг legacy SVG-имён → PNG (§4) и палитра перекраски (§5.5).
+// Реестр статичных спрайтов кораблей (спека 61b §3.2): 24 PNG из
+// web/static/sprites/ (21 базовый + 3 расовых «люди», проба 2026-09-21),
+// порядок фиксирован — он же источник индексов для spriteForAgent(id) на
+// клиенте (добавление нового спрайта — только в конец, И8). Маппинг legacy
+// SVG-имён → PNG (§4) и палитра перекраски (§5.5).
 package models
 
 // ShipSprite — одна запись реестра: id (имя без .png), человеческое имя,
@@ -13,9 +14,10 @@ type ShipSprite struct {
 	File string `json:"file"`
 }
 
-// ShipSprites — реестр из 21 спрайта (спека §3.1/§3.2). Порядок фиксирован:
-// индексы используются spriteForAgent(id) = FNV-1a(id) % 21; вставка в
-// середину сдвигает индексы и меняет визуал всех агентов — запрещена.
+// ShipSprites — реестр из 24 спрайтов (спека §3.1/§3.2). Порядок фиксирован:
+// индексы используются spriteForAgent(id) = FNV-1a(id) % len(ShipSprites);
+// вставка в середину сдвигает индексы и меняет визуал всех агентов —
+// запрещена (новые — только в конец, И8).
 var ShipSprites = []ShipSprite{
 	{ID: "anchor", Name: "Якорь", File: "anchor.png"},
 	{ID: "book", Name: "Книга", File: "book.png"},
@@ -38,6 +40,11 @@ var ShipSprites = []ShipSprite{
 	{ID: "star_celestial", Name: "Звезда", File: "star_celestial.png"},
 	{ID: "trident", Name: "Трезубец", File: "trident.png"},
 	{ID: "volcano", Name: "Вулкан", File: "volcano.png"},
+	// Корабли расы «люди» (проба 2026-09-21): только в конец — индексы
+	// существующих 21 не сдвигаются (И8).
+	{ID: "race_humans_starship", Name: "Звёздный корабль (люди)", File: "race_humans_starship.png"},
+	{ID: "race_humans_cruiser", Name: "Крейсер (люди)", File: "race_humans_cruiser.png"},
+	{ID: "race_humans_carrier", Name: "Носитель (люди)", File: "race_humans_carrier.png"},
 }
 
 // DefaultShipIcon — дефолтный спрайт (Полумесяц, спека §4.1).
@@ -103,7 +110,7 @@ func ResolveShipIcon(icon string) string {
 }
 
 // IsValidShipIcon — имя файла ∈ реестр (для PUT /me/ship-icon, спека §4:
-// принимаются только 21 PNG-имя; legacy-имена и мусор → 400).
+// принимаются только имена из реестра (24 PNG-имени); legacy-имена и мусор → 400).
 func IsValidShipIcon(file string) bool {
 	_, ok := shipSpriteByFile[file]
 	return ok

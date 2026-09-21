@@ -611,7 +611,7 @@
         { "on": "web/static/js/surface/surface_main.js", "kind": "affects", "reason": "три вызова погоды между слоями мира внутри трансформа камеры (зум/DPR не дублируются)" },
         { "on": "web/static/js/surface/surface_world.js", "kind": "reads", "reason": "terrainHeight/farHeight + экспорт hash1 для мировых колонок частиц" },
         { "on": "web/static/js/surface/surface_ui.js", "kind": "affects", "reason": "админские чипы погоды из WEATHER_IDS; подписи HUD (дельта на @uidesigner — §4.6)" },
-        { "on": "2026-09-21-высадка-прогулка-по-планете.md", "kind": "affects", "reason": "дельта §7.2 (погода: прежний выбор «только по biome_category» отменён)" },
+        { "on": "docs/specs/2026-09-21-высадка-прогулка-по-планете.md", "kind": "affects", "reason": "дельта §7.2 (погода: прежний выбор «только по biome_category» отменён)" },
         { "on": "docs/specs/2026-09-22-полярное-сияние-вид-направление.md", "kind": "docs", "reason": "направление @gdesigner по виду сияния (переделка «частокола»)" },
         { "on": "tools/e2e/surface-walk-check.js", "kind": "affects", "reason": "10g: детект игрока устойчив к пелене погоды (лучевой метод от тела)" }
       ]

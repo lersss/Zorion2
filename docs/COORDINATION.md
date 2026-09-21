@@ -53,6 +53,7 @@
 
 | Файл | Кто правит | До какого коммита |
 |---|---|---|
+| `web/static/js/map/star_render.js` (новый), `web/static/js/map/map_render.js`, `web/static/js/map/config.js`, `web/static/js/config.js`, `web/main.js`, `web/map.html` | @developer (внешний вид звёзд — прототип, идея 2026-09-22) | до коммита задачи |
 
 ## Занято ранее (историческое, не блокирует — чистится @manager по мере надобности)
 

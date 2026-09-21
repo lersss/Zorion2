@@ -1184,7 +1184,7 @@
       "id": "belt",
       "type": "mechanic",
       "path": "internal/generator/planet/planet_data_belt.go",
-      "note": "пояс малых тел — ОБЪЕКТ МИРА и АГРЕГАТ (не планета, не лог, не атрибут, не именованное тело): владелец — мир (world_id), записей много, типы открыты (asteroid/kuiper/oort/debris/dust_ring). Нарезается из облака в per-мирном пред-слое при бюджете-общей-массе (путь (б), решение создателя 2026-09-22; реализовано, коммит b24e358): профиль нормирован (w_i = c_i/S₀), приор median(M_диск) = S₀ = Σ_{i=1..8} c_i ≈ 18.556, шум ζ НЕ нормируется. Орбита астероидного пояса выведена из резонансного окна гиганта 3:1–2:1 (beltOrbit = g−1, radius 0.5555·r_g, width 0.1493·r_g); Койпера — за x_out = 35; debris — материализация disk_state='debris' (WD). Масса = κ_kind·w⁰_зон·M_диск; неудержанное — M_сброс (сток, не объект игры). Мягкий кламп суммы — на уровне мира (~17% систем). Игроку — этап 2 (модалка/полёт), добыча-мини-игра — этап 3.",
+      "note": "пояс малых тел — ОБЪЕКТ МИРА и АГРЕГАТ (не планета, не лог, не атрибут, не именованное тело): владелец — мир (world_id), записей много, типы открыты (asteroid/kuiper/oort/debris/dust_ring). Нарезается из облака в per-мирном пред-слое при бюджете-общей-массе (путь (б), решение создателя 2026-09-22; реализовано, коммит b24e358): профиль нормирован (w_i = c_i/S₀), приор median(M_диск) = S₀ = Σ_{i=1..8} c_i ≈ 18.556, шум ζ НЕ нормируется. Орбита астероидного пояса выведена из резонансного окна гиганта 3:1–2:1 (beltOrbit = g−1, radius 0.5555·r_g, width 0.1493·r_g); Койпера — за x_out = 35; debris — материализация disk_state='debris' (WD). Масса = κ_kind·w⁰_зон·M_диск; неудержанное — M_сброс (сток, не объект игры). Мягкий кламп суммы — на уровне мира (~17% систем). Игроку — этап 2 (модалка/знание/полёт) **реализован 2026-09-22, коммит d36f5ce**; добыча-мини-игра — этап 3.",
       "impacts": [
         { "on": "disk_cloud", "kind": "reads", "reason": "пояс нарезается из облака: M_диск (общая масса), giantOrbit (резонансное окно), x_out (граница Койпера)" },
         { "on": "planet_mass", "kind": "affects", "reason": "ревизия §4.0: M_i = clamp(f_обр·M_диск·ζ·w_i), w_i = c_i/S₀; значения планет не изменились (поток RNG не сдвинут)" },
@@ -1198,7 +1198,16 @@
         { "on": "internal/handlers/admin_regenerate_planets.go", "kind": "affects", "reason": "при пересчёте планет мира пояса удаляются и пересоздаются" },
         { "on": "internal/models/planet.go", "kind": "reads", "reason": "models.Belt (потребитель — этап 2)" },
         { "on": "world_component", "kind": "affects", "reason": "владелец пояса — мир-компонент (компаньоны §7.3–7.4)" },
-        { "on": "99.2.27", "kind": "affects", "reason": "этап 2: object_type='belt' (цель внутрисистемного полёта)" },
+        { "on": "99.2.27", "kind": "affects", "reason": "этап 2: object_type='belt' (цель внутрисистемного полёта) — реализовано, коммит d36f5ce" },
+        { "on": "99.2.30", "kind": "affects", "reason": "этап 2: пояс — цель композитного маршрута (destination/pending_destination) — реализовано, коммит d36f5ce" },
+        { "on": "77a", "kind": "affects", "reason": "этап 2: показ пояса в модалке — базовые поля открыты, состав раскрывается сканом в радиусе/присутствием (BeltView/stripBeltDetails)" },
+        { "on": "internal/handlers/planet_handler.go", "kind": "reads", "reason": "этап 2: аддитивное поле belts в GET /api/worlds/{id}/planets (best-effort выборка)" },
+        { "on": "internal/handlers/planet_visibility.go", "kind": "affects", "reason": "этап 2: stripBeltDetails/applyBeltVisibility — фильтрация полей пояса для игрока (77a И1)" },
+        { "on": "internal/handlers/intrasystem_handlers.go", "kind": "affects", "reason": "этап 2: перечислители object_type += belt (objectRadiusAU/targetInSystem/normalizeMyPosition/arrivalTargetValid/StartIntraFlight)" },
+        { "on": "internal/handlers/players_positions.go", "kind": "affects", "reason": "этап 2: resolveIntraStatus — статус «в поясе X»" },
+        { "on": "internal/handlers/travel_handlers.go", "kind": "affects", "reason": "этап 2: destination.object_type='belt' (валидация/автостарт)" },
+        { "on": "web/static/js/modal/panel.js", "kind": "affects", "reason": "этап 2: секция «Пояса» + кнопки полёта в модалке системы" },
+        { "on": "web/static/js/map/data.js", "kind": "affects", "reason": "этап 2: фокус my_position для belt" },
         { "on": "docs/specs/99.2.5-resource-model.md", "kind": "affects", "reason": "этап 3: data.resources пояса — сток «редких» категорий" },
         { "on": "docs/specs/2026-09-21-пояса-малых-тел-объект-системы.md", "kind": "duplicates", "reason": "спека-источник (реализована, коммит b24e358); этапы 2–3 — дизайн" },
         { "on": "docs/gamedesign/03_planets.md", "kind": "docs", "reason": "новый §3.13 «Пояса малых тел» + пометы §3.1/§3.4/§3.10" }
@@ -1211,6 +1220,8 @@
       "note": "таблица поясов малых тел (миграция 000059, коммит b24e358): (id UUID PK, world_id UUID FK worlds ON DELETE CASCADE, kind TEXT — свободный ключ asteroid/kuiper/oort/debris/dust_ring, name, orbit_index INT NULL, radius_au/width_au DOUBLE, mass DOUBLE, body_size_km DOUBLE, composition JSONB, visible BOOL, data JSONB, created_at/updated_at); индексы (world_id) и (world_id, kind). Пояс — агрегат (поля bodies нет). Данные вселенной: чистится CASCADE от worlds и в truncateTables/clearPlanets.",
       "impacts": [
         { "on": "belt", "kind": "reads", "reason": "запись пояса (источник данных)" },
+        { "on": "internal/repository/planet_repo.go", "kind": "reads", "reason": "этап 2: GetBeltsByWorldID — читающая ручка поясов мира (реализовано, коммит d36f5ce)" },
+        { "on": "internal/handlers/planet_handler.go", "kind": "reads", "reason": "этап 2: belts в ответе модалки (потребитель GetBeltsByWorldID)" },
         { "on": "internal/handlers/admin_universe.go", "kind": "writes", "reason": "system_belts в truncateTables + clearPlanets (иначе TRUNCATE падает на FK)" },
         { "on": "pacman_job", "kind": "affects", "reason": "каскад worlds → system_belts покрывает поедание миров" },
         { "on": "docs/DB.md", "kind": "docs", "reason": "таблица system_belts, миграция 000059 — дельта при разносе доков" }

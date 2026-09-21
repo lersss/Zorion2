@@ -951,6 +951,53 @@
         { "on": "docs/specs/2026-09-21-рецепт-сущность-и-граф-фабрики.md", "kind": "duplicates", "reason": "спека-источник §2.3/§2.4 (инварианты), §5 (роуты привязок и copy-universal)" },
         { "on": "docs/gamedesign/11_production.md", "kind": "affects", "reason": "§11.1.1: «фабрика держит набор рецептов» — модель производства для релиза 2" }
       ]
+    },
+    {
+      "id": "buildings",
+      "type": "table",
+      "path": "db:buildings",
+      "note": "строения на планете — первая итерация релиза 2 фабрик (миграция 000056, спека 2026-09-21-фабрики-релиз-2-столицы-фракций): (id UUID PK, planet_id UUID NOT NULL FK planets ON DELETE CASCADE, building_type TEXT NOT NULL — свободный ключ, в этой итерации только 'capital', owner_type TEXT NOT NULL CHECK (player/faction/agent), owner_id UUID NOT NULL БЕЗ FK — владелец полиморфный users/factions/npc_agents, created_at/updated_at); индексы idx_buildings_planet_id и частичный UNIQUE uq_buildings_capital_owner (owner_type, owner_id) WHERE building_type='capital' — одна столица на фракцию. Колонки producer_type_id/population/slots/status/data/name отложены до следующих итераций (спека фабрик §3.2). Заполняется идемпотентно (EnsureCapitals, INSERT … WHERE NOT EXISTS … ON CONFLICT DO NOTHING) в джобе генерации фракций",
+      "impacts": [
+        { "on": "db:planets", "kind": "schema", "reason": "planet_id FK ON DELETE CASCADE: удаление планеты/мира (ClearUniverse, RegeneratePlanets, пакман) сносит строения" },
+        { "on": "factions", "kind": "reads", "reason": "owner_id = factions.id при owner_type='faction'; planet_id = factions.homeworld_id (FK нет — владелец полиморфный)" },
+        { "on": "faction_capital", "kind": "affects", "reason": "столица — экземпляр строения (building_type='capital', тип «другое», producer_type_id отсутствует, ничего не производит)" },
+        { "on": "producer_types", "kind": "affects", "reason": "отложенная связь: buildings.producer_type_id → producer_types(id) появится с производителями (этап 2 п.8–10 спеки фабрик)" },
+        { "on": "db:settlements", "kind": "affects", "reason": "отложенная связь: владелец поселений и перенос поселения в модель строений (спека фабрик §11.5); в этой итерации поселения владельца НЕ получают" },
+        { "on": "internal/handlers/admin_universe.go", "kind": "writes", "reason": "buildings в truncateTables + комментарий каскада (иначе TRUNCATE падает на FK buildings → planets)" },
+        { "on": "pacman_job", "kind": "affects", "reason": "каскад worlds → planets → buildings покрывает поедание миров; отдельного шага в джобе не нужно" },
+        { "on": "internal/repository/planet_repo.go", "kind": "writes", "reason": "attachFactionsAndBuildings: чтение строений системы в карточку планеты (= ANY($1), два запроса на систему)" },
+        { "on": "internal/models/planet.go", "kind": "schema", "reason": "Planet.Buildings/Planet.Factions в ответе /api/worlds/{id}/planets (omitempty)" },
+        { "on": "internal/handlers/planet_visibility.go", "kind": "affects", "reason": "stripPlanetDetails: игрок без знания не получает фракции/строения (инвариант 5, 77a §6.2)" },
+        { "on": "web/static/js/modal/tabs.js", "kind": "reads", "reason": "вкладка «Фракции» карточки планеты: список фракций + строка столицы + клик-раскрытие владельца" },
+        { "on": "migrations/000056_create_buildings.sql", "kind": "writes", "reason": "создание таблицы buildings и двух индексов" },
+        { "on": "docs/DB.md", "kind": "docs", "reason": "таблица buildings, миграция 000056 — дельта при сдаче" },
+        { "on": "docs/specs/2026-09-21-фабрики-релиз-2-столицы-фракций.md", "kind": "duplicates", "reason": "спека-источник: модель §2, генерация §3, показ §4, видимость §5" }
+      ]
+    },
+    {
+      "id": "factions",
+      "type": "table",
+      "path": "db:factions",
+      "note": "NPC-фракции (миграция 004_factions.sql): (id UUID PK, name, type, homeworld_id UUID NOT NULL FK planets ON DELETE CASCADE, strength INT DEFAULT 1, resources JSONB, color, description, created_at/updated_at); индекс idx_factions_homeworld. Генератор internal/generator/faction создаёт 1–3 фракции на планету с населением (случайное имя/тип/цвет). Сущность была в БД и коде, но отсутствовала в реестре — добавлена 2026-09-21",
+      "impacts": [
+        { "on": "internal/handlers/admin_universe.go", "kind": "writes", "reason": "джоб /admin/generate-factions; factions в truncateTables" },
+        { "on": "pacman_job", "kind": "affects", "reason": "каскад planets → factions (FK homeworld_id CASCADE) — фракции гибнут с мирами" },
+        { "on": "buildings", "kind": "affects", "reason": "фракция — владелец строений (owner_type='faction'); родной мир (homeworld_id) задаёт место столицы" },
+        { "on": "docs/gamedesign/06_factions.md", "kind": "duplicates", "reason": "§6.1 модель генерации/присутствия (присутствие НЕ реализовано: в коде одна фракция = один родной мир)" }
+      ]
+    },
+    {
+      "id": "faction_capital",
+      "type": "mechanic",
+      "path": "internal/generator/faction",
+      "note": "столица фракции (спека 2026-09-21-фабрики-релиз-2-столицы-фракций): одна на фракцию, на её родной планете (factions.homeworld_id), тип постройки «другое» (building_type='capital'; ничего не производит, снабжение отложено). Создаётся идемпотентно EnsureCapitals() в конце джоба генерации фракций и в ветке total == 0 — под гейтом Пакмана и мьютексом мутаций вселенной",
+      "impacts": [
+        { "on": "factions", "kind": "reads", "reason": "homeworld_id — место столицы; одна столица на фракцию (частичный UNIQUE uq_buildings_capital_owner)" },
+        { "on": "buildings", "kind": "schema", "reason": "столица — запись buildings: planet_id = homeworld_id, owner_type='faction', owner_id=factions.id, building_type='capital'" },
+        { "on": "internal/generator/faction", "kind": "writes", "reason": "EnsureCapitals() — идемпотентный проход (INSERT … WHERE NOT EXISTS … ON CONFLICT DO NOTHING)" },
+        { "on": "internal/handlers/admin_universe.go", "kind": "affects", "reason": "джоб generate_factions: поле capitals в ответе/логе; гейт Пакмана/универсального мьютекса перенесён ДО ветки total == 0" },
+        { "on": "docs/gamedesign/06_factions.md", "kind": "duplicates", "reason": "новый §6.8 — эталон FAQ (число/место/тип столицы); §6.4.3 «Захват столицы» получил сущность-референт (механика захвата — вне скоупа)" }
+      ]
     }
   ]
 }

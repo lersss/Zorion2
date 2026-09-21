@@ -149,6 +149,29 @@
 | `cmd/server/main.go` (роут `/studio/api/races`) | @developer (дерево построек 2026-09-21) | коммит дерева построек |
 | `web/studio.html` (дерево построек на канвасе) | @developer (дерево построек 2026-09-21) | коммит дерева построек |
 | `docs/DB.md` / `docs/ARCHITECTURE.md` / `docs/PITFALLS.md` (дерево построек) | @developer (дерево построек 2026-09-21) | коммит дерева построек |
+| `internal/models/ship_sprites.go` (+test) | @developer (проба расовых кораблей людей 2026-09-21) | коммит пробы |
+| `internal/handlers/auth_handlers_test.go` | @developer (проба расовых кораблей людей 2026-09-21) | коммит пробы |
+| `web/static/sprites/race_humans_*.png` | @developer (проба расовых кораблей людей 2026-09-21) | коммит пробы |
+| `cmd/art-studio/handlers/ships_edit.go` (+`ships_handlers.go`, `ships_handlers_test.go`) | @developer (корабли рас: полный кадр + нос вправо 2026-09-21) | до коммита задачи |
+| `cmd/art-studio/web/index.html` (кнопки ориентации «Корабли рас») | @developer (корабли рас: полный кадр + нос вправо 2026-09-21) | до коммита задачи |
+| `tools/spike_ship_sprite_run.py`, `spike_ship_sprite_cut.py`, `spike_ship_sprite_bis.py` | @developer (корабли рас: полный кадр + нос вправо 2026-09-21) | до коммита задачи |
+| `tools/e2e/ships-accept-check.js` (+ артефакты) | @developer (корабли рас: инструмент ручной приёмки 2026-09-21) | до коммита задачи |
+| `migrations/000057_goods_description.sql` (новый) | @developer (описание каталога) | до коммита задачи |
+| `internal/goodsstudio/model/types.go` | @developer (описание каталога) | до коммита задачи |
+| `internal/goodsstudio/ai/*` (desc.go, prompt_desc.go, parse.go, proposals.go, prompt.go, client.go) | @developer (описание каталога) | до коммита задачи |
+| `internal/repository/goods_repository.go` | @developer (описание каталога) | до коммита задачи |
+| `internal/handlers/studio_handlers.go` (+tests) | @developer (описание каталога) | до коммита задачи |
+| `cmd/server/main.go` (блок `/studio/api/descriptions/*`) | @developer (описание каталога) | до коммита задачи |
+| `web/studio.html` | @developer (описание каталога) | до коммита задачи |
+| `tools/e2e/goods-studio-server-check.js` | @developer (описание каталога) | до коммита задачи |
+| `docs/DB.md` / `docs/ARCHITECTURE.md` (описание каталога) | @developer (описание каталога) | до коммита задачи |
+| `cmd/art-studio/generator/ships_job.go` / `ship_prompt.go` / `worker.go` / `ship_filter.go` (+тесты) | @developer (перенос рецепта кораблей в студию 2026-09-21) | до коммита задачи |
+| `cmd/art-studio/comfy/ship_workflow.go` (+тест), `postproc/ship.go` | @developer (перенос рецепта кораблей в студию 2026-09-21) | до коммита задачи |
+| `cmd/art-studio/config/config_types.go` / `load_test.go` / `config/art/studio.json` (блок ships) | @developer (перенос рецепта кораблей в студию 2026-09-21) | до коммита задачи |
+| `cmd/art-studio/handlers/ships_handlers.go` (+тест) | @developer (перенос рецепта кораблей в студию 2026-09-21) | до коммита задачи |
+| `cmd/art-studio/web/index.html` (вкладка «Корабли рас»: txt2img + Hi-Res) | @developer (перенос рецепта кораблей в студию 2026-09-21) | до коммита задачи |
+| `tools/ship_sprite_cut.py` (новый, промоут спайка) | @developer (перенос рецепта кораблей в студию 2026-09-21) | до коммита задачи |
+| `docs/PITFALLS.md` (записи о ships.model и промоуте скрипта) | @developer (перенос рецепта кораблей в студию 2026-09-21) | до коммита задачи |
 
 ---
 

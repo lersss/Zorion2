@@ -15,6 +15,11 @@
 // меняется — идёт работа; спираль — когда файл возвращается к уже виденному
 // состоянию. Грубая страховка по объёму (60 правок одного файла) остаётся.
 //
+// Продление на лету (идея 100d): сервис учёта (tools/agent-dash, порт 8790) пишет
+// .opencode/loop-guard.override.json — какой сессии и на какой срок продлить; сторож
+// читает его на каждом действии, сбрасывает счётчик «после напоминания» и поднимает
+// объёмный предел на extra. Продление только на срок, «навсегда» не бывает.
+//
 // Срабатывания показываются всплывашкой и пишутся в журнал (.opencode/loop-guard.log).
 
 import fs from "node:fs"
@@ -34,10 +39,13 @@ export const LoopGuard = async ({ client, directory }) => {
   const AFTER_REMINDER = 15
   const STOP_BLOCKS = 5
   const STOP_MEMORY_BLOCKS = 2
+  const OVERRIDE_FILE = "loop-guard.override.json"
 
   const journalPath = directory ? path.join(directory, ".opencode", "loop-guard.log") : null
+  const overridePath = directory ? path.join(directory, ".opencode", OVERRIDE_FILE) : null
   const sessions = new Map()
   let journalReady = false
+  const overrides = { at: 0, list: {} }
 
   const journal = (sessionID, action, reason, extra = {}) => {
     if (!journalPath) return
@@ -72,6 +80,7 @@ export const LoopGuard = async ({ client, directory }) => {
         reminder: null,
         reminded: false,
         afterReminder: 0,
+        extendedUntil: 0,
       }
       sessions.set(sessionID, b)
     }
@@ -138,6 +147,28 @@ export const LoopGuard = async ({ client, directory }) => {
     }
   }
 
+  // Продление лимитов на лету (идея 100d): файл пишет сервис учёта, сторож читает.
+  // Перечитываем только при изменении файла; продление действует, пока не истёк срок.
+  const readOverrides = () => {
+    if (!overridePath) return {}
+    try {
+      const at = fs.statSync(overridePath).mtimeMs
+      if (at === overrides.at) return overrides.list
+      overrides.at = at
+      overrides.list = JSON.parse(fs.readFileSync(overridePath, "utf8")) || {}
+    } catch {
+      overrides.list = {}
+    }
+    return overrides.list
+  }
+
+  const extension = (sessionID) => {
+    const e = readOverrides()[sessionID]
+    const until = Number(e?.until)
+    if (!e || !Number.isFinite(until) || until <= Date.now()) return null
+    return { extra: Number(e.extra) || 0, until, by: String(e.by ?? "") }
+  }
+
   const bump = (map, key) => {
     const n = (map.get(key) ?? 0) + 1
     map.set(key, n)
@@ -162,14 +193,14 @@ export const LoopGuard = async ({ client, directory }) => {
   }
 
   // Признак спирали: агент делает много действий без результата.
-  const spiral = (b) => {
+  const spiral = (b, extra = 0) => {
     if (b.mem >= MEM_WARN) return `рабочая память ${kilos(b.mem)}`;
     let looping = null;
     let biggest = null;
     for (const [file, s] of b.files) {
       if (s.repeats >= SAME_FILE_REPEATS && (!looping || s.repeats > looping.s.repeats))
         looping = { file, s };
-      if (s.edits >= SAME_FILE_EDITS && (!biggest || s.edits > biggest.s.edits))
+      if (s.edits >= SAME_FILE_EDITS + extra && (!biggest || s.edits > biggest.s.edits))
         biggest = { file, s };
     }
     if (looping) return `файл ${looping.file} возвращался к уже виденному состоянию ${looping.s.repeats} раз`;
@@ -261,6 +292,20 @@ export const LoopGuard = async ({ client, directory }) => {
       const sig = input.tool + "|" + stable(output.args)
       const times = bump(b.calls, sig)
 
+      // Продление на лету: возвращаем бюджет действий и разрешаем напомнить снова.
+      const ext = extension(input.sessionID)
+      if (ext && ext.until !== b.extendedUntil) {
+        b.extendedUntil = ext.until
+        b.reminded = false
+        b.afterReminder = 0
+        journal(
+          input.sessionID,
+          "extend",
+          `продление +${ext.extra} действий до ${new Date(ext.until).toLocaleTimeString()}`,
+          { by: ext.by, extra: ext.extra, until: ext.until }
+        )
+      }
+
       if (input.tool === "edit" || input.tool === "write" || input.tool === "apply_patch") {
         const file = output.args?.filePath ?? output.args?.path ?? "?"
         const s = fileState(b.files, file)
@@ -295,7 +340,7 @@ export const LoopGuard = async ({ client, directory }) => {
       }
 
       // 3. Спираль: напоминаем один раз, дальше тормозим, если агент не свернул.
-      const why = spiral(b)
+      const why = spiral(b, ext ? ext.extra : 0)
       if (!why) return
       if (!b.reminded) {
         b.reminded = true

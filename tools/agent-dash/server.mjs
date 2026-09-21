@@ -14,6 +14,7 @@ const PROJECT = process.env.PROJECT || "Zorion";
 const DB_PATH = defaultDbPath();
 const CACHE_PATH = process.env.DASH_CACHE || path.join(HERE, ".cache.json");
 const JOURNAL_PATH = process.env.GUARD_LOG || path.join(HERE, "..", "..", ".opencode", "loop-guard.log");
+const OVERRIDE_PATH = process.env.GUARD_OVERRIDE || path.join(HERE, "..", "..", ".opencode", "loop-guard.override.json");
 const BATCH = Number(process.env.DASH_BATCH || 10);
 
 const store = createStore({
@@ -70,7 +71,48 @@ function send(res, code, type, body) {
   res.end(body);
 }
 
-const server = http.createServer((req, res) => {
+// Продление лимитов сторожа на лету (идея 100d): сторож читает этот файл на каждом
+// действии. Продление — только на срок, «навсегда» не пишем: заявка истекает сама.
+const EXTEND_MAX_MINUTES = 240;
+const EXTEND_MAX_ACTIONS = 200;
+
+function readOverrides() {
+  try {
+    return JSON.parse(fs.readFileSync(OVERRIDE_PATH, "utf8")) || {};
+  } catch {
+    return {};
+  }
+}
+
+function writeOverrides(list) {
+  fs.mkdirSync(path.dirname(OVERRIDE_PATH), { recursive: true });
+  const tmp = OVERRIDE_PATH + ".tmp";
+  fs.writeFileSync(tmp, JSON.stringify(list, null, 2));
+  fs.renameSync(tmp, OVERRIDE_PATH);
+}
+
+function activeExtensions() {
+  const now = Date.now();
+  return Object.fromEntries(Object.entries(readOverrides()).filter(([, e]) => Number(e?.until) > now));
+}
+
+function readBody(req, limit = 4096) {
+  return new Promise((resolve) => {
+    let body = "";
+    let tooBig = false;
+    req.on("data", (chunk) => {
+      if (tooBig) return;
+      body += chunk;
+      if (body.length > limit) {
+        tooBig = true;
+        body = "";
+      }
+    });
+    req.on("end", () => resolve(tooBig ? null : body));
+  });
+}
+
+const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   if (url.pathname === "/api/health") return send(res, 200, "application/json", '{"ok":true}');
   if (url.pathname === "/api/stats") {
@@ -89,7 +131,38 @@ const server = http.createServer((req, res) => {
       memStop: Number(process.env.GUARD_MEM_STOP || 900000),
     };
     report.liveWindowMs = 5 * 60 * 1000;
+    report.extensions = activeExtensions();
     return send(res, 200, "application/json", JSON.stringify(report));
+  }
+  if (url.pathname === "/api/extend" && req.method === "POST") {
+    const raw = await readBody(req);
+    if (raw === null) return send(res, 413, "application/json", JSON.stringify({ error: "тело запроса слишком большое" }));
+    let payload;
+    try {
+      payload = JSON.parse(raw || "{}");
+    } catch {
+      return send(res, 400, "application/json", JSON.stringify({ error: "тело запроса — не JSON" }));
+    }
+    const session = String(payload.session ?? "").trim();
+    if (!session) return send(res, 400, "application/json", JSON.stringify({ error: "не указана сессия" }));
+    const minutes = Math.min(EXTEND_MAX_MINUTES, Math.max(1, Number(payload.minutes) || 30));
+    const extra = Math.min(EXTEND_MAX_ACTIONS, Math.max(0, Number(payload.actions) || 15));
+    const until = Date.now() + minutes * 60000;
+    const list = readOverrides();
+    list[session] = {
+      until,
+      extra,
+      by: "создатель",
+      reason: String(payload.reason ?? "").slice(0, 200),
+      at: Date.now(),
+    };
+    try {
+      writeOverrides(list);
+    } catch (e) {
+      return send(res, 500, "application/json", JSON.stringify({ error: e.message }));
+    }
+    console.log(`продление: ${session} — +${extra} действий до ${new Date(until).toLocaleTimeString()}`);
+    return send(res, 200, "application/json", JSON.stringify({ ok: true, session, until, extra, minutes }));
   }
   if (url.pathname === "/") return send(res, 200, "text/html; charset=utf-8", fs.readFileSync(path.join(HERE, "index.html")));
   if (url.pathname === "/index.html") {

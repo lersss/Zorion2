@@ -42,6 +42,7 @@
         font: inherit;
       }
       button.on { border-color: var(--accent); color: var(--accent); }
+      button.mini { padding: 2px 8px; font-size: 12px; border-radius: 999px; }
       .cards { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
       .card {
         background: var(--panel);
@@ -138,6 +139,8 @@
     <footer>
       Цена и память — по периоду; повторы — за всю сессию; срабатывания сторожа — из его журнала
       (<span class="dim">.opencode/loop-guard.log</span>); память — пиковый рабочий контекст агента.
+      Кнопка «продлить» в карточке активной сессии даёт сторожу заявку на продление
+      лимитов (на срок — истекает само).
       Сервис читает хранилище сессий opencode только на чтение, цифры обновляет раз в 20 секунд,
       таймер активности — каждую секунду. Масштаб страницы — кнопками A−/A+.
       <span id="scan"></span>
@@ -150,6 +153,7 @@
         sort: { agents: ["cost", -1], features: ["cost", -1], active: ["cost", -1] },
         updatedAt: 0,
         limits: { memWarn: 700000, memStop: 900000 },
+        extensions: {},
         prev: new Map(),
         deltas: new Map(),
       };
@@ -174,6 +178,15 @@
       // Верхний блок: кто работает прямо сейчас, с ценой, остатком бюджета памяти
       // и дельтой с прошлого обновления. Перерисовывается каждую секунду (таймер),
       // цифры приходят раз в 20 секунд.
+      // Продление лимитов сторожа (идея 100d): кнопка пишет заявку сервису, сторож
+      // читает её на каждом действии. Продление только на срок — истекает само.
+      function extendControls(id) {
+        const e = state.extensions[id];
+        const left = e ? Math.round((e.until - Date.now()) / 60000) : 0;
+        const pill = e ? `<span class="pill ok">продлено${left > 0 ? " ещё " + left + " мин" : ""} (+${e.extra || 0})</span>` : "";
+        return `${pill}<button class="mini" data-extend="${esc(id)}" data-minutes="30" data-actions="15">продлить +15 / 30 мин</button>`;
+      }
+
       function renderLive() {
         const box = document.getElementById("livetable");
         const r = state.report;
@@ -214,6 +227,7 @@
                 <span class="pill ${a.recentRepeats > 50 ? "bad" : a.recentRepeats > 0 ? "hi" : ""}">повторов ${a.recentLabel || "в задаче"}: ${a.recentRepeats || 0}</span>
                 <span class="pill ${a.guard ? "bad" : ""}">сторож: ${a.guard || 0}</span>
                 <span class="delta"><span class="dot ${now - a.last < 60000 ? "" : "calm"}"></span>${ago(a.last, now)} назад</span>
+                ${a.id ? extendControls(a.id) : ""}
               </div>
             </div>
             <div class="lprice">
@@ -407,6 +421,7 @@
           const res = await fetch(`/api/stats?period=${state.period}`);
           const report = await res.json();
           state.limits = report.limits || state.limits;
+          state.extensions = report.extensions || {};
           // Дельты «с последнего обновления» считаем здесь: раз в 20 секунд.
           state.deltas = new Map();
           for (const a of report.active || []) {
@@ -449,6 +464,30 @@
         const cur = state.sort[key] || ["cost", -1];
         state.sort[key] = [col, cur[0] === col ? -cur[1] : -1];
         render();
+      });
+
+      document.addEventListener("click", async (e) => {
+        const btn = e.target.closest("button[data-extend]");
+        if (!btn) return;
+        btn.disabled = true;
+        try {
+          const res = await fetch("/api/extend", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              session: btn.dataset.extend,
+              minutes: Number(btn.dataset.minutes) || 30,
+              actions: Number(btn.dataset.actions) || 15,
+            }),
+          });
+          const out = await res.json();
+          if (!res.ok) throw new Error(out.error || "отказ");
+          await refresh();
+        } catch (err) {
+          document.getElementById("status").textContent = "продление не прошло: " + err.message;
+        } finally {
+          btn.disabled = false;
+        }
       });
 
       document.querySelector('button[data-period="today"]').classList.add("on");

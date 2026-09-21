@@ -13,14 +13,14 @@ import (
 	"zorion/cmd/art-studio/config"
 )
 
-// shipFakeComfy — фейковый ComfySubmitter для кораблей: записывает промпты
-// (узел "2" CLIPTextEncode), steps (узел "5" KSampler) и ширину ImageScale
-// (узел "15": 512 — эскиз, 0 — узла нет), WaitAndDownload пишет валидный PNG.
+// shipFakeComfy — фейковый ComfySubmitter для кораблей (рецепт 2026-09-21):
+// записывает промпты (узел "2" CLIPTextEncode), steps (узел "5" KSampler) и
+// факт Hi-Res (узел "13" ImageUpscaleWithModel); WaitAndDownload пишет PNG.
 type shipFakeComfy struct {
-	mu      sync.Mutex
-	prompts []string
-	steps   []int
-	scales  []int
+	mu       sync.Mutex
+	prompts  []string
+	steps    []int
+	upscaled []bool
 }
 
 func (f *shipFakeComfy) Submit(wf map[string]interface{}) (string, error) {
@@ -40,15 +40,8 @@ func (f *shipFakeComfy) Submit(wf map[string]interface{}) (string, error) {
 			}
 		}
 	}
-	if n, ok := wf["15"].(map[string]interface{}); ok {
-		if in, ok := n["inputs"].(map[string]interface{}); ok {
-			if w, ok := in["width"].(int); ok {
-				f.scales = append(f.scales, w)
-			}
-		}
-	} else {
-		f.scales = append(f.scales, 0)
-	}
+	_, hires := wf["13"]
+	f.upscaled = append(f.upscaled, hires)
 	return "pid-1", nil
 }
 
@@ -71,20 +64,25 @@ func (f *shipFakeComfy) WaitAndDownload(pid, outPath string) (bool, error) {
 	return true, nil
 }
 
-// writeFakeShipPython — фейковый python для джоба кораблей. ВАЖНО: cmd.exe
-// режет аргументы по «=» (--spec=path → %2=--spec, %3=path) — фейк учитывает
-// split-форму; скрипт — %1:
-//   make_ship_silhouettes.py --spec=<json> --out=<png> → %2=--spec %3=json %4=--out %5=png
-//   process_ship.py <in> <out>                        → копия %2 → %3
-func writeFakeShipPython(t *testing.T) string {
+// writeFakeShipPython — фейковый python для джоба кораблей (рецепт 2026-09-21).
+// ВАЖНО: cmd.exe режет аргументы по «=» — фейк учитывает формы:
+//
+//	ship_sprite_cut.py <in> --frame-check --report <json> --margin N --min-elong E
+//	  → %2=in, %3=--frame-check, %5=json; пишем результат frameOk
+//	ship_sprite_cut.py <in> <out> --method hyst ... → %2=in, %3=out; копируем
+func writeFakeShipPython(t *testing.T, frameOK bool) string {
 	t.Helper()
 	fp := filepath.Join(t.TempDir(), "fake_ship_python.cmd")
+	frame := `{"touch":[],"elong":2.0,"ok":true}`
+	if !frameOK {
+		frame = `{"touch":["left"],"elong":1.0,"ok":false}`
+	}
 	script := "@echo off\r\n" +
-		"if \"%2\"==\"--spec\" goto spec\r\n" +
+		"if \"%3\"==\"--frame-check\" goto frame\r\n" +
 		"copy %2 %3 >nul 2>&1\r\n" +
 		"exit /b 0\r\n" +
-		":spec\r\n" +
-		"copy %3 %5 >nul 2>&1\r\n" +
+		":frame\r\n" +
+		"echo " + frame + " > %5\r\n" +
 		"exit /b 0\r\n"
 	if err := os.WriteFile(fp, []byte(script), 0o644); err != nil {
 		t.Fatalf("WriteFile fake python: %v", err)
@@ -92,18 +90,14 @@ func writeFakeShipPython(t *testing.T) string {
 	return fp
 }
 
-// TestGenShips — джоб кораблей: силуэт (кэш silhouettes/), 2 кандидата s01/s02,
-// мета с промптами без токенов blocked.
-func TestGenShips(t *testing.T) {
-	dc, err := config.LoadShipDict("../../../config/art/ship_dict.json")
-	if err != nil {
-		t.Fatalf("LoadShipDict: %v", err)
-	}
+// newShipRunner — Runner с фейковыми Comfy/python и одной расой humans.
+func newShipRunner(t *testing.T, fake *shipFakeComfy, frameOK bool) (*Runner, string, config.ShipsConfig) {
+	t.Helper()
 	ships := config.ShipsConfig{
 		"humans": {
 			RaceName: "Люди", Family: "F1",
-			Texture:    "paneled white-grey metal hull with ceramic heat shield tiles, riveted seams, navigation lights, subtle weathering, light blue cockpit glass, no organic shapes, no bioluminescence",
-			Silhouette: "крыло-корпус в плане: широкий нос (светлая кабина-стекло) справа, сужающаяся корма с дюзами слева; асимметрия по оси «нос-корма»; крылья-стабилизаторы; модули: корпус крем, крылья сталь, дюзы тёмные, кабина светлая; запас от краёв ~90 px",
+			Texture:    "paneled white-grey metal hull with ceramic heat shield tiles, riveted seams, navigation lights, light blue cockpit glass",
+			Silhouette: "крыло-корпус в плане: нос справа, корма слева; модули: корпус крем, дюзы тёмные; запас от краёв ~90 px",
 			Blocked:    []string{"tentacle", "organic", "crystal", "pyramid", "obelisk", "bioluminescent", "alien"},
 		},
 	}
@@ -113,30 +107,30 @@ func TestGenShips(t *testing.T) {
 		ComfyInput: t.TempDir(),
 		Workers:    1,
 		MaxCount:   100,
-		PythonCmd:  writeFakeShipPython(t),
+		PythonCmd:  writeFakeShipPython(t, frameOK),
 	}
-	fake := &shipFakeComfy{}
 	runner := NewRunner(cfg, nil, nil, nil, fake)
-	runner.SetShips(ships, dc, "../../../config/races.json")
+	runner.SetShips(ships, loadShipDict(t), "../../../config/races.json")
+	return runner, pool, ships
+}
 
-	msg, _ := runner.GenShips("humans", 2, "", "", "", 200)
+// TestGenShips — джоб кораблей (рецепт 2026-09-21): txt2img → frame-check →
+// вырез → 2 кандидата s01/s02, мета с промптами без токенов blocked и
+// статистикой попыток.
+func TestGenShips(t *testing.T) {
+	fake := &shipFakeComfy{}
+	runner, pool, ships := newShipRunner(t, fake, true)
+	msg, _ := runner.GenShips("humans", 2, "", "", "", false, 200)
 	if !strings.Contains(msg, "Корабли расы humans") {
 		t.Fatalf("msg = %q", msg)
 	}
 	waitJobDone(t, filepath.Join(pool, "ships_pool"))
-
 	poolDir := filepath.Join(pool, "ships_pool")
-	// силуэт закэширован
-	if _, err := os.Stat(filepath.Join(poolDir, "silhouettes", "humans.png")); err != nil {
-		t.Errorf("нет силуэта silhouettes/humans.png: %v", err)
-	}
-	// кандидаты s01.png, s02.png
 	for _, name := range []string{"s01.png", "s02.png"} {
 		if _, err := os.Stat(filepath.Join(poolDir, name)); err != nil {
 			t.Errorf("нет кандидата %s: %v", name, err)
 		}
 	}
-	// мета: 2 записи, промпты без blocked
 	meta := ReadShipMeta(poolDir)
 	if len(meta) != 2 {
 		t.Fatalf("meta = %d записей, want 2", len(meta))
@@ -148,58 +142,140 @@ func TestGenShips(t *testing.T) {
 		if m.Prompt1 == "" || m.Prompt2 == "" {
 			t.Errorf("пустые промпты: %+v", m)
 		}
-		// этап 1: детали отфильтрованы по blocked (спека §3.2/§3.4)
+		// промпт txt2img: субъект из космического пула + texture расы
+		if !strings.Contains(m.Prompt1, ships["humans"].Texture) {
+			t.Errorf("промпт1 не содержит texture расы: %s", m.Prompt1)
+		}
+		if !strings.Contains(m.Prompt1, ShipViewAnchor) {
+			t.Errorf("промпт1 не содержит якорь ракурса: %s", m.Prompt1)
+		}
+		// blocked-термы расы — только в негативе, не в позитиве
 		for _, tok := range ships["humans"].Blocked {
-			if strings.Contains(m.Prompt1, tok) {
-				t.Errorf("промпт этапа 1 содержит blocked-токен %q: %s", tok, m.Prompt1)
+			if strings.Contains(strings.ToLower(m.Prompt1), tok) {
+				t.Errorf("промпт1 содержит blocked-токен %q: %s", tok, m.Prompt1)
 			}
 		}
-		// этап 2: texture расы дословно (не фильтруется, §3.4) — «no organic
-		// shapes» легитимно; теги фильтруются (проверено в TestBuildShipPrompt2)
-		if !strings.Contains(m.Prompt2, ships["humans"].Texture) {
-			t.Errorf("промпт этапа 2 не содержит texture расы: %s", m.Prompt2)
+		// prompt2 — Hi-Res: промпт1 + хвост детализации
+		if !strings.Contains(m.Prompt2, ShipHiresTail) {
+			t.Errorf("промпт2 не содержит хвост Hi-Res: %s", m.Prompt2)
+		}
+		// статистика попыток: кадр годен → 1 попытка, 0 отбраковок
+		if m.Frame == nil || m.Frame.Attempts != 1 || m.Frame.Rejected != 0 {
+			t.Errorf("frame = %+v, want attempts=1 rejected=0", m.Frame)
 		}
 	}
-	// статус завершён
 	st := ReadStatus(poolDir)
 	if st.Running || st.Done != 2 {
 		t.Errorf("status = %+v, want done 2", st)
+	}
+	// без Hi-Res узел апскейла не встречался
+	for _, u := range fake.upscaled {
+		if u {
+			t.Errorf("без hires отправлен Hi-Res-воркфлоу")
+		}
+	}
+}
+
+// TestGenShipsFrameRetry — негодный кадр (касание края / не вытянут): джоб
+// берёт следующий seed, ≤ shipFrameTries попыток; в мете — число попыток.
+func TestGenShipsFrameRetry(t *testing.T) {
+	fake := &shipFakeComfy{}
+	runner, pool, _ := newShipRunner(t, fake, false)
+	msg, _ := runner.GenShips("humans", 1, "", "", "", false, 200)
+	if !strings.Contains(msg, "Корабли расы humans") {
+		t.Fatalf("msg = %q", msg)
+	}
+	waitJobDone(t, filepath.Join(pool, "ships_pool"))
+	meta := ReadShipMeta(filepath.Join(pool, "ships_pool"))
+	if len(meta) != 1 {
+		t.Fatalf("meta = %d, want 1", len(meta))
+	}
+	if meta[0].Frame == nil {
+		t.Fatalf("нет статистики попыток")
+	}
+	// все попытки негодны: 6 txt2img-кадров, все 6 забракованы (последний взят
+	// за неимением лучшего — так же делал спайк)
+	if meta[0].Frame.Attempts != shipFrameTries || meta[0].Frame.Rejected != shipFrameTries {
+		t.Errorf("frame = %+v, want attempts=%d rejected=%d", meta[0].Frame, shipFrameTries, shipFrameTries)
+	}
+	// txt2img вызывался на каждую попытку
+	if len(fake.prompts) != shipFrameTries {
+		t.Errorf("txt2img вызовов = %d, want %d", len(fake.prompts), shipFrameTries)
+	}
+}
+
+// TestGenShipsOverrideTags — override доходит до меты и воркфлоу; tags без
+// override — в авто-промпт txt2img.
+func TestGenShipsOverrideTags(t *testing.T) {
+	fake := &shipFakeComfy{}
+	runner, pool, _ := newShipRunner(t, fake, true)
+	msg, _ := runner.GenShips("humans", 2, "extra tag", "MANUAL PROMPT 1", "MANUAL PROMPT 2", false, 200)
+	if !strings.Contains(msg, "Корабли расы humans") {
+		t.Fatalf("msg = %q", msg)
+	}
+	waitJobDone(t, filepath.Join(pool, "ships_pool"))
+	meta := ReadShipMeta(filepath.Join(pool, "ships_pool"))
+	if len(meta) != 2 {
+		t.Fatalf("meta = %d, want 2", len(meta))
+	}
+	for _, m := range meta {
+		if m.Prompt1 != "MANUAL PROMPT 1" || m.Prompt2 != "MANUAL PROMPT 2" {
+			t.Errorf("override не дошёл до генерации: prompt1=%q prompt2=%q", m.Prompt1, m.Prompt2)
+		}
+	}
+	// воркфлоу получил override (2 кандидата × 1 попытка)
+	if len(fake.prompts) != 2 {
+		t.Fatalf("fake.prompts = %d, want 2", len(fake.prompts))
+	}
+	for _, p := range fake.prompts {
+		if p != "MANUAL PROMPT 1" {
+			t.Errorf("воркфлоу получил не-override промпт: %q", p)
+		}
+	}
+	// tags без override: авто-промпт содержит tags
+	msg2, _ := runner.GenShips("humans", 1, "extra tag", "", "", false, 200)
+	if !strings.Contains(msg2, "Корабли расы humans") {
+		t.Fatalf("msg2 = %q", msg2)
+	}
+	meta2 := waitShipMetaCount(t, filepath.Join(pool, "ships_pool"), 1)
+	if !strings.Contains(meta2[0].Prompt1, "extra tag") {
+		t.Errorf("tags не дошли до авто-промпта: %q", meta2[0].Prompt1)
+	}
+}
+
+// TestGenShipsHires — hires=true: на кандидата отправляется Hi-Res-воркфлоу.
+func TestGenShipsHires(t *testing.T) {
+	fake := &shipFakeComfy{}
+	runner, pool, _ := newShipRunner(t, fake, true)
+	msg, _ := runner.GenShips("humans", 1, "", "", "", true, 200)
+	if !strings.Contains(msg, "Корабли расы humans") {
+		t.Fatalf("msg = %q", msg)
+	}
+	waitJobDone(t, filepath.Join(pool, "ships_pool"))
+	ups := 0
+	for _, u := range fake.upscaled {
+		if u {
+			ups++
+		}
+	}
+	if ups != 1 {
+		t.Errorf("Hi-Res воркфлоу = %d, want 1", ups)
 	}
 }
 
 // TestGenShipsBatch — пачка: 2 расы × 2 = 4 кандидата; неизвестная раса — ошибка.
 func TestGenShipsBatch(t *testing.T) {
-	dc, err := config.LoadShipDict("../../../config/art/ship_dict.json")
-	if err != nil {
-		t.Fatalf("LoadShipDict: %v", err)
-	}
-	ships := config.ShipsConfig{
-		"humans": {
-			RaceName: "Люди", Family: "F1",
-			Texture:    "paneled white-grey metal hull",
-			Silhouette: "крыло-корпус в плане: нос справа, корма слева; модули: корпус крем, дюзы тёмные; запас от краёв ~90 px",
-			Blocked:    []string{"tentacle"},
-		},
-		"coastal": {
-			RaceName: "Прибрежные", Family: "F1",
-			Texture:    "salt-crusted coral and stone hull, warm amber lit windows",
-			Silhouette: "широкая плоскодонная баржа в плане: нос справа, корма слева; модули: корпус крем, сваи коралл; запас от краёв ~90 px",
-			Blocked:    []string{"machine"},
-		},
-	}
-	pool := t.TempDir()
-	cfg := &config.StudioConfig{
-		PoolRoot:   pool,
-		ComfyInput: t.TempDir(),
-		Workers:    2,
-		MaxCount:   100,
-		PythonCmd:  writeFakeShipPython(t),
-	}
 	fake := &shipFakeComfy{}
-	runner := NewRunner(cfg, nil, nil, nil, fake)
-	runner.SetShips(ships, dc, "../../../config/races.json")
+	runner, pool, ships := newShipRunner(t, fake, true)
+	ships["coastal"] = config.ShipEntry{
+		RaceName: "Прибрежные", Family: "F1",
+		Texture:    "salt-crusted coral and stone hull, warm amber lit windows",
+		Silhouette: "широкая плоскодонная баржа в плане: нос справа, корма слева; модули: корпус крем, сваи коралл; запас от краёв ~90 px",
+		Blocked:    []string{"machine"},
+	}
+	runner.SetShips(ships, loadShipDict(t), "../../../config/races.json")
 
-	msg, _ := runner.GenShipsBatch([]string{"humans", "coastal"}, 2, "", "", "", 200)
+	msg, _ := runner.GenShipsBatch([]string{"humans", "coastal"}, 2, "", "", "", false, 200)
 	if !strings.Contains(msg, "2 рас × 2") {
 		t.Fatalf("msg = %q", msg)
 	}
@@ -208,8 +284,7 @@ func TestGenShipsBatch(t *testing.T) {
 	if len(meta) != 4 {
 		t.Fatalf("meta = %d, want 4", len(meta))
 	}
-	// неизвестная раса — ошибка без запуска
-	msg2, _ := runner.GenShipsBatch([]string{"nope"}, 1, "", "", "", 200)
+	msg2, _ := runner.GenShipsBatch([]string{"nope"}, 1, "", "", "", false, 200)
 	if !strings.Contains(msg2, "нет расы nope") {
 		t.Errorf("msg2 = %q", msg2)
 	}
@@ -229,77 +304,7 @@ func waitJobDone(t *testing.T, poolDir string) {
 	t.Fatalf("джоб не завершился за 30 с: %+v", ReadStatus(poolDir))
 }
 
-// TestGenShipsOverrideTags — 98b-механизм для кораблей: GenShips с override —
-// genShipsJob использует ручные строки (мета Prompt1/Prompt2 = override);
-// tags без override — в авто-промпты.
-func TestGenShipsOverrideTags(t *testing.T) {
-	dc, err := config.LoadShipDict("../../../config/art/ship_dict.json")
-	if err != nil {
-		t.Fatalf("LoadShipDict: %v", err)
-	}
-	ships := config.ShipsConfig{
-		"humans": {
-			RaceName: "Люди", Family: "F1",
-			Texture:    "paneled white-grey metal hull",
-			Silhouette: "крыло-корпус в плане: нос справа, корма слева; модули: корпус крем, дюзы тёмные; запас от краёв ~90 px",
-			Blocked:    []string{"tentacle"},
-		},
-	}
-	pool := t.TempDir()
-	cfg := &config.StudioConfig{
-		PoolRoot:   pool,
-		ComfyInput: t.TempDir(),
-		Workers:    1,
-		MaxCount:   100,
-		Steps:      40,
-		PythonCmd:  writeFakeShipPython(t),
-	}
-	fake := &shipFakeComfy{}
-	runner := NewRunner(cfg, nil, nil, nil, fake)
-	runner.SetShips(ships, dc, "../../../config/races.json")
-
-	// override: ручные строки на все N
-	msg, _ := runner.GenShips("humans", 2, "extra tag", "MANUAL PROMPT 1", "MANUAL PROMPT 2", 200)
-	if !strings.Contains(msg, "Корабли расы humans") {
-		t.Fatalf("msg = %q", msg)
-	}
-	waitJobDone(t, filepath.Join(pool, "ships_pool"))
-	meta := ReadShipMeta(filepath.Join(pool, "ships_pool"))
-	if len(meta) != 2 {
-		t.Fatalf("meta = %d, want 2", len(meta))
-	}
-	for _, m := range meta {
-		if m.Prompt1 != "MANUAL PROMPT 1" || m.Prompt2 != "MANUAL PROMPT 2" {
-			t.Errorf("override не дошёл до генерации: prompt1=%q prompt2=%q", m.Prompt1, m.Prompt2)
-		}
-	}
-	// воркфлоу тоже получил override (фейк записал промпты: 2 этапа × 2 кандидата)
-	if len(fake.prompts) != 4 {
-		t.Fatalf("fake.prompts = %d, want 4", len(fake.prompts))
-	}
-	for _, p := range fake.prompts {
-		if p != "MANUAL PROMPT 1" && p != "MANUAL PROMPT 2" {
-			t.Errorf("воркфлоу получил не-override промпт: %q", p)
-		}
-	}
-
-	// tags без override: авто-промпты содержат tags (пул чистится на старте).
-	// Ждём мету из 1 записи, а не waitJobDone: status.json после первого джоба
-	// ещё показывает Running=false/Total=2 — второй waitJobDone вернулся бы
-	// раньше, чем джоб #2 очистил пул (мета = 2 старые записи).
-	msg2, _ := runner.GenShips("humans", 1, "extra tag", "", "", 200)
-	if !strings.Contains(msg2, "Корабли расы humans") {
-		t.Fatalf("msg2 = %q", msg2)
-	}
-	meta2 := waitShipMetaCount(t, filepath.Join(pool, "ships_pool"), 1)
-	if !strings.Contains(meta2[0].Prompt1, "extra tag") || !strings.Contains(meta2[0].Prompt2, "extra tag") {
-		t.Errorf("tags не дошли до авто-промптов: %q / %q", meta2[0].Prompt1, meta2[0].Prompt2)
-	}
-}
-
-// waitShipMetaCount ждёт, пока в мете пула кораблей не будет ровно n записей
-// (надёжнее waitJobDone для последовательных джобов: status.json второго
-// джоба может ещё не перезаписать финальный статус первого).
+// waitShipMetaCount ждёт, пока в мете пула кораблей не будет ровно n записей.
 func waitShipMetaCount(t *testing.T, poolDir string, n int) []ShipMetaItem {
 	t.Helper()
 	deadline := time.Now().Add(30 * time.Second)
@@ -314,35 +319,11 @@ func waitShipMetaCount(t *testing.T, poolDir string, n int) []ShipMetaItem {
 	return nil
 }
 
-// TestGenShipsSketch — эскиз (98c): size=100 → мета Size=100, steps этапов
-// уменьшены (эскиз заметно быстрее полного).
+// TestGenShipsSketch — эскиз (size=100): мета Size=100, steps txt2img уменьшены.
 func TestGenShipsSketch(t *testing.T) {
-	dc, err := config.LoadShipDict("../../../config/art/ship_dict.json")
-	if err != nil {
-		t.Fatalf("LoadShipDict: %v", err)
-	}
-	ships := config.ShipsConfig{
-		"humans": {
-			RaceName: "Люди", Family: "F1",
-			Texture:    "paneled white-grey metal hull",
-			Silhouette: "крыло-корпус в плане: нос справа, корма слева; модули: корпус крем, дюзы тёмные; запас от краёв ~90 px",
-			Blocked:    []string{"tentacle"},
-		},
-	}
-	pool := t.TempDir()
-	cfg := &config.StudioConfig{
-		PoolRoot:   pool,
-		ComfyInput: t.TempDir(),
-		Workers:    1,
-		MaxCount:   100,
-		Steps:      40,
-		PythonCmd:  writeFakeShipPython(t),
-	}
 	fake := &shipFakeComfy{}
-	runner := NewRunner(cfg, nil, nil, nil, fake)
-	runner.SetShips(ships, dc, "../../../config/races.json")
-
-	msg, _ := runner.GenShips("humans", 1, "", "", "", 100)
+	runner, pool, _ := newShipRunner(t, fake, true)
+	msg, _ := runner.GenShips("humans", 1, "", "", "", false, 100)
 	if !strings.Contains(msg, "Корабли расы humans") {
 		t.Fatalf("msg = %q", msg)
 	}
@@ -354,86 +335,10 @@ func TestGenShipsSketch(t *testing.T) {
 	if meta[0].Size != 100 {
 		t.Errorf("meta Size = %d, want 100", meta[0].Size)
 	}
-	// steps этапов уменьшены (cfg.Steps=40 → 20): 2 этапа на кандидата
-	if len(fake.steps) != 2 {
-		t.Fatalf("fake.steps = %d, want 2", len(fake.steps))
+	if len(fake.steps) != 1 {
+		t.Fatalf("fake.steps = %d, want 1", len(fake.steps))
 	}
-	for _, st := range fake.steps {
-		if st >= cfg.Steps {
-			t.Errorf("steps = %d, want < %d (эскиз)", st, cfg.Steps)
-		}
-	}
-}
-
-// TestGenShipsJobSizePropagates — size доходит до workflow: эскиз (100) →
-// ImageScale 512 в обоих этапах (латент 512, ~4x быстрее), полный (200) →
-// без ImageScale (regression: эскиз гнал img2img на 1024 — не ускорял).
-func TestGenShipsJobSizePropagates(t *testing.T) {
-	dc, err := config.LoadShipDict("../../../config/art/ship_dict.json")
-	if err != nil {
-		t.Fatalf("LoadShipDict: %v", err)
-	}
-	ships := config.ShipsConfig{
-		"humans": {
-			RaceName: "Люди", Family: "F1",
-			Texture:    "paneled white-grey metal hull",
-			Silhouette: "крыло-корпус в плане: нос справа, корма слева; модули: корпус крем, дюзы тёмные; запас от краёв ~90 px",
-			Blocked:    []string{"tentacle"},
-		},
-	}
-	pool := t.TempDir()
-	cfg := &config.StudioConfig{
-		PoolRoot:   pool,
-		ComfyInput: t.TempDir(),
-		Workers:    1,
-		MaxCount:   100,
-		Steps:      40,
-		PythonCmd:  writeFakeShipPython(t),
-	}
-	fake := &shipFakeComfy{}
-	runner := NewRunner(cfg, nil, nil, nil, fake)
-	runner.SetShips(ships, dc, "../../../config/races.json")
-
-	// эскиз: оба этапа с ImageScale 512
-	msg, _ := runner.GenShips("humans", 1, "", "", "", 100)
-	if !strings.Contains(msg, "Корабли расы humans") {
-		t.Fatalf("msg = %q", msg)
-	}
-	waitJobDone(t, filepath.Join(pool, "ships_pool"))
-	if len(fake.scales) != 2 {
-		t.Fatalf("fake.scales = %d, want 2 (этапы эскиза)", len(fake.scales))
-	}
-	for _, w := range fake.scales {
-		if w != 512 {
-			t.Errorf("эскиз: ImageScale width = %d, want 512", w)
-		}
-	}
-
-	// полный: без ImageScale (0). Ждём финальный статус второго джоба
-	// (Running=false, Total=2): статус первого джоба (Total=1) неотличим по
-	// Running=false, но Total различает джобы; после финального статуса джоб
-	// больше не пишет в пул (чистый TempDir cleanup).
-	msg2, _ := runner.GenShips("humans", 2, "", "", "", 200)
-	if !strings.Contains(msg2, "Корабли расы humans") {
-		t.Fatalf("msg2 = %q", msg2)
-	}
-	deadline := time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) {
-		st := ReadStatus(filepath.Join(pool, "ships_pool"))
-		if !st.Running && st.Total == 2 {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	if st := ReadStatus(filepath.Join(pool, "ships_pool")); st.Running || st.Total != 2 {
-		t.Fatalf("второй джоб не завершился: %+v", st)
-	}
-	if len(fake.scales) != 6 {
-		t.Fatalf("fake.scales = %d, want 6 (2 эскиза + 4 полных)", len(fake.scales))
-	}
-	for _, w := range fake.scales[2:] {
-		if w != 0 {
-			t.Errorf("полный: ImageScale width = %d, want 0 (нет масштабирования)", w)
-		}
+	if fake.steps[0] >= 32 {
+		t.Errorf("steps = %d, want < 32 (эскиз)", fake.steps[0])
 	}
 }

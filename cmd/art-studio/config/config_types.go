@@ -22,6 +22,68 @@ type StudioConfig struct {
 	HistoryTimeoutS int     `json:"history_timeout_s"`
 	AutoRefreshMS   int     `json:"auto_refresh_ms"`
 	MaxCount        int     `json:"max_count"`
+	Ships           *ShipsParams `json:"ships"`
+}
+
+// ShipsParams — параметры вкладки «Корабли рас» (блок ships в studio.json,
+// рецепт 2026-09-21): модель только для кораблей (общий селект «Модель» и
+// другие вкладки не трогает) + этап детализации Hi-Res.
+type ShipsParams struct {
+	Model string      `json:"model"`
+	Steps int         `json:"steps"`
+	Cfg   float64     `json:"cfg"`
+	Hires HiresParams `json:"hires"`
+}
+
+// HiresParams — этап детализации кораблей (4x-UltraSharp → ImageScale →
+// img2img): выполняется на кандидатах, прошедших автопроверку кадра.
+type HiresParams struct {
+	Enabled  bool    `json:"enabled"`
+	Denoise  float64 `json:"denoise"`
+	Steps    int     `json:"steps"`
+	Cfg      float64 `json:"cfg"`
+	Upscaler string  `json:"upscaler"`
+	Scale    int     `json:"scale"`
+}
+
+// ShipParams — параметры кораблей с дефолтами (рецепт 2026-09-21): блок ships
+// в studio.json опционален, тесты и старые конфиги получают те же числа.
+func (c *StudioConfig) ShipParams() ShipsParams {
+	sp := ShipsParams{
+		Model: "juggernaut-xl-v9.safetensors",
+		Steps: 32,
+		Cfg:   6.0,
+		Hires: HiresParams{Denoise: 0.40, Steps: 30, Cfg: 6.0, Upscaler: "4x-UltraSharp.pth", Scale: 1536},
+	}
+	if c.Ships == nil {
+		return sp
+	}
+	if c.Ships.Model != "" {
+		sp.Model = c.Ships.Model
+	}
+	if c.Ships.Steps != 0 {
+		sp.Steps = c.Ships.Steps
+	}
+	if c.Ships.Cfg != 0 {
+		sp.Cfg = c.Ships.Cfg
+	}
+	sp.Hires.Enabled = c.Ships.Hires.Enabled
+	if c.Ships.Hires.Denoise != 0 {
+		sp.Hires.Denoise = c.Ships.Hires.Denoise
+	}
+	if c.Ships.Hires.Steps != 0 {
+		sp.Hires.Steps = c.Ships.Hires.Steps
+	}
+	if c.Ships.Hires.Cfg != 0 {
+		sp.Hires.Cfg = c.Ships.Hires.Cfg
+	}
+	if c.Ships.Hires.Upscaler != "" {
+		sp.Hires.Upscaler = c.Ships.Hires.Upscaler
+	}
+	if c.Ships.Hires.Scale != 0 {
+		sp.Hires.Scale = c.Ships.Hires.Scale
+	}
+	return sp
 }
 
 // KnownCheckpoints — доступные чекпоинты SDXL (селект «Модель» в UI).

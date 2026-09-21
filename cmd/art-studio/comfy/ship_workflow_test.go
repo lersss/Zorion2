@@ -2,6 +2,64 @@ package comfy
 
 import "testing"
 
+// TestShipTxt2ImgWorkflow — рецепт 2026-09-21: чистый txt2img без ControlNet
+// и без силуэта, denoise 1.0, dpmpp_2m/karras, латент size×size.
+func TestShipTxt2ImgWorkflow(t *testing.T) {
+	wf := ShipTxt2ImgWorkflow("ckpt", "p", "n", 42, 32, 6.0, 1024, "ship_pool")
+	if _, ok := wf["8"]; ok {
+		t.Errorf("txt2img не должен содержать LoadImage/ControlNet")
+	}
+	if _, ok := wf["13"]; ok {
+		t.Errorf("txt2img не должен содержать ControlNetLoader")
+	}
+	lat := wf["4"].(map[string]interface{})["inputs"].(map[string]interface{})
+	if lat["width"] != 1024 || lat["height"] != 1024 {
+		t.Errorf("латент = %v×%v, want 1024×1024", lat["width"], lat["height"])
+	}
+	ks := wf["5"].(map[string]interface{})["inputs"].(map[string]interface{})
+	if ks["denoise"] != 1.0 || ks["cfg"] != 6.0 || ks["steps"] != 32 {
+		t.Errorf("ksampler denoise/cfg/steps = %v/%v/%v, want 1.0/6.0/32", ks["denoise"], ks["cfg"], ks["steps"])
+	}
+	if ks["sampler_name"] != "dpmpp_2m" || ks["scheduler"] != "karras" {
+		t.Errorf("sampler/scheduler = %v/%v, want dpmpp_2m/karras", ks["sampler_name"], ks["scheduler"])
+	}
+	if wf["1"].(map[string]interface{})["inputs"].(map[string]interface{})["ckpt_name"] != "ckpt" {
+		t.Errorf("checkpoint не прошёл")
+	}
+	// эскиз: латент 512 (без ImageScale — txt2img генерирует сразу 512)
+	wf512 := ShipTxt2ImgWorkflow("ckpt", "p", "n", 42, 16, 6.0, 512, "ship_pool")
+	if lat512 := wf512["4"].(map[string]interface{})["inputs"].(map[string]interface{}); lat512["width"] != 512 {
+		t.Errorf("эскиз: латент = %v, want 512", lat512["width"])
+	}
+}
+
+// TestShipHiResWorkflow — этап детализации: UpscaleModelLoader →
+// ImageUpscaleWithModel → ImageScale (lanczos, scale×scale) → img2img denoise
+// 0.40, dpmpp_2m/karras.
+func TestShipHiResWorkflow(t *testing.T) {
+	wf := ShipHiResWorkflow("ckpt", "p", "n", "raw.png", 42, 30, 6.0, 0.40, "4x-UltraSharp.pth", 1536, "ship_pool")
+	up := wf["12"].(map[string]interface{})["inputs"].(map[string]interface{})
+	if up["model_name"] != "4x-UltraSharp.pth" {
+		t.Errorf("upscaler = %v", up["model_name"])
+	}
+	aw := wf["13"].(map[string]interface{})["inputs"].(map[string]interface{})
+	if aw["upscale_model"].([]interface{})[0] != "12" || aw["image"].([]interface{})[0] != "8" {
+		t.Errorf("ImageUpscaleWithModel входы = %v", aw)
+	}
+	sc := wf["14"].(map[string]interface{})["inputs"].(map[string]interface{})
+	if sc["width"] != 1536 || sc["height"] != 1536 || sc["upscale_method"] != "lanczos" || sc["crop"] != "disabled" {
+		t.Errorf("ImageScale = %v, want 1536×1536 lanczos disabled", sc)
+	}
+	li := wf["8"].(map[string]interface{})["inputs"].(map[string]interface{})
+	if li["image"] != "raw.png" {
+		t.Errorf("LoadImage = %v", li["image"])
+	}
+	ks := wf["5"].(map[string]interface{})["inputs"].(map[string]interface{})
+	if ks["denoise"] != 0.40 || ks["cfg"] != 6.0 || ks["steps"] != 30 {
+		t.Errorf("ksampler denoise/cfg/steps = %v/%v/%v, want 0.40/6.0/30", ks["denoise"], ks["cfg"], ks["steps"])
+	}
+}
+
 // TestShipStage1Workflow — этап 1: Canny 0.2/0.5, ControlNet strength 1.5,
 // end 1.0, denoise 0.85, cfg 7.0 (спека §3.2, art_ships §2.2). size=1024 —
 // полный, без масштабирования.

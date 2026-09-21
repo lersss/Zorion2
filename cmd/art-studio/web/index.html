@@ -28,6 +28,14 @@
  .cropbar{margin-top:8px;display:flex;gap:8px;align-items:center}
  .cropbar input{width:300px}
  .cropbar button{background:#2a7;border:none;border-radius:6px;padding:6px 12px;color:#fff;cursor:pointer}
+ .accThumb{width:56px;height:56px;object-fit:contain;background:#1a1a1a;border:2px solid #333;border-radius:4px;cursor:pointer}
+ .accThumb.active{border-color:#e8a33d}
+ .accStage{width:360px;height:360px;flex:none;border-radius:6px;display:flex;align-items:center;justify-content:center;background-color:#1a1a1a;background-image:linear-gradient(45deg,#2a2a2a 25%,transparent 25%),linear-gradient(-45deg,#2a2a2a 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#2a2a2a 75%),linear-gradient(-45deg,transparent 75%,#2a2a2a 75%);background-size:24px 24px;background-position:0 0,0 12px,12px -12px,-12px 0}
+ .accStage img{max-width:100%;max-height:100%;pointer-events:none}
+ .accBtn{background:#369;color:#fff;border:none;border-radius:4px;padding:4px 9px;font-size:12px;cursor:pointer}
+ .accBtn.alt{background:#555}
+ .accBtn.ok{background:#2a6}
+ .accBtn.del{background:#a33}
 </style></head><body>
 <h1>Арт-студия генерации аватаров</h1>
 <div class="note">ОТБОР: генерация + принять/удалить. ЭТАЛОН: кандидаты (широкий поиск формы) -&gt; выбрать эталон -&gt; вариации (узко вокруг эталона). ЛЮДИ: портреты F0.
@@ -155,15 +163,20 @@
     <button class="gen" id="btnShipFull" style="background:#a62;padding:4px 10px;font-size:12px" onclick="setShipSize(200)" title="Полный: 200×200, полное качество">ПОЛНЫЙ (200)</button>
     <button class="gen" style="background:#a62" onclick="genShips()">СГЕНЕРИРОВАТЬ (3)</button>
     <button class="gen" style="background:#a62" onclick="genShipsBatch()" title="Пачка 10 рас × 3 = 30 (первые 10 каталога, по семействам F1→F10)">СГЕНЕРИРОВАТЬ ПАЧКУ (10×3)</button>
+    <button class="gen" id="btnAcceptMode" style="background:#2a6" onclick="toggleAcceptMode()" title="Ручная приёмка: крупное превью, произвольный поворот, «вписать в кадр», подсказка носа, горячие клавиши">🎯 Приёмка</button>
     <button class="gen" style="background:#a33;display:none" onclick="stopGen()" id="btnStopShips" data-text="СТОП">СТОП</button>
   </div>
+  <div style="color:#888;font-size:12px;margin-top:4px">Генерация — Juggernaut XL v9, txt2img 1024×1024, вид «сверху 3/4», нос вправо; затем вырез фона и 200×200 (прежний конвейер «силуэт → ControlNet» выключен).</div>
   <div class="toolbar" style="margin-top:6px">
-    <span style="color:#ddd;font-size:13px">Промпт формы (этап 1):</span>
+    <span style="color:#ddd;font-size:13px">Промпт (txt2img, Juggernaut 3/4):</span>
     <textarea id="shipPrompt1" rows="2" style="width:100%;box-sizing:border-box;color:#8cf;font-size:12px;line-height:1.4;background:#1c1c1c;border:1px solid #333;border-radius:6px;padding:6px 8px;font-family:inherit;resize:vertical" oninput="onShipPromptInput(1)"></textarea>
     <button class="gen" id="btnShipRevert1" style="background:#a62;padding:2px 8px;font-size:11px;display:none" onclick="revertShipAuto(1)" title="Вернуть автоматический промпт">↺ Вернуть авто</button>
   </div>
   <div class="toolbar" style="margin-top:6px">
-    <span style="color:#ddd;font-size:13px">Промпт текстуры (этап 2):</span>
+    <label style="color:#ddd;font-size:13px;display:flex;align-items:center;gap:6px;cursor:pointer" title="Этап детализации кандидата: 4x-UltraSharp → 1536 → img2img denoise 0.40 (дольше, мельче фактура)"><input type="checkbox" id="shipHires" onchange="onHiresToggle()">Hi-Res (этап детализации)</label>
+  </div>
+  <div class="toolbar" style="margin-top:6px;display:none" id="shipHiresRow">
+    <span style="color:#ddd;font-size:13px">Промпт Hi-Res:</span>
     <textarea id="shipPrompt2" rows="2" style="width:100%;box-sizing:border-box;color:#8cf;font-size:12px;line-height:1.4;background:#1c1c1c;border:1px solid #333;border-radius:6px;padding:6px 8px;font-family:inherit;resize:vertical" oninput="onShipPromptInput(2)"></textarea>
     <button class="gen" id="btnShipRevert2" style="background:#a62;padding:2px 8px;font-size:11px;display:none" onclick="revertShipAuto(2)" title="Вернуть автоматический промпт">↺ Вернуть авто</button>
   </div>
@@ -174,6 +187,51 @@
     <span style="color:#888;font-size:12px;margin-left:8px" title="Задел: кабина (интерьер-фон) — будущий шаг, спека §7">Кабина — будущий шаг</span>
   </div>
   <div id="doneShips" class="done"></div>
+  <div id="acceptPanel" style="display:none;margin:10px 0 0;border:1px solid #333;border-radius:8px;padding:10px;background:#151515">
+    <div class="toolbar" style="gap:10px;align-items:center;flex-wrap:wrap">
+      <b style="color:#e8a33d">Ручная приёмка</b>
+      <span id="accCounter" style="color:#8cf">принято 0 из 0</span>
+      <span id="accRace" style="color:#ddd"></span>
+      <span id="accHint" style="color:#e8a33d">авто: —</span>
+      <button class="accBtn" onclick="applyAuto()" title="Повернуть по авто-определению носа (решение всё равно за вами)">Принять авто</button>
+      <button class="accBtn alt" onclick="hintAuto()" title="Пересчитать подсказку">↻ авто</button>
+      <span style="color:#888;font-size:12px">←/→ ±5° · Shift ±15° · F зеркало · Enter принять · Del отклонить · Пробел далее</span>
+    </div>
+    <div id="accEmpty" style="display:none;color:#e8a33d;font-size:14px;padding:8px 0">
+      <span id="accEmptyMsg"></span>
+      <button class="accBtn alt" id="accJump" style="display:none;margin-left:8px" onclick="accJumpToRace()">Перейти к расе с кандидатами</button>
+    </div>
+    <div style="display:flex;gap:14px;align-items:flex-start;margin-top:8px;flex-wrap:wrap">
+      <div class="accStage"><img id="accImg" draggable="false" alt="кандидат"></div>
+      <div style="flex:1;min-width:280px">
+        <div class="toolbar" style="gap:6px;flex-wrap:wrap">
+          <span style="color:#ddd;font-size:12px">Шаг:</span>
+          <button class="accBtn alt" onclick="accStep(-45)">−45°</button>
+          <button class="accBtn alt" onclick="accStep(-15)">−15°</button>
+          <button class="accBtn alt" onclick="accStep(-5)">−5°</button>
+          <button class="accBtn alt" onclick="accStep(5)">+5°</button>
+          <button class="accBtn alt" onclick="accStep(15)">+15°</button>
+          <button class="accBtn alt" onclick="accStep(45)">+45°</button>
+          <button class="accBtn alt" onclick="accStep(-90)" title="90° против часовой">⟲90</button>
+          <button class="accBtn alt" onclick="accStep(90)" title="90° по часовой">⟳90</button>
+          <button class="accBtn alt" onclick="accStep(180)" title="180°">⟳180</button>
+          <button class="accBtn alt" onclick="accFlip()" title="Зеркало (нос влево ↔ нос вправо)">⇄</button>
+          <button class="accBtn" onclick="accFit()" title="Обрезать по кораблю и вписать в 200×200 (как эталонные спрайты)">Вписать в кадр</button>
+        </div>
+        <div class="toolbar" style="gap:8px;margin-top:8px;align-items:center">
+          <span style="color:#ddd;font-size:12px">Угол</span>
+          <input id="accSlider" type="range" min="-180" max="180" step="1" value="0" oninput="onAccSlider()" onchange="commitAccSlider()" style="flex:1;min-width:160px">
+          <span id="accAngle" style="color:#8cf;width:50px;text-align:right">0°</span>
+        </div>
+        <div class="toolbar" style="gap:8px;margin-top:8px">
+          <button class="accBtn ok" onclick="acceptShipAcc()" title="Принять: сохранить 200×200 в набор принятых (Enter)">✓ Принять</button>
+          <button class="accBtn del" onclick="rejectShipAcc()" title="Отклонить: удалить кандидата (Del)">✗ Отклонить</button>
+          <button class="accBtn alt" onclick="accNext()" title="Следующий кандидат (Пробел)">Следующий →</button>
+        </div>
+        <div id="accThumbs" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px"></div>
+      </div>
+    </div>
+  </div>
   <div id="genStateShips" style="margin-bottom:8px;color:#8cf;font-size:14px">Статус генератора: ...</div>
   <div id="progShips" class="prog" style="display:none;margin-bottom:12px;color:#8cf;font-size:14px"></div>
   <div class="grid" id="gridShips"></div>
@@ -647,6 +705,7 @@ let shipLastAuto1='', shipLastAuto2=''; // последние авто-пром�
 let shipOverride1=false, shipOverride2=false; // override-режим окошек (98b)
 let shipVotes={}; // file → like/dislike/'' (98c, для повторного клика = снять)
 let shipBust=0; // cache-busting кандидатов: растёт на каждый «Сгенерировать» — URL ?t= меняется, браузер не отдаёт закэшированную старую картинку (s01..sNN перезаписываются)
+let shipItems=[]; // последний ответ /ships/list (режим приёмки фильтрует по расе)
 async function loadShipsRaces(){
   const sel=document.getElementById('shipRace');
   const r=await fetch('/ships/races'); const j=await r.json();
@@ -692,13 +751,21 @@ function setShipSize(sz){
   document.getElementById('btnShipSketch').style.background=sz===100?'#a62':'#555';
   document.getElementById('btnShipFull').style.background=sz===200?'#a62':'#555';
 }
+// onHiresToggle — этап детализации: показываем override-поле промпта Hi-Res
+// только когда он включён (иначе второе окошко — ненужное поле).
+function onHiresToggle(){
+  const on=document.getElementById('shipHires').checked;
+  document.getElementById('shipHiresRow').style.display=on?'':'none';
+  if(on) refreshShipsPrompt();
+}
 async function genShips(){
   const race=document.getElementById('shipRace').value;
   const n=document.getElementById('cntShips').value;
   const tags=document.getElementById('shipTags').value;
+  const hires=document.getElementById('shipHires').checked;
   const p1=shipOverride1? document.getElementById('shipPrompt1').value : '';
-  const p2=shipOverride2? document.getElementById('shipPrompt2').value : '';
-  const params=new URLSearchParams({race,n,tags,size:shipSize});
+  const p2=(hires&&shipOverride2)? document.getElementById('shipPrompt2').value : '';
+  const params=new URLSearchParams({race,n,tags,size:shipSize,hires:hires?'1':'0'});
   if(p1) params.set('prompt1_override',p1);
   if(p2) params.set('prompt2_override',p2);
   const r=await fetch('/ships/gen?'+params); const j=await r.json();
@@ -711,9 +778,10 @@ async function genShipsBatch(){
   const races=shipRacesCache.slice(0,10).map(x=>x.slug).join(',');
   const per=document.getElementById('cntShips').value;
   const tags=document.getElementById('shipTags').value;
+  const hires=document.getElementById('shipHires').checked;
   const p1=shipOverride1? document.getElementById('shipPrompt1').value : '';
-  const p2=shipOverride2? document.getElementById('shipPrompt2').value : '';
-  const params=new URLSearchParams({races,per,tags,size:shipSize});
+  const p2=(hires&&shipOverride2)? document.getElementById('shipPrompt2').value : '';
+  const params=new URLSearchParams({races,per,tags,size:shipSize,hires:hires?'1':'0'});
   if(p1) params.set('prompt1_override',p1);
   if(p2) params.set('prompt2_override',p2);
   const r=await fetch('/ships/genbatch?'+params); const j=await r.json();
@@ -723,6 +791,7 @@ async function genShipsBatch(){
 }
 async function loadShipsList(){
   const r=await fetch('/ships/list'); const items=await r.json();
+  shipItems=items;
   const g=document.getElementById('gridShips');
   const existing={};
   g.querySelectorAll('.cell[data-file]').forEach(c=>{ existing[c.dataset.file]=c; });
@@ -741,6 +810,9 @@ async function loadShipsList(){
         <button class="del" onclick="actShip('${it.file}','reject')">Удалить</button>
         <button class="ok" style="background:#2a6" onclick="voteShip('${it.file}','like')" title="Нравится — вердикт в мете (98c)">👍</button>
         <button class="del" style="background:#a33" onclick="voteShip('${it.file}','dislike')" title="Не нравится — вердикт в мете (98c)">👎</button>
+        <button class="ok" style="background:#369" onclick="actShip('${it.file}','rot90')" title="Повернуть на 90° по часовой">⟳90</button>
+        <button class="ok" style="background:#369" onclick="actShip('${it.file}','rot180')" title="Повернуть на 180°">⟳180</button>
+        <button class="ok" style="background:#369" onclick="actShip('${it.file}','flipH')" title="Зеркало по горизонтали (нос влево ↔ нос вправо)">⇄</button>
       </div>`;
       g.appendChild(d);
     } else {
@@ -763,6 +835,7 @@ async function loadShipsList(){
     }
   });
   Object.keys(existing).forEach(f=>{ if(!seen[f]){ delete shipVotes[f]; existing[f].remove(); } });
+  if(acceptMode) refreshAccept();
 }
 async function voteShip(file, vote){
   // повторный клик по активному вердикту — снять (clear)
@@ -771,12 +844,202 @@ async function voteShip(file, vote){
   document.getElementById('doneShips').textContent=j.msg;
   loadShipsList();
 }
-async function actShip(file, what){
-  const r=await fetch('/ships/act?'+new URLSearchParams({file,what}));
+// what + доп. параметры (angle для rotate); сам файл перезаписывается на месте,
+// поэтому после любого действия растёт cache-busting (?t=).
+async function actShip(file, what, extra){
+  const params=new URLSearchParams({file,what});
+  if(extra) for(const k in extra) params.set(k, extra[k]);
+  const r=await fetch('/ships/act?'+params);
   const j=await r.json();
   document.getElementById('doneShips').textContent=j.msg;
-  loadShipsList();
+  if(['rot90','rot180','flipH','rotate','fit'].includes(what)) shipBust++;
+  await loadShipsList();
+  return j;
 }
+// ---------- РЕЖИМ ПРИЁМКИ (ручная приёмка спрайтов кораблей) ----------
+let acceptMode=false, accFile=null, accHintData=null, accFilesKey='', accSliderTimer=null;
+function toggleAcceptMode(){
+  acceptMode=!acceptMode;
+  document.getElementById('acceptPanel').style.display=acceptMode?'':'none';
+  document.getElementById('btnAcceptMode').style.background=acceptMode?'#a62':'#2a6';
+  if(acceptMode) refreshAccept();
+}
+function accRace(){ return document.getElementById('shipRace').value; }
+function accPoolFiles(){ return shipItems.filter(it=>it.race===accRace()).map(it=>it.file); }
+async function refreshAccept(){
+  if(!acceptMode) return;
+  const files=accPoolFiles();
+  const rc=shipRacesCache.find(x=>x.slug===accRace());
+  document.getElementById('accRace').textContent=rc?rc.name:accRace();
+  let accepted=0;
+  try{ accepted=(await (await fetch('/ships/accepted?race='+encodeURIComponent(accRace()))).json()).accepted||0; }catch(e){}
+  document.getElementById('accCounter').textContent='принято '+accepted+' из '+(accepted+files.length);
+  renderAccThumbs(files);
+  if(!files.length){ accFile=null; accClear(); showAccEmpty(); return; }
+  hideAccEmpty();
+  if(!files.includes(accFile)){ openAccept(files[0]); return; }
+  // тот же кандидат: только обновить картинку (cache-busting), подсказку не сбрасываем
+  const im=document.getElementById('accImg');
+  const src='/ships/img/'+accFile+'?t='+shipBust;
+  if(im.getAttribute('src')!==src) im.src=src;
+}
+function accClear(){
+  accFile=null; accHintData=null;
+  document.getElementById('accImg').removeAttribute('src');
+  document.getElementById('accHint').textContent='авто: —';
+  document.getElementById('accSlider').value=0;
+  document.getElementById('accAngle').textContent='0°';
+}
+// accPoolRaces — расы, по которым в пуле ЕСТЬ кандидаты (порядок пула). Нужны
+// пустому состоянию: подсказать расу вместо молчаливо серой панели.
+function accPoolRaces(){ return [...new Set(shipItems.map(it=>it.race).filter(Boolean))]; }
+// showAccEmpty / hideAccEmpty — пустое состояние приёмки: по выбранной расе
+// кандидатов нет (или пул пуст вовсе) — это сообщаем, а не оставляем превью
+// серым без объяснения. Кнопка-подсказка ведёт к первой расе с кандидатами.
+function showAccEmpty(){
+  const all=shipItems.filter(it=>it.race);
+  const races=accPoolRaces();
+  const rc=shipRacesCache.find(x=>x.slug===accRace());
+  const name=rc?rc.name:accRace();
+  const msg=document.getElementById('accEmptyMsg');
+  const jump=document.getElementById('accJump');
+  if(!all.length){
+    msg.textContent='Пул пуст — ни по одной расе нет кандидатов. Сгенерируй пачку (кнопка «СГЕНЕРИРОВАТЬ ПАЧКУ»).';
+    jump.style.display='none';
+  } else {
+    msg.textContent='По расе «'+name+'» кандидатов нет — сгенерируй пачку (кнопка «СГЕНЕРИРОВАТЬ ПАЧКУ») или выбери расу со свежими кандидатами.';
+    jump.style.display=races.length?'':'none';
+  }
+  document.getElementById('accEmpty').style.display='';
+  document.querySelector('.accStage').style.display='none';
+}
+function hideAccEmpty(){
+  document.getElementById('accEmpty').style.display='none';
+  document.querySelector('.accStage').style.display='';
+}
+// accJumpToRace — перейти к первой расе пула с кандидатами (селект + refresh).
+function accJumpToRace(){
+  const races=accPoolRaces();
+  if(!races.length) return;
+  const sel=document.getElementById('shipRace');
+  sel.value=races[0];
+  sel.dispatchEvent(new Event('change'));
+}
+function renderAccThumbs(files){
+  const box=document.getElementById('accThumbs');
+  const key=files.join(',');
+  if(key!==accFilesKey){
+    accFilesKey=key;
+    box.innerHTML='';
+    files.forEach(f=>{
+      const im=document.createElement('img');
+      im.src='/ships/img/'+f+'?t='+shipBust;
+      im.className='accThumb'; im.title=f;
+      im.onclick=()=>openAccept(f);
+      box.appendChild(im);
+    });
+  } else {
+    [...box.children].forEach(im=>{
+      const u='/ships/img/'+im.title+'?t='+shipBust;
+      if(im.getAttribute('src')!==u) im.src=u;
+    });
+  }
+  [...box.children].forEach(im=>im.classList.toggle('active', im.title===accFile));
+}
+// openAccept — переход к кандидату: сброс угла, подсказка авто-носа.
+function openAccept(file){
+  accFile=file; accHintData=null;
+  const im=document.getElementById('accImg');
+  im.style.transform='';
+  im.src='/ships/img/'+file+'?t='+shipBust;
+  document.getElementById('accSlider').value=0;
+  document.getElementById('accAngle').textContent='0°';
+  document.getElementById('accHint').textContent='авто: …';
+  renderAccThumbs(accPoolFiles());
+  hintAuto();
+}
+// hintAuto — ПОДСКАЗКА (не решение): угол, на который стоит повернуть, и
+// предложенное зеркало; «не уверен» — auto сомневается, перебивает человек.
+async function hintAuto(){
+  const f=accFile; if(!f) return;
+  try{
+    const j=await (await fetch('/ships/auto?file='+encodeURIComponent(f))).json();
+    if(f!==accFile) return; // переключили кандидата, пока считалось
+    if(j.error){ document.getElementById('accHint').textContent='авто: не удалось'; accHintData=null; return; }
+    accHintData=j;
+    const a=Math.round(j.angle);
+    document.getElementById('accHint').textContent=j.ambiguous
+      ? 'авто: не уверен (~'+a+'°'+(j.mirror?', зеркало':'')+')'
+      : 'авто: '+a+'°'+(j.mirror?', зеркало':'');
+  }catch(e){ if(f===accFile) document.getElementById('accHint').textContent='авто: не удалось'; }
+}
+async function applyAuto(){
+  if(!accFile) return;
+  if(!accHintData) await hintAuto();
+  if(!accHintData) return;
+  const f=accFile, j=accHintData;
+  if(Math.round(j.angle)!==0) await actShip(f,'rotate',{angle:j.angle});
+  if(j.mirror) await actShip(f,'flipH');
+  if(acceptMode && accFile===f) openAccept(f);
+}
+function accStep(d){ if(accFile) actShip(accFile,'rotate',{angle:d}); }
+function accFlip(){ if(accFile) actShip(accFile,'flipH'); }
+function accFit(){ if(accFile) actShip(accFile,'fit'); }
+// onAccSlider — живой предпросмотр: сервер крутит ТЕКУЩИЙ файл на v без записи
+// (/ships/preview); файл меняется только на отпускании слайдера (commitAccSlider).
+function onAccSlider(){
+  const v=parseInt(document.getElementById('accSlider').value,10)||0;
+  document.getElementById('accAngle').textContent=v+'°';
+  if(!accFile) return;
+  clearTimeout(accSliderTimer);
+  accSliderTimer=setTimeout(()=>{
+    document.getElementById('accImg').src='/ships/preview?file='+encodeURIComponent(accFile)+'&angle='+v+'&t='+Date.now();
+  }, 60);
+}
+async function commitAccSlider(){
+  const v=parseInt(document.getElementById('accSlider').value,10)||0;
+  document.getElementById('accSlider').value=0;
+  document.getElementById('accAngle').textContent='0°';
+  if(!accFile||v===0) return;
+  await actShip(accFile,'rotate',{angle:v});
+}
+async function acceptShipAcc(){
+  if(!accFile) return;
+  const f=accFile;
+  await actShip(f,'accept');
+  if(acceptMode){ accFile=null; refreshAccept(); }
+}
+async function rejectShipAcc(){
+  if(!accFile) return;
+  const f=accFile;
+  await actShip(f,'reject');
+  if(acceptMode){ accFile=null; refreshAccept(); }
+}
+// accNext — следующий кандидат пула выбранной расы по кругу.
+function accNext(){
+  const files=accPoolFiles();
+  if(!files.length) return;
+  const i=files.indexOf(accFile);
+  openAccept(files[(i+1)%files.length]);
+}
+function onAccKey(e){
+  if(!acceptMode) return;
+  const t=e.target;
+  if(t && (t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.tagName==='SELECT')) return;
+  if(e.key==='ArrowLeft'||e.key==='ArrowRight'){
+    accStep((e.key==='ArrowRight'?1:-1)*(e.shiftKey?15:5)); e.preventDefault();
+  } else if(e.key==='f'||e.key==='F'||e.key==='а'||e.key==='А'){
+    accFlip(); e.preventDefault();
+  } else if(e.key==='Enter'){
+    acceptShipAcc(); e.preventDefault();
+  } else if(e.key==='Delete'){
+    rejectShipAcc(); e.preventDefault();
+  } else if(e.key===' '){
+    accNext(); e.preventDefault();
+  }
+}
+document.addEventListener('keydown', onAccKey);
+
 async function rebuildShips(){
   const race=document.getElementById('shipRace').value;
   const r=await fetch('/ships/rebuild?race='+race); const j=await r.json();
@@ -1250,7 +1513,7 @@ async function initFamSelects(){
     document.getElementById('btnCands').textContent='СГЕНЕРИРОВАТЬ ЭТАЛОНЫ ('+e.target.value+')';
   };
   document.getElementById('cntHumans').oninput = e=>saveUIState('cntHumans', e.target.value);
-  document.getElementById('shipRace').onchange = e=>{ saveUIState('shipRace', e.target.value); refreshShipsPrompt(); };
+  document.getElementById('shipRace').onchange = e=>{ saveUIState('shipRace', e.target.value); refreshShipsPrompt(); if(acceptMode) refreshAccept(); };
   document.getElementById('shipTags').oninput = e=>{ saveUIState('shipTags', e.target.value); refreshShipsPrompt(); };
   document.getElementById('cntShips').oninput = e=>saveUIState('cntShips', e.target.value);
   document.getElementById('tags').oninput = e=>{ saveUIState('tags', e.target.value); schedulePromptUpdate(); };

@@ -1,7 +1,54 @@
 package comfy
 
-// Воркфлоу генерации кораблей рас (спека 2026-09-20-ships-races-generator
-// §3.2/§3.3, параметры — art_ships.md §2.2/§2.3).
+// Воркфлоу генерации кораблей рас.
+//
+// Актуальный рецепт (2026-09-21, проверен спайками): чистый txt2img
+// (ShipTxt2ImgWorkflow) + вырез (tools/ship_sprite_cut.py) + этап детализации
+// Hi-Res (ShipHiResWorkflow) на кандидатах, прошедших автопроверку кадра.
+// Ниже остались ShipStage1/2Workflow прежнего конвейера «силуэт → ControlNet»
+// — они выведены из нового джоба и станут мёртвыми (уборка — отдельным
+// решением, спека 2026-09-21 §12).
+
+// ShipTxt2ImgWorkflow — новый этап 1 (рецепт 2026-09-21): чистый txt2img без
+// ControlNet и без силуэта. CheckpointLoaderSimple → 2×CLIPTextEncode →
+// EmptyLatentImage size×size → KSampler (denoise 1.0, dpmpp_2m/karras) →
+// VAEDecode → SaveImage. size=1024 — полный кадр, size=512 — эскиз.
+func ShipTxt2ImgWorkflow(checkpoint, prompt, neg string, seed, steps int, cfg float64, size int, prefix string) map[string]interface{} {
+	return map[string]interface{}{
+		"1": map[string]interface{}{"class_type": "CheckpointLoaderSimple", "inputs": map[string]interface{}{"ckpt_name": checkpoint}},
+		"2": map[string]interface{}{"class_type": "CLIPTextEncode", "inputs": map[string]interface{}{"text": prompt, "clip": []interface{}{"1", 1}}},
+		"3": map[string]interface{}{"class_type": "CLIPTextEncode", "inputs": map[string]interface{}{"text": neg, "clip": []interface{}{"1", 1}}},
+		"4": map[string]interface{}{"class_type": "EmptyLatentImage", "inputs": map[string]interface{}{"width": size, "height": size, "batch_size": 1}},
+		"5": map[string]interface{}{"class_type": "KSampler", "inputs": map[string]interface{}{
+			"seed": seed, "steps": steps, "cfg": cfg, "sampler_name": "dpmpp_2m", "scheduler": "karras", "denoise": 1.0,
+			"model": []interface{}{"1", 0}, "positive": []interface{}{"2", 0}, "negative": []interface{}{"3", 0}, "latent_image": []interface{}{"4", 0}}},
+		"6": map[string]interface{}{"class_type": "VAEDecode", "inputs": map[string]interface{}{"samples": []interface{}{"5", 0}, "vae": []interface{}{"1", 2}}},
+		"7": map[string]interface{}{"class_type": "SaveImage", "inputs": map[string]interface{}{"images": []interface{}{"6", 0}, "filename_prefix": prefix}},
+	}
+}
+
+// ShipHiResWorkflow — этап детализации (рецепт 2026-09-21): LoadImage →
+// UpscaleModelLoader (4x-UltraSharp) → ImageUpscaleWithModel → ImageScale
+// (lanczos, scale×scale) → VAEEncode → KSampler (denoise ~0.40, dpmpp_2m/
+// karras) → VAEDecode → SaveImage. imgName — файл в ComfyUI/input.
+func ShipHiResWorkflow(checkpoint, prompt, neg, imgName string, seed, steps int, cfg, denoise float64, upscaler string, scale int, prefix string) map[string]interface{} {
+	return map[string]interface{}{
+		"1":  map[string]interface{}{"class_type": "CheckpointLoaderSimple", "inputs": map[string]interface{}{"ckpt_name": checkpoint}},
+		"2":  map[string]interface{}{"class_type": "CLIPTextEncode", "inputs": map[string]interface{}{"text": prompt, "clip": []interface{}{"1", 1}}},
+		"3":  map[string]interface{}{"class_type": "CLIPTextEncode", "inputs": map[string]interface{}{"text": neg, "clip": []interface{}{"1", 1}}},
+		"8":  map[string]interface{}{"class_type": "LoadImage", "inputs": map[string]interface{}{"image": imgName}},
+		"12": map[string]interface{}{"class_type": "UpscaleModelLoader", "inputs": map[string]interface{}{"model_name": upscaler}},
+		"13": map[string]interface{}{"class_type": "ImageUpscaleWithModel", "inputs": map[string]interface{}{"upscale_model": []interface{}{"12", 0}, "image": []interface{}{"8", 0}}},
+		"14": map[string]interface{}{"class_type": "ImageScale", "inputs": map[string]interface{}{
+			"image": []interface{}{"13", 0}, "width": scale, "height": scale, "upscale_method": "lanczos", "crop": "disabled"}},
+		"4": map[string]interface{}{"class_type": "VAEEncode", "inputs": map[string]interface{}{"pixels": []interface{}{"14", 0}, "vae": []interface{}{"1", 2}}},
+		"5": map[string]interface{}{"class_type": "KSampler", "inputs": map[string]interface{}{
+			"seed": seed, "steps": steps, "cfg": cfg, "sampler_name": "dpmpp_2m", "scheduler": "karras", "denoise": denoise,
+			"model": []interface{}{"1", 0}, "positive": []interface{}{"2", 0}, "negative": []interface{}{"3", 0}, "latent_image": []interface{}{"4", 0}}},
+		"6": map[string]interface{}{"class_type": "VAEDecode", "inputs": map[string]interface{}{"samples": []interface{}{"5", 0}, "vae": []interface{}{"1", 2}}},
+		"7": map[string]interface{}{"class_type": "SaveImage", "inputs": map[string]interface{}{"images": []interface{}{"6", 0}, "filename_prefix": prefix}},
+	}
+}
 
 // ShipStage1Workflow — этап 1 (форма, ControlNet Canny + img2img):
 // LoadImage(силуэт) → Canny (low 0.2 / high 0.5) → ControlNetApplyAdvanced

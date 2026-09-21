@@ -12,6 +12,20 @@
   "denoise_ref": 0.35,
   "cn_strength": 1.2,
   "cn_end": 0.7,
+  "ships": {
+    "comment": "Вкладка «Корабли рас» (рецепт 2026-09-21): своя модель (общий селект не трогает), txt2img 1024×1024 steps 32 cfg 6.0 dpmpp_2m/karras; hires — этап детализации на отобранных кандидатах (4x-UltraSharp → 1536 → img2img denoise 0.40).",
+    "model": "juggernaut-xl-v9.safetensors",
+    "steps": 32,
+    "cfg": 6.0,
+    "hires": {
+      "enabled": false,
+      "denoise": 0.40,
+      "steps": 30,
+      "cfg": 6.0,
+      "upscaler": "4x-UltraSharp.pth",
+      "scale": 1536
+    }
+  },
   "workers": 2,
   "pool_root": "ai_drafts",
   "poll_interval_s": 2,

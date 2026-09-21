@@ -72,7 +72,7 @@ func TestRunnerSetCheckpointJobUsesNew(t *testing.T) {
 		ComfyInput: t.TempDir(),
 		Workers:    1,
 		MaxCount:   100,
-		PythonCmd:  writeFakeShipPython(t), // фейк копирует in → out (эмуляция rembg)
+		PythonCmd:  writeFakeShipPython(t, true), // фейк копирует in → out (эмуляция rembg)
 		RembgCLI:   "rembg_cli.py",
 		Checkpoint: "juggernaut-xl-v9.safetensors",
 	}

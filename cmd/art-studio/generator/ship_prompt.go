@@ -504,6 +504,63 @@ const ShipPrompt1Template = "{concept}, {details}, top-down flat view, horizonta
 // ShipPrompt2Template — шаблон промпта этапа 2 (для UI-панели, спека §3.3).
 const ShipPrompt2Template = "{texture}, {texture-tags}, maximal detail, masterpiece, {tags}, no text, no watermark"
 
+// --- Рецепт 2026-09-21 (проверен спайками): txt2img + Hi-Res, без силуэта ---
+
+// ShipSubjectPool — пул космических субъектов: расовость несёт texture расы,
+// а не морское/авиационное существительное (иначе модель рисует лодки и
+// самолёты — NEG_HARD рецепта).
+var ShipSubjectPool = []string{
+	"deep-space starship", "stellar cruiser", "interstellar vessel",
+	"deep-space carrier", "stellar dreadnought",
+}
+
+// Фиксированные фразы рецепта 2026-09-21 (промпт txt2img и этап Hi-Res).
+const (
+	// ShipViewAnchor — якорь ракурса: 3/4 сверху, нос вправо.
+	ShipViewAnchor = "dorsal three-quarter view of a single flying starship, nose pointing right"
+	// ShipBackground — фон и центрирование.
+	ShipBackground = "centered, no stars, plain black background"
+	// ShipStyleAnchors — якоря стиля (игровой ассет, читаемый силуэт, greeble).
+	ShipStyleAnchors = "hard-surface sci-fi game asset, crisp readable silhouette, dense greeble detail, octane render"
+	// ShipHiresTail — хвост этапа Hi-Res (детализация финалистов).
+	ShipHiresTail = "maximal detail, dense surface detail, masterpiece"
+	// shipNegForm — негатив (а): против станций/мусора и «плоских» кадров.
+	shipNegForm = "space station, ring, torus, circular disc, front view, symmetrical, planet, landscape, second ship, toy, plastic, cartoon, flat, blurry"
+	// shipNegSeaAir — негатив (б): жёсткий против лодок, самолётов и воды.
+	shipNegSeaAir = "boat, ship hull, sailing ship, sail, mast, anchor, water, sea, ocean, harbor, keel, airplane, aircraft, jet, fighter jet, wings of aircraft, propeller, runway, airport, atmosphere, sky, clouds, ground"
+)
+
+// BuildShipTxt2ImgPrompt — промпт txt2img по рецепту 2026-09-21: {subject из
+// космического пула}, {race.texture}, якорь ракурса, фон, якоря стиля, {tags}.
+func BuildShipTxt2ImgPrompt(rng *rand.Rand, entry config.ShipEntry, tags string) string {
+	subject := ShipSubjectPool[0]
+	if len(ShipSubjectPool) > 0 {
+		subject = ShipSubjectPool[rng.Intn(len(ShipSubjectPool))]
+	}
+	parts := []string{subject, entry.Texture, ShipViewAnchor, ShipBackground, ShipStyleAnchors}
+	if tags != "" {
+		parts = append(parts, tags)
+	}
+	return strings.Join(parts, ", ")
+}
+
+// BuildShipHiResPrompt — промпт этапа Hi-Res: промпт txt2img + хвост
+// детализации (рецепт 2026-09-21).
+func BuildShipHiResPrompt(prompt1 string) string {
+	return prompt1 + ", " + ShipHiresTail
+}
+
+// ShipNeg — негатив txt2img по рецепту 2026-09-21: (а) против станций/мусора,
+// (б) против лодок/самолётов/воды, (в) blocked-термы расы. Тёплые/жёсткие
+// списки — константы пайплайна, меняются правкой рецепта, а не данными.
+func ShipNeg(blocked []string) string {
+	out := shipNegForm + ", " + shipNegSeaAir
+	if len(blocked) > 0 {
+		out += ", " + strings.Join(blocked, ", ")
+	}
+	return out
+}
+
 // SilhouetteSpecJSON — сериализация spec для скрипта силуэтов.
 func SilhouetteSpecJSON(spec SilhouetteSpec) ([]byte, error) {
 	return json.Marshal(spec)

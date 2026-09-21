@@ -2,12 +2,14 @@ package generator
 
 import (
 	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
 
 	"zorion/cmd/art-studio/config"
+	"zorion/cmd/art-studio/postproc"
 )
 
 // Status — содержимое status.json (спека 67a.1 §9.2).
@@ -52,6 +54,9 @@ type CandMeta struct {
 // (палитра/форма/текстура, страховка, не авто-отклонение). Vote — вердикт
 // создателя (like/dislike/"", 98c: только метка, файл не перемещается).
 // Size — финальный размер кандидата (200 — полный, 100 — эскиз, 98c).
+// Angle — накопленный ручной поворот приёмки в градусах по часовой,
+// Flip — ручное зеркало по горизонтали, Date — дата приёмки (только у
+// записей ships_meta.json принятых; в meta.json пула — трансформ кандидата).
 type ShipMetaItem struct {
 	File     string   `json:"file"`
 	Race     string   `json:"race"`
@@ -63,6 +68,27 @@ type ShipMetaItem struct {
 	Labels   []string `json:"labels,omitempty"`
 	Vote     string   `json:"vote,omitempty"`
 	Size     int      `json:"size,omitempty"`
+	Angle    float64  `json:"angle,omitempty"`
+	Flip     bool     `json:"flip,omitempty"`
+	Date     string   `json:"date,omitempty"`
+	// Frame — статистика автопроверки кадра (рецепт 2026-09-21): попытки
+	// txt2img на кандидата, отбраковки, проверка последнего кадра.
+	Frame *ShipFrameStat `json:"frame,omitempty"`
+	// Orient — подсказка авто-ориентации (рецепт 2026-09-21): финальную
+	// сторону решает человек в приёмке, авто — только подсказка в мете.
+	Orient *postproc.ShipOrient `json:"orient,omitempty"`
+}
+
+// ShipFrameStat — статистика автопроверки кадра (tools/ship_sprite_cut.py
+// --frame-check): attempts — число попыток txt2img (1..6), rejected — сколько
+// кадров не прошло проверку (край/вытянутость; при исчерпании попыток равен
+// attempts — последний кадр взят за неимением лучшего), touch — стороны
+// касания края, elong — вытянутость силуэта последнего кадра.
+type ShipFrameStat struct {
+	Attempts int      `json:"attempts"`
+	Rejected int      `json:"rejected"`
+	Touch    []string `json:"touch,omitempty"`
+	Elong    float64  `json:"elong"`
 }
 
 // ComfySubmitter — абстракция ComfyUI для тестов (реализация — comfy.Client).
@@ -130,6 +156,15 @@ func (r *Runner) shipsSnapshot() (config.ShipsConfig, *config.ShipDictConfig) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.ships, r.shipDict
+}
+
+// shipParams — параметры кораблей под r.mu (блок ships в studio.json +
+// дефолты, config.StudioConfig.ShipParams). Общий чекпоинт студии корабли не
+// читают: у вкладки своя модель.
+func (r *Runner) shipParams() config.ShipsParams {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.cfg.ShipParams()
 }
 
 // ReloadShips перечитывает ships.json с диска и заменяет конфиг в памяти
@@ -497,6 +532,43 @@ func SetShipVote(poolDir, file, vote string) bool {
 			found = true
 			break
 		}
+	}
+	if !found {
+		return false
+	}
+	data, err := json.Marshal(all)
+	if err != nil {
+		return false
+	}
+	os.WriteFile(filepath.Join(poolDir, "meta.json"), data, 0644)
+	return true
+}
+
+// UpdateShipAngle — накопить ручной поворот кандидата в meta.json пула
+// (приёмка кораблей): deg — добавка в градусах по часовой, результат
+// приводится к интервалу (−180, 180]; flip=true — переключить зеркало
+// (зеркало меняет знак угла). Возвращает false, если кандидата нет в мете.
+func UpdateShipAngle(poolDir, file string, deg float64, flip bool) bool {
+	all := ReadShipMeta(poolDir)
+	found := false
+	for i := range all {
+		if all[i].File != file {
+			continue
+		}
+		a := all[i].Angle + deg
+		for a > 180 {
+			a -= 360
+		}
+		for a <= -180 {
+			a += 360
+		}
+		if flip {
+			a = -a
+			all[i].Flip = !all[i].Flip
+		}
+		all[i].Angle = math.Round(a*10) / 10
+		found = true
+		break
 	}
 	if !found {
 		return false

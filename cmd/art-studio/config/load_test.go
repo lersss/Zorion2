@@ -180,6 +180,37 @@ func TestLoadStudio(t *testing.T) {
 	}
 }
 
+// TestShipParams — параметры кораблей (рецепт 2026-09-21): модель Juggernaut
+// XL только для вкладки кораблей, общие поля не затрагиваются; блок ships
+// опционален — дефолты те же.
+func TestShipParams(t *testing.T) {
+	cfg, err := LoadStudio("../../../config/art/studio.json")
+	if err != nil {
+		t.Fatalf("LoadStudio: %v", err)
+	}
+	sp := cfg.ShipParams()
+	if sp.Model != "juggernaut-xl-v9.safetensors" {
+		t.Errorf("ships.model = %q, want juggernaut-xl-v9.safetensors", sp.Model)
+	}
+	if sp.Steps != 32 || sp.Cfg != 6.0 {
+		t.Errorf("ships steps/cfg = %d/%v, want 32/6.0", sp.Steps, sp.Cfg)
+	}
+	if sp.Hires.Upscaler != "4x-UltraSharp.pth" || sp.Hires.Scale != 1536 || sp.Hires.Denoise != 0.40 {
+		t.Errorf("ships.hires = %+v, want 4x-UltraSharp/1536/0.40", sp.Hires)
+	}
+	// общий чекпоинт вкладки не совпадает с моделью кораблей только по смыслу:
+	// отдельный ключ ships.model, другие вкладки читают cfg.Checkpoint как раньше
+	if cfg.Checkpoint == "" {
+		t.Errorf("общий checkpoint пуст — корабли не должны его перетирать")
+	}
+	// без блока ships — дефолты рецепта
+	bare := &StudioConfig{}
+	sp2 := bare.ShipParams()
+	if sp2.Model != "juggernaut-xl-v9.safetensors" || sp2.Steps != 32 || sp2.Hires.Scale != 1536 {
+		t.Errorf("дефолты без блока ships = %+v", sp2)
+	}
+}
+
 // writeFamilies пишет минимальный families.json во временный файл.
 func writeFamilies(t *testing.T, content string) string {
 	t.Helper()

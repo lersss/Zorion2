@@ -514,6 +514,94 @@ func TestDeadBlockedTokens(t *testing.T) {
 	// не ошибка: тест только отчитывается
 }
 
+// TestBuildShipTxt2ImgPrompt — рецепт 2026-09-21: {subject из космического
+// пула}, {race.texture}, якорь ракурса, фон, якоря стиля, {tags}.
+func TestBuildShipTxt2ImgPrompt(t *testing.T) {
+	entry := config.ShipEntry{
+		Texture: "paneled white-grey metal hull with ceramic heat shield tiles",
+		Blocked: []string{"tentacle", "organic", "crystal"},
+	}
+	rng := rand.New(rand.NewSource(1))
+	p := BuildShipTxt2ImgPrompt(rng, entry, "extra tag")
+	for _, want := range []string{
+		entry.Texture, ShipViewAnchor, ShipBackground, ShipStyleAnchors, "extra tag",
+	} {
+		if !strings.Contains(p, want) {
+			t.Errorf("промпт не содержит %q: %s", want, p)
+		}
+	}
+	if !strings.HasPrefix(p, ShipSubjectPool[0]) && !hasAnySubject(p) {
+		t.Errorf("промпт не начинается с космического субъекта: %s", p)
+	}
+	// морские/авиационные существительные в позитиве не используются
+	for _, bad := range []string{"boat", "sailing ship", "airplane", "fighter jet"} {
+		if strings.Contains(strings.ToLower(p), bad) {
+			t.Errorf("промпт содержит морской/авиационный субъект %q: %s", bad, p)
+		}
+	}
+}
+
+// hasAnySubject — true, если промпт начинается с одного из космических
+// субъектов пула.
+func hasAnySubject(p string) bool {
+	for _, s := range ShipSubjectPool {
+		if strings.HasPrefix(p, s+", ") {
+			return true
+		}
+	}
+	return false
+}
+
+// TestBuildShipTxt2ImgPromptSubjects — субъект берётся из пула и варьируется
+// от seed (не один и тот же на всех).
+func TestBuildShipTxt2ImgPromptSubjects(t *testing.T) {
+	entry := config.ShipEntry{Texture: "hull"}
+	seen := map[string]bool{}
+	for i := 0; i < 40; i++ {
+		p := BuildShipTxt2ImgPrompt(rand.New(rand.NewSource(int64(i))), entry, "")
+		ok := false
+		for _, s := range ShipSubjectPool {
+			if strings.HasPrefix(p, s+", ") {
+				seen[s] = true
+				ok = true
+			}
+		}
+		if !ok {
+			t.Fatalf("субъект не из пула: %s", p)
+		}
+	}
+	if len(seen) < 3 {
+		t.Errorf("разных субъектов = %d, want ≥ 3 (субъект варьируется)", len(seen))
+	}
+}
+
+// TestShipNeg — негатив: станции/мусор + лодки/самолёты/вода + blocked расы.
+func TestShipNeg(t *testing.T) {
+	neg := ShipNeg([]string{"machine", "crystal"})
+	for _, want := range []string{
+		"space station", "ring", "torus", "front view", "symmetrical",
+		"boat", "sailing ship", "mast", "water", "sea", "ocean",
+		"airplane", "fighter jet", "propeller", "runway", "ground",
+		"machine", "crystal",
+	} {
+		if !strings.Contains(neg, want) {
+			t.Errorf("негатив не содержит %q: %s", want, neg)
+		}
+	}
+	// без blocked — только два набора, без пустых хвостов
+	if strings.HasSuffix(ShipNeg(nil), ", ") {
+		t.Errorf("негатив без blocked кончается запятой: %s", ShipNeg(nil))
+	}
+}
+
+// TestBuildShipHiResPrompt — промпт этапа Hi-Res = промпт txt2img + хвост.
+func TestBuildShipHiResPrompt(t *testing.T) {
+	p := BuildShipHiResPrompt("base prompt")
+	if !strings.HasPrefix(p, "base prompt, ") || !strings.Contains(p, ShipHiresTail) {
+		t.Errorf("промпт Hi-Res = %q", p)
+	}
+}
+
 func containsStr(list []string, s string) bool {
 	for _, x := range list {
 		if x == s {

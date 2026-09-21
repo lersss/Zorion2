@@ -6,7 +6,8 @@
 //  2) тот же вызов с любым результатом 41-й раз       -> отказ;
 //  3) серия отказов в сессии                          -> сессия гасится;
 //  4) память >= 700k, или файл возвращается к уже виденному состоянию (5 раз),
-//     или файл переписан 60 раз, или 15 прогонов семейства команд,
+//     или файл переписан 60 раз, или 15 прогонов семейства команд (тело команды
+//     без служебного префикса кодировки — см. SERVICE_PREFIX),
 //     или 3 одинаковых вывода агента подряд            -> напоминание в системную
 //     память агента (один раз за сессию);
 //  5) память >= 900k или 15 действий после напоминания -> отказ и гашение.
@@ -108,6 +109,19 @@ export const LoopGuard = async ({ client, directory }) => {
 
   const head = (text) => String(text ?? "").replace(/\s+/g, " ").trim().slice(0, 40)
   const kilos = (v) => Math.round(v / 1000) + "k"
+
+  // Служебная настройка кодировки в начале команды — не часть «тела». Семейство
+  // считается по первым 48 символам, и общий префикс (\$OutputEncoding /
+  // [Console]::OutputEncoding / chcp 65001) склеивал РАЗНЫЕ по смыслу команды в
+  // одну серию (инцидент 2026-09-21: так легли сессии разработчика и менеджера).
+  const SERVICE_PREFIX =
+    /^\s*(?:(?:\$OutputEncoding|\[Console\]::(?:Output|Input)Encoding)\s*=\s*\[[^\]]+\]::\w+\s*;?\s*|chcp\s+65001\s*;?\s*)+/i
+
+  const commandFamily = (command) => {
+    const full = String(command ?? "").trim()
+    const body = full.replace(SERVICE_PREFIX, "").trim()
+    return (body || full).slice(0, 48)
+  }
 
   // Рабочая память сообщения: сколько модель держит в контексте на этом шаге.
   const memory = (tokens) => {
@@ -314,7 +328,7 @@ export const LoopGuard = async ({ client, directory }) => {
         const inline = input.tool === "write" ? output.args?.content : output.args?.patch
         if (typeof inline === "string") touchState(s, inline)
       } else if (input.tool === "bash" && typeof output.args?.command === "string") {
-        bump(b.cmds, output.args.command.trim().slice(0, 48))
+        bump(b.cmds, commandFamily(output.args.command))
       }
 
       // 1. Память на пределе — тормозим сразу.

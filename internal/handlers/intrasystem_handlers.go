@@ -412,14 +412,6 @@ func (h *IntrasystemHandlers) StartIntraFlight(w http.ResponseWriter, r *http.Re
 	}
 	worldID := *user.CurrentWorldID
 
-	// 4б. С поверхности внутрисистемный полёт запрещён (спека 2026-09-21 §6.5):
-	// корабль на земле вместе с игроком — сначала «вызов» (leave), потом лететь.
-	// Без ветки молча брался from = (звезда, worldID) — скрытый баг.
-	if pos != nil && pos.Status == "surface" {
-		writeJSONError(w, "Сначала вернитесь на орбиту (вызов корабля)", http.StatusBadRequest)
-		return
-	}
-
 	// 5. Цель принадлежит системе (ИП-1).
 	planets, err := h.planetRepo.GetPlanetsLightByWorldID(worldID)
 	if err != nil {
@@ -460,14 +452,17 @@ func (h *IntrasystemHandlers) StartIntraFlight(w http.ResponseWriter, r *http.Re
 	}
 
 	// From: объект позиции (покой) или объект отправления активного полёта
-	// (редирект от объекта отправления, §3.5); NULL-позиция (легаси) —
-	// «орбита звезды».
+	// (редирект от объекта отправления, §3.5); surface — планета, на которой
+	// стоит игрок (взлёт без отдельного шага, идея 2026-09-21: «Лететь» с
+	// поверхности = взлёт + сегмент); NULL-позиция (легаси) — «орбита звезды».
 	fromType, fromID := "star", worldID
 	if pos != nil {
 		if pos.Status == "orbit" {
 			fromType, fromID = pos.ObjectType, pos.ObjectID
 		} else if pos.Status == "in_flight" {
 			fromType, fromID = pos.FromType, pos.FromID
+		} else if pos.Status == "surface" {
+			fromType, fromID = "planet", pos.ObjectID
 		}
 	}
 

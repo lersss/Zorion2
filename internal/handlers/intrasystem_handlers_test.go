@@ -336,20 +336,37 @@ func TestStartIntraFlightTargetIsFromInFlight(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// С поверхности внутрисистемный полёт запрещён (§6.5 спеки высадки): иначе
-// молча брался from = (звезда, worldID) — скрытый баг.
-func TestStartIntraFlightFromSurfaceRejected(t *testing.T) {
-	h, _, mock := newIntraHarness(t)
+// С поверхности планеты взлёт разрешён (идея 2026-09-21): from = планета
+// поверхности, позиция сразу in_flight (атомарный StartAtomic). «взлёт»
+// отдельного шага не делает — двигатель проверяется как обычно (шаг 2).
+func TestStartIntraFlightFromSurface(t *testing.T) {
+	h, intraMgr, mock := newIntraHarness(t)
 	const userID = "11111111-1111-1111-1111-111111111111"
 
 	pos := `{"status":"surface","level":"surface","object_type":"planet","object_id":"p1","biome":"горы","hp":90,"landed_at":"2026-09-21T12:00:00Z"}`
 	expectIntraUser(mock, userID, pos)
 	expectIntraWorld(mock, "w1")
+	expectIntraPlanets(mock, "w1",
+		planetRow("p1", "w1", "Планета1", 0, 1.0),
+		planetRow("p2", "w1", "Планета2", 1, 2.0))
+	expectIntraStartAtomic(mock, userID, "planet", "p1")
 
 	rec := execJSON(h.StartIntraFlight, intraRequest(userID, "planet", "p2"))
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-	require.Contains(t, rec.Body.String(), "Сначала вернитесь на орбиту")
+	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
 	require.NoError(t, mock.ExpectationsWereMet())
+
+	var resp IntraFlightResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "planet", resp.FromType, "from = планета, на которой стоит игрок")
+	assert.Equal(t, "p1", resp.FromID)
+	assert.Equal(t, "planet", resp.ToType)
+	assert.Equal(t, "p2", resp.ToID)
+	assert.Equal(t, 3, resp.Duration, "dist = |1−2| = 1 → минимум 3 сек")
+
+	flight := intraMgr.GetIntraFlight(userID)
+	require.NotNil(t, flight, "полёт зарегистрирован (позиция сразу in_flight)")
+	assert.Equal(t, "planet", flight.FromType)
+	assert.Equal(t, "p1", flight.FromID)
 }
 
 // ==================== КОМПАНЬОНЫ (решение создателя 2026-09-20) ====================

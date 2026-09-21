@@ -55,6 +55,8 @@ permission:
 6. **Перед работой с БД/psql/шеллом/curl — прочитай `docs/PITFALLS.md`** (в т.ч.
    «Windows-шелл: кодировка cp866/cp1251» — как вызывать psql/curl, `Invoke-RestMethod`,
    алиас `curl` = `Invoke-WebRequest`).
+   **SQL к dev-БД — через готовую обёртку `tools/db.ps1`, не сочиняй вызов psql заново:**
+   `powershell -File tools/db.ps1 -Sql "SELECT ..."` (`-File q.sql` или stdin).
 
 ### Роли при проверке curl'ом (актуализировано 2026-09-14, спека 99.2.14)
 

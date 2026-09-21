@@ -25,8 +25,14 @@ func TestGetPlanetByID(t *testing.T) {
 		WHERE id = $1
 	`).WithArgs("p1").WillReturnRows(planetRows)
 
+	// Чек-поинт «свежий», но не «сейчас»: пересчёт населения идёт от реального
+	// времени (p0·(1−r)^Δt), поэтому с computed_at = now между настройкой мока и
+	// вызовом проходят миллисекунды и значение уезжает на единицы (флак под
+	// нагрузкой: 999 998 вместо 1 000 000). Сдвиг вперёд даёт Δt ≤ 0 — гвард
+	// модели возвращает p0 без убыли, и проверка остаётся точной.
+	freshCheckpoint := now.Add(time.Minute)
 	settlementRows := sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id"}).
-		AddRow("s1", "p1", 1_000_000, float64(1_000_000), 60, now, now, now, nil)
+		AddRow("s1", "p1", 1_000_000, float64(1_000_000), 60, freshCheckpoint, now, now, nil)
 	mock.ExpectQuery(`
 		SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at, race_id
 		FROM settlements WHERE planet_id = ANY($1) ORDER BY created_at ASC
@@ -50,11 +56,12 @@ func TestGetPlanetByID(t *testing.T) {
 	expectEmptyFactionsBuildings(mock)
 
 	// Открытие карточки планеты триггерит пересчёт населения от среды
-	// (18a_population_death.md); computed_at = now, т.е. Δt < MinPersistInterval —
-	// «простой визит»: пересчёт только в памяти, записей в БД нет.
+	// (18a_population_death.md); Δt < MinPersistInterval — «простой визит»:
+	// пересчёт только в памяти, записей в БД нет.
 	// Температура 400 K (+127 °C) — жара с R ≈ 2.7·10⁻⁴/сек (R-модель,
-	// 99.2.12, обнуления нет): за микросекунды Δt убыль копеечная, население
-	// не зависит от скорости прогона.
+	// 99.2.12, обнуления нет): убыль непрерывна и идёт от реального Δt, поэтому
+	// чек-поинт сдвинут вперёд (см. выше) — иначе значение зависит от загрузки
+	// машины (был флак: 999 998 вместо 1 000 000 в прогоне всех пакетов).
 
 	planet, err := NewPlanetRepository(db).GetPlanetByID("p1")
 	require.NoError(t, err)

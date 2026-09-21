@@ -1,6 +1,6 @@
 # Реестр каскадных влияний — индекс
 
-> Компактный обзор docs/impact_map.json (64 сущности, 437 связей, ~120 КБ — целиком НЕ читать). Вопрос реестра: «меняем X → смотрим на Y». Ведёт @manager при сдаче фич (идея 83a); валидатор — scripts/check_impact_map.ps1 после каждого коммита.
+> Компактный обзор docs/impact_map.json (67 сущностей, 460 связей, ~120 КБ — целиком НЕ читать). Вопрос реестра: «меняем X → смотрим на Y». Ведёт @manager при сдаче фич (идея 83a); валидатор — scripts/check_impact_map.ps1 после каждого коммита.
 
 **Как читать:** нужна сущность — ищи её id/path в docs/impact_map.json через grep (одна сущность + её impacts[], ~1–3 КБ), целиком json не читай. Связанные сущности — по on-ссылкам (id или путь).
 
@@ -62,3 +62,6 @@
 | recipes | db:recipes | справочник рецептов каталога (миграция 000055, 2026-09-21): выход-товар (FK goods CASCADE, UNIQUE good_id), complexity INT NULL (тир производный), created_at; рецепт создаётся вместе с товаром; штатный роут восстановления POST /studio/api/recipes; проекция Good.Recipe/Complexity… |
 | recipe_components | db:recipe_components | состав рецепта — замена goods_slots (000055): (recipe_id FK CASCADE, pos, component_id FK goods SET NULL, quantity ≥1, reason, allow_resource), UNIQUE (recipe_id,pos) + индекс component_id (обратные рёбра); пустой компонент = component_id NULL; компонент — любой товар/ресурс, цикл запрещён (409)… |
 | producer_recipes | db:producer_recipes | набор рецептов фабрики — M:N «конкретная фабрика ↔ рецепты» (000055): PK (producer_type_id, recipe_id), индекс по recipe_id; привязка только к конкретной фабрике kind=goods и только рецепта своей категории (инвариант, 400), повтор 409, копирование набора из универсальных фабрик категории (POST /studio/api/producers/{id}/recipes/copy-universal)… |
+| buildings | db:buildings | строения на планете — итерация 1 релиза 2 фабрик (000056, 2026-09-21): `planet_id` FK planets ON DELETE CASCADE, `building_type` (свободный ключ; сейчас только `capital`), `owner_type` CHECK (player/faction/agent) + `owner_id` (без FK — владелец полиморфный); индекс `idx_buildings_planet_id` + частичный UNIQUE на столицу фракции; колонки `producer_type_id`/`population`/`slots`/`status`/`data`/`name` отложены до следующих итераций; чистится вместе с мирами… |
+| factions | db:factions | NPC-фракции (000004): name/type/`homeworld_id` FK planets ON DELETE CASCADE/strength/resources/color/description; генератор `internal/generator/faction` создаёт 1–3 на планету с населением; владелец строений (`owner_type='faction'`), родной мир задаёт место столицы; в реестре отсутствовала — добавлена 2026-09-21… |
+| faction_capital | internal/generator/faction | столица фракции (000056, 2026-09-21): одна на фракцию, на её родном мире, тип «другое» (`building_type='capital'`), ничего не производит, снабжение отложено; `EnsureCapitals()` — идемпотентный проход в джобе генерации фракций и в ветке `total == 0` под гейтом Пакмана/мьютекса… |

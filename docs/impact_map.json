@@ -13,7 +13,8 @@
         { "on": "db:planets", "kind": "schema", "reason": "FK planet_id → planets(id) ON DELETE CASCADE; deposits — данные вселенной (в truncateTables, чистится каскадом Пакмана)" },
         { "on": "planet_generator", "kind": "writes", "reason": "генерация залежей вместе с планетой (COPY/INSERT в той же tx, §3.4); пилоты — 3 ресурса каталога, резолв по name_norm (SetGoodsIndex)" },
         { "on": "player_planet_knowledge", "kind": "reads", "reason": "видимость: attachDeposits только в GetPlanetsByWorldID; stripPlanetDetails (planet_visibility.go) обнуляет Deposits без знания" },
-        { "on": "99.2.5", "kind": "duplicates", "reason": "поглощает планируемую deposits (99.2.5 §1) минимальным набором колонок; 99.2.5 расширит (выработка/сводка)" }
+        { "on": "docs/specs/99.2.5-resource-model.md", "kind": "duplicates", "reason": "поглощает планируемую deposits (99.2.5 §1) минимальным набором колонок; 99.2.5 расширит (выработка/сводка)" },
+        { "on": "docs/specs/2026-09-22-поселение-добыча-сырья-биома-ленивый-буфер.md", "kind": "docs", "reason": "спека итерации 1: объект deposits, генерация, видимость, админ-инструмент" }
       ]
     },
     {

@@ -4,6 +4,29 @@
   "updated_at": "2026-09-22",
   "entities": [
     {
+      "id": "deposits",
+      "type": "table",
+      "path": "db:deposits",
+      "note": "залежь поверхности (миграция 000058, идея 2026-09-22 «экономика поселения», итерация 1): планета + ресурс каталога + слой (surface) + богатство 0–1 + конечный запас; FK planet_id→planets ON DELETE CASCADE, good_id→goods ON DELETE CASCADE (удаление ресурса в студии сносит залежи — решение создателя); данные вселенной (truncateTables, Пакман); генерация — случайное число из трёх пилотов (растения/мясо/вода-ресурс), биомы не участвуют",
+      "impacts": [
+        { "on": "goods", "kind": "schema", "reason": "FK good_id → goods(id) ON DELETE CASCADE: удаление ресурса в студии удаляет его залежи; студия предупреждает числом (GET /studio/api/goods/{id}/deposits-count)" },
+        { "on": "db:planets", "kind": "schema", "reason": "FK planet_id → planets(id) ON DELETE CASCADE; deposits — данные вселенной (в truncateTables, чистится каскадом Пакмана)" },
+        { "on": "planet_generator", "kind": "writes", "reason": "генерация залежей вместе с планетой (COPY/INSERT в той же tx, §3.4); пилоты — 3 ресурса каталога, резолв по name_norm (SetGoodsIndex)" },
+        { "on": "player_planet_knowledge", "kind": "reads", "reason": "видимость: attachDeposits только в GetPlanetsByWorldID; stripPlanetDetails (planet_visibility.go) обнуляет Deposits без знания" },
+        { "on": "99.2.5", "kind": "duplicates", "reason": "поглощает планируемую deposits (99.2.5 §1) минимальным набором колонок; 99.2.5 расширит (выработка/сводка)" }
+      ]
+    },
+    {
+      "id": "surface_deposits",
+      "type": "mechanic",
+      "path": "internal/generator/planet/deposit_generation.go",
+      "note": "механика залежей поверхности (идея 2026-09-22, итерация 1): случайное число залежей из трёх пилотных ресурсов каталога на планетах с поверхностью; биомы в генерации НЕ участвуют (правило «площадь биома → жирность» снято создателем 2026-09-22); «что где» — временное, до отдельной задачи конфигурации; админ-инструмент POST /admin/planets/{id}/deposits",
+      "impacts": [
+        { "on": "deposits", "kind": "writes", "reason": "генерация и админ-добавление залежей" },
+        { "on": "goods", "kind": "reads", "reason": "три пилота — записи каталога kind='resource', резолв по name_norm (SetGoodsIndex)" }
+      ]
+    },
+    {
       "id": "ui/sound.js",
       "type": "code",
       "path": "web/static/js/ui/sound.js",
@@ -425,7 +448,8 @@
         { "on": "docs/specs/_archive/99a.3-goods-studio-focus-graph-spravochnik.md", "kind": "docs", "reason": "фокус-граф/справочник каталога (99a.3); ПКМ-хвост открыт" },
         { "on": "docs/specs/_archive/перенос-студии-товаров-iterC-доводка.md", "kind": "docs", "reason": "доводка iterC: fill «предложи → подтверди», auth.js, слой из БД" },
         { "on": "docs/specs/2026-09-21-рецепт-сущность-и-граф-фабрики.md", "kind": "duplicates", "reason": "спека «рецепт как сущность» (000055): goods_slots и goods.tier_override сняты; состав — recipe_components, сложность — recipes.complexity" },
-        { "on": "docs/specs/2026-09-21-каталог-описание-товаров-и-ресурсов.md", "kind": "docs", "reason": "спека описания каталога (000057): поле у товаров/ресурсов, ручной ввод, три ИИ-потока описаний, третья колонка массовой подгрузки" }
+        { "on": "docs/specs/2026-09-21-каталог-описание-товаров-и-ресурсов.md", "kind": "docs", "reason": "спека описания каталога (000057): поле у товаров/ресурсов, ручной ввод, три ИИ-потока описаний, третья колонка массовой подгрузки" },
+        { "on": "deposits", "kind": "affects", "reason": "удаление ресурса в студии каскадит его залежи (FK deposits.good_id ON DELETE CASCADE); студия предупреждает числом залежей — GET /studio/api/goods/{id}/deposits-count (идея 2026-09-22)" }
       ]
     },
     {

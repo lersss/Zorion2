@@ -651,6 +651,24 @@
       ]
     },
     {
+      "id": "map-star-visuals",
+      "type": "code",
+      "path": "web/static/js/map/star_render.js",
+      "note": "Внешний вид звёзд на карте (идея 2026-09-22, коммит 62bcd9e): ядро+ореол, разная яркость от hashString(sid), мерцание, «зажигание» при появлении названий, экзотика (ЧД/нейтронная/БД/протозвезда), подсветка компаньонов; наборы Глаз/Фото/Спрайт/Корона (дефолт «Спрайт»); дефолты — map/star_presets.js; настройки игрока — дашборд «⚙️ Графика» (dashboard/graphics.js), localStorage. Непрерывный кадр — один хозяин (state.npcAnimActive), авто-стоп при singles > 400; режим «Для слабых ПК» (starVisualLite) гасит эффекты и кадр.",
+      "impacts": [
+        { "on": "web/static/js/map/star_presets.js", "kind": "reads", "reason": "единый источник дефолтов наборов/эффектов (читают и карта, и дашборд)" },
+        { "on": "web/static/js/config.js", "kind": "reads", "reason": "starColors/starTempRanges (палитра классов; L/T/Y разведены 2026-09-22), nameDisplayThreshold/regionDisplayThreshold, minZoom/maxZoom" },
+        { "on": "web/static/js/map/config.js", "kind": "reads", "reason": "state.clusters/worlds/currentWorldId, starSingles, npcAnimActive" },
+        { "on": "web/static/js/map/starfield.js", "kind": "affects", "reason": "порядок слоёв: фон → регионы → звёзды (общий Date.now())" },
+        { "on": "web/static/js/map/npc_agents.js", "kind": "affects", "reason": "общий кадр draw()/rAF: один хозяин кадра (state.npcAnimActive) — двойной перерисовки нет" },
+        { "on": "web/static/js/map/pacman.js", "kind": "affects", "reason": "общий кадр draw()/rAF, порядок слоёв" },
+        { "on": "web/static/js/map/animation.js", "kind": "affects", "reason": "источник кадров (полёт) и FPS-плашка; непрерывный кадр звёзд с ним согласован" },
+        { "on": "web/static/js/map/events.js", "kind": "affects", "reason": "hover/hit через starHitRadius — совпадает с видимым радиусом (ореол с потолком 240 px)" },
+        { "on": "web/static/js/dashboard/graphics.js", "kind": "reads", "reason": "дашборд «⚙️ Графика» пишет localStorage-ключи, карта читает (общий origin, сервер не участвует)" },
+        { "on": "77a", "kind": "duplicates", "reason": "вид звезды виден везде (цвет/размер/экзотика); новые эффекты не раскрывают скрытого (§5.3)" }
+      ]
+    },
+    {
       "id": "99.2.27",
       "type": "spec",
       "path": "docs/specs/99.2.27-intrasystem-flight.md",

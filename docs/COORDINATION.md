@@ -53,7 +53,7 @@
 
 | Файл | Кто правит | До какого коммита |
 |---|---|---|
-| `web/static/js/map/star_render.js` (новый), `web/static/js/map/map_render.js`, `web/static/js/map/config.js`, `web/static/js/config.js`, `web/main.js`, `web/map.html` | @developer (внешний вид звёзд — прототип, идея 2026-09-22) | до коммита задачи |
+| `internal/generator/planet/*` (cascade.go, planet_data.go, planet_data_generate.go, planet_data_belt.go, planet_data_batch.go, belt_test.go), `internal/models/planet.go`, `internal/handlers/admin_universe.go`, `internal/handlers/admin_regenerate_planets.go`, `migrations/000059_system_belts.sql` | @developer (пояса малых тел — этап 1а/1б, спека 2026-09-21-пояса-малых-тел-объект-системы) | до коммита задачи |
 
 ## Занято ранее (историческое, не блокирует — чистится @manager по мере надобности)
 

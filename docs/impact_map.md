@@ -48,6 +48,7 @@
 | player_intrasystem_flights | db:player_intrasystem_flights | активный внутрисистемный полёт (000046, 99.2.27): PK user_id, world_id, from/to type+id TEXT (синтетические id компаньонов), st… |
 | IntrasystemManager | internal/travel/intrasystem_manager.go | менеджер внутрисистемных полётов (99.2.27, паттерн 97a): RWMutex-карта, CancelChan, TOCTOU-гвард удаления строки, Restore |
 | players_positions_90a | internal/handlers/players_positions.go | /api/players/positions — правило 90a ИЗМЕНЕНО (99.2.27, решение создателя): показываются не только летящие, но и стоящие на орб… |
+| map-star-visuals | web/static/js/map/star_render.js | внешний вид звёзд карты (идея 2026-09-22, коммит 62bcd9e): ядро+ореол, разная яркость от hashString(sid), мерцание, «зажигание», эк… |
 | 99.2.27 | docs/specs/99.2.27-intrasystem-flight.md | спека «Внутрисистемный полёт» (99.2.27, 2026-09-20, сдана «доделаем потом»): позиция (users.current_position), player_intrasyst… |
 | biome_catalog.json | config/biome_catalog.json | справочник биомов (99.2.28, 2026-09-20): 57 биомов поверхности, 17 типов недр, 9 правил типов планет, параметры токсичности; за… |
 | biomes | db:planets.data.biomes | биомы планеты (99.2.28, слой 10 каскада после недр): объекты {form, share}, сумма 100%; физические веса от свойств планеты (T/в… |

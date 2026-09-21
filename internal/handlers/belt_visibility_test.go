@@ -923,8 +923,55 @@ func TestVisibleBelts(t *testing.T) {
 	assert.Equal(t, "b1", out[0].ID)
 }
 
-// ==================== F12: Restore (отложено из-за локейта) ====================
-// TestBeltFlightRestore требует правки cmd/server/main.go (блок Restore) —
-// занят параллельным потоком (контракты B1). Отложено, см. отчёт.
+// ==================== F12: Restore цели (спека поясов этап 2 §5.4) ====================
+
+// newRestoreValidator — валидатор Phase-2 Restore (вынесен из main.go) на sqlmock.
+func newRestoreValidator(t *testing.T) (func(worldID, objType, objID string) bool, sqlmock.Sqlmock) {
+	t.Helper()
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	t.Cleanup(func() { db.Close() })
+	return IntraRestoreTargetValid(repository.NewWorldRepository(db), repository.NewPlanetRepository(db)), mock
+}
+
+// F12: живой пояс — цель Restore принимается.
+func TestBeltFlightRestore(t *testing.T) {
+	valid, mock := newRestoreValidator(t)
+	expectIntraWorld(mock, "w1")
+	expectBelts(mock, "w1",
+		beltRow("b1", "w1", "asteroid", "Пояс астероидов", 2, 3.0, 0.6, 0.05, 120.0, `{}`, true, `{}`))
+
+	assert.True(t, valid("w1", "belt", "b1"))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// F12: пояс удалён (перегенерация) — цель Restore отвергается.
+func TestBeltFlightRestoreBrokenTarget(t *testing.T) {
+	valid, mock := newRestoreValidator(t)
+	expectIntraWorld(mock, "w1")
+	expectBelts(mock, "w1")
+
+	assert.False(t, valid("w1", "belt", "b1"))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// F12: star-цель (сам мир) — по-прежнему валидна (регресс выноса валидатора).
+func TestIntraRestoreTargetStar(t *testing.T) {
+	valid, mock := newRestoreValidator(t)
+	expectIntraWorld(mock, "w1")
+
+	assert.True(t, valid("w1", "star", "w1"))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// F12: planet-цель — по-прежнему валидна (регресс выноса валидатора).
+func TestIntraRestoreTargetPlanet(t *testing.T) {
+	valid, mock := newRestoreValidator(t)
+	expectIntraWorld(mock, "w1")
+	expectPlanetByID(mock, "p1", "w1")
+
+	assert.True(t, valid("w1", "planet", "p1"))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
 
 var _ = sql.ErrNoRows

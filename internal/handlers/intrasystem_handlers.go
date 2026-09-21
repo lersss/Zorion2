@@ -375,6 +375,23 @@ func arrivalTargetValid(planetRepo *repository.PlanetRepository, worldID, objTyp
 	return false
 }
 
+// IntraRestoreTargetValid — валидатор цели Phase-2 Restore (main.go, спека
+// поясов этап 2 §5.4): система существует, объект — через arrivalTargetValid
+// (планета/спутник/пояс); star — сам мир или валидный компаньон. visible-фильтр
+// не применяется (источник — сырые записи мира).
+func IntraRestoreTargetValid(worldRepo *repository.WorldRepository, planetRepo *repository.PlanetRepository) func(worldID, objType, objID string) bool {
+	return func(worldID, objType, objID string) bool {
+		w, err := worldRepo.GetByID(worldID)
+		if err != nil || w == nil {
+			return false
+		}
+		if objType == "star" {
+			return objID == worldID || IsValidCompanionID(w, objID)
+		}
+		return arrivalTargetValid(planetRepo, worldID, objType, objID)
+	}
+}
+
 // ==================== ХЕНДЛЕР СТАРТА (§4.1) ====================
 
 type IntraFlightRequest struct {

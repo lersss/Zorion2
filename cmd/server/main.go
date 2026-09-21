@@ -270,26 +270,7 @@ func main() {
 
 	// Фаза 2: Restore внутрисистемных (99.2.27) — ПОСЛЕ межзвёздных (С-1).
 	intraManager.RestoreIntra(time.Now(),
-		func(worldID, objType, objID string) bool {
-			w, err := worldRepo.GetByID(worldID)
-			if err != nil || w == nil {
-				return false
-			}
-			switch objType {
-			case "star":
-				if objID == worldID {
-					return true
-				}
-				return handlers.IsValidCompanionID(w, objID)
-			case "planet":
-				p, err := planetRepo.GetPlanetByID(objID)
-				return err == nil && p != nil && p.WorldID == worldID
-			case "satellite":
-				p, err := planetRepo.FindPlanetBySatellite(worldID, objID)
-				return err == nil && p != nil
-			}
-			return false
-		},
+		handlers.IntraRestoreTargetValid(worldRepo, planetRepo),
 		func(userID string) bool { return travelManager.IsInFlight(userID) },
 		func(userID string) string {
 			u, err := userRepo.GetByID(userID)

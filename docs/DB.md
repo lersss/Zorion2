@@ -243,6 +243,8 @@ building_type='capital'` — одна столица на фракцию; кол
   PRECISION x/y) + таблица `player_intrasystem_flights` (PK `user_id` — одна
   запись на игрока; `world_id`, `target_planet_id`, `arrive_at` абсолютное;
   без FK на worlds/planets — миры удаляются перегенерацией/пакманом).
+  CHECK `from_type`/`to_type` включает `belt` (миграция `000065`, спека
+  поясов этап 2 §5.3).
 - `000047` — индексы `npc_agents(current_world_id/from_world_id/
   target_world_id)` (пакман, спека `2026-09-20-pacman-galaxy-wipe` §3.2/§9.6,
   2026-09-20): батчи пакмана удаляют агентов по трём колонкам — без индексов
@@ -379,6 +381,10 @@ building_type='capital'` — одна столица на фракцию; кол
   `contracts`/`contract_requirements`/`contract_log`/`money_operations` входят в
   `truncateTables`; во всех путях удаления контрактов залог возвращается автору ДО
   удаления (§6.5, `ReturnEscrowForContractsTx`). Идёт после `000061_money.sql`.
+- `000065` — `000065_belt_flight.sql` — пояс — цель внутрисистемного полёта:
+  CHECK `player_intrasystem_flights.from_type/to_type` расширен значением
+  `belt` (спека поясов этап 2
+  `2026-09-22-пояса-малых-тел-этап-2-показ-знание-полёт` §5.3).
 - Миграции, вступающие в силу на старте, требуют перезапуска сервера
   (`AGENTS.md` §4 п.13).
 - `VACUUM` внутрь миграции не положить — не работает внутри транзакции

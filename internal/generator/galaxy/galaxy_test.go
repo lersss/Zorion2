@@ -558,6 +558,9 @@ func TestClusterSpacingEnforcedNonOverlap(t *testing.T) {
 }
 
 func TestGenerateOutlierPositionNearCluster(t *testing.T) {
+	if testing.Short() {
+		t.Skip("объёмный статистический смоук — вне быстрого цикла, гоняется отдельно")
+	}
 	// Выбросы должны тяготеть к кластерным центрам (гауссово смещение),
 	// а не разбрасываться равномерно по галактике.
 	g := NewGenerator(&Config{Seed: 3, MapSize: 100000, ClusterRadius: 500})

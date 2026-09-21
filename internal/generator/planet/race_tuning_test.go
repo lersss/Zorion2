@@ -308,6 +308,9 @@ var piggyBankRaces = []string{
 // распределения (звёздный слой: веса × race_mult, eff = 1 + (config−1)·s),
 // планетный слой умеренный (кламп орбиты [0.35, 3.0]).
 func TestSmokePiggyBankRacesGetPlanets(t *testing.T) {
+	if testing.Short() {
+		t.Skip("объёмный статистический смоук — вне быстрого цикла, гоняется отдельно")
+	}
 	report := map[string]int{}
 	for _, raceID := range piggyBankRaces {
 		r := races.ByID(raceID)

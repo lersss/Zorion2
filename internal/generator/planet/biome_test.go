@@ -391,6 +391,9 @@ func TestPrototypeBiomesConsistent(t *testing.T) {
 // ==================== СМОУК РАСПРЕДЕЛЕНИЯ (99.2.28 §21) ====================
 
 func TestBiomeSmokeDistribution(t *testing.T) {
+	if testing.Short() {
+		t.Skip("объёмный статистический смоук — вне быстрого цикла, гоняется отдельно")
+	}
 	g := NewGenerator(nil, 42)
 	classes := []string{"O", "B", "A", "F", "G", "K", "M", "L", "T", "Y"}
 	seen := map[string]int{}

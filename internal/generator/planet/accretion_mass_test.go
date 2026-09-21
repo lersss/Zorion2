@@ -310,6 +310,9 @@ func TestFieldRegistryMassRange(t *testing.T) {
 // орбит) различаются: p95/p5 системных медиан ≥ 2 (замер §7: ×8 в
 // фиксированных условиях).
 func TestSystemBudgetInterSystemSpread(t *testing.T) {
+	if testing.Short() {
+		t.Skip("объёмный статистический смоук — вне быстрого цикла, гоняется отдельно")
+	}
 	g := NewGenerator(nil, 20260914)
 	const systems = 2000
 	medians := make([]float64, 0, systems)
@@ -345,6 +348,9 @@ func TestSystemBudgetInterSystemSpread(t *testing.T) {
 // T15 — бюджет B ролится ровно один раз на систему (не в цикле орбит) и
 // планеты системы имеют общий множитель.
 func TestSystemBudgetSingleRollPerSystem(t *testing.T) {
+	if testing.Short() {
+		t.Skip("объёмный статистический смоук — вне быстрого цикла, гоняется отдельно")
+	}
 	// (а) структурно: rollSystemBudget — ровно один нормальный ролл (поток
 	// после него идентичен потоку после одного rng.NormFloat64()).
 	a := NewGenerator(nil, 20260915)

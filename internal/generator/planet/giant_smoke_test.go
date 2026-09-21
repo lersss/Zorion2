@@ -64,6 +64,9 @@ func rollSmokeBinaryMods(g *Generator, cls string) *models.StellarMods {
 // per-системный бюджет B (как в игре). Пригодность — настоящий флаг
 // Settleable (races.HumansSuitable, правка 3), а не широкая эвристика.
 func TestSmoke20000Worlds(t *testing.T) {
+	if testing.Short() {
+		t.Skip("объёмный статистический смоук — вне быстрого цикла, гоняется отдельно")
+	}
 	g := NewGenerator(nil, 20260920)
 	g.means = DefaultPlanetMeans()
 

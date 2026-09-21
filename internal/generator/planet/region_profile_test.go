@@ -44,6 +44,9 @@ func TestProfilePlanetCountMult(t *testing.T) {
 // а не по предыдущему (баг: planetCountFor вычислялся до выставления
 // g.profile, счёт брал профиль предыдущего мира).
 func TestProfilePlanetCountPerWorld(t *testing.T) {
+	if testing.Short() {
+		t.Skip("объёмный статистический смоук — вне быстрого цикла, гоняется отдельно")
+	}
 	g := NewGenerator(nil, 1)
 	g.means = DefaultPlanetMeans()
 	buf := newBatchBuffers(1000)

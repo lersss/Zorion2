@@ -2,7 +2,7 @@
 // Отрисовка прогулки (спека 2026-09-21 §7.2): параллакс-небо (только из sky
 // пакета), дальний рельеф, основной рельеф/пещеры (чанки кэшируются), декор,
 // жизнь, игрок, частицы погоды, HUD (в surface_ui.js). Canvas 2D.
-import { CHUNK, CHUNK_RADIUS, COLORS, FLOAT_SPAN, ZOOM } from './surface_config.js';
+import { CHUNK, CHUNK_RADIUS, COLORS, FLOAT_SPAN, FLOAT_GAP, ZOOM } from './surface_config.js';
 import { shade, rgba } from './surface_world.js';
 import { planetTexture } from './surface_net.js';
 
@@ -22,6 +22,27 @@ const CHUNK_SS_MAX = 2;
 function chunkSupersample() {
     const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
     return Math.max(1, Math.min(CHUNK_SS_MAX, Math.round(ZOOM * dpr)));
+}
+
+// Полоса парящей породы (float-формации): шаг сканирования по y (px) и сдвиг
+// проб внутрь от границ полосы. Границы (FLOAT_GAP/FLOAT_SPAN) обрезают твёрдую
+// область, давая у кромок субпиксельные твёрдые полоски: у самой границы
+// твёрдых сэмплов сетки нет, хотя физика там твёрда. Проба, смещённая на
+// FLOAT_EPS внутрь, их ловит. Растр должен быть надмножеством твёрдой области
+// (идея 2026-09-21 §2.1) — см. fillFloatRun.
+const FLOAT_STEP_Y = 1;
+const FLOAT_EPS = 0.001;
+const FLOAT_BLEED = 1;
+
+// fillFloatRun — закраска одной твёрдой полосы колонки. По x — запас ±1 px
+// (твёрдая точка с дробным x покрывается и соседней колонкой), по y — запас
+// FLOAT_BLEED (перекрывает дискретизацию шага FLOAT_STEP_Y). Так растр —
+// надмножество твёрдой области: «что твёрдо, то видно» (идея 2026-09-21 §2.1).
+function fillFloatRun(ctx, lx, yTop, yBottom, topY) {
+    const y0 = Math.max(0, Math.floor(yTop - topY) - FLOAT_BLEED);
+    const y1 = Math.min(CHUNK_HEIGHT - 1, Math.floor(yBottom - topY) + FLOAT_BLEED);
+    if (y1 < y0) return;
+    ctx.fillRect(lx - 1, y0, 3, y1 - y0 + 1);
 }
 
 // getChunkCanvas — лениво отрисованный чанк (кэш). Рельеф + пещеры.
@@ -71,18 +92,32 @@ export function getChunkCanvas(world, index) {
         }
     }
 
-    // Парящие камни/арки (float-формации): красим ровно там, где физика
-    // (isSolid) считает породу твёрдой — иначе твёрдый объём невидим и игрок
-    // упирается в пустое небо (идея 2026-09-21 §2.1). Шаг 3 px, как у пещер.
+    // Парящие камни/арки (float-формации): красим там, где физика (isSolid)
+    // считает породу твёрдой (идея 2026-09-21 §2.1). Растр — НАДМНОЖЕСТВО
+    // твёрдой области: шаг по x — 1 px (прежние 3 px блоками 3×3 оставляли
+    // непокрашенной левую кромку твёрдой области до 3 px — игрок упирался в
+    // невидимую стену), по y — FLOAT_STEP_Y с запасом FLOAT_BLEED. Высота
+    // полосы (FLOAT_GAP..FLOAT_SPAN) — те же константы, что у физики.
     ctx.fillStyle = rock;
-    for (let lx = 0; lx < CHUNK; lx += 3) {
+    for (let lx = 0; lx <= CHUNK; lx++) {
         const wx = baseX + lx;
         const th = world.terrainHeight(wx);
-        for (let wy = th - 3; wy > th - FLOAT_SPAN; wy -= 3) {
-            if (!world.isSolid(wx, wy)) continue;
-            const ly = Math.floor(wy - topY);
-            if (ly >= 0 && ly < CHUNK_HEIGHT) ctx.fillRect(lx, ly, 3, 3);
+        // Сэмплы полосы сверху вниз: сетка FLOAT_STEP_Y + проба у нижней
+        // границы (сетка туда не попадает из-за сдвига FLOAT_EPS).
+        const ys = [];
+        for (let wy = th - FLOAT_GAP - FLOAT_EPS; wy >= th - FLOAT_SPAN + FLOAT_EPS; wy -= FLOAT_STEP_Y) ys.push(wy);
+        ys.push(th - FLOAT_SPAN + FLOAT_EPS);
+        let yTop = null, yBottom = null;
+        for (const wy of ys) {
+            if (world.isSolid(wx, wy)) {
+                if (yTop === null) yBottom = wy;
+                yTop = wy;
+            } else if (yTop !== null) {
+                fillFloatRun(ctx, lx, yTop, yBottom, topY);
+                yTop = null;
+            }
         }
+        if (yTop !== null) fillFloatRun(ctx, lx, yTop, yBottom, topY);
     }
 
     // Глубинный градиент (объём).

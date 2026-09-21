@@ -74,6 +74,11 @@ func stripPlanetDetails(p models.Planet, view *models.PlanetKnowledgeView) model
 	if view == nil {
 		p.Factions = nil
 		p.Buildings = nil
+		// Залежи поверхности (спека 2026-09-22-поселение-... §5.1): без знания
+		// о планете игрок залежей не видит — защита в глубину (как фракции/
+		// строения); со знанием остаются. attachDeposits зовётся только в
+		// GetPlanetsByWorldID — других путей к игроку нет.
+		p.Deposits = nil
 	}
 	p.Description = ""
 	p.SystemAge = 0

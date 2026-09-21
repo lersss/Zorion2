@@ -29,6 +29,15 @@ func (g *Generator) copyInPlanets(tx *sql.Tx, rows []interface{}) error {
 		rows, 7)
 }
 
+// copyInDeposits — вставляет пачку залежей через COPY (§3.4 спеки залежей).
+// rowWidth = 8. Вызывается ПОСЛЕ copyInPlanets: deposits.planet_id — FK на
+// planets. Длина rows должна делиться на 8.
+func (g *Generator) copyInDeposits(tx *sql.Tx, rows []interface{}) error {
+	return copyInRows(tx, "deposits",
+		[]string{"id", "planet_id", "good_id", "stratum", "wealth", "amount", "created_at", "updated_at"},
+		rows, 8)
+}
+
 // copyInBelts — вставляет пачку поясов малых тел через COPY (спека поясов
 // §4.7). rowWidth = 14. system_belts.world_id — FK на worlds; composition/
 // data — JSONB, поэтому в addBelt они уже приведены []byte → string

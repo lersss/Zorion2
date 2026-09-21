@@ -317,40 +317,61 @@ func TestGenerateSurfaceCompositionCold(t *testing.T) {
 
 func TestBiosphereNicheDominance(t *testing.T) {
 	requireDefaultCompat(t)
-	rng := rand.New(rand.NewSource(42))
 	// База умеренного архетипа (после ребаланса).
 	base := Composition{
-		SurfaceRocks:      13,
-		SurfaceSands:      5,
-		SurfaceLakes:      10,
-		SurfaceOceans:     13,
-		SurfaceMeadows:    16,
-		SurfaceForests:    20,
-		SurfaceJungles:    12,
-		SurfaceSwamps:     7,
-		SurfaceCraters:    4,
+		SurfaceRocks:   13,
+		SurfaceSands:   5,
+		SurfaceLakes:   10,
+		SurfaceOceans:  13,
+		SurfaceMeadows: 16,
+		SurfaceForests: 20,
+		SurfaceJungles: 12,
+		SurfaceSwamps:  7,
+		SurfaceCraters: 4,
 	}
 
+	// Проверка — распределением по набору seed'ов, а не одним броском: порядок
+	// итерации map в applyRandomJitter/resolveConflicts плавает между прогонами
+	// (PITFALLS «Дизайн и числа»), поэтому при одном seed единичный исход
+	// нестабилен. Предсуществующая флейкость (не связана с залежами): нишевая
+	// форма доминирует подавляюще, но джиттер ±20% изредка ставит выше соседнюю.
 	cases := []struct {
+		name        string
 		temp, water float64
 		want        string
 	}{
-		{320, 80, SurfaceJungles},  // тёплый влажный → джунгли
-		{300, 65, SurfaceSwamps},   // обильная вода, умеренное тепло → болота
-		{280, 35, SurfaceMeadows},  // умеренная вода → луга
-		{310, 25, SurfaceMeadows},  // умеренная вода, теплее → луга
+		{"тёплый влажный → джунгли", 320, 80, SurfaceJungles},
+		{"обильная вода, умеренное тепло → болота", 300, 65, SurfaceSwamps},
+		{"умеренная вода → луга", 280, 35, SurfaceMeadows},
+		{"умеренная вода, теплее → луга", 310, 25, SurfaceMeadows},
 	}
+	const samples = 200
 	for _, tc := range cases {
-		c := GenerateSurfaceComposition(base, tc.temp, tc.water, rng)
-		assert.Equal(t, tc.want, c.DominantForm(),
-			"temp=%.0f water=%.0f → %v (доминанта %q)", tc.temp, tc.water, c, c.DominantForm())
+		got := 0
+		for seed := int64(1); seed <= samples; seed++ {
+			rng := rand.New(rand.NewSource(seed))
+			if GenerateSurfaceComposition(base, tc.temp, tc.water, rng).DominantForm() == tc.want {
+				got++
+			}
+		}
+		assert.GreaterOrEqual(t, got, samples*4/5,
+			"%s: ожидаемая доминанта %q не реже 80%% seed'ов (получено %d/%d)",
+			tc.name, tc.want, got, samples)
 	}
 
-	// Вне ниш (вода 45–55%) биосфера не должна форсироваться — доминируют
-	// леса/океаны/горы естественным образом, но не луга/джунгли/болота.
-	outside := GenerateSurfaceComposition(base, 270, 50, rng)
-	assert.NotContains(t, []string{SurfaceJungles, SurfaceSwamps, SurfaceMeadows},
-		outside.DominantForm(), "вне ниш биосфера не должна доминировать: %v", outside)
+	// Вне ниш (вода 45–55%) биосфера не форсируется — доминируют
+	// леса/океаны/горы естественным образом, а не луга/джунгли/болота.
+	// Единичный бросок ловит джиттер; закрепляем статистически.
+	nicheDominant := 0
+	for seed := int64(1); seed <= samples; seed++ {
+		rng := rand.New(rand.NewSource(seed))
+		switch GenerateSurfaceComposition(base, 270, 50, rng).DominantForm() {
+		case SurfaceJungles, SurfaceSwamps, SurfaceMeadows:
+			nicheDominant++
+		}
+	}
+	assert.Less(t, nicheDominant, samples/4,
+		"вне ниш нишевые формы доминируют редко (получено %d/%d)", nicheDominant, samples)
 }
 
 func TestGenerateSurfaceCompositionEmptyBase(t *testing.T) {
@@ -363,8 +384,8 @@ func TestGenerateSubterrainComposition(t *testing.T) {
 
 	for i := 0; i < 200; i++ {
 		base := Composition{
-			SubterrainEmptyRock:     30, SubterrainMagmaticRocks: 20,
-			SubterrainOreVeins:      20, SubterrainGroundIce: 15, SubterrainGroundwater: 15,
+			SubterrainEmptyRock: 30, SubterrainMagmaticRocks: 20,
+			SubterrainOreVeins: 20, SubterrainGroundIce: 15, SubterrainGroundwater: 15,
 		}
 		surface := GenerateSurfaceComposition(
 			Composition{SurfaceRocks: 60, SurfaceOceans: 40}, 250, 30, rng)

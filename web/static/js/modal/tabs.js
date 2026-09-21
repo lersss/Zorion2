@@ -2,6 +2,7 @@
 import { populationAt, planetPopulationAt } from './extrapolate.js';
 import { modalState } from './state.js';
 import { getPlanetTexture } from './textures.js';
+import { groupDeposits } from './deposits.js';
 
 // ---------- УТИЛИТЫ ----------
 
@@ -672,6 +673,145 @@ function renderFactions(planet) {
     return html;
 }
 
+// ---------- ЗАЛЕЖИ (спека 2026-09-22-поселение-добыча-сырья-биома-ленивый-буфер §5.2) ----------
+
+// depositResourcesCache — список ресурсов каталога (kind='resource') для
+// админ-формы «добавить залежь»: один запрос на сессию модалки.
+let depositResourcesCache = null;
+
+// loadDepositResources — ресурсы каталога через студийный справочник
+// (/studio/api/resources): good_id из формы валидируется сервером как
+// kind='resource' (§6). Токен модалки — админский (карточку админа открывает
+// admin/worlds.js с getAdminToken()).
+async function loadDepositResources() {
+    if (depositResourcesCache) return depositResourcesCache;
+    const token = modalState.authToken || localStorage.getItem('token');
+    const res = await fetch('/studio/api/resources', {
+        headers: { 'Authorization': 'Bearer ' + token }
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const list = await res.json();
+    depositResourcesCache = Array.isArray(list) ? list : [];
+    return depositResourcesCache;
+}
+
+// wealthRangeLabel — диапазон богатства пятен одного ресурса: 0.20–0.80;
+// одно значение — «0.50»; нет чисел — «—».
+function wealthRangeLabel(g) {
+    if (g.wealthMin === null) return '—';
+    if (g.wealthMin === g.wealthMax) return g.wealthMin.toFixed(2);
+    return g.wealthMin.toFixed(2) + '–' + g.wealthMax.toFixed(2);
+}
+
+// adminDepositFormHtml — админ-инструмент «добавить залежь вручную» (§6):
+// ресурс каталога (select) + опциональные богатство/запас; stratum итерации 1
+// — только surface. Результат/ошибки — в строке статуса под формой.
+function adminDepositFormHtml() {
+    return `
+        <div style="margin-top:16px; padding-top:10px; border-top:1px solid #2a2a4a;">
+            <div style="color:#facc15; font-size:0.85rem;">⚙ админ — добавить залежь (surface)</div>
+            <div style="display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:6px;">
+                <select id="deposit-good-select" style="background:#1a1a2e; color:#ddd; border:1px solid #2a2a4a; border-radius:4px; padding:4px 6px;">
+                    <option value="">Загрузка…</option>
+                </select>
+                <input id="deposit-wealth" type="number" step="0.01" min="0" max="1" placeholder="богатство 0–1"
+                    style="width:120px; background:#1a1a2e; color:#ddd; border:1px solid #2a2a4a; border-radius:4px; padding:4px 6px;">
+                <input id="deposit-amount" type="number" step="1" min="0" placeholder="запас"
+                    style="width:90px; background:#1a1a2e; color:#ddd; border:1px solid #2a2a4a; border-radius:4px; padding:4px 6px;">
+                <button id="deposit-add-btn" style="background:#2a2a4a; border:none; color:#ddd; padding:6px 14px; border-radius:4px; cursor:pointer;">Добавить</button>
+            </div>
+            <div id="deposit-add-status" style="font-size:0.85rem; margin-top:6px; color:#94a3b8;"></div>
+        </div>`;
+}
+
+// renderDeposits — вкладка «Залежи» карточки планеты: пятна, сведённые по
+// ресурсу (число пятен, суммарный запас, диапазон богатства; T13). Сервер
+// фильтрует залежи по знанию (§5.1): player без знания — «нет данных».
+function renderDeposits(planet) {
+    if (!isAdmin() && !planet.knowledge) {
+        return `<p style="color: #666; text-align: center; padding: 20px 0;">Нет данных — купить отчёт</p>`;
+    }
+
+    const deposits = Array.isArray(planet.deposits) ? planet.deposits : [];
+    let html = '';
+    if (deposits.length === 0) {
+        html += `<p style="color: #666; text-align: center; padding: 12px 0;">Залежей нет</p>`;
+    } else {
+        html += `<p style="color:#888; font-size:0.9rem; text-transform:uppercase;">Залежи (${deposits.length})</p>`;
+        groupDeposits(deposits).forEach(g => {
+            html += `
+                <div style="margin:6px 0; padding:10px; background:#1a1a2e; border-radius:4px;">
+                    <div><strong>${g.good_name || ('#' + g.good_id)}</strong></div>
+                    <div style="color:#ccc; margin-top:4px;">Пятен: <strong>${g.count}</strong></div>
+                    <div style="color:#ccc;">Запас: <strong>${formatNumber(g.amount)}</strong></div>
+                    <div style="color:#ccc;">Богатство: <strong>${wealthRangeLabel(g)}</strong></div>
+                </div>`;
+        });
+    }
+
+    // Инструмент песочницы — только админу (§6). Залежи видны «там же», где
+    // кнопка: результат добавления сразу обновляет блок.
+    if (isAdmin()) html += adminDepositFormHtml();
+    return html;
+}
+
+// initDepositsAdmin — наполняет список ресурсов и вешает кнопку добавления
+// (вызывается после вставки вкладки в DOM).
+function initDepositsAdmin(planet, container) {
+    const btn = container.querySelector('#deposit-add-btn');
+    if (!btn) return;
+    const sel = container.querySelector('#deposit-good-select');
+    const statusEl = container.querySelector('#deposit-add-status');
+
+    loadDepositResources().then(list => {
+        if (!sel || !sel.isConnected) return; // вкладка перерисована
+        sel.innerHTML = list.length
+            ? list.map(r => `<option value="${r.id}">${r.name}</option>`).join('')
+            : '<option value="">ресурсов нет</option>';
+    }).catch(() => {
+        if (sel && sel.isConnected) sel.innerHTML = '<option value="">ресурсы недоступны</option>';
+    });
+
+    btn.addEventListener('click', () => submitAddDeposit(planet, container, statusEl));
+}
+
+// submitAddDeposit — POST /admin/planets/{id}/deposits (§6): успех заменяет
+// блок deposits ответом (формат карточки §5.2); ошибки 404/409/422 — текстом.
+async function submitAddDeposit(planet, container, statusEl) {
+    const sel = container.querySelector('#deposit-good-select');
+    const wealthEl = container.querySelector('#deposit-wealth');
+    const amountEl = container.querySelector('#deposit-amount');
+    if (!sel || !sel.value) {
+        if (statusEl) statusEl.textContent = 'Выберите ресурс';
+        return;
+    }
+    const body = { good_id: Number(sel.value) };
+    if (wealthEl && wealthEl.value !== '') body.wealth = Number(wealthEl.value);
+    if (amountEl && amountEl.value !== '') body.amount = Number(amountEl.value);
+
+    const token = modalState.authToken || localStorage.getItem('token');
+    if (statusEl) statusEl.textContent = 'Добавление…';
+    try {
+        const res = await fetch('/admin/planets/' + encodeURIComponent(planet.id) + '/deposits', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+            body: JSON.stringify(body)
+        });
+        const text = await res.text();
+        if (!res.ok) {
+            if (statusEl) statusEl.textContent = 'Ошибка ' + res.status + ': ' + text;
+            return;
+        }
+        const data = JSON.parse(text);
+        planet.deposits = Array.isArray(data.deposits) ? data.deposits : [];
+        // Полная перерисовка вкладки: блок показывает новое состояние, форма
+        // остаётся (список ресурсов берётся из кэша).
+        renderTabContent('deposits', planet, container);
+    } catch (e) {
+        if (statusEl) statusEl.textContent = 'Ошибка: ' + e.message;
+    }
+}
+
 // ---------- ГЛАВНЫЙ ЭКСПОРТ ----------
 
 // renderTabContent — рендерит контент вкладки в container.
@@ -685,6 +825,10 @@ export function renderTabContent(tab, planet, container) {
             break;
         case 'resources':
             container.innerHTML = renderResources(planet);
+            break;
+        case 'deposits':
+            container.innerHTML = renderDeposits(planet);
+            initDepositsAdmin(planet, container);
             break;
         case 'settlements':
             container.innerHTML = renderSettlements(planet);

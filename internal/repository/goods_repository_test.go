@@ -295,7 +295,7 @@ func TestUpdateGoodCategoryUnboundFree(t *testing.T) {
 // --- удаление с очисткой ссылок (решение гейта №2) ---
 
 // TestDeleteGoodClearedLinks — на товар ссылаются 2 слота → очистка в той же
-// транзакции, ответ несёт cleared_links=2.
+// транзакции, ответ несёт cleared_links=2 и deposits (число залежей, T14).
 func TestDeleteGoodClearedLinks(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
@@ -305,6 +305,9 @@ func TestDeleteGoodClearedLinks(t *testing.T) {
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM goods WHERE id = \$1 FOR UPDATE\)`).
 		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM deposits WHERE good_id = \$1`).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(3))
 	mock.ExpectExec(`UPDATE recipe_components SET component_id = NULL, reason = '' WHERE component_id = \$1`).
 		WithArgs(int64(1)).
 		WillReturnResult(sqlmock.NewResult(0, 2))
@@ -313,13 +316,14 @@ func TestDeleteGoodClearedLinks(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	cleared, err := NewGoodsRepository(db).DeleteGood(1)
+	res, err := NewGoodsRepository(db).DeleteGood(1)
 	require.NoError(t, err)
-	require.Equal(t, 2, cleared)
+	require.Equal(t, 2, res.ClearedLinks)
+	require.Equal(t, 3, res.Deposits, "число залежей ресурса (предпроверка, T14)")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// TestDeleteGoodNoLinks — ссылок нет → cleared_links=0.
+// TestDeleteGoodNoLinks — ссылок и залежей нет → cleared_links=0, deposits=0.
 func TestDeleteGoodNoLinks(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
@@ -329,6 +333,9 @@ func TestDeleteGoodNoLinks(t *testing.T) {
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM goods WHERE id = \$1 FOR UPDATE\)`).
 		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM deposits WHERE good_id = \$1`).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 	mock.ExpectExec(`UPDATE recipe_components SET component_id = NULL, reason = '' WHERE component_id = \$1`).
 		WithArgs(int64(1)).
 		WillReturnResult(sqlmock.NewResult(0, 0))
@@ -337,9 +344,10 @@ func TestDeleteGoodNoLinks(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	cleared, err := NewGoodsRepository(db).DeleteGood(1)
+	res, err := NewGoodsRepository(db).DeleteGood(1)
 	require.NoError(t, err)
-	require.Equal(t, 0, cleared)
+	require.Equal(t, 0, res.ClearedLinks)
+	require.Equal(t, 0, res.Deposits)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

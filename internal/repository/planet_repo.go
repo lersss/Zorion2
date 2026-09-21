@@ -66,6 +66,12 @@ func (r *PlanetRepository) GetPlanetsByWorldID(worldID string) ([]models.Planet,
 	if err := r.attachFactionsAndBuildings(planets); err != nil {
 		return nil, err
 	}
+	// Залежи — только здесь: GetPlanetsByWorldID кормит единственный путь,
+	// сериализуемый игроку (GET /api/worlds/{id}/planets) и проходящий
+	// applyPlanetVisibility → stripPlanetDetails (§5.1 спеки залежей).
+	if err := r.attachDeposits(planets); err != nil {
+		return nil, err
+	}
 	return planets, nil
 }
 
@@ -293,6 +299,31 @@ func (r *PlanetRepository) attachFactionsAndBuildings(planets []models.Planet) e
 		}
 	}
 	return brows.Err()
+}
+
+// attachDeposits — подтягивает залежи планет системы (спека 2026-09-22-
+// поселение-добыча-сырья-биома-ленивый-буфер §5.1). Один запрос на систему.
+//
+// ИНВАРИАНТ «залежи не утекают»: вызывать attachDeposits можно ровно в
+// GetPlanetsByWorldID — только этот путь отдаётся игроку и фильтруется
+// stripPlanetDetails. Light-пути (GetPlanetsLightByWorldID, GetPlanetByID)
+// залежи НЕ несут: результат игроку не сериализуется.
+func (r *PlanetRepository) attachDeposits(planets []models.Planet) error {
+	if len(planets) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(planets))
+	for i := range planets {
+		ids = append(ids, planets[i].ID)
+	}
+	byPlanet, err := NewDepositRepository(r.db).GetDepositsByPlanetIDs(ids)
+	if err != nil {
+		return fmt.Errorf("failed to load deposits: %w", err)
+	}
+	for i := range planets {
+		planets[i].Deposits = byPlanet[planets[i].ID]
+	}
+	return nil
 }
 
 // planetMortalityInput — физика планеты для пересчёта смерти населения от

@@ -97,6 +97,9 @@ func (h *AdminHandlers) RunHypothesis(w http.ResponseWriter, r *http.Request) {
 // «невозможных» планет).
 func (h *AdminHandlers) runHypothesisJob(ctx context.Context, spec planet.TwinSpec) (settled int, report string, err error) {
 	planetGen := planet.NewGenerator(h.db, 0)
+	// Карта ресурсов каталога для залежей (спека залежей §3.1): генератор
+	// сеттер, БД сама не ходит. Пустая карта — залежей не будет.
+	planetGen.SetGoodsIndex(loadResourceGoodsIndex(h.db))
 	worldsByGroup, planetsByGroup, err := planetGen.GenerateTwins(spec, func(processed int) {
 		statusManager.Progress(generator.JobHypothesis, processed)
 	})
@@ -154,6 +157,10 @@ func (h *AdminHandlers) runHypothesisJob(ctx context.Context, spec planet.TwinSp
 				VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 				p.ID, p.WorldID, p.Name, p.OrbitIndex, string(p.Data), now, now,
 			); err != nil {
+				return 0, "", err
+			}
+			// Залежи близнеца — в той же транзакции, после планеты (FK §3.4).
+			if err := insertDepositsTx(ctx, tx, p.Deposits, now); err != nil {
 				return 0, "", err
 			}
 		}

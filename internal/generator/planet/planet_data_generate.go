@@ -614,6 +614,9 @@ func (g *Generator) GeneratePrototypePlanet(worldID, worldName, spectralClass st
 	sp := stellarParamsFromClass(spectralClass, 0, g.rng)
 	pd := g.generateStandardPlanet(worldID, worldName, 1, sp, true, nil,
 		&prototypeOverrides{finalTempK: 288, waterPercent: 80})
+	// Залежи поверхности (спека 2026-09-22-поселение-... §3.2/§3.4): прототип
+	// не идёт через generateWorldWithCountIntoBuffer — точка вызова здесь.
+	g.generateDeposits(pd)
 
 	var data map[string]interface{}
 	if err := json.Unmarshal(pd.Data, &data); err != nil {

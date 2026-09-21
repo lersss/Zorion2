@@ -56,6 +56,7 @@ func TestGetPlanetsByWorldIDWithSettlements(t *testing.T) {
 	// attachFactionsAndBuildings — фракций/строений у планет нет (спека
 	// 2026-09-21-фабрики-релиз-2-столицы-фракций §6).
 	expectEmptyFactionsBuildings(mock)
+	expectEmptyDeposits(mock)
 
 	// Открытие карточки системы триггерит пересчёт населения (18a_population_death.md);
 	// computed_at = now, т.е. Δt < MinPersistInterval — «простой визит»: пересчёт
@@ -111,6 +112,7 @@ func TestGetPlanetsByWorldIDOrbitContext(t *testing.T) {
 
 	// attachFactionsAndBuildings — фракций/строений у планет нет (§6).
 	expectEmptyFactionsBuildings(mock)
+	expectEmptyDeposits(mock)
 
 	planets, err := NewPlanetRepository(db).GetPlanetsByWorldID("w1")
 	require.NoError(t, err)
@@ -222,6 +224,7 @@ func TestGetPlanetsByWorldIDRaceName(t *testing.T) {
 
 	// attachFactionsAndBuildings — фракций/строений у планеты нет (§6).
 	expectEmptyFactionsBuildings(mock)
+	expectEmptyDeposits(mock)
 
 	planets, err := NewPlanetRepository(db).GetPlanetsByWorldID("w1")
 	require.NoError(t, err)

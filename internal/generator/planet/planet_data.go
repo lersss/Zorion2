@@ -26,6 +26,10 @@ type PlanetData struct {
 	// Хранятся только в памяти (сводка — в JSON data["resources"]);
 	// таблица planet_resources удалена миграцией 000016.
 	Resources []*models.PlanetResource
+	// Deposits — залежи поверхности, сгенерированные вместе с планетой
+	// (спека 2026-09-22-поселение-добыча-сырья-биома-ленивый-буфер §3.2).
+	// Несутся в памяти; пишутся вызывающим (COPY/INSERT в той же tx, §3.4).
+	Deposits []models.SurfaceDeposit
 	// Mass — масса планеты из БЮДЖЕТА ОБЛАКА (M⊕), для мягкого клампа суммы
 	// (спека поясов §4.0.2/§4.7). Заполняется только у каменистых/ледяных
 	// S- и P-планет; у газовых гигантов и экзотики остаётся 0 (бюджет они
@@ -77,6 +81,13 @@ type Generator struct {
 	// cloudProfileSum — нейтрально для прямых вызовов каскада (значения
 	// планет сохраняются: median(M_диск) = S₀); мировой поток заменяет роллом.
 	cloudBudget float64
+
+	// goodsIndex — карта «name_norm ресурса → goods.id» для резолва пилотов
+	// залежей (§3.1 спеки 2026-09-22-поселение-...). Генератор в БД не
+	// ходит: карту подаёт вызывающий сеттером SetGoodsIndex. Пусто — все
+	// имена «неизвестны» → залежей нет. Генерация однопоточная — поле
+	// безопасно (как profile/means).
+	goodsIndex map[string]int64
 }
 
 // NewGenerator — создаёт генератор. Если seed = 0 — берётся time.Now().
@@ -329,6 +340,7 @@ func (g *Generator) generateWorldWithCountIntoBuffer(w WorldInfo, count int, buf
 			}
 			planet := g.generateExoticPlanet(w, orbitIndex)
 			if planet != nil {
+				g.generateDeposits(planet)
 				worldPlanets = append(worldPlanets, planet)
 				generated++
 			}
@@ -337,6 +349,7 @@ func (g *Generator) generateWorldWithCountIntoBuffer(w WorldInfo, count int, buf
 		if isCircumbinary {
 			planet := g.generateCircumbinaryPlanet(w)
 			if planet != nil {
+				g.generateDeposits(planet)
 				worldPlanets = append(worldPlanets, planet)
 				generated++
 			}
@@ -348,6 +361,7 @@ func (g *Generator) generateWorldWithCountIntoBuffer(w WorldInfo, count int, buf
 			continue
 		}
 		planet := g.generatePlanet(w.ID, w.Name, orbitIndex, stellarParamsFromWorld(w, g.rng))
+		g.generateDeposits(planet)
 		worldPlanets = append(worldPlanets, planet)
 		generated++
 	}
@@ -539,8 +553,9 @@ func scalePlanetBudgetMass(p *PlanetData, k float64) {
 // ==================== БАТЧ-БУФЕР ====================
 
 type batchBuffers struct {
-	planetRows []interface{}
-	beltRows   []interface{}
+	planetRows  []interface{}
+	depositRows []interface{}
+	beltRows    []interface{}
 }
 
 func newBatchBuffers(planetCount int) *batchBuffers {
@@ -548,17 +563,21 @@ func newBatchBuffers(planetCount int) *batchBuffers {
 		planetCount = 100
 	}
 	return &batchBuffers{
-		planetRows: make([]interface{}, 0, planetCount),
-		beltRows:   make([]interface{}, 0, planetCount/2+1),
+		planetRows:  make([]interface{}, 0, planetCount),
+		depositRows: make([]interface{}, 0, planetCount*2),
+		beltRows:    make([]interface{}, 0, planetCount/2+1),
 	}
 }
 
-// addPlanet — складывает планету в буфер.
+// addPlanet — складывает планету и её залежи в буфер.
 //
 // ВАЖНО: p.Data — это []byte (JSON). При INSERT ... VALUES lib/pq передавал
 // его как текст, и Postgres парсил в json. При COPY драйвер не знает тип
 // колонки и отправляет []byte как bytea — Postgres ругается
 // "invalid input syntax for type json". Поэтому явно приводим к string.
+//
+// Залежи кладутся в отдельный буфер (FK на planets — COPY deposits идёт
+// после COPY planets в той же транзакции, §3.4 спеки залежей).
 func (b *batchBuffers) addPlanet(p *PlanetData) {
 	now := time.Now()
 	b.planetRows = append(b.planetRows, []interface{}{
@@ -570,15 +589,29 @@ func (b *batchBuffers) addPlanet(p *PlanetData) {
 		now,
 		now,
 	})
+	for i := range p.Deposits {
+		d := &p.Deposits[i]
+		b.depositRows = append(b.depositRows, []interface{}{
+			d.ID,
+			d.PlanetID,
+			d.GoodID,
+			d.Stratum,
+			d.Wealth,
+			d.Amount,
+			now,
+			now,
+		})
+	}
 }
 
 func (b *batchBuffers) isEmpty() bool {
-	return len(b.planetRows) == 0 && len(b.beltRows) == 0
+	return len(b.planetRows) == 0 && len(b.depositRows) == 0 && len(b.beltRows) == 0
 }
 
 // reset — очищает буферы, сохраняя выделенную память.
 func (b *batchBuffers) reset() {
 	b.planetRows = b.planetRows[:0]
+	b.depositRows = b.depositRows[:0]
 	b.beltRows = b.beltRows[:0]
 }
 
@@ -621,6 +654,9 @@ func (b *batchBuffers) addBelt(bl BeltData) {
 func (g *Generator) flushBatch(tx *sql.Tx, b *batchBuffers) error {
 	if err := g.copyInPlanets(tx, flatten(b.planetRows)); err != nil {
 		return fmt.Errorf("copy planets: %w", err)
+	}
+	if err := g.copyInDeposits(tx, flatten(b.depositRows)); err != nil {
+		return fmt.Errorf("copy deposits: %w", err)
 	}
 	if err := g.copyInBelts(tx, flatten(b.beltRows)); err != nil {
 		return fmt.Errorf("copy belts: %w", err)

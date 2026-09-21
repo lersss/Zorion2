@@ -85,7 +85,7 @@ func TestStudioState(t *testing.T) {
 }
 
 // TestStudioDeleteGoodClearedLinks — DELETE /studio/api/goods/1:
-// ответ {deleted, cleared_links}.
+// ответ {deleted, cleared_links, deposits} (deposits — число залежей, T14).
 func TestStudioDeleteGoodClearedLinks(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
@@ -95,6 +95,9 @@ func TestStudioDeleteGoodClearedLinks(t *testing.T) {
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM goods WHERE id = \$1 FOR UPDATE\)`).
 		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM deposits WHERE good_id = \$1`).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(2))
 	mock.ExpectExec(`UPDATE recipe_components SET component_id = NULL, reason = '' WHERE component_id = \$1`).
 		WithArgs(int64(1)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -115,6 +118,31 @@ func TestStudioDeleteGoodClearedLinks(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	require.Equal(t, float64(1), body["deleted"])
 	require.Equal(t, float64(1), body["cleared_links"])
+	require.Equal(t, float64(2), body["deposits"], "число залежей ресурса в ответе удаления (T14)")
+}
+
+// TestStudioGoodDepositsCount — GET /studio/api/goods/{id}/deposits-count:
+// предпроверка числа залежей ресурса перед удалением (§3.3/T14).
+func TestStudioGoodDepositsCount(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM deposits WHERE good_id = \$1`).
+		WithArgs(int64(359)).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(3))
+
+	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", "build", time.Second, 0), "test-model")
+	req := httptest.NewRequest(http.MethodGet, "/studio/api/goods/359/deposits-count", nil)
+	rec := httptest.NewRecorder()
+	h.GoodByID(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	var body map[string]int
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Equal(t, 3, body["count"])
 }
 
 // TestStudioRecipeComplexity — PUT /studio/api/recipes/1 {complexity: 3}

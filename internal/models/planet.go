@@ -83,6 +83,13 @@ type Planet struct {
 	// «владелец ↔ фракция» клиент собирает по owner_id.
 	Buildings []PlanetBuilding `json:"buildings,omitempty"`
 
+	// Залежи поверхности планеты (спека 2026-09-22-поселение-добыча-сырья-
+	// биома-ленивый-буфер §5.2): «планета → конкретные залежи», отдаются
+	// построчно (группирует клиент). Подтягиваются только карточкой системы
+	// (GetPlanetsByWorldID → attachDeposits); light-пути залежей не несут,
+	// без знания о планете stripPlanetDetails обнуляет.
+	Deposits []SurfaceDeposit `json:"deposits,omitempty"`
+
 	// Knowledge — видимость знания о планете для модалки (спека 77a §6.2):
 	// заполняется сервером для role=player (поверхность + наличие поселений
 	// с датой актуальности); null для admin/skycomposer и без знания —

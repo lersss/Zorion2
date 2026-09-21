@@ -205,6 +205,7 @@ func TestGetPlanetsByWorldInsideRadius(t *testing.T) {
 
 	// Фракции/строения планеты (спека 2026-09-21-фабрики-релиз-2) — пусто.
 	expectEmptyFactionsBuildings(mock)
+	expectEmptyDeposits(mock)
 
 	// Мир w2 (100,0) — в радиусе 800: планеты отдаются, детали скрыты без знания.
 	mock.ExpectQuery(`SELECT name, COALESCE\(spectral_class,''\), star_type, system_type, stellar_mods, stellar_mass, age, temperature, coord_x, coord_y FROM worlds WHERE id = \$1`).
@@ -277,6 +278,7 @@ func TestGetPlanetsByWorldIgnitedOutsideRadiusNoScan(t *testing.T) {
 
 	// Фракции/строения планеты (спека 2026-09-21-фабрики-релиз-2) — пусто.
 	expectEmptyFactionsBuildings(mock)
+	expectEmptyDeposits(mock)
 
 	// Мир w3 (1000,0) — за радаром, но «зажжён» знанием.
 	mock.ExpectQuery(`SELECT name, COALESCE\(spectral_class,''\), star_type, system_type, stellar_mods, stellar_mass, age, temperature, coord_x, coord_y FROM worlds WHERE id = \$1`).
@@ -718,6 +720,7 @@ func TestGetPlanetsByWorldMyPositionAndCompanion(t *testing.T) {
 
 	// Фракции/строения планеты (спека 2026-09-21-фабрики-релиз-2) — пусто.
 	expectEmptyFactionsBuildings(mock)
+	expectEmptyDeposits(mock)
 
 	// Мир w2 — binary с компаньоном K.
 	mock.ExpectQuery(`SELECT name, COALESCE\(spectral_class,''\), star_type, system_type, stellar_mods, stellar_mass, age, temperature, coord_x, coord_y FROM worlds WHERE id = \$1`).
@@ -785,6 +788,7 @@ func TestGetPlanetsByWorldMyPositionOtherSystem(t *testing.T) {
 
 	// Фракции/строения планеты (спека 2026-09-21-фабрики-релиз-2) — пусто.
 	expectEmptyFactionsBuildings(mock)
+	expectEmptyDeposits(mock)
 
 	mock.ExpectQuery(`SELECT name, COALESCE\(spectral_class,''\), star_type, system_type, stellar_mods, stellar_mass, age, temperature, coord_x, coord_y FROM worlds WHERE id = \$1`).
 		WithArgs("w2").
@@ -846,6 +850,7 @@ func TestGetPlanetsByWorldMyPositionBrokenTargetFallback(t *testing.T) {
 
 	// Фракции/строения планеты (спека 2026-09-21-фабрики-релиз-2) — пусто.
 	expectEmptyFactionsBuildings(mock)
+	expectEmptyDeposits(mock)
 
 	mock.ExpectQuery(`SELECT name, COALESCE\(spectral_class,''\), star_type, system_type, stellar_mods, stellar_mass, age, temperature, coord_x, coord_y FROM worlds WHERE id = \$1`).
 		WithArgs("w2").
@@ -911,6 +916,7 @@ func TestGetPlanetsByWorldExtraCompanionIDs(t *testing.T) {
 
 	// Фракции/строения планеты (спека 2026-09-21-фабрики-релиз-2) — пусто.
 	expectEmptyFactionsBuildings(mock)
+	expectEmptyDeposits(mock)
 
 	// Мир w2 — кратная система с внешним компаньоном.
 	mock.ExpectQuery(`SELECT name, COALESCE\(spectral_class,''\), star_type, system_type, stellar_mods, stellar_mass, age, temperature, coord_x, coord_y FROM worlds WHERE id = \$1`).

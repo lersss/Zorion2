@@ -820,44 +820,62 @@ func (r *GoodsRepository) UpdateGood(id int64, name *string, categoryID *int64, 
 	return tx.Commit()
 }
 
+// GoodDeleteResult — итог удаления товара/ресурса: ClearedLinks — число
+// очищенных ссылок (component_id → NULL в чужих рецептах, для UI-
+// подтверждения), Deposits — число залежей ресурса, снесённых каскадом
+// (спека 2026-09-22-поселение-... §3.3/T14: студия предупреждает числом).
+type GoodDeleteResult struct {
+	ClearedLinks int
+	Deposits     int
+}
+
 // DeleteGood — удаление товара/ресурса (спека §7, решение гейта №2):
 // всегда (в т.ч. ресурсы — без привилегий); компоненты рецептов других
 // товаров, ссылающиеся на него, очищаются (component_id → NULL, reason → ”)
 // в той же транзакции; свой рецепт и его компоненты удаляются каскадом
 // (recipes → recipe_components, producer_recipes). Возвращает число
-// очищенных ссылок (cleared_links, для UI-подтверждения в B).
-func (r *GoodsRepository) DeleteGood(id int64) (int, error) {
+// очищенных ссылок (cleared_links) и число залежей ресурса (deposits,
+// §3.3/T14 — предпроверка до DELETE, число берётся по общему SQL
+// countDepositsByGood; FK deposits.good_id ON DELETE CASCADE).
+func (r *GoodsRepository) DeleteGood(id int64) (GoodDeleteResult, error) {
+	var out GoodDeleteResult
 	tx, err := r.beginMutation()
 	if err != nil {
-		return 0, err
+		return out, err
 	}
 	defer tx.Rollback()
 
 	var exists bool
 	err = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM goods WHERE id = $1 FOR UPDATE)`, id).Scan(&exists)
 	if err != nil {
-		return 0, err
+		return out, err
 	}
 	if !exists {
-		return 0, errCatalog(404, "товар не найден")
+		return out, errCatalog(404, "товар не найден")
+	}
+	// Предпроверка залежей до удаления (§3.3/T14): FK CASCADE сносит их молча.
+	out.Deposits, err = countDepositsByGood(tx, id)
+	if err != nil {
+		return out, err
 	}
 	res, err := tx.Exec(
 		`UPDATE recipe_components SET component_id = NULL, reason = '' WHERE component_id = $1`, id,
 	)
 	if err != nil {
-		return 0, err
+		return out, err
 	}
 	cleared, err := res.RowsAffected()
 	if err != nil {
-		return 0, err
+		return out, err
 	}
+	out.ClearedLinks = int(cleared)
 	if _, err := tx.Exec(`DELETE FROM goods WHERE id = $1`, id); err != nil {
-		return 0, err
+		return out, err
 	}
 	if err := tx.Commit(); err != nil {
-		return 0, err
+		return out, err
 	}
-	return int(cleared), nil
+	return out, nil
 }
 
 // CreateRecipe — восстановление рецепта товара (POST /studio/api/recipes,

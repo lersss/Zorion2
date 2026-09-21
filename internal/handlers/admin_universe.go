@@ -50,13 +50,13 @@ func recoverErr(r interface{}) string {
 // Список таблиц — все, что прямо или косвенно ссылаются на worlds
 // (кроме users):
 //   worlds    ← locations, assignments, planets, npc_agents, system_belts
-//   planets   ← factions, settlements, buildings
+//   planets   ← factions, settlements, buildings, deposits
 //
 // Если появится новая таблица с FK на любую из этих — TRUNCATE упадёт
 // с ошибкой "cannot truncate a table referenced in a foreign key
 // constraint". Тогда добавь её в этот список.
 
-const truncateTables = `worlds, locations, planets, assignments, factions, settlements, settlement_log, regions, npc_agents, player_planet_knowledge, buildings, system_belts`
+const truncateTables = `worlds, locations, planets, assignments, factions, settlements, settlement_log, regions, npc_agents, player_planet_knowledge, buildings, deposits, system_belts`
 
 // clearUniverseTx — очистка внутри уже начатой транзакции.
 // Вызывающий делает Begin/Commit/Rollback.
@@ -489,6 +489,10 @@ func (h *AdminHandlers) GeneratePlanets(w http.ResponseWriter, r *http.Request) 
 			planetGen.SetRaceTuning(loaded.RaceTuningSoftness, loaded.RaceClusterPlanetCountMult)
 		}
 
+		// Карта ресурсов каталога для залежей (спека залежей §3.1): генератор
+		// сеттер, БД сама не ходит. Пустая карта — залежей не будет.
+		planetGen.SetGoodsIndex(loadResourceGoodsIndex(h.db))
+
 		progressFn := func(processed int) {
 			statusManager.Progress(generator.JobGeneratePlanets, processed)
 		}
@@ -562,6 +566,7 @@ func (h *AdminHandlers) GeneratePrototypePlanet(w http.ResponseWriter, r *http.R
 	world := worlds[0]
 
 	planetGen := planet.NewGenerator(h.db, 0)
+	planetGen.SetGoodsIndex(loadResourceGoodsIndex(h.db))
 	pd := planetGen.GeneratePrototypePlanet(world.ID, world.Name, world.SpectralClass)
 
 	tx, err := h.db.Begin()
@@ -578,6 +583,12 @@ func (h *AdminHandlers) GeneratePrototypePlanet(w http.ResponseWriter, r *http.R
 		pd.ID, pd.WorldID, pd.Name, pd.OrbitIndex, string(pd.Data), now, now,
 	); err != nil {
 		http.Error(w, "Failed to insert planet: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Залежи прототипа — в той же транзакции, после планеты (FK §3.4).
+	if err := insertDepositsTx(r.Context(), tx, pd.Deposits, now); err != nil {
+		http.Error(w, "Failed to insert deposits: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 

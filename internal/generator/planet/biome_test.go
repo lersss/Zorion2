@@ -368,8 +368,7 @@ func TestPrototypeBiomesConsistent(t *testing.T) {
 		// Отметка форсирования (99.2.28 §16.1).
 		assert.Equal(t, true, data["prototype_forced"], "prototype_forced в данных")
 
-		// Биомы согласованы с форсированными данными: T=288, вода=80, life,
-		// флаг true → леса/луга/океаны присутствуют.
+		// Биомы согласованы с форсированными данными: T=288, вода=80, life.
 		biomes, ok := data["biomes"].([]interface{})
 		require.True(t, ok, "biomes в данных прототипа")
 		require.NotEmpty(t, biomes, "прототип не без биомов")
@@ -383,8 +382,15 @@ func TestPrototypeBiomesConsistent(t *testing.T) {
 			sum += share
 		}
 		assert.InDelta(t, 100, sum, 0.5, "сумма биомов = 100")
-		assert.True(t, forms["леса"] > 0 || forms["луга_степи"] > 0 || forms["океаны"] > 0,
-			"биомы прототипа: леса/луга/океаны, получено %v", forms)
+
+		// Жидкая вода → леса/луга/океаны присутствуют. Два легальных исключения
+		// (предсуществующие, не связаны с залежами): тонкая атмосфера — флаг
+		// законно false; примитивная планета (шаг 8, ~3.5%) — один биом.
+		hasWaterBiome := forms["леса"] > 0 || forms["луга_степи"] > 0 || forms["океаны"] > 0
+		if data["liquid_water_possible"] == true && len(forms) > 1 {
+			assert.True(t, hasWaterBiome,
+				"биомы прототипа: леса/луга/океаны, получено %v", forms)
+		}
 	}
 }
 

@@ -1157,26 +1157,48 @@ function ctxBindToFactory(id) {
   }
   bindRecipeToFactory(g, ft.id);
 }
+// depositsCountForDelete — предпроверка числа залежей ресурса перед удалением
+// (§3.3/T14): GET /studio/api/goods/{id}/deposits-count → {count}. Ошибка или
+// недоступность ручки → 0: удаление не блокируем, каскад FK сработает и так.
+async function depositsCountForDelete(goodId) {
+  try {
+    const r = await studioFetch("/studio/api/goods/" + goodId + "/deposits-count", {method: "GET"});
+    if (!r.ok) return 0;
+    const out = await r.json();
+    return out && typeof out.count === "number" ? out.count : 0;
+  } catch (e) {
+    return 0;
+  }
+}
+// depositWarningLine — строка предупреждения о каскаде залежей в подтверждении
+// удаления ресурса (пусто при count = 0).
+function depositWarningLine(dep) {
+  if (!dep || dep <= 0) return "";
+  return '<div style="color:#f87171;margin-top:6px;">Будет удалено ' + dep + ' залежей (каскад).</div>';
+}
 // удаление по id (для контекстного меню списка): модалка 1 → (N>0) модалка 2
 // → DELETE → тост с фактическим K из ответа (спека iterB §4.7)
-function askDeleteGoodFor(id) {
+async function askDeleteGoodFor(id) {
   const g = state.goods.find(x => x.id === id);
   if (!g) return;
   const n = state.goods.reduce((acc, p) => acc + (p.recipe || []).filter(s => s.good_id === g.id).length, 0);
+  const dep = await depositsCountForDelete(g.id);
   openModal(
     '<h3>Удалить товар</h3>' +
-    '<div>Удалить товар «' + esc(g.name) + '»?</div>',
+    '<div>Удалить товар «' + esc(g.name) + '»?</div>' +
+    depositWarningLine(dep),
     [
-      {label: "Удалить", cls: "del", primary: true, action: () => confirmDeleteGoodFor(g, n)},
+      {label: "Удалить", cls: "del", primary: true, action: () => confirmDeleteGoodFor(g, n, dep)},
       {label: "Отмена", cls: "", action: closeModal}
     ]
   );
 }
-function confirmDeleteGoodFor(g, n) {
+function confirmDeleteGoodFor(g, n, dep) {
   if (n > 0) {
     openModal(
       '<h3>Удалить товар</h3>' +
-      '<div>Слоты, ссылающиеся на него (' + n + '), очистятся — рецепты этих товаров будут испорчены. Удалить всё равно?</div>',
+      '<div>Слоты, ссылающиеся на него (' + n + '), очистятся — рецепты этих товаров будут испорчены. Удалить всё равно?</div>' +
+      depositWarningLine(dep),
       [
         {label: "Удалить и очистить " + n + " ссылок", cls: "del", primary: true, action: () => doDeleteGoodFor(g.id)},
         {label: "Отмена", cls: "", action: closeModal}
@@ -1815,26 +1837,29 @@ document.addEventListener("keydown", ev => {
     if (primary) primary.click();
   }
 });
-function askDeleteGood() {
+async function askDeleteGood() {
   const g = state.goods.find(x => x.id === popupGoodId);
   if (!g) return;
   const n = state.goods.reduce((acc, p) => acc + (p.recipe || []).filter(s => s.good_id === g.id).length, 0);
+  const dep = await depositsCountForDelete(g.id);
   openModal(
     '<h3>Удалить товар</h3>' +
-    '<div>Удалить товар «' + esc(g.name) + '»?</div>',
+    '<div>Удалить товар «' + esc(g.name) + '»?</div>' +
+    depositWarningLine(dep),
     [
-      {label: "Удалить", cls: "del", primary: true, action: () => confirmDeleteGood(g, n)},
+      {label: "Удалить", cls: "del", primary: true, action: () => confirmDeleteGood(g, n, dep)},
       {label: "Отмена", cls: "", action: closeModal}
     ]
   );
 }
 // второе подтверждение при N > 0 (спека iterB §4.7): слоты других товаров,
 // ссылающиеся на удаляемого, очистятся — рецепты будут испорчены
-function confirmDeleteGood(g, n) {
+function confirmDeleteGood(g, n, dep) {
   if (n > 0) {
     openModal(
       '<h3>Удалить товар</h3>' +
-      '<div>Слоты, ссылающиеся на него (' + n + '), очистятся — рецепты этих товаров будут испорчены. Удалить всё равно?</div>',
+      '<div>Слоты, ссылающиеся на него (' + n + '), очистятся — рецепты этих товаров будут испорчены. Удалить всё равно?</div>' +
+      depositWarningLine(dep),
       [
         {label: "Удалить и очистить " + n + " ссылок", cls: "del", primary: true, action: doDeleteGood},
         {label: "Отмена", cls: "", action: closeModal}

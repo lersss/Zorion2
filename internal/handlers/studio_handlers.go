@@ -27,9 +27,10 @@ import (
 // proposals — in-memory под fillMu (спека переноса-студии-товаров-iterC §5.2:
 // транзиентное состояние инструмента, не таблица; рестарт сбрасывает).
 type StudioHandlers struct {
-	repo    *repository.GoodsRepository
-	ai      *ai.Client
-	aiModel string
+	repo     *repository.GoodsRepository
+	deposits *repository.DepositRepository
+	ai       *ai.Client
+	aiModel  string
 
 	fillMu              sync.Mutex
 	fillGenerating      bool // любой ИИ-джоб студии (И6): fill ИЛИ описания
@@ -53,9 +54,10 @@ type StudioHandlers struct {
 
 func NewStudioHandlers(db *sql.DB, aiClient *ai.Client, aiModel string) *StudioHandlers {
 	return &StudioHandlers{
-		repo:    repository.NewGoodsRepository(db),
-		ai:      aiClient,
-		aiModel: aiModel,
+		repo:     repository.NewGoodsRepository(db),
+		deposits: repository.NewDepositRepository(db),
+		ai:       aiClient,
+		aiModel:  aiModel,
 	}
 }
 
@@ -587,6 +589,8 @@ func (h *StudioHandlers) GoodByID(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case len(parts) == 1:
 		h.good(w, r, id)
+	case len(parts) == 2 && parts[1] == "deposits-count":
+		h.goodDepositsCount(w, r, id)
 	case len(parts) == 2 && parts[1] == "fill":
 		h.goodFill(w, r, id)
 	case len(parts) == 3 && parts[1] == "fill" && parts[2] == "apply":
@@ -596,6 +600,24 @@ func (h *StudioHandlers) GoodByID(w http.ResponseWriter, r *http.Request) {
 	default:
 		studioErr(w, "не найдено", http.StatusNotFound)
 	}
+}
+
+// goodDepositsCount — GET /studio/api/goods/{id}/deposits-count (§3.3/T14):
+// предпроверка числа залежей ресурса во всех мирах перед удалением — студия
+// показывает счётчик до подтверждения (UI — фронтенд-задача). Ответ {"count": N}.
+// Один источник числа — DepositRepository.CountDepositsByGood (тем же SQL
+// считает DeleteGood). JWT admin/skycomposer — на роуте (main.go).
+func (h *StudioHandlers) goodDepositsCount(w http.ResponseWriter, r *http.Request, id int64) {
+	if r.Method != http.MethodGet {
+		studioErr(w, "только GET", http.StatusMethodNotAllowed)
+		return
+	}
+	n, err := h.deposits.CountDepositsByGood(id)
+	if err != nil {
+		studioErr(w, "ошибка чтения залежей: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	studioJSON(w, http.StatusOK, map[string]int{"count": n})
 }
 
 // good — PUT/DELETE /studio/api/goods/{id} (для ресурсов разрешено, С1).
@@ -619,12 +641,16 @@ func (h *StudioHandlers) good(w http.ResponseWriter, r *http.Request, id int64) 
 		}
 		studioJSON(w, http.StatusOK, map[string]int64{"id": id})
 	case http.MethodDelete:
-		cleared, err := h.repo.DeleteGood(id)
+		res, err := h.repo.DeleteGood(id)
 		if err != nil {
 			writeCatalogErr(w, err)
 			return
 		}
-		studioJSON(w, http.StatusOK, map[string]interface{}{"deleted": id, "cleared_links": cleared})
+		studioJSON(w, http.StatusOK, map[string]interface{}{
+			"deleted":       id,
+			"cleared_links": res.ClearedLinks,
+			"deposits":      res.Deposits,
+		})
 	default:
 		studioErr(w, "только PUT/DELETE", http.StatusMethodNotAllowed)
 	}

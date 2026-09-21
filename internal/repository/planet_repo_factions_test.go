@@ -30,6 +30,13 @@ func expectEmptyFactionsBuildings(mock sqlmock.Sqlmock) {
 		[]string{"id", "planet_id", "building_type", "owner_type", "owner_id"}))
 }
 
+// expectEmptyDeposits — ожидание attachDeposits (пустая выборка залежей).
+// SQL берётся из самой константы repository (QueryMatcherEqual — дословно).
+func expectEmptyDeposits(mock sqlmock.Sqlmock) {
+	mock.ExpectQuery(depositSelectByPlanetsSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows(
+		[]string{"id", "planet_id", "good_id", "name", "stratum", "wealth", "amount"}))
+}
+
 func TestAttachFactionsAndBuildings(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)

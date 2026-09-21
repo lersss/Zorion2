@@ -61,3 +61,20 @@ func TestStripFactionsAndBuildings(t *testing.T) {
 	require.Len(t, p.Factions, 1)
 	require.Len(t, p.Buildings, 1)
 }
+
+// TestStripDeposits — залежи поверхности (спека 2026-09-22-поселение-... §5.1):
+// player без знания их не видит; со знанием — остаются.
+func TestStripDeposits(t *testing.T) {
+	p := models.Planet{
+		ID: "p1",
+		Deposits: []models.SurfaceDeposit{
+			{GoodID: 359, GoodName: "Мясо", Stratum: "surface", Wealth: 0.5, Amount: 1000},
+		},
+	}
+
+	stripped := stripPlanetDetails(p, nil)
+	require.Nil(t, stripped.Deposits, "без знания залежи скрыты (§5.1)")
+
+	withKnowledge := stripPlanetDetails(p, &models.PlanetKnowledgeView{})
+	require.Len(t, withKnowledge.Deposits, 1, "со знанием залежи остаются")
+}

@@ -209,6 +209,9 @@ func (g *Generator) buildTwinPlanet(spec TwinSpec, group TwinGroup, w *Controlle
 		OrbitIndex: orbit,
 		Data:       dataJSON,
 	}
+	// Залежи поверхности (спека 2026-09-22-поселение-... §3.4): близнецы не
+	// идут через generateWorldWithCountIntoBuffer — точка вызова здесь.
+	g.generateDeposits(p)
 	return tagExperiment(p, spec.ID, group.ID)
 }
 

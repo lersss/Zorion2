@@ -422,6 +422,9 @@ func main() {
 	http.HandleFunc("/admin/generate-planets", auth.AdminAuth(adminHandlers.GeneratePlanets))
 	http.HandleFunc("/admin/generate-prototype-planet", auth.AdminAuth(adminHandlers.GeneratePrototypePlanet))
 	http.HandleFunc("/admin/generate-factions", auth.AdminAuth(adminHandlers.GenerateFactions))
+	// Залежи поверхности (спека 2026-09-22-поселение-добыча-сырья-биома-
+	// ленивый-буфер §6): админ-песочница «добавить залежь вручную».
+	http.HandleFunc("/admin/planets/", auth.AdminAuth(adminHandlers.AddDeposit))
 	// СКРЫТ (65a): старый человеческий генератор поселений заменён расовым
 	// (/admin/generate-race-settlements). Код хендлера остаётся в
 	// internal/handlers/admin_settlements.go, роут не регистрируется.

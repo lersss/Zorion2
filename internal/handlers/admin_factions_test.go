@@ -41,6 +41,14 @@ func expectEmptyFactionsBuildingsExact(mock sqlmock.Sqlmock) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "planet_id", "building_type", "owner_type", "owner_id"}))
 }
 
+// expectEmptyDeposits — ожидание attachDeposits (пустая выборка залежей,
+// спека 2026-09-22-поселение-... §5.1) для моков с regexp-матчером.
+func expectEmptyDeposits(mock sqlmock.Sqlmock) {
+	mock.ExpectQuery(`FROM deposits d\s+JOIN goods g ON g.id = d.good_id\s+WHERE d.planet_id = ANY\(\$1\) ORDER BY d.planet_id, d.id`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "planet_id", "good_id", "name", "stratum", "wealth", "amount"}))
+}
+
 // expectSettledPlanetsCount — счётчик обитаемых планет (знаменатель джоба).
 func expectSettledPlanetsCount(mock sqlmock.Sqlmock, n int) {
 	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM planets p\s+WHERE EXISTS`).
@@ -124,9 +132,17 @@ func TestTruncateTablesIncludesBuildings(t *testing.T) {
 		"buildings обязана быть в truncateTables (admin_universe.go): FK buildings.planet_id → planets")
 }
 
+// T9: deposits обязана быть в truncateTables (FK deposits.planet_id → planets;
+// без неё TRUNCATE planets упадёт «cannot truncate a table referenced in a
+// foreign key constraint»).
+func TestTruncateTablesIncludesDeposits(t *testing.T) {
+	require.Contains(t, truncateTables, "deposits",
+		"deposits обязана быть в truncateTables (admin_universe.go)")
+}
+
 // B12: system_belts обязана быть в truncateTables (спека поясов §4.6: FK
 // system_belts.world_id → worlds; без неё TRUNCATE worlds падёт — та же
-// ловушка, что у buildings).
+// ловушка, что у buildings/deposits).
 func TestTruncateTablesIncludesSystemBelts(t *testing.T) {
 	require.Contains(t, truncateTables, "system_belts",
 		"system_belts обязана быть в truncateTables (admin_universe.go)")

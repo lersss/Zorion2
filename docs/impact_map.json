@@ -4,6 +4,22 @@
   "updated_at": "2026-09-21",
   "entities": [
     {
+      "id": "ui/sound.js",
+      "type": "code",
+      "path": "web/static/js/ui/sound.js",
+      "note": "Звук отклика интерфейса и полёта (2026-09-21, идея «звук отклика и полёта»): Web Audio, файлы web/static/audio/*.ogg (Kenney CC0). Активируется только картой (activateSound) — в админке/на surface молчит; роли interaction/confirm/error/flight_hum; гул — кроссфейд-луп flight_hum.ogg (AudioBufferSourceNode loop, gapless).",
+      "impacts": [
+        { "on": "web/static/js/ui/toast.js", "kind": "reads", "reason": "тосты error/success звучат (playToast); info — молча; общего щелчка на кнопки нет (закрытия молчат)" },
+        { "on": "web/static/js/map/flight.js", "kind": "reads", "reason": "старт полёта (confirm), гул, прибытие (playArrival)" },
+        { "on": "web/static/js/map/data.js", "kind": "reads", "reason": "композитный маршрут: гул через сегменты, прибытие в конце (checkCompositeArrival)" },
+        { "on": "web/static/js/modal/index.js", "kind": "reads", "reason": "открытие окна (ui_open), выбор планеты (ui_select), гул внутрисистемного сегмента, стоп при закрытии (без звука)" },
+        { "on": "web/static/js/main.js", "kind": "reads", "reason": "activateSound при инициализации карты, кнопка звука, гул восстановленного полёта (F5-регидрация)" },
+        { "on": "web/map.html", "kind": "reads", "reason": "кнопка #soundToggleBtn (вкл/выкл, состояние в localStorage zorion.sound)" },
+        { "on": "web/frontend_test.go", "kind": "test", "reason": "узел графа админки: sound.js тянется через toast.js — обязан быть Node-безопасным (без DOM/Audio на верхнем уровне)" },
+        { "on": "tools/e2e/map-check.js", "kind": "test", "reason": "смоук валится на любом pageerror/unhandled rejection — аудио не должно ронять прогон" }
+      ]
+    },
+    {
       "id": "race_lore.json",
       "type": "config",
       "path": "config/race_lore.json",

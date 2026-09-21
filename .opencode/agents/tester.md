@@ -41,8 +41,13 @@ permission:
   тост-ошибки/редиректа на логин) → restricted-карточка за-радарной звезды →
   скриншоты в `tools/e2e/artifacts/`. ~30–60 с, exit 0/1.
 - Скриншоты приложи/укажи в отчёте, если проверяешь визуал.
-3. **DoD** (`go build ./...`, `go vet ./...`, `go test ./...` без `-race` — нет gcc)
-   — ТОЛЬКО когда затронут Go-код. Для чисто фронтовой жалобы не гоняй.
+3. **DoD** (`go build ./...`, `go vet ./...`, быстрый прогон с детектором
+   `go test -race -short (go list ./... | Where-Object { $_ -notmatch 'generator[/\\](planet|galaxy)$' })`
+   — детектор локально доступен, gcc WinLibs в PATH; генераторные пакеты исключены)
+   — ТОЛЬКО когда затронут Go-код. Если правка трогает
+   `internal/generator/planet`/`internal/generator/galaxy` — прогони их отдельно
+   (`go test ./internal/generator/planet/ ./internal/generator/galaxy/`, без `-race`)
+   и укажи результат в отчёте. Для чисто фронтовой жалобы не гоняй.
 4. **Краевые сценарии** (риски AGENTS.md §0): общая map без блокировки, общий
    `*rand.Rand`, проверка+действие не атомарно, второй писатель в websocket;
    пустой/невалидный вход, повторные вызовы.

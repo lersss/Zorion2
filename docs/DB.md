@@ -31,7 +31,17 @@ ClearUniverse его не трогает), `recipes`/`recipe_components`/`produc
 `category_id` для kind=goods, `race_family`, вход/выход/параметры JSONB),
 `items` — справочник ТИПОВ предметов («что бывает», экземпляры — в
 инвентаре, не здесь), `producer_items` — связь «производитель предметов ↔
-предметы»; каталог — контент, ClearUniverse не трогает).
+предметы»; каталог — контент, ClearUniverse не трогает), `buildings` (строения
+на планете, миграция `000056`, спека `2026-09-21-фабрики-релиз-2-столицы-фракций`
+§2: `id` UUID, `planet_id` FK → `planets` ON DELETE CASCADE, `building_type`
+(свободный ключ, в первой итерации — `capital`), `owner_type` CHECK
+(player/faction/agent) + `owner_id` (без FK: владелец полиморфный),
+`created_at`/`updated_at`; частичный UNIQUE `(owner_type, owner_id) WHERE
+building_type='capital'` — одна столица на фракцию; колонки
+`producer_type_id`/`population`/`slots`/`status`/`data`/`name` §3.2 спеки фабрик
+отложены до следующих итераций; чистится вместе с мирами; только столицы
+фракций, население/снабжение — потом; таблица — данные вселенной, ClearUniverse
+её TRUNCATE-ит).
 
 Удалены: `production_units` (легаси 000018-эпохи, снос миграцией `000050`,
 спека `2026-09-20-фабрики` §11.6, решение создателя 3b.6.8), `factories`/
@@ -217,7 +227,8 @@ ClearUniverse его не трогает), `recipes`/`recipe_components`/`produc
   `production_units` снят из `truncateTables` (`admin_universe.go`) и
   каскадов пакмана. Номер 000050 — как в спеке §11.6 (000049 занят чужой
   миграцией `pending_destination`; 000050 спеки был назначен под `buildings`
-  релиза 2 — тот пойдёт 000051+).
+  релиза 2 — тот пойдёт отдельным номером позже (реализован как `000056` —
+  первая итерация релиза 2, спека `2026-09-21-фабрики-релиз-2-столицы-фракций`).
 - `000051` — дерево построек студии (спека
   `2026-09-21-студия-дерево-построек-канвас` §1.2/§1.3, 2026-09-21):
   `producer_types` + `parent_id BIGINT NULL FK → producer_types(id) ON DELETE
@@ -278,6 +289,16 @@ ClearUniverse его не трогает), `recipes`/`recipe_components`/`produc
   универсальным конкретным фабрикам категории); снос `goods_slots` и колонки
   `goods.tier_override`; таблицы рецептов — каталог-контент (в `truncateTables`
   не входят).
+- `000056` — таблица `buildings` (первая итерация релиза 2 фабрик: строения
+  + владелец-фракция, спека `2026-09-21-фабрики-релиз-2-столицы-фракций` §2,
+  2026-09-21): `id`/`planet_id` FK CASCADE/`building_type`/
+  `owner_type`+`owner_id` NOT NULL/`created_at`/`updated_at`; индексы
+  `idx_buildings_planet_id` и частичный UNIQUE на столицу фракции. `buildings`
+  добавлена в `truncateTables` (`admin_universe.go`) — иначе `TRUNCATE`
+  падает на FK `buildings → planets`. Номер `000056`: `000055` занята
+  рецептами студии (спека `2026-09-21-рецепт-сущность-и-граф-фабрики` §3);
+  `000050` спеки фабрик был назначен под `buildings` релиза 2, дальше номер
+  ушёл на другие релизы.
 - Миграции, вступающие в силу на старте, требуют перезапуска сервера
   (`AGENTS.md` §4 п.13).
 - `VACUUM` внутрь миграции не положить — не работает внутри транзакции

@@ -151,6 +151,7 @@ docs/gamedesign/                         — GDD (семейство доков,
 | Фабрики — каталог производителей/предметов (спека `2026-09-20-фабрики-сущность-производства`, релиз 1) | Ветки студии «Производители»/«Предметы»: таблицы `producer_types`/`items`/`producer_items` (миграция `000048`, BIGSERIAL как 000045) + дельта `goods.volume/weight` (3b.6.4); сид — `internal/goodsstudio/seed_producers.go` (8 типов + 4 предмета + 4 связи, маркер `producer_catalog_seed`, после `goodsstudio.Seed` — категории уже посеяны); SQL — `internal/repository/producer_repository.go` (CRUD на том же `pg_advisory_xact_lock`); HTTP — `internal/handlers/studio_handlers.go` (+`/studio/api/producers*`, `/studio/api/items*`); UI — `web/studio.html` (разделы Товары/Производители/Предметы). Снос легаси `production_units` — миграция `000050`, удалён `internal/repository/production_unit_repository.go`, снят из `truncateTables` (`admin_universe.go`) |
 | Дерево построек студии (спека `2026-09-21-студия-дерево-построек-канвас`) | Ветка «Производители» — дерево на канвасе (Строения → Классы → Типы → Подтипы): `producer_types` + `parent_id` (базовый тип/подтип, RESTRICT-удаление) и `race` (второй уровень расовости) — миграция `000051` + data-миграция (переименования лабораторий, «Лаборатория»-родитель, платформа без категории); сид — `internal/goodsstudio/seed_producers.go` (10 типов: +«Лаборатория», +«Фабрика продовольствия», новые имена лабораторий, `Parent`); SQL — `internal/repository/producer_repository.go` (валидация инвариантов §1.2: глубина 1, kind наследуется, категория только у подтипов kind=goods, уникальность подтипа, RESTRICT); HTTP — `internal/handlers/studio_handlers.go` (+`/studio/api/races` — семейства F1–F9+robotic и расы из `internal/races`); UI — `web/studio.html` (`renderProdTree`, переключатель расовости, попап создания подтипа, канвас в ветке producers) |
 | Рецепт как сущность (спека `2026-09-21-рецепт-сущность-и-граф-фабрики`) | `internal/goodsstudio/`: `Good.Complexity`/`RecipeID`, `State.Bindings`, `graph.EffectiveTier` читает сложность, warning `unbound_recipe`; роуты студии — новые `/studio/api/recipes*` и `POST /studio/api/producers/{id}/recipes/copy-universal`, снятые `/studio/api/goods/{id}/slots*` и `/studio/api/goods/{id}/tier`; таблицы `recipes`/`recipe_components`/`producer_recipes` — миграция `000055` (замена `goods_slots`) |
+| Строения — столицы фракций (спека `2026-09-21-фабрики-релиз-2-столицы-фракций`) | Таблица `buildings` (миграция `000056`, спека §2), `EnsureCapitals()` — `internal/generator/faction/faction.go` (+ вызов в `GenerateFactions`), `buildings` в `truncateTables` + порядок ветки `total == 0` — `internal/handlers/admin_universe.go` (C3), `PlanetFactions`/`PlanetBuildings` — `internal/models/planet.go`, `attachFactionsAndBuildings` — `internal/repository/planet_repo.go`, `stripPlanetDetails` — `internal/handlers/planet_visibility.go`, вкладка «Фракции» — `web/static/js/modal/tabs.js` |
 | GDD | `docs/gamedesign/` |
 | Текущий статус | `STATUS.md` |
 | История | `CHANGELOG.md` |
@@ -188,7 +189,7 @@ docs/gamedesign/                         — GDD (семейство доков,
 вручную через psql/DBeaver. Поэтому в SQL-файлах используется `IF NOT EXISTS`
 там, где это возможно — на случай, если уже применено.
 
-Список применённых миграций — в `STATUS.md` (раздел «Схема БД»).
+Список миграций и применённых номеров — в `docs/DB.md` (§«Миграции»).
 
 ### 4.1. Очистка таблиц с FK — только TRUNCATE без CASCADE
 
@@ -202,7 +203,9 @@ docs/gamedesign/                         — GDD (семейство доков,
 
 **Пример из проекта (`ClearUniverse`):**
 - На `worlds` ссылаются `locations`, `assignments`, `planets` (прямо)
-  и ещё 7 таблиц косвенно (через `locations` и `planets`).
+  и ещё 8 таблиц косвенно (через `locations` и `planets`: `factions`,
+  `settlements`, `buildings` — `buildings` добавлена миграцией `000056`,
+  `planets` ← `buildings` ON DELETE CASCADE).
 - На `worlds` также ссылается `users` (через `current_world_id`),
   но её **нельзя** удалять.
 - `TRUNCATE worlds CASCADE` снёс бы `users` целиком — что и случилось.

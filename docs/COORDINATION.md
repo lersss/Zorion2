@@ -54,7 +54,6 @@
 | Файл | Кто правит | До какого коммита |
 |---|---|---|
 | `web/studio.html`, `tools/e2e/goods-studio-server-check.js` / `qa-prodadd-race-independent.js` / `studio-prodadd-race-check.js` | @developer (студия: формы в попапы, вкладки разделов, 2026-09-22) | до коммита задачи |
-| `internal/handlers/intrasystem_handlers.go` (+test), `web/static/js/modal/events.js` | @developer (идея 2026-09-21: взлёт с поверхности) | до коммита задачи |
 
 ## Занято ранее (историческое, не блокирует — чистится @manager по мере надобности)
 

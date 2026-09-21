@@ -590,7 +590,7 @@
         { "on": "biomes", "kind": "reads", "reason": "жребий биома прогулки по долям share из planets.data.biomes" },
         { "on": "biome_catalog.json", "kind": "reads", "reason": "имя/категория/цвет биома (categoryBase), признак токсичности — для пакета прогулки и профиля опасности" },
         { "on": "internal/handlers/planet_visibility.go", "kind": "reads", "reason": "согласование: клиент биомы НЕ читает (stripPlanetDetails), доступность высадки валидирует сервер" },
-        { "on": "internal/handlers/intrasystem_handlers.go", "kind": "affects", "reason": "ветка surface в normalizeMyPosition; отказ StartIntraFlight с поверхности" },
+        { "on": "internal/handlers/intrasystem_handlers.go", "kind": "affects", "reason": "ветка surface в normalizeMyPosition; взлёт с поверхности — StartIntraFlight при surface берёт from=планета (2026-09-22, отменён прежний 400 «Сначала вернитесь на орбиту»)" },
         { "on": "cmd/server/main.go", "kind": "api", "reason": "роуты POST /api/surface/land|leave + SetPlanetRepo" },
         { "on": "web/static/js/modal/events.js", "kind": "reads", "reason": "точка входа: showPlanetMenu — пункт «Высадиться» рядом с «Лететь» (снят ранний return в валидном состоянии)" },
         { "on": "web/surface.html", "kind": "docs", "reason": "страница прогулки (web/static/css/surface.css, web/static/js/surface/*)" },
@@ -632,7 +632,7 @@
       "path": "internal/travel/intrasystem_manager.go",
       "note": "менеджер внутрисистемных полётов (99.2.27, паттерн 97a): RWMutex-карта, CancelChan, TOCTOU-гвард удаления строки, Restore",
       "impacts": [
-        { "on": "internal/handlers/intrasystem_handlers.go", "kind": "api", "reason": "POST /api/intrasystem-flight: валидации (двигатель 91a, межзвёздный, цель в системе, идемпотентность, «уже на орбите»), старт/редирект" },
+        { "on": "internal/handlers/intrasystem_handlers.go", "kind": "api", "reason": "POST /api/intrasystem-flight: валидации (двигатель 91a, межзвёздный, цель в системе, идемпотентность, «уже на орбите»), старт/редирект; from при status=surface = планета, на которой стоит игрок (взлёт, 2026-09-22)" },
         { "on": "internal/handlers/travel_handlers.go", "kind": "api", "reason": "С1: старт /travel отменяет внутрисистемный (CancelIntraFlight + CancelAtomic)" },
         { "on": "player_intrasystem_flights", "kind": "writes", "reason": "персистентность через репозиторий (Upsert/Delete/ListAll)" },
         { "on": "users.current_position", "kind": "writes", "reason": "позиция in_flight/orbit атомарно со строкой полётов" }

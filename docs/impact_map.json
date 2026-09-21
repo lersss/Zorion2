@@ -55,7 +55,7 @@
       "note": "ленивая переработка ветки вход → выход по Δt (итерация 2): чистая функция от (processed_at, now, population, состав рецепта, буферы), без тика; скорость — линейная, вариант A (решение создателя 2026-09-22): rate = k·population/complexity, k = 2.78·10⁻⁸ батч/(чел·ч), числа не калиброваны (@balancetester); кадэнс персистентности — общий MinPersistInterval (30 мин); единая точка сериализации — FOR UPDATE на строке ветки",
       "impacts": [
         { "on": "settlement_branches", "kind": "writes", "reason": "продвижение чек-точки processed_at, изменение amount буферов, top-up строк входа нового заполненного компонента (ON CONFLICT DO NOTHING)" },
-        { "on": "settlements", "kind": "reads", "reason": "population — множитель скорости (attachBranches идёт ПОСЛЕ ленивого пересчёта населения, та же цифра)" },
+        { "on": "db:settlements", "kind": "reads", "reason": "population — множитель скорости (attachBranches идёт ПОСЛЕ ленивого пересчёта населения, та же цифра)" },
         { "on": "recipes", "kind": "reads", "reason": "состав читается «живой» (recipe_components, заполненные компоненты) + complexity и good_id как выход: правка рецепта меняет работающую ветку; NULL complexity → временный фолбэк 1" },
         { "on": "internal/goodsstudio/graph/tier.go", "kind": "affects", "reason": "канон студии: complexity NULL = «вычисляется по графу»; рантайм графа не считает — фолбэк NULL → 1 (при появлении рантайм-потребителя считать граф или материализовать)" },
         { "on": "internal/repository/planet_repo.go", "kind": "writes", "reason": "attachBranches внутри attachSettlements: ленивый синк на чтении карточки (хот-пат гасится MinPersistInterval)" },

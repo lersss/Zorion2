@@ -36,3 +36,29 @@ export function land(planetId, biome) {
 export function leave() {
     return post('/api/surface/leave');
 }
+
+// Текстуры тел неба (идея 2026-09-22 §8.4) — авторизованный /api/planet-image
+// (как modal/textures.js): fetch + Bearer, blob → Image. Кэш по planet_id,
+// промис резолвится в Image или null (401/ошибка) — null даёт фолбэк-диск.
+const textureCache = new Map();
+
+export function planetTexture(planetId) {
+    if (!planetId) return Promise.resolve(null);
+    if (textureCache.has(planetId)) return textureCache.get(planetId);
+    const url = `/api/planet-image?planet_id=${encodeURIComponent(planetId)}&size=small`;
+    const promise = fetch(url, { headers: { 'Authorization': 'Bearer ' + token() } })
+        .then((res) => {
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            return res.blob();
+        })
+        .then((blob) => new Promise((resolve, reject) => {
+            const objectUrl = URL.createObjectURL(blob);
+            const img = new Image();
+            img.onload = () => { URL.revokeObjectURL(objectUrl); resolve(img); };
+            img.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error('texture')); };
+            img.src = objectUrl;
+        }))
+        .catch(() => null);
+    textureCache.set(planetId, promise);
+    return promise;
+}

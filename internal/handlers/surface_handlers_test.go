@@ -216,6 +216,23 @@ func TestSurfaceLandSuccess(t *testing.T) {
 	assert.Equal(t, "player", pkg.Role, "роль игрока в пакете (§7.1, идея 2026-09-21)")
 }
 
+// buildSurfaceSky отдаёт planet_id только у планет (идея 2026-09-22 §8.4):
+// спутникам картинки нет — id пуст, клиент рисует фолбэк-диск.
+func TestBuildSurfaceSkyPlanetID(t *testing.T) {
+	planets := []models.Planet{{
+		ID:         "pl-1",
+		Name:       "Nemurzan II",
+		Size:       1.2,
+		Satellites: []models.PlanetSatellite{{Name: "Луна", Size: 0.3}},
+	}}
+	sky := buildSurfaceSky(nil, planets)
+	require.Len(t, sky.Bodies, 2)
+	assert.Equal(t, "planet", sky.Bodies[0].Kind)
+	assert.Equal(t, "pl-1", sky.Bodies[0].PlanetID, "планета несёт id для /api/planet-image")
+	assert.Equal(t, "satellite", sky.Bodies[1].Kind)
+	assert.Empty(t, sky.Bodies[1].PlanetID, "у спутника картинки нет — id не даём")
+}
+
 // Админ выбирает биом: позиция сохраняется с выбранным биомом, пакет отдаёт его
 // и роль admin (идея 2026-09-21 §3).
 func TestSurfaceLandAdminBiome(t *testing.T) {

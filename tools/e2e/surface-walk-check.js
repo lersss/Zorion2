@@ -111,7 +111,9 @@ async function main() {
   const consoleErrors = [];
   const redirects = [];
   const badResponses = [];
+  const skyImageHits = [];
   page.on('response', (r) => { if (r.status() >= 400) badResponses.push(r.status() + ' ' + r.url()); });
+  page.on('response', (r) => { const u = r.url(); if (u.includes('/api/planet-image')) skyImageHits.push(r.status() + ' ' + u); });
   page.on('pageerror', (e) => pageErrors.push(String(e)));
   page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
   page.on('framenavigated', (fr) => { if (fr === page.mainFrame() && fr.url().includes('/login-page')) redirects.push(fr.url()); });
@@ -231,6 +233,11 @@ async function main() {
     report('10e мир рисуется (canvas не одноцветный)', worldDrawn.colors > 10, 'uniqColors=' + worldDrawn.colors);
     await page.screenshot({ path: path.join(ARTIFACTS_DIR, 'surface-play.png') });
 
+    // --- 10e2: тело неба грузит реальную текстуру (идея §8.4) ---
+    const skyTexOk = skyImageHits.some(h => h.startsWith('200') && h.includes(SOFT));
+    report('10e2 небо: текстура планеты загружена (200 /api/planet-image)', skyTexOk,
+      'hits=' + JSON.stringify(skyImageHits.slice(0, 4)));
+
     // --- HUD hp ---
     const hpText = await page.evaluate(() => document.getElementById('hp-text').textContent);
     report('11 HUD показывает здоровье', /100\s*\/\s*100/.test(hpText), 'hp-text="' + hpText + '"');
@@ -259,6 +266,10 @@ async function main() {
       return n ? sum / n : -1;
     });
     // --- прыжок: сравнить стабильность визора в покое и его подъём при прыжке ---
+    // Порог дрожи визора в покое — экранные px. Рендер прогулки масштабируется
+    // ZOOM (surface_config.js): мировой дрожь ~1 px даёт ~ZOOM экранных, поэтому
+    // базовые 2 px (калибровка на 1×) умножаем на фактический ZOOM.
+    const ZOOM = await page.evaluate(async () => (await import('/static/js/surface/surface_config.js')).ZOOM);
     await page.waitForTimeout(900); // vx -> 0, камера стабилизировалась
     const idle = [];
     for (let i = 0; i < 12; i++) { await page.waitForTimeout(25); idle.push(await visorY()); }
@@ -273,8 +284,8 @@ async function main() {
     const valid = samples.filter(v => v > 0);
     const jumpMin = valid.length ? Math.min(...valid) : -1;
     const rise = idleMin - jumpMin;
-    report('10g персонаж прыгает (визор поднимается)', idleMin > 0 && jumpMin > 0 && idleRange <= 2 && rise > 3,
-      'idleY=' + idleMin.toFixed(1) + ' idleRange=' + idleRange.toFixed(1) + ' jumpMinY=' + jumpMin.toFixed(1) + ' rise=' + rise.toFixed(1));
+    report('10g персонаж прыгает (визор поднимается)', idleMin > 0 && jumpMin > 0 && idleRange <= 2 * ZOOM && rise > 3,
+      'idleY=' + idleMin.toFixed(1) + ' idleRange=' + idleRange.toFixed(1) + ' max=' + (2 * ZOOM).toFixed(1) + ' jumpMinY=' + jumpMin.toFixed(1) + ' rise=' + rise.toFixed(1));
 
     // --- 14: hp не проседает от ходьбы/прыжков (мягкая планета) ---
     const hpAfter = await page.evaluate(() => document.getElementById('hp-text').textContent);

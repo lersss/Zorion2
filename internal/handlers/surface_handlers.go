@@ -69,6 +69,10 @@ type SurfaceSkyBody struct {
 	SizeHint float64 `json:"size_hint"`
 	Color    string  `json:"color"`
 	Height   float64 `json:"height"` // 0..1: высота на параллакс-слое
+	// PlanetID — id планеты для авторизованной картинки (идея 2026-09-22 §8.4).
+	// Только у тел kind=planet; у спутников/компаньонов картинки нет — пусто
+	// (omitempty), клиент рисует фолбэк-диск.
+	PlanetID string `json:"planet_id,omitempty"`
 }
 
 // SurfaceSky — небо прогулки: светило + тела системы (В2, только из пакета).
@@ -386,6 +390,7 @@ func buildSurfaceSky(world *models.World, planets []models.Planet) SurfaceSky {
 			Kind:     "planet",
 			SizeHint: sizeHint(p.Size),
 			Color:    planet.SurfaceBiomeColorHex(dominantBiomeForm(&p), p.Temperature),
+			PlanetID: p.ID,
 		})
 		for _, s := range p.Satellites {
 			bodies = append(bodies, SurfaceSkyBody{

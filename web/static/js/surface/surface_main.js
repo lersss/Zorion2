@@ -2,7 +2,7 @@
 // Точка входа страницы прогулки (спека 2026-09-21): высадка (land) → брифинг →
 // Canvas-игра (ходьба/прыжки/падение, HUD) → «вызвать корабль»/смерть (leave).
 // Вход: /surface.html?planet=<uuid> (правый клик по планете → «Высадиться»).
-import { CAMERA_LERP, WEATHER_MIN_MS, WEATHER_MAX_MS, PPM, WEATHER, WEATHER_BY_CATEGORY } from './surface_config.js';
+import { CAMERA_LERP, WEATHER_MIN_MS, WEATHER_MAX_MS, PPM, ZOOM, WEATHER, WEATHER_BY_CATEGORY } from './surface_config.js';
 import { SurfaceWorld, mulberry32 } from './surface_world.js';
 import { drawSky, drawFarRelief, drawTerrain, drawDecor, drawCreatures, drawPlayer, drawWeather } from './surface_render.js';
 import { Player, serverHp } from './surface_player.js';
@@ -63,8 +63,13 @@ function setWeather(id) {
 }
 
 function resize(canvas) {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
+    // Канвас в device-пикселях (devicePixelRatio) — резкость на HiDPI; логика
+    // отрисовки остаётся в CSS-пикселях (vw/vh), базовый масштаб — в frame.
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(window.innerWidth * dpr);
+    canvas.height = Math.round(window.innerHeight * dpr);
+    canvas.style.width = window.innerWidth + 'px';
+    canvas.style.height = window.innerHeight + 'px';
 }
 
 function frame(now) {
@@ -74,6 +79,10 @@ function frame(now) {
     const dt = Math.min(0.05, (now - state.lastTime) / 1000 || 0);
     state.lastTime = now;
 
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const dpr = vw > 0 ? canvas.width / vw : 1;
+
     const paused = ui.isPaused();
     if (!paused && !state.dead) {
         state.player.update(dt, state.input);
@@ -82,17 +91,32 @@ function frame(now) {
 
     // Камера следует за игроком (сглаживание).
     const tx = state.player.x;
-    const ty = state.player.y - canvas.height * 0.08;
+    const ty = state.player.y - vh * 0.08;
     state.camera.x += (tx - state.camera.x) * CAMERA_LERP;
     state.camera.y += (ty - state.camera.y) * CAMERA_LERP;
 
-    drawSky(ctx, canvas.width, canvas.height, state.pkg.sky, state.camera, now);
-    drawFarRelief(ctx, state.world, state.camera, canvas.width, canvas.height);
-    drawTerrain(ctx, state.world, state.camera, canvas.width, canvas.height);
-    drawDecor(ctx, state.world, state.camera, canvas.width, canvas.height);
-    drawCreatures(ctx, state.world, state.camera, canvas.width, canvas.height, state.player, now);
-    drawPlayer(ctx, state.player, state.camera, canvas.width, canvas.height, now);
-    drawWeather(ctx, state.weather, canvas.width, canvas.height, now);
+    // Базовый масштаб CSS→device (DPR) + сглаживание кэшированных чанков при
+    // апскейле зума (мягкость умеренная, см. отчёт).
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+
+    drawSky(ctx, vw, vh, state.pkg.sky, state.camera, now);
+
+    // Мир и игрок — под общим визуальным масштабом (идея 2026-09-22 §8.2):
+    // translate → scale → translate вокруг центра экрана. Физика не затронута.
+    ctx.save();
+    ctx.translate(vw / 2, vh / 2);
+    ctx.scale(ZOOM, ZOOM);
+    ctx.translate(-vw / 2, -vh / 2);
+    drawFarRelief(ctx, state.world, state.camera, vw, vh);
+    drawTerrain(ctx, state.world, state.camera, vw, vh);
+    drawDecor(ctx, state.world, state.camera, vw, vh);
+    drawCreatures(ctx, state.world, state.camera, vw, vh, state.player, now);
+    drawPlayer(ctx, state.player, state.camera, vw, vh, now);
+    ctx.restore();
+
+    drawWeather(ctx, state.weather, vw, vh, now);
 
     const hp = serverHp(state.pkg, Date.now());
     const weatherLabel = state.weather

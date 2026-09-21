@@ -2,30 +2,56 @@
 // Отрисовка прогулки (спека 2026-09-21 §7.2): параллакс-небо (только из sky
 // пакета), дальний рельеф, основной рельеф/пещеры (чанки кэшируются), декор,
 // жизнь, игрок, частицы погоды, HUD (в surface_ui.js). Canvas 2D.
-import { CHUNK, CHUNK_RADIUS, COLORS, FLOAT_SPAN } from './surface_config.js';
+import { CHUNK, CHUNK_RADIUS, COLORS, FLOAT_SPAN, ZOOM } from './surface_config.js';
 import { shade, rgba } from './surface_world.js';
+import { planetTexture } from './surface_net.js';
 
 // 700 (не 620): полоса парящих камней (FLOAT_SPAN над рельефом) при высоких
 // горах вылезала за верх канваса чанка (вулканизм — на ~17 px, §4 п.4).
 const CHUNK_TOP_MARGIN = 700;
 const CHUNK_HEIGHT = 1700;
 
+// Суперсэмплинг растра чанка под зум (идея 2026-09-22 §8.2): рендер в
+// повышенном разрешении, отрисовка — в логическом размере. Иначе 1:1-растр
+// растягивается зумом (×ZOOM·DPR) и рельеф блочный. Множитель ЦЕЛЫЙ (≈ZOOM·DPR):
+// при дробном соседние 1-px колонки дают AA-стыки (source-over не суммирует
+// полупрозрачные кромки до 1) — по рельефу проступает частая сетка. Потолок
+// CHUNK_SS_MAX — память растёт как SS² (компромисс память↔резкость, см. отчёт).
+const CHUNK_SS_MAX = 2;
+
+function chunkSupersample() {
+    const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+    return Math.max(1, Math.min(CHUNK_SS_MAX, Math.round(ZOOM * dpr)));
+}
+
 // getChunkCanvas — лениво отрисованный чанк (кэш). Рельеф + пещеры.
 export function getChunkCanvas(world, index) {
-    if (!world._chunkCache) world._chunkCache = new Map();
+    const ss = chunkSupersample();
+    // Смена DPR/зума → растр чанка в прежнем разрешении невалиден: сброс кэша.
+    if (!world._chunkCache || world._chunkSS !== ss) {
+        world._chunkCache = new Map();
+        world._chunkSS = ss;
+    }
     const cached = world._chunkCache.get(index);
     if (cached) return cached;
 
     const canvas = document.createElement('canvas');
-    canvas.width = CHUNK;
-    canvas.height = CHUNK_HEIGHT;
+    // +1 колонка (CHUNK..CHUNK+1): реальные данные следующей мировой колонки —
+    // перекрывает 1-px шов на стыке чанков при апскейле зума (билинейная выборка
+    // края канваса иначе даёт полупрозрачную полосу). Растр — в SS раз больше
+    // логического размера; рисование идёт в логических координатах.
+    canvas.width = Math.round((CHUNK + 1) * ss);
+    canvas.height = Math.round(CHUNK_HEIGHT * ss);
     const ctx = canvas.getContext('2d');
+    // Точные коэффициенты (с учётом округления) — растр покрыт целиком, без
+    // прозрачной кромки (иначе вернулся бы шов).
+    ctx.scale(canvas.width / (CHUNK + 1), canvas.height / CHUNK_HEIGHT);
     const topY = world.baseY - CHUNK_TOP_MARGIN;
     const baseX = index * CHUNK;
     const rock = shade(world.color, 0.62);
 
     ctx.fillStyle = rock;
-    for (let lx = 0; lx < CHUNK; lx++) {
+    for (let lx = 0; lx <= CHUNK; lx++) {
         const wx = baseX + lx;
         const th = world.terrainHeight(wx);
         const y0 = Math.floor(th - topY);
@@ -64,11 +90,11 @@ export function getChunkCanvas(world, index) {
     grad.addColorStop(0, 'rgba(0,0,0,0)');
     grad.addColorStop(1, 'rgba(0,0,0,0.72)');
     ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, CHUNK, CHUNK_HEIGHT);
+    ctx.fillRect(0, 0, CHUNK + 1, CHUNK_HEIGHT);
 
     // Кромка поверхности — светлее.
     ctx.fillStyle = shade(world.color, 1.15);
-    for (let lx = 0; lx < CHUNK; lx++) {
+    for (let lx = 0; lx <= CHUNK; lx++) {
         const wx = baseX + lx;
         const ly = Math.floor(world.terrainHeight(wx) - topY);
         if (ly >= 0 && ly < CHUNK_HEIGHT) ctx.fillRect(lx, ly, 1, 2);
@@ -77,6 +103,20 @@ export function getChunkCanvas(world, index) {
     const result = { canvas, topY };
     world._chunkCache.set(index, result);
     return result;
+}
+
+// Текстуры тел неба (идея 2026-09-22 §8.4): planet_id → HTMLImageElement.
+// Грузится один раз на id (авторизованный /api/planet-image, surface_net.js);
+// пока грузится/при ошибке (401, нет картинки) — фолбэк-диск. Спутники и
+// компаньоны id не имеют — всегда диск.
+const skyTextures = new Map();
+
+function skyBodyTexture(planetId) {
+    if (!planetId) return null;
+    if (skyTextures.has(planetId)) return skyTextures.get(planetId);
+    skyTextures.set(planetId, null);
+    planetTexture(planetId).then((img) => { if (img) skyTextures.set(planetId, img); });
+    return null;
 }
 
 // drawSky — параллакс-небо из пакета (§7.1, В2): светило + тела системы.
@@ -89,37 +129,50 @@ export function drawSky(ctx, vw, vh, sky, camera, timeMs) {
 
     if (!sky) return;
     const star = sky.star || {};
-    // Светило: слабый параллакс (0.05) + ореол.
+    // Светило: слабый параллакс (0.05) + приглушённый ореол (идея §8.4).
     const sx = vw * 0.72 - camera.x * 0.05;
     const sy = vh * 0.20 - camera.y * 0.03;
-    const r = Math.max(28, vh * 0.06);
-    const halo = ctx.createRadialGradient(sx, sy, r * 0.2, sx, sy, r * 2.4);
+    const r = Math.max(16, vh * 0.04);
+    const halo = ctx.createRadialGradient(sx, sy, r * 0.2, sx, sy, r * 1.9);
     halo.addColorStop(0, star.color || '#ffd700');
-    halo.addColorStop(0.35, rgba(star.color || '#ffd700', 0.35));
+    halo.addColorStop(0.4, rgba(star.color || '#ffd700', 0.16));
     halo.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = halo;
     ctx.beginPath();
-    ctx.arc(sx, sy, r * 2.4, 0, Math.PI * 2);
+    ctx.arc(sx, sy, r * 1.9, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = star.color || '#ffd700';
     ctx.beginPath();
     ctx.arc(sx, sy, r, 0, Math.PI * 2);
     ctx.fill();
 
-    // Тела системы: параллакс 0.12–0.3, высота height из пакета.
+    // Тела системы: параллакс 0.10–0.26, высота height из пакета. Мельче и
+    // тусклее прежнего, разнесены по высоте (идея §8.4 — «не навязчивые»).
     (sky.bodies || []).forEach((b, i) => {
         const depth = 0.10 + 0.16 * (i / Math.max(1, sky.bodies.length - 1 || 1));
         const bx = vw * 0.5 + (i - 1) * vw * 0.22 - camera.x * depth;
-        const by = vh * (0.10 + 0.5 * (b.height || 0.3)) - camera.y * 0.04;
-        const size = Math.max(6, vh * 0.05 * (b.size_hint || 0.3) * 3);
-        const g = ctx.createRadialGradient(bx - size * 0.3, by - size * 0.3, size * 0.1, bx, by, size);
-        g.addColorStop(0, '#ffffff');
-        g.addColorStop(0.25, b.color || '#8a7a6a');
-        g.addColorStop(1, shade(b.color || '#8a7a6a', 0.35));
-        ctx.fillStyle = g;
-        ctx.beginPath();
-        ctx.arc(bx, by, size, 0, Math.PI * 2);
-        ctx.fill();
+        const by = vh * (0.06 + 0.6 * (b.height || 0.3)) - camera.y * 0.04;
+        const size = Math.max(4, Math.min(vh * 0.06, vh * 0.03 * (b.size_hint || 0.3) * 2.4));
+        ctx.save();
+        ctx.globalAlpha = 0.55;
+        const img = b.planet_id ? skyBodyTexture(b.planet_id) : null;
+        if (img) {
+            // Реальная текстура планеты, вписана в круг.
+            ctx.beginPath();
+            ctx.arc(bx, by, size, 0, Math.PI * 2);
+            ctx.clip();
+            ctx.drawImage(img, bx - size, by - size, size * 2, size * 2);
+        } else {
+            const g = ctx.createRadialGradient(bx - size * 0.3, by - size * 0.3, size * 0.1, bx, by, size);
+            g.addColorStop(0, '#ffffff');
+            g.addColorStop(0.25, b.color || '#8a7a6a');
+            g.addColorStop(1, shade(b.color || '#8a7a6a', 0.35));
+            ctx.fillStyle = g;
+            ctx.beginPath();
+            ctx.arc(bx, by, size, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.restore();
     });
 }
 
@@ -158,14 +211,25 @@ export function drawFarRelief(ctx, world, camera, vw, vh) {
     ctx.fill();
 }
 
+// viewChunkRadius — сколько чанков влево/вправо покрывает экран при масштабе
+// ZOOM: видимая ширина мира = vw / ZOOM. Не константа CHUNK_RADIUS (идея
+// 2026-09-22 §8.3): иначе на широких экранах за краями чанков земли нет, а
+// декор есть — деревья висят в пустоте. CHUNK_RADIUS остаётся нижней границей
+// (в памяти ±3 чанка, §7.2).
+function viewChunkRadius(vw) {
+    return Math.max(CHUNK_RADIUS, Math.ceil(vw / (2 * ZOOM) / CHUNK) + 1);
+}
+
 // drawTerrain — основной рельеф из кэшированных чанков.
 export function drawTerrain(ctx, world, camera, vw, vh) {
     const centerChunk = Math.floor(camera.x / CHUNK);
-    for (let i = centerChunk - CHUNK_RADIUS; i <= centerChunk + CHUNK_RADIUS; i++) {
+    const radius = viewChunkRadius(vw);
+    for (let i = centerChunk - radius; i <= centerChunk + radius; i++) {
         const { canvas, topY } = getChunkCanvas(world, i);
         const sx = i * CHUNK - camera.x + vw / 2;
         const sy = topY - camera.y + vh / 2;
-        ctx.drawImage(canvas, sx, sy);
+        // Растр чанка суперсэмплен — рисуем в логическом размере: апскейла нет.
+        ctx.drawImage(canvas, sx, sy, CHUNK + 1, CHUNK_HEIGHT);
     }
 }
 
@@ -244,7 +308,8 @@ export function drawDecor(ctx, world, camera, vw, vh) {
 // drawCreatures — животные (не бой, §7.3): пасётся/убегает/подходит/стайка/детёныш.
 export function drawCreatures(ctx, world, camera, vw, vh, player, timeMs) {
     const centerChunk = Math.floor(camera.x / CHUNK);
-    for (let i = centerChunk - CHUNK_RADIUS; i <= centerChunk + CHUNK_RADIUS; i++) {
+    const radius = viewChunkRadius(vw);
+    for (let i = centerChunk - radius; i <= centerChunk + radius; i++) {
         for (const c of world.creaturesFor(i)) {
             let x = c.x;
             let flip = 1;

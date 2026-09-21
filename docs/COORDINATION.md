@@ -53,7 +53,6 @@
 
 | Файл | Кто правит | До какого коммита |
 |---|---|---|
-| `migrations/000061_money.sql` (новый), `internal/models/account.go` (новый), `internal/repository/account_repository.go` (+_test, новый), `internal/repository/user_repository.go` (+_test), `internal/handlers/money_handlers.go` (+_test, новый), `internal/handlers/auth_handlers.go` (+_test), `cmd/server/main.go` (блок денег: repo+роут), `docs/DB.md`, `docs/ARCHITECTURE.md`, `docs/PITFALLS.md` | @developer (этап A «деньги/счёт» эпика «Контракты + деньги», спека 2026-09-22-деньги-и-эскроу) | до коммита задачи |
 
 ## Занято ранее (историческое, не блокирует — чистится @manager по мере надобности)
 

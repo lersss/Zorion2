@@ -9,11 +9,13 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"zorion/cmd/art-studio/config"
+	"zorion/cmd/art-studio/generator"
 )
 
 // newShipsTestStudio — Server с подключёнными конфигами кораблей.
@@ -286,17 +288,6 @@ func TestShipsAct(t *testing.T) {
 	}
 }
 
-// TestRotateDegClockwise — rotateDeg(+90) = по часовой: метка «верх» уходит
-// вправо (конвенция «⟳ = плюс»), слева — вниз.
-func TestRotateDegClockwise(t *testing.T) {
-	src := image.NewNRGBA(image.Rect(0, 0, 3, 3))
-	src.Set(1, 0, color.NRGBA{R: 255, A: 255}) // верх-центр — красный
-	src.Set(1, 1, color.NRGBA{A: 255})         // центр
-	out := rotateDeg(src, 90)
-	// холст-диагональ ceil(hypot(3,3)) = 5, центр (2,2); верх → право
-	checkRGB(t, out, 3, 2, 255, 0, 0)
-}
-
 // TestRefitShipFillsLongSide — «вписать в кадр»: bbox обрезан и вписан
 // длинной стороной в 200 (как у эталонных спрайтов), прозрачный фон,
 // центрирование.
@@ -352,124 +343,321 @@ func writePoolShip(t *testing.T, pool, name string) string {
 	return p
 }
 
-// TestShipsActFlipH — /ships/act?what=flipH: зеркало + ре-нормализация
-// (красный уходит вправо, синий — влево; кадр 200×200, полный).
-func TestShipsActFlipH(t *testing.T) {
-	srv, _, pool := newShipsTestStudio(t)
-	p := writePoolShip(t, pool, "s01.png")
-	srv.Handler().ServeHTTP(httptest.NewRecorder(),
-		httptest.NewRequest("GET", "/ships/act?file=s01.png&what=flipH", nil))
-	img := loadPNG(t, p)
-	if img.Bounds().Dx() != 200 || img.Bounds().Dy() != 200 {
-		t.Fatalf("flipH размер = %v, want 200×200", img.Bounds())
-	}
-	checkRGB(t, img, 5, 100, 0, 0, 255)   // левый — синий
-	checkRGB(t, img, 194, 100, 255, 0, 0) // правый — красный
-}
-
-// TestShipsActRotateOps — /ships/act?what=rot90|rot180|rotate&angle=|fit:
-// файл перезаписывается на месте, после ре-нормализации кадр 200×200.
-func TestShipsActRotateOps(t *testing.T) {
-	for _, c := range []struct{ what, q string }{
-		{"rot90", ""}, {"rot180", ""}, {"rotate", "&angle=30"}, {"fit", ""},
-	} {
-		srv, _, pool := newShipsTestStudio(t)
-		p := writePoolShip(t, pool, "s01.png")
-		rec := httptest.NewRecorder()
-		srv.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/ships/act?file=s01.png&what="+c.what+c.q, nil))
-		var resp struct {
-			Msg string `json:"msg"`
-		}
-		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-			t.Fatalf("%s json: %v", c.what, err)
-		}
-		if strings.Contains(resp.Msg, "Ошибка") || resp.Msg == "?" {
-			t.Errorf("%s msg = %q", c.what, resp.Msg)
-		}
-		img := loadPNG(t, p)
-		if img.Bounds().Dx() != 200 || img.Bounds().Dy() != 200 {
-			t.Errorf("%s размер = %v, want 200×200", c.what, img.Bounds())
-		}
-	}
-	// отсутствующий файл — сообщение без правки
-	srv, _, _ := newShipsTestStudio(t)
-	rec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/ships/act?file=nope.png&what=rotate&angle=45", nil))
-	if !strings.Contains(rec.Body.String(), "?") {
-		t.Errorf("msg для отсутствующего файла = %s", rec.Body.String())
+// writeShipPoolMeta — meta.json пула кораблей с одной записью (кандидат sNN).
+// Нужна действиям ориентации: они пишут пару (A, F) в мету (спека §4.1).
+func writeShipPoolMeta(t *testing.T, poolDir, file string) {
+	t.Helper()
+	meta := `[{"file":"` + file + `","race":"humans","race_name":"Люди","seed":1,"texture":"t","prompt1":"p1","prompt2":"p2"}]`
+	if err := os.WriteFile(filepath.Join(poolDir, "meta.json"), []byte(meta), 0o644); err != nil {
+		t.Fatalf("WriteFile meta: %v", err)
 	}
 }
 
-// TestShipsPreview — /ships/preview: PNG 200×200, файл пула не меняется
-// (живой предпросмотр слайдера — только чтение).
-func TestShipsPreview(t *testing.T) {
+// TestShipsActOrientDoesNotTouchPixels — действия ориентации пишут пару (A, F)
+// в мету пула и НЕ трогают пиксели файла (спека §4.1, §9 п.1): sha256 кандидата
+// до == после для rotate/rot90/rot180/flipH.
+func TestShipsActOrientDoesNotTouchPixels(t *testing.T) {
 	srv, _, pool := newShipsTestStudio(t)
+	poolDir := filepath.Join(pool, "ships_pool")
 	p := writePoolShip(t, pool, "s01.png")
+	writeShipPoolMeta(t, poolDir, "s01.png")
 	before, err := os.ReadFile(p)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
-	rec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/ships/preview?file=s01.png&angle=30", nil))
-	if rec.Code != 200 {
-		t.Fatalf("code = %d", rec.Code)
+	for _, u := range []string{
+		"/ships/act?file=s01.png&what=rotate&angle=37",
+		"/ships/act?file=s01.png&what=rot90",
+		"/ships/act?file=s01.png&what=rot180",
+		"/ships/act?file=s01.png&what=flipH",
+	} {
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, httptest.NewRequest("GET", u, nil))
+		if !strings.Contains(rec.Body.String(), "s01.png") {
+			t.Errorf("%s: ответ без имени файла: %s", u, rec.Body.String())
+		}
 	}
-	if ct := rec.Header().Get("Content-Type"); ct != "image/png" {
-		t.Errorf("Content-Type = %q", ct)
-	}
-	img, err := png.Decode(bytes.NewReader(rec.Body.Bytes()))
+	after, err := os.ReadFile(p)
 	if err != nil {
-		t.Fatalf("Decode: %v", err)
+		t.Fatalf("ReadFile: %v", err)
 	}
-	if img.Bounds().Dx() != 200 || img.Bounds().Dy() != 200 {
-		t.Errorf("размер = %v, want 200×200", img.Bounds())
-	}
-	after, _ := os.ReadFile(p)
 	if !bytes.Equal(before, after) {
-		t.Errorf("превью изменило файл пула")
+		t.Errorf("действия ориентации изменили пиксели файла")
+	}
+	// итоговая пара: (0,false)+37 → +90 → +180 → flipH: (53, true)
+	a, f, ok := generator.ShipOrientOf(poolDir, "s01.png")
+	if !ok || a != 53 || !f {
+		t.Errorf("пара = (%v,%v), want (53,true)", a, f)
 	}
 }
 
-// TestShipsAuto — /ships/auto: подсказка носа из Python-отчёта; угол
-// инвертируется в конвенцию «по часовой» (−12.5), зеркало пробрасывается.
-func TestShipsAuto(t *testing.T) {
+// TestShipsActFlipAccumulation — накопление пары с wrap (§3.1, §9 п.2):
+// (0,false) → rotate(+30) → flipH = (−30, true); продолжение rotate(+60) =
+// (+30, true) — после зеркала угол накапливается в новом знаке; rotate(+200)
+// из (0,false) = −160.
+func TestShipsActFlipAccumulation(t *testing.T) {
+	srv, _, pool := newShipsTestStudio(t)
+	poolDir := filepath.Join(pool, "ships_pool")
+	writePoolShip(t, pool, "s01.png")
+	writeShipPoolMeta(t, poolDir, "s01.png")
+	act := func(u string) {
+		t.Helper()
+		srv.Handler().ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", u, nil))
+	}
+	act("/ships/act?file=s01.png&what=rotate&angle=30")
+	act("/ships/act?file=s01.png&what=flipH")
+	if a, f, _ := generator.ShipOrientOf(poolDir, "s01.png"); a != -30 || !f {
+		t.Errorf("rotate(+30)+flipH = (%v,%v), want (-30,true)", a, f)
+	}
+	act("/ships/act?file=s01.png&what=rotate&angle=60")
+	if a, f, _ := generator.ShipOrientOf(poolDir, "s01.png"); a != 30 || !f {
+		t.Errorf("rotate(+60) после зеркала = (%v,%v), want (30,true)", a, f)
+	}
+	// wrap: отдельный кандидат с пары (0,false)
+	srv2, _, pool2 := newShipsTestStudio(t)
+	poolDir2 := filepath.Join(pool2, "ships_pool")
+	writePoolShip(t, pool2, "s01.png")
+	writeShipPoolMeta(t, poolDir2, "s01.png")
+	srv2.Handler().ServeHTTP(httptest.NewRecorder(),
+		httptest.NewRequest("GET", "/ships/act?file=s01.png&what=rotate&angle=200", nil))
+	if a, f, _ := generator.ShipOrientOf(poolDir2, "s01.png"); a != -160 || f {
+		t.Errorf("rotate(+200) = (%v,%v), want (-160,false)", a, f)
+	}
+}
+
+// TestShipsActSetAngle — what=setangle абсолютный (−180 → 180 по конвенции
+// (−180,180], §3.1), зеркало сохраняется.
+func TestShipsActSetAngle(t *testing.T) {
+	srv, _, pool := newShipsTestStudio(t)
+	poolDir := filepath.Join(pool, "ships_pool")
+	writePoolShip(t, pool, "s01.png")
+	writeShipPoolMeta(t, poolDir, "s01.png")
+	srv.Handler().ServeHTTP(httptest.NewRecorder(),
+		httptest.NewRequest("GET", "/ships/act?file=s01.png&what=setangle&angle=-180", nil))
+	if a, _, _ := generator.ShipOrientOf(poolDir, "s01.png"); a != 180 {
+		t.Errorf("setangle -180 → %v, want 180", a)
+	}
+	srv.Handler().ServeHTTP(httptest.NewRecorder(),
+		httptest.NewRequest("GET", "/ships/act?file=s01.png&what=flipH", nil))
+	srv.Handler().ServeHTTP(httptest.NewRecorder(),
+		httptest.NewRequest("GET", "/ships/act?file=s01.png&what=setangle&angle=25", nil))
+	if a, f, _ := generator.ShipOrientOf(poolDir, "s01.png"); a != 25 || !f {
+		t.Errorf("setangle 25 после flipH = (%v,%v), want (25,true)", a, f)
+	}
+}
+
+// TestShipsActAutoAppliesHint — what=auto пишет пару по подсказке (§3.3),
+// идемпотентен; GET /ships/auto отдаёт ту же пару (§9 п.3).
+func TestShipsActAutoAppliesHint(t *testing.T) {
+	for _, c := range []struct {
+		name      string
+		angle     float64
+		mirror    bool
+		ambiguous bool
+		wantA     float64
+		wantF     bool
+	}{
+		{"v_gt1_no_mirror", 12.5, false, false, -12.5, false},
+		{"v_gt1_mirror", 12.5, true, false, 12.5, true},
+		{"v_le1_no_mirror", 0.5, false, false, 0, false},
+		{"v_le1_mirror", 0.5, true, false, 0, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			srv, _, pool := newShipsTestStudio(t)
+			poolDir := filepath.Join(pool, "ships_pool")
+			os.MkdirAll(poolDir, 0755)
+			if err := os.WriteFile(filepath.Join(poolDir, "s01.png"), tinyPNG(t), 0o644); err != nil {
+				t.Fatalf("WriteFile s01: %v", err)
+			}
+			writeShipPoolMeta(t, poolDir, "s01.png")
+			srv.cfg.PythonCmd = writeOrientFake(t, c.angle, c.mirror, c.ambiguous)
+			srv.Handler().ServeHTTP(httptest.NewRecorder(),
+				httptest.NewRequest("GET", "/ships/act?file=s01.png&what=auto", nil))
+			a, f, ok := generator.ShipOrientOf(poolDir, "s01.png")
+			if !ok || a != c.wantA || f != c.wantF {
+				t.Fatalf("what=auto пара = (%v,%v), want (%v,%v)", a, f, c.wantA, c.wantF)
+			}
+			// идемпотентность: повторный auto даёт ту же пару
+			srv.Handler().ServeHTTP(httptest.NewRecorder(),
+				httptest.NewRequest("GET", "/ships/act?file=s01.png&what=auto", nil))
+			if a2, f2, _ := generator.ShipOrientOf(poolDir, "s01.png"); a2 != a || f2 != f {
+				t.Errorf("auto не идемпотентен: (%v,%v) → (%v,%v)", a, f, a2, f2)
+			}
+			// GET /ships/auto отдаёт ту же пару
+			rec := httptest.NewRecorder()
+			srv.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/ships/auto?file=s01.png", nil))
+			var resp struct {
+				Angle float64 `json:"angle"`
+				Flip  bool    `json:"flip"`
+				Error string  `json:"error"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("json: %v (%s)", err, rec.Body.String())
+			}
+			if resp.Error != "" {
+				t.Fatalf("error: %s", resp.Error)
+			}
+			if resp.Angle != a || resp.Flip != f {
+				t.Errorf("/ships/auto = (%v,%v), want (%v,%v)", resp.Angle, resp.Flip, a, f)
+			}
+		})
+	}
+}
+
+// writeOrientFake — фейковый python, отдающий отчёт profile_orientation
+// (--orient-only --report <json>) с заданными angle/mirror/ambiguous.
+func writeOrientFake(t *testing.T, angle float64, mirror, ambiguous bool) string {
+	t.Helper()
+	fp := filepath.Join(t.TempDir(), "fake_orient.cmd")
+	body := "@echo off\r\n" +
+		"echo {\"orient\": {\"angle\": " + strconv.FormatFloat(angle, 'g', -1, 64) +
+		", \"mirror\": " + strconv.FormatBool(mirror) +
+		", \"ambiguous\": " + strconv.FormatBool(ambiguous) +
+		", \"reason\": \"sharpness\"}}> \"%5\"\r\n" +
+		"exit /b 0\r\n"
+	if err := os.WriteFile(fp, []byte(body), 0o644); err != nil {
+		t.Fatalf("WriteFile fake: %v", err)
+	}
+	return fp
+}
+
+// TestShipsAcceptKeepsPixels — приёмка копирует файл байт-в-байт (действия
+// ориентации его не тронули), пишет пару/дату и маркер orient_meta (§4.4, §9 п.4).
+func TestShipsAcceptKeepsPixels(t *testing.T) {
+	srv, _, pool := newShipsTestStudio(t)
+	poolDir := filepath.Join(pool, "ships_pool")
+	p := writePoolShip(t, pool, "s01.png")
+	writeShipPoolMeta(t, poolDir, "s01.png")
+	srv.Handler().ServeHTTP(httptest.NewRecorder(),
+		httptest.NewRequest("GET", "/ships/act?file=s01.png&what=rotate&angle=37", nil))
+	srv.Handler().ServeHTTP(httptest.NewRecorder(),
+		httptest.NewRequest("GET", "/ships/act?file=s01.png&what=flipH", nil))
+	cand, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatalf("ReadFile кандидата: %v", err)
+	}
+	srv.Handler().ServeHTTP(httptest.NewRecorder(),
+		httptest.NewRequest("GET", "/ships/act?file=s01.png&what=accept", nil))
+	accDir := filepath.Join(pool, "final_accepted", "ships")
+	accepted, err := os.ReadFile(filepath.Join(accDir, "race_humans_01.png"))
+	if err != nil {
+		t.Fatalf("ReadFile принятого: %v", err)
+	}
+	if !bytes.Equal(cand, accepted) {
+		t.Errorf("принятый файл != кандидат (пиксели изменились)")
+	}
+	sm, err := os.ReadFile(filepath.Join(accDir, "ships_meta.json"))
+	if err != nil {
+		t.Fatalf("ReadFile ships_meta: %v", err)
+	}
+	var items []struct {
+		Angle      float64 `json:"angle"`
+		Flip       bool    `json:"flip"`
+		Date       string  `json:"date"`
+		OrientMeta bool    `json:"orient_meta"`
+	}
+	if err := json.Unmarshal(sm, &items); err != nil {
+		t.Fatalf("json: %v", err)
+	}
+	if len(items) != 1 || items[0].Angle != -37 || !items[0].Flip || items[0].Date == "" || !items[0].OrientMeta {
+		t.Errorf("запись = %+v, want angle -37, flip true, date, orient_meta true", items)
+	}
+	if _, err := os.Stat(p); err == nil {
+		t.Errorf("кандидат остался в пуле")
+	}
+}
+
+// TestShipsAcceptRejectsSketch — эскиз (size: 100) не принимается: сообщение
+// без создания файла (§4.4, §9 п.5).
+func TestShipsAcceptRejectsSketch(t *testing.T) {
 	srv, _, pool := newShipsTestStudio(t)
 	poolDir := filepath.Join(pool, "ships_pool")
 	os.MkdirAll(poolDir, 0755)
 	if err := os.WriteFile(filepath.Join(poolDir, "s01.png"), tinyPNG(t), 0o644); err != nil {
 		t.Fatalf("WriteFile s01: %v", err)
 	}
-	fake := filepath.Join(t.TempDir(), "fake_orient.cmd")
-	body := "@echo off\r\n" +
-		"echo {\"orient\": {\"angle\": 12.5, \"mirror\": true, \"ambiguous\": false, \"reason\": \"sharpness\"}}> \"%5\"\r\n" +
-		"exit /b 0\r\n"
-	if err := os.WriteFile(fake, []byte(body), 0o644); err != nil {
-		t.Fatalf("WriteFile fake: %v", err)
+	meta := `[{"file":"s01.png","race":"humans","race_name":"Люди","seed":1,"size":100}]`
+	if err := os.WriteFile(filepath.Join(poolDir, "meta.json"), []byte(meta), 0o644); err != nil {
+		t.Fatalf("WriteFile meta: %v", err)
 	}
-	srv.cfg.PythonCmd = fake
 	rec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/ships/auto?file=s01.png", nil))
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/ships/act?file=s01.png&what=accept", nil))
 	var resp struct {
-		Angle     float64 `json:"angle"`
-		Mirror    bool    `json:"mirror"`
-		Ambiguous bool    `json:"ambiguous"`
-		Reason    string  `json:"reason"`
-		Error     string  `json:"error"`
+		Msg string `json:"msg"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("json: %v (%s)", err, rec.Body.String())
+		t.Fatalf("json: %v", err)
 	}
-	if resp.Error != "" {
-		t.Fatalf("error: %s", resp.Error)
+	if !strings.Contains(resp.Msg, "эскиз") {
+		t.Errorf("msg = %q, want про эскиз", resp.Msg)
 	}
-	if resp.Angle != -12.5 {
-		t.Errorf("angle = %v, want -12.5 (по часовой)", resp.Angle)
+	if _, err := os.Stat(filepath.Join(pool, "final_accepted", "ships", "race_humans_01.png")); err == nil {
+		t.Errorf("эскиз принят — файл создан")
 	}
-	if !resp.Mirror {
-		t.Errorf("mirror = false, want true")
+}
+
+// TestShipsFitStillNormalizes — what=fit (единственное действие, перезаписывающее
+// файл): crop по bbox + вписывание в 200×200, длинная сторона = 200 (§9 п.6).
+func TestShipsFitStillNormalizes(t *testing.T) {
+	srv, _, pool := newShipsTestStudio(t)
+	p := writePoolShip(t, pool, "s01.png")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/ships/act?file=s01.png&what=fit", nil))
+	var resp struct {
+		Msg string `json:"msg"`
 	}
-	if resp.Reason != "sharpness" {
-		t.Errorf("reason = %q", resp.Reason)
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("json: %v", err)
+	}
+	if strings.Contains(resp.Msg, "Ошибка") || resp.Msg == "?" {
+		t.Errorf("msg = %q", resp.Msg)
+	}
+	img := loadPNG(t, p)
+	if img.Bounds().Dx() != 200 || img.Bounds().Dy() != 200 {
+		t.Fatalf("размер = %v, want 200×200", img.Bounds())
+	}
+	if bb := alphaBounds(img); bb.Dx() != 200 {
+		t.Errorf("bbox ширина = %d, want 200 (длинная сторона)", bb.Dx())
+	}
+}
+
+// TestShipsListCarriesOrient — GET /ships/list несёт пару (A, F) для превью
+// пула (§4.2, §9 п.16).
+func TestShipsListCarriesOrient(t *testing.T) {
+	srv, _, pool := newShipsTestStudio(t)
+	poolDir := filepath.Join(pool, "ships_pool")
+	writePoolShip(t, pool, "s01.png")
+	writeShipPoolMeta(t, poolDir, "s01.png")
+	srv.Handler().ServeHTTP(httptest.NewRecorder(),
+		httptest.NewRequest("GET", "/ships/act?file=s01.png&what=rotate&angle=37", nil))
+	srv.Handler().ServeHTTP(httptest.NewRecorder(),
+		httptest.NewRequest("GET", "/ships/act?file=s01.png&what=flipH", nil))
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/ships/list", nil))
+	var items []struct {
+		File  string  `json:"file"`
+		Angle float64 `json:"angle"`
+		Flip  bool    `json:"flip"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &items); err != nil {
+		t.Fatalf("json: %v", err)
+	}
+	if len(items) != 1 || items[0].File != "s01.png" {
+		t.Fatalf("items = %+v, want 1×s01.png", items)
+	}
+	if items[0].Angle != -37 || !items[0].Flip {
+		t.Errorf("пара = (%v,%v), want (-37,true)", items[0].Angle, items[0].Flip)
+	}
+}
+
+// TestShipsPreviewGone — роут /ships/preview удалён (предпросмотр — CSS, §4.5).
+func TestShipsPreviewGone(t *testing.T) {
+	srv, _, pool := newShipsTestStudio(t)
+	writePoolShip(t, pool, "s01.png")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/ships/preview?file=s01.png&angle=30", nil))
+	if rec.Code != 404 {
+		t.Errorf("code = %d, want 404 (роут удалён)", rec.Code)
 	}
 }
 
@@ -643,24 +831,6 @@ func loadPNG(t *testing.T, path string) image.Image {
 		t.Fatalf("Decode %s: %v", path, err)
 	}
 	return img
-}
-
-// checkRGB — пиксель (x,y) равен (r,g,b) с допуском 2 (конверсия цветов).
-func checkRGB(t *testing.T, img image.Image, x, y int, r, g, b uint8) {
-	t.Helper()
-	cr, cg, cb, _ := img.At(x, y).RGBA()
-	got := [3]uint8{uint8(cr >> 8), uint8(cg >> 8), uint8(cb >> 8)}
-	want := [3]uint8{r, g, b}
-	for i := range got {
-		d := int(got[i]) - int(want[i])
-		if d < 0 {
-			d = -d
-		}
-		if d > 2 {
-			t.Errorf("пиксель(%d,%d) = %v, want %v", x, y, got, want)
-			return
-		}
-	}
 }
 
 // TestShipsGenParams — /ships/gen: tags/override/size доходят до генерации

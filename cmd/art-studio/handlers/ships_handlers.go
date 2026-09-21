@@ -159,8 +159,22 @@ func (s *Server) handleShipsVote(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]string{"msg": msg})
 }
 
-// handleShipsList — GET /ships/list → [{file, race, race_name, num}]:
-// кандидаты пула (спека §6.2).
+// shipListItem — запись GET /ships/list: кандидат пула + текущая пара (A, F).
+// Студия строит из пары CSS-трансформ превью (спека 2026-09-21 §4.2): без неё
+// сетка и миниатюры пула показывали бы недовёрнутую картинку.
+type shipListItem struct {
+	File     string  `json:"file"`
+	Race     string  `json:"race"`
+	RaceName string  `json:"race_name"`
+	Num      string  `json:"num"`
+	Labels   string  `json:"labels"`
+	Vote     string  `json:"vote"`
+	Angle    float64 `json:"angle"`
+	Flip     bool    `json:"flip"`
+}
+
+// handleShipsList — GET /ships/list → [{file, race, race_name, num, labels,
+// vote, angle, flip}]: кандидаты пула (спека §6.2 + пара (A, F), §4.2).
 func (s *Server) handleShipsList(w http.ResponseWriter, r *http.Request) {
 	pool := filepath.Join(s.cfg.PoolRoot, "ships_pool")
 	byFile := map[string]generator.ShipMetaItem{}
@@ -177,14 +191,15 @@ func (s *Server) handleShipsList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sort.Strings(files)
-	out := []map[string]string{}
+	out := []shipListItem{}
 	for _, name := range files {
 		m := byFile[name]
-		out = append(out, map[string]string{
-			"file": name, "race": m.Race, "race_name": m.RaceName,
-			"num":    strings.TrimSuffix(strings.TrimPrefix(name, "s"), ".png"),
-			"labels": strings.Join(m.Labels, ", "),
-			"vote":   m.Vote,
+		out = append(out, shipListItem{
+			File: name, Race: m.Race, RaceName: m.RaceName,
+			Num:    strings.TrimSuffix(strings.TrimPrefix(name, "s"), ".png"),
+			Labels: strings.Join(m.Labels, ", "),
+			Vote:   m.Vote,
+			Angle:  m.Angle, Flip: m.Flip,
 		})
 	}
 	writeJSON(w, out)
@@ -197,13 +212,13 @@ func (s *Server) handleShipsImg(w http.ResponseWriter, r *http.Request) {
 	servePNG(w, fp)
 }
 
-// handleShipsAct — GET /ships/act?file=&what=accept|reject|rot90|rot180|flipH|rotate&angle=<deg>|fit
-// → {msg} (спека §6.2; ручная приёмка): принять →
-// final_accepted/ships/race_<slug>_NN.png + ships_meta.json (раса, угол,
-// отражение, seed, промпт, дата); удалить → ships_rejected/; rot90/rot180/
-// flipH/rotate (произвольный угол по часовой)/fit («вписать в кадр») —
-// перезапись кандидата на месте с ре-нормализацией 200×200 (ships_edit.go),
-// накопленный угол/зеркало пишутся в meta.json пула.
+// handleShipsAct — GET /ships/act?file=&what=accept|reject|rotate&angle=<deg>|
+// rot90|rot180|flipH|setangle&angle=<abs>|auto|fit → {msg, angle, flip}
+// (спека 2026-09-21 §4.1). Действия ориентации (rotate/rot90/rot180/flipH/
+// setangle/auto) пишут пару (A, F) в meta.json пула и НЕ трогают пиксели
+// файла; файл перезаписывает только fit («вписать в кадр»). accept копирует
+// кандидата байт-в-байт (+ гвард эскиза и маркер orient_meta), reject переносит
+// в ships_rejected/. Ответ несёт текущую пару, чтобы клиент обновил слайдер.
 func (s *Server) handleShipsAct(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	file := filepath.Base(q.Get("file"))
@@ -212,49 +227,64 @@ func (s *Server) handleShipsAct(w http.ResponseWriter, r *http.Request) {
 	pool := filepath.Join(s.cfg.PoolRoot, "ships_pool")
 	src := filepath.Join(pool, file)
 	msg := "?"
-	switch what {
-	case "accept":
-		if _, err := os.Stat(src); err == nil {
+	if _, err := os.Stat(src); err == nil {
+		switch what {
+		case "accept":
 			msg = acceptShipFile(pool, filepath.Join(s.cfg.PoolRoot, "final_accepted", "ships"), file)
-		}
-	case "reject":
-		if _, err := os.Stat(src); err == nil {
+		case "reject":
 			rej := filepath.Join(s.cfg.PoolRoot, "ships_rejected")
 			os.MkdirAll(rej, 0755)
 			os.Rename(src, filepath.Join(rej, filepath.Base(file)))
 			generator.RemoveShipMeta(pool, filepath.Base(file))
 			msg = "Удалено: " + file
-		}
-	case "rot90", "rot180", "flipH", "rotate", "fit":
-		if _, err := os.Stat(src); err == nil {
-			if err := transformShipImage(src, what, angle); err != nil {
+		case "rotate":
+			generator.UpdateShipAngle(pool, file, angle, false)
+			msg = fmt.Sprintf("Повёрнуто на %g°: %s", angle, file)
+		case "rot90":
+			generator.UpdateShipAngle(pool, file, 90, false)
+			msg = "Повёрнуто на 90°: " + file
+		case "rot180":
+			generator.UpdateShipAngle(pool, file, 180, false)
+			msg = "Повёрнуто на 180°: " + file
+		case "flipH":
+			generator.UpdateShipAngle(pool, file, 0, true)
+			msg = "Отражено: " + file
+		case "setangle":
+			_, flip, _ := generator.ShipOrientOf(pool, file)
+			if generator.SetShipOrient(pool, file, angle, flip) {
+				msg = fmt.Sprintf("Угол %g°: %s", angle, file)
+			} else {
+				msg = "нет меты для " + file
+			}
+		case "auto":
+			if a, f, err := s.shipAutoPair(file); err != nil {
+				msg = "Ошибка: " + err.Error()
+			} else if generator.SetShipOrient(pool, file, a, f) {
+				msg = fmt.Sprintf("Авто: %g°: %s", a, file)
+			} else {
+				msg = "нет меты для " + file
+			}
+		case "fit":
+			if err := transformShipImage(src); err != nil {
 				msg = "Ошибка: " + err.Error()
 			} else {
-				switch what {
-				case "rotate":
-					generator.UpdateShipAngle(pool, file, angle, false)
-					msg = fmt.Sprintf("Повёрнуто на %g°: %s", angle, file)
-				case "rot90":
-					generator.UpdateShipAngle(pool, file, 90, false)
-					msg = "Повёрнуто на 90°: " + file
-				case "rot180":
-					generator.UpdateShipAngle(pool, file, 180, false)
-					msg = "Повёрнуто на 180°: " + file
-				case "flipH":
-					generator.UpdateShipAngle(pool, file, 0, true)
-					msg = "Отражено: " + file
-				default:
-					msg = "Вписано в кадр: " + file
-				}
+				msg = "Вписано в кадр: " + file
 			}
 		}
 	}
-	writeJSON(w, map[string]string{"msg": msg})
+	out := map[string]interface{}{"msg": msg}
+	if a, f, ok := generator.ShipOrientOf(pool, file); ok {
+		out["angle"] = a
+		out["flip"] = f
+	}
+	writeJSON(w, out)
 }
 
 // acceptShipFile принимает кандидата корабля: race_<slug>_NN.png (первый
 // свободный номер по slug) + ships_meta.json рядом с файлами (спека §5).
-// Раса — из меты файла (не из выбранной в UI).
+// Раса — из меты файла (не из выбранной в UI). Файл копируется байт-в-байт
+// (пиксели не трогаются). Гвард эскиза (100×100 в игре апскейлится = мыло,
+// §4.4) и маркер orient_meta: pair (A, F) не запечена в пиксели.
 func acceptShipFile(pool, acceptDir, file string) string {
 	src := filepath.Join(pool, file)
 	var meta *generator.ShipMetaItem
@@ -271,6 +301,9 @@ func acceptShipFile(pool, acceptDir, file string) string {
 	if meta == nil {
 		return "нет меты для " + file
 	}
+	if meta.Size == 100 {
+		return "эскиз 100×100 — для игры нужен 200×200"
+	}
 	os.MkdirAll(acceptDir, 0755)
 	dst := filepath.Join(acceptDir, fmt.Sprintf("race_%s_%02d.png", meta.Race, nextShipAcceptNum(acceptDir, meta.Race)))
 	if err := copyFile(src, dst); err != nil {
@@ -279,9 +312,11 @@ func acceptShipFile(pool, acceptDir, file string) string {
 	os.Remove(src)
 	generator.RemoveShipMeta(pool, file)
 	// в ships_meta.json — имя принятого файла (спека §5: file — файл корабля)
-	// + ручной трансформ приёмки (угол/отражение из меты пула) и дата.
+	// + пара (A, F) из меты пула (применяется при показе), дата и маркер
+	// orient_meta (§4.4).
 	meta.File = filepath.Base(dst)
 	meta.Date = time.Now().Format("2006-01-02")
+	meta.OrientMeta = true
 	appendShipsMeta(filepath.Join(acceptDir, "ships_meta.json"), *meta)
 	return "Принято: " + filepath.Base(dst)
 }
@@ -331,9 +366,9 @@ func (s *Server) shipsDir() string {
 	return "docs/gamedesign/races/ships"
 }
 
-// --- Режим приёмки кораблей: подсказка носа, живой предпросмотр, счётчик ---
+// --- Режим приёмки кораблей: подсказка носа, счётчик ---
 
-// shipOrient — ответ orient-режима tools/spike_ship_sprite_cut.py
+// shipOrient — ответ orient-режима tools/ship_sprite_cut.py
 // (profile_orientation): angle — поворот главной оси в конвенции PIL
 // (ПОЛОЖИТЕЛЬНЫЙ — против часовой), mirror — предлагаемое зеркало (нос влево),
 // ambiguous — авто не уверено (human reads «авто: не уверен»), reason — почему.
@@ -351,9 +386,9 @@ type shipOrient struct {
 var shipOrientTimeout = 20 * time.Second
 
 // shipOrientHint — подсказка авто-ориентации через Python-процесс
-// (tools/spike_ship_sprite_cut.py --orient-only --report). Единственный
-// источник детекции носа — тот же скрипт, что у конвейера; Go лишь читает
-// готовый JSON. Ошибка — Python недоступен/парсинг/таймаут.
+// (tools/ship_sprite_cut.py --orient-only --report). Единственный источник
+// детекции носа — стабильный скрипт студии (тот же, что у выреза; спайк вышел
+// из рабочего пути, PITFALLS). Ошибка — Python недоступен/парсинг/таймаут.
 func shipOrientHint(pythonCmd, src string) (shipOrient, error) {
 	var info shipOrient
 	tmp, err := os.CreateTemp("", "ship_orient_*.json")
@@ -365,7 +400,7 @@ func shipOrientHint(pythonCmd, src string) (shipOrient, error) {
 	defer os.Remove(tmpPath)
 	ctx, cancel := context.WithTimeout(context.Background(), shipOrientTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, pythonCmd, "tools/spike_ship_sprite_cut.py", src, "--orient-only", "--report", tmpPath)
+	cmd := exec.CommandContext(ctx, pythonCmd, "tools/ship_sprite_cut.py", src, "--orient-only", "--report", tmpPath)
 	// WaitDelay: на Windows Kill убивает только прямой процесс (cmd.exe), а
 	// внук (python под .cmd/шима) может держать пайп вывода открытым — без
 	// WaitDelay CombinedOutput ждёт ЕГО завершения, и «таймаут» не срабатывает.
@@ -389,43 +424,34 @@ func shipOrientHint(pythonCmd, src string) (shipOrient, error) {
 	return rep.Orient, nil
 }
 
-// handleShipsAuto — GET /ships/auto?file= → {angle, mirror, ambiguous, reason}
-// (при ошибке Python — {error}): ПОДСКАЗКА авто-определения носа. angle — в
-// градусах ПО ЧАСОВОЙ (конвенция слайдера и /ships/act?what=rotate; конвенцию
-// PIL инвертируем здесь), решение всё равно за человеком.
-func (s *Server) handleShipsAuto(w http.ResponseWriter, r *http.Request) {
-	file := filepath.Base(r.URL.Query().Get("file"))
+// shipAutoPair — пара (A, F) по подсказке авто-носа кандидата: Python-подсказка
+// (shipOrientHint) → канонизатор generator.ShipHintPair (спека §3.3). Ошибка —
+// Python недоступен/парсинг/таймаут.
+func (s *Server) shipAutoPair(file string) (float64, bool, error) {
 	src := filepath.Join(s.cfg.PoolRoot, "ships_pool", file)
 	info, err := shipOrientHint(s.cfg.PythonCmd, src)
+	if err != nil {
+		return 0, false, err
+	}
+	a, f := generator.ShipHintPair(info.Angle, info.Mirror, info.Ambiguous)
+	return a, f, nil
+}
+
+// handleShipsAuto — GET /ships/auto?file= → {angle, flip, ambiguous, reason}
+// (при ошибке Python — {error}): ПОДСКАЗКА авто-носа, уже в конвенции показа
+// (пара (A, F), §3.3) — равна значению what=auto и тому, что покажет слайдер.
+// Решение всё равно за человеком.
+func (s *Server) handleShipsAuto(w http.ResponseWriter, r *http.Request) {
+	file := filepath.Base(r.URL.Query().Get("file"))
+	info, err := shipOrientHint(s.cfg.PythonCmd, filepath.Join(s.cfg.PoolRoot, "ships_pool", file))
 	if err != nil {
 		writeJSON(w, map[string]string{"error": err.Error()})
 		return
 	}
+	a, f := generator.ShipHintPair(info.Angle, info.Mirror, info.Ambiguous)
 	writeJSON(w, map[string]interface{}{
-		"angle": -info.Angle, "mirror": info.Mirror,
-		"ambiguous": info.Ambiguous, "reason": info.Reason,
+		"angle": a, "flip": f, "ambiguous": info.Ambiguous, "reason": info.Reason,
 	})
-}
-
-// handleShipsPreview — GET /ships/preview?file=&angle= → PNG: кандидат,
-// повёрнутый на angle (по часовой) и вписанный в 200×200 (та же
-// нормализация, что у /ships/act?what=rotate). Файл в пуле НЕ меняется —
-// это живой предпросмотр слайдера без перезагрузки страницы.
-func (s *Server) handleShipsPreview(w http.ResponseWriter, r *http.Request) {
-	file := filepath.Base(r.URL.Query().Get("file"))
-	angle := atofDefault(r.URL.Query().Get("angle"), 0)
-	src := filepath.Join(s.cfg.PoolRoot, "ships_pool", file)
-	img, err := openImage(src)
-	if err != nil {
-		http.NotFound(w, nil)
-		return
-	}
-	out, err := transformShip(img, "rotate", angle)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	writePNG(w, out)
 }
 
 // handleShipsAccepted — GET /ships/accepted?race= → {race, accepted}: число

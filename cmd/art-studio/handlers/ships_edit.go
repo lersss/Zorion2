@@ -1,19 +1,16 @@
 // cmd/art-studio/handlers/ships_edit.go
-// Ручная правка ориентации кандидата корабля (вкладка «Корабли рас»):
-// rot90 (90° по часовой), rot180, flipH (зеркало по горизонтали — нос
-// влево ↔ нос вправо), rotate (произвольный угол по часовой, слайдер
-// −180…+180) и fit («вписать в кадр» — crop по bbox + 200×200, как у
-// эталонных спрайтов). После любого поворота выполняется ре-нормализация
-// (refitShip), иначе корабль встаёт криво в квадрате.
+// «Вписать в кадр» кандидата корабля (вкладка «Корабли рас»): crop по bbox +
+// центрирование в 200×200. Действия ориентации (rotate/rot90/rot180/flipH/
+// setangle/auto) пишут пару (A, F) в метаданные и пиксели НЕ трогают — показ
+// применяет пару (студия — CSS, игра — при отрисовке, спека
+// 2026-09-21-угол-корабля-в-метаданных §4). Пиксели не поворачиваются нигде,
+// поэтому «вписать в кадр» — единственная операция, перезаписывающая файл.
 //
-// Контракт: /ships/act?file=&what=rot90|rot180|flipH|rotate&angle=<deg>|fit
-// (перезапись файла кандидата атомарно, tmp + rename) и
-// /ships/preview?file=&angle=<deg> — та же нормализация без записи
-// (живой предпросмотр слайдера без перезагрузки страницы).
+// Контракт: /ships/act?file=&what=fit (перезапись файла кандидата атомарно,
+// tmp + rename).
 package handlers
 
 import (
-	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
@@ -29,39 +26,14 @@ const shipSpriteSize = 200
 // tools/spike_ship_sprite_cut.py и tools/process_ship.py: mask = alpha > 40).
 const shipAlphaThresh = 40
 
-// transformShipImage — применить действие ориентации к PNG-файлу кандидата
-// и перезаписать его на месте атомарно. angle учитывается только для
-// op == "rotate".
-func transformShipImage(path, op string, angle float64) error {
+// transformShipImage — вписать PNG-файл кандидата в 200×200 и перезаписать его
+// на месте атомарно («Вписать в кадр»).
+func transformShipImage(path string) error {
 	src, err := openImage(path)
 	if err != nil {
 		return err
 	}
-	dst, err := transformShip(src, op, angle)
-	if err != nil {
-		return err
-	}
-	return saveShipPNG(path, dst)
-}
-
-// transformShip — чистое преобразование без диска: используется и правкой
-// файла (transformShipImage), и живым предпросмотром (/ships/preview).
-// op ∈ {rot90, rot180, flipH, rotate, fit}; иное — ошибка.
-func transformShip(src image.Image, op string, angle float64) (*image.RGBA, error) {
-	switch op {
-	case "rot90":
-		return refitShip(rotate90CW(src), shipSpriteSize), nil
-	case "rot180":
-		return refitShip(rotate180(src), shipSpriteSize), nil
-	case "flipH":
-		return refitShip(flipHorizontal(src), shipSpriteSize), nil
-	case "rotate":
-		return refitShip(rotateDeg(src, angle), shipSpriteSize), nil
-	case "fit":
-		return refitShip(src, shipSpriteSize), nil
-	default:
-		return nil, fmt.Errorf("неизвестное действие %q", op)
-	}
+	return saveShipPNG(path, refitShip(src, shipSpriteSize))
 }
 
 // saveShipPNG — записать PNG атомарно: tmp-файл рядом + rename поверх
@@ -82,76 +54,6 @@ func saveShipPNG(path string, img image.Image) error {
 		return err
 	}
 	return os.Rename(tmp, path)
-}
-
-// rotate90CW — поворот на 90° по часовой: ширина и высота меняются местами.
-func rotate90CW(src image.Image) *image.RGBA {
-	b := src.Bounds()
-	w, h := b.Dx(), b.Dy()
-	dst := image.NewRGBA(image.Rect(0, 0, h, w))
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			dst.Set(h-1-y, x, src.At(b.Min.X+x, b.Min.Y+y))
-		}
-	}
-	return dst
-}
-
-// rotate180 — поворот на 180° (по и против часовой совпадают).
-func rotate180(src image.Image) *image.RGBA {
-	b := src.Bounds()
-	w, h := b.Dx(), b.Dy()
-	dst := image.NewRGBA(image.Rect(0, 0, w, h))
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			dst.Set(w-1-x, h-1-y, src.At(b.Min.X+x, b.Min.Y+y))
-		}
-	}
-	return dst
-}
-
-// flipHorizontal — зеркало по горизонтали: нос влево ↔ нос вправо.
-func flipHorizontal(src image.Image) *image.RGBA {
-	b := src.Bounds()
-	w, h := b.Dx(), b.Dy()
-	dst := image.NewRGBA(image.Rect(0, 0, w, h))
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			dst.Set(w-1-x, y, src.At(b.Min.X+x, b.Min.Y+y))
-		}
-	}
-	return dst
-}
-
-// rotateDeg — поворот на deg градусов ПО ЧАСОВОЙ стрелке (визуально, как
-// кнопка ⟳), вокруг центра, на холсте размером с диагональ (углы не
-// обрезаются), билинейно. Положительный угол = по часовой.
-func rotateDeg(src image.Image, deg float64) *image.RGBA {
-	if deg == 0 {
-		return toRGBA(src)
-	}
-	b := src.Bounds()
-	w, h := b.Dx(), b.Dy()
-	n := int(math.Ceil(math.Hypot(float64(w), float64(h))))
-	if n < 1 {
-		n = 1
-	}
-	out := image.NewRGBA(image.Rect(0, 0, n, n))
-	rad := deg * math.Pi / 180
-	cos, sin := math.Cos(rad), math.Sin(rad)
-	cx, cy := float64(w)/2, float64(h)/2
-	dcx, dcy := float64(n)/2, float64(n)/2
-	for y := 0; y < n; y++ {
-		for x := 0; x < n; x++ {
-			dx := float64(x) + 0.5 - dcx
-			dy := float64(y) + 0.5 - dcy
-			// обратное (CW) преобразование: координаты источника
-			sx := cos*dx + sin*dy + cx - 0.5 + float64(b.Min.X)
-			sy := -sin*dx + cos*dy + cy - 0.5 + float64(b.Min.Y)
-			out.SetRGBA(x, y, bilinearPremul(src, sx, sy, false))
-		}
-	}
-	return out
 }
 
 // refitShip — «вписать в кадр»: обрезать по bbox непрозрачных пикселей
@@ -216,17 +118,6 @@ func alphaBounds(img image.Image) image.Rectangle {
 	return image.Rect(minX, minY, maxX+1, maxY+1)
 }
 
-// toRGBA — привести к *image.RGBA (premultiplied), без копии, если уже он.
-func toRGBA(img image.Image) *image.RGBA {
-	if r, ok := img.(*image.RGBA); ok {
-		return r
-	}
-	b := img.Bounds()
-	dst := image.NewRGBA(b)
-	draw.Draw(dst, b, img, b.Min, draw.Src)
-	return dst
-}
-
 // scaleBilinear — масштабирование билинейно (premultiplied: билинейная
 // интерполяция непрозрачного цвета не даёт тёмного ореола на краях).
 func scaleBilinear(src image.Image, w, h int) *image.RGBA {
@@ -242,18 +133,17 @@ func scaleBilinear(src image.Image, w, h int) *image.RGBA {
 		fy := (float64(y)+0.5)*yr - 0.5 + float64(b.Min.Y)
 		for x := 0; x < w; x++ {
 			fx := (float64(x)+0.5)*xr - 0.5 + float64(b.Min.X)
-			dst.SetRGBA(x, y, bilinearPremul(src, fx, fy, true))
+			dst.SetRGBA(x, y, bilinearPremul(src, fx, fy))
 		}
 	}
 	return dst
 }
 
 // bilinearPremul — билинейная выборка premultiplied RGBA в точке (fx,fy)
-// (пиксельный центр — целое число). clampEdge=true — координаты зажимаются
-// к границе (масштабирование: крайние пиксели не «размываются» в полупрозрачное,
-// сумма весов = 1); false — за границей прозрачно (поворот: срез углов даёт
-// корректный полупрозрачный край).
-func bilinearPremul(src image.Image, fx, fy float64, clampEdge bool) color.RGBA {
+// (пиксельный центр — целое число). Координаты зажимаются к границе
+// (масштабирование: крайние пиксели не «размываются» в полупрозрачное,
+// сумма весов = 1).
+func bilinearPremul(src image.Image, fx, fy float64) color.RGBA {
 	b := src.Bounds()
 	x0 := int(math.Floor(fx))
 	y0 := int(math.Floor(fy))
@@ -262,13 +152,8 @@ func bilinearPremul(src image.Image, fx, fy float64, clampEdge bool) color.RGBA 
 	var r, g, bl, a float64
 	for j := 0; j <= 1; j++ {
 		for i := 0; i <= 1; i++ {
-			px, py := x0+i, y0+j
-			if clampEdge {
-				px = clampIndex(px, b.Min.X, b.Max.X-1)
-				py = clampIndex(py, b.Min.Y, b.Max.Y-1)
-			} else if px < b.Min.X || px >= b.Max.X || py < b.Min.Y || py >= b.Max.Y {
-				continue
-			}
+			px := clampIndex(x0+i, b.Min.X, b.Max.X-1)
+			py := clampIndex(y0+j, b.Min.Y, b.Max.Y-1)
 			wx := 1 - tx
 			if i == 1 {
 				wx = tx

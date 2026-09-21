@@ -162,8 +162,19 @@
     </div>
 
     <script type="module">
-        import { recolorShipSprite, getShipImage, setRedrawCallback, SHIP_COLOR_PALETTE } from '/static/js/map/ship_sprites.js';
+        import { recolorShipSprite, getShipImage, setRedrawCallback, SHIP_COLOR_PALETTE, setShipOptions, shipOrientFor } from '/static/js/map/ship_sprites.js';
         import { loadEncyclopedia } from '/static/js/dashboard/encyclopedia.js';
+
+        // orientCssTransform — CSS-трансформ показа пары (A, F) (спека §6.2):
+        // A=0 → rotate(0) scaleX(F); A≠0 → scale(0.707) rotate(A) scaleX(F)
+        // (k=0.707 — миниатюра 52 px в боксе 52 px). Тождество → '' (легаси не
+        // меняется). Антипереворота здесь нет — у превью нет курса (§6.4).
+        function orientCssTransform(orient) {
+            const a = (orient && orient.angle) || 0;
+            const f = (orient && orient.flip) ? -1 : 1;
+            if (a === 0 && f === 1) return '';
+            return (a !== 0 ? 'scale(0.707) ' : '') + 'rotate(' + a + 'deg) scaleX(' + f + ')';
+        }
 
         // shipPreviewEl — миниатюра 52px для шапки профиля (спека 86a §4.1):
         // перекрашенный canvas (если цвет задан и спрайт загружен), иначе
@@ -172,11 +183,13 @@
             const preview = recolorShipSprite(file, color);
             if (preview) {
                 preview.style.cssText = 'width:52px; height:52px; vertical-align:middle;';
+                preview.style.transform = orientCssTransform(shipOrientFor(file));
                 return preview;
             }
             const img = getShipImage(file);
             if (img) {
                 img.style.cssText = 'width:52px; height:52px; vertical-align:middle;';
+                img.style.transform = orientCssTransform(shipOrientFor(file));
                 return img;
             }
             const div = document.createElement('div');
@@ -302,6 +315,8 @@
                 });
                 if (!res.ok) throw new Error('Failed to load user');
                 const data = await res.json();
+                // Индекс пары (A, F) — до отрисовки превью (шапка/раздел «Корабль»).
+                setShipOptions(data.ship_options);
                 document.getElementById('agentName').textContent = data.username || 'Искатель';
                 document.getElementById('currentWorld').textContent = data.current_world_name || '—';
                 // Статус полёта (спека 86a §4.1): /me.flight — {from, to, ...}
@@ -345,11 +360,13 @@
             const preview = recolorShipSprite(file, color);
             if (preview) {
                 preview.style.cssText = 'width:52px; height:52px; pointer-events:none;';
+                preview.style.transform = orientCssTransform(shipOrientFor(file));
                 return preview;
             }
             const img = getShipImage(file);
             if (img) {
                 img.style.cssText = 'width:52px; height:52px; pointer-events:none;';
+                img.style.transform = orientCssTransform(shipOrientFor(file));
                 return img;
             }
             const div = document.createElement('div');
@@ -529,6 +546,8 @@
                 if (!res.ok) return;
                 const data = await res.json();
                 shipOptions = Array.isArray(data.ship_options) ? data.ship_options : [];
+                // Индекс пары (A, F) для превью/миниатюр (единый — в ship_sprites.js).
+                setShipOptions(shipOptions);
                 if (data.ship_icon) shipIcon = data.ship_icon; // уже смапплено сервером
                 shipColor = data.ship_color || null;
                 renderShipGrid();

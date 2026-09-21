@@ -71,6 +71,11 @@ type ShipMetaItem struct {
 	Angle    float64  `json:"angle,omitempty"`
 	Flip     bool     `json:"flip,omitempty"`
 	Date     string   `json:"date,omitempty"`
+	// OrientMeta — маркер «пара (A, F) не запечена в пиксели» (пишет приёмка
+	// с 2026-09-21, спека §4.4): её надо применять при показе. Записи без
+	// маркера (принятые до правки) считаются «пиксели уже довёрнуты» — импорт
+	// читает их пару как (0, false).
+	OrientMeta bool `json:"orient_meta,omitempty"`
 	// Frame — статистика автопроверки кадра (рецепт 2026-09-21): попытки
 	// txt2img на кандидата, отбраковки, проверка последнего кадра.
 	Frame *ShipFrameStat `json:"frame,omitempty"`
@@ -468,23 +473,17 @@ func appendHumanMeta(path string, item HumanMetaItem) {
 	os.WriteFile(path, out, 0644)
 }
 
-// appendShipMeta дописывает запись в meta.json пула кораблей.
-func appendShipMeta(path string, item ShipMetaItem) {
-	data, err := os.ReadFile(path)
-	var all []ShipMetaItem
-	if err == nil {
-		json.Unmarshal(data, &all)
-	}
-	all = append(all, item)
-	out, err := json.Marshal(all)
-	if err != nil {
-		return
-	}
-	os.WriteFile(path, out, 0644)
-}
+// shipMetaMu — общий замок на файл meta.json пула кораблей (AGENTS.md §0,
+// идея 2026-09-21 «замок на мету пула кораблей»): операции «прочитать файл →
+// правка → записать» под ним сериализуются, иначе две операции читают один
+// файл и побеждает последняя — чужая правка (угол/голос) теряется. Под
+// замком ходят ВСЕ читатели и писатели меты пула: джоб генерации
+// (ships_job.go) и HTTP-хендлеры студии (/ships/act, /ships/list).
+var shipMetaMu sync.Mutex
 
-// ReadShipMeta читает meta.json пула кораблей.
-func ReadShipMeta(poolDir string) []ShipMetaItem {
+// readShipMetaUnlocked — чтение meta.json пула кораблей без замка; вызывать
+// только из функций, уже держащих shipMetaMu.
+func readShipMetaUnlocked(poolDir string) []ShipMetaItem {
 	data, err := os.ReadFile(filepath.Join(poolDir, "meta.json"))
 	if err != nil {
 		return nil
@@ -496,9 +495,32 @@ func ReadShipMeta(poolDir string) []ShipMetaItem {
 	return m
 }
 
-// RemoveShipMeta удаляет из meta.json пула кораблей запись с данным файлом.
+// appendShipMeta дописывает запись в meta.json пула кораблей (под shipMetaMu).
+func appendShipMeta(path string, item ShipMetaItem) {
+	shipMetaMu.Lock()
+	defer shipMetaMu.Unlock()
+	all := readShipMetaUnlocked(filepath.Dir(path))
+	all = append(all, item)
+	out, err := json.Marshal(all)
+	if err != nil {
+		return
+	}
+	os.WriteFile(path, out, 0644)
+}
+
+// ReadShipMeta читает meta.json пула кораблей (под shipMetaMu).
+func ReadShipMeta(poolDir string) []ShipMetaItem {
+	shipMetaMu.Lock()
+	defer shipMetaMu.Unlock()
+	return readShipMetaUnlocked(poolDir)
+}
+
+// RemoveShipMeta удаляет из meta.json пула кораблей запись с данным файлом
+// (под shipMetaMu).
 func RemoveShipMeta(poolDir, file string) {
-	all := ReadShipMeta(poolDir)
+	shipMetaMu.Lock()
+	defer shipMetaMu.Unlock()
+	all := readShipMetaUnlocked(poolDir)
 	out := all[:0]
 	for _, m := range all {
 		if m.File != file {
@@ -518,9 +540,11 @@ func RemoveShipMeta(poolDir, file string) {
 // SetShipVote — вердикт создателя по кандидату корабля (like/dislike/clear)
 // в meta.json пула (98c: файл не перемещается, только метка; переживает
 // рестарт студии — meta.json уже файл). clear → пустая метка. Возвращает
-// false, если кандидата нет в мете.
+// false, если кандидата нет в мете (под shipMetaMu).
 func SetShipVote(poolDir, file, vote string) bool {
-	all := ReadShipMeta(poolDir)
+	shipMetaMu.Lock()
+	defer shipMetaMu.Unlock()
+	all := readShipMetaUnlocked(poolDir)
 	found := false
 	for i := range all {
 		if all[i].File == file {
@@ -544,29 +568,105 @@ func SetShipVote(poolDir, file, vote string) bool {
 	return true
 }
 
+// shipAngleNorm — привести угол к конвенции показа (спека 2026-09-21 §3.1):
+// диапазон (−180, 180], шаг записи 0.1; −0.0 нормализуется к 0. Единственное
+// место wrap'а — все писатели пары держат интервал через него.
+func shipAngleNorm(a float64) float64 {
+	for a > 180 {
+		a -= 360
+	}
+	for a <= -180 {
+		a += 360
+	}
+	v := math.Round(a*10) / 10
+	if v == 0 {
+		return 0
+	}
+	return v
+}
+
+// ShipHintPair — канонизатор подсказки авто-носа (profile_orientation) в пару
+// показа (A, F) по спеке 2026-09-21 §3.3: angle — конвенция PIL (положительный
+// против часовой), v = −angle — тот же поворот по часовой; доворот меньше 1°
+// не делаем (A = 0); зеркало (mirror && !ambiguous) независимо от угла и меняет
+// знак угла. Единственное место перевода PIL-знака в показный: джоб выреза,
+// GET /ships/auto и what=auto зовут эту функцию. Результат — уже в конвенции
+// показа (равен записи SetShipOrient и слайдеру).
+func ShipHintPair(angle float64, mirror, ambiguous bool) (float64, bool) {
+	v := -angle
+	a := 0.0
+	if math.Abs(v) > 1 {
+		a = v
+	}
+	f := mirror && !ambiguous
+	if f {
+		a = -a
+	}
+	return shipAngleNorm(a), f
+}
+
+// SetShipOrient — абсолютная установка пары (A, F) кандидата в meta.json пула
+// (приёмка кораблей: слайдер setangle, авто-пара, начальная пара из джоба).
+// A приводится к (−180, 180] с шагом 0.1. Возвращает false, если кандидата
+// нет в мете (под shipMetaMu).
+func SetShipOrient(poolDir, file string, angle float64, flip bool) bool {
+	shipMetaMu.Lock()
+	defer shipMetaMu.Unlock()
+	all := readShipMetaUnlocked(poolDir)
+	found := false
+	for i := range all {
+		if all[i].File != file {
+			continue
+		}
+		all[i].Angle = shipAngleNorm(angle)
+		all[i].Flip = flip
+		found = true
+		break
+	}
+	if !found {
+		return false
+	}
+	data, err := json.Marshal(all)
+	if err != nil {
+		return false
+	}
+	os.WriteFile(filepath.Join(poolDir, "meta.json"), data, 0644)
+	return true
+}
+
+// ShipOrientOf — текущая пара (A, F) кандидата из meta.json пула (ответ
+// /ships/act и тесты); ok=false, если кандидата нет в мете (под shipMetaMu).
+func ShipOrientOf(poolDir, file string) (angle float64, flip bool, ok bool) {
+	shipMetaMu.Lock()
+	defer shipMetaMu.Unlock()
+	for _, m := range readShipMetaUnlocked(poolDir) {
+		if m.File == file {
+			return m.Angle, m.Flip, true
+		}
+	}
+	return 0, false, false
+}
+
 // UpdateShipAngle — накопить ручной поворот кандидата в meta.json пула
 // (приёмка кораблей): deg — добавка в градусах по часовой, результат
 // приводится к интервалу (−180, 180]; flip=true — переключить зеркало
-// (зеркало меняет знак угла). Возвращает false, если кандидата нет в мете.
+// (зеркало меняет знак угла). Возвращает false, если кандидата нет в мете
+// (под shipMetaMu).
 func UpdateShipAngle(poolDir, file string, deg float64, flip bool) bool {
-	all := ReadShipMeta(poolDir)
+	shipMetaMu.Lock()
+	defer shipMetaMu.Unlock()
+	all := readShipMetaUnlocked(poolDir)
 	found := false
 	for i := range all {
 		if all[i].File != file {
 			continue
 		}
 		a := all[i].Angle + deg
-		for a > 180 {
-			a -= 360
-		}
-		for a <= -180 {
-			a += 360
-		}
 		if flip {
 			a = -a
 			all[i].Flip = !all[i].Flip
 		}
-		all[i].Angle = math.Round(a*10) / 10
+		all[i].Angle = shipAngleNorm(a)
 		found = true
 		break
 	}

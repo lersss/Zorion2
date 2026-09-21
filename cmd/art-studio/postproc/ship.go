@@ -65,9 +65,12 @@ type ShipOrient struct {
 
 // ShipSpriteCut — вырез фона и нормализация кандидата (рецепт 2026-09-21):
 // tools/ship_sprite_cut.py --method hyst --tol-close 12 --tol-wide 40
-// --fill-holes → прозрачный PNG canvas×canvas, нос вправо. canvas — 200
-// (полный) или 100 (эскиз, 98c). Возвращает подсказку авто-ориентации из
-// отчёта скрипта (best-effort: нет отчёта — нулевая подсказка без ошибки).
+// --fill-holes --no-orient → прозрачный PNG canvas×canvas. canvas — 200
+// (полный) или 100 (эскиз, 98c). --no-orient отключает пиксельный доворот
+// (нос/зеркало — метаданные пары (A, F), применяются при показе, спека
+// 2026-09-21-угол-корабля-в-метаданных §5); кроп/масштаб/центрирование
+// остаются. Возвращает подсказку авто-ориентации из отчёта скрипта
+// (best-effort: нет отчёта — нулевая подсказка без ошибки).
 func ShipSpriteCut(pythonCmd, inPath, outPath string, canvas int) (ShipOrient, error) {
 	var orient ShipOrient
 	tmp, err := os.CreateTemp("", "ship_cut_*.json")
@@ -78,7 +81,7 @@ func ShipSpriteCut(pythonCmd, inPath, outPath string, canvas int) (ShipOrient, e
 	tmp.Close()
 	defer os.Remove(tmpPath)
 	args := []string{"tools/ship_sprite_cut.py", inPath, outPath, "--method", "hyst",
-		"--tol-close", "12", "--tol-wide", "40", "--fill-holes", "--report", tmpPath}
+		"--tol-close", "12", "--tol-wide", "40", "--fill-holes", "--no-orient", "--report", tmpPath}
 	if canvas > 0 && canvas != 200 {
 		args = append(args, "--canvas", strconv.Itoa(canvas))
 	}

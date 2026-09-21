@@ -33,10 +33,46 @@ export function getRedrawCallback() {
 // Клиент НЕ дублирует список имён (И1): берёт его из /me.
 let shipFiles = [];
 
-// setShipOptions — кладёт порядок реестра спрайтов из /me.ship_options
-// (массив {id, name, file}). Вызывается из data.js после загрузки /me.
+// shipOrientIndex — пара показа (A, F) по имени файла из /me.ship_options
+// (спека 2026-09-21 §6.2): единственный источник ориентации на клиенте.
+const shipOrientIndex = new Map(); // file -> {angle, flip}
+
+// setShipOptions — кладёт порядок реестра спрайтов и пару (A, F) из
+// /me.ship_options (массив {id, name, file, angle?, flip?}). Вызывается из
+// data.js после загрузки /me (карта) и из дашборда (loadShipSelector).
 export function setShipOptions(options) {
-    shipFiles = Array.isArray(options) ? options.map(o => o.file) : [];
+    const list = Array.isArray(options) ? options : [];
+    shipFiles = list.map(o => o.file);
+    shipOrientIndex.clear();
+    for (const o of list) {
+        if (o && o.file) {
+            shipOrientIndex.set(o.file, { angle: Number(o.angle) || 0, flip: !!o.flip });
+        }
+    }
+}
+
+// shipOrientFor — пара (A, F) файла; файл неизвестен/реестр пуст → (0, false) —
+// легаси без регрессий (фолбэк, спека §6.2/§6.3).
+export function shipOrientFor(file) {
+    const o = shipOrientIndex.get(file);
+    return o ? o : { angle: 0, flip: false };
+}
+
+// shipDrawTransform — полный трансформ отрисовки корабля (спека §6.2/§6.4):
+// V = cos H < 0 ? −1 : 1 (антипереворот «верх всегда сверху» по КУРСУ H),
+// rotate = H + V·A, scaleX = F ? −1 : 1, scaleY = V. ЕДИНСТВЕННОЕ место
+// конвенции на клиенте: точки рендера не считают знак/π/180/cos сами.
+// headingRad — курс в радианах; orient — {angle (градусы), flip}.
+export function shipDrawTransform(headingRad, orient) {
+    const h = Number(headingRad) || 0;
+    const a = (orient && Number(orient.angle)) || 0;
+    const flip = !!(orient && orient.flip);
+    const V = Math.cos(h) < 0 ? -1 : 1;
+    return {
+        rotate: h + V * a * Math.PI / 180,
+        scaleX: flip ? -1 : 1,
+        scaleY: V,
+    };
 }
 
 // ==================== КЭШ ИЗОБРАЖЕНИЙ ====================
@@ -120,14 +156,16 @@ function hashSeed(s) {
 
 // spriteForAgent — детерминированный выбор спрайта агента от id (уточнение
 // 2026-09-16): file = shipFiles[FNV-1a(id) % 21], color =
-// SHIP_COLOR_PALETTE[FNV-1a(id+1) % 9]. ЕДИНСТВЕННАЯ точка замены под расовый
+// SHIP_COLOR_PALETTE[FNV-1a(id+1) % 9]; angle/flip — пара показа выбранного
+// файла (спека 2026-09-21 §6.2). ЕДИНСТВЕННАЯ точка замены под расовый
 // визуал (тело функции, сигнатура фиксирована). null — реестр не загружен
 // (фолбэк-ромб, И4). Агенты перекрашиваются из кэша (прелоад), не в хот-пате.
 export function spriteForAgent(id) {
     if (!id || shipFiles.length === 0) return null;
     const file = shipFiles[hashSeed(String(id)) % shipFiles.length];
     const color = SHIP_COLOR_PALETTE[hashSeed(String(id) + '1') % SHIP_COLOR_PALETTE.length];
-    return { file, color };
+    const orient = shipOrientFor(file);
+    return { file, color, angle: orient.angle, flip: orient.flip };
 }
 
 // ==================== ПРЕЛОАД (уточнение 2026-09-16) ====================

@@ -1,9 +1,10 @@
 // tools/e2e/ship-sprites-humans-check.js
 // Probe (2026-09-21): three "humans" race ship sprites in the dashboard grid
 // (tab "Внешний вид", #ship-sel). Registers a player, opens the look tab,
-// checks 24 tiles and that the 3 new ones rendered (img loaded), screenshots
-// the grid. Console output is ASCII on purpose (Windows PowerShell cp866
-// breaks Cyrillic).
+// checks the tile count equals len(/me.ship_options) (no hardcoded 24 — the
+// registry grows on import) and that the 3 humans ones rendered (img loaded),
+// screenshots the grid. Console output is ASCII on purpose (Windows PowerShell
+// cp866 breaks Cyrillic).
 // Run: node ship-sprites-humans-check.js   (BASE_URL overrides default)
 import { chromium } from 'playwright-core';
 import { existsSync, mkdirSync } from 'node:fs';
@@ -50,6 +51,17 @@ async function finish(code) {
 async function main() {
   mkdirSync(ARTIFACTS_DIR, { recursive: true });
   const token = await register();
+  // Ожидаемое число плиток — из реестра на сервере (растёт при импорте, И6).
+  let expected = 0;
+  try {
+    const meRes = await fetch(BASE_URL + '/me', { headers: { Authorization: 'Bearer ' + token } });
+    const me = await meRes.json();
+    expected = Array.isArray(me.ship_options) ? me.ship_options.length : 0;
+  } catch (e) { /* пусто — ниже FAIL с диагностикой */ }
+  if (expected <= 0) {
+    console.log('RESULT: FAIL - /me.ship_options empty');
+    return finish(1);
+  }
   const exe = findExecutable();
   if (!exe) {
     console.log('RESULT: FAIL - no Chrome/Edge found');
@@ -72,7 +84,7 @@ async function main() {
   await page.waitForSelector('.dashboard-tabs', { timeout: 15000 });
   await page.click('.tab-btn[data-tab="tab-look"]');
   await page.waitForSelector('#ship-sel [data-file]', { timeout: 15000 });
-  await page.waitForFunction((n) => document.querySelectorAll('#ship-sel [data-file]').length === n, 24, { timeout: 15000 });
+  await page.waitForFunction((n) => document.querySelectorAll('#ship-sel [data-file]').length === n, expected, { timeout: 15000 });
   await page
     .waitForFunction((files) =>
       files.every((f) => {
@@ -93,12 +105,12 @@ async function main() {
 
   await page.screenshot({ path: path.join(ARTIFACTS_DIR, 'ship-sprites-humans.png'), fullPage: true });
 
-  console.log('tiles: ' + state.count);
+  console.log('tiles: ' + state.count + ' (expected ' + expected + ')');
   console.log('missing: ' + JSON.stringify(state.missing));
   console.log('loaded previews: ' + JSON.stringify(state.loaded));
   console.log('spriteHTTP: ' + JSON.stringify(spriteStatus));
   console.log('pageErrors: ' + pageErrors.length);
-  const ok = state.count === 24 && state.missing.length === 0 && state.loaded.length === 3 && pageErrors.length === 0;
+  const ok = state.count === expected && state.missing.length === 0 && state.loaded.length === 3 && pageErrors.length === 0;
   console.log('RESULT: ' + (ok ? 'PASS' : 'FAIL'));
   return finish(ok ? 0 : 1);
 }

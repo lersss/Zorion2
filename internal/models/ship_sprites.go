@@ -7,11 +7,16 @@
 package models
 
 // ShipSprite — одна запись реестра: id (имя без .png), человеческое имя,
-// file (имя файла в web/static/sprites/).
+// file (имя файла в web/static/sprites/), ориентация показа — пара (Angle, Flip).
+// Пиксели спрайта не поворачиваются: пара применяется при отрисовке
+// (спека 2026-09-21-угол-корабля-в-метаданных §6.1). Легаси (базовые 21 и
+// расовые «люди») — нули, поля в JSON отсутствуют (omitempty).
 type ShipSprite struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	File string `json:"file"`
+	ID    string  `json:"id"`
+	Name  string  `json:"name"`
+	File  string  `json:"file"`
+	Angle float64 `json:"angle,omitempty"` // градусы, по часовой, (−180,180]; 0 = нос вправо
+	Flip  bool    `json:"flip,omitempty"`  // зеркало, применяется ДО поворота
 }
 
 // ShipSprites — реестр из 24 спрайтов (спека §3.1/§3.2). Порядок фиксирован:

@@ -316,6 +316,12 @@ def normalize(img, canvas=CANVAS, fill=1.0, no_orient=False, smooth=2, pad=PAD):
     if not no_orient:
         img, info = orient_nose_right(img)
         img = ps.crop_to_content(img)
+    else:
+        # --no-orient: пиксели не доворачиваются (доворот — метаданные пары
+        # (A, F), применяются при показе), но подсказка авто-носа остаётся в
+        # отчёте — начальное значение пары для приёмки студии (спека
+        # 2026-09-21-угол-корабля-в-метаданных §5).
+        info = profile_orientation(img)
     img = ps.smooth_edges(img, smooth)
     side = max(img.size)
     target = int(round(canvas * (fill if fill < 1.0 else 1.0)))

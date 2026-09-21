@@ -73,9 +73,10 @@ func (r *Runner) GenShipsBatch(races []string, per int, tags, p1o, p2o string, h
 // касается края или силуэт не вытянут → следующий seed (≤ shipFrameTries,
 // все негодны — берётся последний кадр); (3) Hi-Res (ShipHiResWorkflow) — по
 // запросу hires; (4) вырез/нормализация (tools/ship_sprite_cut.py, hyst
-// 12/40 + fill_holes) → sNN.png; (5) метки авто-фильтра + мета (промпты,
-// статистика попыток). Мягкий СТОП, 2 воркера, локальный rand.New на вызов
-// (AGENTS.md §0).
+// 12/40 + fill_holes + --no-orient: без пиксельного доворота) → sNN.png;
+// (5) метки авто-фильтра + мета (промпты, статистика попыток) + начальная
+// пара (A, F) из подсказки авто-носа. Мягкий СТОП, 2 воркера, локальный
+// rand.New на вызов (AGENTS.md §0).
 func (c *JobCtx) genShipsJob(races []string, per int, tags, p1o, p2o string, hires bool, size int) {
 	pool := c.PoolPath("ships_pool")
 	os.MkdirAll(pool, 0755)
@@ -95,7 +96,6 @@ func (c *JobCtx) genShipsJob(races []string, per int, tags, p1o, p2o string, hir
 		}
 		wfSize = 512
 	}
-	var metaMu sync.Mutex
 	var numMu sync.Mutex
 	nextNum := nextShipNum(pool)
 	done := c.runParallel("ships_pool", total, func(i int) bool {
@@ -190,10 +190,15 @@ func (c *JobCtx) genShipsJob(races []string, per int, tags, p1o, p2o string, hir
 		}
 		if orient.Reason != "" {
 			item.Orient = &orient
+			// начальная пара (A, F) по подсказке авто-носа (спека §3.3): пиксели
+			// выреза не довёрнуты (--no-orient), «правильная» ориентация —
+			// метаданные. Пишем её сразу в item — одной записью под общим
+			// shipMetaMu (meta.json пула), без окна «дописали, потом задали пару».
+			a, f := ShipHintPair(orient.Angle, orient.Mirror, orient.Ambiguous)
+			item.Angle = a
+			item.Flip = f
 		}
-		metaMu.Lock()
 		appendShipMeta(filepath.Join(pool, "meta.json"), item)
-		metaMu.Unlock()
 		return true
 	}, func(d int) {
 		c.WriteStatus("ships_pool", Status{Running: true, Done: d, Total: total, Current: "корабли рас..."})
@@ -247,7 +252,11 @@ func clearShipsPool(pool string) {
 			continue
 		}
 		if name == "meta.json" {
+			// удаление меты пула — под общим замком (иначе параллельный
+			// HTTP-хендлер студии может писать в только что удалённый файл)
+			shipMetaMu.Lock()
 			os.Remove(filepath.Join(pool, name))
+			shipMetaMu.Unlock()
 		}
 	}
 }

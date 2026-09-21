@@ -168,7 +168,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/ships/act", s.handleShipsAct)
 	mux.HandleFunc("/ships/vote", s.handleShipsVote)
 	mux.HandleFunc("/ships/auto", s.handleShipsAuto)
-	mux.HandleFunc("/ships/preview", s.handleShipsPreview)
 	mux.HandleFunc("/ships/accepted", s.handleShipsAccepted)
 	mux.HandleFunc("/ships/status", s.handleStatus)
 	mux.HandleFunc("/ships/stop", s.handleStop)

@@ -36,6 +36,14 @@
  .accBtn.alt{background:#555}
  .accBtn.ok{background:#2a6}
  .accBtn.del{background:#a33}
+ /* Показ пары (A, F): пиксели спрайта не поворачиваются — трансформ при показе
+    (спека §4.2). A=0 → rotate(0) scaleX(F) без масштаба; A≠0 → scale(k) rotate(A)
+    scaleX(F), k постоянный (габарит повёрнутого квадрата ≤ рамки).
+    JS ставит --orient-a/--orient-f и включает .rot при A≠0.
+    k: приёмка 360/200 → 1.25; миниатюра 56 и карточка 300 → 0.707. */
+ .accStage img.orient,.accThumb.orient,.cell img.orient{transform:rotate(var(--orient-a,0deg)) scaleX(var(--orient-f,1))}
+ .accStage img.orient.rot{transform:scale(1.25) rotate(var(--orient-a,0deg)) scaleX(var(--orient-f,1))}
+ .accThumb.orient.rot,.cell img.orient.rot{transform:scale(.707) rotate(var(--orient-a,0deg)) scaleX(var(--orient-f,1))}
 </style></head><body>
 <h1>Арт-студия генерации аватаров</h1>
 <div class="note">ОТБОР: генерация + принять/удалить. ЭТАЛОН: кандидаты (широкий поиск формы) -&gt; выбрать эталон -&gt; вариации (узко вокруг эталона). ЛЮДИ: портреты F0.
@@ -193,7 +201,8 @@
       <span id="accCounter" style="color:#8cf">принято 0 из 0</span>
       <span id="accRace" style="color:#ddd"></span>
       <span id="accHint" style="color:#e8a33d">авто: —</span>
-      <button class="accBtn" onclick="applyAuto()" title="Повернуть по авто-определению носа (решение всё равно за вами)">Принять авто</button>
+      <span id="accState" style="color:#8cf" title="Текущая пара показа: угол по часовой и зеркало (применяются при отрисовке, пиксели не трогаются)">угол 0°, зеркало нет</span>
+      <button class="accBtn" onclick="applyAuto()" title="Применить авто-пару (угол + зеркало) из подсказки — абсолютно, идемпотентно; решение всё равно за вами">Принять авто</button>
       <button class="accBtn alt" onclick="hintAuto()" title="Пересчитать подсказку">↻ авто</button>
       <span style="color:#888;font-size:12px">←/→ ±5° · Shift ±15° · F зеркало · Enter принять · Del отклонить · Пробел далее</span>
     </div>
@@ -202,7 +211,7 @@
       <button class="accBtn alt" id="accJump" style="display:none;margin-left:8px" onclick="accJumpToRace()">Перейти к расе с кандидатами</button>
     </div>
     <div style="display:flex;gap:14px;align-items:flex-start;margin-top:8px;flex-wrap:wrap">
-      <div class="accStage"><img id="accImg" draggable="false" alt="кандидат"></div>
+      <div class="accStage"><img id="accImg" class="orient" draggable="false" alt="кандидат"></div>
       <div style="flex:1;min-width:280px">
         <div class="toolbar" style="gap:6px;flex-wrap:wrap">
           <span style="color:#ddd;font-size:12px">Шаг:</span>
@@ -219,8 +228,8 @@
           <button class="accBtn" onclick="accFit()" title="Обрезать по кораблю и вписать в 200×200 (как эталонные спрайты)">Вписать в кадр</button>
         </div>
         <div class="toolbar" style="gap:8px;margin-top:8px;align-items:center">
-          <span style="color:#ddd;font-size:12px">Угол</span>
-          <input id="accSlider" type="range" min="-180" max="180" step="1" value="0" oninput="onAccSlider()" onchange="commitAccSlider()" style="flex:1;min-width:160px">
+          <span style="color:#ddd;font-size:12px" title="Абсолютный угол показа (не приращение): на отпускании слайдера применяется setangle. Сброс в 0 — перетащить слайдер в 0.">Угол (абсолютный)</span>
+          <input id="accSlider" type="range" min="-180" max="180" step="1" value="0" oninput="onAccSlider()" onchange="commitAccSlider()" title="Абсолютный угол показа: −180…180, применяется на отпускании (setangle)" style="flex:1;min-width:160px">
           <span id="accAngle" style="color:#8cf;width:50px;text-align:right">0°</span>
         </div>
         <div class="toolbar" style="gap:8px;margin-top:8px">
@@ -802,7 +811,7 @@ async function loadShipsList(){
     let d=existing[it.file];
     if(!d){
       d=document.createElement('div'); d.className='cell'; d.dataset.file=it.file;
-      d.innerHTML=`<img src="/ships/img/${it.file}?t=${shipBust}" onclick="window.open('/ships/img/${it.file}','_blank')">
+      d.innerHTML=`<img class="orient" src="/ships/img/${it.file}?t=${shipBust}" onclick="window.open('/ships/img/${it.file}','_blank')">
       <div class="name">${it.race_name} · ${it.num}</div>
       ${it.labels?`<div class="labels" style="color:#e8a33d;font-size:11px">${it.labels}</div>`:''}
       <div class="btns">
@@ -823,6 +832,9 @@ async function loadShipsList(){
       const img=d.querySelector('img');
       if(img) img.src='/ships/img/'+it.file+'?t='+shipBust;
     }
+    // пара (A, F) из /ships/list — показ CSS-трансформом; применяется и к
+    // существующей карточке (пара не сбрасывается при обновлении src, §4.2)
+    applyOrientToImg(d.querySelector('img'), it.angle, it.flip);
     // вердикт (98c): метка на карточке, обновляется и у существующих
     let vd=d.querySelector('.vote');
     if(it.vote){
@@ -844,20 +856,64 @@ async function voteShip(file, vote){
   document.getElementById('doneShips').textContent=j.msg;
   loadShipsList();
 }
-// what + доп. параметры (angle для rotate); сам файл перезаписывается на месте,
-// поэтому после любого действия растёт cache-busting (?t=).
+// actShip — действие приёмки корабля. Ориентация (rotate/rot90/rot180/flipH/
+// setangle/auto) пишет пару (A, F) в мету и НЕ трогает пиксели; файл
+// перезаписывает только fit — лишь после него растёт cache-busting (?t=).
+// Возвращает ответ сервера {msg, angle, flip}.
 async function actShip(file, what, extra){
   const params=new URLSearchParams({file,what});
   if(extra) for(const k in extra) params.set(k, extra[k]);
   const r=await fetch('/ships/act?'+params);
   const j=await r.json();
   document.getElementById('doneShips').textContent=j.msg;
-  if(['rot90','rot180','flipH','rotate','fit'].includes(what)) shipBust++;
+  if(what==='fit') shipBust++;
   await loadShipsList();
   return j;
 }
 // ---------- РЕЖИМ ПРИЁМКИ (ручная приёмка спрайтов кораблей) ----------
-let acceptMode=false, accFile=null, accHintData=null, accFilesKey='', accSliderTimer=null;
+let acceptMode=false, accFile=null, accFilesKey='';
+// Показ пары (A, F): пиксели спрайта не трогаются — только CSS-трансформ
+// (переменные + класс .rot; k в стилях, §4.2).
+// shipItemByFile — запись пула по имени файла (пара (A, F) из GET /ships/list).
+function shipItemByFile(file){ return shipItems.find(x=>x.file===file)||null; }
+// applyOrientToImg — навесить показ пары: --orient-a (по часовой), --orient-f
+// (зеркало), класс .rot при A≠0 (A=0 — без масштаба: rotate(0) scaleX(F)).
+function applyOrientToImg(img, angle, flip){
+  if(!img) return;
+  const a=angle||0;
+  img.style.setProperty('--orient-a', a+'deg');
+  img.style.setProperty('--orient-f', flip? '-1':'1');
+  img.classList.toggle('rot', a!==0);
+}
+function setAccSlider(a){
+  const r=Math.round(a||0);
+  document.getElementById('accSlider').value=r;
+  document.getElementById('accAngle').textContent=r+'°';
+}
+// updateAccState — человекочитаемая пара в заголовке приёмки (§4.2).
+function updateAccState(angle, flip){
+  const a=Math.round((angle||0)*10)/10;
+  document.getElementById('accState').textContent='угол '+a+'°, зеркало '+(flip?'да':'нет');
+}
+// syncAccFromItem — привести показ/слайдер/состояние приёмки к паре кандидата
+// из /ships/list; не мешает перетаскиванию слайдера (activeElement — слайдер).
+function syncAccFromItem(){
+  if(!accFile) return;
+  if(document.activeElement===document.getElementById('accSlider')) return;
+  const it=shipItemByFile(accFile);
+  const a=it?it.angle:0, f=it?!!it.flip:false;
+  applyOrientToImg(document.getElementById('accImg'), a, f);
+  setAccSlider(a);
+  updateAccState(a, f);
+}
+// accAfterAct — обновить показ приёмки из ответа /ships/act ({angle, flip}):
+// источник истины — сервер, не локальный домысел.
+function accAfterAct(j){
+  if(!j || !acceptMode || !accFile || typeof j.angle!=='number') return;
+  applyOrientToImg(document.getElementById('accImg'), j.angle, !!j.flip);
+  setAccSlider(j.angle);
+  updateAccState(j.angle, !!j.flip);
+}
 function toggleAcceptMode(){
   acceptMode=!acceptMode;
   document.getElementById('acceptPanel').style.display=acceptMode?'':'none';
@@ -878,17 +934,21 @@ async function refreshAccept(){
   if(!files.length){ accFile=null; accClear(); showAccEmpty(); return; }
   hideAccEmpty();
   if(!files.includes(accFile)){ openAccept(files[0]); return; }
-  // тот же кандидат: только обновить картинку (cache-busting), подсказку не сбрасываем
+  // тот же кандидат: только обновить картинку (cache-busting), подсказку не
+  // сбрасываем; пару/показ приводим из /ships/list (§4.2)
   const im=document.getElementById('accImg');
   const src='/ships/img/'+accFile+'?t='+shipBust;
   if(im.getAttribute('src')!==src) im.src=src;
+  syncAccFromItem();
 }
 function accClear(){
-  accFile=null; accHintData=null;
-  document.getElementById('accImg').removeAttribute('src');
+  accFile=null;
+  const im=document.getElementById('accImg');
+  im.removeAttribute('src');
+  applyOrientToImg(im, 0, false);
   document.getElementById('accHint').textContent='авто: —';
-  document.getElementById('accSlider').value=0;
-  document.getElementById('accAngle').textContent='0°';
+  setAccSlider(0);
+  updateAccState(0, false);
 }
 // accPoolRaces — расы, по которым в пуле ЕСТЬ кандидаты (порядок пула). Нужны
 // пустому состоянию: подсказать расу вместо молчаливо серой панели.
@@ -934,74 +994,83 @@ function renderAccThumbs(files){
     files.forEach(f=>{
       const im=document.createElement('img');
       im.src='/ships/img/'+f+'?t='+shipBust;
-      im.className='accThumb'; im.title=f;
+      im.className='accThumb orient'; im.title=f;
       im.onclick=()=>openAccept(f);
+      const it=shipItemByFile(f);
+      applyOrientToImg(im, it?it.angle:0, it?!!it.flip:false);
       box.appendChild(im);
     });
   } else {
     [...box.children].forEach(im=>{
       const u='/ships/img/'+im.title+'?t='+shipBust;
       if(im.getAttribute('src')!==u) im.src=u;
+      const it=shipItemByFile(im.title);
+      applyOrientToImg(im, it?it.angle:0, it?!!it.flip:false);
     });
   }
   [...box.children].forEach(im=>im.classList.toggle('active', im.title===accFile));
 }
-// openAccept — переход к кандидату: сброс угла, подсказка авто-носа.
+// openAccept — переход к кандидату: показываем его пару из /ships/list
+// (не сбрасываем в 0, если у кандидата уже есть A/F), затем подсказка носа.
 function openAccept(file){
-  accFile=file; accHintData=null;
+  accFile=file;
   const im=document.getElementById('accImg');
-  im.style.transform='';
   im.src='/ships/img/'+file+'?t='+shipBust;
-  document.getElementById('accSlider').value=0;
-  document.getElementById('accAngle').textContent='0°';
+  const it=shipItemByFile(file);
+  applyOrientToImg(im, it?it.angle:0, it?!!it.flip:false);
+  setAccSlider(it?it.angle:0);
+  updateAccState(it?it.angle:0, it?!!it.flip:false);
   document.getElementById('accHint').textContent='авто: …';
   renderAccThumbs(accPoolFiles());
   hintAuto();
 }
-// hintAuto — ПОДСКАЗКА (не решение): угол, на который стоит повернуть, и
-// предложенное зеркало; «не уверен» — auto сомневается, перебивает человек.
+// hintAuto — ПОДСКАЗКА (не решение): пара (A, F), уже в конвенции показа
+// (поле flip, не mirror); «не уверен» — auto сомневается, перебивает человек.
 async function hintAuto(){
   const f=accFile; if(!f) return;
   try{
     const j=await (await fetch('/ships/auto?file='+encodeURIComponent(f))).json();
     if(f!==accFile) return; // переключили кандидата, пока считалось
-    if(j.error){ document.getElementById('accHint').textContent='авто: не удалось'; accHintData=null; return; }
-    accHintData=j;
+    if(j.error){ document.getElementById('accHint').textContent='авто: не удалось'; return; }
     const a=Math.round(j.angle);
     document.getElementById('accHint').textContent=j.ambiguous
-      ? 'авто: не уверен (~'+a+'°'+(j.mirror?', зеркало':'')+')'
-      : 'авто: '+a+'°'+(j.mirror?', зеркало':'');
+      ? 'авто: не уверен (~'+a+'°'+(j.flip?', зеркало':'')+')'
+      : 'авто: '+a+'°'+(j.flip?', зеркало':'');
   }catch(e){ if(f===accFile) document.getElementById('accHint').textContent='авто: не удалось'; }
 }
+// applyAuto — применить авто-пару: сервер ставит её абсолютно и идемпотентно
+// (what=auto), показ берём из ответа.
 async function applyAuto(){
   if(!accFile) return;
-  if(!accHintData) await hintAuto();
-  if(!accHintData) return;
-  const f=accFile, j=accHintData;
-  if(Math.round(j.angle)!==0) await actShip(f,'rotate',{angle:j.angle});
-  if(j.mirror) await actShip(f,'flipH');
-  if(acceptMode && accFile===f) openAccept(f);
+  const f=accFile;
+  const j=await actShip(f,'auto');
+  if(acceptMode && accFile===f) accAfterAct(j);
 }
-function accStep(d){ if(accFile) actShip(accFile,'rotate',{angle:d}); }
-function accFlip(){ if(accFile) actShip(accFile,'flipH'); }
-function accFit(){ if(accFile) actShip(accFile,'fit'); }
-// onAccSlider — живой предпросмотр: сервер крутит ТЕКУЩИЙ файл на v без записи
-// (/ships/preview); файл меняется только на отпускании слайдера (commitAccSlider).
+async function accStep(d){ if(accFile) accAfterAct(await actShip(accFile,'rotate',{angle:d})); }
+async function accFlip(){ if(accFile) accAfterAct(await actShip(accFile,'flipH')); }
+async function accFit(){ if(accFile) accAfterAct(await actShip(accFile,'fit')); }
+// onAccSlider — живой предпросмотр ЛОКАЛЬНО (CSS-трансформ, без запросов —
+// серверный /ships/preview удалён); на отпускании фиксируется commitAccSlider.
 function onAccSlider(){
   const v=parseInt(document.getElementById('accSlider').value,10)||0;
   document.getElementById('accAngle').textContent=v+'°';
   if(!accFile) return;
-  clearTimeout(accSliderTimer);
-  accSliderTimer=setTimeout(()=>{
-    document.getElementById('accImg').src='/ships/preview?file='+encodeURIComponent(accFile)+'&angle='+v+'&t='+Date.now();
-  }, 60);
+  const it=shipItemByFile(accFile);
+  const f=it?!!it.flip:false;
+  applyOrientToImg(document.getElementById('accImg'), v, f);
+  updateAccState(v, f);
 }
+// commitAccSlider — абсолютный setangle (не приращение); показ/слайдер/состояние
+// приводим из ответа /ships/act.
 async function commitAccSlider(){
+  if(!accFile) return;
   const v=parseInt(document.getElementById('accSlider').value,10)||0;
-  document.getElementById('accSlider').value=0;
-  document.getElementById('accAngle').textContent='0°';
-  if(!accFile||v===0) return;
-  await actShip(accFile,'rotate',{angle:v});
+  const j=await actShip(accFile,'setangle',{angle:v});
+  if(j && typeof j.angle==='number'){
+    applyOrientToImg(document.getElementById('accImg'), j.angle, !!j.flip);
+    setAccSlider(j.angle);
+    updateAccState(j.angle, !!j.flip);
+  }
 }
 async function acceptShipAcc(){
   if(!accFile) return;

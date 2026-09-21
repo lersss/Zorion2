@@ -1,15 +1,19 @@
 // tools/e2e/ships-accept-check.js
 // Live + browser check of the manual ship-sprite acceptance mode
 // (art studio, tab "Корабли рас", port 8798). Starts the studio itself,
-// exercises HTTP actions (fit / rotate / preview / accept / reject / auto),
-// opens the acceptance mode in a real browser (slider live preview,
-// counter, accept), screenshots, then kills the studio and RESTORES
-// ai_drafts/ships_pool + final_accepted/ships so the creator's pool is
-// untouched. Demo before/after PNGs are kept in ai_drafts/ships_accept_demo/.
+// exercises HTTP actions (fit / rotate / flipH / setangle / auto / accept /
+// reject), opens the acceptance mode in a real browser (slider live preview
+// is local CSS, counter, accept), screenshots, then kills the studio and
+// RESTORES ai_drafts/ships_pool + final_accepted/ships so the creator's pool
+// is untouched. Demo before/after PNGs are kept in ai_drafts/ships_accept_demo/.
+// Contract 2026-09-21 (spec angle-in-metadata): orientation actions write the
+// pair (A, F) to meta and do NOT touch pixels (sha256 equal); /ships/preview is
+// removed; /ships/auto and /ships/act return {angle, flip}.
 // ASCII console output on purpose (Windows PowerShell cp866 breaks Cyrillic).
 // Run: node ships-accept-check.js
 import { chromium } from 'playwright-core';
 import { spawn, execSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   existsSync, mkdirSync, copyFileSync, rmSync, cpSync, readFileSync, writeFileSync, appendFileSync, openSync, closeSync,
 } from 'node:fs';
@@ -90,9 +94,8 @@ async function get(url, ms = 15000) {
 }
 const jget = async (u, ms) => JSON.parse((await get(u, ms)).toString('utf8'));
 const save = (buf, name) => { writeFileSync(path.join(DEMO, name), buf); };
-function pngSize(buf) {
-  if (buf.length < 24 || buf.toString('ascii', 12, 16) !== 'IHDR') return null;
-  return [buf.readUInt32BE(16), buf.readUInt32BE(20)];
+function sha256(buf) {
+  return createHash('sha256').update(buf).digest('hex');
 }
 async function waitReady() {
   for (let i = 0; i < 30; i++) {
@@ -147,7 +150,8 @@ async function main() {
   report('pool candidates listed', list.length > 0, 'n=' + list.length);
   console.log('[step] auto hint');
   const auto = await jget('/ships/auto?file=s07.png');
-  report('auto nose hint (python)', typeof auto.angle === 'number' && auto.error === undefined,
+  report('auto nose hint (python) returns pair {angle, flip}',
+    typeof auto.angle === 'number' && typeof auto.flip === 'boolean' && auto.error === undefined,
     JSON.stringify(auto));
   const autoBad = await jget('/ships/auto?file=nope.png');
   report('auto hint clear error for missing file', typeof autoBad.error === 'string', JSON.stringify(autoBad));
@@ -163,37 +167,41 @@ async function main() {
   report('injected candidate appears in pool', list2.some((x) => x.file === 's99.png'));
   save(await get('/ships/img/s99.png'), '01_before_fit.png');
 
-  // --- fit ---
+  // --- fit (единственное действие, переписывающее файл) ---
   console.log('[step] fit');
   const fitMsg = await jget('/ships/act?file=s99.png&what=fit');
-  save(await get('/ships/img/s99.png'), '02_after_fit.png');
+  const afterFit = await get('/ships/img/s99.png');
+  save(afterFit, '02_after_fit.png');
   report('action fit', /Вписано/.test(fitMsg.msg), fitMsg.msg);
 
-  // --- arbitrary rotation ---
-  console.log('[step] rotate');
+  // --- orientation actions write metadata, not pixels ---
+  console.log('[step] orientation (metadata only)');
+  const before = afterFit;
   const rotMsg = await jget('/ships/act?file=s99.png&what=rotate&angle=-25');
-  save(await get('/ships/img/s99.png'), '03_after_rotate25.png');
-  report('action rotate (arbitrary angle)', /-25/.test(rotMsg.msg), rotMsg.msg);
-
-  // --- preview is non-destructive ---
-  console.log('[step] preview');
-  const before = await get('/ships/img/s99.png');
-  const prev = await get('/ships/preview?file=s99.png&angle=40');
-  const after = await get('/ships/img/s99.png');
-  const ps = pngSize(prev);
-  report('preview renders 200x200', !!ps && ps[0] === 200 && ps[1] === 200, ps ? ps.join('x') : 'bad');
-  report('preview does not modify pool file', Buffer.compare(before, after) === 0);
-  save(prev, '04_preview_angle40.png');
+  const afterRot = await get('/ships/img/s99.png');
+  report('action rotate returns pair', /-25/.test(rotMsg.msg) && typeof rotMsg.angle === 'number', JSON.stringify(rotMsg));
+  report('rotate does not touch pixels (sha256)', sha256(before) === sha256(afterRot));
+  const flipMsg = await jget('/ships/act?file=s99.png&what=flipH');
+  const afterFlip = await get('/ships/img/s99.png');
+  report('flipH toggles pair, pixels unchanged',
+    flipMsg.flip === true && sha256(before) === sha256(afterFlip), JSON.stringify(flipMsg));
+  const setMsg = await jget('/ships/act?file=s99.png&what=setangle&angle=-40');
+  const afterSet = await get('/ships/img/s99.png');
+  report('setangle is absolute (angle=-40)', setMsg.angle === -40, JSON.stringify(setMsg));
+  report('setangle does not touch pixels (sha256)', sha256(before) === sha256(afterSet));
+  const prevStatus = await fetch(BASE + '/ships/preview?file=s99.png&angle=40').then((r) => r.status).catch(() => 0);
+  report('/ships/preview removed (404)', prevStatus === 404, 'status=' + prevStatus);
 
   // --- accept writes registry with transform + date ---
   console.log('[step] accept');
   const accMsg = await jget('/ships/act?file=s99.png&what=accept');
   const meta = JSON.parse(readFileSync(path.join(ACC, 'ships_meta.json'), 'utf8'));
-  const acceptedFile = meta.length ? meta[meta.length - 1].file : '';
+  const last = meta.length ? meta[meta.length - 1] : {};
+  const acceptedFile = last.file || '';
   report('action accept', /Принято/.test(accMsg.msg) && existsSync(path.join(ACC, acceptedFile)), accMsg.msg);
-  report('accepted meta has angle/flip/date',
-    typeof meta[meta.length - 1].angle === 'number' && meta[meta.length - 1].date !== '',
-    JSON.stringify(meta[meta.length - 1]));
+  report('accepted meta has angle/flip/date/orient_meta',
+    typeof last.angle === 'number' && last.date !== '' && last.orient_meta === true,
+    JSON.stringify(last));
   const accAfter = await jget('/ships/accepted?race=humans');
   report('accepted counter increments', accAfter.accepted === acc0.accepted + 1, 'accepted=' + accAfter.accepted);
 
@@ -214,8 +222,8 @@ async function main() {
     const page = await (await browser.newContext({ viewport: { width: 1400, height: 1000 } })).newPage();
     const pageErrors = [];
     page.on('pageerror', (e) => pageErrors.push(String(e && e.message ? e.message : e)));
-    let previewHits = 0;
-    page.on('request', (r) => { if (r.url().includes('/ships/preview')) previewHits++; });
+    let actHits = 0;
+    page.on('request', (r) => { if (r.url().includes('/ships/act')) actHits++; });
 
     await page.goto(BASE + '/', { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.click('#tabbtn-ships');
@@ -232,11 +240,23 @@ async function main() {
     const thumbs = await page.$$eval('#accThumbs .accThumb', (n) => n.length);
     report('acceptance mode opens with candidate + thumbnails', thumbs > 0, 'thumbs=' + thumbs);
 
-    // slider live preview (input) then commit (change)
+    // slider live preview: local CSS (pair vars + .rot), no server request;
+    // on release (change) -> absolute setangle.
+    const pair0 = await page.$eval('#accImg', (el) => ({
+      a: el.style.getPropertyValue('--orient-a'), rot: el.classList.contains('rot'),
+    }));
     await page.$eval('#accSlider', (el) => { el.value = '-40'; el.dispatchEvent(new Event('input', { bubbles: true })); });
-    await page.waitForTimeout(400);
+    await page.waitForTimeout(300);
+    const pair1 = await page.$eval('#accImg', (el) => ({
+      a: el.style.getPropertyValue('--orient-a'), rot: el.classList.contains('rot'),
+    }));
     const sliderLabel = await page.$eval('#accAngle', (el) => el.textContent);
-    report('slider live preview triggers /ships/preview', previewHits > 0, 'labels=' + sliderLabel);
+    const pairState = await page.$eval('#accState', (el) => el.textContent);
+    report('slider live preview is local CSS (pair vars change, .rot on)',
+      pair1.a !== pair0.a && pair1.a === '-40deg' && pair1.rot === true,
+      'a0=' + pair0.a + ' a1=' + pair1.a + ' rot=' + pair1.rot + ' label=' + sliderLabel);
+    report('slider preview makes no server request', actHits === 0, 'actHits=' + actHits);
+    report('acceptance header shows pair state', /угол/.test(pairState), 'stateLen=' + pairState.length);
     await page.$eval('#accSlider', (el) => el.dispatchEvent(new Event('change', { bubbles: true })));
     await page.waitForTimeout(900);
 

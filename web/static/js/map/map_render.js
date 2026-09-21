@@ -4,7 +4,7 @@ import { isFiniteNumber, worldToCanvas, getStarColor, getStarShade } from './uti
 import { CONFIG } from '../config.js';
 import { drawNPCAgents } from './npc_agents.js';
 import { drawPacman } from './pacman.js';
-import { recolorShipSprite } from './ship_sprites.js';
+import { recolorShipSprite, shipOrientFor, shipDrawTransform } from './ship_sprites.js';
 import { drawStarfield, initStarfield } from './starfield.js';
 
 const { map: mapCfg } = CONFIG;
@@ -443,8 +443,13 @@ function drawPlayerPositions(ctx, canvasWidth, canvasHeight) {
 
         const sprite = recolorShipSprite(p.ship_icon, p.ship_color);
         if (sprite) {
+            // Стоящий корабль: курса нет — показываем каноническую позу пары
+            // (A, F) без антипереворота (§6.2/§6.4): shipDrawTransform(0, orient).
+            const t = shipDrawTransform(0, shipOrientFor(p.ship_icon));
             ctx.save();
             ctx.translate(px, py);
+            ctx.rotate(t.rotate);
+            ctx.scale(t.scaleX, t.scaleY);
             ctx.drawImage(sprite, -size, -size, size * 2, size * 2);
             ctx.restore();
         } else {
@@ -920,9 +925,15 @@ function drawFlight(ctx, scale, flyFrom, flyTo, flyStartTime, flyDuration) {
     ctx.stroke();
     ctx.setLineDash([]);
 
+    // Полный трансформ отрисовки (спека §6.2/§6.4): rotate = H + V·A и
+    // антипереворот scaleY = V по КУРСУ H. Пламя рисуется в том же повёрнутом
+    // контексте ДО scale (симметрично — антипереворот ему не нужен).
+    const flightOrient = shipOrientFor(state.userShipIcon);
+    const flightT = shipDrawTransform(angle, flightOrient);
+
     ctx.save();
     ctx.translate(x, y);
-    ctx.rotate(angle);
+    ctx.rotate(flightT.rotate);
 
     // Анимированное пламя двигателя.
     const flicker = 0.75 + 0.25 * Math.sin(elapsed * 25);
@@ -945,6 +956,7 @@ function drawFlight(ctx, scale, flyFrom, flyTo, flyStartTime, flyDuration) {
     if (sprite) {
         const w = shipSize * 3.2;
         const h = shipSize * 3.2;
+        ctx.scale(flightT.scaleX, flightT.scaleY);
         ctx.drawImage(sprite, -w / 2, -h / 2, w, h);
     } else {
         const bodyGrad = ctx.createLinearGradient(0, -shipSize * 0.55, 0, shipSize * 0.55);

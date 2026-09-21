@@ -41,6 +41,29 @@ func TestShipSpritesFilesExist(t *testing.T) {
 	}
 }
 
+// Легаси-24 (21 базовый + 3 расовых «люди» — записи, существовавшие на момент
+// правки, ShipSprites[:24]): пара показа (A, F) нулевая — поля в JSON
+// отсутствуют, отрисовка не меняется (спека 2026-09-21-угол-корабля-в-метаданных
+// §6.3, §9 п.11). Импортированные позже записи (в конец, И8) несут свою пару и
+// эту проверку не ломают.
+func TestShipSpritesLegacyZeroOrient(t *testing.T) {
+	require.GreaterOrEqual(t, len(ShipSprites), 24)
+	for _, s := range ShipSprites[:24] {
+		require.Zero(t, s.Angle, "%s: Angle должен быть 0 (легаси)", s.ID)
+		require.False(t, s.Flip, "%s: Flip должен быть false (легаси)", s.ID)
+	}
+}
+
+// Диапазон угла пары у ВСЕХ записей реестра: −180 < Angle ≤ 180 (строго —
+// значение −180 вне конвенции §3.1). Flip на диапазон не влияет: проверяется
+// Angle независимо от него (спека §9 п.12).
+func TestShipSpritesOrientInRange(t *testing.T) {
+	for _, s := range ShipSprites {
+		require.Greater(t, s.Angle, -180.0, "%s: Angle должен быть > -180", s.ID)
+		require.LessOrEqual(t, s.Angle, 180.0, "%s: Angle должен быть <= 180", s.ID)
+	}
+}
+
 // DefaultShipIcon ∈ реестр (§4.1).
 func TestDefaultShipIconInRegistry(t *testing.T) {
 	require.True(t, IsValidShipIcon(DefaultShipIcon))

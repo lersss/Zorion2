@@ -10,7 +10,7 @@ import { isFiniteNumber } from './utils.js';
 import { CONFIG } from '../config.js';
 import { notifyInfo } from '../ui/toast.js';
 import { handleUnauthorized } from './data.js';
-import { recolorShipSprite, spriteForAgent } from './ship_sprites.js';
+import { recolorShipSprite, spriteForAgent, shipDrawTransform } from './ship_sprites.js';
 import { focusAgent } from './navigation.js';
 import { handlePacmanMessage } from './pacman.js';
 // draw — циклический импорт map_render.js (map_render импортирует
@@ -236,9 +236,10 @@ function npcAngle(p, pos) {
 // drawNPCAgents — иконки агентов. Вызывается из draw() в map_render.js.
 // Видимость: когда видны имена звёзд (тот же порог nameDisplayThreshold,
 // спека §7: на галактическом обзоре агенты скрыты). Вместо ромба — мини-спрайт
-// агента (spriteForAgent(id) → {file, color} → recolorShipSprite, уточнение
-// 2026-09-16: агенты перекрашиваются из кэша/прелоада), повёрнутый по вектору
-// движения; спрайт не загружен/реестр пуст — фолбэк-ромб (И4).
+// агента (spriteForAgent(id) → {file, color, angle, flip} → recolorShipSprite,
+// уточнение 2026-09-16: агенты перекрашиваются из кэша/прелоада); трансформ —
+// shipDrawTransform(курс, пара) (спека 2026-09-21 §6.2/§6.4); спрайт не
+// загружен/реестр пуст — фолбэк-ромб (И4).
 export function drawNPCAgents(ctx, canvasWidth, canvasHeight) {
     if (state.scale <= mapCfg.nameDisplayThreshold) return;
     const positions = state.npcPositions || [];
@@ -258,9 +259,13 @@ export function drawNPCAgents(ctx, canvasWidth, canvasHeight) {
         const sel = spriteForAgent(p.id);
         const sprite = sel ? recolorShipSprite(sel.file, sel.color) : null;
         if (sprite) {
+            // Полный трансформ (спека §6.2/§6.4): rotate = H + V·A, зеркало и
+            // антипереворот scaleY = V по курсу агента H.
+            const t = shipDrawTransform(npcAngle(p, pos), sel);
             ctx.save();
             ctx.translate(px, py);
-            ctx.rotate(npcAngle(p, pos));
+            ctx.rotate(t.rotate);
+            ctx.scale(t.scaleX, t.scaleY);
             ctx.drawImage(sprite, -size, -size, size * 2, size * 2);
             ctx.restore();
         } else {

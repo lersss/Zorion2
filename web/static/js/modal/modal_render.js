@@ -6,7 +6,7 @@ import { computeLayout, getOrbitRadius, getPlanetPose, getPlanetSize, planetOrbi
 // Спрайт корабля игрока для маркера «я здесь»/корабля в полёте (спека 99.2.27
 // §5.8/§5.11): ship_sprites.js — автономный модуль (не импортирует map/config.js,
 // не требует canvas карты), перекраска gCO='hue' + восстановление альфы.
-import { recolorShipSprite } from '../map/ship_sprites.js';
+import { recolorShipSprite, shipOrientFor, shipDrawTransform } from '../map/ship_sprites.js';
 // Звёздный фон (ТЗ @uidesigner, слой 0): starfield.js — автономный модуль
 // (offscreen-тайл + fillRect за кадр, без map/config.js), read-only импорт.
 import { drawStarfield, initStarfield } from '../map/starfield.js';
@@ -434,8 +434,14 @@ function drawMyPosition(ctx, layout, planets, timeMs) {
 
     const sprite = recolorShipSprite(modalState.shipIcon, modalState.shipColor);
     if (sprite) {
+        // Маркер «я здесь»: курса нет — каноническая поза пары (A, F), без
+        // антипереворота (§6.2/§6.4).
+        const t = shipDrawTransform(0, shipOrientFor(modalState.shipIcon));
         ctx.save();
-        ctx.drawImage(sprite, drawX - shipSize / 2, drawY - shipSize / 2, shipSize, shipSize);
+        ctx.translate(drawX, drawY);
+        ctx.rotate(t.rotate);
+        ctx.scale(t.scaleX, t.scaleY);
+        ctx.drawImage(sprite, -shipSize / 2, -shipSize / 2, shipSize, shipSize);
         ctx.restore();
     } else {
         // Фолбэк-ромб (И4): спрайт не загружен/имя неизвестно.
@@ -667,10 +673,13 @@ function drawIntraFlightShip(ctx, layout, planets, timeMs, pos) {
     // Корабль: спрайт (или треугольник-фолбэк И4), ×1.15 при разгоне.
     // shadowBlur 18 (в warp — 26), /zoom — экранный размер свечения.
     const shipScale = accel ? 1.15 : 1;
+    // Полный трансформ отрисовки (спека §6.2/§6.4): rotate = H + V·A,
+    // антипереворот scaleY = V по КУРСУ H; масштаб разгона домножается.
+    const t = shipDrawTransform(angle, shipOrientFor(modalState.shipIcon));
     ctx.save();
     ctx.translate(drawX, drawY);
-    ctx.rotate(angle);
-    ctx.scale(shipScale, shipScale);
+    ctx.rotate(t.rotate);
+    ctx.scale(t.scaleX * shipScale, t.scaleY * shipScale);
     ctx.shadowColor = hexToRgba(color, 0.8);
     ctx.shadowBlur = (cruise ? 26 : 18) / modalState.zoom;
     const sprite = recolorShipSprite(modalState.shipIcon, modalState.shipColor);
@@ -737,11 +746,16 @@ function drawForeignPlayers(ctx, layout, planets, timeMs) {
         ctx.stroke();
         ctx.restore();
 
-        // Спрайт (фолбэк-ромб И4).
+        // Спрайт (фолбэк-ромб И4); чужой стоящий игрок: курса нет — каноническая
+        // поза пары (A, F), без антипереворота (§6.2/§6.4).
         const sprite = recolorShipSprite(p.ship_icon, p.ship_color);
         if (sprite) {
+            const t = shipDrawTransform(0, shipOrientFor(p.ship_icon));
             ctx.save();
-            ctx.drawImage(sprite, px - foreignSize / 2, py - foreignSize / 2, foreignSize, foreignSize);
+            ctx.translate(px, py);
+            ctx.rotate(t.rotate);
+            ctx.scale(t.scaleX, t.scaleY);
+            ctx.drawImage(sprite, -foreignSize / 2, -foreignSize / 2, foreignSize, foreignSize);
             ctx.restore();
         } else {
             ctx.save();

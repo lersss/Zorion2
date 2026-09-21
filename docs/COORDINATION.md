@@ -53,7 +53,6 @@
 
 | Файл | Кто правит | До какого коммита |
 |---|---|---|
-| `web/studio.html`, `tools/e2e/goods-studio-server-check.js` / `qa-prodadd-race-independent.js` / `studio-prodadd-race-check.js` | @developer (студия: формы в попапы, вкладки разделов, 2026-09-22) | до коммита задачи |
 
 ## Занято ранее (историческое, не блокирует — чистится @manager по мере надобности)
 

@@ -19,7 +19,7 @@ import (
 )
 
 // TestWorldInsertValuesStellarModsValidJSONB — баг #1 (прогон @tester):
-// []byte(nil) для stellar_mods lib/pq передаёт как '' → "invalid input syntax
+// []byte(nil) для stellar_mods lib/pq передаёт как ” → "invalid input syntax
 // for type json", генерация вселенной падает. Пустые модификаторы обязаны
 // давать валидный JSONB "{}".
 func TestWorldInsertValuesStellarModsValidJSONB(t *testing.T) {
@@ -66,18 +66,24 @@ func TestWorldInsertValuesAge(t *testing.T) {
 // снятие current_world_id у users, снятие FK, TRUNCATE всех таблиц, возврат FK.
 // Если truncateTables изменится, тест упадёт и заставит обновить ожидание.
 func TestClearUniverseTx(t *testing.T) {
-	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
 	defer db.Close()
 
 	mock.ExpectBegin()
+	// §6.5: возврат залога живых контрактов ДО TRUNCATE (пустой набор в тесте).
+	mock.ExpectQuery(`UPDATE contracts\s+SET status = CASE WHEN executor_id IS NULL`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "author_type", "author_id", "executor_id", "escrow_amount", "escrow_withdrawable"}))
 	mock.ExpectExec(`UPDATE users SET current_world_id = NULL WHERE current_world_id IS NOT NULL`).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectExec(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_current_world_id_fkey`).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectExec(`TRUNCATE TABLE ` + truncateTables).
 		WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectExec(`ALTER TABLE users ADD CONSTRAINT users_current_world_id_fkey FOREIGN KEY (current_world_id) REFERENCES worlds(id) ON DELETE SET NULL`).
+	// §3.5: счета фракций удаляются, кошелёк игрока остаётся.
+	mock.ExpectExec(`DELETE FROM accounts WHERE owner_type = 'faction'`).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(regexp.QuoteMeta(`ALTER TABLE users ADD CONSTRAINT users_current_world_id_fkey FOREIGN KEY (current_world_id) REFERENCES worlds(id) ON DELETE SET NULL`)).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectCommit()
 
@@ -115,16 +121,21 @@ func TestPlanetStatsInvalidate(t *testing.T) {
 // иначе повторный прогон дублирует пояса. Если SQL-последовательность
 // изменится — тест упадёт.
 func TestClearPlanets(t *testing.T) {
-	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
 	defer db.Close()
 
-	mock.ExpectQuery(`SELECT COUNT(*) FROM planets`).
+	mock.ExpectBegin()
+	// §6.5: возврат залога живых контрактов в той же транзакции, что DELETE.
+	mock.ExpectQuery(`UPDATE contracts\s+SET status = CASE WHEN executor_id IS NULL`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "author_type", "author_id", "executor_id", "escrow_amount", "escrow_withdrawable"}))
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM planets`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(42))
 	mock.ExpectExec(`DELETE FROM system_belts`).
 		WillReturnResult(sqlmock.NewResult(0, 7))
 	mock.ExpectExec(`DELETE FROM planets`).
 		WillReturnResult(sqlmock.NewResult(0, 42))
+	mock.ExpectCommit()
 
 	h := &AdminHandlers{db: db}
 	n, err := h.clearPlanets()
@@ -173,8 +184,8 @@ func TestAssignCurrentWorldsTx(t *testing.T) {
 func TestTruncateTablesCoverMigrationFK(t *testing.T) {
 	migs := readMigrations(t)
 
-	existing := map[string]bool{}     // живущие на конец миграций таблицы
-	refs := map[string][]string{}    // таблица → на кого ссылается
+	existing := map[string]bool{} // живущие на конец миграций таблицы
+	refs := map[string][]string{} // таблица → на кого ссылается
 
 	reCreate := regexp.MustCompile(`(?i)CREATE TABLE (IF NOT EXISTS )?(\w+)`)
 	reRef := regexp.MustCompile(`(?i)REFERENCES (\w+)`)

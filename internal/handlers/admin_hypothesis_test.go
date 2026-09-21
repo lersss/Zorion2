@@ -41,7 +41,7 @@ func testTwinSpec() planet.TwinSpec {
 			ID: "g", Name: "g", PlanetsPerWorld: 2,
 			Overrides: map[string]interface{}{"system_age": 1.0},
 			Settlement: planet.SettlementSpec{
-				Chance:              1.0,
+				Chance:               1.0,
 				SettlementsPerPlanet: 2,
 				Population:           gensettlement.Population{Kind: "fixed", Fixed: 12345},
 			},
@@ -58,11 +58,15 @@ func TestRunHypothesisJobPipeline(t *testing.T) {
 
 	// 1. Очистка вселенной (clearUniverseTx).
 	mock.ExpectBegin()
+	mock.ExpectQuery(`UPDATE contracts\s+SET status = CASE WHEN executor_id IS NULL`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "author_type", "author_id", "executor_id", "escrow_amount", "escrow_withdrawable"}))
 	mock.ExpectExec(`UPDATE users SET current_world_id = NULL WHERE current_world_id IS NOT NULL`).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectExec(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_current_world_id_fkey`).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectExec(`TRUNCATE TABLE ` + truncateTables).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(`DELETE FROM accounts WHERE owner_type = 'faction'`).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectExec(`ALTER TABLE users ADD CONSTRAINT users_current_world_id_fkey`).
 		WillReturnResult(sqlmock.NewResult(0, 0))
@@ -268,9 +272,12 @@ func TestRunHypothesisRaceGate(t *testing.T) {
 
 			// Очистка вселенной.
 			mock.ExpectBegin()
+			mock.ExpectQuery(`UPDATE contracts\s+SET status = CASE WHEN executor_id IS NULL`).
+				WillReturnRows(sqlmock.NewRows([]string{"id", "author_type", "author_id", "executor_id", "escrow_amount", "escrow_withdrawable"}))
 			mock.ExpectExec(`UPDATE users SET current_world_id = NULL`).WillReturnResult(sqlmock.NewResult(0, 0))
 			mock.ExpectExec(`ALTER TABLE users DROP CONSTRAINT`).WillReturnResult(sqlmock.NewResult(0, 0))
 			mock.ExpectExec(`TRUNCATE TABLE ` + truncateTables).WillReturnResult(sqlmock.NewResult(0, 0))
+			mock.ExpectExec(`DELETE FROM accounts WHERE owner_type = 'faction'`).WillReturnResult(sqlmock.NewResult(0, 0))
 			mock.ExpectExec(`ALTER TABLE users ADD CONSTRAINT`).WillReturnResult(sqlmock.NewResult(0, 0))
 
 			// Звезда + 2 планеты.
@@ -320,7 +327,7 @@ func TestRunHypothesisRaceGate(t *testing.T) {
 					ID: "g", Name: "Группа", RaceID: tc.raceID, PlanetsPerWorld: 2,
 					Overrides: map[string]interface{}{"temperature": tc.temp},
 					Settlement: planet.SettlementSpec{
-						Chance:              1.0,
+						Chance:               1.0,
 						SettlementsPerPlanet: 1,
 						Population:           gensettlement.Population{Kind: "fixed", Fixed: 100000000},
 					},

@@ -1,4 +1,4 @@
-﻿// internal/handlers/visibility_handlers_test.go
+// internal/handlers/visibility_handlers_test.go
 // Применение серверной видимости (спека 77a §11): гибрид «звёздное поле» в
 // /api/worlds/filter, 403 в модалке системы, фильтр NPC-агентов, скрытие
 // координат в поиске агента, валидация цели /travel, позиции чужих игроков.
@@ -541,7 +541,6 @@ func visWorldHandlers(t *testing.T) (*WorldHandlers, sqlmock.Sqlmock, *travel.Ma
 	h := NewWorldHandlers(
 		repository.NewWorldRepository(db),
 		repository.NewLocationRepository(db),
-		repository.NewAssignmentRepository(db),
 	)
 	h.SetVisibility(v)
 	return h, mock, tm
@@ -558,17 +557,12 @@ func expectWorldRow(mock sqlmock.Sqlmock, id string, x, y float64) {
 		}).AddRow(id, "Мир"+id, x, y, "G", 5772, "star", "single", nil, nil, nil, now(), now()))
 }
 
-// expectEmptyLocationsAssignments — пустые locations/assignments для 200-ответа.
-func expectEmptyLocationsAssignments(mock sqlmock.Sqlmock, worldID string) {
+// expectEmptyLocations — пустые locations для 200-ответа (контракты — у планеты,
+// не у мира: ключа "assignments" в ответе мира больше нет).
+func expectEmptyLocations(mock sqlmock.Sqlmock, worldID string) {
 	mock.ExpectQuery(`SELECT id, world_id, name, is_inhabited, state, created_at, updated_at FROM locations WHERE world_id = \$1 ORDER BY name`).
 		WithArgs(worldID).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "world_id", "name", "is_inhabited", "state", "created_at", "updated_at"}))
-	mock.ExpectQuery(`SELECT id, world_id, author_type, author_id, title, description, type, reward, expires_at, status, effects, created_at, updated_at FROM assignments WHERE world_id = \$1 AND status = 'open'`).
-		WithArgs(worldID).
-		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "world_id", "author_type", "author_id", "title", "description",
-			"type", "reward", "expires_at", "status", "effects", "created_at", "updated_at",
-		}))
 }
 
 // За-радарная звезда (w3, 1000,0) — 403 для player (И11).
@@ -597,7 +591,7 @@ func TestGetWorldInsideRadius(t *testing.T) {
 
 	expectWorldRow(mock, "w2", 100, 0)
 	expectPlayerUser(mock, userID)
-	expectEmptyLocationsAssignments(mock, "w2")
+	expectEmptyLocations(mock, "w2")
 
 	req := httptest.NewRequest(http.MethodGet, "/worlds/w2", nil)
 	req = withUserID(req, userID)
@@ -625,7 +619,7 @@ func TestGetWorldFlightTargetAllowed(t *testing.T) {
 
 	expectWorldRow(mock, "w3", 1000, 0)
 	expectPlayerUser(mock, userID)
-	expectEmptyLocationsAssignments(mock, "w3")
+	expectEmptyLocations(mock, "w3")
 
 	req := httptest.NewRequest(http.MethodGet, "/worlds/w3", nil)
 	req = withUserID(req, userID)
@@ -757,8 +751,8 @@ func TestGetPlanetsByWorldMyPositionAndCompanion(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 
 	var resp struct {
-		CompanionID string                   `json:"companion_id"`
-		MyPosition  *models.CurrentPosition  `json:"my_position"`
+		CompanionID string                  `json:"companion_id"`
+		MyPosition  *models.CurrentPosition `json:"my_position"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, "companion:w2", resp.CompanionID, "синтетический id компаньона")

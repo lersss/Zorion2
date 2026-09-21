@@ -12,9 +12,8 @@ import (
 )
 
 type WorldHandlers struct {
-	worldRepo      *repository.WorldRepository
-	locationRepo   *repository.LocationRepository
-	assignmentRepo *repository.AssignmentRepository
+	worldRepo    *repository.WorldRepository
+	locationRepo *repository.LocationRepository
 
 	// visibility — серверная видимость игрока (спека 77a §11): legacy-роуты
 	// /worlds и /worlds/{id} не должны отдавать имя/данные за-радарной звезды
@@ -25,12 +24,10 @@ type WorldHandlers struct {
 func NewWorldHandlers(
 	worldRepo *repository.WorldRepository,
 	locationRepo *repository.LocationRepository,
-	assignmentRepo *repository.AssignmentRepository,
 ) *WorldHandlers {
 	return &WorldHandlers{
-		worldRepo:      worldRepo,
-		locationRepo:   locationRepo,
-		assignmentRepo: assignmentRepo,
+		worldRepo:    worldRepo,
+		locationRepo: locationRepo,
 	}
 }
 
@@ -76,8 +73,8 @@ func (h *WorldHandlers) filterWorldsByVisibility(r *http.Request, worlds []*mode
 	return out
 }
 
-// GetWorld возвращает мир по ID с его локациями и заданиями.
-// Ключевая особенность: если locations или assignments падают —
+// GetWorld возвращает мир по ID с его локациями.
+// Ключевая особенность: если locations падают —
 // это не повод возвращать 500. Мир важнее. Логируем и отдаём что есть.
 func (h *WorldHandlers) GetWorld(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/worlds/")
@@ -126,17 +123,9 @@ func (h *WorldHandlers) GetWorld(w http.ResponseWriter, r *http.Request) {
 		locations = nil
 	}
 
-	// assignments — тоже вспомогательные.
-	assignments, err := h.assignmentRepo.GetByWorld(id)
-	if err != nil {
-		log.Printf("GetWorld: assignmentRepo.GetByWorld(%s) error (пропускаем): %v", id, err)
-		assignments = nil
-	}
-
 	response := map[string]interface{}{
-		"world":       world,
-		"locations":   locations,
-		"assignments": assignments,
+		"world":     world,
+		"locations": locations,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)

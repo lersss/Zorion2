@@ -170,6 +170,14 @@ func expectPacmanBatchAttempt(mock sqlmock.Sqlmock, failWorldsDelete bool, world
 	mock.ExpectExec(`UPDATE users SET pending_destination = NULL\s+WHERE \(pending_destination->>'world_id'\)::uuid = ANY\(\$1\)`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	// 4.6. Возврат залога контрактов съеденных миров (§6.5) — до DELETE.
+	mock.ExpectQuery(`UPDATE contracts\s+SET status = CASE WHEN executor_id IS NULL`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "author_type", "author_id", "executor_id", "escrow_amount", "escrow_withdrawable"}))
+	// 4.7. Контракты с мёртвой целью (payload.dest_world_id съеденного мира).
+	mock.ExpectQuery(`UPDATE contracts\s+SET status = CASE WHEN executor_id IS NULL`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "author_type", "author_id", "executor_id", "escrow_amount", "escrow_withdrawable"}))
 	// Счётчики планет/поселений — до удаления миров (каскад не отдаёт RowsAffected).
 	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM planets WHERE world_id = ANY\(\$1\)`).
 		WithArgs(sqlmock.AnyArg()).

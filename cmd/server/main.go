@@ -227,7 +227,7 @@ func main() {
 
 	worldRepo := repository.NewWorldRepository(db)
 	locationRepo := repository.NewLocationRepository(db)
-	assignmentRepo := repository.NewAssignmentRepository(db)
+	contractRepo := repository.NewContractRepository(db)
 	userRepo := repository.NewUserRepository(db)
 	// Деньги (спека 2026-09-22-деньги-и-эскроу): счёт актора + журнал движений.
 	accountRepo := repository.NewAccountRepository(db)
@@ -306,8 +306,7 @@ func main() {
 	travelHandlers.RestorePendingDestinations()
 	wsHub := handlers.NewWebSocketHub()
 
-	testHandlers := handlers.NewTestHandlers(worldRepo, locationRepo, assignmentRepo)
-	worldHandlers := handlers.NewWorldHandlers(worldRepo, locationRepo, assignmentRepo)
+	worldHandlers := handlers.NewWorldHandlers(worldRepo, locationRepo)
 	authHandlers := handlers.NewAuthHandlers(userRepo, worldRepo, travelManager)
 	authHandlers.SetPlanetRepo(planetRepo) // §8.7: пересчёт HP на поверхности в /me
 	// §3.4: ленивая страховка счёта игрока при первом запросе /me.
@@ -321,7 +320,7 @@ func main() {
 	// Высадка/прогулка (спека 2026-09-21 §6): POST /api/surface/land|leave.
 	surfaceHandlers := handlers.NewSurfaceHandlers(userRepo, worldRepo, planetRepo, intraManager)
 	wsHandler := handlers.NewWebSocketHandler(wsHub)
-	contractHandlers := handlers.NewContractHandlers(assignmentRepo, userRepo)
+	contractHandlers := handlers.NewContractHandlers(contractRepo, planetRepo, userRepo, knowledgeRepo)
 	mapCache := mapcache.NewManager()
 	adminHandlers := handlers.NewAdminHandlers(worldRepo, db, mapCache)
 	compatHandlers := handlers.NewCompatibilityHandlers(db)
@@ -369,7 +368,6 @@ func main() {
 	http.HandleFunc("/login", authHandlers.Login)
 
 	// API защищённые JWT
-	http.HandleFunc("/create-test-data", auth.AuthMiddleware(testHandlers.CreateTestData))
 	http.HandleFunc("/worlds", auth.AuthMiddleware(worldHandlers.GetAllWorlds))
 	http.HandleFunc("/worlds/", auth.AuthMiddleware(worldHandlers.GetWorld))
 	http.HandleFunc("/travel", auth.AuthMiddleware(travelHandlers.StartTravel))
@@ -386,10 +384,12 @@ func main() {
 	encyclopediaHandlers := handlers.NewEncyclopediaHandlers()
 	http.HandleFunc("/api/encyclopedia/races", auth.AuthMiddleware(encyclopediaHandlers.GetRaces))
 
-	// API контрактов
-	http.HandleFunc("/api/contracts", auth.AuthMiddleware(contractHandlers.GetContracts))
+	// API контрактов (спеки 2026-09-22-контракт-*): доска — у планеты, не у мира.
+	http.HandleFunc("/api/planets/", auth.AuthMiddleware(contractHandlers.GetPlanetBoard))
+	http.HandleFunc("/api/contracts", auth.AuthMiddleware(contractHandlers.CreateContract))
+	http.HandleFunc("/api/contracts/mine", auth.AuthMiddleware(contractHandlers.GetMyContracts))
 	http.HandleFunc("/api/contracts/take", auth.AuthMiddleware(contractHandlers.TakeContract))
-	http.HandleFunc("/api/contracts/complete-test", auth.AuthMiddleware(contractHandlers.CompleteTestContract))
+	http.HandleFunc("/api/contracts/cancel", auth.AuthMiddleware(contractHandlers.CancelContract))
 
 	// API планет
 	http.HandleFunc("/api/worlds/", auth.AuthMiddleware(adminHandlers.GetPlanetsByWorld))
@@ -425,6 +425,9 @@ func main() {
 	http.HandleFunc("/admin/stats/planets", auth.AdminAuth(adminHandlers.GetPlanetStatsHandler))
 	http.HandleFunc("/admin/generate-status", auth.AdminAuth(adminHandlers.GenerateStatus))
 	http.HandleFunc("/admin/clear", auth.AdminAuth(adminHandlers.ClearUniverse))
+	// Публикация контрактов вручную (фракция/постройка/агент) + отладка
+	// (спека перелёта §3, О-п9). UI — B3, серверная часть — B1.
+	http.HandleFunc("/admin/contracts", auth.AdminAuth(contractHandlers.AdminCreateContract))
 	http.HandleFunc("/admin/pacman/start", auth.AdminAuth(adminHandlers.StartPacman))
 	http.HandleFunc("/admin/generate-planets", auth.AdminAuth(adminHandlers.GeneratePlanets))
 	http.HandleFunc("/admin/generate-prototype-planet", auth.AdminAuth(adminHandlers.GeneratePrototypePlanet))
@@ -570,9 +573,6 @@ func main() {
 		}
 		noCache(http.FileServer(http.Dir("./web"))).ServeHTTP(w, r)
 	})
-	http.Handle("/assignments", noCache(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "./web/assignments.html")
-	})))
 	http.Handle("/login-page", noCache(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./web/login.html")
 	})))
@@ -581,9 +581,6 @@ func main() {
 	})))
 	http.Handle("/map", noCache(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./web/map.html")
-	})))
-	http.Handle("/contracts", noCache(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "./web/contracts.html")
 	})))
 
 	log.Println("🚀 Сервер Zorion запущен и работает")

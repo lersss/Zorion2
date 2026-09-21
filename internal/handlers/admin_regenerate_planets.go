@@ -11,7 +11,9 @@ import (
 	"github.com/lib/pq"
 	"zorion/internal/generator"
 	"zorion/internal/generator/planet"
+	"zorion/internal/models"
 	"zorion/internal/regionprofile"
+	"zorion/internal/repository"
 )
 
 // RegeneratePlanets — POST /admin/regenerate-planets (99.2.3 §5).
@@ -181,14 +183,31 @@ func worldCategory(starType, systemType string) string {
 // pqStringArray в economy_repository.go.
 func (h *AdminHandlers) clearPlanetsOf(worlds []planet.WorldInfo) (int, error) {
 	ids := pq.Array(worldIDs(worlds))
-	if _, err := h.db.Exec(`DELETE FROM system_belts WHERE world_id = ANY($1)`, ids); err != nil {
+	names := worldIDs(worlds)
+
+	tx, err := h.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	// Возврат залога живых контрактов пересоздаваемых миров ДО DELETE (§6.5),
+	// одной транзакцией с удалением.
+	if _, err := repository.ReturnEscrowForContractsTx(tx,
+		repository.ContractScope{WorldIDs: names}, models.EscrowReasonWorldDeleted); err != nil {
+		return 0, fmt.Errorf("return escrow: %w", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM system_belts WHERE world_id = ANY($1)`, ids); err != nil {
 		return 0, err
 	}
 	var oldCount int
-	if err := h.db.QueryRow(`SELECT COUNT(*) FROM planets WHERE world_id = ANY($1)`, ids).Scan(&oldCount); err != nil {
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM planets WHERE world_id = ANY($1)`, ids).Scan(&oldCount); err != nil {
 		return 0, err
 	}
-	if _, err := h.db.Exec(`DELETE FROM planets WHERE world_id = ANY($1)`, ids); err != nil {
+	if _, err := tx.Exec(`DELETE FROM planets WHERE world_id = ANY($1)`, ids); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
 		return 0, err
 	}
 	return oldCount, nil

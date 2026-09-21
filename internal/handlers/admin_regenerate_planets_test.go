@@ -22,20 +22,26 @@ import (
 // с []string давал "sql: converting argument $1 type: unsupported type []string".
 // Для lib/pq нужен pq.Array(ids) — как в economy_repository.pqStringArray.
 func TestClearPlanetsOfUsesPqArray(t *testing.T) {
-	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
 	defer db.Close()
 
+	// §6.5: возврат залога живых контрактов миров — в той же транзакции, до DELETE.
+	mock.ExpectBegin()
+	mock.ExpectQuery(`UPDATE contracts\s+SET status = CASE WHEN executor_id IS NULL`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "author_type", "author_id", "executor_id", "escrow_amount", "escrow_withdrawable"}))
 	// Пояса мира удаляются в той же точке, что планеты (спека поясов §4.6).
-	mock.ExpectExec(`DELETE FROM system_belts WHERE world_id = ANY($1)`).
+	mock.ExpectExec(`DELETE FROM system_belts WHERE world_id = ANY\(\$1\)`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 2))
-	mock.ExpectQuery(`SELECT COUNT(*) FROM planets WHERE world_id = ANY($1)`).
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM planets WHERE world_id = ANY\(\$1\)`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(3))
-	mock.ExpectExec(`DELETE FROM planets WHERE world_id = ANY($1)`).
+	mock.ExpectExec(`DELETE FROM planets WHERE world_id = ANY\(\$1\)`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 3))
+	mock.ExpectCommit()
 
 	h := &AdminHandlers{db: db}
 	n, err := h.clearPlanetsOf([]planet.WorldInfo{{ID: "w1"}, {ID: "w2"}})
@@ -48,19 +54,24 @@ func TestClearPlanetsOfUsesPqArray(t *testing.T) {
 // (спека поясов §4.6/§4.8): иначе остаются дубли поясов / «пояс поверх
 // планеты». По образцу TestTruncateTablesIncludesBuildings.
 func TestRegeneratePlanetsDropsBelts(t *testing.T) {
-	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
 	defer db.Close()
 
-	mock.ExpectExec(`DELETE FROM system_belts WHERE world_id = ANY($1)`).
+	mock.ExpectBegin()
+	mock.ExpectQuery(`UPDATE contracts\s+SET status = CASE WHEN executor_id IS NULL`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "author_type", "author_id", "executor_id", "escrow_amount", "escrow_withdrawable"}))
+	mock.ExpectExec(`DELETE FROM system_belts WHERE world_id = ANY\(\$1\)`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 4))
-	mock.ExpectQuery(`SELECT COUNT(*) FROM planets WHERE world_id = ANY($1)`).
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM planets WHERE world_id = ANY\(\$1\)`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
-	mock.ExpectExec(`DELETE FROM planets WHERE world_id = ANY($1)`).
+	mock.ExpectExec(`DELETE FROM planets WHERE world_id = ANY\(\$1\)`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
 
 	h := &AdminHandlers{db: db}
 	_, err = h.clearPlanetsOf([]planet.WorldInfo{{ID: "w1"}})

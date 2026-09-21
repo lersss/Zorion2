@@ -5,7 +5,7 @@
 
 ## Таблицы
 
-`worlds`, `planets` (JSONB `data`), `locations`, `users`, `assignments`,
+`worlds`, `planets` (JSONB `data`), `locations`, `users`,
 `factions`, `events`, `settlements`,
 `goods_batches`, `planet_resources`, `compatibility_matrix`, `regions`,
 `settlement_log` (лог поселения, миграция `000024`), `npc_agents`
@@ -53,13 +53,46 @@ building_type='capital'` — одна столица на фракцию; кол
   escrow_lock/release/return, contract_work_earn, admin_seed, позже
   mint/salary/transfer)/`contract_id` без FK (журнал переживает удаление
   контракта)/`occurred_at`; индекс `idx_money_operations_owner (owner_type,
-  owner_id, occurred_at DESC)`). Колонка `npc_agents.owner_faction_id UUID NULL
+  owner_id, occurred_at DESC)`), `contracts` (состояние контракта как сущности,
+  миграция `000062`, спека `2026-09-22-контракт-модель-сущности` §4.1: `id`,
+  `type` (открытый список, CHECK нет), `author_type` CHECK
+  (player/faction/building/agent) + `author_id` (без FK — автор полиморфный),
+  `publication_planet_id` UUID FK → `planets` ON DELETE CASCADE (место —
+  планета, не мир), `title`/`description`, `payload` JSONB (нагрузка типа),
+  `reward` BIGINT CHECK `>= 0`, `funding` CHECK (regular/contract_work),
+  `escrow_amount`/`escrow_withdrawable` BIGINT CHECK `>= 0` (залог на контракте;
+  `escrow_amount` не обнуляется при release/return; `escrow_withdrawable <=
+  escrow_amount`), `escrow_kind` (`deposit`), `status` CHECK
+  (draft/open/taken/completed/cancelled/expired), `visibility` CHECK
+  (public/direct) + `direct_target_*`, `executor_type` CHECK (player/agent) +
+  `executor_id` (NULL = не взят), `taken_at`/`expires_at`/`created_at`/
+  `updated_at`; инварианты CHECK: прямой контракт без адресата, взятый без
+  исполнителя, живой (open/taken) без залога; индексы §6.2 — частичные
+  `idx_contracts_board (publication_planet_id, created_at DESC) WHERE status='open'`,
+  `idx_contracts_expiry (expires_at) WHERE status IN ('open','taken')`,
+  `idx_contracts_author`, `idx_contracts_executor WHERE executor_id IS NOT NULL`,
+  `idx_contracts_direct_target WHERE visibility='direct'`), `contract_requirements`
+  (требования-окно, миграция `000062`, §4.2: `id` BIGSERIAL, `contract_id` FK →
+  `contracts` ON DELETE CASCADE, `pos` + `UNIQUE (contract_id, pos)`, `kind`
+  (axis/goods/gear, открытый), `subject`, `op` CHECK (ge/le/eq/in),
+  `threshold_num`/`threshold_text`/`quantity`; интервал = две односторонние
+  строки; температура в K), `contract_log` (жизнь контракта, миграция `000062`,
+  §4.3: `contract_id` **без FK** — лог переживает удаление контракта; `type`
+  (published/taken/completed/cancelled/expired/failed/escrow_locked/
+  escrow_released/escrow_returned, открытый); `actor_type`/`actor_id`; `data`
+  JSONB (`escrow_returned.data.reason` = expired/cancelled/world_deleted);
+  `occurred_at`; индекс `idx_contract_log_contract (contract_id, occurred_at
+  DESC)`; структура по духу `settlement_log`, но без CASCADE). Залог: lock
+  при публикации / release при выполнении / return при отмене/истечении/удалении
+  — `internal/repository/contract_repository.go`. Колонка `npc_agents.owner_faction_id UUID NULL
   REFERENCES factions(id) ON DELETE SET NULL` (миграция `000061` §6) — владелец
   агента; NULL = не назначен.
 
 Удалены: `production_units` (легаси 000018-эпохи, снос миграцией `000050`,
 спека `2026-09-20-фабрики` §11.6, решение создателя 3b.6.8), `factories`/
-`goods_batches` (миграция `000034` — имя `factories` свободно).
+`goods_batches` (миграция `000034` — имя `factories` свободно), `assignments`
+(муляж заданий, снос миграцией `000062` — заменён `contracts`; миграции
+`000010`/`000035` его колонок — историческое, применены до `000062`).
 
 Проектные масштабы для расчётов нагрузки: 100k миров, ~320k планет.
 
@@ -335,10 +368,17 @@ building_type='capital'` — одна столица на фракцию; кол
   (`PlayerBalanceSeed=10000`) и фракции (`FactionBalanceSeed=10^15`),
   `ON CONFLICT DO NOTHING` (идемпотентно). `accounts` НЕ входит в
   `truncateTables` (кошелёк игрока переживает очистку вселенной, §3.5);
-  удаление faction/agent-счетов после очистки — отложено (нужна правка
-  `admin_universe.go`, follow-up). Залог/эскроу (lock/release/return) — этап B
-  (`000062_contracts.sql`). Номер `000061`: бронь менеджера (деньги `000061`,
-  контракты `000062`); `000060` пропущен (свободен).
+  после `TRUNCATE` удаляются счета `owner_type='faction'` (фракции
+  перегенерируются с новыми id; счета агентов — когда появятся, B2+). Залог/
+  эскроу (lock/release/return) — этап B (`000062_contracts.sql`). Номер `000061`:
+  бронь менеджера (деньги `000061`, контракты `000062`); `000060` пропущен
+  (свободен).
+- `000062` — контракт как сущность (спека `2026-09-22-контракт-модель-сущности`
+  §4/§9, 2026-09-22): таблицы `contracts`, `contract_requirements`, `contract_log`
+  (см. «Таблицы»), `DROP TABLE IF EXISTS assignments` (муляж, замена — `contracts`).
+  `contracts`/`contract_requirements`/`contract_log`/`money_operations` входят в
+  `truncateTables`; во всех путях удаления контрактов залог возвращается автору ДО
+  удаления (§6.5, `ReturnEscrowForContractsTx`). Идёт после `000061_money.sql`.
 - Миграции, вступающие в силу на старте, требуют перезапуска сервера
   (`AGENTS.md` §4 п.13).
 - `VACUUM` внутрь миграции не положить — не работает внутри транзакции

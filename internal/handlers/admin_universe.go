@@ -18,6 +18,7 @@ import (
 	"zorion/internal/generator/planet"
 	"zorion/internal/models"
 	"zorion/internal/regionprofile"
+	"zorion/internal/repository"
 )
 
 var statusManager = generator.NewStatusManager()
@@ -49,18 +50,25 @@ func recoverErr(r interface{}) string {
 //
 // Список таблиц — все, что прямо или косвенно ссылаются на worlds
 // (кроме users):
-//   worlds    ← locations, assignments, planets, npc_agents, system_belts
-//   planets   ← factions, settlements, buildings, deposits
+//   worlds    ← locations, planets, npc_agents, system_belts
+//   planets   ← contracts (→ contract_requirements), factions, settlements, buildings, deposits
 //
 // Если появится новая таблица с FK на любую из этих — TRUNCATE упадёт
 // с ошибкой "cannot truncate a table referenced in a foreign key
 // constraint". Тогда добавь её в этот список.
 
-const truncateTables = `worlds, locations, planets, assignments, factions, settlements, settlement_log, regions, npc_agents, player_planet_knowledge, buildings, deposits, system_belts`
+const truncateTables = `worlds, locations, planets, contracts, contract_requirements, contract_log, factions, settlements, settlement_log, regions, npc_agents, player_planet_knowledge, buildings, deposits, system_belts, money_operations`
 
 // clearUniverseTx — очистка внутри уже начатой транзакции.
 // Вызывающий делает Begin/Commit/Rollback.
 func clearUniverseTx(ctx context.Context, tx *sql.Tx) error {
+	// 0. Возврат залога живых контрактов автору ДО удаления контрактов (§6.5):
+	// деньги не исчезают без следа. Одна транзакция с TRUNCATE.
+	if _, err := repository.ReturnEscrowForContractsTx(tx,
+		repository.ContractScope{All: true}, models.EscrowReasonWorldDeleted); err != nil {
+		return fmt.Errorf("return escrow: %w", err)
+	}
+
 	// 1. Обнуляем current_world_id — чтобы после возврата FK не было висячих ссылок.
 	if _, err := tx.ExecContext(ctx, "UPDATE users SET current_world_id = NULL WHERE current_world_id IS NOT NULL"); err != nil {
 		return fmt.Errorf("update users: %w", err)
@@ -76,7 +84,13 @@ func clearUniverseTx(ctx context.Context, tx *sql.Tx) error {
 		return fmt.Errorf("truncate: %w", err)
 	}
 
-	// 4. Возвращаем FK на место.
+	// 4. Счета фракций удаляются (спека денег §3.5): фракции перегенерируются с
+	// новыми id, старые счета стали бы сиротами. Кошелёк игрока переживает очистку.
+	if _, err := tx.ExecContext(ctx, "DELETE FROM accounts WHERE owner_type = 'faction'"); err != nil {
+		return fmt.Errorf("delete faction accounts: %w", err)
+	}
+
+	// 5. Возвращаем FK на место.
 	if _, err := tx.ExecContext(ctx, "ALTER TABLE users ADD CONSTRAINT users_current_world_id_fkey FOREIGN KEY (current_world_id) REFERENCES worlds(id) ON DELETE SET NULL"); err != nil {
 		return fmt.Errorf("re-add fk: %w", err)
 	}
@@ -108,7 +122,7 @@ func assignCurrentWorldsTx(ctx context.Context, tx *sql.Tx) error {
 //
 // spectral_class: экзотика пишет NULL (99.2.4 §3), а не пустую строку.
 // stellar_mods: ВСЕГДА валидный JSONB — для пустых модификаторов "{}",
-// а не nil: lib/pq передаёт []byte(nil) как '' → "invalid input syntax for
+// а не nil: lib/pq передаёт []byte(nil) как "" → "invalid input syntax for
 // type json" (баг #1, прогон @tester). Другие пути вставки worlds
 // (admin_hypothesis.go, world_repository.go, admin_worlds.go) колонку не
 // пишут — там дефолт NULL, не затронуты.
@@ -527,15 +541,31 @@ func (h *AdminHandlers) GeneratePlanets(w http.ResponseWriter, r *http.Request) 
 // clearPlanetsOf здесь не применима — список миров тут не отбирается).
 // Иначе повторный прогон без GenerateUniverse даёт дубли поясов: генератор
 // кладёт пояса заново для каждого мира.
+//
+// Возврат залога живых контрактов и DELETE — ОДНА транзакция (§6.5): иначе
+// залог контрактов удалённых планет пропал бы без следа.
 func (h *AdminHandlers) clearPlanets() (int, error) {
+	tx, err := h.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	if _, err := repository.ReturnEscrowForContractsTx(tx,
+		repository.ContractScope{All: true}, models.EscrowReasonWorldDeleted); err != nil {
+		return 0, fmt.Errorf("return escrow: %w", err)
+	}
 	var oldCount int
-	if err := h.db.QueryRow(`SELECT COUNT(*) FROM planets`).Scan(&oldCount); err != nil {
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM planets`).Scan(&oldCount); err != nil {
 		return 0, err
 	}
-	if _, err := h.db.Exec(`DELETE FROM system_belts`); err != nil {
+	if _, err := tx.Exec(`DELETE FROM system_belts`); err != nil {
 		return 0, err
 	}
-	if _, err := h.db.Exec(`DELETE FROM planets`); err != nil {
+	if _, err := tx.Exec(`DELETE FROM planets`); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
 		return 0, err
 	}
 	return oldCount, nil

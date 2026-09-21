@@ -25,7 +25,9 @@ import (
 
 	"zorion/internal/generator"
 	"zorion/internal/mapcache"
+	"zorion/internal/models"
 	"zorion/internal/regionprofile"
+	"zorion/internal/repository"
 )
 
 // Параметры пакмана (спека §8): дефолты и диапазоны из тела запроса.
@@ -396,6 +398,21 @@ func (h *AdminHandlers) eatPacmanBatchOnce(ids []string) (pacmanBatchStats, erro
 		return stats, err
 	}
 
+	// 4.6. Возврат залога живых контрактов съедаемых миров (§6.5) — до DELETE,
+	// в той же транзакции. Форма возврата по статусу внутри ReturnEscrow
+	// (open→cancelled, taken→провал/expired).
+	if _, err := repository.ReturnEscrowForContractsTx(tx,
+		repository.ContractScope{WorldIDs: ids}, models.EscrowReasonWorldDeleted); err != nil {
+		return stats, err
+	}
+	// 4.7. Контракты с мёртвой целью (§5 перелёта п.10): опубликованы на выжившей
+	// планете, но payload.dest_world_id — съеденный мир. Цель недостижима —
+	// возвращаем залог и закрываем (по образцу очистки pending_destination, 4.5).
+	if _, err := repository.ReturnEscrowForContractsTx(tx,
+		repository.ContractScope{PayloadDestWorldIDs: ids}, models.EscrowReasonWorldDeleted); err != nil {
+		return stats, err
+	}
+
 	// Счётчики планет/поселений — до удаления миров (каскад не отдаёт
 	// RowsAffected; отчёт §3.4).
 	if err := tx.QueryRowContext(context.Background(), `
@@ -408,7 +425,7 @@ func (h *AdminHandlers) eatPacmanBatchOnce(ids []string) (pacmanBatchStats, erro
 		return stats, err
 	}
 
-	// 5. Миры — каскад на всё остальное (planets/locations/assignments/
+	// 5. Миры — каскад на всё остальное (planets/locations/contracts/
 	// settlements/factions/planet_resources/settlement_log).
 	res, err = tx.ExecContext(context.Background(), `DELETE FROM worlds WHERE id = ANY($1)`, pq.Array(ids))
 	if err != nil {

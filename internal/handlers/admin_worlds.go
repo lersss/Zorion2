@@ -117,7 +117,9 @@ func (h *AdminHandlers) GetAllWorlds(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AdminHandlers) DeleteWorld(w http.ResponseWriter, r *http.Request) {
-	var req struct{ ID string `json:"id"` }
+	var req struct {
+		ID string `json:"id"`
+	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
@@ -131,10 +133,25 @@ func (h *AdminHandlers) DeleteWorld(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "World not found", http.StatusNotFound)
 		return
 	}
-	query := `DELETE FROM worlds WHERE id = $1`
-	_, err = h.db.Exec(query, req.ID)
+	// Возврат залога живых контрактов мира ДО удаления (§6.5) — одна транзакция
+	// с DELETE: каскад сносит contracts через planets, залог не должен пропасть.
+	tx, err := h.db.Begin()
 	if err != nil {
+		http.Error(w, "Failed to start transaction", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback()
+	if _, err := repository.ReturnEscrowForContractsTx(tx,
+		repository.ContractScope{WorldIDs: []string{req.ID}}, models.EscrowReasonWorldDeleted); err != nil {
+		http.Error(w, "Failed to return escrow: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if _, err := tx.Exec(`DELETE FROM worlds WHERE id = $1`, req.ID); err != nil {
 		http.Error(w, "Failed to delete world: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		http.Error(w, "Failed to commit: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	h.invalidatePlanetStats()

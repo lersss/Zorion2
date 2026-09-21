@@ -37,19 +37,20 @@ func (s *Server) handleShipsRebuild(w http.ResponseWriter, r *http.Request) {
 }
 
 // rebuildShipRace — пересборка записи одной расы: лор-файл → texture/
-// silhouette/blocked/family → запись в ships.json (валидация как в
+// silhouette/blocked/family/типы → запись в ships.json (валидация как в
 // ParseShips). Ошибка — с человеческой причиной (для skipped в массовом).
 func (s *Server) rebuildShipRace(slug string) (config.ShipEntry, error) {
-	texture, silhouette, blocked, family, err := s.parseShipLore(slug)
+	lore, err := s.parseShipLore(slug)
 	if err != nil {
 		return config.ShipEntry{}, err
 	}
 	entry := config.ShipEntry{
 		RaceName:   s.raceNameBySlug[slug],
-		Family:     family,
-		Texture:    texture,
-		Silhouette: silhouette,
-		Blocked:    blocked,
+		Family:     lore.Family,
+		Texture:    lore.Texture,
+		Silhouette: lore.Silhouette,
+		Blocked:    lore.Blocked,
+		Types:      lore.Types,
 	}
 	if err := updateShipsRace(s.shipsPath, slug, entry, s.racesPathOr("config/races.json")); err != nil {
 		return config.ShipEntry{}, err

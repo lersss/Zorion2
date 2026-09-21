@@ -309,12 +309,12 @@ func TestShipModuleInventory(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ReadFile %s: %v", e.Name(), err)
 		}
-		_, sil, _, _, err := config.ParseShipSection(string(data))
+		lore, err := config.ParseShipSection(string(data))
 		if err != nil {
 			t.Logf("%s: %v", slug, err)
 			continue
 		}
-		spec := ParseSilhouette(sil, dc)
+		spec := ParseSilhouette(lore.Silhouette, dc)
 		var uncovered []string
 		for _, w := range spec.Warnings {
 			if strings.HasPrefix(w, "неизвестный модуль:") {

@@ -40,39 +40,54 @@ func (s *Server) handleShipsRaces(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]interface{}{"races": races})
 }
 
-// handleShipsInfo — GET /ships/info?race= → {race, race_name, family, texture,
-// silhouette, blocked} (из ships.json; фолбек — из лор-файла, спека §6.2).
+// handleShipsInfo — GET /ships/info?race=&type= → {race, race_name, family,
+// type, types, texture, silhouette, blocked} (из ships.json; фолбек — из
+// лор-файла, спека §6.2). type — тип корабля (starship/…); пусто — первый
+// (у легаси-расы — единственный безымянный).
 func (s *Server) handleShipsInfo(w http.ResponseWriter, r *http.Request) {
-	race := r.URL.Query().Get("race")
+	q := r.URL.Query()
+	race := q.Get("race")
+	typeName := q.Get("type")
 	entry, ok := s.shipsEntry(race)
 	if !ok {
 		// фолбек: парсим лор-файл напрямую (пачка ещё не пересобрана)
-		texture, silhouette, blocked, family, err := s.parseShipLore(race)
+		lore, err := s.parseShipLore(race)
 		if err != nil {
 			writeJSON(w, map[string]string{"error": err.Error()})
 			return
 		}
-		writeJSON(w, map[string]interface{}{
-			"race": race, "race_name": s.raceNameBySlug[race], "family": family,
-			"texture": texture, "silhouette": silhouette, "blocked": blocked,
-		})
+		entry = config.ShipEntry{
+			RaceName: s.raceNameBySlug[race], Family: lore.Family,
+			Texture: lore.Texture, Silhouette: lore.Silhouette, Blocked: lore.Blocked, Types: lore.Types,
+		}
+	}
+	t, ok := entry.ResolveShipType(typeName)
+	if !ok {
+		writeJSON(w, map[string]string{"error": "нет типа " + typeName + " у расы " + race})
 		return
 	}
 	writeJSON(w, map[string]interface{}{
 		"race": race, "race_name": entry.RaceName, "family": entry.Family,
-		"texture": entry.Texture, "silhouette": entry.Silhouette, "blocked": entry.Blocked,
+		"type": t.Type, "types": entry.ShipTypeNames(),
+		"texture": t.Texture, "silhouette": t.Silhouette, "blocked": t.Blocked,
 	})
 }
 
-// handleShipsPrompt — GET /ships/prompt?race=&tags=&seed= → {prompt1, prompt2,
-// race, race_name}: сборка без генерации (паттерн /prompt 98b, спека §6.2).
-// prompt1 — txt2img по рецепту 2026-09-21, prompt2 — этап Hi-Res.
+// handleShipsPrompt — GET /ships/prompt?race=&type=&tags=&seed= → {prompt1,
+// prompt2, race, race_name, type}: сборка без генерации (паттерн /prompt 98b,
+// спека §6.2). type — тип корабля (пусто — первый). prompt1 — txt2img по
+// рецепту 2026-09-21, prompt2 — этап Hi-Res.
 func (s *Server) handleShipsPrompt(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	race := q.Get("race")
 	entry, ok := s.shipsEntry(race)
 	if !ok {
 		writeJSON(w, map[string]string{"error": "нет расы " + race + " в ships.json"})
+		return
+	}
+	t, ok := entry.ResolveShipType(q.Get("type"))
+	if !ok {
+		writeJSON(w, map[string]string{"error": "нет типа " + q.Get("type") + " у расы " + race})
 		return
 	}
 	seed := time.Now().UnixNano()
@@ -82,25 +97,27 @@ func (s *Server) handleShipsPrompt(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	rng := rand.New(rand.NewSource(seed))
-	prompt1 := generator.BuildShipTxt2ImgPrompt(rng, entry, q.Get("tags"))
+	prompt1 := generator.BuildShipTxt2ImgPrompt(rng, entry.ForType(t), q.Get("tags"))
 	prompt2 := generator.BuildShipHiResPrompt(prompt1)
-	writeJSON(w, map[string]interface{}{"prompt1": prompt1, "prompt2": prompt2, "race": race, "race_name": entry.RaceName})
+	writeJSON(w, map[string]interface{}{"prompt1": prompt1, "prompt2": prompt2, "race": race, "race_name": entry.RaceName, "type": t.Type})
 }
 
-// handleShipsGen — GET /ships/gen?race=&n=&tags=&prompt1_override=&prompt2_override=&hires=&size=
-// → {msg} (спека §6.2; tags/override — 98b, size — эскиз/полный, 98c;
-// hires — этап детализации, рецепт 2026-09-21).
+// handleShipsGen — GET /ships/gen?race=&type=&n=&tags=&prompt1_override=
+// &prompt2_override=&hires=&size=&keep= → {msg} (спека §6.2; tags/override —
+// 98b, size — эскиз/полный, 98c; hires — этап детализации, рецепт 2026-09-21;
+// type — тип корабля, пусто — первый тип расы; keep=1 — не чистить пул).
 func (s *Server) handleShipsGen(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	n := clampCount(atoiDefault(q.Get("n"), 3), s.cfg.MaxCount)
 	size := clampShipSize(atoiDefault(q.Get("size"), 200))
-	msg, _ := s.runner.GenShips(q.Get("race"), n, q.Get("tags"), q.Get("prompt1_override"), q.Get("prompt2_override"), s.shipHires(q.Get("hires")), size)
+	msg, _ := s.runner.GenShips(q.Get("race"), q.Get("type"), n, q.Get("tags"), q.Get("prompt1_override"), q.Get("prompt2_override"), s.shipHires(q.Get("hires")), size, q.Get("keep") == "1")
 	writeJSON(w, map[string]string{"msg": msg})
 }
 
 // handleShipsGenBatch — GET /ships/genbatch?races=<CSV>&per=&tags=&prompt1_override=
-// &prompt2_override=&hires=&size= → {msg} (пачка 10 рас × 3 = 30 задач, спека
-// §6.2; tags/override — 98b на все расы пачки, size — эскиз/полный, 98c).
+// &prompt2_override=&hires=&size=&keep= → {msg} (пачка рас; типы расы
+// разворачиваются, люди ×4; спека §6.2; tags/override — 98b на все расы пачки,
+// size — эскиз/полный, 98c; keep=1 — не чистить пул, накопительный прогон).
 func (s *Server) handleShipsGenBatch(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	var races []string
@@ -111,7 +128,7 @@ func (s *Server) handleShipsGenBatch(w http.ResponseWriter, r *http.Request) {
 	}
 	per := atoiDefault(q.Get("per"), 3)
 	size := clampShipSize(atoiDefault(q.Get("size"), 200))
-	msg, _ := s.runner.GenShipsBatch(races, per, q.Get("tags"), q.Get("prompt1_override"), q.Get("prompt2_override"), s.shipHires(q.Get("hires")), size)
+	msg, _ := s.runner.GenShipsBatch(races, per, q.Get("tags"), q.Get("prompt1_override"), q.Get("prompt2_override"), s.shipHires(q.Get("hires")), size, q.Get("keep") == "1")
 	writeJSON(w, map[string]string{"msg": msg})
 }
 
@@ -280,11 +297,13 @@ func (s *Server) handleShipsAct(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, out)
 }
 
-// acceptShipFile принимает кандидата корабля: race_<slug>_NN.png (первый
-// свободный номер по slug) + ships_meta.json рядом с файлами (спека §5).
-// Раса — из меты файла (не из выбранной в UI). Файл копируется байт-в-байт
-// (пиксели не трогаются). Гвард эскиза (100×100 в игре апскейлится = мыло,
-// §4.4) и маркер orient_meta: pair (A, F) не запечена в пиксели.
+// acceptShipFile принимает кандидата корабля: race_<slug>_<type>.png для расы с
+// типом корабля (тип из меты файла) либо race_<slug>_NN.png (первый свободный
+// номер по slug) — плюс ships_meta.json рядом с файлами (спека §5).
+// Раса/тип — из меты файла (не из выбранного в UI). Файл копируется
+// байт-в-байт (пиксели не трогаются). Гвард эскиза (100×100 в игре
+// апскейлится = мыло, §4.4) и маркер orient_meta: pair (A, F) не запечена в
+// пиксели.
 func acceptShipFile(pool, acceptDir, file string) string {
 	src := filepath.Join(pool, file)
 	var meta *generator.ShipMetaItem
@@ -305,7 +324,7 @@ func acceptShipFile(pool, acceptDir, file string) string {
 		return "эскиз 100×100 — для игры нужен 200×200"
 	}
 	os.MkdirAll(acceptDir, 0755)
-	dst := filepath.Join(acceptDir, fmt.Sprintf("race_%s_%02d.png", meta.Race, nextShipAcceptNum(acceptDir, meta.Race)))
+	dst := filepath.Join(acceptDir, shipAcceptName(acceptDir, meta.Race, meta.Type))
 	if err := copyFile(src, dst); err != nil {
 		return "Ошибка: " + err.Error()
 	}
@@ -319,6 +338,25 @@ func acceptShipFile(pool, acceptDir, file string) string {
 	meta.OrientMeta = true
 	appendShipsMeta(filepath.Join(acceptDir, "ships_meta.json"), *meta)
 	return "Принято: " + filepath.Base(dst)
+}
+
+// shipAcceptName — имя принятого корабля: race_<slug>_<type>.png для расы с
+// типом (тип уникален; при повторной приёмке — race_<slug>_<type>_NN.png),
+// иначе race_<slug>_NN.png (первый свободный номер).
+func shipAcceptName(dir, slug, typ string) string {
+	if typ == "" {
+		return fmt.Sprintf("race_%s_%02d.png", slug, nextShipAcceptNum(dir, slug))
+	}
+	base := fmt.Sprintf("race_%s_%s", slug, typ)
+	if _, err := os.Stat(filepath.Join(dir, base+".png")); err != nil {
+		return base + ".png"
+	}
+	for n := 2; ; n++ {
+		cand := fmt.Sprintf("%s_%02d.png", base, n)
+		if _, err := os.Stat(filepath.Join(dir, cand)); err != nil {
+			return cand
+		}
+	}
 }
 
 // nextShipAcceptNum — первый свободный номер race_<slug>_NN.png в папке.
@@ -349,10 +387,10 @@ func appendShipsMeta(path string, item generator.ShipMetaItem) {
 
 // parseShipLore — машинная проекция лор-файла корабля (фолбек /ships/info,
 // когда пачка ещё не пересобрана в ships.json).
-func (s *Server) parseShipLore(slug string) (texture, silhouette string, blocked []string, family string, err error) {
+func (s *Server) parseShipLore(slug string) (config.ShipLore, error) {
 	data, err := os.ReadFile(filepath.Join(s.shipsDir(), slug+".md"))
 	if err != nil {
-		return "", "", nil, "", fmt.Errorf("нет лор-файла %s/%s.md", s.shipsDir(), slug)
+		return config.ShipLore{}, fmt.Errorf("нет лор-файла %s/%s.md", s.shipsDir(), slug)
 	}
 	return config.ParseShipSection(string(data))
 }

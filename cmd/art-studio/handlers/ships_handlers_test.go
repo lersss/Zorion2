@@ -55,6 +55,198 @@ func newShipsTestStudio(t *testing.T) (*Server, string, string) {
 	return srv, shipsPath, pool
 }
 
+// newShipsTestStudioTyped — как newShipsTestStudio, но humans с типами корабля
+// (starship/cruiser) — для тестов контракта «раса → список типов».
+func newShipsTestStudioTyped(t *testing.T) (*Server, string, string) {
+	t.Helper()
+	srv, shipsPath, pool := newShipsTestStudio(t)
+	shipsData := []byte(`{
+  "humans": {
+    "race_name": "Люди",
+    "family": "F0",
+    "texture": "STALE texture",
+    "silhouette": "крыло-корпус в плане: широкий нос справа",
+    "blocked": ["tentacle", "organic"],
+    "types": [
+      {"type": "starship", "texture": "STALE texture"},
+      {"type": "cruiser", "texture": "cruiser material"}
+    ]
+  }
+}`)
+	if err := os.WriteFile(shipsPath, shipsData, 0o644); err != nil {
+		t.Fatalf("WriteFile ships.json: %v", err)
+	}
+	ships, err := config.ParseShips(shipsData, shipsPath, "../../../config/races.json")
+	if err != nil {
+		t.Fatalf("ParseShips: %v", err)
+	}
+	srv.SetShips(ships, srv.shipDictRef(), shipsPath)
+	srv.runner.SetShips(ships, srv.shipDictRef(), "../../../config/races.json")
+	return srv, shipsPath, pool
+}
+
+// writeShipFakePy — фейковый python кораблей (frame-check + копия выреза) для
+// handler-тестов генерации.
+func writeShipFakePy(t *testing.T) string {
+	t.Helper()
+	fakePy := filepath.Join(t.TempDir(), "fake_ship_python.cmd")
+	script := "@echo off\r\nif \"%3\"==\"--frame-check\" goto frame\r\ncopy %2 %3 >nul 2>&1\r\nexit /b 0\r\n:frame\r\necho {\"touch\":[],\"elong\":2.0,\"ok\":true} > %5\r\nexit /b 0\r\n"
+	if err := os.WriteFile(fakePy, []byte(script), 0o644); err != nil {
+		t.Fatalf("WriteFile fake python: %v", err)
+	}
+	return fakePy
+}
+
+// waitShipsJob — дождаться завершения джоба пула кораблей.
+func waitShipsJob(t *testing.T, poolDir string) {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		st := readStatusFile(poolDir)
+		if !st.Running && st.Total > 0 {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// TestShipsInfoTypes — /ships/info?race=humans&type=cruiser: поля выбранного
+// типа + список типов; неизвестный тип — ошибка.
+func TestShipsInfoTypes(t *testing.T) {
+	srv, _, _ := newShipsTestStudioTyped(t)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/ships/info?race=humans&type=cruiser", nil))
+	var resp struct {
+		Type    string   `json:"type"`
+		Types   []string `json:"types"`
+		Texture string   `json:"texture"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("json: %v", err)
+	}
+	if resp.Type != "cruiser" || resp.Texture != "cruiser material" {
+		t.Errorf("info = %+v, want cruiser/cruiser material", resp)
+	}
+	if len(resp.Types) != 2 || resp.Types[0] != "starship" || resp.Types[1] != "cruiser" {
+		t.Errorf("types = %v, want [starship cruiser]", resp.Types)
+	}
+	rec2 := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec2, httptest.NewRequest("GET", "/ships/info?race=humans&type=nope", nil))
+	if !strings.Contains(rec2.Body.String(), "нет типа nope") {
+		t.Errorf("info nope = %s", rec2.Body.String())
+	}
+}
+
+// TestShipsPromptType — /ships/prompt?race=humans&type=cruiser: промпт с texture
+// выбранного типа.
+func TestShipsPromptType(t *testing.T) {
+	srv, _, _ := newShipsTestStudioTyped(t)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/ships/prompt?race=humans&type=cruiser&seed=1", nil))
+	var resp struct {
+		Prompt1 string `json:"prompt1"`
+		Type    string `json:"type"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("json: %v", err)
+	}
+	if resp.Type != "cruiser" || !strings.Contains(resp.Prompt1, "cruiser material") {
+		t.Errorf("prompt = %+v, want cruiser", resp)
+	}
+}
+
+// TestShipsGenType — /ships/gen?race=humans&type=cruiser: генерируется тип, в
+// мете пула — Type.
+func TestShipsGenType(t *testing.T) {
+	srv, _, pool := newShipsTestStudioTyped(t)
+	srv.cfg.PythonCmd = writeShipFakePy(t)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/ships/gen?race=humans&type=cruiser&n=1", nil))
+	var resp struct {
+		Msg string `json:"msg"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("json: %v", err)
+	}
+	if !strings.Contains(resp.Msg, "Корабли расы humans") {
+		t.Fatalf("msg = %q", resp.Msg)
+	}
+	poolDir := filepath.Join(pool, "ships_pool")
+	waitShipsJob(t, poolDir)
+	meta := readShipMetaFull(poolDir)
+	if len(meta) != 1 {
+		t.Fatalf("meta = %d, want 1", len(meta))
+	}
+	if !strings.Contains(string(mustRead(t, filepath.Join(poolDir, "meta.json"))), `"type":"cruiser"`) {
+		t.Errorf("мета без type=cruiser: %s", mustRead(t, filepath.Join(poolDir, "meta.json")))
+	}
+}
+
+// mustRead — прочитать файл или упасть (тесты).
+func mustRead(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile %s: %v", path, err)
+	}
+	return data
+}
+
+// TestShipsGenKeep — /ships/gen?keep=1: пул НЕ чистится, кандидат копится;
+// без keep — пул чистится (обратная совместимость).
+func TestShipsGenKeep(t *testing.T) {
+	srv, _, pool := newShipsTestStudio(t)
+	srv.cfg.PythonCmd = writeShipFakePy(t)
+	poolDir := filepath.Join(pool, "ships_pool")
+	os.MkdirAll(poolDir, 0755)
+	// имитация прошлого прогона: кандидат s01.png + мета
+	if err := os.WriteFile(filepath.Join(poolDir, "s01.png"), tinyPNG(t), 0o644); err != nil {
+		t.Fatalf("WriteFile s01: %v", err)
+	}
+	meta := `[{"file":"s01.png","race":"humans","race_name":"Люди","seed":1}]`
+	if err := os.WriteFile(filepath.Join(poolDir, "meta.json"), []byte(meta), 0o644); err != nil {
+		t.Fatalf("WriteFile meta: %v", err)
+	}
+	srv.Handler().ServeHTTP(httptest.NewRecorder(),
+		httptest.NewRequest("GET", "/ships/gen?race=humans&n=1&keep=1", nil))
+	waitShipsJob(t, poolDir)
+	if _, err := os.Stat(filepath.Join(poolDir, "s01.png")); err != nil {
+		t.Errorf("keep=1: предыдущий s01.png стёрт: %v", err)
+	}
+	if m := readShipMetaFull(poolDir); len(m) != 2 {
+		t.Errorf("keep=1: meta = %d, want 2 (накопление)", len(m))
+	}
+}
+
+// TestShipsAcceptTyped — приёмка расы с типом корабля: race_<slug>_<type>.png.
+func TestShipsAcceptTyped(t *testing.T) {
+	srv, _, pool := newShipsTestStudio(t)
+	poolDir := filepath.Join(pool, "ships_pool")
+	os.MkdirAll(poolDir, 0755)
+	if err := os.WriteFile(filepath.Join(poolDir, "s01.png"), tinyPNG(t), 0o644); err != nil {
+		t.Fatalf("WriteFile s01: %v", err)
+	}
+	meta := `[{"file":"s01.png","race":"humans","type":"starship","race_name":"Люди","seed":1}]`
+	if err := os.WriteFile(filepath.Join(poolDir, "meta.json"), []byte(meta), 0o644); err != nil {
+		t.Fatalf("WriteFile meta: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/ships/act?file=s01.png&what=accept", nil))
+	var resp struct {
+		Msg string `json:"msg"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("json: %v", err)
+	}
+	if !strings.Contains(resp.Msg, "Принято: race_humans_starship.png") {
+		t.Fatalf("msg = %q, want race_humans_starship.png", resp.Msg)
+	}
+	accDir := filepath.Join(pool, "final_accepted", "ships")
+	if _, err := os.Stat(filepath.Join(accDir, "race_humans_starship.png")); err != nil {
+		t.Errorf("нет принятого файла: %v", err)
+	}
+}
+
 // TestShipsRaces — /ships/races: 60 рас из каталога races/ships/.
 func TestShipsRaces(t *testing.T) {
 	srv, _, _ := newShipsTestStudio(t)

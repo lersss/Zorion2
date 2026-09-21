@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"zorion/cmd/art-studio/comfy"
+	"zorion/cmd/art-studio/config"
 	"zorion/cmd/art-studio/postproc"
 )
 
@@ -22,23 +23,67 @@ const (
 	shipMinElong    = 1.3
 )
 
+// shipTask — задача генерации: раса + выбранный тип корабля (entry — плоская
+// запись с наследованными texture/silhouette/blocked).
+type shipTask struct {
+	race  string
+	typ   string // имя типа корабля; пусто — легаси-раса без типов
+	entry config.ShipEntry
+}
+
+// buildShipTasks — список задач «раса × тип». typeName задан — только этот тип;
+// пусто: allTypes — все типы расы (batch), иначе первый тип (у легаси-расы без
+// types — единственный безымянный). Ошибка, если расы/типа нет в ships.json.
+func buildShipTasks(ships config.ShipsConfig, races []string, typeName string, allTypes bool) ([]shipTask, error) {
+	var tasks []shipTask
+	for _, race := range races {
+		e, ok := ships[race]
+		if !ok {
+			return nil, fmt.Errorf("нет расы %s в ships.json", race)
+		}
+		if typeName != "" {
+			t, ok := e.ResolveShipType(typeName)
+			if !ok {
+				return nil, fmt.Errorf("нет типа %s у расы %s", typeName, race)
+			}
+			tasks = append(tasks, shipTask{race: race, typ: t.Type, entry: e.ForType(t)})
+			continue
+		}
+		if allTypes {
+			for _, t := range e.ShipTypes() {
+				tasks = append(tasks, shipTask{race: race, typ: t.Type, entry: e.ForType(t)})
+			}
+			continue
+		}
+		t, ok := e.ResolveShipType("")
+		if !ok {
+			return nil, fmt.Errorf("нет типа у расы %s", race)
+		}
+		tasks = append(tasks, shipTask{race: race, typ: t.Type, entry: e.ForType(t)})
+	}
+	return tasks, nil
+}
+
 // GenShips — генерация n кандидатов корабля расы (рецепт 2026-09-21,
-// /ships/gen). tags — доп. теги (в конец промпта); prompt1Override — ручной
-// промпт txt2img на все N (пусто — авто-промпт); prompt2Override — ручной
-// промпт Hi-Res (пусто — авто: промпт txt2img + хвост детализации);
-// hires — включить этап детализации; size — финальный размер кандидата
-// (200 — полный, 100 — эскиз: латент 512 и меньший steps, быстрее).
-// Ошибка, если конфиг кораблей не подключён или расы нет в ships.json.
-func (r *Runner) GenShips(race string, n int, tags, prompt1Override, prompt2Override string, hires bool, size int) (string, Status) {
+// /ships/gen). typeName — тип корабля (starship/…); пусто — первый тип
+// (у легаси-расы без types — единственный безымянный). tags — доп. теги (в конец
+// промпта); prompt1Override — ручной промпт txt2img на все N (пусто —
+// авто-промпт); prompt2Override — ручной промпт Hi-Res (пусто — авто: промпт
+// txt2img + хвост детализации); hires — включить этап детализации; size —
+// финальный размер кандидата (200 — полный, 100 — эскиз: латент 512 и меньший
+// steps, быстрее); keep — не чистить пул перед стартом (накопительный прогон).
+// Ошибка, если конфиг кораблей не подключён, расы/типа нет в ships.json.
+func (r *Runner) GenShips(race, typeName string, n int, tags, prompt1Override, prompt2Override string, hires bool, size int, keep bool) (string, Status) {
 	ships, dict := r.shipsSnapshot()
 	if ships == nil || dict == nil {
 		return "конфиг кораблей не подключён", Status{}
 	}
-	if _, ok := ships[race]; !ok {
-		return "нет расы " + race + " в ships.json", Status{}
+	tasks, err := buildShipTasks(ships, []string{race}, typeName, false)
+	if err != nil {
+		return err.Error(), Status{}
 	}
 	started, st := r.TryStart(func(ctx *JobCtx) {
-		ctx.genShipsJob([]string{race}, n, tags, prompt1Override, prompt2Override, hires, size)
+		ctx.genShipsJob(tasks, n, tags, prompt1Override, prompt2Override, hires, size, keep)
 	})
 	if !started {
 		return fmt.Sprintf("Уже идёт генерация: %d/%d", st.Done, st.Total), st
@@ -46,25 +91,26 @@ func (r *Runner) GenShips(race string, n int, tags, prompt1Override, prompt2Over
 	return fmt.Sprintf("Корабли расы %s: %d шт", race, n), Status{}
 }
 
-// GenShipsBatch — пачка: per кандидатов на каждую расу (/ships/genbatch;
-// 10 рас × 3 = 30 задач, 2 воркера). Параметры — как GenShips.
-func (r *Runner) GenShipsBatch(races []string, per int, tags, p1o, p2o string, hires bool, size int) (string, Status) {
+// GenShipsBatch — пачка: per кандидатов на каждый тип каждой расы
+// (/ships/genbatch; 10 рас × 3 = 30 задач, 2 воркера). Типы расы разворачиваются
+// (люди ×4); у легаси-расы без types — один безымянный тип. Параметры — как
+// GenShips (keep — накопительный прогон).
+func (r *Runner) GenShipsBatch(races []string, per int, tags, p1o, p2o string, hires bool, size int, keep bool) (string, Status) {
 	ships, dict := r.shipsSnapshot()
 	if ships == nil || dict == nil {
 		return "конфиг кораблей не подключён", Status{}
 	}
-	for _, race := range races {
-		if _, ok := ships[race]; !ok {
-			return "нет расы " + race + " в ships.json", Status{}
-		}
+	tasks, err := buildShipTasks(ships, races, "", true)
+	if err != nil {
+		return err.Error(), Status{}
 	}
 	started, st := r.TryStart(func(ctx *JobCtx) {
-		ctx.genShipsJob(races, per, tags, p1o, p2o, hires, size)
+		ctx.genShipsJob(tasks, per, tags, p1o, p2o, hires, size, keep)
 	})
 	if !started {
 		return fmt.Sprintf("Уже идёт генерация: %d/%d", st.Done, st.Total), st
 	}
-	return fmt.Sprintf("Пачка кораблей: %d рас × %d", len(races), per), Status{}
+	return fmt.Sprintf("Пачка кораблей: %d рас × %d = %d", len(races), per, len(tasks)*per), Status{}
 }
 
 // genShipsJob — конвейер на кандидата (рецепт 2026-09-21): (1) txt2img
@@ -74,17 +120,21 @@ func (r *Runner) GenShipsBatch(races []string, per int, tags, p1o, p2o string, h
 // все негодны — берётся последний кадр); (3) Hi-Res (ShipHiResWorkflow) — по
 // запросу hires; (4) вырез/нормализация (tools/ship_sprite_cut.py, hyst
 // 12/40 + fill_holes + --no-orient: без пиксельного доворота) → sNN.png;
-// (5) метки авто-фильтра + мета (промпты, статистика попыток) + начальная
-// пара (A, F) из подсказки авто-носа. Мягкий СТОП, 2 воркера, локальный
-// rand.New на вызов (AGENTS.md §0).
-func (c *JobCtx) genShipsJob(races []string, per int, tags, p1o, p2o string, hires bool, size int) {
+// (5) метки авто-фильтра + мета (промпты, статистика попыток, тип корабля) +
+// начальная пара (A, F) из подсказки авто-носа. Мягкий СТОП, 2 воркера,
+// локальный rand.New на вызов (AGENTS.md §0). keep — не чистить пул перед
+// стартом: новые кандидаты добавляются к уже сгенерированным (накопительный
+// прогон «пилот → остальные»).
+func (c *JobCtx) genShipsJob(tasks []shipTask, per int, tags, p1o, p2o string, hires bool, size int, keep bool) {
 	pool := c.PoolPath("ships_pool")
 	os.MkdirAll(pool, 0755)
-	// чистка пула перед стартом (sNN.png + meta.json + сырые кадры)
-	clearShipsPool(pool)
-	total := len(races) * per
+	if !keep {
+		// чистка пула перед стартом (sNN.png + meta.json + сырые кадры)
+		clearShipsPool(pool)
+	}
+	total := len(tasks) * per
 	c.WriteStatus("ships_pool", Status{Running: true, Done: 0, Total: total, Current: "старт..."})
-	ships, dict := c.r.shipsSnapshot()
+	_, dict := c.r.shipsSnapshot()
 	sp := c.r.shipParams()
 	// эскиз (size < 200): латент 512 и вдвое меньше steps — заметно быстрее
 	steps := sp.Steps
@@ -99,11 +149,9 @@ func (c *JobCtx) genShipsJob(races []string, per int, tags, p1o, p2o string, hir
 	var numMu sync.Mutex
 	nextNum := nextShipNum(pool)
 	done := c.runParallel("ships_pool", total, func(i int) bool {
-		race := races[i/per]
-		entry, ok := ships[race]
-		if !ok {
-			return false
-		}
+		task := tasks[i/per]
+		race := task.race
+		entry := task.entry
 		// локальный rand на вызов (AGENTS.md §0)
 		rng := rand.New(rand.NewSource(time.Now().UnixNano() + int64(i)))
 		prompt1 := p1o
@@ -183,7 +231,7 @@ func (c *JobCtx) genShipsJob(races []string, per int, tags, p1o, p2o string, hir
 		cold := dict != nil && !hasWarmMarker(entry.Texture, dict.WarmMarkers)
 		labels := ShipCandidateLabelsFile(out, cold)
 		item := ShipMetaItem{
-			File: filepath.Base(out), Race: race, RaceName: entry.RaceName,
+			File: filepath.Base(out), Race: race, Type: task.typ, RaceName: entry.RaceName,
 			Seed: seed + int64(attempts-1), Texture: entry.Texture,
 			Prompt1: prompt1, Prompt2: prompt2, Labels: labels, Size: size,
 			Frame: &ShipFrameStat{Attempts: attempts, Rejected: rejected, Touch: fc.Touch, Elong: fc.Elong},

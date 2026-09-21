@@ -60,6 +60,7 @@ type CandMeta struct {
 type ShipMetaItem struct {
 	File     string   `json:"file"`
 	Race     string   `json:"race"`
+	Type     string   `json:"type,omitempty"` // тип корабля расы (starship/…); пусто — легаси
 	RaceName string   `json:"race_name"`
 	Seed     int64    `json:"seed"`
 	Texture  string   `json:"texture"`

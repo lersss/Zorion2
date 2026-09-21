@@ -120,7 +120,7 @@ func newShipRunner(t *testing.T, fake *shipFakeComfy, frameOK bool) (*Runner, st
 func TestGenShips(t *testing.T) {
 	fake := &shipFakeComfy{}
 	runner, pool, ships := newShipRunner(t, fake, true)
-	msg, _ := runner.GenShips("humans", 2, "", "", "", false, 200)
+	msg, _ := runner.GenShips("humans", "", 2, "", "", "", false, 200, false)
 	if !strings.Contains(msg, "Корабли расы humans") {
 		t.Fatalf("msg = %q", msg)
 	}
@@ -181,7 +181,7 @@ func TestGenShips(t *testing.T) {
 func TestGenShipsFrameRetry(t *testing.T) {
 	fake := &shipFakeComfy{}
 	runner, pool, _ := newShipRunner(t, fake, false)
-	msg, _ := runner.GenShips("humans", 1, "", "", "", false, 200)
+	msg, _ := runner.GenShips("humans", "", 1, "", "", "", false, 200, false)
 	if !strings.Contains(msg, "Корабли расы humans") {
 		t.Fatalf("msg = %q", msg)
 	}
@@ -209,7 +209,7 @@ func TestGenShipsFrameRetry(t *testing.T) {
 func TestGenShipsOverrideTags(t *testing.T) {
 	fake := &shipFakeComfy{}
 	runner, pool, _ := newShipRunner(t, fake, true)
-	msg, _ := runner.GenShips("humans", 2, "extra tag", "MANUAL PROMPT 1", "MANUAL PROMPT 2", false, 200)
+	msg, _ := runner.GenShips("humans", "", 2, "extra tag", "MANUAL PROMPT 1", "MANUAL PROMPT 2", false, 200, false)
 	if !strings.Contains(msg, "Корабли расы humans") {
 		t.Fatalf("msg = %q", msg)
 	}
@@ -233,7 +233,7 @@ func TestGenShipsOverrideTags(t *testing.T) {
 		}
 	}
 	// tags без override: авто-промпт содержит tags
-	msg2, _ := runner.GenShips("humans", 1, "extra tag", "", "", false, 200)
+	msg2, _ := runner.GenShips("humans", "", 1, "extra tag", "", "", false, 200, false)
 	if !strings.Contains(msg2, "Корабли расы humans") {
 		t.Fatalf("msg2 = %q", msg2)
 	}
@@ -247,7 +247,7 @@ func TestGenShipsOverrideTags(t *testing.T) {
 func TestGenShipsHires(t *testing.T) {
 	fake := &shipFakeComfy{}
 	runner, pool, _ := newShipRunner(t, fake, true)
-	msg, _ := runner.GenShips("humans", 1, "", "", "", true, 200)
+	msg, _ := runner.GenShips("humans", "", 1, "", "", "", true, 200, false)
 	if !strings.Contains(msg, "Корабли расы humans") {
 		t.Fatalf("msg = %q", msg)
 	}
@@ -275,7 +275,7 @@ func TestGenShipsBatch(t *testing.T) {
 	}
 	runner.SetShips(ships, loadShipDict(t), "../../../config/races.json")
 
-	msg, _ := runner.GenShipsBatch([]string{"humans", "coastal"}, 2, "", "", "", false, 200)
+	msg, _ := runner.GenShipsBatch([]string{"humans", "coastal"}, 2, "", "", "", false, 200, false)
 	if !strings.Contains(msg, "2 рас × 2") {
 		t.Fatalf("msg = %q", msg)
 	}
@@ -284,7 +284,7 @@ func TestGenShipsBatch(t *testing.T) {
 	if len(meta) != 4 {
 		t.Fatalf("meta = %d, want 4", len(meta))
 	}
-	msg2, _ := runner.GenShipsBatch([]string{"nope"}, 1, "", "", "", false, 200)
+	msg2, _ := runner.GenShipsBatch([]string{"nope"}, 1, "", "", "", false, 200, false)
 	if !strings.Contains(msg2, "нет расы nope") {
 		t.Errorf("msg2 = %q", msg2)
 	}
@@ -323,7 +323,7 @@ func waitShipMetaCount(t *testing.T, poolDir string, n int) []ShipMetaItem {
 func TestGenShipsSketch(t *testing.T) {
 	fake := &shipFakeComfy{}
 	runner, pool, _ := newShipRunner(t, fake, true)
-	msg, _ := runner.GenShips("humans", 1, "", "", "", false, 100)
+	msg, _ := runner.GenShips("humans", "", 1, "", "", "", false, 100, false)
 	if !strings.Contains(msg, "Корабли расы humans") {
 		t.Fatalf("msg = %q", msg)
 	}
@@ -340,5 +340,84 @@ func TestGenShipsSketch(t *testing.T) {
 	}
 	if fake.steps[0] >= 32 {
 		t.Errorf("steps = %d, want < 32 (эскиз)", fake.steps[0])
+	}
+}
+
+// TestGenShipsKeepPool — keep=true: пул НЕ чистится, кандидаты и мета копятся
+// (накопительный прогон «пилот → остальные»); keep=false — пул чистится.
+func TestGenShipsKeepPool(t *testing.T) {
+	fake := &shipFakeComfy{}
+	runner, pool, _ := newShipRunner(t, fake, true)
+	poolDir := filepath.Join(pool, "ships_pool")
+	// первый прогон: 2 кандидата (пул чист)
+	if msg, _ := runner.GenShips("humans", "", 2, "", "", "", false, 200, false); !strings.Contains(msg, "humans") {
+		t.Fatalf("msg = %q", msg)
+	}
+	waitJobDone(t, poolDir)
+	// второй прогон с keep: пул сохраняется, номера продолжаются
+	if msg, _ := runner.GenShips("humans", "", 1, "", "", "", false, 200, true); !strings.Contains(msg, "humans") {
+		t.Fatalf("msg = %q", msg)
+	}
+	waitShipMetaCount(t, poolDir, 3)
+	for _, name := range []string{"s01.png", "s02.png", "s03.png"} {
+		if _, err := os.Stat(filepath.Join(poolDir, name)); err != nil {
+			t.Errorf("keep: нет кандидата %s: %v", name, err)
+		}
+	}
+	// третий прогон БЕЗ keep: пул чистится (остаётся только новый s01)
+	if msg, _ := runner.GenShips("humans", "", 1, "", "", "", false, 200, false); !strings.Contains(msg, "humans") {
+		t.Fatalf("msg = %q", msg)
+	}
+	waitShipMetaCount(t, poolDir, 1)
+	if _, err := os.Stat(filepath.Join(poolDir, "s02.png")); err == nil {
+		t.Errorf("без keep пул не очищен: s02.png остался")
+	}
+}
+
+// TestGenShipsType — тип корабля: GenShips с typeName генерирует только этот
+// тип (в мете — Type и texture типа); batch разворачивает все типы расы.
+func TestGenShipsType(t *testing.T) {
+	fake := &shipFakeComfy{}
+	runner, pool, ships := newShipRunner(t, fake, true)
+	base := ships["humans"]
+	base.Types = []config.ShipType{
+		{Type: "starship", Texture: "starship hull material"},
+		{Type: "fighter", Texture: "fighter hull material"},
+	}
+	ships["humans"] = base
+	runner.SetShips(ships, loadShipDict(t), "../../../config/races.json")
+
+	poolDir := filepath.Join(pool, "ships_pool")
+	msg, _ := runner.GenShips("humans", "fighter", 1, "", "", "", false, 200, false)
+	if !strings.Contains(msg, "Корабли расы humans") {
+		t.Fatalf("msg = %q", msg)
+	}
+	waitJobDone(t, poolDir)
+	meta := ReadShipMeta(poolDir)
+	if len(meta) != 1 {
+		t.Fatalf("meta = %d, want 1", len(meta))
+	}
+	if meta[0].Type != "fighter" || meta[0].Texture != "fighter hull material" {
+		t.Errorf("meta = %+v, want type fighter / texture fighter", meta[0])
+	}
+	if !strings.Contains(meta[0].Prompt1, "fighter hull material") {
+		t.Errorf("промпт без texture типа: %s", meta[0].Prompt1)
+	}
+	// неизвестный тип — ошибка без старта джоба
+	if msg2, _ := runner.GenShips("humans", "nope", 1, "", "", "", false, 200, false); !strings.Contains(msg2, "нет типа nope") {
+		t.Errorf("msg2 = %q, want «нет типа nope»", msg2)
+	}
+	// batch: все типы расы разворачиваются (1 раса × 1 = 2 задачи)
+	msg3, _ := runner.GenShipsBatch([]string{"humans"}, 1, "", "", "", false, 200, false)
+	if !strings.Contains(msg3, "= 2") {
+		t.Fatalf("msg3 = %q, want 2 задачи", msg3)
+	}
+	waitShipMetaCount(t, poolDir, 2)
+	types := map[string]bool{}
+	for _, m := range ReadShipMeta(poolDir) {
+		types[m.Type] = true
+	}
+	if !types["starship"] || !types["fighter"] {
+		t.Errorf("batch типы = %v, want starship+fighter", types)
 	}
 }

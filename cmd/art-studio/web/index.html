@@ -176,6 +176,11 @@
   </div>
   <div style="color:#888;font-size:12px;margin-top:4px">Генерация — Juggernaut XL v9, txt2img 1024×1024, вид «сверху 3/4», нос вправо; затем вырез фона и 200×200 (прежний конвейер «силуэт → ControlNet» выключен).</div>
   <div class="toolbar" style="margin-top:6px">
+    <label style="color:#ddd;font-size:13px;display:flex;align-items:center;gap:6px;cursor:pointer" title="Не чистить пул перед стартом: новые кандидаты добавляются к уже сгенерированным (накопительный прогон «пилот → остальные»)"><input type="checkbox" id="shipKeep">Не чистить пул (накопительно)</label>
+    <span style="color:#ddd;font-size:13px;margin-left:12px">Расы пачки:</span>
+    <input id="shipBatchRaces" style="flex:1;background:#222;border:1px solid #444;color:#ddd;padding:4px;border-radius:4px" placeholder="slug через запятую (пусто — первые 10 каталога); люди разворачиваются в 4 типа">
+  </div>
+  <div class="toolbar" style="margin-top:6px">
     <span style="color:#ddd;font-size:13px">Промпт (txt2img, Juggernaut 3/4):</span>
     <textarea id="shipPrompt1" rows="2" style="width:100%;box-sizing:border-box;color:#8cf;font-size:12px;line-height:1.4;background:#1c1c1c;border:1px solid #333;border-radius:6px;padding:6px 8px;font-family:inherit;resize:vertical" oninput="onShipPromptInput(1)"></textarea>
     <button class="gen" id="btnShipRevert1" style="background:#a62;padding:2px 8px;font-size:11px;display:none" onclick="revertShipAuto(1)" title="Вернуть автоматический промпт">↺ Вернуть авто</button>
@@ -774,7 +779,8 @@ async function genShips(){
   const hires=document.getElementById('shipHires').checked;
   const p1=shipOverride1? document.getElementById('shipPrompt1').value : '';
   const p2=(hires&&shipOverride2)? document.getElementById('shipPrompt2').value : '';
-  const params=new URLSearchParams({race,n,tags,size:shipSize,hires:hires?'1':'0'});
+  const keep=document.getElementById('shipKeep').checked;
+  const params=new URLSearchParams({race,n,tags,size:shipSize,hires:hires?'1':'0',keep:keep?'1':'0'});
   if(p1) params.set('prompt1_override',p1);
   if(p2) params.set('prompt2_override',p2);
   const r=await fetch('/ships/gen?'+params); const j=await r.json();
@@ -783,14 +789,17 @@ async function genShips(){
   loadShipsList();
 }
 async function genShipsBatch(){
-  // пачка: первые 10 рас каталога (по семействам F1→F10, спека §8)
-  const races=shipRacesCache.slice(0,10).map(x=>x.slug).join(',');
+  // пачка: произвольный список рас (CSV) либо первые 10 каталога (спека §8).
+  // Типы расы разворачиваются на сервере (люди — 4 типа × per).
+  const csv=document.getElementById('shipBatchRaces').value.trim();
+  const races=csv? csv.split(',').map(s=>s.trim()).filter(Boolean).join(',') : shipRacesCache.slice(0,10).map(x=>x.slug).join(',');
   const per=document.getElementById('cntShips').value;
   const tags=document.getElementById('shipTags').value;
   const hires=document.getElementById('shipHires').checked;
   const p1=shipOverride1? document.getElementById('shipPrompt1').value : '';
   const p2=(hires&&shipOverride2)? document.getElementById('shipPrompt2').value : '';
-  const params=new URLSearchParams({races,per,tags,size:shipSize,hires:hires?'1':'0'});
+  const keep=document.getElementById('shipKeep').checked;
+  const params=new URLSearchParams({races,per,tags,size:shipSize,hires:hires?'1':'0',keep:keep?'1':'0'});
   if(p1) params.set('prompt1_override',p1);
   if(p2) params.set('prompt2_override',p2);
   const r=await fetch('/ships/genbatch?'+params); const j=await r.json();

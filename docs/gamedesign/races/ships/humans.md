@@ -24,6 +24,16 @@
 
 **Для генератора (blocked):** tentacle, organic, crystal, pyramid, obelisk, bioluminescent, alien
 
+**Типы кораблей (люди — единственная раса с несколькими типами).** Люди строят четыре класса кораблей, различающихся материалом корпуса; базовые `texture`/`silhouette`/`blocked` выше — общие (наследуются типами, у которых поле не задано).
+
+**Для генератора (type starship texture):** paneled white-grey metal hull with ceramic heat shield tiles, riveted seams, navigation lights, light blue cockpit glass, subtle weathering, no organic shapes
+
+**Для генератора (type cruiser texture):** sleek gunmetal-grey hull with layered ablative armour plating, recessed sensor arrays, blue-white engine glow, crisp panel lines, faint battle weathering, no organic shapes
+
+**Для генератора (type carrier texture):** broad matte-grey flight-deck hull with launch-bay grilles, yellow warning stripes, hangar doors, stacked container modules, cold white running lights, no organic shapes
+
+**Для генератора (type fighter texture):** compact dark-grey composite hull with swept interceptor wings, narrow canopy glass, twin thruster nozzles, red-and-white squadron markings, chipped paint, no organic shapes
+
 ## Кабина (место аватара)
 
 **Обстановка.** За фигурой — панель управления с экранами и приборами, за ней — стекло кабины со звёздами; минимум декора, функциональный фон; детали интерьера не проектируются.

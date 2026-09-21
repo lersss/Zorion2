@@ -39,6 +39,15 @@ func updateShipsRace(path, slug string, entry config.ShipEntry, racesPath string
 				return err
 			}
 		}
+		if len(entry.Types) > 0 {
+			tv, err := json.Marshal(entry.Types)
+			if err != nil {
+				return err
+			}
+			if data, err = patchShipField(data, slug, "types", string(tv)); err != nil {
+				return err
+			}
+		}
 	}
 	if !json.Valid(data) {
 		return errors.New("результат записи невалиден (json.Valid) — файл не изменён")
@@ -108,8 +117,15 @@ func insertShipEntry(data []byte, slug string, entry config.ShipEntry) []byte {
 }
 
 // shipEntryJSON — JSON-объект записи корабля (стиль ships.json: 2 пробела).
+// Типы корабля (types) добавляются, если заданы.
 func shipEntryJSON(entry config.ShipEntry) string {
-	return fmt.Sprintf(`{"race_name": %s, "family": %s, "texture": %s, "silhouette": %s, "blocked": [%s]}`,
+	out := fmt.Sprintf(`{"race_name": %s, "family": %s, "texture": %s, "silhouette": %s, "blocked": [%s]`,
 		jsonString(entry.RaceName), jsonString(entry.Family), jsonString(entry.Texture),
 		jsonString(entry.Silhouette), quotedTokens(entry.Blocked))
+	if len(entry.Types) > 0 {
+		if tv, err := json.Marshal(entry.Types); err == nil {
+			out += fmt.Sprintf(`, "types": %s`, tv)
+		}
+	}
+	return out + "}"
 }

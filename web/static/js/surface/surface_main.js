@@ -2,9 +2,10 @@
 // Точка входа страницы прогулки (спека 2026-09-21): высадка (land) → брифинг →
 // Canvas-игра (ходьба/прыжки/падение, HUD) → «вызвать корабль»/смерть (leave).
 // Вход: /surface.html?planet=<uuid> (правый клик по планете → «Высадиться»).
-import { CAMERA_LERP, WEATHER_MIN_MS, WEATHER_MAX_MS, PPM, ZOOM, WEATHER, WEATHER_BY_CATEGORY } from './surface_config.js';
-import { SurfaceWorld, mulberry32 } from './surface_world.js';
-import { drawSky, drawFarRelief, drawTerrain, drawDecor, drawCreatures, drawPlayer, drawWeather } from './surface_render.js';
+import { CAMERA_LERP, WEATHER_MIN_MS, WEATHER_MAX_MS, PPM, ZOOM } from './surface_config.js';
+import { SurfaceWorld } from './surface_world.js';
+import { drawSky, drawFarRelief, drawTerrain, drawDecor, drawCreatures, drawPlayer } from './surface_render.js';
+import { pickWeatherRun, drawWeatherBack, drawWeatherMid, drawWeatherFront } from './surface_weather.js';
 import { Player, serverHp } from './surface_player.js';
 import { land, leave } from './surface_net.js';
 import * as ui from './surface_ui.js';
@@ -16,7 +17,7 @@ const state = {
     camera: { x: 0, y: 0 },
     input: { left: false, right: false, jump: false, sprint: false },
     weather: null,
-    weatherUntil: 0,
+    weatherCycle: 0,
     forcedWeather: null, // админский выбор погоды: null = «авто» (идея 2026-09-21)
     running: false,
     dead: false,
@@ -24,20 +25,24 @@ const state = {
     lastTime: 0,
 };
 
-// rng — локальный детерминированный PRNG (mulberry32, спека §12 п.10):
-// никакого общего Math.random. Сид — от seed мира + константа погоды.
-let rng = null;
-
-function pickWeather() {
-    const list = WEATHER_BY_CATEGORY[state.pkg.biome_category] || ['штиль'];
-    const id = list[Math.floor(rng() * list.length)];
-    const def = WEATHER.find((w) => w.id === id) || { id, particles: 'none' };
-    return { id: def.id, particles: def.particles };
-}
-
+// pickWeatherRun (surface_weather.js §4.4) — цикловой жребий из физики планеты
+// (локальный mulberry32 внутри; Math.random запрещён, спека §12 п.10).
+// Кроссфейд 0.6–1.2 с (§8) — между прошлым и новым явлением.
 function scheduleWeather(now) {
-    state.weather = pickWeather();
-    state.weatherUntil = now + WEATHER_MIN_MS + rng() * (WEATHER_MAX_MS - WEATHER_MIN_MS);
+    const prev = state.weather;
+    const run = pickWeatherRun(state.pkg, state.weatherCycle, prev ? prev.id : null);
+    const duration = WEATHER_MIN_MS + run.windowFrac * (WEATHER_MAX_MS - WEATHER_MIN_MS);
+    const prevRun = prev ? { id: prev.id, variant: prev.variant, params: prev.params } : null;
+    state.weather = {
+        id: run.id,
+        variant: run.variant,
+        params: run.params,
+        t0: now,
+        until: now + duration,
+        crossFrom: prevRun,
+        crossT: prevRun ? now : null,
+    };
+    state.weatherCycle += 1;
 }
 
 // isAdminRole — роль игрока из пакета (§7.1, идея 2026-09-21): админский
@@ -47,13 +52,21 @@ function isAdminRole() {
 }
 
 // setWeather — админский выбор погоды: '' → «авто» (штатный цикл 2–4 мин);
-// иначе выбранное явление держится до конца прогулки (таймер его не сменяет).
+// иначе выбранное явление держится до конца прогулки (таймер его не сменяет),
+// полное с первого кадра, без кроссфейда (спека погоды §8).
 // Сброс при перезагрузке — не храним (идея 2026-09-21 §3).
 function setWeather(id) {
     if (id) {
-        const def = WEATHER.find((w) => w.id === id) || { id, particles: 'none' };
-        state.weather = { id: def.id, particles: def.particles };
-        state.weatherUntil = Infinity;
+        const run = pickWeatherRun(state.pkg, state.weatherCycle, null, id);
+        state.weather = {
+            id: run.id,
+            variant: run.variant,
+            params: run.params,
+            t0: performance.now(),
+            until: Infinity,
+            crossFrom: null,
+            crossT: null,
+        };
         state.forcedWeather = id;
     } else {
         state.forcedWeather = null;
@@ -86,7 +99,7 @@ function frame(now) {
     const paused = ui.isPaused();
     if (!paused && !state.dead) {
         state.player.update(dt, state.input);
-        if (now > state.weatherUntil) scheduleWeather(now);
+        if (state.weather && now > state.weather.until) scheduleWeather(now);
     }
 
     // Камера следует за игроком (сглаживание).
@@ -105,18 +118,21 @@ function frame(now) {
 
     // Мир и игрок — под общим визуальным масштабом (идея 2026-09-22 §8.2):
     // translate → scale → translate вокруг центра экрана. Физика не затронута.
+    // Погода — тремя проходами между слоями мира (спека погоды §6.2), тем же
+    // трансформом (§6.5): зум и devicePixelRatio повторно не применяются.
     ctx.save();
     ctx.translate(vw / 2, vh / 2);
     ctx.scale(ZOOM, ZOOM);
     ctx.translate(-vw / 2, -vh / 2);
+    drawWeatherBack(ctx, state.world, state.camera, vw, vh, state.weather);
     drawFarRelief(ctx, state.world, state.camera, vw, vh);
+    drawWeatherMid(ctx, state.world, state.camera, vw, vh, state.weather);
     drawTerrain(ctx, state.world, state.camera, vw, vh);
     drawDecor(ctx, state.world, state.camera, vw, vh);
     drawCreatures(ctx, state.world, state.camera, vw, vh, state.player, now);
     drawPlayer(ctx, state.player, state.camera, vw, vh, now);
+    drawWeatherFront(ctx, state.world, state.camera, vw, vh, state.weather);
     ctx.restore();
-
-    drawWeather(ctx, state.weather, vw, vh, now);
 
     const hp = serverHp(state.pkg, Date.now());
     const weatherLabel = state.weather
@@ -193,7 +209,6 @@ async function boot() {
     state.pkg = res.data;
     state.world = new SurfaceWorld(state.pkg);
     state.player = new Player(state.world, state.pkg.gravity);
-    rng = mulberry32((state.pkg.seed ^ 0x5eed) >>> 0);
 
     const canvas = document.getElementById('surface-canvas');
     resize(canvas);

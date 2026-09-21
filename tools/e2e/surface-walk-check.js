@@ -251,20 +251,59 @@ async function main() {
     report('10f персонаж идёт (счётчик пути растёт)', distM > 1, 'distance="' + dist + '"');
 
     // --- прыжок: визор игрока (#38bdf8) выше базовой позиции ---
-    const visorY = () => page.evaluate(() => {
+    // Детект устойчив к дымке погоды (спека 2026-09-22 §5.1 п.7: пелена кадра
+    // накрывает игрока, поэтому точный RGB #38bdf8 больше не годится).
+    // Игрок стоит в известной точке экрана (камера следит: центр по X, 0.58·vh
+    // по Y). Эталон — самый «белый» пиксель полосы (тело #f8fafc: max min(R,G,B);
+    // охристые/синие/снежные частицы отсекаются). Визор #38bdf8 отличается от
+    // тела на ΔR:ΔG:ΔB = 192:61:4 — под аффинной дымкой это отношение
+    // сохраняется, поэтому ищем пиксели на луче от тела в этом направлении.
+    // Плотная горизонтальная полоса визора отделяется порогом по строке
+    // (разреженные выбросы кольца-пульса и фона отбрасываются). Нет игрока —
+    // нет ни тела-эталона, ни полосы → -1.
+    const visorY = (ZOOM) => page.evaluate((Z) => {
       const c = document.getElementById('surface-canvas');
       const ctx = c.getContext('2d');
-      const cx = Math.floor(c.width / 2), cy = Math.floor(c.height / 2);
-      const x0 = Math.max(0, cx - 250), y0 = Math.max(0, cy - 350);
-      const w = Math.min(c.width - x0, 500), h = Math.min(c.height - y0, 700);
+      const dpr = c.width / window.innerWidth;
+      const vh = window.innerHeight;
+      const px = Math.round(c.width / 2);
+      const py = Math.round(dpr * vh * (0.5 + 0.08 * Z));
+      const bw = Math.round(8 * Z * dpr);
+      const bh = Math.round(30 * Z * dpr);
+      const x0 = Math.max(0, px - bw), x1 = Math.min(c.width, px + bw + 1);
+      const y0 = Math.max(0, py - bh), y1 = Math.min(c.height, py + bh + 1);
+      const w = x1 - x0, h = y1 - y0;
+      if (w <= 2 || h <= 2) return -1;
       const d = ctx.getImageData(x0, y0, w, h).data;
-      let sum = 0, n = 0;
-      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-        const i = (y * w + x) * 4;
-        if (d[i] === 56 && d[i + 1] === 189 && d[i + 2] === 248) { sum += y0 + y; n++; }
+      let bodyR = 0, bodyG = 0, bodyB = 0, bestW = -1;
+      for (let p = 0; p < w * h; p++) {
+        const i = p * 4;
+        const m = Math.min(d[i], Math.min(d[i + 1], d[i + 2]));
+        if (m > bestW) { bestW = m; bodyR = d[i]; bodyG = d[i + 1]; bodyB = d[i + 2]; }
       }
-      return n ? sum / n : -1;
-    });
+      const hist = new Array(h).fill(0);
+      let maxCount = 0;
+      for (let p = 0; p < w * h; p++) {
+        const i = p * 4;
+        const dR = bodyR - d[i], dG = bodyG - d[i + 1], dB = bodyB - d[i + 2];
+        if (dR >= 45 && Math.abs(dG - dR * 61 / 192) <= 8 && Math.abs(dB - dR * 4 / 192) <= 6) {
+          const ly = Math.floor(p / w); hist[ly]++;
+          if (hist[ly] > maxCount) maxCount = hist[ly];
+        }
+      }
+      if (maxCount < 8) return -1;
+      const keepThr = Math.max(3, maxCount * 0.5);
+      let sum = 0, n = 0, minY = 1e9, maxY = -1;
+      for (let ly = 0; ly < h; ly++) {
+        if (hist[ly] < keepThr) continue;
+        const yy = y0 + ly;
+        sum += yy * hist[ly]; n += hist[ly];
+        if (yy < minY) minY = yy;
+        if (yy > maxY) maxY = yy;
+      }
+      const spread = n ? maxY - minY : 0;
+      return (n >= 6 && spread <= 18) ? sum / n : -1;
+    }, ZOOM);
     // --- прыжок: сравнить стабильность визора в покое и его подъём при прыжке ---
     // Порог дрожи визора в покое — экранные px. Рендер прогулки масштабируется
     // ZOOM (surface_config.js): мировой дрожь ~1 px даёт ~ZOOM экранных, поэтому
@@ -272,14 +311,14 @@ async function main() {
     const ZOOM = await page.evaluate(async () => (await import('/static/js/surface/surface_config.js')).ZOOM);
     await page.waitForTimeout(900); // vx -> 0, камера стабилизировалась
     const idle = [];
-    for (let i = 0; i < 12; i++) { await page.waitForTimeout(25); idle.push(await visorY()); }
+    for (let i = 0; i < 12; i++) { await page.waitForTimeout(25); idle.push(await visorY(ZOOM)); }
     const idleValid = idle.filter(v => v > 0);
     const idleMin = idleValid.length ? Math.min(...idleValid) : -1;
     const idleMax = idleValid.length ? Math.max(...idleValid) : -1;
     const idleRange = idleMax - idleMin;
     await page.keyboard.down('Space');
     const samples = [];
-    for (let i = 0; i < 50; i++) { await page.waitForTimeout(16); samples.push(await visorY()); }
+    for (let i = 0; i < 50; i++) { await page.waitForTimeout(16); samples.push(await visorY(ZOOM)); }
     await page.keyboard.up('Space');
     const valid = samples.filter(v => v > 0);
     const jumpMin = valid.length ? Math.min(...valid) : -1;

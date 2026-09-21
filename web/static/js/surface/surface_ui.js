@@ -1,7 +1,7 @@
 // web/static/js/surface/surface_ui.js
 // HUD/брифинг/смерть/пауза прогулки (спека 2026-09-21 §5.2/§7.5/§11).
 // Все значения — из пакета прогулки (§7.1); HP — серверная формула (§8.7).
-import { WEATHER } from './surface_config.js';
+import { WEATHER_IDS } from './surface_config.js';
 const $ = (id) => document.getElementById(id);
 
 function fmtTemp(celsius) {
@@ -79,7 +79,7 @@ export function showHUD() { $('hud').style.display = 'block'; }
 
 // ---- Админский переключатель погоды (идея 2026-09-21 §3) ----
 // Вторая строка .hud-center под #hud-weather: подпись + чипы «авто» и всех
-// явлений WEATHER. У игрока строки нет ВООБЩЕ (функция не вызывается).
+// явлений WEATHER_IDS. У игрока строки нет ВООБЩЕ (функция не вызывается).
 // Кликабельность даёт существующее правило `#hud button { pointer-events:auto }`.
 const WEATHER_CHIP_CSS = 'background:rgba(15,23,42,0.72); border:1px solid #334155; border-radius:8px; padding:3px 10px; font:inherit; font-size:0.75rem; color:#cbd5e1; cursor:pointer;';
 const WEATHER_CHIP_ON = { border: 'rgba(250,204,21,0.5)', color: '#facc15', background: 'rgba(250,204,21,0.12)' };
@@ -104,7 +104,7 @@ export function showWeatherToggle(onPick) {
     label.style.cssText = 'color:#64748b; font-size:0.75rem;';
     wrap.appendChild(label);
     const items = [{ id: '', label: 'авто', title: 'Погода меняется сама, раз в 2–4 мин — как у игрока' }]
-        .concat(WEATHER.map((w) => ({ id: w.id, label: w.id })));
+        .concat(WEATHER_IDS.map((id) => ({ id, label: id })));
     items.forEach((it) => {
         const btn = document.createElement('button');
         btn.type = 'button';

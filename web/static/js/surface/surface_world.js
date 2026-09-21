@@ -15,7 +15,9 @@ export function mulberry32(a) {
     };
 }
 
-function hash1(i, seed) {
+// hash1 — единственный хеш-механизм мира; экспортируется для частиц погоды
+// (surface_weather.js §5.1 п.2): второй хеш дал бы разные миры при одном seed.
+export function hash1(i, seed) {
     let h = Math.imul((i | 0) ^ (seed | 0), 2654435761);
     h ^= h >>> 15;
     h = Math.imul(h, 2246822519);

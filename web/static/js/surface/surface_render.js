@@ -1,7 +1,7 @@
 // web/static/js/surface/surface_render.js
 // Отрисовка прогулки (спека 2026-09-21 §7.2): параллакс-небо (только из sky
 // пакета), дальний рельеф, основной рельеф/пещеры (чанки кэшируются), декор,
-// жизнь, игрок, частицы погоды, HUD (в surface_ui.js). Canvas 2D.
+// жизнь, игрок, HUD (в surface_ui.js). Canvas 2D. Погода — surface_weather.js.
 import { CHUNK, CHUNK_RADIUS, COLORS, FLOAT_SPAN, FLOAT_GAP, ZOOM } from './surface_config.js';
 import { shade, rgba } from './surface_world.js';
 import { planetTexture } from './surface_net.js';
@@ -399,48 +399,5 @@ export function drawPlayer(ctx, player, camera, vw, vh, timeMs) {
     // Визор.
     ctx.fillStyle = COLORS.playerAccent;
     ctx.fillRect(-w / 2 + 2, -h / 2 + 3, w - 4, 6);
-    ctx.restore();
-}
-
-// drawParticles — частицы погоды (визуально, без урона §7.2).
-export function drawWeather(ctx, weather, vw, vh, timeMs) {
-    const id = weather && weather.particles;
-    if (!id || id === 'none') return;
-    ctx.save();
-    if (id === 'fog') {
-        ctx.fillStyle = 'rgba(200,210,220,0.18)';
-        for (let i = 0; i < 3; i++) {
-            const y = vh * (0.3 + i * 0.2) + Math.sin(timeMs * 0.0005 + i) * 10;
-            ctx.fillRect(0, y, vw, 60);
-        }
-    } else if (id === 'aurora') {
-        const g = ctx.createLinearGradient(0, 0, 0, vh * 0.5);
-        g.addColorStop(0, 'rgba(80,220,180,0.22)');
-        g.addColorStop(1, 'rgba(80,220,180,0)');
-        ctx.fillStyle = g;
-        ctx.fillRect(0, 0, vw, vh * 0.5);
-    } else {
-        const color = id === 'snow' ? 'rgba(240,248,255,0.8)'
-            : id === 'rain' ? 'rgba(140,200,255,0.55)'
-                : 'rgba(190,170,140,0.5)';
-        ctx.strokeStyle = color;
-        ctx.fillStyle = color;
-        const n = id === 'dust' ? 120 : 90;
-        for (let i = 0; i < n; i++) {
-            const seed = (i * 9301 + 49297) % 233280;
-            const rnd = seed / 233280;
-            const speed = id === 'rain' ? 700 : id === 'snow' ? 60 : 240;
-            const x = (rnd * vw + (id === 'dust' ? timeMs * 0.1 : 0)) % vw;
-            const y = (rnd * vh + timeMs * 0.001 * speed) % vh;
-            if (id === 'rain') {
-                ctx.beginPath();
-                ctx.moveTo(x, y);
-                ctx.lineTo(x - 2, y + 10);
-                ctx.stroke();
-            } else {
-                ctx.fillRect(x, y, id === 'dust' ? 2 : 3, id === 'dust' ? 2 : 3);
-            }
-        }
-    }
     ctx.restore();
 }

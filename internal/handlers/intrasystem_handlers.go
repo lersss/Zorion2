@@ -230,7 +230,9 @@ func positionObjectValid(objType, objID, worldID string, planets []models.Planet
 // normalizeMyPosition — ИП-4 фолбэк (спека §2.3): битая позиция (объект удалён
 // перегенерацией) → «орбита звезды». NULL-позиция (легаси-игрок в системе) →
 // «орбита звезды» (игрок физически у звезды — старая модель). Применяется при
-// отдаче my_position (§4.4) — ничего не падает (М-2).
+// отдаче my_position (§4.4) — ничего не падает (М-2). Ветка surface (спека
+// 2026-09-21 §7.6 п.2): битый биом → доминирующий (NormalizeSurfaceBiome),
+// битая планета → «орбита звезды»; hp пересчитывается от landed_at (§8.7).
 func normalizeMyPosition(pos *models.CurrentPosition, worldID string, planets []models.Planet, validStar func(objID string) bool) *models.CurrentPosition {
 	if pos == nil {
 		return models.StarOrbitPosition(worldID)
@@ -245,8 +247,29 @@ func normalizeMyPosition(pos *models.CurrentPosition, worldID string, planets []
 			positionObjectValid(pos.ToType, pos.ToID, worldID, planets, validStar) {
 			return pos
 		}
+	case "surface":
+		if p := findPlanetByID(planets, pos.ObjectID); p != nil {
+			if biome := NormalizeSurfaceBiome(p, pos.Biome); biome != "" {
+				pos.Biome = biome
+				hazard := surfaceHazardFor(p, biome)
+				landedAt, _ := time.Parse(time.RFC3339, pos.LandedAt)
+				hp := surfaceHPAt(landedAt, hazard.Total, time.Now())
+				pos.HP = &hp
+				return pos
+			}
+		}
 	}
 	return models.StarOrbitPosition(worldID)
+}
+
+// findPlanetByID — планета системы по id (nil, если нет).
+func findPlanetByID(planets []models.Planet, id string) *models.Planet {
+	for i := range planets {
+		if planets[i].ID == id {
+			return &planets[i]
+		}
+	}
+	return nil
 }
 
 // companionIDFromMods — валидный синтетический id компаньона по raw
@@ -388,6 +411,14 @@ func (h *IntrasystemHandlers) StartIntraFlight(w http.ResponseWriter, r *http.Re
 		return
 	}
 	worldID := *user.CurrentWorldID
+
+	// 4б. С поверхности внутрисистемный полёт запрещён (спека 2026-09-21 §6.5):
+	// корабль на земле вместе с игроком — сначала «вызов» (leave), потом лететь.
+	// Без ветки молча брался from = (звезда, worldID) — скрытый баг.
+	if pos != nil && pos.Status == "surface" {
+		writeJSONError(w, "Сначала вернитесь на орбиту (вызов корабля)", http.StatusBadRequest)
+		return
+	}
 
 	// 5. Цель принадлежит системе (ИП-1).
 	planets, err := h.planetRepo.GetPlanetsLightByWorldID(worldID)

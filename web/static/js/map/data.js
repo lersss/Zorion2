@@ -508,7 +508,8 @@ export async function checkCompositeArrival(user) {
     if (pos && pos.status === 'in_flight') {
         if (pos.to_type === 'planet') focusOpts.planetId = pos.to_id;
         else if (pos.to_type === 'satellite') focusOpts.satelliteId = pos.to_id;
-    } else if (pos && pos.status === 'orbit') {
+    } else if (pos && (pos.status === 'orbit' || pos.status === 'surface')) {
+        // surface: фокус на планете прогулки (спека 2026-09-21 §7.6 п.5).
         if (pos.object_type === 'planet') focusOpts.planetId = pos.object_id;
         else if (pos.object_type === 'satellite') focusOpts.satelliteId = pos.object_id;
     }

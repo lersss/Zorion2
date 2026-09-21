@@ -1,0 +1,78 @@
+<!-- web/surface.html -->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zorion — Поверхность планеты</title>
+    <link rel="stylesheet" href="/static/css/surface.css">
+</head>
+<body>
+    <canvas id="surface-canvas"></canvas>
+
+    <!-- HUD (§7.5): здоровье, оси среды, имя биома, путь, погода, вызов корабля. -->
+    <div id="hud" style="display:none;">
+        <div class="hud-left">
+            <div class="hud-hp">
+                <div id="hp-bar"><div id="hp-fill"></div></div>
+                <span id="hp-text">100 / 100</span>
+            </div>
+            <div id="hud-axes"></div>
+        </div>
+        <div class="hud-center">
+            <span id="hud-biome"></span>
+            <span id="hud-weather"></span>
+        </div>
+        <div class="hud-right">
+            <span id="hud-distance">0 м</span>
+            <button id="ship-call-btn" title="Вернуться на орбиту планеты">Вызвать корабль</button>
+        </div>
+    </div>
+
+    <!-- Брифинг высадки (§5.2): биом, доля, приговор скафандра, оси опасности. -->
+    <div id="briefing" class="overlay">
+        <div class="panel">
+            <h2>Высадка</h2>
+            <div id="briefing-content"></div>
+            <div class="panel-actions">
+                <button id="brief-continue" class="primary">Продолжить</button>
+                <button id="brief-leave">Вызвать корабль</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Экран смерти (§8.5): причина + возврат (тот же переход, инвариант 9). -->
+    <div id="death" class="overlay">
+        <div class="panel">
+            <h2>Вас вернуло на корабль</h2>
+            <p id="death-cause"></p>
+            <div class="panel-actions">
+                <button id="death-return" class="primary">На орбиту</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Пауза (Esc). -->
+    <div id="pause" class="overlay">
+        <div class="panel">
+            <h2>Пауза</h2>
+            <p>Прогулка продолжается, пока вы на поверхности.</p>
+            <div class="panel-actions">
+                <button id="pause-resume" class="primary">Продолжить</button>
+                <button id="pause-leave">Вызвать корабль</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Прелоадер (§11 п.5). -->
+    <div id="loading" class="overlay">
+        <div class="panel">
+            <p id="loading-text">Загрузка…</p>
+        </div>
+    </div>
+
+    <div id="toast" style="display:none;"></div>
+
+    <script type="module" src="/static/js/surface/surface_main.js"></script>
+</body>
+</html>

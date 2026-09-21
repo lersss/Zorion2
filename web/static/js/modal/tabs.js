@@ -155,7 +155,9 @@ function isAdmin() {
 // игрок на орбите этой планеты (99.2.27 §4.4/§5.11) или роль админ.
 function orbitViewHtml(planet) {
     const myPos = modalState.myPosition;
-    const onThisOrbit = myPos && myPos.status === 'orbit' &&
+    // orbit | surface этой планеты (спека 2026-09-21 §7.6 п.5): вид с орбиты
+    // доступен и с поверхности планеты (игрок всё ещё в системе).
+    const onThisOrbit = myPos && (myPos.status === 'orbit' || myPos.status === 'surface') &&
         myPos.object_type === 'planet' && myPos.object_id === planet.id;
     if (!onThisOrbit && !isAdmin()) return '';
     return `

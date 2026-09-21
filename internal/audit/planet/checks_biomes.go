@@ -87,7 +87,9 @@ func checkBiomeNotInCatalog(v *View) []audit.Issue {
 
 // ==================== ХЕЛПЕРЫ ====================
 
-// atmosphereToxic — токсична ли атмосфера по составу (пороги справочника).
+// atmosphereToxic — токсична ли атмосфера по составу. Граница аудита — строгая
+// (доля > порога), исходная семантика не меняется: новая метка спеки высадки
+// (tox_ratio ≥ 1, 2026-09-21 §8.2) на результаты аудита старых миров не влияет.
 func atmosphereToxic(v *View) bool {
 	raw, ok := v.Raw["atmosphere_data"].(map[string]interface{})
 	if !ok {
@@ -103,13 +105,7 @@ func atmosphereToxic(v *View) bool {
 			comp[gas] = f
 		}
 	}
-	cat := genplanet.GetBiomeCatalog()
-	for gas, th := range cat.Params.ToxicThresholds {
-		if comp[gas] > th {
-			return true
-		}
-	}
-	return false
+	return genplanet.ToxRatio(comp, genplanet.GetBiomeCatalog()) > 1
 }
 
 // hasTag — есть ли тег в списке тегов биома.

@@ -312,9 +312,14 @@ function renderCard(panel, planets, selectedIndex) {
     const myPos = modalState.myPosition;
     const onThisOrbit = myPos && myPos.status === 'orbit' &&
         myPos.object_type === 'planet' && myPos.object_id === planet.id;
+    // Поверхность этой планеты (спека 2026-09-21 §7.6 п.5): бейдж «вы на поверхности».
+    const onThisSurface = myPos && myPos.status === 'surface' &&
+        myPos.object_type === 'planet' && myPos.object_id === planet.id;
     const orbitBadge = onThisOrbit
         ? `<span style="background:rgba(74,222,128,0.15); border:1px solid rgba(74,222,128,0.4); color:#4ade80; border-radius:10px; padding:2px 8px; font-size:0.8rem; margin-left:8px;">● Вы на орбите</span>`
-        : '';
+        : onThisSurface
+            ? `<span style="background:rgba(56,189,248,0.15); border:1px solid rgba(56,189,248,0.4); color:#38bdf8; border-radius:10px; padding:2px 8px; font-size:0.8rem; margin-left:8px;">● Вы на поверхности</span>`
+            : '';
     const shipsHere = (modalState.systemPlayers || []).filter(p =>
         p.object_type === 'planet' && p.object_id === planet.id
     ).length;

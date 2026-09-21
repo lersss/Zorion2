@@ -1,4 +1,4 @@
-﻿// internal/handlers/auth_handlers_test.go
+// internal/handlers/auth_handlers_test.go
 // Тесты /me (идея 42a): поле "flight" — активный полёт из travel.Manager.
 package handlers
 
@@ -27,11 +27,14 @@ func newAuthHandlersHarness(t *testing.T) (*AuthHandlers, sqlmock.Sqlmock, *trav
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
 	tm := travel.NewManager(nil)
-	return NewAuthHandlers(
+	h := NewAuthHandlers(
 		repository.NewUserRepository(db),
 		repository.NewWorldRepository(db),
 		tm,
-	), mock, tm
+	)
+	// planetRepo — пересчёт HP на поверхности в /me (спека 2026-09-21 §8.7).
+	h.SetPlanetRepo(repository.NewPlanetRepository(db))
+	return h, mock, tm
 }
 
 // authUserCols — колонки users для sqlmock (GetByIDWithPosition:
@@ -69,6 +72,40 @@ func TestGetMeWithActiveFlight(t *testing.T) {
 	startMS, ok := flight["start_time"].(float64)
 	require.True(t, ok, "start_time должен быть UnixMilli числом")
 	assert.InDelta(t, float64(time.Now().UnixMilli()), startMS, 5000)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// /me со status=surface отдаёт позицию поверхности, а hp пересчитывается от
+// landed_at (спека 2026-09-21 §7.6 п.6/§8.7): сохранённое значение — не истина.
+func TestGetMeSurfacePosition(t *testing.T) {
+	h, mock, _ := newAuthHandlersHarness(t)
+
+	userID := "33333333-3333-3333-3333-333333333333"
+	biome := testBiomeByCategory(t, "вулканизм")
+	// Давно прошедшая высадка на жёсткой планете → серверный hp ≈ 0.
+	pos := `{"status":"surface","level":"surface","object_type":"planet","object_id":"pl-1","biome":"` + biome.ID + `","hp":80,"landed_at":"2020-01-01T00:00:00Z"}`
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination FROM users WHERE id = \$1`).
+		WithArgs(userID).
+		WillReturnRows(sqlmock.NewRows(authUserCols).
+			AddRow(userID, "bob", "hash", nil, nil, "w1", "ship_strela.svg", nil, nil, nil, "player", now(), now(), pos, nil))
+	// Имя мира (GetMe) + планета системы для пересчёта HP.
+	expectIntraWorld(mock, "w1")
+	expectSurfacePlanetsLight(mock, "w1",
+		surfacePlanetRow("pl-1", "w1", "Venus", surfacePlanetData(biome.ID, 100, 700, 90, 0, false)))
+
+	req := httptest.NewRequest(http.MethodGet, "/me", nil)
+	rec := execJSON(h.GetMe, withUserID(req, userID))
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	cur, ok := resp["current_position"].(map[string]interface{})
+	require.True(t, ok, "/me должен отдать current_position объектом")
+	assert.Equal(t, "surface", cur["status"])
+	assert.Equal(t, "pl-1", cur["object_id"])
+	hp, ok := cur["hp"].(float64)
+	require.True(t, ok, "/me должен отдать пересчитанный hp")
+	assert.Less(t, hp, 1.0, "hp пересчитан от landed_at (§8.7), а не сохранённые 80")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

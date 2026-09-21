@@ -632,15 +632,19 @@ function showPlanetMenu(x, y, planetIndex) {
     if (!planet) return;
 
     const myPos = modalState.myPosition;
+    let onThisOrbit = false;
+    let onThisSurface = false;
     if (myPos) {
-        // Уже на орбите этой планеты / цель = активный полёт / летим ОТ неё
-        // (запрос создателя «глупый тост»: цель == from полёта) — пункт скрыт.
-        if (myPos.status === 'orbit' && myPos.object_type === 'planet' && myPos.object_id === planet.id) return;
+        // Цель = активный полёт / летим ОТ неё (запрос создателя «глупый тост»:
+        // цель == from полёта) / межзвёздный в своей системе — меню не создаём.
         if (myPos.status === 'in_flight' && myPos.to_type === 'planet' && myPos.to_id === planet.id) return;
         if (myPos.status === 'in_flight' && myPos.from_type === 'planet' && myPos.from_id === planet.id) return;
-        // Своя система: при активном межзвёздном полёте внутрисистемный старт
-        // даст 400 «Вы в межзвёздном полёте» (спека 99.2.30 §6.2) — не показываем.
         if (modalState.interstellarFlight) return;
+        // Своя орбита/поверхность этой планеты (спека 2026-09-21 §5.2): меню
+        // создаём ради пункта «Высадиться»/«Вы на поверхности» — ранний return
+        // ровно в валидном состоянии снят.
+        onThisOrbit = myPos.status === 'orbit' && myPos.object_type === 'planet' && myPos.object_id === planet.id;
+        onThisSurface = myPos.status === 'surface' && myPos.object_type === 'planet' && myPos.object_id === planet.id;
     }
 
     const menu = document.createElement('div');
@@ -671,8 +675,10 @@ function showPlanetMenu(x, y, planetIndex) {
     title.textContent = planet.name || 'Планета';
     menu.appendChild(title);
 
-    const btn = document.createElement('div');
-    btn.style.cssText = `
+    // menuItem — единый стиль строки контекстного меню.
+    const menuItem = (html) => {
+        const el = document.createElement('div');
+        el.style.cssText = `
         padding: 8px 10px;
         cursor: pointer;
         border-radius: 6px;
@@ -680,24 +686,52 @@ function showPlanetMenu(x, y, planetIndex) {
         align-items: center;
         gap: 8px;
     `;
-    btn.innerHTML = `🚀 <span>Лететь</span>`;
-    btn.addEventListener('mouseenter', () => { btn.style.background = '#2a2a44'; });
-    btn.addEventListener('mouseleave', () => { btn.style.background = 'none'; });
-    btn.addEventListener('click', async () => {
-        hideStarMenu();
-        // Без двигателя полёт невозможен (спека 91a §6.1): блокируем с
-        // подсказкой; сервер валидирует тоже (админ/skycomposer — исключение).
-        if (!modalState.hasEngine) {
-            notifyError('Двигатель не установлен — полёт невозможен');
-            return;
-        }
-        if (myPos) {
-            await startIntraFlight('planet', planet.id);
+        el.innerHTML = html;
+        el.addEventListener('mouseenter', () => { el.style.background = '#2a2a44'; });
+        el.addEventListener('mouseleave', () => { el.style.background = 'none'; });
+        return el;
+    };
+
+    // «Лететь» — скрыт, когда уже на орбите/поверхности этой планеты.
+    if (!onThisOrbit && !onThisSurface) {
+        const btn = menuItem(`🚀 <span>Лететь</span>`);
+        btn.addEventListener('click', async () => {
+            hideStarMenu();
+            // Без двигателя полёт невозможен (спека 91a §6.1): блокируем с
+            // подсказкой; сервер валидирует тоже (админ/skycomposer — исключение).
+            if (!modalState.hasEngine) {
+                notifyError('Двигатель не установлен — полёт невозможен');
+                return;
+            }
+            if (myPos) {
+                await startIntraFlight('planet', planet.id);
+            } else {
+                await startCompositeFlight('planet', planet.id);
+            }
+        });
+        menu.appendChild(btn);
+    }
+
+    // «Высадиться» (спека 2026-09-21 §5.2, решение создателя): только с орбиты
+    // этой планеты. Газовый гигант — disabled (клиент biomes не читает; §5.4).
+    if (onThisOrbit || onThisSurface) {
+        const gasGiant = !onThisSurface && !!planet.is_gas_giant;
+        const landItem = menuItem(onThisSurface
+            ? `🚶 <span>Вы на поверхности</span>`
+            : `🚶 <span${gasGiant ? ' style="color:#64748b;"' : ''}>Высадиться</span>
+               <span title="Высадка: биом случаен — чем больше доля, тем вероятнее"
+                     style="color:#64748b; font-size:0.75rem; margin-left:auto;">${gasGiant ? 'газовый гигант' : 'биом ?'}</span>`);
+        if (gasGiant) {
+            landItem.style.cursor = 'default';
+            landItem.addEventListener('click', () => notifyError('Газовый гигант — высадка невозможна'));
         } else {
-            await startCompositeFlight('planet', planet.id);
+            landItem.addEventListener('click', () => {
+                hideStarMenu();
+                window.location.href = '/surface.html?planet=' + encodeURIComponent(planet.id);
+            });
         }
-    });
-    menu.appendChild(btn);
+        menu.appendChild(landItem);
+    }
 
     document.body.appendChild(menu);
 }

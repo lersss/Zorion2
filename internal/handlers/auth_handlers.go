@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
@@ -21,6 +22,8 @@ type AuthHandlers struct {
 	userRepo      *repository.UserRepository
 	worldRepo     *repository.WorldRepository
 	travelManager *travel.Manager
+	// planetRepo — для пересчёта серверного HP на поверхности (§8.7, /me).
+	planetRepo *repository.PlanetRepository
 }
 
 func NewAuthHandlers(userRepo *repository.UserRepository, worldRepo *repository.WorldRepository, travelManager *travel.Manager) *AuthHandlers {
@@ -29,6 +32,34 @@ func NewAuthHandlers(userRepo *repository.UserRepository, worldRepo *repository.
 		worldRepo:     worldRepo,
 		travelManager: travelManager,
 	}
+}
+
+// SetPlanetRepo — подключение planetRepo для пересчёта HP прогулки (§8.7).
+// Отдельный сеттер: не менять сигнатуру конструктора (легаси-тесты).
+func (h *AuthHandlers) SetPlanetRepo(repo *repository.PlanetRepository) {
+	h.planetRepo = repo
+}
+
+// recomputeSurfaceHP — hp на поверхности пересчитывается от landed_at и профиля
+// планеты (§8.7, ИП-5'): сохранённое hp — не источник истины. Не падает при
+// битой планете (оставляет сохранённое значение). worldID — система игрока.
+func (h *AuthHandlers) recomputeSurfaceHP(pos *models.CurrentPosition, worldID string) {
+	if h.planetRepo == nil || pos == nil || pos.Status != "surface" || pos.ObjectID == "" || worldID == "" {
+		return
+	}
+	planets, err := h.planetRepo.GetPlanetsLightByWorldID(worldID)
+	if err != nil {
+		return
+	}
+	p := findPlanetByID(planets, pos.ObjectID)
+	if p == nil {
+		return
+	}
+	biome := NormalizeSurfaceBiome(p, pos.Biome)
+	hazard := surfaceHazardFor(p, biome)
+	landedAt, _ := time.Parse(time.RFC3339, pos.LandedAt)
+	hp := surfaceHPAt(landedAt, hazard.Total, time.Now())
+	pos.HP = &hp
 }
 
 type RegisterRequest struct {
@@ -200,6 +231,14 @@ func (h *AuthHandlers) GetMe(w http.ResponseWriter, r *http.Request) {
 			currentWorldName = world.Name
 		}
 	}
+
+	// Спека 2026-09-21 §7.6 п.6: на поверхности hp пересчитывается от landed_at
+	// на этом чтении (§8.7) — клиент показывает актуальное значение.
+	worldID := ""
+	if user.CurrentWorldID != nil {
+		worldID = *user.CurrentWorldID
+	}
+	h.recomputeSurfaceHP(pos, worldID)
 
 	// Активный полёт (идея 42a): сервер помнит его в travel.Manager, фронт
 	// восстанавливает состояние после рефреша. Полёта нет — null.

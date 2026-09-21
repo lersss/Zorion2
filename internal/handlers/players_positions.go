@@ -126,6 +126,12 @@ func (h *AdminHandlers) PlayersPositions(w http.ResponseWriter, r *http.Request)
 		if u.ID == userID || u.CurrentWorldID == nil {
 			continue
 		}
+		// Игрок на поверхности скрыт от других (решение создателя 2026-09-21,
+		// §6.6/§7.6 п.7): явный guard — фильтра `!= orbit` в батч-блоке имён
+		// недостаточно, иначе ветка surface протечёт как «в системе X».
+		if u.CurrentPosition != nil && u.CurrentPosition.Status == "surface" {
+			continue
+		}
 		coords, ok := worldCoords[*u.CurrentWorldID]
 		if !ok {
 			continue // мир удалён при перегенерации — позиция неизвестна
@@ -186,6 +192,11 @@ func (h *AdminHandlers) PlayersPositions(w http.ResponseWriter, r *http.Request)
 func resolveIntraStatus(u *models.User, worldName string, planetNames, satNames map[string]string, worldMods map[string]map[string]interface{}) (status, objType, objID string) {
 	pos := u.CurrentPosition
 	worldID := *u.CurrentWorldID
+	// Поверхность скрыта от других (спека 2026-09-21 §7.6 п.7): основной цикл
+	// выдачи пропускает status=surface; здесь — защитный фолбэк.
+	if pos.Status == "surface" {
+		return "в системе " + worldName, "star", worldID
+	}
 	if pos.Status == "in_flight" {
 		return "в полёте (система " + worldName + ")", "", ""
 	}

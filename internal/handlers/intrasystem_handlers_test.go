@@ -1,4 +1,4 @@
-﻿// internal/handlers/intrasystem_handlers_test.go
+// internal/handlers/intrasystem_handlers_test.go
 // Тесты POST /api/intrasystem-flight (спека 99.2.27 §4.1): валидации в порядке
 // спеки (двигатель 91a, активный межзвёздный полёт, current_world_id, цель в
 // системе, идемпотентность по паре to_type+to_id, «уже на орбите»), формула
@@ -333,6 +333,22 @@ func TestStartIntraFlightTargetIsFromInFlight(t *testing.T) {
 	rec := execJSON(h.StartIntraFlight, intraRequest(userID, "star", "w1"))
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	require.Contains(t, rec.Body.String(), "Вы уже на орбите этого объекта")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// С поверхности внутрисистемный полёт запрещён (§6.5 спеки высадки): иначе
+// молча брался from = (звезда, worldID) — скрытый баг.
+func TestStartIntraFlightFromSurfaceRejected(t *testing.T) {
+	h, _, mock := newIntraHarness(t)
+	const userID = "11111111-1111-1111-1111-111111111111"
+
+	pos := `{"status":"surface","level":"surface","object_type":"planet","object_id":"p1","biome":"горы","hp":90,"landed_at":"2026-09-21T12:00:00Z"}`
+	expectIntraUser(mock, userID, pos)
+	expectIntraWorld(mock, "w1")
+
+	rec := execJSON(h.StartIntraFlight, intraRequest(userID, "planet", "p2"))
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Contains(t, rec.Body.String(), "Сначала вернитесь на орбиту")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

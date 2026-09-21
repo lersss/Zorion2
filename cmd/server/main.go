@@ -307,10 +307,13 @@ func main() {
 	testHandlers := handlers.NewTestHandlers(worldRepo, locationRepo, assignmentRepo)
 	worldHandlers := handlers.NewWorldHandlers(worldRepo, locationRepo, assignmentRepo)
 	authHandlers := handlers.NewAuthHandlers(userRepo, worldRepo, travelManager)
+	authHandlers.SetPlanetRepo(planetRepo) // §8.7: пересчёт HP на поверхности в /me
 	// Внутрисистемные полёты (спека 99.2.27 §4.1): POST /api/intrasystem-flight.
 	intrasystemHandlers := handlers.NewIntrasystemHandlers(
 		worldRepo, userRepo, planetRepo, intraFlightRepo, knowledgeRepo, travelManager, intraManager,
 	)
+	// Высадка/прогулка (спека 2026-09-21 §6): POST /api/surface/land|leave.
+	surfaceHandlers := handlers.NewSurfaceHandlers(userRepo, worldRepo, planetRepo, intraManager)
 	wsHandler := handlers.NewWebSocketHandler(wsHub)
 	contractHandlers := handlers.NewContractHandlers(assignmentRepo, userRepo)
 	mapCache := mapcache.NewManager()
@@ -365,6 +368,8 @@ func main() {
 	http.HandleFunc("/worlds/", auth.AuthMiddleware(worldHandlers.GetWorld))
 	http.HandleFunc("/travel", auth.AuthMiddleware(travelHandlers.StartTravel))
 	http.HandleFunc("/api/intrasystem-flight", auth.AuthMiddleware(intrasystemHandlers.StartIntraFlight))
+	http.HandleFunc("/api/surface/land", auth.AuthMiddleware(surfaceHandlers.Land))
+	http.HandleFunc("/api/surface/leave", auth.AuthMiddleware(surfaceHandlers.Leave))
 	http.HandleFunc("/me", auth.AuthMiddleware(authHandlers.GetMe))
 	http.HandleFunc("/me/ship-icon", auth.AuthMiddleware(authHandlers.UpdateShipIcon))
 	http.HandleFunc("/me/ship-color", auth.AuthMiddleware(authHandlers.UpdateShipColor))

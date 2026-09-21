@@ -215,8 +215,32 @@ func TestPlayersPositionsBrokenTargetFallback(t *testing.T) {
 	require.Equal(t, "w2", p["object_id"])
 }
 
-// ==================== АДМИН (И7) ====================
+// ==================== ПОВЕРХНОСТЬ СКРЫТА (спека 2026-09-21 §7.6 п.7) ====================
 
+// Игрок со status=surface не отдаётся другим (решение создателя: скрывать).
+func TestPlayersPositionsSurfaceHidden(t *testing.T) {
+	h, mock := newPlayersPositionsHarness(t)
+	const userID = "u1"
+
+	expectPlayerUser(mock, userID)
+	expectPositionsUsers(mock,
+		[]driver.Value{userID, "player", "ship_strela.svg", nil, "w1", "player", nil},
+		[]driver.Value{"p2", "alice", "shark.png", nil, "w2", "player",
+			`{"status":"surface","level":"surface","object_type":"planet","object_id":"pl-1","biome":"x","hp":80,"landed_at":"2026-09-21T12:00:00Z"}`},
+	)
+
+	rec := execJSON(h.PlayersPositions, playersPositionsRequest(userID, string(models.RolePlayer)))
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	var resp struct {
+		Players []map[string]interface{} `json:"players"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Players, 0, "поверхность скрыта от других (guard status=surface)")
+}
+
+// ==================== АДМИН (И7) ====================
 // Админ видит стоящих без фильтра радиуса.
 func TestPlayersPositionsAdminSeesStanding(t *testing.T) {
 	h, mock := newPlayersPositionsHarness(t)

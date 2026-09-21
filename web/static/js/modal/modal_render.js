@@ -405,7 +405,8 @@ function drawMyPosition(ctx, layout, planets, timeMs) {
         drawIntraFlightShip(ctx, layout, planets, timeMs, pos);
         return;
     }
-    if (pos.status !== 'orbit') return;
+    // surface — маркер «я здесь» у планеты (спека 2026-09-21 §7.6 п.5).
+    if (pos.status !== 'orbit' && pos.status !== 'surface') return;
 
     const p = objectCanvasPos(layout, planets, pos.object_type, pos.object_id, timeMs);
     // Экранно-константный размер (запрос создателя «ломается при зуме»):

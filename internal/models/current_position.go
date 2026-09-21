@@ -10,17 +10,23 @@ import "time"
 
 // CurrentPosition — внутрисистемная позиция игрока.
 type CurrentPosition struct {
-	Status     string `json:"status"` // orbit | in_flight
-	ObjectType string `json:"object_type,omitempty"` // star|planet|satellite (orbit)
-	ObjectID   string `json:"object_id,omitempty"`   // UUID или синтетический id компаньона (orbit)
-	Level      string `json:"level,omitempty"`       // orbit (surface + biome — задел под высадку, решение А)
-	Biome      string `json:"biome,omitempty"`
-	FromType   string `json:"from_type,omitempty"` // star|planet|satellite (in_flight)
-	FromID     string `json:"from_id,omitempty"`
-	ToType     string `json:"to_type,omitempty"`
-	ToID       string `json:"to_id,omitempty"`
-	StartTime  int64  `json:"start_time,omitempty"` // UnixMilli (in_flight)
-	ArriveAt   int64  `json:"arrive_at,omitempty"`  // UnixMilli (in_flight)
+	Status     string `json:"status"`                // orbit | in_flight | surface
+	ObjectType string `json:"object_type,omitempty"` // star|planet|satellite (orbit/surface)
+	ObjectID   string `json:"object_id,omitempty"`   // UUID или синтетический id компаньона (orbit/surface)
+	Level      string `json:"level,omitempty"`       // orbit | surface
+	Biome      string `json:"biome,omitempty"`       // surface: form биома прогулки
+	// HP и LandedAt — серверно-авторитетное здоровье прогулки (спека
+	// 2026-09-21 §4.2/§8.7): hp ∈ [0,100], landed_at — UTC RFC3339. Пишет и
+	// пересчитывает только сервер; клиент урон не присылает. Указатель — ноль
+	// (смерть) значим и не теряется omitempty.
+	HP        *float64 `json:"hp,omitempty"`
+	LandedAt  string   `json:"landed_at,omitempty"`
+	FromType  string   `json:"from_type,omitempty"` // star|planet|satellite (in_flight)
+	FromID    string   `json:"from_id,omitempty"`
+	ToType    string   `json:"to_type,omitempty"`
+	ToID      string   `json:"to_id,omitempty"`
+	StartTime int64    `json:"start_time,omitempty"` // UnixMilli (in_flight)
+	ArriveAt  int64    `json:"arrive_at,omitempty"`  // UnixMilli (in_flight)
 }
 
 // OrbitPosition — позиция «на орбите объекта» (покой).
@@ -49,5 +55,28 @@ func InFlightPosition(fromType, fromID, toType, toID string, startTime, arriveAt
 		ToID:      toID,
 		StartTime: startTime.UnixMilli(),
 		ArriveAt:  arriveAt.UnixMilli(),
+	}
+}
+
+// SurfacePosition — позиция «игрок на поверхности планеты» (спека 2026-09-21
+// §4.2): {status:"surface", level:"surface", object_type:"planet", object_id,
+// biome, hp, landed_at}. hp/landed_at — серверно-авторитетное здоровье прогулки
+// (§8.7); x/y не хранятся (решение создателя: «планета + биом»).
+// landed_at — RFC3339 без долей секунды, округлённый ВВЕРХ до секунды: иначе
+// усечение вниз сразу отнимало бы у игрока часть HP (hp считается от landed_at,
+// §8.7) — на момент высадки hp ровно 100.
+func SurfacePosition(planetID, biome string, hp float64, landedAt time.Time) *CurrentPosition {
+	t := landedAt.UTC()
+	if t.Nanosecond() != 0 {
+		t = t.Truncate(time.Second).Add(time.Second)
+	}
+	return &CurrentPosition{
+		Status:     "surface",
+		ObjectType: "planet",
+		ObjectID:   planetID,
+		Level:      "surface",
+		Biome:      biome,
+		HP:         &hp,
+		LandedAt:   t.Format(time.RFC3339),
 	}
 }

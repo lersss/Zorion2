@@ -152,6 +152,21 @@ func (r *UserRepository) UpdateCurrentWorldAndPosition(userID, worldID string, p
 	return err
 }
 
+// UpdatePosition — точечный UPDATE позиции (спека 2026-09-21 §6.1/§12 п.3):
+// users.current_position одним UPDATE (атомарно); pending_destination не
+// трогается (§6.4: намерение не сосуществует с позицией). Высадка/возврат.
+func (r *UserRepository) UpdatePosition(userID string, pos *models.CurrentPosition) error {
+	posJSON, err := json.Marshal(pos)
+	if err != nil {
+		return fmt.Errorf("update position: marshal: %w", err)
+	}
+	_, err = r.db.Exec(
+		`UPDATE users SET current_position = $1, updated_at = NOW() WHERE id = $2`,
+		posJSON, userID,
+	)
+	return err
+}
+
 // ClearCurrentWorld — обнуляет current_world_id и current_position (игрок
 // «без мира»): дефенсив onArrival при съеденной цели (пакман, спека
 // 2026-09-20 §7.2) — вместо FK-violation на worlds.

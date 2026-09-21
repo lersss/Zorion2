@@ -14,12 +14,17 @@
 `key` TEXT PK + `payload` JSONB — паттерн «дефолты в коде + override в БД»,
 как матрица совместимости), `player_flights` (активные полёты игроков,
 миграция `000044`, идея 97a: одна запись на игрока, PK `user_id`),
-`categories`/`goods`/`goods_slots` (каталог товаров и ресурсов студии,
+`categories`/`goods` (каталог товаров и ресурсов студии,
 миграция `000045`, спека `перенос-студии-товаров-iterA` §4: единая таблица
 категорий — товарные + 6 системных ресурсных (составной FK
-`goods(kind, category_id) → categories(kind, id)`), товары/ресурсы по `kind`,
-слоты рецептов отдельной таблицей; каталог — контент, не данные вселенной:
-ClearUniverse его не трогает), `producer_types`/`items`/`producer_items`
+`goods(kind, category_id) → categories(kind, id)`), товары/ресурсы по `kind`;
+каталог — контент, не данные вселенной:
+ClearUniverse его не трогает), `recipes`/`recipe_components`/`producer_recipes`
+(рецепт как сущность — выход-товар + состав + сложность и набор рецептов
+фабрики, миграция `000055`, спека
+`2026-09-21-рецепт-сущность-и-граф-фабрики` §3: `recipes` — один рецепт на
+товар, `recipe_components` — замена `goods_slots`, `producer_recipes` — M:N
+«конкретная фабрика ↔ рецепты»), `producer_types`/`items`/`producer_items`
 (каталог типов производителей и предметов студии, миграция `000048`, спека
 `2026-09-20-фабрики-сущность-производства` §3.1: BIGSERIAL-ключи как в
 000045; `producer_types` — типы производителей (kind goods/items/energy,
@@ -262,6 +267,17 @@ ClearUniverse его не трогает), `producer_types`/`items`/`producer_it
   `status` сняты **без замены флагом** — «убрать» такое можно только
   удалением; `goods.volume`/`weight` → `NOT NULL DEFAULT 1` (`NULL → 1`).
   `producer_slots.hidden` (000052) — вторая ось скрытости, не трогается.
+- `000055` — рецепт как сущность (спека
+  `2026-09-21-рецепт-сущность-и-граф-фабрики` §3, 2026-09-21): новые таблицы
+  `recipes` (good_id FK CASCADE, UNIQUE (good_id), complexity INT NULL),
+  `recipe_components` (замена `goods_slots`: recipe_id FK CASCADE, pos,
+  component_id FK SET NULL, quantity, reason, allow_resource; UNIQUE
+  (recipe_id, pos) + индекс по component_id), `producer_recipes` (PK
+  (producer_type_id, recipe_id), M:N, индекс по recipe_id); data-перенос
+  (рецепт на каждый товар, состав из `goods_slots`, привязка ко всем
+  универсальным конкретным фабрикам категории); снос `goods_slots` и колонки
+  `goods.tier_override`; таблицы рецептов — каталог-контент (в `truncateTables`
+  не входят).
 - Миграции, вступающие в силу на старте, требуют перезапуска сервера
   (`AGENTS.md` §4 п.13).
 - `VACUUM` внутрь миграции не положить — не работает внутри транзакции

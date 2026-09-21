@@ -12,6 +12,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -43,13 +44,20 @@ func newSurfaceHarness(t *testing.T) (*SurfaceHandlers, sqlmock.Sqlmock) {
 
 const surfaceUserQueryRe = `SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination FROM users WHERE id = \$1`
 
-// expectSurfaceUser — GetByIDWithPosition (worldID/posRaw могут быть nil).
+// expectSurfaceUser — GetByIDWithPosition (worldID/posRaw могут быть nil),
+// роль player (для админских тестов — expectSurfaceUserRole).
 func expectSurfaceUser(mock sqlmock.Sqlmock, id string, worldID, posRaw interface{}) {
+	expectSurfaceUserRole(mock, id, worldID, posRaw, "player")
+}
+
+// expectSurfaceUserRole — как expectSurfaceUser, но с заданной ролью
+// (идея 2026-09-21: выбор биома — только admin/skycomposer).
+func expectSurfaceUserRole(mock sqlmock.Sqlmock, id string, worldID, posRaw interface{}, role string) {
 	mock.ExpectQuery(surfaceUserQueryRe).
 		WithArgs(id).
 		WillReturnRows(sqlmock.NewRows(intraUserCols).
 			AddRow(id, "player", "hash", nil, nil, worldID, "ship_strela.svg", nil, "starter",
-				`{"radar":"radar_1","scanner":"scanner_1","engine":"engine_1"}`, "player", now(), now(), posRaw, nil))
+				`{"radar":"radar_1","scanner":"scanner_1","engine":"engine_1"}`, role, now(), now(), posRaw, nil))
 }
 
 // expectSurfacePlanetsLight — планеты системы (лёгкий запрос).
@@ -67,6 +75,30 @@ func expectSurfacePlanetsLight(mock sqlmock.Sqlmock, worldID string, rows ...[]d
 func expectSurfaceUpdate(mock sqlmock.Sqlmock, userID string) {
 	mock.ExpectExec(`UPDATE users SET current_position = \$1, updated_at = NOW\(\) WHERE id = \$2`).
 		WithArgs(sqlmock.AnyArg(), userID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+}
+
+// biomeInPos — matcher позиции в UPDATE: JSON содержит выбранный биом
+// («позиция с этим биомом», DoD идеи 2026-09-21).
+type biomeInPos string
+
+func (b biomeInPos) Match(v driver.Value) bool {
+	var s string
+	switch x := v.(type) {
+	case string:
+		s = x
+	case []byte:
+		s = string(x)
+	default:
+		return false
+	}
+	return strings.Contains(s, `"biome":"`+string(b)+`"`)
+}
+
+// expectSurfaceUpdateBiome — UPDATE позиции с проверкой биома.
+func expectSurfaceUpdateBiome(mock sqlmock.Sqlmock, userID, biome string) {
+	mock.ExpectExec(`UPDATE users SET current_position = \$1, updated_at = NOW\(\) WHERE id = \$2`).
+		WithArgs(biomeInPos(biome), userID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 }
 
@@ -105,6 +137,28 @@ func surfacePlanetRow(id, worldID, name, data string) []driver.Value {
 	return []driver.Value{id, worldID, name, 0, data, now(), now()}
 }
 
+// surfacePlanetDataMulti — JSON data планеты с несколькими биомами
+// (админский выбор биома: планета должна нести нужный биом с share > 0).
+func surfacePlanetDataMulti(biomes map[string]float64, temperature, pressure, radioactivity float64, life bool) string {
+	arr := []map[string]interface{}{}
+	for form, share := range biomes {
+		arr = append(arr, map[string]interface{}{"form": form, "share": share})
+	}
+	data := map[string]interface{}{
+		"temperature": temperature,
+		"gravity":     1.0,
+		"life":        life,
+		"atmosphere_data": map[string]interface{}{
+			"pressure_atm": pressure,
+			"composition":  map[string]interface{}{},
+		},
+		"core":   map[string]interface{}{"radioactivity": radioactivity},
+		"biomes": arr,
+	}
+	b, _ := json.Marshal(data)
+	return string(b)
+}
+
 func surfacePosJSON(planetID, biome string, hp float64, landedAt time.Time) string {
 	b, _ := json.Marshal(models.SurfacePosition(planetID, biome, hp, landedAt))
 	return string(b)
@@ -113,7 +167,12 @@ func surfacePosJSON(planetID, biome string, hp float64, landedAt time.Time) stri
 const orbitPlanetPos = `{"status":"orbit","object_type":"planet","object_id":"pl-1","level":"orbit"}`
 
 func surfaceLandRequest(userID, planetID string) *http.Request {
-	body, _ := json.Marshal(SurfaceLandRequest{PlanetID: planetID})
+	return surfaceLandBiomeRequest(userID, planetID, "")
+}
+
+// surfaceLandBiomeRequest — тело land с (необязательным) админским выбором биома.
+func surfaceLandBiomeRequest(userID, planetID, biome string) *http.Request {
+	body, _ := json.Marshal(SurfaceLandRequest{PlanetID: planetID, Biome: biome})
 	req := httptest.NewRequest(http.MethodPost, "/api/surface/land", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	return withUserID(req, userID)
@@ -154,6 +213,90 @@ func TestSurfaceLandSuccess(t *testing.T) {
 	assert.Zero(t, pkg.Hazard.Total, "мягкая планета — урона нет")
 	assert.NotEmpty(t, pkg.Sky.Star.Color)
 	assert.Len(t, pkg.Sky.Bodies, 1, "тело системы — сама планета")
+	assert.Equal(t, "player", pkg.Role, "роль игрока в пакете (§7.1, идея 2026-09-21)")
+}
+
+// Админ выбирает биом: позиция сохраняется с выбранным биомом, пакет отдаёт его
+// и роль admin (идея 2026-09-21 §3).
+func TestSurfaceLandAdminBiome(t *testing.T) {
+	h, mock := newSurfaceHarness(t)
+	const uid = "11111111-1111-1111-1111-111111111111"
+	dominant := testBiomeByCategory(t, "литосфера")
+	pick := testBiomeByCategory(t, "крио")
+	// Выбираем НЕ доминирующий биом — жребий его почти наверняка не дал бы.
+	data := surfacePlanetDataMulti(map[string]float64{dominant.ID: 90, pick.ID: 10}, 288, 1.0, 0, false)
+
+	expectSurfaceUserRole(mock, uid, "w1", orbitPlanetPos, "admin")
+	expectIntraWorld(mock, "w1")
+	expectSurfacePlanetsLight(mock, "w1", surfacePlanetRow("pl-1", "w1", "X", data))
+	expectSurfaceUpdateBiome(mock, uid, pick.ID)
+
+	rec := execJSON(h.Land, surfaceLandBiomeRequest(uid, "pl-1", pick.ID))
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	var pkg SurfacePackage
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &pkg))
+	assert.Equal(t, pick.ID, pkg.Biome, "высадка в выбранный биом")
+	assert.Equal(t, pick.Name, pkg.BiomeName)
+	assert.Equal(t, "admin", pkg.Role)
+}
+
+// Не-админ с полем biome → явный 400 (не молчаливое игнорирование), гейт
+// срабатывает ДО запросов системы/планет — только выборка пользователя.
+func TestSurfaceLandBiomeNonAdmin(t *testing.T) {
+	h, mock := newSurfaceHarness(t)
+	const uid = "11111111-1111-1111-1111-111111111111"
+	biome := testBiomeByCategory(t, "литосфера")
+
+	expectSurfaceUser(mock, uid, "w1", orbitPlanetPos)
+
+	rec := execJSON(h.Land, surfaceLandBiomeRequest(uid, "pl-1", biome.ID))
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Contains(t, rec.Body.String(), "Выбор биома доступен только администратору")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Админ, но биома нет у планеты → 400 «Нет такого биома на планете».
+func TestSurfaceLandAdminUnknownBiome(t *testing.T) {
+	h, mock := newSurfaceHarness(t)
+	const uid = "11111111-1111-1111-1111-111111111111"
+	planetBiome := testBiomeByCategory(t, "литосфера")
+	foreign := testBiomeByCategory(t, "крио")
+	data := surfacePlanetData(planetBiome.ID, 100, 288, 1.0, 0, false)
+
+	expectSurfaceUserRole(mock, uid, "w1", orbitPlanetPos, "admin")
+	expectIntraWorld(mock, "w1")
+	expectSurfacePlanetsLight(mock, "w1", surfacePlanetRow("pl-1", "w1", "X", data))
+
+	rec := execJSON(h.Land, surfaceLandBiomeRequest(uid, "pl-1", foreign.ID))
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Contains(t, rec.Body.String(), "Нет такого биома на планете")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Идемпотентность: на поверхности с биомом A повторный land с биомом B →
+// сохранённый A присланный B игнорируется, без UPDATE (§6.1 шаг 2).
+func TestSurfaceLandIdempotentIgnoresBiome(t *testing.T) {
+	h, mock := newSurfaceHarness(t)
+	const uid = "11111111-1111-1111-1111-111111111111"
+	saved := testBiomeByCategory(t, "крио")
+	other := testBiomeByCategory(t, "литосфера")
+	data := surfacePlanetDataMulti(map[string]float64{saved.ID: 60, other.ID: 40}, 60, 0.05, 0, false)
+	pos := surfacePosJSON("pl-1", saved.ID, 87, time.Now().Add(-60*time.Second))
+
+	expectSurfaceUserRole(mock, uid, "w1", pos, "admin")
+	expectSurfacePlanetsLight(mock, "w1", surfacePlanetRow("pl-1", "w1", "Ice", data))
+	expectIntraWorld(mock, "w1") // buildWalkPackage: мир для light
+
+	rec := execJSON(h.Land, surfaceLandBiomeRequest(uid, "pl-1", other.ID))
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	var pkg SurfacePackage
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &pkg))
+	assert.Equal(t, saved.ID, pkg.Biome, "рефреш не перебрасывает биом")
+	assert.Equal(t, "admin", pkg.Role)
 }
 
 // Идемпотентность: повторный land при position surface — тот же биом, без UPDATE.

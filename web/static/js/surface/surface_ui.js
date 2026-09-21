@@ -1,6 +1,7 @@
 // web/static/js/surface/surface_ui.js
 // HUD/брифинг/смерть/пауза прогулки (спека 2026-09-21 §5.2/§7.5/§11).
 // Все значения — из пакета прогулки (§7.1); HP — серверная формула (§8.7).
+import { WEATHER } from './surface_config.js';
 const $ = (id) => document.getElementById(id);
 
 function fmtTemp(celsius) {
@@ -75,6 +76,61 @@ export function showLoading(text) {
 export function hideLoading() { $('loading').style.display = 'none'; }
 
 export function showHUD() { $('hud').style.display = 'block'; }
+
+// ---- Админский переключатель погоды (идея 2026-09-21 §3) ----
+// Вторая строка .hud-center под #hud-weather: подпись + чипы «авто» и всех
+// явлений WEATHER. У игрока строки нет ВООБЩЕ (функция не вызывается).
+// Кликабельность даёт существующее правило `#hud button { pointer-events:auto }`.
+const WEATHER_CHIP_CSS = 'background:rgba(15,23,42,0.72); border:1px solid #334155; border-radius:8px; padding:3px 10px; font:inherit; font-size:0.75rem; color:#cbd5e1; cursor:pointer;';
+const WEATHER_CHIP_ON = { border: 'rgba(250,204,21,0.5)', color: '#facc15', background: 'rgba(250,204,21,0.12)' };
+const WEATHER_CHIP_OFF = { border: '#334155', color: '#cbd5e1', background: 'rgba(15,23,42,0.72)' };
+
+function paintWeatherChip(btn, active) {
+    const c = active ? WEATHER_CHIP_ON : WEATHER_CHIP_OFF;
+    btn.style.borderColor = c.border;
+    btn.style.color = c.color;
+    btn.style.background = c.background;
+}
+
+export function showWeatherToggle(onPick) {
+    if ($('hud-weather-admin')) return;
+    const center = document.querySelector('.hud-center');
+    if (!center) return;
+    const wrap = document.createElement('div');
+    wrap.id = 'hud-weather-admin';
+    wrap.style.cssText = 'display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:6px; margin-top:6px;';
+    const label = document.createElement('span');
+    label.textContent = '⚙ погода (админ)';
+    label.style.cssText = 'color:#64748b; font-size:0.75rem;';
+    wrap.appendChild(label);
+    const items = [{ id: '', label: 'авто', title: 'Погода меняется сама, раз в 2–4 мин — как у игрока' }]
+        .concat(WEATHER.map((w) => ({ id: w.id, label: w.id })));
+    items.forEach((it) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.dataset.weather = it.id;
+        btn.textContent = it.label;
+        if (it.title) btn.title = it.title;
+        btn.style.cssText = WEATHER_CHIP_CSS;
+        paintWeatherChip(btn, false);
+        btn.addEventListener('mouseenter', () => { if (btn.dataset.active !== '1') btn.style.background = '#334155'; });
+        btn.addEventListener('mouseleave', () => paintWeatherChip(btn, btn.dataset.active === '1'));
+        btn.addEventListener('click', () => onPick(it.id));
+        wrap.appendChild(btn);
+    });
+    center.appendChild(wrap);
+}
+
+// setWeatherToggleActive — подсветка активного чипа ('' = «авто»).
+export function setWeatherToggleActive(activeId) {
+    const wrap = $('hud-weather-admin');
+    if (!wrap) return;
+    wrap.querySelectorAll('button').forEach((btn) => {
+        const active = btn.dataset.weather === activeId;
+        btn.dataset.active = active ? '1' : '';
+        paintWeatherChip(btn, active);
+    });
+}
 
 // updateHUD — полоса HP (серверная формула), имя биома, оси, путь, погода.
 export function updateHUD(state) {

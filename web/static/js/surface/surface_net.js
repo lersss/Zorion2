@@ -24,8 +24,12 @@ async function post(path, body) {
 }
 
 // land — высадка (идемпотентно: повторный вызов возвращает тот же биом).
-export function land(planetId) {
-    return post('/api/surface/land', { planet_id: planetId });
+// biome — необязательный админский выбор биома (идея 2026-09-21); пусто —
+// не передаём (сервер бросает жребий ∝ share, §5.1).
+export function land(planetId, biome) {
+    const body = { planet_id: planetId };
+    if (biome) body.biome = biome;
+    return post('/api/surface/land', body);
 }
 
 // leave — «вызов корабля» и смерть: возврат на орбиту планеты.

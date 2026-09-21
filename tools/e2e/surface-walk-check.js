@@ -12,8 +12,6 @@ import { fileURLToPath } from 'node:url';
 
 const BASE_URL = (process.env.BASE_URL || 'http://localhost:8080').replace(/\/+$/, '');
 const ARTIFACTS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'artifacts');
-const WORLD = '336089f4-5ad5-4bb0-8d4d-0f2a1d85197c'; // Notelden
-const SOFT = '43f38801-ac88-4809-a282-373b5b1bb881';  // Huszephxan (мягкая, 10 биомов)
 
 const CHROME_PATHS = [process.env.CHROME_PATH, 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'].filter(Boolean);
 const EDGE_PATHS = [process.env.EDGE_PATH, 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'].filter(Boolean);
@@ -31,7 +29,34 @@ function findExecutable() {
 }
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-async function setupUser() {
+// psqlRun — psql c SQL из файла (PITFALLS: unicode-аргументы через -c ломаются;
+// пишем .sql-файл, читаем stdout). Возвращает stdout (tuples-only).
+function psqlRun(sql, filename) {
+  const sqlPath = path.join(ARTIFACTS_DIR, filename);
+  writeFileSync(sqlPath, sql, 'utf8');
+  return String(execFileSync('cmd', ['/c', process.env.PSQL || 'C:\\pgsql\\pgsql\\bin\\psql.exe',
+    '-h', '127.0.0.1', '-U', 'zorion', '-d', 'zorion', '-t', '-A', '-f', sqlPath],
+    { env: { ...process.env, PGPASSWORD: process.env.PGPASSWORD || 'zorion123' } })).trim();
+}
+
+// resolveSoftPlanet — динамический резолв живой мягкой планеты (хвост e2e идеи
+// 2026-09-21): мир + планета с ≥3 биомами, в вилках комфорта скафандра и с
+// минимальной радиоактивностью. Хардкод UUID устаревал при перегенерации БД.
+function resolveSoftPlanet() {
+  const sql = `SELECT p.world_id, p.id FROM planets p
+WHERE jsonb_typeof(p.data->'biomes') = 'array' AND jsonb_array_length(p.data->'biomes') >= 3
+  AND (p.data->>'temperature')::float BETWEEN 263 AND 313
+  AND COALESCE((p.data->'atmosphere_data'->>'pressure_atm')::float, 0) BETWEEN 0.5 AND 3.0
+  AND COALESCE((p.data->>'life')::bool, false) = true
+ORDER BY COALESCE((p.data->'core'->>'radioactivity')::float, 999) ASC LIMIT 1;
+`;
+  const line = psqlRun(sql, 'surface-resolve.sql').split(/\r?\n/).map((s) => s.trim()).filter(Boolean).pop();
+  if (!line) throw new Error('не найдена живая мягкая планета (SQL вернул пусто)');
+  const parts = line.split('|');
+  return { world: parts[0], planet: parts[1] };
+}
+
+async function setupUser(world, planet, role) {
   let token = null, username = null;
   for (let i = 0; i < 3; i++) {
     username = 'e2e_walk_' + Date.now() + '_' + i;
@@ -42,18 +67,21 @@ async function setupUser() {
   if (!token) throw new Error('register failed');
   const me = await (await fetch(BASE_URL + '/me', { headers: { Authorization: 'Bearer ' + token } })).json();
   const uid = me.id;
-  const sql = `UPDATE users SET current_world_id='${WORLD}', current_position=NULL WHERE id='${uid}';\n`;
-  const sqlPath = path.join(ARTIFACTS_DIR, 'surface-setup.sql');
-  writeFileSync(sqlPath, sql);
-  execFileSync('cmd', ['/c', process.env.PSQL || 'C:\\pgsql\\pgsql\\bin\\psql.exe', '-h', '127.0.0.1', '-U', 'zorion', '-d', 'zorion', '-f', sqlPath],
-    { env: { ...process.env, PGPASSWORD: process.env.PGPASSWORD || 'zorion123' } });
+  const roleSql = role ? `, role='${role}'` : '';
+  const sql = `UPDATE users SET current_world_id='${world}', current_position=NULL${roleSql} WHERE id='${uid}';\n`;
+  psqlRun(sql, 'surface-setup.sql');
+  // Смена роли в БД не меняет уже выписанный JWT — перелогин за свежим токеном.
+  if (role) {
+    const lr = await fetch(BASE_URL + '/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password: PASSWORD }) });
+    if (lr.ok) token = (await lr.json()).token;
+  }
   // внутрисистемный полёт на орбиту мягкой планеты
-  const f = await fetch(BASE_URL + '/api/intrasystem-flight', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ object_type: 'planet', object_id: SOFT }) });
+  const f = await fetch(BASE_URL + '/api/intrasystem-flight', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ object_type: 'planet', object_id: planet }) });
   const fj = await f.json();
   const waitMs = Math.max(0, (fj.arrive_at || 0) - Date.now()) + 2000;
   await sleep(waitMs);
   const me2 = await (await fetch(BASE_URL + '/me', { headers: { Authorization: 'Bearer ' + token } })).json();
-  if (!me2.current_position || me2.current_position.object_id !== SOFT) throw new Error('not on orbit: ' + JSON.stringify(me2.current_position));
+  if (!me2.current_position || me2.current_position.object_id !== planet) throw new Error('not on orbit: ' + JSON.stringify(me2.current_position));
   return { token, username };
 }
 
@@ -67,7 +95,11 @@ async function main() {
   if (!exe) { console.log('NO BROWSER FOUND'); await finish(1); }
   console.log('browser: ' + exe);
 
-  const setup = await setupUser();
+  const resolved = resolveSoftPlanet();
+  const WORLD = resolved.world, SOFT = resolved.planet;
+  console.log('world/planet: ' + WORLD + ' / ' + SOFT);
+
+  const setup = await setupUser(WORLD, SOFT);
   console.log('user: ' + setup.username);
 
   browser = await chromium.launch({ executablePath: exe, headless: true, args: ['--no-sandbox'] });
@@ -149,6 +181,10 @@ async function main() {
     }, SOFT);
     report('10b ПКМ по планете -> пункт «Высадиться»', menuInfo.ok, 'menu="' + (menuInfo.text || menuInfo.reason || '').replace(/\s+/g, ' ').trim() + '"');
 
+    // Обычный игрок: админского выбора биома и списка биомов нет (идея 2026-09-21).
+    const playerNoPicker = !/выбор биома/.test(menuInfo.text || '') && /биом \?/.test(menuInfo.text || '');
+    report('10b2 обычный игрок: нет выбора биома (список скрыт)', playerNoPicker, 'menu="' + (menuInfo.text || '').replace(/\s+/g, ' ').trim() + '"');
+
     // --- прелоадер: замедлим land, чтобы поймать оверлей ---
     await page.route('**/api/surface/land', async (route) => { await sleep(1200); await route.continue(); });
     const navPromise = page.waitForURL('**/surface.html*', { timeout: 15000 });
@@ -178,6 +214,10 @@ async function main() {
     await page.click('#brief-continue');
     await page.waitForSelector('#hud', { state: 'visible', timeout: 10000 });
     await page.waitForTimeout(1500);
+
+    // Обычный игрок: админской строки переключателя погоды нет ВООБЩЕ.
+    const playerNoWeather = await page.evaluate(() => !document.getElementById('hud-weather-admin'));
+    report('10h обычный игрок: нет строки погоды (админ)', playerNoWeather, 'hud-weather-admin отсутствует=' + playerNoWeather);
 
     // --- мир рисуется: разнообразие цветов канваса ---
     const worldDrawn = await page.evaluate(() => {

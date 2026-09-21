@@ -82,6 +82,7 @@ type SurfaceSky struct {
 type SurfacePackage struct {
 	PlanetID         string        `json:"planet_id"`
 	PlanetName       string        `json:"planet_name"`
+	Role             string        `json:"role"` // роль самого игрока (идея 2026-09-21): клиент не делает лишний GET /me
 	Biome            string        `json:"biome"`
 	BiomeName        string        `json:"biome_name"`
 	BiomeShare       float64       `json:"biome_share"`
@@ -124,6 +125,27 @@ func walkBiomeValid(p *models.Planet) []models.Biome {
 		valid = append(valid, b)
 	}
 	return valid
+}
+
+// isAdminRole — роль с админским доступом (спека 99.2.14): admin/skycomposer.
+// Админский выбор биома (идея 2026-09-21 §2 п.3) — только для них.
+func isAdminRole(role models.Role) bool {
+	return role == models.RoleAdmin || role == models.RoleSkycomposer
+}
+
+// walkBiomeValidForm — запрошенный админом биом валиден, если он у планеты и
+// проходит walkBiomeValid (share > 0 и известен каталогу, §5.1). Иначе —
+// 400 «Нет такого биома на планете» (идея 2026-09-21 §3 п.1).
+func walkBiomeValidForm(p *models.Planet, form string) bool {
+	if form == "" {
+		return false
+	}
+	for _, b := range walkBiomeValid(p) {
+		if b.Form == form {
+			return true
+		}
+	}
+	return false
 }
 
 // pickWalkBiomeAt — взвешенный жребий по долям: r ∈ [0, total). Чистая функция
@@ -307,7 +329,7 @@ func planetSuit() SurfaceSuit {
 // физика + признак жизни + профиль опасности + небо. hp пересчитан от landed_at
 // на этом чтении (§8.7). world/planets переданы вызывающим (одна выборка на
 // высадку; O(числа планет системы)). Не падает при битом каталоге (И8).
-func (h *SurfaceHandlers) buildWalkPackage(p *models.Planet, biome string, pos *models.CurrentPosition, now time.Time, world *models.World, planets []models.Planet) SurfacePackage {
+func (h *SurfaceHandlers) buildWalkPackage(p *models.Planet, biome string, pos *models.CurrentPosition, now time.Time, world *models.World, planets []models.Planet, role string) SurfacePackage {
 	cat := planet.GetBiomeCatalog()
 	def := cat.BiomeByID(biome)
 	name, category, description, liquid := "", "", "", ""
@@ -324,6 +346,7 @@ func (h *SurfaceHandlers) buildWalkPackage(p *models.Planet, biome string, pos *
 	return SurfacePackage{
 		PlanetID:         p.ID,
 		PlanetName:       p.Name,
+		Role:             role,
 		Biome:            biome,
 		BiomeName:        name,
 		BiomeShare:       biomeShare(p, biome),
@@ -431,9 +454,11 @@ func dominantBiomeForm(p *models.Planet) string {
 
 // ==================== LAND (§6.1) ====================
 
-// SurfaceLandRequest — тело POST /api/surface/land.
+// SurfaceLandRequest — тело POST /api/surface/land. Biome — необязательный
+// админский выбор биома (идея 2026-09-21 §3): пусто = жребий ∝ share (§5.1).
 type SurfaceLandRequest struct {
 	PlanetID string `json:"planet_id"`
+	Biome    string `json:"biome,omitempty"`
 }
 
 // SurfaceLeaveResponse — ответ `leave` (§6.3): позиция орбиты, HP и причина.
@@ -469,15 +494,27 @@ func (h *SurfaceHandlers) Land(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now()
 
+	// Админский выбор биома (идея 2026-09-21 §2 п.3): поле biome принимается
+	// только от роли admin/skycomposer — явный отказ, не молчаливое
+	// игнорирование. Гейт стоит ДО идемпотентности: своя роль — не состояние
+	// прогулки. Валидация самого биома — ниже (шаг 7, после идемпотентности:
+	// повторный land отдаёт сохранённый биом, присланный не проверяется).
+	if req.Biome != "" && !isAdminRole(user.Role) {
+		writeJSONError(w, "Выбор биома доступен только администратору", http.StatusBadRequest)
+		return
+	}
+
 	// 2. Идемпотентность (В4): уже на поверхности этой планеты → тот же
 	// нормализованный биом, landed_at как хранится, hp пересчитан (§8.7).
+	// Присланный biome игнорируется (рефреш не перебрасывает биом): сменить
+	// биом можно только через leave (вызов корабля) и новую высадку.
 	if pos != nil && pos.Status == "surface" && pos.ObjectID == req.PlanetID && user.CurrentWorldID != nil {
 		planets, err := h.planetRepo.GetPlanetsLightByWorldID(*user.CurrentWorldID)
 		if err == nil {
 			if p := findPlanetByID(planets, req.PlanetID); p != nil {
 				if biome := NormalizeSurfaceBiome(p, pos.Biome); biome != "" {
 					world, _ := h.worldRepo.GetByID(p.WorldID)
-					writeJSONStatus(w, http.StatusOK, h.buildWalkPackage(p, biome, pos, now, world, planets))
+					writeJSONStatus(w, http.StatusOK, h.buildWalkPackage(p, biome, pos, now, world, planets, string(user.Role)))
 					return
 				}
 			}
@@ -522,8 +559,20 @@ func (h *SurfaceHandlers) Land(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 7. Биомы валидны (§5.1) → иначе «Нет данных о поверхности».
-	biome := pickWalkBiome(p)
+	// 7. Биомы валидны (§5.1) → иначе «Нет данных о поверхности». Админский
+	// выбор биома (идея 2026-09-21): пусто — существующий жребий (поведение не
+	// меняется); задан — биом обязан быть у планеты и проходить walkBiomeValid
+	// (роль проверена выше — до идемпотентности).
+	biome := ""
+	if req.Biome != "" {
+		if !walkBiomeValidForm(p, req.Biome) {
+			writeJSONError(w, "Нет такого биома на планете", http.StatusBadRequest)
+			return
+		}
+		biome = req.Biome
+	} else {
+		biome = pickWalkBiome(p)
+	}
 	if biome == "" {
 		writeJSONError(w, "Нет данных о поверхности", http.StatusBadRequest)
 		return
@@ -541,7 +590,7 @@ func (h *SurfaceHandlers) Land(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSONStatus(w, http.StatusOK, h.buildWalkPackage(p, biome, newPos, now, world, planets))
+	writeJSONStatus(w, http.StatusOK, h.buildWalkPackage(p, biome, newPos, now, world, planets, string(user.Role)))
 }
 
 // ==================== LEAVE (§6.3) ====================

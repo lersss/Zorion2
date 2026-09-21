@@ -26,7 +26,7 @@ function topEntries(map, limit) {
 }
 
 // Красивое имя: пустая_порода → пустая порода
-function prettyName(name) {
+export function prettyName(name) {
     if (typeof name !== 'string') return name;
     return name.split('_').join(' ');
 }
@@ -95,7 +95,7 @@ const SUBTERRAIN_COLORS = {
 // (пачка 1, 23 шт, спека 2026-09-20 §6.3), если файл есть; onerror →
 // эмодзи FORM_ICONS[form] / «•» (34 биома без иконок — фолбэк, М1).
 // Список id не хардкодим — фолбэк по ошибке загрузки.
-function biomeIconHtml(form) {
+export function biomeIconHtml(form) {
     const fallback = FORM_ICONS[form] || '•';
     return `<img src="/static/sprites/biomes/${encodeURIComponent(form)}.png" alt=""
         data-biome-fallback="${fallback}"

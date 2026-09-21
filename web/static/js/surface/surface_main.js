@@ -17,6 +17,7 @@ const state = {
     input: { left: false, right: false, jump: false, sprint: false },
     weather: null,
     weatherUntil: 0,
+    forcedWeather: null, // админский выбор погоды: null = «авто» (идея 2026-09-21)
     running: false,
     dead: false,
     leaving: false,
@@ -37,6 +38,28 @@ function pickWeather() {
 function scheduleWeather(now) {
     state.weather = pickWeather();
     state.weatherUntil = now + WEATHER_MIN_MS + rng() * (WEATHER_MAX_MS - WEATHER_MIN_MS);
+}
+
+// isAdminRole — роль игрока из пакета (§7.1, идея 2026-09-21): админский
+// переключатель погоды — только admin/skycomposer.
+function isAdminRole() {
+    return !!state.pkg && (state.pkg.role === 'admin' || state.pkg.role === 'skycomposer');
+}
+
+// setWeather — админский выбор погоды: '' → «авто» (штатный цикл 2–4 мин);
+// иначе выбранное явление держится до конца прогулки (таймер его не сменяет).
+// Сброс при перезагрузке — не храним (идея 2026-09-21 §3).
+function setWeather(id) {
+    if (id) {
+        const def = WEATHER.find((w) => w.id === id) || { id, particles: 'none' };
+        state.weather = { id: def.id, particles: def.particles };
+        state.weatherUntil = Infinity;
+        state.forcedWeather = id;
+    } else {
+        state.forcedWeather = null;
+        scheduleWeather(performance.now());
+    }
+    ui.setWeatherToggleActive(id || '');
 }
 
 function resize(canvas) {
@@ -72,12 +95,15 @@ function frame(now) {
     drawWeather(ctx, state.weather, canvas.width, canvas.height, now);
 
     const hp = serverHp(state.pkg, Date.now());
+    const weatherLabel = state.weather
+        ? state.weather.id + (isAdminRole() ? ' · ' + (state.forcedWeather ? 'вручную' : 'авто') : '')
+        : '';
     ui.updateHUD({
         hp,
         biomeName: state.pkg.biome_name || state.pkg.biome,
         hazard: state.pkg.hazard,
         distanceMeters: state.player.distance / PPM,
-        weather: state.weather ? state.weather.id : '',
+        weather: weatherLabel,
     });
 
     if (hp <= 0 && !state.dead) onDeath();
@@ -131,8 +157,9 @@ async function boot() {
         window.location.href = '/map';
         return;
     }
+    const biome = params.get('biome') || '';
     ui.showLoading('Высадка на поверхность…');
-    const res = await land(planetID);
+    const res = await land(planetID, biome);
     if (!res.ok) {
         if (res.status === 401) { window.location.href = '/login-page'; return; }
         ui.showLoading('Высадка невозможна: ' + res.error);
@@ -158,6 +185,10 @@ async function boot() {
             ui.hideBriefing();
             ui.hideLoading();
             ui.showHUD();
+            if (isAdminRole()) {
+                ui.showWeatherToggle(setWeather);
+                ui.setWeatherToggleActive('');
+            }
             scheduleWeather(performance.now());
             state.running = true;
             state.dead = false;

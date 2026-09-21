@@ -7,6 +7,7 @@ import { closeModal } from './index.js';
 import { getSpectralInfo, exoticStarInfo, formatStellarMass, formatAU } from './panel.js';
 import { starTypeLabel } from './utils.js';
 import { notifyError } from '../ui/toast.js';
+import { biomeIconHtml, prettyName } from './tabs.js';
 
 export function initEvents(canvas, spectralClass, planets, starRadius, starColor, width, height) {
     const dpr = window.devicePixelRatio || 1;
@@ -712,28 +713,128 @@ function showPlanetMenu(x, y, planetIndex) {
         menu.appendChild(btn);
     }
 
-    // «Высадиться» (спека 2026-09-21 §5.2, решение создателя): только с орбиты
+    // «Высадиться» (спека 2026-09-21 §5.2 + идея 2026-09-21): только с орбиты
     // этой планеты. Газовый гигант — disabled (клиент biomes не читает; §5.4).
+    // Админу — раскрытие выбора биома планеты (аккордеон; роль гейтится
+    // ПЕРВОЙ — у player biomes вырезаны сервером, 77a И1).
     if (onThisOrbit || onThisSurface) {
-        const gasGiant = !onThisSurface && !!planet.is_gas_giant;
-        const landItem = menuItem(onThisSurface
-            ? `🚶 <span>Вы на поверхности</span>`
-            : `🚶 <span${gasGiant ? ' style="color:#64748b;"' : ''}>Высадиться</span>
+        if (onThisSurface) {
+            menu.appendChild(menuItem(`🚶 <span>Вы на поверхности</span>`));
+        } else if (planet.is_gas_giant) {
+            const landItem = menuItem(`🚶 <span style="color:#64748b;">Высадиться</span>
                <span title="Высадка: биом случаен — чем больше доля, тем вероятнее"
-                     style="color:#64748b; font-size:0.75rem; margin-left:auto;">${gasGiant ? 'газовый гигант' : 'биом ?'}</span>`);
-        if (gasGiant) {
+                     style="color:#64748b; font-size:0.75rem; margin-left:auto;">газовый гигант</span>`);
             landItem.style.cursor = 'default';
             landItem.addEventListener('click', () => notifyError('Газовый гигант — высадка невозможна'));
+            menu.appendChild(landItem);
         } else {
-            landItem.addEventListener('click', () => {
-                hideStarMenu();
-                window.location.href = '/surface.html?planet=' + encodeURIComponent(planet.id);
-            });
+            appendLandItem(menu, planet);
         }
-        menu.appendChild(landItem);
     }
 
     document.body.appendChild(menu);
+}
+
+// isAdminRole — роль из /me (как tabs.js isAdmin): админский инструмент.
+function isAdminRole() {
+    return modalState.role === 'admin' || modalState.role === 'skycomposer';
+}
+
+// clampMenuToScreen — прижимает контекстное меню к экрану (приём тултипа
+// звезды): после раскрытия аккордеона меню может вылезти за край.
+function clampMenuToScreen(menu) {
+    const r = menu.getBoundingClientRect();
+    let left = r.left, top = r.top;
+    if (r.right > window.innerWidth - 4) left -= r.right - (window.innerWidth - 4);
+    if (r.bottom > window.innerHeight - 4) top -= r.bottom - (window.innerHeight - 4);
+    if (left < 4) left = 4;
+    if (top < 4) top = 4;
+    menu.style.left = left + 'px';
+    menu.style.top = top + 'px';
+}
+
+// landBiomeRow — строка списка биомов: иконка + имя слева, доля справа.
+function landBiomeRow(label, iconHtml, title, rightText, onClick) {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex; align-items:center; gap:6px; padding:5px 6px; border-radius:6px; cursor:pointer;';
+    if (title) row.title = title;
+    row.innerHTML = `${iconHtml || ''}<span>${label}</span>` +
+        (rightText ? `<span style="color:#888; margin-left:auto;">${rightText}</span>` : '');
+    row.addEventListener('mouseenter', () => { row.style.background = '#2a2a44'; });
+    row.addEventListener('mouseleave', () => { row.style.background = 'none'; });
+    row.addEventListener('click', onClick);
+    return row;
+}
+
+// appendLandItem — пункт «🚶 Высадиться» (идея 2026-09-21 §3): у player/без
+// биомов — обычный пункт («биом ?» / «биомов нет»), у админа — тумблер
+// «⚙ выбор биома ▸» с раскрытым списком биомов планеты по убыванию доли.
+// Клик по биому → /surface.html?planet=<id>&biome=<form>; «Случайно» → без biome.
+function appendLandItem(menu, planet) {
+    const admin = isAdminRole();
+    const biomes = admin
+        ? (planet.biomes || []).filter((b) => b && b.share > 0).sort((a, b) => b.share - a.share)
+        : [];
+    const hasBiomes = biomes.length > 0;
+
+    const landItem = document.createElement('div');
+    landItem.style.cssText = `
+        padding: 8px 10px;
+        cursor: pointer;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    `;
+    landItem.addEventListener('mouseenter', () => { landItem.style.background = '#2a2a44'; });
+    landItem.addEventListener('mouseleave', () => { landItem.style.background = 'none'; });
+    landItem.innerHTML = `🚶 <span>Высадиться</span>` + (hasBiomes
+        ? `<span id="land-biome-toggle" style="color:#64748b; font-size:0.75rem; margin-left:auto;">⚙ выбор биома ▸</span>`
+        : `<span title="Высадка: биом случаен — чем больше доля, тем вероятнее"
+                 style="color:#64748b; font-size:0.75rem; margin-left:auto;">${admin ? 'биомов нет' : 'биом ?'}</span>`);
+    menu.appendChild(landItem);
+
+    const toSurface = (biome) => {
+        hideStarMenu();
+        let url = '/surface.html?planet=' + encodeURIComponent(planet.id);
+        if (biome) url += '&biome=' + encodeURIComponent(biome);
+        window.location.href = url;
+    };
+
+    if (!hasBiomes) {
+        landItem.addEventListener('click', () => toSurface(''));
+        return;
+    }
+
+    // Раскрытый блок: заголовок с чипом «⚙ админ», «Случайно» + биомы планеты.
+    const block = document.createElement('div');
+    block.style.cssText = 'display:none; padding:6px 10px 8px 10px; border-top:1px solid #2a2a44; margin-top:2px;';
+
+    const header = document.createElement('div');
+    header.style.cssText = 'display:flex; align-items:center; gap:6px; margin-bottom:6px;';
+    header.innerHTML = `<span style="color:#888; font-size:0.75rem;">Биом планеты</span>
+        <span style="background:rgba(250,204,21,0.12); border:1px solid rgba(250,204,21,0.35);
+                     color:#facc15; border-radius:10px; padding:1px 7px; font-size:0.7rem;">⚙ админ</span>`;
+    block.appendChild(header);
+
+    const list = document.createElement('div');
+    list.style.cssText = 'max-height:240px; overflow-y:auto;';
+    list.appendChild(landBiomeRow('Случайно — как у игрока', '', 'Биом выпадет по долям — как у обычного игрока', '', () => toSurface('')));
+    biomes.forEach((b) => {
+        list.appendChild(landBiomeRow(prettyName(b.form), biomeIconHtml(b.form), '',
+            b.share.toFixed(1) + ' %', () => toSurface(b.form)));
+    });
+    block.appendChild(list);
+    menu.appendChild(block);
+
+    let expanded = false;
+    landItem.addEventListener('click', () => {
+        expanded = !expanded;
+        block.style.display = expanded ? 'block' : 'none';
+        const toggle = landItem.lastElementChild;
+        if (toggle) toggle.textContent = expanded ? '⚙ выбор биома ▾' : '⚙ выбор биома ▸';
+        if (expanded) clampMenuToScreen(menu);
+    });
 }
 
 // startIntraFlight — старт внутрисистемного полёта (спека 99.2.27 §4.1):

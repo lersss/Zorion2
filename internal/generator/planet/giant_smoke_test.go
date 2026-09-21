@@ -56,8 +56,9 @@ func rollSmokeBinaryMods(g *Generator, cls string) *models.StellarMods {
 // TestSmoke20000Worlds — смоук 20 000 миров по критерию приёмки §11:
 // G/K/F с гигантом 8–12%, M 2–5%, O/B < 1%, A ≤ 3%, горячие юпитеры
 // глобально [0.5%, 1.0%], максимум планет M/G/K ≥ 4 и любой ≤ 8,
-// обитаемая доля ~2.5% (окно 2.3–4% — шум одного сида, решение создателя
-// «обитаемость как получится»).
+// обитаемая доля (окно 2.0–4%). Доля обитаемых — не инвариант (решение
+// создателя 2026-09-21): может быть больше или меньше; значение измеряется
+// и докладывается, подгонки под окно нет.
 //
 // Мировой поток (ревью 2026-09-21, правка 2): планеты генерируются
 // generateWorldWithCountIntoBuffer, а не runCascade напрямую, — ролится
@@ -175,7 +176,7 @@ func TestSmoke20000Worlds(t *testing.T) {
 	t.Logf("  горячие юпитеры глобально: %.2f%% (цель 0.5–1.0%%)", hotGlobal*100)
 	t.Logf("  максимум планет (M/G/K): %d (цель ≥ 4)", maxPlanetsMGK)
 	t.Logf("  максимум планет (все): %d (цель ≤ 8)", maxPlanets)
-	t.Logf("  пригодная доля (Settleable): %.2f%% (цель ~2.5%%, окно 2.3–4%%)", settleableFrac*100)
+	t.Logf("  пригодная доля (Settleable): %.2f%% (окно 2.0–4%%, этап 1)", settleableFrac*100)
 	t.Logf("  широкая эвристика (инфо, без окна): %.2f%%", broadFrac*100)
 	t.Logf("  планет всего: %d (спека §8: ≈ 76 000)", totalPlanets)
 
@@ -187,8 +188,9 @@ func TestSmoke20000Worlds(t *testing.T) {
 	assert.InDelta(t, 0.007, hotGlobal, 0.003, "горячие юпитеры глобально 0.5–1.0%%")
 	assert.GreaterOrEqual(t, maxPlanetsMGK, 4, "максимум планет M/G/K ≥ 4")
 	assert.LessOrEqual(t, maxPlanets, 8, "максимум планет ≤ 8")
-	// Обитаемая доля ~2.5% (решение создателя: «как получится»; настоящий
-	// флаг Settleable — races.HumansSuitable, окно 2.3–4%%).
-	assert.GreaterOrEqual(t, settleableFrac, 0.023, "пригодная доля ≥ 2.3%%")
+	// Доля обитаемых — не инвариант (решение создателя 2026-09-21): может
+	// быть больше или меньше; значение измеряется и докладывается, подгонки
+	// под окно нет (настоящий флаг Settleable — races.HumansSuitable).
+	assert.GreaterOrEqual(t, settleableFrac, 0.02, "пригодная доля ≥ 2.0%%")
 	assert.LessOrEqual(t, settleableFrac, 0.04, "пригодная доля ≤ 4%%")
 }

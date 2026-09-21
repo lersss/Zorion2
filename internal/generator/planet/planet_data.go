@@ -62,12 +62,13 @@ type Generator struct {
 	// однопоточная на мир — поле безопасно (как profile).
 	giantOrbit int
 
-	// systemBudget — бюджет системы B (спека 2026-09-21 §4): B ~ logN(0, 0.5),
+	// cloudBudget — бюджет облака M_диск (спека 2026-09-21-протопылевое-
+	// облако-архитектура-и-масса §4; бывший B): M_диск ~ logN(0, 0.5),
 	// один ролл на систему (образец giantOrbit), множитель массы
 	// каменистых/ледяных планет. Не применяется к газовым гигантам
 	// (эталон 99.2.15) и экзотике (exotic.go). Дефолт 1.0 — нейтрально для
 	// прямых вызовов каскада; мировой поток перезаписывает роллом.
-	systemBudget float64
+	cloudBudget float64
 }
 
 // NewGenerator — создаёт генератор. Если seed = 0 — берётся time.Now().
@@ -76,11 +77,11 @@ func NewGenerator(db *sql.DB, seed int64) *Generator {
 		seed = time.Now().UnixNano()
 	}
 	return &Generator{
-		db:           db,
-		rng:          rand.New(rand.NewSource(seed)),
-		usedNames:    make(map[string]bool),
-		means:        DefaultPlanetMeans(),
-		systemBudget: 1.0,
+		db:          db,
+		rng:         rand.New(rand.NewSource(seed)),
+		usedNames:   make(map[string]bool),
+		means:       DefaultPlanetMeans(),
+		cloudBudget: 1.0,
 	}
 }
 
@@ -121,8 +122,8 @@ func (g *Generator) GeneratePlanetsForWorld(worldID, worldName, spectralClass st
 	// Per-системное решение гиганта (спека 2026-09-20 §4.2): один ролл до
 	// цикла орбит.
 	g.giantOrbit = g.rollGiantOrbit(sp, planetCount)
-	// Бюджет системы B (спека 2026-09-21 §4): один ролл на систему.
-	g.systemBudget = g.rollSystemBudget()
+	// Бюджет облака M_диск (спека 2026-09-21 §4): один ролл на систему.
+	g.cloudBudget = g.rollCloudBudget()
 
 	tx, err := g.db.Begin()
 	if err != nil {
@@ -271,12 +272,12 @@ func (g *Generator) generateWorldWithCountIntoBuffer(w WorldInfo, count int, buf
 	isCircumbinary := !isExoticObject(w.StarType) && w.Mods != nil &&
 		w.Mods.BinaryType == "close" && w.Mods.CompanionSepAU != nil
 
-	// Бюджет системы B (спека 2026-09-21 §4): один ролл до цикла орбит
-	// (образец giantOrbit). Диск кратной системы один — B наследуется
-	// компаньонами и P-планетами; экзотика (остатки) B не потребляет.
-	g.systemBudget = 1.0
+	// Бюджет облака M_диск (спека 2026-09-21 §4): один ролл до цикла орбит
+	// (образец giantOrbit). Диск кратной системы один — M_диск наследуется
+	// компаньонами и P-планетами; экзотика (остатки) M_диск не потребляет.
+	g.cloudBudget = 1.0
 	if !isExoticObject(w.StarType) {
-		g.systemBudget = g.rollSystemBudget()
+		g.cloudBudget = g.rollCloudBudget()
 	}
 
 	// Per-системное решение гиганта (спека 2026-09-20 §4.2): один ролл до

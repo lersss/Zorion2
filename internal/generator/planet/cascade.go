@@ -59,6 +59,14 @@ const (
 	// β = 0.5 — середина физического коридора [0.4, 0.6].
 	massAnchorAU = 1.156
 	massBeta     = 0.5
+
+	// Обрезка роста гигантом-соседом (f_обр, §4.1/§4.6 спеки
+	// 2026-09-21-протопылевое-облако-архитектура-и-масса, этап 1):
+	// f_обр = 0.08, если гигант есть (giantOrbit > 0) и планета в пределах
+	// двух орбит от него (|orbitIndex − giantOrbit| ≤ 2), иначе 1.
+	// Единственный якорь калибровки — Марс ярдстика:
+	// 0.107 / M_ядро(орб. 3) = 0.082 → 0.08.
+	massTruncationFactor = 0.08
 )
 
 // ==================== СЛОЙ 2 — ОРБИТА (99.2.20 §3.2) ====================
@@ -100,7 +108,7 @@ func aNormOf(orbitRadiusAU, luminosity float64) float64 {
 }
 
 // accretionMass — масса по аккреции (заменяет рулетку архетипа):
-// M_ядро = M₀·(a_норм/a_⊕)^0.5·10^(0.5·[Fe/H])·ζ, ζ ~ logN(0, 0.4).
+// M_ядро = M₀·(a_норм/a_⊕)^0.5·10^(0.5·[Fe/H])·ζ, ζ ~ logN(0, 0.6).
 // Чистая функция без RNG (§8 T6/T8); ролл ζ — на месте вызова (runCascade).
 // Возвращает СЫРОЕ ядро: кламп [0.02, 8] применяется ОДИН раз — к
 // произведению B·M_ядро (§4), в runCascade. Внутренний кламп ядра убран
@@ -108,6 +116,27 @@ func aNormOf(orbitRadiusAU, luminosity float64) float64 {
 // Светимость в массу не входит — каскад самоподобен по √L (§4.2 п.1).
 func accretionMass(aNorm, metallicity, zeta float64) float64 {
 	return coreMass(aNorm, metallicity) * zeta
+}
+
+// retentionFactor — обрезка роста гигантом-соседом (f_обр, §4.1 спеки
+// 2026-09-21-протопылевое-облако-архитектура-и-масса, этап 1): 0.08, если
+// гигант есть и планета в пределах двух орбит от него, иначе 1. Чистая
+// детерминированная функция от уже принятых per-системных решений — роллов
+// не добавляет, поток RNG не сдвигает. Самоподобие по √L сохранено:
+// аргумент — номера орбит, а не физическое r (f_обр — «обрезка по щели
+// гиганта», света гиганта/звезды не входит).
+func retentionFactor(orbitIndex, giantOrbit int) float64 {
+	if giantOrbit <= 0 {
+		return 1
+	}
+	d := orbitIndex - giantOrbit
+	if d < 0 {
+		d = -d
+	}
+	if d <= 2 {
+		return massTruncationFactor
+	}
+	return 1
 }
 
 // compositionByZone — объёмный состав (породы/железо/лёд) по зоне снеговой
@@ -415,14 +444,17 @@ func (g *Generator) runCascade(in cascadeInput) *cascadeResult {
 	mass := in.MassOverride
 	if mass <= 0 {
 		// Масса — от нормированного расстояния (номер орбиты), светимость
-		// не входит (спека 2026-09-21 §4); ζ — ролл на месте вызова, B —
-		// per-системный бюджет (один ролл на систему, поле systemBudget).
-		zeta := math.Exp(0.4 * g.rng.NormFloat64())
+		// не входит (спека 2026-09-21 §4); ζ — ролл на месте вызова,
+		// M_диск (cloudBudget) — per-системный бюджет облака (один ролл на
+		// систему), f_обр — обрезка гигантом-соседом (чистая функция, ноль
+		// роллов, поток RNG не сдвигает).
+		zeta := math.Exp(0.6 * g.rng.NormFloat64())
 		aNorm := aNormOf(in.OrbitRadiusAU, in.Luminosity)
 		if in.Circumbinary {
 			aNorm = in.OrbitRadiusAU // P-планеты: физическое r_P (§4.1)
 		}
-		mass = clamp(g.systemBudget*accretionMass(aNorm, in.Metallicity, zeta), massMin, massMax)
+		mass = clamp(retentionFactor(in.OrbitIndex, g.giantOrbit)*
+			g.cloudBudget*accretionMass(aNorm, in.Metallicity, zeta), massMin, massMax)
 	}
 	rock, iron, ice := compositionByZone(in.OrbitRadiusAU, in.Luminosity, g.rng)
 	density := planetDensity(rock, iron, ice, mass)

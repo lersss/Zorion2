@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -58,31 +57,29 @@ type CategoryView struct {
 	Code     string `json:"code,omitempty"`
 }
 
-// SlotView — слот в представлении состояния (имя/тир/статус разрешены).
+// SlotView — слот в представлении состояния (имя/тир разрешены).
 type SlotView struct {
 	GoodID        string `json:"good_id"`
 	Name          string `json:"name"`
 	Tier          int    `json:"tier"`
-	Status        string `json:"status"`
 	Quantity      int    `json:"quantity"`
 	Reason        string `json:"reason,omitempty"`
 	AllowResource bool   `json:"allow_resource"`
 }
 
-// GoodView — товар/ресурс в представлении состояния.
+// GoodView — товар/ресурс в представлении состояния. Статуса и скрытия у
+// товара/ресурса нет (спека 2026-09-21 §4.2): «убрать» — только удаление.
 type GoodView struct {
 	ID           string     `json:"id"`
 	Name         string     `json:"name"`
 	CategoryID   int64      `json:"category_id"`
-	Status       string     `json:"status"`
 	Kind         string     `json:"kind"`
 	Source       string     `json:"source"`
 	Tier         int        `json:"tier"`          // эффективный (override ?? вычисленный)
 	TierComputed int        `json:"tier_computed"` // вычисленный (graph.Tier)
 	TierOverride *int       `json:"tier_override"`
 	Recipe       []SlotView `json:"recipe"`
-	BannedAt     *string    `json:"banned_at"`
-	Volume       *float64   `json:"volume"` // данные каталога (3b.6.4); NULL у draft
+	Volume       *float64   `json:"volume"` // данные каталога (3b.6.4); значение есть всегда (Р2)
 	Weight       *float64   `json:"weight"`
 }
 
@@ -103,7 +100,7 @@ type ProducerTypeView struct {
 	Output       json.RawMessage `json:"output"`
 	Input        json.RawMessage `json:"input"`
 	Params       json.RawMessage `json:"params"`
-	Status       string          `json:"status"`
+	Hidden       bool            `json:"hidden"`
 	Items        []ItemView      `json:"items,omitempty"`
 }
 
@@ -128,7 +125,6 @@ type ItemView struct {
 	ID       int64           `json:"id"`
 	Name     string          `json:"name"`
 	SlotType string          `json:"slot_type"`
-	Status   string          `json:"status"`
 	Unlocks  json.RawMessage `json:"unlocks"`
 	Params   json.RawMessage `json:"params"`
 }
@@ -140,7 +136,6 @@ type ItemView struct {
 type StateView struct {
 	Categories       []CategoryView     `json:"categories"`
 	Goods            []GoodView         `json:"goods"`
-	Banned           []GoodView         `json:"banned"`
 	Unused           []GoodView         `json:"unused"`
 	Warnings         []validate.Warning `json:"warnings"`
 	Model            string             `json:"model"`
@@ -185,15 +180,14 @@ func (h *StudioHandlers) State(w http.ResponseWriter, r *http.Request) {
 	studioJSON(w, http.StatusOK, h.buildStateView(snap))
 }
 
-// buildStateView — StateView из снимка (banned новые сверху, unused —
-// in-degree 0, не banned, kind=good; warnings — прогон валидаторов).
-// Fill-поля — копии под fillMu (слайсы не мутировать извне).
+// buildStateView — StateView из снимка (unused — in-degree 0, kind=good;
+// warnings — прогон валидаторов). Fill-поля — копии под fillMu (слайсы не
+// мутировать извне).
 func (h *StudioHandlers) buildStateView(snap *repository.CatalogSnapshot) StateView {
 	byID := graph.ByID(snap.Goods)
 	view := StateView{
 		Categories:    make([]CategoryView, 0, len(snap.Categories)),
 		Goods:         make([]GoodView, 0, len(snap.Goods)),
-		Banned:        []GoodView{},
 		Unused:        []GoodView{},
 		Warnings:      validate.Validate(&model.State{SchemaVersion: model.SchemaVersion, Goods: snap.Goods}),
 		ProducerTypes: make([]ProducerTypeView, 0, len(snap.ProducerTypes)),
@@ -229,13 +223,11 @@ func (h *StudioHandlers) buildStateView(snap *repository.CatalogSnapshot) StateV
 			ID:           g.ID,
 			Name:         g.Name,
 			CategoryID:   catID,
-			Status:       string(g.Status),
 			Kind:         string(g.Kind),
 			Source:       string(g.Source),
 			Tier:         graph.EffectiveTier(g, byID),
 			TierComputed: graph.Tier(g, byID),
 			TierOverride: g.TierOverride,
-			BannedAt:     g.BannedAt,
 			Volume:       g.Volume,
 			Weight:       g.Weight,
 			Recipe:       []SlotView{},
@@ -249,26 +241,14 @@ func (h *StudioHandlers) buildStateView(snap *repository.CatalogSnapshot) StateV
 			if comp := byID[slot.GoodID]; comp != nil {
 				sv.Name = comp.Name
 				sv.Tier = graph.EffectiveTier(comp, byID)
-				sv.Status = string(comp.Status)
 			}
 			gv.Recipe = append(gv.Recipe, sv)
 		}
 		view.Goods = append(view.Goods, gv)
-		if g.Status == model.StatusBanned {
-			view.Banned = append(view.Banned, gv)
-		}
-		if g.Kind != model.KindResource && g.Status != model.StatusBanned && inDegree[g.ID] == 0 {
+		if g.Kind != model.KindResource && inDegree[g.ID] == 0 {
 			view.Unused = append(view.Unused, gv)
 		}
 	}
-	// бан — новые сверху (по banned_at, спека 99a.1 §5.2)
-	sort.Slice(view.Banned, func(i, j int) bool {
-		bi, bj := view.Banned[i].BannedAt, view.Banned[j].BannedAt
-		if bi == nil || bj == nil {
-			return false
-		}
-		return *bi > *bj
-	})
 
 	// Типы производителей + предметы (спека 2026-09-20-фабрики §4):
 	// карточка типа — имя/kind/категория/семейство/вход/выход/параметры;
@@ -279,7 +259,7 @@ func (h *StudioHandlers) buildStateView(snap *repository.CatalogSnapshot) StateV
 	}
 	itemByID := make(map[int64]ItemView, len(snap.Items))
 	for _, it := range snap.Items {
-		iv := ItemView{ID: it.ID, Name: it.Name, SlotType: it.SlotType, Status: it.Status}
+		iv := ItemView{ID: it.ID, Name: it.Name, SlotType: it.SlotType}
 		if it.Unlocks != nil {
 			iv.Unlocks = json.RawMessage(it.Unlocks)
 		}
@@ -305,7 +285,7 @@ func (h *StudioHandlers) buildStateView(snap *repository.CatalogSnapshot) StateV
 			ID:     p.ID,
 			Name:   p.Name,
 			Kind:   p.Kind,
-			Status: p.Status,
+			Hidden: p.Hidden,
 		}
 		if p.CategoryID.Valid {
 			id := p.CategoryID.Int64
@@ -364,7 +344,7 @@ func (h *StudioHandlers) buildStateView(snap *repository.CatalogSnapshot) StateV
 
 // --- GET /studio/api/resources ---
 
-// Resources — палитра ресурсов (kind=resource, не banned).
+// Resources — палитра ресурсов (kind=resource).
 func (h *StudioHandlers) Resources(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		studioErr(w, "только GET", http.StatusMethodNotAllowed)
@@ -465,7 +445,6 @@ func (h *StudioHandlers) Goods(w http.ResponseWriter, r *http.Request) {
 		ID:           g.ID,
 		Name:         g.Name,
 		CategoryID:   body.CategoryID,
-		Status:       string(g.Status),
 		Kind:         string(g.Kind),
 		Source:       string(g.Source),
 		Tier:         0,
@@ -497,7 +476,8 @@ func (h *StudioHandlers) goodsBulk(w http.ResponseWriter, r *http.Request) {
 }
 
 // GoodByID — PUT/DELETE /studio/api/goods/{id} и под-пути
-// (status, tier, slots, slots/{n}, slots/{n}/component, slots/{n}/allow_resource).
+// (tier, slots, slots/{n}, slots/{n}/component, slots/{n}/allow_resource,
+// fill/fill-apply/fill-cancel). Статусного роута у goods нет (спека §4.2).
 func (h *StudioHandlers) GoodByID(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/studio/api/goods/")
 	parts := strings.Split(rest, "/")
@@ -513,8 +493,6 @@ func (h *StudioHandlers) GoodByID(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case len(parts) == 1:
 		h.good(w, r, id)
-	case len(parts) == 2 && parts[1] == "status":
-		h.goodStatus(w, r, id)
 	case len(parts) == 2 && parts[1] == "tier":
 		h.goodTier(w, r, id)
 	case len(parts) == 2 && parts[1] == "slots":
@@ -565,26 +543,6 @@ func (h *StudioHandlers) good(w http.ResponseWriter, r *http.Request, id int64) 
 	default:
 		studioErr(w, "только PUT/DELETE", http.StatusMethodNotAllowed)
 	}
-}
-
-// goodStatus — POST /studio/api/goods/{id}/status {status}.
-func (h *StudioHandlers) goodStatus(w http.ResponseWriter, r *http.Request, id int64) {
-	if r.Method != http.MethodPost {
-		studioErr(w, "только POST", http.StatusMethodNotAllowed)
-		return
-	}
-	var body struct {
-		Status string `json:"status"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		studioErr(w, "невалидный JSON", http.StatusBadRequest)
-		return
-	}
-	if err := h.repo.SetStatus(id, body.Status); err != nil {
-		writeCatalogErr(w, err)
-		return
-	}
-	studioJSON(w, http.StatusOK, map[string]interface{}{"id": id, "status": body.Status})
 }
 
 // goodTier — PUT /studio/api/goods/{id}/tier {tier: int|null}.
@@ -738,7 +696,7 @@ func (h *StudioHandlers) Producers(w http.ResponseWriter, r *http.Request) {
 }
 
 // ProducerByID — PUT/DELETE /studio/api/producers/{id} и под-пути
-// (status, items, items/{itemId}).
+// (hidden, items, items/{itemId}).
 func (h *StudioHandlers) ProducerByID(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/studio/api/producers/")
 	parts := strings.Split(rest, "/")
@@ -754,8 +712,8 @@ func (h *StudioHandlers) ProducerByID(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case len(parts) == 1:
 		h.producer(w, r, id)
-	case len(parts) == 2 && parts[1] == "status":
-		h.producerStatus(w, r, id)
+	case len(parts) == 2 && parts[1] == "hidden":
+		h.producerHidden(w, r, id)
 	case len(parts) == 2 && parts[1] == "items":
 		h.producerLinkItem(w, r, id)
 	case len(parts) == 3 && parts[1] == "items":
@@ -808,24 +766,29 @@ func (h *StudioHandlers) producer(w http.ResponseWriter, r *http.Request, id int
 	}
 }
 
-// producerStatus — POST /studio/api/producers/{id}/status {status}.
-func (h *StudioHandlers) producerStatus(w http.ResponseWriter, r *http.Request, id int64) {
+// producerHidden — POST /studio/api/producers/{id}/hidden {hidden}: обратимое
+// скрытие записи-фабрики (единственный носитель скрытия, спека 2026-09-21 §4.2).
+func (h *StudioHandlers) producerHidden(w http.ResponseWriter, r *http.Request, id int64) {
 	if r.Method != http.MethodPost {
 		studioErr(w, "только POST", http.StatusMethodNotAllowed)
 		return
 	}
 	var body struct {
-		Status string `json:"status"`
+		Hidden *bool `json:"hidden"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		studioErr(w, "невалидный JSON", http.StatusBadRequest)
 		return
 	}
-	if err := h.repo.SetProducerTypeStatus(id, body.Status); err != nil {
+	if body.Hidden == nil {
+		studioErr(w, "hidden обязателен", http.StatusBadRequest)
+		return
+	}
+	if err := h.repo.SetProducerHidden(id, *body.Hidden); err != nil {
 		writeCatalogErr(w, err)
 		return
 	}
-	studioJSON(w, http.StatusOK, map[string]interface{}{"id": id, "status": body.Status})
+	studioJSON(w, http.StatusOK, map[string]interface{}{"id": id, "hidden": *body.Hidden})
 }
 
 // producerLinkItem — POST /studio/api/producers/{id}/items {item_id}:
@@ -1061,7 +1024,8 @@ func (h *StudioHandlers) Items(w http.ResponseWriter, r *http.Request) {
 	studioJSON(w, http.StatusCreated, itemView(it))
 }
 
-// ItemByID — PUT/DELETE /studio/api/items/{id} и под-пути (status).
+// ItemByID — PUT/DELETE /studio/api/items/{id}. Статусного роута у items нет
+// (спека 2026-09-21 §4.2).
 func (h *StudioHandlers) ItemByID(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/studio/api/items/")
 	parts := strings.Split(rest, "/")
@@ -1077,8 +1041,6 @@ func (h *StudioHandlers) ItemByID(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case len(parts) == 1:
 		h.item(w, r, id)
-	case len(parts) == 2 && parts[1] == "status":
-		h.itemStatus(w, r, id)
 	default:
 		studioErr(w, "не найдено", http.StatusNotFound)
 	}
@@ -1114,30 +1076,10 @@ func (h *StudioHandlers) item(w http.ResponseWriter, r *http.Request, id int64) 
 	}
 }
 
-// itemStatus — POST /studio/api/items/{id}/status {status}.
-func (h *StudioHandlers) itemStatus(w http.ResponseWriter, r *http.Request, id int64) {
-	if r.Method != http.MethodPost {
-		studioErr(w, "только POST", http.StatusMethodNotAllowed)
-		return
-	}
-	var body struct {
-		Status string `json:"status"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		studioErr(w, "невалидный JSON", http.StatusBadRequest)
-		return
-	}
-	if err := h.repo.SetItemStatus(id, body.Status); err != nil {
-		writeCatalogErr(w, err)
-		return
-	}
-	studioJSON(w, http.StatusOK, map[string]interface{}{"id": id, "status": body.Status})
-}
-
 // producerTypeView — ProducerTypeRow → ProducerTypeView (catName — имя
 // категории, items — привязанные предметы; nil — не заполнять).
 func producerTypeView(p repository.ProducerTypeRow, catName string, items []ItemView) ProducerTypeView {
-	pv := ProducerTypeView{ID: p.ID, Name: p.Name, Kind: p.Kind, Status: p.Status, CategoryName: catName}
+	pv := ProducerTypeView{ID: p.ID, Name: p.Name, Kind: p.Kind, Hidden: p.Hidden, CategoryName: catName}
 	if p.CategoryID.Valid {
 		id := p.CategoryID.Int64
 		pv.CategoryID = &id
@@ -1169,7 +1111,7 @@ func producerTypeView(p repository.ProducerTypeRow, catName string, items []Item
 
 // itemView — ItemRow → ItemView.
 func itemView(it repository.ItemRow) ItemView {
-	iv := ItemView{ID: it.ID, Name: it.Name, SlotType: it.SlotType, Status: it.Status}
+	iv := ItemView{ID: it.ID, Name: it.Name, SlotType: it.SlotType}
 	if it.Unlocks != nil {
 		iv.Unlocks = json.RawMessage(it.Unlocks)
 	}

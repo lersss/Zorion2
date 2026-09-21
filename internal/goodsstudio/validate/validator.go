@@ -18,7 +18,6 @@ type Warning struct {
 // Validate прогоняет все валидаторы (спека 99a.1 §8).
 func Validate(st *model.State) []Warning {
 	var out []Warning
-	byID := graph.ByID(st.Goods)
 
 	// входящая степень: сколько рецептов ссылаются на товар
 	inDegree := make(map[string]int, len(st.Goods))
@@ -55,54 +54,7 @@ func Validate(st *model.State) []Warning {
 		})
 	}
 
-	// 2. Неполные цепочки: согласованные товары с пустым рецептом (тир = 0).
-	// Ресурсы пропускаются по kind (критика №1, спека переноса-студии-товаров
-	// iterA §8.3): ресурс — лист по определению, пустой рецепт не «недострой»
-	// (иначе 131 approved-ресурс без слотов флагался бы каждый).
-	for i := range st.Goods {
-		g := &st.Goods[i]
-		if g.Kind == model.KindResource {
-			continue
-		}
-		if g.Status == model.StatusApproved && !hasFilledSlots(g.Recipe) {
-			out = append(out, Warning{
-				Code:    "incomplete_chain",
-				Message: fmt.Sprintf("Неполная цепочка: согласованный товар %s без рецепта (тир 0)", g.Name),
-			})
-		}
-	}
-
-	// 3. Ссылки на не-согласованных: рецепт согласованного товара ссылается
-	// на draft/excluded/banned составляющего (выгрузка будет с битой ссылкой).
-	// Составляющие kind=resource пропускаются (критика №1, §8.3): ресурс —
-	// валидный лист независимо от статуса; его статус управляет экспортом,
-	// а не структурой ссылки.
-	for i := range st.Goods {
-		g := &st.Goods[i]
-		if g.Status != model.StatusApproved {
-			continue
-		}
-		for _, slot := range g.Recipe {
-			if slot.GoodID == "" {
-				continue
-			}
-			comp := byID[slot.GoodID]
-			if comp == nil {
-				continue
-			}
-			if comp.Kind == model.KindResource {
-				continue
-			}
-			if comp.Status != model.StatusApproved && comp.Status != model.StatusResource {
-				out = append(out, Warning{
-					Code:    "non_approved_ref",
-					Message: fmt.Sprintf("Ссылка на не-согласованного: %s ссылается на %s (%s)", g.Name, comp.Name, comp.Status),
-				})
-			}
-		}
-	}
-
-	// 4. Страховки: цикл и дубликат имени (невозможны по построению §6.2/§6.3)
+	// 2. Страховки: цикл и дубликат имени (невозможны по построению §6.2/§6.3)
 	// — проверка-страховка, не «чинить».
 	if graph.HasCycle(st.Goods) {
 		out = append(out, Warning{
@@ -122,16 +74,16 @@ func Validate(st *model.State) []Warning {
 		seen[norm] = st.Goods[i].Name
 	}
 
-	// 5. Approved-товар без веса/объёма (спека 2026-09-20-фабрики §3.1,
-	// решение 3b.6.4): NULL-каталог запрещён — механика грузов/трюма
-	// опирается на данные каталога. Ресурсы (kind=resource) пропускаются —
-	// сырьё не имеет объёма/веса как товар (добывается платформой).
+	// 3. Товар без веса/объёма (спека 2026-09-20-фабрики §3.1, решение
+	// 3b.6.4): NULL-каталог запрещён — механика грузов/трюма опирается на
+	// данные каталога. С 2026-09-21 (Р2) значение есть всегда (`volume`/
+	// `weight NOT NULL DEFAULT 1`) — проверка инертна, оставлена страховкой
+	// (тот же класс, что cycle/duplicate_name: «невозможны по построению,
+	// не чинить»). Ресурсы (kind=resource) пропускаются — сырьё не имеет
+	// объёма/веса как товар (добывается платформой).
 	for i := range st.Goods {
 		g := &st.Goods[i]
 		if g.Kind == model.KindResource {
-			continue
-		}
-		if g.Status != model.StatusApproved {
 			continue
 		}
 		if g.Volume == nil || g.Weight == nil {

@@ -51,7 +51,7 @@ func TestParseEmptyNames(t *testing.T) {
 // для остальных.
 func TestPromptAllowResourceSlots(t *testing.T) {
 	g := &model.Good{Name: "Корабль", Category: "c1"}
-	p := BuildPrompt(g, "Корабли", 2, nil, nil, []string{"Железо Fe"}, []string{"c1: Корабли"}, 3, []int{2, 3})
+	p := BuildPrompt(g, "Корабли", 2, nil, []string{"Железо Fe"}, []string{"c1: Корабли"}, 3, []int{2, 3})
 	require.Contains(t, p, "допускающие ресурсы")
 	require.Contains(t, p, "2, 3")
 	require.Contains(t, p, "только товары, НЕ ресурсы")
@@ -61,7 +61,7 @@ func TestPromptAllowResourceSlots(t *testing.T) {
 // для всех пустых слотов.
 func TestPromptNoAllowResourceSlots(t *testing.T) {
 	g := &model.Good{Name: "Корабль", Category: "c1"}
-	p := BuildPrompt(g, "Корабли", 2, nil, nil, []string{"Железо Fe"}, []string{"c1: Корабли"}, 2, nil)
+	p := BuildPrompt(g, "Корабли", 2, nil, []string{"Железо Fe"}, []string{"c1: Корабли"}, 2, nil)
 	require.Contains(t, p, "Ни один пустой слот не допускает ресурсы")
 	require.Contains(t, p, "только товары, не ресурсы")
 }
@@ -74,7 +74,7 @@ func mkState(recipe []model.Slot) *model.State {
 		SchemaVersion: 1,
 		Categories:    []model.Category{{ID: "1", Name: "Корабли", Kind: model.KindGood}},
 		Goods: []model.Good{
-			{ID: "g1", Name: "Корабль", Category: "1", Status: model.StatusDraft, Kind: model.KindGood, Recipe: recipe},
+			{ID: "g1", Name: "Корабль", Category: "1", Kind: model.KindGood, Recipe: recipe},
 		},
 	}
 }
@@ -93,7 +93,6 @@ func TestApplyExactK(t *testing.T) {
 	require.Equal(t, "g2", st.Goods[0].Recipe[0].GoodID)
 	require.Equal(t, "g3", st.Goods[0].Recipe[1].GoodID)
 	require.Len(t, st.Goods, 3)
-	require.Equal(t, model.StatusDraft, st.Goods[1].Status)
 	require.Equal(t, model.SourceAI, st.Goods[1].Source)
 	require.Equal(t, "1", st.Goods[1].Category) // категория из пункта (выбор попапа)
 	require.Empty(t, report)
@@ -122,34 +121,11 @@ func TestApplySmallResponse(t *testing.T) {
 	require.Empty(t, report)
 }
 
-// TestApplyBanDrop — совпадение с баном → дроп + отчёт, слот пуст (§7.4 п.4).
-func TestApplyBanDrop(t *testing.T) {
-	st := mkState([]model.Slot{{}})
-	st.Goods = append(st.Goods, model.Good{ID: "g2", Name: "Запрещёнка", Status: model.StatusBanned, Kind: model.KindGood})
-	applied, report := ApplyProposals(st, "g1", []ProposalItem{{Slot: 0, Name: "Запрещёнка", Kind: "link"}})
-	require.Equal(t, 0, applied)
-	require.Empty(t, st.Goods[0].Recipe[0].GoodID)
-	require.Len(t, report, 1)
-	require.Contains(t, report[0], "забаненное")
-	require.Contains(t, report[0], "Запрещёнка")
-}
-
-// TestApplyExcludedDrop — совпадение с исключённым → дроп + отчёт.
-func TestApplyExcludedDrop(t *testing.T) {
-	st := mkState([]model.Slot{{}})
-	st.Goods = append(st.Goods, model.Good{ID: "g2", Name: "Исключёнка", Status: model.StatusExcluded, Kind: model.KindGood})
-	applied, report := ApplyProposals(st, "g1", []ProposalItem{{Slot: 0, Name: "Исключёнка", Kind: "link"}})
-	require.Equal(t, 0, applied)
-	require.Empty(t, st.Goods[0].Recipe[0].GoodID)
-	require.Len(t, report, 1)
-	require.Contains(t, report[0], "исключённое")
-}
-
 // TestApplyLinkExisting — совпадение с существующим товаром → ссылка,
 // новый товар не создаётся (§6.3).
 func TestApplyLinkExisting(t *testing.T) {
 	st := mkState([]model.Slot{{}})
-	st.Goods = append(st.Goods, model.Good{ID: "g2", Name: "Сталь", Status: model.StatusApproved, Kind: model.KindGood})
+	st.Goods = append(st.Goods, model.Good{ID: "g2", Name: "Сталь", Kind: model.KindGood})
 	applied, report := ApplyProposals(st, "g1", []ProposalItem{{Slot: 0, Name: "  сталь ", Kind: "link"}})
 	require.Equal(t, 1, applied)
 	require.Equal(t, "g2", st.Goods[0].Recipe[0].GoodID)
@@ -161,7 +137,7 @@ func TestApplyLinkExisting(t *testing.T) {
 // Слот с галкой «заполнять ресурсом» (99a Пакет 4, п.8): ресурс принимается.
 func TestApplyLinkResource(t *testing.T) {
 	st := mkState([]model.Slot{{AllowResource: true}})
-	st.Goods = append(st.Goods, model.Good{ID: "res:zhelezo", Name: "Железо Fe", Status: model.StatusApproved, Kind: model.KindResource})
+	st.Goods = append(st.Goods, model.Good{ID: "res:zhelezo", Name: "Железо Fe", Kind: model.KindResource})
 	applied, report := ApplyProposals(st, "g1", []ProposalItem{{Slot: 0, Name: "Железо Fe", Kind: "link"}})
 	require.Equal(t, 1, applied)
 	require.Equal(t, "res:zhelezo", st.Goods[0].Recipe[0].GoodID)
@@ -172,7 +148,7 @@ func TestApplyLinkResource(t *testing.T) {
 // ресурсом» → дроп + отчёт (99a Пакет 4, п.8).
 func TestApplyResourceWithoutFlagDrop(t *testing.T) {
 	st := mkState([]model.Slot{{}})
-	st.Goods = append(st.Goods, model.Good{ID: "res:zhelezo", Name: "Железо Fe", Status: model.StatusApproved, Kind: model.KindResource})
+	st.Goods = append(st.Goods, model.Good{ID: "res:zhelezo", Name: "Железо Fe", Kind: model.KindResource})
 	applied, report := ApplyProposals(st, "g1", []ProposalItem{{Slot: 0, Name: "Железо Fe", Kind: "link"}})
 	require.Equal(t, 0, applied)
 	require.Empty(t, st.Goods[0].Recipe[0].GoodID) // слот пуст
@@ -185,7 +161,7 @@ func TestApplyResourceWithoutFlagDrop(t *testing.T) {
 // (99a Пакет 4, п.8), отчёт пуст.
 func TestApplyResourceWithFlagAccepted(t *testing.T) {
 	st := mkState([]model.Slot{{AllowResource: true}})
-	st.Goods = append(st.Goods, model.Good{ID: "res:zhelezo", Name: "Железо Fe", Status: model.StatusApproved, Kind: model.KindResource})
+	st.Goods = append(st.Goods, model.Good{ID: "res:zhelezo", Name: "Железо Fe", Kind: model.KindResource})
 	applied, report := ApplyProposals(st, "g1", []ProposalItem{{Slot: 0, Name: "Железо Fe", Kind: "link"}})
 	require.Equal(t, 1, applied)
 	require.Equal(t, "res:zhelezo", st.Goods[0].Recipe[0].GoodID)
@@ -196,7 +172,7 @@ func TestApplyResourceWithFlagAccepted(t *testing.T) {
 // с галкой принимается, в слот без галки — дроп (99a Пакет 4, п.8).
 func TestApplyResourceFlagPerSlot(t *testing.T) {
 	st := mkState([]model.Slot{{AllowResource: true}, {}})
-	st.Goods = append(st.Goods, model.Good{ID: "res:zhelezo", Name: "Железо Fe", Status: model.StatusApproved, Kind: model.KindResource})
+	st.Goods = append(st.Goods, model.Good{ID: "res:zhelezo", Name: "Железо Fe", Kind: model.KindResource})
 	applied, report := ApplyProposals(st, "g1", []ProposalItem{
 		{Slot: 0, Name: "Железо Fe", Kind: "link"},
 		{Slot: 1, Name: "Железо Fe", Kind: "link"},
@@ -216,8 +192,8 @@ func TestApplyCycleDrop(t *testing.T) {
 		SchemaVersion: 1,
 		Categories:    []model.Category{{ID: "1", Name: "Корабли", Kind: model.KindGood}},
 		Goods: []model.Good{
-			{ID: "g1", Name: "Корабль", Category: "1", Status: model.StatusDraft, Kind: model.KindGood, Recipe: []model.Slot{{}}},
-			{ID: "g2", Name: "Сталь", Category: "1", Status: model.StatusDraft, Kind: model.KindGood, Recipe: []model.Slot{{GoodID: "g1"}}},
+			{ID: "g1", Name: "Корабль", Category: "1", Kind: model.KindGood, Recipe: []model.Slot{{}}},
+			{ID: "g2", Name: "Сталь", Category: "1", Kind: model.KindGood, Recipe: []model.Slot{{GoodID: "g1"}}},
 		},
 	}
 	applied, report := ApplyProposals(st, "g1", []ProposalItem{{Slot: 0, Name: "Сталь", Kind: "link"}})
@@ -325,7 +301,7 @@ func TestApplySlotOutOfRangeC3(t *testing.T) {
 // существующий (безопасно, категория игнорируется, С1).
 func TestApplyNewNameFoundLinks(t *testing.T) {
 	st := mkState([]model.Slot{{}})
-	st.Goods = append(st.Goods, model.Good{ID: "g2", Name: "Сталь", Status: model.StatusApproved, Kind: model.KindGood})
+	st.Goods = append(st.Goods, model.Good{ID: "g2", Name: "Сталь", Kind: model.KindGood})
 	applied, report := ApplyProposals(st, "g1", []ProposalItem{newItem(0, "Сталь")})
 	require.Equal(t, 1, applied)
 	require.Equal(t, "g2", st.Goods[0].Recipe[0].GoodID)
@@ -339,7 +315,7 @@ func TestApplyNewNameFoundLinks(t *testing.T) {
 // (link_id/link_name), категория не резолвится.
 func TestBuildProposalsLink(t *testing.T) {
 	st := mkState([]model.Slot{{}})
-	st.Goods = append(st.Goods, model.Good{ID: "g2", Name: "Сталь", Status: model.StatusApproved, Kind: model.KindGood})
+	st.Goods = append(st.Goods, model.Good{ID: "g2", Name: "Сталь", Kind: model.KindGood})
 	proposals, report := BuildProposals(st, "g1", []Component{{Name: "  сталь ", Category: "мусор", Reason: "каркас"}})
 	require.Len(t, proposals, 1)
 	require.Equal(t, "link", proposals[0].Kind)
@@ -404,21 +380,11 @@ func TestBuildProposalsSmallResponse(t *testing.T) {
 	require.Contains(t, report[0], "меньше запрошенного")
 }
 
-// TestBuildProposalsBanDrop — совпадение с баном → дроп на разборе + отчёт.
-func TestBuildProposalsBanDrop(t *testing.T) {
-	st := mkState([]model.Slot{{}})
-	st.Goods = append(st.Goods, model.Good{ID: "g2", Name: "Запрещёнка", Status: model.StatusBanned, Kind: model.KindGood})
-	proposals, report := BuildProposals(st, "g1", []Component{{Name: "Запрещёнка"}})
-	require.Empty(t, proposals)
-	require.Len(t, report, 1)
-	require.Contains(t, report[0], "забаненное")
-}
-
 // TestBuildProposalsResourceWithoutFlagDrop — ресурс в слот без галки →
 // дроп на разборе + отчёт.
 func TestBuildProposalsResourceWithoutFlagDrop(t *testing.T) {
 	st := mkState([]model.Slot{{}})
-	st.Goods = append(st.Goods, model.Good{ID: "res:zhelezo", Name: "Железо Fe", Status: model.StatusApproved, Kind: model.KindResource})
+	st.Goods = append(st.Goods, model.Good{ID: "res:zhelezo", Name: "Железо Fe", Kind: model.KindResource})
 	proposals, report := BuildProposals(st, "g1", []Component{{Name: "Железо Fe"}})
 	require.Empty(t, proposals)
 	require.Len(t, report, 1)
@@ -431,8 +397,8 @@ func TestBuildProposalsCycleDrop(t *testing.T) {
 		SchemaVersion: 1,
 		Categories:    []model.Category{{ID: "1", Name: "Корабли", Kind: model.KindGood}},
 		Goods: []model.Good{
-			{ID: "g1", Name: "Корабль", Category: "1", Status: model.StatusDraft, Kind: model.KindGood, Recipe: []model.Slot{{}}},
-			{ID: "g2", Name: "Сталь", Category: "1", Status: model.StatusDraft, Kind: model.KindGood, Recipe: []model.Slot{{GoodID: "g1"}}},
+			{ID: "g1", Name: "Корабль", Category: "1", Kind: model.KindGood, Recipe: []model.Slot{{}}},
+			{ID: "g2", Name: "Сталь", Category: "1", Kind: model.KindGood, Recipe: []model.Slot{{GoodID: "g1"}}},
 		},
 	}
 	proposals, report := BuildProposals(st, "g1", []Component{{Name: "Сталь"}})

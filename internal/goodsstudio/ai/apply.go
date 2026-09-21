@@ -25,13 +25,3 @@ func emptySlotIndices(recipe []model.Slot) []int {
 	return out
 }
 
-// statusWord — слово статуса для отчёта (бан/исключённое).
-func statusWord(s model.Status) string {
-	switch s {
-	case model.StatusBanned:
-		return "забаненное"
-	case model.StatusExcluded:
-		return "исключённое"
-	}
-	return string(s)
-}

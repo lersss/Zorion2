@@ -34,7 +34,7 @@ func TestStudioCreateProducer(t *testing.T) {
 		WithArgs(int64(3)).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	// слот-инвариант С4: применяемый слот родителя
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_slots WHERE parent_id = \$1 AND category_id = \$2 AND \(race_family IS NULL OR race_family = \$3 OR race = \$4\)\)`).
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_slots WHERE parent_id = \$1 AND category_id = \$2 AND \(race_family IS NULL OR \(race_family = \$3 AND race IS NULL\) OR race = \$4\)\)`).
 		WithArgs(int64(1), int64(3), nil, nil).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_types WHERE name_norm = \$1\)`).
@@ -43,10 +43,10 @@ func TestStudioCreateProducer(t *testing.T) {
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_types WHERE parent_id = \$1 AND category_id IS NOT DISTINCT FROM \$2 AND race_family IS NOT DISTINCT FROM \$3 AND race IS NOT DISTINCT FROM \$4\)`).
 		WithArgs(int64(1), int64(3), nil, nil).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-	mock.ExpectQuery(`INSERT INTO producer_types \(name, name_norm, kind, category_id, race_family, parent_id, race, status\) VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, 'draft'\) RETURNING id, name, kind, category_id, race_family, parent_id, race, output, input, params, status, created_at`).
+	mock.ExpectQuery(`INSERT INTO producer_types \(name, name_norm, kind, category_id, race_family, parent_id, race\) VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7\) RETURNING id, name, kind, category_id, race_family, parent_id, race, output, input, params, hidden, created_at`).
 		WithArgs("Фабрика продовольствия", "фабрика продовольствия", "goods", int64(3), nil, int64(1), nil).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "parent_id", "race", "output", "input", "params", "status", "created_at"}).
-			AddRow(int64(2), "Фабрика продовольствия", "goods", int64(3), nil, int64(1), nil, nil, nil, nil, "draft", time.Now()))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "parent_id", "race", "output", "input", "params", "hidden", "created_at"}).
+			AddRow(int64(2), "Фабрика продовольствия", "goods", int64(3), nil, int64(1), nil, nil, nil, nil, false, time.Now()))
 	mock.ExpectCommit()
 
 	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
@@ -67,8 +67,9 @@ func TestStudioCreateProducer(t *testing.T) {
 	require.Equal(t, int64(1), *pv.ParentID)
 }
 
-// TestStudioProducerStatus — POST /studio/api/producers/1/status {approved}.
-func TestStudioProducerStatus(t *testing.T) {
+// TestStudioProducerHidden — POST /studio/api/producers/1/hidden {hidden:true}:
+// единственный носитель скрытия (запись-фабрика).
+func TestStudioProducerHidden(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
 	defer db.Close()
@@ -77,14 +78,14 @@ func TestStudioProducerStatus(t *testing.T) {
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_types WHERE id = \$1 FOR UPDATE\)`).
 		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	mock.ExpectExec(`UPDATE producer_types SET status = \$1 WHERE id = \$2`).
-		WithArgs("approved", int64(1)).
+	mock.ExpectExec(`UPDATE producer_types SET hidden = \$1 WHERE id = \$2`).
+		WithArgs(true, int64(1)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
 	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
-	req := httptest.NewRequest(http.MethodPost, "/studio/api/producers/1/status",
-		strings.NewReader(`{"status":"approved"}`))
+	req := httptest.NewRequest(http.MethodPost, "/studio/api/producers/1/hidden",
+		strings.NewReader(`{"hidden":true}`))
 	rec := httptest.NewRecorder()
 	h.ProducerByID(rec, req)
 
@@ -179,10 +180,10 @@ func TestStudioCreateItem(t *testing.T) {
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM items WHERE name_norm = \$1\)`).
 		WithArgs("чертёж").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-	mock.ExpectQuery(`INSERT INTO items \(name, name_norm, slot_type, status\) VALUES \(\$1, \$2, \$3, 'draft'\) RETURNING id, name, slot_type, status, unlocks, params, created_at`).
+	mock.ExpectQuery(`INSERT INTO items \(name, name_norm, slot_type\) VALUES \(\$1, \$2, \$3\) RETURNING id, name, slot_type, unlocks, params, created_at`).
 		WithArgs("Чертёж", "чертёж", "чертёж").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "slot_type", "status", "unlocks", "params", "created_at"}).
-			AddRow(int64(1), "Чертёж", "чертёж", "draft", nil, nil, time.Now()))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "slot_type", "unlocks", "params", "created_at"}).
+			AddRow(int64(1), "Чертёж", "чертёж", nil, nil, time.Now()))
 	mock.ExpectCommit()
 
 	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
@@ -200,31 +201,6 @@ func TestStudioCreateItem(t *testing.T) {
 	require.Equal(t, "чертёж", iv.SlotType)
 }
 
-// TestStudioItemStatus — POST /studio/api/items/1/status {banned}.
-func TestStudioItemStatus(t *testing.T) {
-	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
-	require.NoError(t, err)
-	defer db.Close()
-
-	expectStudioMutation(mock)
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM items WHERE id = \$1 FOR UPDATE\)`).
-		WithArgs(int64(1)).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	mock.ExpectExec(`UPDATE items SET status = 'banned' WHERE id = \$1`).
-		WithArgs(int64(1)).
-		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectCommit()
-
-	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
-	req := httptest.NewRequest(http.MethodPost, "/studio/api/items/1/status",
-		strings.NewReader(`{"status":"banned"}`))
-	rec := httptest.NewRecorder()
-	h.ItemByID(rec, req)
-
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
 // TestStudioStateProducersFields — StateView несёт producer_types/items
 // (спека 2026-09-20-фабрики §4, аддитивно к iterA §7): карточка типа с
 // kind/категорией/входом/выходом и привязанными предметами.
@@ -237,17 +213,17 @@ func TestStudioStateProducersFields(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, name, kind, code, is_system FROM categories ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "code", "is_system"}).
 			AddRow(int64(1), "Корабли", "good", nil, false))
-	mock.ExpectQuery(`SELECT id, name, category_id, kind, status, source, tier_override, banned_at, created_at, volume, weight FROM goods ORDER BY id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "status", "source", "tier_override", "banned_at", "created_at", "volume", "weight"}))
+	mock.ExpectQuery(`SELECT id, name, category_id, kind, source, tier_override, created_at, volume, weight FROM goods ORDER BY id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "tier_override", "created_at", "volume", "weight"}))
 	mock.ExpectQuery(`SELECT good_id, pos, component_id, quantity, reason, allow_resource FROM goods_slots ORDER BY good_id, pos`).
 		WillReturnRows(sqlmock.NewRows([]string{"good_id", "pos", "component_id", "quantity", "reason", "allow_resource"}))
-	mock.ExpectQuery(`SELECT id, name, kind, category_id, race_family, parent_id, race, output, input, params, status, created_at FROM producer_types ORDER BY id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "parent_id", "race", "output", "input", "params", "status", "created_at"}).
-			AddRow(int64(1), "Лаборатория исследовательская", "items", nil, nil, nil, nil, []byte(`{"items":["Чертёж"]}`), []byte(`{}`), []byte(`{}`), "approved", time.Now()).
-			AddRow(int64(2), "Фабрика", "goods", int64(1), nil, nil, nil, nil, []byte(`{"energy": true}`), []byte(`{}`), "approved", time.Now()))
-	mock.ExpectQuery(`SELECT id, name, slot_type, status, unlocks, params, created_at FROM items ORDER BY id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "slot_type", "status", "unlocks", "params", "created_at"}).
-			AddRow(int64(1), "Чертёж", "чертёж", "approved", []byte(`[]`), []byte(`{}`), time.Now()))
+	mock.ExpectQuery(`SELECT id, name, kind, category_id, race_family, parent_id, race, output, input, params, hidden, created_at FROM producer_types ORDER BY id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "parent_id", "race", "output", "input", "params", "hidden", "created_at"}).
+			AddRow(int64(1), "Лаборатория исследовательская", "items", nil, nil, nil, nil, []byte(`{"items":["Чертёж"]}`), []byte(`{}`), []byte(`{}`), false, time.Now()).
+			AddRow(int64(2), "Фабрика", "goods", int64(1), nil, nil, nil, nil, []byte(`{"energy": true}`), []byte(`{}`), false, time.Now()))
+	mock.ExpectQuery(`SELECT id, name, slot_type, unlocks, params, created_at FROM items ORDER BY id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "slot_type", "unlocks", "params", "created_at"}).
+			AddRow(int64(1), "Чертёж", "чертёж", []byte(`[]`), []byte(`{}`), time.Now()))
 	mock.ExpectQuery(`SELECT producer_type_id, item_id, requirements FROM producer_items ORDER BY producer_type_id, item_id`).
 		WillReturnRows(sqlmock.NewRows([]string{"producer_type_id", "item_id", "requirements"}).
 			AddRow(int64(1), int64(1), nil))
@@ -268,8 +244,9 @@ func TestStudioStateProducersFields(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &view))
 	require.Len(t, view.ProducerTypes, 2)
 	require.Len(t, view.Items, 1)
-	// лаборатория: kind=items + привязанный предмет
+	// лаборатория: kind=items + привязанный предмет; hidden — носитель скрытия
 	require.Equal(t, "items", view.ProducerTypes[0].Kind)
+	require.False(t, view.ProducerTypes[0].Hidden)
 	require.Len(t, view.ProducerTypes[0].Items, 1)
 	require.Equal(t, "Чертёж", view.ProducerTypes[0].Items[0].Name)
 	// фабрика: kind=goods + категория
@@ -419,7 +396,7 @@ func TestStudioCreateProducerNoSlot(t *testing.T) {
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM categories WHERE id = \$1\)`).
 		WithArgs(int64(3)).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_slots WHERE parent_id = \$1 AND category_id = \$2 AND \(race_family IS NULL OR race_family = \$3 OR race = \$4\)\)`).
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_slots WHERE parent_id = \$1 AND category_id = \$2 AND \(race_family IS NULL OR \(race_family = \$3 AND race IS NULL\) OR race = \$4\)\)`).
 		WithArgs(int64(1), int64(3), nil, nil).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 

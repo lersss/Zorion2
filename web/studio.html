@@ -60,10 +60,6 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
  .card .nm{font-size:13px;color:#eee;word-break:break-word}
  .card .meta{font-size:11px;color:#999;margin-top:2px}
  .badge{display:inline-block;font-size:10px;border-radius:4px;padding:1px 5px;margin-right:4px}
- .b-approved{background:#2a7;color:#fff}
- .b-draft{background:#a62;color:#fff}
- .b-excluded{background:#a33;color:#fff}
- .b-banned{background:#555;color:#ccc}
   .b-hidden{background:#333;color:#aaa} /* бейдж «скрыта» (спека скрытых §3.3) */
   .b-override{background:#26a;color:#fff} /* бейдж «переопределён» (редактор слотов, §3.2) */
   /* редактор слотов родителя (спека скрытых §3.2): список категорий набора */
@@ -158,8 +154,7 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
   .popup-body{overflow-y:auto;padding:10px;font-size:12px}
   .tier-warn{color:#fa0;font-size:11px;margin-top:2px}
   #modeBadge{position:absolute;left:10px;bottom:10px;background:#1c1c1ccc;color:#666;font-size:11px;padding:3px 8px;border-radius:6px;z-index:4;pointer-events:none}
-  .card.banned{opacity:.55;background:#222;border-color:#444}
-  .card.hidden{opacity:.55;background:#222;border-color:#444} /* скрытая категория строений (спека скрытых §3.3) — зеркало .banned */
+  .card.hidden{opacity:.55;background:#222;border-color:#444} /* скрытая запись-фабрика / скрытая категория строений (спека скрытых §3.3) */
   .card .info{background:none;border:none;color:#8cf;cursor:pointer;font-size:12px;padding:0 2px;float:right}
   .card .info:hover{color:#fff}
   #sprav .addrow{display:flex;gap:6px;margin-bottom:6px}
@@ -191,7 +186,6 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
       <input id="search" type="text" placeholder="поиск по графу" style="width:150px">
       <select id="catFilter" title="Фильтр графа: показать только товары этой категории"><option value="">все категории</option></select>
       <label style="font-size:12px"><input type="checkbox" id="showResources" title="Показать на графе ряд ресурсов (по умолчанию скрыт, чтобы не мешал)"> показать ресурсы</label>
-      <label style="font-size:12px"><input type="checkbox" id="showBanned"> забаненные</label>
       <label style="font-size:12px"><input type="checkbox" id="reverseEdges"> обратные рёбра</label>
       <button id="btnTop" title="Показать верхний тир (товары-верхушки)">⟲ на верхний тир</button>
     </div>
@@ -231,7 +225,6 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
         <div class="filters" id="filters">
         <label><input type="checkbox" id="fUsed"> используемые</label>
         <label><input type="checkbox" id="fUnused"> неиспользуемые</label>
-        <label><input type="checkbox" id="fBanned"> забаненные</label>
       </div>
       <div class="tierf" id="tierFilters"></div>
       <div class="addrow" id="goodsAddRow">
@@ -320,7 +313,7 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
-let state = {categories:[], goods:[], banned:[], unused:[], warnings:[], model:"", generating:false};
+let state = {categories:[], goods:[], unused:[], warnings:[], model:"", generating:false};
 let selected = null;
 let popupGoodId = null; // товар попапа-детали, отдельно от selected (99a.3 §10.3, вердикт критика С1)
 let tierSel = new Set(); // выбранные тиры-пилюли справочника; пусто = фильтр выключен = все тиры (99a.3-ui §5.3)
@@ -370,7 +363,6 @@ async function fetchState() {
     const r = await studioFetch("/studio/api/state");
     if (!r.ok) return;
     state = await r.json();
-    state.banned = state.banned || []; // сервер шлёт nil-слайс при 0 забаненных (BUG-1)
     if (!racesLoaded) fetchRaces(); // уровни расовости дерева построек (спека 2026-09-21 §3)
     loading = false;
     offline = false;
@@ -466,7 +458,6 @@ function visibleGoods() {
   const cat = $("catFilter").value, q = $("search").value.trim().toLowerCase();
   const showRes = $("showResources").checked;
   return state.goods.filter(g => {
-    if (g.status === "banned" && !$("showBanned").checked) return false;
     if (g.kind === "resource" && !showRes) return false; // ресурсы скрыты по умолчанию
     if (cat && String(g.category_id) !== cat && g.kind !== "resource") return false;
     if (q && !g.name.toLowerCase().includes(q)) return false;
@@ -658,7 +649,7 @@ function renderGraph() {
     if (!p) return;
     const x = p.x, y = p.y;
     const dim = cat && g.kind === "resource"; // приглушённые ресурсы при фильтре
-    ctx.fillStyle = g.status === "banned" ? "#3a3a3a" : (dim ? "#262626" : "#3d3d3d");
+    ctx.fillStyle = dim ? "#262626" : "#3d3d3d";
     ctx.strokeStyle = selected === g.id ? "#8cf" : "#5a5a5a";
     ctx.lineWidth = selected === g.id ? 2 : 1;
     roundRect(x, y, CARD_W, CARD_H, 8);
@@ -672,7 +663,6 @@ function renderGraph() {
     // бейджи: тир — эффективный из серверного поля (99a.3 §9.3, М5)
     const badges = [];
     badges.push({t: "тир " + g.tier, c: "#5a5a5a"});
-    badges.push({t: statusLabel(g.status), c: statusColor(g.status)});
     let bx = x + 8;
     badges.forEach(b => {
       const w = ctx.measureText(b.t).width + 10;
@@ -722,12 +712,6 @@ function catName(id) {
   const c = state.categories.find(c => c.id === id);
   return c ? c.name : id;
 }
-function statusLabel(s) {
-  return {approved:"✓ согласовано", draft:"🔨 черновик", excluded:"✗ исключено", banned:"⛔ бан"}[s] || s;
-}
-function statusColor(s) {
-  return {approved:"#2a7", draft:"#a62", excluded:"#a33", banned:"#555"}[s] || "#444";
-}
 
 // ---------- тултип карточки ----------
 function showTip(ev, id) {
@@ -736,7 +720,7 @@ function showTip(ev, id) {
   if (!g) return;
   const tip = $("tip");
   tip.innerHTML = '<b>' + esc(g.name) + '</b><br>' + esc(catName(g.category_id)) +
-                  ' · тир ' + g.tier + ' · ' + esc(statusLabel(g.status));
+                  ' · тир ' + g.tier;
   const rect = canvas.getBoundingClientRect();
   let x = ev.clientX - rect.left + 14, y = ev.clientY - rect.top + 14;
   if (x + 220 > rect.width) x = ev.clientX - rect.left - 230;
@@ -926,14 +910,6 @@ function showCtxMenu(ev, goodId) {
     items.push({label: "заполнить комплектующие", fn: () => { selectGood(goodId); openPopup(goodId); fillGood(); }});
   }
   items.push({label: "добавить родителя", fn: () => { selectGood(goodId); openPopup(goodId); askAddParent(); }});
-  // статусы — по состоянию (как в попапе, 922–925): забаненный — «Вернуть»
-  if (g.status === "banned") {
-    items.push({label: "Вернуть", fn: () => { selectGood(goodId); openPopup(goodId); setStatus("unban"); }});
-  } else {
-    if (g.status !== "approved") items.push({label: "Согласовать", fn: () => { selectGood(goodId); openPopup(goodId); setStatus("approved"); }});
-    if (g.status !== "excluded") items.push({label: "Исключить", fn: () => { selectGood(goodId); openPopup(goodId); setStatus("excluded"); }});
-    items.push({label: "Забанить", fn: () => { selectGood(goodId); openPopup(goodId); setStatus("banned"); }});
-  }
   items.push({label: "переименовать", fn: () => { selectGood(goodId); openPopup(goodId); startRename(); }});
   items.push({label: "удалить", fn: () => { selectGood(goodId); openPopup(goodId); askDeleteGood(); }});
   items.push({label: "открыть деталь", fn: () => { selectGood(goodId); openPopup(goodId); }});
@@ -952,17 +928,14 @@ function showCtxMenu(ev, goodId) {
   menu.style.display = "block";
 }
 function hideCtxMenu() { $("ctxMenu").style.display = "none"; ctxGoodId = null; }
-// контекстное меню карточки в списке справочника (создатель 2026-09-19:
-// «правый клик по ресурсу в списке — контекстное меню (пока только забанить/удалить)»);
-// переиспользует контейнер #ctxMenu, пункты свои; работает и для ресурсов
+// контекстное меню карточки в списке справочника (создатель 2026-09-19):
+// переиспользует контейнер #ctxMenu, пункты свои; работает и для ресурсов.
+// Скрытия у товара нет (2026-09-21) — только удаление.
 function showSpravCtxMenu(ev, id) {
   const g = state.goods.find(x => x.id === id);
   if (!g) return;
   ctxGoodId = id;
   const items = [
-    g.status === "banned"
-      ? {label: "Вернуть", fn: () => setStatusFor(id, "unban")}
-      : {label: "Забанить", fn: () => setStatusFor(id, "banned")},
     {label: "удалить", fn: () => askDeleteGoodFor(id)},
   ];
   const menu = $("ctxMenu");
@@ -978,11 +951,6 @@ function showSpravCtxMenu(ev, id) {
   if (y + mh > window.innerHeight) y = window.innerHeight - mh - 8;
   menu.style.left = x + "px"; menu.style.top = y + "px";
   menu.style.display = "block";
-}
-// статус по id (для контекстного меню списка; setStatus остаётся для попапа по popupGoodId)
-async function setStatusFor(id, s) {
-  await api("POST", "/studio/api/goods/" + id + "/status", {status: s});
-  fetchState();
 }
 // удаление по id (для контекстного меню списка): модалка 1 → (N>0) модалка 2
 // → DELETE → тост с фактическим K из ответа (спека iterB §4.7)
@@ -1095,12 +1063,12 @@ function renderPopup() {
   if (ov !== "" && ov !== g.tier_computed) {
     html += '<div class="tier-warn">⚠ отличается от вычисленного (' + g.tier_computed + ')</div>';
   }
-  html += ' · ' + statusLabel(g.status) + (g.source === "ai" ? ' · ИИ' : g.source === "import" ? ' · импорт' : '');
+  html += (g.source === "ai" ? ' · ИИ' : g.source === "import" ? ' · импорт' : '');
   html += '</div>';
   // объём/вес — данные каталога (спека 2026-09-20-фабрики §3.1, 3b.6.4):
-  // NULL у draft; approved без веса/объёма не проходит валидацию
-  html += '<div class="dmeta">объём: <input id="volInput" type="number" min="0" step="any" style="width:70px" value="' + (g.volume !== null && g.volume !== undefined ? g.volume : "") + '" onchange="setVolumeWeight(this.value, null)" title="объём единицы товара (NULL у draft)">' +
-    ' · вес: <input id="wgtInput" type="number" min="0" step="any" style="width:70px" value="' + (g.weight !== null && g.weight !== undefined ? g.weight : "") + '" onchange="setVolumeWeight(null, this.value)" title="вес единицы товара (NULL у draft)"></div>';
+  // значение есть всегда (Р2, 2026-09-21) — дефолт 1, пустой ввод = 1
+  html += '<div class="dmeta">объём: <input id="volInput" type="number" min="0" step="any" style="width:70px" value="' + (g.volume !== null && g.volume !== undefined ? g.volume : 1) + '" onchange="setVolumeWeight(this.value, null)" title="объём единицы товара">' +
+    ' · вес: <input id="wgtInput" type="number" min="0" step="any" style="width:70px" value="' + (g.weight !== null && g.weight !== undefined ? g.weight : 1) + '" onchange="setVolumeWeight(null, this.value)" title="вес единицы товара"></div>';
   // слоты: только у товаров (ресурс — лист, слотов нет, §4.5); заполненный и
   // пустой — оба drop-target (замена в одно действие); тир в заполненном
   // слоте — эффективный из SlotView.Tier (99a.3 §9.3)
@@ -1122,7 +1090,7 @@ function renderPopup() {
       }
     });
   }
-  // кнопки (ресурсы — без слотов/fill, но со всеми статусами и удалением, §4.5)
+  // кнопки (ресурсы — без слотов/fill; скрытия у товара нет — только «удалить»)
   html += '<div class="btns">';
   html += '<button onclick="askAddParent()" title="Добавить этот товар составляющей в рецепт другого товара (новый слот)">добавить родителя</button>';
   if (!isRes) {
@@ -1131,10 +1099,6 @@ function renderPopup() {
     html += '<button class="gen" onclick="addSlot()">+ слот</button>';
     html += '<button class="gen" onclick="fillGood()"' + (fillDisabled ? ' disabled title="' + (state.generating ? "идёт генерация" : "Сначала добавьте слот («+ слот»)") + '"' : '') + '>заполнить комплектующие</button>';
   }
-  if (g.status !== "approved") html += '<button class="ok" onclick="setStatus(\'approved\')">Согласовать</button>';
-  if (g.status !== "excluded") html += '<button class="del" onclick="setStatus(\'excluded\')">Исключить</button>';
-  if (g.status !== "banned") html += '<button class="del" onclick="setStatus(\'banned\')">Забанить</button>';
-  if (g.status === "banned") html += '<button class="ok" onclick="setStatus(\'unban\')">Вернуть</button>';
   html += '<button class="del" onclick="askDeleteGood()">удалить</button>';
   html += '</div>';
   // «Используется в:» — клик по родителю = выбор родителя + попап на нём (99a.3 §10.3)
@@ -1210,8 +1174,6 @@ async function setQuantity(i, val) {
   const r = await api("PUT", "/studio/api/goods/" + popupGoodId + "/slots/" + i, {quantity: q});
   if (r) fetchState(); else renderPopup();
 }
-async function setStatus(s) { await api("POST", "/studio/api/goods/" + popupGoodId + "/status", {status: s}); fetchState(); }
-
 // ---------- fill: «заполнить комплектующие» (спека iterC §6) ----------
 // Двухфазный: POST fill → ИИ думает (асинхронно) → proposals в state →
 // попап «Предложения ИИ» (авто-открытие в fetchState) → apply/cancel.
@@ -1316,17 +1278,17 @@ async function setTier(val) {
   const r = await api("PUT", "/studio/api/goods/" + popupGoodId + "/tier", body);
   if (r) fetchState(); else renderPopup();
 }
-// объём/вес (спека 2026-09-20-фабрики §3.1, 3b.6.4): ввод числа → PUT;
-// очистка → null (draft может быть без значений)
+// объём/вес (спека 2026-09-20-фабрики §3.1, 3b.6.4; Р2 2026-09-21): ввод
+// числа → PUT; пустой ввод трактуется как 1 («значение есть всегда»)
 async function setVolumeWeight(vol, wgt) {
   const body = {};
   if (vol !== null) {
     const v = String(vol).trim();
-    body.volume = v === "" ? null : parseFloat(v);
+    body.volume = v === "" ? 1 : parseFloat(v);
   }
   if (wgt !== null) {
     const v = String(wgt).trim();
-    body.weight = v === "" ? null : parseFloat(v);
+    body.weight = v === "" ? 1 : parseFloat(v);
   }
   const r = await api("PUT", "/studio/api/goods/" + popupGoodId, body);
   if (r) fetchState(); else renderPopup();
@@ -1458,13 +1420,13 @@ function renderSprav() {
   const cat = $("spravCat").value || localStorage.getItem("gs_spravCat") || "";
   const used = {};
   state.goods.forEach(g => (g.recipe || []).forEach(s => { if (s.good_id) used[s.good_id] = true; }));
-  const fUsed = $("fUsed").checked, fUnused = $("fUnused").checked, fBanned = $("fBanned").checked;
+  const fUsed = $("fUsed").checked, fUnused = $("fUnused").checked;
   // Семантика фильтров (создатель 2026-09-19): показ включается ТОЛЬКО при «тир + галка»:
   // выбран хотя бы один тир И хотя бы одна галка. Галки — группы-РАСШИРЕНИЯ (OR):
-  // каждая включённая добавляет свою группу («используемые»/«неиспользуемые»/«забаненные»),
+  // каждая включённая добавляет свою группу («используемые»/«неиспользуемые»),
   // выключенная — её группа скрыта. Категория и поиск только сужают (AND), сами показ не включают.
   const hasTier = tierSel.size > 0;
-  const hasFlag = fUsed || fUnused || fBanned;
+  const hasFlag = fUsed || fUnused;
   // пилюли тиров: «все» первой + фиксированные 0..8 + тиры выше 8 из каталога (если есть)
   const tiers = spravTiers();
   // «все» активна, только когда выбраны ВСЕ тиры (показывается всё); при пустом
@@ -1481,12 +1443,9 @@ function renderSprav() {
     if (!hasTier || !hasFlag) return false;               // тир + галка обязательны (создатель 2026-09-19)
     if (!tierSel.has(g.tier)) return false;               // выбранные тиры — только они
     // галки — РАСШИРЕНИЕ (OR): каждая включает свою группу; выключенная — её группа
-    // скрыта. Забаненные — отдельная группа (только при галке «забаненные»),
-    // не смешивается с используемыми/неиспользуемыми (создатель 2026-09-19).
-    const isBanned = g.status === "banned";
+    // скрыта (создатель 2026-09-19). Группы «забаненные» больше нет (2026-09-21).
     const isUsed = !!used[g.id];
-    if (isBanned) { if (!fBanned) return false; }
-    else if (isUsed) { if (!fUsed) return false; }
+    if (isUsed) { if (!fUsed) return false; }
     else { if (!fUnused) return false; }
     if (cat && String(g.category_id) !== cat) return false;          // AND: фильтр по категории (сужает, не включает показ)
     if (q && !g.name.toLowerCase().includes(q)) return false; // AND: поиск (сужает, не включает показ)
@@ -1494,9 +1453,9 @@ function renderSprav() {
   });
   $("spravTitle").textContent = "Справочник · " + list.length;
   $("spravList").innerHTML = list.map(g =>
-    '<div class="card' + (g.status === "banned" ? ' banned' : '') + '" draggable="true" ondragstart="dragStart(event,\'' + g.id + '\')" onclick="spravClick(\'' + g.id + '\')" ondblclick="spravDblClick(\'' + g.id + '\')" oncontextmenu="showSpravCtxMenu(event,\'' + g.id + '\');return false">' +
+    '<div class="card" draggable="true" ondragstart="dragStart(event,\'' + g.id + '\')" onclick="spravClick(\'' + g.id + '\')" ondblclick="spravDblClick(\'' + g.id + '\')" oncontextmenu="showSpravCtxMenu(event,\'' + g.id + '\');return false">' +
     '<div class="nm">' + esc(g.name) + '<button class="info" onclick="event.stopPropagation();openPopup(\'' + g.id + '\')" title="деталь (без смены выбора)">ⓘ</button></div>' +
-    '<div class="meta">' + esc(catName(g.category_id)) + ' · тир ' + g.tier + ' <span class="badge ' + badgeClass(g.status) + '">' + esc(statusLabel(g.status)) + '</span></div>' +
+    '<div class="meta">' + esc(catName(g.category_id)) + ' · тир ' + g.tier + '</div>' +
     '</div>'
   ).join("") || '<div class="empty-note">' + (hasTier && hasFlag ? 'ничего не найдено' : 'ничего не выбрано — выберите тир и хотя бы одну галку') + '</div>';
   $("spravList").scrollTop = sc;
@@ -1523,11 +1482,11 @@ function renderProdSprav() {
   $("spravList").innerHTML = list.map(p => {
     const t = p.parent_id ? state.producer_types.find(x => x.id === p.parent_id) : null;
     const catHidden = !!(t && t.kind === "goods" && prodCatHidden(t, p.category_id));
-    return '<div class="card' + (catHidden ? ' hidden' : '') + '" onclick="prodClick(' + p.id + ')" ondblclick="prodDblClick(' + p.id + ')">' +
+    return '<div class="card' + ((p.hidden || catHidden) ? ' hidden' : '') + '" onclick="prodClick(' + p.id + ')" ondblclick="prodDblClick(' + p.id + ')">' +
     '<div class="nm">' + esc(p.name) + '<button class="info" onclick="event.stopPropagation();openProdPopup(' + p.id + ')" title="деталь (без смены выбора)">ⓘ</button></div>' +
     '<div class="meta">' + esc(kindLabel(p.kind)) + (p.category_name ? ' · ' + esc(p.category_name) : '') +
     (p.parent_name ? ' · ← ' + esc(p.parent_name) : '') +
-    ' <span class="badge ' + badgeClass(p.status) + '">' + esc(statusLabel(p.status)) + '</span>' +
+    (p.hidden ? ' <span class="badge b-hidden" title="запись-фабрика скрыта">скрыта</span>' : '') +
     (catHidden ? ' <span class="badge b-hidden" title="категория скрыта на этом уровне расовости">скрыта</span>' : '') + '</div>' +
     '</div>';
   }).join("") || '<div class="empty-note">нет типов производителей</div>';
@@ -1561,7 +1520,8 @@ function renderProdPopup() {
   $("popupTitle").textContent = p.name;
   let html = '';
   html += '<div class="dname"><span class="rename" onclick="startProdRename()" title="переименовать">' + esc(p.name) + '</span></div>';
-  html += '<div class="dmeta">' + esc(kindLabel(p.kind)) + ' · ' + esc(statusLabel(p.status)) + '</div>';
+  html += '<div class="dmeta">' + esc(kindLabel(p.kind)) +
+    ' · <label style="font-size:12px" title="Не показывать запись-фабрику по умолчанию и не предлагать в лестнице"><input type="checkbox" onchange="saveProdHidden(this.checked)"' + (p.hidden ? ' checked' : '') + '> скрытая</label></div>';
   // родитель (дерево построек 2026-09-21 §1.2): подтип → тип-родитель
   if (p.parent_id) {
     const parent = state.producer_types.find(x => x.id === p.parent_id);
@@ -1603,10 +1563,6 @@ function renderProdPopup() {
     html += '</div>';
   }
   html += '<div class="btns">';
-  if (p.status !== "approved") html += '<button class="ok" onclick="setProdStatus(\'approved\')">Согласовать</button>';
-  if (p.status !== "excluded") html += '<button class="del" onclick="setProdStatus(\'excluded\')">Исключить</button>';
-  if (p.status !== "banned") html += '<button class="del" onclick="setProdStatus(\'banned\')">Забанить</button>';
-  if (p.status === "banned") html += '<button class="ok" onclick="setProdStatus(\'unban\')">Вернуть</button>';
   html += '<button class="del" onclick="askDeleteProducer()">удалить</button>';
   html += '</div>';
   el.innerHTML = html;
@@ -1812,8 +1768,10 @@ async function saveProdJSON() {
   const r = await api("PUT", "/studio/api/producers/" + popupGoodId, body);
   if (r) fetchState();
 }
-async function setProdStatus(s) {
-  await api("POST", "/studio/api/producers/" + popupGoodId + "/status", {status: s});
+// saveProdHidden — скрыть/показать запись-фабрику из чекбокса (единственный
+// носитель скрытия, спека 2026-09-21 §4.2/К1).
+async function saveProdHidden(checked) {
+  await api("POST", "/studio/api/producers/" + popupGoodId + "/hidden", {hidden: !!checked});
   fetchState();
 }
 function askDeleteProducer() {
@@ -1882,13 +1840,13 @@ function familyLabelById(fid) {
   return f ? (f.id === "robotic" ? "F10 " + f.name : f.id + " " + f.name) : fid;
 }
 
-// Видимость записи при выбранном уровне расовости (спека §2.4, решение
-// создателя идея §2 п.6 «своё + универсальное»): универсальный — race_family
-// IS NULL; семейство Fk — NULL или Fk; раса R — NULL или (family(R) и race
-// IS NULL) или race = R.
+// Видимость записи при выбранном уровне расовости (спека 2026-09-21 §5.1,
+// Р5 — единая применяемость): универсальный — race_family IS NULL; семейство
+// Fk — NULL или (Fk и race IS NULL) — расовых записей семейство НЕ видит;
+// раса R — NULL или (family(R) и race IS NULL) или race = R.
 function prodVisible(p) {
   if (prodRaceLevel === "universal") return !p.race_family;
-  if (prodRaceLevel === "family") return !p.race_family || p.race_family === prodRaceFamily;
+  if (prodRaceLevel === "family") return !p.race_family || (p.race_family === prodRaceFamily && !p.race);
   const fam = raceFamilyOf(prodRace);
   return !p.race_family || (p.race_family === fam && !p.race) || p.race === prodRace;
 }
@@ -1900,22 +1858,53 @@ function prodAppliedRecords(t, catID) {
   return state.producer_types.filter(s => s.parent_id === t.id && s.category_id === catID && prodVisible(s));
 }
 
+// prodRecordSpecificity — ступень записи-фабрики: раса > семейство > универсал.
+function prodRecordSpecificity(p) {
+  if (p.race) return 2;
+  if (p.race_family) return 1;
+  return 0;
+}
+// prodCatWinner(t, catID) — победитель лестницы «самая конкретная побеждает»
+// (спека 2026-09-21 §5.2/§5.6): применяемая запись категории самой конкретной
+// ступени; null — записей нет. Единственный источник правила для дерева,
+// списка и prodNodeVisible.
+function prodCatWinner(t, catID) {
+  const recs = prodAppliedRecords(t, catID);
+  if (!recs.length) return null;
+  return recs.reduce((a, b) => prodRecordSpecificity(b) > prodRecordSpecificity(a) ? b : a);
+}
+// prodCatDrawRecords(t, catID) — применяемые записи категории, рисуемые на
+// уровне (спека §5.4/§5.6): скрыто — все (затемнённые); видимо — победитель
+// + скрытые записи; лосеры-видимые не рисуются.
+function prodCatDrawRecords(t, catID) {
+  const recs = prodAppliedRecords(t, catID);
+  if (prodCatHidden(t, catID)) return recs.map(s => ({ref: s, hidden: true}));
+  const winner = prodCatWinner(t, catID);
+  const out = [];
+  if (winner) out.push({ref: winner, hidden: false});
+  recs.forEach(s => {
+    if (s.hidden && !(winner && winner.id === s.id)) out.push({ref: s, hidden: true});
+  });
+  return out;
+}
+
 // --- слоты родителя (спека 2026-09-21-скрытые-категории-строений §2) ---
 // Слот = «родитель предлагает категорию на уровне расовости»; конфигурация
 // типа kind=goods. Дерево строит категории ИЗ СЛОТОВ (автоматика по имени
-// типа удалена, §2.3); скрытость живёт на слоте (одна ось).
+// типа удалена, §2.3); скрытость слота — скрытость КАТЕГОРИИ на уровне
+// (вторая ось к producer_types.hidden, 2026-09-21 §5.3).
 
 // prodSlots(t) — все слоты типа t (конфигурация, без фильтра расовости).
 function prodSlots(t) {
   return state.producer_slots.filter(s => s.parent_id === t.id);
 }
-// prodSlotVisible(s) — применим ли слот на текущем уровне расовости (§2.1,
+// prodSlotVisible(s) — применим ли слот на текущем уровне расовости (§5.1,
 // та же логика, что prodVisible у записей): универсальный — race_family IS
-// NULL; семейство Fk — NULL или Fk; раса R — NULL или (family(R), race NULL)
-// или race=R.
+// NULL; семейство Fk — NULL или (Fk и race IS NULL) — расовых слотов
+// семейство НЕ видит; раса R — NULL или (family(R), race NULL) или race=R.
 function prodSlotVisible(s) {
   if (prodRaceLevel === "universal") return !s.race_family;
-  if (prodRaceLevel === "family") return !s.race_family || s.race_family === prodRaceFamily;
+  if (prodRaceLevel === "family") return !s.race_family || (s.race_family === prodRaceFamily && !s.race);
   const fam = raceFamilyOf(prodRace);
   return !s.race_family || (s.race_family === fam && !s.race) || s.race === prodRace;
 }
@@ -1945,26 +1934,31 @@ function prodSlotOwned(s) {
 function prodCatInSet(t, catID) {
   return prodAppliedSlots(t).some(s => s.category_id === catID);
 }
-// prodCatHidden(t, catID) — категория скрыта на уровне (самая конкретная
-// применяемая запись hidden=true, вариант б, §2.1). Вне набора — false
-// (отсутствует, не «скрыта»).
+// prodCatHidden(t, catID) — категория скрыта на уровне (спека §5.4): скрытость
+// = OR двух осей — самая конкретная применяемая ЗАПИСЬ-фабрика
+// (producer_types.hidden, Р1/К1) ИЛИ самый конкретный применяемый СЛОТ
+// (producer_slots.hidden). Вне набора — false (отсутствует, не «скрыта»).
 function prodCatHidden(t, catID) {
   const applied = prodAppliedSlots(t).filter(s => s.category_id === catID);
-  if (!applied.length) return false;
-  return prodMostSpecificSlot(applied).hidden;
+  const slotHidden = applied.length ? prodMostSpecificSlot(applied).hidden : false;
+  const winner = prodCatWinner(t, catID);
+  return slotHidden || !!(winner && winner.hidden);
 }
 
 // prodNodeVisible(p) — рисуется ли узел записи p в дереве при текущем уровне
-// расовости и галке (спека скрытых §2.2/§3.5): категория записи входит в
-// набор родителя (слот-управляемый) и не скрыта (или галка включена).
-// Типы items/energy без слотов — без оси скрытости.
+// расовости и галке (спека §5.4/§5.6, «клик не повисает»): категория записи
+// входит в набор родителя (слот-управляемый); скрыта — видна только с галкой
+// (затемнённо); видима — в дереве только победитель лестницы и скрытые записи
+// (лосеры-видимые не рисуются). Типы items/energy без слотов — без оси.
 function prodNodeVisible(p) {
   if (!p.parent_id) return true; // типы не скрываются (§1.4 п.1)
   const t = state.producer_types.find(x => x.id === p.parent_id);
   if (!t || t.kind !== "goods") return true; // items/energy — как раньше
   if (!prodCatInSet(t, p.category_id)) return false; // категория вне набора уровня
-  if (prodCatHidden(t, p.category_id) && !prodShowHidden) return false; // скрыта, галки нет
-  return true;
+  const catHidden = prodCatHidden(t, p.category_id);
+  if (catHidden) return prodShowHidden; // скрыта: без галки ничего, с галкой — все
+  const winner = prodCatWinner(t, p.category_id);
+  return !!(winner && winner.id === p.id) || !!p.hidden;
 }
 
 // prodNodeId — id узла дерева для записи producer_types ("type:N"/"sub:N").
@@ -1976,14 +1970,15 @@ function prodNodeById(id) {
   return state.producer_types.find(p => p.id === Number(m[2]));
 }
 
-// buildProdTree — дерево построек (спека §2.1 + скрытые §2.1/§2.2): корень →
-// классы (фиксированные узлы UI, не записи БД) → типы (parent_id NULL, по
-// классам через kind) → подтипы + узлы-приглашения. Тип kind=goods раскрывает
+// buildProdTree — дерево построек (спека §5.2–§5.4): корень → классы
+// (фиксированные узлы UI, не записи БД) → типы (parent_id NULL, по классам
+// через kind) → подтипы + узлы-приглашения. Тип kind=goods раскрывает
 // категории ИЗ СЛОТОВ родителя (применяемые на уровне): вне набора — не
-// рисуется; скрытая категория — state 2 (без галки ничего, с галкой —
-// затемнённые карточки записей или заглушка); видимая — карточки записей +
-// приглашение, если записей нет. Типы items/energy — подтипы как раньше
-// (по prodVisible), без оси скрытости.
+// рисуется; скрытая категория (OR осей) — state 2 (без галки ничего, с
+// галкой — затемнённые карточки всех применяемых записей или заглушка);
+// видимая — лестница: победитель + затемнённые скрытые записи, приглашение,
+// если записей нет (лосеры-видимые не рисуются). Типы items/energy — подтипы
+// как раньше (по prodVisible), без лестницы и оси скрытости.
 function buildProdTree() {
   const classes = [
     {id: "class-goods", label: "Производители товаров", cls: "goods", children: []},
@@ -2000,39 +1995,38 @@ function buildProdTree() {
     const node = {id: prodNodeId(t), label: t.name, kind: "type", ref: t, children: []};
     cls.children.push(node);
     if (t.kind === "goods") {
-      // Слоты родителя (спека скрытых §2.1/§2.2): категории = применяемые
-      // слоты на текущем уровне; вне набора — категория не рисуется вовсе.
+      // Слоты родителя (спека §5.2–§5.4): категории = применяемые слоты на
+      // текущем уровне; вне набора — категория не рисуется вовсе.
       const applied = prodAppliedSlots(t);
       const catIDs = [...new Set(applied.map(s => s.category_id))];
       catIDs.forEach(catID => {
         const cat = state.categories.find(c => c.id === catID);
         if (!cat) return;
-        const recs = applied.filter(s => s.category_id === catID);
-        const most = prodMostSpecificSlot(recs);
-        const records = state.producer_types.filter(s => s.parent_id === t.id && s.category_id === catID && prodVisible(s));
-        if (most.hidden) {
-          // state 2 «скрыто»: без галки ничего; с галкой — затемнённые карточки
-          // записей категории; записей нет — карточка-заглушка категории (§2.2 п.2)
+        const recs = prodAppliedRecords(t, catID);
+        if (prodCatHidden(t, catID)) {
+          // state 2 «скрыто» (OR осей): без галки ничего; с галкой — затемнённые
+          // карточки всех применяемых записей; записей нет — заглушка (§5.4)
           if (!prodShowHidden) return;
-          if (!records.length) {
+          if (!recs.length) {
             node.children.push({id: "hstub:" + t.id + ":" + catID, label: cat.name, kind: "hiddenStub", ref: {type: t, catID}, children: []});
           } else {
-            records.forEach(s => node.children.push(subtypeNode(s, true)));
+            recs.forEach(s => node.children.push(subtypeNode(s, true)));
           }
         } else {
-          // видимо: карточки записей «своё + универсальное» + приглашение,
-          // если записей нет (§2.2 п.1/п.3)
-          if (!records.length) {
+          // видимо: лестница — победитель + затемнённые скрытые записи;
+          // записей нет — узел-приглашение «создать» (§5.4)
+          const draw = prodCatDrawRecords(t, catID);
+          if (!draw.length) {
             node.children.push({id: "invite:" + t.id + ":" + catID, label: cat.name, kind: "invite", ref: {type: t, cat}, children: []});
           } else {
-            records.forEach(s => node.children.push(subtypeNode(s, false)));
+            draw.forEach(d => node.children.push(subtypeNode(d.ref, d.hidden)));
           }
         }
       });
-      // записи подтипов с категорией ВНЕ набора уровня не рисуются (§2.1)
+      // записи подтипов с категорией ВНЕ набора уровня не рисуются (§5.2)
     } else {
-      // Типы items/energy: подтипы как раньше (по prodVisible), без оси
-      // скрытости (§3.3; у записей hidden снят).
+      // Типы items/energy: подтипы как раньше (по prodVisible), без лестницы
+      // и оси скрытости (у producer_types.hidden — только подтипы kind=goods).
       state.producer_types.filter(s => s.parent_id === t.id && prodVisible(s)).forEach(s => {
         node.children.push(subtypeNode(s, false));
       });
@@ -2133,7 +2127,7 @@ function renderProdTree() {
       const isHidden = !!n.hidden;
       // Скрытая запись (спека скрытых §3.4): затемнение ЦВЕТАМИ (fill/border/
       // имя/подпись), не globalAlpha — выделение #8cf остаётся ярким.
-      ctx.fillStyle = isFixed ? "#2a2a2a" : isHidden ? "#3a3a3a" : (n.ref && n.ref.status === "banned" ? "#3a3a3a" : "#3d3d3d");
+      ctx.fillStyle = isFixed ? "#2a2a2a" : isHidden ? "#3a3a3a" : "#3d3d3d";
       ctx.strokeStyle = sel ? "#8cf" : (isFixed ? "#666" : isHidden ? "#4a4a4a" : "#5a5a5a");
       ctx.lineWidth = sel ? 2 : 1;
       roundRect(x, y, CARD_W, CARD_H, 8);
@@ -2147,18 +2141,8 @@ function renderProdTree() {
         : n.kind === "subtype" ? (n.ref.category_name || kindLabel(n.ref.kind))
         : (n.id === "class-other" ? "задел" : "фиксированный класс");
       ctx.fillText(sub, x + 8, y + 32);
-      // бейджи (статус + «скрыта») — ряд на y+40 (паттерн статусных бейджей,
-      // measureText+10, radius 4)
+      // бейдж «скрыта» — ряд на y+40 (measureText+10, radius 4)
       let bx = x + 8;
-      if (n.ref && n.ref.status) {
-        const b = statusLabel(n.ref.status);
-        const w = ctx.measureText(b).width + 10;
-        ctx.fillStyle = statusColor(n.ref.status);
-        roundRect(bx, y + 40, w, 16, 4); ctx.fill();
-        ctx.fillStyle = "#fff";
-        ctx.fillText(b, bx + 5, y + 52);
-        bx += w + 4;
-      }
       if (isHidden) {
         const b = "скрыта";
         const w = ctx.measureText(b).width + 10;
@@ -2327,7 +2311,7 @@ function showProdTip(ev, id) {
   if (n) {
     const t = n.parent_id ? state.producer_types.find(x => x.id === n.parent_id) : null;
     const catHidden = !!(t && t.kind === "goods" && prodCatHidden(t, n.category_id));
-    tip.innerHTML = '<b>' + esc(n.name) + '</b><br>' + esc(kindLabel(n.kind)) + ' · ' + esc(statusLabel(n.status)) +
+    tip.innerHTML = '<b>' + esc(n.name) + '</b><br>' + esc(kindLabel(n.kind)) +
       (n.category_name ? ' · ' + esc(n.category_name) : '') + (n.parent_name ? ' · ← ' + esc(n.parent_name) : '') +
       (catHidden ? '<br><span style="color:#aaa">скрыта</span>' : '');
   } else if (id === "root") {
@@ -2362,7 +2346,7 @@ function renderItemSprav() {
   $("spravList").innerHTML = list.map(it =>
     '<div class="card" onclick="itemClick(' + it.id + ')" ondblclick="itemDblClick(' + it.id + ')">' +
     '<div class="nm">' + esc(it.name) + '<button class="info" onclick="event.stopPropagation();openItemPopup(' + it.id + ')" title="деталь (без смены выбора)">ⓘ</button></div>' +
-    '<div class="meta">' + esc(it.slot_type) + ' <span class="badge ' + badgeClass(it.status) + '">' + esc(statusLabel(it.status)) + '</span></div>' +
+    '<div class="meta">' + esc(it.slot_type) + '</div>' +
     '</div>'
   ).join("") || '<div class="empty-note">нет предметов</div>';
   $("spravList").scrollTop = sc;
@@ -2385,15 +2369,11 @@ function renderItemPopup() {
   html += '<div class="dname"><span class="rename" onclick="startItemRename()" title="переименовать">' + esc(it.name) + '</span></div>';
   html += '<div class="dmeta">тип слота: <select class="dcat" onchange="changeItemSlot(this.value)">' +
     ["чертёж", "модуль", "инструмент", "сертификат"].map(s => '<option value="' + s + '"' + (s === it.slot_type ? ' selected' : '') + '>' + esc(s) + '</option>').join("") +
-    '</select> · ' + esc(statusLabel(it.status)) + '</div>';
+    '</select></div>';
   html += '<div class="dmeta">unlocks (предмет-рецепт): <textarea id="itemUnlocks" rows="2">' + esc(jsonText(it.unlocks)) + '</textarea></div>';
   html += '<div class="dmeta">params: <textarea id="itemParams" rows="2">' + esc(jsonText(it.params)) + '</textarea></div>';
   html += '<div class="btns"><button class="gen" onclick="saveItemJSON()">сохранить JSON</button></div>';
   html += '<div class="btns">';
-  if (it.status !== "approved") html += '<button class="ok" onclick="setItemStatus(\'approved\')">Согласовать</button>';
-  if (it.status !== "excluded") html += '<button class="del" onclick="setItemStatus(\'excluded\')">Исключить</button>';
-  if (it.status !== "banned") html += '<button class="del" onclick="setItemStatus(\'banned\')">Забанить</button>';
-  if (it.status === "banned") html += '<button class="ok" onclick="setItemStatus(\'unban\')">Вернуть</button>';
   html += '<button class="del" onclick="askDeleteItem()">удалить</button>';
   html += '</div>';
   el.innerHTML = html;
@@ -2434,10 +2414,6 @@ async function saveItemJSON() {
   }
   const r = await api("PUT", "/studio/api/items/" + popupGoodId, body);
   if (r) fetchState();
-}
-async function setItemStatus(s) {
-  await api("POST", "/studio/api/items/" + popupGoodId + "/status", {status: s});
-  fetchState();
 }
 function askDeleteItem() {
   const it = state.items.find(x => x.id === popupGoodId);
@@ -2490,9 +2466,6 @@ function toggleAllTiers() {
 // сохранение выбора пилюль в localStorage (восстановление при старте)
 function saveTierSel() {
   localStorage.setItem("gs_tierSel", JSON.stringify([...tierSel]));
-}
-function badgeClass(s) {
-  return {approved:"b-approved", draft:"b-draft", excluded:"b-excluded", banned:"b-banned"}[s] || "";
 }
 // клик по карточке = выбор на канвасе + подграф + авто-центрирование; попап НЕ открывается (99a.3 §8.3)
 function spravClick(id) {
@@ -2666,13 +2639,12 @@ function focusNewGood() { $("spravNewName").focus(); } // «+ товар» в о
 
 // ---------- режимы канваса (99a.3 §10.1 / 99a.3-ui §3.4) ----------
 // В фокус-режиме скрыты: поиск по графу, фильтр категорий, «показать ресурсы»,
-// «забаненные», «обратные рёбра», «⟲ на верхний тир». В «всё дерево» — видны.
+// «обратные рёбра», «⟲ на верхний тир». В «всё дерево» — видны.
 function applyModeUI() {
   const full = fullTreeMode();
   $("search").style.display = full ? "" : "none";
   $("catFilter").style.display = full ? "" : "none";
   $("showResources").parentElement.style.display = full ? "" : "none";
-  $("showBanned").parentElement.style.display = full ? "" : "none";
   $("reverseEdges").parentElement.style.display = full ? "" : "none";
   $("btnTop").style.display = full ? "" : "none";
   $("modeBadge").textContent = full ? "всё дерево" : "фокус: вокруг выбранного";
@@ -2767,10 +2739,6 @@ $("spravCat").addEventListener("change", () => {
   renderSprav();
 });
 $("search").addEventListener("input", renderAll);
-$("showBanned").addEventListener("change", () => {
-  localStorage.setItem("gs_showBanned", $("showBanned").checked ? "1" : "0");
-  renderAll();
-});
 $("reverseEdges").addEventListener("change", () => {
   localStorage.setItem("gs_reverseEdges", $("reverseEdges").checked ? "1" : "0");
   renderGraph();
@@ -2800,10 +2768,6 @@ $("fUsed").addEventListener("change", () => {
 });
 $("fUnused").addEventListener("change", () => {
   localStorage.setItem("gs_spravUnused", $("fUnused").checked ? "1" : "0");
-  renderSprav();
-});
-$("fBanned").addEventListener("change", () => {
-  localStorage.setItem("gs_spravBanned", $("fBanned").checked ? "1" : "0");
   renderSprav();
 });
 $("btnCatOpen").addEventListener("click", openCatPopup);
@@ -2867,14 +2831,12 @@ window.addEventListener("mousemove", ev => {
 });
 
 // localStorage: переключатели применяются при старте
-$("showBanned").checked = localStorage.getItem("gs_showBanned") === "1";
 $("showResources").checked = localStorage.getItem("gs_showResources") === "1";
 $("reverseEdges").checked = localStorage.getItem("gs_reverseEdges") === "1";
 $("fullTree").checked = localStorage.getItem("gs_fullTree") === "1";
 $("prodShowHidden").checked = prodShowHidden;
 // фильтры справочника восстанавливаются (создатель 2026-09-19: «при перезагрузке
 // страницы не снимать выбранные фильтры»); renderSprav соберёт пилюли с .on
-$("fBanned").checked = localStorage.getItem("gs_spravBanned") === "1";
 $("fUsed").checked = localStorage.getItem("gs_spravUsed") === "1";
 $("fUnused").checked = localStorage.getItem("gs_spravUnused") === "1";
 $("spravSearch").value = localStorage.getItem("gs_spravSearch") || "";

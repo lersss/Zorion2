@@ -9,11 +9,11 @@ import (
 
 // BuildPrompt собирает промпт «заполнить комплектующие» (спека 99a.1 §7.2,
 // уточнение создателя 2026-09-18): товар N + уже заполненные слоты
-// исключить + список бана/исключённых + известные ресурсы + категории.
+// исключить + известные ресурсы + категории.
 // allowResourceSlots — 1-базовые позиции пустых слотов (по порядку пустых),
 // для которых разрешены ресурсы (99a Пакет 4, п.8): с галкой ИИ может
 // предложить ресурс, без галки — только товары.
-func BuildPrompt(g *model.Good, categoryName string, tier int, filled []string, banned []string, resources []string, categories []string, k int, allowResourceSlots []int) string {
+func BuildPrompt(g *model.Good, categoryName string, tier int, filled []string, resources []string, categories []string, k int, allowResourceSlots []int) string {
 	var sb strings.Builder
 	sb.WriteString("Система: ты — генератор производственных цепочек космической экономической игры.\n")
 	sb.WriteString("Товар производится из составляющих (товаров или ресурсов). Отвечай строго JSON.\n\n")
@@ -21,9 +21,6 @@ func BuildPrompt(g *model.Good, categoryName string, tier int, filled []string, 
 	fmt.Fprintf(&sb, "Товар: %s (категория: %s, тир: %d).\n", g.Name, categoryName, tier)
 	sb.WriteString("Уже заполненные слоты (не предлагай их): ")
 	sb.WriteString(joinOrDash(filled))
-	sb.WriteString(".\n")
-	sb.WriteString("Забаненные и исключённые (не предлагай): ")
-	sb.WriteString(joinOrDash(banned))
 	sb.WriteString(".\n")
 	sb.WriteString("Известные ресурсы (если составляющая — существующий ресурс, используй его точное имя):\n")
 	sb.WriteString(joinLines(resources))

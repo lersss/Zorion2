@@ -24,8 +24,8 @@ const SeedMarkerKey = "goods_catalog_seed"
 // goods_catalog_seed в generation_config) в одной транзакции сеет
 // 6 ресурсных категорий (is_system, code из resource.AllCategories),
 // 13 товарных категорий (model.DefaultCategories) и 131 ресурс
-// (LayerCatalog 20 + RealCatalog 111, status=approved, source=palette,
-// props JSONB). Повторные старты — пропуск (маркер): удалённый ресурс
+// (LayerCatalog 20 + RealCatalog 111, source=palette, props JSONB).
+// Повторные старты — пропуск (маркер): удалённый ресурс
 // не возвращается, правки студии Go-каталогом не перезаписываются (С1).
 // Ошибка — возвращается; вызывающий (cmd/server/main.go) делает log.Fatal.
 func Seed(db *sql.DB) error {
@@ -113,11 +113,11 @@ func Seed(db *sql.DB) error {
 	return nil
 }
 
-// insertResource — INSERT ресурса (approved/palette, без слотов).
+// insertResource — INSERT ресурса (source=palette, без слотов).
 func insertResource(tx *sql.Tx, name string, categoryID int64, props []byte) error {
 	if _, err := tx.Exec(
-		`INSERT INTO goods (name, name_norm, category_id, kind, status, source, props)
-		 VALUES ($1, $2, $3, 'resource', 'approved', 'palette', $4)`,
+		`INSERT INTO goods (name, name_norm, category_id, kind, source, props)
+		 VALUES ($1, $2, $3, 'resource', 'palette', $4)`,
 		name, graph.NormalizeName(name), categoryID, props,
 	); err != nil {
 		return fmt.Errorf("seed: ресурс %s: %w", name, err)

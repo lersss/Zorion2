@@ -160,8 +160,8 @@ func SeedProducers(db *sql.DB) error {
 		}
 		var id int64
 		err := tx.QueryRow(
-			`INSERT INTO producer_types (name, name_norm, kind, category_id, race_family, parent_id, race, output, input, params, status)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'approved')
+			`INSERT INTO producer_types (name, name_norm, kind, category_id, race_family, parent_id, race, output, input, params)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 			 ON CONFLICT (name_norm) DO NOTHING RETURNING id`,
 			p.Name, graph.NormalizeName(p.Name), p.Kind, catID, nullStr(p.RaceFamily),
 			parentID, nil, p.Output, p.Input, p.Params,
@@ -192,8 +192,8 @@ func SeedProducers(db *sql.DB) error {
 	for _, it := range seedItems {
 		var id int64
 		if err := tx.QueryRow(
-			`INSERT INTO items (name, name_norm, slot_type, status, unlocks, params)
-			 VALUES ($1, $2, $3, 'approved', $4, $5) RETURNING id`,
+			`INSERT INTO items (name, name_norm, slot_type, unlocks, params)
+			 VALUES ($1, $2, $3, $4, $5) RETURNING id`,
 			it.Name, graph.NormalizeName(it.Name), it.SlotType, nullStr(it.Unlocks), nullStr(it.Params),
 		).Scan(&id); err != nil {
 			return fmt.Errorf("seed producers: предмет %s: %w", it.Name, err)

@@ -1,19 +1,8 @@
 // Package model — сущности студии товаров (спека 99a.1 §5): категории,
-// товары, слоты рецептов, статусы. Состояние — один state.json.
+// товары, слоты рецептов. Состояние — один state.json.
 package model
 
 import "time"
-
-// Status — статус товара (ровно один, спека 99a.1 §5.2).
-type Status string
-
-const (
-	StatusDraft    Status = "draft"    // черновик (по умолчанию для новых)
-	StatusApproved Status = "approved" // согласовано (контент, идёт в экспорт)
-	StatusExcluded Status = "excluded" // исключено (не контент, возвращаемо)
-	StatusBanned   Status = "banned"   // бан (ИИ больше не предлагает; возврат в один клик)
-	StatusResource Status = "resource" // импортированный ресурс (read-only)
-)
 
 // Kind — вид узла графа.
 type Kind string
@@ -62,8 +51,6 @@ type Good struct {
 	ID          string       `json:"id"`
 	Name        string       `json:"name"`
 	Category    string       `json:"category"`
-	Status      Status       `json:"status"`
-	BannedAt    *string      `json:"banned_at"`
 	Kind        Kind         `json:"kind"`
 	Source      Source       `json:"source"`
 	Recipe      []Slot       `json:"recipe"`
@@ -74,9 +61,9 @@ type Good struct {
 	// Старые state.json без поля = null — миграции не нужны (zero value).
 	TierOverride *int `json:"tier_override,omitempty"`
 	// Volume/Weight — данные каталога (спека 2026-09-20-фабрики §3.1,
-	// решение 3b.6.4): NULL у draft; approved-товар без веса/объёма не
-	// проходит валидацию (NULL-каталог запрещён). Механика грузов/трюма —
-	// будущая фича, поля — данные каталога.
+	// решение 3b.6.4): значение есть всегда (Р2, 2026-09-21) — дефолт 1/1,
+	// правится вручную. Механика грузов/трюма — будущая фича, поля — данные
+	// каталога.
 	Volume *float64 `json:"volume,omitempty"`
 	Weight *float64 `json:"weight,omitempty"`
 }

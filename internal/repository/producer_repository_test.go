@@ -32,7 +32,7 @@ func TestCreateProducerType(t *testing.T) {
 		WithArgs(int64(3)).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	// слот-инвариант С4: применяемый слот родителя (parent, category, уровень)
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_slots WHERE parent_id = \$1 AND category_id = \$2 AND \(race_family IS NULL OR race_family = \$3 OR race = \$4\)\)`).
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_slots WHERE parent_id = \$1 AND category_id = \$2 AND \(race_family IS NULL OR \(race_family = \$3 AND race IS NULL\) OR race = \$4\)\)`).
 		WithArgs(int64(1), int64(3), nil, nil).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_types WHERE name_norm = \$1\)`).
@@ -42,10 +42,10 @@ func TestCreateProducerType(t *testing.T) {
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_types WHERE parent_id = \$1 AND category_id IS NOT DISTINCT FROM \$2 AND race_family IS NOT DISTINCT FROM \$3 AND race IS NOT DISTINCT FROM \$4\)`).
 		WithArgs(int64(1), int64(3), nil, nil).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-	mock.ExpectQuery(`INSERT INTO producer_types \(name, name_norm, kind, category_id, race_family, parent_id, race, status\) VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, 'draft'\) RETURNING id, name, kind, category_id, race_family, parent_id, race, output, input, params, status, created_at`).
+	mock.ExpectQuery(`INSERT INTO producer_types \(name, name_norm, kind, category_id, race_family, parent_id, race\) VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7\) RETURNING id, name, kind, category_id, race_family, parent_id, race, output, input, params, hidden, created_at`).
 		WithArgs("Фабрика продовольствия", "фабрика продовольствия", "goods", int64(3), nil, int64(1), nil).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "parent_id", "race", "output", "input", "params", "status", "created_at"}).
-			AddRow(int64(2), "Фабрика продовольствия", "goods", int64(3), nil, int64(1), nil, nil, nil, nil, "draft", time.Now()))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "parent_id", "race", "output", "input", "params", "hidden", "created_at"}).
+			AddRow(int64(2), "Фабрика продовольствия", "goods", int64(3), nil, int64(1), nil, nil, nil, nil, false, time.Now()))
 	mock.ExpectCommit()
 
 	catID := int64(3)
@@ -57,6 +57,7 @@ func TestCreateProducerType(t *testing.T) {
 	require.True(t, p.CategoryID.Valid)
 	require.True(t, p.ParentID.Valid)
 	require.Equal(t, int64(1), p.ParentID.Int64)
+	require.False(t, p.Hidden, "новая запись-фабрика живая и видимая (hidden из дефолта)")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -125,7 +126,7 @@ func TestCreateProducerTypeDuplicate(t *testing.T) {
 		WithArgs(int64(3)).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	// слот-инвариант С4: применяемый слот родителя
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_slots WHERE parent_id = \$1 AND category_id = \$2 AND \(race_family IS NULL OR race_family = \$3 OR race = \$4\)\)`).
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_slots WHERE parent_id = \$1 AND category_id = \$2 AND \(race_family IS NULL OR \(race_family = \$3 AND race IS NULL\) OR race = \$4\)\)`).
 		WithArgs(int64(1), int64(3), nil, nil).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_types WHERE name_norm = \$1\)`).
@@ -156,7 +157,7 @@ func TestCreateProducerTypeSubtypeDup(t *testing.T) {
 		WithArgs(int64(3)).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	// слот-инвариант С4: применяемый слот родителя
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_slots WHERE parent_id = \$1 AND category_id = \$2 AND \(race_family IS NULL OR race_family = \$3 OR race = \$4\)\)`).
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_slots WHERE parent_id = \$1 AND category_id = \$2 AND \(race_family IS NULL OR \(race_family = \$3 AND race IS NULL\) OR race = \$4\)\)`).
 		WithArgs(int64(1), int64(3), nil, nil).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_types WHERE name_norm = \$1\)`).
@@ -421,7 +422,7 @@ func TestUpdateProducerTypeSubtypeTupleConflict(t *testing.T) {
 			AddRow("goods", int64(2), int64(7), nil, nil))
 	// слот-инвариант С4: применяемый слот родителя по ИТОГОВОМУ уровню
 	// (parent=2, cat=8, fam nil, race nil) — проверяется до EXISTS категории
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_slots WHERE parent_id = \$1 AND category_id = \$2 AND \(race_family IS NULL OR race_family = \$3 OR race = \$4\)\)`).
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_slots WHERE parent_id = \$1 AND category_id = \$2 AND \(race_family IS NULL OR \(race_family = \$3 AND race IS NULL\) OR race = \$4\)\)`).
 		WithArgs(int64(2), int64(8), nil, nil).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	// категория существует (kind=goods, подтип)
@@ -487,8 +488,9 @@ func TestDeleteProducerTypeHasSubtypes(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// TestSetProducerTypeStatus — смена статуса типа.
-func TestSetProducerTypeStatus(t *testing.T) {
+// TestSetProducerHidden — обратимое скрытие записи-фабрики: hidden=true,
+// затем hidden=false (единственный носитель скрытия, спека 2026-09-21 §1.2).
+func TestSetProducerHidden(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
 	defer db.Close()
@@ -497,13 +499,29 @@ func TestSetProducerTypeStatus(t *testing.T) {
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_types WHERE id = \$1 FOR UPDATE\)`).
 		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	mock.ExpectExec(`UPDATE producer_types SET status = \$1 WHERE id = \$2`).
-		WithArgs("approved", int64(1)).
+	mock.ExpectExec(`UPDATE producer_types SET hidden = \$1 WHERE id = \$2`).
+		WithArgs(true, int64(1)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	require.NoError(t, NewGoodsRepository(db).SetProducerTypeStatus(1, "approved"))
+	require.NoError(t, NewGoodsRepository(db).SetProducerHidden(1, true))
 	require.NoError(t, mock.ExpectationsWereMet())
+
+	// обратимость: показать обратно
+	db2, mock2, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db2.Close()
+	expectMutationBegin(mock2)
+	mock2.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_types WHERE id = \$1 FOR UPDATE\)`).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock2.ExpectExec(`UPDATE producer_types SET hidden = \$1 WHERE id = \$2`).
+		WithArgs(false, int64(1)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock2.ExpectCommit()
+
+	require.NoError(t, NewGoodsRepository(db2).SetProducerHidden(1, false))
+	require.NoError(t, mock2.ExpectationsWereMet())
 }
 
 // --- связи производитель ↔ предмет ---
@@ -582,10 +600,10 @@ func TestCreateItem(t *testing.T) {
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM items WHERE name_norm = \$1\)`).
 		WithArgs("чертёж").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-	mock.ExpectQuery(`INSERT INTO items \(name, name_norm, slot_type, status\) VALUES \(\$1, \$2, \$3, 'draft'\) RETURNING id, name, slot_type, status, unlocks, params, created_at`).
+	mock.ExpectQuery(`INSERT INTO items \(name, name_norm, slot_type\) VALUES \(\$1, \$2, \$3\) RETURNING id, name, slot_type, unlocks, params, created_at`).
 		WithArgs("Чертёж", "чертёж", "чертёж").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "slot_type", "status", "unlocks", "params", "created_at"}).
-			AddRow(int64(1), "Чертёж", "чертёж", "draft", nil, nil, time.Now()))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "slot_type", "unlocks", "params", "created_at"}).
+			AddRow(int64(1), "Чертёж", "чертёж", nil, nil, time.Now()))
 	mock.ExpectCommit()
 
 	it, err := NewGoodsRepository(db).CreateItem("Чертёж", "чертёж")
@@ -660,25 +678,6 @@ func TestDeleteItem(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// TestSetItemStatus — смена статуса предмета.
-func TestSetItemStatus(t *testing.T) {
-	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
-	require.NoError(t, err)
-	defer db.Close()
-
-	expectMutationBegin(mock)
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM items WHERE id = \$1 FOR UPDATE\)`).
-		WithArgs(int64(1)).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	mock.ExpectExec(`UPDATE items SET status = 'banned' WHERE id = \$1`).
-		WithArgs(int64(1)).
-		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectCommit()
-
-	require.NoError(t, NewGoodsRepository(db).SetItemStatus(1, "banned"))
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
 // --- снимок ---
 
 // TestSnapshotWithProducers — снимок несёт типы производителей, предметы и
@@ -692,16 +691,16 @@ func TestSnapshotWithProducers(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, name, kind, code, is_system FROM categories ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "code", "is_system"}).
 			AddRow(int64(1), "Корабли", "good", nil, false))
-	mock.ExpectQuery(`SELECT id, name, category_id, kind, status, source, tier_override, banned_at, created_at, volume, weight FROM goods ORDER BY id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "status", "source", "tier_override", "banned_at", "created_at", "volume", "weight"}))
+	mock.ExpectQuery(`SELECT id, name, category_id, kind, source, tier_override, created_at, volume, weight FROM goods ORDER BY id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "tier_override", "created_at", "volume", "weight"}))
 	mock.ExpectQuery(`SELECT good_id, pos, component_id, quantity, reason, allow_resource FROM goods_slots ORDER BY good_id, pos`).
 		WillReturnRows(sqlmock.NewRows([]string{"good_id", "pos", "component_id", "quantity", "reason", "allow_resource"}))
-	mock.ExpectQuery(`SELECT id, name, kind, category_id, race_family, parent_id, race, output, input, params, status, created_at FROM producer_types ORDER BY id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "parent_id", "race", "output", "input", "params", "status", "created_at"}).
-			AddRow(int64(1), "Лаборатория исследовательская", "items", nil, nil, nil, nil, []byte(`{"items":["Чертёж"]}`), []byte(`{}`), []byte(`{}`), "approved", time.Now()))
-	mock.ExpectQuery(`SELECT id, name, slot_type, status, unlocks, params, created_at FROM items ORDER BY id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "slot_type", "status", "unlocks", "params", "created_at"}).
-			AddRow(int64(1), "Чертёж", "чертёж", "approved", []byte(`[]`), []byte(`{}`), time.Now()))
+	mock.ExpectQuery(`SELECT id, name, kind, category_id, race_family, parent_id, race, output, input, params, hidden, created_at FROM producer_types ORDER BY id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "parent_id", "race", "output", "input", "params", "hidden", "created_at"}).
+			AddRow(int64(1), "Лаборатория исследовательская", "items", nil, nil, nil, nil, []byte(`{"items":["Чертёж"]}`), []byte(`{}`), []byte(`{}`), false, time.Now()))
+	mock.ExpectQuery(`SELECT id, name, slot_type, unlocks, params, created_at FROM items ORDER BY id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "slot_type", "unlocks", "params", "created_at"}).
+			AddRow(int64(1), "Чертёж", "чертёж", []byte(`[]`), []byte(`{}`), time.Now()))
 	mock.ExpectQuery(`SELECT producer_type_id, item_id, requirements FROM producer_items ORDER BY producer_type_id, item_id`).
 		WillReturnRows(sqlmock.NewRows([]string{"producer_type_id", "item_id", "requirements"}).
 			AddRow(int64(1), int64(1), nil))
@@ -906,7 +905,7 @@ func TestCreateProducerTypeNoSlot(t *testing.T) {
 		WithArgs(int64(3)).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	// слот не настроен — 400
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_slots WHERE parent_id = \$1 AND category_id = \$2 AND \(race_family IS NULL OR race_family = \$3 OR race = \$4\)\)`).
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_slots WHERE parent_id = \$1 AND category_id = \$2 AND \(race_family IS NULL OR \(race_family = \$3 AND race IS NULL\) OR race = \$4\)\)`).
 		WithArgs(int64(1), int64(3), nil, nil).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 
@@ -935,7 +934,7 @@ func TestCreateProducerTypeFamilySlotOK(t *testing.T) {
 		WithArgs(int64(3)).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	// слот с race_family=F4 применим к записи семейства F4
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_slots WHERE parent_id = \$1 AND category_id = \$2 AND \(race_family IS NULL OR race_family = \$3 OR race = \$4\)\)`).
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_slots WHERE parent_id = \$1 AND category_id = \$2 AND \(race_family IS NULL OR \(race_family = \$3 AND race IS NULL\) OR race = \$4\)\)`).
 		WithArgs(int64(1), int64(3), "F4", nil).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_types WHERE name_norm = \$1\)`).
@@ -944,10 +943,10 @@ func TestCreateProducerTypeFamilySlotOK(t *testing.T) {
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_types WHERE parent_id = \$1 AND category_id IS NOT DISTINCT FROM \$2 AND race_family IS NOT DISTINCT FROM \$3 AND race IS NOT DISTINCT FROM \$4\)`).
 		WithArgs(int64(1), int64(3), "F4", nil).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-	mock.ExpectQuery(`INSERT INTO producer_types \(name, name_norm, kind, category_id, race_family, parent_id, race, status\) VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, 'draft'\) RETURNING id, name, kind, category_id, race_family, parent_id, race, output, input, params, status, created_at`).
+	mock.ExpectQuery(`INSERT INTO producer_types \(name, name_norm, kind, category_id, race_family, parent_id, race\) VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7\) RETURNING id, name, kind, category_id, race_family, parent_id, race, output, input, params, hidden, created_at`).
 		WithArgs("Фабрика топлива F4", "фабрика топлива f4", "goods", int64(3), "F4", int64(1), nil).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "parent_id", "race", "output", "input", "params", "status", "created_at"}).
-			AddRow(int64(3), "Фабрика топлива F4", "goods", int64(3), "F4", int64(1), nil, nil, nil, nil, "draft", time.Now()))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "parent_id", "race", "output", "input", "params", "hidden", "created_at"}).
+			AddRow(int64(3), "Фабрика топлива F4", "goods", int64(3), "F4", int64(1), nil, nil, nil, nil, false, time.Now()))
 	mock.ExpectCommit()
 
 	catID := int64(3)
@@ -956,6 +955,38 @@ func TestCreateProducerTypeFamilySlotOK(t *testing.T) {
 	p, err := NewGoodsRepository(db).CreateProducerType("Фабрика топлива F4", "goods", &catID, &parentID, &fam, nil)
 	require.NoError(t, err)
 	require.Equal(t, int64(3), p.ID)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestCreateProducerTypeFamilyRecordRacialSlotOnly — С4-строгость (спека
+// 2026-09-21 §5.6): семейная запись (race_family=F4, race NULL) требует
+// применяемого слота; расовый слот семейства (F4, race=humans) к ней НЕ
+// применяется (уровень семейства не видит расовых слотов) → 400.
+func TestCreateProducerTypeFamilyRecordRacialSlotOnly(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectMutationBegin(mock)
+	mock.ExpectQuery(`SELECT kind, parent_id IS NULL FROM producer_types WHERE id = \$1`).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"kind", "parent_id_is_null"}).AddRow("goods", true))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM categories WHERE id = \$1\)`).
+		WithArgs(int64(3)).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	// применяемого слота для семейной записи нет (расовый слот не считается)
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_slots WHERE parent_id = \$1 AND category_id = \$2 AND \(race_family IS NULL OR \(race_family = \$3 AND race IS NULL\) OR race = \$4\)\)`).
+		WithArgs(int64(1), int64(3), "F4", nil).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	catID := int64(3)
+	parentID := int64(1)
+	fam := "F4"
+	_, err = NewGoodsRepository(db).CreateProducerType("Фабрика топлива F4", "goods", &catID, &parentID, &fam, nil)
+	var ce *ErrCatalog
+	require.True(t, errors.As(err, &ce))
+	require.Equal(t, 400, ce.Status)
+	require.Contains(t, ce.Msg, "категория не настроена у родителя на этом уровне")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -974,7 +1005,7 @@ func TestUpdateProducerTypeFamilyNoSlot(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"kind", "parent_id", "category_id", "race_family", "race"}).
 			AddRow("goods", int64(2), int64(7), nil, nil))
 	// C4 по итоговому уровню (fam="F1"): слота нет → 400
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_slots WHERE parent_id = \$1 AND category_id = \$2 AND \(race_family IS NULL OR race_family = \$3 OR race = \$4\)\)`).
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_slots WHERE parent_id = \$1 AND category_id = \$2 AND \(race_family IS NULL OR \(race_family = \$3 AND race IS NULL\) OR race = \$4\)\)`).
 		WithArgs(int64(2), int64(7), "F1", nil).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 
@@ -1001,7 +1032,7 @@ func TestUpdateProducerTypeFamilyUniversalSlotOK(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"kind", "parent_id", "category_id", "race_family", "race"}).
 			AddRow("goods", int64(2), int64(7), nil, nil))
 	// C4: универсальный слот (race_family IS NULL) покрывает итоговый уровень F1
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_slots WHERE parent_id = \$1 AND category_id = \$2 AND \(race_family IS NULL OR race_family = \$3 OR race = \$4\)\)`).
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_slots WHERE parent_id = \$1 AND category_id = \$2 AND \(race_family IS NULL OR \(race_family = \$3 AND race IS NULL\) OR race = \$4\)\)`).
 		WithArgs(int64(2), int64(7), "F1", nil).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	mock.ExpectExec(`UPDATE producer_types SET race_family = \$1 WHERE id = \$2`).

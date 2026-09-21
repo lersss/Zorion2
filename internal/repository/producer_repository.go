@@ -30,8 +30,10 @@ type ProducerTypeRow struct {
 	Output     []byte // JSONB
 	Input      []byte // JSONB
 	Params     []byte // JSONB
-	Status     string
-	CreatedAt  time.Time
+	// Hidden — скрытость ЗАПИСИ-фабрики (единственный носитель скрытия,
+	// спека 2026-09-21 §2.1, К1); вторая ось — producer_slots.hidden.
+	Hidden    bool
+	CreatedAt time.Time
 }
 
 // ProducerSlotRow — слот родителя (спека 2026-09-21-скрытые §1.1): «родитель
@@ -52,7 +54,6 @@ type ItemRow struct {
 	ID        int64
 	Name      string
 	SlotType  string
-	Status    string
 	Unlocks   []byte // JSONB
 	Params    []byte // JSONB
 	CreatedAt time.Time
@@ -131,17 +132,19 @@ func subtypeTupleChanged(curParent, curCategory sql.NullInt64, curFamily, curRac
 }
 
 // producerSlotApplied — существует ли применяемый к уровню расовости записи
-// слот родителя (спека скрытых §1.4 п.1/§2.1): слот с race_family IS NULL
-// (база, покрывает все уровни), или race_family = семейства записи, или
-// race = расы записи. Наследуемая база засчитывается; скрытость слота
-// ортогональна (не блокирует — карточка завода прячется, завод существует).
-// family/race — sql.NullString (типизированный NULL, баг B2).
+// слот родителя (спека 2026-09-21 §5.1): слот с race_family IS NULL (база,
+// покрывает все уровни), или (race_family = семейства записи И race IS NULL),
+// или race = расы записи. Уровень семейства НЕ видит расовых слотов —
+// применяемость едина для записей/слотов/типов (Р5). Наследуемая база
+// засчитывается; скрытость слота ортогональна (не блокирует — карточка
+// завода прячется, завод существует). family/race — sql.NullString
+// (типизированный NULL, баг B2).
 func producerSlotApplied(q queryer, parentID, categoryID int64, family, race sql.NullString) (bool, error) {
 	var ok bool
 	err := q.QueryRow(
 		`SELECT EXISTS(SELECT 1 FROM producer_slots
 		 WHERE parent_id = $1 AND category_id = $2
-		   AND (race_family IS NULL OR race_family = $3 OR race = $4))`,
+		   AND (race_family IS NULL OR (race_family = $3 AND race IS NULL) OR race = $4))`,
 		parentID, categoryID, family, race,
 	).Scan(&ok)
 	return ok, err
@@ -152,7 +155,7 @@ func producerSlotApplied(q queryer, parentID, categoryID int64, family, race sql
 // loadProducerTypes — все типы производителей каталога.
 func loadProducerTypes(q queryer) ([]ProducerTypeRow, error) {
 	rows, err := q.Query(
-		`SELECT id, name, kind, category_id, race_family, parent_id, race, output, input, params, status, created_at
+		`SELECT id, name, kind, category_id, race_family, parent_id, race, output, input, params, hidden, created_at
 		 FROM producer_types ORDER BY id`)
 	if err != nil {
 		return nil, err
@@ -163,7 +166,7 @@ func loadProducerTypes(q queryer) ([]ProducerTypeRow, error) {
 	for rows.Next() {
 		var p ProducerTypeRow
 		if err := rows.Scan(&p.ID, &p.Name, &p.Kind, &p.CategoryID, &p.RaceFamily,
-			&p.ParentID, &p.Race, &p.Output, &p.Input, &p.Params, &p.Status, &p.CreatedAt); err != nil {
+			&p.ParentID, &p.Race, &p.Output, &p.Input, &p.Params, &p.Hidden, &p.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
@@ -195,7 +198,7 @@ func loadProducerSlots(q queryer) ([]ProducerSlotRow, error) {
 // loadItems — все предметы каталога.
 func loadItems(q queryer) ([]ItemRow, error) {
 	rows, err := q.Query(
-		`SELECT id, name, slot_type, status, unlocks, params, created_at FROM items ORDER BY id`)
+		`SELECT id, name, slot_type, unlocks, params, created_at FROM items ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -204,7 +207,7 @@ func loadItems(q queryer) ([]ItemRow, error) {
 	var out []ItemRow
 	for rows.Next() {
 		var it ItemRow
-		if err := rows.Scan(&it.ID, &it.Name, &it.SlotType, &it.Status, &it.Unlocks, &it.Params, &it.CreatedAt); err != nil {
+		if err := rows.Scan(&it.ID, &it.Name, &it.SlotType, &it.Unlocks, &it.Params, &it.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, it)
@@ -343,10 +346,10 @@ func (r *GoodsRepository) CreateProducerType(name, kind string, categoryID *int6
 
 	var p ProducerTypeRow
 	if err := tx.QueryRow(
-		`INSERT INTO producer_types (name, name_norm, kind, category_id, race_family, parent_id, race, status)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, 'draft') RETURNING id, name, kind, category_id, race_family, parent_id, race, output, input, params, status, created_at`,
+		`INSERT INTO producer_types (name, name_norm, kind, category_id, race_family, parent_id, race)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, name, kind, category_id, race_family, parent_id, race, output, input, params, hidden, created_at`,
 		name, graph.NormalizeName(name), kind, categoryID, nullStrPtr(raceFamily), parentID, nullStrPtr(race),
-	).Scan(&p.ID, &p.Name, &p.Kind, &p.CategoryID, &p.RaceFamily, &p.ParentID, &p.Race, &p.Output, &p.Input, &p.Params, &p.Status, &p.CreatedAt); err != nil {
+	).Scan(&p.ID, &p.Name, &p.Kind, &p.CategoryID, &p.RaceFamily, &p.ParentID, &p.Race, &p.Output, &p.Input, &p.Params, &p.Hidden, &p.CreatedAt); err != nil {
 		if isUniqueViolation(err) {
 			return ProducerTypeRow{}, errCatalog(409, "тип с таким именем уже есть")
 		}
@@ -737,8 +740,10 @@ func (r *GoodsRepository) DeleteProducerSlot(id int64) error {
 	return tx.Commit()
 }
 
-// SetProducerTypeStatus — смена статуса типа (draft/approved/excluded/banned/unban).
-func (r *GoodsRepository) SetProducerTypeStatus(id int64, status string) error {
+// SetProducerHidden — обратимое скрытие ЗАПИСИ-фабрики (POST
+// /studio/api/producers/{id}/hidden {hidden}); единственный носитель скрытия
+// (спека 2026-09-21 §1.2, К1). Имя и связи записи не теряются.
+func (r *GoodsRepository) SetProducerHidden(id int64, hidden bool) error {
 	tx, err := r.beginMutation()
 	if err != nil {
 		return err
@@ -754,17 +759,7 @@ func (r *GoodsRepository) SetProducerTypeStatus(id int64, status string) error {
 	if !exists {
 		return errCatalog(404, "тип не найден")
 	}
-	switch status {
-	case "banned":
-		_, err = tx.Exec(`UPDATE producer_types SET status = 'banned' WHERE id = $1`, id)
-	case "unban":
-		_, err = tx.Exec(`UPDATE producer_types SET status = 'draft' WHERE id = $1`, id)
-	case "draft", "approved", "excluded":
-		_, err = tx.Exec(`UPDATE producer_types SET status = $1 WHERE id = $2`, status, id)
-	default:
-		return errCatalog(400, "неизвестный статус")
-	}
-	if err != nil {
+	if _, err := tx.Exec(`UPDATE producer_types SET hidden = $1 WHERE id = $2`, hidden, id); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -883,10 +878,10 @@ func (r *GoodsRepository) CreateItem(name, slotType string) (ItemRow, error) {
 
 	var it ItemRow
 	if err := tx.QueryRow(
-		`INSERT INTO items (name, name_norm, slot_type, status)
-		 VALUES ($1, $2, $3, 'draft') RETURNING id, name, slot_type, status, unlocks, params, created_at`,
+		`INSERT INTO items (name, name_norm, slot_type)
+		 VALUES ($1, $2, $3) RETURNING id, name, slot_type, unlocks, params, created_at`,
 		name, graph.NormalizeName(name), slotType,
-	).Scan(&it.ID, &it.Name, &it.SlotType, &it.Status, &it.Unlocks, &it.Params, &it.CreatedAt); err != nil {
+	).Scan(&it.ID, &it.Name, &it.SlotType, &it.Unlocks, &it.Params, &it.CreatedAt); err != nil {
 		if isUniqueViolation(err) {
 			return ItemRow{}, errCatalog(409, "предмет с таким именем уже есть")
 		}
@@ -978,35 +973,3 @@ func (r *GoodsRepository) DeleteItem(id int64) error {
 	return tx.Commit()
 }
 
-// SetItemStatus — смена статуса предмета (draft/approved/excluded/banned/unban).
-func (r *GoodsRepository) SetItemStatus(id int64, status string) error {
-	tx, err := r.beginMutation()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	var exists bool
-	if err := tx.QueryRow(
-		`SELECT EXISTS(SELECT 1 FROM items WHERE id = $1 FOR UPDATE)`, id,
-	).Scan(&exists); err != nil {
-		return err
-	}
-	if !exists {
-		return errCatalog(404, "предмет не найден")
-	}
-	switch status {
-	case "banned":
-		_, err = tx.Exec(`UPDATE items SET status = 'banned' WHERE id = $1`, id)
-	case "unban":
-		_, err = tx.Exec(`UPDATE items SET status = 'draft' WHERE id = $1`, id)
-	case "draft", "approved", "excluded":
-		_, err = tx.Exec(`UPDATE items SET status = $1 WHERE id = $2`, status, id)
-	default:
-		return errCatalog(400, "неизвестный статус")
-	}
-	if err != nil {
-		return err
-	}
-	return tx.Commit()
-}

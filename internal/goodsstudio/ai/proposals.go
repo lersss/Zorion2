@@ -40,8 +40,8 @@ type ProposalItem struct {
 // отбрасываются («больше запрошенного»), меньше — информационно; резолв
 // имени (NameIndex): найдено → kind=link, не найдено → kind=new (категория:
 // resolveCategoryID → category_id/category_valid); дропы на фазе разбора
-// (не показываются в попапе, строки в отчёт): бан/исключённое, ресурс в
-// слот без галки, цикл для link (новый товар — лист, цикла дать не может).
+// (не показываются в попапе, строки в отчёт): ресурс в слот без галки,
+// цикл для link (новый товар — лист, цикла дать не может).
 // Возвращает actionable-предложения + отчёт дропов. Чистая функция.
 func BuildProposals(st *model.State, goodID string, comps []Component) ([]Proposal, []string) {
 	var report []string
@@ -69,10 +69,6 @@ func BuildProposals(st *model.State, goodID string, comps []Component) ([]Propos
 		// дропы на фазе разбора (не показываются в попапе, строки в отчёт)
 		if idx, ok := byName[name]; ok {
 			existing := &st.Goods[idx]
-			if existing.Status == model.StatusBanned || existing.Status == model.StatusExcluded {
-				report = append(report, fmt.Sprintf("ИИ предложил %s: %s — пропущено", statusWord(existing.Status), existing.Name))
-				continue
-			}
 			if existing.Kind == model.KindResource && !st.Goods[gi].Recipe[slot].AllowResource {
 				report = append(report, fmt.Sprintf("ресурс %s не разрешён для этого слота — включи галку \"заполнять ресурсом\"", existing.Name))
 				continue
@@ -105,7 +101,7 @@ func BuildProposals(st *model.State, goodID string, comps []Component) ([]Propos
 // Валидации на свежем снимке (каждая — дроп пункта + строка в отчёт, дропы
 // в applied НЕ входят): С3 слот существует и пуст; С1 link-цель найдена
 // (исчезла → дроп, НЕ перевод в kind=new); С2 категория kind=new существует
-// и kind=good; бан/исключённое; ресурс в слот без галки; цикл. Мутирует st
+// и kind=good; ресурс в слот без галки; цикл. Мутирует st
 // (только: добавляет новые товары в конец, заполняет конкретные слоты
 // целевого товара). Возвращает число фактически записанных пунктов + отчёт.
 func ApplyProposals(st *model.State, goodID string, items []ProposalItem) (int, []string) {
@@ -140,10 +136,6 @@ func ApplyProposals(st *model.State, goodID string, items []ProposalItem) (int, 
 				continue
 			}
 			existing := &st.Goods[idx]
-			if existing.Status == model.StatusBanned || existing.Status == model.StatusExcluded {
-				report = append(report, fmt.Sprintf("ИИ предложил %s: %s — пропущено", statusWord(existing.Status), existing.Name))
-				continue
-			}
 			if existing.Kind == model.KindResource && !st.Goods[gi].Recipe[item.Slot].AllowResource {
 				report = append(report, fmt.Sprintf("ресурс %s не разрешён для этого слота — включи галку \"заполнять ресурсом\"", existing.Name))
 				continue
@@ -162,10 +154,6 @@ func ApplyProposals(st *model.State, goodID string, items []ProposalItem) (int, 
 		// игнорируется); не нашлось — создание нового товара
 		if idx, ok := byName[name]; ok {
 			existing := &st.Goods[idx]
-			if existing.Status == model.StatusBanned || existing.Status == model.StatusExcluded {
-				report = append(report, fmt.Sprintf("ИИ предложил %s: %s — пропущено", statusWord(existing.Status), existing.Name))
-				continue
-			}
 			if existing.Kind == model.KindResource && !st.Goods[gi].Recipe[item.Slot].AllowResource {
 				report = append(report, fmt.Sprintf("ресурс %s не разрешён для этого слота — включи галку \"заполнять ресурсом\"", existing.Name))
 				continue
@@ -190,7 +178,6 @@ func ApplyProposals(st *model.State, goodID string, items []ProposalItem) (int, 
 			ID:        model.NextGoodID(st.Goods),
 			Name:      item.Name,
 			Category:  item.CategoryID,
-			Status:    model.StatusDraft,
 			Kind:      model.KindGood,
 			Source:    model.SourceAI,
 			Recipe:    []model.Slot{},

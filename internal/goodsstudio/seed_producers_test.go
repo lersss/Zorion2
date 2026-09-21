@@ -48,10 +48,10 @@ func TestSeedProducersFull(t *testing.T) {
 			AddRow(int64(7), "минералы").
 			AddRow(int64(8), "продовольствие"))
 
-	// 10 типов производителей (approved; ON CONFLICT DO NOTHING — миграция
-	// 000051 могла создать «Лабораторию» на свежей БД).
+	// 10 типов производителей (статуса нет — запись живая, hidden из дефолта;
+	// ON CONFLICT DO NOTHING — миграция 000051 могла создать «Лабораторию»).
 	for range seedProducers {
-		mock.ExpectQuery(`INSERT INTO producer_types \(name, name_norm, kind, category_id, race_family, parent_id, race, output, input, params, status\)\s+VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, \$9, \$10, 'approved'\)\s+ON CONFLICT \(name_norm\) DO NOTHING RETURNING id`).
+		mock.ExpectQuery(`INSERT INTO producer_types \(name, name_norm, kind, category_id, race_family, parent_id, race, output, input, params\)\s+VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, \$9, \$10\)\s+ON CONFLICT \(name_norm\) DO NOTHING RETURNING id`).
 			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(1)))
 	}
 
@@ -67,9 +67,9 @@ func TestSeedProducersFull(t *testing.T) {
 			WillReturnResult(sqlmock.NewResult(0, 1))
 	}
 
-	// 4 предмета (approved).
+	// 4 предмета (статуса нет).
 	for range seedItems {
-		mock.ExpectQuery(`INSERT INTO items \(name, name_norm, slot_type, status, unlocks, params\)\s+VALUES \(\$1, \$2, \$3, 'approved', \$4, \$5\) RETURNING id`).
+		mock.ExpectQuery(`INSERT INTO items \(name, name_norm, slot_type, unlocks, params\)\s+VALUES \(\$1, \$2, \$3, \$4, \$5\) RETURNING id`).
 			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(1)))
 	}
 

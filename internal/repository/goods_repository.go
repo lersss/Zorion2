@@ -204,10 +204,11 @@ func (r *GoodsRepository) Snapshot() (*CatalogSnapshot, error) {
 	}, nil
 }
 
-// Resources — палитра: ресурсы kind=resource, не banned (спека §7).
+// Resources — палитра: ресурсы kind=resource (скрытия у ресурсов нет — видны
+// всегда, спека 2026-09-21 §4.1).
 func (r *GoodsRepository) Resources() ([]ResourceView, error) {
 	rows, err := r.db.Query(
-		`SELECT id, name, category_id FROM goods WHERE kind = 'resource' AND status <> 'banned' ORDER BY id`)
+		`SELECT id, name, category_id FROM goods WHERE kind = 'resource' ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -281,7 +282,7 @@ func (r *GoodsRepository) LayerResources() ([]LayerResourceRow, error) {
 // одна транзакция с advisory lock (сериализация с другими мутациями каталога).
 // Снимок каталога собирается в tx (свежий — между фазами никто не вмешается
 // под lock), ai.ApplyProposals решает на нём (per-slot, дропы С1–С3 в отчёт),
-// write-back: новые товары INSERT (draft/source=ai, категория из попапа —
+// write-back: новые товары INSERT (source=ai, категория из попапа —
 // всегда валидна), слоты UPDATE по конкретным pos (component_id из
 // мутированного state: "gN" → realID по карте созданных, иначе числовой id).
 // Возвращает applied (число фактически записанных пунктов, дропы не входят,
@@ -346,7 +347,7 @@ func (r *GoodsRepository) ApplyProposals(goodID int64, items []ai.ProposalItem) 
 		}
 		var id int64
 		err = tx.QueryRow(
-			`INSERT INTO goods (name, name_norm, category_id, kind, status, source) VALUES ($1, $2, $3, 'good', 'draft', 'ai') RETURNING id`,
+			`INSERT INTO goods (name, name_norm, category_id, kind, source) VALUES ($1, $2, $3, 'good', 'ai') RETURNING id`,
 			g.Name, graph.NormalizeName(g.Name), catID,
 		).Scan(&id)
 		if err != nil {
@@ -575,7 +576,7 @@ func (r *GoodsRepository) CreateGood(name string, categoryID int64, kind model.K
 	var id int64
 	var createdAt time.Time
 	if err := tx.QueryRow(
-		`INSERT INTO goods (name, name_norm, category_id, kind, status, source) VALUES ($1, $2, $3, $4, 'draft', 'manual') RETURNING id, created_at`,
+		`INSERT INTO goods (name, name_norm, category_id, kind, source) VALUES ($1, $2, $3, $4, 'manual') RETURNING id, created_at`,
 		name, graph.NormalizeName(name), categoryID, string(kind),
 	).Scan(&id, &createdAt); err != nil {
 		if isUniqueViolation(err) {
@@ -594,13 +595,17 @@ func (r *GoodsRepository) CreateGood(name string, categoryID int64, kind model.K
 		return model.Good{}, err
 	}
 
+	// volume/weight — NOT NULL DEFAULT 1 (Р2, 2026-09-21): новые строки
+	// получают 1 из DEFAULT; возвращаем то же значение в модель.
+	one := 1.0
 	g := model.Good{
 		ID:        strconv.FormatInt(id, 10),
 		Name:      name,
 		Category:  strconv.FormatInt(categoryID, 10),
-		Status:    model.StatusDraft,
 		Kind:      kind,
 		Source:    model.SourceManual,
+		Volume:    &one,
+		Weight:    &one,
 		CreatedAt: createdAt.UTC().Format(time.RFC3339),
 	}
 	if kind == model.KindGood {
@@ -611,8 +616,9 @@ func (r *GoodsRepository) CreateGood(name string, categoryID int64, kind model.K
 
 // UpdateGood — переименование/смена категории/веса/объёма (спека §7):
 // категория должна соответствовать kind — 400; дубликат имени — 409.
-// volume/weight — данные каталога (3b.6.4): NULL = очистить; отрицательные
-// значения — 400. Для ресурсов разрешено (С1: без привилегий).
+// volume/weight — данные каталога (3b.6.4): nil = не трогать (значение есть
+// всегда, Р2 2026-09-21); отрицательные значения — 400. Для ресурсов
+// разрешено (С1: без привилегий).
 func (r *GoodsRepository) UpdateGood(id int64, name *string, categoryID *int64, volume, weight *float64) error {
 	tx, err := r.beginMutation()
 	if err != nil {
@@ -719,41 +725,6 @@ func (r *GoodsRepository) DeleteGood(id int64) (int, error) {
 		return 0, err
 	}
 	return int(cleared), nil
-}
-
-// SetStatus — смена статуса (спека §7): draft/approved/excluded/banned/unban;
-// banned → banned_at=NOW(), unban → draft + banned_at=NULL. Для ресурсов
-// разрешено (без привилегий).
-func (r *GoodsRepository) SetStatus(id int64, status string) error {
-	tx, err := r.beginMutation()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	var exists bool
-	if err := tx.QueryRow(
-		`SELECT EXISTS(SELECT 1 FROM goods WHERE id = $1 FOR UPDATE)`, id,
-	).Scan(&exists); err != nil {
-		return err
-	}
-	if !exists {
-		return errCatalog(404, "товар не найден")
-	}
-	switch status {
-	case "banned":
-		_, err = tx.Exec(`UPDATE goods SET status = 'banned', banned_at = NOW() WHERE id = $1`, id)
-	case "unban":
-		_, err = tx.Exec(`UPDATE goods SET status = 'draft', banned_at = NULL WHERE id = $1`, id)
-	case "draft", "approved", "excluded":
-		_, err = tx.Exec(`UPDATE goods SET status = $1, banned_at = NULL WHERE id = $2`, status, id)
-	default:
-		return errCatalog(400, "неизвестный статус")
-	}
-	if err != nil {
-		return err
-	}
-	return tx.Commit()
 }
 
 // SetTier — тир-оверрайд (спека §7): ≥ 0, иначе 400; null — очистить.
@@ -1068,7 +1039,7 @@ func (r *GoodsRepository) BulkCreateGoods(lines []string) (BulkReport, error) {
 		}
 		var id int64
 		if err := tx.QueryRow(
-			`INSERT INTO goods (name, name_norm, category_id, kind, status, source) VALUES ($1, $2, $3, 'good', 'draft', 'manual') RETURNING id`,
+			`INSERT INTO goods (name, name_norm, category_id, kind, source) VALUES ($1, $2, $3, 'good', 'manual') RETURNING id`,
 			name, graph.NormalizeName(name), catID,
 		).Scan(&id); err != nil {
 			if isUniqueViolation(err) {
@@ -1132,7 +1103,7 @@ func loadCategories(q queryer) ([]CategoryRow, error) {
 // loadGoods — все товары каталога (id/категория — строки для graph).
 func loadGoods(q queryer) ([]model.Good, error) {
 	rows, err := q.Query(
-		`SELECT id, name, category_id, kind, status, source, tier_override, banned_at, created_at, volume, weight FROM goods ORDER BY id`)
+		`SELECT id, name, category_id, kind, source, tier_override, created_at, volume, weight FROM goods ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -1142,26 +1113,20 @@ func loadGoods(q queryer) ([]model.Good, error) {
 	for rows.Next() {
 		var g model.Good
 		var id, catID int64
-		var kind, status, source string
+		var kind, source string
 		var tier sql.NullInt64
-		var bannedAt sql.NullTime
 		var createdAt time.Time
 		var volume, weight sql.NullFloat64
-		if err := rows.Scan(&id, &g.Name, &catID, &kind, &status, &source, &tier, &bannedAt, &createdAt, &volume, &weight); err != nil {
+		if err := rows.Scan(&id, &g.Name, &catID, &kind, &source, &tier, &createdAt, &volume, &weight); err != nil {
 			return nil, err
 		}
 		g.ID = strconv.FormatInt(id, 10)
 		g.Category = strconv.FormatInt(catID, 10)
 		g.Kind = model.Kind(kind)
-		g.Status = model.Status(status)
 		g.Source = model.Source(source)
 		if tier.Valid {
 			t := int(tier.Int64)
 			g.TierOverride = &t
-		}
-		if bannedAt.Valid {
-			s := bannedAt.Time.UTC().Format(time.RFC3339)
-			g.BannedAt = &s
 		}
 		if volume.Valid {
 			v := volume.Float64

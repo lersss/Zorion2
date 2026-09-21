@@ -59,7 +59,7 @@ func TestSeedFull(t *testing.T) {
 	resourceCount := len(resource.LayerCatalog()) + len(resource.RealCatalog())
 	require.Equal(t, 131, resourceCount, "слой 20 + витрина 111")
 	for i := 0; i < resourceCount; i++ {
-		mock.ExpectExec(`INSERT INTO goods \(name, name_norm, category_id, kind, status, source, props\)\s+VALUES \(\$1, \$2, \$3, 'resource', 'approved', 'palette', \$4\)`).
+		mock.ExpectExec(`INSERT INTO goods \(name, name_norm, category_id, kind, source, props\)\s+VALUES \(\$1, \$2, \$3, 'resource', 'palette', \$4\)`).
 			WillReturnResult(sqlmock.NewResult(0, 1))
 	}
 

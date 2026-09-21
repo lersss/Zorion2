@@ -9,9 +9,9 @@ import (
 // (спека переноса-студии-товаров-iterC §5.4; перенос buildFillPrompt из
 // cmd/goods-studio/handlers/state.go:763): tier — вычисленный (graph.Tier,
 // оверрайд не влияет на генерацию), filled — имена заполненных слотов,
-// banned — имена banned/excluded, resNames — kind=resource, catNames —
-// "id: имя" (id — числовые строки БД), k пустых слотов, allowResSlots —
-// 1-базовые позиции пустых слотов с галкой «заполнять ресурсом».
+// resNames — kind=resource, catNames — "id: имя" (id — числовые строки БД),
+// k пустых слотов, allowResSlots — 1-базовые позиции пустых слотов с галкой
+// «заполнять ресурсом».
 func BuildFillPrompt(st *model.State, goodID string) string {
 	gi := indexOfGood(st.Goods, goodID)
 	if gi < 0 {
@@ -27,7 +27,7 @@ func BuildFillPrompt(st *model.State, goodID string) string {
 			break
 		}
 	}
-	var filled, banned, resNames, catNames []string
+	var filled, resNames, catNames []string
 	for _, slot := range g.Recipe {
 		if slot.GoodID == "" {
 			continue
@@ -38,9 +38,6 @@ func BuildFillPrompt(st *model.State, goodID string) string {
 	}
 	for i := range st.Goods {
 		gg := &st.Goods[i]
-		if gg.Status == model.StatusBanned || gg.Status == model.StatusExcluded {
-			banned = append(banned, gg.Name)
-		}
 		if gg.Kind == model.KindResource {
 			resNames = append(resNames, gg.Name)
 		}
@@ -57,5 +54,5 @@ func BuildFillPrompt(st *model.State, goodID string) string {
 			allowResSlots = append(allowResSlots, pos+1)
 		}
 	}
-	return BuildPrompt(g, catName, tier, filled, banned, resNames, catNames, k, allowResSlots)
+	return BuildPrompt(g, catName, tier, filled, resNames, catNames, k, allowResSlots)
 }

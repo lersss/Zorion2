@@ -1,7 +1,7 @@
 // tools/e2e/goods-studio-server-check.js
 // Browser test for the Goods Studio UI on the game server (/studio, iterB):
 // авторизация JWT (localStorage adminToken), «+ ресурс», кириллица,
-// OR-фильтры справочника, попап ресурса (тир/статусы), удаление.
+// OR-фильтры справочника, попап ресурса (тир), удаление.
 // Итерация C (спека iterC §11 п.9): шаг fill — создание товара с пустым
 // слотом → POST fill → 202 → опрос state до generating=false → report непуст
 // («Ошибка ИИ» — opencode в CI недоступен, детерминировано; если opencode
@@ -174,7 +174,7 @@ async function main() {
     report('3 cyrillic rename + dup 409', (renamed && dupToast.includes('уже есть')) ? 'PASS' : 'FAIL',
       `renamed=${renamed} toast="${dupToast.replace(/\n/g, ' | ').slice(0, 80)}"`);
 
-    // ============ Step 4: OR-фильтры ============
+    // ============ Step 4: OR-фильтры + обратимость скрытия ============
     await page.evaluate(() => { toggleAllTiers(); });
     await page.check('#fUnused');
     await page.waitForTimeout(300);
@@ -182,26 +182,20 @@ async function main() {
       const cards = [...document.querySelectorAll('#spravList .card')];
       return { count: cards.length, hasQA: cards.some(c => c.textContent.includes('QA_Ресурс_2')) };
     });
-    // бан + галка «забаненные» → забаненный виден приглушённым
-    await api('POST', `/studio/api/goods/${resState.id}/status`, { status: 'banned' });
-    await waitFor((id) => { const g = state.goods.find(x => x.id === id); return g && g.status === 'banned'; }, 8000, 'banned in state', resState.id);
-    await page.check('#fBanned');
-    await page.waitForTimeout(300);
-    const bannedList = await page.evaluate(() => {
-      const cards = [...document.querySelectorAll('#spravList .card')];
-      const qa = cards.find(c => c.textContent.includes('QA_Ресурс_2'));
-      return { hasQA: !!qa, dimmed: qa ? qa.classList.contains('banned') : false };
-    });
-    // «Вернуть» в попапе забаненного → draft
-    await page.evaluate((id) => { selected = id; openPopup(id); renderAll(); }, resState.id);
-    await page.waitForTimeout(200);
-    await page.click('#popupBody .btns button:has-text("Вернуть")');
-    await waitFor((id) => { const g = state.goods.find(x => x.id === id); return g && g.status === 'draft'; }, 8000, 'unbanned to draft', resState.id);
-    report('4 OR-filters', (unusedList.hasQA && bannedList.hasQA && bannedList.dimmed) ? 'PASS' : 'FAIL',
-      `unused=${unusedList.count} bannedDimmed=${bannedList.dimmed}`);
-    await page.uncheck('#fBanned');
     await page.uncheck('#fUnused');
-    await page.keyboard.press('Escape');
+    // у товаров/ресурсов статуса и скрытия нет (спека 2026-09-21 §1.2) —
+    // обратимость проверяем на записи-производителе: hidden=true → hidden=false
+    const prodResp = await api('POST', '/studio/api/producers', { name: 'QA_Фабрика', kind: 'goods' });
+    const prodId = prodResp.data && prodResp.data.id;
+    const hiddenOnResp = await api('POST', `/studio/api/producers/${prodId}/hidden`, { hidden: true });
+    const onState = ((await api('GET', '/studio/api/state')).data.producer_types || []).find(p => p.id === prodId);
+    const hiddenOffResp = await api('POST', `/studio/api/producers/${prodId}/hidden`, { hidden: false });
+    const offState = ((await api('GET', '/studio/api/state')).data.producer_types || []).find(p => p.id === prodId);
+    await api('DELETE', `/studio/api/producers/${prodId}`);
+    const hiddenOK = hiddenOnResp.status === 200 && onState && onState.hidden === true &&
+      hiddenOffResp.status === 200 && offState && offState.hidden === false;
+    report('4 OR-filters + producer hidden reversible', (unusedList.hasQA && hiddenOK) ? 'PASS' : 'FAIL',
+      `unused=${unusedList.count} hidden=${onState && onState.hidden}->${offState && offState.hidden}`);
 
     // ============ Step 5: удаление ресурса (N=0 → модалка 1 → DELETE → тост) ============
     await page.evaluate((id) => { selected = id; openPopup(id); renderAll(); }, resState.id);
@@ -214,7 +208,7 @@ async function main() {
     report('5 delete resource', (toast.includes('Удалено') && toast.includes('0')) ? 'PASS' : 'FAIL',
       `toast="${toast.replace(/\n/g, ' | ').slice(0, 120)}"`);
 
-    // ============ Step 6: попап ресурса — тир-поле, статусы ============
+    // ============ Step 6: попап ресурса — тир-поле ============
     const res2 = (await api('POST', '/studio/api/goods', { name: 'QA_Ресурс_3', category_id: resCatId, kind: 'resource' })).data;
     await waitFor((id) => state.goods.some(g => g.id === id), 8000, 'QA_Ресурс_3 in state', res2.id);
     await page.evaluate((id) => { selected = id; openPopup(id); renderAll(); }, res2.id);
@@ -227,9 +221,7 @@ async function main() {
       const warn = document.querySelector('.tier-warn');
       return { tier: g.tier, override: g.tier_override, warn: warn ? warn.textContent : '' };
     });
-    await page.click('#popupBody .btns button:has-text("Согласовать")');
-    await waitFor((id) => { const g = state.goods.find(x => x.id === id); return g && g.status === 'approved'; }, 8000, 'approved', res2.id);
-    report('6 resource popup tier+status', (tierState.tier === 3 && tierState.override === 3 && tierState.warn.includes('отличается')) ? 'PASS' : 'FAIL', JSON.stringify(tierState));
+    report('6 resource popup tier', (tierState.tier === 3 && tierState.override === 3 && tierState.warn.includes('отличается')) ? 'PASS' : 'FAIL', JSON.stringify(tierState));
     await page.keyboard.press('Escape');
 
     // ============ Step 6b: «добавить родителя» (BUG-1 iterB: номер слота из

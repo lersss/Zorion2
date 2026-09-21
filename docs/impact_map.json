@@ -28,6 +28,41 @@
       ]
     },
     {
+      "id": "settlement_branches",
+      "type": "table",
+      "path": "db:settlement_branches",
+      "note": "ветка поселения (миграция 000064, идея 2026-09-22 «экономика поселения», итерация 2, коммит 85f6539): поселение ↔ рецепт каталога + своя чек-точка processed_at; UNIQUE (settlement_id, recipe_id) — одна ветка на рецепт (повтор → 409); FK settlement_id→settlements CASCADE, recipe_id→recipes CASCADE; скорость переработки на строке не хранится (выводится: линейная от population, вариант A)",
+      "impacts": [
+        { "on": "db:settlements", "kind": "schema", "reason": "FK settlement_id → settlements(id) ON DELETE CASCADE; данные вселенной (в truncateTables, чистится каскадом Пакмана)" },
+        { "on": "recipes", "kind": "schema", "reason": "FK recipe_id → recipes(id) ON DELETE CASCADE: удаление рецепта или товара-выхода сносит ветку с буферами; студия предупреждает числом (GET /studio/api/goods/{id}/branches-count, О3)" },
+        { "on": "docs/specs/2026-09-22-поселение-ветка-буферы-переработка.md", "kind": "docs", "reason": "спека итерации 2: модель, API, видимость входа" }
+      ]
+    },
+    {
+      "id": "settlement_branch_buffers",
+      "type": "table",
+      "path": "db:settlement_branch_buffers",
+      "note": "записи буферов ветки (миграция 000064, итерация 2): direction input|output, good_id, amount double ≥ 0; UNIQUE (branch_id, direction, good_id); вход видит только админ (stripBranchInputs), выход — часть деталей поселения",
+      "impacts": [
+        { "on": "settlement_branches", "kind": "schema", "reason": "FK branch_id → settlement_branches(id) ON DELETE CASCADE; чтение = ANY($1) по ветке" },
+        { "on": "goods", "kind": "schema", "reason": "FK good_id → goods(id) ON DELETE CASCADE: удаление записи каталога сносит её остатки из буферов" }
+      ]
+    },
+    {
+      "id": "settlement_branch_processing",
+      "type": "mechanic",
+      "path": "internal/economy/settlement/branch.go",
+      "note": "ленивая переработка ветки вход → выход по Δt (итерация 2): чистая функция от (processed_at, now, population, состав рецепта, буферы), без тика; скорость — линейная, вариант A (решение создателя 2026-09-22): rate = k·population/complexity, k = 2.78·10⁻⁸ батч/(чел·ч), числа не калиброваны (@balancetester); кадэнс персистентности — общий MinPersistInterval (30 мин); единая точка сериализации — FOR UPDATE на строке ветки",
+      "impacts": [
+        { "on": "settlement_branches", "kind": "writes", "reason": "продвижение чек-точки processed_at, изменение amount буферов, top-up строк входа нового заполненного компонента (ON CONFLICT DO NOTHING)" },
+        { "on": "settlements", "kind": "reads", "reason": "population — множитель скорости (attachBranches идёт ПОСЛЕ ленивого пересчёта населения, та же цифра)" },
+        { "on": "recipes", "kind": "reads", "reason": "состав читается «живой» (recipe_components, заполненные компоненты) + complexity и good_id как выход: правка рецепта меняет работающую ветку; NULL complexity → временный фолбэк 1" },
+        { "on": "internal/goodsstudio/graph/tier.go", "kind": "affects", "reason": "канон студии: complexity NULL = «вычисляется по графу»; рантайм графа не считает — фолбэк NULL → 1 (при появлении рантайм-потребителя считать граф или материализовать)" },
+        { "on": "internal/repository/planet_repo.go", "kind": "writes", "reason": "attachBranches внутри attachSettlements: ленивый синк на чтении карточки (хот-пат гасится MinPersistInterval)" },
+        { "on": "docs/gamedesign/13_tiers.md", "kind": "duplicates", "reason": "выход ветки — «пол» (низкое качество, не берёт заказы «не меньше N»): статус фиксируется, поле качества в итерации 2 не заводится; «осадок» = сверхпереработка поверх выхода (итерация 4)" }
+      ]
+    },
+    {
       "id": "ui/sound.js",
       "type": "code",
       "path": "web/static/js/ui/sound.js",

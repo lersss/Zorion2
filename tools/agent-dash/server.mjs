@@ -71,6 +71,18 @@ function send(res, code, type, body) {
   res.end(body);
 }
 
+// HTML отдаём с явным запретом кэша и без ETag/Last-Modified: правишь интерфейс —
+// браузер обязан показать новую версию, а не старую из кэша.
+function sendHtml(res, body) {
+  res.writeHead(200, {
+    "content-type": "text/html; charset=utf-8",
+    "cache-control": "no-store, no-cache, must-revalidate, max-age=0",
+    pragma: "no-cache",
+    expires: "0",
+  });
+  res.end(body);
+}
+
 // Продление лимитов сторожа на лету (идея 100d): сторож читает этот файл на каждом
 // действии. Продление — только на срок, «навсегда» не пишем: заявка истекает сама.
 const EXTEND_MAX_MINUTES = 240;
@@ -149,9 +161,28 @@ const server = http.createServer(async (req, res) => {
     const extra = Math.min(EXTEND_MAX_ACTIONS, Math.max(0, Number(payload.actions) || 15));
     const until = Date.now() + minutes * 60000;
     const list = readOverrides();
+    const prev = list[session] || {};
+
+    // «снять индульгенцию» — просто убираем заявку вкладки целиком.
+    if (payload.revoke) {
+      delete list[session];
+      try {
+        writeOverrides(list);
+      } catch (e) {
+        return send(res, 500, "application/json", JSON.stringify({ error: e.message }));
+      }
+      console.log(`индульгенция снята: ${session}`);
+      return send(res, 200, "application/json", JSON.stringify({ ok: true, session, revoked: true }));
+    }
+
+    // pardon=true — индульгенция: сторож не трогает эту вкладку (повторы, память,
+    // счётчики файлов/команд, гашение) до истечения срока. Обычная заявка продления
+    // сохраняет уже выданную индульгенцию, и наоборот.
+    const pardon = payload.pardon === true || prev.pardon === true;
     list[session] = {
       until,
-      extra,
+      extra: pardon ? extra : Number(prev.extra) || extra,
+      pardon,
       by: "создатель",
       reason: String(payload.reason ?? "").slice(0, 200),
       at: Date.now(),
@@ -161,12 +192,18 @@ const server = http.createServer(async (req, res) => {
     } catch (e) {
       return send(res, 500, "application/json", JSON.stringify({ error: e.message }));
     }
-    console.log(`продление: ${session} — +${extra} действий до ${new Date(until).toLocaleTimeString()}`);
-    return send(res, 200, "application/json", JSON.stringify({ ok: true, session, until, extra, minutes }));
+    console.log(
+      pardon
+        ? `индульгенция: ${session} — сторож не трогает до ${new Date(until).toLocaleTimeString()}`
+        : `продление: ${session} — +${extra} действий до ${new Date(until).toLocaleTimeString()}`
+    );
+    return send(res, 200, "application/json", JSON.stringify({ ok: true, session, until, extra, minutes, pardon }));
   }
-  if (url.pathname === "/") return send(res, 200, "text/html; charset=utf-8", fs.readFileSync(path.join(HERE, "index.html")));
+  // Страницу всегда отдаём свежей: при правке интерфейса браузер не должен
+  // показывать закэшированную старую версию (иначе «новой кнопки нет»).
+  if (url.pathname === "/") return sendHtml(res, fs.readFileSync(path.join(HERE, "index.html")));
   if (url.pathname === "/index.html") {
-    return send(res, 200, "text/html; charset=utf-8", fs.readFileSync(path.join(HERE, "index.html")));
+    return sendHtml(res, fs.readFileSync(path.join(HERE, "index.html")));
   }
   if (url.pathname === "/favicon.ico") return send(res, 204, "image/x-icon", "");
   send(res, 404, "text/plain", "нет такой страницы");

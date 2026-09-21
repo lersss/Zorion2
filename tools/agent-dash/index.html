@@ -143,6 +143,8 @@
       (<span class="dim">.opencode/loop-guard.log</span>); память — пиковый рабочий контекст агента.
       Кнопка «продлить» в карточке активной сессии даёт сторожу заявку на продление
       лимитов (на срок — истекает само).
+      Кнопка «дать работать» в строке сессии — индульгенция: сторож перестаёт трогать
+      эту вкладку (повторы, память, гашение) на срок; «снять» возвращает обычный режим.
       Сервис читает хранилище сессий opencode только на чтение, цифры обновляет раз в 20 секунд,
       таймер активности — каждую секунду. Масштаб страницы — кнопками A−/A+.
       <span id="scan"></span>
@@ -189,6 +191,23 @@
         return `${pill}<button class="mini" data-extend="${esc(id)}" data-minutes="30" data-actions="15">продлить +15 / 30 мин</button>`;
       }
 
+      // Индульгенция сторожа (решение создателя 2026-09-22): кнопка у КОНКРЕТНОЙ вкладки
+      // (сессии) снимает с неё все ограничения сторожа — повторы, память, счётчики
+      // файлов и команд, гашение. Сторож по умолчанию работает как обычно, слушается
+      // только явного указания создателя. Действует на срок — истекает само.
+      function pardonControls(id) {
+        const e = state.extensions[id];
+        const active = e && e.pardon && e.until > Date.now();
+        const left = active ? Math.round((e.until - Date.now()) / 60000) : 0;
+        const pill = active
+          ? `<span class="pill ok">работать разрешено${left > 0 ? " ещё " + left + " мин" : ""}</span>`
+          : "";
+        const btn = active
+          ? `<button class="mini" data-pardon-off="${esc(id)}">снять</button>`
+          : `<button class="mini" data-pardon="${esc(id)}" data-minutes="60">дать работать</button>`;
+        return `${pill}${btn}`;
+      }
+
       function renderLive() {
         const box = document.getElementById("livetable");
         const r = state.report;
@@ -229,6 +248,7 @@
                 <span class="pill ${a.recentRepeats > 50 ? "bad" : a.recentRepeats > 0 ? "hi" : ""}">повторов ${a.recentLabel || "в задаче"}: ${a.recentRepeats || 0}</span>
                 <span class="pill ${a.guard ? "bad" : ""}">сторож: ${a.guard || 0}</span>
                 <span class="delta"><span class="dot ${now - a.last < 60000 ? "" : "calm"}"></span>${ago(a.last, now)} назад</span>
+                ${a.id ? pardonControls(a.id) : ""}
                 ${a.id ? extendControls(a.id) : ""}
               </div>
             </div>
@@ -382,6 +402,7 @@
           { id: "last", title: "Активность", fmt: when },
           { id: "live", title: "Сейчас", fmt: (v) => (v ? '<span class="live">работает</span>' : "") },
           { id: "guard", title: "Сторож", num: true, cls: "bad" },
+          { id: "pardon", title: "Индульгенция" },
         ];
         const sortedActive = state.sort.active
           ? sortBy(r.active, state.sort.active[0], state.sort.active[1])
@@ -398,6 +419,7 @@
                     const v = a[c.id];
                     let text;
                     if (c.id === "title") text = '<span class="name"><strong>' + esc(v) + "</strong></span>";
+                    else if (c.id === "pardon") text = a.id ? pardonControls(a.id) : "";
                     else if (c.fmt) text = c.fmt(v);
                     else if (c.num) text = v;
                     else text = esc(v);
@@ -491,6 +513,33 @@
           await refresh();
         } catch (err) {
           document.getElementById("status").textContent = "продление не прошло: " + err.message;
+        } finally {
+          btn.disabled = false;
+        }
+      });
+
+      // Индульгенция: «дать работать» — снять ограничения сторожа с вкладки;
+      // «снять» — вернуть сторожа к обычной работе. Оба — запросы к сервису.
+      document.addEventListener("click", async (e) => {
+        const on = e.target.closest("button[data-pardon]");
+        const off = e.target.closest("button[data-pardon-off]");
+        if (!on && !off) return;
+        const btn = on || off;
+        btn.disabled = true;
+        try {
+          const body = on
+            ? { session: on.dataset.pardon, minutes: Number(on.dataset.minutes) || 60, pardon: true }
+            : { session: off.dataset.pardonOff, revoke: true };
+          const res = await fetch("/api/extend", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          const out = await res.json();
+          if (!res.ok) throw new Error(out.error || "отказ");
+          await refresh();
+        } catch (err) {
+          document.getElementById("status").textContent = "индульгенция не прошла: " + err.message;
         } finally {
           btn.disabled = false;
         }

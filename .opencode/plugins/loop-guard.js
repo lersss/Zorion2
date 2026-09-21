@@ -114,8 +114,12 @@ export const LoopGuard = async ({ client, directory }) => {
   // считается по первым 48 символам, и общий префикс (\$OutputEncoding /
   // [Console]::OutputEncoding / chcp 65001) склеивал РАЗНЫЕ по смыслу команды в
   // одну серию (инцидент 2026-09-21: так легли сессии разработчика и менеджера).
+  // ВАЖНО: имя типа содержит точки (`[Text.Encoding]::UTF8`,
+  // `[System.Text.Encoding]::UTF8`) — `\w+` их не покрывал, префикс срезался
+  // неполно (оставался `=`), и разные команды снова склеивались в одну семью
+  // (инцидент 2026-09-22: на этом легла разведка менеджера). Тип — `[\w.]+`.
   const SERVICE_PREFIX =
-    /^\s*(?:(?:\$OutputEncoding|\[Console\]::(?:Output|Input)Encoding)\s*=\s*\[[^\]]+\]::\w+\s*;?\s*|chcp\s+65001\s*;?\s*)+/i
+    /^\s*(?:(?:\$OutputEncoding|\[Console\]::(?:Output|Input)Encoding)\s*=\s*\[[\w.]+\]::\w+\s*;?\s*|chcp\s+65001\s*;?\s*)+/i
 
   const commandFamily = (command) => {
     const full = String(command ?? "").trim()
@@ -180,7 +184,7 @@ export const LoopGuard = async ({ client, directory }) => {
     const e = readOverrides()[sessionID]
     const until = Number(e?.until)
     if (!e || !Number.isFinite(until) || until <= Date.now()) return null
-    return { extra: Number(e.extra) || 0, until, by: String(e.by ?? "") }
+    return { extra: Number(e.extra) || 0, until, by: String(e.by ?? ""), pardon: e.pardon === true }
   }
 
   const bump = (map, key) => {
@@ -318,6 +322,25 @@ export const LoopGuard = async ({ client, directory }) => {
           `продление +${ext.extra} действий до ${new Date(ext.until).toLocaleTimeString()}`,
           { by: ext.by, extra: ext.extra, until: ext.until }
         )
+      }
+
+      // Индульгенция создателя (решение 2026-09-22): явное «этой вкладке работать»
+      // отменяет сторожа для этой сессии — сбрасываем счётчики и пропускаем все
+      // проверки ниже. Сторож по умолчанию работает как обычно; слушается только
+      // явного указания. Пока индульгенция активна — сессию не гасим.
+      if (ext && ext.pardon) {
+        b.calls.clear()
+        b.outputs.clear()
+        b.cmds.clear()
+        b.blocks.clear()
+        b.sameConclusion = 0
+        b.afterReminder = 0
+        for (const s of b.files.values()) {
+          s.edits = 0
+          s.repeats = 0
+          s.seen.length = 0
+        }
+        return
       }
 
       if (input.tool === "edit" || input.tool === "write" || input.tool === "apply_patch") {

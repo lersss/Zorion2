@@ -831,7 +831,8 @@ func travelPlanetRow(id, worldID, data string) *sqlmock.Rows {
 
 // expectPlanetByID — ожидание GetPlanetByID (валидация «объект жив»,
 // arrivalTargetValid): планета + пустые поселения (attachSettlements без
-// записей — лог поселения не читается).
+// записей — лог поселения не читается) + пустые фракции/строения
+// (attachFactionsAndBuildings, спека 2026-09-21-фабрики-релиз-2).
 func expectPlanetByID(mock sqlmock.Sqlmock, id, worldID string) {
 	mock.ExpectQuery(`SELECT id, world_id, name, orbit_index, data, created_at, updated_at FROM planets WHERE id = \$1`).
 		WithArgs(id).
@@ -839,6 +840,7 @@ func expectPlanetByID(mock sqlmock.Sqlmock, id, worldID string) {
 	mock.ExpectQuery(`SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at, race_id FROM settlements WHERE planet_id = ANY\(\$1\) ORDER BY created_at ASC`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id"}))
+	expectEmptyFactionsBuildings(mock)
 }
 
 // expectPlanetsLight — ожидание GetPlanetsLightByWorldID (радиус орбиты цели

@@ -45,6 +45,10 @@ func TestGetPlanetByID(t *testing.T) {
 		ORDER BY occurred_at DESC
 	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"id", "settlement_id", "type", "occurred_at", "cause", "created_at"}))
 
+	// attachFactionsAndBuildings — фракций/строений у планеты нет (спека
+	// 2026-09-21-фабрики-релиз-2-столицы-фракций §6).
+	expectEmptyFactionsBuildings(mock)
+
 	// Открытие карточки планеты триггерит пересчёт населения от среды
 	// (18a_population_death.md); computed_at = now, т.е. Δt < MinPersistInterval —
 	// «простой визит»: пересчёт только в памяти, записей в БД нет.

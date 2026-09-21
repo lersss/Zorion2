@@ -67,6 +67,14 @@ func stripPlanetDetails(p models.Planet, view *models.PlanetKnowledgeView) model
 	p.Population = 0
 	p.Core = nil
 	p.Settlements = nil
+	// Фракции/строения планеты (спека 2026-09-21-фабрики-релиз-2-столицы-фракций
+	// §5/§7 п.6): player видит их только со знанием о планете (сканер вскрывает
+	// фракции — осознанная дельта 77a §6.2). Без знания — nil (защита в
+	// глубину, как у поселений); со знанием — остаются.
+	if view == nil {
+		p.Factions = nil
+		p.Buildings = nil
+	}
 	p.Description = ""
 	p.SystemAge = 0
 	p.Moons = 0

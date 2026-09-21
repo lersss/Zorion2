@@ -602,13 +602,74 @@ function renderSettlements(planet) {
     return html;
 }
 
-// ---------- ЗАГЛУШКИ ----------
+// ---------- ФРАКЦИИ (спека 2026-09-21-фабрики-релиз-2-столицы-фракций §4) ----------
 
-function renderFactionsStub() {
-    return `<p style="color: #666; text-align: center; padding: 20px 0;">
-        🏛️ Данные о фракциях будут доступны позже<br>
-        <span style="font-size: 0.85rem;">(после реализации генерации фракций)</span>
-    </p>`;
+// BUILDING_TYPE_LABELS — словарь подписей типов строений: единственное место,
+// где ключ (buildings.building_type) превращается в человекочитаемое имя.
+// Неизвестный ключ показывается как есть (выдуманных имён не вводим, §6).
+const BUILDING_TYPE_LABELS = {
+    capital: 'Столица'
+};
+
+// buildingTypeLabel — подпись типа строения по ключу.
+function buildingTypeLabel(type) {
+    if (!type) return '—';
+    return BUILDING_TYPE_LABELS[type] || type;
+}
+
+// factionCapitalHtml — инлайновый раскрывающийся блок деталей столицы
+// (клик по карточке фракции, §4.3): без новых окон и серверных вызовов.
+function factionCapitalHtml(faction, planet) {
+    return `
+        <div data-faction-details="${faction.id}" style="display:none; margin-top:8px; padding-top:8px; border-top:1px solid #2a2a4a;">
+            <div style="color:#888; font-size:0.9rem; text-transform:uppercase;">Столица (строение)</div>
+            <div style="margin-top:4px;">Тип: Другое — ничего не производит</div>
+            <div>Владелец: ${faction.name || '—'} (${faction.type || '—'})</div>
+            <div>Планета: ${planet.name ? capitalize(planet.name) : '—'} — родная планета фракции</div>
+            <div style="color:#94a3b8; font-size:0.85rem; margin-top:6px;">Управление появится позже: сейчас видно только владельца</div>
+        </div>`;
+}
+
+// renderFactions — вкладка «Фракции» карточки планеты: фракции, для которых
+// планета родная (factions.homeworld_id), и строка столицы у владельца-фракции.
+// Сила (strength) не показывается — генератор пишет заглушку 1 (§4.2).
+function renderFactions(planet) {
+    // Player без знания о планете сервер фракции/строения не отдаёт (§5):
+    // пустое состояние как у поселений — «нет данных — купить отчёт»
+    // (у admin/skycomposer знание не требуется, И7).
+    if (!isAdmin() && !planet.knowledge) {
+        return `<p style="color: #666; text-align: center; padding: 20px 0;">Нет данных — купить отчёт</p>`;
+    }
+
+    const factions = planet.factions || [];
+    if (factions.length === 0) {
+        // Снимок знания фракций не содержит и может быть устаревшим (§4.4):
+        // отсутствие фракций в отчёте — не факт «фракций нет».
+        return `<p style="color: #666; text-align: center; padding: 20px 0;">В отчёте сканера фракции не значились</p>`;
+    }
+
+    const buildings = planet.buildings || [];
+    let html = `<p style="color:#888; font-size:0.9rem; text-transform:uppercase;">Фракции (${factions.length})</p>`;
+    html += `<p style="color:#94a3b8; font-size:0.85rem; margin:4px 0 8px 0;">родная планета — эта</p>`;
+
+    factions.forEach(f => {
+        const color = f.color || '#888';
+        // Столица фракции: buildings, где владелец — эта фракция (§4.2).
+        const capital = buildings.find(b =>
+            b.building_type === 'capital' && b.owner_type === 'faction' && b.owner_id === f.id);
+        html += `
+            <div style="margin:6px 0; padding:10px; background:#1a1a2e; border-radius:4px;">
+                <div data-faction-toggle="${f.id}" style="cursor:pointer;">
+                    <div><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${color}; margin-right:6px;"></span><strong>${f.name || '—'}</strong></div>
+                    <div style="color:#ccc; margin-top:4px;">${f.type || '—'}</div>
+                    <div style="color:#888; font-size:0.85rem; margin-top:4px;">${f.description || ''}</div>
+                    ${capital ? `<div style="color:#fde68a; margin-top:6px;">🏛 ${buildingTypeLabel(capital.building_type)} · Другое (ничего не производит)
+                        <span style="color:#94a3b8; font-size:0.8rem;"> ▸ нажмите, чтобы раскрыть</span></div>` : ''}
+                </div>
+                ${capital ? factionCapitalHtml(f, planet) : ''}
+            </div>`;
+    });
+    return html;
 }
 
 // ---------- ГЛАВНЫЙ ЭКСПОРТ ----------
@@ -629,7 +690,7 @@ export function renderTabContent(tab, planet, container) {
             container.innerHTML = renderSettlements(planet);
             break;
         case 'factions':
-            container.innerHTML = renderFactionsStub();
+            container.innerHTML = renderFactions(planet);
             break;
         default:
             container.innerHTML = '<p style="color: #666;">Неизвестная вкладка</p>';
@@ -655,6 +716,15 @@ export function renderTabContent(tab, planet, container) {
                 ? { planetId: planet.id, satelliteId: sat.id }
                 : null;
             renderSatelliteCard(planet, sat, container);
+        });
+    });
+
+    // Клик по фракции — инлайновый тоггл блока деталей столицы (§4.3):
+    // повторный клик сворачивает, серверных вызовов нет (данные уже приехали).
+    container.querySelectorAll('[data-faction-toggle]').forEach(el => {
+        el.addEventListener('click', () => {
+            const details = container.querySelector(`[data-faction-details="${el.dataset.factionToggle}"]`);
+            if (details) details.style.display = details.style.display === 'none' ? 'block' : 'none';
         });
     });
 }

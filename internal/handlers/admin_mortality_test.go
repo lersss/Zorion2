@@ -85,6 +85,9 @@ func TestMortalityPreviewComfortablePlanetHasZeroLambda(t *testing.T) {
 		ORDER BY occurred_at DESC
 	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"id", "settlement_id", "type", "occurred_at", "cause", "created_at"}))
 
+	// Фракции/строения планеты (спека 2026-09-21-фабрики-релиз-2) — пусто.
+	expectEmptyFactionsBuildingsExact(mock)
+
 	h := &AdminHandlers{db: db}
 	req := httptest.NewRequest(http.MethodGet, "/admin/mortality-preview?planet_id=p1", nil)
 	rec := httptest.NewRecorder()
@@ -124,6 +127,9 @@ func TestMortalityPreviewP0Override(t *testing.T) {
 	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(
 		sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id"}),
 	)
+
+	// Фракции/строения планеты (спека 2026-09-21-фабрики-релиз-2) — пусто.
+	expectEmptyFactionsBuildingsExact(mock)
 
 	h := &AdminHandlers{db: db}
 	req := httptest.NewRequest(http.MethodGet, "/admin/mortality-preview?planet_id=p1&p0=500", nil)
@@ -165,6 +171,9 @@ func TestMortalityPreviewRaceID(t *testing.T) {
 	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(
 		sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id"}),
 	)
+
+	// Фракции/строения планеты (спека 2026-09-21-фабрики-релиз-2) — пусто.
+	expectEmptyFactionsBuildingsExact(mock)
 
 	h := &AdminHandlers{db: db}
 	req := httptest.NewRequest(http.MethodGet, "/admin/mortality-preview?planet_id=p1&p0=100000000&race_id=ammonia", nil)
@@ -225,6 +234,9 @@ func TestMortalityPreviewUninhabitable(t *testing.T) {
 			`).WithArgs(sqlmock.AnyArg()).WillReturnRows(
 				sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id"}),
 			)
+
+			// Фракции/строения планеты (спека 2026-09-21-фабрики-релиз-2) — пусто.
+			expectEmptyFactionsBuildingsExact(mock)
 
 			h := &AdminHandlers{db: db}
 			req := httptest.NewRequest(http.MethodGet, "/admin/mortality-preview?planet_id=p1&p0=1000000", nil)

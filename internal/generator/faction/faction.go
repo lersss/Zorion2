@@ -26,7 +26,10 @@ func NewGenerator(db *sql.DB, seed int64) *Generator {
 	}
 }
 
-func (g *Generator) GenerateFactions() (int, error) {
+// GenerateFactions создаёт фракции на обитаемых планетах и идемпотентно
+// добивает их столицы (спека 2026-09-21-фабрики-релиз-2-столицы-фракций §3).
+// Возвращает число созданных фракций и число фактически созданных столиц.
+func (g *Generator) GenerateFactions() (int, int, error) {
 	rows, err := g.db.Query(`
 		SELECT p.id, p.name, p.data FROM planets p
 		WHERE EXISTS (
@@ -35,7 +38,7 @@ func (g *Generator) GenerateFactions() (int, error) {
 		)
 	`)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	defer rows.Close()
 
@@ -48,21 +51,17 @@ func (g *Generator) GenerateFactions() (int, error) {
 		var id, name string
 		var dataJSON []byte
 		if err := rows.Scan(&id, &name, &dataJSON); err != nil {
-			return 0, err
+			return 0, 0, err
 		}
 		var data map[string]interface{}
 		if err := json.Unmarshal(dataJSON, &data); err != nil {
-			return 0, err
+			return 0, 0, err
 		}
 		planets = append(planets, struct {
 			ID   string
 			Name string
 			Data map[string]interface{}
 		}{ID: id, Name: name, Data: data})
-	}
-
-	if len(planets) == 0 {
-		return 0, nil
 	}
 
 	total := 0
@@ -72,12 +71,44 @@ func (g *Generator) GenerateFactions() (int, error) {
 		for i := 0; i < count; i++ {
 			faction := g.generateFaction(p.ID, p.Name, p.Data, usedNames)
 			if err := g.saveFaction(faction); err != nil {
-				return total, err
+				return total, 0, err
 			}
 			total++
 		}
 	}
-	return total, nil
+
+	// Столицы — всегда, и когда фракций 0 (§3: не ошибка, догон легаси-БД).
+	capitals, err := g.EnsureCapitals()
+	if err != nil {
+		return total, 0, err
+	}
+	return total, capitals, nil
+}
+
+// EnsureCapitals — идемпотентный проход «столица на фракцию» (спека
+// 2026-09-21-фабрики-релиз-2-столицы-фракций §3): одна столица на фракцию, на
+// её родной планете (factions.homeworld_id). Повторный прогон не дублирует —
+// NOT EXISTS + частичный UNIQUE uq_buildings_capital_owner (ON CONFLICT DO
+// NOTHING). Возвращает число фактически созданных столиц.
+func (g *Generator) EnsureCapitals() (int, error) {
+	res, err := g.db.Exec(`
+		INSERT INTO buildings (planet_id, building_type, owner_type, owner_id)
+		SELECT f.homeworld_id, 'capital', 'faction', f.id
+		FROM factions f
+		WHERE NOT EXISTS (
+			SELECT 1 FROM buildings b
+			WHERE b.building_type = 'capital' AND b.owner_type = 'faction' AND b.owner_id = f.id
+		)
+		ON CONFLICT DO NOTHING
+	`)
+	if err != nil {
+		return 0, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return int(n), nil
 }
 
 func (g *Generator) generateFaction(planetID, planetName string, planetData map[string]interface{}, usedNames map[string]bool) *Faction {

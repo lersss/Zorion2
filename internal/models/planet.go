@@ -72,6 +72,17 @@ type Planet struct {
 	// Поселения планеты (источник населения)
 	Settlements []Settlement `json:"settlements,omitempty"`
 
+	// Фракции планеты (спека 2026-09-21-фабрики-релиз-2-столицы-фракций §6):
+	// фракции, для которых планета родная (factions.homeworld_id). Приезжают
+	// на систему вместе с планетами (attachFactionsAndBuildings); у player без
+	// знания о планете сервер их не отдаёт (stripPlanetDetails).
+	Factions []PlanetFaction `json:"factions,omitempty"`
+
+	// Строения планеты (там же §6): сущность «строение», в первой итерации —
+	// столицы фракций (building_type='capital'). Отдельный массив, связь
+	// «владелец ↔ фракция» клиент собирает по owner_id.
+	Buildings []PlanetBuilding `json:"buildings,omitempty"`
+
 	// Knowledge — видимость знания о планете для модалки (спека 77a §6.2):
 	// заполняется сервером для role=player (поверхность + наличие поселений
 	// с датой актуальности); null для admin/skycomposer и без знания —
@@ -110,6 +121,27 @@ type PlanetKnowledgeView struct {
 	SurfaceDominant    string             `json:"surface_dominant,omitempty"`
 	SurfaceComposition map[string]float64 `json:"surface_composition,omitempty"`
 	SettlementsCount   int                `json:"settlements_count,omitempty"` // есть/нет + число (§6.2)
+}
+
+// PlanetFaction — фракция планеты в ответе API (спека
+// 2026-09-21-фабрики-релиз-2-столицы-фракций §6): id/name/type/color/description.
+// Сила (strength) намеренно не показывается — генератор пишет заглушку 1 (§4.2).
+type PlanetFaction struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Type        string `json:"type"`
+	Color       string `json:"color"`
+	Description string `json:"description"`
+}
+
+// PlanetBuilding — строение планеты в ответе API (там же §6):
+// id/building_type/owner_type/owner_id. Владелец полиморфный: owner_type —
+// player/faction/agent, owner_id — id владельца (для столицы — factions.id).
+type PlanetBuilding struct {
+	ID           string `json:"id"`
+	BuildingType string `json:"building_type"`
+	OwnerType    string `json:"owner_type"`
+	OwnerID      string `json:"owner_id"`
 }
 
 // PlanetCore — ядро планеты.

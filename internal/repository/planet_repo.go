@@ -63,6 +63,9 @@ func (r *PlanetRepository) GetPlanetsByWorldID(worldID string) ([]models.Planet,
 	if err := r.attachSettlements(planets); err != nil {
 		return nil, err
 	}
+	if err := r.attachFactionsAndBuildings(planets); err != nil {
+		return nil, err
+	}
 	return planets, nil
 }
 
@@ -95,6 +98,9 @@ func (r *PlanetRepository) GetPlanetByID(id string) (*models.Planet, error) {
 
 	planets := []models.Planet{p}
 	if err := r.attachSettlements(planets); err != nil {
+		return nil, err
+	}
+	if err := r.attachFactionsAndBuildings(planets); err != nil {
 		return nil, err
 	}
 	return &planets[0], nil
@@ -224,6 +230,69 @@ func (r *PlanetRepository) attachSettlements(planets []models.Planet) error {
 		}
 	}
 	return nil
+}
+
+// attachFactionsAndBuildings — подтягивает фракции (по factions.homeworld_id)
+// и строения (по buildings.planet_id) планет системы (спека
+// 2026-09-21-фабрики-релиз-2-столицы-фракций §6). Два запроса на систему
+// (`= ANY($1)`), без обхода галактики (инвариант 2). У планет без записей —
+// массивы пустые (в JSON скрыты omitempty).
+func (r *PlanetRepository) attachFactionsAndBuildings(planets []models.Planet) error {
+	if len(planets) == 0 {
+		return nil
+	}
+
+	ids := make([]string, 0, len(planets))
+	index := make(map[string]int, len(planets))
+	for i := range planets {
+		ids = append(ids, planets[i].ID)
+		index[planets[i].ID] = i
+	}
+
+	rows, err := r.db.Query(`
+		SELECT id, name, type, color, description, homeworld_id
+		FROM factions WHERE homeworld_id = ANY($1) ORDER BY name ASC
+	`, pqStringArray(ids))
+	if err != nil {
+		return fmt.Errorf("failed to load factions: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var f models.PlanetFaction
+		var homeworldID string
+		var color, description sql.NullString
+		if err := rows.Scan(&f.ID, &f.Name, &f.Type, &color, &description, &homeworldID); err != nil {
+			return fmt.Errorf("failed to scan faction: %w", err)
+		}
+		f.Color = color.String
+		f.Description = description.String
+		if i, ok := index[homeworldID]; ok {
+			planets[i].Factions = append(planets[i].Factions, f)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("factions iteration error: %w", err)
+	}
+
+	brows, err := r.db.Query(`
+		SELECT id, planet_id, building_type, owner_type, owner_id
+		FROM buildings WHERE planet_id = ANY($1) ORDER BY building_type ASC, id ASC
+	`, pqStringArray(ids))
+	if err != nil {
+		return fmt.Errorf("failed to load buildings: %w", err)
+	}
+	defer brows.Close()
+	for brows.Next() {
+		var b models.PlanetBuilding
+		var planetID string
+		if err := brows.Scan(&b.ID, &planetID, &b.BuildingType, &b.OwnerType, &b.OwnerID); err != nil {
+			return fmt.Errorf("failed to scan building: %w", err)
+		}
+		if i, ok := index[planetID]; ok {
+			planets[i].Buildings = append(planets[i].Buildings, b)
+		}
+	}
+	return brows.Err()
 }
 
 // planetMortalityInput — физика планеты для пересчёта смерти населения от

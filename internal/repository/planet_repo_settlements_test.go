@@ -53,6 +53,10 @@ func TestGetPlanetsByWorldIDWithSettlements(t *testing.T) {
 		ORDER BY occurred_at DESC
 	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"id", "settlement_id", "type", "occurred_at", "cause", "created_at"}))
 
+	// attachFactionsAndBuildings — фракций/строений у планет нет (спека
+	// 2026-09-21-фабрики-релиз-2-столицы-фракций §6).
+	expectEmptyFactionsBuildings(mock)
+
 	// Открытие карточки системы триггерит пересчёт населения (18a_population_death.md);
 	// computed_at = now, т.е. Δt < MinPersistInterval — «простой визит»: пересчёт
 	// только в памяти, записей в БД нет. Планета p1 — комфортная (288 K, R=0, λ=0):
@@ -104,6 +108,9 @@ func TestGetPlanetsByWorldIDOrbitContext(t *testing.T) {
 		SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at, race_id
 		FROM settlements WHERE planet_id = ANY($1) ORDER BY created_at ASC
 	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id"}))
+
+	// attachFactionsAndBuildings — фракций/строений у планет нет (§6).
+	expectEmptyFactionsBuildings(mock)
 
 	planets, err := NewPlanetRepository(db).GetPlanetsByWorldID("w1")
 	require.NoError(t, err)
@@ -212,6 +219,9 @@ func TestGetPlanetsByWorldIDRaceName(t *testing.T) {
 		WHERE rn <= 3
 		ORDER BY occurred_at DESC
 	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"id", "settlement_id", "type", "occurred_at", "cause", "created_at"}))
+
+	// attachFactionsAndBuildings — фракций/строений у планеты нет (§6).
+	expectEmptyFactionsBuildings(mock)
 
 	planets, err := NewPlanetRepository(db).GetPlanetsByWorldID("w1")
 	require.NoError(t, err)

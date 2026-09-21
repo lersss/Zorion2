@@ -34,3 +34,30 @@ func TestStripBiomes(t *testing.T) {
 	require.Nil(t, stripped.Settlements)
 	require.Equal(t, "p1", stripped.ID, "базовые поля объекта остаются (77a §5.2)")
 }
+
+// TestStripFactionsAndBuildings — фракции/строения планеты (спека
+// 2026-09-21-фабрики-релиз-2-столицы-фракций §5/§7 п.6): player без знания о
+// планете получает nil (защита в глубину, как у поселений); со знанием —
+// остаются; admin идёт мимо фильтра (stripPlanetDetails к нему не применяется).
+func TestStripFactionsAndBuildings(t *testing.T) {
+	p := models.Planet{
+		ID:        "p1",
+		Factions:  []models.PlanetFaction{{ID: "f1", Name: "Аквилонский Синдикат"}},
+		Buildings: []models.PlanetBuilding{{ID: "b1", BuildingType: "capital", OwnerType: "faction", OwnerID: "f1"}},
+	}
+
+	// Player без знания — деталей о фракциях/строениях нет.
+	stripped := stripPlanetDetails(p, nil)
+	require.Nil(t, stripped.Factions, "без знания фракции скрыты")
+	require.Nil(t, stripped.Buildings, "без знания строения скрыты")
+
+	// Player со знанием — фракции/строения остаются.
+	withKnowledge := stripPlanetDetails(p, &models.PlanetKnowledgeView{})
+	require.Len(t, withKnowledge.Factions, 1)
+	require.Len(t, withKnowledge.Buildings, 1)
+
+	// admin/skycomposer фильтр не применяют (И7): планета не проходит
+	// stripPlanetDetails — поля остаются как есть.
+	require.Len(t, p.Factions, 1)
+	require.Len(t, p.Buildings, 1)
+}

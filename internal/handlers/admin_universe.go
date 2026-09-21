@@ -50,13 +50,13 @@ func recoverErr(r interface{}) string {
 // Список таблиц — все, что прямо или косвенно ссылаются на worlds
 // (кроме users):
 //   worlds    ← locations, assignments, planets, npc_agents
-//   planets   ← factions, settlements
+//   planets   ← factions, settlements, buildings
 //
 // Если появится новая таблица с FK на любую из этих — TRUNCATE упадёт
 // с ошибкой "cannot truncate a table referenced in a foreign key
 // constraint". Тогда добавь её в этот список.
 
-const truncateTables = `worlds, locations, planets, assignments, factions, settlements, settlement_log, regions, npc_agents, player_planet_knowledge`
+const truncateTables = `worlds, locations, planets, assignments, factions, settlements, settlement_log, regions, npc_agents, player_planet_knowledge, buildings`
 
 // clearUniverseTx — очистка внутри уже начатой транзакции.
 // Вызывающий делает Begin/Commit/Rollback.
@@ -622,27 +622,55 @@ func (h *AdminHandlers) GenerateFactions(w http.ResponseWriter, r *http.Request)
 	if rows.Next() {
 		rows.Scan(&total)
 	}
-	if total == 0 {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"factions_generated","total":0}`))
+
+	// Гейт мутаций вселенной — ДО ветки total == 0 (C3, спека
+	// 2026-09-21-фабрики-релиз-2-столицы-фракций §3/§7 п.3): фракции и столицы
+	// пишут в planets-каскад, синхронный догон столиц в ветке total == 0 —
+	// тот же писатель. Пакман ест миры (спека 2026-09-20 §2.2), ClearUniverse
+	// TRUNCATE-ит под universeMutationMu: гонка «проверка + действие» закрыта
+	// (инвариант 1) — гейт раньше возврата, а не после.
+	if statusManager.IsRunning(generator.JobPacman) {
+		http.Error(w, "Generation is running, cancel it first", http.StatusConflict)
+		return
+	}
+	if !universeMutationMu.TryLock() {
+		http.Error(w, "Universe mutation is running, wait for it", http.StatusConflict)
 		return
 	}
 
-	// Пакман ест миры (спека 2026-09-20 §2.2): фракции пишут в planets —
-	// генерация поверх пакмана не стартует.
-	if statusManager.IsRunning(generator.JobPacman) {
-		http.Error(w, "Generation is running, cancel it first", http.StatusConflict)
+	factionGen := faction.NewGenerator(h.db, 0)
+
+	if total == 0 {
+		// Нет обитаемых планет: фракции не создаются, но догон столиц
+		// легаси-фракций выполняется синхронно под тем же гейтом (§3).
+		defer universeMutationMu.Unlock()
+		capitals, err := factionGen.EnsureCapitals()
+		if err != nil {
+			log.Printf("❌ GenerateFactions: capitals (sync): %v", err)
+			http.Error(w, "Failed to create capitals", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":   "factions_generated",
+			"total":    0,
+			"capitals": capitals,
+		})
 		return
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	if !statusManager.TryStart(generator.JobGenerateFactions, total, cancel) {
 		cancel()
+		universeMutationMu.Unlock()
 		http.Error(w, "Generation already running", http.StatusConflict)
 		return
 	}
 
 	go func() {
+		// Мьютекс мутаций вселенной держится до конца джоба (как StartPacman):
+		// ClearUniverse не стартует поверх генерации фракций (TryLock → 409).
+		defer universeMutationMu.Unlock()
 		defer func() {
 			if rec := recover(); rec != nil {
 				log.Printf("❌ GenerateFactions panic: %v", rec)
@@ -656,14 +684,13 @@ func (h *AdminHandlers) GenerateFactions(w http.ResponseWriter, r *http.Request)
 		default:
 		}
 		log.Printf("🏛️ GenerateFactions: start")
-		factionGen := faction.NewGenerator(h.db, 0)
-		count, err := factionGen.GenerateFactions()
+		factions, capitals, err := factionGen.GenerateFactions()
 		if err != nil {
 			log.Printf("❌ GenerateFactions: %v", err)
 			statusManager.Fail(generator.JobGenerateFactions, err.Error())
 			return
 		}
-		log.Printf("✅ GenerateFactions: %d factions", count)
+		log.Printf("✅ GenerateFactions: %d factions, %d capitals", factions, capitals)
 		statusManager.Done(generator.JobGenerateFactions)
 	}()
 

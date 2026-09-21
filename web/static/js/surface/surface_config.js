@@ -15,6 +15,12 @@ export const G_EARTH = 9.81;
 export const CHUNK = 256;
 export const CHUNK_RADIUS = 3;
 
+// Парящая порода float-формаций (идея 2026-09-21 §4): полоса над рельефом и
+// обязательный зазор под камнем. Зазор > роста игрока (28 px) — под аркой
+// всегда есть проход, стен «до земли» не бывает.
+export const FLOAT_SPAN = 260;
+export const FLOAT_GAP = 48;
+
 // Погода (§7.2): одно явление за 2–4 мин, без урона.
 export const WEATHER_MIN_MS = 120000;
 export const WEATHER_MAX_MS = 240000;

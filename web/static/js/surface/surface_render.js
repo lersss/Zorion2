@@ -2,10 +2,12 @@
 // Отрисовка прогулки (спека 2026-09-21 §7.2): параллакс-небо (только из sky
 // пакета), дальний рельеф, основной рельеф/пещеры (чанки кэшируются), декор,
 // жизнь, игрок, частицы погоды, HUD (в surface_ui.js). Canvas 2D.
-import { CHUNK, CHUNK_RADIUS, COLORS } from './surface_config.js';
+import { CHUNK, CHUNK_RADIUS, COLORS, FLOAT_SPAN } from './surface_config.js';
 import { shade, rgba } from './surface_world.js';
 
-const CHUNK_TOP_MARGIN = 620;
+// 700 (не 620): полоса парящих камней (FLOAT_SPAN над рельефом) при высоких
+// горах вылезала за верх канваса чанка (вулканизм — на ~17 px, §4 п.4).
+const CHUNK_TOP_MARGIN = 700;
 const CHUNK_HEIGHT = 1700;
 
 // getChunkCanvas — лениво отрисованный чанк (кэш). Рельеф + пещеры.
@@ -40,6 +42,20 @@ export function getChunkCanvas(world, index) {
             const wy = topY + ly;
             if (wy < th + 6) continue;
             if (world.isCave(wx, wy)) ctx.fillRect(lx, ly, 3, 3);
+        }
+    }
+
+    // Парящие камни/арки (float-формации): красим ровно там, где физика
+    // (isSolid) считает породу твёрдой — иначе твёрдый объём невидим и игрок
+    // упирается в пустое небо (идея 2026-09-21 §2.1). Шаг 3 px, как у пещер.
+    ctx.fillStyle = rock;
+    for (let lx = 0; lx < CHUNK; lx += 3) {
+        const wx = baseX + lx;
+        const th = world.terrainHeight(wx);
+        for (let wy = th - 3; wy > th - FLOAT_SPAN; wy -= 3) {
+            if (!world.isSolid(wx, wy)) continue;
+            const ly = Math.floor(wy - topY);
+            if (ly >= 0 && ly < CHUNK_HEIGHT) ctx.fillRect(lx, ly, 3, 3);
         }
     }
 
@@ -107,17 +123,36 @@ export function drawSky(ctx, vw, vh, sky, camera, timeMs) {
     });
 }
 
+// FAR_STEP — фиксированный шаг выборки дальнего плана в мировых координатах
+// (не по экрану): силуэт считается на одной и той же мировой решётке, поэтому
+// при сдвиге камеры уезжает цельно, а не перерисовывается каждый кадр (§2.2).
+export const FAR_STEP = 24;
+
+// farReliefProfile — точки дальнего силуэта: мировая решётка FAR_STEP в
+// «дальнем» мире (параллакс 0.35), экранная координата выводится из камеры.
+export function farReliefProfile(world, camera, vw) {
+    const camFar = camera.x * 0.35;
+    const half = vw / 2;
+    const start = Math.floor((camFar - half) / FAR_STEP) * FAR_STEP;
+    const end = camFar + half;
+    const pts = [];
+    for (let wx = start; wx <= end; wx += FAR_STEP) {
+        pts.push({ wx, sx: wx - camFar + half, y: world.farHeight(wx) });
+    }
+    return pts;
+}
+
 // drawFarRelief — дальний силуэт рельефа (параллакс 0.35).
 export function drawFarRelief(ctx, world, camera, vw, vh) {
+    const pts = farReliefProfile(world, camera, vw);
+    if (!pts.length) return;
+    const yOff = -camera.y * 0.35 + vh * 0.35;
     ctx.fillStyle = 'rgba(8,12,22,0.85)';
     ctx.beginPath();
     ctx.moveTo(0, vh);
-    for (let sx = 0; sx <= vw; sx += 12) {
-        const wx = camera.x * 0.35 + (sx - vw / 2);
-        const h = world.baseY - 220 - (world.terrainHeight(wx * 1.4) - world.baseY) * 0.5;
-        const y = h - camera.y * 0.35 + vh * 0.35;
-        ctx.lineTo(sx, y);
-    }
+    ctx.lineTo(0, pts[0].y + yOff);
+    for (const p of pts) ctx.lineTo(p.sx, p.y + yOff);
+    ctx.lineTo(vw, pts[pts.length - 1].y + yOff);
     ctx.lineTo(vw, vh);
     ctx.closePath();
     ctx.fill();
@@ -134,15 +169,27 @@ export function drawTerrain(ctx, world, camera, vw, vh) {
     }
 }
 
-// drawDecor — растительность/лишайники/камни (step 4) + редкие находки.
-export function drawDecor(ctx, world, camera, vw, vh) {
+// visibleDecor — декор кадра перебором МИРОВЫХ колонок (идея 2026-09-21 §2.2):
+// набор и позиции зависят только от мира и камеры, не от субпиксельной фазы.
+// Шаг — 1 мировая колонка (`decorAt` — дешёвый хеш), запас по краям — под
+// крону/стебли у границы кадра.
+export function visibleDecor(world, camera, vw) {
     const left = camera.x - vw / 2;
-    for (let sx = 0; sx <= vw; sx += 4) {
-        const wx = left + sx;
+    const margin = 8;
+    const out = [];
+    for (let wx = Math.floor(left) - margin; wx <= Math.ceil(camera.x + vw / 2) + margin; wx++) {
         const d = world.decorAt(wx);
         if (!d) continue;
-        const gy = world.terrainHeight(wx) - camera.y + vh / 2;
-        const x = sx;
+        out.push({ wx, x: wx - camera.x + vw / 2, kind: d.kind, h: d.h });
+    }
+    return out;
+}
+
+// drawDecor — растительность/лишайники/камни + редкие находки.
+export function drawDecor(ctx, world, camera, vw, vh) {
+    for (const d of visibleDecor(world, camera, vw)) {
+        const x = d.x;
+        const gy = world.terrainHeight(d.wx) - camera.y + vh / 2;
         if (d.kind === 'tree') {
             ctx.strokeStyle = shade(world.color, 0.5);
             ctx.lineWidth = 3;
@@ -173,6 +220,7 @@ export function drawDecor(ctx, world, camera, vw, vh) {
     }
 
     // Редкие декорации-находки (любопытство §9).
+    const left = camera.x - vw / 2;
     const start = Math.floor(left / 200) * 200;
     for (let wx = start; wx <= left + vw + 200; wx += 200) {
         const r = world.rareDecorAt(wx);

@@ -3,7 +3,7 @@
 // (fbm 2 слоя), пещеры (порог 2D-шума), формации по biome_category (В9), декор,
 // жизнь (если life). Детерминирован от seed — один и тот же мир при повторе.
 // Никакого Math.random: локальный PRNG.
-import { CHUNK, FORMATIONS, PPM } from './surface_config.js';
+import { CHUNK, FORMATIONS, PPM, FLOAT_SPAN, FLOAT_GAP } from './surface_config.js';
 
 // mulberry32 — локальный PRNG (не общий Math.random).
 export function mulberry32(a) {
@@ -94,19 +94,20 @@ export class SurfaceWorld {
         return this.formations[Math.floor(h * this.formations.length) % this.formations.length];
     }
 
-    // formationBlend — плавная (непрерывная) смесь формаций соседних регионов:
-    // резкий скачок высоты на границе региона читался бы как обрыв мира.
+    // formationBlend — плавная (непрерывная) смесь формации региона с предыдущей:
+    // на границе обе стороны дают одну высоту. С прежней тройкой prev+cur+next
+    // на границе скачок до ~128 px — «обрыв мира», а парящий камень повисал бы
+    // ниже игрока (упор в стену, идея 2026-09-21 §4). Смешиваем на входе региона
+    // (prev→cur) — так высота в точке спавна x=0 (local=0) не меняется.
     formationBlend(x) {
         const R = this.region;
         const i = Math.floor(x / R);
         const local = (x - i * R) / R;
         const prev = this._formationForRegion(i - 1);
         const cur = this._formationForRegion(i);
-        const next = this._formationForRegion(i + 1);
         const wPrev = 1 - smoothstep(0, 0.18, local);
-        const wNext = smoothstep(0.82, 1, local);
-        const wCur = Math.max(0, 1 - wPrev - wNext);
-        const mix = (k) => prev[k] * wPrev + cur[k] * wCur + next[k] * wNext;
+        const wCur = 1 - wPrev;
+        const mix = (k) => prev[k] * wPrev + cur[k] * wCur;
         return {
             id: cur.id,
             ridge: mix('ridge'),
@@ -122,6 +123,16 @@ export class SurfaceWorld {
         const large = (fbm1(x * 0.0015, this.seed, 2) - 0.5) * 230 * (0.5 + 0.8 * f.ridge);
         const detail = (fbm1(x * 0.02, this.seed ^ 0x9e37, 3) - 0.5) * 80 * (1 - 0.7 * f.flatten);
         return this.baseY + f.offset - large - detail;
+    }
+
+    // farHeight — свой низкочастотный профиль дальнего плана (идея 2026-09-21
+    // §2.2): только крупная составляющая, без мелкой ряби ближнего рельефа, и
+    // форма своя (не сжатая копия terrainHeight). Детерминирован от seed —
+    // локальные хеши, без Math.random. Масштаб согласован с ближним рельефом.
+    farHeight(x) {
+        const large = fbm1(x * 0.0008, this.seed ^ 0x7a11, 2);
+        const mid = fbm1(x * 0.0022, this.seed ^ 0x3c05, 2);
+        return this.baseY - 220 - (large - 0.5) * 300 - (mid - 0.5) * 90;
     }
 
     caveValue(x, y) {
@@ -145,7 +156,9 @@ export class SurfaceWorld {
         const f = this.formationBlend(x);
         if (f.float) {
             const n = noise2(x * 0.01, y * 0.01, this.seed ^ 0xa5a5);
-            if (n > 0.72 && y > th - 260) return true; // висячие скалы/арки
+            // Парящая порода не доходит до земли: зазор FLOAT_GAP (> роста
+            // игрока) — под камнем всегда проход, стен «до земли» нет (§4 п.2).
+            if (n > 0.72 && y > th - FLOAT_SPAN && y < th - FLOAT_GAP) return true;
         }
         return false;
     }

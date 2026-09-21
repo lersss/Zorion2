@@ -17,11 +17,14 @@ export class Player {
     constructor(world, gravityG) {
         this.world = world;
         this.x = 0;
-        this.y = world.terrainHeight(0) - 4;
         this.vx = 0;
         this.vy = 0;
         this.w = 12;
         this.h = 28;
+        // Спавн — на корке поверхности: центр на h/2+2 выше рельефа. Иначе ноги
+        // (th+10) ниже 8-px корки, и игрок проваливается в пещеру под спавном,
+        // откуда не выйти (не запираться на спавне, идея 2026-09-21 §4 п.3).
+        this.y = world.terrainHeight(0) - this.h / 2 - 2;
         this.onGround = false;
         this.facing = 1;
         this.distance = 0;

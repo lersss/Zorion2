@@ -11,6 +11,9 @@
 //  5) память >= 900k или 15 действий после напоминания -> отказ и гашение.
 //
 // Срабатывания показываются всплывашкой и пишутся в журнал (.opencode/loop-guard.log).
+//
+// ВРЕМЕННО: строки action="probe" в журнале — диагностика потока событий
+// (проверяем, что доходит до сторожа и в каком виде). Убрать пробник после проверки.
 
 import fs from "node:fs"
 import path from "node:path"
@@ -26,10 +29,13 @@ export const LoopGuard = async ({ client, directory }) => {
   const AFTER_REMINDER = 15
   const STOP_BLOCKS = 5
   const STOP_MEMORY_BLOCKS = 2
+  // Диагностика событий: сколько строк писать за всё время работы плагина.
+  const PROBE_LIMIT = 12
 
   const journalPath = directory ? path.join(directory, ".opencode", "loop-guard.log") : null
   const sessions = new Map()
   let journalReady = false
+  let probeLines = 0
 
   const journal = (sessionID, action, reason, extra = {}) => {
     if (!journalPath) return
@@ -91,6 +97,14 @@ export const LoopGuard = async ({ client, directory }) => {
 
   const head = (text) => String(text ?? "").replace(/\s+/g, " ").trim().slice(0, 40)
   const kilos = (v) => Math.round(v / 1000) + "k"
+
+  // Рабочая память сообщения: сколько модель держит в контексте на этом шаге.
+  const memory = (tokens) => {
+    if (!tokens) return 0
+    const input = Number(tokens.input) || 0
+    const cache = Number(tokens.cache?.read ?? tokens.cacheRead) || 0
+    return input + cache
+  }
   const bump = (map, key) => {
     const n = (map.get(key) ?? 0) + 1
     map.set(key, n)
@@ -162,6 +176,17 @@ export const LoopGuard = async ({ client, directory }) => {
       const type = event?.type
       const props = event?.properties ?? {}
 
+      // Диагностика (временно): что реально доходит и в каком виде.
+      if (type && probeLines < PROBE_LIMIT) {
+        probeLines += 1
+        journal(props.sessionID ?? "?", "probe", type, {
+          propKeys: Object.keys(props).join(","),
+          infoKeys: props.info ? Object.keys(props.info).join(",") : "-",
+          kind: String(props.info?.role ?? props.info?.type ?? props.part?.type ?? "-"),
+          tokens: props.info?.tokens ? JSON.stringify(props.info.tokens) : "-",
+        })
+      }
+
       if (type === "session.deleted") {
         sessions.delete(props.info?.id ?? props.sessionID)
         return
@@ -169,9 +194,12 @@ export const LoopGuard = async ({ client, directory }) => {
 
       if (type === "message.updated") {
         const info = props.info
-        if (info?.role !== "assistant" || !info.tokens) return
-        const b = bucket(info.sessionID ?? props.sessionID)
-        b.mem = (info.tokens.input ?? 0) + (info.tokens.cache?.read ?? 0)
+        if (!info) return
+        // Роль сообщения: в старом формате это role, в новом — type.
+        if ((info.role ?? info.type) !== "assistant") return
+        const mem = memory(info.tokens)
+        if (mem <= 0) return
+        bucket(info.sessionID ?? props.sessionID).mem = mem
         return
       }
 

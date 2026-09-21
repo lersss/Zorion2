@@ -29,6 +29,7 @@ import (
 type StudioHandlers struct {
 	repo     *repository.GoodsRepository
 	deposits *repository.DepositRepository
+	branches *repository.BranchRepository
 	ai       *ai.Client
 	aiModel  string
 
@@ -56,6 +57,7 @@ func NewStudioHandlers(db *sql.DB, aiClient *ai.Client, aiModel string) *StudioH
 	return &StudioHandlers{
 		repo:     repository.NewGoodsRepository(db),
 		deposits: repository.NewDepositRepository(db),
+		branches: repository.NewBranchRepository(db),
 		ai:       aiClient,
 		aiModel:  aiModel,
 	}
@@ -591,6 +593,8 @@ func (h *StudioHandlers) GoodByID(w http.ResponseWriter, r *http.Request) {
 		h.good(w, r, id)
 	case len(parts) == 2 && parts[1] == "deposits-count":
 		h.goodDepositsCount(w, r, id)
+	case len(parts) == 2 && parts[1] == "branches-count":
+		h.goodBranchesCount(w, r, id)
 	case len(parts) == 2 && parts[1] == "fill":
 		h.goodFill(w, r, id)
 	case len(parts) == 3 && parts[1] == "fill" && parts[2] == "apply":
@@ -615,6 +619,24 @@ func (h *StudioHandlers) goodDepositsCount(w http.ResponseWriter, r *http.Reques
 	n, err := h.deposits.CountDepositsByGood(id)
 	if err != nil {
 		studioErr(w, "ошибка чтения залежей: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	studioJSON(w, http.StatusOK, map[string]int{"count": n})
+}
+
+// goodBranchesCount — GET /studio/api/goods/{id}/branches-count (§8/О3
+// итерации 2): предпроверка числа веток поселений, у которых товар — выход
+// рецепта, перед удалением (каскад recipes → settlement_branches). Ответ
+// {"count": N}. Один источник числа — BranchRepository.CountBranchesByGood
+// (тем же SQL считает DeleteGood). JWT admin/skycomposer — на роуте (main.go).
+func (h *StudioHandlers) goodBranchesCount(w http.ResponseWriter, r *http.Request, id int64) {
+	if r.Method != http.MethodGet {
+		studioErr(w, "только GET", http.StatusMethodNotAllowed)
+		return
+	}
+	n, err := h.branches.CountBranchesByGood(id)
+	if err != nil {
+		studioErr(w, "ошибка чтения веток: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	studioJSON(w, http.StatusOK, map[string]int{"count": n})
@@ -650,6 +672,7 @@ func (h *StudioHandlers) good(w http.ResponseWriter, r *http.Request, id int64) 
 			"deleted":       id,
 			"cleared_links": res.ClearedLinks,
 			"deposits":      res.Deposits,
+			"branches":      res.Branches,
 		})
 	default:
 		studioErr(w, "только PUT/DELETE", http.StatusMethodNotAllowed)

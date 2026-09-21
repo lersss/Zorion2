@@ -72,6 +72,11 @@ func TestMortalityPreviewComfortablePlanetHasZeroLambda(t *testing.T) {
 		sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id"}).
 			AddRow("s1", "p1", 1_000_000, float64(1_000_000), 60, now, now, now, nil),
 	)
+	// Ветки поселения (спека 2026-09-22-поселение-ветка-буферы-переработка
+	// §4.2): у поселения s1 веток нет — пустая выборка (attachBranches идёт
+	// ПОСЛЕ пересчёта населения и до чтения лога).
+	mock.ExpectQuery(`SELECT b.id, b.settlement_id, b.recipe_id, b.processed_at, r.good_id, og.name, r.complexity FROM settlement_branches b JOIN recipes r ON r.id = b.recipe_id JOIN goods og ON og.id = r.good_id WHERE b.settlement_id = ANY($1) ORDER BY b.created_at ASC, b.id ASC`).
+		WithArgs(sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"id", "settlement_id", "recipe_id", "processed_at", "good_id", "name", "complexity"}))
 	// attachSettlements читает лог поселения (18b §«Лог поселения») — пусто.
 	mock.ExpectQuery(`
 		SELECT id, settlement_id, type, occurred_at, cause, created_at

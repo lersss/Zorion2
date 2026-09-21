@@ -140,6 +140,16 @@ func TestTruncateTablesIncludesDeposits(t *testing.T) {
 		"deposits обязана быть в truncateTables (admin_universe.go)")
 }
 
+// T1 (итерация 2): обе таблицы ветки обязаны быть в truncateTables — без
+// settlement_branches упадёт TRUNCATE settlements (FK settlement_id), без
+// settlement_branch_buffers — TRUNCATE на ветке.
+func TestTruncateTablesIncludesSettlementBranches(t *testing.T) {
+	require.Contains(t, truncateTables, "settlement_branches",
+		"settlement_branches обязана быть в truncateTables (FK settlements)")
+	require.Contains(t, truncateTables, "settlement_branch_buffers",
+		"settlement_branch_buffers обязана быть в truncateTables (FK settlement_branches)")
+}
+
 // B12: system_belts обязана быть в truncateTables (спека поясов §4.6: FK
 // system_belts.world_id → worlds; без неё TRUNCATE worlds падёт — та же
 // ловушка, что у buildings/deposits).

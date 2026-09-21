@@ -3,6 +3,7 @@ import { populationAt, planetPopulationAt } from './extrapolate.js';
 import { modalState } from './state.js';
 import { getPlanetTexture } from './textures.js';
 import { groupDeposits } from './deposits.js';
+import { branchesBlockHtml } from './branches.js';
 
 // ---------- УТИЛИТЫ ----------
 
@@ -598,13 +599,88 @@ function renderSettlements(planet) {
                     <div>Стабильность: <strong>${populationAt(s, Date.now()) === 0 ? '—' : (s.stability != null ? s.stability + '%' : '—')}</strong></div>
                 </div>
                 ${settlementLogRows(s)}
+                ${branchesBlockHtml(s.branches, isAdmin(), s.id)}
             </div>`;
     });
     return html;
 }
 
-// ---------- ФРАКЦИИ (спека 2026-09-21-фабрики-релиз-2-столицы-фракций §4) ----------
+// ---------- ВЕТКИ ПОСЕЛЕНИЯ (спека 2026-09-22-поселение-ветка-буферы-переработка §6) ----------
 
+// applyBranchesToSettlement — замена блока веток поселения ответом ручки
+// (контракт §5: клиент заменяет блок целиком).
+function applyBranchesToSettlement(planet, settlementID, branches) {
+    const list = planet && planet.settlements ? planet.settlements : [];
+    const s = list.find(x => x.id === settlementID);
+    if (s) s.branches = Array.isArray(branches) ? branches : [];
+}
+
+// initBranchesAdmin — вешает админ-формы веток после вставки вкладки в DOM:
+// «создать ветку» (recipe_id) и «добавить во вход» (ресурс из
+// /studio/api/resources + количество). Ответ ручек (§5) заменяет блок веток.
+function initBranchesAdmin(planet, container) {
+    if (!isAdmin()) return;
+
+    container.querySelectorAll('[data-branch-create]').forEach(btn => {
+        const form = btn.closest('[data-branch-create-form]');
+        if (!form) return;
+        const settlementID = form.dataset.branchCreateForm;
+        btn.addEventListener('click', async () => {
+            const inp = form.querySelector('[data-branch-recipe]');
+            const recipeID = inp ? Number(inp.value) : 0;
+            if (!settlementID || !recipeID) return;
+            const token = modalState.authToken || localStorage.getItem('token');
+            try {
+                const res = await fetch('/admin/settlements/' + encodeURIComponent(settlementID) + '/branches', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                    body: JSON.stringify({ recipe_id: recipeID })
+                });
+                if (!res.ok) { console.warn('ветка: HTTP ' + res.status + ' ' + await res.text()); return; }
+                const data = await res.json();
+                applyBranchesToSettlement(planet, data.settlement_id, data.branches);
+                renderTabContent('settlements', planet, container);
+            } catch (e) {
+                console.warn('ветка: ' + e.message);
+            }
+        });
+    });
+
+    container.querySelectorAll('[data-branch-input-add]').forEach(btn => {
+        const form = btn.closest('[data-branch-input-form]');
+        if (!form) return;
+        const branchID = form.dataset.branchInputForm;
+        const sel = form.querySelector('[data-branch-input-good]');
+        loadDepositResources().then(list => {
+            if (!sel || !sel.isConnected) return;
+            sel.innerHTML = list.length
+                ? list.map(r => `<option value="${r.id}">${r.name}</option>`).join('')
+                : '<option value="">ресурсов нет</option>';
+        }).catch(() => {
+            if (sel && sel.isConnected) sel.innerHTML = '<option value="">ресурсы недоступны</option>';
+        });
+        btn.addEventListener('click', async () => {
+            const amountEl = form.querySelector('[data-branch-input-amount]');
+            if (!branchID || !sel || !sel.value || !amountEl || !Number(amountEl.value)) return;
+            const token = modalState.authToken || localStorage.getItem('token');
+            try {
+                const res = await fetch('/admin/branches/' + encodeURIComponent(branchID) + '/input', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                    body: JSON.stringify({ good_id: Number(sel.value), amount: Number(amountEl.value) })
+                });
+                if (!res.ok) { console.warn('ветка вход: HTTP ' + res.status + ' ' + await res.text()); return; }
+                const data = await res.json();
+                applyBranchesToSettlement(planet, data.settlement_id, data.branches);
+                renderTabContent('settlements', planet, container);
+            } catch (e) {
+                console.warn('ветка вход: ' + e.message);
+            }
+        });
+    });
+}
+
+// ---------- ФРАКЦИИ (спека 2026-09-21-фабрики-релиз-2-столицы-фракций §4) ----------
 // BUILDING_TYPE_LABELS — словарь подписей типов строений: единственное место,
 // где ключ (buildings.building_type) превращается в человекочитаемое имя.
 // Неизвестный ключ показывается как есть (выдуманных имён не вводим, §6).
@@ -832,6 +908,7 @@ export function renderTabContent(tab, planet, container) {
             break;
         case 'settlements':
             container.innerHTML = renderSettlements(planet);
+            initBranchesAdmin(planet, container);
             break;
         case 'factions':
             container.innerHTML = renderFactions(planet);

@@ -19,8 +19,38 @@ type Settlement struct {
 	// RaceName — человекочитаемое имя расы поселения (JSON-вывод, не колонка
 	// БД): вычисляется в attachSettlements из каталога рас; пусто = легаси/люди.
 	RaceName string `json:"race_name,omitempty"`
-	CreatedAt       time.Time             `json:"created_at"`
-	UpdatedAt       time.Time             `json:"updated_at"`
+	// Branches — ветки поселения (спека 2026-09-22-поселение-ветка-буферы-
+	// переработка §6): связь поселение ↔ рецепт каталога с входным/выходным
+	// буфером и своей чек-точкой. Подтягиваются в attachSettlements после
+	// ленивого пересчёта населения (§4.2); входной буфер виден только админу
+	// (stripPlanetDetails обнуляет Input для player).
+	Branches  []SettlementBranch `json:"branches,omitempty"`
+	CreatedAt time.Time          `json:"created_at"`
+	UpdatedAt time.Time          `json:"updated_at"`
+}
+
+// SettlementBranch — ветка поселения в ответе карточки (спека 2026-09-22-
+// поселение-ветка-буферы-переработка §6): рецепт каталога (имя выхода и
+// сложность), своя чек-точка processed_at, входной и выходной буферы. Входной
+// буфер (Input) отдаётся только админу (§6 — выход вместе с деталями
+// поселения); выход — «пол» по качеству (поле качества не заводим, §1).
+type SettlementBranch struct {
+	ID          string              `json:"id"`
+	RecipeID    int64               `json:"recipe_id"`
+	RecipeName  string              `json:"recipe_name,omitempty"`
+	Complexity  int                 `json:"complexity,omitempty"`
+	ProcessedAt time.Time           `json:"processed_at"`
+	Output      []BranchBufferEntry `json:"output,omitempty"`
+	Input       []BranchBufferEntry `json:"input,omitempty"`
+}
+
+// BranchBufferEntry — запись буфера ветки «ресурс → количество» (таблица
+// settlement_branch_buffers, §3.1): direction не сериализуется — вход и выход
+// лежат отдельными массивами (Input/Output).
+type BranchBufferEntry struct {
+	GoodID   int64   `json:"good_id"`
+	GoodName string  `json:"good_name"`
+	Amount   float64 `json:"amount"`
 }
 
 // SettlementLogEntry — запись лога поселения (18b_settlement_log.md, §«Лог

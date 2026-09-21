@@ -823,10 +823,13 @@ func (r *GoodsRepository) UpdateGood(id int64, name *string, categoryID *int64, 
 // GoodDeleteResult — итог удаления товара/ресурса: ClearedLinks — число
 // очищенных ссылок (component_id → NULL в чужих рецептах, для UI-
 // подтверждения), Deposits — число залежей ресурса, снесённых каскадом
-// (спека 2026-09-22-поселение-... §3.3/T14: студия предупреждает числом).
+// (спека 2026-09-22-поселение-... §3.3/T14: студия предупреждает числом),
+// Branches — число веток поселений, у которых этот товар — выход рецепта
+// (каскад recipes → settlement_branches; §8/О3 итерации 2).
 type GoodDeleteResult struct {
 	ClearedLinks int
 	Deposits     int
+	Branches     int
 }
 
 // DeleteGood — удаление товара/ресурса (спека §7, решение гейта №2):
@@ -855,6 +858,12 @@ func (r *GoodsRepository) DeleteGood(id int64) (GoodDeleteResult, error) {
 	}
 	// Предпроверка залежей до удаления (§3.3/T14): FK CASCADE сносит их молча.
 	out.Deposits, err = countDepositsByGood(tx, id)
+	if err != nil {
+		return out, err
+	}
+	// Предпроверка веток до удаления (§8/О3 итерации 2): товар-выход сносит
+	// рецепт → ветки поселений с буферами каскадом; студия предупреждает числом.
+	out.Branches, err = countBranchesByGood(tx, id)
 	if err != nil {
 		return out, err
 	}

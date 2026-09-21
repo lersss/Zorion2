@@ -66,6 +66,10 @@ func stripPlanetDetails(p models.Planet, view *models.PlanetKnowledgeView) model
 	p.TidalLock = false
 	p.Population = 0
 	p.Core = nil
+	// Ветки поселений (спека 2026-09-22-поселение-ветка-буферы-переработка §6):
+	// входной буфер ветки видит только админ — обнуляем Input у каждой ветки ДО
+	// обнуления поселений (защита в глубину, как Deposits/Factions/Buildings).
+	stripBranchInputs(&p)
 	p.Settlements = nil
 	// Фракции/строения планеты (спека 2026-09-21-фабрики-релиз-2-столицы-фракций
 	// §5/§7 п.6): player видит их только со знанием о планете (сканер вскрывает
@@ -96,6 +100,19 @@ func stripPlanetDetails(p models.Planet, view *models.PlanetKnowledgeView) model
 		s.Description = ""
 	}
 	return p
+}
+
+// stripBranchInputs — обнуляет входной буфер веток поселений (спека
+// 2026-09-22-поселение-ветка-буферы-переработка §6): вход видит только админ,
+// выход остаётся частью деталей поселения. Защита в глубину — вызывается
+// безусловно в stripPlanetDetails, на случай будущего потребителя, отдающего
+// поселения игроку.
+func stripBranchInputs(p *models.Planet) {
+	for i := range p.Settlements {
+		for j := range p.Settlements[i].Branches {
+			p.Settlements[i].Branches[j].Input = nil
+		}
+	}
 }
 
 // applyBeltVisibility — выдача поясов игроку (спека

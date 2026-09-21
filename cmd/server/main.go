@@ -435,6 +435,12 @@ func main() {
 	// Залежи поверхности (спека 2026-09-22-поселение-добыча-сырья-биома-
 	// ленивый-буфер §6): админ-песочница «добавить залежь вручную».
 	http.HandleFunc("/admin/planets/", auth.AdminAuth(adminHandlers.AddDeposit))
+	// Ветки поселений (спека 2026-09-22-поселение-ветка-буферы-переработка
+	// §5): админ-ручки «создать ветку» и «добавить ресурсы во входной буфер».
+	// Плоские wildcard'ы; /admin/settlements/ (мн.) не пересекается с
+	// /admin/settlement-settings (ед.) и /admin/clear-settlements.
+	http.HandleFunc("/admin/settlements/", auth.AdminAuth(adminHandlers.AddBranch))
+	http.HandleFunc("/admin/branches/", auth.AdminAuth(adminHandlers.AddBranchInput))
 	// СКРЫТ (65a): старый человеческий генератор поселений заменён расовым
 	// (/admin/generate-race-settlements). Код хендлера остаётся в
 	// internal/handlers/admin_settlements.go, роут не регистрируется.

@@ -308,6 +308,9 @@ func TestDeleteGoodClearedLinks(t *testing.T) {
 	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM deposits WHERE good_id = \$1`).
 		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(3))
+	mock.ExpectQuery(`FROM settlement_branches b`).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	mock.ExpectExec(`UPDATE recipe_components SET component_id = NULL, reason = '' WHERE component_id = \$1`).
 		WithArgs(int64(1)).
 		WillReturnResult(sqlmock.NewResult(0, 2))
@@ -320,6 +323,7 @@ func TestDeleteGoodClearedLinks(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 2, res.ClearedLinks)
 	require.Equal(t, 3, res.Deposits, "число залежей ресурса (предпроверка, T14)")
+	require.Equal(t, 1, res.Branches, "число веток с этим товаром-выходом (О3 итерации 2)")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -334,6 +338,9 @@ func TestDeleteGoodNoLinks(t *testing.T) {
 		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM deposits WHERE good_id = \$1`).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectQuery(`FROM settlement_branches b`).
 		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 	mock.ExpectExec(`UPDATE recipe_components SET component_id = NULL, reason = '' WHERE component_id = \$1`).

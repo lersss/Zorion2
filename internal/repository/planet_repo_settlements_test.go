@@ -40,6 +40,11 @@ func TestGetPlanetsByWorldIDWithSettlements(t *testing.T) {
 		FROM settlements WHERE planet_id = ANY($1) ORDER BY created_at ASC
 	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(settlementRows)
 
+	// attachBranches (спека 2026-09-22-поселение-ветка-буферы-переработка
+	// §4.2): у поселений веток нет — пустая выборка; идёт после пересчёта
+	// населения и до чтения лога.
+	expectEmptyBranches(mock)
+
 	// attachSettlements читает лог поселений (18b §«Лог поселения») — пусто.
 	mock.ExpectQuery(`
 		SELECT id, settlement_id, type, occurred_at, cause, created_at
@@ -209,6 +214,8 @@ func TestGetPlanetsByWorldIDRaceName(t *testing.T) {
 		SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at, race_id
 		FROM settlements WHERE planet_id = ANY($1) ORDER BY created_at ASC
 	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(settlementRows)
+
+	expectEmptyBranches(mock)
 
 	mock.ExpectQuery(`
 		SELECT id, settlement_id, type, occurred_at, cause, created_at

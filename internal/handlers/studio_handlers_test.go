@@ -84,6 +84,30 @@ func TestStudioState(t *testing.T) {
 	require.False(t, view.Generating)
 }
 
+// TestStudioGoodBranchesCount — GET /studio/api/goods/{id}/branches-count:
+// предпроверка числа веток поселений с этим товаром-выходом (§8/О3 итерации 2).
+func TestStudioGoodBranchesCount(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectQuery(`FROM settlement_branches b`).
+		WithArgs(int64(378)).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(4))
+
+	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", "build", time.Second, 0), "test-model")
+	req := httptest.NewRequest(http.MethodGet, "/studio/api/goods/378/branches-count", nil)
+	rec := httptest.NewRecorder()
+	h.GoodByID(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	var body map[string]int
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Equal(t, 4, body["count"])
+}
+
 // TestStudioDeleteGoodClearedLinks — DELETE /studio/api/goods/1:
 // ответ {deleted, cleared_links, deposits} (deposits — число залежей, T14).
 func TestStudioDeleteGoodClearedLinks(t *testing.T) {
@@ -98,6 +122,9 @@ func TestStudioDeleteGoodClearedLinks(t *testing.T) {
 	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM deposits WHERE good_id = \$1`).
 		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(2))
+	mock.ExpectQuery(`FROM settlement_branches b`).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	mock.ExpectExec(`UPDATE recipe_components SET component_id = NULL, reason = '' WHERE component_id = \$1`).
 		WithArgs(int64(1)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -119,6 +146,7 @@ func TestStudioDeleteGoodClearedLinks(t *testing.T) {
 	require.Equal(t, float64(1), body["deleted"])
 	require.Equal(t, float64(1), body["cleared_links"])
 	require.Equal(t, float64(2), body["deposits"], "число залежей ресурса в ответе удаления (T14)")
+	require.Equal(t, float64(1), body["branches"], "число веток с этим товаром-выходом (О3 итерации 2)")
 }
 
 // TestStudioGoodDepositsCount — GET /studio/api/goods/{id}/deposits-count:

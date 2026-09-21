@@ -274,6 +274,13 @@ func (r *PlanetRepository) attachSettlements(planets []models.Planet) error {
 		}
 	}
 
+	// Ветки поселений (спека 2026-09-22-поселение-ветка-буферы-переработка
+	// §4.2): после ленивого пересчёта населения — загрузка веток и ленивый синк
+	// переработки вход → выход (своя чек-точка processed_at, не computed_at).
+	if err := r.attachBranches(planets); err != nil {
+		return err
+	}
+
 	// Лог поселения (записи «Вымерло»): один запрос на все поселения, последние
 	// 3 записи на поселение (18b §«UI», settlements[].log).
 	logBySettlement, err := econRepo.GetSettlementLogBySettlementIDs(settlementIDs)
@@ -349,6 +356,36 @@ func (r *PlanetRepository) attachFactionsAndBuildings(planets []models.Planet) e
 		}
 	}
 	return brows.Err()
+}
+
+// attachBranches — подтягивает ветки поселений и выполняет ленивый синк
+// переработки вход → выход (спека 2026-09-22-поселение-ветка-буферы-
+// переработка §4.2). Вызывается внутри attachSettlements ПОСЛЕ ленивого
+// пересчёта населения: скорость переработки берёт Population поселения той же
+// точки чтения. Δt < MinPersistInterval — пересчёт в памяти; иначе персистентный
+// синк (FOR UPDATE на ветке). У планет без поселений запросов нет.
+func (r *PlanetRepository) attachBranches(planets []models.Planet) error {
+	ids := make([]string, 0, len(planets))
+	populations := map[string]float64{}
+	for i := range planets {
+		for _, s := range planets[i].Settlements {
+			ids = append(ids, s.ID)
+			populations[s.ID] = float64(s.Population)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	bySettlement, err := NewBranchRepository(r.db).SyncBranches(ids, populations, time.Now())
+	if err != nil {
+		return fmt.Errorf("failed to load branches: %w", err)
+	}
+	for i := range planets {
+		for j := range planets[i].Settlements {
+			planets[i].Settlements[j].Branches = bySettlement[planets[i].Settlements[j].ID]
+		}
+	}
+	return nil
 }
 
 // attachDeposits — подтягивает залежи планет системы (спека 2026-09-22-

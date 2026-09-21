@@ -53,13 +53,15 @@
 
 | Файл | Кто правит | До какого коммита |
 |---|---|---|
-| `internal/generator/planet/*` (cascade.go, planet_data.go, planet_data_generate.go, planet_data_belt.go, planet_data_batch.go, belt_test.go), `internal/models/planet.go`, `internal/handlers/admin_universe.go`, `internal/handlers/admin_regenerate_planets.go`, `migrations/000059_system_belts.sql` | @developer (пояса малых тел — этап 1а/1б, спека 2026-09-21-пояса-малых-тел-объект-системы) | до коммита задачи |
+| `web/static/js/modal/panel.js`, `web/static/js/modal/tabs.js`, `web/static/js/modal/deposits.js` (новый), `web/studio.html`, `web/frontend_deposits_test.go` (новый) | @developer (залежи на поверхности — фронтенд итерации 1, спека 2026-09-22-поселение-добыча-сырья-биома-ленивый-буфер) | до коммита задачи |
+| `migrations/000061_money.sql` (новый), `internal/models/account.go` (новый), `internal/repository/account_repository.go` (+_test, новый), `internal/repository/user_repository.go` (+_test), `internal/handlers/money_handlers.go` (+_test, новый), `internal/handlers/auth_handlers.go` (+_test), `cmd/server/main.go` (блок денег: repo+роут), `docs/DB.md`, `docs/ARCHITECTURE.md`, `docs/PITFALLS.md` | @developer (этап A «деньги/счёт» эпика «Контракты + деньги», спека 2026-09-22-деньги-и-эскроу) | до коммита задачи |
 
 ## Занято ранее (историческое, не блокирует — чистится @manager по мере надобности)
 
 | Файл | Кто правит | До какого коммита |
 |---|---|---|
 | `internal/generator/planet/cascade.go` / `planet_data.go` / `planet_data_generate.go` / `accretion_mass_test.go` / `giant_smoke_test.go` | @developer (этап 1 «протопылевое облако», 2026-09-21) | коммит dd37a8c |
+| `internal/generator/planet/*` (cascade.go, planet_data.go, planet_data_generate.go, planet_data_belt.go, planet_data_batch.go, belt_test.go), `internal/models/planet.go`, `internal/handlers/admin_universe.go`, `internal/handlers/admin_regenerate_planets.go`, `migrations/000059_system_belts.sql` | @developer (пояса малых тел — этап 1а/1б, 2026-09-21/22) | коммит b24e358 |
 | `internal/generator/planet/biome_*.go` (+seed.json, biome_test.go) | @developer (99.2.28) | коммит 99.2.28 |
 | `internal/generator/planet/cascade.go` / `classify.go` / `composition_*.go` / `planet_data*.go` / `circumbinary.go` | @developer (99.2.28) | коммит 99.2.28 |
 | `internal/models/planet.go` | @developer (99.2.28) | коммит 99.2.28 |

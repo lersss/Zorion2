@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/lib/pq"
 
@@ -365,8 +366,8 @@ func (r *GoodsRepository) ApplyProposals(goodID int64, items []ai.ProposalItem) 
 		}
 		var id int64
 		err = tx.QueryRow(
-			`INSERT INTO goods (name, name_norm, category_id, kind, source) VALUES ($1, $2, $3, 'good', 'ai') RETURNING id`,
-			g.Name, graph.NormalizeName(g.Name), catID,
+			`INSERT INTO goods (name, name_norm, category_id, kind, source, description) VALUES ($1, $2, $3, 'good', 'ai', $4) RETURNING id`,
+			g.Name, graph.NormalizeName(g.Name), catID, nullIfEmpty(g.Description),
 		).Scan(&id)
 		if err != nil {
 			if isUniqueViolation(err) {
@@ -425,6 +426,69 @@ func (r *GoodsRepository) ApplyProposals(goodID int64, items []ai.ProposalItem) 
 		return 0, nil, err
 	}
 	return applied, report, nil
+}
+
+// DescItem — принятый пункт попапа «Описания ИИ»: id записи каталога +
+// нормализованный текст (trim, непустой, ≤ MaxDescriptionRunes).
+type DescItem struct {
+	ID   int64
+	Text string
+}
+
+// UpdateDescriptions — запись описаний (спека §6.6): одна транзакция с
+// advisory lock (beginMutation). onlyIfEmpty — режим джоба (И4):
+//
+//	true  — пакетный прогон (scope:"missing"): на каждый пункт SELECT name,
+//	        COALESCE(description, '') FROM goods WHERE id = $1 FOR UPDATE —
+//	        записи нет → «запись N не найдена — пропущено»; описание непустое →
+//	        «описание уже заполнено: <имя> — пропущено»; иначе UPDATE;
+//	false — явный прогон (good_ids: одиночный после создания / по кнопке):
+//	        guard непустого описания снят — SELECT (наличие записи) и UPDATE
+//	        поверх («запись N не найдена — пропущено» только если записи нет).
+//
+// Возвращает applied (фактически записанные) + отчёт по строкам.
+func (r *GoodsRepository) UpdateDescriptions(items []DescItem, onlyIfEmpty bool) (int, []string, error) {
+	tx, err := r.beginMutation()
+	if err != nil {
+		return 0, nil, err
+	}
+	defer tx.Rollback()
+
+	applied := 0
+	var report []string
+	for _, it := range items {
+		var name, current string
+		err := tx.QueryRow(
+			`SELECT name, COALESCE(description, '') FROM goods WHERE id = $1 FOR UPDATE`, it.ID,
+		).Scan(&name, &current)
+		if errors.Is(err, sql.ErrNoRows) {
+			report = append(report, fmt.Sprintf("запись %d не найдена — пропущено", it.ID))
+			continue
+		}
+		if err != nil {
+			return 0, nil, err
+		}
+		if onlyIfEmpty && strings.TrimSpace(current) != "" {
+			report = append(report, fmt.Sprintf("описание уже заполнено: %s — пропущено", name))
+			continue
+		}
+		if _, err := tx.Exec(`UPDATE goods SET description = $1 WHERE id = $2`, it.Text, it.ID); err != nil {
+			return 0, nil, err
+		}
+		applied++
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, nil, err
+	}
+	return applied, report, nil
+}
+
+// nullIfEmpty — пустая строка → nil (в БД «нет описания» = NULL, И3).
+func nullIfEmpty(s string) interface{} {
+	if s == "" {
+		return nil
+	}
+	return s
 }
 
 // indexOfGood — индекс товара по id (для ApplyProposals-транзакции).
@@ -649,12 +713,14 @@ func (r *GoodsRepository) CreateGood(name string, categoryID int64, kind model.K
 	return g, nil
 }
 
-// UpdateGood — переименование/смена категории/веса/объёма (спека §7):
+// UpdateGood — переименование/смена категории/веса/объёма/описания (спека §7):
 // категория должна соответствовать kind — 400; дубликат имени — 409.
 // volume/weight — данные каталога (3b.6.4): nil = не трогать (значение есть
 // всегда, Р2 2026-09-21); отрицательные значения — 400. Для ресурсов
-// разрешено (С1: без привилегий).
-func (r *GoodsRepository) UpdateGood(id int64, name *string, categoryID *int64, volume, weight *float64) error {
+// разрешено (С1: без привилегий). description — данные каталога (спека
+// 2026-09-21-каталог-описание §6.3): nil = не трогать, пусто/пробелы →
+// NULL (очистка, И3), длиннее MaxDescriptionRunes рун — 400.
+func (r *GoodsRepository) UpdateGood(id int64, name *string, categoryID *int64, volume, weight *float64, description *string) error {
 	tx, err := r.beginMutation()
 	if err != nil {
 		return err
@@ -738,12 +804,25 @@ func (r *GoodsRepository) UpdateGood(id int64, name *string, categoryID *int64, 
 			return err
 		}
 	}
+	if description != nil {
+		trimmed := strings.TrimSpace(*description)
+		if utf8.RuneCountInString(trimmed) > ai.MaxDescriptionRunes {
+			return errCatalog(400, "описание длиннее 2000 символов")
+		}
+		if trimmed == "" {
+			if _, err := tx.Exec(`UPDATE goods SET description = NULL WHERE id = $1`, id); err != nil {
+				return err
+			}
+		} else if _, err := tx.Exec(`UPDATE goods SET description = $1 WHERE id = $2`, trimmed, id); err != nil {
+			return err
+		}
+	}
 	return tx.Commit()
 }
 
 // DeleteGood — удаление товара/ресурса (спека §7, решение гейта №2):
 // всегда (в т.ч. ресурсы — без привилегий); компоненты рецептов других
-// товаров, ссылающиеся на него, очищаются (component_id → NULL, reason → '')
+// товаров, ссылающиеся на него, очищаются (component_id → NULL, reason → ”)
 // в той же транзакции; свой рецепт и его компоненты удаляются каскадом
 // (recipes → recipe_components, producer_recipes). Возвращает число
 // очищенных ссылок (cleared_links, для UI-подтверждения в B).
@@ -1133,19 +1212,29 @@ func (r *GoodsRepository) BulkCreateGoods(lines []string) (BulkReport, error) {
 		if trimmed == "" {
 			continue
 		}
-		sep := strings.Index(trimmed, "|")
-		if sep < 0 {
+		parts := strings.SplitN(trimmed, "|", 3)
+		if len(parts) < 2 {
 			rep.Errors = append(rep.Errors, BulkError{Line: line, Reason: "нет разделителя „|"})
 			continue
 		}
-		name := strings.TrimSpace(trimmed[:sep])
-		catName := strings.TrimSpace(trimmed[sep+1:])
+		name := strings.TrimSpace(parts[0])
+		catName := strings.TrimSpace(parts[1])
+		// третья колонка — описание (спека 2026-09-21-каталог-описание §6.4):
+		// может быть пустой; «|» внутри описания допустим (не режется дальше).
+		description := ""
+		if len(parts) == 3 {
+			description = strings.TrimSpace(parts[2])
+		}
 		if name == "" {
 			rep.Errors = append(rep.Errors, BulkError{Line: line, Reason: "пустое имя"})
 			continue
 		}
 		if catName == "" {
 			rep.Errors = append(rep.Errors, BulkError{Line: line, Reason: "пустая категория"})
+			continue
+		}
+		if utf8.RuneCountInString(description) > ai.MaxDescriptionRunes {
+			rep.Errors = append(rep.Errors, BulkError{Line: line, Reason: "описание длиннее 2000 символов"})
 			continue
 		}
 		catID, ok := catByName[graph.NormalizeName(catName)]
@@ -1160,8 +1249,8 @@ func (r *GoodsRepository) BulkCreateGoods(lines []string) (BulkReport, error) {
 		}
 		var id int64
 		if err := tx.QueryRow(
-			`INSERT INTO goods (name, name_norm, category_id, kind, source) VALUES ($1, $2, $3, 'good', 'manual') RETURNING id`,
-			name, graph.NormalizeName(name), catID,
+			`INSERT INTO goods (name, name_norm, category_id, kind, source, description) VALUES ($1, $2, $3, 'good', 'manual', $4) RETURNING id`,
+			name, graph.NormalizeName(name), catID, nullIfEmpty(description),
 		).Scan(&id); err != nil {
 			if isUniqueViolation(err) {
 				// страховка от гонки: дубликат в пачке/параллельная вставка — пропуск строки
@@ -1218,7 +1307,7 @@ func loadCategories(q queryer) ([]CategoryRow, error) {
 // рецепта нет, recipe_id/complexity = NULL).
 func loadGoods(q queryer) ([]model.Good, error) {
 	rows, err := q.Query(
-		`SELECT g.id, g.name, g.category_id, g.kind, g.source, r.id, r.complexity, g.created_at, g.volume, g.weight
+		`SELECT g.id, g.name, g.category_id, g.kind, g.source, r.id, r.complexity, g.created_at, g.volume, g.weight, g.description
 		 FROM goods g LEFT JOIN recipes r ON r.good_id = g.id
 		 ORDER BY g.id`)
 	if err != nil {
@@ -1234,7 +1323,8 @@ func loadGoods(q queryer) ([]model.Good, error) {
 		var recipeID, complexity sql.NullInt64
 		var createdAt time.Time
 		var volume, weight sql.NullFloat64
-		if err := rows.Scan(&id, &g.Name, &catID, &kind, &source, &recipeID, &complexity, &createdAt, &volume, &weight); err != nil {
+		var description sql.NullString
+		if err := rows.Scan(&id, &g.Name, &catID, &kind, &source, &recipeID, &complexity, &createdAt, &volume, &weight, &description); err != nil {
 			return nil, err
 		}
 		g.ID = strconv.FormatInt(id, 10)
@@ -1256,6 +1346,7 @@ func loadGoods(q queryer) ([]model.Good, error) {
 			w := weight.Float64
 			g.Weight = &w
 		}
+		g.Description = description.String
 		g.CreatedAt = createdAt.UTC().Format(time.RFC3339)
 		out = append(out, g)
 	}

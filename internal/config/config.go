@@ -21,6 +21,7 @@ type Config struct {
 	PlanetImageCacheDir          string
 	OpenCodeURL                  string
 	OpenCodeModel                string
+	OpenCodeAgent                string
 	OpenCodeTimeout              time.Duration
 	OpenCodeMaxRetries           int
 }
@@ -99,6 +100,13 @@ func Load() *Config {
 	if ocModel == "" {
 		ocModel = "opencode/deepseek-v4-flash"
 	}
+	// Агент opencode: в 1.18 пустая строка резолвится в default_agent проекта
+	// (opencode.json → "manager") — модель отвечает прозой менеджера, а не
+	// JSON; поэтому агент задаётся явно (дефолт build).
+	ocAgent := os.Getenv("OPENCODE_AGENT")
+	if ocAgent == "" {
+		ocAgent = "build"
+	}
 	ocTimeoutS := os.Getenv("OPENCODE_TIMEOUT_S")
 	if ocTimeoutS == "" {
 		ocTimeoutS = "120"
@@ -129,6 +137,7 @@ func Load() *Config {
 		PlanetImageCacheDir:          pimgDir,
 		OpenCodeURL:                  ocURL,
 		OpenCodeModel:                ocModel,
+		OpenCodeAgent:                ocAgent,
 		OpenCodeTimeout:              time.Duration(ocTimeout) * time.Second,
 		OpenCodeMaxRetries:           ocMaxRetries,
 	}

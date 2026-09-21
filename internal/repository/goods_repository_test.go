@@ -231,7 +231,7 @@ func TestUpdateGoodCategoryMismatch(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"kind"}).AddRow("resource"))
 
 	catID := int64(7)
-	err = NewGoodsRepository(db).UpdateGood(1, nil, &catID, nil, nil)
+	err = NewGoodsRepository(db).UpdateGood(1, nil, &catID, nil, nil, nil)
 	var ce *ErrCatalog
 	require.True(t, errors.As(err, &ce))
 	require.Equal(t, 400, ce.Status)
@@ -257,7 +257,7 @@ func TestUpdateGoodCategoryBound409(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
 	catID := int64(5)
-	err = NewGoodsRepository(db).UpdateGood(1, nil, &catID, nil, nil)
+	err = NewGoodsRepository(db).UpdateGood(1, nil, &catID, nil, nil, nil)
 	var ce *ErrCatalog
 	require.True(t, errors.As(err, &ce))
 	require.Equal(t, 409, ce.Status)
@@ -288,7 +288,7 @@ func TestUpdateGoodCategoryUnboundFree(t *testing.T) {
 	mock.ExpectCommit()
 
 	catID := int64(5)
-	require.NoError(t, NewGoodsRepository(db).UpdateGood(1, nil, &catID, nil, nil))
+	require.NoError(t, NewGoodsRepository(db).UpdateGood(1, nil, &catID, nil, nil, nil))
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -381,10 +381,10 @@ func TestPutRecipeComponentCycle(t *testing.T) {
 		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	// граф: g1 (id=1) содержит g2 (id=2) → класть g1 в компонент g2 = цикл
-	mock.ExpectQuery(`SELECT g.id, g.name, g.category_id, g.kind, g.source, r.id, r.complexity, g.created_at, g.volume, g.weight FROM goods g LEFT JOIN recipes r ON r.good_id = g.id ORDER BY g.id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "recipe_id", "complexity", "created_at", "volume", "weight"}).
-			AddRow(int64(1), "A", int64(1), "good", "manual", nil, nil, time.Now(), nil, nil).
-			AddRow(int64(2), "B", int64(1), "good", "manual", nil, nil, time.Now(), nil, nil))
+	mock.ExpectQuery(`SELECT g.id, g.name, g.category_id, g.kind, g.source, r.id, r.complexity, g.created_at, g.volume, g.weight, g.description FROM goods g LEFT JOIN recipes r ON r.good_id = g.id ORDER BY g.id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "recipe_id", "complexity", "created_at", "volume", "weight", "description"}).
+			AddRow(int64(1), "A", int64(1), "good", "manual", nil, nil, time.Now(), nil, nil, nil).
+			AddRow(int64(2), "B", int64(1), "good", "manual", nil, nil, time.Now(), nil, nil, nil))
 	mock.ExpectQuery(`SELECT r\.good_id, c\.pos, c\.component_id, c\.quantity, c\.reason, c\.allow_resource FROM recipe_components c JOIN recipes r ON r\.id = c\.recipe_id ORDER BY r\.good_id, c\.pos`).
 		WillReturnRows(sqlmock.NewRows([]string{"good_id", "pos", "component_id", "quantity", "reason", "allow_resource"}).
 			AddRow(int64(1), 0, int64(2), 1, nil, false))
@@ -595,10 +595,10 @@ func TestSnapshot(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "code", "is_system"}).
 			AddRow(int64(1), "Корабли", "good", nil, false).
 			AddRow(int64(7), "Минералы", "resource", "mineral", true))
-	mock.ExpectQuery(`SELECT g.id, g.name, g.category_id, g.kind, g.source, r.id, r.complexity, g.created_at, g.volume, g.weight FROM goods g LEFT JOIN recipes r ON r.good_id = g.id ORDER BY g.id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "recipe_id", "complexity", "created_at", "volume", "weight"}).
-			AddRow(int64(1), "Сталь", int64(1), "good", "manual", int64(100), 3, time.Now(), nil, nil).
-			AddRow(int64(2), "Железо Fe", int64(7), "resource", "palette", nil, nil, time.Now(), nil, nil))
+	mock.ExpectQuery(`SELECT g.id, g.name, g.category_id, g.kind, g.source, r.id, r.complexity, g.created_at, g.volume, g.weight, g.description FROM goods g LEFT JOIN recipes r ON r.good_id = g.id ORDER BY g.id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "recipe_id", "complexity", "created_at", "volume", "weight", "description"}).
+			AddRow(int64(1), "Сталь", int64(1), "good", "manual", int64(100), 3, time.Now(), nil, nil, nil).
+			AddRow(int64(2), "Железо Fe", int64(7), "resource", "palette", nil, nil, time.Now(), nil, nil, nil))
 	mock.ExpectQuery(`SELECT r\.good_id, c\.pos, c\.component_id, c\.quantity, c\.reason, c\.allow_resource FROM recipe_components c JOIN recipes r ON r\.id = c\.recipe_id ORDER BY r\.good_id, c\.pos`).
 		WillReturnRows(sqlmock.NewRows([]string{"good_id", "pos", "component_id", "quantity", "reason", "allow_resource"}).
 			AddRow(int64(1), 0, int64(2), 1, nil, false))
@@ -750,8 +750,8 @@ func TestBulkCyrillicCaseDuplicate(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name"}).AddRow(int64(1), "Корабли"))
 	mock.ExpectQuery(`SELECT name FROM goods`).
 		WillReturnRows(sqlmock.NewRows([]string{"name"}))
-	mock.ExpectQuery(`INSERT INTO goods \(name, name_norm, category_id, kind, source\) VALUES \(\$1, \$2, \$3, 'good', 'manual'\) RETURNING id`).
-		WithArgs("Товар", "товар", int64(1)).
+	mock.ExpectQuery(`INSERT INTO goods \(name, name_norm, category_id, kind, source, description\) VALUES \(\$1, \$2, \$3, 'good', 'manual', \$4\) RETURNING id`).
+		WithArgs("Товар", "товар", int64(1), nil).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(5)))
 	mock.ExpectQuery(`INSERT INTO recipes \(good_id\) VALUES \(\$1\) RETURNING id`).
 		WithArgs(int64(5)).
@@ -803,9 +803,9 @@ func applySnapshotRows(mock sqlmock.Sqlmock) {
 	mock.ExpectQuery(`SELECT id, name, kind, code, is_system FROM categories ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "code", "is_system"}).
 			AddRow(int64(5), "Комплектующие", "good", nil, false))
-	mock.ExpectQuery(`SELECT g.id, g.name, g.category_id, g.kind, g.source, r.id, r.complexity, g.created_at, g.volume, g.weight FROM goods g LEFT JOIN recipes r ON r.good_id = g.id ORDER BY g.id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "recipe_id", "complexity", "created_at", "volume", "weight"}).
-			AddRow(int64(1), "Корабль", int64(5), "good", "manual", int64(100), nil, time.Now(), nil, nil))
+	mock.ExpectQuery(`SELECT g.id, g.name, g.category_id, g.kind, g.source, r.id, r.complexity, g.created_at, g.volume, g.weight, g.description FROM goods g LEFT JOIN recipes r ON r.good_id = g.id ORDER BY g.id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "recipe_id", "complexity", "created_at", "volume", "weight", "description"}).
+			AddRow(int64(1), "Корабль", int64(5), "good", "manual", int64(100), nil, time.Now(), nil, nil, nil))
 	mock.ExpectQuery(`SELECT r\.good_id, c\.pos, c\.component_id, c\.quantity, c\.reason, c\.allow_resource FROM recipe_components c JOIN recipes r ON r\.id = c\.recipe_id ORDER BY r\.good_id, c\.pos`).
 		WillReturnRows(sqlmock.NewRows([]string{"good_id", "pos", "component_id", "quantity", "reason", "allow_resource"}).
 			AddRow(int64(1), 0, nil, 1, nil, false).
@@ -822,14 +822,14 @@ func TestApplyProposalsWriteBack(t *testing.T) {
 
 	expectMutationBegin(mock)
 	applySnapshotRows(mock)
-	mock.ExpectQuery(`INSERT INTO goods \(name, name_norm, category_id, kind, source\) VALUES \(\$1, \$2, \$3, 'good', 'ai'\) RETURNING id`).
-		WithArgs("Сталь", "сталь", int64(5)).
+	mock.ExpectQuery(`INSERT INTO goods \(name, name_norm, category_id, kind, source, description\) VALUES \(\$1, \$2, \$3, 'good', 'ai', \$4\) RETURNING id`).
+		WithArgs("Сталь", "сталь", int64(5), nil).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(10)))
 	mock.ExpectExec(`INSERT INTO recipes \(good_id\) VALUES \(\$1\)`).
 		WithArgs(int64(10)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectQuery(`INSERT INTO goods \(name, name_norm, category_id, kind, source\) VALUES \(\$1, \$2, \$3, 'good', 'ai'\) RETURNING id`).
-		WithArgs("Топливо", "топливо", int64(5)).
+	mock.ExpectQuery(`INSERT INTO goods \(name, name_norm, category_id, kind, source, description\) VALUES \(\$1, \$2, \$3, 'good', 'ai', \$4\) RETURNING id`).
+		WithArgs("Топливо", "топливо", int64(5), nil).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(11)))
 	mock.ExpectExec(`INSERT INTO recipes \(good_id\) VALUES \(\$1\)`).
 		WithArgs(int64(11)).
@@ -863,9 +863,9 @@ func TestApplyProposalsGoodGoneM2(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, name, kind, code, is_system FROM categories ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "code", "is_system"}).
 			AddRow(int64(5), "Комплектующие", "good", nil, false))
-	mock.ExpectQuery(`SELECT g.id, g.name, g.category_id, g.kind, g.source, r.id, r.complexity, g.created_at, g.volume, g.weight FROM goods g LEFT JOIN recipes r ON r.good_id = g.id ORDER BY g.id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "recipe_id", "complexity", "created_at", "volume", "weight"}).
-			AddRow(int64(2), "Другой", int64(5), "good", "manual", nil, nil, time.Now(), nil, nil))
+	mock.ExpectQuery(`SELECT g.id, g.name, g.category_id, g.kind, g.source, r.id, r.complexity, g.created_at, g.volume, g.weight, g.description FROM goods g LEFT JOIN recipes r ON r.good_id = g.id ORDER BY g.id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "recipe_id", "complexity", "created_at", "volume", "weight", "description"}).
+			AddRow(int64(2), "Другой", int64(5), "good", "manual", nil, nil, time.Now(), nil, nil, nil))
 	mock.ExpectQuery(`SELECT r\.good_id, c\.pos, c\.component_id, c\.quantity, c\.reason, c\.allow_resource FROM recipe_components c JOIN recipes r ON r\.id = c\.recipe_id ORDER BY r\.good_id, c\.pos`).
 		WillReturnRows(sqlmock.NewRows([]string{"good_id", "pos", "component_id", "quantity", "reason", "allow_resource"}))
 	mock.ExpectRollback() // ничего не записано — ранний return, rollback
@@ -910,8 +910,8 @@ func TestApplyProposalsUniqueDrop(t *testing.T) {
 
 	expectMutationBegin(mock)
 	applySnapshotRows(mock)
-	mock.ExpectQuery(`INSERT INTO goods \(name, name_norm, category_id, kind, source\) VALUES \(\$1, \$2, \$3, 'good', 'ai'\) RETURNING id`).
-		WithArgs("Сталь", "сталь", int64(5)).
+	mock.ExpectQuery(`INSERT INTO goods \(name, name_norm, category_id, kind, source, description\) VALUES \(\$1, \$2, \$3, 'good', 'ai', \$4\) RETURNING id`).
+		WithArgs("Сталь", "сталь", int64(5), nil).
 		WillReturnError(&pq.Error{Code: "23505"})
 	mock.ExpectCommit()
 
@@ -946,5 +946,72 @@ func TestLayerResources(t *testing.T) {
 	require.Equal(t, "вода-ресурс", rows[0].Name)
 	require.Equal(t, "water", rows[0].Category)
 	require.Contains(t, string(rows[0].Props), "closes")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// --- UpdateDescriptions: режимы onlyIfEmpty (спека 2026-09-21-каталог-описание §6.6/И4) ---
+
+// TestUpdateDescriptionsOnlyIfEmpty — пакетный режим (true): непустое описание
+// не перезаписывается — строка guard'а, UPDATE нет.
+func TestUpdateDescriptionsOnlyIfEmpty(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectMutationBegin(mock)
+	mock.ExpectQuery(`SELECT name, COALESCE\(description, ''\) FROM goods WHERE id = \$1 FOR UPDATE`).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"name", "coalesce"}).AddRow("Сталь", "уже есть"))
+	mock.ExpectCommit()
+
+	applied, report, err := NewGoodsRepository(db).UpdateDescriptions([]DescItem{{ID: 1, Text: "новое"}}, true)
+	require.NoError(t, err)
+	require.Equal(t, 0, applied)
+	require.Len(t, report, 1)
+	require.Contains(t, report[0], "описание уже заполнено")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestUpdateDescriptionsExplicitOverwrite — явный режим (false): непустое
+// описание перезаписывается (guard снят), applied=1.
+func TestUpdateDescriptionsExplicitOverwrite(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectMutationBegin(mock)
+	mock.ExpectQuery(`SELECT name, COALESCE\(description, ''\) FROM goods WHERE id = \$1 FOR UPDATE`).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"name", "coalesce"}).AddRow("Сталь", "старое"))
+	mock.ExpectExec(`UPDATE goods SET description = \$1 WHERE id = \$2`).
+		WithArgs("новое", int64(1)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	applied, report, err := NewGoodsRepository(db).UpdateDescriptions([]DescItem{{ID: 1, Text: "новое"}}, false)
+	require.NoError(t, err)
+	require.Equal(t, 1, applied)
+	require.Empty(t, report)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestUpdateDescriptionsMissing — записи нет → строка «не найдена», оба режима
+// (guard непустого не при чём).
+func TestUpdateDescriptionsMissing(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectMutationBegin(mock)
+	mock.ExpectQuery(`SELECT name, COALESCE\(description, ''\) FROM goods WHERE id = \$1 FOR UPDATE`).
+		WithArgs(int64(99)).
+		WillReturnRows(sqlmock.NewRows([]string{"name", "coalesce"}))
+	mock.ExpectCommit()
+
+	applied, report, err := NewGoodsRepository(db).UpdateDescriptions([]DescItem{{ID: 99, Text: "новое"}}, false)
+	require.NoError(t, err)
+	require.Equal(t, 0, applied)
+	require.Len(t, report, 1)
+	require.Contains(t, report[0], "не найдена")
 	require.NoError(t, mock.ExpectationsWereMet())
 }

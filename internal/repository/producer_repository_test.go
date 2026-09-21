@@ -695,8 +695,8 @@ func TestSnapshotWithProducers(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, name, kind, code, is_system FROM categories ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "code", "is_system"}).
 			AddRow(int64(1), "Корабли", "good", nil, false))
-	mock.ExpectQuery(`SELECT g.id, g.name, g.category_id, g.kind, g.source, r.id, r.complexity, g.created_at, g.volume, g.weight FROM goods g LEFT JOIN recipes r ON r.good_id = g.id ORDER BY g.id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "recipe_id", "complexity", "created_at", "volume", "weight"}))
+	mock.ExpectQuery(`SELECT g.id, g.name, g.category_id, g.kind, g.source, r.id, r.complexity, g.created_at, g.volume, g.weight, g.description FROM goods g LEFT JOIN recipes r ON r.good_id = g.id ORDER BY g.id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "recipe_id", "complexity", "created_at", "volume", "weight", "description"}))
 	mock.ExpectQuery(`SELECT r\.good_id, c\.pos, c\.component_id, c\.quantity, c\.reason, c\.allow_resource FROM recipe_components c JOIN recipes r ON r\.id = c\.recipe_id ORDER BY r\.good_id, c\.pos`).
 		WillReturnRows(sqlmock.NewRows([]string{"good_id", "pos", "component_id", "quantity", "reason", "allow_resource"}))
 	mock.ExpectQuery(`SELECT id, name, kind, category_id, race_family, parent_id, race, output, input, params, hidden, created_at FROM producer_types ORDER BY id`).

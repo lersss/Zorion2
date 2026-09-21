@@ -39,11 +39,11 @@ func TestStudioState(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "code", "is_system"}).
 			AddRow(int64(1), "Корабли", "good", nil, false).
 			AddRow(int64(7), "Минералы", "resource", "mineral", true))
-	mock.ExpectQuery(`SELECT g.id, g.name, g.category_id, g.kind, g.source, r.id, r.complexity, g.created_at, g.volume, g.weight FROM goods g LEFT JOIN recipes r ON r.good_id = g.id ORDER BY g.id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "recipe_id", "complexity", "created_at", "volume", "weight"}).
-			AddRow(int64(1), "Сталь", int64(1), "good", "manual", nil, nil, time.Now(), 1.0, 1.0).
-			AddRow(int64(2), "Железо Fe", int64(7), "resource", "palette", nil, nil, time.Now(), 1.0, 1.0).
-			AddRow(int64(3), "Топливо", int64(1), "good", "manual", nil, nil, time.Now(), 1.0, 1.0))
+	mock.ExpectQuery(`SELECT g.id, g.name, g.category_id, g.kind, g.source, r.id, r.complexity, g.created_at, g.volume, g.weight, g.description FROM goods g LEFT JOIN recipes r ON r.good_id = g.id ORDER BY g.id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "recipe_id", "complexity", "created_at", "volume", "weight", "description"}).
+			AddRow(int64(1), "Сталь", int64(1), "good", "manual", nil, nil, time.Now(), 1.0, 1.0, "Прочный сплав.").
+			AddRow(int64(2), "Железо Fe", int64(7), "resource", "palette", nil, nil, time.Now(), 1.0, 1.0, nil).
+			AddRow(int64(3), "Топливо", int64(1), "good", "manual", nil, nil, time.Now(), 1.0, 1.0, nil))
 	mock.ExpectQuery(`SELECT r\.good_id, c\.pos, c\.component_id, c\.quantity, c\.reason, c\.allow_resource FROM recipe_components c JOIN recipes r ON r\.id = c\.recipe_id ORDER BY r\.good_id, c\.pos`).
 		WillReturnRows(sqlmock.NewRows([]string{"good_id", "pos", "component_id", "quantity", "reason", "allow_resource"}).
 			AddRow(int64(1), 0, int64(2), 1, nil, false))
@@ -62,7 +62,7 @@ func TestStudioState(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"producer_type_id", "recipe_id", "good_id"}))
 	mock.ExpectCommit()
 
-	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
+	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", "build", time.Second, 0), "test-model")
 	req := httptest.NewRequest(http.MethodGet, "/studio/api/state", nil)
 	rec := httptest.NewRecorder()
 	h.State(rec, req)
@@ -103,7 +103,7 @@ func TestStudioDeleteGoodClearedLinks(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
+	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", "build", time.Second, 0), "test-model")
 	req := httptest.NewRequest(http.MethodDelete, "/studio/api/goods/1", nil)
 	rec := httptest.NewRecorder()
 	h.GoodByID(rec, req)
@@ -133,7 +133,7 @@ func TestStudioRecipeComplexity(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
+	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", "build", time.Second, 0), "test-model")
 	req := httptest.NewRequest(http.MethodPut, "/studio/api/recipes/1", strings.NewReader(`{"complexity":3}`))
 	rec := httptest.NewRecorder()
 	h.RecipeByID(rec, req)
@@ -149,7 +149,7 @@ func TestStudioGoodSlotsRouteGone(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
+	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", "build", time.Second, 0), "test-model")
 	req := httptest.NewRequest(http.MethodPut, "/studio/api/goods/1/slots/0", strings.NewReader(`{"good_id":2}`))
 	rec := httptest.NewRecorder()
 	h.GoodByID(rec, req)
@@ -169,8 +169,8 @@ func TestStudioBulk(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name"}).AddRow(int64(1), "Корабли"))
 	mock.ExpectQuery(`SELECT name FROM goods`).
 		WillReturnRows(sqlmock.NewRows([]string{"name"}).AddRow("Сталь"))
-	mock.ExpectQuery(`INSERT INTO goods \(name, name_norm, category_id, kind, source\) VALUES \(\$1, \$2, \$3, 'good', 'manual'\) RETURNING id`).
-		WithArgs("Крейсер", "крейсер", int64(1)).
+	mock.ExpectQuery(`INSERT INTO goods \(name, name_norm, category_id, kind, source, description\) VALUES \(\$1, \$2, \$3, 'good', 'manual', \$4\) RETURNING id`).
+		WithArgs("Крейсер", "крейсер", int64(1), nil).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(5)))
 	mock.ExpectQuery(`INSERT INTO recipes \(good_id\) VALUES \(\$1\) RETURNING id`).
 		WithArgs(int64(5)).
@@ -180,7 +180,7 @@ func TestStudioBulk(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
+	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", "build", time.Second, 0), "test-model")
 	req := httptest.NewRequest(http.MethodPost, "/studio/api/goods/bulk",
 		strings.NewReader(`{"lines":["Крейсер | Корабли","Сталь | Корабли","Без разделителя"]}`))
 	rec := httptest.NewRecorder()
@@ -213,15 +213,15 @@ func TestStudioRecipeComponentCycle409(t *testing.T) {
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM goods WHERE id = \$1\)`).
 		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	mock.ExpectQuery(`SELECT g.id, g.name, g.category_id, g.kind, g.source, r.id, r.complexity, g.created_at, g.volume, g.weight FROM goods g LEFT JOIN recipes r ON r.good_id = g.id ORDER BY g.id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "recipe_id", "complexity", "created_at", "volume", "weight"}).
-			AddRow(int64(1), "A", int64(1), "good", "manual", nil, nil, time.Now(), nil, nil).
-			AddRow(int64(2), "B", int64(1), "good", "manual", nil, nil, time.Now(), nil, nil))
+	mock.ExpectQuery(`SELECT g.id, g.name, g.category_id, g.kind, g.source, r.id, r.complexity, g.created_at, g.volume, g.weight, g.description FROM goods g LEFT JOIN recipes r ON r.good_id = g.id ORDER BY g.id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "recipe_id", "complexity", "created_at", "volume", "weight", "description"}).
+			AddRow(int64(1), "A", int64(1), "good", "manual", nil, nil, time.Now(), nil, nil, nil).
+			AddRow(int64(2), "B", int64(1), "good", "manual", nil, nil, time.Now(), nil, nil, nil))
 	mock.ExpectQuery(`SELECT r\.good_id, c\.pos, c\.component_id, c\.quantity, c\.reason, c\.allow_resource FROM recipe_components c JOIN recipes r ON r\.id = c\.recipe_id ORDER BY r\.good_id, c\.pos`).
 		WillReturnRows(sqlmock.NewRows([]string{"good_id", "pos", "component_id", "quantity", "reason", "allow_resource"}).
 			AddRow(int64(1), 0, int64(2), 1, nil, false))
 
-	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
+	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", "build", time.Second, 0), "test-model")
 	req := httptest.NewRequest(http.MethodPut, "/studio/api/recipes/2/components/0", strings.NewReader(`{"good_id":1}`))
 	rec := httptest.NewRecorder()
 	h.RecipeByID(rec, req)
@@ -241,7 +241,7 @@ func TestStudioRecipeAddComponent404(t *testing.T) {
 		WithArgs(int64(3)).
 		WillReturnRows(sqlmock.NewRows([]string{"good_id"}))
 
-	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
+	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", "build", time.Second, 0), "test-model")
 	req := httptest.NewRequest(http.MethodPost, "/studio/api/recipes/3/components", nil)
 	rec := httptest.NewRecorder()
 	h.RecipeByID(rec, req)
@@ -261,7 +261,7 @@ func TestStudioCategorySystem403(t *testing.T) {
 		WithArgs(int64(7)).
 		WillReturnRows(sqlmock.NewRows([]string{"kind", "is_system"}).AddRow("resource", true))
 
-	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
+	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", "build", time.Second, 0), "test-model")
 	req := httptest.NewRequest(http.MethodPut, "/studio/api/categories/7", strings.NewReader(`{"name":"Новое имя"}`))
 	rec := httptest.NewRecorder()
 	h.CategoryByID(rec, req)
@@ -281,7 +281,7 @@ func TestStudioGoodNotFound404(t *testing.T) {
 		WithArgs(int64(99)).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 
-	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
+	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", "build", time.Second, 0), "test-model")
 	req := httptest.NewRequest(http.MethodDelete, "/studio/api/goods/99", nil)
 	rec := httptest.NewRecorder()
 	h.GoodByID(rec, req)
@@ -304,8 +304,8 @@ func TestStudioBulkRoute(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name"}).AddRow(int64(1), "Корабли"))
 	mock.ExpectQuery(`SELECT name FROM goods`).
 		WillReturnRows(sqlmock.NewRows([]string{"name"}).AddRow("Сталь"))
-	mock.ExpectQuery(`INSERT INTO goods \(name, name_norm, category_id, kind, source\) VALUES \(\$1, \$2, \$3, 'good', 'manual'\) RETURNING id`).
-		WithArgs("Крейсер", "крейсер", int64(1)).
+	mock.ExpectQuery(`INSERT INTO goods \(name, name_norm, category_id, kind, source, description\) VALUES \(\$1, \$2, \$3, 'good', 'manual', \$4\) RETURNING id`).
+		WithArgs("Крейсер", "крейсер", int64(1), nil).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(5)))
 	mock.ExpectQuery(`INSERT INTO recipes \(good_id\) VALUES \(\$1\) RETURNING id`).
 		WithArgs(int64(5)).
@@ -315,7 +315,7 @@ func TestStudioBulkRoute(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
+	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", "build", time.Second, 0), "test-model")
 	// паттерны роутов как в cmd/server/main.go (без auth — ортогонально роутингу)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/studio/api/goods", h.Goods)
@@ -362,9 +362,9 @@ func fillSnapshotRows(mock sqlmock.Sqlmock) {
 	mock.ExpectQuery(`SELECT id, name, kind, code, is_system FROM categories ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "code", "is_system"}).
 			AddRow(int64(5), "Комплектующие", "good", nil, false))
-	mock.ExpectQuery(`SELECT g.id, g.name, g.category_id, g.kind, g.source, r.id, r.complexity, g.created_at, g.volume, g.weight FROM goods g LEFT JOIN recipes r ON r.good_id = g.id ORDER BY g.id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "recipe_id", "complexity", "created_at", "volume", "weight"}).
-			AddRow(int64(1), "Корабль", int64(5), "good", "manual", nil, nil, time.Now(), nil, nil))
+	mock.ExpectQuery(`SELECT g.id, g.name, g.category_id, g.kind, g.source, r.id, r.complexity, g.created_at, g.volume, g.weight, g.description FROM goods g LEFT JOIN recipes r ON r.good_id = g.id ORDER BY g.id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "recipe_id", "complexity", "created_at", "volume", "weight", "description"}).
+			AddRow(int64(1), "Корабль", int64(5), "good", "manual", nil, nil, time.Now(), nil, nil, nil))
 	mock.ExpectQuery(`SELECT r\.good_id, c\.pos, c\.component_id, c\.quantity, c\.reason, c\.allow_resource FROM recipe_components c JOIN recipes r ON r\.id = c\.recipe_id ORDER BY r\.good_id, c\.pos`).
 		WillReturnRows(sqlmock.NewRows([]string{"good_id", "pos", "component_id", "quantity", "reason", "allow_resource"}).
 			AddRow(int64(1), 0, nil, 1, nil, false))
@@ -384,7 +384,7 @@ func fillSnapshotRows(mock sqlmock.Sqlmock) {
 // newFillHandlers — хендлеры с недостижимым ИИ-клиентом (fill не тестируем
 // на успех ИИ — «Ошибка ИИ» детерминирована).
 func newFillHandlers(db *sql.DB) *StudioHandlers {
-	return NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
+	return NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", "build", time.Second, 0), "test-model")
 }
 
 // TestStudioFillNotFound404 — fill несуществующего товара → 404.
@@ -396,8 +396,8 @@ func TestStudioFillNotFound404(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectQuery(`SELECT id, name, kind, code, is_system FROM categories ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "code", "is_system"}))
-	mock.ExpectQuery(`SELECT g.id, g.name, g.category_id, g.kind, g.source, r.id, r.complexity, g.created_at, g.volume, g.weight FROM goods g LEFT JOIN recipes r ON r.good_id = g.id ORDER BY g.id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "recipe_id", "complexity", "created_at", "volume", "weight"}))
+	mock.ExpectQuery(`SELECT g.id, g.name, g.category_id, g.kind, g.source, r.id, r.complexity, g.created_at, g.volume, g.weight, g.description FROM goods g LEFT JOIN recipes r ON r.good_id = g.id ORDER BY g.id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "recipe_id", "complexity", "created_at", "volume", "weight", "description"}))
 	mock.ExpectQuery(`SELECT r\.good_id, c\.pos, c\.component_id, c\.quantity, c\.reason, c\.allow_resource FROM recipe_components c JOIN recipes r ON r\.id = c\.recipe_id ORDER BY r\.good_id, c\.pos`).
 		WillReturnRows(sqlmock.NewRows([]string{"good_id", "pos", "component_id", "quantity", "reason", "allow_resource"}))
 	mock.ExpectQuery(`SELECT id, name, kind, category_id, race_family, parent_id, race, output, input, params, hidden, created_at FROM producer_types ORDER BY id`).
@@ -431,9 +431,9 @@ func TestStudioFillNoEmptySlots400(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, name, kind, code, is_system FROM categories ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "code", "is_system"}).
 			AddRow(int64(5), "Комплектующие", "good", nil, false))
-	mock.ExpectQuery(`SELECT g.id, g.name, g.category_id, g.kind, g.source, r.id, r.complexity, g.created_at, g.volume, g.weight FROM goods g LEFT JOIN recipes r ON r.good_id = g.id ORDER BY g.id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "recipe_id", "complexity", "created_at", "volume", "weight"}).
-			AddRow(int64(1), "Корабль", int64(5), "good", "manual", nil, nil, time.Now(), nil, nil))
+	mock.ExpectQuery(`SELECT g.id, g.name, g.category_id, g.kind, g.source, r.id, r.complexity, g.created_at, g.volume, g.weight, g.description FROM goods g LEFT JOIN recipes r ON r.good_id = g.id ORDER BY g.id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "recipe_id", "complexity", "created_at", "volume", "weight", "description"}).
+			AddRow(int64(1), "Корабль", int64(5), "good", "manual", nil, nil, time.Now(), nil, nil, nil))
 	mock.ExpectQuery(`SELECT r\.good_id, c\.pos, c\.component_id, c\.quantity, c\.reason, c\.allow_resource FROM recipe_components c JOIN recipes r ON r\.id = c\.recipe_id ORDER BY r\.good_id, c\.pos`).
 		WillReturnRows(sqlmock.NewRows([]string{"good_id", "pos", "component_id", "quantity", "reason", "allow_resource"}).
 			AddRow(int64(1), 0, int64(2), 1, nil, false))
@@ -603,14 +603,14 @@ func TestStudioFillApply200(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, name, kind, code, is_system FROM categories ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "code", "is_system"}).
 			AddRow(int64(5), "Комплектующие", "good", nil, false))
-	mock.ExpectQuery(`SELECT g.id, g.name, g.category_id, g.kind, g.source, r.id, r.complexity, g.created_at, g.volume, g.weight FROM goods g LEFT JOIN recipes r ON r.good_id = g.id ORDER BY g.id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "recipe_id", "complexity", "created_at", "volume", "weight"}).
-			AddRow(int64(1), "Корабль", int64(5), "good", "manual", int64(100), nil, time.Now(), nil, nil))
+	mock.ExpectQuery(`SELECT g.id, g.name, g.category_id, g.kind, g.source, r.id, r.complexity, g.created_at, g.volume, g.weight, g.description FROM goods g LEFT JOIN recipes r ON r.good_id = g.id ORDER BY g.id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "recipe_id", "complexity", "created_at", "volume", "weight", "description"}).
+			AddRow(int64(1), "Корабль", int64(5), "good", "manual", int64(100), nil, time.Now(), nil, nil, nil))
 	mock.ExpectQuery(`SELECT r\.good_id, c\.pos, c\.component_id, c\.quantity, c\.reason, c\.allow_resource FROM recipe_components c JOIN recipes r ON r\.id = c\.recipe_id ORDER BY r\.good_id, c\.pos`).
 		WillReturnRows(sqlmock.NewRows([]string{"good_id", "pos", "component_id", "quantity", "reason", "allow_resource"}).
 			AddRow(int64(1), 0, nil, 1, nil, false))
-	mock.ExpectQuery(`INSERT INTO goods \(name, name_norm, category_id, kind, source\) VALUES \(\$1, \$2, \$3, 'good', 'ai'\) RETURNING id`).
-		WithArgs("Сталь", "сталь", int64(5)).
+	mock.ExpectQuery(`INSERT INTO goods \(name, name_norm, category_id, kind, source, description\) VALUES \(\$1, \$2, \$3, 'good', 'ai', \$4\) RETURNING id`).
+		WithArgs("Сталь", "сталь", int64(5), nil).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(10)))
 	mock.ExpectExec(`INSERT INTO recipes \(good_id\) VALUES \(\$1\)`).
 		WithArgs(int64(10)).
@@ -651,9 +651,9 @@ func TestStudioFillApplyGoodGoneM2(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, name, kind, code, is_system FROM categories ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "code", "is_system"}).
 			AddRow(int64(5), "Комплектующие", "good", nil, false))
-	mock.ExpectQuery(`SELECT g.id, g.name, g.category_id, g.kind, g.source, r.id, r.complexity, g.created_at, g.volume, g.weight FROM goods g LEFT JOIN recipes r ON r.good_id = g.id ORDER BY g.id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "recipe_id", "complexity", "created_at", "volume", "weight"}).
-			AddRow(int64(2), "Другой", int64(5), "good", "manual", nil, nil, time.Now(), nil, nil))
+	mock.ExpectQuery(`SELECT g.id, g.name, g.category_id, g.kind, g.source, r.id, r.complexity, g.created_at, g.volume, g.weight, g.description FROM goods g LEFT JOIN recipes r ON r.good_id = g.id ORDER BY g.id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "recipe_id", "complexity", "created_at", "volume", "weight", "description"}).
+			AddRow(int64(2), "Другой", int64(5), "good", "manual", nil, nil, time.Now(), nil, nil, nil))
 	mock.ExpectQuery(`SELECT r\.good_id, c\.pos, c\.component_id, c\.quantity, c\.reason, c\.allow_resource FROM recipe_components c JOIN recipes r ON r\.id = c\.recipe_id ORDER BY r\.good_id, c\.pos`).
 		WillReturnRows(sqlmock.NewRows([]string{"good_id", "pos", "component_id", "quantity", "reason", "allow_resource"}))
 	mock.ExpectRollback()
@@ -725,9 +725,9 @@ func TestStudioStateFillFields(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, name, kind, code, is_system FROM categories ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "code", "is_system"}).
 			AddRow(int64(5), "Комплектующие", "good", nil, false))
-	mock.ExpectQuery(`SELECT g.id, g.name, g.category_id, g.kind, g.source, r.id, r.complexity, g.created_at, g.volume, g.weight FROM goods g LEFT JOIN recipes r ON r.good_id = g.id ORDER BY g.id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "recipe_id", "complexity", "created_at", "volume", "weight"}).
-			AddRow(int64(1), "Корабль", int64(5), "good", "manual", nil, nil, time.Now(), nil, nil))
+	mock.ExpectQuery(`SELECT g.id, g.name, g.category_id, g.kind, g.source, r.id, r.complexity, g.created_at, g.volume, g.weight, g.description FROM goods g LEFT JOIN recipes r ON r.good_id = g.id ORDER BY g.id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "recipe_id", "complexity", "created_at", "volume", "weight", "description"}).
+			AddRow(int64(1), "Корабль", int64(5), "good", "manual", nil, nil, time.Now(), nil, nil, nil))
 	mock.ExpectQuery(`SELECT r\.good_id, c\.pos, c\.component_id, c\.quantity, c\.reason, c\.allow_resource FROM recipe_components c JOIN recipes r ON r\.id = c\.recipe_id ORDER BY r\.good_id, c\.pos`).
 		WillReturnRows(sqlmock.NewRows([]string{"good_id", "pos", "component_id", "quantity", "reason", "allow_resource"}).
 			AddRow(int64(1), 0, nil, 1, nil, false))
@@ -776,7 +776,7 @@ func TestStudioRaces(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
+	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", "build", time.Second, 0), "test-model")
 	req := httptest.NewRequest(http.MethodGet, "/studio/api/races", nil)
 	rec := httptest.NewRecorder()
 	h.Races(rec, req)

@@ -504,7 +504,7 @@ func main() {
 	// ИИ «заполнить комплектующие» (iterC §4): конфиг opencode из env
 	// (OPENCODE_URL/MODEL/TIMEOUT_S/MAX_RETRIES, дефолты из studio.json);
 	// на проде env не заданы — fill честно падает «ИИ недоступен».
-	aiClient := ai.NewClient(cfg.OpenCodeURL, cfg.OpenCodeModel, cfg.OpenCodeTimeout, cfg.OpenCodeMaxRetries)
+	aiClient := ai.NewClient(cfg.OpenCodeURL, cfg.OpenCodeModel, cfg.OpenCodeAgent, cfg.OpenCodeTimeout, cfg.OpenCodeMaxRetries)
 	studioHandlers := handlers.NewStudioHandlers(db, aiClient, cfg.OpenCodeModel)
 	http.HandleFunc("/studio/api/state", auth.AdminAuth(studioHandlers.State))
 	http.HandleFunc("/studio/api/resources", auth.AdminAuth(studioHandlers.Resources))
@@ -536,6 +536,9 @@ func main() {
 	http.HandleFunc("/studio/api/races", auth.AdminAuth(studioHandlers.Races))
 	http.HandleFunc("/studio/api/items", auth.AdminAuth(studioHandlers.Items))
 	http.HandleFunc("/studio/api/items/", auth.AdminAuth(studioHandlers.ItemByID))
+	// Описания каталога (спека 2026-09-21-каталог-описание §7.3): fill/apply/
+	// cancel — ветки в Descriptions (паттерн GoodByID).
+	http.HandleFunc("/studio/api/descriptions/", auth.AdminAuth(studioHandlers.Descriptions))
 
 	http.Handle("/studio", noCache(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./web/studio.html")

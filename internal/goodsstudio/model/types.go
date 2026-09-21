@@ -48,16 +48,16 @@ type Slot struct {
 
 // Good — узел графа рецептов (спека 99a.1 §5.1).
 type Good struct {
-	ID          string       `json:"id"`
-	Name        string       `json:"name"`
-	Category    string       `json:"category"`
-	Kind        Kind         `json:"kind"`
-	Source      Source       `json:"source"`
-	Recipe      []Slot       `json:"recipe"`
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Category string `json:"category"`
+	Kind     Kind   `json:"kind"`
+	Source   Source `json:"source"`
+	Recipe   []Slot `json:"recipe"`
 	// RecipeID — id рецепта товара (recipes.id, спека
 	// 2026-09-21-рецепт-сущность §2.3); 0 у ресурса (рецепта нет).
-	RecipeID    int64        `json:"recipe_id,omitempty"`
-	CreatedAt   string       `json:"created_at"`
+	RecipeID  int64  `json:"recipe_id,omitempty"`
+	CreatedAt string `json:"created_at"`
 	// Complexity — сложность рецепта (recipes.complexity, спека
 	// 2026-09-21-рецепт-сущность §2.3): null = вычисляется по графу; заданное —
 	// эффективное значение (тир = complexity ?? вычисленный). У ресурса поля
@@ -69,6 +69,10 @@ type Good struct {
 	// каталога.
 	Volume *float64 `json:"volume,omitempty"`
 	Weight *float64 `json:"weight,omitempty"`
+	// Description — описание каталога (спека 2026-09-21-каталог-описание §5):
+	// игровой текст (увидят игроки) + рабочее различение записей в студии; одно
+	// поле для обоих потребителей (И1). Пусто = описания нет; в снимке БД NULL → "".
+	Description string `json:"description,omitempty"`
 }
 
 // RecipeBinding — привязка рецепта к конкретной фабрике (producer_recipes,

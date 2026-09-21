@@ -49,7 +49,7 @@ func TestStudioCreateProducer(t *testing.T) {
 			AddRow(int64(2), "Фабрика продовольствия", "goods", int64(3), nil, int64(1), nil, nil, nil, nil, false, time.Now()))
 	mock.ExpectCommit()
 
-	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
+	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", "build", time.Second, 0), "test-model")
 	req := httptest.NewRequest(http.MethodPost, "/studio/api/producers",
 		strings.NewReader(`{"name":"Фабрика продовольствия","kind":"goods","category_id":3,"parent_id":1}`))
 	rec := httptest.NewRecorder()
@@ -83,7 +83,7 @@ func TestStudioProducerHidden(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
+	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", "build", time.Second, 0), "test-model")
 	req := httptest.NewRequest(http.MethodPost, "/studio/api/producers/1/hidden",
 		strings.NewReader(`{"hidden":true}`))
 	rec := httptest.NewRecorder()
@@ -115,7 +115,7 @@ func TestStudioLinkItem(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
+	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", "build", time.Second, 0), "test-model")
 	req := httptest.NewRequest(http.MethodPost, "/studio/api/producers/6/items",
 		strings.NewReader(`{"item_id":1}`))
 	rec := httptest.NewRecorder()
@@ -136,7 +136,7 @@ func TestStudioLinkItemNotItems(t *testing.T) {
 		WithArgs(int64(2)).
 		WillReturnRows(sqlmock.NewRows([]string{"kind"}).AddRow("goods"))
 
-	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
+	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", "build", time.Second, 0), "test-model")
 	req := httptest.NewRequest(http.MethodPost, "/studio/api/producers/2/items",
 		strings.NewReader(`{"item_id":1}`))
 	rec := httptest.NewRecorder()
@@ -161,7 +161,7 @@ func TestStudioUnlinkItem(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
+	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", "build", time.Second, 0), "test-model")
 	req := httptest.NewRequest(http.MethodDelete, "/studio/api/producers/6/items/1", nil)
 	rec := httptest.NewRecorder()
 	h.ProducerByID(rec, req)
@@ -186,7 +186,7 @@ func TestStudioCreateItem(t *testing.T) {
 			AddRow(int64(1), "Чертёж", "чертёж", nil, nil, time.Now()))
 	mock.ExpectCommit()
 
-	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
+	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", "build", time.Second, 0), "test-model")
 	req := httptest.NewRequest(http.MethodPost, "/studio/api/items",
 		strings.NewReader(`{"name":"Чертёж","slot_type":"чертёж"}`))
 	rec := httptest.NewRecorder()
@@ -213,8 +213,8 @@ func TestStudioStateProducersFields(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, name, kind, code, is_system FROM categories ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "code", "is_system"}).
 			AddRow(int64(1), "Корабли", "good", nil, false))
-	mock.ExpectQuery(`SELECT g.id, g.name, g.category_id, g.kind, g.source, r.id, r.complexity, g.created_at, g.volume, g.weight FROM goods g LEFT JOIN recipes r ON r.good_id = g.id ORDER BY g.id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "recipe_id", "complexity", "created_at", "volume", "weight"}))
+	mock.ExpectQuery(`SELECT g.id, g.name, g.category_id, g.kind, g.source, r.id, r.complexity, g.created_at, g.volume, g.weight, g.description FROM goods g LEFT JOIN recipes r ON r.good_id = g.id ORDER BY g.id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "recipe_id", "complexity", "created_at", "volume", "weight", "description"}))
 	mock.ExpectQuery(`SELECT r\.good_id, c\.pos, c\.component_id, c\.quantity, c\.reason, c\.allow_resource FROM recipe_components c JOIN recipes r ON r\.id = c\.recipe_id ORDER BY r\.good_id, c\.pos`).
 		WillReturnRows(sqlmock.NewRows([]string{"good_id", "pos", "component_id", "quantity", "reason", "allow_resource"}))
 	mock.ExpectQuery(`SELECT id, name, kind, category_id, race_family, parent_id, race, output, input, params, hidden, created_at FROM producer_types ORDER BY id`).
@@ -234,7 +234,7 @@ func TestStudioStateProducersFields(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"producer_type_id", "recipe_id", "good_id"}))
 	mock.ExpectCommit()
 
-	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
+	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", "build", time.Second, 0), "test-model")
 	req := httptest.NewRequest(http.MethodGet, "/studio/api/state", nil)
 	rec := httptest.NewRecorder()
 	h.State(rec, req)
@@ -288,7 +288,7 @@ func TestStudioCreateProducerSlot(t *testing.T) {
 			AddRow(int64(10), int64(2), int64(3), nil, nil, false, time.Now()))
 	mock.ExpectCommit()
 
-	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
+	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", "build", time.Second, 0), "test-model")
 	req := httptest.NewRequest(http.MethodPost, "/studio/api/slots",
 		strings.NewReader(`{"parent_id":2,"category_id":3}`))
 	rec := httptest.NewRecorder()
@@ -319,7 +319,7 @@ func TestStudioSlotHidden(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
+	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", "build", time.Second, 0), "test-model")
 	req := httptest.NewRequest(http.MethodPut, "/studio/api/slots/10",
 		strings.NewReader(`{"hidden":true}`))
 	rec := httptest.NewRecorder()
@@ -349,7 +349,7 @@ func TestStudioSlotDelete(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
+	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", "build", time.Second, 0), "test-model")
 	req := httptest.NewRequest(http.MethodDelete, "/studio/api/slots/10", nil)
 	rec := httptest.NewRecorder()
 	h.SlotByID(rec, req)
@@ -374,7 +374,7 @@ func TestStudioSlotDeleteRestrict(t *testing.T) {
 		WithArgs(int64(2), int64(3), nil, nil).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
-	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
+	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", "build", time.Second, 0), "test-model")
 	req := httptest.NewRequest(http.MethodDelete, "/studio/api/slots/10", nil)
 	rec := httptest.NewRecorder()
 	h.SlotByID(rec, req)
@@ -402,7 +402,7 @@ func TestStudioCreateProducerNoSlot(t *testing.T) {
 		WithArgs(int64(1), int64(3), nil, nil).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 
-	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
+	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", "build", time.Second, 0), "test-model")
 	req := httptest.NewRequest(http.MethodPost, "/studio/api/producers",
 		strings.NewReader(`{"name":"Фабрика продовольствия","kind":"goods","category_id":3,"parent_id":1}`))
 	rec := httptest.NewRecorder()
@@ -443,7 +443,7 @@ func TestStudioBindRecipe(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
+	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", "build", time.Second, 0), "test-model")
 	req := httptest.NewRequest(http.MethodPost, "/studio/api/producers/5/recipes", strings.NewReader(`{"recipe_id":10}`))
 	rec := httptest.NewRecorder()
 	h.ProducerByID(rec, req)
@@ -467,7 +467,7 @@ func TestStudioUnbindRecipe(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
+	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", "build", time.Second, 0), "test-model")
 	req := httptest.NewRequest(http.MethodDelete, "/studio/api/producers/5/recipes/10", nil)
 	rec := httptest.NewRecorder()
 	h.ProducerByID(rec, req)
@@ -499,7 +499,7 @@ func TestStudioCopyUniversalRecipes(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", time.Second, 0), "test-model")
+	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", "build", time.Second, 0), "test-model")
 	req := httptest.NewRequest(http.MethodPost, "/studio/api/producers/5/recipes/copy-universal", nil)
 	rec := httptest.NewRecorder()
 	h.ProducerByID(rec, req)

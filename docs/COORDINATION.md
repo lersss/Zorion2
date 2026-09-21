@@ -156,15 +156,6 @@
 | `cmd/art-studio/web/index.html` (кнопки ориентации «Корабли рас») | @developer (корабли рас: полный кадр + нос вправо 2026-09-21) | до коммита задачи |
 | `tools/spike_ship_sprite_run.py`, `spike_ship_sprite_cut.py`, `spike_ship_sprite_bis.py` | @developer (корабли рас: полный кадр + нос вправо 2026-09-21) | до коммита задачи |
 | `tools/e2e/ships-accept-check.js` (+ артефакты) | @developer (корабли рас: инструмент ручной приёмки 2026-09-21) | до коммита задачи |
-| `migrations/000057_goods_description.sql` (новый) | @developer (описание каталога) | до коммита задачи |
-| `internal/goodsstudio/model/types.go` | @developer (описание каталога) | до коммита задачи |
-| `internal/goodsstudio/ai/*` (desc.go, prompt_desc.go, parse.go, proposals.go, prompt.go, client.go) | @developer (описание каталога) | до коммита задачи |
-| `internal/repository/goods_repository.go` | @developer (описание каталога) | до коммита задачи |
-| `internal/handlers/studio_handlers.go` (+tests) | @developer (описание каталога) | до коммита задачи |
-| `cmd/server/main.go` (блок `/studio/api/descriptions/*`) | @developer (описание каталога) | до коммита задачи |
-| `web/studio.html` | @developer (описание каталога) | до коммита задачи |
-| `tools/e2e/goods-studio-server-check.js` | @developer (описание каталога) | до коммита задачи |
-| `docs/DB.md` / `docs/ARCHITECTURE.md` (описание каталога) | @developer (описание каталога) | до коммита задачи |
 | `cmd/art-studio/generator/ships_job.go` / `ship_prompt.go` / `worker.go` / `ship_filter.go` (+тесты) | @developer (перенос рецепта кораблей в студию 2026-09-21) | до коммита задачи |
 | `cmd/art-studio/comfy/ship_workflow.go` (+тест), `postproc/ship.go` | @developer (перенос рецепта кораблей в студию 2026-09-21) | до коммита задачи |
 | `cmd/art-studio/config/config_types.go` / `load_test.go` / `config/art/studio.json` (блок ships) | @developer (перенос рецепта кораблей в студию 2026-09-21) | до коммита задачи |

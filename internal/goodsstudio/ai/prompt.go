@@ -36,7 +36,8 @@ func BuildPrompt(g *model.Good, categoryName string, tier int, filled []string, 
 		sb.WriteString("Ни один пустой слот не допускает ресурсы — предлагай только товары, не ресурсы.\n")
 	}
 	fmt.Fprintf(&sb, "Верни ровно %d составляющих — по одному на каждый пустой слот, максимально полно описывающих состав товара на уровень ниже в графе.\n", k)
-	sb.WriteString("JSON: {\"components\":[{\"name\":\"...\",\"category\":\"...\",\"reason\":\"...\"}]}")
+	sb.WriteString("Поле description — 1–2 предложения (не более 240 символов) игрового описания этой составляющей; без цен, чисел и статов.\n")
+	sb.WriteString("JSON: {\"components\":[{\"name\":\"...\",\"category\":\"...\",\"reason\":\"...\",\"description\":\"...\"}]}")
 	return sb.String()
 }
 

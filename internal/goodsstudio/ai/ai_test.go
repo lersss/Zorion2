@@ -44,6 +44,35 @@ func TestParseEmptyNames(t *testing.T) {
 	require.Equal(t, "Сталь", comps[0].Name)
 }
 
+// TestParseProseAroundFence — ответ с прозой вокруг ```json-блока (баг
+// 2026-09-21: пустой agent → default_agent менеджера → проза + JSON) →
+// JSON извлекается.
+func TestParseProseAroundFence(t *testing.T) {
+	raw := "Привет! Я менеджер проекта Zorion. Вот состав:\n\n```json\n" +
+		`{"components":[{"name":"Сталь","category":"c3","reason":"основа","description":"сплав"}]}` +
+		"\n```\n\nЕсли нужно, уточню детали."
+	comps, err := ParseFillResponse(raw)
+	require.NoError(t, err)
+	require.Len(t, comps, 1)
+	require.Equal(t, "Сталь", comps[0].Name)
+	require.Equal(t, "сплав", comps[0].Description)
+}
+
+// TestParseProseBareJSON — проза вокруг «голого» JSON (без фенсов) → извлекается.
+func TestParseProseBareJSON(t *testing.T) {
+	raw := `Готово. {"components":[{"name":"Топливо"}]} — проверьте.`
+	comps, err := ParseFillResponse(raw)
+	require.NoError(t, err)
+	require.Len(t, comps, 1)
+	require.Equal(t, "Топливо", comps[0].Name)
+}
+
+// TestParseProseNoJSON — проза без JSON → ошибка (не молчаливый пустой ответ).
+func TestParseProseNoJSON(t *testing.T) {
+	_, err := ParseFillResponse("совсем не json и без фигурных скобок")
+	require.Error(t, err)
+}
+
 // --- Промпт (99a Пакет 4, п.8: какие пустые слоты допускают ресурсы) ---
 
 // TestPromptAllowResourceSlots — промпт перечисляет слоты с галкой
@@ -405,4 +434,50 @@ func TestBuildProposalsCycleDrop(t *testing.T) {
 	require.Empty(t, proposals)
 	require.Len(t, report, 1)
 	require.Contains(t, report[0], "цикл")
+}
+
+// --- Описание составляющей (спека 2026-09-21-каталог-описание §8.1) ---
+
+// TestBuildProposalsNewDescription — kind=new несёт нормализованное описание.
+func TestBuildProposalsNewDescription(t *testing.T) {
+	st := mkState([]model.Slot{{}})
+	proposals, report := BuildProposals(st, "g1", []Component{{Name: "Сталь", Category: "  Корабли ", Description: "  Прочный сплав.  "}})
+	require.Len(t, proposals, 1)
+	require.Equal(t, "new", proposals[0].Kind)
+	require.Equal(t, "Прочный сплав.", proposals[0].Description)
+	require.Empty(t, report)
+}
+
+// TestBuildProposalsLinkNoDescription — kind=link описание пустое (И5:
+// описание существующей записи не меняем и в попапе не показываем).
+func TestBuildProposalsLinkNoDescription(t *testing.T) {
+	st := mkState([]model.Slot{{}})
+	st.Goods = append(st.Goods, model.Good{ID: "g2", Name: "Сталь", Kind: model.KindGood})
+	proposals, report := BuildProposals(st, "g1", []Component{{Name: "Сталь", Description: "что-то"}})
+	require.Len(t, proposals, 1)
+	require.Equal(t, "link", proposals[0].Kind)
+	require.Empty(t, proposals[0].Description)
+	require.Empty(t, report)
+}
+
+// TestApplyProposalsNewGoodDescription — in-memory ApplyProposals: новый товар
+// получает описание из пункта; существующий (link) не меняется (И5).
+func TestApplyProposalsNewGoodDescription(t *testing.T) {
+	st := mkState([]model.Slot{{}})
+	applied, report := ApplyProposals(st, "g1", []ProposalItem{{Slot: 0, Name: "Сталь", CategoryID: "1", Kind: "new", Description: "Прочный сплав."}})
+	require.Equal(t, 1, applied)
+	require.Len(t, st.Goods, 2)
+	require.Equal(t, "Прочный сплав.", st.Goods[1].Description)
+	require.Empty(t, report)
+}
+
+// TestApplyProposalsLinkKeepsDescription — link-пункт не трогает описание
+// существующей записи (И5).
+func TestApplyProposalsLinkKeepsDescription(t *testing.T) {
+	st := mkState([]model.Slot{{}})
+	st.Goods = append(st.Goods, model.Good{ID: "g2", Name: "Сталь", Kind: model.KindGood, Description: "старое"})
+	applied, report := ApplyProposals(st, "g1", []ProposalItem{{Slot: 0, Name: "Сталь", Kind: "link", Description: "новое"}})
+	require.Equal(t, 1, applied)
+	require.Equal(t, "старое", st.Goods[1].Description)
+	require.Empty(t, report)
 }

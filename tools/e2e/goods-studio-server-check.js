@@ -100,6 +100,7 @@ async function main() {
     `with token=${st.status} without=${anon.status}`);
   const resCatId = st.data.categories.find(c => c.kind === 'resource').id;
   const goodCatId = st.data.categories.find(c => c.kind === 'good').id;
+  const goodCatName = st.data.categories.find(c => c.kind === 'good').name;
   const resCount = st.data.goods.filter(g => g.kind === 'resource').length;
   report('preflight /studio/api/state', 'PASS', `goods=${st.data.goods.length} cats=${st.data.categories.length} resources=${resCount}`);
 
@@ -263,6 +264,25 @@ async function main() {
     }, parentGood.id);
     report('6b recipe component route', (addComp.status === 200 && compState.comps >= 1 && compState.empty) ? 'PASS' : 'FAIL', JSON.stringify(compState));
     await page.keyboard.press('Escape');
+
+    // ============ Step 6c: описание каталога (спека 2026-09-21-каталог-описание §11.3) ============
+    // Без ИИ: создание QA_-записи → PUT description → state содержит текст →
+    // PUT "" → пусто → удаление; bulk с тремя колонками → описание у записи.
+    const descGood = (await api('POST', '/studio/api/goods', { name: 'QA_Описание', category_id: goodCatId })).data;
+    await api('PUT', `/studio/api/goods/${descGood.id}`, { description: 'QA-описание каталога' });
+    const descState = ((await api('GET', '/studio/api/state')).data.goods || []).find(g => g.id === descGood.id);
+    await api('PUT', `/studio/api/goods/${descGood.id}`, { description: '' });
+    const descCleared = ((await api('GET', '/studio/api/state')).data.goods || []).find(g => g.id === descGood.id);
+    await api('DELETE', `/studio/api/goods/${descGood.id}`);
+    const bulkResp = await api('POST', '/studio/api/goods/bulk', { lines: ['QA_Описание_балк | ' + goodCatName + ' | QA-описание из bulk'] });
+    const bulkCreated = (bulkResp.data && bulkResp.data.created && bulkResp.data.created[0]) || null;
+    const bulkState = bulkCreated ? ((await api('GET', '/studio/api/state')).data.goods || []).find(g => g.id === bulkCreated.id) : null;
+    if (bulkCreated) await api('DELETE', `/studio/api/goods/${bulkCreated.id}`);
+    const descOK = descState && descState.description === 'QA-описание каталога' &&
+      descCleared && descCleared.description === '' &&
+      bulkState && bulkState.description === 'QA-описание из bulk';
+    report('6c catalog description (PUT + bulk 3 columns)', descOK ? 'PASS' : 'FAIL',
+      `set="${descState && descState.description}" cleared="${descCleared && descCleared.description}" bulk="${bulkState && bulkState.description}"`);
 
     // ============ Step 7: no JS errors + screenshot ============
     report('7 no page JS errors', pageErrors.length === 0 ? 'PASS' : 'FAIL', pageErrors.length ? pageErrors.join(' | ').slice(0, 300) : 'clean');

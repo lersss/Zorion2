@@ -22,6 +22,9 @@ type Proposal struct {
 	Kind          string `json:"kind"`           // "new" — создать новый товар / "link" — заполнить готовым
 	LinkID        string `json:"link_id,omitempty"`
 	LinkName      string `json:"link_name,omitempty"`
+	// Description — игровое описание нового товара (спека
+	// 2026-09-21-каталог-описание §8.1); только kind=new, у kind=link пусто (И5).
+	Description string `json:"description,omitempty"`
 }
 
 // ProposalItem — принятый пункт попапа для применения (спека iterC §5.4):
@@ -33,6 +36,8 @@ type ProposalItem struct {
 	CategoryID string // строка id выбранной категории (для kind=new)
 	Reason     string
 	Kind       string // "new" | "link"
+	// Description — нормализованное описание нового товара (И5: для link пусто).
+	Description string
 }
 
 // BuildProposals — разбор ответа ИИ в предложения (фаза 1, спека iterC
@@ -91,6 +96,7 @@ func BuildProposals(st *model.State, goodID string, comps []Component) ([]Propos
 			Slot: slot, Name: comp.Name, Category: comp.Category,
 			CategoryID: catID, CategoryValid: catValid,
 			Reason: comp.Reason, Kind: "new",
+			Description: NormalizeDescription(comp.Description),
 		})
 	}
 	return proposals, report
@@ -182,6 +188,9 @@ func ApplyProposals(st *model.State, goodID string, items []ProposalItem) (int, 
 			Source:    model.SourceAI,
 			Recipe:    []model.Slot{},
 			CreatedAt: model.NowISO(),
+			// описание нового товара (спека 2026-09-21-каталог-описание §8.1):
+			// item.Description уже нормализован BuildProposals.
+			Description: item.Description,
 		}
 		st.Goods = append(st.Goods, newGood)
 		byName[name] = len(st.Goods) - 1

@@ -22,25 +22,30 @@ import (
 type Client struct {
 	URL        string
 	Model      string
+	Agent      string
 	Timeout    time.Duration
 	MaxRetries int
 	HTTP       *http.Client
 }
 
-// NewClient создаёт клиента.
-func NewClient(url, model string, timeout time.Duration, maxRetries int) *Client {
+// NewClient создаёт клиента. agent — явный агент opencode (в 1.18 пустое
+// значение резолвится в default_agent проекта — модель отвечает прозой
+// менеджера, а не JSON; поэтому агент задаётся явно, дефолт build).
+func NewClient(url, model, agent string, timeout time.Duration, maxRetries int) *Client {
 	return &Client{
 		URL:        strings.TrimRight(url, "/"),
 		Model:      model,
+		Agent:      agent,
 		Timeout:    timeout,
 		MaxRetries: maxRetries,
 		HTTP:       &http.Client{Timeout: timeout},
 	}
 }
 
-// FillComponents отправляет промпт и возвращает сырой текст ответа.
+// Ask отправляет промпт и возвращает сырой текст ответа. Метод generic —
+// используется тремя потоками (fill, одиночный/пакетный прогон описаний).
 // Повторы при сетевой ошибке/5xx (max_retries, спека 99a.1 §4.1).
-func (c *Client) FillComponents(prompt string) (string, error) {
+func (c *Client) Ask(prompt string) (string, error) {
 	var lastErr error
 	for attempt := 0; attempt <= c.MaxRetries; attempt++ {
 		text, retryable, err := c.fillOnce(prompt)
@@ -68,10 +73,10 @@ func (c *Client) fillOnce(prompt string) (string, bool, error) {
 	}
 	body := map[string]interface{}{
 		"model": map[string]string{"providerID": providerID, "modelID": modelID},
-		// пустая строка — сырая модель, а не default_agent (manager) из
-		// opencode.json: иначе сессия отвечает приветствием менеджера,
-		// а не JSON-составом (проверено живым прогоном 2026-09-19).
-		"agent": "",
+		// Явный агент (build по умолчанию): пустая строка в opencode 1.18
+		// резолвится в default_agent проекта (manager) — сессия отвечает
+		// приветствием менеджера, а не JSON-составом (проверено 2026-09-21).
+		"agent": c.Agent,
 		"parts": []map[string]string{{"type": "text", "text": prompt}},
 	}
 	data, err := json.Marshal(body)

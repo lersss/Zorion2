@@ -31,11 +31,24 @@ type StudioHandlers struct {
 	ai      *ai.Client
 	aiModel string
 
-	fillMu               sync.Mutex
-	fillGenerating       bool
-	fillReport           []string
-	fillProposals        []ProposalView // предложения последнего завершённого fill
-	fillProposalsGoodID  string         // товар, для которого предложения
+	fillMu              sync.Mutex
+	fillGenerating      bool // любой ИИ-джоб студии (И6): fill ИЛИ описания
+	fillReport          []string
+	fillProposals       []ProposalView // предложения последнего завершённого fill
+	fillProposalsGoodID string         // товар, для которого предложения
+
+	// канал описаний (спека 2026-09-21-каталог-описание §7.2): отдельные
+	// предложения/прогресс; descGenerating отличает джоб описаний от fill.
+	descGenerating bool
+	descReport     []string
+	descProposals  []DescProposalView
+	descTotal      int
+	descDone       int
+	descCancel     bool
+	// descExplicit — режим джоба описаний (И4): false — пакетный
+	// (scope:"missing", onlyIfEmpty=true), true — явный (good_ids, переописание
+	// разрешено). Хранится рядом с предложениями, сбрасывается вместе с ними.
+	descExplicit bool
 }
 
 func NewStudioHandlers(db *sql.DB, aiClient *ai.Client, aiModel string) *StudioHandlers {
@@ -89,6 +102,8 @@ type GoodView struct {
 	Recipe         []SlotView `json:"recipe"`
 	Volume         *float64   `json:"volume"` // данные каталога (3b.6.4); значение есть всегда (Р2)
 	Weight         *float64   `json:"weight"`
+	// Description — описание каталога; в ответе всегда есть, NULL в БД → "" (И3).
+	Description string `json:"description"`
 }
 
 // RecipeBindingView — привязка рецепта к фабрике (producer_recipes) в
@@ -151,20 +166,34 @@ type ItemView struct {
 // (спека iterC §5.3): существующие не меняются. ProducerTypes/Items —
 // аддитивны (спека 2026-09-20-фабрики §4).
 type StateView struct {
-	Categories       []CategoryView     `json:"categories"`
-	Goods            []GoodView         `json:"goods"`
-	Unused           []GoodView         `json:"unused"`
-	Warnings         []validate.Warning `json:"warnings"`
-	Model            string             `json:"model"`
-	Generating       bool               `json:"generating"`
-	AutoRefreshMS    int                `json:"auto_refresh_ms"`
-	Report           []string           `json:"report"`
-	Proposals        []ProposalView     `json:"proposals"`
-	ProposalsGoodID  string             `json:"proposals_good_id,omitempty"`
-	ProducerTypes    []ProducerTypeView  `json:"producer_types"`
-	Items            []ItemView          `json:"items"`
-	ProducerSlots    []ProducerSlotView  `json:"producer_slots"`
-	ProducerRecipes  []RecipeBindingView `json:"producer_recipes"`
+	Categories      []CategoryView      `json:"categories"`
+	Goods           []GoodView          `json:"goods"`
+	Unused          []GoodView          `json:"unused"`
+	Warnings        []validate.Warning  `json:"warnings"`
+	Model           string              `json:"model"`
+	Generating      bool                `json:"generating"`
+	AutoRefreshMS   int                 `json:"auto_refresh_ms"`
+	Report          []string            `json:"report"`
+	Proposals       []ProposalView      `json:"proposals"`
+	ProposalsGoodID string              `json:"proposals_good_id,omitempty"`
+	DescGenerating  bool                `json:"desc_generating"`
+	DescReport      []string            `json:"desc_report"`
+	DescProposals   []DescProposalView  `json:"desc_proposals"`
+	DescTotal       int                 `json:"desc_total"`
+	DescDone        int                 `json:"desc_done"`
+	ProducerTypes   []ProducerTypeView  `json:"producer_types"`
+	Items           []ItemView          `json:"items"`
+	ProducerSlots   []ProducerSlotView  `json:"producer_slots"`
+	ProducerRecipes []RecipeBindingView `json:"producer_recipes"`
+}
+
+// DescProposalView — предложение описания для попапа «Описания ИИ» (спека
+// 2026-09-21-каталог-описание §7.2/§9.4): одна строка на запись каталога.
+type DescProposalView struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+	Kind string `json:"kind"`
+	Text string `json:"text"`
 }
 
 // ProposalView — предложение ИИ для попапа (спека iterC §5.3): kind new/link,
@@ -179,6 +208,9 @@ type ProposalView struct {
 	Kind          string `json:"kind"`
 	LinkID        string `json:"link_id,omitempty"`
 	LinkName      string `json:"link_name,omitempty"`
+	// Description — игровое описание нового товара (спека
+	// 2026-09-21-каталог-описание §8.1); только kind=new.
+	Description string `json:"description,omitempty"`
 }
 
 // --- GET /studio/api/state ---
@@ -218,6 +250,11 @@ func (h *StudioHandlers) buildStateView(snap *repository.CatalogSnapshot) StateV
 	view.Report = append([]string{}, h.fillReport...)
 	view.Proposals = append([]ProposalView{}, h.fillProposals...)
 	view.ProposalsGoodID = h.fillProposalsGoodID
+	view.DescGenerating = h.descGenerating
+	view.DescReport = append([]string{}, h.descReport...)
+	view.DescProposals = append([]DescProposalView{}, h.descProposals...)
+	view.DescTotal = h.descTotal
+	view.DescDone = h.descDone
 	h.fillMu.Unlock()
 	for _, c := range snap.Categories {
 		cv := CategoryView{ID: c.ID, Name: c.Name, Kind: c.Kind, IsSystem: c.IsSystem}
@@ -262,6 +299,7 @@ func (h *StudioHandlers) buildStateView(snap *repository.CatalogSnapshot) StateV
 			BoundFactories: bound,
 			Volume:         g.Volume,
 			Weight:         g.Weight,
+			Description:    g.Description,
 			Recipe:         []SlotView{},
 		}
 		for _, slot := range g.Recipe {
@@ -503,6 +541,7 @@ func (h *StudioHandlers) Goods(w http.ResponseWriter, r *http.Request) {
 		RecipeID:       g.RecipeID,
 		Complexity:     g.Complexity,
 		BoundFactories: []int64{},
+		Description:    g.Description,
 		Recipe:         []SlotView{},
 	}
 	for _, slot := range g.Recipe {
@@ -564,16 +603,17 @@ func (h *StudioHandlers) good(w http.ResponseWriter, r *http.Request, id int64) 
 	switch r.Method {
 	case http.MethodPut:
 		var body struct {
-			Name       *string  `json:"name"`
-			CategoryID *int64   `json:"category_id"`
-			Volume     *float64 `json:"volume"`
-			Weight     *float64 `json:"weight"`
+			Name        *string  `json:"name"`
+			CategoryID  *int64   `json:"category_id"`
+			Volume      *float64 `json:"volume"`
+			Weight      *float64 `json:"weight"`
+			Description *string  `json:"description"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			studioErr(w, "невалидный JSON", http.StatusBadRequest)
 			return
 		}
-		if err := h.repo.UpdateGood(id, body.Name, body.CategoryID, body.Volume, body.Weight); err != nil {
+		if err := h.repo.UpdateGood(id, body.Name, body.CategoryID, body.Volume, body.Weight, body.Description); err != nil {
 			writeCatalogErr(w, err)
 			return
 		}
@@ -1105,7 +1145,7 @@ func (h *StudioHandlers) goodFill(w http.ResponseWriter, r *http.Request, id int
 // снимке → setProposals + finishFill (дропы бана/ресурса/цикла — в отчёте
 // сразу; proposals — в state для попапа).
 func (h *StudioHandlers) runFill(goodID, prompt string) {
-	raw, err := h.ai.FillComponents(prompt)
+	raw, err := h.ai.Ask(prompt)
 	if err != nil {
 		h.finishFill([]string{"Ошибка ИИ: " + err.Error()})
 		return
@@ -1135,6 +1175,7 @@ func proposalViews(ps []ai.Proposal) []ProposalView {
 			CategoryID: p.CategoryID, CategoryValid: p.CategoryValid,
 			Reason: p.Reason, Kind: p.Kind,
 			LinkID: p.LinkID, LinkName: p.LinkName,
+			Description: p.Description,
 		})
 	}
 	return out
@@ -1186,7 +1227,7 @@ func (h *StudioHandlers) goodFillApply(w http.ResponseWriter, r *http.Request, i
 			return
 		}
 		p := proposals[a.I]
-		item := ai.ProposalItem{Slot: p.Slot, Name: p.Name, Reason: p.Reason, Kind: p.Kind}
+		item := ai.ProposalItem{Slot: p.Slot, Name: p.Name, Reason: p.Reason, Kind: p.Kind, Description: p.Description}
 		if p.Kind == "new" {
 			// category_id обязателен для kind=new (выбор попапа); для link
 			// игнорируется. Существование категории НЕ проверяется здесь —
@@ -1283,6 +1324,320 @@ func (h *StudioHandlers) clearProposals() {
 	defer h.fillMu.Unlock()
 	h.fillProposals = nil
 	h.fillProposalsGoodID = ""
+}
+
+// --- описания каталога: «Описания ИИ» (спека 2026-09-21-каталог-описание §7.3) ---
+
+// descBatchSize — порция записей на один запрос ИИ (спека §8.4).
+const descBatchSize = 10
+
+// Descriptions — POST /studio/api/descriptions/{fill|apply|cancel}.
+func (h *StudioHandlers) Descriptions(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/studio/api/descriptions/")
+	switch rest {
+	case "fill":
+		h.descriptionsFill(w, r)
+	case "apply":
+		h.descriptionsApply(w, r)
+	case "cancel":
+		h.descriptionsCancel(w, r)
+	default:
+		studioErr(w, "не найдено", http.StatusNotFound)
+	}
+}
+
+// descriptionsFill — POST /studio/api/descriptions/fill {scope:"missing"} |
+// {good_ids:[...]}: старт джоба описаний (асинхронно). 202 {"started","total"} ·
+// 400 (пустая цель / несуществующий id / оба поля / неизвестный scope) ·
+// 409 уже идёт генерация (общий флаг И6).
+func (h *StudioHandlers) descriptionsFill(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		studioErr(w, "только POST", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Scope   string   `json:"scope"`
+		GoodIDs []string `json:"good_ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		studioErr(w, "невалидный JSON", http.StatusBadRequest)
+		return
+	}
+	hasScope := body.Scope != ""
+	hasIDs := body.GoodIDs != nil
+	if hasScope == hasIDs {
+		studioErr(w, "укажите scope или good_ids", http.StatusBadRequest)
+		return
+	}
+	snap, err := h.repo.Snapshot()
+	if err != nil {
+		studioErr(w, "ошибка чтения каталога: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	catName := make(map[int64]string, len(snap.Categories))
+	for _, c := range snap.Categories {
+		catName[c.ID] = c.Name
+	}
+	var targets []ai.DescTarget
+	var targetIDs []int64
+	if hasScope {
+		if body.Scope != "missing" {
+			studioErr(w, "неизвестный scope", http.StatusBadRequest)
+			return
+		}
+		for i := range snap.Goods {
+			g := &snap.Goods[i]
+			if strings.TrimSpace(g.Description) != "" {
+				continue // И4: записи с непустым описанием — не цель
+			}
+			id, _ := strconv.ParseInt(g.ID, 10, 64)
+			targetIDs = append(targetIDs, id)
+			targets = append(targets, descTarget(g, catName))
+		}
+		if len(targets) == 0 {
+			studioErr(w, "нет записей без описания", http.StatusBadRequest)
+			return
+		}
+	} else {
+		for _, sid := range body.GoodIDs {
+			id, err := parseID(sid)
+			if err != nil {
+				studioErr(w, "запись не найдена: "+sid, http.StatusBadRequest)
+				return
+			}
+			gi := indexOfGood(snap.Goods, strconv.FormatInt(id, 10))
+			if gi < 0 {
+				studioErr(w, "запись не найдена: "+sid, http.StatusBadRequest)
+				return
+			}
+			g := &snap.Goods[gi]
+			targetIDs = append(targetIDs, id)
+			targets = append(targets, descTarget(g, catName))
+		}
+		if len(targets) == 0 {
+			studioErr(w, "good_ids пуст", http.StatusBadRequest)
+			return
+		}
+	}
+	if !h.tryStartDesc(len(targets), hasIDs) {
+		studioErr(w, "уже идёт генерация", http.StatusConflict)
+		return
+	}
+	go h.runDescriptions(targets, targetIDs)
+	studioJSON(w, http.StatusAccepted, map[string]interface{}{"started": "true", "total": len(targets)})
+}
+
+// descTarget — DescTarget из записи каталога (категория — имя из снимка).
+func descTarget(g *model.Good, catName map[int64]string) ai.DescTarget {
+	catID, _ := strconv.ParseInt(g.Category, 10, 64)
+	return ai.DescTarget{Name: g.Name, Category: catName[catID], Kind: string(g.Kind)}
+}
+
+// runDescriptions — фоновая генерация описаний порциями по descBatchSize
+// (спека §8.4): один запрос за раз (И6); ошибка/мусор порции — строка в отчёт
+// и идём дальше; прогресс desc_done += len(порции); предложения добавляются по
+// мере готовности; между порциями проверяется флаг остановки (И7: предложения
+// сохраняются).
+func (h *StudioHandlers) runDescriptions(targets []ai.DescTarget, ids []int64) {
+	var report []string
+	for start := 0; start < len(targets); start += descBatchSize {
+		if h.descCancelled() {
+			done, total := h.descProgress()
+			report = append(report, fmt.Sprintf("остановлено: %d из %d", done, total))
+			h.finishDesc(report)
+			return
+		}
+		end := start + descBatchSize
+		if end > len(targets) {
+			end = len(targets)
+		}
+		batch := targets[start:end]
+		batchIDs := ids[start:end]
+		part := start/descBatchSize + 1
+		raw, err := h.ai.Ask(ai.BuildDescriptionPrompt(batch))
+		if err != nil {
+			report = append(report, fmt.Sprintf("порция %d: ошибка ИИ: %s", part, err.Error()))
+			h.addDescProgress(nil, len(batch))
+			continue
+		}
+		items, err := ai.ParseDescriptionResponse(raw)
+		if err != nil {
+			report = append(report, fmt.Sprintf("порция %d: мусор в ответе ИИ", part))
+			h.addDescProgress(nil, len(batch))
+			continue
+		}
+		byName := make(map[string]string, len(items))
+		for _, it := range items {
+			byName[graph.NormalizeName(it.Name)] = it.Description
+		}
+		var props []DescProposalView
+		for i, t := range batch {
+			text := ai.NormalizeDescription(byName[graph.NormalizeName(t.Name)])
+			if text == "" {
+				report = append(report, fmt.Sprintf("нет описания: %s — пропущено", t.Name))
+				continue
+			}
+			props = append(props, DescProposalView{ID: batchIDs[i], Name: t.Name, Kind: t.Kind, Text: text})
+		}
+		h.addDescProgress(props, len(batch))
+	}
+	h.finishDesc(report)
+}
+
+// descriptionsApply — POST /studio/api/descriptions/apply {accepted:[{i,text}]}:
+// применение принятых пунктов (одна транзакция repo.UpdateDescriptions).
+// 400 невалидный JSON / accepted пуст / индекс вне диапазона · 409 идёт ИИ-джоб
+// / нет предложений · 200 {"applied":N}. Пункт с пустым/пробельным text не
+// применяется («пустой текст — пропущено»). Предложения после применения
+// очищаются.
+func (h *StudioHandlers) descriptionsApply(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		studioErr(w, "только POST", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Accepted []struct {
+			I    int    `json:"i"`
+			Text string `json:"text"`
+		} `json:"accepted"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		studioErr(w, "невалидный JSON", http.StatusBadRequest)
+		return
+	}
+	h.fillMu.Lock()
+	if h.fillGenerating {
+		h.fillMu.Unlock()
+		studioErr(w, "идёт генерация", http.StatusConflict)
+		return
+	}
+	if len(h.descProposals) == 0 {
+		h.fillMu.Unlock()
+		studioErr(w, "нет предложений", http.StatusConflict)
+		return
+	}
+	proposals := append([]DescProposalView{}, h.descProposals...)
+	onlyIfEmpty := !h.descExplicit // И4: пакетный — не писать поверх, явный — перезапись
+	h.fillMu.Unlock()
+
+	if len(body.Accepted) == 0 {
+		studioErr(w, "accepted пуст", http.StatusBadRequest)
+		return
+	}
+	items := make([]repository.DescItem, 0, len(body.Accepted))
+	var skipped []string
+	for _, a := range body.Accepted {
+		if a.I < 0 || a.I >= len(proposals) {
+			studioErr(w, "индекс вне диапазона", http.StatusBadRequest)
+			return
+		}
+		text := strings.TrimSpace(a.Text)
+		if text == "" {
+			skipped = append(skipped, "пустой текст — пропущено")
+			continue
+		}
+		items = append(items, repository.DescItem{ID: proposals[a.I].ID, Text: ai.NormalizeDescription(text)})
+	}
+
+	applied, rep, err := h.repo.UpdateDescriptions(items, onlyIfEmpty)
+	if err != nil {
+		writeCatalogErr(w, err)
+		return
+	}
+	report := make([]string, 0, len(skipped)+len(rep)+2)
+	if rejected := len(proposals) - len(body.Accepted); rejected > 0 {
+		report = append(report, fmt.Sprintf("пропущено: %d (не принято)", rejected))
+	}
+	report = append(report, skipped...)
+	report = append(report, rep...)
+	report = append(report, fmt.Sprintf("Применено: %d", applied))
+	h.finishDesc(report)
+	h.clearDescProposals()
+	studioJSON(w, http.StatusOK, map[string]int{"applied": applied})
+}
+
+// descriptionsCancel — POST /studio/api/descriptions/cancel: остановка идущего
+// прогона (флаг; горутина завершает текущую порцию и останавливается, И7 —
+// предложения сохраняются). 200 {"cancelled":"true","done":M,"total":N}; если
+// джоб не идёт — 200 без изменений состояния (в отличие от fill-cancel 409 нет).
+func (h *StudioHandlers) descriptionsCancel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		studioErr(w, "только POST", http.StatusMethodNotAllowed)
+		return
+	}
+	h.fillMu.Lock()
+	if h.descGenerating {
+		h.descCancel = true
+		done, total := h.descDone, h.descTotal
+		h.fillMu.Unlock()
+		studioJSON(w, http.StatusOK, map[string]interface{}{"cancelled": "true", "done": done, "total": total})
+		return
+	}
+	h.fillMu.Unlock()
+	studioJSON(w, http.StatusOK, map[string]interface{}{"cancelled": "false"})
+}
+
+// tryStartDesc — атомарный старт джоба описаний (И6: общий флаг с fill).
+// Сбрасывает канал описаний; total — число записей в прогоне, explicit — режим
+// (И4: false — пакетный scope:"missing", true — явный good_ids).
+func (h *StudioHandlers) tryStartDesc(total int, explicit bool) bool {
+	h.fillMu.Lock()
+	defer h.fillMu.Unlock()
+	if h.fillGenerating {
+		return false
+	}
+	h.fillGenerating = true
+	h.descGenerating = true
+	h.descReport = nil
+	h.descProposals = nil
+	h.descTotal = total
+	h.descDone = 0
+	h.descCancel = false
+	h.descExplicit = explicit
+	return true
+}
+
+// finishDesc — завершение джоба/применения описаний (успех или остановка).
+func (h *StudioHandlers) finishDesc(report []string) {
+	h.fillMu.Lock()
+	defer h.fillMu.Unlock()
+	h.fillGenerating = false
+	h.descGenerating = false
+	h.descReport = report
+}
+
+// addDescProgress — добавление предложений порции + прогресс (из runDescriptions).
+func (h *StudioHandlers) addDescProgress(props []DescProposalView, doneDelta int) {
+	h.fillMu.Lock()
+	defer h.fillMu.Unlock()
+	h.descProposals = append(h.descProposals, props...)
+	h.descDone += doneDelta
+}
+
+// descProgress — текущий прогресс (done, total) под fillMu.
+func (h *StudioHandlers) descProgress() (int, int) {
+	h.fillMu.Lock()
+	defer h.fillMu.Unlock()
+	return h.descDone, h.descTotal
+}
+
+// descCancelled — запрошена ли остановка прогона описаний.
+func (h *StudioHandlers) descCancelled() bool {
+	h.fillMu.Lock()
+	defer h.fillMu.Unlock()
+	return h.descCancel
+}
+
+// clearDescProposals — сброс предложений описаний (после применения) вместе с
+// режимом джоба (descExplicit, И4). Cancel предложения сохраняет (И7) — режим
+// тоже сохраняется: apply после отмены обязан применить верный onlyIfEmpty.
+func (h *StudioHandlers) clearDescProposals() {
+	h.fillMu.Lock()
+	defer h.fillMu.Unlock()
+	h.descProposals = nil
+	h.descTotal = 0
+	h.descDone = 0
+	h.descExplicit = false
 }
 
 // snapshotState — model.State из снимка каталога (для BuildFillPrompt/

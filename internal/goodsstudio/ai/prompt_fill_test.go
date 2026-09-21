@@ -55,3 +55,19 @@ func TestFillPromptContents(t *testing.T) {
 	require.Contains(t, prompt, "2") // 1-базовая позиция пустого слота с галкой
 	require.NotContains(t, prompt, "Забаненные")
 }
+
+// TestFillPromptAsksDescription — промпт fill просит описание составляющей
+// (спека 2026-09-21-каталог-описание §8.1): ключ description в контракте
+// ответа + требование «не более 240 символов».
+func TestFillPromptAsksDescription(t *testing.T) {
+	st := &model.State{
+		SchemaVersion: 1,
+		Categories:    []model.Category{{ID: "1", Name: "Корабли", Kind: model.KindGood}},
+		Goods: []model.Good{
+			{ID: "1", Name: "Корабль", Category: "1", Kind: model.KindGood, Recipe: []model.Slot{{}}},
+		},
+	}
+	prompt := BuildFillPrompt(st, "1")
+	require.Contains(t, prompt, "description")
+	require.Contains(t, prompt, "не более 240 символов")
+}

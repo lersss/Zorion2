@@ -163,6 +163,17 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
   #proposalsOverlay.expanded{right:0}
   #proposalsPopup{position:absolute;left:calc(50% - 240px);top:50%;transform:translate(-50%,-50%);width:480px;max-height:80%;background:#1c1c1c;border:1px solid #555;border-radius:10px;z-index:11;display:none;flex-direction:column;box-shadow:0 8px 32px #000c}
   #proposalsPopup .popup-body select{background:#222;border:1px solid #444;color:#ddd;padding:3px;border-radius:6px;font-size:12px;margin-top:4px}
+  /* попап «Описания ИИ» (спека 2026-09-21-каталог-описание §9.4): по образцу #proposalsPopup */
+  #descOverlay{position:absolute;left:0;top:0;right:320px;bottom:0;background:#000a;z-index:10;display:none}
+  #descOverlay.expanded{right:0}
+  #descPopup{position:absolute;left:calc(50% - 260px);top:50%;transform:translate(-50%,-50%);width:520px;max-height:80%;background:#1c1c1c;border:1px solid #555;border-radius:10px;z-index:11;display:none;flex-direction:column;box-shadow:0 8px 32px #000c}
+  #descPopupBody{max-height:60vh;overflow:auto}
+  #descPopupBody textarea{width:100%;box-sizing:border-box;background:#222;border:1px solid #444;color:#ddd;border-radius:6px;padding:4px;font-size:12px;font-family:inherit;margin-top:4px}
+  .descai{font-size:12px;color:#bbb;white-space:nowrap}
+  .descai input{margin-right:4px;vertical-align:middle}
+  #btnDescBatch{width:100%;text-align:left;font-size:12px;background:#2b2b2b;border:1px solid #4a4a4a;color:#ddd;border-radius:6px;padding:5px 8px;cursor:pointer;margin-bottom:4px}
+  #btnDescBatch:hover{background:#363636}
+  #btnDescBatch:disabled{opacity:.5;cursor:default}
   .popup-head{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid #333;cursor:move;user-select:none;font-size:14px;color:#fff;gap:8px}
   .popup-head .ptitle{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .popup-head button{background:none;border:none;color:#999;font-size:18px;cursor:pointer;padding:0 6px;line-height:1}
@@ -255,15 +266,19 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
         <input id="spravNewName" type="text" placeholder="имя товара" autocomplete="off">
         <select id="spravNewCat"></select>
         <button class="gen" id="btnSpravAdd">+ товар</button>
+        <label class="descai" title="после создания ИИ предложит описание"><input type="checkbox" id="newGoodDescAI" checked> описание ИИ</label>
       </div>
       <div class="addrow" id="resAddRow">
         <input id="spravNewResName" type="text" placeholder="имя ресурса" autocomplete="off">
         <select id="spravNewResCat"></select>
         <button class="gen" id="btnSpravAddRes">+ ресурс</button>
+        <label class="descai" title="после создания ИИ предложит описание"><input type="checkbox" id="newResDescAI" checked> описание ИИ</label>
       </div>
       <button id="bulkToggle">▾ подгрузка списка</button>
+      <button id="btnDescBatch" title="ИИ предложит описания всем записям без описания">описания ИИ</button>
       <div id="bulkBlock" style="display:none">
-        <textarea id="bulkText" rows="4" placeholder="название | категория"></textarea>
+        <textarea id="bulkText" rows="4" placeholder="название | категория | описание (необязательно)"></textarea>
+        <div class="hint">2 колонки — без описания; 3-я колонка — описание (пустая = без описания; символ «|» в описании допустим)</div>
         <button id="btnBulk">Создать из списка</button>
       </div>
       <!-- ветка «Производители» (спека 2026-09-20-фабрики §4.1): «+ тип» создаёт
@@ -319,6 +334,12 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
     <div class="popup-head" id="proposalsPopupHead"><span class="ptitle" id="proposalsPopupTitle"></span><button id="proposalsPopupClose" title="закрыть (Esc)">×</button></div>
     <div class="popup-body" id="proposalsPopupBody"></div>
   </div>
+  <!-- попап «Описания ИИ» (спека 2026-09-21-каталог-описание §9.4) -->
+  <div id="descOverlay"></div>
+  <div id="descPopup">
+    <div class="popup-head" id="descPopupHead"><span class="ptitle" id="descPopupTitle"></span><button id="descPopupClose" title="закрыть (Esc)">×</button></div>
+    <div class="popup-body" id="descPopupBody"></div>
+  </div>
 </div>
 <div id="report"></div>
 <div id="ctxMenu"></div>
@@ -362,6 +383,9 @@ let lastProdRecipesJSON = ""; // привязки рецептов — исто�
 let lastShownReport = ""; // отчёт fill — один раз, по изменению содержимого (спека iterC §6.4)
 let lastProposalsKey = ""; // ключ предложений ИИ — авто-открытие попапа один раз (iterC §6.5, М1)
 let proposalsAccepted = {}; // {index: {accepted, category_id}} — выбор в попапе «Предложения ИИ»
+let descAccepted = {}; // {index: {accepted, text}} — выбор в попапе «Описания ИИ» (спека §9.4)
+let lastDescKey = "";  // ключ набора предложений описаний — авто-открытие один раз (§9.4)
+let lastShownDescReport = ""; // отчёт описаний — один раз по изменению
 let dragging = null; // {goodId, name}
 let loading = true;  // первичный /studio/api/state ещё не пришёл
 let offline = false; // сеть потеряна (повтор идёт)
@@ -402,6 +426,7 @@ async function fetchState() {
     offline = false;
     $("modelInfo").textContent = "Модель ИИ: " + (state.model || "—");
     $("genIndicator").textContent = state.generating ? "⚙ генерация… (" + (state.model || "модель не задана") + ")" : "";
+    updateDescBatchBtn(); // кнопка пакетного прогона: disabled при generating (спека §9.6)
     // отчёт fill — один раз, по изменению содержимого (не мигает при опросах;
     // спека iterC §6.4, эталон index.html:269–273)
     if (state.report && state.report.length) {
@@ -424,6 +449,27 @@ async function fetchState() {
     } else {
       lastProposalsKey = "";
       closeProposalsPopup();
+    }
+    // отчёт описаний — тост один раз по изменению (спека §9.6)
+    if (state.desc_report && state.desc_report.length) {
+      const drj = JSON.stringify(state.desc_report);
+      if (drj !== lastShownDescReport) { lastShownDescReport = drj; showReport(state.desc_report); }
+    } else {
+      lastShownDescReport = "";
+    }
+    // попап «Описания ИИ» — авто-открытие на новый набор; во время прогона
+    // не закрывается, строки/прогресс обновляются опросом (спека §9.4)
+    const dprops = state.desc_proposals || [];
+    if (dprops.length > 0) {
+      const dkey = JSON.stringify(dprops) + state.desc_total;
+      if ($("descPopup").style.display !== "flex") {
+        if (dkey !== lastDescKey) { lastDescKey = dkey; openDescPopup(); }
+      } else {
+        lastDescKey = dkey;
+        refreshDescPopup();
+      }
+    } else {
+      lastDescKey = "";
     }
     // авто-обновление: сервер шлёт auto_refresh_ms=0 — клиентский дефолт 3000 (С1)
     if (!window.__refreshStarted) {
@@ -1327,6 +1373,10 @@ function renderPopup() {
   // значение есть всегда (Р2, 2026-09-21) — дефолт 1, пустой ввод = 1
   html += '<div class="dmeta">объём: <input id="volInput" type="number" min="0" step="any" style="width:70px" value="' + (g.volume !== null && g.volume !== undefined ? g.volume : 1) + '" onchange="setVolumeWeight(this.value, null)" title="объём единицы товара">' +
     ' · вес: <input id="wgtInput" type="number" min="0" step="any" style="width:70px" value="' + (g.weight !== null && g.weight !== undefined ? g.weight : 1) + '" onchange="setVolumeWeight(null, this.value)" title="вес единицы товара"></div>';
+  // описание каталога (спека 2026-09-21-каталог-описание §9.1): многострочное,
+  // пусто = описания нет; автосохранение по потере фокуса (как объём/вес)
+  html += '<div class="dmeta">описание:<br>' +
+    '<textarea id="descInput" rows="3" placeholder="описание — увидят игроки; пусто = описания нет" onchange="setDescription(this.value)">' + esc(g.description || "") + '</textarea></div>';
   // слоты: только у товаров (ресурс — лист, слотов нет, §4.5); заполненный и
   // пустой — оба drop-target (замена в одно действие); тир в заполненном
   // слоте — эффективный из SlotView.Tier (99a.3 §9.3)
@@ -1358,6 +1408,7 @@ function renderPopup() {
     html += '<button class="gen" onclick="addSlot()">+ слот</button>';
     html += '<button class="gen" onclick="fillGood()"' + (fillDisabled ? ' disabled title="' + (state.generating ? "идёт генерация" : "Сначала добавьте слот («+ слот»)") + '"' : '') + '>заполнить комплектующие</button>';
   }
+  html += '<button class="gen" onclick="describeGood()"' + (state.generating ? ' disabled title="идёт генерация"' : ' title="ИИ предложит описание (перезапишет существующее)"') + '>предложить описание</button>';
   html += '<button class="del" onclick="askDeleteGood()">удалить</button>';
   html += '</div>';
   // секция «Доступен фабрикам:» — привязки рецепта (ТЗ §6.4, только товар)
@@ -1598,6 +1649,131 @@ async function cancelProposals() {
   const r = await api("POST", "/studio/api/goods/" + state.proposals_good_id + "/fill/cancel");
   if (r) { closeProposalsPopup(); fetchState(); }
 }
+// описание каталога (спека 2026-09-21-каталог-описание §9.1): ввод → PUT
+// /goods/{id} {description}; пустой ввод = очистка (И3); ошибка → откат рендера
+async function setDescription(val) {
+  const r = await api("PUT", "/studio/api/goods/" + popupGoodId, {description: val});
+  if (r) fetchState(); else renderPopup();
+}
+// «предложить описание» в попапе (§9.2): одиночный прогон по записи
+async function describeGood() {
+  const r = await api("POST", "/studio/api/descriptions/fill", {good_ids: [String(popupGoodId)]});
+  if (r) showReport(["ИИ думает… — предложение появится в попапе"]);
+  fetchState();
+}
+// ---------- попап «Описания ИИ» (спека 2026-09-21-каталог-описание §9.4) ----------
+function openDescPopup() {
+  descAccepted = {}; // новый набор предложений — свежий выбор
+  $("descPopup").style.display = "flex";
+  $("descOverlay").style.display = "block";
+  renderDescPopup();
+}
+function closeDescPopup() {
+  $("descPopup").style.display = "none";
+  $("descOverlay").style.display = "none";
+}
+// renderDescPopup — строки предложений (редактируемый textarea + чекбокс
+// «принять»), прогресс и футер «Применить принятые (K)» / «Отмена».
+function renderDescPopup() {
+  const el = $("descPopupBody");
+  const props = state.desc_proposals || [];
+  const done = state.desc_done || 0;
+  const total = state.desc_total || props.length;
+  $("descPopupTitle").textContent = "Описания ИИ (" + props.length + " из " + total + ")" +
+    (state.desc_generating ? " · идёт прогон…" : "");
+  // вычистить устаревшие индексы (набор растёт порциями во время прогона)
+  Object.keys(descAccepted).forEach(i => { if (Number(i) >= props.length) delete descAccepted[i]; });
+  let html = '<div class="hint" style="margin-bottom:8px">применятся только принятые пункты' +
+    (state.desc_generating ? ' · обработано ' + done + ' из ' + total : '') + '</div>';
+  props.forEach((p, i) => {
+    if (!descAccepted[i]) descAccepted[i] = {accepted: !!p.text, text: p.text || ""};
+    const a = descAccepted[i];
+    html += '<div class="slot" style="margin-bottom:8px">' +
+      '<label style="display:block;margin-bottom:4px;cursor:pointer"><input type="checkbox"' + (a.accepted ? ' checked' : '') + ' onchange="toggleDesc(' + i + ', this.checked)"> ' + esc(p.name) + (p.kind === "resource" ? ' · ресурс' : '') + '</label>' +
+      '<textarea rows="2" onchange="descText(' + i + ', this.value)">' + esc(a.text) + '</textarea>' +
+      '</div>';
+  });
+  const k = Object.values(descAccepted).filter(a => a.accepted).length;
+  html += '<div class="btns">' +
+    '<button class="gen" onclick="applyDesc()"' + (k === 0 ? ' disabled' : '') + '>Применить принятые (' + k + ')</button>' +
+    '<button onclick="cancelDesc()">Отмена</button>' +
+    '</div>';
+  el.innerHTML = html;
+}
+function toggleDesc(i, checked) {
+  if (descAccepted[i]) descAccepted[i].accepted = checked;
+  renderDescPopup();
+}
+function descText(i, val) {
+  if (descAccepted[i]) descAccepted[i].text = val;
+}
+// «Применить принятые» → POST apply {accepted:[{i, text}]} → закрыть, fetchState
+async function applyDesc() {
+  const accepted = [];
+  Object.keys(descAccepted).forEach(i => {
+    const a = descAccepted[i];
+    if (!a.accepted) return;
+    accepted.push({i: Number(i), text: a.text});
+  });
+  if (!accepted.length) return;
+  const r = await api("POST", "/studio/api/descriptions/apply", {accepted});
+  if (r) { closeDescPopup(); fetchState(); }
+}
+// «Отмена» → POST cancel: идущий прогон останавливается, предложения
+// сохраняются (И7), попап остаётся; отчёт — тостом через fetchState
+async function cancelDesc() {
+  const r = await api("POST", "/studio/api/descriptions/cancel", {});
+  if (r) fetchState();
+}
+// пакетный прогон «где пусто» (§9.6): подтверждение → fill {scope:"missing"}
+function runDescBatch() {
+  const n = descMissingCount();
+  if (!n) return;
+  openModal(
+    '<h3>Описания ИИ</h3>' +
+    '<div>Предложить описания для ' + n + ' записей? Прогон идёт пачками и может занять несколько минут.</div>',
+    [
+      {label: "Запустить", cls: "gen", primary: true, action: startDescBatch},
+      {label: "Отмена", cls: "", action: closeModal}
+    ]
+  );
+}
+async function startDescBatch() {
+  closeModal();
+  const r = await api("POST", "/studio/api/descriptions/fill", {scope: "missing"});
+  if (r) showReport(["ИИ думает… — предложения появятся в попапе"]);
+  fetchState();
+}
+// descMissingCount — записей каталога без описания (для кнопки §9.6)
+function descMissingCount() {
+  return state.goods.filter(g => !g.description).length;
+}
+// updateDescBatchBtn — счётчик/доступность кнопки пакетного прогона
+function updateDescBatchBtn() {
+  const btn = $("btnDescBatch");
+  if (!btn) return;
+  const n = descMissingCount();
+  btn.textContent = "описания ИИ: " + n + " без описания";
+  btn.disabled = n === 0 || state.generating;
+}
+// Защита несохранённого текста от авто-обновления (спека §9.7): авто-перерисовка
+// пропускается, если фокус в textarea попапа, а значение отличается от модельного.
+function descInputDirty() {
+  const el = $("descInput");
+  if (!el || document.activeElement !== el) return false;
+  const g = state.goods.find(x => x.id === popupGoodId);
+  return !!g && el.value !== (g.description || "");
+}
+function descPopupDirty() {
+  const body = $("descPopupBody");
+  if (!body) return false;
+  const ae = document.activeElement;
+  if (!ae || ae.tagName !== "TEXTAREA" || !body.contains(ae)) return false;
+  const i = [...body.querySelectorAll("textarea")].indexOf(ae);
+  const p = (state.desc_proposals || [])[i];
+  return !!p && ae.value !== (p.text || "");
+}
+function refreshDescPopup() { if (!descPopupDirty()) renderDescPopup(); }
 // сложность рецепта (ТЗ §6.2): ввод числа → PUT /recipes/{id} {complexity};
 // очистка → {complexity: null} (вычисляемая по графу)
 async function setComplexity(val) {
@@ -3091,6 +3267,10 @@ async function spravAddGood() {
       await api("POST", "/studio/api/producers/" + ft.id + "/recipes", {recipe_id: g.recipe_id});
     }
   }
+  // галка «описание ИИ» (§9.3): после создания — одиночный прогон по записи
+  if ($("newGoodDescAI").checked) {
+    await api("POST", "/studio/api/descriptions/fill", {good_ids: [String(g.id)]});
+  }
   fetchState();
 }
 // «+ ресурс» (спека iterB §4.5): ресурс без привилегий — создание через
@@ -3104,6 +3284,10 @@ async function spravAddResource() {
   const g = await r.json();
   $("spravNewResName").value = "";
   selected = g.id;
+  // галка «описание ИИ» (§9.3): после создания — одиночный прогон по записи
+  if ($("newResDescAI").checked) {
+    await api("POST", "/studio/api/descriptions/fill", {good_ids: [String(g.id)]});
+  }
   fetchState();
 }
 // подгрузка списка (99a.3 §8.5): POST /api/goods/bulk → тост-отчёт по строкам
@@ -3189,9 +3373,11 @@ function renderAll() {
   renderGoodsFactorySel(); // селектор фабрики: пересборка опций с сохранением выбора (ТЗ §3)
   renderGoodsFamilySel();  // фильтр семейства (ТЗ §4)
   applyBranchUI();
+  updateDescBatchBtn();
   if (branch === "goods") {
     renderGraph();
-    renderPopup();
+    if (!descInputDirty()) renderPopup(); // §9.7: не стирать несохранённый текст
+    if ($("descPopup").style.display === "flex") refreshDescPopup();
     renderCatPopup(); // авто-обновление попапа категорий (если открыт)
     renderSprav();
     renderCatSelects();
@@ -3248,6 +3434,7 @@ function applyBranchUI() {
   $("goodsAddRow").style.display = isGoods ? "" : "none";
   $("resAddRow").style.display = isGoods ? "" : "none";
   $("bulkToggle").style.display = isGoods ? "" : "none";
+  $("btnDescBatch").style.display = isGoods ? "" : "none";
   $("bulkBlock").style.display = "none";
   $("prodAddRow").style.display = isProducers ? "" : "none";
   $("itemAddRow").style.display = branch === "items" ? "" : "none";
@@ -3323,6 +3510,10 @@ $("catOverlay").addEventListener("click", closeCatPopup);
 // попап «Предложения ИИ»: закрытие (крестик/подложка); Esc — в общем keydown
 $("proposalsPopupClose").addEventListener("click", closeProposalsPopup);
 $("proposalsOverlay").addEventListener("click", closeProposalsPopup);
+// попап «Описания ИИ»: закрытие (крестик/подложка) + кнопка пакетного прогона
+$("descPopupClose").addEventListener("click", closeDescPopup);
+$("descOverlay").addEventListener("click", closeDescPopup);
+$("btnDescBatch").addEventListener("click", runDescBatch);
 $("btnSpravAdd").addEventListener("click", spravAddGood);
 $("btnSpravAddRes").addEventListener("click", spravAddResource);
 $("btnTop").addEventListener("click", centerTop);

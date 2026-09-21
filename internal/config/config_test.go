@@ -28,7 +28,7 @@ func loadWithEnv(t *testing.T, set map[string]string) *Config {
 		os.Setenv(k, v)
 	}
 	// очистка opencode-переменных — дефолты
-	for _, k := range []string{"OPENCODE_URL", "OPENCODE_MODEL", "OPENCODE_TIMEOUT_S", "OPENCODE_MAX_RETRIES"} {
+	for _, k := range []string{"OPENCODE_URL", "OPENCODE_MODEL", "OPENCODE_AGENT", "OPENCODE_TIMEOUT_S", "OPENCODE_MAX_RETRIES"} {
 		if _, ok := set[k]; !ok {
 			os.Unsetenv(k)
 		}
@@ -49,6 +49,7 @@ func TestOpenCodeDefaults(t *testing.T) {
 	cfg := loadWithEnv(t, nil)
 	require.Equal(t, "http://127.0.0.1:3456", cfg.OpenCodeURL)
 	require.Equal(t, "opencode/deepseek-v4-flash", cfg.OpenCodeModel)
+	require.Equal(t, "build", cfg.OpenCodeAgent)
 	require.Equal(t, 120*time.Second, cfg.OpenCodeTimeout)
 	require.Equal(t, 2, cfg.OpenCodeMaxRetries)
 }
@@ -56,13 +57,15 @@ func TestOpenCodeDefaults(t *testing.T) {
 // TestOpenCodeEnvOverride — env переопределяют дефолты.
 func TestOpenCodeEnvOverride(t *testing.T) {
 	cfg := loadWithEnv(t, map[string]string{
-		"OPENCODE_URL":        "http://127.0.0.1:9999",
-		"OPENCODE_MODEL":      "opencode/other-model",
-		"OPENCODE_TIMEOUT_S":  "30",
+		"OPENCODE_URL":         "http://127.0.0.1:9999",
+		"OPENCODE_MODEL":       "opencode/other-model",
+		"OPENCODE_AGENT":       "custom",
+		"OPENCODE_TIMEOUT_S":   "30",
 		"OPENCODE_MAX_RETRIES": "5",
 	})
 	require.Equal(t, "http://127.0.0.1:9999", cfg.OpenCodeURL)
 	require.Equal(t, "opencode/other-model", cfg.OpenCodeModel)
+	require.Equal(t, "custom", cfg.OpenCodeAgent)
 	require.Equal(t, 30*time.Second, cfg.OpenCodeTimeout)
 	require.Equal(t, 5, cfg.OpenCodeMaxRetries)
 }

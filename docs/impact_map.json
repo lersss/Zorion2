@@ -595,7 +595,25 @@
         { "on": "web/static/js/modal/events.js", "kind": "reads", "reason": "точка входа: showPlanetMenu — пункт «Высадиться» рядом с «Лететь» (снят ранний return в валидном состоянии)" },
         { "on": "web/surface.html", "kind": "docs", "reason": "страница прогулки (web/static/css/surface.css, web/static/js/surface/*)" },
         { "on": "99.2.27", "kind": "affects", "reason": "расширяет модель позиции уровнем surface (дельта к спеке)" },
-        { "on": "99.2.28", "kind": "affects", "reason": "биом-модель: поля hazard/passability/resources не потребляются (дельта §20)" }
+        { "on": "99.2.28", "kind": "affects", "reason": "биом-модель: поля hazard/passability/resources не потребляются (дельта §20)" },
+        { "on": "surface_weather", "kind": "affects", "reason": "погода прогулки (2026-09-22): вид + выбор явления из физики планеты" }
+      ]
+    },
+    {
+      "id": "surface_weather",
+      "type": "mechanic",
+      "path": "docs/specs/2026-09-22-погода-поверхности-вид-и-физика.md",
+      "note": "погода прогулки — вид и связка с физикой планеты (2026-09-22, реализовано, коммит daafb02): выбор явления из осей планеты (жёсткие гейты по давлению/радиации, пороги из suit пакета; мягкие веса по температуре/токсичности/жидкости/биому; цикловой mulberry32, анти-повтор), 6 явлений (дымка по слоям, частицы в мировых колонках, 3 пояса параллакса, ветер с порывами), три прохода между слоями мира; только клиент, без сервера/БД",
+      "impacts": [
+        { "on": "surface_landing", "kind": "affects", "reason": "погода — часть прогулки; входы берёт из пакета land (§7.1)" },
+        { "on": "web/static/js/surface/surface_weather.js", "kind": "docs", "reason": "модуль погоды: выбор (pickWeatherRun), три прохода (Back/Mid/Front), запекание сияния" },
+        { "on": "web/static/js/surface/surface_config.js", "kind": "writes", "reason": "WEATHER_RULES + WEATHER_VISUALS (WEATHER_BY_CATEGORY удалён); WEATHER_IDS — контракт админ-чипов/HUD" },
+        { "on": "web/static/js/surface/surface_main.js", "kind": "affects", "reason": "три вызова погоды между слоями мира внутри трансформа камеры (зум/DPR не дублируются)" },
+        { "on": "web/static/js/surface/surface_world.js", "kind": "reads", "reason": "terrainHeight/farHeight + экспорт hash1 для мировых колонок частиц" },
+        { "on": "web/static/js/surface/surface_ui.js", "kind": "affects", "reason": "админские чипы погоды из WEATHER_IDS; подписи HUD (дельта на @uidesigner — §4.6)" },
+        { "on": "2026-09-21-высадка-прогулка-по-планете.md", "kind": "affects", "reason": "дельта §7.2 (погода: прежний выбор «только по biome_category» отменён)" },
+        { "on": "docs/specs/2026-09-22-полярное-сияние-вид-направление.md", "kind": "docs", "reason": "направление @gdesigner по виду сияния (переделка «частокола»)" },
+        { "on": "tools/e2e/surface-walk-check.js", "kind": "affects", "reason": "10g: детект игрока устойчив к пелене погоды (лучевой метод от тела)" }
       ]
     },
     {

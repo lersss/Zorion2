@@ -2,6 +2,7 @@
 import { state, elements } from './config.js';
 import { isFiniteNumber, formatZoom } from './utils.js';
 import { draw, clusterScreenRadius } from './map_render.js';
+import { starHitRadius } from './star_render.js';
 import { scheduleReload } from './data.js';
 import { centerOnAgent } from './navigation.js';
 import { CONFIG } from '../config.js';
@@ -36,7 +37,10 @@ function findClusterAt(mouseX, mouseY) {
         const py = c.y * state.scale + state.offsetY;
         if (!isFiniteNumber(px) || !isFiniteNumber(py)) continue;
 
-        const radius = clusterScreenRadius(c);
+        // Зона клика/наведения — по ВИДИМОМУ размеру звезды (ореол с потолком),
+        // а не по растущему линейно clusterScreenRadius (решение создателя
+        // 2026-09-22, идея «внешний вид звёзд» §Решения по гейту п.2).
+        const radius = starHitRadius(c, clusterScreenRadius(c));
         const dist = Math.hypot(mouseX - px, mouseY - py);
         const hitRadius = Math.max(radius + 3, mapCfg.minDistForClick);
 

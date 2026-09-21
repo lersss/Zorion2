@@ -732,6 +732,28 @@
   **0**. Цена: генерация чанка ~11.7 → ~20.0 мс (шаг по x 3→1 и по y 3→1);
   кэшируется, на спринте — единичный кадр ~33 мс на генерации нового чанка.
 
+- **Настройки графики карты — в localStorage дашборда, и тумблер мерцания
+  обязан гасить непрерывный кадр, а не только эффект.** Вкладка дашборда
+  «⚙️ Графика» (`web/static/js/dashboard/graphics.js`, идея 2026-09-22) пишет
+  ключи `starVisualPreset`, `starVisualTwinkle`, `starVisualIgnite`,
+  `starVisualAdditive`, `starVisualExotic`, `starVisualPetals`,
+  `radarBoundaryVariant`, `starVisualLite`; карта (`map/star_render.js`) их
+  только читает — общий origin, сервер не участвует. Ловушка: `starVisualOptions()`
+  управляет и видом, и эффектами, но непрерывный rAF-кадр поднимают
+  `starNeedsAnim()`/`ensureStarAnimLoop()`. Если гасить мерцание только в
+  `twinkleFactor()`, `starNeedsAnim()` продолжит поднимать кадр, пока
+  `singles ≤ 400`, и слабый ПК будет крутить перерисовку на статичной картинке —
+  экономия пропадёт. Режим «Для слабых ПК» (`starVisualLite='1'`) возвращает из
+  `starVisualOptions()` `{mode:'sprite', все эффекты false}`, **не трогая**
+  сохранённые ключи игрока (выключил режим — вернулись прежние значения). Смена
+  вида звёзд в дашборде сама перезаписывает ключи эффектов набором вида
+  (`PRESET_EFFECTS`), дальше ручные правки чекбоксов сохраняются. Наборы вида
+  (`PRESETS`) и эффектов (`PRESET_EFFECTS`) — в одном чистом модуле данных
+  `web/static/js/map/star_presets.js` (без DOM/localStorage на верхнем уровне):
+  его импортируют и карта (`map/star_render.js`), и дашборд
+  (`dashboard/graphics.js`), иначе дефолты расходятся. Проверено
+  `web/frontend_graphics_test.go` (Node) и `tools/e2e/dashboard-graphics-check.js`.
+
 ## Прочее
 
 - **blocked_by текстурных тегов кораблей (ship_dict.json) — substring-матчинг

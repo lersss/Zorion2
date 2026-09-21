@@ -6,6 +6,11 @@ import { drawNPCAgents } from './npc_agents.js';
 import { drawPacman } from './pacman.js';
 import { recolorShipSprite, shipOrientFor, shipDrawTransform } from './ship_sprites.js';
 import { drawStarfield, initStarfield } from './starfield.js';
+import {
+    drawStar, drawCompanion, drawStarName, starVisualOptions, starVisualRadius,
+    updateIgniteTrigger, ensureStarAnimLoop, igniteProgress, igniteLabelAlpha,
+    setStarRedraw,
+} from './star_render.js';
 
 const { map: mapCfg } = CONFIG;
 
@@ -43,6 +48,9 @@ export function resizeCanvas() {
     elements.canvas.width = state.canvasWidth;
     elements.canvas.height = state.canvasHeight;
     initStarfield(); // фон «звёздное небо»: тайл при загрузке и при ресайзе (спека 30c.1)
+    // star_render.js не импортирует map_render.js (цикл) — ставим ему колбэк
+    // перерисовки (мерцание/зажигание) на наш draw. Идемпотентно при ресайзе.
+    setStarRedraw(draw);
     updateFitZoom();
     draw();
 }
@@ -132,6 +140,7 @@ export function draw() {
     // --- Отрисовка кластеров ---
     const visibleClusters = clusters || [];
     const singles = [];
+    const starOpts = starVisualOptions();
 
     for (const c of visibleClusters) {
         const px = c.x * scale + offsetX;
@@ -147,12 +156,21 @@ export function draw() {
         }
 
         if (c.cnt === 1) {
-            drawSingleStar(ctx, c, px, py, scale, currentWorldId, hoveredWorldId, focusWorldId);
+            drawSingleStar(ctx, c, px, py, scale, currentWorldId, hoveredWorldId, focusWorldId, starOpts);
             singles.push({ c, x: px, y: py });
         } else {
             drawCluster(ctx, c, px, py);
         }
     }
+
+    // Число одиночных звёзд в кадре — порог деградации дорогого вида
+    // (мерцание/аддитивное свечение, идея «внешний вид звёзд» §3).
+    state.starSingles = singles.length;
+
+    // Зажигание: триггер по порогу появления названий + непрерывный кадр
+    // (один хозяин — star_render.js, авто-стоп при переполнении/скрытой вкладке).
+    updateIgniteTrigger(scale, mapCfg.nameDisplayThreshold);
+    ensureStarAnimLoop();
 
     // --- Подписи одиночных миров ---
     // Показываем при достаточном зуме ИЛИ когда объектов мало (место есть).
@@ -195,22 +213,19 @@ export function draw() {
 
 // ==================== ОТРИСОВКА ЭЛЕМЕНТОВ ====================
 
-function drawSingleStar(ctx, c, x, y, scale, currentWorldId, hoveredWorldId, focusWorldId) {
+function drawSingleStar(ctx, c, x, y, scale, currentWorldId, hoveredWorldId, focusWorldId, starOpts) {
     const radius = clusterScreenRadius(c);
-    const color = getStarShade(c.sspec || 'G', c.stemp, c.stype);
 
-    ctx.globalAlpha = 1;
-    ctx.beginPath();
-    ctx.arc(x, y, radius, 0, Math.PI * 2);
-    ctx.fillStyle = color;
-    ctx.fill();
-    ctx.strokeStyle = '#0f172a';
-    ctx.lineWidth = 1;
-    ctx.stroke();
+    // Новый вид звезды (идея «внешний вид звёзд» 2026-09-22): ядро-пересвет →
+    // цвет → мягкий ореол, разная яркость, мерцание, экзотика. Тёмной обводки
+    // #0f172a больше нет — она превращала звезду в наклейку-кружок.
+    drawStar(ctx, c, x, y, radius, starOpts);
 
-    // Точки-компаньоны двойных/кратных систем (35a): binary — одна точка,
-    // multiple — две, single — ничего. Цвет точки — по спектру компаньона
-    // (35b §6.4): binary — mods.companion, multiple — внутренний + внешний
+    // Компаньоны двойных/кратных систем (35a): binary — один, multiple — два,
+    // single — ничего. «Звёздный» вид — тот же, что у основной звезды, но
+    // уменьшенный (cr ≈ 0.45R), чтобы не конкурировать с ней (решение создателя
+    // 2026-09-22, гейт 3). Цвет — по спектру компаньона (35b §6.4): binary —
+    // mods.companion, multiple — внутренний + внешний
     // (extra_companions[*].spectral_class). Данные — smods из кластера
     // (filter_worlds_handler, 35b §2.3).
     const companionAngles = c.systype === 'binary' ? [Math.PI / 4] :
@@ -223,15 +238,16 @@ function drawSingleStar(ctx, c, x, y, scale, currentWorldId, hoveredWorldId, foc
             : [mods.companion];
         const dist = Math.max(3, radius * 1.5);
         const cr = radius * 0.45;
-        ctx.globalAlpha = 0.6;
+        const seedBase = c.sid || c.sname || '';
         companionAngles.forEach((angleRad, i) => {
-            const dotColor = companionSpecs[i] ? getStarColor(companionSpecs[i], 'star') : color;
-            ctx.beginPath();
-            ctx.arc(x + Math.cos(angleRad) * dist, y + Math.sin(angleRad) * dist, cr, 0, Math.PI * 2);
-            ctx.fillStyle = dotColor;
-            ctx.fill();
+            const spec = companionSpecs[i] || c.sspec || 'G';
+            drawCompanion(
+                ctx,
+                x + Math.cos(angleRad) * dist,
+                y + Math.sin(angleRad) * dist,
+                cr, spec, starOpts, seedBase + ':c' + i,
+            );
         });
-        ctx.globalAlpha = 1;
     }
 
     if (c.sid === focusWorldId) {
@@ -317,16 +333,12 @@ function drawCluster(ctx, c, x, y) {
 // (тестовая переключалка, спека 77a §9.1: выбор хранится в localStorage).
 const RADAR_BOUNDARY_KEY = 'radarBoundaryVariant';
 
-// radarBoundaryVariant — текущий вариант отрисовки границы (1–4).
-export function radarBoundaryVariant() {
+// radarBoundaryVariant — текущий вариант отрисовки границы (1–4). Управление
+// вынесено в дашборд (вкладка «⚙️ Графика»), карта только читает ключ; функция
+// внутренняя — наружу не экспортируется (переключалка с карты убрана).
+function radarBoundaryVariant() {
     const v = parseInt(localStorage.getItem(RADAR_BOUNDARY_KEY) || '1', 10);
     return (v >= 1 && v <= 4) ? v : 1;
-}
-
-// setRadarBoundaryVariant — выбор варианта (переключалка в map.html).
-export function setRadarBoundaryVariant(v) {
-    localStorage.setItem(RADAR_BOUNDARY_KEY, String(v));
-    draw();
 }
 
 // playerWorldPosition — текущая позиция игрока в мировых координатах
@@ -516,18 +528,28 @@ function drawNames(ctx, singles, scale) {
         mapCfg.nameMaxFontSize,
         Math.max(mapCfg.nameMinFontSize, mapCfg.nameFontSize * scale),
     ));
-    ctx.fillStyle = '#94a3b8';
-    ctx.font = `${fontSize}px system-ui`;
-    ctx.textAlign = 'center';
+    // Зажигание (§3): подписи проявляются каскадом (alpha = clamp((t−0.25)/0.75)
+    // со сдвигом 0…250 мс по b2). Вне зажигания — alpha 1.
+    const igniteT = igniteProgress(Date.now());
 
     for (const s of singles) {
         // Название hover-звезды рисуем отдельно (пилюлей над ней).
         if (s.c.sid === state.hoveredWorldId) continue;
-        const radius = clusterScreenRadius(s.c);
+        // Якорь — по ВИДИМОМУ размеру звезды (ореол с потолком), а не по
+        // растущему линейно clusterScreenRadius: иначе на сильном зуме
+        // подпись уезжает (решение создателя 2026-09-22, п.2).
+        const radius = starVisualRadius(s.c, clusterScreenRadius(s.c));
+        const alpha = igniteT >= 1 ? 1 : igniteLabelAlpha(igniteT, starBitsFor(s.c).b2);
         // Названия чистые, без суффиксов типа («дв.», «нейтр.») — тип виден
         // цветом (экзотика — свой цвет) и в модалке (решение создателя).
-        ctx.fillText(s.c.sname || '—', s.x, s.y + radius + fontSize);
+        drawStarName(ctx, s.c.sname || '—', s.x, s.y + radius + fontSize, fontSize, alpha);
     }
+}
+
+// starBitsFor — детерминированные биты звезды для каскада подписей.
+function starBitsFor(c) {
+    const h = hashString(c.sid || c.sname || '');
+    return { b2: ((h >>> 10) % 1024) / 1024 };
 }
 
 // drawHoveredStarName — рисует имя звезды под курсором над ней.
@@ -549,7 +571,9 @@ function drawHoveredStarName(ctx, scale, offsetX, offsetY) {
     if (!isFiniteNumber(x) || !isFiniteNumber(y)) return;
 
     const name = c.sname || '—';
-    const r = clusterScreenRadius(c);
+    // Якорь пилюли — по видимому размеру звезды (ореол с потолком), как и
+    // подписи: на сильном зуме пилюля не уезжает от звезды.
+    const r = starVisualRadius(c, clusterScreenRadius(c));
     const fontSize = Math.max(11, Math.round(mapCfg.nameFontSize + 2));
     ctx.font = `600 ${fontSize}px system-ui`;
     const w = Math.max(40, ctx.measureText(name).width + 16);

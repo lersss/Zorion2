@@ -193,6 +193,9 @@ function npcNeedsAnim() {
 function ensureNpcAnimLoop() {
     if (npcAnimFrame) return; // цикл уже крутится
     if (!npcNeedsAnim()) return;
+    // Общий флаг «один хозяин кадра» (идея 2026-09-22 §4): пока крутится этот
+    // цикл, star_render.js не зовёт свою перерисовку — двойного полного кадра нет.
+    state.npcAnimActive = true;
     npcAnimFrame = requestAnimationFrame(npcAnimTick);
 }
 
@@ -206,6 +209,7 @@ function ensureNpcAnimLoop() {
 function npcAnimTick() {
     if (!npcNeedsAnim()) {
         npcAnimFrame = 0; // нечего интерполировать — стоп до следующего опроса
+        state.npcAnimActive = false; // полный кадр снова за star_render.js
         return;
     }
     if (!state.isFlying) draw();

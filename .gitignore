@@ -46,3 +46,5 @@ config/race_balancer.json
 # E2E-инструмент (tools/e2e): зависимости и артефакты прогонов
 tools/e2e/node_modules/
 tools/e2e/artifacts/
+# Скриншоты прогонов внешнего вида звёзд (star-visuals-shot.js)
+tools/e2e/out/

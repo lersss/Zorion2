@@ -8,7 +8,6 @@ import { showFlightPanel } from './map/flight.js';
 import { applyFiltersFromUI, resetFilters, filterState } from './filters.js';
 import { loadClusters, loadUserData, startPlayerPositionsLoop } from './map/data.js';
 import { draw } from './map/map_render.js';
-import { radarBoundaryVariant, setRadarBoundaryVariant } from './map/map_render.js';
 import { setRedrawCallback, preloadShipSprites } from './map/ship_sprites.js';
 import { showTextLoader } from './loader.js';
 import { notifyError } from './ui/toast.js';
@@ -129,15 +128,6 @@ function init() {
 
     // --- Поиск агента на карте (спека 26a.1 §6.2): поле в #zoom-controls ---
     initNPCSearch();
-
-    // --- Тестовая переключалка границы видимости (спека 77a §9.1) ---
-    const boundarySelect = document.getElementById('radarBoundarySelect');
-    if (boundarySelect) {
-        boundarySelect.value = String(radarBoundaryVariant());
-        boundarySelect.addEventListener('change', () => {
-            setRadarBoundaryVariant(parseInt(boundarySelect.value, 10) || 1);
-        });
-    }
 
     // --- Переход в админку (пожелание 2026-09-19): кнопка видна только
     // админским ролям (показ — в data.js по роли из /me); игровой токен

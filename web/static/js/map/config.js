@@ -39,6 +39,8 @@ export const state = {
     hasEngine: true,     // установлен ли двигатель из /me (спека 91a §6.1; true = не загружено —
                          // сервер валидирует сам, UI не блокирует до данных)
     playerPositions: [], // чужие игроки в радиусе радара (спека 77a §5.3): {id,username,ship_icon,ship_color,status,x,y}
+    starSingles: 0,      // одиночных звёзд в кадре (порог деградации вида звёзд, идея 2026-09-22 §3)
+    npcAnimActive: false, // идёт цикл интерполяции NPC (один хозяин кадра: star_render пропускает draw, идея 2026-09-22 §4)
 };
 
 export const elements = {

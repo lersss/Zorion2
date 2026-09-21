@@ -78,6 +78,21 @@
         }
         .tab-pane { display: none; }
         .tab-pane.active { display: block; }
+        /* Вкладка «⚙️ Графика» (идея 2026-09-22): настройки вида карты миров
+           (localStorage). Блоки 2–3 приглушаются в режиме «Для слабых ПК». */
+        .graphics-note { color: #94a3b8; font-size: 0.85rem; margin-bottom: 1rem; }
+        .graphics-block { border: 1px solid #334155; border-radius: 0.75rem; padding: 0.9rem 1rem; margin-bottom: 1rem; }
+        .graphics-block-title { font-weight: 600; margin-bottom: 0.6rem; }
+        details.graphics-block > summary { cursor: pointer; }
+        details.graphics-block[open] > summary { margin-bottom: 0.6rem; }
+        .graphics-radio, .graphics-check { display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0; cursor: pointer; }
+        .graphics-radio input, .graphics-check input { accent-color: #3b82f6; }
+        .graphics-radar-options { display: flex; gap: 1.2rem; flex-wrap: wrap; }
+        .graphics-hint { color: #94a3b8; font-size: 0.78rem; margin-top: 0.35rem; }
+        .graphics-block-off { opacity: 0.45; }
+        .graphics-lite-note { color: #fbbf24; font-size: 0.82rem; margin: 0 0 1rem; }
+        .graphics-footer { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.8rem; }
+        .graphics-status { margin-top: 0.6rem; font-size: 0.8rem; color: #94a3b8; min-height: 1.1rem; }
     </style>
 </head>
 <body>
@@ -98,6 +113,7 @@
         <div class="dashboard-tabs">
             <button class="tab-btn" data-tab="tab-ship">🛸 Корабль</button>
             <button class="tab-btn" data-tab="tab-look">🎨 Внешний вид</button>
+            <button class="tab-btn" data-tab="tab-graphics">⚙️ Графика</button>
             <button class="tab-btn" data-tab="tab-stats">📊 Статистика</button>
             <button class="tab-btn" data-tab="tab-encyclopedia">📖 Энциклопедия</button>
         </div>
@@ -145,6 +161,84 @@
             </div>
         </div>
 
+        <div class="tab-pane" id="tab-graphics">
+            <div class="card">
+                <h2>⚙️ Графика</h2>
+                <p class="graphics-note">Настройки вида карты миров. Сохраняются в этом браузере — на каждом компьютере свои.</p>
+
+                <div class="graphics-block" id="graphics-perf-block">
+                    <div class="graphics-block-title">Скорость работы</div>
+                    <label class="graphics-radio">
+                        <input type="radio" name="graphicsLite" id="graphicsLiteOff" value="0">
+                        <span><strong>Обычный вид</strong></span>
+                    </label>
+                    <label class="graphics-radio">
+                        <input type="radio" name="graphicsLite" id="graphicsLiteOn" value="1">
+                        <span><strong>Для слабых ПК</strong></span>
+                    </label>
+                    <div class="graphics-hint">Отключает мерцание, вспышки и лишние эффекты.</div>
+                </div>
+
+                <div class="graphics-block" id="graphics-view-block">
+                    <div class="graphics-block-title">Вид звёзд</div>
+                    <label class="graphics-radio">
+                        <input type="radio" name="graphicsPreset" value="sprite">
+                        <span><strong>Спрайт</strong> — нарисованные, самый лёгкий</span>
+                    </label>
+                    <label class="graphics-radio">
+                        <input type="radio" name="graphicsPreset" value="eye">
+                        <span><strong>Глаз</strong> — мягкое свечение, как видит глаз</span>
+                    </label>
+                    <label class="graphics-radio">
+                        <input type="radio" name="graphicsPreset" value="photo">
+                        <span><strong>Фото</strong> — с лучами, как на снимке телескопа</span>
+                    </label>
+                    <label class="graphics-radio">
+                        <input type="radio" name="graphicsPreset" value="crown">
+                        <span><strong>Корона</strong> — живой венец</span>
+                    </label>
+                </div>
+
+                <details class="graphics-block" id="graphics-effects-block">
+                    <summary class="graphics-block-title">Дополнительно: эффекты</summary>
+                    <label class="graphics-check" title="звёзды медленно дышат">
+                        <input type="checkbox" id="graphicsTwinkle"> Мерцание звёзд
+                    </label>
+                    <label class="graphics-check" title="звёзды разгораются, когда появляются подписи">
+                        <input type="checkbox" id="graphicsIgnite"> Вспышка при появлении названий
+                    </label>
+                    <label class="graphics-check" title="там, где звёзд много, свечение складывается ярче">
+                        <input type="checkbox" id="graphicsAdditive"> Усиленное свечение
+                    </label>
+                    <label class="graphics-check" title="чёрные дыры, пульсары, белые карлики">
+                        <input type="checkbox" id="graphicsExotic"> Редкие объекты
+                    </label>
+                    <label class="graphics-check" title="как на фотографии телескопа">
+                        <input type="checkbox" id="graphicsPetals"> Лучи у самых ярких звёзд
+                    </label>
+                </details>
+
+                <div id="graphics-lite-note" class="graphics-lite-note" hidden>Включён режим для слабых ПК: вид «Спрайт», эффекты отключены.</div>
+
+                <div class="graphics-block" id="graphics-radar-block">
+                    <div class="graphics-block-title">Граница видимости радара</div>
+                    <div class="graphics-radar-options">
+                        <label class="graphics-radio"><input type="radio" name="graphicsRadar" value="1"> <span>Туман</span></label>
+                        <label class="graphics-radio"><input type="radio" name="graphicsRadar" value="2"> <span>Контур</span></label>
+                        <label class="graphics-radio"><input type="radio" name="graphicsRadar" value="3"> <span>Градиент</span></label>
+                        <label class="graphics-radio"><input type="radio" name="graphicsRadar" value="4"> <span>Пунктир</span></label>
+                    </div>
+                </div>
+
+                <div class="graphics-footer">
+                    <span class="graphics-hint">Применяется на карте миров.</span>
+                    <button class="btn-secondary" id="graphicsOpenMapBtn">🗺️ Открыть карту</button>
+                </div>
+                <button class="btn-secondary" id="graphicsResetBtn">Сбросить настройки к значениям по умолчанию</button>
+                <div id="graphics-status" class="graphics-status"></div>
+            </div>
+        </div>
+
         <div class="tab-pane" id="tab-stats">
             <div class="card">
                 <h2>📊 Статистика</h2>
@@ -164,6 +258,7 @@
     <script type="module">
         import { recolorShipSprite, getShipImage, setRedrawCallback, SHIP_COLOR_PALETTE, setShipOptions, shipOrientFor } from '/static/js/map/ship_sprites.js';
         import { loadEncyclopedia } from '/static/js/dashboard/encyclopedia.js';
+        import { initGraphicsSettings } from '/static/js/dashboard/graphics.js';
 
         // orientCssTransform — CSS-трансформ показа пары (A, F) (спека §6.2):
         // A=0 → rotate(0) scaleX(F); A≠0 → scale(0.707) rotate(A) scaleX(F)
@@ -564,6 +659,9 @@
         loadUser();
         loadShipSelector();
         loadEncyclopedia();
+        // Вкладка «⚙️ Графика» (идея 2026-09-22): контролы читают/пишут
+        // localStorage; карта миров читает те же ключи.
+        initGraphicsSettings();
 
         // ==================== ВКЛАДКИ ДАШБОРДА ====================
         // Паттерн админки (web/static/js/admin/tabs.js): .tab-btn/.tab-pane,

@@ -145,14 +145,10 @@
             <div id="zoom-info">100%</div>
             <input id="npcSearchInput" type="text" maxlength="100" placeholder="🔍 Найти агента (имя/id)" autocomplete="off">
             <button id="npcSearchBtn" data-tooltip="Найти агента на карте">🔍</button>
-            <!-- Тестовая переключалка границы видимости (спека 77a §9.1):
-                 выбор хранится в localStorage, после выбора создателя убирается. -->
-            <select id="radarBoundarySelect" title="Вариант границы видимости (тестовая переключалка, спека 77a §9.1)">
-                <option value="1">Граница: туман</option>
-                <option value="2">Граница: контур</option>
-                <option value="3">Граница: градиент</option>
-                <option value="4">Граница: пунктир</option>
-            </select>
+            <!-- Переключатели вида звёзд и границы видимости радара переехали
+                 в дашборд, вкладка «⚙️ Графика» (идея 2026-09-22, решение
+                 создателя гейт 3): карта только читает те же ключи localStorage
+                 (starVisualPreset, starVisual*, radarBoundaryVariant). -->
         </div>
     </div>
     <script type="module" src="/static/js/main.js"></script>

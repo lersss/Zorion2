@@ -173,11 +173,17 @@ func worldCategory(starType, systemType string) string {
 
 // clearPlanetsOf — удаляет планеты выбранных миров и возвращает число удалённых.
 // Дочерние записи (поселения, ресурсы) удаляются каскадно (ON DELETE CASCADE).
+// Пояса малых тел мира удаляются ЗДЕСЬ ЖЕ, до пересоздания планет (спека
+// поясов §4.6/§4.7): иначе после перегенерации остаются дубли поясов /
+// «пояс поверх планеты» (генератор кладёт пояса заново).
 // ВАЖНО: world_id = ANY($1) требует pq.Array — []string lib/pq не конвертирует
 // ("unsupported type []string", баг #2, прогон @tester); паттерн — как
 // pqStringArray в economy_repository.go.
 func (h *AdminHandlers) clearPlanetsOf(worlds []planet.WorldInfo) (int, error) {
 	ids := pq.Array(worldIDs(worlds))
+	if _, err := h.db.Exec(`DELETE FROM system_belts WHERE world_id = ANY($1)`, ids); err != nil {
+		return 0, err
+	}
 	var oldCount int
 	if err := h.db.QueryRow(`SELECT COUNT(*) FROM planets WHERE world_id = ANY($1)`, ids).Scan(&oldCount); err != nil {
 		return 0, err

@@ -49,14 +49,14 @@ func recoverErr(r interface{}) string {
 //
 // Список таблиц — все, что прямо или косвенно ссылаются на worlds
 // (кроме users):
-//   worlds    ← locations, assignments, planets, npc_agents
+//   worlds    ← locations, assignments, planets, npc_agents, system_belts
 //   planets   ← factions, settlements, buildings
 //
 // Если появится новая таблица с FK на любую из этих — TRUNCATE упадёт
 // с ошибкой "cannot truncate a table referenced in a foreign key
 // constraint". Тогда добавь её в этот список.
 
-const truncateTables = `worlds, locations, planets, assignments, factions, settlements, settlement_log, regions, npc_agents, player_planet_knowledge, buildings`
+const truncateTables = `worlds, locations, planets, assignments, factions, settlements, settlement_log, regions, npc_agents, player_planet_knowledge, buildings, system_belts`
 
 // clearUniverseTx — очистка внутри уже начатой транзакции.
 // Вызывающий делает Begin/Commit/Rollback.
@@ -470,6 +470,8 @@ func (h *AdminHandlers) GeneratePlanets(w http.ResponseWriter, r *http.Request) 
 		// B11: старые планеты удаляются до генерации, иначе повторный запуск
 		// дублирует данные (было 638k вместо 319k планет). Дочерние записи
 		// (поселения, ресурсы) удаляются каскадно (ON DELETE CASCADE).
+		// Пояса малых тел мира тоже чистятся здесь (система поясов §4.6):
+		// иначе дубли поясов при повторном прогоне без GenerateUniverse.
 		oldCount, err := h.clearPlanets()
 		if err != nil {
 			log.Printf("❌ GeneratePlanets: delete old planets: %v", err)
@@ -514,9 +516,19 @@ func (h *AdminHandlers) GeneratePlanets(w http.ResponseWriter, r *http.Request) 
 
 // clearPlanets — удаляет все планеты и возвращает число удалённых.
 // Безопасно благодаря ON DELETE CASCADE на дочерних таблицах.
+//
+// Пояса малых тел (спека поясов §4.6/§4.7): перед пересозданием планет
+// чистятся ЗДЕСЬ ЖЕ — GeneratePlanets перегенерирует все миры, поэтому
+// пояса удаляются глобально (как и планеты; форма `world_id = ANY($1)` из
+// clearPlanetsOf здесь не применима — список миров тут не отбирается).
+// Иначе повторный прогон без GenerateUniverse даёт дубли поясов: генератор
+// кладёт пояса заново для каждого мира.
 func (h *AdminHandlers) clearPlanets() (int, error) {
 	var oldCount int
 	if err := h.db.QueryRow(`SELECT COUNT(*) FROM planets`).Scan(&oldCount); err != nil {
+		return 0, err
+	}
+	if _, err := h.db.Exec(`DELETE FROM system_belts`); err != nil {
 		return 0, err
 	}
 	if _, err := h.db.Exec(`DELETE FROM planets`); err != nil {

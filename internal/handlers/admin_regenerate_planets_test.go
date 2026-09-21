@@ -26,6 +26,10 @@ func TestClearPlanetsOfUsesPqArray(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
+	// Пояса мира удаляются в той же точке, что планеты (спека поясов §4.6).
+	mock.ExpectExec(`DELETE FROM system_belts WHERE world_id = ANY($1)`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 2))
 	mock.ExpectQuery(`SELECT COUNT(*) FROM planets WHERE world_id = ANY($1)`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(3))
@@ -38,6 +42,31 @@ func TestClearPlanetsOfUsesPqArray(t *testing.T) {
 	require.NoError(t, err, "[]string без pq.Array давал ошибку конвертации")
 	require.Equal(t, 3, n)
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// B15 — пересчёт планет мира удаляет пояса этого мира ДО пересоздания
+// (спека поясов §4.6/§4.8): иначе остаются дубли поясов / «пояс поверх
+// планеты». По образцу TestTruncateTablesIncludesBuildings.
+func TestRegeneratePlanetsDropsBelts(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectExec(`DELETE FROM system_belts WHERE world_id = ANY($1)`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 4))
+	mock.ExpectQuery(`SELECT COUNT(*) FROM planets WHERE world_id = ANY($1)`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectExec(`DELETE FROM planets WHERE world_id = ANY($1)`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	h := &AdminHandlers{db: db}
+	_, err = h.clearPlanetsOf([]planet.WorldInfo{{ID: "w1"}})
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet(),
+		"system_belts мира должна удаляться при пересчёте (нет дублей поясов)")
 }
 
 // TestRegeneratePlanetsBlockedByUniverse — крутится генерация вселенной →

@@ -3,7 +3,9 @@ package planet
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"math"
 	"math/rand"
 	"time"
 
@@ -24,6 +26,11 @@ type PlanetData struct {
 	// Хранятся только в памяти (сводка — в JSON data["resources"]);
 	// таблица planet_resources удалена миграцией 000016.
 	Resources []*models.PlanetResource
+	// Mass — масса планеты из БЮДЖЕТА ОБЛАКА (M⊕), для мягкого клампа суммы
+	// (спека поясов §4.0.2/§4.7). Заполняется только у каменистых/ледяных
+	// S- и P-планет; у газовых гигантов и экзотики остаётся 0 (бюджет они
+	// не потребляют) — такие тела кламп не трогает.
+	Mass float64
 }
 
 // Generator — генератор планет для мира
@@ -62,12 +69,13 @@ type Generator struct {
 	// однопоточная на мир — поле безопасно (как profile).
 	giantOrbit int
 
-	// cloudBudget — бюджет облака M_диск (спека 2026-09-21-протопылевое-
-	// облако-архитектура-и-масса §4; бывший B): M_диск ~ logN(0, 0.5),
-	// один ролл на систему (образец giantOrbit), множитель массы
-	// каменистых/ледяных планет. Не применяется к газовым гигантам
-	// (эталон 99.2.15) и экзотике (exotic.go). Дефолт 1.0 — нейтрально для
-	// прямых вызовов каскада; мировой поток перезаписывает роллом.
+	// cloudBudget — бюджет облака M_диск (спека поясов малых тел §4.0,
+	// ревизия спеки 2026-09-21; бывший B): M_диск ~ logN(ln S₀, 0.5), один
+	// ролл на мир (образец giantOrbit), ОБЩАЯ МАССА диска. Планеты берут
+	// нормированные доли профиля w_i = c_i/S₀ (cascade.go). Не применяется
+	// к газовым гигантам (эталон 99.2.15) и экзотике (exotic.go). Дефолт =
+	// cloudProfileSum — нейтрально для прямых вызовов каскада (значения
+	// планет сохраняются: median(M_диск) = S₀); мировой поток заменяет роллом.
 	cloudBudget float64
 }
 
@@ -81,7 +89,7 @@ func NewGenerator(db *sql.DB, seed int64) *Generator {
 		rng:         rand.New(rand.NewSource(seed)),
 		usedNames:   make(map[string]bool),
 		means:       DefaultPlanetMeans(),
-		cloudBudget: 1.0,
+		cloudBudget: cloudProfileSum,
 	}
 }
 
@@ -255,6 +263,11 @@ func (g *Generator) generateWorldIntoBuffer(w WorldInfo, buf *batchBuffers) int 
 // путь generatePlanet. Возвращает число фактически созданных планет.
 func (g *Generator) generateWorldWithCountIntoBuffer(w WorldInfo, count int, buf *batchBuffers) int {
 	if count <= 0 {
+		// Обломочный пояс WD — материализация disk_state = 'debris' (§4.4):
+		// это свойство мира, а не планет, поэтому появляется и при 0 планет.
+		if isDebrisWorld(w) {
+			buf.addBelt(g.debrisBelt(w))
+		}
 		return 0
 	}
 
@@ -272,10 +285,11 @@ func (g *Generator) generateWorldWithCountIntoBuffer(w WorldInfo, count int, buf
 	isCircumbinary := !isExoticObject(w.StarType) && w.Mods != nil &&
 		w.Mods.BinaryType == "close" && w.Mods.CompanionSepAU != nil
 
-	// Бюджет облака M_диск (спека 2026-09-21 §4): один ролл до цикла орбит
-	// (образец giantOrbit). Диск кратной системы один — M_диск наследуется
-	// компаньонами и P-планетами; экзотика (остатки) M_диск не потребляет.
-	g.cloudBudget = 1.0
+	// Бюджет облака M_диск (спека поясов малых тел §4.0): один ролл до цикла
+	// орбит (образец giantOrbit). Диск кратной системы один — M_диск
+	// наследуется компаньонами и P-планетами; экзотика (остатки) M_диск не
+	// потребляет (дефолт нейтрален — значения планет сохраняются).
+	g.cloudBudget = cloudProfileSum
 	if !isExoticObject(w.StarType) {
 		g.cloudBudget = g.rollCloudBudget()
 	}
@@ -289,6 +303,20 @@ func (g *Generator) generateWorldWithCountIntoBuffer(w WorldInfo, count int, buf
 		g.giantOrbit = g.rollGiantOrbit(stellarParamsFromWorld(w, g.rng), count)
 	}
 
+	// Решение пояса астероидов (§4.1, §4.7): пояс занимает орбиту g−1
+	// (резонансное окно гиганта 3:1–2:1) вместо планеты. Только у обычных
+	// звёзд с гигантом на орбите ≥ 2; при g = 1 внутренней орбиты нет.
+	beltOrbit := 0
+	if !isExoticObject(w.StarType) && !isCircumbinary && !isSupergiantExotic(w) &&
+		g.giantOrbit >= 2 {
+		beltOrbit = g.giantOrbit - 1
+	}
+
+	// Планеты и пояса мира собираются в срезы: мягкий кламп суммы (§4.0.2)
+	// работает на уровне МИРА — здесь известны все планеты и пояса.
+	worldPlanets := make([]*PlanetData, 0, count)
+	worldBelts := make([]BeltData, 0, 2)
+
 	for i := 0; i < count; i++ {
 		orbitIndex := i + 1
 		if isExoticObject(w.StarType) {
@@ -301,7 +329,7 @@ func (g *Generator) generateWorldWithCountIntoBuffer(w WorldInfo, count int, buf
 			}
 			planet := g.generateExoticPlanet(w, orbitIndex)
 			if planet != nil {
-				buf.addPlanet(planet)
+				worldPlanets = append(worldPlanets, planet)
 				generated++
 			}
 			continue
@@ -309,17 +337,50 @@ func (g *Generator) generateWorldWithCountIntoBuffer(w WorldInfo, count int, buf
 		if isCircumbinary {
 			planet := g.generateCircumbinaryPlanet(w)
 			if planet != nil {
-				buf.addPlanet(planet)
+				worldPlanets = append(worldPlanets, planet)
 				generated++
 			}
 			continue
 		}
+		if orbitIndex == beltOrbit {
+			// Орбита пояса: планета не формируется (класс A, §4.1).
+			worldBelts = append(worldBelts, g.asteroidBelt(w, g.giantOrbit))
+			continue
+		}
 		planet := g.generatePlanet(w.ID, w.Name, orbitIndex, stellarParamsFromWorld(w, g.rng))
-		buf.addPlanet(planet)
+		worldPlanets = append(worldPlanets, planet)
 		generated++
 	}
 
+	// Пояс Койпера — у обычной звезды с собственным диском (§4.5): одиночная,
+	// wide binary/multiple. У тесной пары (P-тип) циркумбинарный диск один —
+	// пояс этапа 1 не вводится; у сверхгигантов/экзотики — нет.
+	if !isExoticObject(w.StarType) && !isCircumbinary && !isSupergiantExotic(w) {
+		worldBelts = append(worldBelts, g.kuiperBelt(w))
+	}
+	// Обломочный пояс WD — материализация disk_state = 'debris' (§4.4).
+	if isDebrisWorld(w) {
+		worldBelts = append(worldBelts, g.debrisBelt(w))
+	}
+
+	// Мягкий кламп суммы (§4.0.2): Σ планет + Σ поясов ≤ M_диск (типично;
+	// редкий перебор шума ζ лечится пропорциональным ужатием масс планет).
+	g.applySumClamp(worldPlanets, worldBelts)
+
+	for _, p := range worldPlanets {
+		buf.addPlanet(p)
+	}
+	for i := range worldBelts {
+		buf.addBelt(worldBelts[i])
+	}
+
 	return generated
+}
+
+// isDebrisWorld — мир с обломочным диском (WD, disk_state = 'debris'):
+// источник материализуемого пояса kind = 'debris' (§4.4).
+func isDebrisWorld(w WorldInfo) bool {
+	return w.StarType == "white_dwarf" && w.Mods != nil && w.Mods.DiskState == "debris"
 }
 
 // isExoticObject — star_type ≠ star (остатки и протозвезда).
@@ -405,10 +466,81 @@ func (g *Generator) RegeneratePlanetsForWorlds(
 	return totalPlanets, nil
 }
 
+// applySumClamp — мягкий кламп суммы (спека поясов §4.0.2/§4.7): при
+// переборе Σ планет + Σ поясов > M_диск пропорционально ужимает массы
+// планет мира (множитель ∈ (0,1)). Точка — пред-слой УРОВНЯ МИРА: здесь
+// известны все планеты и пояса мира (каскад per-планетный — соседей и
+// поясов не знает). Пояса не ужимаются: их κ_kind ограничен лимитом B4.
+// Инвариант не per-seed: редкий верхний хвост ζ лечится здесь.
+func (g *Generator) applySumClamp(planets []*PlanetData, belts []BeltData) {
+	if g.cloudBudget <= 0 {
+		return
+	}
+	// Σ планет — только по бюджетным телам (Mass > 0 у каменистых/ледяных
+	// S/P; гиганты и экзотика бюджет не потребляют — Mass = 0).
+	planetSum := 0.0
+	for _, p := range planets {
+		planetSum += p.Mass
+	}
+	if planetSum <= 0 {
+		return
+	}
+	beltSum := 0.0
+	for i := range belts {
+		beltSum += belts[i].Mass
+	}
+	if planetSum+beltSum <= g.cloudBudget {
+		return
+	}
+	avail := g.cloudBudget - beltSum
+	k := avail / planetSum
+	if k <= 0 {
+		// Лимит B4 держит Σ поясов < M_диск, поэтому avail > 0; крошечный
+		// положительный множитель — лишь страховка от нуля/минуса.
+		k = 1e-6
+	}
+	for _, p := range planets {
+		if p.Mass > 0 {
+			scalePlanetBudgetMass(p, k)
+		}
+	}
+}
+
+// scalePlanetBudgetMass — пропорционально ужимает массу планеты (k ∈ (0,1],
+// множитель < 1) с сохранением физической согласованности: R = (M/ρ)^(1/3)
+// (плотность не меняется), g = M/R², v_esc = 11.2·√(M/R). Правка — в JSON
+// data; описание/биомы не пересчитываются (текст/объекты уже сгенерированы).
+func scalePlanetBudgetMass(p *PlanetData, k float64) {
+	if p.Mass <= 0 || k >= 1 {
+		return
+	}
+	var data map[string]interface{}
+	if err := json.Unmarshal(p.Data, &data); err != nil {
+		return
+	}
+	mass, _ := data["mass"].(float64)
+	if mass <= 0 {
+		return
+	}
+	newMass := mass * k
+	data["mass"] = newMass
+	if density, ok := data["density"].(float64); ok && density > 0 {
+		size := math.Cbrt(newMass / density)
+		data["size"] = size
+		data["gravity"] = computeGravity(newMass, size)
+		data["escape_velocity"] = escapeVelocity(newMass, size)
+	}
+	if b, err := json.Marshal(data); err == nil {
+		p.Data = b
+	}
+	p.Mass = newMass
+}
+
 // ==================== БАТЧ-БУФЕР ====================
 
 type batchBuffers struct {
 	planetRows []interface{}
+	beltRows   []interface{}
 }
 
 func newBatchBuffers(planetCount int) *batchBuffers {
@@ -417,6 +549,7 @@ func newBatchBuffers(planetCount int) *batchBuffers {
 	}
 	return &batchBuffers{
 		planetRows: make([]interface{}, 0, planetCount),
+		beltRows:   make([]interface{}, 0, planetCount/2+1),
 	}
 }
 
@@ -440,12 +573,45 @@ func (b *batchBuffers) addPlanet(p *PlanetData) {
 }
 
 func (b *batchBuffers) isEmpty() bool {
-	return len(b.planetRows) == 0
+	return len(b.planetRows) == 0 && len(b.beltRows) == 0
 }
 
 // reset — очищает буферы, сохраняя выделенную память.
 func (b *batchBuffers) reset() {
 	b.planetRows = b.planetRows[:0]
+	b.beltRows = b.beltRows[:0]
+}
+
+// addBelt — складывает пояс в буфер (спека поясов §4.7). Пояс — объект МИРА,
+// хранится отдельной таблицей system_belts. Composition/Data — JSONB, при
+// COPY приводим []byte → string (та же ловушка lib/pq, что у планет).
+func (b *batchBuffers) addBelt(bl BeltData) {
+	now := time.Now()
+	var orbitIndex interface{} // NULL у Койпера/Оорта
+	if bl.OrbitIndex != nil {
+		orbitIndex = *bl.OrbitIndex
+	}
+	compJSON, _ := json.Marshal(composeToJSON(bl.Composition))
+	dataJSON := bl.Data
+	if len(dataJSON) == 0 {
+		dataJSON = []byte("{}")
+	}
+	b.beltRows = append(b.beltRows, []interface{}{
+		bl.ID,
+		bl.WorldID,
+		bl.Kind,
+		bl.Name,
+		orbitIndex,
+		bl.RadiusAU,
+		bl.WidthAU,
+		bl.Mass,
+		bl.BodySizeKm,
+		string(compJSON),
+		bl.Visible,
+		string(dataJSON),
+		now,
+		now,
+	})
 }
 
 // ==================== ФЛАШ В БД ====================
@@ -455,6 +621,9 @@ func (b *batchBuffers) reset() {
 func (g *Generator) flushBatch(tx *sql.Tx, b *batchBuffers) error {
 	if err := g.copyInPlanets(tx, flatten(b.planetRows)); err != nil {
 		return fmt.Errorf("copy planets: %w", err)
+	}
+	if err := g.copyInBelts(tx, flatten(b.beltRows)); err != nil {
+		return fmt.Errorf("copy belts: %w", err)
 	}
 	return nil
 }

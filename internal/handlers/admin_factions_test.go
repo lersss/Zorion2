@@ -123,3 +123,11 @@ func TestTruncateTablesIncludesBuildings(t *testing.T) {
 	require.Contains(t, truncateTables, "buildings",
 		"buildings обязана быть в truncateTables (admin_universe.go): FK buildings.planet_id → planets")
 }
+
+// B12: system_belts обязана быть в truncateTables (спека поясов §4.6: FK
+// system_belts.world_id → worlds; без неё TRUNCATE worlds падёт — та же
+// ловушка, что у buildings).
+func TestTruncateTablesIncludesSystemBelts(t *testing.T) {
+	require.Contains(t, truncateTables, "system_belts",
+		"system_belts обязана быть в truncateTables (admin_universe.go)")
+}

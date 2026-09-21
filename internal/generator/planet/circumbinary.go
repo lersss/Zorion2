@@ -181,6 +181,8 @@ func (g *Generator) generateCircumbinaryRocky(w WorldInfo, rP float64, sp Stella
 		OrbitIndex: 1,
 		Data:       dataJSON,
 		Resources:  resources,
+		// Mass — масса из бюджета облака мира (мягкий кламп суммы §4.0.2).
+		Mass: res.Mass,
 	}
 }
 

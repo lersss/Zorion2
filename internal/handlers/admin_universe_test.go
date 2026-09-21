@@ -110,7 +110,10 @@ func TestPlanetStatsInvalidate(t *testing.T) {
 }
 
 // TestClearPlanets — B11: перед генерацией планет старые строки удаляются,
-// возвращается их число. Если SQL-последовательность изменится — тест упадёт.
+// возвращается их число. Пояса малых тел (system_belts) удаляются в той же
+// точке (спека поясов §4.6/§4.7): GeneratePlanets перегенерирует все миры,
+// иначе повторный прогон дублирует пояса. Если SQL-последовательность
+// изменится — тест упадёт.
 func TestClearPlanets(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
 	require.NoError(t, err)
@@ -118,6 +121,8 @@ func TestClearPlanets(t *testing.T) {
 
 	mock.ExpectQuery(`SELECT COUNT(*) FROM planets`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(42))
+	mock.ExpectExec(`DELETE FROM system_belts`).
+		WillReturnResult(sqlmock.NewResult(0, 7))
 	mock.ExpectExec(`DELETE FROM planets`).
 		WillReturnResult(sqlmock.NewResult(0, 42))
 

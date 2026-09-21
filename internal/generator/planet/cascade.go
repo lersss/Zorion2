@@ -118,6 +118,22 @@ func accretionMass(aNorm, metallicity, zeta float64) float64 {
 	return coreMass(aNorm, metallicity) * zeta
 }
 
+// cloudProfileSum — S₀ (спека поясов малых тел §4.0.1): нормировочная сумма
+// профиля M_ядро = c_i по ВСЕЙ лестнице орбит (i = 1..N_max, N_max = 8 —
+// потолок PlanetMeans.Max / Kepler-90). Фиксированный референс: от
+// реализованной системы не зависит, поэтому Σ_{занятые} w_i ≤ 1 при любом
+// n ≤ N_max. При median(M_диск) = S₀ нормировка профиля (w_i = c_i/S₀) и
+// пере-калибровка приора взаимно сокращаются — медианы ярдстика
+// сохраняются тождественно (§4.0.1). Число ≈ 18.551 — на @balancetester.
+var cloudProfileSum = func() float64 {
+	sum := 0.0
+	const ladderMax = 8 // N_max = Max = 8 (PlanetMeans.Max)
+	for i := 1; i <= ladderMax; i++ {
+		sum += coreMass(orbitRadiusByIndex(i), 0)
+	}
+	return sum
+}()
+
 // retentionFactor — обрезка роста гигантом-соседом (f_обр, §4.1 спеки
 // 2026-09-21-протопылевое-облако-архитектура-и-масса, этап 1): 0.08, если
 // гигант есть и планета в пределах двух орбит от него, иначе 1. Чистая
@@ -445,16 +461,20 @@ func (g *Generator) runCascade(in cascadeInput) *cascadeResult {
 	if mass <= 0 {
 		// Масса — от нормированного расстояния (номер орбиты), светимость
 		// не входит (спека 2026-09-21 §4); ζ — ролл на месте вызова,
-		// M_диск (cloudBudget) — per-системный бюджет облака (один ролл на
-		// систему), f_обр — обрезка гигантом-соседом (чистая функция, ноль
-		// роллов, поток RNG не сдвигает).
+		// M_диск (cloudBudget) — ОБЩАЯ МАССА облака мира (один ролл на мир,
+		// median = S₀), f_обр — обрезка гигантом-соседом (чистая функция,
+		// ноль роллов, поток RNG не сдвигает). Профиль нормирован: w_i =
+		// c_i/S₀ (спека поясов §4.0), поэтому M_i = clamp(f_обр·M_диск·ζ·w_i).
+		// Шум ζ НЕ нормируется (решение создателя 2026-09-22, вариант 2):
+		// значения планет сохраняются (нормировка и приор сокращаются).
 		zeta := math.Exp(0.6 * g.rng.NormFloat64())
 		aNorm := aNormOf(in.OrbitRadiusAU, in.Luminosity)
 		if in.Circumbinary {
 			aNorm = in.OrbitRadiusAU // P-планеты: физическое r_P (§4.1)
 		}
 		mass = clamp(retentionFactor(in.OrbitIndex, g.giantOrbit)*
-			g.cloudBudget*accretionMass(aNorm, in.Metallicity, zeta), massMin, massMax)
+			g.cloudBudget*accretionMass(aNorm, in.Metallicity, zeta)/cloudProfileSum,
+			massMin, massMax)
 	}
 	rock, iron, ice := compositionByZone(in.OrbitRadiusAU, in.Luminosity, g.rng)
 	density := planetDensity(rock, iron, ice, mass)

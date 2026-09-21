@@ -98,6 +98,32 @@ type Planet struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
+// Belt — пояс малых тел — объект МИРА (спека
+// 2026-09-21-пояса-малых-тел-объект-системы §3.2/§4.6/§4.8): агрегат малых
+// тел (не именованное тело), хранится записью system_belts. Владелец — мир
+// (world_id); типы открыты (kind). Потребитель — этап 2 (модалка/полёт);
+// структура заводится сразу, публичных ручек в этапе 1 нет.
+type Belt struct {
+	ID         string  `json:"id"`
+	WorldID    string  `json:"world_id"`
+	Kind       string  `json:"kind"`         // asteroid | kuiper | oort | debris | dust_ring
+	Name       string  `json:"name"`         // имя пояса (для модалки)
+	OrbitIndex *int    `json:"orbit_index"`  // якорь-номер накрытой орбиты; null у Койпера/Оорта
+	RadiusAU   float64 `json:"radius_au"`    // середина окна, а.е.
+	WidthAU    float64 `json:"width_au"`     // протяжённость, а.е.
+	Mass       float64 `json:"mass"`         // суммарная масса, M⊕
+	BodySizeKm float64 `json:"body_size_km"` // типичный размер тела, км
+
+	// Composition — доли породы/железа/льда (та же зона, что у планет,
+	// compositionByZone); data — расширяемость (этап 3: data.resources).
+	Composition map[string]float64     `json:"composition"`
+	Visible     bool                   `json:"visible"`
+	Data        map[string]interface{} `json:"data"`
+
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 // Biome — биом поверхности планеты (99.2.28 §3.1): объект {form, share},
 // form — id из справочника биомов, share — доля поверхности в %.
 type Biome struct {

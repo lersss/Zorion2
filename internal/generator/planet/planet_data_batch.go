@@ -29,6 +29,20 @@ func (g *Generator) copyInPlanets(tx *sql.Tx, rows []interface{}) error {
 		rows, 7)
 }
 
+// copyInBelts — вставляет пачку поясов малых тел через COPY (спека поясов
+// §4.7). rowWidth = 14. system_belts.world_id — FK на worlds; composition/
+// data — JSONB, поэтому в addBelt они уже приведены []byte → string
+// (ловушка lib/pq). Длина rows должна делиться на 14.
+func (g *Generator) copyInBelts(tx *sql.Tx, rows []interface{}) error {
+	return copyInRows(tx, "system_belts",
+		[]string{
+			"id", "world_id", "kind", "name", "orbit_index",
+			"radius_au", "width_au", "mass", "body_size_km",
+			"composition", "visible", "data", "created_at", "updated_at",
+		},
+		rows, 14)
+}
+
 // ==================== ОБЩАЯ ФУНКЦИЯ ====================
 
 // copyInRows — общая реализация для всех таблиц.

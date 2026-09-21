@@ -469,8 +469,10 @@ func TestSystemBudgetNotAppliedToGiantsAndExotic(t *testing.T) {
 // (TestSystemBudgetNotAppliedToGiantsAndExotic): масса гигантов (15.9–4131)
 // и экзотики (0.05–0.45) не зависит от M_диск (cloudBudget).
 
-// C2 — медиана M_диск = 1: калибровка орбиты 2 (1 M⊕) не сдвигается
-// (M_диск ~ logN(0, 0.5), медиана exp(0) = 1; спека §8.2).
+// C2 — медиана M_диск = S₀ = cloudProfileSum (ревизия этапа 1, спека поясов
+// §4.0.1/§9 п.1): приор пере-калиброван (было 1), калибровка орбиты 2 (1 M⊕)
+// НЕ сдвигается — нормировка профиля w_i = c_i/S₀ и пере-калибровка приора
+// взаимно сокращаются (median(M_i) = median(M_диск)·c_i/S₀ = c_i).
 func TestProtoDiskBudgetMedianNeutral(t *testing.T) {
 	g := NewGenerator(nil, 20260934)
 	const n = 20000
@@ -479,8 +481,9 @@ func TestProtoDiskBudgetMedianNeutral(t *testing.T) {
 		vals[i] = g.rollCloudBudget()
 	}
 	med := medianOf(vals)
-	t.Logf("медиана M_диск = %.4f (n=%d, ожидание 1.0)", med, n)
-	assert.InDelta(t, 1.0, med, 0.03, "медиана M_диск = 1 — калибровка орбиты 2 не сдвигается")
+	t.Logf("медиана M_диск = %.4f (n=%d, ожидание S₀ = %.4f)", med, n, cloudProfileSum)
+	assert.InDelta(t, cloudProfileSum, med, cloudProfileSum*0.03,
+		"медиана M_диск = S₀ — калибровка орбиты 2 не сдвигается (§4.0.1)")
 }
 
 // C4 — один M_диск на мир: P-планета тесной двойной — та же ветка того же
@@ -506,6 +509,7 @@ func TestProtoDiskSingleBudgetPerWorld(t *testing.T) {
 
 	// (б) P-планета читает бюджет мира: при том же seed масса
 	// масштабируется им (f_обр = 1, giantOrbit = 0), своего ролла нет.
+	// Бюджет — в масштабе S₀ (ревизия §4.0: M_диск — общая масса, median S₀).
 	pMass := func(budget float64) float64 {
 		pg := NewGenerator(nil, 1)
 		pg.cloudBudget = budget
@@ -516,8 +520,8 @@ func TestProtoDiskSingleBudgetPerWorld(t *testing.T) {
 		require.NotEqual(t, true, data["is_gas_giant"], "сид 1 — каменистая P-планета")
 		return data["mass"].(float64)
 	}
-	m1, m2 := pMass(0.5), pMass(1.0)
-	t.Logf("P-масса: M_диск=0.5 → %.4f, M_диск=1.0 → %.4f (×%.2f)", m1, m2, m2/m1)
+	m1, m2 := pMass(cloudProfileSum*0.5), pMass(cloudProfileSum)
+	t.Logf("P-масса: M_диск=0.5·S₀ → %.4f, M_диск=S₀ → %.4f (×%.2f)", m1, m2, m2/m1)
 	assert.InDelta(t, 2.0, m2/m1, 0.02, "масса P-планеты пропорциональна M_диск мира")
 }
 
@@ -773,8 +777,12 @@ func TestMassDipsBecomeOrdinary(t *testing.T) {
 	assert.GreaterOrEqual(t, frac, 0.003, "провалы стали обычными (≥ 0.3%%)")
 }
 
-// T22 — межсистемный разброс вырос: p95/p5 системных медиан ≥ 10
-// (факт этапа 1 — ×19.6, спека §8.2; ср. структурный T14 с порогом ≥ 2).
+// T22 — межсистемный разброс вырос: p95/p5 системных медиан ≥ 6
+// (ревизия бюджета §4.0.5, спека поясов: замер после нормировки профиля и
+// пере-калибровки приора + мягкого клампа суммы). До ревизии факт ×19.6; на
+// n = 8 (все орбиты заняты, гиганта/пояса нет) кламп суммы срабатывает часто
+// и сжимает разброс — факт этапа 1а/1б ≈ ×8.4. Порог 6 — структурный (ниже
+// замера), отсекает «разброс схлопнулся». См. TestSystemBudgetSpread (A7).
 func TestSystemBudgetSpreadGrew(t *testing.T) {
 	if testing.Short() {
 		t.Skip("объёмный статистический смоук — вне быстрого цикла, гоняется отдельно")
@@ -805,6 +813,6 @@ func TestSystemBudgetSpreadGrew(t *testing.T) {
 	sort.Float64s(medians)
 	p5 := percentile(medians, 0.05)
 	p95 := percentile(medians, 0.95)
-	t.Logf("системные медианы: p5=%.3f, p95=%.3f (×%.1f, факт ×19.6)", p5, p95, p95/p5)
-	assert.GreaterOrEqual(t, p95/p5, 10.0, "межсистемный разброс p95/p5 ≥ 10")
+	t.Logf("системные медианы: p5=%.3f, p95=%.3f (×%.1f, факт этапа 1а/1б ≈ ×8.4)", p5, p95, p95/p5)
+	assert.GreaterOrEqual(t, p95/p5, 6.0, "межсистемный разброс p95/p5 ≥ 6")
 }

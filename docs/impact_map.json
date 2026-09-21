@@ -542,14 +542,35 @@
       "id": "users.current_position",
       "type": "table",
       "path": "db:users.current_position",
-      "note": "внутрисистемная позиция игрока (000046, 99.2.27): JSONB NULL = вне системы; orbit {object_type, object_id, level, biome} / in_flight {from, to, start_time, arrive_at}; уровни orbit/surface+biome — задел под высадку",
+      "note": "внутрисистемная позиция игрока (000046, 99.2.27; surface — высадка 2026-09-21): JSONB NULL = вне системы; orbit {object_type, object_id, level, biome} / in_flight {from, to, start_time, arrive_at} / surface {object_type, object_id, level, biome, hp, landed_at} (hp серверный, пересчёт от landed_at; скрыт от других игроков)",
       "impacts": [
         { "on": "IntrasystemManager", "kind": "writes", "reason": "старт → in_flight, прибытие → orbit (атомарно со строкой полётов); С1: старт /travel → NULL" },
-        { "on": "internal/handlers/planet_handler.go", "kind": "reads", "reason": "my_position в API планет (все роли); NULL → «орбита звезды» (ИП-4)" },
-        { "on": "internal/handlers/auth_handlers.go", "kind": "reads", "reason": "/me: current_position (orbit/in_flight/null)" },
+        { "on": "internal/handlers/planet_handler.go", "kind": "reads", "reason": "my_position в API планет (все роли); NULL → «орбита звезды» (ИП-4); ветка surface в normalizeMyPosition" },
+        { "on": "internal/handlers/auth_handlers.go", "kind": "reads", "reason": "/me: current_position (orbit/in_flight/surface/null); для surface — пересчёт hp от landed_at (2026-09-21)" },
         { "on": "internal/handlers/travel_handlers.go", "kind": "writes", "reason": "С1-дельта: старт /travel → позиция NULL + отмена intra (атомарно); ИП-2: прибытие → current_world_id + orbit звезды одним UPDATE" },
-        { "on": "web/static/js/modal/*", "kind": "reads", "reason": "модалка: маркер «я здесь», полоса полёта (in_flight), слежение, «Найти меня» (interstellarFlight из /me)" },
+        { "on": "web/static/js/modal/*", "kind": "reads", "reason": "модалка: маркер «я здесь», полоса полёта (in_flight), слежение, «Найти меня» (interstellarFlight из /me); ветки surface в events/panel/tabs/modal_render/index (2026-09-21)" },
+        { "on": "players_positions_90a", "kind": "reads", "reason": "чтение позиции для списка игроков; guard (2026-09-21): status=surface НЕ отдаётся другим (иначе протекает как «в системе X»)" },
+        { "on": "surface_landing", "kind": "writes", "reason": "высадка/возврат пишут surface/orbit + hp/landed_at (2026-09-21)" },
         { "on": "99.2.27", "kind": "duplicates", "reason": "модель позиции (§2), переходы orbit↔in_flight, ИП-1/ИП-2/ИП-4" }
+      ]
+    },
+    {
+      "id": "surface_landing",
+      "type": "mechanic",
+      "path": "docs/specs/2026-09-21-высадка-прогулка-по-планете.md",
+      "note": "высадка на планету — мини-игра «прогулка по поверхности» (2026-09-21, сдана): POST /api/surface/land|leave, позиция status=surface (hp серверный, пересчёт от landed_at), жребий биома ∝ share, страница web/surface.html + web/static/js/surface/* (Canvas 2D, вид сбоку, процедурный мир биома), вход — ПКМ по планете «Высадиться»; урон от 4 средовых осей + события (урон падения/жидкости убран решением создателя)",
+      "impacts": [
+        { "on": "users.current_position", "kind": "writes", "reason": "land/leave пишут позицию surface/orbit + hp/landed_at; hp пересчитывается на чтениях" },
+        { "on": "players_positions_90a", "kind": "affects", "reason": "guard: игрок со status=surface скрыт от других (решение создателя 2026-09-21)" },
+        { "on": "biomes", "kind": "reads", "reason": "жребий биома прогулки по долям share из planets.data.biomes" },
+        { "on": "biome_catalog.json", "kind": "reads", "reason": "имя/категория/цвет биома (categoryBase), признак токсичности — для пакета прогулки и профиля опасности" },
+        { "on": "internal/handlers/planet_visibility.go", "kind": "reads", "reason": "согласование: клиент биомы НЕ читает (stripPlanetDetails), доступность высадки валидирует сервер" },
+        { "on": "internal/handlers/intrasystem_handlers.go", "kind": "affects", "reason": "ветка surface в normalizeMyPosition; отказ StartIntraFlight с поверхности" },
+        { "on": "cmd/server/main.go", "kind": "api", "reason": "роуты POST /api/surface/land|leave + SetPlanetRepo" },
+        { "on": "web/static/js/modal/events.js", "kind": "reads", "reason": "точка входа: showPlanetMenu — пункт «Высадиться» рядом с «Лететь» (снят ранний return в валидном состоянии)" },
+        { "on": "web/surface.html", "kind": "docs", "reason": "страница прогулки (web/static/css/surface.css, web/static/js/surface/*)" },
+        { "on": "99.2.27", "kind": "affects", "reason": "расширяет модель позиции уровнем surface (дельта к спеке)" },
+        { "on": "99.2.28", "kind": "affects", "reason": "биом-модель: поля hazard/passability/resources не потребляются (дельта §20)" }
       ]
     },
     {
@@ -644,7 +665,7 @@
         { "on": "internal/generator/planet/classify.go", "kind": "reads", "reason": "тип планеты — правила справочника по производному составу (после биомов)" },
         { "on": "internal/audit/planet/*", "kind": "reads", "reason": "проверки биомов (empty/biome_not_in_catalog/biosphere_without_conditions) и существующие lava_in_cold/volcanic" },
         { "on": "web/static/js/modal/tabs.js", "kind": "reads", "reason": "renderComposition показывает состав (иконка + имя); визуализация иконок — следующий релиз (идея 2026-09-20)" },
-        { "on": "users.current_position", "kind": "affects", "reason": "уровень orbit/surface+biome (99.2.27) — биом планеты поставляется отсюда для будущей высадки" },
+        { "on": "users.current_position", "kind": "affects", "reason": "уровень orbit/surface+biome (99.2.27) — биом планеты поставляется отсюда; высадка (2026-09-21) берёт биом прогулки жребием по share" },
         { "on": "internal/resource/generator.go", "kind": "reads", "reason": "94a: генерация ресурсов по доминантному составу/категориям (маппинг на теги справочника — дельта §26)" },
         { "on": "planet_image", "kind": "reads", "reason": "картинка планеты из биомов (объекты {form,share} → пятна/цвет поверхности; идея 2026-09-20, в работе)" }
       ]

@@ -11,7 +11,7 @@ import "time"
 // CurrentPosition — внутрисистемная позиция игрока.
 type CurrentPosition struct {
 	Status     string `json:"status"`                // orbit | in_flight | surface
-	ObjectType string `json:"object_type,omitempty"` // star|planet|satellite (orbit/surface)
+	ObjectType string `json:"object_type,omitempty"` // star|planet|satellite|belt (orbit/surface)
 	ObjectID   string `json:"object_id,omitempty"`   // UUID или синтетический id компаньона (orbit/surface)
 	Level      string `json:"level,omitempty"`       // orbit | surface
 	Biome      string `json:"biome,omitempty"`       // surface: form биома прогулки
@@ -21,7 +21,7 @@ type CurrentPosition struct {
 	// (смерть) значим и не теряется omitempty.
 	HP        *float64 `json:"hp,omitempty"`
 	LandedAt  string   `json:"landed_at,omitempty"`
-	FromType  string   `json:"from_type,omitempty"` // star|planet|satellite (in_flight)
+	FromType  string   `json:"from_type,omitempty"` // star|planet|satellite|belt (in_flight)
 	FromID    string   `json:"from_id,omitempty"`
 	ToType    string   `json:"to_type,omitempty"`
 	ToID      string   `json:"to_id,omitempty"`

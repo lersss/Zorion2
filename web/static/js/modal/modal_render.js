@@ -407,6 +407,9 @@ function drawMyPosition(ctx, layout, planets, timeMs) {
     }
     // surface — маркер «я здесь» у планеты (спека 2026-09-21 §7.6 п.5).
     if (pos.status !== 'orbit' && pos.status !== 'surface') return;
+    // Пояс (спека поясов этап 2 §7.2/Д-Л5): канвас-координат нет — маркер не
+    // рисуется, «вы в поясе» показывается бейджем в секции «Пояса».
+    if (pos.object_type === 'belt') return;
 
     const p = objectCanvasPos(layout, planets, pos.object_type, pos.object_id, timeMs);
     // Экранно-константный размер (запрос создателя «ломается при зуме»):

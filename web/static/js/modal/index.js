@@ -232,6 +232,9 @@ export function refreshPlanets() {
         modalState.previousSettlementPop = previousSettlements;
 
         modalState.planets = Array.isArray(data && data.planets) ? data.planets : [];
+        // Пояса (спека поясов этап 2 §4.1): состав может раскрыться после
+        // скана/присутствия — обновляем вместе с планетами.
+        modalState.belts = Array.isArray(data && data.belts) ? data.belts : [];
         // Внутрисистемная позиция (спека 99.2.27 §5.3): по прибытии полёта
         // my_position переходит in_flight → orbit — маркер «я здесь» переезжает
         // на цель, полоса полёта уходит.
@@ -409,7 +412,7 @@ function renderModal(worldId, worldName, spectralClass, data) {
     if (starType && starType !== 'star') {
         chips.push(`тип объекта: ${starTypeLabel(starType) || starType}`);
     }
-    starModsBadges(data && data.stellar_mods).forEach(b => chips.push(b));
+    starModsBadges(data && data.stellar_mods, data && data.belts).forEach(b => chips.push(b));
     chips.forEach(text => {
         const chip = document.createElement('span');
         chip.textContent = text;
@@ -556,6 +559,8 @@ function renderModal(worldId, worldName, spectralClass, data) {
     modalState.selectedPlanetIndex = null;
     modalState.selectedObject = null;
     modalState.planets = planets;
+    // Пояса малых тел (спека поясов этап 2 §4.1): belts из ответа модалки.
+    modalState.belts = Array.isArray(data && data.belts) ? data.belts : [];
     modalState.restricted = !!data.restricted;
 
     // Колбэк перерисовки спрайтов (запрос создателя 99.2.27): пока модалка
@@ -856,6 +861,11 @@ function objectLabel(objType, objId) {
             if (s) return s.name;
         }
         return objId;
+    }
+    if (objType === 'belt') {
+        // Пояс — цель полёта (спека поясов этап 2 §7.2): имя из modalState.belts.
+        const b = (modalState.belts || []).find(x => x.id === objId);
+        return b ? b.name : objId;
     }
     if (objType === 'star') {
         if (objId === modalState.worldId) return modalState.worldName || 'звезда';

@@ -9,6 +9,6 @@ package models
 // PendingDestination — намерение композитного маршрута.
 type PendingDestination struct {
 	WorldID    string `json:"world_id"`    // система назначения межзвёздного сегмента (== req.WorldID на старте /travel)
-	ObjectType string `json:"object_type"` // planet|satellite|companion
-	ObjectID   string `json:"object_id"`   // planets.id для planet; id спутника из planets.data.satellites для satellite; синтетический id компаньона companion:<world>/extra:<world>:<i> для companion
+	ObjectType string `json:"object_type"` // planet|satellite|companion|belt
+	ObjectID   string `json:"object_id"`   // planets.id для planet; id спутника из planets.data.satellites для satellite; синтетический id компаньона companion:<world>/extra:<world>:<i> для companion; system_belts.id для belt
 }

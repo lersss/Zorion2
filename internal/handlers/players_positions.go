@@ -50,13 +50,15 @@ func (h *AdminHandlers) PlayersPositions(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	// Имена планет/спутников и stellar_mods — батчем (стоящих игроков мало,
-	// спека 99.2.27 §4.5: статус «у планеты X» с именем объекта от сервера).
+	// Имена планет/спутников/поясов и stellar_mods — батчем (стоящих игроков
+	// мало, спека 99.2.27 §4.5: статус «у планеты X» с именем объекта от
+	// сервера; пояс — спека поясов этап 2 §5.4).
 	planetNames := map[string]string{}
 	satNames := map[string]string{}
+	beltNames := map[string]string{}
 	worldMods := map[string]map[string]interface{}{}
 	{
-		var planetIDs, satIDs, modWorldIDs []string
+		var planetIDs, satIDs, beltIDs, modWorldIDs []string
 		for _, u := range users {
 			if u.ID == userID || u.CurrentWorldID == nil || u.CurrentPosition == nil {
 				continue
@@ -70,6 +72,8 @@ func (h *AdminHandlers) PlayersPositions(w http.ResponseWriter, r *http.Request)
 				planetIDs = append(planetIDs, pos.ObjectID)
 			case "satellite":
 				satIDs = append(satIDs, pos.ObjectID)
+			case "belt":
+				beltIDs = append(beltIDs, pos.ObjectID)
 			case "star":
 				if pos.ObjectID != *u.CurrentWorldID {
 					modWorldIDs = append(modWorldIDs, *u.CurrentWorldID)
@@ -98,6 +102,18 @@ func (h *AdminHandlers) PlayersPositions(w http.ResponseWriter, r *http.Request)
 					var id, name string
 					if rows.Scan(&id, &name) == nil {
 						satNames[id] = name
+					}
+				}
+				rows.Close()
+			}
+		}
+		if len(beltIDs) > 0 {
+			rows, err := h.db.Query(`SELECT id, name FROM system_belts WHERE id = ANY($1)`, pq.Array(beltIDs))
+			if err == nil {
+				for rows.Next() {
+					var id, name string
+					if rows.Scan(&id, &name) == nil {
+						beltNames[id] = name
 					}
 				}
 				rows.Close()
@@ -154,7 +170,7 @@ func (h *AdminHandlers) PlayersPositions(w http.ResponseWriter, r *http.Request)
 		} else if u.CurrentPosition != nil {
 			// Внутрисистемная позиция (С2): стоящие/летящие видны в радиусе,
 			// координаты = звезда системы (С3-якорь), статус с именем объекта.
-			status, objType, objID = resolveIntraStatus(u, worldName[*u.CurrentWorldID], planetNames, satNames, worldMods)
+			status, objType, objID = resolveIntraStatus(u, worldName[*u.CurrentWorldID], planetNames, satNames, beltNames, worldMods)
 		} else {
 			continue // без полёта и без позиции — не отображается (90a-изменение)
 		}
@@ -187,9 +203,10 @@ func (h *AdminHandlers) PlayersPositions(w http.ResponseWriter, r *http.Request)
 
 // resolveIntraStatus — статус игрока с внутрисистемной позицией (спека 99.2.27
 // §4.5): «в полёте (система X)» / «у планеты X» / «у спутника X» / «в системе X»
-// / «у компаньона X» / «у внешнего компаньона X». Битая цель (перегенерация) →
-// фолбэк «в системе X» (ИП-4, М-2): позиция трактуется как «орбита звезды».
-func resolveIntraStatus(u *models.User, worldName string, planetNames, satNames map[string]string, worldMods map[string]map[string]interface{}) (status, objType, objID string) {
+// / «у компаньона X» / «у внешнего компаньона X» / «в поясе X» (спека поясов
+// этап 2 §5.4). Битая цель (перегенерация) → фолбэк «в системе X» (ИП-4, М-2):
+// позиция трактуется как «орбита звезды».
+func resolveIntraStatus(u *models.User, worldName string, planetNames, satNames, beltNames map[string]string, worldMods map[string]map[string]interface{}) (status, objType, objID string) {
 	pos := u.CurrentPosition
 	worldID := *u.CurrentWorldID
 	// Поверхность скрыта от других (спека 2026-09-21 §7.6 п.7): основной цикл
@@ -243,6 +260,12 @@ func resolveIntraStatus(u *models.User, worldName string, planetNames, satNames 
 			return "в системе " + worldName, "star", worldID // битый спутник → фолбэк
 		}
 		return "у спутника " + name, "satellite", pos.ObjectID
+	case "belt":
+		name, ok := beltNames[pos.ObjectID]
+		if !ok {
+			return "в системе " + worldName, "star", worldID // битый пояс → фолбэк
+		}
+		return "в поясе " + name, "belt", pos.ObjectID
 	}
 	return "в системе " + worldName, "star", worldID
 }

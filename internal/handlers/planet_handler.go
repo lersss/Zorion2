@@ -73,6 +73,11 @@ func (h *AdminHandlers) GetPlanetsByWorld(w http.ResponseWriter, r *http.Request
 	// всегда (когда visibility подключён); для player — дополнительно фильтр
 	// видимости ниже.
 	var myPosition *models.CurrentPosition
+	// inRadar — система в радиусе радара игрока (условие раскрытия состава
+	// пояса, спека поясов этап 2 §4.3); для admin/skycomposer — false (не
+	// используется: они видят пояса целиком).
+	inRadar := false
+	var belts []models.Belt
 	if h.visibility != nil {
 		userID, _ := r.Context().Value(auth.UserIDKey).(string)
 		user, pos, _, err := h.visibility.userRepo.GetByIDWithPosition(userID)
@@ -80,16 +85,8 @@ func (h *AdminHandlers) GetPlanetsByWorld(w http.ResponseWriter, r *http.Request
 			writeJSONError(w, "Пользователь не найден", http.StatusNotFound)
 			return
 		}
-		// my_position — только если игрок в этой системе (current_world_id ==
-		// worldID); битая позиция (перегенерация) → фолбэк «орбита звезды» (ИП-4),
-		// NULL-позиция (легаси) → «орбита звезды». Во время межзвёздного полёта
-		// позиция NULL и НЕ нормализуется (игрок покинул систему, С1).
-		if user.CurrentWorldID != nil && *user.CurrentWorldID == worldID &&
-			h.visibility.travelMgr.GetFlight(userID) == nil {
-			myPosition = normalizeMyPosition(pos, worldID, planets, func(objID string) bool {
-				return objID == worldID || companionIDFromMods(worldID, mods, objID)
-			})
-		}
+		// Гейт видимости (403) — ДО загрузки поясов: система вне радиуса и не
+		// «зажжена» знанием → отказ, запрос поясов не тратится.
 		if roleFromContext(r) == string(models.RolePlayer) {
 			centerX, centerY, ok := h.visibility.PlayerPosition(user)
 			if !ok {
@@ -98,10 +95,33 @@ func (h *AdminHandlers) GetPlanetsByWorld(w http.ResponseWriter, r *http.Request
 			}
 			radius := h.visibility.RadarRadius(user)
 			known := h.visibility.KnownWorldIDs(userID)
-			if !IsVisible(coordX, coordY, centerX, centerY, radius) && !known[worldID] {
+			inRadar = IsVisible(coordX, coordY, centerX, centerY, radius)
+			if !inRadar && !known[worldID] {
 				writeJSONError(w, "вне зоны видимости", http.StatusForbidden)
 				return
 			}
+		}
+		// Пояса малых тел (спека 2026-09-22-пояса-малых-тел-этап-2-показ-
+		// знание-полёт §4.1): аддитивное поле belts. Источник — system_belts
+		// мира. Нужны ДО normalizeMyPosition (позиция-в-поясе валидна, §5.6).
+		// Best-effort: сбой выборки поясов не роняет карточку системы (пояса —
+		// аддитивная секция) — warn + пустой список.
+		belts, err = planetRepo.GetBeltsByWorldID(worldID)
+		if err != nil {
+			log.Printf("⚠️ belts: не удалось загрузить пояса мира %s: %v", worldID, err)
+			belts = nil
+		}
+		// my_position — только если игрок в этой системе (current_world_id ==
+		// worldID); битая позиция (перегенерация) → фолбэк «орбита звезды» (ИП-4),
+		// NULL-позиция (легаси) → «орбита звезды». Во время межзвёздного полёта
+		// позиция NULL и НЕ нормализуется (игрок покинул систему, С1).
+		if user.CurrentWorldID != nil && *user.CurrentWorldID == worldID &&
+			h.visibility.travelMgr.GetFlight(userID) == nil {
+			myPosition = normalizeMyPosition(pos, worldID, planets, belts, func(objID string) bool {
+				return objID == worldID || companionIDFromMods(worldID, mods, objID)
+			})
+		}
+		if roleFromContext(r) == string(models.RolePlayer) {
 			// Ленивый прогон сканера (спека 77a §6.1, режим A): при взгляде на
 			// систему В РАДИУСЕ радара сервер обновляет знание игрока о планетах
 			// системы (дата = now). «Зажжённая» знанием система вне радиуса —
@@ -109,13 +129,35 @@ func (h *AdminHandlers) GetPlanetsByWorld(w http.ResponseWriter, r *http.Request
 			// сканировать/обновлять знание НЕЛЬЗЯ — иначе знание известных систем
 			// никогда не стареет из любой точки (подрыв И8/И9). Только со сканером
 			// (без сканера знания нет).
-			if ship.HasScanner(user.Equipment) && IsVisible(coordX, coordY, centerX, centerY, radius) {
+			if ship.HasScanner(user.Equipment) && inRadar {
 				if err := h.visibility.knowledge.ScanSystem(userID, worldID); err != nil {
 					log.Printf("⚠️ ScanSystem %s: %v", worldID, err)
 				}
 			}
 			planets = applyPlanetVisibility(userID, planets, h.visibility.knowledge)
 		}
+	} else {
+		// visibility не подключён (админ-путь без видимости) — пояса грузим
+		// как есть (models.Belt целиком). Best-effort: сбой не роняет ответ.
+		belts, err = planetRepo.GetBeltsByWorldID(worldID)
+		if err != nil {
+			log.Printf("⚠️ belts: не удалось загрузить пояса мира %s: %v", worldID, err)
+			belts = nil
+		}
+	}
+
+	// Выдача поясов: для player — BeltView (только visible=true, состав при
+	// знании §4.2/§4.3); для admin/skycomposer — models.Belt целиком (И7).
+	// Пустой результат — `belts: []`, не null (§4.2/§7.6: секция показывает
+	// «Поясов нет»); nil-срез нормализуем в пустой массив для всех ролей.
+	var beltsOut interface{}
+	if roleFromContext(r) == string(models.RolePlayer) {
+		beltsOut = applyBeltVisibility(belts, inRadar, myPosition)
+	} else {
+		if belts == nil {
+			belts = []models.Belt{}
+		}
+		beltsOut = belts
 	}
 
 	// Компаньоны — синтетические id (спека 99.2.27 §3.1/§4.4, решение создателя
@@ -135,18 +177,19 @@ func (h *AdminHandlers) GetPlanetsByWorld(w http.ResponseWriter, r *http.Request
 	}
 
 	response := struct {
-		WorldName     string                 `json:"world_name"`
-		SpectralClass string                 `json:"spectral_class"`
-		Temperature   float64                `json:"temperature"`
-		CoordX        float64                `json:"coord_x"`
-		CoordY        float64                `json:"coord_y"`
-		StarType      string                 `json:"star_type,omitempty"`
-		SystemType    string                 `json:"system_type,omitempty"`
-		StellarMods   map[string]interface{} `json:"stellar_mods,omitempty"`
-		StellarMass   *float64               `json:"stellar_mass,omitempty"`
-		WorldAge      *float64               `json:"age,omitempty"`
-		Planets       []models.Planet        `json:"planets"`
-		CompanionID   string                 `json:"companion_id,omitempty"`
+		WorldName     string                  `json:"world_name"`
+		SpectralClass string                  `json:"spectral_class"`
+		Temperature   float64                 `json:"temperature"`
+		CoordX        float64                 `json:"coord_x"`
+		CoordY        float64                 `json:"coord_y"`
+		StarType      string                  `json:"star_type,omitempty"`
+		SystemType    string                  `json:"system_type,omitempty"`
+		StellarMods   map[string]interface{}  `json:"stellar_mods,omitempty"`
+		StellarMass   *float64                `json:"stellar_mass,omitempty"`
+		WorldAge      *float64                `json:"age,omitempty"`
+		Planets       []models.Planet         `json:"planets"`
+		Belts         interface{}             `json:"belts"`
+		CompanionID   string                  `json:"companion_id,omitempty"`
 		MyPosition    *models.CurrentPosition `json:"my_position"`
 	}{
 		WorldName:     worldName,
@@ -160,6 +203,7 @@ func (h *AdminHandlers) GetPlanetsByWorld(w http.ResponseWriter, r *http.Request
 		StellarMass:   stellarMass,
 		WorldAge:      worldAge,
 		Planets:       planets,
+		Belts:         beltsOut,
 		CompanionID:   companionID,
 		MyPosition:    myPosition,
 	}

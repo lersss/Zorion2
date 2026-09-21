@@ -70,8 +70,10 @@ type TravelRequest struct {
 }
 
 // TravelDestination — цель композитного маршрута (спека 99.2.30 §2.2):
-// object_type ∈ {planet, satellite, companion} (компаньон — решение создателя
-// 2026-09-21; object_id — синтетический id companion:<world> / extra:<world>:<i>).
+// object_type ∈ {planet, satellite, companion, belt} (компаньон — решение
+// создателя 2026-09-21; пояс — решение создателя 2026-09-22, спека поясов
+// этап 2 §5.7; object_id — синтетический id companion:<world> / extra:<world>:<i>
+// для компаньона, system_belts.id для пояса).
 type TravelDestination struct {
 	ObjectType string `json:"object_type"`
 	ObjectID   string `json:"object_id"`
@@ -120,10 +122,11 @@ func redirectStartPoint(fromX, fromY, toX, toY float64, elapsed, duration time.D
 // destinationInSystem — объект принадлежит системе (спека 99.2.30 §3.1):
 // планета с world_id == worldID; спутник в satellites планеты этой системы;
 // компаньон — по stellar_mods системы (главный companion / внешний extra,
-// IsValidCompanionID 99.2.27 §3.1). Источник planet/satellite —
-// GetPlanetsLightByWorldID (тот же, что модалка 99.2.27 §4.4); компаньона —
-// stellar_mods мира (world == nil → невалиден).
-func destinationInSystem(world *models.World, planets []models.Planet, objType, objID string) bool {
+// IsValidCompanionID 99.2.27 §3.1); пояс — запись system_belts системы (спека
+// поясов этап 2 §5.7). Источник planet/satellite — GetPlanetsLightByWorldID
+// (тот же, что модалка 99.2.27 §4.4); компаньона — stellar_mods мира
+// (world == nil → невалиден); пояса — GetBeltsByWorldID.
+func destinationInSystem(world *models.World, planets []models.Planet, belts []models.Belt, objType, objID string) bool {
 	switch objType {
 	case "planet":
 		for _, p := range planets {
@@ -141,29 +144,36 @@ func destinationInSystem(world *models.World, planets []models.Planet, objType, 
 		}
 	case "companion":
 		return IsValidCompanionID(world, objID)
+	case "belt":
+		for _, b := range belts {
+			if b.ID == objID {
+				return true
+			}
+		}
 	}
 	return false
 }
 
 // validateTravelDestination — валидация destination (спека 99.2.30 §3.1):
-// object_type ∈ {planet, satellite, companion} (компаньон — решение создателя
-// 2026-09-21), object_id непустой, объект принадлежит системе world_id.
-// Компаньон валиден, только если есть в stellar_mods системы world_id
-// (IsValidCompanionID), — иначе 400 «Объект не найден в системе назначения».
-// Источник planet/satellite — планетный список, компаньона — мир
-// (worldRepo.GetByID). Битая цель (перегенерация между модалкой и кликом) →
-// честный 400 — модалка обновится по refreshPlanets.
+// object_type ∈ {planet, satellite, companion, belt} (пояс — решение создателя
+// 2026-09-22, спека поясов этап 2 §5.7), object_id непустой, объект принадлежит
+// системе world_id. Компаньон валиден, только если есть в stellar_mods системы
+// world_id (IsValidCompanionID), — иначе 400 «Объект не найден в системе
+// назначения». Источник planet/satellite — планетный список, компаньона — мир
+// (worldRepo.GetByID), пояса — GetBeltsByWorldID. Битая цель (перегенерация
+// между модалкой и кликом) → честный 400 — модалка обновится по refreshPlanets.
 func (h *TravelHandlers) validateTravelDestination(worldID string, dest *TravelDestination) error {
-	if dest.ObjectType != "planet" && dest.ObjectType != "satellite" && dest.ObjectType != "companion" {
+	if dest.ObjectType != "planet" && dest.ObjectType != "satellite" && dest.ObjectType != "companion" && dest.ObjectType != "belt" {
 		return errors.New("Некорректный тип объекта назначения")
 	}
 	if dest.ObjectID == "" {
 		return errors.New("Некорректный объект назначения")
 	}
 	// Компаньон — объект системы: валидность определяется stellar_mods системы
-	// (планетный список не нужен); planet/satellite — планетным списком.
+	// (планетный список не нужен); planet/satellite/belt — списками системы.
 	var world *models.World
 	var planets []models.Planet
+	var belts []models.Belt
 	if dest.ObjectType == "companion" {
 		if h.worldRepo == nil {
 			return errors.New("Не удалось загрузить систему назначения")
@@ -182,8 +192,15 @@ func (h *TravelHandlers) validateTravelDestination(worldID string, dest *TravelD
 			return errors.New("Не удалось загрузить систему назначения")
 		}
 		planets = ps
+		if dest.ObjectType == "belt" {
+			bs, err := h.planetRepo.GetBeltsByWorldID(worldID)
+			if err != nil {
+				return errors.New("Не удалось загрузить систему назначения")
+			}
+			belts = bs
+		}
 	}
-	if !destinationInSystem(world, planets, dest.ObjectType, dest.ObjectID) {
+	if !destinationInSystem(world, planets, belts, dest.ObjectType, dest.ObjectID) {
 		return errors.New("Объект не найден в системе назначения")
 	}
 	return nil
@@ -481,7 +498,8 @@ func (h *TravelHandlers) autostartIntra(uid, worldID string, dest *models.Pendin
 		return
 	}
 	// 2. Объект жив (валидация §4.3.1): компаньон — по stellar_mods системы
-	// (главный companion / внешний extra); планета/спутник — arrivalTargetValid.
+	// (главный companion / внешний extra); планета/спутник/пояс —
+	// arrivalTargetValid (пояс — запись system_belts, спека поясов этап 2 §5.7).
 	// Битая цель → фолбэк «орбита звезды» (позиция уже выставлена), намерение
 	// очищается, БЕЗ 400.
 	targetValid := false
@@ -526,14 +544,21 @@ func (h *TravelHandlers) autostartIntra(uid, worldID string, dest *models.Pendin
 		clearDest()
 		return
 	}
+	// Пояса мира — для радиуса цели-belt (спека поясов этап 2 §5.2/§5.7).
+	belts, err := h.planetRepo.GetBeltsByWorldID(worldID)
+	if err != nil {
+		clearDest()
+		return
+	}
 	// Компаньон во внутрисистемном слое — 'star' + синтетический id (99.2.27
 	// §3.1): таблица player_intrasystem_flights / current_position / onArrival
-	// ждут ToType='star' (иначе позиция и прибытие не поймут цель).
+	// ждут ToType='star' (иначе позиция и прибытие не поймут цель). Пояс —
+	// без трансляции: внутрисистемный слой понимает 'belt' напрямую (§5.7).
 	intraToType := dest.ObjectType
 	if intraToType == "companion" {
 		intraToType = "star"
 	}
-	toR, ok := objectRadiusAU(world, planets, intraToType, dest.ObjectID)
+	toR, ok := objectRadiusAU(world, planets, belts, intraToType, dest.ObjectID)
 	if !ok {
 		clearDest()
 		return

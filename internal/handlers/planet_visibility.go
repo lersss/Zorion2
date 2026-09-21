@@ -98,6 +98,65 @@ func stripPlanetDetails(p models.Planet, view *models.PlanetKnowledgeView) model
 	return p
 }
 
+// applyBeltVisibility — выдача поясов игроку (спека
+// 2026-09-22-пояса-малых-тел-этап-2-показ-знание-полёт §4.2/§4.3): только
+// visible=true (фильтр ДО маппинга); состав (composition) раскрывается при
+// знании — система в радиусе радара (inRadar) ИЛИ присутствие игрока в поясе
+// (myPosition: orbit на belt с этим id). Без знания состав не отдаётся.
+func applyBeltVisibility(belts []models.Belt, inRadar bool, myPosition *models.CurrentPosition) []models.BeltView {
+	out := make([]models.BeltView, 0, len(belts))
+	for _, b := range belts {
+		if !b.Visible {
+			continue
+		}
+		revealed := inRadar || beltPresence(myPosition, b.ID)
+		out = append(out, stripBeltDetails(b, revealed))
+	}
+	return out
+}
+
+// visibleBelts — только видимые игроку пояса (visible=true, §4.2): пояс
+// visible=false игроку не отдаётся и не является валидной целью полёта.
+func visibleBelts(belts []models.Belt) []models.Belt {
+	out := make([]models.Belt, 0, len(belts))
+	for _, b := range belts {
+		if b.Visible {
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
+// beltPresence — игрок физически в этом поясе (позиция orbit на belt, §4.3
+// условие 2): присутствие даёт состав без сканера.
+func beltPresence(pos *models.CurrentPosition, beltID string) bool {
+	return pos != nil && pos.Status == "orbit" &&
+		pos.ObjectType == "belt" && pos.ObjectID == beltID
+}
+
+// stripBeltDetails — маппит запись system_belts в BeltView для игрока (спека
+// 2026-09-22-пояса-малых-тел-этап-2-показ-знание-полёт §4.2): базовые поля
+// (тип/имя/геометрия/типичное тело/масса) открыты; composition — только при
+// знании (compositionRevealed, §4.3); data/visible/created_at/updated_at не
+// отдаются. models.Belt напрямую игроку не сериализуется.
+func stripBeltDetails(b models.Belt, compositionRevealed bool) models.BeltView {
+	v := models.BeltView{
+		ID:         b.ID,
+		WorldID:    b.WorldID,
+		Kind:       b.Kind,
+		Name:       b.Name,
+		OrbitIndex: b.OrbitIndex,
+		RadiusAU:   b.RadiusAU,
+		WidthAU:    b.WidthAU,
+		Mass:       b.Mass,
+		BodySizeKm: b.BodySizeKm,
+	}
+	if compositionRevealed {
+		v.Composition = b.Composition
+	}
+	return v
+}
+
 // toFloatMap — map[string]interface{} → map[string]float64 (значения-числа).
 func toFloatMap(m map[string]interface{}) map[string]float64 {
 	out := make(map[string]float64, len(m))

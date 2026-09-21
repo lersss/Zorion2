@@ -69,7 +69,7 @@ func CalcIntraDuration(distAU, speedFactor float64) time.Duration {
 		}
 		return d
 	}
-	return time.Duration((100*speedFactor+(distAU-100)*speedFactor*0.1) * float64(time.Second))
+	return time.Duration((100*speedFactor + (distAU-100)*speedFactor*0.1) * float64(time.Second))
 }
 
 // ==================== СИНТЕТИЧЕСКИЕ ID КОМПАНЬОНОВ (§3.1) ====================
@@ -78,7 +78,9 @@ func CalcIntraDuration(distAU, speedFactor float64) time.Duration {
 func companionID(worldID string) string { return "companion:" + worldID }
 
 // extraCompanionID — синтетический id внешнего компаньона кратной (i — индекс).
-func extraCompanionID(worldID string, i int) string { return "extra:" + worldID + ":" + strconv.Itoa(i) }
+func extraCompanionID(worldID string, i int) string {
+	return "extra:" + worldID + ":" + strconv.Itoa(i)
+}
 
 // parseExtraCompanionID — разбор extra:<world>:<i>.
 func parseExtraCompanionID(id string) (worldID string, i int, ok bool) {
@@ -130,8 +132,9 @@ func companionLabel(world *models.World, objID string) string {
 
 // objectRadiusAU — расстояние объекта от главной звезды в а.е.: звезда
 // (главная) = 0; планета = orbit_radius_au; спутник = r родительской планеты;
-// компаньон = companion_sep_au / extra_companions[i].sep_au.
-func objectRadiusAU(world *models.World, planets []models.Planet, objType, objID string) (float64, bool) {
+// компаньон = companion_sep_au / extra_companions[i].sep_au; пояс = radius_au
+// (середина окна, спека поясов этап 2 §5.2).
+func objectRadiusAU(world *models.World, planets []models.Planet, belts []models.Belt, objType, objID string) (float64, bool) {
 	switch objType {
 	case "star":
 		if objID == world.ID {
@@ -168,12 +171,19 @@ func objectRadiusAU(world *models.World, planets []models.Planet, objType, objID
 			}
 		}
 		return 0, false
+	case "belt":
+		for _, b := range belts {
+			if b.ID == objID {
+				return b.RadiusAU, true
+			}
+		}
+		return 0, false
 	}
 	return 0, false
 }
 
 // targetInSystem — цель принадлежит системе current_world_id (ИП-1).
-func targetInSystem(world *models.World, planets []models.Planet, objType, objID string) bool {
+func targetInSystem(world *models.World, planets []models.Planet, belts []models.Belt, objType, objID string) bool {
 	switch objType {
 	case "star":
 		if objID == world.ID {
@@ -196,6 +206,13 @@ func targetInSystem(world *models.World, planets []models.Planet, objType, objID
 			}
 		}
 		return false
+	case "belt":
+		for _, b := range belts {
+			if b.ID == objID {
+				return true
+			}
+		}
+		return false
 	}
 	return false
 }
@@ -203,7 +220,7 @@ func targetInSystem(world *models.World, planets []models.Planet, objType, objID
 // positionObjectValid — объект позиции принадлежит системе (ИП-4 проверка).
 // validStar — проверка звезды/компаньона (главная = worldID или синтетический
 // id компаньона системы).
-func positionObjectValid(objType, objID, worldID string, planets []models.Planet, validStar func(objID string) bool) bool {
+func positionObjectValid(objType, objID, worldID string, planets []models.Planet, belts []models.Belt, validStar func(objID string) bool) bool {
 	switch objType {
 	case "star":
 		return validStar(objID)
@@ -223,6 +240,13 @@ func positionObjectValid(objType, objID, worldID string, planets []models.Planet
 			}
 		}
 		return false
+	case "belt":
+		for _, b := range belts {
+			if b.ID == objID {
+				return true
+			}
+		}
+		return false
 	}
 	return false
 }
@@ -233,18 +257,18 @@ func positionObjectValid(objType, objID, worldID string, planets []models.Planet
 // отдаче my_position (§4.4) — ничего не падает (М-2). Ветка surface (спека
 // 2026-09-21 §7.6 п.2): битый биом → доминирующий (NormalizeSurfaceBiome),
 // битая планета → «орбита звезды»; hp пересчитывается от landed_at (§8.7).
-func normalizeMyPosition(pos *models.CurrentPosition, worldID string, planets []models.Planet, validStar func(objID string) bool) *models.CurrentPosition {
+func normalizeMyPosition(pos *models.CurrentPosition, worldID string, planets []models.Planet, belts []models.Belt, validStar func(objID string) bool) *models.CurrentPosition {
 	if pos == nil {
 		return models.StarOrbitPosition(worldID)
 	}
 	switch pos.Status {
 	case "orbit":
-		if positionObjectValid(pos.ObjectType, pos.ObjectID, worldID, planets, validStar) {
+		if positionObjectValid(pos.ObjectType, pos.ObjectID, worldID, planets, belts, validStar) {
 			return pos
 		}
 	case "in_flight":
-		if positionObjectValid(pos.FromType, pos.FromID, worldID, planets, validStar) &&
-			positionObjectValid(pos.ToType, pos.ToID, worldID, planets, validStar) {
+		if positionObjectValid(pos.FromType, pos.FromID, worldID, planets, belts, validStar) &&
+			positionObjectValid(pos.ToType, pos.ToID, worldID, planets, belts, validStar) {
 			return pos
 		}
 	case "surface":
@@ -324,7 +348,8 @@ func NewIntraArrivalHandler(
 	}
 }
 
-// arrivalTargetValid — цель прибытия существует в системе (ИП-4).
+// arrivalTargetValid — цель прибытия существует в системе (ИП-4). Пояс
+// (спека поясов этап 2 §5.4): жив, если запись есть в system_belts мира.
 func arrivalTargetValid(planetRepo *repository.PlanetRepository, worldID, objType, objID string) bool {
 	switch objType {
 	case "planet":
@@ -333,6 +358,17 @@ func arrivalTargetValid(planetRepo *repository.PlanetRepository, worldID, objTyp
 	case "satellite":
 		p, err := planetRepo.FindPlanetBySatellite(worldID, objID)
 		return err == nil && p != nil
+	case "belt":
+		belts, err := planetRepo.GetBeltsByWorldID(worldID)
+		if err != nil {
+			return false
+		}
+		for _, b := range belts {
+			if b.ID == objID {
+				return true
+			}
+		}
+		return false
 	case "star":
 		return true // звезда/компаньон: система существует (проверено при старте)
 	}
@@ -342,7 +378,7 @@ func arrivalTargetValid(planetRepo *repository.PlanetRepository, worldID, objTyp
 // ==================== ХЕНДЛЕР СТАРТА (§4.1) ====================
 
 type IntraFlightRequest struct {
-	ObjectType string `json:"object_type"` // star|planet|satellite
+	ObjectType string `json:"object_type"` // star|planet|satellite|belt
 	ObjectID   string `json:"object_id"`
 }
 
@@ -372,7 +408,7 @@ func (h *IntrasystemHandlers) StartIntraFlight(w http.ResponseWriter, r *http.Re
 		writeJSONError(w, "Некорректное тело запроса", http.StatusBadRequest)
 		return
 	}
-	if req.ObjectType != "star" && req.ObjectType != "planet" && req.ObjectType != "satellite" {
+	if req.ObjectType != "star" && req.ObjectType != "planet" && req.ObjectType != "satellite" && req.ObjectType != "belt" {
 		writeJSONError(w, "Некорректный тип объекта", http.StatusBadRequest)
 		return
 	}
@@ -418,7 +454,18 @@ func (h *IntrasystemHandlers) StartIntraFlight(w http.ResponseWriter, r *http.Re
 		writeJSONError(w, "Не удалось загрузить систему", http.StatusInternalServerError)
 		return
 	}
-	if !targetInSystem(world, planets, req.ObjectType, req.ObjectID) {
+	// Пояса мира (спека поясов этап 2 §5.4): источник для цели-belt (радиус,
+	// валидность, «уже в поясе»). Для player — только visible=true (пояс
+	// visible=false игроку не виден → «Объект не найден», §5.5 п.5).
+	belts, err := h.planetRepo.GetBeltsByWorldID(worldID)
+	if err != nil {
+		writeJSONError(w, "Не удалось загрузить систему", http.StatusInternalServerError)
+		return
+	}
+	if roleFromContext(r) == string(models.RolePlayer) {
+		belts = visibleBelts(belts)
+	}
+	if !targetInSystem(world, planets, belts, req.ObjectType, req.ObjectID) {
 		writeJSONError(w, "Объект не найден в вашей системе", http.StatusBadRequest)
 		return
 	}
@@ -439,14 +486,19 @@ func (h *IntrasystemHandlers) StartIntraFlight(w http.ResponseWriter, r *http.Re
 	}
 
 	// 7. «Уже на орбите» (§3.5): в покое — цель == объект позиции; в полёте —
-	// цель == объект отправления (UX-5 блокирует кнопку клиентски).
+	// цель == объект отправления (UX-5 блокирует кнопку клиентски). Для пояса
+	// формулировка «Вы уже в поясе» (спека поясов этап 2 §5.5 п.7).
+	alreadyMsg := "Вы уже на орбите этого объекта"
+	if req.ObjectType == "belt" {
+		alreadyMsg = "Вы уже в поясе"
+	}
 	if pos != nil {
 		if pos.Status == "orbit" && pos.ObjectType == req.ObjectType && pos.ObjectID == req.ObjectID {
-			writeJSONError(w, "Вы уже на орбите этого объекта", http.StatusBadRequest)
+			writeJSONError(w, alreadyMsg, http.StatusBadRequest)
 			return
 		}
 		if pos.Status == "in_flight" && pos.FromType == req.ObjectType && pos.FromID == req.ObjectID {
-			writeJSONError(w, "Вы уже на орбите этого объекта", http.StatusBadRequest)
+			writeJSONError(w, alreadyMsg, http.StatusBadRequest)
 			return
 		}
 	}
@@ -467,8 +519,8 @@ func (h *IntrasystemHandlers) StartIntraFlight(w http.ResponseWriter, r *http.Re
 	}
 
 	// Длительность: dist = |r(from) − r(to)|, двухрежимная формула (С4).
-	fromR, ok1 := objectRadiusAU(world, planets, fromType, fromID)
-	toR, ok2 := objectRadiusAU(world, planets, req.ObjectType, req.ObjectID)
+	fromR, ok1 := objectRadiusAU(world, planets, belts, fromType, fromID)
+	toR, ok2 := objectRadiusAU(world, planets, belts, req.ObjectType, req.ObjectID)
 	if !ok1 || !ok2 {
 		writeJSONError(w, "Объект не найден в вашей системе", http.StatusBadRequest)
 		return

@@ -120,7 +120,8 @@ func expectIntraWorldBinary(mock sqlmock.Sqlmock, id string) {
 			`{"binary_type":"wide","companion":"K","companion_sep_au":1000}`, nil, nil, now(), now()))
 }
 
-// expectIntraPlanets — планеты системы (лёгкий запрос без поселений).
+// expectIntraPlanets — планеты системы (лёгкий запрос без поселений) + пояса
+// (спека поясов этап 2 §5.4: StartIntraFlight грузит belts после планет).
 func expectIntraPlanets(mock sqlmock.Sqlmock, worldID string, rows ...[]driver.Value) {
 	r := sqlmock.NewRows([]string{"id", "world_id", "name", "orbit_index", "data", "created_at", "updated_at"})
 	for _, row := range rows {
@@ -129,6 +130,7 @@ func expectIntraPlanets(mock sqlmock.Sqlmock, worldID string, rows ...[]driver.V
 	mock.ExpectQuery(`SELECT id, world_id, name, orbit_index, data, created_at, updated_at FROM planets WHERE world_id = \$1 ORDER BY orbit_index ASC`).
 		WithArgs(worldID).
 		WillReturnRows(r)
+	expectBelts(mock, worldID)
 }
 
 // planetRow — строка планеты (orbit_radius_au в data).

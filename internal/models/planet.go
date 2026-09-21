@@ -18,9 +18,9 @@ type Planet struct {
 
 	// Орбитальный контекст (35b §2.2): вокруг чего обращается планета.
 	// Заполняется из planets.data; старые миры без ключа — "main" (фолбэк §2.4).
-	OrbitCenter    string  `json:"orbit_center"`     // main / barycenter
-	OrbitRadiusAU  float64 `json:"orbit_radius_au"`  // фактический радиус, а.е. (S: orbitRadiusByIndex; P: 3×sep)
-	Circumbinary   bool    `json:"circumbinary"`     // P-планета вокруг барицентра пары
+	OrbitCenter   string  `json:"orbit_center"`    // main / barycenter
+	OrbitRadiusAU float64 `json:"orbit_radius_au"` // фактический радиус, а.е. (S: orbitRadiusByIndex; P: 3×sep)
+	Circumbinary  bool    `json:"circumbinary"`    // P-планета вокруг барицентра пары
 
 	// Физика
 	Size         float64 `json:"size"`          // радиус, в земных
@@ -129,6 +129,26 @@ type Belt struct {
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// BeltView — пояс малых тел в ответе игроку (спека
+// 2026-09-22-пояса-малых-тел-этап-2-показ-знание-полёт §4.2): DTO пояса для
+// модалки. Базовые поля (тип/имя/геометрия/типичное тело/масса) открыты как
+// часть системы; composition — единственная «деталь», отдаётся только при
+// знании (сканер в радиусе / присутствие, §4.3); data/visible/служебные —
+// только admin. models.Belt (без omitempty) игроку не отдаётся.
+type BeltView struct {
+	ID         string  `json:"id"`
+	WorldID    string  `json:"world_id"`
+	Kind       string  `json:"kind"`
+	Name       string  `json:"name"`
+	OrbitIndex *int    `json:"orbit_index"`
+	RadiusAU   float64 `json:"radius_au"`
+	WidthAU    float64 `json:"width_au"`
+	Mass       float64 `json:"mass"`
+	BodySizeKm float64 `json:"body_size_km"`
+	// Composition — доли породы/железа/льда; отсутствует без знания (§4.3).
+	Composition map[string]float64 `json:"composition,omitempty"`
 }
 
 // Biome — биом поверхности планеты (99.2.28 §3.1): объект {form, share},

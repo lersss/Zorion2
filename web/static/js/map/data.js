@@ -517,6 +517,8 @@ export async function checkCompositeArrival(user) {
 
     // Фокус по current_position.to_type/to_id; позиция уже orbit (успел
     // долететь за время отсутствия) — фокус на объекте позиции.
+    // Пояс (спека поясов этап 2 §7.2): канвас-координат нет — модалка
+    // открывается, фокус не ставится (бейдж «вы в поясе» — в секции).
     const focusOpts = {};
     if (pos && pos.status === 'in_flight') {
         if (pos.to_type === 'planet') focusOpts.planetId = pos.to_id;

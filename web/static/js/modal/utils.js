@@ -80,7 +80,11 @@ export function systemTypeLabel(systemType) {
 // starModsBadges — человекочитаемые строки модификаторов (99.2.4 §8):
 // фаза (гигант/сверхгигант), переменность (тип + период/амплитуда),
 // подтипы (пульсар/магнетар/микроквазар), параметры двойной.
-export function starModsBadges(mods) {
+// belts — пояса системы из ответа модалки (спека поясов этап 2 §4.4): значок
+// disk_state='debris' вытесняется показом пояса kind='debris' (один факт —
+// одно место, РБ3). Сервер уже отфильтровал пояса по visible для игрока;
+// admin видит все — подавление по наличию записи.
+export function starModsBadges(mods, belts) {
     if (!mods || typeof mods !== 'object') return [];
     const badges = [];
     if (mods.phase === 'III') badges.push('гигант (фаза III)');
@@ -105,8 +109,15 @@ export function starModsBadges(mods) {
         badges.push(mods.binary_type === 'wide' ? 'двойная широкая (S-тип)' : 'двойная тесная (P-тип)');
     }
     if (mods.disk_state) {
-        const disks = { protoplanetary: 'протопланетный диск', accretion: 'аккреционный диск', debris: 'обломочный пояс' };
-        badges.push(disks[mods.disk_state] || 'диск');
+        // Пояс kind='debris' материализует disk_state='debris' — значок не
+        // показывается, факт идёт секцией «Пояса» (§4.4). protoplanetary/
+        // accretion — не пояса, значки не трогаются.
+        const materialized = mods.disk_state === 'debris' &&
+            Array.isArray(belts) && belts.some(b => b && b.kind === 'debris');
+        if (!materialized) {
+            const disks = { protoplanetary: 'протопланетный диск', accretion: 'аккреционный диск', debris: 'обломочный пояс' };
+            badges.push(disks[mods.disk_state] || 'диск');
+        }
     }
     return badges;
 }

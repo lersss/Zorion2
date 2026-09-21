@@ -160,6 +160,12 @@ export function renderPlanetsList() {
                     Система вне зоны видимости: детали (планеты, поселения) недоступны — долетите или купите отчёт
                 </p>
             </div>
+            <div style="background:#0d0d1a; border-radius:8px; padding:10px; margin-top:10px;">
+                <h4 style="margin:0 0 8px 0; font-size:1rem; color:#aaa;">Пояса</h4>
+                <p style="margin:8px 0; padding:8px 10px; background:rgba(148,163,184,0.08); border:1px dashed rgba(148,163,184,0.3); border-radius:8px; color:#94a3b8; font-size:0.85rem;">
+                    Система вне зоны видимости: детали (пояса) недоступны — долетите или купите отчёт
+                </p>
+            </div>
         `;
         return;
     }
@@ -169,12 +175,133 @@ export function renderPlanetsList() {
             <h4 style="margin:0 0 8px 0; font-size:1rem; color:#aaa;">Планеты (${planets.length})</h4>
             ${planetsTable(planets)}
         </div>
+        ${beltsSection()}
     `;
 
     // Кликабельные строки планет — обработчики вешаем после вставки.
     panel.querySelectorAll('tr[data-index]').forEach(tr => {
         tr.addEventListener('mouseenter', () => { tr.style.background = '#1f1f3a'; });
         tr.addEventListener('mouseleave', () => { tr.style.background = 'transparent'; });
+    });
+
+    wireBeltButtons(panel);
+}
+
+// beltKindLabel — человекочитаемый тип пояса (спека поясов этап 2 §7.4).
+function beltKindLabel(kind) {
+    const labels = {
+        asteroid: 'пояс астероидов',
+        kuiper: 'пояс Койпера',
+        debris: 'обломочный пояс',
+        dust_ring: 'пылевое кольцо',
+        oort: 'облако Оорта',
+    };
+    return labels[kind] || kind || 'пояс';
+}
+
+// beltsSection — секция «Пояса» в правой панели (спека поясов этап 2 §7.1):
+// рядом с блоком «Планеты», под ним. Строка пояса — тип, имя, радиус/
+// протяжённость, типичное тело, масса; при знании — состав. Кнопка полёта:
+// своя система — «🚀 Лететь», чужая — «🚀 Лететь · через систему» (§7.1).
+// Бейдж «● Вы в поясе» — если позиция игрока в этом поясе.
+function beltsSection() {
+    const belts = modalState.belts || [];
+    const myPos = modalState.myPosition;
+    const inOwnSystem = !!myPos;
+
+    let rows = '';
+    if (belts.length === 0) {
+        rows = `<div style="color:#666; font-size:0.9rem;">Поясов нет</div>`;
+    } else {
+        rows = belts.map(b => {
+            const onThisBelt = myPos && myPos.status === 'orbit' &&
+                myPos.object_type === 'belt' && myPos.object_id === b.id;
+            const badge = onThisBelt
+                ? `<span style="background:rgba(74,222,128,0.15); border:1px solid rgba(74,222,128,0.4); color:#4ade80; border-radius:10px; padding:2px 8px; font-size:0.75rem; margin-left:6px;">● Вы в поясе</span>`
+                : '';
+            const flyBtn = inOwnSystem
+                ? `<button data-belt-fly="${b.id}" style="background:#2a2a4a; border:none; color:#fde68a; padding:4px 10px; border-radius:4px; cursor:pointer; font-size:0.85rem;">🚀 Лететь</button>`
+                : `<button data-belt-composite-fly="${b.id}" style="background:#2a2a4a; border:none; color:#fde68a; padding:4px 10px; border-radius:4px; cursor:pointer; font-size:0.85rem;">🚀 Лететь · через систему</button>`;
+            const comp = (b.composition && Object.keys(b.composition).length)
+                ? `<div style="color:#94a3b8; font-size:0.8rem;">Состав: ${Object.entries(b.composition).map(([k, v]) => `${k} ${(v * 100).toFixed(0)}%`).join(', ')}</div>`
+                : `<div style="color:#64748b; font-size:0.8rem;">Состав: нет данных — просканируйте систему в радиусе или долетите до пояса</div>`;
+            return `
+                <div style="border-bottom:1px solid #1a1a2e; padding:6px 0;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+                        <div>
+                            <div style="font-size:0.9rem;">${capitalize(b.name) || beltKindLabel(b.kind)}${badge}</div>
+                            <div style="color:#888; font-size:0.8rem;">${beltKindLabel(b.kind)}</div>
+                        </div>
+                        ${flyBtn}
+                    </div>
+                    <div style="color:#94a3b8; font-size:0.8rem;">
+                        радиус ${b.radius_au != null ? Number(b.radius_au).toFixed(2) : '—'} а.е.
+                        · протяжённость ${b.width_au != null ? Number(b.width_au).toFixed(2) : '—'} а.е.
+                        · тело ${b.body_size_km != null ? Number(b.body_size_km).toFixed(0) : '—'} км
+                        · масса ${b.mass != null ? Number(b.mass).toFixed(3) : '—'} M⊕
+                    </div>
+                    ${comp}
+                </div>
+            `;
+        }).join('');
+    }
+
+    return `
+        <div style="background:#0d0d1a; border-radius:8px; padding:10px; margin-top:10px;">
+            <h4 style="margin:0 0 8px 0; font-size:1rem; color:#aaa;">Пояса (${belts.length})</h4>
+            ${rows}
+        </div>
+    `;
+}
+
+// wireBeltButtons — обработчики кнопок полёта к поясу (спека поясов этап 2
+// §7.1): своя система — внутрисистемный полёт; чужая — композитный маршрут.
+// Disabled: нет двигателя, уже в поясе, цель/отправление текущего полёта,
+// активный межзвёздный (своя система).
+function wireBeltButtons(panel) {
+    const myPos = modalState.myPosition;
+
+    panel.querySelectorAll('[data-belt-fly]').forEach(btn => {
+        const beltId = btn.dataset.beltFly;
+        const disabled = !myPos || !modalState.hasEngine || !!modalState.interstellarFlight ||
+            (myPos.status === 'orbit' && myPos.object_type === 'belt' && myPos.object_id === beltId) ||
+            (myPos.status === 'in_flight' && myPos.to_type === 'belt' && myPos.to_id === beltId) ||
+            (myPos.status === 'in_flight' && myPos.from_type === 'belt' && myPos.from_id === beltId);
+        if (disabled) {
+            btn.disabled = true;
+            btn.style.opacity = '0.4';
+            btn.style.cursor = 'not-allowed';
+            if (!modalState.hasEngine) btn.title = 'Двигатель не установлен';
+            else if (modalState.interstellarFlight) btn.title = 'Вы в межзвёздном полёте — дождитесь прибытия';
+            else if (!myPos) btn.title = 'Внутрисистемный полёт — только в своей системе';
+            else btn.title = 'Вы уже в поясе';
+        } else {
+            btn.addEventListener('click', () => {
+                import('./events.js').then(m => m.startIntraFlight('belt', beltId));
+            });
+        }
+    });
+
+    panel.querySelectorAll('[data-belt-composite-fly]').forEach(btn => {
+        const beltId = btn.dataset.beltCompositeFly;
+        if (!modalState.hasEngine) {
+            btn.disabled = true;
+            btn.style.opacity = '0.4';
+            btn.style.cursor = 'not-allowed';
+            btn.title = 'Двигатель не установлен — полёт невозможен';
+        } else {
+            btn.addEventListener('click', async () => {
+                btn.disabled = true;
+                btn.style.opacity = '0.4';
+                btn.style.cursor = 'not-allowed';
+                const ok = await import('./events.js').then(m => m.startCompositeFlight('belt', beltId));
+                if (!ok) {
+                    btn.disabled = false;
+                    btn.style.opacity = '';
+                    btn.style.cursor = '';
+                }
+            });
+        }
     });
 }
 

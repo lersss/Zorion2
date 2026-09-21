@@ -149,6 +149,56 @@ func (r *PlanetRepository) GetPlanetsLightByWorldID(worldID string) ([]models.Pl
 	return planets, rows.Err()
 }
 
+// GetBeltsByWorldID — пояса малых тел мира (спека
+// 2026-09-22-пояса-малых-тел-этап-2-показ-знание-полёт §4.1): читающая ручка
+// этапа 2 (в этапе 1 генератор писал через COPY). Возвращает все записи
+// system_belts мира (фильтр visible — на стороне хендлера, §4.2); порядок —
+// по radius_au (внешний к внутреннему нет — стабильный показ).
+func (r *PlanetRepository) GetBeltsByWorldID(worldID string) ([]models.Belt, error) {
+	query := `
+		SELECT id, world_id, kind, name, orbit_index, radius_au, width_au, mass,
+		       body_size_km, composition, visible, data, created_at, updated_at
+		FROM system_belts
+		WHERE world_id = $1
+		ORDER BY radius_au ASC
+	`
+	rows, err := r.db.Query(query, worldID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query belts: %w", err)
+	}
+	defer rows.Close()
+
+	var belts []models.Belt
+	for rows.Next() {
+		var b models.Belt
+		var orbitIndex sql.NullInt64
+		var compJSON, dataJSON []byte
+		if err := rows.Scan(
+			&b.ID, &b.WorldID, &b.Kind, &b.Name, &orbitIndex, &b.RadiusAU,
+			&b.WidthAU, &b.Mass, &b.BodySizeKm, &compJSON, &b.Visible, &dataJSON,
+			&b.CreatedAt, &b.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan belt: %w", err)
+		}
+		if orbitIndex.Valid {
+			idx := int(orbitIndex.Int64)
+			b.OrbitIndex = &idx
+		}
+		if len(compJSON) > 0 {
+			if err := json.Unmarshal(compJSON, &b.Composition); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal belt composition: %w", err)
+			}
+		}
+		if len(dataJSON) > 0 {
+			if err := json.Unmarshal(dataJSON, &b.Data); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal belt data: %w", err)
+			}
+		}
+		belts = append(belts, b)
+	}
+	return belts, rows.Err()
+}
+
 // FindPlanetBySatellite — родительская планета спутника (спека 99.2.27 §3.6):
 // спутник живёт в planets.data.satellites (UUID, models.PlanetSatellite.ID).
 // Не найдена — (nil, nil).

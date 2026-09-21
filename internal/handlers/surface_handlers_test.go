@@ -576,7 +576,7 @@ func TestNormalizeMyPositionSurface(t *testing.T) {
 	validStar := func(id string) bool { return id == "w1" }
 
 	pos := models.SurfacePosition("pl-1", b1.ID, 100, time.Now().Add(-10*time.Second))
-	out := normalizeMyPosition(pos, "w1", planets, validStar)
+	out := normalizeMyPosition(pos, "w1", planets, nil, validStar)
 	require.NotNil(t, out)
 	assert.Equal(t, "surface", out.Status)
 	require.NotNil(t, out.HP)
@@ -584,12 +584,12 @@ func TestNormalizeMyPositionSurface(t *testing.T) {
 
 	// Битая планета (нет в системе) → орбита звезды.
 	pos2 := models.SurfacePosition("GONE", b1.ID, 100, time.Now())
-	out2 := normalizeMyPosition(pos2, "w1", planets, validStar)
+	out2 := normalizeMyPosition(pos2, "w1", planets, nil, validStar)
 	assert.Equal(t, "star", out2.ObjectType)
 	assert.Equal(t, "w1", out2.ObjectID)
 
 	// Битый биом при живой планете → доминирующий.
 	pos3 := models.SurfacePosition("pl-1", "битый", 100, time.Now())
-	out3 := normalizeMyPosition(pos3, "w1", planets, validStar)
+	out3 := normalizeMyPosition(pos3, "w1", planets, nil, validStar)
 	assert.Equal(t, b1.ID, out3.Biome)
 }

@@ -902,6 +902,7 @@ func TestArrivalHandlerAutostartSuccess(t *testing.T) {
 	expectPlanetByID(mock, "p1", target)
 	expectUser(mock, userID, target)
 	expectPlanetsLight(mock, target, travelPlanetRow("p1", target, `{"orbit_radius_au":1.0}`))
+	expectBelts(mock, target) // пояса мира (спека поясов этап 2 §5.7)
 	expectStartAtomic(mock, userID, target, "planet", "p1")
 	expectClearPendingDestination(mock, userID)
 
@@ -1011,6 +1012,7 @@ func TestArrivalHandlerAutostartCompanion(t *testing.T) {
 	expectWorldWithMods(mock, target, 10, 0, testCompanionMods)
 	expectUser(mock, userID, target)
 	expectPlanetsLight(mock, target, travelPlanetRow("p1", target, `{"orbit_radius_au":1.0}`))
+	expectBelts(mock, target) // пояса мира (спека поясов этап 2 §5.7)
 	// StartAtomic: строка полёта — ToType='star' (маппинг компаньона), позиция
 	// in_flight с теми же to_type/to_id.
 	mock.ExpectBegin()
@@ -1074,6 +1076,7 @@ func TestRestorePendingDestinationsAutostart(t *testing.T) {
 	expectPlanetByID(mock, "p1", target)
 	expectUser(mock, userID, target)
 	expectPlanetsLight(mock, target, travelPlanetRow("p1", target, `{"orbit_radius_au":1.0}`))
+	expectBelts(mock, target) // пояса мира (спека поясов этап 2 §5.7)
 	expectStartAtomic(mock, userID, target, "planet", "p1")
 	expectClearPendingDestination(mock, userID)
 

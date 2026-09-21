@@ -51,6 +51,10 @@ arrivalObject: null,
     companionSepAU: null,      // разделение пары а.е. (35b)
     extraCompanions: [],       // внешние компаньоны кратных (35b)
     planets: [],
+    // Пояса малых тел системы (спека поясов этап 2 §4.1): belts из ответа
+    // /api/worlds/{id}/planets. Для player — только visible=true, состав при
+    // знании; для admin — целиком. Пусто — «Поясов нет».
+    belts: [],
     restricted: false,         // модалка без деталей системы (403, спека 77a §5.5/И11): звезда открыта, планеты — заглушка
     canvas: null,
     canvasWrapper: null,
@@ -111,6 +115,7 @@ export function resetState() {
     modalState.authToken = null;
     modalState.role = null;
     modalState.restricted = false;
+    modalState.belts = [];
     modalState.myPosition = null;
     modalState.companionId = null;
     modalState.systemPlayers = [];

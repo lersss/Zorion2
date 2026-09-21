@@ -49,8 +49,18 @@
 
 ## Занято сейчас
 
+> Активные метки. Исторические (завершённые задачи) — в таблице ниже, **не блокируют**.
+
 | Файл | Кто правит | До какого коммита |
 |---|---|---|
+| `web/studio.html`, `tools/e2e/goods-studio-server-check.js` / `qa-prodadd-race-independent.js` / `studio-prodadd-race-check.js` | @developer (студия: формы в попапы, вкладки разделов, 2026-09-22) | до коммита задачи |
+| `internal/handlers/intrasystem_handlers.go` (+test), `web/static/js/modal/events.js` | @developer (идея 2026-09-21: взлёт с поверхности) | до коммита задачи |
+
+## Занято ранее (историческое, не блокирует — чистится @manager по мере надобности)
+
+| Файл | Кто правит | До какого коммита |
+|---|---|---|
+| `internal/generator/planet/cascade.go` / `planet_data.go` / `planet_data_generate.go` / `accretion_mass_test.go` / `giant_smoke_test.go` | @developer (этап 1 «протопылевое облако», 2026-09-21) | коммит dd37a8c |
 | `internal/generator/planet/biome_*.go` (+seed.json, biome_test.go) | @developer (99.2.28) | коммит 99.2.28 |
 | `internal/generator/planet/cascade.go` / `classify.go` / `composition_*.go` / `planet_data*.go` / `circumbinary.go` | @developer (99.2.28) | коммит 99.2.28 |
 | `internal/models/planet.go` | @developer (99.2.28) | коммит 99.2.28 |

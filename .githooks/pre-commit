@@ -1,0 +1,26 @@
+#!/bin/sh
+# pre-commit — блокирующий порог перед коммитом (идея 2026-09-22 «гигиена», ЧП2).
+# Запускает `go vet ./...`, если среди подготовленных к коммиту файлов есть .go.
+#
+# Форматирование (gofmt) здесь НЕ проверяется: в Windows-дереве 326 файлов имеют
+# CRLF и gofmt -l даёт ложные срабатывания; честная проверка живёт в CI на Linux.
+#
+# Обход при необходимости: git commit --no-verify
+
+staged=$(git diff --cached --name-only --diff-filter=ACM -- '*.go')
+if [ -z "$staged" ]; then
+  exit 0
+fi
+
+if ! command -v go >/dev/null 2>&1; then
+  echo "[pre-commit] go не найден в PATH — проверка пропущена"
+  exit 0
+fi
+
+echo "[pre-commit] go vet ./..."
+if ! go vet ./...; then
+  echo "[pre-commit] go vet не прошёл — коммит отменён (обход: git commit --no-verify)"
+  exit 1
+fi
+
+exit 0

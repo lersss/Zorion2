@@ -59,6 +59,15 @@ eq('req ge', c.requirementText({ kind: 'gear', subject: 'speed_factor', op: 'ge'
     'двигатель не медленнее 0.3');
 eq('req text fallback', c.requirementText({ kind: 'cargo', threshold_text: 'трюм 10 т' }), 'трюм 10 т');
 eq('req null', c.requirementText(null), '');
+// Требование-поставка (kind='goods', §4.2): позиция и объём доли (quantity).
+eq('req goods', c.requirementText({ kind: 'goods', subject: 'ore', op: 'in', quantity: 10 }), 'ore: 10 ед.');
+eq('req goods no qty', c.requirementText({ kind: 'goods', subject: 'ore', op: 'in' }), 'ore');
+// Позиция-доля экранируется и здесь (stored XSS через subject).
+eq('req goods escaped', c.requirementText({ kind: 'goods', subject: '<img src=x>', op: 'in', quantity: 1 }),
+    '&lt;img src=x&gt;: 1 ед.');
+// quantity тоже экранируется (дисциплина модуля: все строки с сервера).
+eq('req goods qty escaped', c.requirementText({ kind: 'goods', subject: 'ore', op: 'in', quantity: '<b>9</b>' }),
+    'ore: &lt;b&gt;9&lt;/b&gt; ед.');
 
 // «Осталось N» от expires_at (§2.1). now — миллисекунды.
 const now = Date.parse('2026-09-22T12:00:00Z');
@@ -87,6 +96,40 @@ eq('row take btn', row.includes('data-contract-take="c1"'), true);
 // §2.2: балансы и «кто взял» на доске не видны — ни escrow, ни executor.
 eq('row no escrow', row.includes('escrow'), false);
 eq('row no executor', row.includes('executor'), false);
+
+// Группировка доски по пакету (§4.5): открытые доли одной нужды (общий
+// package_key) — один блок «нужда»; доли несут размер (quantity из
+// goods-требования), награду и срок. Контракт без package_key (перелёт) —
+// отдельной плоской строкой, вне блока группы.
+const grouped = c.boardHtml([
+    { id: 's1', type: 'supply', title: 'Снабжение рудой', author_type: 'building',
+      package_key: 'supply:p1:b1:ore', share_index: 1, reward: 100, expires_at: '2026-09-22T15:00:00Z',
+      requirements: [{ kind: 'goods', subject: 'ore', op: 'in', quantity: 10 }] },
+    { id: 's2', type: 'supply', title: 'Снабжение рудой', author_type: 'building',
+      package_key: 'supply:p1:b1:ore', share_index: 2, reward: 50, expires_at: '2026-09-22T15:00:00Z',
+      requirements: [{ kind: 'goods', subject: 'ore', op: 'in', quantity: 5 }] },
+    { id: 't1', type: 'travel', title: 'До Альфы', reward: 1650, author_type: 'player' },
+], now);
+eq('group one block', (grouped.match(/data-contract-package=/g) || []).length, 1);
+const gStart = grouped.indexOf('data-contract-package="supply:p1:b1:ore"');
+const tStart = grouped.indexOf('data-contract-take="t1"');
+eq('both shares in one block',
+    gStart >= 0 && tStart > gStart &&
+    grouped.slice(gStart, tStart).includes('data-contract-take="s1"') &&
+    grouped.slice(gStart, tStart).includes('data-contract-take="s2"'), true);
+eq('share sizes shown', grouped.includes('ore: 10 ед.') && grouped.includes('ore: 5 ед.'), true);
+eq('share reward shown', grouped.includes('100') && grouped.includes('50'), true);
+eq('share term shown', grouped.includes('осталось 3 ч'), true);
+// Контракт без пакета — плоско: без обёртки группы.
+const flatOnly = c.boardHtml([{ id: 't1', type: 'travel', title: 'T', reward: 1 }], now);
+eq('flat no package block', flatOnly.includes('data-contract-package'), false);
+eq('flat row present', flatOnly.includes('data-contract-take="t1"'), true);
+// Разные пакеты — разные блоки.
+const twoPkgs = c.boardHtml([
+    { id: 'a1', type: 'supply', title: 'A', package_key: 'p1', reward: 1 },
+    { id: 'b1', type: 'supply', title: 'B', package_key: 'p2', reward: 1 },
+], now);
+eq('two package blocks', (twoPkgs.match(/data-contract-package=/g) || []).length, 2);
 
 // XSS (блокирующее 1): заголовок/описание задаёт ДРУГОЙ игрок, сервер их не
 // чистит. Тег не должен попасть в разметку как тег — только как текст.

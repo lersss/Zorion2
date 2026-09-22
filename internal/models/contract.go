@@ -16,9 +16,17 @@ const (
 
 // Тип контракта (contracts.type, §4.1) — открытый список; travel — первый
 // (спека перелёта §1). Тип-специфичные правила (перебазирование срока при
-// взятии) включаются по этому значению.
+// взятии) включаются по этому значению. supply — снабжение постройки
+// (спека 2026-09-23-контракт-ленивая-доска-пакет-и-снабжение §4.2).
 const (
 	ContractTypeTravel = "travel"
+	ContractTypeSupply = "supply"
+)
+
+// Виды нужды, кодируемые в package_key (contracts.package_key, §4.2):
+// package_key = <kind>:<planet_id>:<author_id>:<position>. v1 — снабжение.
+const (
+	ContractNeedKindSupply = "supply"
 )
 
 // Типы автора контракта (contracts.author_type, §4.1) — шире buildings.owner_type:
@@ -67,13 +75,14 @@ const (
 	ContractLogEscrowReturned = "escrow_returned"
 )
 
-// Причины возврата залога (contract_log.data.reason у escrow_returned, §4.3):
-// expired/cancelled — обычные пути, world_deleted — принудительный возврат при
-// удалении миров (§6.5).
+// Причины в contract_log.data.reason (§4.3): expired/cancelled — обычные пути,
+// world_deleted — принудительный возврат при удалении миров (§6.5);
+// superseded — открытая доля пакета снята сверкой материализации (§3.3).
 const (
 	EscrowReasonExpired      = "expired"
 	EscrowReasonCancelled    = "cancelled"
 	EscrowReasonWorldDeleted = "world_deleted"
+	EscrowReasonSuperseded   = "superseded"
 )
 
 // Типы движения по счёту (money_operations.kind, спека денег §3.2).
@@ -99,19 +108,27 @@ type Contract struct {
 	Payload             map[string]interface{} `json:"payload"`
 	Reward              int64                  `json:"reward"`
 	Funding             string                 `json:"funding"`
-	EscrowAmount        int64                  `json:"escrow_amount"`
-	EscrowWithdrawable  int64                  `json:"escrow_withdrawable"`
-	EscrowKind          string                 `json:"escrow_kind"`
-	Status              string                 `json:"status"`
-	Visibility          string                 `json:"visibility"`
-	DirectTargetType    *string                `json:"direct_target_type,omitempty"`
-	DirectTargetID      *string                `json:"direct_target_id,omitempty"`
-	ExecutorType        *string                `json:"executor_type,omitempty"`
-	ExecutorID          *string                `json:"executor_id,omitempty"`
-	TakenAt             *time.Time             `json:"taken_at,omitempty"`
-	ExpiresAt           time.Time              `json:"expires_at"`
-	CreatedAt           time.Time              `json:"created_at"`
-	UpdatedAt           time.Time              `json:"updated_at"`
+	// Деньги/залог — внутреннее состояние контракта и счёта автора: в API не
+	// сериализуются (канон 14_money.md §14.4 «деньги актора не видны»; §4.5
+	// спеки 2026-09-23-контракт-ленивая-доска-пакет-и-снабжение — доска без
+	// балансов). Поля остаются в Go-модели и БД — их читает логика залога.
+	EscrowAmount       int64   `json:"-"`
+	EscrowWithdrawable int64   `json:"-"`
+	EscrowKind         string  `json:"-"`
+	Status             string  `json:"status"`
+	Visibility         string  `json:"visibility"`
+	DirectTargetType   *string `json:"direct_target_type,omitempty"`
+	DirectTargetID     *string `json:"direct_target_id,omitempty"`
+	ExecutorType       *string `json:"executor_type,omitempty"`
+	ExecutorID         *string `json:"executor_id,omitempty"`
+	// PackageKey/ShareIndex — «пакет контрактов» (§4.2): ключ группировки долей
+	// одной нужды и позиция доли в пакете; NULL — контракт вне пакета.
+	PackageKey *string    `json:"package_key,omitempty"`
+	ShareIndex *int       `json:"share_index,omitempty"`
+	TakenAt    *time.Time `json:"taken_at,omitempty"`
+	ExpiresAt  time.Time  `json:"expires_at"`
+	CreatedAt  time.Time  `json:"created_at"`
+	UpdatedAt  time.Time  `json:"updated_at"`
 
 	// Requirements — требования контракта (доска/«мои», спека перелёта §2.1);
 	// заполняются чтением (contract_requirements), не колонка contracts.

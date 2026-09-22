@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -156,4 +158,34 @@ func TestTruncateTablesIncludesSettlementBranches(t *testing.T) {
 func TestTruncateTablesIncludesSystemBelts(t *testing.T) {
 	require.Contains(t, truncateTables, "system_belts",
 		"system_belts обязана быть в truncateTables (admin_universe.go)")
+}
+
+// ЧК1 (спека 2026-09-23-контракт-ленивая-доска-пакет-и-снабжение §8):
+// contract_board_state ссылается на planets (FK planet_id ON DELETE CASCADE),
+// без неё TRUNCATE planets падает «cannot truncate a table referenced in a
+// foreign key constraint».
+func TestTruncateTablesIncludesContractBoardState(t *testing.T) {
+	require.Contains(t, truncateTables, "contract_board_state",
+		"contract_board_state обязана быть в truncateTables (admin_universe.go): FK planet_id → planets")
+}
+
+// ЧК1: миграция 000071 создаёт чек-точку доски (§3.1) и колонки/индексы
+// пакета (§4.2). Проверка по тексту миграции — БД-независимо (паттерн
+// TestPlayerCargoCascadeFKs); живое применение — на dev-БД.
+func TestMigrationContractBoard(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "..", "migrations", "000071_contract_board.sql"))
+	require.NoError(t, err, "миграция 000071_contract_board.sql должна существовать")
+	s := string(src)
+	require.Contains(t, s, "CREATE TABLE IF NOT EXISTS contract_board_state",
+		"чек-точка доски — отдельная таблица (§3.1)")
+	require.Contains(t, s, "REFERENCES planets (id) ON DELETE CASCADE",
+		"каскад worlds → planets → contract_board_state")
+	require.Contains(t, s, "ADD COLUMN IF NOT EXISTS package_key TEXT NULL")
+	require.Contains(t, s, "ADD COLUMN IF NOT EXISTS share_index INTEGER NULL")
+	require.Contains(t, s, "uq_contracts_package_open_share",
+		"идемпотентность: одна открытая доля на индекс пакета")
+	require.Contains(t, s, "uq_contracts_package_taken_executor",
+		"«один игрок — одна взятая доля пакета»")
+	require.Contains(t, s, "idx_contracts_package_open",
+		"поиск открытых долей пакета при сверке")
 }

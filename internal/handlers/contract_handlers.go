@@ -145,6 +145,14 @@ func (h *ContractHandlers) GetPlanetBoard(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Ленивая материализация нужд в открытые доли — по кадэнсу (§3.4). Ошибку не
+	// роняем в 5xx: истечение (выше) — обязательный возврат залога, а
+	// материализация — фоновая синхронизация состава витрины; её отказ уже
+	// откатил свою транзакцию, доска остаётся согласованной и отдаётся как есть.
+	if _, err := h.contractRepo.MaterializeBoard(planetID, time.Now()); err != nil {
+		log.Printf("GetPlanetBoard: materialize board (%s): %v", planetID, err)
+	}
+
 	contracts, err := h.contractRepo.ListBoard(planetID)
 	if err != nil {
 		writeJSONError(w, "Не удалось получить доску", http.StatusInternalServerError)
@@ -238,6 +246,12 @@ func (h *ContractHandlers) TakeContract(w http.ResponseWriter, r *http.Request) 
 	}
 	taken, err := h.contractRepo.Take(req.ContractID, models.ContractExecutorPlayer, userID, rebase)
 	if err != nil {
+		// Второй Take доли того же пакета тем же игроком — не гонка, а отказ
+		// правила «один игрок — одна взятая доля пакета» (§4.3): 409 с причиной.
+		if errors.Is(err, repository.ErrPackageShareTaken) {
+			writeJSONError(w, err.Error(), http.StatusConflict)
+			return
+		}
 		writeJSONError(w, "Не удалось взять контракт", http.StatusInternalServerError)
 		return
 	}
@@ -291,6 +305,12 @@ type createContractReq struct {
 	Visibility       string                 `json:"visibility"`
 	DirectTargetType *string                `json:"direct_target_type"`
 	DirectTargetID   *string                `json:"direct_target_id"`
+	// PackageKey/ShareIndex — необязательные поля «пакета контрактов» (§4.2
+	// спеки 2026-09-23-контракт-ленивая-доска-пакет-и-снабжение). Нужны админ-
+	// публикации (POST /admin/contracts) как инструмент проверки долей пакета;
+	// у игрока/перелёта остаются пустыми (NULL).
+	PackageKey *string `json:"package_key"`
+	ShareIndex *int    `json:"share_index"`
 }
 
 // validate — базовая проверка обязательных полей публикации.
@@ -307,12 +327,29 @@ func (req createContractReq) validate() string {
 	case req.Visibility == models.ContractVisibilityDirect && (req.DirectTargetID == nil || *req.DirectTargetID == ""):
 		return "прямой контракт требует direct_target_id"
 	}
+	// Поля пакета задаются вместе: одна доля без ключа группировки или ключ без
+	// номера доли — неполный пакет (§4.2, правило-минимум).
+	hasPackage := req.PackageKey != nil && *req.PackageKey != ""
+	hasShare := req.ShareIndex != nil
+	if hasPackage != hasShare {
+		return "package_key и share_index задаются вместе"
+	}
+	// share_index — позиция доли в пакете, 1..N (§4.2).
+	if hasShare && *req.ShareIndex <= 0 {
+		return "share_index должен быть больше нуля"
+	}
 	if req.Type == models.ContractTypeTravel {
 		if msg := validateTravelPayload(req.Payload); msg != "" {
 			return msg
 		}
 	}
 	return ""
+}
+
+// hasPackageFields — заданы ли поля «пакета контрактов» (§4.2). Поля — инструмент
+// админ-публикации (§5.7.1/§15): игровой путь их не принимает.
+func (req createContractReq) hasPackageFields() bool {
+	return (req.PackageKey != nil && *req.PackageKey != "") || req.ShareIndex != nil
 }
 
 // validateTravelPayload — payload перелёта (спека §1.2): from_world_id и
@@ -493,6 +530,8 @@ func (h *ContractHandlers) publish(w http.ResponseWriter, authorType, authorID s
 		Visibility:          req.Visibility,
 		DirectTargetType:    req.DirectTargetType,
 		DirectTargetID:      req.DirectTargetID,
+		PackageKey:          req.PackageKey,
+		ShareIndex:          req.ShareIndex,
 		ExpiresAt:           h.expiresAt(req, now),
 		Requirements:        requirements,
 	})
@@ -518,6 +557,12 @@ func (h *ContractHandlers) CreateContract(w http.ResponseWriter, r *http.Request
 	var req createContractReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSONError(w, "Некорректный запрос", http.StatusBadRequest)
+		return
+	}
+	// Поля «пакета контрактов» — инструмент админ-публикации (§5.7.1/§15):
+	// игрок их не задаёт (доли пакета рождает материализация нужд, не игрок).
+	if req.hasPackageFields() {
+		writeJSONError(w, "поля пакета доступны только админ-публикации", http.StatusBadRequest)
 		return
 	}
 
@@ -611,6 +656,9 @@ func writePublishError(w http.ResponseWriter, err error) {
 		writeJSONError(w, "Недостаточно средств для залога", http.StatusPaymentRequired)
 	case err == repository.ErrInvalidReward:
 		writeJSONError(w, err.Error(), http.StatusBadRequest)
+	case errors.Is(err, repository.ErrPackageShareOpenDuplicate):
+		// Дубль открытой доли пакета (§4.2) — не 500: конфликт состояния доски.
+		writeJSONError(w, err.Error(), http.StatusConflict)
 	default:
 		writeJSONError(w, "Не удалось опубликовать контракт", http.StatusInternalServerError)
 	}

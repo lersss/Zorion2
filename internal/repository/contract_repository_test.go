@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 
 	"zorion/internal/models"
@@ -21,15 +22,28 @@ const contractSelectRe = `SELECT id, type, author_type, author_id, publication_p
 
 // contractRow — строка contracts для sqlmock (порядок contractColumns).
 func contractRow(id, authorType, authorID string, escrowAmount, escrowWithdrawable int64) *sqlmock.Rows {
+	return contractRowPkg(id, authorType, authorID, escrowAmount, escrowWithdrawable, nil, nil)
+}
+
+// contractRowPkg — как contractRow, но с полями «пакета контрактов» (§4.2).
+func contractRowPkg(id, authorType, authorID string, escrowAmount, escrowWithdrawable int64,
+	pkg *string, share *int) *sqlmock.Rows {
 	now := time.Now()
+	var pkgArg, shareArg interface{}
+	if pkg != nil {
+		pkgArg = *pkg
+	}
+	if share != nil {
+		shareArg = *share
+	}
 	return sqlmock.NewRows([]string{
 		"id", "type", "author_type", "author_id", "publication_planet_id", "title", "description",
 		"payload", "reward", "funding", "escrow_amount", "escrow_withdrawable", "escrow_kind",
 		"status", "visibility", "direct_target_type", "direct_target_id", "executor_type",
-		"executor_id", "taken_at", "expires_at", "created_at", "updated_at",
+		"executor_id", "package_key", "share_index", "taken_at", "expires_at", "created_at", "updated_at",
 	}).AddRow(id, "travel", authorType, authorID, "planet-1", "T", "", []byte("{}"),
 		escrowAmount, "regular", escrowAmount, escrowWithdrawable, "deposit",
-		"open", "public", nil, nil, nil, nil, nil, now, now, now)
+		"open", "public", nil, nil, nil, nil, pkgArg, shareArg, nil, now, now, now)
 }
 
 func emptyRequirementsRows() *sqlmock.Rows {
@@ -64,7 +78,8 @@ func TestContractPublishLocksEscrow(t *testing.T) {
 	mock.ExpectExec(`INSERT INTO contracts`).
 		WithArgs(sqlmock.AnyArg(), "travel", "player", authorID, planetID, "T", "",
 			sqlmock.AnyArg(), int64(500), "regular", int64(500), int64(50),
-			"deposit", "open", "public", nil, nil, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+			"deposit", "open", "public", nil, nil, nil, nil,
+			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO contract_log`).WillReturnResult(sqlmock.NewResult(0, 1)) // published
 	mock.ExpectExec(`INSERT INTO contract_log`).WillReturnResult(sqlmock.NewResult(0, 1)) // escrow_locked
@@ -110,6 +125,117 @@ func TestContractPublishInsufficientFunds(t *testing.T) {
 		ExpiresAt: time.Now().Add(time.Hour),
 	})
 	require.ErrorIs(t, err, ErrInsufficientFunds)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Дубль открытой доли пакета (§4.2): нарушение uq_contracts_package_open_share
+// → sentinel ErrPackageShareOpenDuplicate (не общая ошибка вставки).
+func TestContractPublishPackageOpenDuplicate(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	pkg := "supply:p1:b1:good-1"
+	share := 1
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT owner_type, owner_id FROM buildings WHERE id = \$1`).
+		WithArgs("b1").
+		WillReturnRows(sqlmock.NewRows([]string{"owner_type", "owner_id"}).AddRow("faction", "f1"))
+	mock.ExpectExec(`INSERT INTO accounts`).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(`WITH acc AS`).
+		WillReturnRows(sqlmock.NewRows([]string{"balance", "withdrawable", "least"}).AddRow(1000, 0, 0))
+	mock.ExpectExec(`INSERT INTO contracts`).
+		WillReturnError(&pq.Error{
+			Code:       "23505",
+			Constraint: "uq_contracts_package_open_share",
+			Message:    "duplicate key value violates unique constraint",
+		})
+	mock.ExpectRollback()
+
+	_, err = NewContractRepository(db).Publish(PublishContractParams{
+		Type: "supply", AuthorType: "building", AuthorID: "b1",
+		PublicationPlanetID: "p1", Title: "T", Reward: 500,
+		PackageKey: &pkg, ShareIndex: &share,
+		ExpiresAt: time.Now().Add(time.Hour),
+	})
+	require.ErrorIs(t, err, ErrPackageShareOpenDuplicate)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Другой 23505 (чужой индекс) — НЕ sentinel дубля открытой доли: остаётся
+// общей ошибкой вставки (не подменяем причину).
+func TestContractPublishOtherUniqueViolationNotDuplicate(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`INSERT INTO accounts`).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(`WITH acc AS`).
+		WillReturnRows(sqlmock.NewRows([]string{"balance", "withdrawable", "least"}).AddRow(1000, 0, 0))
+	mock.ExpectExec(`INSERT INTO contracts`).
+		WillReturnError(&pq.Error{
+			Code:       "23505",
+			Constraint: "uq_contracts_package_taken_executor",
+			Message:    "duplicate key value violates unique constraint",
+		})
+	mock.ExpectRollback()
+
+	_, err = NewContractRepository(db).Publish(PublishContractParams{
+		Type: "travel", AuthorType: "player", AuthorID: "u1",
+		PublicationPlanetID: "p1", Title: "T", Reward: 500,
+		ExpiresAt: time.Now().Add(time.Hour),
+	})
+	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrPackageShareOpenDuplicate)
+	require.Contains(t, err.Error(), "insert contract")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// DTO доски (§4.5, T14): package_key/share_index читаются из строки contracts;
+// у контракта вне пакета оба поля пусты (NULL).
+func TestContractGetByIDPackageFields(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	pkg := "supply:p1:b1:good-1"
+	share := 2
+	mock.ExpectQuery(contractSelectRe).
+		WithArgs("c1").
+		WillReturnRows(contractRowPkg("c1", "building", "b1", 500, 0, &pkg, &share))
+	mock.ExpectQuery(`SELECT id, contract_id, pos, kind, subject, op,`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(emptyRequirementsRows())
+
+	c, err := NewContractRepository(db).GetByID("c1")
+	require.NoError(t, err)
+	require.NotNil(t, c)
+	require.NotNil(t, c.PackageKey)
+	require.Equal(t, pkg, *c.PackageKey)
+	require.NotNil(t, c.ShareIndex)
+	require.Equal(t, 2, *c.ShareIndex)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Контракт вне пакета (перелёт, ручная публикация): package_key/share_index NULL.
+func TestContractGetByIDNoPackageFields(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectQuery(contractSelectRe).
+		WithArgs("c1").
+		WillReturnRows(contractRow("c1", "player", "u1", 500, 0))
+	mock.ExpectQuery(`SELECT id, contract_id, pos, kind, subject, op,`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(emptyRequirementsRows())
+
+	c, err := NewContractRepository(db).GetByID("c1")
+	require.NoError(t, err)
+	require.NotNil(t, c)
+	require.Nil(t, c.PackageKey)
+	require.Nil(t, c.ShareIndex)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

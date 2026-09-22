@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 
 	"zorion/internal/models"
@@ -63,9 +64,9 @@ func contractRows(id, status, visibility string, escrow int64) *sqlmock.Rows {
 		"id", "type", "author_type", "author_id", "publication_planet_id", "title", "description",
 		"payload", "reward", "funding", "escrow_amount", "escrow_withdrawable", "escrow_kind",
 		"status", "visibility", "direct_target_type", "direct_target_id", "executor_type",
-		"executor_id", "taken_at", "expires_at", "created_at", "updated_at",
+		"executor_id", "package_key", "share_index", "taken_at", "expires_at", "created_at", "updated_at",
 	}).AddRow(id, "travel", "player", "u1", "p1", "T", "", []byte("{}"),
-		escrow, "regular", escrow, 0, "deposit", status, visibility, nil, nil, nil, nil, nil, n, n, n)
+		escrow, "regular", escrow, 0, "deposit", status, visibility, nil, nil, nil, nil, nil, nil, nil, n, n, n)
 }
 
 // contractReqRows — пустая выборка contract_requirements.
@@ -98,7 +99,7 @@ func expectPublishChain(mock sqlmock.Sqlmock, ownerType, ownerID, authorType, au
 	mock.ExpectExec(`INSERT INTO contracts`).
 		WithArgs(sqlmock.AnyArg(), "travel", authorType, authorID, planetID, "T", "",
 			sqlmock.AnyArg(), reward, "regular", reward, int64(0),
-			"deposit", "open", "public", nil, nil, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+			"deposit", "open", "public", nil, nil, nil, nil, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	// Публикация перелёта гарантирует gear/speed_factor le ref (§1.3).
 	mock.ExpectExec(`INSERT INTO contract_requirements`).
@@ -425,7 +426,7 @@ func TestContractAdminCreateBuilding(t *testing.T) {
 	mock.ExpectExec(`INSERT INTO contracts`).
 		WithArgs(sqlmock.AnyArg(), "travel", "building", "b1", "p1", "T", "",
 			sqlmock.AnyArg(), int64(300), "regular", int64(300), int64(0),
-			"deposit", "open", "public", nil, nil, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+			"deposit", "open", "public", nil, nil, nil, nil, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	// Публикация перелёта гарантирует gear/speed_factor le ref (§1.3).
 	mock.ExpectExec(`INSERT INTO contract_requirements`).
@@ -457,9 +458,9 @@ func contractRowsTravel(id, status, payload string) *sqlmock.Rows {
 		"id", "type", "author_type", "author_id", "publication_planet_id", "title", "description",
 		"payload", "reward", "funding", "escrow_amount", "escrow_withdrawable", "escrow_kind",
 		"status", "visibility", "direct_target_type", "direct_target_id", "executor_type",
-		"executor_id", "taken_at", "expires_at", "created_at", "updated_at",
+		"executor_id", "package_key", "share_index", "taken_at", "expires_at", "created_at", "updated_at",
 	}).AddRow(id, "travel", "player", "u2", "p1", "T", "", []byte(payload),
-		500, "regular", 500, 0, "deposit", status, "public", nil, nil, nil, nil, nil, n, n, n)
+		500, "regular", 500, 0, "deposit", status, "public", nil, nil, nil, nil, nil, nil, nil, n, n, n)
 }
 
 // contractReqRowsGear — одно требование снаряжения (kind='gear').
@@ -578,7 +579,7 @@ func TestContractTakeNotFound(t *testing.T) {
 			"id", "type", "author_type", "author_id", "publication_planet_id", "title", "description",
 			"payload", "reward", "funding", "escrow_amount", "escrow_withdrawable", "escrow_kind",
 			"status", "visibility", "direct_target_type", "direct_target_id", "executor_type",
-			"executor_id", "taken_at", "expires_at", "created_at", "updated_at",
+			"executor_id", "package_key", "share_index", "taken_at", "expires_at", "created_at", "updated_at",
 		}))
 
 	req := withUserID(httptest.NewRequest(http.MethodPost, "/api/contracts/take",
@@ -688,7 +689,7 @@ func TestContractTravelOfferWindowIgnoresClientExpiry(t *testing.T) {
 	mock.ExpectExec(`INSERT INTO contracts`).
 		WithArgs(sqlmock.AnyArg(), "travel", "player", "u1", "p1", "T", "",
 			sqlmock.AnyArg(), int64(500), "regular", int64(500), int64(0),
-			"deposit", "open", "public", nil, nil,
+			"deposit", "open", "public", nil, nil, nil, nil,
 			timeWithin{want: models.TravelOfferWindow(100), tol: 20 * time.Second},
 			sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -731,7 +732,7 @@ func TestContractTravelPreservesExplicitGearRequirement(t *testing.T) {
 	mock.ExpectExec(`INSERT INTO contracts`).
 		WithArgs(sqlmock.AnyArg(), "travel", "player", "u1", "p1", "T", "",
 			sqlmock.AnyArg(), int64(500), "regular", int64(500), int64(0),
-			"deposit", "open", "public", nil, nil, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+			"deposit", "open", "public", nil, nil, nil, nil, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO contract_requirements`).
 		WithArgs(sqlmock.AnyArg(), 1, "gear", "speed_factor", "le", 0.25, nil, nil).
@@ -772,7 +773,7 @@ func TestContractNonTravelKeepsFundingAndNoGearRequirement(t *testing.T) {
 	mock.ExpectExec(`INSERT INTO contracts`).
 		WithArgs(sqlmock.AnyArg(), "supply", "player", "u1", "p1", "T", "",
 			sqlmock.AnyArg(), int64(500), "contract_work", int64(500), int64(0),
-			"deposit", "open", "public", nil, nil, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+			"deposit", "open", "public", nil, nil, nil, nil, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO contract_log`).WillReturnResult(sqlmock.NewResult(0, 1)) // published
 	mock.ExpectExec(`INSERT INTO contract_log`).WillReturnResult(sqlmock.NewResult(0, 1)) // escrow_locked
@@ -817,5 +818,298 @@ func TestContractTakeRejectsSlowerThanRefRequirement(t *testing.T) {
 
 	require.Equal(t, http.StatusBadRequest, rec.Code, "двигатель хуже ref → контракт не берётся")
 	require.Contains(t, rec.Body.String(), "Двигатель")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// contractSupplyRows — строка supply-доли (пакет контрактов, порядок contractColumns).
+func contractSupplyRows(id, status string) *sqlmock.Rows {
+	n := now()
+	pkgKey := "supply:p1:b1:good-1"
+	return sqlmock.NewRows([]string{
+		"id", "type", "author_type", "author_id", "publication_planet_id", "title", "description",
+		"payload", "reward", "funding", "escrow_amount", "escrow_withdrawable", "escrow_kind",
+		"status", "visibility", "direct_target_type", "direct_target_id", "executor_type",
+		"executor_id", "package_key", "share_index", "taken_at", "expires_at", "created_at", "updated_at",
+	}).AddRow(id, "supply", "building", "b1", "p1", "Снабжение", "", []byte("{}"),
+		500, "regular", 500, 0, "deposit", status, "public", nil, nil, nil, nil, pkgKey, 1, nil, n, n, n)
+}
+
+// T14: доска отдаёт package_key/share_index доли пакета (DTO доски §4.5).
+func TestContractBoardShowsPackageFields(t *testing.T) {
+	h, mock := newContractHarness(t)
+
+	expectPlanetByID(mock, "p1", "w1")
+	expectContractUser(mock, "a1", "w1", "admin")
+
+	// Ленивое истечение: нечего истекать (пустой RETURNING) — только транзакция.
+	mock.ExpectBegin()
+	mock.ExpectQuery(`UPDATE contracts\s+SET status = 'expired'`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "author_type", "author_id", "executor_id",
+			"escrow_amount", "escrow_withdrawable"}))
+	mock.ExpectCommit()
+
+	mock.ExpectQuery(`FROM contracts\s+WHERE publication_planet_id = \$1 AND status = 'open' AND expires_at > NOW\(\) AND visibility = 'public'`).
+		WithArgs("p1").
+		WillReturnRows(contractSupplyRows("c1", "open"))
+	mock.ExpectQuery(`SELECT id, contract_id, pos, kind, subject, op,`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(contractReqRows())
+
+	req := withUserID(httptest.NewRequest(http.MethodGet, "/api/planets/p1/contracts", nil), "a1")
+	rec := httptest.NewRecorder()
+	h.GetPlanetBoard(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code, "body=%s", rec.Body.String())
+	require.Contains(t, rec.Body.String(), `"package_key":"supply:p1:b1:good-1"`)
+	require.Contains(t, rec.Body.String(), `"share_index":1`)
+	// F1: денежные внутренности залога в JSON доски не утекают (канон 14_money
+	// §14.4, §4.5): reward — виден, escrow_* — нет.
+	require.Contains(t, rec.Body.String(), `"reward":500`)
+	require.NotContains(t, rec.Body.String(), "escrow_amount")
+	require.NotContains(t, rec.Body.String(), "escrow_withdrawable")
+	require.NotContains(t, rec.Body.String(), "escrow_kind")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Админ-публикация постройкой с полями пакета (§5.7.1 F8, инструмент проверки):
+// package_key/share_index прокидываются в INSERT, обычные публикации их не трогают.
+func TestContractAdminCreateBuildingWithPackage(t *testing.T) {
+	h, mock := newContractHarness(t)
+
+	mock.ExpectQuery(`SELECT planet_id FROM buildings WHERE id = \$1`).
+		WithArgs("b1").
+		WillReturnRows(sqlmock.NewRows([]string{"planet_id"}).AddRow("p1"))
+	expectPlanetByID(mock, "p1", "w1")
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT owner_type, owner_id FROM buildings WHERE id = \$1`).
+		WithArgs("b1").
+		WillReturnRows(sqlmock.NewRows([]string{"owner_type", "owner_id"}).AddRow("faction", "f1"))
+	mock.ExpectExec(`INSERT INTO accounts \(owner_type, owner_id, balance, withdrawable, created_at, updated_at\)`).
+		WithArgs("faction", "f1", int64(1000000000000000)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(`WITH acc AS`).
+		WithArgs("faction", "f1", int64(300)).
+		WillReturnRows(sqlmock.NewRows([]string{"balance", "withdrawable", "least"}).AddRow(1000, 0, 0))
+	mock.ExpectExec(`INSERT INTO contracts`).
+		WithArgs(sqlmock.AnyArg(), "supply", "building", "b1", "p1", "Снабжение", "",
+			sqlmock.AnyArg(), int64(300), "regular", int64(300), int64(0),
+			"deposit", "open", "public", nil, nil, "supply:p1:b1:good-1", 1,
+			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO contract_requirements`).
+		WithArgs(sqlmock.AnyArg(), 1, "goods", "good-1", "in", nil, nil, int64(10)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO contract_log`).WillReturnResult(sqlmock.NewResult(0, 1)) // published
+	mock.ExpectExec(`INSERT INTO contract_log`).WillReturnResult(sqlmock.NewResult(0, 1)) // escrow_locked
+	mock.ExpectExec(`INSERT INTO money_operations`).
+		WithArgs("faction", "f1", int64(-300), sqlmock.AnyArg(), "escrow_lock", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	expectContractGetByID(mock, contractSupplyRows("c1", "open"))
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/contracts", strings.NewReader(
+		`{"planet_id":"p1","type":"supply","title":"Снабжение","reward":300,`+
+			`"author_type":"building","author_id":"b1",`+
+			`"package_key":"supply:p1:b1:good-1","share_index":1,`+
+			`"requirements":[{"kind":"goods","subject":"good-1","op":"in","quantity":10}]}`))
+	rec := httptest.NewRecorder()
+	h.AdminCreateContract(rec, req)
+
+	require.Equal(t, http.StatusCreated, rec.Code, "body=%s", rec.Body.String())
+	require.Contains(t, rec.Body.String(), `"package_key":"supply:p1:b1:good-1"`)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Правило-минимум полей пакета: задано только одно из двух (package_key ИЛИ
+// share_index) → 400, без записи в БД (§4.2).
+func TestContractAdminCreatePackageFieldsRequireBoth(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"только package_key", `{"planet_id":"p1","type":"supply","title":"T","reward":300,` +
+			`"author_type":"building","author_id":"b1","package_key":"supply:p1:b1:good-1"}`},
+		{"только share_index", `{"planet_id":"p1","type":"supply","title":"T","reward":300,` +
+			`"author_type":"building","author_id":"b1","share_index":1}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h, mock := newContractHarness(t)
+			// Планета резолвится по автору до validate (порядок AdminCreateContract).
+			mock.ExpectQuery(`SELECT planet_id FROM buildings WHERE id = \$1`).
+				WithArgs("b1").
+				WillReturnRows(sqlmock.NewRows([]string{"planet_id"}).AddRow("p1"))
+
+			req := httptest.NewRequest(http.MethodPost, "/admin/contracts", strings.NewReader(tc.body))
+			rec := httptest.NewRecorder()
+			h.AdminCreateContract(rec, req)
+
+			require.Equal(t, http.StatusBadRequest, rec.Code, "body=%s", rec.Body.String())
+			require.Contains(t, rec.Body.String(), "package_key")
+			require.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+}
+
+// Поля «пакета контрактов» — инструмент админ-публикации (§5.7.1/§15): игровой
+// POST /api/contracts их не принимает → 400, без записи в БД.
+func TestContractCreatePlayerRejectsPackageFields(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"package_key", `{"planet_id":"p1","type":"supply","title":"T","reward":500,` +
+			`"package_key":"supply:p1:b1:good-1","share_index":1}`},
+		{"share_index", `{"planet_id":"p1","type":"supply","title":"T","reward":500,"share_index":1}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h, mock := newContractHarness(t)
+
+			req := withUserID(httptest.NewRequest(http.MethodPost, "/api/contracts",
+				strings.NewReader(tc.body)), "u1")
+			rec := httptest.NewRecorder()
+			h.CreateContract(rec, req)
+
+			require.Equal(t, http.StatusBadRequest, rec.Code, "body=%s", rec.Body.String())
+			require.Contains(t, rec.Body.String(), "только админ-публикации")
+			require.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+}
+
+// Игровая публикация без полей пакета работает как прежде (регресс-страховка
+// запрета выше): обычный supply-контракт создаётся, package_key/share_index NULL.
+func TestContractCreatePlayerWithoutPackageFields(t *testing.T) {
+	h, mock := newContractHarness(t)
+
+	expectSurfaceUserRole(mock, "u1", "w1", contractPlanetPos, "player")
+	expectPlanetByID(mock, "p1", "w1")
+	expectPlanetByID(mock, "p1", "w1")
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`INSERT INTO accounts \(owner_type, owner_id, balance, withdrawable, created_at, updated_at\)`).
+		WithArgs("player", "u1", int64(10000)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(`WITH acc AS`).
+		WithArgs("player", "u1", int64(500)).
+		WillReturnRows(sqlmock.NewRows([]string{"balance", "withdrawable", "least"}).AddRow(1000, 0, 0))
+	mock.ExpectExec(`INSERT INTO contracts`).
+		WithArgs(sqlmock.AnyArg(), "supply", "player", "u1", "p1", "T", "",
+			sqlmock.AnyArg(), int64(500), "regular", int64(500), int64(0),
+			"deposit", "open", "public", nil, nil, nil, nil, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO contract_log`).WillReturnResult(sqlmock.NewResult(0, 1)) // published
+	mock.ExpectExec(`INSERT INTO contract_log`).WillReturnResult(sqlmock.NewResult(0, 1)) // escrow_locked
+	mock.ExpectExec(`INSERT INTO money_operations`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	expectContractGetByID(mock, contractRows("c1", "open", "public", 500))
+
+	req := withUserID(httptest.NewRequest(http.MethodPost, "/api/contracts",
+		strings.NewReader(`{"planet_id":"p1","type":"supply","title":"T","reward":500}`)), "u1")
+	rec := httptest.NewRecorder()
+	h.CreateContract(rec, req)
+
+	require.Equal(t, http.StatusCreated, rec.Code, "body=%s", rec.Body.String())
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// share_index — позиция доли в пакете, 1..N (§4.2): 0 и отрицательное → 400.
+func TestContractAdminCreateShareIndexRange(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"ноль", `{"planet_id":"p1","type":"supply","title":"T","reward":300,` +
+			`"author_type":"building","author_id":"b1",` +
+			`"package_key":"supply:p1:b1:good-1","share_index":0}`},
+		{"отрицательный", `{"planet_id":"p1","type":"supply","title":"T","reward":300,` +
+			`"author_type":"building","author_id":"b1",` +
+			`"package_key":"supply:p1:b1:good-1","share_index":-1}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h, mock := newContractHarness(t)
+			// Планета резолвится по автору до validate (порядок AdminCreateContract).
+			mock.ExpectQuery(`SELECT planet_id FROM buildings WHERE id = \$1`).
+				WithArgs("b1").
+				WillReturnRows(sqlmock.NewRows([]string{"planet_id"}).AddRow("p1"))
+
+			req := httptest.NewRequest(http.MethodPost, "/admin/contracts", strings.NewReader(tc.body))
+			rec := httptest.NewRecorder()
+			h.AdminCreateContract(rec, req)
+
+			require.Equal(t, http.StatusBadRequest, rec.Code, "body=%s", rec.Body.String())
+			require.Contains(t, rec.Body.String(), "share_index")
+			require.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+}
+
+// F2: дубль открытой доли пакета (нарушение uq_contracts_package_open_share) —
+// 409 с внятным текстом, а не 500.
+func TestContractAdminCreatePackageOpenDuplicate(t *testing.T) {
+	h, mock := newContractHarness(t)
+
+	mock.ExpectQuery(`SELECT planet_id FROM buildings WHERE id = \$1`).
+		WithArgs("b1").
+		WillReturnRows(sqlmock.NewRows([]string{"planet_id"}).AddRow("p1"))
+	expectPlanetByID(mock, "p1", "w1")
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT owner_type, owner_id FROM buildings WHERE id = \$1`).
+		WithArgs("b1").
+		WillReturnRows(sqlmock.NewRows([]string{"owner_type", "owner_id"}).AddRow("faction", "f1"))
+	mock.ExpectExec(`INSERT INTO accounts \(owner_type, owner_id, balance, withdrawable, created_at, updated_at\)`).
+		WithArgs("faction", "f1", int64(1000000000000000)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(`WITH acc AS`).
+		WithArgs("faction", "f1", int64(300)).
+		WillReturnRows(sqlmock.NewRows([]string{"balance", "withdrawable", "least"}).AddRow(1000, 0, 0))
+	mock.ExpectExec(`INSERT INTO contracts`).
+		WillReturnError(&pq.Error{
+			Code:       "23505",
+			Constraint: "uq_contracts_package_open_share",
+			Message:    "duplicate key value violates unique constraint",
+		})
+	mock.ExpectRollback()
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/contracts", strings.NewReader(
+		`{"planet_id":"p1","type":"supply","title":"Снабжение","reward":300,`+
+			`"author_type":"building","author_id":"b1",`+
+			`"package_key":"supply:p1:b1:good-1","share_index":1}`))
+	rec := httptest.NewRecorder()
+	h.AdminCreateContract(rec, req)
+
+	require.Equal(t, http.StatusConflict, rec.Code, "дубль открытой доли → 409, body=%s", rec.Body.String())
+	require.Contains(t, rec.Body.String(), "уже существует")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// T6 (слой API): второй Take доли того же пакета тем же игроком — нарушение
+// уникальности uq_contracts_package_taken_executor → 409 с причиной, а не 500.
+func TestContractTakePackageShareAlreadyTaken(t *testing.T) {
+	h, mock := newContractHarness(t)
+
+	expectContractGetByID(mock, contractSupplyRows("c1", "open"))
+	mock.ExpectBegin()
+	mock.ExpectExec(`UPDATE contracts\s+SET status = 'taken'`).
+		WithArgs("c1", "player", "u1", sqlmock.AnyArg(), nil).
+		WillReturnError(&pq.Error{
+			Code:       "23505",
+			Constraint: "uq_contracts_package_taken_executor",
+			Message:    "duplicate key value violates unique constraint",
+		})
+	mock.ExpectRollback()
+
+	req := withUserID(httptest.NewRequest(http.MethodPost, "/api/contracts/take",
+		strings.NewReader(`{"contract_id":"c1"}`)), "u1")
+	rec := httptest.NewRecorder()
+	h.TakeContract(rec, req)
+
+	require.Equal(t, http.StatusConflict, rec.Code, "повторный Take пакета → 409")
+	require.Contains(t, rec.Body.String(), "взятая доля этого пакета")
 	require.NoError(t, mock.ExpectationsWereMet())
 }

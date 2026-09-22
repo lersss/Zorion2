@@ -64,8 +64,10 @@ export function authorIcon(authorType) {
 
 // requirementText — требование читаемо (§2.1: «двигатель не хуже …»).
 // kind='gear', subject='speed_factor' — единственное требование итерации 1
-// (спека перелёта §1.3, op='le'). Неизвестное требование показывается как есть.
-// threshold_text приходит с сервера — экранируется (stored XSS).
+// (спека перелёта §1.3, op='le'). kind='goods' — требование-поставка (пакет
+// долей, §4.2/§4.5): показывает позицию и объём доли (quantity). Неизвестное
+// требование показывается как есть. threshold_text приходит с сервера —
+// экранируется (stored XSS).
 export function requirementText(req) {
     if (!req) return '';
     if (req.kind === 'gear' && req.subject === 'speed_factor') {
@@ -75,6 +77,10 @@ export function requirementText(req) {
         const op = req.op === 'le' ? 'не хуже' : req.op === 'ge' ? 'не медленнее' : '';
         const val = req.threshold_num != null ? req.threshold_num : '—';
         return op ? `двигатель ${op} ${val}` : `двигатель ${val}`;
+    }
+    if (req.kind === 'goods') {
+        const qty = req.quantity != null ? `: ${escapeHtml(String(req.quantity))} ед.` : '';
+        return escapeHtml(req.subject) + qty;
     }
     if (req.threshold_text) return escapeHtml(req.threshold_text);
     return escapeHtml([req.kind, req.subject, req.op, req.threshold_num].filter(v => v != null && v !== '').join(' '));
@@ -127,15 +133,40 @@ export function contractRowHtml(contract, now) {
         </div>`;
 }
 
+// packageGroupHtml — блок «нужда» (§4.5): открытые доли одной нужды (общий
+// package_key) одним списком под общим заголовком. Заголовок — заголовок доли
+// (у долей одной нужды он общий); строки долей — существующий contractRowHtml
+// (размер доли — из goods-требования, награда и срок — как у строки). Ключ
+// пакета в data-атрибуте экранируется, как и прочие строки с сервера.
+export function packageGroupHtml(packageKey, shares, now) {
+    const list = Array.isArray(shares) ? shares : [];
+    const title = list.length ? (escapeHtml(list[0].title) || '—') : '—';
+    let html = `<div data-contract-package="${escapeHtml(packageKey)}" style="margin:10px 0; padding:8px 10px; border:1px solid #2a2a4a; border-radius:6px;">
+        <div style="color:#fde68a; font-size:0.9rem; text-transform:uppercase;">Нужда: ${title} · ${list.length}</div>`;
+    list.forEach(c => { html += contractRowHtml(c, now); });
+    return html + `</div>`;
+}
+
 // boardHtml — доска планеты (§2.1): живые публичные контракты. Пусто — «нет
 // контрактов». Взятые/закрытые и прямые сервер на доску не отдаёт (§2.1).
+// Открытые доли одной нужды группируются по package_key в один блок «нужда»
+// (§4.5); контракты без пакета (перелёты, ручные публикации) рисуются плоско.
 export function boardHtml(contracts, now) {
     const list = Array.isArray(contracts) ? contracts : [];
     if (list.length === 0) {
         return `<p style="color:#666; text-align:center; padding:12px 0;">Контрактов нет</p>`;
     }
+    const groups = new Map();
+    const flat = [];
+    list.forEach(c => {
+        const key = c && c.package_key;
+        if (!key) { flat.push(c); return; }
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(c);
+    });
     let html = `<p style="color:#888; font-size:0.9rem; text-transform:uppercase;">Контракты (${list.length})</p>`;
-    list.forEach(c => { html += contractRowHtml(c, now); });
+    groups.forEach((shares, key) => { html += packageGroupHtml(key, shares, now); });
+    flat.forEach(c => { html += contractRowHtml(c, now); });
     return html;
 }
 

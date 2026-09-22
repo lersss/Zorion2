@@ -38,6 +38,39 @@ var ErrPayerUnresolved = errors.New("не удалось определить с
 // нет родной планеты, агент-автор не поддержан в итерации 1.
 var ErrPublicationPlanetUnresolved = errors.New("не удалось определить планету публикации")
 
+// ErrPackageShareTaken — у игрока уже есть взятая доля этого пакета (§4.3
+// спеки 2026-09-23-контракт-ленивая-доска-пакет-и-снабжение; несёт частичный
+// уникальный индекс uq_contracts_package_taken_executor). Отличается от
+// обычной гонки взятия (0 строк).
+var ErrPackageShareTaken = errors.New("у вас уже есть взятая доля этого пакета")
+
+// isPackageShareTakenViolation — нарушение уникальности «один игрок — одна
+// взятая доля пакета» (23505 + конкретный индекс). Различаем явно: обычная
+// гонка/истёк срок дают 0 строк без ошибки (§4.3).
+func isPackageShareTakenViolation(err error) bool {
+	var pqErr *pq.Error
+	if !errors.As(err, &pqErr) {
+		return false
+	}
+	return pqErr.Code == "23505" && pqErr.Constraint == "uq_contracts_package_taken_executor"
+}
+
+// ErrPackageShareOpenDuplicate — открытая доля этого пакета с таким номером уже
+// существует (§4.2 спеки 2026-09-23-контракт-ленивая-доска-пакет-и-снабжение;
+// несёт частичный уникальный индекс uq_contracts_package_open_share). Отличается
+// от прочих ошибок публикации — маппится в 409.
+var ErrPackageShareOpenDuplicate = errors.New("открытая доля этого пакета с таким номером уже существует")
+
+// isPackageShareOpenDuplicateViolation — нарушение уникальности «одна открытая
+// доля на (package_key, share_index)» (23505 + конкретный индекс).
+func isPackageShareOpenDuplicateViolation(err error) bool {
+	var pqErr *pq.Error
+	if !errors.As(err, &pqErr) {
+		return false
+	}
+	return pqErr.Code == "23505" && pqErr.Constraint == "uq_contracts_package_open_share"
+}
+
 // querier — общее для *sql.DB и *sql.Tx: методы репозитория работают и в
 // одиночной транзакции, и внутри уже открытой (пути удаления, §6.5).
 type querier interface {
@@ -90,13 +123,18 @@ type PublishContractParams struct {
 	Visibility          string // пусто — public
 	DirectTargetType    *string
 	DirectTargetID      *string
-	ExpiresAt           time.Time
-	Requirements        []models.ContractRequirement
+	// PackageKey/ShareIndex — «пакет контрактов» (§4.2 спеки 2026-09-23-контракт-
+	// ленивая-доска-пакет-и-снабжение): у обычных публикаций (игрок, перелёт) NULL.
+	PackageKey   *string
+	ShareIndex   *int
+	ExpiresAt    time.Time
+	Requirements []models.ContractRequirement
 }
 
 const contractColumns = `id, type, author_type, author_id, publication_planet_id, title, description,
 	payload, reward, funding, escrow_amount, escrow_withdrawable, escrow_kind, status, visibility,
-	direct_target_type, direct_target_id, executor_type, executor_id, taken_at, expires_at, created_at, updated_at`
+	direct_target_type, direct_target_id, executor_type, executor_id, package_key, share_index,
+	taken_at, expires_at, created_at, updated_at`
 
 // contractMineLimit — верхняя граница «моих контрактов» (стоимость не растёт
 // с числом контрактов, инвариант 2).
@@ -139,9 +177,9 @@ const insertContractSQL = `
 	INSERT INTO contracts (
 		id, type, author_type, author_id, publication_planet_id, title, description,
 		payload, reward, funding, escrow_amount, escrow_withdrawable, escrow_kind,
-		status, visibility, direct_target_type, direct_target_id,
+		status, visibility, direct_target_type, direct_target_id, package_key, share_index,
 		expires_at, created_at, updated_at
-	) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`
+	) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`
 
 const insertRequirementSQL = `
 	INSERT INTO contract_requirements (contract_id, pos, kind, subject, op, threshold_num, threshold_text, quantity)
@@ -200,6 +238,9 @@ const returnEscrowForContractsSQL = `
 // ContractRepository — доступ к contracts/contract_requirements/contract_log.
 type ContractRepository struct {
 	db *sql.DB
+	// boardNeeds — источник нужд планеты для ленивой материализации доски
+	// (§5.1, Поставка 2). v1: nil = нужд нет (см. contract_board_repository.go).
+	boardNeeds boardNeedsFunc
 }
 
 func NewContractRepository(db *sql.DB) *ContractRepository {
@@ -275,8 +316,12 @@ func (r *ContractRepository) Publish(p PublishContractParams) (*models.Contract,
 		p.Title, p.Description, string(payloadJSON), p.Reward, funding,
 		p.Reward, escrowWithdrawable, models.EscrowKindDeposit,
 		models.ContractStatusOpen, visibility, p.DirectTargetType, p.DirectTargetID,
+		p.PackageKey, p.ShareIndex,
 		p.ExpiresAt, now, now,
 	); err != nil {
+		if isPackageShareOpenDuplicateViolation(err) {
+			return nil, ErrPackageShareOpenDuplicate
+		}
 		return nil, fmt.Errorf("insert contract: %w", err)
 	}
 
@@ -331,6 +376,9 @@ func (r *ContractRepository) Take(contractID, executorType, executorID string, e
 
 	res, err := tx.Exec(takeContractSQL, contractID, executorType, executorID, now, expiresAt)
 	if err != nil {
+		if isPackageShareTakenViolation(err) {
+			return false, ErrPackageShareTaken
+		}
 		return false, fmt.Errorf("take contract: %w", err)
 	}
 	n, err := res.RowsAffected()
@@ -818,12 +866,14 @@ func scanContract(sc interface {
 	var c models.Contract
 	var payloadRaw []byte
 	var dtt, dti, et, eid sql.NullString
+	var pkg sql.NullString
+	var share sql.NullInt64
 	var takenAt sql.NullTime
 	if err := sc.Scan(
 		&c.ID, &c.Type, &c.AuthorType, &c.AuthorID, &c.PublicationPlanetID,
 		&c.Title, &c.Description, &payloadRaw, &c.Reward, &c.Funding,
 		&c.EscrowAmount, &c.EscrowWithdrawable, &c.EscrowKind, &c.Status, &c.Visibility,
-		&dtt, &dti, &et, &eid, &takenAt, &c.ExpiresAt, &c.CreatedAt, &c.UpdatedAt,
+		&dtt, &dti, &et, &eid, &pkg, &share, &takenAt, &c.ExpiresAt, &c.CreatedAt, &c.UpdatedAt,
 	); err != nil {
 		return nil, err
 	}
@@ -843,6 +893,13 @@ func scanContract(sc interface {
 	}
 	if eid.Valid {
 		c.ExecutorID = &eid.String
+	}
+	if pkg.Valid {
+		c.PackageKey = &pkg.String
+	}
+	if share.Valid {
+		idx := int(share.Int64)
+		c.ShareIndex = &idx
 	}
 	if takenAt.Valid {
 		c.TakenAt = &takenAt.Time

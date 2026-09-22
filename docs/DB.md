@@ -109,6 +109,17 @@ CASCADE. Итерация 3 (добыча из залежи) — без мигр
 универсальном слоте. `player_cargo` **не** входит в `truncateTables` — состояние игрока,
 переживает очистку вселенной (§3.5).
 
+`contract_board_state` (чек-точка ленивой материализации доски планеты, спека
+`2026-09-23-контракт-ленивая-доска-пакет-и-снабжение` §3.1, миграция `000071`):
+`planet_id` UUID PK FK → `planets` ON DELETE CASCADE, `materialized_at`/`updated_at`
+TIMESTAMPTZ `DEFAULT NOW()`; чек-точка **своя** — не `settlements.computed_at` и не
+`settlement_branches.processed_at`. Строка спарсена: появляется только у планеты с нуждами.
+Входит в `truncateTables` (иначе `TRUNCATE planets` падает). Той же миграцией — колонки
+пакета `contracts.package_key` TEXT NULL / `contracts.share_index` INTEGER NULL (NULL —
+контракт вне пакета) и частичные индексы: `uq_contracts_package_open_share
+(package_key, share_index) WHERE status='open'`, `uq_contracts_package_taken_executor
+(package_key, executor_id) WHERE status='taken'`, `idx_contracts_package_open`.
+
 Удалены: `production_units` (легаси 000018-эпохи, снос миграцией `000050`,
 спека `2026-09-20-фабрики` §11.6, решение создателя 3b.6.8), `factories`/
 `goods_batches` (миграция `000034` — имя `factories` свободно), `assignments`
@@ -430,6 +441,15 @@ CASCADE. Итерация 3 (добыча из залежи) — без мигр
   таблица `player_cargo` (FK `users`/`goods` CASCADE, `quantity >= 0`,
   PK `(user_id, good_id)`). `player_cargo` — состояние игрока, **не** в
   `truncateTables` (переживает очистку вселенной).
+- `000071` — `000071_contract_board.sql` — контракт как состояние: чек-точка
+  ленивой доски + «пакет контрактов» (спека
+  `2026-09-23-контракт-ленивая-доска-пакет-и-снабжение` §3.1/§4.2, Поставка 1/ЧК1):
+  таблица `contract_board_state` (FK `planets` CASCADE, **в** `truncateTables`),
+  колонки `contracts.package_key`/`share_index` (NULL — вне пакета), частичные
+  уникальные индексы `uq_contracts_package_open_share` / `uq_contracts_package_taken_executor`
+  и индекс `idx_contracts_package_open`. Идёт после `000062_contracts.sql`; номер
+  подтверждён менеджером (`000070` зарезервирован спекой
+  `2026-09-22-эффекты-снабжения-задержка-голод`).
 - Миграции, вступающие в силу на старте, требуют перезапуска сервера
   (`AGENTS.md` §4 п.13).
 - `VACUUM` внутрь миграции не положить — не работает внутри транзакции

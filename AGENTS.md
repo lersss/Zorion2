@@ -95,9 +95,7 @@ internal/
   resource/              — ресурсы
   names/  travel/        — имена, полёты
   mapcache/              — карта из снапшота в памяти
-  core/                  — черновики, не подключены
 migrations/              — SQL (см. docs/DB.md)
-pkg/                     — черновики (simulation, worldgen)
 web/                     — HTML + static/{css,js,sprites}
   static/js/map/         — карта (Canvas, кластеры)
   static/js/modal/       — модалка системы

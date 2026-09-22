@@ -210,8 +210,6 @@
 ### 99.3.8. Технические
 
 - **`internal/planet_image.go`** — генерирует текстуры по старому `type`.
-- **`pkg/simulation/batch/`** и **`pkg/worldgen/`** — черновики.
-- **`internal/core/location_batch.go`** — нерабочий импорт.
 
 ### 99.3.9. Известные баги
 

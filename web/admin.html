@@ -758,8 +758,12 @@
                         <option value="cold">Холод (°C)</option>
                         <option value="gravity">Гравитация (g)</option>
                         <option value="radiation">Радиация (rad)</option>
+                        <option value="hunger">Голод (нагрузка, сило-ч)</option>
                     </select>
                 </div>
+                <div id="balancerRecoveryRow" style="display:none;"><label>Восстановление, сило-ч/ч
+                    <input type="number" id="balancerRecovery" step="any" min="0" style="width:110px;" value="0.25">
+                </label></div>
                 <div><label>Шкала Y</label>
                     <div class="seg seg-sm" id="balancerScaleSeg">
                         <button type="button" class="seg-btn active" data-scale="log">лог</button>

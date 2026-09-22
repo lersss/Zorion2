@@ -65,20 +65,12 @@ func TestMortalityPreviewComfortablePlanetHasZeroLambda(t *testing.T) {
 		sqlmock.NewRows([]string{"id", "world_id", "name", "orbit_index", "data", "created_at", "updated_at"}).
 			AddRow("p1", "w1", "Уютная", 1, `{"temperature":288,"gravity":1.0}`, now, now),
 	)
-	mock.ExpectQuery(`
-		SELECT s.id, s.planet_id, s.population, s.population_exact, s.stability, s.computed_at, s.created_at, s.updated_at, s.race_id, s.settlement_type_id, pt.name, pt.params->'eat'
-		FROM settlements s
-		LEFT JOIN producer_types pt ON pt.id = s.settlement_type_id
-		WHERE s.planet_id = ANY($1) ORDER BY s.created_at ASC
-	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(
-		sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id", "settlement_type_id", "name", "eat"}).
-			AddRow("s1", "p1", 1_000_000, float64(1_000_000), 60, now, now, now, nil, nil, nil, nil),
+	mock.ExpectQuery(settlementSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(
+		sqlmock.NewRows(settlementSelectCols()).
+			AddRow("s1", "p1", 1_000_000, float64(1_000_000), 60, now, now, now, nil, nil, nil, nil, nil),
 	)
-	// Ветки поселения (спека 2026-09-22-поселение-ветка-буферы-переработка
-	// §4.2): у поселения s1 веток нет — пустая выборка (attachBranches идёт
-	// ПОСЛЕ пересчёта населения и до чтения лога).
-	mock.ExpectQuery(`SELECT b.id, b.settlement_id, b.recipe_id, b.processed_at, r.good_id, og.name, r.complexity FROM settlement_branches b JOIN recipes r ON r.id = b.recipe_id JOIN goods og ON og.id = r.good_id WHERE b.settlement_id = ANY($1) ORDER BY b.created_at ASC, b.id ASC`).
-		WithArgs(sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"id", "settlement_id", "recipe_id", "processed_at", "good_id", "name", "complexity"}))
+	// Owner-проход: веток у поселения s1 нет — путь «в памяти», до чтения лога.
+	expectOwnerPassEmpty(mock)
 	// attachSettlements читает лог поселения (18b §«Лог поселения») — пусто.
 	mock.ExpectQuery(`
 		SELECT id, settlement_id, type, occurred_at, cause, created_at
@@ -128,13 +120,8 @@ func TestMortalityPreviewP0Override(t *testing.T) {
 		sqlmock.NewRows([]string{"id", "world_id", "name", "orbit_index", "data", "created_at", "updated_at"}).
 			AddRow("p1", "w1", "Без поселений", 1, `{"temperature":288,"gravity":1.0}`, now, now),
 	)
-	mock.ExpectQuery(`
-		SELECT s.id, s.planet_id, s.population, s.population_exact, s.stability, s.computed_at, s.created_at, s.updated_at, s.race_id, s.settlement_type_id, pt.name, pt.params->'eat'
-		FROM settlements s
-		LEFT JOIN producer_types pt ON pt.id = s.settlement_type_id
-		WHERE s.planet_id = ANY($1) ORDER BY s.created_at ASC
-	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(
-		sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id", "settlement_type_id", "name", "eat"}),
+	mock.ExpectQuery(settlementSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(
+		sqlmock.NewRows(settlementSelectCols()),
 	)
 
 	// Фракции/строения планеты (спека 2026-09-21-фабрики-релиз-2) — пусто.
@@ -174,13 +161,8 @@ func TestMortalityPreviewRaceID(t *testing.T) {
 		sqlmock.NewRows([]string{"id", "world_id", "name", "orbit_index", "data", "created_at", "updated_at"}).
 			AddRow("p1", "w1", "Аммиачный дом", 1, `{"temperature":215,"gravity":1.0}`, now, now),
 	)
-	mock.ExpectQuery(`
-		SELECT s.id, s.planet_id, s.population, s.population_exact, s.stability, s.computed_at, s.created_at, s.updated_at, s.race_id, s.settlement_type_id, pt.name, pt.params->'eat'
-		FROM settlements s
-		LEFT JOIN producer_types pt ON pt.id = s.settlement_type_id
-		WHERE s.planet_id = ANY($1) ORDER BY s.created_at ASC
-	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(
-		sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id", "settlement_type_id", "name", "eat"}),
+	mock.ExpectQuery(settlementSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(
+		sqlmock.NewRows(settlementSelectCols()),
 	)
 
 	// Фракции/строения планеты (спека 2026-09-21-фабрики-релиз-2) — пусто.
@@ -239,13 +221,8 @@ func TestMortalityPreviewUninhabitable(t *testing.T) {
 				sqlmock.NewRows([]string{"id", "world_id", "name", "orbit_index", "data", "created_at", "updated_at"}).
 					AddRow("p1", "w1", "Необитаемая", 1, fmt.Sprintf(`{"temperature":%v,"gravity":1.0}`, tc.temp), now, now),
 			)
-			mock.ExpectQuery(`
-				SELECT s.id, s.planet_id, s.population, s.population_exact, s.stability, s.computed_at, s.created_at, s.updated_at, s.race_id, s.settlement_type_id, pt.name, pt.params->'eat'
-				FROM settlements s
-				LEFT JOIN producer_types pt ON pt.id = s.settlement_type_id
-				WHERE s.planet_id = ANY($1) ORDER BY s.created_at ASC
-			`).WithArgs(sqlmock.AnyArg()).WillReturnRows(
-				sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id", "settlement_type_id", "name", "eat"}),
+			mock.ExpectQuery(settlementSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(
+				sqlmock.NewRows(settlementSelectCols()),
 			)
 
 			// Фракции/строения планеты (спека 2026-09-21-фабрики-релиз-2) — пусто.

@@ -22,9 +22,10 @@ import (
 const BranchRateK = 2.78e-8
 
 // DefaultEatK — норма еды по умолчанию, батч/(чел·ч): фолбэк, когда у типа
-// поселения нет записи params.eat для товара-выхода ветки (спека итерации 4
-// §3.2/§4.2). Одно утверждённое число с миграцией 000067 и Go-сидом (§8, T18):
-// согласованность трёх мест закреплена тестом.
+// поселения нет записи params.eat для ПОЗИЦИИ корзины (спека итерации 4 §3.2/
+// §4.2; ключ переехал с товара-выхода на позицию — спека 2026-09-22-эффекты-
+// снабжения §4.2). Одно утверждённое число с миграцией 000070 и Go-сидом (§8,
+// T18): согласованность трёх мест закреплена тестом.
 const DefaultEatK = 2.5e-8
 
 // BranchComponent — заполненный компонент рецепта ветки (recipe_components,
@@ -60,18 +61,11 @@ type Branch struct {
 	Output      float64
 	ProcessedAt time.Time
 	Deposits    map[int64][]DepositLot
-	// EatByGood — структура норм еды типа поселения (producer_types.params.eat,
-	// спека итерации 4 §3.2): ключ — name_norm товара-выхода рецепта, значение —
-	// норма батч/(чел·ч). Запись есть (в т.ч. явный 0) — берём буквально;
-	// отсутствует/NULL → DefaultEatK. Нормы разных товаров изолированы (п.45).
-	EatByGood map[string]float64
-	// OutputGoodNorm — name_norm товара-выхода рецепта ветки: ключ выборки нормы
-	// из EatByGood (§4.1/§4.2). Пусто — записи нет → DefaultEatK.
-	OutputGoodNorm string
-	// ProducedLast / EatenLast — транзитные результаты последнего прохода (для
-	// карточки, §6): сколько произведено и сколько съедено за Δt. Не состояние БД.
+	// ProducedLast — транзитный результат последнего прохода (для карточки,
+	// §6): сколько произведено за Δt. Не состояние БД. Потребление населением
+	// из ProcessBranch УБРАНО (спека 2026-09-22-эффекты-снабжения §4.1/§10.9):
+	// нужда населения — слой потребности (needs.go), а не хвост ветки.
 	ProducedLast float64
-	EatenLast    float64
 }
 
 // BranchRate — батчей в час: k · population / max(1, complexity). complexity
@@ -84,12 +78,13 @@ func BranchRate(population float64, complexity *int) float64 {
 	return BranchRateK * population / float64(c)
 }
 
-// EatK — норма еды типа поселения для товара-выхода ветки (спека итерации 4
-// §3.2): запись params.eat[goodNorm] есть → берём буквально (в т.ч. явный 0 —
-// «этот товар не едят»); записи нет / структуры нет → DefaultEatK. Единая
-// семантика для всех путей (T6/T8/T19); нормы разных товаров изолированы (п.45).
-func EatK(eatByGood map[string]float64, goodNorm string) float64 {
-	if k, ok := eatByGood[goodNorm]; ok {
+// EatK — норма еды типа поселения для ПОЗИЦИИ корзины (спека итерации 4 §3.2;
+// ключ — позиция, спека 2026-09-22-эффекты-снабжения §4.2): запись
+// params.eat[position] есть → берём буквально (в т.ч. явный 0 — «не ест»);
+// записи нет / структуры нет → DefaultEatK. Единая семантика для слоя
+// потребности (T2/T6/T8/T19); нормы разных позиций изолированы (п.45).
+func EatK(eat map[string]float64, position string) float64 {
+	if k, ok := eat[position]; ok {
 		return k
 	}
 	return DefaultEatK
@@ -107,11 +102,13 @@ func EatK(eatByGood map[string]float64, goodNorm string) float64 {
 //	потребление_i = batches · quantity_i: сначала из input_i, остаток — из
 //	                залежей (от крупной к мелкой, amount DESC, id ASC)
 //	output    += batches
-//	eat_k     = EatK(EatByGood, товар-выход ветки)  (params.eat[<товар>], иначе DefaultEatK)
-//	eaten     = min(eat_k · population · hours, output)       (кламп ≥ 0)
-//	output    -= eaten
 //	processed_at = now
 //
+// Хвоста `eaten` НЕТ (спека 2026-09-22-эффекты-снабжения §4.1/§4.2, решение
+// создателя 2026-09-23 «производство и потребности — разные слои»): вход
+// рецепта — производство, нужда населения — слой потребности (needs.go);
+// физическое списание выходного буфера делает он же (единственная точка записи
+// O0_b + batches_b − drawn_b). Ветка возвращает объём производства (ProducedLast).
 // Идемпотентна: после записи processed_at = now повторный вызов с тем же now
 // даёт Δt = 0 → без изменений. Дефицит источников — естественный предел
 // (batches = affordable); ни вход, ни залежи в минус не уходят (кламп ≥ 0).
@@ -165,15 +162,6 @@ func ProcessBranch(b Branch, now time.Time) Branch {
 	}
 	out.Output = b.Output + batches
 	out.ProducedLast = batches
-	// Потребление — хвост того же прохода (спека итерации 4 §4.1): порядок
-	// жёсткий «производство → потребление»; eaten клампится остатком выхода
-	// (output ≥ 0), голода нет (п.35).
-	eaten := math.Min(EatK(b.EatByGood, b.OutputGoodNorm)*b.Population*hours, out.Output)
-	if eaten < 0 {
-		eaten = 0
-	}
-	out.Output -= eaten
-	out.EatenLast = eaten
 	out.ProcessedAt = now
 	return out
 }

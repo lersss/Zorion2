@@ -91,14 +91,13 @@ func RadiationChangeRate(rad float64) float64 {
 	return evaluateCurve(c.Nodes, c.Bends, rad)
 }
 
-// ChangeComponents — полная рекурсивная компонента изменения населения за
-// 1 секунду, r (99.2.12, 99.2.13, 99.2.16): сумма всех слагаемых —
-// R_ест + R_рожд + R_жара + R_холод + R_гравитация + R_радиация. Единая
-// точка сборки: новые источники (убыль/рост) добавляются здесь. λ-механизма
-// нет (всё рекурсией, 99.2.13). Гвард r ≥ 1 (мгновенная гибель) — в Population.
-// Расовый путь (99.2.23 §3.2): RaceID ≠ NULL/"humans" → active-кривые расы
-// из расового store; человеческая модель (NULL и "humans") не меняется.
-func ChangeComponents(input PlanetInput) float64 {
+// EnvComponents — средовая (без эффектов) рекурсивная компонента изменения
+// населения за 1 секунду: R_ест + R_рожд + R_жара + R_холод + R_гравитация +
+// R_радиация. Человеческая модель ИЛИ расовая (RaceID ≠ NULL/"humans" →
+// changeComponentsRace) — вынесено отдельно, чтобы Recompute считал вклад
+// эффектов посегментно через EffectForcePoint, а не через ChangeComponents
+// (иначе двойной учёт, спека 2026-09-22-эффекты-снабжения §5.3).
+func EnvComponents(input PlanetInput) float64 {
 	if input.RaceID != "" && input.RaceID != "humans" {
 		return changeComponentsRace(input)
 	}
@@ -108,6 +107,23 @@ func ChangeComponents(input PlanetInput) float64 {
 		ColdChangeRate(input.TemperatureK) +
 		GravityChangeRate(input.GravityG) +
 		RadiationChangeRate(input.CoreRadioactivity)
+}
+
+// ChangeComponents — полная рекурсивная компонента изменения населения за
+// 1 секунду, r (99.2.12, 99.2.13, 99.2.16): EnvComponents (среда, человеческая
+// или расовая) + Σ R_e(AsOf) — вклад эффектов в сегменте, содержащем AsOf
+// (спека 2026-09-22-эффекты-снабжения §5.2/§5.3). Единая точка сборки для
+// «точечных» потребителей (DeathTime/Projection/витрина): новые источники
+// (убыль/рост) добавляются здесь. λ-механизма нет (всё рекурсией, 99.2.13).
+// Гвард r ≥ 1 (мгновенная гибель) — в Population. RaceID ≠ NULL/"humans" →
+// active-кривые расы; расовые поселения голодают наравне (вклад эффекта —
+// после диспетчеризации, О10/§7.2).
+func ChangeComponents(input PlanetInput) float64 {
+	r := EnvComponents(input)
+	for _, p := range input.Effects {
+		r += p.RateAt(input.AsOf)
+	}
+	return r
 }
 
 // changeComponentsRace — расовая R-модель (99.2.23 §3.2):

@@ -22,12 +22,15 @@ import (
 	"time"
 )
 
-// BalancerPreset — пресет кривой одной компоненты (§5).
+// BalancerPreset — пресет кривой одной компоненты (§5). Recovery — скаляр
+// `recovery` эффект-компоненты (`hunger`, §7.1): nullable — старые пресеты
+// heat/cold/gravity/radiation читаются как nil, поведение не меняется.
 type BalancerPreset struct {
 	Name      string        `json:"name"`
 	Component string        `json:"component"`
 	Nodes     []SegmentNode `json:"nodes"`
 	Bends     []float64     `json:"bends"`
+	Recovery  *float64      `json:"recovery,omitempty"`
 	UpdatedAt time.Time     `json:"updated_at"`
 }
 
@@ -63,7 +66,30 @@ var balancerPresetState = balancerPresetLayer{
 var ErrPresetNotFound = errors.New("пресет не найден")
 
 // balancerComponentOrder — стабильный порядок компонент (map — нестабильный).
-var balancerComponentOrder = []string{"heat", "cold", "gravity", "radiation"}
+var balancerComponentOrder = []string{"heat", "cold", "gravity", "radiation", HungerCurveKey}
+
+// presetRecovery — скаляр `recovery` пресета: у эффект-компоненты заполнен
+// (nil → заводское значение, обратная совместимость старых файлов, §7.1); у
+// не-эффект-компонент скаляра нет (ok=false).
+func presetRecovery(component string, p *BalancerPreset) (float64, bool) {
+	if !effectComponents[component] {
+		return 0, false
+	}
+	if p != nil && p.Recovery != nil {
+		return *p.Recovery, true
+	}
+	return defaultComponentScalar(component), true
+}
+
+// presetRecoveryPtr — указатель на скаляр пресета для записи в файл (nil для
+// не-эффект-компонент).
+func presetRecoveryPtr(component string, value float64) *float64 {
+	if !effectComponents[component] {
+		return nil
+	}
+	v := value
+	return &v
+}
 
 // presetNameRe — допустимые символы имени пресета: буквы любых алфавитов
 // (включая кириллицу), цифры, подчёркивание, дефис, пробел (§6).
@@ -139,20 +165,32 @@ func LoadBalancerPresets(path string) error {
 			changed = true
 			continue
 		}
+		if p.Recovery != nil && *p.Recovery < 0 {
+			log.Printf("balancer presets: пресет %q/%q пропущен: recovery < 0 (%v)", p.Name, p.Component, *p.Recovery)
+			changed = true
+			continue
+		}
 		balancerPresetState.presets = append(balancerPresetState.presets, clonePreset(&p))
 	}
 
 	// Активные пресеты → SetCurve; отсутствующий/невалидный — fallback на
-	// default (кривая = кодовый дефолт, active перезаписывается).
+	// default (кривая = кодовый дефолт, active перезаписывается). Скаляр
+	// `recovery` эффект-компоненты восстанавливается вместе с кривой (§7.1).
 	for _, comp := range balancerComponentOrder {
 		p := findPreset(comp, f.Active[comp])
 		if p == nil || !ValidComponent(p.Component) {
 			balancerCurveStore.curves[comp] = defaultCurve(comp)
+			if effectComponents[comp] {
+				balancerCurveStore.scalars[comp] = defaultComponentScalar(comp)
+			}
 			balancerPresetState.active[comp] = "default"
 			changed = true
 			continue
 		}
 		balancerCurveStore.curves[comp] = cloneCurve(&ComponentCurve{Nodes: p.Nodes, Bends: p.Bends})
+		if v, ok := presetRecovery(comp, p); ok {
+			balancerCurveStore.scalars[comp] = v
+		}
 		balancerPresetState.active[comp] = p.Name
 	}
 
@@ -166,6 +204,7 @@ func LoadBalancerPresets(path string) error {
 				Component: comp,
 				Nodes:     append([]SegmentNode(nil), d.Nodes...),
 				Bends:     append([]float64(nil), d.Bends...),
+				Recovery:  presetRecoveryPtr(comp, defaultComponentScalar(comp)),
 				UpdatedAt: time.Now().UTC(),
 			})
 			changed = true
@@ -193,6 +232,7 @@ func createPresetsFileLocked(path string) error {
 			Component: comp,
 			Nodes:     append([]SegmentNode(nil), d.Nodes...),
 			Bends:     append([]float64(nil), d.Bends...),
+			Recovery:  presetRecoveryPtr(comp, defaultComponentScalar(comp)),
 			UpdatedAt: now,
 		})
 		f.Active[comp] = "default"
@@ -272,7 +312,7 @@ func ListPresets(component string) ([]BalancerPresetSummary, string, bool) {
 // атомарно. Валидация имени → error (422 на уровне хендлера).
 func SavePreset(component, name string) (BalancerPreset, error) {
 	if !ValidComponent(component) {
-		return BalancerPreset{}, fmt.Errorf("неизвестная компонента %q (heat/cold/gravity/radiation)", component)
+		return BalancerPreset{}, fmt.Errorf("неизвестная компонента %q (heat/cold/gravity/radiation/hunger)", component)
 	}
 	if err := validatePresetName(name); err != nil {
 		return BalancerPreset{}, err
@@ -290,6 +330,7 @@ func SavePreset(component, name string) (BalancerPreset, error) {
 		Component: component,
 		Nodes:     append([]SegmentNode(nil), c.Nodes...),
 		Bends:     append([]float64(nil), c.Bends...),
+		Recovery:  presetRecoveryPtr(component, balancerCurveStore.scalars[component]),
 		UpdatedAt: time.Now().UTC(),
 	}
 	upsertPreset(p)
@@ -305,7 +346,7 @@ func SavePreset(component, name string) (BalancerPreset, error) {
 // Невалидные данные (файл правили руками) → error (422), store не меняется.
 func ApplyPreset(component, name string) ([]SegmentNode, []float64, error) {
 	if !ValidComponent(component) {
-		return nil, nil, fmt.Errorf("неизвестная компонента %q (heat/cold/gravity/radiation)", component)
+		return nil, nil, fmt.Errorf("неизвестная компонента %q (heat/cold/gravity/radiation/hunger)", component)
 	}
 	if err := validatePresetName(name); err != nil {
 		return nil, nil, err
@@ -321,7 +362,13 @@ func ApplyPreset(component, name string) ([]SegmentNode, []float64, error) {
 	if err := validateCurve(component, ComponentCurve{Nodes: p.Nodes, Bends: p.Bends}); err != nil {
 		return nil, nil, fmt.Errorf("пресет %q/%q невалиден: %w", name, component, err)
 	}
+	if p.Recovery != nil && *p.Recovery < 0 {
+		return nil, nil, fmt.Errorf("пресет %q/%q невалиден: recovery < 0 (%v)", name, component, *p.Recovery)
+	}
 	balancerCurveStore.curves[component] = cloneCurve(&ComponentCurve{Nodes: p.Nodes, Bends: p.Bends})
+	if v, ok := presetRecovery(component, p); ok {
+		balancerCurveStore.scalars[component] = v
+	}
 	balancerPresetState.active[component] = name
 	if err := writePresetsFileLocked(); err != nil {
 		log.Printf("balancer presets: запись файла: %v (пресет сессионный)", err)
@@ -334,7 +381,7 @@ func ApplyPreset(component, name string) ([]SegmentNode, []float64, error) {
 // (удаление пресета не сбрасывает активную кривую).
 func DeletePreset(component, name string) error {
 	if !ValidComponent(component) {
-		return fmt.Errorf("неизвестная компонента %q (heat/cold/gravity/radiation)", component)
+		return fmt.Errorf("неизвестная компонента %q (heat/cold/gravity/radiation/hunger)", component)
 	}
 	if name == "default" {
 		return fmt.Errorf("default — заводской пресет; используйте \"Вернуть заводской\" (reset-default)")
@@ -367,7 +414,7 @@ func DeletePreset(component, name string) error {
 // пресет default перезаписан кодовыми узлами + active = default + файл.
 func ResetDefaultPreset(component string) ([]SegmentNode, []float64, error) {
 	if !ValidComponent(component) {
-		return nil, nil, fmt.Errorf("неизвестная компонента %q (heat/cold/gravity/radiation)", component)
+		return nil, nil, fmt.Errorf("неизвестная компонента %q (heat/cold/gravity/radiation/hunger)", component)
 	}
 
 	balancerCurveStore.mu.Lock()
@@ -375,11 +422,15 @@ func ResetDefaultPreset(component string) ([]SegmentNode, []float64, error) {
 
 	d := defaultCurve(component)
 	balancerCurveStore.curves[component] = cloneCurve(d)
+	if v, ok := presetRecovery(component, nil); ok {
+		balancerCurveStore.scalars[component] = v
+	}
 	upsertPreset(BalancerPreset{
 		Name:      "default",
 		Component: component,
 		Nodes:     append([]SegmentNode(nil), d.Nodes...),
 		Bends:     append([]float64(nil), d.Bends...),
+		Recovery:  presetRecoveryPtr(component, defaultComponentScalar(component)),
 		UpdatedAt: time.Now().UTC(),
 	})
 	balancerPresetState.active[component] = "default"
@@ -418,6 +469,10 @@ func clonePreset(p *BalancerPreset) BalancerPreset {
 	out := *p
 	out.Nodes = append([]SegmentNode(nil), p.Nodes...)
 	out.Bends = append([]float64(nil), p.Bends...)
+	if p.Recovery != nil {
+		v := *p.Recovery
+		out.Recovery = &v
+	}
 	return out
 }
 

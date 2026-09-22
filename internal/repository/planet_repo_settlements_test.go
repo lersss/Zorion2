@@ -13,6 +13,38 @@ import (
 	"zorion/internal/races"
 )
 
+// settlementsQuery — запрос поселений планет с типом (нормы eat + привязки
+// effects, спека 2026-09-22-эффекты-снабжения §4.2).
+const settlementsQuery = `
+	SELECT s.id, s.planet_id, s.population, s.population_exact, s.stability, s.computed_at,
+	                 s.created_at, s.updated_at, s.race_id, s.settlement_type_id, pt.name,
+	                 pt.params->'eat', pt.params->'effects'
+	          FROM settlements s
+	          LEFT JOIN producer_types pt ON pt.id = s.settlement_type_id
+	          WHERE s.planet_id = ANY($1) ORDER BY s.created_at ASC`
+
+const settlementLogQuery = `
+		SELECT id, settlement_id, type, occurred_at, cause, created_at
+		FROM (
+			SELECT id, settlement_id, type, occurred_at, cause, created_at,
+			       ROW_NUMBER() OVER (PARTITION BY settlement_id ORDER BY occurred_at DESC) AS rn
+			FROM settlement_log
+			WHERE settlement_id = ANY($1)
+		) sub
+		WHERE rn <= 3
+		ORDER BY occurred_at DESC`
+
+// settlementCols — колонки выборки поселений.
+func settlementCols() []string {
+	return []string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id", "settlement_type_id", "name", "eat", "effects"}
+}
+
+// expectEmptySettlementLog — лог поселений пуст.
+func expectEmptySettlementLog(mock sqlmock.Sqlmock) {
+	mock.ExpectQuery(settlementLogQuery).WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "settlement_id", "type", "occurred_at", "cause", "created_at"}))
+}
+
 // GetPlanetsByWorldID подтягивает поселения и считает население планеты
 // как сумму населения её поселений. Планета без поселений — население 0.
 func TestGetPlanetsByWorldIDWithSettlements(t *testing.T) {
@@ -32,45 +64,18 @@ func TestGetPlanetsByWorldIDWithSettlements(t *testing.T) {
 		ORDER BY orbit_index ASC
 	`).WithArgs("w1").WillReturnRows(planetRows)
 
-	settlementRows := sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id", "settlement_type_id", "name", "eat"}).
-		AddRow("s1", "p1", 5_000_000, float64(5_000_000), 60, now, now, now, nil, nil, nil, nil).
-		AddRow("s2", "p1", 8_000_000, float64(8_000_000), 70, now, now, now, nil, nil, nil, nil)
+	settlementRows := sqlmock.NewRows(settlementCols()).
+		AddRow("s1", "p1", 5_000_000, float64(5_000_000), 60, now, now, now, nil, nil, nil, nil, nil).
+		AddRow("s2", "p1", 8_000_000, float64(8_000_000), 70, now, now, now, nil, nil, nil, nil, nil)
+	mock.ExpectQuery(settlementsQuery).WithArgs(sqlmock.AnyArg()).WillReturnRows(settlementRows)
 
-	mock.ExpectQuery(`
-		SELECT s.id, s.planet_id, s.population, s.population_exact, s.stability, s.computed_at, s.created_at, s.updated_at, s.race_id, s.settlement_type_id, pt.name, pt.params->'eat'
-		FROM settlements s
-		LEFT JOIN producer_types pt ON pt.id = s.settlement_type_id
-		WHERE s.planet_id = ANY($1) ORDER BY s.created_at ASC
-	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(settlementRows)
+	// Owner-проход: у поселений веток нет и computed_at = now (Δt < порога) —
+	// путь «в памяти», записей в БД нет.
+	expectOwnerPassNoBranches(mock, nil)
+	expectEmptySettlementLog(mock)
 
-	// attachBranches (спека 2026-09-22-поселение-ветка-буферы-переработка
-	// §4.2): у поселений веток нет — пустая выборка; идёт после пересчёта
-	// населения и до чтения лога.
-	expectEmptyBranches(mock)
-
-	// attachSettlements читает лог поселений (18b §«Лог поселения») — пусто.
-	mock.ExpectQuery(`
-		SELECT id, settlement_id, type, occurred_at, cause, created_at
-		FROM (
-			SELECT id, settlement_id, type, occurred_at, cause, created_at,
-			       ROW_NUMBER() OVER (PARTITION BY settlement_id ORDER BY occurred_at DESC) AS rn
-			FROM settlement_log
-			WHERE settlement_id = ANY($1)
-		) sub
-		WHERE rn <= 3
-		ORDER BY occurred_at DESC
-	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"id", "settlement_id", "type", "occurred_at", "cause", "created_at"}))
-
-	// attachFactionsAndBuildings — фракций/строений у планет нет (спека
-	// 2026-09-21-фабрики-релиз-2-столицы-фракций §6).
 	expectEmptyFactionsBuildings(mock)
 	expectEmptyDeposits(mock)
-
-	// Открытие карточки системы триггерит пересчёт населения (18a_population_death.md);
-	// computed_at = now, т.е. Δt < MinPersistInterval — «простой визит»: пересчёт
-	// только в памяти, записей в БД нет. Планета p1 — комфортная (288 K, R=0, λ=0):
-	// население не меняется (0 K дала бы жёсткий ноль холода и обнулила тест —
-	// см. флак из-за кванта time.Now). Тест про группировку, не про физику.
 
 	planets, err := NewPlanetRepository(db).GetPlanetsByWorldID("w1")
 	require.NoError(t, err)
@@ -95,11 +100,9 @@ func TestGetPlanetsByWorldIDOrbitContext(t *testing.T) {
 
 	now := time.Now()
 	planetRows := sqlmock.NewRows([]string{"id", "world_id", "name", "orbit_index", "data", "created_at", "updated_at"}).
-		// P-планета: циркумбинарная, вокруг барицентра пары.
 		AddRow("pP", "w1", "Циркумбинарная", 1,
 			`{"life":false,"habitable":false,"orbit_center":"barycenter","orbit_radius_au":0.9,"circumbinary":true}`,
 			now, now).
-		// S-планета: вокруг главной.
 		AddRow("pS", "w1", "С-тип", 2,
 			`{"life":false,"habitable":false,"orbit_center":"main","orbit_radius_au":0.68}`,
 			now, now)
@@ -111,16 +114,8 @@ func TestGetPlanetsByWorldIDOrbitContext(t *testing.T) {
 		ORDER BY orbit_index ASC
 	`).WithArgs("w1").WillReturnRows(planetRows)
 
-	// attachSettlements: поселений нет — settlements-запрос возвращает пусто,
-	// settlement_log при пустом ids не запрашивается (GetSettlementLogBySettlementIDs).
-	mock.ExpectQuery(`
-		SELECT s.id, s.planet_id, s.population, s.population_exact, s.stability, s.computed_at, s.created_at, s.updated_at, s.race_id, s.settlement_type_id, pt.name, pt.params->'eat'
-		FROM settlements s
-		LEFT JOIN producer_types pt ON pt.id = s.settlement_type_id
-		WHERE s.planet_id = ANY($1) ORDER BY s.created_at ASC
-	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id", "settlement_type_id", "name", "eat"}))
-
-	// attachFactionsAndBuildings — фракций/строений у планет нет (§6).
+	mock.ExpectQuery(settlementsQuery).WithArgs(sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows(settlementCols()))
+	// поселений нет — owner-проход не запускается, лог не запрашивается.
 	expectEmptyFactionsBuildings(mock)
 	expectEmptyDeposits(mock)
 
@@ -129,19 +124,13 @@ func TestGetPlanetsByWorldIDOrbitContext(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 
 	require.Len(t, planets, 2)
-
-	// P-планета: поля доехали из data.
 	assert.Equal(t, "barycenter", planets[0].OrbitCenter, "P: orbit_center=barycenter")
 	assert.InDelta(t, 0.9, planets[0].OrbitRadiusAU, 1e-9, "P: orbit_radius_au=3a")
 	assert.True(t, planets[0].Circumbinary, "P: circumbinary=true")
-
-	// S-планета.
 	assert.Equal(t, "main", planets[1].OrbitCenter, "S: orbit_center=main")
 	assert.InDelta(t, 0.68, planets[1].OrbitRadiusAU, 1e-9, "S: фактический радиус")
 	assert.False(t, planets[1].Circumbinary)
 
-	// Сериализация как в API-ответе (/api/worlds/{id}/planets отдаёт
-	// []models.Planet целиком): ключи в snake_case присутствуют.
 	raw, err := json.Marshal(planets[0])
 	require.NoError(t, err)
 	var obj map[string]interface{}
@@ -158,17 +147,12 @@ func TestGetSettlementsByPlanetIDs(t *testing.T) {
 	defer db.Close()
 
 	now := time.Now()
-	rows := sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id", "settlement_type_id", "name", "eat"}).
-		AddRow("s1", "p1", 100, float64(100), 50, now, now, now, nil, nil, nil, nil).
-		AddRow("s2", "p2", 200, float64(200), 60, now, now, now, "humans", nil, nil, nil).
-		AddRow("s3", "p1", 300, float64(300), 70, now, now, now, nil, nil, nil, nil)
+	rows := sqlmock.NewRows(settlementCols()).
+		AddRow("s1", "p1", 100, float64(100), 50, now, now, now, nil, nil, nil, nil, nil).
+		AddRow("s2", "p2", 200, float64(200), 60, now, now, now, "humans", nil, nil, nil, nil).
+		AddRow("s3", "p1", 300, float64(300), 70, now, now, now, nil, nil, nil, nil, nil)
 
-	mock.ExpectQuery(`
-		SELECT s.id, s.planet_id, s.population, s.population_exact, s.stability, s.computed_at, s.created_at, s.updated_at, s.race_id, s.settlement_type_id, pt.name, pt.params->'eat'
-		FROM settlements s
-		LEFT JOIN producer_types pt ON pt.id = s.settlement_type_id
-		WHERE s.planet_id = ANY($1) ORDER BY s.created_at ASC
-	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(rows)
+	mock.ExpectQuery(settlementsQuery).WithArgs(sqlmock.AnyArg()).WillReturnRows(rows)
 
 	byPlanet, err := NewEconomyRepository(db).GetSettlementsByPlanetIDs([]string{"p1", "p2"})
 	require.NoError(t, err)
@@ -212,33 +196,13 @@ func TestGetPlanetsByWorldIDRaceName(t *testing.T) {
 		ORDER BY orbit_index ASC
 	`).WithArgs("w1").WillReturnRows(planetRows)
 
-	// NULL race_id (легаси/люди) + раса из каталога (sulfur_nests → «Серные гнёзда»).
-	settlementRows := sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id", "settlement_type_id", "name", "eat"}).
-		AddRow("s1", "p1", 5_000_000, float64(5_000_000), 60, now, now, now, nil, nil, nil, nil).
-		AddRow("s2", "p1", 8_000_000, float64(8_000_000), 70, now, now, now, "sulfur_nests", nil, nil, nil)
+	settlementRows := sqlmock.NewRows(settlementCols()).
+		AddRow("s1", "p1", 5_000_000, float64(5_000_000), 60, now, now, now, nil, nil, nil, nil, nil).
+		AddRow("s2", "p1", 8_000_000, float64(8_000_000), 70, now, now, now, "sulfur_nests", nil, nil, nil, nil)
+	mock.ExpectQuery(settlementsQuery).WithArgs(sqlmock.AnyArg()).WillReturnRows(settlementRows)
 
-	mock.ExpectQuery(`
-		SELECT s.id, s.planet_id, s.population, s.population_exact, s.stability, s.computed_at, s.created_at, s.updated_at, s.race_id, s.settlement_type_id, pt.name, pt.params->'eat'
-		FROM settlements s
-		LEFT JOIN producer_types pt ON pt.id = s.settlement_type_id
-		WHERE s.planet_id = ANY($1) ORDER BY s.created_at ASC
-	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(settlementRows)
-
-	expectEmptyBranches(mock)
-
-	mock.ExpectQuery(`
-		SELECT id, settlement_id, type, occurred_at, cause, created_at
-		FROM (
-			SELECT id, settlement_id, type, occurred_at, cause, created_at,
-			       ROW_NUMBER() OVER (PARTITION BY settlement_id ORDER BY occurred_at DESC) AS rn
-			FROM settlement_log
-			WHERE settlement_id = ANY($1)
-		) sub
-		WHERE rn <= 3
-		ORDER BY occurred_at DESC
-	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"id", "settlement_id", "type", "occurred_at", "cause", "created_at"}))
-
-	// attachFactionsAndBuildings — фракций/строений у планеты нет (§6).
+	expectOwnerPassNoBranches(mock, nil)
+	expectEmptySettlementLog(mock)
 	expectEmptyFactionsBuildings(mock)
 	expectEmptyDeposits(mock)
 
@@ -251,8 +215,6 @@ func TestGetPlanetsByWorldIDRaceName(t *testing.T) {
 	assert.Equal(t, "Люди", planets[0].Settlements[0].RaceName, "NULL race_id → «Люди»")
 	assert.Equal(t, "Серные гнёзда", planets[0].Settlements[1].RaceName, "имя из каталога рас")
 
-	// JSON-вывод как в API-ответе: race_name присутствует, race_id — только
-	// у расового поселения (omitempty).
 	raw, err := json.Marshal(planets[0].Settlements[0])
 	require.NoError(t, err)
 	var obj map[string]interface{}
@@ -267,82 +229,50 @@ func TestGetPlanetsByWorldIDRaceName(t *testing.T) {
 	assert.Equal(t, "sulfur_nests", obj["race_id"])
 }
 
-// T6/T8 (итерация 4, находка ревью 2026-09-22): норма типа (`params.eat`)
-// доходит от чтения поселения через пересчёт населения («событие») до синка
-// веток — а не подменяется константой DefaultEatK. Поселение проходит
-// Δt ≥ MinPersistInterval; ветка — путь «в памяти», компонентов нет
-// (производство 0), выход только убывает на еду по норме своего товара.
-func TestAttachSettlementsCarriesTypeEatNorm(t *testing.T) {
+// TestAttachSettlementsOwnerPass — owner-проход: население и ветки считаются
+// ДО населения (порядок «производство → потребность → население», §4.1), а
+// хвоста `eaten` в ProcessBranch больше нет — выход = O0_b + batches_b − drawn_b
+// (при полном покрытии drawn = 0, выход растёт на всё производство).
+func TestAttachSettlementsOwnerPass(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
 	require.NoError(t, err)
 	defer db.Close()
 
 	now := time.Now()
-	computedAt := now.Add(-24 * time.Hour) // Δt ≥ MinPersistInterval → путь «событие»
+	computedAt := now.Add(-24 * time.Hour) // Δt ≥ MinPersistInterval → персистентный путь
 
-	// Поселение с типом и нормой «пища» = 1e-8 (≠ DefaultEatK = 2.5e-8).
-	settlementRows := sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id", "settlement_type_id", "name", "eat"}).
-		AddRow("s1", "p1", 1_000_000_000, float64(1_000_000_000), 85, computedAt, computedAt, computedAt, nil, int64(148), "Обычное поселение", []byte(`{"пища": 1e-8}`))
-	mock.ExpectQuery(`
-		SELECT s.id, s.planet_id, s.population, s.population_exact, s.stability, s.computed_at, s.created_at, s.updated_at, s.race_id, s.settlement_type_id, pt.name, pt.params->'eat'
-		FROM settlements s
-		LEFT JOIN producer_types pt ON pt.id = s.settlement_type_id
-		WHERE s.planet_id = ANY($1) ORDER BY s.created_at ASC
-	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(settlementRows)
+	settlementRows := sqlmock.NewRows(settlementCols()).
+		AddRow("s1", "p1", 1_000_000_000, float64(1_000_000_000), 85, computedAt, computedAt, computedAt, nil, int64(148), "Обычное поселение",
+			[]byte(`{"продовольствие": 2.5e-08}`), []byte(`{"продовольствие": "голод"}`))
+	mock.ExpectQuery(settlementsQuery).WithArgs(sqlmock.AnyArg()).WillReturnRows(settlementRows)
 
-	// Пересчёт населения — путь «событие» (транзакция).
+	expectOwnerPassWithBranches(mock, ownerBranchRows(computedAt, "продовольствие"), ownerComponentRows(), ownerBufferRows(), nil)
+
 	mock.ExpectBegin()
-	mock.ExpectQuery(`
-		SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at, race_id
-		FROM settlements WHERE id = $1 FOR UPDATE`).
-		WithArgs("s1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id"}).
-			AddRow("s1", "p1", 1_000_000_000, float64(1_000_000_000), 85, computedAt, computedAt, computedAt, ""))
-	mock.ExpectExec(`
-		UPDATE settlements SET population = $1, population_exact = $2, computed_at = $3, updated_at = NOW()
-		WHERE id = $4`).
+	mock.ExpectExec(advisoryOwnerLockSQL).WithArgs("s1").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(settlementLockSQL).WithArgs("s1").
+		WillReturnRows(sqlmock.NewRows([]string{"population", "population_exact", "computed_at", "created_at", "race_id"}).
+			AddRow(1_000_000_000, float64(1_000_000_000), computedAt, computedAt, ""))
+	mock.ExpectQuery(branchSelectBySettlementForUpdateSQL).WithArgs("s1").
+		WillReturnRows(ownerBranchRows(computedAt, "продовольствие"))
+	mock.ExpectQuery(branchBuffersSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(ownerBufferRows())
+	mock.ExpectQuery(branchComponentsSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(ownerComponentRows())
+	mock.ExpectExec(branchTopUpInputSQL).WithArgs("b1", int64(359)).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(depositExtractionSelectSQL).WithArgs("p1", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "good_id", "amount"}))
+	// Точные объёмы зависят от миллисекунд между `now` теста и внутренним
+	// `time.Now()` attachSettlements — суммы проверяются по знаку/порядку ниже.
+	mock.ExpectExec(branchWriteInputSQL).WithArgs(sqlmock.AnyArg(), "b1", int64(359)).WillReturnResult(sqlmock.NewResult(0, 1))
+	// Выход = 0 + batches(24 ч · 27.8/ч) − 0 ≈ 667.2 — ветка не «ест» сама.
+	mock.ExpectExec(branchWriteOutputSQL).WithArgs("b1", int64(378), sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(branchWriteCheckpointSQL).WithArgs(sqlmock.AnyArg(), "b1").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(activeEffectUpsertSQL).WithArgs(int64(1), "s1", "продовольствие", sqlmock.AnyArg(), amountNear{0.0}).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(settlementPopulationWriteSQL).WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "s1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	// Ветка «Пища» — путь «в памяти» (Δt < MinPersistInterval), компонентов нет.
-	mock.ExpectQuery(`
-		SELECT b.id, b.settlement_id, b.recipe_id, b.processed_at, r.good_id, og.name, r.complexity
-		FROM settlement_branches b
-		JOIN recipes r ON r.id = b.recipe_id
-		JOIN goods og ON og.id = r.good_id
-		WHERE b.settlement_id = ANY($1)
-		ORDER BY b.created_at ASC, b.id ASC
-	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(
-		sqlmock.NewRows([]string{"id", "settlement_id", "recipe_id", "processed_at", "good_id", "name", "complexity"}).
-			AddRow("b1", "s1", int64(69), now.Add(-time.Minute), int64(378), "Пища", int64(1)))
-	mock.ExpectQuery(`
-		SELECT rc.recipe_id, rc.component_id, rc.quantity
-		FROM recipe_components rc
-		WHERE rc.recipe_id = ANY($1) AND rc.component_id IS NOT NULL
-		ORDER BY rc.recipe_id, rc.pos
-	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"recipe_id", "component_id", "quantity"}))
-	mock.ExpectQuery(`
-		SELECT bb.branch_id, bb.direction, bb.good_id, g.name, bb.amount
-		FROM settlement_branch_buffers bb
-		JOIN goods g ON g.id = bb.good_id
-		WHERE bb.branch_id = ANY($1)
-		ORDER BY bb.branch_id, bb.direction, bb.good_id
-	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(
-		sqlmock.NewRows([]string{"branch_id", "direction", "good_id", "name", "amount"}).
-			AddRow("b1", "output", int64(378), "Пища", 1000.0))
-
-	// Лог поселения — пусто.
-	mock.ExpectQuery(`
-		SELECT id, settlement_id, type, occurred_at, cause, created_at
-		FROM (
-			SELECT id, settlement_id, type, occurred_at, cause, created_at,
-			       ROW_NUMBER() OVER (PARTITION BY settlement_id ORDER BY occurred_at DESC) AS rn
-			FROM settlement_log
-			WHERE settlement_id = ANY($1)
-		) sub
-		WHERE rn <= 3
-		ORDER BY occurred_at DESC
-	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"id", "settlement_id", "type", "occurred_at", "cause", "created_at"}))
+	expectEmptySettlementLog(mock)
 
 	planets := []models.Planet{{ID: "p1", Temperature: 288, Gravity: 1.0}}
 	require.NoError(t, NewPlanetRepository(db).attachSettlements(planets))
@@ -351,11 +281,7 @@ func TestAttachSettlementsCarriesTypeEatNorm(t *testing.T) {
 	require.Len(t, planets[0].Settlements, 1)
 	branches := planets[0].Settlements[0].Branches
 	require.Len(t, branches, 1)
-	// eaten = 1e-8 · 1e9 · (1/60 ч) = 0.1667 (не 0.4167 = DefaultEatK):
-	// выход 1000 − 0.1667 = 999.8333. Допуск 1e-3 — под нагрузкой Δt ветки
-	// включает миллисекунды между now теста и пересчётом (различие норм 0.25).
-	require.InDelta(t, 1000.0-10.0/60.0, branches[0].Output[0].Amount, 1e-3,
-		"норма params.eat обязана дойти до синка веток (не подменяться DefaultEatK)")
-	require.InDelta(t, 1e-8*1e9/3600, branches[0].EatenRate, 1e-12,
-		"скорость поедания — по норме типа")
+	require.InDelta(t, 667.2, branches[0].Output[0].Amount, 1.0,
+		"выход = O0_b + batches_b − drawn_b; хвоста eaten в ProcessBranch нет")
+	require.Zero(t, branches[0].Eaten, "списания нет — позиция покрыта производством")
 }

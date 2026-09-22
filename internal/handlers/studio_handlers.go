@@ -30,6 +30,7 @@ type StudioHandlers struct {
 	repo     *repository.GoodsRepository
 	deposits *repository.DepositRepository
 	branches *repository.BranchRepository
+	effects  *repository.EffectRepository
 	ai       *ai.Client
 	aiModel  string
 
@@ -58,6 +59,7 @@ func NewStudioHandlers(db *sql.DB, aiClient *ai.Client, aiModel string) *StudioH
 		repo:     repository.NewGoodsRepository(db),
 		deposits: repository.NewDepositRepository(db),
 		branches: repository.NewBranchRepository(db),
+		effects:  repository.NewEffectRepository(db),
 		ai:       aiClient,
 		aiModel:  aiModel,
 	}

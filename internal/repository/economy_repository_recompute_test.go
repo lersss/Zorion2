@@ -84,7 +84,8 @@ func TestRecomputeSettlementPopulationEventKeepsTypeAndEat(t *testing.T) {
 	s := loadSettlement("s1", 1_000_000, since)
 	s.SettlementTypeID = 148
 	s.TypeName = "Обычное поселение"
-	s.EatByGood = map[string]float64{"пища": 1e-8}
+	s.EatByPosition = map[string]float64{"продовольствие": 1e-8}
+	s.EffectsByPosition = map[string]string{"продовольствие": "голод"}
 
 	input := settlement.PlanetInput{TemperatureK: 288, GravityG: 1.0, CoreRadioactivity: 5}
 	got, err := NewEconomyRepository(db).RecomputeSettlementPopulation(s, input, now)
@@ -94,8 +95,10 @@ func TestRecomputeSettlementPopulationEventKeepsTypeAndEat(t *testing.T) {
 	require.Equal(t, int64(148), got.SettlementTypeID,
 		"путь «событие» не должен терять тип поселения")
 	require.Equal(t, "Обычное поселение", got.TypeName)
-	require.Equal(t, 1e-8, got.EatByGood["пища"],
-		"путь «событие» не должен терять нормы params.eat (иначе ветка ест по DefaultEatK)")
+	require.Equal(t, 1e-8, got.EatByPosition["продовольствие"],
+		"путь «событие» не должен терять нормы params.eat (иначе спрос — по DefaultEatK)")
+	require.Equal(t, "голод", got.EffectsByPosition["продовольствие"],
+		"путь «событие» не должен терять привязки params.effects (§4.2)")
 }
 
 // «Событие» на жаркой планете: население убывает, чек-точка продвигается.

@@ -16,6 +16,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"zorion/internal/economy/settlement"
@@ -37,6 +38,18 @@ type raceCurveResponse struct {
 	ActiveEqualsFactory  bool                     `json:"active_equals_factory"`
 	BirthRateCoefficient float64                  `json:"birth_rate_coefficient"`
 	NaturalRatePerSec    float64                  `json:"natural_rate_per_sec"`
+}
+
+// balancerRaceComponentOK — компонента допустима для РАСОВОГО балансировщика
+// (§7.2: только heat/cold/gravity/radiation; `hunger` — глобальная): иначе 422
+// (не 500 от nil-кривой расового store).
+func balancerRaceComponentOK(w http.ResponseWriter, component string) bool {
+	if settlement.IsRaceComponent(component) {
+		return true
+	}
+	writeJSONError(w, fmt.Sprintf("компонента %q недоступна для расы (только heat/cold/gravity/radiation)", component),
+		http.StatusUnprocessableEntity)
+	return false
 }
 
 // raceBalancerRaceOK — race_id: непустой, из каталога, не humans (спец-случай
@@ -97,7 +110,7 @@ func (h *AdminHandlers) GetRaceBalancerCurve(w http.ResponseWriter, r *http.Requ
 	if !raceBalancerRaceOK(w, raceID) {
 		return
 	}
-	if !balancerComponentOK(w, component) {
+	if !balancerRaceComponentOK(w, component) {
 		return
 	}
 	rec, ok := settlement.GetRaceRecordMeta(raceID)
@@ -122,15 +135,22 @@ func (h *AdminHandlers) PutRaceBalancerCurve(w http.ResponseWriter, r *http.Requ
 	if !raceBalancerRaceOK(w, raceID) {
 		return
 	}
-	if !balancerComponentOK(w, component) {
+	if !balancerRaceComponentOK(w, component) {
 		return
 	}
 	var req struct {
-		Nodes []settlement.SegmentNode `json:"nodes"`
-		Bends []float64                `json:"bends"`
+		Nodes    []settlement.SegmentNode `json:"nodes"`
+		Bends    []float64                `json:"bends"`
+		Recovery *float64                 `json:"recovery"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSONError(w, "Некорректное тело запроса", http.StatusUnprocessableEntity)
+		return
+	}
+	// recovery — скаляр глобальной компоненты «Балансировки» (§7.1); расовый
+	// балансировщик его не принимает (T30) — явный 422, а не тихое игнорирование.
+	if req.Recovery != nil {
+		writeJSONError(w, "recovery — скаляр глобальной компоненты; расовый балансировщик его не принимает", http.StatusUnprocessableEntity)
 		return
 	}
 	if err := settlement.SetRaceCurve(raceID, component, settlement.ComponentCurve{
@@ -236,7 +256,7 @@ func (h *AdminHandlers) HandleRaceBalancerFactory(w http.ResponseWriter, r *http
 	if !raceBalancerRaceOK(w, raceID) {
 		return
 	}
-	if !balancerComponentOK(w, component) {
+	if !balancerRaceComponentOK(w, component) {
 		return
 	}
 	rec, ok := settlement.GetRaceRecordMeta(raceID)

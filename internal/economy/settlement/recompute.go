@@ -1,6 +1,9 @@
 package settlement
 
-import "time"
+import (
+	"sort"
+	"time"
+)
 
 // NDead — порог (абсолютное число людей), ниже которого население считается
 // вымершим и обнуляется целиком, а не тает дальше дробно. Стыковка с уже
@@ -28,16 +31,67 @@ var MinPersistInterval = 30 * time.Minute
 // тот же результат, что один (рекурсия — функция от времени, а не числа
 // пересчётов). Ниже NDead — население обнуляется, а не продолжает таять
 // дробно (механизм 18_needs; порог температуры — p < 1 внутри Population).
+// Эффекты (опционально, спека 2026-09-22-эффекты-снабжения-задержка-голод
+// §5.1/§5.3): Recompute идёт КУСОЧНО по границам EffectForcePoint —
+// R_i = EnvComponents(input) + Σ p.Rate(сегмент b_i); он НЕ вызывает
+// ChangeComponents (иначе вклад эффекта попал бы дважды). Вклад покрывает
+// ровно [computed_at, now): сегменты ниже since отсекаются. Инвариант
+// аддитивности сохранён — два последовательных пересчёта дают то же, что один.
 func Recompute(input PlanetInput, populationExact float64, since time.Time, now time.Time, createdAt time.Time) float64 {
-	deltaSeconds := now.Sub(since).Seconds()
-	if deltaSeconds <= 0 {
+	if now.Sub(since).Seconds() <= 0 {
 		return populationExact
 	}
 
-	r := ChangeComponents(input)
-	next := Population(populationExact, r, deltaSeconds)
-	if next < NDead {
-		return 0
+	env := EnvComponents(input)
+	bounds := effectBoundaries(input.Effects, since, now)
+	next := populationExact
+	for i := 0; i+1 < len(bounds); i++ {
+		s, e := bounds[i], bounds[i+1]
+		if !e.After(s) {
+			continue
+		}
+		r := env + effectsRateAt(input.Effects, s, e)
+		next = Population(next, r, e.Sub(s).Seconds())
+		if next < NDead {
+			return 0
+		}
 	}
 	return next
+}
+
+// effectBoundaries — границы сегментов [since, now] с добавлением точек
+// разрыва силы эффектов (Since/Until строго внутри интервала), отсортированные
+// и без дублей. Без эффектов — ровно [since, now].
+func effectBoundaries(effects []EffectForcePoint, since, now time.Time) []time.Time {
+	bounds := []time.Time{since, now}
+	for _, p := range effects {
+		if p.Since.After(since) && p.Since.Before(now) {
+			bounds = append(bounds, p.Since)
+		}
+		if p.Until.After(since) && p.Until.Before(now) {
+			bounds = append(bounds, p.Until)
+		}
+	}
+	sort.Slice(bounds, func(i, j int) bool { return bounds[i].Before(bounds[j]) })
+	out := bounds[:0:0]
+	for _, b := range bounds {
+		if len(out) == 0 || out[len(out)-1].Before(b) {
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
+// effectsRateAt — суммарная сила эффектов на сегменте [s, e): берётся сила
+// точки, покрывающей середину сегмента (кусочно-постоянна, §5.1).
+func effectsRateAt(effects []EffectForcePoint, s, e time.Time) float64 {
+	if len(effects) == 0 {
+		return 0
+	}
+	mid := s.Add(e.Sub(s) / 2)
+	var sum float64
+	for _, p := range effects {
+		sum += p.RateAt(mid)
+	}
+	return sum
 }

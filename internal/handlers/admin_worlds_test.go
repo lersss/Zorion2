@@ -19,19 +19,34 @@ import (
 
 // galaxyReportRows — 3 поселения на 2 мирах (температуры: 290 K — лёгкая
 // убыль, 320 K — жара, 280 K — холод): итог 3500, тренд убыли, w1 = 1500,
-// w2 = 2000. race_id — NULL (человеческая модель, 99.2.23 §2.2).
+// w2 = 2000. race_id — NULL (человеческая модель, 99.2.23 §2.2), effects —
+// NULL (привязок нет, R = 0).
 func galaxyReportRows(now time.Time) *sqlmock.Rows {
-	return sqlmock.NewRows([]string{"w_id", "p_data", "population_exact", "computed_at", "created_at", "race_id"}).
-		AddRow("w1", `{"temperature":290,"gravity":1.0}`, 1000.0, now, now, nil).
-		AddRow("w1", `{"temperature":320,"gravity":1.0}`, 500.0, now, now, nil).
-		AddRow("w2", `{"temperature":280,"gravity":1.0}`, 2000.0, now, now, nil)
+	return sqlmock.NewRows([]string{"w_id", "p_data", "id", "population_exact", "computed_at", "created_at", "race_id", "effects"}).
+		AddRow("w1", `{"temperature":290,"gravity":1.0}`, "s1", 1000.0, now, now, nil, nil).
+		AddRow("w1", `{"temperature":320,"gravity":1.0}`, "s2", 500.0, now, now, nil, nil).
+		AddRow("w2", `{"temperature":280,"gravity":1.0}`, "s3", 2000.0, now, now, nil, nil)
 }
 
 const galaxyReportSQL = `
-	SELECT w.id, p.data, s.population_exact, s.computed_at, s.created_at, s.race_id
+	SELECT w.id, p.data, s.id, s.population_exact, s.computed_at, s.created_at, s.race_id,
+	       pt.params->'effects'
 	FROM settlements s
 	JOIN planets p ON p.id = s.planet_id
-	JOIN worlds w ON w.id = p.world_id`
+	JOIN worlds w ON w.id = p.world_id
+	LEFT JOIN producer_types pt ON pt.id = s.settlement_type_id`
+
+// expectGalaxyActiveEffects — хранимая нагрузка поселений отчёта (пусто).
+func expectGalaxyActiveEffects(mock sqlmock.Sqlmock) {
+	mock.ExpectQuery(`
+		SELECT ae.effect_type_id, COALESCE(ae.source_position, ''), ae.load, ae.load_at,
+		       et.impact, COALESCE(et.params->>'curve', ''), ae.owner_id
+		FROM active_effects ae
+		JOIN effect_types et ON et.id = ae.effect_type_id
+		WHERE ae.owner_type = 'settlement' AND ae.owner_id = ANY($1)
+	`).WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"effect_type_id", "source_position", "load", "load_at", "impact", "curve", "owner_id"}))
+}
 
 func worldRow(id, name string, now time.Time) []driver.Value {
 	return []driver.Value{id, name, 0.0, 0.0, "G", 5778, "star", "single", nil, nil, nil, now, now}
@@ -48,6 +63,7 @@ func TestGetAllWorldsWithGalaxyPopulation(t *testing.T) {
 
 	// Отчёт по галактике.
 	mock.ExpectQuery(galaxyReportSQL).WillReturnRows(galaxyReportRows(now))
+	expectGalaxyActiveEffects(mock)
 
 	// Пагинация миров по имени (search пустой).
 	mock.ExpectQuery(`SELECT COUNT(*) FROM worlds`).
@@ -99,6 +115,7 @@ func TestGetAllWorldsSortByPopulationDesc(t *testing.T) {
 	now := time.Now()
 
 	mock.ExpectQuery(galaxyReportSQL).WillReturnRows(galaxyReportRows(now))
+	expectGalaxyActiveEffects(mock)
 
 	// Без пагинации грузятся все миры (GetAll), сортировка в Go.
 	mock.ExpectQuery(`SELECT id, name, coord_x, coord_y, COALESCE(spectral_class,''), temperature, star_type, system_type, stellar_mods, stellar_mass, age, created_at, updated_at FROM worlds ORDER BY name`).
@@ -138,6 +155,7 @@ func TestGetAllWorldsSortByPopulationAsc(t *testing.T) {
 	now := time.Now()
 
 	mock.ExpectQuery(galaxyReportSQL).WillReturnRows(galaxyReportRows(now))
+	expectGalaxyActiveEffects(mock)
 	mock.ExpectQuery(`SELECT id, name, coord_x, coord_y, COALESCE(spectral_class,''), temperature, star_type, system_type, stellar_mods, stellar_mass, age, created_at, updated_at FROM worlds ORDER BY name`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "coord_x", "coord_y", "spectral_class", "temperature", "star_type", "system_type", "stellar_mods", "stellar_mass", "age", "created_at", "updated_at"}).
 			AddRow(worldRow("w1", "Альфа", now)...).
@@ -169,7 +187,7 @@ func TestGetAllWorldsEmptyGalaxy(t *testing.T) {
 
 	now := time.Now()
 
-	mock.ExpectQuery(galaxyReportSQL).WillReturnRows(sqlmock.NewRows([]string{"w_id", "p_data", "population_exact", "computed_at", "created_at"}))
+	mock.ExpectQuery(galaxyReportSQL).WillReturnRows(sqlmock.NewRows([]string{"w_id", "p_data", "id", "population_exact", "computed_at", "created_at", "race_id", "effects"}))
 	mock.ExpectQuery(`SELECT COUNT(*) FROM worlds`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	mock.ExpectQuery(`SELECT id, name, coord_x, coord_y, COALESCE(spectral_class,''), temperature, star_type, system_type, stellar_mods, stellar_mass, age, created_at, updated_at FROM worlds ORDER BY name LIMIT $1 OFFSET $2`).

@@ -126,6 +126,61 @@ func defaultGravityCurve() *ComponentCurve {
 	}
 }
 
+// defaultHungerCurve — кривая силы эффекта «голод», 8 узлов (спека
+// 2026-09-22-эффекты-снабжения-задержка-голод §8.1): ось X — НАГРУЗКА
+// (сило-часы; при w=1 = часы), Y — R (доля/сек). Нулевой префикс 0..24 —
+// порог включения (1 сутки полного условия); плато 1e-7/сек от 456 (≈19 суток).
+// Числа — гипотеза (@balancetester, В2), не калибровано.
+func defaultHungerCurve() *ComponentCurve {
+	return &ComponentCurve{
+		Nodes: []SegmentNode{
+			{X: 0, Y: 0},
+			{X: 24, Y: 0},
+			{X: 48, Y: 1e-8},
+			{X: 120, Y: 3e-8},
+			{X: 240, Y: 6e-8},
+			{X: 360, Y: 8.5e-8},
+			{X: 456, Y: 1e-7},
+			{X: 4320, Y: 1e-7},
+		},
+		Bends: []float64{-1.0, -1.5, -1.2, -0.9, -0.5, -0.2, 0.0},
+	}
+}
+
+// ZeroPrefixThreshold — порог включения: X последнего подряд идущего узла
+// кривой с Y = 0 (нулевой префикс, §4.4). Нулевого префикса нет → 0.
+func ZeroPrefixThreshold(nodes []SegmentNode) float64 {
+	var threshold float64
+	for _, n := range nodes {
+		if n.Y != 0 {
+			break
+		}
+		threshold = n.X
+	}
+	return threshold
+}
+
+// BalancerCurveLookup — резолв кривой R(X) из store «Балансировки» по ссылке
+// (effect_types.params.curve, §7.1): возвращает неизменяемую функцию (store
+// заменяет указатель атомарно — читать после RUnlock безопасно).
+func BalancerCurveLookup(curveKey string) (EffectCurveEval, bool) {
+	c, ok := getCurveRef(curveKey)
+	if !ok {
+		return nil, false
+	}
+	nodes, bends := c.Nodes, c.Bends
+	return func(load float64) float64 { return evaluateCurve(nodes, bends, load) }, true
+}
+
+// BalancerCurveThreshold — порог (нулевой префикс) кривой из store по ссылке.
+func BalancerCurveThreshold(curveKey string) (float64, bool) {
+	c, ok := getCurveRef(curveKey)
+	if !ok {
+		return 0, false
+	}
+	return ZeroPrefixThreshold(c.Nodes), true
+}
+
 // defaultRadiationCurve — радиация, 6 узлов (§3): порог 20 rad (фон),
 // степенная 6.9 выше. Контрольные точки 99.2.13: 0 → 0, 20 → 0,
 // 40 → 6.64e-8, 60 → 7.93e-6, 80 → 1.30e-4, 100 → 9.47e-4.

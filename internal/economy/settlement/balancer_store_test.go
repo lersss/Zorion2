@@ -14,7 +14,7 @@ import (
 // resetAllCurves — восстановление дефолтов всех компонент (t.Cleanup).
 func resetAllCurves(t *testing.T) {
 	t.Helper()
-	for _, c := range []string{"heat", "cold", "gravity", "radiation"} {
+	for _, c := range []string{"heat", "cold", "gravity", "radiation", HungerCurveKey} {
 		if err := ResetCurve(c); err != nil {
 			t.Fatalf("ResetCurve(%q): %v", c, err)
 		}

@@ -17,12 +17,12 @@ import (
 	"zorion/internal/economy/settlement"
 )
 
-// resetBalancer — восстановление дефолтов всех компонент.
+// resetBalancer — восстановление дефолтов всех компонент (кривые + скаляр).
 func resetBalancer(t *testing.T) {
 	t.Helper()
-	for _, c := range []string{"heat", "cold", "gravity", "radiation"} {
-		if err := settlement.ResetCurve(c); err != nil {
-			t.Fatalf("ResetCurve(%q): %v", c, err)
+	for _, c := range []string{"heat", "cold", "gravity", "radiation", settlement.HungerCurveKey} {
+		if err := settlement.ResetCurveWithScalar(c); err != nil {
+			t.Fatalf("ResetCurveWithScalar(%q): %v", c, err)
 		}
 	}
 }

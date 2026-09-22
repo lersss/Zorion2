@@ -25,10 +25,18 @@ type Settlement struct {
 	SettlementTypeID int64 `json:"type_id,omitempty"`
 	// TypeName — имя типа поселения (JSON-вывод, не колонка БД), как RaceName.
 	TypeName string `json:"type_name,omitempty"`
-	// EatByGood — структура норм еды типа поселения (producer_types.params.eat),
-	// внутреннее поле для синка веток (ключ — name_norm товара-выхода, §3.2/§3.3);
-	// в JSON не выводится (нормы живут в студии, §6).
-	EatByGood map[string]float64 `json:"-"`
+	// EatByPosition — структура норм еды типа поселения (producer_types.params.eat),
+	// внутреннее поле для слоя потребности (ключ — name_norm ПОЗИЦИИ корзины,
+	// спека 2026-09-22-эффекты-снабжения §4.2); в JSON не выводится (нормы живут
+	// в студии, §6).
+	EatByPosition map[string]float64 `json:"-"`
+	// EffectsByPosition — привязка «позиция корзины → name_norm типа эффекта»
+	// (producer_types.params.effects, §4.2): множество позиций объекта. В JSON
+	// не выводится (привязки — в студии).
+	EffectsByPosition map[string]string `json:"-"`
+	// Effects — действующие эффекты поселения (нагрузка/порог/состояние/сила),
+	// витрина админа (§6); заполняется owner-проходом.
+	Effects []ActiveEffect `json:"effects,omitempty"`
 	// Branches — ветки поселения (спека 2026-09-22-поселение-ветка-буферы-
 	// переработка §6): связь поселение ↔ рецепт каталога с входным/выходным
 	// буфером и своей чек-точкой. Подтягиваются в attachSettlements после
@@ -55,10 +63,11 @@ type SettlementBranch struct {
 	// Produced — произведено товара-выхода за последний проход переработки
 	// (транзитное, не хранится; спека итерации 4 §6).
 	Produced float64 `json:"produced,omitempty"`
-	// Eaten — съедено населением за последний проход (транзитное; §6).
+	// Eaten — физически списано из выходного буфера ветки слоем потребности за
+	// последний проход (транзитное; спека 2026-09-22-эффекты-снабжения §4.2:
+	// единственная точка записи буфера — слой потребности).
 	Eaten float64 `json:"eaten,omitempty"`
-	// EatenRate — текущая скорость поедания, единиц/сек:
-	// eat_k(товар ветки) · население / 3600 (п.39, §6).
+	// EatenRate — скорость списания из буфера, единиц/сек (витрина, §6).
 	EatenRate float64 `json:"eaten_rate,omitempty"`
 }
 

@@ -68,9 +68,12 @@ type seedProducerItem struct {
 var seedProducers = []seedProducer{
 	{Name: "Поселение", Kind: "goods", Output: `{}`, Input: `{"people": {"capacity": 100}}`, Params: `{}`},
 	// Тип поселения — подтип «Поселения» без категории (решения 32/37, спека
-	// итерации 4 §5.2): нормы еды — структура params.eat по товару-выходу ветки
-	// (§3.2/п.45); те же числа, что в миграции 000067 и DefaultEatK (T18).
-	{Name: "Обычное поселение", Kind: "goods", Parent: "Поселение", Output: `{}`, Input: `{}`, Params: `{"eat": {"вода": 2.5e-08, "пища": 2.5e-08}}`},
+	// итерации 4 §5.2): нормы еды — структура params.eat (ключ — ПОЗИЦИЯ
+	// корзины, спека эффектов §7.5/§4.2); те же числа, что в миграции 000070 и
+	// DefaultEatK (T18). params.effects — пилотная привязка «позиция → тип
+	// эффекта» (§4.2): иначе на свежей БД пилот — no-op (миграция 000070 на
+	// свежей БД строку «Обычное поселение» ещё не видит — её создаёт этот сид).
+	{Name: "Обычное поселение", Kind: "goods", Parent: "Поселение", Output: `{}`, Input: `{}`, Params: `{"eat": {"вода": 2.5e-08, "пища": 2.5e-08, "продовольствие": 2.5e-08}, "effects": {"продовольствие": "голод"}}`},
 	{Name: "Фабрика", Kind: "goods", Output: `{}`, Input: `{"people": {"capacity": 50}, "energy": true, "consumables": []}`, Params: `{"efficiency": 1.0}`},
 	{Name: "Автофабрика", Kind: "goods", Output: `{}`, Input: `{"robots": true, "energy": true, "consumables": ["механика", "электроника"]}`, Params: `{"robot_cost": 100}`},
 	{Name: "Добывающая платформа", Kind: "goods", Output: `{}`, Input: `{"energy": true, "consumables": []}`, Params: `{}`},

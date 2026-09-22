@@ -3,7 +3,7 @@ import { populationAt, planetPopulationAt } from './extrapolate.js';
 import { modalState, flightModeForSystem } from './state.js';
 import { getPlanetTexture } from './textures.js';
 import { groupDeposits } from './deposits.js';
-import { branchesBlockHtml } from './branches.js';
+import { branchesBlockHtml, effectsBlockHtml } from './branches.js';
 import { boardHtml, canPublishHere, publishFormHtml, escapeHtml } from './contracts.js';
 import { notifyError, notifySuccess } from '../ui/toast.js';
 
@@ -635,6 +635,7 @@ function renderSettlements(planet) {
                 </div>
                 ${settlementLogRows(s)}
                 ${branchesBlockHtml(s.branches, isAdmin(), s.id)}
+                ${effectsBlockHtml(s.effects, isAdmin(), s.id)}
             </div>`;
     });
     return html;
@@ -710,6 +711,52 @@ function initBranchesAdmin(planet, container) {
                 renderTabContent('settlements', planet, container);
             } catch (e) {
                 console.warn('ветка вход: ' + e.message);
+            }
+        });
+    });
+}
+
+// ---------- ЭФФЕКТЫ ПОСЕЛЕНИЯ (спека 2026-09-22-эффекты-снабжения §6 F9) ----------
+
+// applyEffectLoadToSettlement — локально отразить ручную нагрузку (ответ
+// POST /admin/settlements/{id}/effects): обновляем load/enabled у эффекта,
+// чтобы витрина не ждала перезагрузки планеты.
+function applyEffectLoadToSettlement(planet, settlementID, effectTypeID, load) {
+    const list = planet && planet.settlements ? planet.settlements : [];
+    const s = list.find(x => x.id === settlementID);
+    if (!s || !Array.isArray(s.effects)) return;
+    const e = s.effects.find(x => x.effect_type_id === effectTypeID);
+    if (!e) return;
+    e.load = load;
+    e.enabled = load >= (e.threshold || 0);
+}
+
+// initEffectsAdmin — админ-форма «задать нагрузку вручную» (§6 F9):
+// POST /admin/settlements/{id}/effects → обновить витрину.
+function initEffectsAdmin(planet, container) {
+    if (!isAdmin()) return;
+    container.querySelectorAll('[data-effect-load-set]').forEach(btn => {
+        const form = btn.closest('[data-effect-load-form]');
+        if (!form) return;
+        const settlementID = form.dataset.effectLoadForm;
+        btn.addEventListener('click', async () => {
+            const typeEl = form.querySelector('[data-effect-load-type]');
+            const valEl = form.querySelector('[data-effect-load-value]');
+            const effectTypeID = typeEl ? Number(typeEl.value) : 0;
+            const load = valEl ? Number(valEl.value) : NaN;
+            if (!settlementID || !effectTypeID || !Number.isFinite(load) || load < 0) return;
+            const token = modalState.authToken || localStorage.getItem('token');
+            try {
+                const res = await fetch('/admin/settlements/' + encodeURIComponent(settlementID) + '/effects', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                    body: JSON.stringify({ effect_type_id: effectTypeID, load })
+                });
+                if (!res.ok) { console.warn('эффект: HTTP ' + res.status + ' ' + await res.text()); return; }
+                applyEffectLoadToSettlement(planet, settlementID, effectTypeID, load);
+                renderTabContent('settlements', planet, container);
+            } catch (e) {
+                console.warn('эффект: ' + e.message);
             }
         });
     });
@@ -1115,6 +1162,7 @@ export function renderTabContent(tab, planet, container) {
         case 'settlements':
             container.innerHTML = renderSettlements(planet);
             initBranchesAdmin(planet, container);
+            initEffectsAdmin(planet, container);
             break;
         case 'factions':
             container.innerHTML = renderFactions(planet);

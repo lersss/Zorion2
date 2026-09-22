@@ -26,22 +26,35 @@ type ComponentCurve struct {
 	Bends []float64     `json:"bends"`
 }
 
+// HungerCurveKey — ключ кривой компоненты-эффекта «голод» (ось X — нагрузка,
+// сило-часы; §7.1). На этапе 2 компонента живёт в store для расчёта R(load);
+// полноценный UI/пресеты/валидация — этап 3.
+const HungerCurveKey = "hunger"
+
 // balancerStore — хранилище кривых по компонентам ("heat" | "cold" |
-// "gravity" | "radiation"). Чтение (мини-R на каждом вызове): RLock + копия.
-// Запись (админка, редко): Lock + атомарная замена всей кривой.
+// "gravity" | "radiation" + эффект-компонента "hunger"). Чтение (мини-R на
+// каждом вызове): RLock + копия. Запись (админка, редко): Lock + атомарная
+// замена всей кривой. scalars — скаляры эффект-компонент (recovery, §7.1):
+// не внутри ComponentCurve (иначе поле протекло бы в файл расовых кривых).
 type balancerStore struct {
-	mu     sync.RWMutex
-	curves map[string]*ComponentCurve
+	mu      sync.RWMutex
+	curves  map[string]*ComponentCurve
+	scalars map[string]float64
 }
+
+// effectComponents — компоненты-эффекты: только они несут скаляр (`recovery`)
+// и обязаны иметь нулевой префикс кривой (порог, §4.4/§7.1).
+var effectComponents = map[string]bool{HungerCurveKey: true}
 
 // componentRanges — диапазоны X компонент (спека 99.2.17 §3, валидация §6).
 // Единицы: жара и холод — °C (решение создателя 2026-09-15), гравитация — g,
 // радиация — rad.
 var componentRanges = map[string][2]float64{
-	"heat":      {30, 4000},       // °C
-	"cold":      {-273.15, 14.85}, // °C (0..288 K)
-	"gravity":   {0, 10},          // g
-	"radiation": {0, 100},         // rad
+	"heat":         {30, 4000},       // °C
+	"cold":         {-273.15, 14.85}, // °C (0..288 K)
+	"gravity":      {0, 10},          // g
+	"radiation":    {0, 100},         // rad
+	HungerCurveKey: {0, 8760},        // нагрузка, сило-часы (§7.1: год при w=1)
 }
 
 // balancerCurveStore — синглтон store (имя переменной отличается от типа:
@@ -49,17 +62,88 @@ var componentRanges = map[string][2]float64{
 // иллюстрация паттерна).
 var balancerCurveStore = &balancerStore{
 	curves: map[string]*ComponentCurve{
-		"heat":      defaultHeatCurve(),
-		"cold":      defaultColdCurve(),
-		"gravity":   defaultGravityCurve(),
-		"radiation": defaultRadiationCurve(),
+		"heat":         defaultHeatCurve(),
+		"cold":         defaultColdCurve(),
+		"gravity":      defaultGravityCurve(),
+		"radiation":    defaultRadiationCurve(),
+		HungerCurveKey: defaultHungerCurve(),
+	},
+	scalars: map[string]float64{
+		HungerCurveKey: defaultComponentScalar(HungerCurveKey),
 	},
 }
 
-// ValidComponent — компонента из 4 допустимых (спека §3).
+// ValidComponent — компонента из набора админ-ручек/пресетов/глобальных
+// кривых: 4 среды (heat/cold/gravity/radiation) + эффект-компонента `hunger`
+// (этап 3, §7.1/§7.2). Расовая допустимость — отдельно, см. IsRaceComponent.
 func ValidComponent(component string) bool {
 	_, ok := componentRanges[component]
 	return ok
+}
+
+// IsRaceComponent — компонента допустима для РАСОВОГО балансировщика (только
+// heat/cold/gravity/radiation, §7.2). `hunger` — глобальный эффект (норма еды
+// типа поселения, не расы): расовый store/UI его НЕ принимает (иначе
+// Active.Curves["hunger"] == nil → nil-кривая → 500). Гейты расовых
+// эндпоинтов и SetRaceCurve — по этой функции (защита в глубину).
+// Источник правды — `raceComponents` (race_balancer.go): список не дублируется,
+// иначе расовый набор расчерпывался бы от него (мелочь ревью этапа 3).
+func IsRaceComponent(component string) bool {
+	for _, c := range raceComponents {
+		if c == component {
+			return true
+		}
+	}
+	return false
+}
+
+// defaultComponentScalar — заводское значение скаляра компоненты (§7.1):
+// `hunger` → 0.25 сило-ч/ч (решение создателя 2026-09-23, В2 @balancetester).
+// Не-эффект-компоненты скаляра не несут → 0.
+func defaultComponentScalar(component string) float64 {
+	if component == HungerCurveKey {
+		return 0.25
+	}
+	return 0
+}
+
+// ComponentScalar — скаляр компоненты (`recovery`, сило-ч/ч, §7.1). ok=false
+// для не-эффект-компонент (скаляр у них отсутствует). Чтение под RLock.
+func ComponentScalar(component string) (float64, bool) {
+	if !effectComponents[component] {
+		return 0, false
+	}
+	balancerCurveStore.mu.RLock()
+	defer balancerCurveStore.mu.RUnlock()
+	v, ok := balancerCurveStore.scalars[component]
+	return v, ok
+}
+
+// SetComponentScalar — задать скаляр компоненты (валидация ≥ 0, §7.1).
+// Не-эффект-компонента → ошибка (422 на уровне хендлера). Значение — in-memory
+// (заводское при рестарте, переносится пресетами — этап 3).
+func SetComponentScalar(component string, value float64) error {
+	if !effectComponents[component] {
+		return fmt.Errorf("компонента %q не несёт скаляр (только эффект-компоненты)", component)
+	}
+	if value < 0 {
+		return fmt.Errorf("скаляр компоненты %q должен быть ≥ 0, получили %v", component, value)
+	}
+	balancerCurveStore.mu.Lock()
+	defer balancerCurveStore.mu.Unlock()
+	balancerCurveStore.scalars[component] = value
+	return nil
+}
+
+// ResetComponentScalar — вернуть заводское значение скаляра (§7.1).
+func ResetComponentScalar(component string) error {
+	if !effectComponents[component] {
+		return fmt.Errorf("компонента %q не несёт скаляр (только эффект-компоненты)", component)
+	}
+	balancerCurveStore.mu.Lock()
+	defer balancerCurveStore.mu.Unlock()
+	balancerCurveStore.scalars[component] = defaultComponentScalar(component)
+	return nil
 }
 
 // GetCurve — копия узлов и изгибов кривой компоненты. ok = false, если
@@ -99,7 +183,7 @@ func getCurveRef(component string) (*ComponentCurve, bool) {
 // мутировать свою кривую после сохранения).
 func SetCurve(component string, curve ComponentCurve) error {
 	if !ValidComponent(component) {
-		return fmt.Errorf("неизвестная компонента %q (heat/cold/gravity/radiation)", component)
+		return fmt.Errorf("неизвестная компонента %q (heat/cold/gravity/radiation/hunger)", component)
 	}
 	if err := validateCurve(component, curve); err != nil {
 		return err
@@ -110,15 +194,60 @@ func SetCurve(component string, curve ComponentCurve) error {
 	return nil
 }
 
+// SetCurveWithScalar — атомарная замена кривой компоненты И её скаляра
+// (`recovery`, §7.1): PUT «сохранил = применил» пишет оба под одним Lock.
+// scalar == nil — скаляр не трогается (не-эффект-компоненты); scalar != nil
+// принимается ТОЛЬКО эффект-компонентой (иначе ошибка → 422) и должен быть
+// ≥ 0. При ошибке валидации не меняется ни кривая, ни скаляр.
+func SetCurveWithScalar(component string, curve ComponentCurve, scalar *float64) error {
+	if !ValidComponent(component) {
+		return fmt.Errorf("неизвестная компонента %q (heat/cold/gravity/radiation/hunger)", component)
+	}
+	if scalar != nil {
+		if !effectComponents[component] {
+			return fmt.Errorf("компонента %q не несёт скаляр recovery (только эффект-компоненты)", component)
+		}
+		if *scalar < 0 {
+			return fmt.Errorf("recovery компоненты %q должен быть ≥ 0, получили %v", component, *scalar)
+		}
+	}
+	if err := validateCurve(component, curve); err != nil {
+		return err
+	}
+	balancerCurveStore.mu.Lock()
+	defer balancerCurveStore.mu.Unlock()
+	balancerCurveStore.curves[component] = cloneCurve(&curve)
+	if scalar != nil {
+		balancerCurveStore.scalars[component] = *scalar
+	}
+	return nil
+}
+
 // ResetCurve — замена кривой компоненты дефолтом §3. Неизвестная
 // компонента — ошибка.
 func ResetCurve(component string) error {
 	if !ValidComponent(component) {
-		return fmt.Errorf("неизвестная компонента %q (heat/cold/gravity/radiation)", component)
+		return fmt.Errorf("неизвестная компонента %q (heat/cold/gravity/radiation/hunger)", component)
 	}
 	balancerCurveStore.mu.Lock()
 	defer balancerCurveStore.mu.Unlock()
 	balancerCurveStore.curves[component] = defaultCurve(component)
+	return nil
+}
+
+// ResetCurveWithScalar — сброс кривой компоненты к заводскому дефолту И
+// (для эффект-компонент) её скаляра `recovery` к заводскому значению под
+// одним Lock (§7.1: `…/curve/reset` сбрасывает и кривую, и скаляр).
+func ResetCurveWithScalar(component string) error {
+	if !ValidComponent(component) {
+		return fmt.Errorf("неизвестная компонента %q (heat/cold/gravity/radiation/hunger)", component)
+	}
+	balancerCurveStore.mu.Lock()
+	defer balancerCurveStore.mu.Unlock()
+	balancerCurveStore.curves[component] = defaultCurve(component)
+	if effectComponents[component] {
+		balancerCurveStore.scalars[component] = defaultComponentScalar(component)
+	}
 	return nil
 }
 
@@ -165,6 +294,12 @@ func validateCurve(component string, curve ComponentCurve) error {
 			return fmt.Errorf("изгиб сегмента %d должен быть в диапазоне [-10, +10], получили %v", i, k)
 		}
 	}
+	// Порог включения — нулевой префикс кривой (§4.4/§7.1): обязателен ТОЛЬКО
+	// для эффект-компонент (`hunger`). cold/gravity/radiation первый узел
+	// ненулевой — требование к ним ломало бы их валидацию и пресеты.
+	if effectComponents[component] && curve.Nodes[0].Y != 0 {
+		return fmt.Errorf("для эффект-компоненты %q первый узел кривой должен иметь Y = 0 (порог, нулевой префикс), получили %v", component, curve.Nodes[0].Y)
+	}
 	return nil
 }
 
@@ -179,6 +314,8 @@ func defaultCurve(component string) *ComponentCurve {
 		return defaultGravityCurve()
 	case "radiation":
 		return defaultRadiationCurve()
+	case HungerCurveKey:
+		return defaultHungerCurve()
 	}
 	return nil
 }

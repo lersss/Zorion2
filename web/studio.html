@@ -148,6 +148,11 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
   #catOverlay{position:absolute;left:0;top:0;right:320px;bottom:0;background:#000a;z-index:10;display:none}
   #catOverlay.expanded{right:0}
   #catPopup{position:absolute;left:calc(50% - 180px);top:50%;transform:translate(-50%,-50%);width:360px;max-height:80%;background:#1c1c1c;border:1px solid #555;border-radius:10px;z-index:11;display:none;flex-direction:column;box-shadow:0 8px 32px #000c}
+  /* попап «Эффекты» (спека 2026-09-22-эффекты-снабжения-задержка-голод §7.4):
+     по образцу попапа категорий; строки — те же .cat-row/.cat-add */
+  #effOverlay{position:absolute;left:0;top:0;right:320px;bottom:0;background:#000a;z-index:10;display:none}
+  #effOverlay.expanded{right:0}
+  #effPopup{position:absolute;left:calc(50% - 200px);top:50%;transform:translate(-50%,-50%);width:400px;max-height:80%;background:#1c1c1c;border:1px solid #555;border-radius:10px;z-index:11;display:none;flex-direction:column;box-shadow:0 8px 32px #000c}
   .cat-add{display:flex;gap:6px;margin-bottom:8px}
   .cat-add input{flex:1;min-width:0;background:#222;border:1px solid #444;color:#ddd;padding:5px;border-radius:6px}
   .cat-row{display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:6px;font-size:12px}
@@ -255,6 +260,7 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
     <button id="btnDescBatch" title="ИИ предложит описания всем записям без описания">описания ИИ</button>
     <button class="gen" id="btnProdNewOpen" title="создать тип производителя">+ тип</button>
     <button class="gen" id="btnItemNewOpen" title="создать предмет">+ предмет</button>
+    <button id="btnEffectsOpen" title="Типы эффектов снабжения (нагрузка/кривая/восстановление — в Балансировке)">Эффекты</button>
   </div>
 </header>
 <div id="right">
@@ -299,6 +305,22 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
         <button class="gen" id="catAddBtn">+ категория</button>
       </div>
       <div id="catList"></div>
+    </div>
+  </div>
+  <!-- попап «Эффекты» (спека 2026-09-22-эффекты-снабжения-задержка-голод §7.4):
+       CRUD типа эффекта студии — имя, impact, curve (ссылка на компоненту
+       Балансировки); recovery в типе не хранится -->
+  <div id="effOverlay"></div>
+  <div id="effPopup">
+    <div class="popup-head" id="effPopupHead"><span class="ptitle">Эффекты</span><button id="effPopupClose" title="закрыть (Esc)">×</button></div>
+    <div class="popup-body">
+      <div class="cat-add">
+        <input id="effNewName" type="text" name="studio_new_effect_name" placeholder="имя типа эффекта" autocomplete="off">
+        <input id="effNewImpact" type="text" name="studio_new_effect_impact" placeholder="impact (population_rate)" autocomplete="off" style="max-width:150px">
+        <input id="effNewCurve" type="text" name="studio_new_effect_curve" placeholder="curve (hunger)" autocomplete="off" style="max-width:110px">
+        <button class="gen" id="effAddBtn">+ эффект</button>
+      </div>
+      <div id="effList"></div>
     </div>
   </div>
   <!-- попап «Предложения ИИ» (спека iterC §6.5): двухфазный fill «предложи → подтверди» -->
@@ -1237,6 +1259,7 @@ document.addEventListener("keydown", ev => {
     if ($("modalOverlay").style.display !== "flex") {
       if (popupGoodId) closePopup();
       if ($("catPopup").style.display === "flex") closeCatPopup();
+      if ($("effPopup").style.display === "flex") closeEffectPopup();
       if ($("proposalsPopup").style.display === "flex") closeProposalsPopup();
     }
   }
@@ -3344,6 +3367,62 @@ async function deleteCategory(id) {
   const r = await api("DELETE", "/studio/api/categories/" + id);
   if (r) fetchState();
 }
+// ---------- попап «Эффекты» (спека эффектов §7.4) ----------
+// Тип эффекта: имя, impact (открытый набор, §5.4), curve — ссылка на компоненту
+// «Балансировки»; recovery в типе НЕ хранится (скаляр Балансировки). Каталог
+// тянется отдельным эндпоинтом /studio/api/effects (не в общем state).
+function openEffectPopup() {
+  $("effPopup").style.display = "flex";
+  $("effOverlay").style.display = "block";
+  renderEffectPopup();
+}
+function closeEffectPopup() {
+  $("effPopup").style.display = "none";
+  $("effOverlay").style.display = "none";
+}
+async function renderEffectPopup() {
+  const list = $("effList");
+  if (!list) return;
+  const r = await api("GET", "/studio/api/effects");
+  const data = r ? await r.json() : {effects: []};
+  const arr = (data && data.effects) || [];
+  list.innerHTML = arr.map(e =>
+    '<div class="cat-row">' +
+      '<span class="cname" title="нормализованное имя: ' + esc(e.name_norm) + '">' + esc(e.name) + '</span>' +
+      '<span class="ccount" title="impact / curve">' + esc(e.impact) + (e.curve ? ' · ' + esc(e.curve) : ' · без кривой') + '</span>' +
+      '<button class="cat-del" onclick="askDeleteEffectType(' + e.id + ')" title="удалить тип эффекта">🗑</button>' +
+    '</div>'
+  ).join("") || '<div class="empty-note">нет типов эффектов</div>';
+}
+async function addEffectType() {
+  const name = $("effNewName").value.trim();
+  const impact = $("effNewImpact").value.trim() || "population_rate";
+  const curve = $("effNewCurve").value.trim();
+  if (!name) return;
+  const r = await api("POST", "/studio/api/effects", {name, impact, curve});
+  if (r) { $("effNewName").value = ""; $("effNewCurve").value = ""; renderEffectPopup(); }
+}
+// удаление: тип с действующими эффектами → 409 (сервер); сначала счётчик
+async function askDeleteEffectType(id) {
+  const c = await api("GET", "/studio/api/effects/" + id + "/counts");
+  const n = c ? await c.json() : {active_effects: 0};
+  if (n && n.active_effects > 0) {
+    showReport(["тип используется действующими эффектами (" + n.active_effects + ") — удаление запрещено"]);
+    return;
+  }
+  openModal(
+    '<h3>Удалить тип эффекта</h3><div>Удалить тип эффекта #' + id + '?</div>',
+    [
+      {label: "Удалить", cls: "del", primary: true, action: () => deleteEffectType(id)},
+      {label: "Отмена", cls: "", action: closeModal}
+    ]
+  );
+}
+async function deleteEffectType(id) {
+  closeModal();
+  const r = await api("DELETE", "/studio/api/effects/" + id);
+  if (r) renderEffectPopup();
+}
 // «+ товар» — единственный путь создания товара (addbar удалён по решению
 // создателя 2026-09-19; 99a.3-ui §13). Форма — в попапе (ТЗ §7.3): поля
 // существуют только пока окно открыто; при ошибке окно остаётся открытым.
@@ -3714,6 +3793,12 @@ $("catAddBtn").addEventListener("click", addCategory);
 $("catNewName").addEventListener("keydown", ev => { if (ev.key === "Enter") addCategory(); });
 $("catPopupClose").addEventListener("click", closeCatPopup);
 $("catOverlay").addEventListener("click", closeCatPopup);
+// попап «Эффекты» (спека эффектов §7.4): кнопка вызова, закрытие, создание
+$("btnEffectsOpen").addEventListener("click", openEffectPopup);
+$("effAddBtn").addEventListener("click", addEffectType);
+$("effNewName").addEventListener("keydown", ev => { if (ev.key === "Enter") addEffectType(); });
+$("effPopupClose").addEventListener("click", closeEffectPopup);
+$("effOverlay").addEventListener("click", closeEffectPopup);
 // попап «Предложения ИИ»: закрытие (крестик/подложка); Esc — в общем keydown
 $("proposalsPopupClose").addEventListener("click", closeProposalsPopup);
 $("proposalsOverlay").addEventListener("click", closeProposalsPopup);
@@ -3749,7 +3834,7 @@ window.addEventListener("mousemove", ev => {
   p.style.top = (ev.clientY - popupDrag.dy) + "px";
   p.style.transform = "none";
 });
-window.addEventListener("mouseup", () => { popupDrag = null; catPopupDrag = null; });
+window.addEventListener("mouseup", () => { popupDrag = null; catPopupDrag = null; effPopupDrag = null; });
 // попап категорий: закрытие (крестик/подложка), перетаскивание за заголовок
 let catPopupDrag = null;
 $("catPopupHead").addEventListener("mousedown", ev => {
@@ -3762,6 +3847,20 @@ window.addEventListener("mousemove", ev => {
   const p = $("catPopup");
   p.style.left = (ev.clientX - catPopupDrag.dx) + "px";
   p.style.top = (ev.clientY - catPopupDrag.dy) + "px";
+  p.style.transform = "none";
+});
+// попап «Эффекты»: перетаскивание за заголовок (по образцу попапа категорий)
+let effPopupDrag = null;
+$("effPopupHead").addEventListener("mousedown", ev => {
+  if (ev.target === $("effPopupClose")) return;
+  effPopupDrag = {dx: ev.clientX - $("effPopup").offsetLeft, dy: ev.clientY - $("effPopup").offsetTop};
+  ev.preventDefault();
+});
+window.addEventListener("mousemove", ev => {
+  if (!effPopupDrag) return;
+  const p = $("effPopup");
+  p.style.left = (ev.clientX - effPopupDrag.dx) + "px";
+  p.style.top = (ev.clientY - effPopupDrag.dy) + "px";
   p.style.transform = "none";
 });
 

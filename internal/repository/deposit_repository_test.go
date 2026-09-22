@@ -110,12 +110,7 @@ func TestGetPlanetsByWorldIDAttachesDeposits(t *testing.T) {
 	`).WithArgs("w1").WillReturnRows(
 		sqlmock.NewRows([]string{"id", "world_id", "name", "orbit_index", "data", "created_at", "updated_at"}).
 			AddRow("p1", "w1", "Планета", 1, `{"surface_composition":{"камни":100}}`, now, now))
-	mock.ExpectQuery(`
-		SELECT s.id, s.planet_id, s.population, s.population_exact, s.stability, s.computed_at, s.created_at, s.updated_at, s.race_id, s.settlement_type_id, pt.name, pt.params->'eat'
-		FROM settlements s
-		LEFT JOIN producer_types pt ON pt.id = s.settlement_type_id
-		WHERE s.planet_id = ANY($1) ORDER BY s.created_at ASC
-	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id", "settlement_type_id", "name", "eat"}))
+	mock.ExpectQuery(settlementsQuery).WithArgs(sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows(settlementCols()))
 	expectEmptyFactionsBuildings(mock)
 	mock.ExpectQuery(depositSelectByPlanetsSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(
 		depositRows().
@@ -166,12 +161,7 @@ func TestLightPathsNoDeposits(t *testing.T) {
 	`).WithArgs("p1").WillReturnRows(
 		sqlmock.NewRows([]string{"id", "world_id", "name", "orbit_index", "data", "created_at", "updated_at"}).
 			AddRow("p1", "w1", "Планета", 1, `{"surface_composition":{"камни":100}}`, now, now))
-	mock2.ExpectQuery(`
-		SELECT s.id, s.planet_id, s.population, s.population_exact, s.stability, s.computed_at, s.created_at, s.updated_at, s.race_id, s.settlement_type_id, pt.name, pt.params->'eat'
-		FROM settlements s
-		LEFT JOIN producer_types pt ON pt.id = s.settlement_type_id
-		WHERE s.planet_id = ANY($1) ORDER BY s.created_at ASC
-	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id", "settlement_type_id", "name", "eat"}))
+	mock2.ExpectQuery(settlementsQuery).WithArgs(sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows(settlementCols()))
 	expectEmptyFactionsBuildings(mock2)
 	p, err := NewPlanetRepository(db2).GetPlanetByID("p1")
 	require.NoError(t, err)

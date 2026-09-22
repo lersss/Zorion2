@@ -1,8 +1,9 @@
 // web/frontend_branches_test.go
-// Node-тест клиентского блока ветки поселения (спека 2026-09-22-поселение-
-// ветка-буферы-переработка §6/T13): модуль modal/branches.js исполняется в Node
-// без DOM/сети на верхнем уровне; вход виден только админу, выход — всем;
-// админ-формы присутствуют. Паттерн — как в frontend_deposits_test.go.
+// Node-тест клиентского блока ветки/эффектов поселения (спека 2026-09-22-
+// поселение-ветка-буферы-переработка §6/T13 + эффекты-снабжения §6/T14):
+// модуль modal/branches.js исполняется в Node без DOM/сети на верхнем уровне;
+// вход виден только админу, выход — всем; эффекты — только админу; админ-формы
+// присутствуют. Паттерн — как в frontend_deposits_test.go.
 package web
 
 import (
@@ -66,6 +67,28 @@ assert(all.includes('Ветки (1)'), 'заголовок');
 assert(all.includes('data-branch-create-form="s1"'), 'админ-форма создания');
 assert(all.includes('data-branch-input-form="b1"'), 'админ-форма входа');
 assert(br.branchesBlockHtml([], false, 's1') === '', 'player без веток — пусто');
+
+// Эффекты поселения (спека 2026-09-22-эффекты-снабжения §6/T14): витрина
+// только админу — тип/источник (позиция), нагрузка, порог, состояние, сила/w
+// + админ-форма ручной нагрузки.
+const effects = [
+    { effect_type_id: 1, source_position: 'продовольствие', load: 30, threshold: 24, rate: 1e-7, w: 0.8, enabled: true, curve: 'hunger' }
+];
+const effAdmin = br.effectsBlockHtml(effects, true, 's1');
+assert(effAdmin.includes('Эффекты (1)'), 'эффекты: заголовок с числом');
+assert(effAdmin.includes('продовольствие'), 'эффекты: источник (позиция)');
+assert(effAdmin.includes('нагрузка') && effAdmin.includes('30'), 'эффекты: нагрузка');
+assert(effAdmin.includes('порог') && effAdmin.includes('24'), 'эффекты: порог');
+assert(effAdmin.includes('включён'), 'эффекты: состояние включён');
+assert(effAdmin.includes('сила') && effAdmin.includes('w'), 'эффекты: сила и w');
+assert(effAdmin.includes('data-effect-load-form="s1"'), 'эффекты: админ-форма нагрузки');
+assert(effAdmin.includes('data-effect-load-set'), 'эффекты: кнопка «задать нагрузку»');
+assert(br.effectsBlockHtml(effects, false, 's1') === '', 'player не видит эффекты');
+assert(br.effectsBlockHtml([], true, 's1').includes('Эффектов нет'), 'эффекты: пусто у админа');
+
+// Снятый эффект: состояние «снят».
+const off = br.effectsBlockHtml([{ effect_type_id: 2, load: 1, threshold: 24, enabled: false }], true, 's1');
+assert(off.includes('снят'), 'эффекты: состояние снят');
 
 console.log('BRANCHES_OK');
 `

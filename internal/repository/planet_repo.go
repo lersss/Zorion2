@@ -325,13 +325,12 @@ func (r *PlanetRepository) FindPlanetBySatellite(worldID, satelliteID string) (*
 	return &p, nil
 }
 
-// attachSettlements — подтягивает поселения планет, пересчитывает их
-// население от среды на текущий момент (docs/gamedesign/18a_population_death.md
-// — открытие карточки планеты игроком триггерит ленивый пересчёт,
-// 13_tiers_impl.md §13.13.3), вычисляет население планеты как сумму
-// пересчитанного и обитаемость как наличие поселения. Частые просмотры
-// (Δt < MinPersistInterval) пересчитывают только в памяти; запись в БД
-// происходит лишь по «событию» — при содержательно прошедшем времени.
+// attachSettlements — подтягивает поселения планет и выполняет owner-проход
+// «производство (ветки) → потребность → население» (спека 2026-09-22-эффекты-
+// снабжения §4.1/§4.5; docs/gamedesign/18a_population_death.md). Открытие
+// карточки триггерит ленивый проход: частые просмотры (Δt < MinPersistInterval
+// у всех веток) считают в памяти, персистентный путь пишет одной транзакцией
+// на поселение (advisory-лок, один now → load_at == processed_at == computed_at).
 // Планеты без поселений: население 0, необитаемы.
 func (r *PlanetRepository) attachSettlements(planets []models.Planet) error {
 	if len(planets) == 0 {
@@ -348,38 +347,60 @@ func (r *PlanetRepository) attachSettlements(planets []models.Planet) error {
 		return fmt.Errorf("failed to load settlements: %w", err)
 	}
 
-	econRepo := NewEconomyRepository(r.db)
 	now := time.Now()
+	owners := make([]OwnerSettlement, 0, len(planets))
 	settlementIDs := make([]string, 0, len(planets))
 	for i := range planets {
 		settlements := byPlanet[planets[i].ID]
 		input := planetMortalityInput(planets[i])
 		for j := range settlements {
-			updated, err := econRepo.RecomputeSettlementPopulation(&settlements[j], input, now)
-			if err != nil {
-				return fmt.Errorf("failed to recompute settlement %s: %w", settlements[j].ID, err)
-			}
-			settlements[j] = updated
-			settlements[j].RaceName = raceName(settlements[j].RaceID)
-			settlementIDs = append(settlementIDs, settlements[j].ID)
+			s := settlements[j]
+			owners = append(owners, OwnerSettlement{
+				ID:                s.ID,
+				PlanetID:          planets[i].ID,
+				Population:        s.Population,
+				PopulationExact:   s.PopulationExact,
+				ComputedAt:        s.ComputedAt,
+				CreatedAt:         s.CreatedAt,
+				RaceID:            s.RaceID,
+				Planet:            input,
+				EatByPosition:     s.EatByPosition,
+				EffectsByPosition: s.EffectsByPosition,
+			})
+			settlementIDs = append(settlementIDs, s.ID)
 		}
 		planets[i].Settlements = settlements
 		planets[i].Habitable = len(settlements) > 0
-		for _, s := range settlements {
+	}
+
+	results, err := NewBranchRepository(r.db).SyncSettlements(now, owners)
+	if err != nil {
+		return fmt.Errorf("failed to run settlement owner pass: %w", err)
+	}
+
+	for i := range planets {
+		planets[i].Population = 0
+		for j := range planets[i].Settlements {
+			s := &planets[i].Settlements[j]
+			res, ok := results[s.ID]
+			if !ok {
+				continue
+			}
+			s.Population = res.Population
+			s.PopulationExact = res.PopulationExact
+			s.ComputedAt = res.ComputedAt
+			s.RPerSec = res.RPerSec
+			s.NDead = res.NDead
+			s.Branches = res.Branches
+			s.Effects = res.Effects
+			s.RaceName = raceName(s.RaceID)
 			planets[i].Population += int64(s.Population)
 		}
 	}
 
-	// Ветки поселений (спека 2026-09-22-поселение-ветка-буферы-переработка
-	// §4.2): после ленивого пересчёта населения — загрузка веток и ленивый синк
-	// переработки вход → выход (своя чек-точка processed_at, не computed_at).
-	if err := r.attachBranches(planets); err != nil {
-		return err
-	}
-
 	// Лог поселения (записи «Вымерло»): один запрос на все поселения, последние
 	// 3 записи на поселение (18b §«UI», settlements[].log).
-	logBySettlement, err := econRepo.GetSettlementLogBySettlementIDs(settlementIDs)
+	logBySettlement, err := NewEconomyRepository(r.db).GetSettlementLogBySettlementIDs(settlementIDs)
 	if err != nil {
 		return fmt.Errorf("failed to load settlement log: %w", err)
 	}
@@ -452,43 +473,6 @@ func (r *PlanetRepository) attachFactionsAndBuildings(planets []models.Planet) e
 		}
 	}
 	return brows.Err()
-}
-
-// attachBranches — подтягивает ветки поселений и выполняет ленивый синк
-// переработки вход → выход + добычи из залежей своей планеты (спека
-// 2026-09-22-поселение-ветка-буферы-переработка §4.2; спека итерации 3 §4).
-// Вызывается внутри attachSettlements ПОСЛЕ ленивого пересчёта населения:
-// скорость переработки берёт Population поселения той же точки чтения; planet_id
-// поселения (для добора из залежей) — из уже обойдённой планеты, без нового JOIN
-// (§4.2 спеки итерации 3). Δt < MinPersistInterval — пересчёт в памяти; иначе
-// персистентный синк (FOR UPDATE на ветке → залежах). У планет без поселений
-// запросов нет.
-func (r *PlanetRepository) attachBranches(planets []models.Planet) error {
-	ids := make([]string, 0, len(planets))
-	populations := map[string]float64{}
-	eatBySettlement := map[string]map[string]float64{}
-	planetBySettlement := map[string]string{}
-	for i := range planets {
-		for _, s := range planets[i].Settlements {
-			ids = append(ids, s.ID)
-			populations[s.ID] = float64(s.Population)
-			eatBySettlement[s.ID] = s.EatByGood
-			planetBySettlement[s.ID] = planets[i].ID
-		}
-	}
-	if len(ids) == 0 {
-		return nil
-	}
-	bySettlement, err := NewBranchRepository(r.db).SyncBranches(ids, populations, eatBySettlement, planetBySettlement, time.Now())
-	if err != nil {
-		return fmt.Errorf("failed to load branches: %w", err)
-	}
-	for i := range planets {
-		for j := range planets[i].Settlements {
-			planets[i].Settlements[j].Branches = bySettlement[planets[i].Settlements[j].ID]
-		}
-	}
-	return nil
 }
 
 // attachDeposits — подтягивает залежи планет системы (спека 2026-09-22-

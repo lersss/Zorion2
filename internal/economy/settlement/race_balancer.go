@@ -171,8 +171,8 @@ func GetRaceRecordMeta(raceID string) (*RaceRecord, bool) {
 // кривых свои диапазоны — сдвиг из карточки). Атомарная замена записи +
 // запись файла (ошибка записи — лог, правка сессионная).
 func SetRaceCurve(raceID, component string, curve ComponentCurve) error {
-	if !ValidComponent(component) {
-		return fmt.Errorf("неизвестная компонента %q (heat/cold/gravity/radiation)", component)
+	if !IsRaceComponent(component) {
+		return fmt.Errorf("компонента %q недоступна для расы (только heat/cold/gravity/radiation)", component)
 	}
 	if err := validateRaceCurve(curve); err != nil {
 		return err

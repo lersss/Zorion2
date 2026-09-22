@@ -31,31 +31,14 @@ func TestGetPlanetByID(t *testing.T) {
 	// нагрузкой: 999 998 вместо 1 000 000). Сдвиг вперёд даёт Δt ≤ 0 — гвард
 	// модели возвращает p0 без убыли, и проверка остаётся точной.
 	freshCheckpoint := now.Add(time.Minute)
-	settlementRows := sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id", "settlement_type_id", "name", "eat"}).
-		AddRow("s1", "p1", 1_000_000, float64(1_000_000), 60, freshCheckpoint, now, now, nil, nil, nil, nil)
-	mock.ExpectQuery(`
-		SELECT s.id, s.planet_id, s.population, s.population_exact, s.stability, s.computed_at, s.created_at, s.updated_at, s.race_id, s.settlement_type_id, pt.name, pt.params->'eat'
-		FROM settlements s
-		LEFT JOIN producer_types pt ON pt.id = s.settlement_type_id
-		WHERE s.planet_id = ANY($1) ORDER BY s.created_at ASC
-	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(settlementRows)
+	settlementRows := sqlmock.NewRows(settlementCols()).
+		AddRow("s1", "p1", 1_000_000, float64(1_000_000), 60, freshCheckpoint, now, now, nil, nil, nil, nil, nil)
+	mock.ExpectQuery(settlementsQuery).WithArgs(sqlmock.AnyArg()).WillReturnRows(settlementRows)
 
-	// attachBranches (спека 2026-09-22-поселение-ветка-буферы-переработка
-	// §4.2): поселение есть, веток нет — пустая выборка.
-	expectEmptyBranches(mock)
+	// Owner-проход: поселение есть, веток нет, Δt ≤ 0 — путь «в памяти», без записи.
+	expectOwnerPassNoBranches(mock, nil)
 
-	// attachSettlements читает лог поселения (18b §«Лог поселения») — пусто.
-	mock.ExpectQuery(`
-		SELECT id, settlement_id, type, occurred_at, cause, created_at
-		FROM (
-			SELECT id, settlement_id, type, occurred_at, cause, created_at,
-			       ROW_NUMBER() OVER (PARTITION BY settlement_id ORDER BY occurred_at DESC) AS rn
-			FROM settlement_log
-			WHERE settlement_id = ANY($1)
-		) sub
-		WHERE rn <= 3
-		ORDER BY occurred_at DESC
-	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"id", "settlement_id", "type", "occurred_at", "cause", "created_at"}))
+	expectEmptySettlementLog(mock)
 
 	// attachFactionsAndBuildings — фракций/строений у планеты нет (спека
 	// 2026-09-21-фабрики-релиз-2-столицы-фракций §6).

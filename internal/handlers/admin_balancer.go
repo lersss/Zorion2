@@ -23,11 +23,24 @@ import (
 	"zorion/internal/economy/settlement"
 )
 
-// balancerCurveResponse — кривая компоненты (GET/PUT/reset).
+// balancerCurveResponse — кривая компоненты (GET/PUT/reset). Recovery —
+// скаляр эффект-компоненты (`hunger`, §7.1): у hunger присутствует всегда, у
+// не-эффект-компонент отсутствует (omitempty).
 type balancerCurveResponse struct {
 	Component string                   `json:"component"`
 	Nodes     []settlement.SegmentNode `json:"nodes"`
 	Bends     []float64                `json:"bends"`
+	Recovery  *float64                 `json:"recovery,omitempty"`
+}
+
+// balancerCurveResponseFor — ответ с кривой и (для эффект-компонент) скаляром
+// `recovery` из store (§7.1).
+func balancerCurveResponseFor(component string, nodes []settlement.SegmentNode, bends []float64) balancerCurveResponse {
+	resp := balancerCurveResponse{Component: component, Nodes: nodes, Bends: bends}
+	if v, ok := settlement.ComponentScalar(component); ok {
+		resp.Recovery = &v
+	}
+	return resp
 }
 
 // balancerEtalon — эталонный маркер-крестик (§4, фиксированные данные).
@@ -65,12 +78,13 @@ var balancerEtalons = map[string][]balancerEtalon{
 	},
 }
 
-// balancerComponentOK — проверка компоненты из 4 допустимых (иначе 422).
+// balancerComponentOK — проверка компоненты из допустимых (heat/cold/gravity/
+// radiation/hunger, иначе 422).
 func balancerComponentOK(w http.ResponseWriter, component string) bool {
 	if settlement.ValidComponent(component) {
 		return true
 	}
-	writeJSONError(w, fmt.Sprintf("неизвестная компонента %q (heat/cold/gravity/radiation)", component),
+	writeJSONError(w, fmt.Sprintf("неизвестная компонента %q (heat/cold/gravity/radiation/hunger)", component),
 		http.StatusUnprocessableEntity)
 	return false
 }
@@ -99,11 +113,7 @@ func (h *AdminHandlers) GetBalancerCurve(w http.ResponseWriter, r *http.Request)
 		writeJSONError(w, "кривая компоненты недоступна", http.StatusInternalServerError)
 		return
 	}
-	writeJSONStatus(w, http.StatusOK, balancerCurveResponse{
-		Component: component,
-		Nodes:     nodes,
-		Bends:     bends,
-	})
+	writeJSONStatus(w, http.StatusOK, balancerCurveResponseFor(component, nodes, bends))
 }
 
 // PutBalancerCurve — PUT /admin/balancer/curve: {component, nodes, bends}.
@@ -116,6 +126,7 @@ func (h *AdminHandlers) PutBalancerCurve(w http.ResponseWriter, r *http.Request)
 		Component string                   `json:"component"`
 		Nodes     []settlement.SegmentNode `json:"nodes"`
 		Bends     []float64                `json:"bends"`
+		Recovery  *float64                 `json:"recovery"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSONError(w, "Некорректное тело запроса", http.StatusUnprocessableEntity)
@@ -124,19 +135,18 @@ func (h *AdminHandlers) PutBalancerCurve(w http.ResponseWriter, r *http.Request)
 	if !balancerComponentOK(w, req.Component) {
 		return
 	}
-	if err := settlement.SetCurve(req.Component, settlement.ComponentCurve{
+	// Кривая и скаляр пишутся ОДНОЙ операцией store (атомарно, §7.1): при
+	// ошибке валидации не меняется ни то, ни другое. `recovery` принимается
+	// только эффект-компонентой (hunger), иначе 422.
+	if err := settlement.SetCurveWithScalar(req.Component, settlement.ComponentCurve{
 		Nodes: req.Nodes,
 		Bends: req.Bends,
-	}); err != nil {
+	}, req.Recovery); err != nil {
 		writeJSONError(w, err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
 	nodes, bends, _ := settlement.GetCurve(req.Component)
-	writeJSONStatus(w, http.StatusOK, balancerCurveResponse{
-		Component: req.Component,
-		Nodes:     nodes,
-		Bends:     bends,
-	})
+	writeJSONStatus(w, http.StatusOK, balancerCurveResponseFor(req.Component, nodes, bends))
 }
 
 // HandleBalancerCurveReset — POST /admin/balancer/curve/reset:
@@ -156,16 +166,12 @@ func (h *AdminHandlers) HandleBalancerCurveReset(w http.ResponseWriter, r *http.
 	if !balancerComponentOK(w, req.Component) {
 		return
 	}
-	if err := settlement.ResetCurve(req.Component); err != nil {
+	if err := settlement.ResetCurveWithScalar(req.Component); err != nil {
 		writeJSONError(w, err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
 	nodes, bends, _ := settlement.GetCurve(req.Component)
-	writeJSONStatus(w, http.StatusOK, balancerCurveResponse{
-		Component: req.Component,
-		Nodes:     nodes,
-		Bends:     bends,
-	})
+	writeJSONStatus(w, http.StatusOK, balancerCurveResponseFor(req.Component, nodes, bends))
 }
 
 // HandleBalancerCurveSample — POST /admin/balancer/curve/sample:
@@ -199,6 +205,11 @@ func (h *AdminHandlers) HandleBalancerCurveSample(w http.ResponseWriter, r *http
 	var ys []float64
 	var ok bool
 	if raceID := r.URL.Query().Get("race_id"); raceID != "" {
+		// Расовый режим принимает только расовые компоненты (§7.2): hunger —
+		// глобальная, иначе SampleRaceCurve вернул бы nil → 500.
+		if !balancerRaceComponentOK(w, req.Component) {
+			return
+		}
 		if !raceBalancerRaceOK(w, raceID) {
 			return
 		}
@@ -227,9 +238,14 @@ func (h *AdminHandlers) HandleBalancerEtalons(w http.ResponseWriter, r *http.Req
 	if !balancerComponentOK(w, component) {
 		return
 	}
+	// У hunger эталонов нет — пустой список (норма, §7.1), а не null.
+	etalons := balancerEtalons[component]
+	if etalons == nil {
+		etalons = []balancerEtalon{}
+	}
 	writeJSONStatus(w, http.StatusOK, map[string]interface{}{
 		"component": component,
-		"etalons":   balancerEtalons[component],
+		"etalons":   etalons,
 	})
 }
 
@@ -350,11 +366,7 @@ func (h *AdminHandlers) HandleBalancerPresetsApply(w http.ResponseWriter, r *htt
 		writeJSONError(w, err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
-	writeJSONStatus(w, http.StatusOK, balancerCurveResponse{
-		Component: req.Component,
-		Nodes:     nodes,
-		Bends:     bends,
-	})
+	writeJSONStatus(w, http.StatusOK, balancerCurveResponseFor(req.Component, nodes, bends))
 }
 
 // HandleBalancerPresetsResetDefault — POST /admin/balancer/presets/reset-default:
@@ -380,9 +392,5 @@ func (h *AdminHandlers) HandleBalancerPresetsResetDefault(w http.ResponseWriter,
 		writeJSONError(w, err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
-	writeJSONStatus(w, http.StatusOK, balancerCurveResponse{
-		Component: req.Component,
-		Nodes:     nodes,
-		Bends:     bends,
-	})
+	writeJSONStatus(w, http.StatusOK, balancerCurveResponseFor(req.Component, nodes, bends))
 }

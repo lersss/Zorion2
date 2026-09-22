@@ -120,6 +120,19 @@ TIMESTAMPTZ `DEFAULT NOW()`; чек-точка **своя** — не `settlement
 (package_key, share_index) WHERE status='open'`, `uq_contracts_package_taken_executor
 (package_key, executor_id) WHERE status='taken'`, `idx_contracts_package_open`.
 
+`effect_types` (каталог типов эффектов, спека
+`2026-09-22-эффекты-снабжения-задержка-голод`, миграция `000070`): `impact` (открытый
+набор), `params.curve` — **ссылка** на компоненту «Балансировки» (`recovery` в типе
+НЕ хранится); не чистится (`truncateTables` его не содержит).
+
+`active_effects` (состояние владельца, миграция `000070`): `load`/`load_at`
+(нагрузка/базис), полиморфный владелец (`owner_settlement_id` CASCADE), источник —
+`source_position` (позиция корзины, TEXT, без FK); **входит в `truncateTables`**.
+Кривая силы и скаляр `recovery` — **не в БД**, а в in-memory store «Балансировки»
+(`config/balancer_presets.json` хранит пресеты, включая `hunger`). Таблиц
+потребности/позиции **нет** — спрос/покрытие/дефицит производны (позиция = категория
+`categories`).
+
 Удалены: `production_units` (легаси 000018-эпохи, снос миграцией `000050`,
 спека `2026-09-20-фабрики` §11.6, решение создателя 3b.6.8), `factories`/
 `goods_batches` (миграция `000034` — имя `factories` свободно), `assignments`

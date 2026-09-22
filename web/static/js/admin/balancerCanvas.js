@@ -42,6 +42,7 @@ const COLORS = {
     node: '#fbbf24',
     bend: '#a78bfa',
     etalon: '#f87171',
+    threshold: '#f59e0b',
     zero: '#334155',
     axis: '#64748b',
     grid: 'rgba(100, 116, 139, 0.22)',
@@ -136,6 +137,22 @@ export function render(canvas, view, state) {
     ctx.lineTo(canvas.width - PAD.right, zeroTop);
     ctx.stroke();
     ctx.setLineDash([]);
+
+    // Маркер порога включения эффект-компоненты (§4.4/§7.1): вертикальная
+    // пунктирная линия в X порога (нулевой префикс кривой). Рисуется только
+    // для эффект-компонент (state.threshold != null) и если порог в видимой
+    // области.
+    if (state.threshold != null && state.threshold > view.xMin && state.threshold < view.xMax) {
+        const sp = dataToScreen(canvas, view, state.threshold, view.yMin);
+        ctx.strokeStyle = COLORS.threshold;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.moveTo(sp.x, PAD.top);
+        ctx.lineTo(sp.x, canvas.height - PAD.bottom);
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
 
     // Заводская кривая (оверлей, 99.2.23 §4.3): пунктирная линия factory
     // поверх active (в цвет компоненты, полупрозрачно) — видно расхождение

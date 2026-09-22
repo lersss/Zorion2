@@ -203,8 +203,8 @@ func TestPresetFileCreatedOnStart(t *testing.T) {
 	if err := json.Unmarshal(data, &f); err != nil {
 		t.Fatalf("созданный файл невалиден: %v", err)
 	}
-	if len(f.Presets) != 4 {
-		t.Errorf("пресетов %d, хочу 4 (по одному default на компоненту)", len(f.Presets))
+	if len(f.Presets) != len(balancerComponentOrder) {
+		t.Errorf("пресетов %d, хочу %d (по одному default на компоненту)", len(f.Presets), len(balancerComponentOrder))
 	}
 	for _, comp := range balancerComponentOrder {
 		if f.Active[comp] != "default" {
@@ -351,6 +351,83 @@ func TestPresetPersistenceAcrossRestart(t *testing.T) {
 	_, active, _ := ListPresets("heat")
 	if active != "x" {
 		t.Errorf("active[heat] = %q, хочу x", active)
+	}
+}
+
+// TestPresetFileWithoutRecoveryBackCompat — файл пресетов СТАРОГО формата
+// (без поля `recovery`, в т.ч. без компоненты hunger) читается: прочие
+// компоненты не меняются (heat загружается ровно из файла), hunger получает
+// заводское значение скаляра 0.25 (обратная совместимость, §7.1; регресс
+// ревью этапа 3).
+func TestPresetFileWithoutRecoveryBackCompat(t *testing.T) {
+	t.Cleanup(func() {
+		for _, c := range balancerComponentOrder {
+			_ = ResetCurve(c)
+		}
+		_ = ResetComponentScalar(HungerCurveKey)
+	})
+
+	heat := customHeat()
+	hunger := validHungerCurve()
+
+	cases := []struct {
+		name    string
+		presets []BalancerPreset
+		active  map[string]string
+	}{
+		{
+			// Файл до появления hunger: 4 среды, recovery нигде нет.
+			name: "old4NoHunger",
+			presets: []BalancerPreset{
+				{Name: "default", Component: "heat", Nodes: heat.Nodes, Bends: heat.Bends},
+				{Name: "default", Component: "cold", Nodes: defaultColdCurve().Nodes, Bends: defaultColdCurve().Bends},
+				{Name: "default", Component: "gravity", Nodes: defaultGravityCurve().Nodes, Bends: defaultGravityCurve().Bends},
+				{Name: "default", Component: "radiation", Nodes: defaultRadiationCurve().Nodes, Bends: defaultRadiationCurve().Bends},
+			},
+			active: map[string]string{"heat": "default", "cold": "default", "gravity": "default", "radiation": "default"},
+		},
+		{
+			// hunger есть, но без поля recovery (null).
+			name: "hungerWithoutRecovery",
+			presets: []BalancerPreset{
+				{Name: "default", Component: "heat", Nodes: heat.Nodes, Bends: heat.Bends},
+				{Name: "default", Component: HungerCurveKey, Nodes: hunger.Nodes, Bends: hunger.Bends},
+			},
+			active: map[string]string{"heat": "default", HungerCurveKey: "default"},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "old.json")
+			// Скаляр испорчен: Load обязан вернуть hunger к заводскому 0.25.
+			if err := SetComponentScalar(HungerCurveKey, 0.9); err != nil {
+				t.Fatalf("SetComponentScalar: %v", err)
+			}
+			raw, err := json.Marshal(balancerPresetsFile{Presets: c.presets, Active: c.active})
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			if err := os.WriteFile(path, raw, 0o644); err != nil {
+				t.Fatalf("write: %v", err)
+			}
+			if err := LoadBalancerPresets(path); err != nil {
+				t.Fatalf("LoadBalancerPresets старого формата: %v", err)
+			}
+
+			// Прочие компоненты не изменились — heat ровно из файла.
+			nodes, bends, ok := GetCurve("heat")
+			if !ok || len(nodes) != len(heat.Nodes) || nodes[1].Y != heat.Nodes[1].Y || bends[0] != heat.Bends[0] {
+				t.Errorf("heat из старого файла не применён: %+v / %v", nodes, bends)
+			}
+			if _, ok := ComponentScalar("heat"); ok {
+				t.Error("ComponentScalar(heat) — скаляр у не-эффект-компоненты")
+			}
+			// hunger получает заводское 0.25 (в файле recovery отсутствовал).
+			if v, ok := ComponentScalar(HungerCurveKey); !ok || v != 0.25 {
+				t.Errorf("hunger recovery = %v ok=%v, хочу заводское 0.25", v, ok)
+			}
+		})
 	}
 }
 

@@ -67,16 +67,19 @@ func settlementTypeArg(id int64) interface{} {
 
 // GetSettlementsByPlanetIDs — возвращает поселения планет,
 // сгруппированные по planet_id. Пустой список — планета без поселений.
-// LEFT JOIN producer_types несёт тип поселения и СЫРУЮ структуру норм
-// params->'eat' без COALESCE (спека итерации 4 §3.3): отсутствие записи
-// обязано приехать отсутствием ключа — фолбэк DefaultEatK применяет Go (§4.3).
+// LEFT JOIN producer_types несёт тип поселения и СЫРЫЕ структуры норм
+// params->'eat' и привязок params->'effects' без COALESCE (спека итерации 4
+// §3.3): отсутствие записи обязано приехать отсутствием ключа — фолбэк
+// DefaultEatK применяет Go (§4.3). Ключ eat/effects — ПОЗИЦИЯ корзины
+// (спека 2026-09-22-эффекты-снабжения §4.2).
 func (r *EconomyRepository) GetSettlementsByPlanetIDs(planetIDs []string) (map[string][]models.Settlement, error) {
 	if len(planetIDs) == 0 {
 		return map[string][]models.Settlement{}, nil
 	}
 
 	query := `SELECT s.id, s.planet_id, s.population, s.population_exact, s.stability, s.computed_at,
-	                 s.created_at, s.updated_at, s.race_id, s.settlement_type_id, pt.name, pt.params->'eat'
+	                 s.created_at, s.updated_at, s.race_id, s.settlement_type_id, pt.name,
+	                 pt.params->'eat', pt.params->'effects'
 	          FROM settlements s
 	          LEFT JOIN producer_types pt ON pt.id = s.settlement_type_id
 	          WHERE s.planet_id = ANY($1) ORDER BY s.created_at ASC`
@@ -91,12 +94,12 @@ func (r *EconomyRepository) GetSettlementsByPlanetIDs(planetIDs []string) (map[s
 		var s models.Settlement
 		var raceID, typeName sql.NullString
 		var typeID sql.NullInt64
-		var eatRaw []byte
+		var eatRaw, effectsRaw []byte
 		if err := rows.Scan(
 			&s.ID, &s.PlanetID, &s.Population,
 			&s.PopulationExact, &s.Stability, &s.ComputedAt,
 			&s.CreatedAt, &s.UpdatedAt, &raceID,
-			&typeID, &typeName, &eatRaw,
+			&typeID, &typeName, &eatRaw, &effectsRaw,
 		); err != nil {
 			return nil, err
 		}
@@ -108,7 +111,14 @@ func (r *EconomyRepository) GetSettlementsByPlanetIDs(planetIDs []string) (map[s
 			if err := json.Unmarshal(eatRaw, &eat); err != nil {
 				return nil, fmt.Errorf("settlement type eat (%s): %w", s.ID, err)
 			}
-			s.EatByGood = eat
+			s.EatByPosition = eat
+		}
+		if len(effectsRaw) > 0 {
+			var effects map[string]string
+			if err := json.Unmarshal(effectsRaw, &effects); err != nil {
+				return nil, fmt.Errorf("settlement type effects (%s): %w", s.ID, err)
+			}
+			s.EffectsByPosition = effects
 		}
 		result[s.PlanetID] = append(result[s.PlanetID], s)
 	}
@@ -204,13 +214,15 @@ func (r *EconomyRepository) RecomputeSettlementPopulation(s *models.Settlement, 
 		return models.Settlement{}, err
 	}
 
-	// SELECT ... FOR UPDATE читает только строку населения: тип поселения и
-	// нормы еды (params.eat) переносим из прочитанного поселения s — иначе
-	// путь «событие» вернул бы nil EatByGood, и синк веток ел бы по
-	// DefaultEatK (спека итерации 4 §3.3/§3.5; T6/T8/T19).
+	// SELECT ... FOR UPDATE читает только строку населения: тип поселения,
+	// нормы (params.eat) и привязки (params.effects) переносим из прочитанного
+	// поселения s — иначе путь «событие» вернул бы nil EatByPosition, и слой
+	// потребности считал бы спрос по DefaultEatK (спека итерации 4 §3.3/§3.5;
+	// спека 2026-09-22-эффекты-снабжения §4.2; T2/T6/T8/T19).
 	stored.SettlementTypeID = s.SettlementTypeID
 	stored.TypeName = s.TypeName
-	stored.EatByGood = s.EatByGood
+	stored.EatByPosition = s.EatByPosition
+	stored.EffectsByPosition = s.EffectsByPosition
 	stored.Population = newPopulation
 	stored.PopulationExact = newExact
 	stored.ComputedAt = now

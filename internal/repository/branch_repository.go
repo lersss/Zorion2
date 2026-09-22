@@ -12,14 +12,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
 	"sort"
-	"time"
 
 	"github.com/lib/pq"
 
 	"zorion/internal/economy/settlement"
-	"zorion/internal/goodsstudio/graph"
 	"zorion/internal/models"
 )
 
@@ -27,27 +24,33 @@ import (
 var ErrBranchNotFound = errors.New("ветка не найдена")
 
 const (
+	// Категория товара-выхода (c.name_norm) — ПОЗИЦИЯ корзины, нужна слою
+	// потребности (§4.2); JOIN categories без фильтра kind (позиция любого
+	// вида, §3.3).
 	branchSelectBySettlementsSQL = `
 		SELECT b.id, b.settlement_id, b.recipe_id, b.processed_at,
-		       r.good_id, og.name, r.complexity
+		       r.good_id, og.name, r.complexity, c.name_norm
 		FROM settlement_branches b
 		JOIN recipes r ON r.id = b.recipe_id
 		JOIN goods og ON og.id = r.good_id
+		JOIN categories c ON c.id = og.category_id
 		WHERE b.settlement_id = ANY($1)
 		ORDER BY b.created_at ASC, b.id ASC`
 
-	// branchSelectByIDSQL — чтение одной ветки под блокировкой (§4.2: единая
-	// точка сериализации — FOR UPDATE только на строке ветки, порядок ветка →
-	// буферы). `FOR UPDATE OF b` (не голый FOR UPDATE): запрос джойнит recipes/
-	// goods, и голый FOR UPDATE залочил бы и их строки — лишние блокировки и
-	// риск дедлока с DeleteGood (goods → recipe → branch). Лочим ровно ветку.
-	branchSelectByIDSQL = `
+	// branchSelectBySettlementForUpdateSQL — ветки ОДНОГО поселения под
+	// блокировкой в owner-транзакции (§4.5): порядок `id` (детерминированный
+	// порядок локов), `FOR UPDATE OF b` — лочатся только строки веток, не
+	// джойны (risk дедлока с DeleteGood). Категория выхода — позиция (§4.2).
+	branchSelectBySettlementForUpdateSQL = `
 		SELECT b.id, b.settlement_id, b.recipe_id, b.processed_at,
-		       r.good_id, og.name, r.complexity
+		       r.good_id, og.name, r.complexity, c.name_norm
 		FROM settlement_branches b
 		JOIN recipes r ON r.id = b.recipe_id
 		JOIN goods og ON og.id = r.good_id
-		WHERE b.id = $1 FOR UPDATE OF b`
+		JOIN categories c ON c.id = og.category_id
+		WHERE b.settlement_id = $1
+		ORDER BY b.id
+		FOR UPDATE OF b`
 
 	branchBuffersSelectSQL = `
 		SELECT bb.branch_id, bb.direction, bb.good_id, g.name, bb.amount
@@ -112,14 +115,17 @@ type branchRecord struct {
 	branch       models.SettlementBranch
 	settlementID string
 	outputGoodID int64
-	components   []settlement.BranchComponent
+	// outputCategory — name_norm категории товара-выхода: ПОЗИЦИЯ корзины
+	// (спека 2026-09-22-эффекты-снабжения §3.3/§4.2), ключ покрытия слоя
+	// потребности. Пусто, если у категории нет имени (не бывает у сида).
+	outputCategory string
+	components     []settlement.BranchComponent
 }
 
 // toBranch — состояние ветки для чистой функции переработки. deposits —
 // залежи своей планеты по good_id (источник добычи, спека итерации 3 §4).
-// eatByGood — структура норм типа поселения (params.eat, спека итерации 4
-// §3.3), ключ выборки — name_norm товара-выхода рецепта (спека §4.2).
-func (rec *branchRecord) toBranch(population float64, deposits map[int64][]settlement.DepositLot, eatByGood map[string]float64) settlement.Branch {
+// outputAmount — базис выходного буфера ДО производства (O0_b, §4.2).
+func (rec *branchRecord) toBranch(population float64, outputAmount float64, deposits map[int64][]settlement.DepositLot) settlement.Branch {
 	input := make(map[int64]float64, len(rec.branch.Input))
 	for _, e := range rec.branch.Input {
 		input[e.GoodID] = e.Amount
@@ -130,37 +136,14 @@ func (rec *branchRecord) toBranch(population float64, deposits map[int64][]settl
 		complexity = &c
 	}
 	return settlement.Branch{
-		Population:     population,
-		Complexity:     complexity,
-		Components:     rec.components,
-		Input:          input,
-		Output:         branchOutputAmount(rec.branch.Output, rec.outputGoodID),
-		ProcessedAt:    rec.branch.ProcessedAt,
-		Deposits:       deposits,
-		EatByGood:      eatByGood,
-		OutputGoodNorm: graph.NormalizeName(rec.branch.RecipeName),
+		Population:  population,
+		Complexity:  complexity,
+		Components:  rec.components,
+		Input:       input,
+		Output:      outputAmount,
+		ProcessedAt: rec.branch.ProcessedAt,
+		Deposits:    deposits,
 	}
-}
-
-// applyProcessed — вынести результат переработки в display-модель. Новых строк
-// не создаёт (путь «в памяти» записей в БД не делает — §4.2/T14): обновляются
-// только уже загруженные записи. Produced/Eaten — за последний проход, EatenRate
-// — текущая скорость еды (спека итерации 4 §6).
-func (rec *branchRecord) applyProcessed(p settlement.Branch, population float64) {
-	for i := range rec.branch.Input {
-		if v, ok := p.Input[rec.branch.Input[i].GoodID]; ok {
-			rec.branch.Input[i].Amount = v
-		}
-	}
-	for i := range rec.branch.Output {
-		if rec.branch.Output[i].GoodID == rec.outputGoodID {
-			rec.branch.Output[i].Amount = p.Output
-		}
-	}
-	rec.branch.ProcessedAt = p.ProcessedAt
-	rec.branch.Produced = p.ProducedLast
-	rec.branch.Eaten = p.EatenLast
-	rec.branch.EatenRate = settlement.EatK(p.EatByGood, p.OutputGoodNorm) * population / 3600
 }
 
 // branchOutputAmount — накопленное количество товара-выхода рецепта.
@@ -250,13 +233,13 @@ func loadBranches(ctx context.Context, q branchRowsQueryer, settlementIDs []stri
 }
 
 // scanBranchRow — общий разбор строки ветки (b.id, b.settlement_id, b.recipe_id,
-// b.processed_at, output good_id, output good name, complexity).
+// b.processed_at, output good_id, output good name, complexity, category name_norm).
 func scanBranchRow(rows *sql.Rows) (*branchRecord, error) {
 	rec := &branchRecord{}
 	var complexity sql.NullInt64
 	if err := rows.Scan(
 		&rec.branch.ID, &rec.settlementID, &rec.branch.RecipeID, &rec.branch.ProcessedAt,
-		&rec.outputGoodID, &rec.branch.RecipeName, &complexity,
+		&rec.outputGoodID, &rec.branch.RecipeName, &complexity, &rec.outputCategory,
 	); err != nil {
 		return nil, fmt.Errorf("failed to scan branch: %w", err)
 	}
@@ -329,56 +312,11 @@ func attachBranchBuffers(ctx context.Context, q branchRowsQueryer, branchIDs []s
 	return nil
 }
 
-// --- ленивый синк переработки (§4.2) ---
-
-// SyncBranches — загрузка веток поселений и ленивая переработка вход → выход
-// (§4.2) с добором недостающего из залежей своей планеты (спека итерации 3 §4):
-// добыча — первая половина того же прохода. Для каждой ветки: Δt <
-// MinPersistInterval (общий кадэнс ленивых петель) — пересчёт в памяти без
-// записи и блокировки (и залежи читаются без блокировки, deposits не пишется);
-// иначе — персистентный синк (syncBranchTx: FOR UPDATE ветки → FOR UPDATE
-// залежей → запись буферов, залежей и processed_at). planetBySettlement даёт
-// planet_id каждого поселения (без нового JOIN-лока, §4.2). eatBySettlement —
-// структура норм типа (params.eat) каждого поселения (спека итерации 4 §3.3):
-// норма выбирается в ProcessBranch по товару-выходу ветки. Возвращает
-// display-модели, сгруппированные по settlement_id.
-func (r *BranchRepository) SyncBranches(settlementIDs []string, populationBySettlement map[string]float64, eatBySettlement map[string]map[string]float64, planetBySettlement map[string]string, now time.Time) (map[string][]models.SettlementBranch, error) {
-	out := map[string][]models.SettlementBranch{}
-	if len(settlementIDs) == 0 {
-		return out, nil
-	}
-	recs, err := loadBranches(context.Background(), r.db, settlementIDs)
-	if err != nil {
-		return nil, err
-	}
-	// Залежи для веток пути «в памяти» — читаются один раз без блокировки
-	// (§4.2): в БД этот путь не пишет, но карточка показывает добор в памяти.
-	memDeposits, err := r.loadMemoryDeposits(recs, planetBySettlement, now)
-	if err != nil {
-		return nil, err
-	}
-	for _, rec := range recs {
-		population := populationBySettlement[rec.settlementID]
-		planetID := planetBySettlement[rec.settlementID]
-		eatByGood := eatBySettlement[rec.settlementID]
-		if now.Sub(rec.branch.ProcessedAt) < settlement.MinPersistInterval {
-			rec.applyProcessed(settlement.ProcessBranch(rec.toBranch(population, memDeposits[planetID], eatByGood), now), population)
-		} else {
-			updated, err := r.syncBranchTx(context.Background(), rec.branch.ID, planetID, population, eatByGood, now)
-			// Ветку удалили между загрузкой и блокировкой (чужая мутация/
-			// каскад) — не роняем чтение карточки: ветки больше нет, no-op.
-			if errors.Is(err, ErrBranchNotFound) {
-				continue
-			}
-			if err != nil {
-				return nil, err
-			}
-			rec.branch = updated
-		}
-		out[rec.settlementID] = append(out[rec.settlementID], rec.branch)
-	}
-	return out, nil
-}
+// --- ленивый синк переработки (§4.2/§4.5) ---
+//
+// Owner-проход (производство → потребность → население) живёт в
+// settlement_owner_pass.go: одна транзакция на поселение под advisory-локом,
+// слой потребности и запись нагрузки/населения — там же.
 
 // componentGoodIDs — good_id заполненных компонентов рецепта без дублей (фильтр
 // залежей по составу рецепта, §3.2).
@@ -388,53 +326,6 @@ func componentGoodIDs(comps []settlement.BranchComponent) []int64 {
 		out = appendUniqueInt64(out, c.GoodID)
 	}
 	return out
-}
-
-// loadMemoryDeposits — залежи планет веток пути «в памяти» (Δt <
-// MinPersistInterval), одним запросом без блокировки (§4.2, deposits не
-// пишется). Запрос — только если такие ветки есть и у них есть компоненты;
-// возвращает planet_id → good_id → залежи.
-func (r *BranchRepository) loadMemoryDeposits(recs []*branchRecord, planetBySettlement map[string]string, now time.Time) (map[string]map[int64][]settlement.DepositLot, error) {
-	var planetIDs []string
-	var goodIDs []int64
-	for _, rec := range recs {
-		if now.Sub(rec.branch.ProcessedAt) >= settlement.MinPersistInterval {
-			continue
-		}
-		planetID := planetBySettlement[rec.settlementID]
-		if planetID == "" {
-			continue
-		}
-		planetIDs = appendStringUnique(planetIDs, planetID)
-		for _, gid := range componentGoodIDs(rec.components) {
-			goodIDs = appendUniqueInt64(goodIDs, gid)
-		}
-	}
-	if len(planetIDs) == 0 || len(goodIDs) == 0 {
-		return nil, nil
-	}
-	rows, err := r.db.QueryContext(context.Background(), depositMemorySelectSQL, pqStringArray(planetIDs), pq.Array(goodIDs))
-	if err != nil {
-		return nil, fmt.Errorf("failed to query deposits: %w", err)
-	}
-	defer rows.Close()
-	out := make(map[string]map[int64][]settlement.DepositLot, len(planetIDs))
-	for rows.Next() {
-		var planetID, lotID string
-		var goodID int64
-		var amount float64
-		if err := rows.Scan(&planetID, &lotID, &goodID, &amount); err != nil {
-			return nil, fmt.Errorf("failed to scan deposit: %w", err)
-		}
-		if out[planetID] == nil {
-			out[planetID] = map[int64][]settlement.DepositLot{}
-		}
-		out[planetID][goodID] = append(out[planetID][goodID], settlement.DepositLot{ID: lotID, GoodID: goodID, Amount: amount})
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("deposits iteration error: %w", err)
-	}
-	return out, nil
 }
 
 // loadDepositsForUpdate — залежи планеты под блокировкой для персистентного
@@ -476,101 +367,6 @@ func appendStringUnique(s []string, v string) []string {
 	return append(s, v)
 }
 
-// syncBranchTx — персистентный путь «события» (§4.2): транзакция, FOR UPDATE на
-// строке ветки → топ-ап строк входа для текущих компонентов (T14) → FOR UPDATE
-// залежей планеты (добыча, спека итерации 3 §4) → пересчёт по сохранённым
-// буферам и залежам → абсолютная запись буферов, залежей и processed_at →
-// COMMIT. Порядок блокировок единый: ветка → залежи. eatByGood — нормы типа
-// поселения для выбора нормы еды по товару-выходу ветки (спека итерации 4 §4).
-func (r *BranchRepository) syncBranchTx(ctx context.Context, branchID, planetID string, population float64, eatByGood map[string]float64, now time.Time) (models.SettlementBranch, error) {
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return models.SettlementBranch{}, err
-	}
-	defer tx.Rollback()
-
-	rec, err := loadBranchForUpdate(ctx, tx, branchID)
-	if err != nil {
-		return models.SettlementBranch{}, err
-	}
-	comps, err := loadBranchComponents(ctx, tx, []int64{rec.branch.RecipeID})
-	if err != nil {
-		return models.SettlementBranch{}, err
-	}
-	rec.components = comps[rec.branch.RecipeID]
-
-	// Топ-ап строк входа для текущих заполненных компонентов (правка @critic №8,
-	// T14): новый компонент рецепта без строки дал бы affordable = 0 — ветка
-	// молча встала бы. ON CONFLICT DO NOTHING; появление строки — лог.
-	for _, c := range rec.components {
-		res, err := tx.ExecContext(ctx, `
-			INSERT INTO settlement_branch_buffers (branch_id, direction, good_id, amount)
-			VALUES ($1, 'input', $2, 0)
-			ON CONFLICT (branch_id, direction, good_id) DO NOTHING`, branchID, c.GoodID)
-		if err != nil {
-			return models.SettlementBranch{}, fmt.Errorf("branch top-up input: %w", err)
-		}
-		if n, err := res.RowsAffected(); err == nil && n > 0 {
-			log.Printf("🌿 ветка %s: новый компонент рецепта %d добавлен во вход (0)", branchID, c.GoodID)
-		}
-	}
-	if err := attachBranchBuffers(ctx, tx, []string{branchID}, []*branchRecord{rec}); err != nil {
-		return models.SettlementBranch{}, err
-	}
-
-	// Залежи планеты под блокировкой — после ветки (единый порядок локов).
-	deposits, err := loadDepositsForUpdate(ctx, tx, planetID, componentGoodIDs(rec.components))
-	if err != nil {
-		return models.SettlementBranch{}, err
-	}
-
-	processed := settlement.ProcessBranch(rec.toBranch(population, deposits, eatByGood), now)
-
-	// Абсолютная запись входа по текущим компонентам (под блокировкой ветки —
-	// инкремент админа не теряется, §4.2).
-	for _, c := range rec.components {
-		if _, err := tx.ExecContext(ctx, `
-			UPDATE settlement_branch_buffers SET amount = $1, updated_at = NOW()
-			WHERE branch_id = $2 AND direction = 'input' AND good_id = $3`,
-			processed.Input[c.GoodID], branchID, c.GoodID,
-		); err != nil {
-			return models.SettlementBranch{}, fmt.Errorf("branch write input: %w", err)
-		}
-	}
-	// Выход — upsert строки товара-выхода рецепта.
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO settlement_branch_buffers (branch_id, direction, good_id, amount)
-		VALUES ($1, 'output', $2, $3)
-		ON CONFLICT (branch_id, direction, good_id)
-		DO UPDATE SET amount = EXCLUDED.amount, updated_at = NOW()`,
-		branchID, rec.outputGoodID, processed.Output,
-	); err != nil {
-		return models.SettlementBranch{}, fmt.Errorf("branch write output: %w", err)
-	}
-	// Убыль залежей — абсолютная запись остатка (кламп ≥ 0 страховкой).
-	for _, lot := range sortedDepositLots(processed.Deposits) {
-		amount := lot.Amount
-		if amount < 0 {
-			amount = 0
-		}
-		if _, err := tx.ExecContext(ctx, depositWriteAmountSQL, amount, lot.ID); err != nil {
-			return models.SettlementBranch{}, fmt.Errorf("branch write deposit: %w", err)
-		}
-	}
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE settlement_branches SET processed_at = $1, updated_at = NOW() WHERE id = $2`,
-		now, branchID,
-	); err != nil {
-		return models.SettlementBranch{}, fmt.Errorf("branch advance checkpoint: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return models.SettlementBranch{}, err
-	}
-
-	rec.applyProcessed(processed, population)
-	return rec.branch, nil
-}
-
 // sortedDepositLots — залежи результата в детерминированном порядке (good_id
 // ASC, затем порядок среза — «от крупной к мелкой»): запись залежей в БД не
 // зависит от порядка обхода map.
@@ -588,26 +384,6 @@ func sortedDepositLots(deposits map[int64][]settlement.DepositLot) []settlement.
 		out = append(out, deposits[gid]...)
 	}
 	return out
-}
-
-// loadBranchForUpdate — одна ветка под блокировкой строки (§4.2).
-func loadBranchForUpdate(ctx context.Context, tx *sql.Tx, branchID string) (*branchRecord, error) {
-	rec := &branchRecord{}
-	var complexity sql.NullInt64
-	err := tx.QueryRowContext(ctx, branchSelectByIDSQL, branchID).Scan(
-		&rec.branch.ID, &rec.settlementID, &rec.branch.RecipeID, &rec.branch.ProcessedAt,
-		&rec.outputGoodID, &rec.branch.RecipeName, &complexity,
-	)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrBranchNotFound
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to lock branch: %w", err)
-	}
-	if complexity.Valid {
-		rec.branch.Complexity = int(complexity.Int64)
-	}
-	return rec, nil
 }
 
 // --- запись (админ-ручки) ---

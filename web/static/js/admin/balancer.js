@@ -13,13 +13,22 @@ import { render, hitTest, dataToScreen, screenToData, evaluateCurveClient, fmtR 
 
 // Диапазоны X компонент (для начального обзора и клампа X при drag).
 // Единицы: жара и холод — °C (решение создателя 2026-09-15), гравитация — g,
-// радиация — rad.
+// радиация — rad, голод — нагрузка (сило-часы, §7.1).
 const COMPONENTS = {
     heat: { xMin: 30, xMax: 4000, unit: '°C' },
     cold: { xMin: -273.15, xMax: 14.85, unit: '°C' },
     gravity: { xMin: 0, xMax: 10, unit: 'g' },
     radiation: { xMin: 0, xMax: 100, unit: 'rad' },
+    hunger: { xMin: 0, xMax: 8760, unit: 'нагрузка' },
 };
+
+// RACE_COMPONENTS — компоненты расового балансировщика (§7.2): голод —
+// глобальная, в расовом режиме недоступен.
+const RACE_COMPONENTS = ['heat', 'cold', 'gravity', 'radiation'];
+
+// EFFECT_COMPONENTS — компоненты-эффекты: только у них порог = нулевой
+// префикс кривой (§4.4/§7.1) → маркер порога на графике.
+const EFFECT_COMPONENTS = ['hunger'];
 
 // X_LABELS — подпись единиц оси X внизу графика.
 const X_LABELS = {
@@ -27,6 +36,7 @@ const X_LABELS = {
     cold: 'холод, °C',
     gravity: 'гравитация, g',
     radiation: 'радиация, rad',
+    hunger: 'нагрузка, сило-ч',
 };
 
 // Ось Y — в процентах (R×100, решение создателя 2026-09-15): видимый
@@ -56,6 +66,7 @@ const state = {
     xs: [],
     presets: [],       // пресеты текущей компоненты (итерация 7): [{name, updated_at}]
     presetActive: '',  // имя активного пресета
+    recovery: null,    // скаляр recovery эффект-компоненты (hunger, §7.1)
     view: { logY: true, yMin: Y_MIN, yMax: Y_MAX, xMin: 30, xMax: 4000 },
 };
 
@@ -106,6 +117,12 @@ function activateMainTab() {
 
 async function loadComponent() {
     state.component = document.getElementById('balancerComponent').value;
+    // Голод — глобальная компонента (§7.2): в расовом режиме недоступен —
+    // не уходим в расовый эндпоинт, возвращаемся на «жару».
+    if (state.raceID && !RACE_COMPONENTS.includes(state.component)) {
+        state.component = 'heat';
+        document.getElementById('balancerComponent').value = 'heat';
+    }
     const r = COMPONENTS[state.component];
     state.view.xMin = r.xMin;
     state.view.xMax = r.xMax;
@@ -120,6 +137,7 @@ async function loadComponent() {
         // эталоны и пресеты — слой глобального балансировщика, для рас не в скоупе.
         await Promise.all([loadRaceCurve(), loadRaceFactory()]);
         state.etalons = [];
+        state.recovery = null;
     } else {
         await Promise.all([loadCurve(), loadEtalons(), loadPresets()]);
     }
@@ -208,7 +226,29 @@ function updateRaceUI() {
     if (controls) controls.style.display = isRace ? 'flex' : 'none';
     if (presetsRow) presetsRow.style.display = isRace ? 'none' : 'flex';
     if (resetBtn) resetBtn.style.display = isRace ? 'none' : 'inline-block';
+    // Голод — только глобальный режим (§7.2): при выбранной расе опция выключена.
+    const compSel = document.getElementById('balancerComponent');
+    if (compSel) {
+        const hungerOpt = compSel.querySelector('option[value="hunger"]');
+        if (hungerOpt) hungerOpt.disabled = isRace;
+    }
+    updateRecoveryUI();
     if (!isRace) renderRaceStale();
+}
+
+// updateRecoveryUI — поле скаляра recovery видно только для эффект-компоненты
+// в глобальном режиме (у расы голода нет, §7.1/§7.2).
+function updateRecoveryUI() {
+    const row = document.getElementById('balancerRecoveryRow');
+    if (!row) return;
+    const show = !state.raceID && state.component === 'hunger';
+    row.style.display = show ? 'block' : 'none';
+}
+
+// setRecoveryInput — выставить значение поля recovery из store.
+function setRecoveryInput(v) {
+    const inp = document.getElementById('balancerRecovery');
+    if (inp && v != null) inp.value = v;
 }
 
 // renderRaceStale — плашка «заводские настройки устарели» (card_hash ≠ хэшу
@@ -351,6 +391,10 @@ async function loadCurve() {
         state.bends = c.bends;
         state.baseNodes = c.nodes.map(n => ({ ...n }));
         state.baseBends = c.bends.slice();
+        // Скаляр recovery (только эффект-компонента, §7.1): отсутствует у прочих.
+        state.recovery = (c.recovery != null) ? c.recovery : null;
+        setRecoveryInput(state.recovery);
+        updateRecoveryUI();
     } catch (e) {
         console.error('loadCurve:', e);
         notifyError('Не удалось загрузить кривую');
@@ -465,6 +509,18 @@ async function savePresetAs() {
     }
 }
 
+// curvePayload — тело PUT: кривая + (для глобального голода) скаляр recovery
+// (§7.1). Для рас скаляр не отправляется.
+function curvePayload() {
+    const payload = { component: state.component, nodes: state.nodes, bends: state.bends };
+    if (!state.raceID && state.component === 'hunger') {
+        const inp = document.getElementById('balancerRecovery');
+        const rec = inp ? parseFloat(inp.value) : NaN;
+        if (Number.isFinite(rec) && rec >= 0) payload.recovery = rec;
+    }
+    return payload;
+}
+
 // putCurrentCurve — PUT текущих экранных узлов/bends (вынесено из saveCurve
 // для повторного использования). Для расы — PUT /admin/race-balancer/curve
 // (active-кривая); для «Люди» — глобальный store 99.2.17. true при успехе.
@@ -476,7 +532,7 @@ async function putCurrentCurve() {
         const res = await fetchWithAuth(url, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ component: state.component, nodes: state.nodes, bends: state.bends }),
+            body: JSON.stringify(curvePayload()),
         });
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
@@ -494,6 +550,10 @@ async function putCurrentCurve() {
             if (repro) repro.value = c.reproduction;
             updateReproCalc();
             renderRaceStale();
+        }
+        if (!state.raceID && c.recovery != null) {
+            state.recovery = c.recovery;
+            setRecoveryInput(c.recovery);
         }
         dirty = false;
         return true;
@@ -621,6 +681,7 @@ function redraw() {
         dirty: dirty,
         dragInfo: dragInfo,
         xLabel: X_LABELS[state.component],
+        threshold: EFFECT_COMPONENTS.includes(state.component) ? zeroPrefix(state.nodes) : null,
         factoryNodes: state.showFactory ? state.factoryNodes : [],
         factoryBends: state.showFactory ? state.factoryBends : [],
     });
@@ -714,7 +775,7 @@ async function saveCurve() {
         const res = await fetchWithAuth(url, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ component: state.component, nodes: state.nodes, bends: state.bends }),
+            body: JSON.stringify(curvePayload()),
         });
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
@@ -732,6 +793,10 @@ async function saveCurve() {
             if (repro) repro.value = c.reproduction;
             updateReproCalc();
             renderRaceStale();
+        }
+        if (!state.raceID && c.recovery != null) {
+            state.recovery = c.recovery;
+            setRecoveryInput(c.recovery);
         }
         dirty = false;
         notifySuccess(state.raceID ? 'Кривая расы сохранена' : 'Кривая сохранена');
@@ -777,6 +842,9 @@ async function resetCurve() {
         state.bends = c.bends;
         state.baseNodes = c.nodes.map(n => ({ ...n }));
         state.baseBends = c.bends.slice();
+        state.recovery = (c.recovery != null) ? c.recovery : null;
+        setRecoveryInput(state.recovery);
+        updateRecoveryUI();
         dirty = false;
         notifySuccess('Кривая сброшена на дефолты');
         fitViewToNodes(); // авто-фокус на дефолтные узлы (решение 2026-09-15)
@@ -1120,6 +1188,17 @@ function clamp(v, lo, hi) {
 // clampY — кламп видимого диапазона Y (в %): [−100, +100] (решение 2026-09-15).
 function clampY(v) {
     return clamp(v, -100, 100);
+}
+
+// zeroPrefix — порог включения (§4.4): X последнего подряд идущего узла
+// кривой с y = 0 (нулевой префикс); нулевого префикса нет → 0.
+function zeroPrefix(nodes) {
+    let t = 0;
+    for (const n of (nodes || [])) {
+        if (n.y !== 0) break;
+        t = n.x;
+    }
+    return t;
 }
 
 // onComponentChange — смена компоненты (из HTML change).

@@ -31,8 +31,8 @@ func branchReq(method, path, body string) *http.Request {
 // Мясо=97 и выходом Пища=30.
 func mockBranchLoadRows(mock sqlmock.Sqlmock) {
 	mock.ExpectQuery(`FROM settlement_branches b`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "settlement_id", "recipe_id", "processed_at", "good_id", "name", "complexity"}).
-			AddRow("b1", "s1", int64(69), time.Now(), int64(378), "Пища", int64(1)))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "settlement_id", "recipe_id", "processed_at", "good_id", "name", "complexity", "name_norm"}).
+			AddRow("b1", "s1", int64(69), time.Now(), int64(378), "Пища", int64(1), "продовольствие"))
 	mock.ExpectQuery(`FROM recipe_components rc`).
 		WillReturnRows(sqlmock.NewRows([]string{"recipe_id", "component_id", "quantity"}).
 			AddRow(int64(69), int64(359), 1))

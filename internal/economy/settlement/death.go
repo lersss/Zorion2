@@ -26,6 +26,12 @@ import (
 // остаётся в сигнатуре (решение создателя «нужен для Unix-базы»), фактически
 // не используется. ok=false также когда чек-точка уже мёртвая
 // (population_exact <= NDead, бэкфилл отменён).
+//
+// r передаётся как «текущая сила» (ChangeComponents при AsOf, включая вклад
+// эффектов): при РАСТУЩЕЙ нагрузке DeathTime ЗАВЫШАЕТ дату — это оценка «по
+// текущей силе» (спека 2026-09-22-эффекты-снабжения §5.2); точное решение с
+// кривой не в закрытой форме, численный DeathTime — задел. Поведение функции
+// не меняется.
 func DeathTime(populationExact float64, r float64, computedAt time.Time, createdAt time.Time) (time.Time, bool) {
 	if populationExact <= NDead {
 		return time.Time{}, false
@@ -49,10 +55,30 @@ func DeathTime(populationExact float64, r float64, computedAt time.Time, created
 // Если все вклады среды ≤ 0 (полный комфорт, поселение вымирает от
 // естественной убыли NaturalComponent) — причина "natural".
 // Коды: heat/cold/gravity_high/gravity_low/radiation/natural.
+// Голод (спека 2026-09-22-эффекты-снабжения-задержка-голод §5.2): вклад
+// эффекта населения — отдельное слагаемое; строго больше всех средовых
+// (в т.ч. среда = 0, эффект > 0) → код "hunger".
 // Расовый путь (99.2.23 §4.2): вклады среды — из active-кривых расы
 // (RaceID ≠ NULL/"humans"); механизм argmax не меняется.
 func DeathCause(input PlanetInput) string {
 	cold, heat, gHigh, gLow, rad := envComponentRates(input)
+
+	// Вклад эффекта (спека 2026-09-22-эффекты-снабжения-задержка-голод §5.2):
+	// death.go считает среду собственной envComponentRates (мимо
+	// ChangeComponents), поэтому вклад эффекта добавляется здесь явно — иначе
+	// голод не попадал бы в причину гибели. Эффект доминирует, если строго
+	// больше всех средовых (среда = 0 и эффект > 0 → тоже эффект) → "hunger".
+	if effect := effectsRateAt(input.Effects, input.AsOf, input.AsOf); effect > 0 {
+		maxEnv := cold
+		for _, v := range []float64{heat, gHigh, gLow, rad, 0} {
+			if v > maxEnv {
+				maxEnv = v
+			}
+		}
+		if effect > maxEnv {
+			return "hunger"
+		}
+	}
 
 	if heat <= 0 && cold <= 0 && gHigh <= 0 && gLow <= 0 && rad <= 0 {
 		return "natural"

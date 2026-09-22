@@ -294,12 +294,62 @@
         0
       ],
       "updated_at": "2026-09-15T14:00:25.6405613Z"
+    },
+    {
+      "name": "default",
+      "component": "hunger",
+      "nodes": [
+        {
+          "x": 0,
+          "y": 0
+        },
+        {
+          "x": 24,
+          "y": 0
+        },
+        {
+          "x": 48,
+          "y": 1e-8
+        },
+        {
+          "x": 120,
+          "y": 3e-8
+        },
+        {
+          "x": 240,
+          "y": 6e-8
+        },
+        {
+          "x": 360,
+          "y": 8.5e-8
+        },
+        {
+          "x": 456,
+          "y": 1e-7
+        },
+        {
+          "x": 4320,
+          "y": 1e-7
+        }
+      ],
+      "bends": [
+        -1,
+        -1.5,
+        -1.2,
+        -0.9,
+        -0.5,
+        -0.2,
+        0
+      ],
+      "recovery": 0.25,
+      "updated_at": "2026-09-22T21:35:45.2702892Z"
     }
   ],
   "active": {
     "cold": "default",
     "gravity": "default",
     "heat": "default",
+    "hunger": "default",
     "radiation": "default"
   }
 }

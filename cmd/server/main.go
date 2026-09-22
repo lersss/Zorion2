@@ -457,9 +457,11 @@ func main() {
 	http.HandleFunc("/admin/planets/", auth.AdminAuth(adminHandlers.AddDeposit))
 	// Ветки поселений (спека 2026-09-22-поселение-ветка-буферы-переработка
 	// §5): админ-ручки «создать ветку» и «добавить ресурсы во входной буфер».
-	// Плоские wildcard'ы; /admin/settlements/ (мн.) не пересекается с
-	// /admin/settlement-settings (ед.) и /admin/clear-settlements.
-	http.HandleFunc("/admin/settlements/", auth.AdminAuth(adminHandlers.AddBranch))
+	// Диспетчер по суффиксу (эффекты снабжения §6 F9): …/branches — AddBranch,
+	// …/effects — «задать нагрузку вручную». Плоские wildcard'ы;
+	// /admin/settlements/ (мн.) не пересекается с /admin/settlement-settings
+	// (ед.) и /admin/clear-settlements.
+	http.HandleFunc("/admin/settlements/", auth.AdminAuth(adminHandlers.HandleSettlementRoute))
 	http.HandleFunc("/admin/branches/", auth.AdminAuth(adminHandlers.AddBranchInput))
 	// СКРЫТ (65a): старый человеческий генератор поселений заменён расовым
 	// (/admin/generate-race-settlements). Код хендлера остаётся в
@@ -578,6 +580,10 @@ func main() {
 	// Описания каталога (спека 2026-09-21-каталог-описание §7.3): fill/apply/
 	// cancel — ветки в Descriptions (паттерн GoodByID).
 	http.HandleFunc("/studio/api/descriptions/", auth.AdminAuth(studioHandlers.Descriptions))
+	// Эффекты снабжения (спека 2026-09-22-эффекты-снабжения-задержка-голод §7.4):
+	// CRUD типа эффекта студии (имя/impact/params.curve) + счётчики привязок.
+	http.HandleFunc("/studio/api/effects", auth.AdminAuth(studioHandlers.Effects))
+	http.HandleFunc("/studio/api/effects/", auth.AdminAuth(studioHandlers.EffectByID))
 
 	http.Handle("/studio", noCache(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./web/studio.html")

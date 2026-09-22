@@ -25,7 +25,11 @@
 
 import { state } from './config.js';
 import { getStarShade, getStarColor } from './utils.js';
-import { PRESETS } from './star_presets.js';
+import { PRESETS, CLASS_GLOW, coreStops } from './star_presets.js';
+
+// coreStops ре-экспортируется для Node-теста (web/frontend_stars_test.go):
+// формула живёт в star_presets.js, здесь — только проброс.
+export { coreStops };
 
 // requestRedraw — перерисовка карты. Модуль НЕ импортирует map_render.js:
 // прямой импорт давал цикл map_render → star_render → map_render, и вызовы
@@ -40,11 +44,7 @@ export function setStarRedraw(fn) {
 
 // ==================== ПАРАМЕТРЫ (дизайн §3–§8) ====================
 
-// Классовая база яркости (§3): O ярче всех, Y тусклее.
-const CLASS_GLOW = {
-    'O': 1.15, 'B': 1.12, 'A': 1.05, 'F': 1.00, 'G': 0.98,
-    'K': 0.92, 'M': 0.85, 'L': 0.80, 'T': 0.72, 'Y': 0.65,
-};
+// CLASS_GLOW — в чистом модуле star_presets.js (единый источник с модалкой).
 
 // Потолки против «стены света» на сильном зуме (§3): ядро не превращается
 // в 420-пиксельный диск, дальше растёт только ореол.
@@ -281,42 +281,29 @@ export function starHitRadius(c, R) {
 
 // ==================== СПРАЙТЫ (C, §6) ====================
 
-// spriteCache — ключ "sspec|bucket" → offscreen canvas 128×128.
+// spriteCache — ключ "sspec|bucket" (|h — halo-only) → offscreen canvas 128×128.
 let spriteCache = null;
 
 // spriteFor — спрайт класса и ведра яркости; создаётся лениво (offscreen
-// canvas — только внутри функции, не на верхнем уровне модуля).
-function spriteFor(sspec, bucket) {
+// canvas — только внутри функции, не на верхнем уровне модуля). haloOnly —
+// вариант без запечённого ядра (гибрид и компаньоны, §3/С2): там ядро всегда
+// векторное, ровно одно.
+function spriteFor(sspec, bucket, haloOnly) {
     if (!spriteCache) spriteCache = new Map();
-    const key = (sspec || 'G') + '|' + bucket;
+    const key = (sspec || 'G') + '|' + bucket + (haloOnly ? '|h' : '');
     let cv = spriteCache.get(key);
     if (cv) return cv;
-    cv = bakeSprite(sspec, bucket);
+    cv = bakeSprite(sspec, bucket, haloOnly);
     spriteCache.set(key, cv);
     return cv;
 }
 
-// coreWhiteStops — доля белого «раскалённого» ядра пропорционально яркости
-// класса (правка @gdesigner 2026-09-22 «белое ядро пропорционально яркости»):
-// g = CLASS_GLOW[sspec], k = clamp((g−0.82)/0.33, 0, 1). При k=1 (O) получается
-// ровно прежняя рецептура (0.30/0.62, 0.98/0.90) — «вау» ярких не меняем; при
-// k=0 (L/T/Y) белый блик маленький и слабый, дальше доминирует собственный цвет.
-// Общая формула для векторного ядра (drawCore) и спрайта (bakeSprite), чтобы
-// «Глаз» и «Спрайт» совпадали. Новых градиентов на звезду нет — те же стопы.
-export function coreWhiteStops(sspec) {
-    const g = CLASS_GLOW[sspec] || 1.0;
-    const k = Math.min(Math.max((g - 0.82) / 0.33, 0), 1);
-    return {
-        r1: 0.06 + 0.24 * k,
-        r2: 0.24 + 0.38 * k,
-        a1: 0.30 + 0.68 * k,
-        a2: 0.16 + 0.74 * k,
-    };
-}
-
 // bakeSprite — запекает ядро+ореол в offscreen-канвас (§6): рецептура A,
-// но один раз на класс × ведро яркости. В кадре — один drawImage.
-function bakeSprite(sspec, bucket) {
+// но один раз на класс × ведро яркости. В кадре — один drawImage. Ядро —
+// те же 4 стопа, что у векторного drawCore (числа из coreStops), поэтому
+// «Спрайт» и «Глаз» совпадают; ореол спрайта — без изменений. haloOnly —
+// только ореол, без ядра (§3/С2).
+function bakeSprite(sspec, bucket, haloOnly) {
     const cv = document.createElement('canvas');
     cv.width = SPRITE_SIZE;
     cv.height = SPRITE_SIZE;
@@ -338,12 +325,14 @@ function bakeSprite(sspec, bucket) {
     g.arc(cx, cy, rh, 0, Math.PI * 2);
     g.fill();
 
+    if (haloOnly) return cv;
+
     const core = g.createRadialGradient(cx, cy, 0, cx, cy, rc);
-    const cs = coreWhiteStops(sspec || 'G');
+    const cs = coreStops(sspec || 'G');
     core.addColorStop(0, `rgba(255,255,255,${cs.a1})`);
     core.addColorStop(cs.r1, `rgba(255,255,255,${cs.a2})`);
-    core.addColorStop(cs.r2, rgba(color, 0.98));
-    core.addColorStop(1, rgba(color, 0.55));
+    core.addColorStop(cs.r2, rgba(color, cs.ac));
+    core.addColorStop(1, rgba(color, 0));
     g.fillStyle = core;
     g.beginPath();
     g.arc(cx, cy, rc, 0, Math.PI * 2);
@@ -412,12 +401,14 @@ export function drawStar(ctx, c, x, y, R, opts) {
 // ореола не зависят от кадра. Цвет — по спектру компаньона (sspec), без
 // экзотики (компаньоны — обычные звёзды). Блум/лепестки не рисуем: у
 // компаньона только ядро и мягкий ореол. Пресет «Спрайт» — ореол из
-// запечённого спрайта, ядро векторное (как гибрид основной звезды).
+// запечённого спрайта (halo-only, ядро векторное — как гибрид основной
+// звезды). Размер — 0.45·R без абсолютного пола (пол делал компаньона крупнее
+// родителя); читаемость даётся яркостью: B не темнее 0.6.
 export function drawCompanion(ctx, x, y, radius, sspec, opts, seed) {
     const o = opts || starVisualOptions();
     if (!(radius > 0)) return;
     const { b1, b2, b3 } = starBits(String(seed || sspec || ''));
-    const B = starBrightness(sspec, b1);
+    const B = Math.min(Math.max(starBrightness(sspec, b1), 0.6), 1.6);
     const now = Date.now();
     const t = igniteProgress(now);
     const tw = twinkleFactor(b2, b3, now, o);
@@ -441,7 +432,10 @@ function twinkleAllowed() {
 }
 
 // drawHalo — мягкий ореол (§4): градиент (x,y,0)→(x,y,rh), source-over.
-// spriteOnly — режим гибрида C: ореол берётся из запечённого спрайта.
+// spriteOnly — режим гибрида C: ореол берётся из запечённого спрайта (только
+// ореол, без ядра — ядро векторное, ровно одно). Ведро яркости B спрайта
+// компенсируется globalAlpha = min(1, B·tw.a·t) — как drawSpriteStar (§3/С2),
+// иначе на пороге R=34 и при смене пресета яркость прыгала.
 function drawHalo(ctx, x, y, R, color, B, b2, tw, t, spriteOnly, sspec) {
     const glow = CLASS_GLOW[sspec] || 1.0;
     const rh = Math.min(R * (1.8 + 1.1 * b2) * glow, HALO_MAX_PX);
@@ -449,10 +443,10 @@ function drawHalo(ctx, x, y, R, color, B, b2, tw, t, spriteOnly, sspec) {
 
     if (spriteOnly) {
         const bucket = Math.min(SPRITE_BUCKETS - 1, Math.floor(B / 1.6 * SPRITE_BUCKETS));
-        const sprite = spriteFor(sspec, bucket);
+        const sprite = spriteFor(sspec, bucket, true);
         const s = rh * 2;
         ctx.save();
-        ctx.globalAlpha = Math.min(1, alpha);
+        ctx.globalAlpha = Math.min(1, B * alpha);
         ctx.drawImage(sprite, x - s / 2, y - s / 2, s, s);
         ctx.restore();
         return;
@@ -469,19 +463,20 @@ function drawHalo(ctx, x, y, R, color, B, b2, tw, t, spriteOnly, sspec) {
     ctx.fill();
 }
 
-// drawCore — пересвеченное ядро (§4): белый центр → цвет → прозрачность.
-// Доля белого — coreWhiteStops(sspec) (правка @gdesigner 2026-09-22): у ярких
-// классов ядро пересвечено как раньше, у тусклых белый блик мал и цвет виден.
+// drawCore — «одна яркая точка» (§4, правка @gdesigner 2026-09-22 «мишень»):
+// белый перегретый центр → собственный цвет → таяние в 0. Стопы — coreStops
+// (star_presets.js), альфа монотонна по радиусу: нет «ямы», скачка вверх и
+// резкого края диска, которые глаз читал как концентрические кольца.
 function drawCore(ctx, x, y, R, color, B, b3, tw, t, sspec) {
     const rc = Math.min(0.85 * R * (0.9 + 0.2 * b3) * tw.r, CORE_MAX_PX) *
         (t >= 1 ? 1 : igniteCoreScale(t));
     if (!(rc > 0)) return;
     const g = ctx.createRadialGradient(x, y, 0, x, y, rc);
-    const cs = coreWhiteStops(sspec);
+    const cs = coreStops(sspec);
     g.addColorStop(0, `rgba(255,255,255,${cs.a1})`);
     g.addColorStop(cs.r1, `rgba(255,255,255,${cs.a2})`);
-    g.addColorStop(cs.r2, rgba(color, 0.98));
-    g.addColorStop(1, rgba(color, 0.55));
+    g.addColorStop(cs.r2, rgba(color, cs.ac));
+    g.addColorStop(1, rgba(color, 0));
     ctx.save();
     ctx.globalAlpha = Math.min(1, B);
     ctx.fillStyle = g;

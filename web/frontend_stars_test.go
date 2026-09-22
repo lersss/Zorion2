@@ -104,25 +104,32 @@ if (!Number.isFinite(bigHr) || bigHr > 240 + 1e-9) throw new Error('starHitRadiu
 const preset = mod.starVisualPreset();
 if (preset !== 'sprite') throw new Error('starVisualPreset() default=' + preset);
 
-// Ядро пропорционально яркости класса (правка @gdesigner 2026-09-22): при k=1
-// (O) стопы обязаны совпасть с прежней рецептурой (0.30/0.62, 0.98/0.90) —
-// «вау» ярких не ломаем; при k=0 (L/T/Y) — маленький слабый белый блик.
-const near = (a, b) => Math.abs(a - b) < 1e-9;
-const oStops = mod.coreWhiteStops('O');
-if (!near(oStops.r1, 0.30) || !near(oStops.r2, 0.62) || !near(oStops.a1, 0.98) || !near(oStops.a2, 0.90)) {
-    throw new Error('coreWhiteStops(O) не совпал с прежней рецептурой: ' + JSON.stringify(oStops));
+// Ядро — одна плавная яркая точка (правка @gdesigner 2026-09-22 «мишень»):
+// coreStops даёт r1/r2/a1 плюс производные a2 = a1·(1−r1), ac = a1·(1−r2)
+// (альфа монотонна по радиусу — нет «ямы» и обрыва на краю диска). У O (k=1)
+// центр 0.98, белая зона до 0.30; у L/T/Y (k=0) центр 0.30, белая зона 0.06.
+// Числа таблицы идеи округлены до 3 знаков — сверяем с допуском округления.
+const near = (a, b) => Math.abs(a - b) < 1e-3;
+const oStops = mod.coreStops('O');
+if (!near(oStops.r1, 0.30) || !near(oStops.r2, 0.62) || !near(oStops.a1, 0.98) ||
+    !near(oStops.a2, 0.686) || !near(oStops.ac, 0.372)) {
+    throw new Error('coreStops(O) не совпал с новой рецептурой: ' + JSON.stringify(oStops));
 }
 for (const spec of ['L', 'T', 'Y']) {
-    const s = mod.coreWhiteStops(spec);
-    if (!near(s.r1, 0.06) || !near(s.r2, 0.24) || !near(s.a1, 0.30) || !near(s.a2, 0.16)) {
-        throw new Error('coreWhiteStops(' + spec + ') при k=0: ' + JSON.stringify(s));
+    const s = mod.coreStops(spec);
+    if (!near(s.r1, 0.06) || !near(s.r2, 0.24) || !near(s.a1, 0.30) ||
+        !near(s.a2, 0.282) || !near(s.ac, 0.228)) {
+        throw new Error('coreStops(' + spec + ') при k=0: ' + JSON.stringify(s));
     }
 }
 for (const spec of ['O', 'B', 'A', 'F', 'G', 'K', 'M', 'L', 'T', 'Y', undefined]) {
-    const s = mod.coreWhiteStops(spec);
-    if (!(s.r1 < s.r2)) throw new Error('coreWhiteStops(' + spec + '): r1 >= r2');
-    for (const v of [s.r1, s.r2, s.a1, s.a2]) {
-        if (!Number.isFinite(v) || v < 0 || v > 1) throw new Error('coreWhiteStops(' + spec + ') вне [0,1]: ' + JSON.stringify(s));
+    const s = mod.coreStops(spec);
+    if (!(s.r1 < s.r2)) throw new Error('coreStops(' + spec + '): r1 >= r2');
+    if (!(s.a1 > s.a2 && s.a2 > s.ac && s.ac > 0)) {
+        throw new Error('coreStops(' + spec + ') не монотонен: ' + JSON.stringify(s));
+    }
+    for (const v of [s.r1, s.r2, s.a1, s.a2, s.ac]) {
+        if (!Number.isFinite(v) || v < 0 || v > 1) throw new Error('coreStops(' + spec + ') вне [0,1]: ' + JSON.stringify(s));
     }
 }
 

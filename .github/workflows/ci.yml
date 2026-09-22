@@ -1,0 +1,60 @@
+name: CI
+
+# Проверка каждого push и pull request: сборка, статическая проверка,
+# форматирование и быстрый прогон тестов. Локальный DoD остаётся тем же,
+# CI лишь не даёт уйти в ветку красному коммиту (идея 2026-09-22 «гигиена»).
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quick:
+    name: build · vet · gofmt · tests (race, short)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      # В индексе файлы в LF, поэтому на Linux проверка форматирования честная
+      # (в локальном Windows-дереве CRLF даёт ложные срабатывания — в хук не ставим).
+      - name: Format (gofmt)
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "Не отформатировано (gofmt -l):"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Tests (race, short; генераторные пакеты исключены)
+        run: |
+          pkgs=$(go list ./... | grep -vE 'internal/generator/(planet|galaxy)$')
+          go test -race -short $pkgs
+
+  heavy-generators:
+    name: генераторы (planet, galaxy; без race)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Generator packages
+        run: go test ./internal/generator/planet/ ./internal/generator/galaxy/

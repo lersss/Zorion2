@@ -251,17 +251,49 @@ async function main() {
     report('10f персонаж идёт (счётчик пути растёт)', distM > 1, 'distance="' + dist + '"');
 
     // --- прыжок: визор игрока (#38bdf8) выше базовой позиции ---
-    // Детект устойчив к дымке погоды (спека 2026-09-22 §5.1 п.7: пелена кадра
-    // накрывает игрока, поэтому точный RGB #38bdf8 больше не годится).
-    // Игрок стоит в известной точке экрана (камера следит: центр по X, 0.58·vh
-    // по Y). Эталон — самый «белый» пиксель полосы (тело #f8fafc: max min(R,G,B);
-    // охристые/синие/снежные частицы отсекаются). Визор #38bdf8 отличается от
-    // тела на ΔR:ΔG:ΔB = 192:61:4 — под аффинной дымкой это отношение
-    // сохраняется, поэтому ищем пиксели на луче от тела в этом направлении.
-    // Плотная горизонтальная полоса визора отделяется порогом по строке
-    // (разреженные выбросы кольца-пульса и фона отбрасываются). Нет игрока —
-    // нет ни тела-эталона, ни полосы → -1.
-    const visorY = (ZOOM) => page.evaluate((Z) => {
+    // Детект устойчив к двум аффинным модификаторам кадра: пелене погоды
+    // (спека 2026-09-22 §5.1 п.7) и слою среды (спека 2026-09-22 §6.3: ночной
+    // тинт — ближний мир получает ровно lightMul). Оба умножают цвета на общий
+    // коэффициент и добавляют общую константу, поэтому точный RGB #38bdf8/#f8fafc
+    // не годится, а НАПРАВЛЕНИЕ «тело → визор» (ΔR:ΔG:ΔB = 192:61:4) сохраняется.
+    // Эталон тела — прямоугольник корпуса в известном центре игрока (камера
+    // следит: центр по X, 0.644·vh по Y; корпус 12×28 мировых px, ZOOM=1.8).
+    // Один пиксель мог попасть мимо скафандра (террейн/декор, смещение от тайминга
+    // ходьбы) — «луч тело→визор» строился от чужого цвета и детект отваливался
+    // (idleY=-1). Возвращаем уникальные цвета корпуса по убыванию яркости
+    // min(R,G,B): скафандр #f8fafc ярче террейна/декора; пригодный кандидат
+    // проверяется реальным детектом (см. ниже). Тело читаем один раз в покое;
+    // ищем пиксели на луче от тела; плотная горизонтальная полоса визора
+    // отделяется порогом по строке. Нет игрока — нет полосы → -1.
+    // Порог dR = 12 (а не 45): ночь ×0.25 и пелена погоды сжимают разницу каналов
+    // тела/визора до ~×0.17 (192·0.17 ≈ 32), на рассвете/дне она растёт.
+    const readBodyCandidates = () => page.evaluate((Z) => {
+      const c = document.getElementById('surface-canvas');
+      const ctx = c.getContext('2d');
+      const dpr = c.width / window.innerWidth;
+      const px = Math.round(c.width / 2);
+      const py = Math.round(dpr * window.innerHeight * (0.5 + 0.08 * Z));
+      const hw = Math.max(1, Math.round(5 * Z * dpr));
+      const hh = Math.max(1, Math.round(10 * Z * dpr));
+      const x0 = Math.max(0, px - hw), x1 = Math.min(c.width, px + hw + 1);
+      const y0 = Math.max(0, py - hh), y1 = Math.min(c.height, py + hh + 1);
+      const w = x1 - x0, h = y1 - y0;
+      if (w <= 0 || h <= 0) return [];
+      const d = ctx.getImageData(x0, y0, w, h).data;
+      const seen = new Set();
+      const cand = [];
+      for (let p = 0; p < w * h; p++) {
+        const i = p * 4;
+        const r = d[i], g = d[i + 1], b = d[i + 2];
+        const key = (r << 16) | (g << 8) | b;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        cand.push({ r, g, b, lum: Math.min(r, g, b) });
+      }
+      cand.sort((a, b) => b.lum - a.lum);
+      return cand.slice(0, 6).map(({ r, g, b }) => ({ r, g, b }));
+    }, ZOOM);
+    const visorY = (ZOOM, body) => page.evaluate(({ Z, body }) => {
       const c = document.getElementById('surface-canvas');
       const ctx = c.getContext('2d');
       const dpr = c.width / window.innerWidth;
@@ -275,18 +307,13 @@ async function main() {
       const w = x1 - x0, h = y1 - y0;
       if (w <= 2 || h <= 2) return -1;
       const d = ctx.getImageData(x0, y0, w, h).data;
-      let bodyR = 0, bodyG = 0, bodyB = 0, bestW = -1;
-      for (let p = 0; p < w * h; p++) {
-        const i = p * 4;
-        const m = Math.min(d[i], Math.min(d[i + 1], d[i + 2]));
-        if (m > bestW) { bestW = m; bodyR = d[i]; bodyG = d[i + 1]; bodyB = d[i + 2]; }
-      }
+      const bodyR = body.r, bodyG = body.g, bodyB = body.b;
       const hist = new Array(h).fill(0);
       let maxCount = 0;
       for (let p = 0; p < w * h; p++) {
         const i = p * 4;
         const dR = bodyR - d[i], dG = bodyG - d[i + 1], dB = bodyB - d[i + 2];
-        if (dR >= 45 && Math.abs(dG - dR * 61 / 192) <= 8 && Math.abs(dB - dR * 4 / 192) <= 6) {
+        if (dR >= 12 && Math.abs(dG - dR * 61 / 192) <= 8 && Math.abs(dB - dR * 4 / 192) <= 6) {
           const ly = Math.floor(p / w); hist[ly]++;
           if (hist[ly] > maxCount) maxCount = hist[ly];
         }
@@ -303,22 +330,31 @@ async function main() {
       }
       const spread = n ? maxY - minY : 0;
       return (n >= 6 && spread <= 18) ? sum / n : -1;
-    }, ZOOM);
+    }, { Z: ZOOM, body });
     // --- прыжок: сравнить стабильность визора в покое и его подъём при прыжке ---
     // Порог дрожи визора в покое — экранные px. Рендер прогулки масштабируется
     // ZOOM (surface_config.js): мировой дрожь ~1 px даёт ~ZOOM экранных, поэтому
     // базовые 2 px (калибровка на 1×) умножаем на фактический ZOOM.
     const ZOOM = await page.evaluate(async () => (await import('/static/js/surface/surface_config.js')).ZOOM);
     await page.waitForTimeout(900); // vx -> 0, камера стабилизировалась
+    // Эталон тела — в покое, до прыжка: первый цвет корпуса, дающий непустой
+    // детект визора (пороги детекта не трогаем). Ни один не сработал — берём
+    // самый яркий: тест честно упадёт на -1.
+    const candidates = await readBodyCandidates();
+    let body = null;
+    for (const cand of candidates) {
+      if ((await visorY(ZOOM, cand)) > 0) { body = cand; break; }
+    }
+    if (!body) body = candidates[0];
     const idle = [];
-    for (let i = 0; i < 12; i++) { await page.waitForTimeout(25); idle.push(await visorY(ZOOM)); }
+    for (let i = 0; i < 12; i++) { await page.waitForTimeout(25); idle.push(await visorY(ZOOM, body)); }
     const idleValid = idle.filter(v => v > 0);
     const idleMin = idleValid.length ? Math.min(...idleValid) : -1;
     const idleMax = idleValid.length ? Math.max(...idleValid) : -1;
     const idleRange = idleMax - idleMin;
     await page.keyboard.down('Space');
     const samples = [];
-    for (let i = 0; i < 50; i++) { await page.waitForTimeout(16); samples.push(await visorY(ZOOM)); }
+    for (let i = 0; i < 50; i++) { await page.waitForTimeout(16); samples.push(await visorY(ZOOM, body)); }
     await page.keyboard.up('Space');
     const valid = samples.filter(v => v > 0);
     const jumpMin = valid.length ? Math.min(...valid) : -1;

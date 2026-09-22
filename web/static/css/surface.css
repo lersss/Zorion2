@@ -42,6 +42,8 @@ html, body {
 .hud-left { min-width: 240px; }
 .hud-center { flex: 1; text-align: center; color: #cbd5e1; }
 .hud-center span { margin: 0 8px; }
+/* Фаза суток у игрока — тихая: приглушённый цвет, без глифов (§6.2, вариант B). */
+#hud-env { color: #64748b; }
 .hud-right { display: flex; align-items: center; gap: 12px; }
 
 .hud-hp {

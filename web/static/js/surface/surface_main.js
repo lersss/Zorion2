@@ -5,7 +5,8 @@
 import { CAMERA_LERP, WEATHER_MIN_MS, WEATHER_MAX_MS, PPM, ZOOM } from './surface_config.js';
 import { SurfaceWorld } from './surface_world.js';
 import { drawSky, drawFarRelief, drawTerrain, drawDecor, drawCreatures, drawPlayer } from './surface_render.js';
-import { pickWeatherRun, drawWeatherBack, drawWeatherMid, drawWeatherFront } from './surface_weather.js';
+import { pickWeatherRun, drawWeatherBack, drawWeatherMid, drawWeatherFront, drawEmissive, weatherLabel } from './surface_weather.js';
+import { SurfaceEnvironment, drawEnvironmentBack, drawEnvironmentMid, drawEnvironmentFront } from './surface_environment.js';
 import { Player, serverHp } from './surface_player.js';
 import { land, leave } from './surface_net.js';
 import * as ui from './surface_ui.js';
@@ -19,6 +20,7 @@ const state = {
     weather: null,
     weatherCycle: 0,
     forcedWeather: null, // админский выбор погоды: null = «авто» (идея 2026-09-21)
+    env: null,           // слой среды — сутки (спека 2026-09-22 §6), f(seed, elapsed)
     running: false,
     dead: false,
     leaving: false,
@@ -75,6 +77,14 @@ function setWeather(id) {
     ui.setWeatherToggleActive(id || '');
 }
 
+// setEnv — админский выбор фазы суток (§6.5): '' → «авто» (цикл от seed/elapsed);
+// иначе фаза держится до конца прогулки, полный вид с первого кадра.
+function setEnv(id) {
+    if (!state.env) return;
+    state.env.forced = id || null;
+    ui.setEnvToggleActive(id || '');
+}
+
 function resize(canvas) {
     // Канвас в device-пикселях (devicePixelRatio) — резкость на HiDPI; логика
     // отрисовки остаётся в CSS-пикселях (vw/vh), базовый масштаб — в frame.
@@ -99,6 +109,9 @@ function frame(now) {
     const paused = ui.isPaused();
     if (!paused && !state.dead) {
         state.player.update(dt, state.input);
+        // Сутки идут только в активной прогулке (как таймер погоды) — elapsed
+        // от старта после брифинга, фаза = f(seed, elapsed).
+        state.env.elapsed += dt * 1000;
         if (state.weather && now > state.weather.until) scheduleWeather(now);
     }
 
@@ -114,36 +127,44 @@ function frame(now) {
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
 
-    drawSky(ctx, vw, vh, state.pkg.sky, state.camera, now);
+    drawSky(ctx, vw, vh, state.pkg.sky, state.camera, now, state.env);
+    // Среда-фон (звёзды) — вне трансформа ZOOM, как sky (спека §6.3 п.4).
+    drawEnvironmentBack(ctx, state.world, state.camera, vw, vh, state.env, state.weather);
 
     // Мир и игрок — под общим визуальным масштабом (идея 2026-09-22 §8.2):
     // translate → scale → translate вокруг центра экрана. Физика не затронута.
-    // Погода — тремя проходами между слоями мира (спека погоды §6.2), тем же
+    // Погода и среда — проходами между слоями мира (спека §6.3 п.4), тем же
     // трансформом (§6.5): зум и devicePixelRatio повторно не применяются.
     ctx.save();
     ctx.translate(vw / 2, vh / 2);
     ctx.scale(ZOOM, ZOOM);
     ctx.translate(-vw / 2, -vh / 2);
-    drawWeatherBack(ctx, state.world, state.camera, vw, vh, state.weather);
+    drawWeatherBack(ctx, state.world, state.camera, vw, vh, state.weather, state.env);
     drawFarRelief(ctx, state.world, state.camera, vw, vh);
-    drawWeatherMid(ctx, state.world, state.camera, vw, vh, state.weather);
+    drawEnvironmentMid(ctx, state.world, state.camera, vw, vh, state.env);
+    drawWeatherMid(ctx, state.world, state.camera, vw, vh, state.weather, state.env);
     drawTerrain(ctx, state.world, state.camera, vw, vh);
     drawDecor(ctx, state.world, state.camera, vw, vh);
     drawCreatures(ctx, state.world, state.camera, vw, vh, state.player, now);
     drawPlayer(ctx, state.player, state.camera, vw, vh, now);
-    drawWeatherFront(ctx, state.world, state.camera, vw, vh, state.weather);
+    drawWeatherFront(ctx, state.world, state.camera, vw, vh, state.weather, state.env);
+    drawEnvironmentFront(ctx, state.world, state.camera, vw, vh, state.env);
+    // Финальный эмиссивный проход — после переднего тинта среды, чтобы свет
+    // (разряд/вспышка грозы, glow свечения, сияние) не гасился ночью (§6.3 п.4).
+    drawEmissive(ctx, state.world, state.camera, vw, vh, state.weather, state.env);
     ctx.restore();
 
     const hp = serverHp(state.pkg, Date.now());
-    const weatherLabel = state.weather
-        ? state.weather.id + (isAdminRole() ? ' · ' + (state.forcedWeather ? 'вручную' : 'авто') : '')
+    const weatherText = state.weather
+        ? weatherLabel(state.weather) + (isAdminRole() ? ' · ' + (state.forcedWeather ? 'вручную' : 'авто') : '')
         : '';
     ui.updateHUD({
         hp,
         biomeName: state.pkg.biome_name || state.pkg.biome,
         hazard: state.pkg.hazard,
         distanceMeters: state.player.distance / PPM,
-        weather: weatherLabel,
+        weather: weatherText,
+        env: state.env ? ui.envPhaseLabel(state.env.phase()) : '',
     });
 
     if (hp <= 0 && !state.dead) onDeath();
@@ -209,6 +230,7 @@ async function boot() {
     state.pkg = res.data;
     state.world = new SurfaceWorld(state.pkg);
     state.player = new Player(state.world, state.pkg.gravity);
+    state.env = new SurfaceEnvironment(state.pkg);
 
     const canvas = document.getElementById('surface-canvas');
     resize(canvas);
@@ -227,7 +249,10 @@ async function boot() {
             if (isAdminRole()) {
                 ui.showWeatherToggle(setWeather);
                 ui.setWeatherToggleActive('');
+                ui.showEnvToggle(setEnv);
+                ui.setEnvToggleActive('');
             }
+            state.env.elapsed = 0;   // сутки стартуют от первого кадра после брифинга
             scheduleWeather(performance.now());
             state.running = true;
             state.dead = false;

@@ -154,32 +154,51 @@ function skyBodyTexture(planetId) {
     return null;
 }
 
+function rgbCss(c) { return `rgb(${c.r},${c.g},${c.b})`; }
+
+// drawSun — светило с приглушённым ореолом (идея §8.4). Без env alpha = 1 и
+// прежние параметры (ореол ×1.9; §6.2 направления):
+function drawSun(ctx, x, y, r, color, alpha, haloMul, haloAlpha) {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+    const halo = ctx.createRadialGradient(x, y, r * 0.2, x, y, r * haloMul);
+    halo.addColorStop(0, color);
+    halo.addColorStop(0.4, rgba(color, haloAlpha));
+    halo.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = halo;
+    ctx.beginPath();
+    ctx.arc(x, y, r * haloMul, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+}
+
 // drawSky — параллакс-небо из пакета (§7.1, В2): светило + тела системы.
-export function drawSky(ctx, vw, vh, sky, camera, timeMs) {
+// env (необязательный, §6.3 п.4 спеки): палитра неба по таймлайну суток и дуга
+// светила. Без env — прежний вид (обратная совместимость, T9).
+export function drawSky(ctx, vw, vh, sky, camera, timeMs, env) {
+    const sc = env ? env.skyColors() : null;
     const grad = ctx.createLinearGradient(0, 0, 0, vh);
-    grad.addColorStop(0, COLORS.skyTop);
-    grad.addColorStop(1, COLORS.skyBottom);
+    grad.addColorStop(0, sc ? rgbCss(sc.top) : COLORS.skyTop);
+    grad.addColorStop(1, sc ? rgbCss(sc.bottom) : COLORS.skyBottom);
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, vw, vh);
 
     if (!sky) return;
     const star = sky.star || {};
-    // Светило: слабый параллакс (0.05) + приглушённый ореол (идея §8.4).
-    const sx = vw * 0.72 - camera.x * 0.05;
-    const sy = vh * 0.20 - camera.y * 0.03;
-    const r = Math.max(16, vh * 0.04);
-    const halo = ctx.createRadialGradient(sx, sy, r * 0.2, sx, sy, r * 1.9);
-    halo.addColorStop(0, star.color || '#ffd700');
-    halo.addColorStop(0.4, rgba(star.color || '#ffd700', 0.16));
-    halo.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = halo;
-    ctx.beginPath();
-    ctx.arc(sx, sy, r * 1.9, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = star.color || '#ffd700';
-    ctx.beginPath();
-    ctx.arc(sx, sy, r, 0, Math.PI * 2);
-    ctx.fill();
+    const starColor = star.color || '#ffd700';
+    if (env) {
+        // Дуга светила (§6.2): вне окна — за горизонтом (null); alpha 1 днём / 0 в ночи.
+        const pose = env.sunPose(vw, vh, camera);
+        if (pose && pose.alpha > 0.001) drawSun(ctx, pose.x, pose.y, pose.r, starColor, pose.alpha, pose.haloMul, pose.haloAlpha);
+    } else {
+        // Без env — прежний вид: светило в vw·0.72/vh·0.20, параллакс 0.05.
+        drawSun(ctx, vw * 0.72 - camera.x * 0.05, vh * 0.20 - camera.y * 0.03,
+            Math.max(16, vh * 0.04), starColor, 1, 1.9, 0.16);
+    }
 
     // Тела системы: параллакс 0.10–0.26, высота height из пакета. Мельче и
     // тусклее прежнего, разнесены по высоте (идея §8.4 — «не навязчивые»).

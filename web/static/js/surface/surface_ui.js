@@ -1,7 +1,7 @@
 // web/static/js/surface/surface_ui.js
 // HUD/брифинг/смерть/пауза прогулки (спека 2026-09-21 §5.2/§7.5/§11).
 // Все значения — из пакета прогулки (§7.1); HP — серверная формула (§8.7).
-import { WEATHER_IDS } from './surface_config.js';
+import { WEATHER_IDS, WEATHER_VISUALS } from './surface_config.js';
 const $ = (id) => document.getElementById(id);
 
 function fmtTemp(celsius) {
@@ -103,8 +103,10 @@ export function showWeatherToggle(onPick) {
     label.textContent = '⚙ погода (админ)';
     label.style.cssText = 'color:#64748b; font-size:0.75rem;';
     wrap.appendChild(label);
+    // Подпись чипа — человеческое имя явления (`label`, UI §3/§5); `data-weather`
+    // остаётся id (контракт переключения). Неизвестный id → текст = id.
     const items = [{ id: '', label: 'авто', title: 'Погода меняется сама, раз в 2–4 мин — как у игрока' }]
-        .concat(WEATHER_IDS.map((id) => ({ id, label: id })));
+        .concat(WEATHER_IDS.map((id) => ({ id, label: (WEATHER_VISUALS[id] && WEATHER_VISUALS[id].label) || id })));
     items.forEach((it) => {
         const btn = document.createElement('button');
         btn.type = 'button';
@@ -132,9 +134,63 @@ export function setWeatherToggleActive(activeId) {
     });
 }
 
-// updateHUD — полоса HP (серверная формула), имя биома, оси, путь, погода.
+// ---- Админский переключатель фазы суток (спека 2026-09-22 §6.5) ----
+// Вторая строка .hud-center под #hud-weather-admin: «сутки (админ)» + «авто» и
+// 4 фазы. Стиль чипов — тот же, что у погоды (не дублируем). У игрока строки нет.
+const ENV_PHASES = [
+    { id: 'рассвет', label: 'Рассвет' },
+    { id: 'день', label: 'День' },
+    { id: 'закат', label: 'Закат' },
+    { id: 'ночь', label: 'Ночь' },
+];
+const ENV_LABELS = { 'рассвет': 'Рассвет', 'день': 'День', 'закат': 'Закат', 'ночь': 'Ночь' };
+
+// envPhaseLabel — тихая подпись фазы у игрока (§6.2, вариант B).
+export function envPhaseLabel(phase) { return ENV_LABELS[phase] || ''; }
+
+export function showEnvToggle(onPick) {
+    if ($('hud-env-admin')) return;
+    const center = document.querySelector('.hud-center');
+    if (!center) return;
+    const wrap = document.createElement('div');
+    wrap.id = 'hud-env-admin';
+    wrap.style.cssText = 'display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:6px; margin-top:6px;';
+    const label = document.createElement('span');
+    label.textContent = 'сутки (админ)';
+    label.style.cssText = 'color:#64748b; font-size:0.75rem;';
+    wrap.appendChild(label);
+    const items = [{ id: '', label: 'авто', title: 'Сутки идут сами, как у игрока' }]
+        .concat(ENV_PHASES.map((p) => ({ id: p.id, label: p.label, title: 'Зафиксировать фазу до конца прогулки' })));
+    items.forEach((it) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.dataset.env = it.id;
+        btn.textContent = it.label;
+        if (it.title) btn.title = it.title;
+        btn.style.cssText = WEATHER_CHIP_CSS;
+        paintWeatherChip(btn, false);
+        btn.addEventListener('mouseenter', () => { if (btn.dataset.active !== '1') btn.style.background = '#334155'; });
+        btn.addEventListener('mouseleave', () => paintWeatherChip(btn, btn.dataset.active === '1'));
+        btn.addEventListener('click', () => onPick(it.id));
+        wrap.appendChild(btn);
+    });
+    center.appendChild(wrap);
+}
+
+// setEnvToggleActive — подсветка активного чипа фазы ('' = «авто»).
+export function setEnvToggleActive(activeId) {
+    const wrap = $('hud-env-admin');
+    if (!wrap) return;
+    wrap.querySelectorAll('button').forEach((btn) => {
+        const active = btn.dataset.env === activeId;
+        btn.dataset.active = active ? '1' : '';
+        paintWeatherChip(btn, active);
+    });
+}
+
+// updateHUD — полоса HP (серверная формула), имя биома, оси, путь, погода, фаза.
 export function updateHUD(state) {
-    const { hp, biomeName, hazard, distanceMeters, weather } = state;
+    const { hp, biomeName, hazard, distanceMeters, weather, env } = state;
     const pct = Math.max(0, Math.min(100, hp));
     const fill = $('hp-fill');
     fill.style.width = pct.toFixed(1) + '%';
@@ -143,6 +199,7 @@ export function updateHUD(state) {
     $('hud-biome').textContent = biomeName || '';
     $('hud-distance').textContent = Math.round(distanceMeters) + ' м';
     $('hud-weather').textContent = weather || '';
+    $('hud-env').textContent = env || '';
 
     const axes = [
         ['🌡', hazard.temperature],

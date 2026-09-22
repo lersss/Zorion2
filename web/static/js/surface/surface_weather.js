@@ -5,8 +5,9 @@
 // surface_world.js (§5.1 п.2), жребий — цикловой mulberry32 (§4.4).
 // Координаты — мировые/экранно-логические ТОГО ЖЕ трансформа, что у слоёв мира
 // (§6.5): модуль не применяет ни зум, ни devicePixelRatio повторно.
-import { WEATHER_RULES, WEATHER_VISUALS, ZOOM, COLORS } from './surface_config.js';
+import { WEATHER_RULES, WEATHER_VISUALS, ZOOM, COLORS, TRIPLE_POINT_K, DIAMOND_DUST_K, GLASS_FIELD_K } from './surface_config.js';
 import { hash1, parseHex, mulberry32 } from './surface_world.js';
+import { drawLightning, drawLightningCloud, drawGlints, drawPellets, drawPelletGround, drawAsh, drawAshGround, drawGlow, drawFlake, drawBank, drawFacets } from './surface_weather_shapes.js';
 
 const TWO_PI = Math.PI * 2;
 const PARALLAX_MID = 0.7;
@@ -15,8 +16,21 @@ function mod(a, n) { return ((a % n) + n) % n; }
 function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
 function lerp(a, b, t) { return a + (b - a) * t; }
 
-function rgbCss(c) { return `rgb(${c.r},${c.g},${c.b})`; }
 function rgbaCss(c, a) { return `rgba(${c.r},${c.g},${c.b},${clamp(a, 0, 1)})`; }
+
+// scaleRgb — масштаб цвета на кадр (дешёвое умножение, градиенты не пересоздаются).
+function scaleRgb(c, mul) {
+    if (mul === 1) return c;
+    return { r: Math.round(c.r * mul), g: Math.round(c.g * mul), b: Math.round(c.b * mul) };
+}
+
+// dimAir — копия params с `air.color × lightMul` (§6.4: атмосферные явления темнее
+// ночью). Явный `particle`-цвет — не airColor, его не трогаем. Копия — потому что
+// параметры запечены на окно, а lightMul меняется на кадр.
+function dimAir(p, lightMul) {
+    if (lightMul === 1) return p;
+    return { ...p, air: { ...p.air, color: scaleRgb(p.air.color, lightMul) } };
+}
 
 // ==================== §4 ВЫБОР ЯВЛЕНИЯ ====================
 // Пороги полос — ТОЛЬКО из pkg.suit (§4.1): своих констант температуры/
@@ -29,28 +43,63 @@ function tempBand(pkg) {
     return 'comfort';
 }
 
+function liquidMedium(pkg) {
+    return (pkg.liquid_medium || '').trim().toLowerCase();
+}
+
 function liquidAbsent(pkg) {
-    const lm = (pkg.liquid_medium || '').trim().toLowerCase();
+    const lm = liquidMedium(pkg);
     return lm === '' || lm === 'нет';
+}
+
+// tempBandPhysical — физические полосы N2/N3 (тройные точки §3.4, без перекрытий).
+// Вне гейта T < 273.16 полосы нет → M_temp = 1.0 (suit-полосы к ним НЕ применяются).
+function tempBandPhysical(pkg) {
+    const T = pkg.temperature;
+    if (T < TRIPLE_POINT_K.N2) return 'extreme';
+    if (T < TRIPLE_POINT_K.CH4) return 'severe';
+    if (T < DIAMOND_DUST_K) return 'deep_frost';
+    if (T < TRIPLE_POINT_K.H2O) return 'ice';
+    return null;
+}
+
+// isWaterish — «водяной» вариант N2/N3: вещество вода ИЛИ категория крио/вода (§4.6 п.2).
+function isWaterish(pkg) {
+    return liquidMedium(pkg) === 'вода' || pkg.biome_category === 'крио' || pkg.biome_category === 'вода';
 }
 
 // allowedWeathers — жёсткие гейты §4.2. Сияние — только полоса комфорта И
 // булева метка pkg.radioactive (решения создателя 2026-09-22 №2–3, §4.5).
+// Новые явления требуют p ≥ 0.5 (выполняется вне тонкой полосы — она возвращается
+// раньше), поэтому в тонкой полосе их нет по построению.
 function allowedWeathers(pkg) {
     const p = pkg.pressure_atm;
     const [pMin, pMax] = pkg.suit.pressure_comfort_atm;
     if (p < pMin) return ['штиль', 'пыльная буря'];
     const list = ['штиль', 'туман', 'пыльная буря', 'метель', 'кислотный дождь'];
+    const T = pkg.temperature;
+    const cat = pkg.biome_category;
+    if (T >= TRIPLE_POINT_K.H2O) list.push('гроза');
+    if (T < TRIPLE_POINT_K.H2O) {
+        list.push('ледяные иглы');
+        if (!liquidAbsent(pkg) || cat === 'крио' || cat === 'вода') list.push('ледяной град');
+    }
+    if (cat === 'вулканизм') list.push('пепельный дождь');
+    if (pkg.life && (cat === 'биосфера' || cat === 'вода')) list.push('свечение');
     if (p <= pMax && pkg.radioactive) list.push('полярное сияние');
     return list;
 }
 
 // weightFor — мягкий вес §4.3: W = base × M_temp × M_rad × M_tox × M_liq × M_biome.
+// M_temp — suit-полосы (N1/N4/N5) ИЛИ физические полосы (N2/N3); незаданный = 1.0.
 function weightFor(pkg, id) {
     const rules = WEATHER_RULES;
     let w = (rules.base[id] ?? 1) * (rules.byTemp[tempBand(pkg)]?.[id] ?? 1);
+    const phys = tempBandPhysical(pkg);
+    if (phys) w *= rules.byTempPhysical[phys]?.[id] ?? 1;
     if (pkg.toxic) w *= rules.byToxic[id] ?? 1;
-    if (id === 'кислотный дождь' && liquidAbsent(pkg)) w *= rules.byLiquidAbsent[id] ?? 1;
+    if (liquidAbsent(pkg)) w *= rules.byLiquidAbsent[id] ?? 1;
+    else w *= rules.byLiquidPresent[id] ?? 1;
     w *= rules.byBiome[pkg.biome_category]?.[id] ?? 1;
     if (id === 'полярное сияние') {
         w *= clamp(1 + (pkg.radioactivity || 0) / rules.aurora.radDivisor, 1, rules.aurora.radMax);
@@ -73,12 +122,70 @@ function weightedPick(ids, weights, rng) {
 // variantFor — вариант внутри явления (§5.3, §4.6). Набор явлений не меняет.
 function variantFor(id, pkg) {
     if (id === 'туман') {
-        if (tempBand(pkg) === 'cold') return 'cold';
-        if (pkg.toxic) return 'toxic';
-        if (tempBand(pkg) === 'hot') return 'hot';
+        // §4.6: порядок замещает правило пакета 1 (cold → toxic → hot).
+        const lm = liquidMedium(pkg);
+        if (lm === 'co2') return 'плотный CO₂';
+        if (lm === 'метан' || lm === 'аммиак') return 'аммиачно-метановый';
+        if (pkg.toxic) return 'серный';
+        if (tempBand(pkg) === 'cold') return 'морозный';
+        if (tempBand(pkg) === 'hot') return 'марево';
         return null;
     }
-    if (id === 'кислотный дождь') return pkg.toxic ? 'toxic' : 'normal';
+    if (id === 'кислотный дождь') {
+        // §4.6: радиоактивный → инверсионный (p > suit-max) → кислотный → обычный.
+        if (pkg.radioactive) return 'радиоактивный';
+        if (pkg.pressure_atm > pkg.suit.pressure_comfort_atm[1]) return 'инверсионный';
+        if (pkg.toxic) return 'кислотный';
+        return 'обычный';
+    }
+    if (id === 'пыльная буря') {
+        // §4.3: сухая стеклянно-кристаллическая форма при T ≥ GLASS_FIELD_K
+        // (каталожные `стеклянные_поля`/`металлические_поля`); иначе базовая.
+        if (pkg.temperature >= GLASS_FIELD_K) return 'стеклянно-кристаллическая';
+        return null;
+    }
+    if (id === 'полярное сияние') {
+        // §4.3: тот же гейт `radioactive`, что у явления; иначе базовое.
+        if (pkg.radioactive) return 'магнитная буря';
+        return null;
+    }
+    // Новые явления: детерминированный список приоритета (первое совпадение),
+    // тотален — последний вариант срабатывает всегда при прошедшем гейте (§4.6).
+    if (id === 'гроза') {
+        if (pkg.toxic) return 'токсичная';
+        if (liquidAbsent(pkg)) return 'сухая';
+        return 'ливневая';
+    }
+    if (id === 'ледяные иглы') {
+        const lm = liquidMedium(pkg);
+        const T = pkg.temperature;
+        if (lm === 'co2' && T < TRIPLE_POINT_K.CO2) return 'углекислые';
+        if (lm === 'аммиак' && T < TRIPLE_POINT_K.NH3) return 'аммиачные';
+        if (lm === 'метан' && T < TRIPLE_POINT_K.CH4) return 'метановые';
+        if (isWaterish(pkg) && T < TRIPLE_POINT_K.H2O) return 'водяные';
+        return 'иней';
+    }
+    if (id === 'ледяной град') {
+        const lm = liquidMedium(pkg);
+        const T = pkg.temperature;
+        if (lm === 'co2' && T < TRIPLE_POINT_K.CO2) return 'углекислая крупа';
+        if (lm === 'метан' && T < TRIPLE_POINT_K.CH4) return 'метановая крупа';
+        if (isWaterish(pkg)) {
+            if (T >= DIAMOND_DUST_K && T < TRIPLE_POINT_K.H2O) return 'град';
+            if (T < DIAMOND_DUST_K) return 'крупа';
+        }
+        return 'базовая крупа';
+    }
+    if (id === 'пепельный дождь') {
+        if (pkg.temperature < TRIPLE_POINT_K.NH3) return 'криовулканический';
+        if (!liquidAbsent(pkg)) return 'влажный';
+        return 'сухой';
+    }
+    if (id === 'свечение') {
+        if (pkg.pressure_atm > pkg.suit.pressure_comfort_atm[1]) return 'светящийся туман';
+        if (!liquidAbsent(pkg)) return 'светящийся ливень';
+        return 'биоаэрозоль';
+    }
     return null;
 }
 
@@ -86,6 +193,25 @@ function variantFor(id, pkg) {
 
 function resolveRange(rng, r) {
     return Array.isArray(r) ? lerp(r[0], r[1], rng()) : r;
+}
+
+// Новые блоки явлений (lightning/glint/pellet/ash/glow): диапазоны-параметры окна
+// разворачиваются цикловым PRNG один раз на окно (§7.2); диапазоны ПО ЭЛЕМЕНТУ
+// (размер/альфа/отскок/дрейф/облако) остаются парами и интерполируются в примитиве.
+const RESOLVE_ONCE = new Set(['count', 'airCount', 'lowCount', 'parallax', 'boltRate', 'boltBurst', 'segments', 'branchDepth', 'flashMs', 'flashAlpha', 'echoMs', 'echoAlpha', 'groundGlow', 'bounceCount', 'airTint']);
+function resolveBlock(rng, v, key) {
+    if (Array.isArray(v)) {
+        if (RESOLVE_ONCE.has(key) && v.length === 2 && typeof v[0] === 'number' && typeof v[1] === 'number') {
+            return lerp(v[0], v[1], rng());
+        }
+        return v.map((x) => resolveBlock(rng, x, key));
+    }
+    if (v && typeof v === 'object') {
+        const out = {};
+        for (const k of Object.keys(v)) out[k] = resolveBlock(rng, v[k], k);
+        return out;
+    }
+    return v;
 }
 
 // airRgb — цвет воздуха явления: от biome_color (shade на base) к blend-цели.
@@ -107,8 +233,13 @@ function buildParams(pkg, id, variant, rng) {
     const def = WEATHER_VISUALS[id];
     const varDef = (variant && def.variants) ? def.variants[variant] : null;
     const airDef = varDef && varDef.air ? { ...def.air, ...varDef.air } : def.air;
-    const beltsDef = (varDef && varDef.belts) || def.belts || [];
-    const groundDef = (varDef && varDef.ground) || def.ground || null;
+    // Пояса варианта: массив частичных переопределений по индексу (как «град»/«крупа»);
+    // отсутствующие поля пояса берутся из базового, пустой массив — снять пояса.
+    const beltsDef = (varDef && Array.isArray(varDef.belts))
+        ? varDef.belts.map((b, i) => ({ ...(def.belts[i] || {}), ...b }))
+        : (def.belts || []);
+    // Явный `ground: null` у варианта снимает приземный эффект (не откатывается к базе).
+    const groundDef = (varDef && 'ground' in varDef) ? varDef.ground : (def.ground || null);
     const alphaMul = (varDef && varDef.alphaMul) || 1;
 
     const air = {
@@ -120,6 +251,10 @@ function buildParams(pkg, id, variant, rng) {
         sky: resolveRange(rng, airDef.sky),
     };
 
+    // Туман на категории «вода» рисует слоистую гряду `bank` вместо круглых клочьев
+    // `clump` (§5.2). Вариант `bankAll` (§4.3: CO₂/аммиачно-метановый туман) — гряда
+    // независимо от категории. Прочие — прежние `clump`.
+    const bankOnWater = (varDef && varDef.bankAll) || (!!def.bank && def.bank.watersOnly !== false && pkg.biome_category === 'вода');
     const belts = beltsDef.map((b) => ({
         parallax: b.parallax,
         tile: b.tile,
@@ -132,7 +267,8 @@ function buildParams(pkg, id, variant, rng) {
         fall: b.fall || [0, 0],
         sway: b.sway || 0,
         streak: b.streak || null,
-        shape: b.shape || 'dot',
+        bounce: b.bounce || false,
+        shape: (bankOnWater && b.shape === 'clump') ? 'bank' : (b.shape || 'dot'),
     }));
 
     const wind = {
@@ -150,7 +286,8 @@ function buildParams(pkg, id, variant, rng) {
     // чтобы спрайты запекались детерминированно (§5.7 спеки, направление §2).
     let aurora = null;
     if (def.aurora) {
-        const au = def.aurora;
+        // Вариант («магнитная буря») переопределяет curtains/bandHeight/palette.
+        const au = (varDef && varDef.aurora) ? { ...def.aurora, ...varDef.aurora } : def.aurora;
         const n = Math.max(1, Math.round(resolveRange(rng, au.curtains)));
         const curtains = [];
         for (let c = 0; c < n; c++) {
@@ -193,10 +330,22 @@ function buildParams(pkg, id, variant, rng) {
 
     const particle = (varDef && varDef.particle !== undefined) ? varDef.particle : (def.particle || null);
 
+    // Новые блоки: слияние базового блока и переопределения варианта (как `air`),
+    // затем разворот диапазонов-параметров окна.
+    const blocks = {};
+    for (const key of ['lightning', 'glint', 'pellet', 'ash', 'glow', 'flake', 'bank', 'facet']) {
+        if (!def[key]) continue;
+        blocks[key] = resolveBlock(rng, varDef && varDef[key] ? { ...def[key], ...varDef[key] } : def[key], key);
+    }
+
     return {
         id, variant, air, belts, wind, slant, aurora, ground, particle,
         horizon: !!(varDef && varDef.horizon),
         jitter: (varDef && varDef.jitter) || 0,
+        // §4.3: аддитивный блик всплеска дождя (радиоактивный вариант) — 0, если нет.
+        splashGlow: (varDef && varDef.splashGlow) ? resolveRange(rng, varDef.splashGlow) : 0,
+        biomeColor: pkg.biome_color || '#8a7a6a',
+        ...blocks,
     };
 }
 
@@ -217,6 +366,17 @@ export function pickWeatherRun(pkg, cycle, prevId = null, forceId = null) {
     }
     const variant = variantFor(id, pkg);
     return { id, variant, params: buildParams(pkg, id, variant, rng), windowFrac: rng() };
+}
+
+// weatherLabel — подпись HUD (§5.3): вариант уточняет базовое имя; неизвестный
+// id → сам id (инвариант §8 п.3 «не пусто»). Формулировки — @uidesigner (UI §5).
+export function weatherLabel(run) {
+    if (!run) return '';
+    const def = WEATHER_VISUALS[run.id];
+    if (!def) return run.id || '';
+    const vl = def.variantLabels;
+    if (vl && run.variant && vl[run.variant] !== undefined) return vl[run.variant];
+    return def.label || run.id;
 }
 
 // ==================== ОБЩИЕ ХЕЛПЕРЫ ОТРИСОВКИ ====================
@@ -382,6 +542,11 @@ function drawClump(ctx, x, y, w, h, col, alpha) {
 function drawBelt(ctx, world, camera, p, belt, beltIndex, tSec, vw, vh) {
     const win = viewWindow(vw, vh);
     if (belt.shape === 'clump') drawClumps(ctx, world, camera, vw, vh, p, belt, beltIndex, tSec);
+    else if (belt.shape === 'flake') drawFlake(ctx, world, camera, p, belt, beltIndex, tSec, win);
+    else if (belt.shape === 'bank') drawBank(ctx, world, camera, vw, vh, p, belt, beltIndex, tSec);
+    else if (belt.shape === 'pellet') drawPellets(ctx, world, camera, vw, vh, p, belt, beltIndex, tSec, win);
+    else if (belt.shape === 'ash') drawAsh(ctx, world, camera, vw, vh, p, belt, beltIndex, tSec, win);
+    else if (belt.shape === 'facet') drawFacets(ctx, world, camera, p, belt, beltIndex, tSec, win);
     else if (belt.shape === 'streak' || belt.shape === 'pair') drawStreaks(ctx, world, camera, p, belt, beltIndex, tSec, win);
     else drawDots(ctx, world, camera, p, belt, beltIndex, tSec, win);
 }
@@ -489,6 +654,16 @@ function rainGround(ctx, world, camera, vw, vh, p, tSec) {
         ctx.beginPath();
         ctx.arc(sx, gy, radius, Math.PI, TWO_PI);
         ctx.stroke();
+        // Радиоактивный вариант (§4.3): слабый аддитивный блик всплеска.
+        if (p.splashGlow > 0) {
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.fillStyle = rgbaCss(col, (1 - rip) * p.splashGlow);
+            ctx.beginPath();
+            ctx.arc(sx, gy, radius * 1.6, Math.PI, TWO_PI);
+            ctx.fill();
+            ctx.restore();
+        }
         // Пар/дымок — поднимающийся вверх (жизнь 0.4–1.0 с).
         const sp = mod(tSec / 0.7 + h * 3.1, 1);
         ctx.fillStyle = rgbaCss(col, (1 - sp) * 0.28);
@@ -501,18 +676,18 @@ function drawGround(ctx, world, camera, vw, vh, p, tSec) {
     if (p.ground.mode === 'snow') snowGround(ctx, world, camera, vw, vh, p, tSec);
     else if (p.ground.mode === 'skirt') dustGround(ctx, world, camera, vw, vh, p, tSec);
     else if (p.ground.mode === 'splash') rainGround(ctx, world, camera, vw, vh, p, tSec);
-    // 'valley'/'low' — клочья уже отрисованы поясами (shape 'clump').
+    else if (p.ground.mode === 'grain') drawPelletGround(ctx, world, camera, vw, vh, p);
+    else if (p.ground.mode === 'ash') drawAshGround(ctx, world, camera, vw, vh, p);
+    // 'valley'/'low' — клочья уже отрисованы поясами (shape 'clump');
+    // 'glint' — искры рисуются передним проходом (примитив glint), не тут.
 }
 
 // ==================== СИЯНИЕ (§5.7) ====================
 
-// auroraColors — палитра [низ, верх] по biome_category; источник истины —
-// WEATHER_VISUALS['полярное сияние'].aurora.palette (направление §4). Нижняя
-// часть сохраняет смысл §5.7 спеки (крио — бирюза/зелень, экзотика — пурпур,
-// литосфера/вулканизм — зелёно-жёлтый), верх — фиолетово-розовый/тёплый.
-function auroraColors(category) {
-    const pal = WEATHER_VISUALS['полярное сияние'].aurora.palette;
-    return pal[category] || pal['литосфера'];
+// auroraColors — палитра [низ, …, верх] по biome_category; источник — палитра
+// развёрнутых params (вариант «магнитная буря» даёт 3 цвета с серединой #5f7cff).
+function auroraColors(pal, category) {
+    return (pal && pal[category]) || (pal && pal['литосфера']) || ['#8ee06a', '#e0c860'];
 }
 
 // Запекание занавеса (направление §3 п.5): пряди рисуются в offscreen-канвас
@@ -525,8 +700,12 @@ function bakeAurora(p, world, vw, vh) {
     const a = p.aurora;
     const key = vw + 'x' + vh;
     if (a._baked && a._baked.key === key) return a._baked;
-    const [cLow, cHigh] = auroraColors(world.category);
-    const low = parseHex(cLow), high = parseHex(cHigh);
+    const cols = auroraColors(a.palette, world.category);
+    const low = parseHex(cols[0]);
+    const high = parseHex(cols[cols.length - 1]);
+    // Середина полосы — 3-й цвет («магнитная буря»); у двухцветной палитры
+    // середина = верх, старый вид не меняется.
+    const mid = parseHex(cols.length > 2 ? cols[1] : cols[cols.length - 1]);
     const seed = a.seed >>> 0;
     const curtains = a.curtains.map((c, ci) => {
         const width = Math.max(120, Math.round(c.widthFrac * vw));
@@ -546,7 +725,7 @@ function bakeAurora(p, world, vw, vh) {
             - ((0.5 + 0.5 * Math.sin((x / c.waveLen) * TWO_PI + ph)) * c.waveAmp + c.bottomJitter[0]);
         const wash = g.createLinearGradient(0, spriteH, 0, spriteH - bandH * 1.05);
         wash.addColorStop(0, rgbaCss(low, c.haloAlpha * 1.2));
-        wash.addColorStop(0.55, rgbaCss(high, c.haloAlpha * 0.8));
+        wash.addColorStop(0.55, rgbaCss(mid, c.haloAlpha * 0.8));
         wash.addColorStop(1, rgbaCss(high, 0));
         g.fillStyle = wash;
         g.globalAlpha = 1;
@@ -594,7 +773,7 @@ function bakeAurora(p, world, vw, vh) {
             const warp = (h4 - 0.5) * 2 * c.warp;
             const grad = g.createLinearGradient(0, yBottom, 0, yTop);
             grad.addColorStop(0, rgbaCss(low, 0.95));
-            grad.addColorStop(0.55, rgbaCss(high, 0.60));
+            grad.addColorStop(0.55, rgbaCss(mid, 0.60));
             grad.addColorStop(1, rgbaCss(high, 0));
             g.strokeStyle = grad;
             // Ореол (широкий, тусклый) + тело + ядро — мягкое свечение без
@@ -638,11 +817,13 @@ function drawCurtainBanded(ctx, canvas, w, h, dx, dy, tSec, period, phase, baseA
 
 // drawAurora — 2–4 широких мягких занавеса (направление §2): разная глубина
 // (параллакс 0.05–0.12), медленный дрейф, аддитивное свечение, чистое небо.
-function drawAurora(ctx, world, camera, vw, vh, p, tSec) {
+// alpha штор × nightFactor (§6.4): днём ровно 0 (не видно).
+function drawAurora(ctx, world, camera, vw, vh, p, tSec, nightFactor) {
+    if (nightFactor <= 0.001) return;
     const baked = bakeAurora(p, world, vw, vh);
     const win = viewWindow(vw, vh);
     const hy = horizonY(world, camera, vh);
-    const baseAlpha = ctx.globalAlpha;
+    const baseAlpha = ctx.globalAlpha * nightFactor;
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     for (const c of baked.curtains) {
@@ -657,14 +838,15 @@ function drawAurora(ctx, world, camera, vw, vh, p, tSec) {
     ctx.restore();
 }
 
-// drawAuroraReflection — аддитивный тинт рельефа 4–8 % (§5.7).
-function drawAuroraReflection(ctx, world, camera, vw, vh, p) {
-    const [cA] = auroraColors(world.category);
+// drawAuroraReflection — аддитивный тинт рельефа 4–8 % (§5.7), × nightFactor (§6.4).
+function drawAuroraReflection(ctx, world, camera, vw, vh, p, nightFactor) {
+    if (nightFactor <= 0.001) return;
+    const cA = auroraColors(p.aurora.palette, world.category)[0];
     const win = viewWindow(vw, vh);
     const hy = horizonY(world, camera, vh);
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
-    ctx.fillStyle = rgbaCss(parseHex(cA), p.aurora.reflection);
+    ctx.fillStyle = rgbaCss(parseHex(cA), p.aurora.reflection * nightFactor);
     ctx.fillRect(win.x0 - 60, hy, (win.x1 - win.x0) + 120, Math.max(0, vh - hy) + 120);
     ctx.restore();
 }
@@ -682,30 +864,33 @@ function weatherStack(w) {
     return [{ run: w.crossFrom, alpha: 1 - p }, { run: w, alpha: p }];
 }
 
-// drawWeatherBack — после неба, до дальнего силуэта: шторы сияния (аддитивно,
-// параллакс 0.05–0.12 — глубже силуэта 0.35) + тинт неба в airColor (§6.3).
-export function drawWeatherBack(ctx, world, camera, vw, vh, w) {
+// drawWeatherBack — после неба, до дальнего силуэта: тинт неба в airColor (§6.3)
+// + облачный пояс грозы (lightning.cloud — не эмиссивная часть, × lightMul).
+// Шторы сияния сюда НЕ входят: эмиссивные элементы перенесены в drawEmissive (§6.3 п.4).
+export function drawWeatherBack(ctx, world, camera, vw, vh, w, env) {
     if (!w) return;
     const tSec = performance.now() / 1000;
+    const lightMul = env ? env.lightMul() : 1;
     for (const { run, alpha } of weatherStack(w)) {
-        const p = run.params;
-        if (!p) continue;
+        if (!run.params) continue;
+        const p = dimAir(run.params, lightMul);
         ctx.save();
         ctx.globalAlpha = alpha;
         fillAir(ctx, p, p.air.sky, vw, vh);
-        if (p.aurora) drawAurora(ctx, world, camera, vw, vh, p, tSec);
+        if (p.lightning) drawLightningCloud(ctx, world, camera, vw, vh, run.params, tSec, lightMul);
         ctx.restore();
     }
 }
 
 // drawWeatherMid — после дальнего силуэта, до рельефа: дымка дальнего силуэта
 // (Air.far) + дальний (0.4) и средний (0.7) пояса частиц (§6.3).
-export function drawWeatherMid(ctx, world, camera, vw, vh, w) {
+export function drawWeatherMid(ctx, world, camera, vw, vh, w, env) {
     if (!w) return;
     const tSec = performance.now() / 1000;
+    const lightMul = env ? env.lightMul() : 1;
     for (const { run, alpha } of weatherStack(w)) {
-        const p = run.params;
-        if (!p) continue;
+        if (!run.params) continue;
+        const p = dimAir(run.params, lightMul);
         ctx.save();
         ctx.globalAlpha = alpha;
         fillAir(ctx, p, p.air.far, vw, vh);
@@ -718,25 +903,61 @@ export function drawWeatherMid(ctx, world, camera, vw, vh, w) {
 }
 
 // drawWeatherFront — после игрока: дымка рельефа/декора (Air.mid + Air.near) и
-// пелена кадра (Air.frame) СНАЧАЛА, затем ближний пояс (1.0) и приземные
-// эффекты — иначе крупные ближние частицы гасятся пеленой (§6.3).
-export function drawWeatherFront(ctx, world, camera, vw, vh, w) {
+// пелена кадра (Air.frame) СНАЧАЛА, затем ближний пояс (1.0), искры «ледяных игл»
+// и приземные эффекты — иначе крупные ближние частицы гасятся пеленой (§6.3).
+// Эмиссивные элементы (reflection сияния) — в drawEmissive; искры glint — здесь
+// (не эмиссивная часть, «игра света» × (1 + (lowSunBoost−1)·lowSun), §6.4).
+export function drawWeatherFront(ctx, world, camera, vw, vh, w, env) {
     if (!w) return;
     const tSec = performance.now() / 1000;
+    const lightMul = env ? env.lightMul() : 1;
+    const nightFactor = env ? env.nightFactor() : 1;
+    const lowSun = 4 * nightFactor * (1 - nightFactor);
     for (const { run, alpha } of weatherStack(w)) {
-        const p = run.params;
-        if (!p) continue;
+        if (!run.params) continue;
+        const p = dimAir(run.params, lightMul);
         ctx.save();
         ctx.globalAlpha = alpha;
         fillAir(ctx, p, p.air.mid, vw, vh);
         fillAir(ctx, p, p.air.near, vw, vh);
         fillAir(ctx, p, p.air.frame, vw, vh);
-        if (p.aurora) drawAuroraReflection(ctx, world, camera, vw, vh, p);
+        // «Свечение»: лёгкий airColor-тинт (§6.3 п.4) — в воздушном проходе, НЕ × lightMul.
+        if (p.glow && p.glow.airTint > 0) {
+            const pal = (p.glow.palette && (p.glow.palette[world.category] || p.glow.palette['биосфера'])) || ['#6ef0a0', '#8f7cff'];
+            ctx.fillStyle = rgbaCss(parseHex(pal[0]), p.glow.airTint);
+            ctx.fillRect(0, 0, vw, vh);
+        }
         for (let bi = 0; bi < p.belts.length; bi++) {
             if (p.belts[bi].parallax <= PARALLAX_MID + 1e-6) continue;
             drawBelt(ctx, world, camera, p, p.belts[bi], bi, tSec, vw, vh);
         }
+        if (p.glint) drawGlints(ctx, world, camera, vw, vh, p, tSec, lowSun);
         drawGround(ctx, world, camera, vw, vh, p, tSec);
+        ctx.restore();
+    }
+}
+
+// drawEmissive — ФИНАЛЬНЫЙ эмиссивный проход (спека §6.3 п.4, решение создателя
+// 2026-09-22): после drawEnvironmentFront, поверх переднего ночного тинта. Рисует
+// только свет: разряд+вспышку+groundGlow грозы, glow свечения, aurora+reflection
+// сияния. Модуляции (§6.4): вспышка/эхо × (1 + 1.2·nightFactor), glow × (0.4 +
+// 0.6·nightFactor), aurora/reflection × nightFactor. lightMul и передний тинт
+// среды к эмиссивному НЕ применяются.
+export function drawEmissive(ctx, world, camera, vw, vh, w, env) {
+    if (!w) return;
+    const tSec = performance.now() / 1000;
+    const nightFactor = env ? env.nightFactor() : 1;
+    for (const { run, alpha } of weatherStack(w)) {
+        if (!run.params) continue;
+        const p = run.params;
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        if (p.aurora) {
+            drawAurora(ctx, world, camera, vw, vh, p, tSec, nightFactor);
+            drawAuroraReflection(ctx, world, camera, vw, vh, p, nightFactor);
+        }
+        if (p.lightning) drawLightning(ctx, world, camera, vw, vh, p, tSec, nightFactor);
+        if (p.glow) drawGlow(ctx, world, camera, vw, vh, p, tSec, nightFactor);
         ctx.restore();
     }
 }

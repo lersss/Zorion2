@@ -225,14 +225,14 @@ async function main() {
 
     const weatherWorked = await a.page.evaluate(async () => {
       const wrap = document.getElementById('hud-weather-admin');
-      const btn = [...wrap.querySelectorAll('button')].find(b => b.textContent === 'штиль');
-      if (!btn) return { ok: false, reason: 'нет чипа «штиль»' };
+      const btn = [...wrap.querySelectorAll('button')].find(b => b.textContent === 'Штиль');
+      if (!btn) return { ok: false, reason: 'нет чипа «Штиль»' };
       btn.click();
       await new Promise(r => setTimeout(r, 500));
       const active = [...wrap.querySelectorAll('button')].find(b => b.dataset.active === '1');
       return { ok: true, hud: document.getElementById('hud-weather').textContent, active: active && active.textContent };
     });
-    report('A10 админ: принудительная погода «штиль · вручную»', weatherWorked.ok && weatherWorked.hud === 'штиль · вручную',
+    report('A10 админ: принудительная погода «Штиль · вручную»', weatherWorked.ok && weatherWorked.hud === 'Штиль · вручную',
       'hud="' + (weatherWorked.hud || weatherWorked.reason || '') + '" active="' + (weatherWorked.active || '') + '"');
     report('A11 админ: нет JS-ошибок', a.errors.length === 0, a.errors.slice(0, 2).join(' | '));
 

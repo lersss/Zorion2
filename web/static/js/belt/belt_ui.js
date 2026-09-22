@@ -118,11 +118,19 @@ export function setHint(html) {
 
 // ==================== ЛЕГЕНДА УПРАВЛЕНИЯ (§4.2 п.7) ====================
 
+// updateControls — подсветка активных чипов легенды «двух стиков»: W/S тяга,
+// A/D стрейф, мышь нос (курсор ведёт нос — input.aim), ЛКМ/Space добыча,
+// Shift тормоз.
 export function updateControls(input) {
-    const map = { up: input.up, down: input.down, left: input.left, right: input.right, brake: input.brake, space: input.space };
+    const map = {
+        forward: input.forward, back: input.back,
+        left: input.left, right: input.right,
+        brake: input.brake, space: input.space,
+        lmb: input.mouseDown, mouse: !!input.aim,
+    };
     for (const key in map) {
-        const el = document.querySelector('.ctrl-key[data-key="' + key + '"]');
-        if (el) el.classList.toggle('active', !!map[key]);
+        const els = document.querySelectorAll('.ctrl-key[data-key="' + key + '"]');
+        for (const el of els) el.classList.toggle('active', !!map[key]);
     }
 }
 

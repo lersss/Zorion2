@@ -1,9 +1,9 @@
 // web/static/js/belt/belt_render.js
 // Отрисовка сцены добычи в поясе (спека
 // 2026-09-22-пояса-малых-тел-этап-3-добыча §9.1/§9.2), вид сверху. Слои
-// снизу вверх: звёздное поле → далёкая пыль → мелкие обломки (параллакс 0.6)
-// → крупные жилы (1.0) → частицы руды → корабль → эффекты (луч бурения,
-// «+X т»). Ассеты астероидов — подэтап 3c; здесь плейсхолдеры (фигуры).
+// снизу вверх: звёздное поле → далёкая пыль (0.4) → мелкие обломки (0.6)
+// → крупные жилы (1.0) → частицы руды → луч бурения/прицел → корабль →
+// эффекты («+X т»). Ассеты астероидов — подэтап 3c; здесь плейсхолдеры (фигуры).
 import * as C from './belt_config.js';
 import { shipDrawTransform } from '../map/ship_sprites.js';
 
@@ -12,30 +12,29 @@ function toScreen(wx, wy, cam, vw, vh) {
 }
 
 // drawScene — полный кадр сцены. opts: { drilling, target, depleted,
-// remainingLevel, shipSprite, shipOrient, now }.
+// shipSprite, shipOrient, now, offBelt }.
 export function drawScene(ctx, world, cam, vw, vh, opts) {
     ctx.fillStyle = C.COLORS.bg;
     ctx.fillRect(0, 0, vw, vh);
 
     drawStars(ctx, world.stars, cam, vw, vh, opts.now);
     drawDust(ctx, world.dust, cam, vw, vh);
-    drawFieldEdge(ctx, cam, vw, vh);
 
     // Мелкие обломки (декор) — параллакс 0.6.
-    for (const a of world.asteroids) {
-        if (a.vein) continue;
+    for (const a of world.debris) {
         drawAsteroid(ctx, a, cam, vw, vh, opts, C.PARALLAX_DECOR);
     }
     // Крупные жилы — игровое поле (параллакс 1.0).
     for (const a of world.asteroids) {
-        if (!a.vein) continue;
         drawAsteroid(ctx, a, cam, vw, vh, opts, 1);
     }
 
     drawParticles(ctx, world.particles, cam, vw, vh);
 
     if (opts.drilling && opts.target) drawBeam(ctx, world.ship, opts.target, cam, vw, vh);
+    drawAim(ctx, world.ship, cam, vw, vh);
     drawShip(ctx, world.ship, cam, vw, vh, opts);
+    if (opts.offBelt) drawOffBelt(ctx, world.ship, cam, vw, vh);
     drawFloaters(ctx, world.floaters, cam, vw, vh);
 }
 
@@ -76,20 +75,9 @@ function drawDust(ctx, dust, cam, vw, vh) {
     }
 }
 
-// drawFieldEdge — тонкое кольцо мягкой границы пятна (навигационный ориентир).
-function drawFieldEdge(ctx, cam, vw, vh) {
-    const p = toScreen(0, 0, cam, vw, vh);
-    ctx.save();
-    ctx.strokeStyle = C.COLORS.edge;
-    ctx.lineWidth = C.EDGE_SOFT * C.WORLD_SCALE * 0.5;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, C.FIELD_RADIUS * C.WORLD_SCALE, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.restore();
-}
-
 // drawAsteroid — плейсхолдер астероида: неровный многоугольник + блеск жилы.
-// parallax — множитель слоя (декор 0.6, жилы 1.0).
+// parallax — множитель слоя (декор 0.6, жилы 1.0). Наведённая цель
+// подсвечивается контуром accent-цвета (§4.6 UI-спеки).
 function drawAsteroid(ctx, a, cam, vw, vh, opts, parallax) {
     const p = toScreen(a.x - cam.x * (parallax - 1), a.y - cam.y * (parallax - 1), cam, vw, vh);
     const rad = a.r * C.WORLD_SCALE;
@@ -132,6 +120,15 @@ function drawAsteroid(ctx, a, cam, vw, vh, opts, parallax) {
         }
         ctx.globalAlpha = 1;
     }
+
+    // Подсветка наведённой жилы (§4.6): контур цели — сильнее, чем у прочих.
+    if (opts.target === a && !depleted) {
+        ctx.globalAlpha = 0.9;
+        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = C.COLORS.glint;
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+    }
     ctx.restore();
 }
 
@@ -156,6 +153,42 @@ function drawBeam(ctx, ship, target, cam, vw, vh) {
     ctx.beginPath();
     ctx.moveTo(a.x, a.y);
     ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+    ctx.restore();
+}
+
+// drawAim — лёгкий луч прицела от носа по heading (§4.6): показывает, куда
+// смотрит нос при плавном довороте. Новых цветов не вводим (accent).
+function drawAim(ctx, ship, cam, vw, vh) {
+    const p = toScreen(ship.x, ship.y, cam, vw, vh);
+    const len = 260;
+    ctx.save();
+    ctx.globalAlpha = 0.18;
+    ctx.strokeStyle = C.COLORS.glint;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 8]);
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    ctx.lineTo(p.x + Math.cos(ship.heading) * len, p.y + Math.sin(ship.heading) * len);
+    ctx.stroke();
+    ctx.restore();
+}
+
+// drawOffBelt — индикатор «пояс позади» (§4.6, опция): когда игрок ушёл
+// поперёк за полосу, тонкая стрелка показывает сторону пояса (к оси Y).
+function drawOffBelt(ctx, ship, cam, vw, vh) {
+    const p = toScreen(ship.x, ship.y, cam, vw, vh);
+    const dir = ship.y > 0 ? -1 : 1; // к оси пояса
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.globalAlpha = 0.5;
+    ctx.strokeStyle = C.COLORS.shipAccent;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, dir * 54);
+    ctx.lineTo(-9, dir * 36);
+    ctx.moveTo(0, dir * 54);
+    ctx.lineTo(9, dir * 36);
     ctx.stroke();
     ctx.restore();
 }

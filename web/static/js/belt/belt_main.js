@@ -7,7 +7,7 @@ import * as C from './belt_config.js';
 import { BeltWorld } from './belt_world.js';
 import { drawScene } from './belt_render.js';
 import { enter, collect, leave } from './belt_net.js';
-import { bindInput } from './belt_input.js';
+import { bindInput, drillHeld } from './belt_input.js';
 import * as ui from './belt_ui.js';
 import { activateSound, playSound } from '../ui/sound.js';
 import { setShipOptions, recolorShipSprite, shipOrientFor } from '../map/ship_sprites.js';
@@ -17,7 +17,7 @@ const state = {
     pkg: null,
     world: null,
     camera: { x: 0, y: 0 },
-    input: { up: false, down: false, left: false, right: false, brake: false, space: false },
+    input: { forward: false, back: false, left: false, right: false, brake: false, space: false, mouseDown: false, aim: null, aimWorld: null },
     running: false,
     leaving: false,
     offline: false,
@@ -86,7 +86,7 @@ function refreshHUD() {
     });
 }
 
-function hintHtml(target) {
+function hintHtml(hit, inRange, offBelt) {
     if (state.full) {
         return 'Трюм полон — добыча недоступна. Вернитесь на карту. '
             + '<button id="hint-leave" type="button" style="margin-left:8px; background:#2a2a4a; border:none; color:#fde68a; padding:3px 10px; border-radius:4px; cursor:pointer; font-size:0.8rem;">Вернуться на карту</button>';
@@ -94,8 +94,10 @@ function hintHtml(target) {
     if (state.depleted) return 'Пояс выработан — добывать больше нечего.';
     if (state.offline) return 'Нет связи — добыча приостановлена';
     if (state.drilling) return '⛏ Добыча идёт…';
-    if (target) return 'Держите [Space] — добыча';
-    return '';
+    if (inRange) return 'ЛКМ или [Space] — добыча';
+    if (hit) return 'Подлетите ближе';
+    if (offBelt) return 'Пояс позади — развернитесь к полосе';
+    return 'Наведите нос на жилу';
 }
 
 // ---- Кадр ----
@@ -110,11 +112,27 @@ function frame(now) {
     const dpr = vw > 0 ? canvas.width / vw : 1;
 
     const paused = ui.isPaused();
+    // Курсор (экранные координаты) → мировая точка прицела: нос доворачивается
+    // к ней (§5.1). Камера сглажена, берём её текущее положение.
+    const aim = state.input.aim;
+    if (aim) {
+        state.input.aimWorld = {
+            x: state.camera.x + (aim.x - vw / 2) / C.WORLD_SCALE,
+            y: state.camera.y + (aim.y - vh / 2) / C.WORLD_SCALE,
+        };
+    }
+    let hit = null;
+    let inRange = false;
     let target = null;
     if (!paused && !state.leaving) {
         state.world.update(dt, state.input);
-        target = state.world.nearestVein();
-        const canDrill = !!target && state.input.space && !state.full && !state.depleted && now >= state.blockedUntil;
+        // Цель бурения — жила под лучом носа (не «ближайшая»); удержание ЛКМ/Space
+        // бурит только наведённую цель, потеря наведения прекращает бурение (§5.2).
+        hit = state.world.rayVein();
+        inRange = !!hit && state.world.distToSurface(hit) <= C.EXTRACT_RADIUS;
+        target = inRange ? hit : null;
+        const canDrill = !!target && drillHeld(state.input)
+            && !state.full && !state.depleted && now >= state.blockedUntil;
         if (state.world.collided) state.blockedUntil = now + C.COLLISION_BLOCK_MS;
         state.drilling = canDrill;
         if (canDrill) {
@@ -125,6 +143,7 @@ function frame(now) {
     } else {
         state.drilling = false;
     }
+    const offBelt = Math.abs(state.world.ship.y) > C.BELT_HALF_WIDTH;
 
     state.camera.x += (state.world.ship.x - state.camera.x) * C.CAMERA_LERP;
     state.camera.y += (state.world.ship.y - state.camera.y) * C.CAMERA_LERP;
@@ -140,11 +159,12 @@ function frame(now) {
         depleted: state.depleted,
         shipSprite: state.shipSprite,
         shipOrient: state.shipOrient,
+        offBelt,
         now,
     });
 
     refreshHUD();
-    ui.setHint(hintHtml(target));
+    ui.setHint(hintHtml(hit, inRange, offBelt));
     ui.updateControls(state.input);
     requestAnimationFrame(frame);
 }
@@ -278,7 +298,7 @@ async function boot() {
     const canvas = document.getElementById('belt-canvas');
     resize(canvas);
     window.addEventListener('resize', () => resize(canvas));
-    bindInput(state.input, { onEscape });
+    bindInput(state.input, { onEscape, canvas });
     ui.onLeave(callShip);
 
     ui.hideLoading();

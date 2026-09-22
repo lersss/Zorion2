@@ -1,10 +1,13 @@
 // web/static/js/belt/belt_world.js
 // Детерминированный мир мини-игры добычи в поясе (спека
-// 2026-09-22-пояса-малых-тел-этап-3-добыча §5.1): от seed сервера
-// (crc32(belt_id+"|belt")) — звёздное поле, далёкая пыль и астероиды
-// (дрейф + вращение). Клиентская физика полёта (инерция, столкновения без
-// урона). Сервер знает только агрегат запаса пояса (§5.2, Б8) — «прогресс
-// жилы» здесь чисто визуальный. Math.random не используется (детерминизм).
+// 2026-09-22-пояса-малых-тел-этап-3-добыча §5.1/§8.2, ревизия 4): бесконечный
+// вдоль кольца пояс (ось X), поперёк — полоса ±BELT_HALF_WIDTH с линейным
+// спадом плотности. Тела порождаются ячейками вокруг корабля (стриминг, кап),
+// детерминированно от seed сервера (crc32(belt_id+"|belt")); Math.random не
+// используется. Клиентская физика полёта «два стика» (тяга с разгоном, стрейф,
+// доворот носа к курсору с ограниченной скоростью, столкновения без урона).
+// Сервер знает только агрегат запаса пояса (§5.2, Б8) — «прогресс жилы» здесь
+// чисто визуальный.
 import * as C from './belt_config.js';
 
 // mulberry32 — детерминированный PRNG (как в surface_world.js).
@@ -19,70 +22,71 @@ export function mulberry32(seed) {
     };
 }
 
-function lerp(a, b, t) { return a + (b - a) * t; }
-
-// lerpAngle — интерполяция угла с учётом перехода через ±π.
-function lerpAngle(from, to, t) {
-    let d = to - from;
-    while (d > Math.PI) d -= 2 * Math.PI;
-    while (d < -Math.PI) d += 2 * Math.PI;
-    return from + d * t;
+// mix32 — целочисленное перемешивание (splitmix32-класс) для ключа ячейки
+// (§8.2): rng_ячейки = mulberry32(seed ^ mix32(cellIndex)). Math.random запрещён.
+function mix32(x) {
+    let h = x >>> 0;
+    h = Math.imul(h ^ (h >>> 16), 0x21f0aaad);
+    h = Math.imul(h ^ (h >>> 15), 0x735a2d97);
+    return (h ^ (h >>> 15)) >>> 0;
 }
 
-// BeltWorld — сцена захода: астероиды, корабль, эффекты.
+// cellSeed — seed ячейки: целочисленный ключ из индексов (вдоль кольца cx,
+// поперёк cy) сворачивается в один и перемешивается с seed мира.
+function cellSeed(seed, cx, cy) {
+    const key = (Math.imul(cx | 0, 0x1f123bb5) ^ Math.imul(cy | 0, 0x27d4eb2f)) >>> 0;
+    return (seed ^ mix32(key)) >>> 0;
+}
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+function normAngle(a) {
+    while (a > Math.PI) a -= 2 * Math.PI;
+    while (a < -Math.PI) a += 2 * Math.PI;
+    return a;
+}
+
+// rollVeins — число жил в ячейке (1–2). Ролл отдельный от прочих: _genDebris
+// берёт его тем же seed'ом ячейки, чтобы сумма тел держалась спекой (4–6 тел,
+// из них жилы 1–2, §8.2).
+function rollVeins(rng) {
+    return C.BELT_CELL_VEINS_MIN
+        + Math.floor(rng() * (C.BELT_CELL_VEINS_MAX - C.BELT_CELL_VEINS_MIN + 1));
+}
+
+// BeltWorld — сцена захода: пояс (стриминг тел), корабль, эффекты.
 export class BeltWorld {
     constructor(seed) {
         this.seed = seed >>> 0;
         this.rng = mulberry32(this.seed);
         this.fx = mulberry32((this.seed ^ 0x9e3779b9) >>> 0);
-        this.asteroids = this._genAsteroids();
         this.stars = this._genStars();
-        this.dust = this._genDust();
-        this.ship = { x: 0, y: 0, vx: 0, vy: 0, heading: 0, thrusting: false, braking: false };
+        this.ship = {
+            x: 0, y: 0, vx: 0, vy: 0, heading: 0, angVel: 0, throttle: 0,
+            thrusting: false, braking: false,
+        };
+        // Слои пояса (§8.2/§9.2): жилы (1.0 — игровое поле), мелкие обломки
+        // (0.6 — декор, только визуальный), далёкая пыль (0.4). Каждый слой
+        // стримится ячейками вокруг корабля в своих координатах (параллакс).
+        this._layers = {
+            a: { kind: 'a', p: 1, cap: C.BELT_ASTEROID_CAP, cells: new Map(), bodies: [] },
+            d: { kind: 'd', p: C.PARALLAX_DECOR, cap: Infinity, cells: new Map(), bodies: [] },
+            u: { kind: 'u', p: C.PARALLAX_DUST, cap: C.BELT_DUST_CAP, cells: new Map(), bodies: [] },
+        };
+        this.asteroids = this._layers.a.bodies; // жилы: бурение и столкновения
+        this.debris = this._layers.d.bodies; // мелкий декор: визуальный
+        this.dust = this._layers.u.bodies; // пятна пыли: визуальный
+        this._pool = []; // пул тел: отпущенные возвращаются и переиспользуются
         this.particles = [];
         this.floaters = [];
         this.collided = false; // столкновение в этом кадре — прерывает бурение
+        this._stream(); // наполнить пояс вокруг корабля
     }
 
-    // ---- Генерация мира (детерминированная) ----
+    // ---- Генерация (детерминированная) ----
 
-    _genAsteroids() {
-        const rng = this.rng;
-        const total = C.ASTEROID_MIN + Math.floor(rng() * (C.ASTEROID_MAX - C.ASTEROID_MIN + 1));
-        const veins = C.VEIN_MIN + Math.floor(rng() * (C.VEIN_MAX - C.VEIN_MIN + 1));
-        const list = [];
-        for (let i = 0; i < total; i++) {
-            const vein = i < veins;
-            const r = vein
-                ? lerp(C.VEIN_RADIUS_MIN, C.VEIN_RADIUS_MAX, rng())
-                : lerp(C.DECOR_RADIUS_MIN, C.DECOR_RADIUS_MAX, rng());
-            const ang = rng() * Math.PI * 2;
-            const dist = Math.sqrt(rng()) * Math.max(0, C.FIELD_RADIUS - r - 60);
-            const pts = 8 + Math.floor(rng() * 4);
-            const shape = [];
-            for (let k = 0; k < pts; k++) shape.push(0.72 + rng() * 0.28);
-            const glints = [];
-            if (vein) {
-                const g = 2 + Math.floor(rng() * 3);
-                for (let k = 0; k < g; k++) {
-                    glints.push({ x: (rng() - 0.5) * r * 0.9, y: (rng() - 0.5) * r * 0.9, r: 1.5 + rng() * 2.5 });
-                }
-            }
-            list.push({
-                x: Math.cos(ang) * dist,
-                y: Math.sin(ang) * dist,
-                vx: (rng() - 0.5) * 2 * C.ASTEROID_DRIFT_MAX,
-                vy: (rng() - 0.5) * 2 * C.ASTEROID_DRIFT_MAX,
-                r,
-                rot: rng() * Math.PI * 2,
-                rotSpeed: (rng() - 0.5) * 2 * C.ASTEROID_SPIN_MAX,
-                vein,
-                shape,
-                glints,
-                drill: 0,
-            });
-        }
-        return list;
+    _spawn() {
+        return this._pool.pop() || {};
     }
 
     _genStars() {
@@ -102,43 +106,230 @@ export class BeltWorld {
         return list;
     }
 
-    _genDust() {
-        const rng = this.rng;
-        const list = [];
-        for (let i = 0; i < C.DUST_COUNT; i++) {
-            const ang = rng() * Math.PI * 2;
-            const dist = Math.sqrt(rng()) * C.FIELD_RADIUS;
-            list.push({
-                x: Math.cos(ang) * dist,
-                y: Math.sin(ang) * dist,
-                r: 120 + rng() * 320,
-                a: 0.03 + rng() * 0.05,
-            });
+    // _genVeins — ячейка жил (1–2 кандидата): крупные тела с блеском руды.
+    // Плотность поперёк — линейный спад (§8.2).
+    _genVeins(cx, cy) {
+        const rng = mulberry32(cellSeed(this.seed, cx, cy));
+        const out = [];
+        const veins = rollVeins(rng);
+        for (let i = 0; i < veins; i++) {
+            const y = cy * C.BELT_CELL + rng() * C.BELT_CELL;
+            if (rng() > 1 - Math.abs(y) / C.BELT_HALF_WIDTH) continue;
+            const x = cx * C.BELT_CELL + rng() * C.BELT_CELL;
+            const r = lerp(C.VEIN_RADIUS_MIN, C.VEIN_RADIUS_MAX, rng());
+            const pts = 8 + Math.floor(rng() * 4);
+            const b = this._spawn();
+            const shape = b.shape || (b.shape = []);
+            shape.length = pts;
+            for (let k = 0; k < pts; k++) shape[k] = 0.72 + rng() * 0.28;
+            const glints = b.glints || (b.glints = []);
+            const g = 2 + Math.floor(rng() * 3);
+            glints.length = g;
+            for (let k = 0; k < g; k++) {
+                glints[k] = { x: (rng() - 0.5) * r * 0.9, y: (rng() - 0.5) * r * 0.9, r: 1.5 + rng() * 2.5 };
+            }
+            b.x = x;
+            b.y = y;
+            b.vx = (rng() - 0.5) * 2 * C.ASTEROID_DRIFT_MAX;
+            b.vy = (rng() - 0.5) * 2 * C.ASTEROID_DRIFT_MAX;
+            b.r = r;
+            b.rot = rng() * Math.PI * 2;
+            b.rotSpeed = (rng() - 0.5) * 2 * C.ASTEROID_SPIN_MAX;
+            b.vein = true;
+            b.drill = 0;
+            out.push(b);
         }
-        return list;
+        return out;
+    }
+
+    // _genDebris — ячейка мелких обломков: декор слоя 0.6. Обломков столько,
+    // сколько осталось от суммарного числа тел ячейки (спека 4–6) после жил;
+    // полоса и спад считаются в МИРОВЫХ координатах (y / parallax).
+    _genDebris(cx, cy) {
+        const rng = mulberry32(cellSeed(this.seed ^ 0x51ed, cx, cy));
+        const out = [];
+        const veins = rollVeins(mulberry32(cellSeed(this.seed, cx, cy)));
+        const totalBodies = C.BELT_CELL_BODIES_MIN
+            + Math.floor(rng() * (C.BELT_CELL_BODIES_MAX - C.BELT_CELL_BODIES_MIN + 1));
+        const total = totalBodies - veins;
+        for (let i = 0; i < total; i++) {
+            const y = cy * C.BELT_CELL + rng() * C.BELT_CELL;
+            if (rng() > 1 - Math.abs(y / C.PARALLAX_DECOR) / C.BELT_HALF_WIDTH) continue;
+            const x = cx * C.BELT_CELL + rng() * C.BELT_CELL;
+            const r = lerp(C.DECOR_RADIUS_MIN, C.DECOR_RADIUS_MAX, rng());
+            const pts = 8 + Math.floor(rng() * 4);
+            const b = this._spawn();
+            const shape = b.shape || (b.shape = []);
+            shape.length = pts;
+            for (let k = 0; k < pts; k++) shape[k] = 0.72 + rng() * 0.28;
+            if (b.glints) b.glints.length = 0;
+            b.x = x;
+            b.y = y;
+            b.vx = (rng() - 0.5) * 2 * C.ASTEROID_DRIFT_MAX;
+            b.vy = (rng() - 0.5) * 2 * C.ASTEROID_DRIFT_MAX;
+            b.r = r;
+            b.rot = rng() * Math.PI * 2;
+            b.rotSpeed = (rng() - 0.5) * 2 * C.ASTEROID_SPIN_MAX;
+            b.vein = false;
+            b.drill = 0;
+            out.push(b);
+        }
+        return out;
+    }
+
+    // _genDustPatch — ячейка мягкой пыли (0–1 пятно): слой 0.4, гаснет поперёк
+    // по мировой координате (y / parallax).
+    _genDustPatch(cx, cy) {
+        const rng = mulberry32(cellSeed(this.seed ^ 0xd057, cx, cy));
+        if (rng() > C.BELT_CELL_DUST_CHANCE) return [];
+        const y = cy * C.BELT_CELL + rng() * C.BELT_CELL;
+        if (rng() > 1 - Math.abs(y / C.PARALLAX_DUST) / C.BELT_HALF_WIDTH) return [];
+        const b = this._spawn();
+        b.x = cx * C.BELT_CELL + rng() * C.BELT_CELL;
+        b.y = y;
+        b.r = 120 + rng() * 320;
+        b.a = 0.03 + rng() * 0.05;
+        return [b];
+    }
+
+    // ---- Стриминг тел (§8.2) ----
+
+    // _stream — активные ячейки вокруг корабля (в координатах слоя), дальние
+    // отпускаются в пул; тела не накапливаются (кап).
+    _stream() {
+        this._streamLayer(this._layers.a, (cx, cy) => this._genVeins(cx, cy));
+        this._streamLayer(this._layers.d, (cx, cy) => this._genDebris(cx, cy));
+        this._streamLayer(this._layers.u, (cx, cy) => this._genDustPatch(cx, cy));
+    }
+
+    _streamLayer(layer, gen) {
+        const c0x = this.ship.x * layer.p;
+        const c0y = this.ship.y * layer.p;
+        const minX = Math.floor((c0x - C.BELT_STREAM_RADIUS) / C.BELT_CELL);
+        const maxX = Math.floor((c0x + C.BELT_STREAM_RADIUS) / C.BELT_CELL);
+        const minY = Math.floor((c0y - C.BELT_STREAM_RADIUS) / C.BELT_CELL);
+        const maxY = Math.floor((c0y + C.BELT_STREAM_RADIUS) / C.BELT_CELL);
+        let changed = false;
+        for (const [key, cell] of layer.cells) {
+            if (cell.cx < minX || cell.cx > maxX || cell.cy < minY || cell.cy > maxY) {
+                this._release(cell.bodies);
+                layer.cells.delete(key);
+                changed = true;
+            }
+        }
+        for (let cx = minX; cx <= maxX; cx++) {
+            for (let cy = minY; cy <= maxY; cy++) {
+                // ячейка целиком вне полосы тел не даёт («за краем камней нет»);
+                // полоса — мировая (±BELT_HALF_WIDTH), координаты слоя = world·p.
+                if ((cy + 1) * C.BELT_CELL <= -C.BELT_HALF_WIDTH * layer.p) continue;
+                if (cy * C.BELT_CELL >= C.BELT_HALF_WIDTH * layer.p) continue;
+                const key = cx + ',' + cy;
+                if (layer.cells.has(key)) continue;
+                layer.cells.set(key, { cx, cy, bodies: gen(cx, cy) });
+                changed = true;
+            }
+        }
+        if (changed) this._rebuild(layer);
+        this._trim(layer, c0x, c0y);
+    }
+
+    _rebuild(layer) {
+        const arr = layer.bodies;
+        arr.length = 0;
+        for (const cell of layer.cells.values()) {
+            for (const b of cell.bodies) arr.push(b);
+        }
+    }
+
+    // _trim — кап слоя: при переполнении отпускаем самые дальние ячейки.
+    _trim(layer, c0x, c0y) {
+        if (layer.cap === Infinity) return;
+        while (layer.bodies.length > layer.cap && layer.cells.size > 0) {
+            let farKey = null;
+            let farD = -1;
+            for (const [key, cell] of layer.cells) {
+                const dx = (cell.cx + 0.5) * C.BELT_CELL - c0x;
+                const dy = (cell.cy + 0.5) * C.BELT_CELL - c0y;
+                const d = dx * dx + dy * dy;
+                if (d > farD) { farD = d; farKey = key; }
+            }
+            const cell = layer.cells.get(farKey);
+            this._release(cell.bodies);
+            layer.cells.delete(farKey);
+            this._rebuild(layer);
+        }
+    }
+
+    _release(bodies) {
+        for (const b of bodies) this._pool.push(b);
     }
 
     // ---- Физика корабля и мира ----
 
     update(dt, input) {
+        this._updateShip(dt, input);
+        this._stream();
+        this._updateBodies(dt);
+        this._collisions();
+        this._updateEffects(dt);
+    }
+
+    // _updateShip — схема «два стика» (§5.1): W/S — плавная тяга по носу,
+    // A/D — стрейф, мышь — ориентация носа (ограниченная угловая скорость),
+    // Shift — тормоз. Границы пятна/отскока нет (пояс бесконечен вдоль кольца).
+    _updateShip(dt, input) {
         const s = this.ship;
-        let ax = 0;
-        let ay = 0;
-        if (input.left) ax -= 1;
-        if (input.right) ax += 1;
-        if (input.up) ay -= 1;
-        if (input.down) ay += 1;
-        const len = Math.hypot(ax, ay);
-        s.thrusting = len > 0;
-        s.braking = !!input.brake;
-        if (len > 0) {
-            ax /= len;
-            ay /= len;
-            s.vx += ax * C.SHIP_THRUST * dt;
-            s.vy += ay * C.SHIP_THRUST * dt;
-            // Наклон/вращение к вектору тяги (космическое ощущение).
-            s.heading = lerpAngle(s.heading, Math.atan2(ay, ax), C.SHIP_TURN_LERP);
+
+        // Тяга — плавно меняющаяся величина: W/S ведут к +1/−1, отпускание — сброс.
+        let t = s.throttle;
+        if (input.forward && !input.back) {
+            t = Math.min(1, t + C.SHIP_THROTTLE_RATE_UP * dt);
+        } else if (input.back && !input.forward) {
+            t = Math.max(-1, t - C.SHIP_THROTTLE_RATE_UP * dt);
+        } else {
+            const rate = C.SHIP_THROTTLE_RATE_DOWN * dt;
+            if (t > 0) t = Math.max(0, t - rate);
+            else if (t < 0) t = Math.min(0, t + rate);
         }
+        s.throttle = t;
+
+        // Нос доворачивается к курсору с ограниченной угловой скоростью
+        // (не мгновенный снап; единственный источник ориентации — мышь, §5.1).
+        // input.aimWorld — мировая точка курсора (считает belt_main из камеры).
+        if (input.aimWorld) {
+            const target = Math.atan2(input.aimWorld.y - s.y, input.aimWorld.x - s.x);
+            const diff = normAngle(target - s.heading);
+            const abs = Math.abs(diff);
+            if (abs < C.SHIP_TURN_DEADZONE) {
+                s.angVel *= Math.max(0, 1 - 12 * dt);
+                if (Math.abs(s.angVel) < 0.02) s.angVel = 0;
+            } else {
+                const dir = diff > 0 ? 1 : -1;
+                const stop = (s.angVel * s.angVel) / (2 * C.SHIP_TURN_ACCEL);
+                if (dir * s.angVel > 0 && abs <= stop) {
+                    s.angVel -= dir * C.SHIP_TURN_ACCEL * dt;
+                } else {
+                    s.angVel += dir * C.SHIP_TURN_ACCEL * dt;
+                }
+                s.angVel = Math.max(-C.SHIP_TURN_RATE_MAX, Math.min(C.SHIP_TURN_RATE_MAX, s.angVel));
+            }
+            s.heading = normAngle(s.heading + s.angVel * dt);
+        }
+
+        // Тяга прикладывается в мировых осях от ориентации носа.
+        const dirX = Math.cos(s.heading);
+        const dirY = Math.sin(s.heading);
+        const fwd = t >= 0 ? t : t * C.SHIP_REVERSE_FACTOR;
+        let strafe = 0;
+        if (input.left) strafe -= 1;
+        if (input.right) strafe += 1;
+        strafe *= C.SHIP_STRAFE_FACTOR;
+        s.thrusting = Math.abs(t) > 0.02 || strafe !== 0;
+        s.braking = !!input.brake;
+        // «Вправо от носа» при экранных осях (y вниз) — поворот на +90°.
+        s.vx += (dirX * fwd - dirY * strafe) * C.SHIP_THRUST * dt;
+        s.vy += (dirY * fwd + dirX * strafe) * C.SHIP_THRUST * dt;
+
         // Слабое торможение / Shift-тормоз.
         const damp = s.braking ? C.SHIP_BRAKE : C.SHIP_DRAG;
         const k = Math.max(0, 1 - damp * dt);
@@ -151,47 +342,38 @@ export class BeltWorld {
         }
         s.x += s.vx * dt;
         s.y += s.vy * dt;
-
-        // Мягкая граница пятна: упругое торможение у края.
-        const d = Math.hypot(s.x, s.y);
-        const limit = C.FIELD_RADIUS - C.SHIP_RADIUS;
-        if (d > limit) {
-            const nx = s.x / d;
-            const ny = s.y / d;
-            s.x = nx * limit;
-            s.y = ny * limit;
-            const vn = s.vx * nx + s.vy * ny;
-            if (vn > 0) {
-                s.vx -= vn * nx * 1.4;
-                s.vy -= vn * ny * 1.4;
-            }
-        }
-
-        this._updateAsteroids(dt);
-        this._collisions();
-        this._updateEffects(dt);
     }
 
-    _updateAsteroids(dt) {
-        for (const a of this.asteroids) {
-            a.x += a.vx * dt;
-            a.y += a.vy * dt;
-            a.rot += a.rotSpeed * dt;
-            const d = Math.hypot(a.x, a.y);
-            const lim = C.FIELD_RADIUS - a.r;
-            if (d > lim) {
-                const nx = a.x / d;
-                const ny = a.y / d;
-                a.x = nx * lim;
-                a.y = ny * lim;
-                const vn = a.vx * nx + a.vy * ny;
-                a.vx -= 2 * vn * nx;
-                a.vy -= 2 * vn * ny;
+    // _updateBodies — дрейф и вращение жил и обломков; ушедшие поперёк за
+    // BELT_HALF_WIDTH дрейфом отпускаются (§8.2).
+    _updateBodies(dt) {
+        for (const layer of [this._layers.a, this._layers.d]) {
+            for (const b of layer.bodies) {
+                b.x += b.vx * dt;
+                b.y += b.vy * dt;
+                b.rot += b.rotSpeed * dt;
             }
+            this._cull(layer);
         }
     }
 
-    // Столкновения — мягкое отталкивание без урона (§5.2, решение §10.2-A).
+    _cull(layer) {
+        let removed = false;
+        const halfLayer = C.BELT_HALF_WIDTH * layer.p; // мировая полоса → координаты слоя
+        for (const cell of layer.cells.values()) {
+            const arr = cell.bodies;
+            for (let i = arr.length - 1; i >= 0; i--) {
+                if (Math.abs(arr[i].y) > halfLayer) {
+                    this._pool.push(arr[i]);
+                    arr.splice(i, 1);
+                    removed = true;
+                }
+            }
+        }
+        if (removed) this._rebuild(layer);
+    }
+
+    // Столкновения с жилами — мягкое отталкивание без урона (§5.2, §10.2-A).
     // Бурение прерывает только РЕАЛЬНЫЙ удар (заметная скорость сближения):
     // «отдых в контакте» (игрок стоит у камня и бурит) не считается ударом,
     // иначе повторный контакт каждый кадр блокировал бы добычу.
@@ -206,13 +388,11 @@ export class BeltWorld {
             if (d < min && d > 0.0001) {
                 const nx = dx / d;
                 const ny = dy / d;
-                // Выталкиваем с малым зазором (не оставляем на грани контакта).
                 s.x = a.x + nx * (min + 0.5);
                 s.y = a.y + ny * (min + 0.5);
                 const vn = s.vx * nx + s.vy * ny;
                 if (vn < -5) this.collided = true;
                 if (vn < 0) {
-                    // Отражение нормальной составляющей с потерей энергии.
                     s.vx -= 1.4 * vn * nx;
                     s.vy -= 1.4 * vn * ny;
                 }
@@ -240,24 +420,45 @@ export class BeltWorld {
 
     // ---- Действия ----
 
-    // nearestVein — ближайшая крупная «жила» в радиусе захвата (R_extract от
-    // поверхности тела, §5.2). null — цели нет.
-    nearestVein() {
+    // rayVein — ближайшая крупная жила, чьё тело пересекает луч прицела
+    // (из носа вдоль heading; попадание считается по a.r, §5.2). null — цели нет.
+    rayVein() {
         const s = this.ship;
+        const dx = Math.cos(s.heading);
+        const dy = Math.sin(s.heading);
         let best = null;
-        let bestD = Infinity;
+        let bestT = Infinity;
         for (const a of this.asteroids) {
-            if (!a.vein) continue;
-            const d = Math.hypot(s.x - a.x, s.y - a.y) - a.r;
-            if (d <= C.EXTRACT_RADIUS && d < bestD) {
-                bestD = d;
-                best = a;
-            }
+            const fx = s.x - a.x;
+            const fy = s.y - a.y;
+            const b = fx * dx + fy * dy;
+            const c = fx * fx + fy * fy - a.r * a.r;
+            const disc = b * b - c;
+            if (disc < 0) continue;
+            const sq = Math.sqrt(disc);
+            let t = -b - sq;
+            if (t < 0) t = -b + sq; // корабль внутри тела — берём дальнее пересечение
+            if (t < 0) continue;
+            if (t < bestT) { bestT = t; best = a; }
         }
         return best;
     }
 
-    // drill — удержание бурения у целевого астероида: чисто визуальный прогресс
+    // distToSurface — расстояние от корабля до поверхности тела (по a.r).
+    distToSurface(a) {
+        const s = this.ship;
+        return Math.hypot(s.x - a.x, s.y - a.y) - a.r;
+    }
+
+    // aimedVein — цель бурения: жила под лучом носа, чей край в EXTRACT_RADIUS
+    // (§5.2). Отдельного «визуального радиуса» нет — попадание по a.r.
+    aimedVein() {
+        const a = this.rayVein();
+        if (!a) return null;
+        return this.distToSurface(a) <= C.EXTRACT_RADIUS ? a : null;
+    }
+
+    // drill — удержание бурения у целевой жилы: чисто визуальный прогресс
     // жилы + частицы руды к кораблю (§5.2, Б8).
     drill(target, dt) {
         if (!target) return;

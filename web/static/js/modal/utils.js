@@ -9,6 +9,18 @@ export function hashStringToNumber(str) {
     return Math.abs(hash);
 }
 
+// fnv1a — FNV-1a (32 бита): детерминированный хеш строки. Один источник для
+// модалки: развод чужих игроков по кругу (modal_render.js) и угол точки пояса
+// (layout.js beltAngle, ТЗ §9.3 — «тот же приём, что развод чужих fnv1a%360»).
+export function fnv1a(str) {
+    let h = 2166136261;
+    for (let i = 0; i < str.length; i++) {
+        h ^= str.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+    }
+    return h >>> 0;
+}
+
 export function getClimateId(planet) {
     const type = (planet.type || '').toLowerCase();
     const temp = planet.temperature || 0;

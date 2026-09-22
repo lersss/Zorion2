@@ -11,7 +11,7 @@
 // фолбэк старых wide-миров без sepAU (честной позиции нет).
 
 import { modalState } from './state.js';
-import { getStarColor, getStarSize } from './utils.js';
+import { getStarColor, getStarSize, fnv1a } from './utils.js';
 
 // Параметры компаньона из состояния модалки (с фолбэками §2.4).
 function companionParams() {
@@ -268,4 +268,63 @@ export function getPlanetPose(layout, p, idx, timeMs) {
 export function getAnimTime() {
     // Время анимации относительно начала сессии модалки.
     return 0;
+}
+
+// ==================== ПОЯСА МАЛЫХ ТЕЛ (ТЗ §9 «Пояс на схеме системы») ====================
+
+// beltNoOrbitRank — порядковый номер пояса без orbit_index среди таких же поясов
+// по возрастанию radius_au (0, 1, …): Койпера ближе Оорта. Нужен, чтобы пояса
+// без якорной орбиты вставали за внешней орбитой по порядку, а не в одну точку.
+function beltNoOrbitRank(belt) {
+    const belts = (modalState.belts || []).filter(b => b && typeof b.orbit_index !== 'number');
+    belts.sort((a, b) => (Number(a.radius_au) || 0) - (Number(b.radius_au) || 0));
+    const i = belts.findIndex(b => b.id === (belt && belt.id));
+    return i >= 0 ? i : 0;
+}
+
+// beltMidRadius — радиус осевой линии пояса в шкале схемы (мировые px). Пояс с
+// orbit_index садится на орбиту этого номера ровно как планета (та же формула,
+// что getOrbitRadius, без per-планетного разброса idx); пояс без orbit_index
+// (Койпера/Оорта) — за внешней орбитой по порядку radius_au (И-В2: честно
+// возможно за кадром, §9.0).
+export function beltMidRadius(layout, belt) {
+    if (belt && typeof belt.orbit_index === 'number') {
+        return layout.finalStarRadius * 1.8 + (belt.orbit_index + 1) * layout.step;
+    }
+    return layout.finalStarRadius * 1.8 + (layout.maxOrbit + 2 + beltNoOrbitRank(belt)) * layout.step;
+}
+
+// beltRing — единая геометрия кольца пояса (осевая линия + полутолщина) для
+// отрисовки и хит-теста (§9.4: один источник, прецедент planetRadius). Полутолщина
+// = mid·width_au/radius_au, ограниченная экранным полом (тонкое кольцо не
+// исчезает) и потолком 0.5·step (Койпера/Оорта не съедают кадр); при radius_au ≤ 0
+// / нет данных — дефолт 5 % радиуса. Центр — главная звезда (околозвёздный пояс).
+export function beltRing(layout, belt) {
+    const radius = beltMidRadius(layout, belt);
+    const rAU = Number(belt && belt.radius_au);
+    const wAU = Number(belt && belt.width_au);
+    let half = (isFinite(rAU) && rAU > 0 && isFinite(wAU) && wAU > 0)
+        ? radius * (wAU / rAU)
+        : radius * 0.05;
+    // clamp(half, 3px_экран/zoom, 0.5·step): экранный пол применяется последним —
+    // при малом зуме тонкое кольцо не исчезает (§9.4).
+    const floor = 3 / modalState.zoom;
+    const cap = 0.5 * layout.step;
+    half = Math.max(floor, Math.min(half, cap));
+    return { cx: layout.mainX, cy: layout.mainY, radius, half };
+}
+
+// beltAngle — детерминированный азимут точки пояса (рад): hash(belt.id) → 0..360°
+// (§9.3), не зависит от времени кадра. Разные пояса — разный азимут.
+export function beltAngle(belt) {
+    return ((fnv1a(String((belt && belt.id) || '')) % 360) * Math.PI) / 180;
+}
+
+// beltPoint — каноническая точка пояса (середина кольца, осевая линия) на
+// азимуте beltAngle. Один источник для маркера «я здесь», начала/конца полёта,
+// слежения камеры и чужих игроков в поясе (§9.3 п.1–2).
+export function beltPoint(layout, belt) {
+    const g = beltRing(layout, belt);
+    const a = beltAngle(belt);
+    return { x: g.cx + g.radius * Math.cos(a), y: g.cy + g.radius * Math.sin(a) };
 }

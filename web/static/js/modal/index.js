@@ -823,8 +823,9 @@ function centerOnPlayer() {
         const total = (pos.arrive_at || 0) - (pos.start_time || 0);
         const progress = total > 0 ? Math.min(1, Math.max(0, (Date.now() - pos.start_time) / total)) : 1;
         target = { x: from.x + (to.x - from.x) * progress, y: from.y + (to.y - from.y) * progress };
-    } else if (pos.status === 'orbit' || pos.status === 'surface') {
-        // surface — «Найти меня» ведёт к планете прогулки (спека 2026-09-21 §7.6 п.5).
+    } else if (pos.status === 'orbit' || pos.status === 'surface' || pos.status === 'mining') {
+        // surface — «Найти меня» ведёт к планете прогулки (спека 2026-09-21 §7.6 п.5);
+        // mining — к точке пояса добычи (ТЗ §9: пояс на схеме).
         target = orbitalPoint(layout, planets, pos.object_type, pos.object_id, timeMs);
     } else {
         return;

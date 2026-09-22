@@ -3,7 +3,7 @@
 // 2026-09-22-пояса-малых-тел-этап-2-показ-знание-полёт §7.6).
 // Сценарий: открыть модалку своей системы -> единая секция «Объекты» (пояса
 // объединены с планетами 2026-09-22) видна (имя/радиус/масса) ->
-// «🚀 Лететь» к поясу -> полоса полёта (модалка не закрылась) ->
+// ПКМ по строке пояса -> меню «🚀 Лететь» -> полоса полёта (модалка не закрылась) ->
 // прибытие -> бейдж «вы в поясе»; состав появляется после скана/присутствия;
 // для WD-мира значок «обломочный пояс» НЕ показывается (заменён секцией).
 //
@@ -89,13 +89,19 @@ async function main() {
   if (!beltRow) { report('belt-row', 'FAIL', 'строка пояса не найдена'); return finish(1); }
   report('belt-row', 'PASS', beltRow.slice(0, 120));
 
-  // 4. Кнопка «🚀 Лететь» к поясу.
-  const flyBtn = await page.$('[data-belt-fly]');
-  if (!flyBtn) { report('belt-fly-btn', 'FAIL', 'кнопка полёта не найдена'); return finish(1); }
-  report('belt-fly-btn', 'PASS', 'кнопка найдена');
+  // 4. ПКМ по строке пояса -> контекстное меню (кнопки «Лететь»/«Добывать»
+  // из строки убраны 2026-09-23, вход — ПКМ-меню showBeltMenu, data-belt-row).
+  const beltRowEl = await page.$('[data-belt-row]');
+  if (!beltRowEl) { report('belt-menu', 'FAIL', 'строка пояса не найдена'); return finish(1); }
+  await beltRowEl.click({ button: 'right' });
+  const menuOpened = await page.waitForSelector('#star-context-menu', { timeout: 5000 }).then(() => true).catch(() => false);
+  if (!menuOpened) { report('belt-menu', 'FAIL', 'ПКМ-меню пояса не открылось'); return finish(1); }
+  const flyItem = page.locator('#star-context-menu div').filter({ hasText: 'Лететь' }).first();
+  if (await flyItem.count() === 0) { report('belt-menu', 'FAIL', 'пункт «Лететь» не найден в меню'); return finish(1); }
+  report('belt-menu', 'PASS', 'ПКМ-меню открылось, пункт «Лететь» есть');
 
-  // 5. Старт полёта -> полоса полёта, модалка не закрылась.
-  await flyBtn.click();
+  // 5. Старт полёта (клик по пункту меню) -> полоса полёта, модалка не закрылась.
+  await flyItem.click();
   await page.waitForTimeout(1200);
   const stripVisible = await page.evaluate(() => {
     const s = document.getElementById('intra-flight-strip');

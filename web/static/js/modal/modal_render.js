@@ -2,7 +2,8 @@
 import { modalState } from './state.js';
 import { drawMiniMap } from './minimap.js';
 import { getPlanetTexture } from './textures.js';
-import { computeLayout, getOrbitRadius, getPlanetPose, planetRadius, planetOrbitCenter } from './layout.js';
+import { computeLayout, getOrbitRadius, getPlanetPose, planetRadius, planetOrbitCenter, beltRing, beltPoint } from './layout.js';
+import { fnv1a } from './utils.js';
 // Спрайт корабля игрока для маркера «я здесь»/корабля в полёте (спека 99.2.27
 // §5.8/§5.11): ship_sprites.js — автономный модуль (не импортирует map/config.js,
 // не требует canvas карты), перекраска gCO='hue' + восстановление альфы.
@@ -163,14 +164,16 @@ function roundRectPath(ctx, x, y, w, h, r) {
     ctx.closePath();
 }
 
-// fnv1a — FNV-1a (32 бита): детерминированный угол смещения чужих игроков.
-function fnv1a(str) {
-    let h = 2166136261;
-    for (let i = 0; i < str.length; i++) {
-        h ^= str.charCodeAt(i);
-        h = Math.imul(h, 16777619);
-    }
-    return h >>> 0;
+// mulberry32 — детерминированный PRNG (как в belt_world.js): форма камней пояса
+// без Math.random (инвариант ТЗ §9.6).
+function mulberry32(seed) {
+    let a = seed >>> 0;
+    return function () {
+        a |= 0; a = (a + 0x6D2B79F5) | 0;
+        let t = Math.imul(a ^ (a >>> 15), 1 | a);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
 }
 
 export async function drawSystem(canvas, spectralClass, planets, starRadius, starColor, width, height) {
@@ -237,6 +240,11 @@ export async function drawSystem(canvas, spectralClass, planets, starRadius, sta
             ctx.restore();
         });
     }
+
+    // ---- СЛОЙ 1.5: ПОЯСА МАЛЫХ ТЕЛ (ТЗ §9, вариант C «россыпь камней») ----
+    // Кольцо пояса встаёт между орбитами и звёздами (инвариант порядка слоёв
+    // §9.6); прочие слои не переставляются.
+    drawBelts(ctx, layout);
 
     // ---- СЛОЙ 2: ЗВЁЗДЫ (главная + компаньоны по честной геометрии, 35b §6.2) ----
     // Вид — «яркая точка + мягкое свечение» (рецептура карты §1/§4, правка
@@ -425,6 +433,12 @@ export function objectCanvasPos(layout, planets, objType, objId, timeMs) {
             return { x: pose.x, y: pose.y };
         }
     }
+    // Пояс малых тел (ТЗ §9.3): каноническая точка — середина кольца на
+    // детерминированном азимуте. Без геометрии пояса — прежний фолбэк (центр).
+    if (objType === 'belt') {
+        const b = (modalState.belts || []).find(x => x.id === objId);
+        if (b) return beltPoint(layout, b);
+    }
     return { x: layout.mainX, y: layout.mainY };
 }
 
@@ -459,11 +473,10 @@ function drawMyPosition(ctx, layout, planets, timeMs) {
         drawIntraFlightShip(ctx, layout, planets, timeMs, pos);
         return;
     }
-    // surface — маркер «я здесь» у планеты (спека 2026-09-21 §7.6 п.5).
-    if (pos.status !== 'orbit' && pos.status !== 'surface') return;
-    // Пояс (спека поясов этап 2 §7.2/Д-Л5): канвас-координат нет — маркер не
-    // рисуется, «вы в поясе» показывается бейджем в секции «Пояса».
-    if (pos.object_type === 'belt') return;
+    // surface — маркер «я здесь» у планеты (спека 2026-09-21 §7.6 п.5);
+    // mining — игрок добывает в поясе (ТЗ §9.3 п.4): маркер в точке пояса,
+    // янтарное кольцо.
+    if (pos.status !== 'orbit' && pos.status !== 'surface' && pos.status !== 'mining') return;
 
     const p = objectCanvasPos(layout, planets, pos.object_type, pos.object_id, timeMs);
     // Тело — крошечное мировое (SHIP_WORLD_R, экранный пол 2 px); кольцо
@@ -478,10 +491,12 @@ function drawMyPosition(ctx, layout, planets, timeMs) {
         drawX = p.x + layout.finalStarRadius + bodySize * 0.5;
     }
 
-    // Пульс-кольцо зелёное: радиус fxSize·(1.25+0.25·sin), альфа 0.30 (UI).
+    // Пульс-кольцо: радиус fxSize·(1.25+0.25·sin), альфа 0.30 (UI). Цвет —
+    // orbit зелёное #4ade80 (как у планет), mining янтарное #fde68a (как бейдж
+    // «⛏ Добываете» в таблице, ТЗ §9.3 п.4).
     const ringR = fxSize * (1.25 + 0.25 * Math.sin(timeMs * 0.004));
     ctx.save();
-    ctx.strokeStyle = 'rgba(74,222,128,0.30)';
+    ctx.strokeStyle = pos.status === 'mining' ? 'rgba(253,230,138,0.30)' : 'rgba(74,222,128,0.30)';
     ctx.lineWidth = 1.5 / modalState.zoom;
     ctx.beginPath();
     ctx.arc(drawX, drawY, ringR, 0, 2 * Math.PI);
@@ -854,4 +869,97 @@ function drawForeignPlayers(ctx, layout, planets, timeMs) {
         ctx.textBaseline = 'alphabetic';
         ctx.restore();
     }
+}
+
+// ==================== ПОЯСА МАЛЫХ ТЕЛ (ТЗ §9, вариант C) ====================
+
+// Палитра камня — существующая (belt_render.js COLORS, ТЗ §9.0): новых цветов
+// не вводим.
+const BELT_STONE_COLORS = ['#6b7280', '#8b93a1', '#454c58', '#3b414b'];
+
+// drawBelts — слой кольца поясов (вариант C «россыпь камней», ТЗ §9.1/§9.2):
+// лёгкая подложка-annulus + процедурные камни по осевой линии. Геометрия — из
+// beltRing (один источник с хит-тестом, §9.4); цвета — существующая палитра.
+function drawBelts(ctx, layout) {
+    const belts = modalState.belts || [];
+    if (belts.length === 0) return;
+    belts.forEach(b => {
+        const g = beltRing(layout, b);
+        if (!isFinite(g.radius) || g.radius <= 0 || !isFinite(g.half) || g.half <= 0) return;
+        const depleted = b.remaining_level === 'выработан';
+        const hovered = !!modalState.hoveredObject &&
+            modalState.hoveredObject.type === 'belt' && modalState.hoveredObject.id === b.id;
+
+        // Подложка-annulus: серым низкой альфы (при выработанном — глуше). Кромки
+        // — тонкие линии в тон орбит (#444), при ховере — светлее (интерактив).
+        const outer = g.radius + g.half;
+        const inner = Math.max(0, g.radius - g.half);
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(g.cx, g.cy, outer, 0, 2 * Math.PI);
+        ctx.moveTo(g.cx + inner, g.cy);
+        ctx.arc(g.cx, g.cy, inner, 0, 2 * Math.PI, true);
+        ctx.closePath();
+        ctx.fillStyle = depleted ? 'rgba(107,114,128,0.05)' : 'rgba(107,114,128,0.10)';
+        ctx.fill();
+        ctx.strokeStyle = hovered ? 'rgba(255,255,255,0.45)' : 'rgba(68,68,68,0.55)';
+        ctx.lineWidth = (hovered ? 1.5 : 1) / modalState.zoom;
+        ctx.stroke();
+        ctx.restore();
+
+        // Камни — только когда кольцо достаточно крупно на экране (риск шума на
+        // малом масштабе, §9.2): annulus читается и без них.
+        if (g.radius * modalState.zoom < 20) return;
+        drawBeltStones(ctx, b, g, depleted);
+    });
+}
+
+// drawBeltStones — 12–24 процедурных камня по осевой линии кольца (вариант C).
+// Детерминизм от belt.id (mulberry32), без Math.random (инвариант §9.6).
+function drawBeltStones(ctx, belt, g, depleted) {
+    const rng = mulberry32(fnv1a(String(belt.id)));
+    const count = 12 + Math.floor(rng() * 13); // 12..24
+    const base = Math.max(g.half * 0.45, 1.5 / modalState.zoom); // экранный пол
+    ctx.save();
+    if (depleted) ctx.globalAlpha = 0.5; // выработан — приглушено (§9.1)
+    for (let i = 0; i < count; i++) {
+        const a = (i / count) * 2 * Math.PI + (rng() - 0.5) * 0.25;
+        const rr = g.radius + (rng() - 0.5) * g.half * 1.2;
+        const x = g.cx + Math.cos(a) * rr;
+        const y = g.cy + Math.sin(a) * rr;
+        const size = base * (0.6 + rng() * 0.7);
+        const rot = rng() * 2 * Math.PI;
+        const tone = BELT_STONE_COLORS[Math.floor(rng() * BELT_STONE_COLORS.length)];
+        drawBeltStone(ctx, x, y, size, rot, tone);
+    }
+    ctx.restore();
+}
+
+// drawBeltStone — один камень: процедурный многоугольник (образец
+// belt_render.js drawAsteroid, 8–10 вершин). ЕДИНАЯ точка будущей подмены на
+// спрайт (drawImage из web/static/sprites/belt/, направление 2 §1): геометрия
+// кольца, точка пояса и хит-тест при этом не трогаются (§9.5). Форма — от
+// позиции/размера камня (детерминизм, без Math.random). size — радиус, мировые px.
+function drawBeltStone(ctx, x, y, size, rot, tone) {
+    const rng = mulberry32(((Math.floor(x * 7) ^ Math.floor(y * 13) ^ Math.floor(size * 31)) >>> 0));
+    const verts = 8 + Math.floor(rng() * 3); // 8..10 вершин
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(rot);
+    ctx.beginPath();
+    for (let i = 0; i < verts; i++) {
+        const a = (i / verts) * 2 * Math.PI;
+        const r = size * (0.72 + rng() * 0.28);
+        const px = Math.cos(a) * r;
+        const py = Math.sin(a) * r;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fillStyle = tone;
+    ctx.fill();
+    ctx.strokeStyle = '#454c58';
+    ctx.lineWidth = 1 / modalState.zoom;
+    ctx.stroke();
+    ctx.restore();
 }

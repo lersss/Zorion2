@@ -1,5 +1,5 @@
 // web/static/js/modal/panel.js
-import { modalState, flightModeForSystem } from './state.js';
+import { modalState } from './state.js';
 import { drawSystem } from './modal_render.js';
 import { renderTabContent, renderSatelliteCard } from './tabs.js';
 import { planetPopulationAt } from './extrapolate.js';
@@ -181,7 +181,16 @@ export function renderPlanetsList() {
         tr.addEventListener('mouseleave', () => { tr.style.background = 'transparent'; });
     });
 
-    wireBeltButtons(panel);
+    // Пояс (правка создателя 2026-09-23): кнопок «Лететь»/«Добывать» у строки
+    // нет — вместо них правый клик по строке открывает то же меню, что ПКМ по
+    // кольцу на канвасе (events.js showBeltMenu).
+    panel.querySelectorAll('tr[data-belt-row]').forEach(tr => {
+        const beltId = tr.dataset.beltRow;
+        tr.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            import('./events.js').then(m => m.showBeltMenu(e.clientX, e.clientY, beltId));
+        });
+    });
 }
 
 // beltKindLabel — человекочитаемый тип пояса (спека поясов этап 2 §7.4).
@@ -216,16 +225,14 @@ function reserveLine(level) {
 
 // beltRow — строка пояса в объединённой таблице «Объекты» (решение создателя
 // 2026-09-22; спека поясов этап 2 §7.1): тип, имя, радиус/протяжённость,
-// типичное тело, масса; при знании — состав. Кнопка полёта: своя система —
-// «🚀 Лететь», чужая — «🚀 Лететь · через систему». Бейдж «● Вы в поясе» —
-// если позиция игрока в этом поясе. Полноширинная строка (colspan=4), без
-// data-index: клик по ней карточку не открывает (в отличие от строк планет).
+// типичное тело, масса; при знании — состав. Бейдж «● Вы в поясе»/«⛏ Добываете» —
+// если позиция игрока в этом поясе. Кнопок «🚀 Лететь»/«⛏ Добывать» у строки нет
+// (правка создателя 2026-09-23): вместо них правый клик по строке открывает то
+// же меню, что и ПКМ по кольцу на канвасе (events.js showBeltMenu, data-belt-row).
+// Полноширинная строка (colspan=4), без data-index: клик по ней карточку не
+// открывает (в отличие от строк планет).
 function beltRow(b) {
     const myPos = modalState.myPosition;
-    // «Своя система» — явный флаг сервера (flightModeForSystem), а не наличие
-    // позиции (баг 2026-09-22: в окне прибытия/межзвёздного полёта my_position
-    // пуст, и кнопка пояса ошибочно становилась композитной → 400).
-    const inOwnSystem = flightModeForSystem() === 'intra';
 
     // Бейдж «вы в поясе» (UI-спека §2.1): orbit → «● Вы в поясе»; mining →
     // «⛏ Добываете» (сессия живёт после ухода со страницы, осн. §6.3).
@@ -236,19 +243,11 @@ function beltRow(b) {
             ? `<span style="background:rgba(253,230,138,0.15); border:1px solid rgba(253,230,138,0.4); color:#fde68a; border-radius:10px; padding:2px 8px; font-size:0.75rem; margin-left:6px;">⛏ Добываете</span>`
             : `<span style="background:rgba(74,222,128,0.15); border:1px solid rgba(74,222,128,0.4); color:#4ade80; border-radius:10px; padding:2px 8px; font-size:0.75rem; margin-left:6px;">● Вы в поясе</span>`)
         : '';
-    const flyBtn = inOwnSystem
-        ? `<button data-belt-fly="${b.id}" style="background:#2a2a4a; border:none; color:#fde68a; padding:4px 10px; border-radius:4px; cursor:pointer; font-size:0.85rem;">🚀 Лететь</button>`
-        : `<button data-belt-composite-fly="${b.id}" style="background:#2a2a4a; border:none; color:#fde68a; padding:4px 10px; border-radius:4px; cursor:pointer; font-size:0.85rem;">🚀 Лететь · через систему</button>`;
-    // «⛏ Добывать» — точка входа в мини-игру (UI-спека §2). Двигатель НЕ
-    // требуется (добыча — не полёт; игрок уже в поясе). data-belt-level несёт
-    // уровень запаса для матрицы состояний (§2.2); пусто — нет знания.
-    const mineBtn = `<button data-belt-mine="${b.id}" data-belt-level="${escapeHtml(b.remaining_level || '')}" style="background:#2a2a4a; border:none; color:#fde68a; padding:4px 10px; border-radius:4px; cursor:pointer; font-size:0.85rem;">⛏ Добывать</button>`;
-    const actions = `<div class="belt-actions" style="display:flex; gap:6px; align-items:center;">${mineBtn}${flyBtn}</div>`;
     const comp = (b.composition && Object.keys(b.composition).length)
         ? `<div style="color:#94a3b8; font-size:0.8rem;">Состав: ${Object.entries(b.composition).map(([k, v]) => `${k} ${(v * 100).toFixed(0)}%`).join(', ')}</div>`
         : `<div style="color:#64748b; font-size:0.8rem;">Состав: нет данных — просканируйте систему в радиусе или долетите до пояса</div>`;
     return `
-        <tr>
+        <tr data-belt-row="${escapeHtml(b.id)}" style="cursor: context-menu;">
             <td colspan="4" style="padding:0;">
                 <div style="border-bottom:1px solid #1a1a2e; padding:6px 0;">
                     <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
@@ -256,7 +255,6 @@ function beltRow(b) {
                             <div style="font-size:0.9rem;">${capitalize(b.name) || beltKindLabel(b.kind)}${badge}</div>
                             <div style="color:#888; font-size:0.8rem;">${beltKindLabel(b.kind)} ${beltClassChip(b.belt_class)}</div>
                         </div>
-                        ${actions}
                     </div>
                     <div style="color:#94a3b8; font-size:0.8rem;">
                         радиус ${b.radius_au != null ? Number(b.radius_au).toFixed(2) : '—'} а.е.
@@ -270,93 +268,6 @@ function beltRow(b) {
             </td>
         </tr>
     `;
-}
-
-// wireBeltButtons — обработчики кнопок полёта к поясу (спека поясов этап 2
-// §7.1): своя система — внутрисистемный полёт; чужая — композитный маршрут.
-// Disabled: нет двигателя, уже в поясе, цель/отправление текущего полёта,
-// активный межзвёздный (своя система).
-function wireBeltButtons(panel) {
-    const myPos = modalState.myPosition;
-
-    panel.querySelectorAll('[data-belt-fly]').forEach(btn => {
-        const beltId = btn.dataset.beltFly;
-        // Отсутствие myPos НЕ блокирует (баг 2026-09-22): в своей системе
-        // позиция может быть пуста в окне прибытия — кнопка обязана работать
-        // (внутрисистемный старт). Активный межзвёздный по-прежнему блокирует.
-        const disabled = !modalState.hasEngine || !!modalState.interstellarFlight ||
-            (myPos && myPos.status === 'orbit' && myPos.object_type === 'belt' && myPos.object_id === beltId) ||
-            (myPos && myPos.status === 'in_flight' && myPos.to_type === 'belt' && myPos.to_id === beltId) ||
-            (myPos && myPos.status === 'in_flight' && myPos.from_type === 'belt' && myPos.from_id === beltId);
-        if (disabled) {
-            btn.disabled = true;
-            btn.style.opacity = '0.4';
-            btn.style.cursor = 'not-allowed';
-            if (!modalState.hasEngine) btn.title = 'Двигатель не установлен';
-            else if (modalState.interstellarFlight) btn.title = 'Вы в межзвёздном полёте — дождитесь прибытия';
-            else btn.title = 'Вы уже в поясе';
-        } else {
-            btn.addEventListener('click', () => {
-                import('./events.js').then(m => m.startIntraFlight('belt', beltId));
-            });
-        }
-    });
-
-    panel.querySelectorAll('[data-belt-composite-fly]').forEach(btn => {
-        const beltId = btn.dataset.beltCompositeFly;
-        if (!modalState.hasEngine) {
-            btn.disabled = true;
-            btn.style.opacity = '0.4';
-            btn.style.cursor = 'not-allowed';
-            btn.title = 'Двигатель не установлен — полёт невозможен';
-        } else {
-            btn.addEventListener('click', async () => {
-                btn.disabled = true;
-                btn.style.opacity = '0.4';
-                btn.style.cursor = 'not-allowed';
-                const ok = await import('./events.js').then(m => m.startCompositeFlight('belt', beltId));
-                if (!ok) {
-                    btn.disabled = false;
-                    btn.style.opacity = '';
-                    btn.style.cursor = '';
-                }
-            });
-        }
-    });
-
-    // Кнопка «⛏ Добывать» (UI-спека 2026-09-22 §2.2) — единая точка входа в
-    // мини-игру. Двигатель НЕ требуется (добыча — не полёт). Отказ по клику
-    // (запас/трюм/позиция) приходит экраном ошибки страницы belt.html (§2.3).
-    panel.querySelectorAll('[data-belt-mine]').forEach(btn => {
-        const beltId = btn.dataset.beltMine;
-        const level = btn.dataset.beltLevel || '';
-        const inThisBelt = myPos && (myPos.status === 'orbit' || myPos.status === 'mining') &&
-            myPos.object_type === 'belt' && myPos.object_id === beltId;
-        const inFlight = !!modalState.interstellarFlight || (myPos && myPos.status === 'in_flight');
-        // Отсутствие remaining_level НЕ блокирует: запас инициализируется лениво
-        // на сервере при enter (3a) — «ещё не инициализировано», не «нет данных».
-        // Блокирует только явный «выработан» (плюс полёт / не в этом поясе).
-        // Если запас реально недоступен — откажет сервер при enter (экран ошибки).
-        let title = '';
-        if (inFlight) title = 'Вы в полёте — дождитесь прибытия';
-        else if (!inThisBelt) title = 'Сначала долетите до пояса';
-        else if (level === 'выработан') title = 'Пояс выработан';
-        if (title) {
-            btn.disabled = true;
-            btn.style.opacity = '0.4';
-            btn.style.cursor = 'not-allowed';
-            btn.title = title;
-            return;
-        }
-        if (myPos && myPos.status === 'mining') btn.textContent = '⛏ Продолжить добычу';
-        btn.addEventListener('click', () => {
-            btn.disabled = true;
-            btn.style.opacity = '0.4';
-            btn.style.cursor = 'not-allowed';
-            btn.textContent = 'Заход в пояс…';
-            window.location.href = '/belt.html?belt=' + encodeURIComponent(beltId);
-        });
-    });
 }
 
 // getSpectralInfo — справочник по спектральному классу для карточки звезды.

@@ -1,7 +1,7 @@
 ﻿// web/static/js/modal/events.js
 import { modalState, flightModeForSystem } from './state.js';
 import { drawSystem, MIN_STAR_PX } from './modal_render.js';
-import { computeLayout, getOrbitRadius, getPlanetAngle, planetRadius, planetOrbitCenter } from './layout.js';
+import { computeLayout, getOrbitRadius, getPlanetAngle, planetRadius, planetOrbitCenter, beltRing } from './layout.js';
 import { miniObjects } from './minimap.js';
 import { closeModal } from './index.js';
 import { getSpectralInfo, exoticStarInfo, formatStellarMass, formatAU } from './panel.js';
@@ -51,6 +51,19 @@ export function initEvents(canvas, spectralClass, planets, starRadius, starColor
                 return { type: 'planet', index: idx };
             }
         }
+
+        // Пояса (ТЗ §9.4): точка в полосе кольца. Планеты/звёзды проверены
+        // раньше — клик по планете поверх кольца = планета (приоритет). Та же
+        // геометрия, что у отрисовки (beltRing, §9.4 — «кликается там, где
+        // нарисовано»).
+        const belts = modalState.belts || [];
+        for (const b of belts) {
+            const g = beltRing(layout, b);
+            if (!isFinite(g.radius) || g.radius <= 0) continue;
+            const d = Math.hypot(worldX - g.cx, worldY - g.cy);
+            const tol = Math.max(g.half, 4 / modalState.zoom);
+            if (Math.abs(d - g.radius) <= tol) return { type: 'belt', id: b.id };
+        }
         return null;
     }
 
@@ -83,6 +96,13 @@ export function initEvents(canvas, spectralClass, planets, starRadius, starColor
             }
         } else if (hit && hit.type === 'planet') {
             if (!modalState.hoveredObject || modalState.hoveredObject.type !== 'planet' || modalState.hoveredObject.index !== hit.index) {
+                modalState.hoveredObject = hit;
+                canvas.style.cursor = 'pointer';
+            }
+        } else if (hit && hit.type === 'belt') {
+            // Кольцо пояса читается как интерактив (подсветка в modal_render +
+            // cursor: pointer, ТЗ §9.4).
+            if (!modalState.hoveredObject || modalState.hoveredObject.type !== 'belt' || modalState.hoveredObject.id !== hit.id) {
                 modalState.hoveredObject = hit;
                 canvas.style.cursor = 'pointer';
             }
@@ -291,6 +311,9 @@ export function initEvents(canvas, spectralClass, planets, starRadius, starColor
         } else if (hit && hit.type === 'planet') {
             // Планета (претензия создателя «как на карте»): ПКМ → «Лететь».
             showPlanetMenu(e.clientX, e.clientY, hit.index);
+        } else if (hit && hit.type === 'belt') {
+            // Пояс (ТЗ §9.4): ПКМ → «Лететь»/«Добывать».
+            showBeltMenu(e.clientX, e.clientY, hit.id);
         } else {
             hideStarMenu();
         }
@@ -747,6 +770,120 @@ function showPlanetMenu(x, y, planetIndex) {
             appendLandItem(menu, planet);
         }
     }
+
+    document.body.appendChild(menu);
+}
+
+// showBeltMenu — ПКМ по поясу (ТЗ §9.4): пункты «🚀 Лететь» и «⛏ Добывать» в
+// стиле showPlanetMenu. Состояния согласованы с таблицей «Объекты» (бывшие
+// кнопки строки пояса): «Лететь» — своя система → внутрисистемный полёт,
+// чужая → композитный маршрут; скрыт, если уже в этом поясе / цель или
+// отправление активного полёта / активный межзвёздный (иначе старт даст 400).
+// «Добывать» — активен только в этом поясе, не выработан, нет активного полёта;
+// иначе disabled (как у кнопки). Экспорт — для ПКМ по строке пояса (panel.js).
+export function showBeltMenu(x, y, beltId) {
+    hideStarMenu(); // скрыть предыдущее меню сразу (паттерн showStarMenu)
+    const belt = (modalState.belts || []).find(b => b.id === beltId);
+    if (!belt) return;
+
+    const myPos = modalState.myPosition;
+    // «Своя система» — явный флаг сервера (flightModeForSystem), не my_position.
+    const intra = flightModeForSystem() === 'intra';
+
+    const inThisBelt = !!myPos && (myPos.status === 'orbit' || myPos.status === 'mining') &&
+        myPos.object_type === 'belt' && myPos.object_id === belt.id;
+    const flyingTo = !!myPos && myPos.status === 'in_flight' &&
+        myPos.to_type === 'belt' && myPos.to_id === belt.id;
+    const flyingFrom = !!myPos && myPos.status === 'in_flight' &&
+        myPos.from_type === 'belt' && myPos.from_id === belt.id;
+    const inFlight = !!modalState.interstellarFlight || (!!myPos && myPos.status === 'in_flight');
+
+    const menu = document.createElement('div');
+    menu.id = 'star-context-menu';
+    menu.style.cssText = `
+        position: fixed;
+        left: ${x}px;
+        top: ${y}px;
+        background: #1a1a2e;
+        border: 1px solid #334155;
+        border-radius: 8px;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+        padding: 4px;
+        min-width: 180px;
+        z-index: 1100;
+        font-size: 0.9rem;
+        color: #e0e0e0;
+    `;
+
+    const title = document.createElement('div');
+    title.style.cssText = `
+        padding: 6px 10px;
+        font-size: 0.75rem;
+        color: #888;
+        border-bottom: 1px solid #2a2a44;
+        margin-bottom: 4px;
+    `;
+    title.textContent = belt.name || 'Пояс';
+    menu.appendChild(title);
+
+    // menuItem — единый стиль строки контекстного меню (как showPlanetMenu).
+    const menuItem = (html) => {
+        const el = document.createElement('div');
+        el.style.cssText = `
+        padding: 8px 10px;
+        cursor: pointer;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    `;
+        el.innerHTML = html;
+        el.addEventListener('mouseenter', () => { el.style.background = '#2a2a44'; });
+        el.addEventListener('mouseleave', () => { el.style.background = 'none'; });
+        return el;
+    };
+
+    // «Лететь» — скрыт, когда уже в поясе / цель или отправление полёта /
+    // активный межзвёздный. Без двигателя — пункт есть, клик → тост.
+    if (!inThisBelt && !flyingTo && !flyingFrom && !modalState.interstellarFlight) {
+        const btn = menuItem(`🚀 <span>Лететь</span>`);
+        btn.addEventListener('click', async () => {
+            hideStarMenu();
+            if (!modalState.hasEngine) {
+                notifyError('Двигатель не установлен — полёт невозможен');
+                return;
+            }
+            if (intra) {
+                await startIntraFlight('belt', belt.id);
+            } else {
+                await startCompositeFlight('belt', belt.id);
+            }
+        });
+        menu.appendChild(btn);
+    }
+
+    // «Добывать» — точка входа в мини-игру (двигатель не требуется). Активна,
+    // когда игрок в этом поясе, запас не выработан и нет активного полёта.
+    const level = belt.remaining_level || '';
+    let mineTitle = '';
+    if (inFlight) mineTitle = 'Вы в полёте — дождитесь прибытия';
+    else if (!inThisBelt) mineTitle = 'Сначала долетите до пояса';
+    else if (level === 'выработан') mineTitle = 'Пояс выработан';
+    const mineBtn = menuItem(`⛏ <span>Добывать</span>`);
+    if (mineTitle) {
+        mineBtn.style.cursor = 'not-allowed';
+        mineBtn.style.opacity = '0.4';
+        mineBtn.title = mineTitle;
+    } else {
+        if (myPos && myPos.status === 'mining') {
+            mineBtn.innerHTML = `⛏ <span>Продолжить добычу</span>`;
+        }
+        mineBtn.addEventListener('click', () => {
+            hideStarMenu();
+            window.location.href = '/belt.html?belt=' + encodeURIComponent(belt.id);
+        });
+    }
+    menu.appendChild(mineBtn);
 
     document.body.appendChild(menu);
 }

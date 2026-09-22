@@ -525,6 +525,8 @@ func (g *Generator) generateStandardPlanet(
 		Surface:      res.Surface,
 		Core:         res.Core,
 		IsGasGiant:   false,
+		// История формирования (этап 2 облака, §6.3): теги описаний.
+		FormationHistory: res.FormationHistory,
 	}
 
 	data := map[string]interface{}{
@@ -545,6 +547,10 @@ func (g *Generator) generateStandardPlanet(
 		"development_level": res.Development,
 		"archetype":         res.ArchetypeBand,
 		"system_age":        sp.AgeGyr,
+
+		// История формирования (этап 2 облака, §6.1): типизированный список
+		// {type, payload} в planet.data. Пустой массив легален.
+		"formation_history": formationHistoryToJSON(res.FormationHistory),
 
 		// Орбитальный контекст S-планеты (35b §2.2): вокруг главной.
 		"orbit_center":    "main",

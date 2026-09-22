@@ -1,7 +1,11 @@
 // internal/generator/planet/descriptions_types.go
 package planet
 
-import "sync"
+import (
+	"sync"
+
+	"zorion/internal/models"
+)
 
 // ==================== ЗАПИСИ БИБЛИОТЕКИ ====================
 
@@ -64,6 +68,11 @@ type DescriptionContext struct {
 	// Композиция и ядро
 	Surface Composition
 	Core    Core
+
+	// FormationHistory — история формирования планеты (этап 2 облака, §6.3):
+	// типизированный список записей → теги описаний migrated/ice_lost/
+	// stripped_embryo/formed_early/formed_late. Пусто у гигантов/экзотики.
+	FormationHistory []models.PlanetFormationEvent
 
 	// Газовый гигант — флаг из классификатора
 	IsGasGiant bool

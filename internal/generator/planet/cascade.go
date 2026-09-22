@@ -447,6 +447,11 @@ type cascadeResult struct {
 	// DraftSurface — пробная поверхность слоя 8 (транзит для мягких связей
 	// недр); в данные не пишется.
 	DraftSurface Composition
+
+	// FormationHistory — история формирования планеты (этап 2 облака, §6):
+	// маркер planet.data["formation_history"]. Пусто у гигантов/экзотики и
+	// при MassOverride (прежняя зонная функция состава).
+	FormationHistory []models.PlanetFormationEvent
 }
 
 // ==================== КАСКАД: КАМЕНИСТАЯ/ЛЕДЯНАЯ ПЛАНЕТА ====================
@@ -457,6 +462,12 @@ func (g *Generator) runCascade(in cascadeInput) *cascadeResult {
 	res := &cascadeResult{}
 
 	// --- Слой 3 — планета: масса, состав, плотность, радиус, гравитация ---
+	// Нормированное расстояние (S: r/√L; P: физическое r_P — нормализация √L
+	// не применима, §4.1 спеки массы).
+	aNorm := aNormOf(in.OrbitRadiusAU, in.Luminosity)
+	if in.Circumbinary {
+		aNorm = in.OrbitRadiusAU
+	}
 	mass := in.MassOverride
 	if mass <= 0 {
 		// Масса — от нормированного расстояния (номер орбиты), светимость
@@ -468,15 +479,33 @@ func (g *Generator) runCascade(in cascadeInput) *cascadeResult {
 		// Шум ζ НЕ нормируется (решение создателя 2026-09-22, вариант 2):
 		// значения планет сохраняются (нормировка и приор сокращаются).
 		zeta := math.Exp(0.6 * g.rng.NormFloat64())
-		aNorm := aNormOf(in.OrbitRadiusAU, in.Luminosity)
-		if in.Circumbinary {
-			aNorm = in.OrbitRadiusAU // P-планеты: физическое r_P (§4.1)
-		}
 		mass = clamp(retentionFactor(in.OrbitIndex, g.giantOrbit)*
 			g.cloudBudget*accretionMass(aNorm, in.Metallicity, zeta)/cloudProfileSum,
 			massMin, massMax)
 	}
-	rock, iron, ice := compositionByZone(in.OrbitRadiusAU, in.Luminosity, g.rng)
+	// Состав и история формирования (этап 2 облака, спека 2026-09-22 §4.3–§4.6):
+	// резервуары/конденсация/миграция/потеря/эпоха. compositionByZone
+	// сохранена для поясов (planet_data_belt.go). +2 ролла/планету — названный
+	// сдвиг потока RNG (ζ массы идёт ДО состава, ярдстик массы не сдвинут).
+	// При MassOverride (калибровки/близнецы, §1.3) — прежняя зонная функция,
+	// без нового состава, маркера и роллов.
+	var rock, iron, ice float64
+	var history []models.PlanetFormationEvent
+	if in.MassOverride > 0 {
+		rock, iron, ice = compositionByZone(in.OrbitRadiusAU, in.Luminosity, g.rng)
+	} else {
+		rock, iron, ice, history = compositionFromHistory(
+			aNorm,
+			g.rng.Float64(), // u_t — эпоха формирования
+			g.rng.Float64(), // u_mig — миграция
+			g.rng.Float64(), // u_loss — потеря мантии
+			g.rng.Float64(), // J_ice
+			g.rng.Float64(), // u_iron
+			g.migrationMode,
+			in.OrbitIndex, g.giantOrbit,
+			defaultFormationParams(),
+		)
+	}
 	density := planetDensity(rock, iron, ice, mass)
 	size := in.SizeOverride
 	if size <= 0 {
@@ -486,6 +515,7 @@ func (g *Generator) runCascade(in cascadeInput) *cascadeResult {
 	escapeVel := escapeVelocity(mass, size)
 	res.Mass, res.Size, res.Density, res.Gravity = mass, size, density, gravity
 	res.EscapeVelocity = escapeVel
+	res.FormationHistory = history
 
 	// --- Слой 2 — орбита: период, эксцентриситет, приливный захват ---
 	res.OrbitalPeriod = orbitalPeriod(in.OrbitRadiusAU, in.StellarMass)

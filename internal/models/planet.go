@@ -62,6 +62,12 @@ type Planet struct {
 	Biomes     []Biome          `json:"biomes,omitempty"`
 	Subterrain []SubterrainZone `json:"subterrain,omitempty"`
 
+	// История формирования планеты (спека 2026-09-22-облако-этап-2-...
+	// §6.5): типизированный список записей из planet.data["formation_history"].
+	// Отсутствие ключа = старый мир (фолбэк nil, не ошибка); гиганты/экзотика
+	// маркера не несут. Без знания о планете stripPlanetDetails обнуляет.
+	FormationHistory []PlanetFormationEvent `json:"formation_history,omitempty"`
+
 	// Ядро
 	Core *PlanetCore `json:"core,omitempty"`
 
@@ -163,6 +169,27 @@ type Biome struct {
 type SubterrainZone struct {
 	Type  string  `json:"type"`
 	Share float64 `json:"share"`
+}
+
+// PlanetFormationEvent — одна запись истории формирования планеты (спека
+// 2026-09-22-облако-этап-2-... §6.1/§6.2): {type, payload}. Тип — один из
+// formed_early / formed_late / migrated / ice_lost / stripped_embryo;
+// payload открыт (поля добавляются внутри объекта). Пустые поля не пишутся.
+type PlanetFormationEvent struct {
+	Type string `json:"type"`
+	// formed_early: t_form_myr, x_ice; formed_late: t_form_myr.
+	TFormMyr float64 `json:"t_form_myr,omitempty"`
+	XIce     float64 `json:"x_ice,omitempty"`
+	// migrated: x_form, x_now, direction (inward/outward), factor.
+	XForm     float64 `json:"x_form,omitempty"`
+	XNow      float64 `json:"x_now,omitempty"`
+	Direction string  `json:"direction,omitempty"`
+	Factor    float64 `json:"factor,omitempty"`
+	// ice_lost: fraction, residue (iron/bare_ice).
+	Fraction float64 `json:"fraction,omitempty"`
+	Residue  string  `json:"residue,omitempty"`
+	// stripped_embryo: giant_orbit.
+	GiantOrbit int `json:"giant_orbit,omitempty"`
 }
 
 // PlanetKnowledgeView — знание игрока о планете в ответе модалки (спека 77a

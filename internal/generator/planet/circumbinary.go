@@ -120,6 +120,8 @@ func (g *Generator) generateCircumbinaryRocky(w WorldInfo, rP float64, sp Stella
 		Surface:      res.Surface,
 		Core:         res.Core,
 		IsGasGiant:   false,
+		// История формирования (этап 2 облака, §6.3): теги описаний.
+		FormationHistory: res.FormationHistory,
 	}
 
 	data := map[string]interface{}{
@@ -140,6 +142,9 @@ func (g *Generator) generateCircumbinaryRocky(w WorldInfo, rP float64, sp Stella
 		"development_level": res.Development,
 		"archetype":         res.ArchetypeBand,
 		"system_age":        sp.AgeGyr,
+
+		// История формирования (этап 2 облака, §6.1).
+		"formation_history": formationHistoryToJSON(res.FormationHistory),
 
 		"surface_composition":    composeToJSON(res.Surface),
 		"subterrain_composition": composeToJSON(res.Subterrain),

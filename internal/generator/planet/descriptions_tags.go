@@ -1,6 +1,8 @@
 // internal/generator/planet/descriptions_tags.go
 package planet
 
+import "zorion/internal/models"
+
 // ==================== ВЫЧИСЛЕНИЕ ТЕГОВ ====================
 //
 // Теги используются для фильтрации записей из библиотеки описаний.
@@ -67,8 +69,23 @@ func computeTags(ctx DescriptionContext) map[string]bool {
 	addCryovolcanicTag(tags, ctx.Surface, ctx.Core)
 	addSubsurfaceOceanTag(tags, ctx)
 	addAtmosphereTags(tags, ctx.Atmosphere)
+	addFormationTags(tags, ctx.FormationHistory)
 
 	return tags
+}
+
+// ==================== ИСТОРИЯ ФОРМИРОВАНИЯ (этап 2 облака, §6.3) ====================
+
+// addFormationTags — теги из истории формирования: каждый тип записи
+// formation_history даёт одноимённый тег (записи библиотеки описаний
+// подключают текст через requires). См. config/descriptions/.
+func addFormationTags(tags map[string]bool, history []models.PlanetFormationEvent) {
+	for _, ev := range history {
+		switch ev.Type {
+		case "formed_early", "formed_late", "migrated", "ice_lost", "stripped_embryo":
+			tags[ev.Type] = true
+		}
+	}
 }
 
 // ==================== СПУТНИКИ ====================

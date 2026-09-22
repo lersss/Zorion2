@@ -86,3 +86,20 @@ func TestStripDeposits(t *testing.T) {
 	// stripPlanetDetails — обе залежи остаются как есть.
 	require.Len(t, p.Deposits, 2, "админу видны и выработанные залежи")
 }
+
+// TestStripFormationHistory — история формирования (спека
+// 2026-09-22-облако-этап-2 §6.5): без знания о планете маркер скрыт (защита в
+// глубину, как фракции/строения/залежи); со знанием — остаётся (значок в
+// карточке виден только известной планеты).
+func TestStripFormationHistory(t *testing.T) {
+	p := models.Planet{
+		ID:               "p1",
+		FormationHistory: []models.PlanetFormationEvent{{Type: "migrated"}, {Type: "ice_lost"}},
+	}
+
+	stripped := stripPlanetDetails(p, nil)
+	require.Nil(t, stripped.FormationHistory, "без знания маркер скрыт (§6.5)")
+
+	withKnowledge := stripPlanetDetails(p, &models.PlanetKnowledgeView{})
+	require.Len(t, withKnowledge.FormationHistory, 2, "со знанием маркер остаётся")
+}

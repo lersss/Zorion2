@@ -82,6 +82,13 @@ type Generator struct {
 	// планет сохраняются: median(M_диск) = S₀); мировой поток заменяет роллом.
 	cloudBudget float64
 
+	// migrationMode — режим миграции мира (спека 2026-09-22-облако-этап-2 §4.4,
+	// Ф2 = б): migrationNone/Moderate/Strong. Один ролл на мир, до цикла орбит
+	// (образец giantOrbit/cloudBudget); per-планетный ролл x_form читает режим
+	// (compositionFromHistory). Экзотика — без ролла (0 новых, дефолт none);
+	// генерация однопоточная на мир — поле безопасно (как profile/giantOrbit).
+	migrationMode int
+
 	// goodsIndex — карта «name_norm ресурса → goods.id» для резолва пилотов
 	// залежей (§3.1 спеки 2026-09-22-поселение-...). Генератор в БД не
 	// ходит: карту подаёт вызывающий сеттером SetGoodsIndex. Пусто — все
@@ -303,6 +310,13 @@ func (g *Generator) generateWorldWithCountIntoBuffer(w WorldInfo, count int, buf
 	g.cloudBudget = cloudProfileSum
 	if !isExoticObject(w.StarType) {
 		g.cloudBudget = g.rollCloudBudget()
+	}
+
+	// Гейт миграции мира (спека 2026-09-22-облако-этап-2 §4.4, Ф2 = б): один
+	// ролл на мир до цикла орбит. Экзотика (остатки) — без ролла (0 новых).
+	g.migrationMode = migrationNone
+	if !isExoticObject(w.StarType) {
+		g.migrationMode = g.rollMigrationMode()
 	}
 
 	// Per-системное решение гиганта (спека 2026-09-20 §4.2): один ролл до
@@ -747,6 +761,17 @@ func biomesToJSON(biomes []models.Biome) []map[string]interface{} {
 		out = append(out, map[string]interface{}{"form": b.Form, "share": b.Share})
 	}
 	return out
+}
+
+// formationHistoryToJSON — история формирования → JSON-массив записей
+// {type, payload} (спека 2026-09-22-облако-этап-2-... §6.1). Пустой список
+// сериализуется как [] (пустой массив легален); теги omitempty убирают
+// неприменимые к типу payload-поля.
+func formationHistoryToJSON(history []models.PlanetFormationEvent) []models.PlanetFormationEvent {
+	if history == nil {
+		return []models.PlanetFormationEvent{}
+	}
+	return history
 }
 
 // zonesToJSON — зоны недр → JSON-массив {type, share} (99.2.28 §9.1).

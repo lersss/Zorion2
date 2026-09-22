@@ -499,6 +499,10 @@ func populatePlanetFromJSON(p *models.Planet, data map[string]interface{}) {
 	p.Biomes = parseBiomes(data)
 	p.Subterrain = parseSubterrain(data)
 
+	// История формирования (спека 2026-09-22-облако-этап-2-... §6.5):
+	// отсутствие ключа → nil (старый мир), не ошибка.
+	p.FormationHistory = parseFormationHistory(data)
+
 	// Ядро
 	p.Core = parseCore(data)
 
@@ -600,6 +604,40 @@ func parseSubterrain(data map[string]interface{}) []models.SubterrainZone {
 		result = append(result, models.SubterrainZone{
 			Type:  getStr(m, "type"),
 			Share: getFloat(m, "share"),
+		})
+	}
+	return result
+}
+
+// parseFormationHistory — читает историю формирования из JSON (спека
+// 2026-09-22-облако-этап-2-... §6.5). Отсутствие ключа → nil (старый мир),
+// не ошибка; записи без типа пропускаются.
+func parseFormationHistory(data map[string]interface{}) []models.PlanetFormationEvent {
+	raw, ok := data["formation_history"].([]interface{})
+	if !ok {
+		return nil
+	}
+	result := make([]models.PlanetFormationEvent, 0, len(raw))
+	for _, item := range raw {
+		m, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		typ := getStr(m, "type")
+		if typ == "" {
+			continue
+		}
+		result = append(result, models.PlanetFormationEvent{
+			Type:       typ,
+			TFormMyr:   getFloat(m, "t_form_myr"),
+			XIce:       getFloat(m, "x_ice"),
+			XForm:      getFloat(m, "x_form"),
+			XNow:       getFloat(m, "x_now"),
+			Direction:  getStr(m, "direction"),
+			Factor:     getFloat(m, "factor"),
+			Fraction:   getFloat(m, "fraction"),
+			Residue:    getStr(m, "residue"),
+			GiantOrbit: int(getFloat(m, "giant_orbit")),
 		})
 	}
 	return result

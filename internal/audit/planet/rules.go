@@ -84,6 +84,10 @@ func AllRules() []audit.Rule[View] {
 		{Check: checkBiosphereWithoutConditions},
 		{Check: checkEmptyBiomes},
 		{Check: checkBiomeNotInCatalog},
+
+		// === История формирования (спека 2026-09-22-облако-этап-2 §6.3 п.2):
+		// согласованность маркера с персистируемой плотностью ===
+		{Check: checkFormationHistoryMismatch},
 	}
 }
 

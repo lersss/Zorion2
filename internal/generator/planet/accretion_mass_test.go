@@ -287,7 +287,8 @@ func TestMassSizeDensityAudit(t *testing.T) {
 // ==================== T11: РЕЕСТР ПОЛЕЙ ====================
 
 // T11 — рамки реестра (fields.go) совпадают со спекой: mass.Min 0.02,
-// size.Min 0.25, gravity.Min 0.13 (страховка от пола); mass.Max ≥ гигантов.
+// size.Min 0.23, gravity.Min 0.12 (страховка от пола при крайних ρ этапа 2
+// облака — расширены решением создателя 2026-09-22, §7.2); mass.Max ≥ гигантов.
 func TestFieldRegistryMassRange(t *testing.T) {
 	reg := map[string]settlement.FieldSpec{}
 	for _, s := range settlement.FieldRegistry() {
@@ -306,10 +307,10 @@ func TestFieldRegistryMassRange(t *testing.T) {
 	assert.GreaterOrEqual(t, *s.Max, GasGiantMassMax, "mass.Max — ветка гигантов")
 
 	s = requireField("size")
-	assert.Equal(t, 0.25, *s.Min, "size.Min — страховка от M_min (§5.3)")
+	assert.Equal(t, 0.23, *s.Min, "size.Min — страховка от M_min при крайних ρ этапа 2 облака (§7.2)")
 
 	s = requireField("gravity")
-	assert.Equal(t, 0.13, *s.Min, "gravity.Min — страховка от M_min (§5.3)")
+	assert.Equal(t, 0.12, *s.Min, "gravity.Min — страховка от M_min при крайних ρ этапа 2 облака (§7.2)")
 }
 
 // ==================== T14: МЕЖСИСТЕМНЫЙ РАЗБРОС (БЮДЖЕТ M_диск) ====================

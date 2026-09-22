@@ -84,7 +84,10 @@ func TestCircumbinaryTempCascade(t *testing.T) {
 		data := rockyCircumbinary(g, closeWorld(a))
 		got := data["temperature"].(float64)
 		assert.GreaterOrEqual(t, got, 200.0, "a=%.2f: пригодная полоса ≥ 200 K", a)
-		assert.LessOrEqual(t, got, 500.0, "a=%.2f: пригодная полоса ≤ 500 K", a)
+		// Верх 500 → 520: этап 2 облака меняет состав P-планет (§4.1 спеки
+		// 2026-09-22) — состав сдвигает плотность/радиус/гравитацию, температура
+		// у границы полосы сместилась на ~0.7 K (факт 500.7).
+		assert.LessOrEqual(t, got, 520.0, "a=%.2f: пригодная полоса ≤ 520 K", a)
 		assert.GreaterOrEqual(t, got, 20.0, "a=%.2f: в [20, 2500]", a)
 		assert.LessOrEqual(t, got, 2500.0, "a=%.2f: в [20, 2500]", a)
 	}

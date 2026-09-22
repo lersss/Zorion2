@@ -315,6 +315,36 @@ func TestPopulatePlanetFromJSONBiomes(t *testing.T) {
 	assert.InDelta(t, 30.0, p.Subterrain[1].Share, 0.0001)
 }
 
+func TestPopulatePlanetFromJSONFormationHistory(t *testing.T) {
+	// Whitelist API (спека 2026-09-22-облако-этап-2 §6.5): formation_history
+	// доезжает до модели; отсутствие ключа → nil (PITFALLS «новый ключ молча
+	// пропадает»).
+	data := map[string]interface{}{
+		"formation_history": []interface{}{
+			map[string]interface{}{"type": "formed_early", "t_form_myr": 0.35, "x_ice": 4.09},
+			map[string]interface{}{"type": "migrated", "x_form": 3.41, "x_now": 1.16, "direction": "inward", "factor": 2.94},
+			map[string]interface{}{"type": "ice_lost", "fraction": 0.34, "residue": "iron"},
+		},
+	}
+	p := models.Planet{}
+	populatePlanetFromJSON(&p, data)
+
+	require.Len(t, p.FormationHistory, 3)
+	assert.Equal(t, "formed_early", p.FormationHistory[0].Type)
+	assert.InDelta(t, 0.35, p.FormationHistory[0].TFormMyr, 1e-9)
+	assert.InDelta(t, 4.09, p.FormationHistory[0].XIce, 1e-9)
+	assert.Equal(t, "migrated", p.FormationHistory[1].Type)
+	assert.Equal(t, "inward", p.FormationHistory[1].Direction)
+	assert.InDelta(t, 2.94, p.FormationHistory[1].Factor, 1e-9)
+	assert.Equal(t, "ice_lost", p.FormationHistory[2].Type)
+	assert.Equal(t, "iron", p.FormationHistory[2].Residue)
+
+	// Ключа нет → nil (старый мир), не ошибка.
+	p2 := models.Planet{}
+	populatePlanetFromJSON(&p2, map[string]interface{}{})
+	assert.Nil(t, p2.FormationHistory)
+}
+
 func TestPopulatePlanetFromJSONRealSerialized(t *testing.T) {
 	// Путь, как в БД: data JSON → map → populate.
 	raw := `{

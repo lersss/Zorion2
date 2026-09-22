@@ -1,6 +1,6 @@
 // web/static/js/modal/tabs.js
 import { populationAt, planetPopulationAt } from './extrapolate.js';
-import { modalState } from './state.js';
+import { modalState, flightModeForSystem } from './state.js';
 import { getPlanetTexture } from './textures.js';
 import { groupDeposits } from './deposits.js';
 import { branchesBlockHtml } from './branches.js';
@@ -374,6 +374,10 @@ export function renderSatelliteCard(planet, sat, container) {
     // Внутрисистемная позиция (спека 99.2.27 §5.11): бейдж «● Вы на орбите»
     // у спутника (позиция = спутник → маркер у родительской планеты, М-4).
     const myPos = modalState.myPosition;
+    // «Своя система» — явный флаг сервера (flightModeForSystem), а не
+    // my_position != null (баг 2026-09-22: позиция пуста в окне прибытия/
+    // межзвёздного полёта, кнопка ошибочно становилась композитной).
+    const intra = flightModeForSystem() === 'intra';
     const onThisOrbit = myPos && myPos.status === 'orbit' &&
         myPos.object_type === 'satellite' && myPos.object_id === sat.id;
     const orbitBadge = onThisOrbit
@@ -384,7 +388,7 @@ export function renderSatelliteCard(planet, sat, container) {
     // внутрисистемная «🚀 Лететь»; чужая (my_position == null, планеты видны)
     // — композитная «🚀 Лететь · через систему». Две кнопки никогда не видны
     // одновременно (§6.5).
-    const satFlyBtnHtml = myPos
+    const satFlyBtnHtml = intra
         ? `<button data-sat-fly style="background:#2a2a4a; border:none; color:#fde68a; padding:6px 14px; border-radius:4px; cursor:pointer; font-size:0.95rem;">🚀 Лететь</button>`
         : `<button data-sat-composite-fly title="${compositeSatTooltip()}" style="background:#2a2a4a; border:none; color:#fde68a; padding:6px 14px; border-radius:4px; cursor:pointer; font-size:0.95rem;">🚀 Лететь · через систему</button>`;
 
@@ -445,18 +449,19 @@ export function renderSatelliteCard(planet, sat, container) {
     // 99.2.30 §6.2, мелкое 4 — иначе старт даст 400 «Вы в межзвёздном полёте»).
     const flyBtn = container.querySelector('[data-sat-fly]');
     if (flyBtn) {
-        const myPos = modalState.myPosition;
-        const disabled = !myPos || !modalState.hasEngine || !!modalState.interstellarFlight ||
-            (myPos.status === 'orbit' && myPos.object_type === 'satellite' && myPos.object_id === sat.id) ||
-            (myPos.status === 'in_flight' && myPos.to_type === 'satellite' && myPos.to_id === sat.id) ||
-            (myPos.status === 'in_flight' && myPos.from_type === 'satellite' && myPos.from_id === sat.id);
+        const pos = modalState.myPosition;
+        // Отсутствие pos НЕ блокирует (баг 2026-09-22): в своей системе позиция
+        // может быть пуста в окне прибытия — кнопка обязана работать.
+        const disabled = !modalState.hasEngine || !!modalState.interstellarFlight ||
+            (pos && pos.status === 'orbit' && pos.object_type === 'satellite' && pos.object_id === sat.id) ||
+            (pos && pos.status === 'in_flight' && pos.to_type === 'satellite' && pos.to_id === sat.id) ||
+            (pos && pos.status === 'in_flight' && pos.from_type === 'satellite' && pos.from_id === sat.id);
         if (disabled) {
             flyBtn.disabled = true;
             flyBtn.style.opacity = '0.4';
             flyBtn.style.cursor = 'not-allowed';
             if (!modalState.hasEngine) flyBtn.title = 'Двигатель не установлен';
             else if (modalState.interstellarFlight) flyBtn.title = 'Вы в межзвёздном полёте — дождитесь прибытия';
-            else if (!myPos) flyBtn.title = 'Внутрисистемный полёт — только в своей системе';
             else flyBtn.title = 'Вы уже на орбите этого объекта';
         } else {
             flyBtn.addEventListener('click', () => {

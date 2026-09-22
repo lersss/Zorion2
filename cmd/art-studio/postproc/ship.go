@@ -146,25 +146,24 @@ func magentaNess(img image.Image, x, y int) float64 {
 	return bl - g
 }
 
-// ShipSpriteCut — вырез фона и нормализация кандидата. Рецепт 2026-09-22
-// (фон снова чёрный): `edge` (flood от рамки + барьер по Собелю от размытой
-// кромки). Порог tol выбирается по фону кадра — ShipCutTol: magenta-кадры 100
-// (фон-градиент шире), чёрно-фоновые 40 (tol=100 выедает тёмный корпус; на
-// tol ≥ 80 доля съеденного — Алмазные 0.21, Дисковые 0.31, Силикатные рои 0.34).
-// chroma оставлен в скрипте для сравнения и регресс-тестов.
-// tools/ship_sprite_cut.py --method edge --tol <по фону> --edge 20
-// --fill-holes --no-orient → прозрачный PNG canvas×canvas.
+// ShipSpriteCut — вырез фона и нормализация кандидата. Рецепт 2026-09-23:
+// НЕЙРОСЕТЕВОЙ вырез `rembg` (U2Net) вместо порогового `edge`. Причина: `edge`
+// с tol 40/100 ломает кадры — чёрный корабль на чёрном фоне даёт ореол при
+// tol=40 и дыры в корпусе при tol=100 («практически все корабли рваные»);
+// rembg на тех же кадрах даёт чистый контур без дыр и ореола (держит тёмные,
+// светлые и прозрачные корпуса). chroma/edge/hyst оставлены в скрипте для
+// сравнения и отката.
+// tools/ship_sprite_cut.py --method rembg --fill-holes --no-orient
+// --report <tmp> → прозрачный PNG canvas×canvas.
 // canvas — 200 (полный) или 100 (эскиз, 98c). --no-orient отключает пиксельный
 // доворот (нос/зеркало — метаданные пары (A, F), применяются при показе, спека
 // 2026-09-21-угол-корабля-в-метаданных §5); кроп/масштаб/центрирование
 // остаются. Возвращает подсказку авто-ориентации из отчёта скрипта
 // (best-effort: нет отчёта — нулевая подсказка без ошибки).
+// Таймаут процесса не задаётся намеренно: первый вызов rembg грузит модель
+// onnx (~несколько секунд), жёсткий лимит рискует отбросить годный кадр.
 func ShipSpriteCut(pythonCmd, inPath, outPath string, canvas int) (ShipOrient, error) {
 	var orient ShipOrient
-	tol, err := ShipCutTol(inPath)
-	if err != nil {
-		return orient, err
-	}
 	tmp, err := os.CreateTemp("", "ship_cut_*.json")
 	if err != nil {
 		return orient, err
@@ -172,8 +171,8 @@ func ShipSpriteCut(pythonCmd, inPath, outPath string, canvas int) (ShipOrient, e
 	tmpPath := tmp.Name()
 	tmp.Close()
 	defer os.Remove(tmpPath)
-	args := []string{"tools/ship_sprite_cut.py", inPath, outPath, "--method", "edge",
-		"--tol", strconv.Itoa(tol), "--edge", "20", "--fill-holes", "--no-orient", "--report", tmpPath}
+	args := []string{"tools/ship_sprite_cut.py", inPath, outPath, "--method", "rembg",
+		"--fill-holes", "--no-orient", "--report", tmpPath}
 	if canvas > 0 && canvas != 200 {
 		args = append(args, "--canvas", strconv.Itoa(canvas))
 	}

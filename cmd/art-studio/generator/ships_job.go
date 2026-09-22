@@ -118,8 +118,8 @@ func (r *Runner) GenShipsBatch(races []string, per int, tags, p1o, p2o string, h
 // (2) автопроверка кадра (tools/ship_sprite_cut.py --frame-check): корабль
 // касается края или силуэт не вытянут → следующий seed (≤ shipFrameTries,
 // все негодны — берётся последний кадр); (3) Hi-Res (ShipHiResWorkflow) — по
-// запросу hires; (4) вырез/нормализация (tools/ship_sprite_cut.py, hyst
-// 12/40 + fill_holes + --no-orient: без пиксельного доворота) → sNN.png;
+// запросу hires; (4) вырез/нормализация (tools/ship_sprite_cut.py, rembg
+// + fill_holes + --no-orient: без пиксельного доворота) → sNN.png;
 // (5) метки авто-фильтра + мета (промпты, статистика попыток, тип корабля) +
 // начальная пара (A, F) из подсказки авто-носа. Мягкий СТОП, 2 воркера,
 // локальный rand.New на вызов (AGENTS.md §0). keep — не чистить пул перед

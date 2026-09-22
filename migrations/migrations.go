@@ -70,11 +70,13 @@ func Apply(db *sql.DB) error {
 	return nil
 }
 
-// relationExists проверяет наличие таблицы в схеме public.
+// relationExists проверяет наличие таблицы в текущей схеме (search_path).
+// Без префикса public.: при дефолтном search_path поведение то же, но Apply
+// работает и в отдельной схеме (интеграционные тесты, internal/integration).
 func relationExists(db *sql.DB, name string) (bool, error) {
 	var exists bool
 	if err := db.QueryRow(
-		`SELECT to_regclass('public.' || $1) IS NOT NULL`, name,
+		`SELECT to_regclass($1) IS NOT NULL`, name,
 	).Scan(&exists); err != nil {
 		return false, fmt.Errorf("check relation %s: %w", name, err)
 	}

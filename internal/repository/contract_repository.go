@@ -538,7 +538,11 @@ func (r *ContractRepository) ExpireDue(scope ContractScope) (int, error) {
 // (одна tx: истечение и завершение атомарны сообща).
 func expireDueTx(q querier, scope ContractScope) (int, error) {
 	where, args := scope.clause()
-	return sweepEscrow(q, expireDueSQL+where, args, models.ContractLogExpired, models.EscrowReasonExpired)
+	// RETURNING обязателен: sweepEscrow обрабатывает только возвращённые строки.
+	// Без него UPDATE проходит, но залог автору не возвращается и лог не пишется.
+	sqlText := expireDueSQL + where + `
+		RETURNING id, author_type, author_id, executor_id, escrow_amount, escrow_withdrawable`
+	return sweepEscrow(q, sqlText, args, models.ContractLogExpired, models.EscrowReasonExpired)
 }
 
 // ReturnEscrowForContractsTx — возврат залога всех живых контрактов области

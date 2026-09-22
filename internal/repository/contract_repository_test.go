@@ -187,7 +187,9 @@ func TestContractExpireDueReturnsEscrow(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectBegin()
-	mock.ExpectQuery(`UPDATE contracts\s+SET status = 'expired'`).
+	// RETURNING в регулярке обязателен: без него UPDATE проходит, но sweepEscrow
+	// не получает строк — залог не вернётся (баг ЧП4). Ловится только этим тестом.
+	mock.ExpectQuery(`(?s)UPDATE contracts\s+SET status = 'expired'.*RETURNING id, author_type, author_id, executor_id, escrow_amount, escrow_withdrawable`).
 		WillReturnRows(rowSet6().AddRow("c1", "faction", "f1", "u9", 700, 0))
 	mock.ExpectExec(`INSERT INTO accounts`).
 		WithArgs("faction", "f1", int64(1000000000000000)).

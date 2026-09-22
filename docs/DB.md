@@ -6,7 +6,7 @@
 ## Таблицы
 
 `worlds`, `planets` (JSONB `data`), `locations`, `users`,
-`factions`, `events`, `settlements`,
+`factions` (NPC-фракции, одна на расу: `race_id`, миграция `000066`), `events`, `settlements`,
 `goods_batches`, `planet_resources`, `compatibility_matrix`, `regions`,
 `settlement_log` (лог поселения, миграция `000024`), `npc_agents`
 (NPC-агенты, миграция `000026`, спека `20a.1` §2.1), `generation_config`
@@ -410,6 +410,12 @@ CASCADE. Итерация 3 (добыча из залежи) — без мигр
   CHECK `player_intrasystem_flights.from_type/to_type` расширен значением
   `belt` (спека поясов этап 2
   `2026-09-22-пояса-малых-тел-этап-2-показ-знание-полёт` §5.3).
+- `000066` — `000066_factions_race.sql` — фракции: одна на расу (идея
+  `2026-09-22_фракции-одна-на-расу-со-столицей`): `ALTER TABLE factions ADD COLUMN
+  IF NOT EXISTS race_id TEXT` + частичный UNIQUE `uq_factions_race (race_id)
+  WHERE race_id IS NOT NULL` (NULL разрешён — легаси-фракции без расы). Генератор —
+  `internal/generator/faction/faction.go` (`GenerateFactions`), столица — на родной
+  планете расы (`EnsureCapitals`).
 - Миграции, вступающие в силу на старте, требуют перезапуска сервера
   (`AGENTS.md` §4 п.13).
 - `VACUUM` внутрь миграции не положить — не работает внутри транзакции

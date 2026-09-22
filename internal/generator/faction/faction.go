@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
-	"zorion/internal/names"
+	"zorion/internal/races"
 )
 
 type Generator struct {
@@ -26,63 +27,120 @@ func NewGenerator(db *sql.DB, seed int64) *Generator {
 	}
 }
 
-// GenerateFactions создаёт фракции на обитаемых планетах и идемпотентно
-// добивает их столицы (спека 2026-09-21-фабрики-релиз-2-столицы-фракций §3).
-// Возвращает число созданных фракций и число фактически созданных столиц.
+// GenerateFactions создаёт по одной фракции на заселённую расу и идемпотентно
+// добивает их столицы (идея 2026-09-22 «Фракции: одна на расу со своей
+// столицей»). Кандидат — settlements с непустым race_id и population > 0;
+// родная планета расы — её поселение с наибольшим населением (при равенстве —
+// меньший planet_id, детерминированно). Фракция с уже существующим race_id
+// пропускается. Возвращает число созданных фракций и число фактически
+// созданных столиц.
 func (g *Generator) GenerateFactions() (int, int, error) {
 	rows, err := g.db.Query(`
-		SELECT p.id, p.name, p.data FROM planets p
-		WHERE EXISTS (
-			SELECT 1 FROM settlements s
-			WHERE s.planet_id = p.id AND s.population > 0
-		)
+		SELECT s.race_id, s.planet_id, s.population, p.name, p.data
+		FROM settlements s
+		JOIN planets p ON p.id = s.planet_id
+		WHERE s.race_id IS NOT NULL AND s.race_id <> '' AND s.population > 0
 	`)
 	if err != nil {
 		return 0, 0, err
 	}
 	defer rows.Close()
 
-	var planets []struct {
-		ID   string
-		Name string
-		Data map[string]interface{}
-	}
+	// Родная планета каждой расы — лучший кандидат по населению (tiebreak —
+	// меньший planet_id).
+	homeworlds := make(map[string]raceHomeworld)
 	for rows.Next() {
-		var id, name string
+		var raceID, planetID, planetName string
+		var population int
 		var dataJSON []byte
-		if err := rows.Scan(&id, &name, &dataJSON); err != nil {
+		if err := rows.Scan(&raceID, &planetID, &population, &planetName, &dataJSON); err != nil {
 			return 0, 0, err
+		}
+		if prev, ok := homeworlds[raceID]; ok && !betterHomeworld(population, planetID, prev.population, prev.planetID) {
+			continue
 		}
 		var data map[string]interface{}
 		if err := json.Unmarshal(dataJSON, &data); err != nil {
 			return 0, 0, err
 		}
-		planets = append(planets, struct {
-			ID   string
-			Name string
-			Data map[string]interface{}
-		}{ID: id, Name: name, Data: data})
+		homeworlds[raceID] = raceHomeworld{
+			planetID:   planetID,
+			planetName: planetName,
+			planetData: data,
+			population: population,
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return 0, 0, err
 	}
 
-	total := 0
-	usedNames := make(map[string]bool)
-	for _, p := range planets {
-		count := 1 + g.rng.Intn(3)
-		for i := 0; i < count; i++ {
-			faction := g.generateFaction(p.ID, p.Name, p.Data, usedNames)
-			if err := g.saveFaction(faction); err != nil {
-				return total, 0, err
-			}
-			total++
+	existing, err := g.existingRaceIDs()
+	if err != nil {
+		return 0, 0, err
+	}
+
+	raceIDs := make([]string, 0, len(homeworlds))
+	for raceID := range homeworlds {
+		raceIDs = append(raceIDs, raceID)
+	}
+	sort.Strings(raceIDs)
+
+	created := 0
+	for _, raceID := range raceIDs {
+		if existing[raceID] {
+			continue
 		}
+		hw := homeworlds[raceID]
+		faction := g.generateFaction(raceID, hw.planetID, hw.planetName, hw.planetData)
+		if err := g.saveFaction(faction); err != nil {
+			return created, 0, err
+		}
+		created++
 	}
 
 	// Столицы — всегда, и когда фракций 0 (§3: не ошибка, догон легаси-БД).
 	capitals, err := g.EnsureCapitals()
 	if err != nil {
-		return total, 0, err
+		return created, 0, err
 	}
-	return total, capitals, nil
+	return created, capitals, nil
+}
+
+// raceHomeworld — родная планета расы (лучший кандидат из её поселений).
+type raceHomeworld struct {
+	planetID   string
+	planetName string
+	planetData map[string]interface{}
+	population int
+}
+
+// betterHomeworld — кандидат лучше текущего, если население больше; при
+// равенстве — planet_id лексикографически меньше (детерминированный tiebreak).
+func betterHomeworld(population int, planetID string, curPopulation int, curPlanetID string) bool {
+	if population != curPopulation {
+		return population > curPopulation
+	}
+	return planetID < curPlanetID
+}
+
+// existingRaceIDs — множество рас, у которых фракция уже есть (идемпотентность:
+// повторный прогон только добивает недостающие).
+func (g *Generator) existingRaceIDs() (map[string]bool, error) {
+	rows, err := g.db.Query(`SELECT race_id FROM factions WHERE race_id IS NOT NULL`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	existing := make(map[string]bool)
+	for rows.Next() {
+		var raceID string
+		if err := rows.Scan(&raceID); err != nil {
+			return nil, err
+		}
+		existing[raceID] = true
+	}
+	return existing, rows.Err()
 }
 
 // EnsureCapitals — идемпотентный проход «столица на фракцию» (спека
@@ -111,8 +169,13 @@ func (g *Generator) EnsureCapitals() (int, error) {
 	return int(n), nil
 }
 
-func (g *Generator) generateFaction(planetID, planetName string, planetData map[string]interface{}, usedNames map[string]bool) *Faction {
-	name := names.GenerateFactionName(g.rng, usedNames)
+func (g *Generator) generateFaction(raceID, planetID, planetName string, planetData map[string]interface{}) *Faction {
+	// Имя фракции — название расы из каталога; fallback — race_id (каталог не
+	// загружен / расы нет в нём).
+	name := raceID
+	if race := races.ByID(raceID); race != nil && race.Name != "" {
+		name = race.Name
+	}
 	factionType := g.randomFactionType()
 
 	resources := map[string]float64{
@@ -130,6 +193,7 @@ func (g *Generator) generateFaction(planetID, planetName string, planetData map[
 		ID:          uuid.New().String(),
 		Name:        name,
 		Type:        factionType,
+		RaceID:      raceID,
 		HomeworldID: planetID,
 		Strength:    strength,
 		Resources:   resources,
@@ -198,10 +262,10 @@ func (g *Generator) generateDescription(name, ftype, planet string) string {
 func (g *Generator) saveFaction(f *Faction) error {
 	resourcesJSON, _ := json.Marshal(f.Resources)
 	query := `
-		INSERT INTO factions (id, name, type, homeworld_id, strength, resources, color, description, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
+		INSERT INTO factions (id, name, type, race_id, homeworld_id, strength, resources, color, description, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
 	`
-	_, err := g.db.Exec(query, f.ID, f.Name, f.Type, f.HomeworldID, f.Strength, resourcesJSON, f.Color, f.Description)
+	_, err := g.db.Exec(query, f.ID, f.Name, f.Type, f.RaceID, f.HomeworldID, f.Strength, resourcesJSON, f.Color, f.Description)
 	return err
 }
 
@@ -209,6 +273,7 @@ type Faction struct {
 	ID          string
 	Name        string
 	Type        string
+	RaceID      string
 	HomeworldID string
 	Strength    int
 	Resources   map[string]float64

@@ -1,10 +1,11 @@
-// Тесты столиц фракций (спека 2026-09-21-фабрики-релиз-2-столицы-фракций §3):
-// EnsureCapitals — идемпотентный проход «одна столица на фракцию» на её
-// родной планете; GenerateFactions возвращает число созданных столиц.
+// Тесты генерации фракций (идея 2026-09-22 «Фракции: одна на расу со своей
+// столицей») и столиц (спека 2026-09-21-фабрики-релиз-2-столицы-фракций §3):
+// одна фракция на заселённую расу, родная планета — крупнейшее поселение расы,
+// идемпотентность; EnsureCapitals — идемпотентный проход «одна столица на
+// фракцию» на её родной планете.
 package faction
 
 import (
-	"math/rand"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -16,8 +17,27 @@ import (
 // factions.homeworld_id, owner_id = factions.id, ON CONFLICT DO NOTHING.
 const capitalsSQLPattern = `INSERT INTO buildings \(planet_id, building_type, owner_type, owner_id\)[\s\S]*SELECT f\.homeworld_id, 'capital', 'faction', f\.id[\s\S]*ON CONFLICT DO NOTHING`
 
-// Select-запрос генератора фракций (обитаемые планеты).
-const settledPlanetsPattern = `SELECT p\.id, p\.name, p\.data FROM planets p`
+// raceCandidatesPattern — регулярка Select-запроса кандидатов: поселения с
+// непустым race_id и population > 0, с планетой (имя + data для ресурсов).
+const raceCandidatesPattern = `SELECT s\.race_id, s\.planet_id, s\.population, p\.name, p\.data[\s\S]*FROM settlements s[\s\S]*JOIN planets p ON p\.id = s\.planet_id`
+
+// existingRacesPattern — регулярка Select-запроса уже созданных рас
+// (идемпотентность: фракция с таким race_id пропускается).
+const existingRacesPattern = `SELECT race_id FROM factions WHERE race_id IS NOT NULL`
+
+// raceCandidateRows — пустая выборка кандидатов (колонки как в запросе).
+func raceCandidateRows() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{"race_id", "planet_id", "population", "name", "data"})
+}
+
+// expectFactionInsert — ожидание INSERT фракции с конкретными именем, расой и
+// родной планетой (остальные поля случайны: id/тип/ресурсы/цвет/описание).
+func expectFactionInsert(mock sqlmock.Sqlmock, name, raceID, homeworldID string) {
+	mock.ExpectExec(`INSERT INTO factions`).
+		WithArgs(sqlmock.AnyArg(), name, sqlmock.AnyArg(), raceID, homeworldID,
+			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+}
 
 // TestEnsureCapitalsInsertsOnePerFaction — EnsureCapitals вставляет по одной
 // столице на фракцию без столицы (building_type='capital',
@@ -72,42 +92,105 @@ func TestEnsureCapitalsNoFactions(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// TestGenerateFactionsReturnsCapitals — GenerateFactions завершается проходом
-// столиц: возвращает (фракции, столицы) — оба числа идут в лог/отчёт джоба
-// («N factions, M capitals», §3/§7 п.2).
-func TestGenerateFactionsReturnsCapitals(t *testing.T) {
+// TestGenerateFactionsOneFactionPerRace — одна фракция на расу (не на планету):
+// у расы humans два поселения (p1/p2), у saltfolk — одно; создаётся 2 фракции,
+// родная планета humans — крупнейшее поселение (p2, population 500).
+func TestGenerateFactionsOneFactionPerRace(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
 	defer db.Close()
 
-	planetRows := sqlmock.NewRows([]string{"id", "name", "data"}).
-		AddRow("p1", "Аврора", `{"resources":{"mineral":0.5}}`)
-	mock.ExpectQuery(settledPlanetsPattern).WillReturnRows(planetRows)
-
-	// count — число фракций на обитаемую планету (1–3). Генератор берёт его
-	// первым вызовом rng — повторяем тем же seed, чтобы мок знал число INSERT-ов.
-	count := 1 + rand.New(rand.NewSource(7)).Intn(3)
-	for i := 0; i < count; i++ {
-		mock.ExpectExec(`INSERT INTO factions`).WillReturnResult(sqlmock.NewResult(1, 1))
-	}
-	mock.ExpectExec(capitalsSQLPattern).WillReturnResult(sqlmock.NewResult(0, int64(count)))
+	mock.ExpectQuery(raceCandidatesPattern).WillReturnRows(
+		raceCandidateRows().
+			AddRow("humans", "p1", 100, "Аврора", `{"resources":{"mineral":0.5}}`).
+			AddRow("humans", "p2", 500, "Борей", `{"resources":{"mineral":0.9}}`).
+			AddRow("saltfolk", "p3", 50, "Вега", `{"resources":{"mineral":0.1}}`))
+	mock.ExpectQuery(existingRacesPattern).WillReturnRows(sqlmock.NewRows([]string{"race_id"}))
+	expectFactionInsert(mock, "humans", "humans", "p2")
+	expectFactionInsert(mock, "saltfolk", "saltfolk", "p3")
+	mock.ExpectExec(capitalsSQLPattern).WillReturnResult(sqlmock.NewResult(0, 2))
 
 	factions, capitals, err := NewGenerator(db, 7).GenerateFactions()
 	require.NoError(t, err)
-	require.Equal(t, count, factions, "на одну обитаемую планету — 1–3 фракции")
-	require.Equal(t, count, capitals, "на каждую новую фракцию — столица")
+	require.Equal(t, 2, factions, "по одной фракции на расу")
+	require.Equal(t, 2, capitals, "на каждую новую фракцию — столица")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// TestGenerateFactionsNoPlanetsStillEnsuresCapitals — обитаемых планет нет:
-// фракции не создаются (0), но догон столиц выполняется (легаси-БД, §3).
-func TestGenerateFactionsNoPlanetsStillEnsuresCapitals(t *testing.T) {
+// TestGenerateFactionsHomeworldTiebreak — при равном населении поселений расы
+// родной становится планета с меньшим planet_id (детерминированно).
+func TestGenerateFactionsHomeworldTiebreak(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
 	defer db.Close()
 
-	mock.ExpectQuery(settledPlanetsPattern).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "data"}))
+	mock.ExpectQuery(raceCandidatesPattern).WillReturnRows(
+		raceCandidateRows().
+			AddRow("humans", "p2", 100, "Борей", `{}`).
+			AddRow("humans", "p1", 100, "Аврора", `{}`))
+	mock.ExpectQuery(existingRacesPattern).WillReturnRows(sqlmock.NewRows([]string{"race_id"}))
+	expectFactionInsert(mock, "humans", "humans", "p1")
+	mock.ExpectExec(capitalsSQLPattern).WillReturnResult(sqlmock.NewResult(0, 1))
+
+	factions, capitals, err := NewGenerator(db, 7).GenerateFactions()
+	require.NoError(t, err)
+	require.Equal(t, 1, factions)
+	require.Equal(t, 1, capitals)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestGenerateFactionsIdempotent — фракция с уже существующим race_id
+// пропускается: повторный прогон создаёт 0 фракций, столицы только добиваются.
+func TestGenerateFactionsIdempotent(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectQuery(raceCandidatesPattern).WillReturnRows(
+		raceCandidateRows().AddRow("humans", "p1", 100, "Аврора", `{}`))
+	mock.ExpectQuery(existingRacesPattern).
+		WillReturnRows(sqlmock.NewRows([]string{"race_id"}).AddRow("humans"))
+	// INSERT фракции не ожидается: есть фракция с race_id = humans.
+	mock.ExpectExec(capitalsSQLPattern).WillReturnResult(sqlmock.NewResult(0, 0))
+
+	factions, capitals, err := NewGenerator(db, 7).GenerateFactions()
+	require.NoError(t, err)
+	require.Equal(t, 0, factions, "раса уже имеет фракцию — пропуск")
+	require.Equal(t, 0, capitals)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestGenerateFactionsOnlySettledRaces — число фракций задаётся выборкой
+// поселений, а не каталогом рас: раса без поселений кандидатом не становится
+// (её просто нет в выборке settled-рас).
+func TestGenerateFactionsOnlySettledRaces(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectQuery(raceCandidatesPattern).WillReturnRows(
+		raceCandidateRows().AddRow("humans", "p1", 100, "Аврора", `{}`))
+	mock.ExpectQuery(existingRacesPattern).WillReturnRows(sqlmock.NewRows([]string{"race_id"}))
+	expectFactionInsert(mock, "humans", "humans", "p1")
+	mock.ExpectExec(capitalsSQLPattern).WillReturnResult(sqlmock.NewResult(0, 1))
+
+	factions, capitals, err := NewGenerator(db, 7).GenerateFactions()
+	require.NoError(t, err)
+	require.Equal(t, 1, factions, "только заселённые расы дают фракции")
+	require.Equal(t, 1, capitals)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestGenerateFactionsNoRacesStillEnsuresCapitals — заселённых рас нет: фракции
+// не создаются (0), но догон столиц выполняется (легаси-БД).
+func TestGenerateFactionsNoRacesStillEnsuresCapitals(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectQuery(raceCandidatesPattern).
+		WillReturnRows(raceCandidateRows())
+	mock.ExpectQuery(existingRacesPattern).WillReturnRows(sqlmock.NewRows([]string{"race_id"}))
 	mock.ExpectExec(capitalsSQLPattern).WillReturnResult(sqlmock.NewResult(0, 0))
 
 	factions, capitals, err := NewGenerator(db, 7).GenerateFactions()

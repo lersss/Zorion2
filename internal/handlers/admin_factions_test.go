@@ -49,13 +49,13 @@ func expectEmptyDeposits(mock sqlmock.Sqlmock) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "planet_id", "good_id", "name", "stratum", "wealth", "amount"}))
 }
 
-// expectSettledPlanetsCount — счётчик обитаемых планет (знаменатель джоба).
-func expectSettledPlanetsCount(mock sqlmock.Sqlmock, n int) {
-	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM planets p\s+WHERE EXISTS`).
+// expectRaceCandidateCount — счётчик заселённых рас (знаменатель джоба).
+func expectRaceCandidateCount(mock sqlmock.Sqlmock, n int) {
+	mock.ExpectQuery(`SELECT COUNT\(DISTINCT s\.race_id\) FROM settlements s`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(n))
 }
 
-// TestGenerateFactionsEmptyUniverseSyncCapitals — ветка «нет обитаемых планет»
+// TestGenerateFactionsEmptyUniverseSyncCapitals — ветка «нет заселённых рас»
 // (total == 0): синхронный догон столиц под гейтом, ответ содержит
 // аддитивное поле capitals = возврат EnsureCapitals (M).
 func TestGenerateFactionsEmptyUniverseSyncCapitals(t *testing.T) {
@@ -63,7 +63,7 @@ func TestGenerateFactionsEmptyUniverseSyncCapitals(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	expectSettledPlanetsCount(mock, 0)
+	expectRaceCandidateCount(mock, 0)
 	mock.ExpectExec(`INSERT INTO buildings \(planet_id, building_type, owner_type, owner_id\)`).
 		WillReturnResult(sqlmock.NewResult(0, 3))
 
@@ -79,7 +79,7 @@ func TestGenerateFactionsEmptyUniverseSyncCapitals(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, "factions_generated", resp.Status)
-	require.Equal(t, 0, resp.Total, "total — число планет с населением, не фракций")
+	require.Equal(t, 0, resp.Total, "total — число рас-кандидатов, не фракций")
 	require.Equal(t, 3, resp.Capitals, "capitals — из возврата EnsureCapitals")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -93,7 +93,7 @@ func TestGenerateFactionsEmptyUniversePacmanGate(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	expectSettledPlanetsCount(mock, 0)
+	expectRaceCandidateCount(mock, 0)
 	// INSERT в buildings не ожидается: сработай догон — был бы 500, не 409.
 
 	h := &AdminHandlers{db: db}
@@ -114,7 +114,7 @@ func TestGenerateFactionsEmptyUniverseMutexGate(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	expectSettledPlanetsCount(mock, 0)
+	expectRaceCandidateCount(mock, 0)
 
 	h := &AdminHandlers{db: db}
 	rec := httptest.NewRecorder()

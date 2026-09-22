@@ -626,10 +626,21 @@ func (h *AdminHandlers) GeneratePrototypePlanet(w http.ResponseWriter, r *http.R
 
 	const population = 10
 	settlementID := uuid.New().String()
+	// Тип поселения — настоящая связь (спека итерации 4 §3.4): дефолтный подтип
+	// резолвится один раз; типа нет → NULL (чтение применит DefaultEatK).
+	settlementTypeID, err := repository.ResolveDefaultSettlementTypeID(h.db)
+	if err != nil {
+		http.Error(w, "Failed to resolve settlement type: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	var settlementTypeArg interface{}
+	if settlementTypeID != 0 {
+		settlementTypeArg = settlementTypeID
+	}
 	if _, err := tx.Exec(`
-		INSERT INTO settlements (id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-		settlementID, pd.ID, population, float64(population), 85, now, now, now,
+		INSERT INTO settlements (id, planet_id, population, population_exact, stability, computed_at, settlement_type_id, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+		settlementID, pd.ID, population, float64(population), 85, now, settlementTypeArg, now, now,
 	); err != nil {
 		http.Error(w, "Failed to insert settlement: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -661,15 +672,12 @@ func (h *AdminHandlers) GeneratePrototypePlanet(w http.ResponseWriter, r *http.R
 
 func (h *AdminHandlers) GenerateFactions(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.db.Query(`
-		SELECT COUNT(*) FROM planets p
-		WHERE EXISTS (
-			SELECT 1 FROM settlements s
-			WHERE s.planet_id = p.id AND s.population > 0
-		)
+		SELECT COUNT(DISTINCT s.race_id) FROM settlements s
+		WHERE s.race_id IS NOT NULL AND s.race_id <> '' AND s.population > 0
 	`)
 	if err != nil {
 		log.Printf("❌ GenerateFactions: count error: %v", err)
-		http.Error(w, "Failed to count settled planets", http.StatusInternalServerError)
+		http.Error(w, "Failed to count settled races", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -696,7 +704,7 @@ func (h *AdminHandlers) GenerateFactions(w http.ResponseWriter, r *http.Request)
 	factionGen := faction.NewGenerator(h.db, 0)
 
 	if total == 0 {
-		// Нет обитаемых планет: фракции не создаются, но догон столиц
+		// Нет заселённых рас: фракции не создаются, но догон столиц
 		// легаси-фракций выполняется синхронно под тем же гейтом (§3).
 		defer universeMutationMu.Unlock()
 		capitals, err := factionGen.EnsureCapitals()

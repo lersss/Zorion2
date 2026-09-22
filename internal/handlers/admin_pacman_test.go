@@ -496,8 +496,8 @@ func TestPacmanBlocksOtherHandlers(t *testing.T) {
 			"created_at", "updated_at",
 		}).AddRow("w1", "Мир", 0, 0, "G", 5772, "star", "single", nil, nil, nil, time.Now(), time.Now()))
 	// GenerateFactions/GenerateRaceSettlements/GenerateSettlements считают
-	// планеты ДО гварда.
-	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM planets p\s+WHERE EXISTS`).
+	// кандидатов ДО гварда.
+	mock.ExpectQuery(`SELECT COUNT\(DISTINCT s\.race_id\) FROM settlements s`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM planets`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))

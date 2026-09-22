@@ -1,8 +1,9 @@
 // tools/e2e/belt-check.js
 // QA-смоук этапа 2 поясов малых тел (спека
 // 2026-09-22-пояса-малых-тел-этап-2-показ-знание-полёт §7.6).
-// Сценарий: открыть модалку своей системы -> секция «Пояса» видна (имя/радиус/
-// масса) -> «🚀 Лететь» к поясу -> полоса полёта (модалка не закрылась) ->
+// Сценарий: открыть модалку своей системы -> единая секция «Объекты» (пояса
+// объединены с планетами 2026-09-22) видна (имя/радиус/масса) ->
+// «🚀 Лететь» к поясу -> полоса полёта (модалка не закрылась) ->
 // прибытие -> бейдж «вы в поясе»; состав появляется после скана/присутствия;
 // для WD-мира значок «обломочный пояс» НЕ показывается (заменён секцией).
 //
@@ -71,13 +72,13 @@ async function main() {
   await page.waitForSelector('#system-modal-overlay', { timeout: 15000 });
   await page.waitForTimeout(1500);
 
-  // 2. Секция «Пояса» видна.
+  // 2. Секция «Объекты» видна (пояса объединены с планетами, 2026-09-22).
   const beltsHeader = await page.evaluate(() => {
-    const h = [...document.querySelectorAll('#right-panel h4')].find(e => e.textContent.startsWith('Пояса'));
+    const h = [...document.querySelectorAll('#right-panel h4')].find(e => e.textContent.startsWith('Объекты'));
     return h ? h.textContent : null;
   });
-  if (!beltsHeader) { report('belts-section', 'FAIL', 'секция «Пояса» не найдена'); return finish(1); }
-  report('belts-section', 'PASS', beltsHeader);
+  if (!beltsHeader) { report('objects-section', 'FAIL', 'секция «Объекты» не найдена'); return finish(1); }
+  report('objects-section', 'PASS', beltsHeader);
 
   // 3. Строка пояса: имя/радиус/масса.
   const beltRow = await page.evaluate(() => {

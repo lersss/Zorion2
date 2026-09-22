@@ -95,7 +95,7 @@ export function exoticStarInfo() {
 }
 
 // renderRightPanel — рисует правую панель модалки:
-// список планет системы (selectedIndex === null/undefined)
+// список объектов системы (selectedIndex === null/undefined)
 // или карточку выбранной планеты.
 export function renderRightPanel(planets, selectedIndex) {
     const panel = document.getElementById('right-panel');
@@ -139,9 +139,10 @@ function syncAutoRefreshTimer() {
     }, 3000);
 }
 
-// renderPlanetsList — список планет системы в правой панели (70a): вид по
-// умолчанию при открытии модалки и при снятии выделения планеты. Информация
-// о звезде вынесена в тултип при наведении на звезду на канвасе (events.js).
+// renderPlanetsList — список объектов системы в правой панели (70a; единая
+// секция «Объекты» с 2026-09-22): вид по умолчанию при открытии модалки и при
+// снятии выделения планеты. Информация о звезде вынесена в тултип при
+// наведении на звезду на канвасе (events.js).
 export function renderPlanetsList() {
     stopAutoRefresh();
     const panel = document.getElementById('right-panel');
@@ -150,32 +151,27 @@ export function renderPlanetsList() {
     const planets = (modalState.planets || []).slice();
 
     // Модалка без деталей системы (403, спека 77a §5.5/И11): звезда открыта,
-    // планеты/поселения — честная заглушка вместо списка (стиль как
-    // «Нет данных — купить отчёт» в tabs.js).
+    // объекты/поселения — честная заглушка вместо списка (стиль как
+    // «Нет данных — купить отчёт» в tabs.js). Один блок «Объекты» (решение
+    // создателя 2026-09-22: не делить на планеты и пояса).
     if (modalState.restricted) {
         panel.innerHTML = `
             <div style="background:#0d0d1a; border-radius:8px; padding:10px;">
-                <h4 style="margin:0 0 8px 0; font-size:1rem; color:#aaa;">Планеты</h4>
+                <h4 style="margin:0 0 8px 0; font-size:1rem; color:#aaa;">Объекты</h4>
                 <p style="margin:8px 0; padding:8px 10px; background:rgba(148,163,184,0.08); border:1px dashed rgba(148,163,184,0.3); border-radius:8px; color:#94a3b8; font-size:0.85rem;">
-                    Система вне зоны видимости: детали (планеты, поселения) недоступны — долетите или купите отчёт
-                </p>
-            </div>
-            <div style="background:#0d0d1a; border-radius:8px; padding:10px; margin-top:10px;">
-                <h4 style="margin:0 0 8px 0; font-size:1rem; color:#aaa;">Пояса</h4>
-                <p style="margin:8px 0; padding:8px 10px; background:rgba(148,163,184,0.08); border:1px dashed rgba(148,163,184,0.3); border-radius:8px; color:#94a3b8; font-size:0.85rem;">
-                    Система вне зоны видимости: детали (пояса) недоступны — долетите или купите отчёт
+                    Система вне зоны видимости: детали (объекты, поселения) недоступны — долетите или купите отчёт
                 </p>
             </div>
         `;
         return;
     }
 
+    const belts = modalState.belts || [];
     panel.innerHTML = `
         <div style="background:#0d0d1a; border-radius:8px; padding:10px;">
-            <h4 style="margin:0 0 8px 0; font-size:1rem; color:#aaa;">Планеты (${planets.length})</h4>
-            ${planetsTable(planets)}
+            <h4 style="margin:0 0 8px 0; font-size:1rem; color:#aaa;">Объекты (${planets.length + belts.length})</h4>
+            ${objectsTable(planets)}
         </div>
-        ${beltsSection()}
     `;
 
     // Кликабельные строки планет — обработчики вешаем после вставки.
@@ -199,33 +195,30 @@ function beltKindLabel(kind) {
     return labels[kind] || kind || 'пояс';
 }
 
-// beltsSection — секция «Пояса» в правой панели (спека поясов этап 2 §7.1):
-// рядом с блоком «Планеты», под ним. Строка пояса — тип, имя, радиус/
-// протяжённость, типичное тело, масса; при знании — состав. Кнопка полёта:
-// своя система — «🚀 Лететь», чужая — «🚀 Лететь · через систему» (§7.1).
-// Бейдж «● Вы в поясе» — если позиция игрока в этом поясе.
-function beltsSection() {
-    const belts = modalState.belts || [];
+// beltRow — строка пояса в объединённой таблице «Объекты» (решение создателя
+// 2026-09-22; спека поясов этап 2 §7.1): тип, имя, радиус/протяжённость,
+// типичное тело, масса; при знании — состав. Кнопка полёта: своя система —
+// «🚀 Лететь», чужая — «🚀 Лететь · через систему». Бейдж «● Вы в поясе» —
+// если позиция игрока в этом поясе. Полноширинная строка (colspan=4), без
+// data-index: клик по ней карточку не открывает (в отличие от строк планет).
+function beltRow(b) {
     const myPos = modalState.myPosition;
     const inOwnSystem = !!myPos;
 
-    let rows = '';
-    if (belts.length === 0) {
-        rows = `<div style="color:#666; font-size:0.9rem;">Поясов нет</div>`;
-    } else {
-        rows = belts.map(b => {
-            const onThisBelt = myPos && myPos.status === 'orbit' &&
-                myPos.object_type === 'belt' && myPos.object_id === b.id;
-            const badge = onThisBelt
-                ? `<span style="background:rgba(74,222,128,0.15); border:1px solid rgba(74,222,128,0.4); color:#4ade80; border-radius:10px; padding:2px 8px; font-size:0.75rem; margin-left:6px;">● Вы в поясе</span>`
-                : '';
-            const flyBtn = inOwnSystem
-                ? `<button data-belt-fly="${b.id}" style="background:#2a2a4a; border:none; color:#fde68a; padding:4px 10px; border-radius:4px; cursor:pointer; font-size:0.85rem;">🚀 Лететь</button>`
-                : `<button data-belt-composite-fly="${b.id}" style="background:#2a2a4a; border:none; color:#fde68a; padding:4px 10px; border-radius:4px; cursor:pointer; font-size:0.85rem;">🚀 Лететь · через систему</button>`;
-            const comp = (b.composition && Object.keys(b.composition).length)
-                ? `<div style="color:#94a3b8; font-size:0.8rem;">Состав: ${Object.entries(b.composition).map(([k, v]) => `${k} ${(v * 100).toFixed(0)}%`).join(', ')}</div>`
-                : `<div style="color:#64748b; font-size:0.8rem;">Состав: нет данных — просканируйте систему в радиусе или долетите до пояса</div>`;
-            return `
+    const onThisBelt = myPos && myPos.status === 'orbit' &&
+        myPos.object_type === 'belt' && myPos.object_id === b.id;
+    const badge = onThisBelt
+        ? `<span style="background:rgba(74,222,128,0.15); border:1px solid rgba(74,222,128,0.4); color:#4ade80; border-radius:10px; padding:2px 8px; font-size:0.75rem; margin-left:6px;">● Вы в поясе</span>`
+        : '';
+    const flyBtn = inOwnSystem
+        ? `<button data-belt-fly="${b.id}" style="background:#2a2a4a; border:none; color:#fde68a; padding:4px 10px; border-radius:4px; cursor:pointer; font-size:0.85rem;">🚀 Лететь</button>`
+        : `<button data-belt-composite-fly="${b.id}" style="background:#2a2a4a; border:none; color:#fde68a; padding:4px 10px; border-radius:4px; cursor:pointer; font-size:0.85rem;">🚀 Лететь · через систему</button>`;
+    const comp = (b.composition && Object.keys(b.composition).length)
+        ? `<div style="color:#94a3b8; font-size:0.8rem;">Состав: ${Object.entries(b.composition).map(([k, v]) => `${k} ${(v * 100).toFixed(0)}%`).join(', ')}</div>`
+        : `<div style="color:#64748b; font-size:0.8rem;">Состав: нет данных — просканируйте систему в радиусе или долетите до пояса</div>`;
+    return `
+        <tr>
+            <td colspan="4" style="padding:0;">
                 <div style="border-bottom:1px solid #1a1a2e; padding:6px 0;">
                     <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
                         <div>
@@ -242,15 +235,8 @@ function beltsSection() {
                     </div>
                     ${comp}
                 </div>
-            `;
-        }).join('');
-    }
-
-    return `
-        <div style="background:#0d0d1a; border-radius:8px; padding:10px; margin-top:10px;">
-            <h4 style="margin:0 0 8px 0; font-size:1rem; color:#aaa;">Пояса (${belts.length})</h4>
-            ${rows}
-        </div>
+            </td>
+        </tr>
     `;
 }
 
@@ -359,42 +345,75 @@ export function exoticStarReference(starType) {
     return ref[starType] || null;
 }
 
-// ---------- СПИСОК ПЛАНЕТ (правая панель) ----------
+// ---------- СПИСОК ОБЪЕКТОВ (правая панель) ----------
 
-// planetsTable — компактная таблица планет для правой панели.
-// Строки data-index — по ним работает общий клик в index.js.
-function planetsTable(planets) {
-    if (!planets || planets.length === 0) {
-        return '<div style="color:#666; font-size:0.9rem;">Нет планет</div>';
+// objectsTable — объединённая таблица объектов системы (планеты + пояса) в
+// порядке удалённости от звезды (решение создателя 2026-09-22, вариант «а»):
+// пояс встаёт на своё место между планетами по радиусу. Строки планет
+// сохраняют data-index (общий клик в index.js открывает карточку), пояс —
+// полноширинная строка без data-index.
+function objectsTable(planets) {
+    const belts = modalState.belts || [];
+    const entries = [];
+
+    // Ключ сортировки: планета — orbit_radius_au (фолбэк — orbit_index),
+    // пояс — radius_au (середина пояса). Пояс без радиуса — в конец.
+    planets.forEach((p, idx) => {
+        const au = Number(p.orbit_radius_au);
+        const key = (p.orbit_radius_au != null && isFinite(au))
+            ? au
+            : (typeof p.orbit_index === 'number' ? p.orbit_index : idx);
+        entries.push({ key, planet: p, idx });
+    });
+    belts.forEach(b => {
+        const au = Number(b.radius_au);
+        entries.push({ key: (b.radius_au != null && isFinite(au)) ? au : Infinity, belt: b });
+    });
+
+    if (entries.length === 0) {
+        return '<div style="color:#666; font-size:0.9rem;">Объектов нет</div>';
     }
-    let html = `
+
+    entries.sort((a, b) => a.key - b.key);
+
+    let rows = '';
+    entries.forEach(e => {
+        rows += e.belt ? beltRow(e.belt) : planetRow(e.planet, e.idx);
+    });
+
+    return `
         <table style="width:100%; border-collapse: collapse; font-size: 0.9rem;">
             <thead>
                 <tr>
-                    <th style="text-align:left; color:#888; border-bottom:1px solid #333; padding:2px 4px;">Планета</th>
+                    <th style="text-align:left; color:#888; border-bottom:1px solid #333; padding:2px 4px;">Объект</th>
                     <th style="text-align:left; color:#888; border-bottom:1px solid #333; padding:2px 4px;">Тип</th>
                     <th style="text-align:left; color:#888; border-bottom:1px solid #333; padding:2px 4px;">Раз.</th>
                     <th style="text-align:left; color:#888; border-bottom:1px solid #333; padding:2px 4px;">T</th>
                 </tr>
             </thead>
             <tbody>
+            ${rows}</tbody>
+        </table>
     `;
-    planets.forEach((p, idx) => {
-        // Населённые планеты отмечаем домиком (пожелание создателя 2026-09-17).
-        const inhabited = planetPopulationAt(p, Date.now()) > 0;
-        const nameCell = inhabited
-            ? `<span title="Населена">🏠 ${capitalize(p.name || (idx + 1))}</span>`
-            : `${capitalize(p.name || (idx + 1))}`;
-        html += `
-            <tr data-index="${idx}" style="border-bottom: 1px solid #1a1a2e; cursor: pointer;">
-                <td style="padding:2px 4px;">${nameCell}</td>
-                <td style="padding:2px 4px;">${p.type || '?'}</td>
-                <td style="padding:2px 4px;">${p.size ? p.size.toFixed(1) : '-'}</td>
-                <td style="padding:2px 4px;">${p.temperature ? kelvinToCelsius(p.temperature) + '°' : '-'}</td>
-            </tr>
-        `;
-    });
-    return html + '</tbody></table>';
+}
+
+// planetRow — строка планеты для объединённой таблицы. data-index — индекс в
+// исходном массиве planets (не позиция в объединённом списке): на него
+// завязан общий клик в index.js.
+function planetRow(p, idx) {
+    // Населённые планеты отмечаем домиком (пожелание создателя 2026-09-17).
+    const inhabited = planetPopulationAt(p, Date.now()) > 0;
+    const nameCell = inhabited
+        ? `<span title="Населена">🏠 ${capitalize(p.name || (idx + 1))}</span>`
+        : `${capitalize(p.name || (idx + 1))}`;
+    return `
+        <tr data-index="${idx}" style="border-bottom: 1px solid #1a1a2e; cursor: pointer;">
+            <td style="padding:2px 4px;">${nameCell}</td>
+            <td style="padding:2px 4px;">${p.type || '?'}</td>
+            <td style="padding:2px 4px;">${p.size ? p.size.toFixed(1) : '-'}</td>
+            <td style="padding:2px 4px;">${p.temperature ? kelvinToCelsius(p.temperature) + '°' : '-'}</td>
+        </tr>
+    `;
 }
 
 // ---------- КАРТОЧКА ПЛАНЕТЫ ----------

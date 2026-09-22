@@ -53,7 +53,7 @@
 
 | Файл | Кто правит | До какого коммита |
 |---|---|---|
-| `migrations/000064_settlement_branches.sql`, `internal/economy/settlement/branch*.go`, `internal/models/economy.go`, `internal/repository/branch_repository.go`, `planet_repo.go`, `goods_repository.go`, `internal/handlers/admin_settlement_branches.go`, `planet_visibility.go`, `admin_universe.go`, `studio_handlers.go`, `web/static/js/modal/branches.js`, `modal/tabs.js` (+ тесты) | @developer (ветка поселения — итерация 2) | до коммита задачи «ветка поселения» |
+| `internal/economy/settlement/branch*.go`, `internal/repository/branch_repository.go`, `planet_repo.go`, `internal/handlers/planet_visibility.go`, `web/static/js/modal/deposits.js`, `modal/tabs.js`, `web/frontend_deposits_test.go` (+ тесты) | @developer (добыча ветки из залежи — итерация 3) | до коммита задачи «добыча из залежи» |
 
 ## Занято ранее (историческое, не блокирует — чистится @manager по мере надобности)
 

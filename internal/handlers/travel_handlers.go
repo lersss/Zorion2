@@ -361,6 +361,15 @@ func (h *TravelHandlers) StartTravel(w http.ResponseWriter, r *http.Request) {
 	// выбор мира отправления обрабатывается редиректом выше (разворот из
 	// текущей точки P), а не 400.
 	if flight := h.travelManager.GetFlight(userID); flight == nil && fromWorldID == req.WorldID {
+		// Композитный запрос (destination) в СВОЮ систему (баг 2026-09-22):
+		// игрок уже здесь, цель внутри этой же системы — это внутрисистемный
+		// полёт, а не «Already in this world». Понятная деградация вместо
+		// молчаливой ошибки: клиент после фикса шлёт такой запрос только при
+		// рассинхроне, ответ подсказывает корректный путь.
+		if dest != nil {
+			http.Error(w, "Вы уже в этой системе — используйте внутрисистемный полёт", http.StatusBadRequest)
+			return
+		}
 		http.Error(w, "Already in this world", http.StatusBadRequest)
 		return
 	}

@@ -77,6 +77,12 @@ func (h *AdminHandlers) GetPlanetsByWorld(w http.ResponseWriter, r *http.Request
 	// пояса, спека поясов этап 2 §4.3); для admin/skycomposer — false (не
 	// используется: они видят пояса целиком).
 	inRadar := false
+	// inOwnSystem — «своя система» (баг 2026-09-22): current_world_id == worldID,
+	// независимо от активного межзвёздного полёта и наличия позиции. Явный
+	// признак для клиента (кнопка полёта / пометка своей системы) — my_position
+	// пуст в окне прибытия/межзвёздного полёта, и косвенный вывод по нему ломался
+	// (кнопка пояса показывала композитный маршрут → 400 в своей системе).
+	inOwnSystem := false
 	var belts []models.Belt
 	if h.visibility != nil {
 		userID, _ := r.Context().Value(auth.UserIDKey).(string)
@@ -84,6 +90,12 @@ func (h *AdminHandlers) GetPlanetsByWorld(w http.ResponseWriter, r *http.Request
 		if err != nil || user == nil {
 			writeJSONError(w, "Пользователь не найден", http.StatusNotFound)
 			return
+		}
+		// Явный признак «своя система» (баг 2026-09-22): не зависит от
+		// GetFlight/my_position — иначе в окне прибытия/межзвёздного полёта
+		// система ошибочно считалась чужой.
+		if user.CurrentWorldID != nil && *user.CurrentWorldID == worldID {
+			inOwnSystem = true
 		}
 		// Гейт видимости (403) — ДО загрузки поясов: система вне радиуса и не
 		// «зажжена» знанием → отказ, запрос поясов не тратится.
@@ -191,6 +203,7 @@ func (h *AdminHandlers) GetPlanetsByWorld(w http.ResponseWriter, r *http.Request
 		Belts         interface{}             `json:"belts"`
 		CompanionID   string                  `json:"companion_id,omitempty"`
 		MyPosition    *models.CurrentPosition `json:"my_position"`
+		InOwnSystem   bool                    `json:"in_own_system"`
 	}{
 		WorldName:     worldName,
 		SpectralClass: spectralClass,
@@ -206,6 +219,7 @@ func (h *AdminHandlers) GetPlanetsByWorld(w http.ResponseWriter, r *http.Request
 		Belts:         beltsOut,
 		CompanionID:   companionID,
 		MyPosition:    myPosition,
+		InOwnSystem:   inOwnSystem,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

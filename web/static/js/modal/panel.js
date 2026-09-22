@@ -1,5 +1,5 @@
 // web/static/js/modal/panel.js
-import { modalState } from './state.js';
+import { modalState, flightModeForSystem } from './state.js';
 import { drawSystem } from './modal_render.js';
 import { renderTabContent, renderSatelliteCard } from './tabs.js';
 import { planetPopulationAt } from './extrapolate.js';
@@ -203,7 +203,10 @@ function beltKindLabel(kind) {
 // data-index: клик по ней карточку не открывает (в отличие от строк планет).
 function beltRow(b) {
     const myPos = modalState.myPosition;
-    const inOwnSystem = !!myPos;
+    // «Своя система» — явный флаг сервера (flightModeForSystem), а не наличие
+    // позиции (баг 2026-09-22: в окне прибытия/межзвёздного полёта my_position
+    // пуст, и кнопка пояса ошибочно становилась композитной → 400).
+    const inOwnSystem = flightModeForSystem() === 'intra';
 
     const onThisBelt = myPos && myPos.status === 'orbit' &&
         myPos.object_type === 'belt' && myPos.object_id === b.id;
@@ -249,17 +252,19 @@ function wireBeltButtons(panel) {
 
     panel.querySelectorAll('[data-belt-fly]').forEach(btn => {
         const beltId = btn.dataset.beltFly;
-        const disabled = !myPos || !modalState.hasEngine || !!modalState.interstellarFlight ||
-            (myPos.status === 'orbit' && myPos.object_type === 'belt' && myPos.object_id === beltId) ||
-            (myPos.status === 'in_flight' && myPos.to_type === 'belt' && myPos.to_id === beltId) ||
-            (myPos.status === 'in_flight' && myPos.from_type === 'belt' && myPos.from_id === beltId);
+        // Отсутствие myPos НЕ блокирует (баг 2026-09-22): в своей системе
+        // позиция может быть пуста в окне прибытия — кнопка обязана работать
+        // (внутрисистемный старт). Активный межзвёздный по-прежнему блокирует.
+        const disabled = !modalState.hasEngine || !!modalState.interstellarFlight ||
+            (myPos && myPos.status === 'orbit' && myPos.object_type === 'belt' && myPos.object_id === beltId) ||
+            (myPos && myPos.status === 'in_flight' && myPos.to_type === 'belt' && myPos.to_id === beltId) ||
+            (myPos && myPos.status === 'in_flight' && myPos.from_type === 'belt' && myPos.from_id === beltId);
         if (disabled) {
             btn.disabled = true;
             btn.style.opacity = '0.4';
             btn.style.cursor = 'not-allowed';
             if (!modalState.hasEngine) btn.title = 'Двигатель не установлен';
             else if (modalState.interstellarFlight) btn.title = 'Вы в межзвёздном полёте — дождитесь прибытия';
-            else if (!myPos) btn.title = 'Внутрисистемный полёт — только в своей системе';
             else btn.title = 'Вы уже в поясе';
         } else {
             btn.addEventListener('click', () => {

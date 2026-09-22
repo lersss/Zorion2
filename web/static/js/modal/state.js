@@ -76,6 +76,11 @@ arrivalObject: null,
     // /api/worlds/{id}/planets; null = игрок не в этой системе. При активном
     // внутрисистемном полёте — {status:'in_flight', from, to, start_time, arrive_at}.
     myPosition: null,
+    // Явный признак «своя система» из ответа /api/worlds/{id}/planets
+    // (in_own_system, баг 2026-09-22): current_world_id == worldId. НЕ выводить
+    // «свою систему» из myPosition != null — позиция пуста в окне прибытия/
+    // межзвёздного полёта, и кнопка полёта ошибочно становилась композитной.
+    inOwnSystem: false,
     companionId: null,   // синтетический id компаньона (companion:<world>, §3.1)
     systemPlayers: [],   // чужие игроки в этой системе (опрос 5 с, §5.4): {id, username, status, object_type, object_id, ...}
     shipIcon: '',        // спрайт игрока для маркера «я здесь»/корабля в полёте (спека 99.2.27 §5.8/§5.11)
@@ -93,6 +98,18 @@ arrivalObject: null,
     previousPopulation: {},  // planetId -> население на прошлый refresh, для стрелочки тренда
     previousSettlementPop: {}  // settlementId -> население на прошлый refresh, вкладка «Поселения»
 };
+
+// flightModeForSystem — режим полёта в модалке: 'intra' — своя система
+// (внутрисистемный полёт, кнопка «🚀 Лететь»), 'composite' — чужая система или
+// активный межзвёздный полёт (композитный «🚀 Лететь · через систему»). «Своя
+// система» — ЯВНЫЙ флаг сервера inOwnSystem (current_world_id == worldId, баг
+// 2026-09-22), а не косвенный myPosition != null: позиция пуста в окне
+// прибытия/межзвёздного полёта, и кнопка ошибочно становилась композитной
+// (сервер → 400 «Already in this world»). Межзвёздный полёт в своей системе —
+// композитный: это редирект /travel (спека 99.2.30 §3.4/§3.5).
+export function flightModeForSystem() {
+    return (modalState.inOwnSystem && !modalState.interstellarFlight) ? 'intra' : 'composite';
+}
 
 export function resetState() {
     modalState.zoom = 1;
@@ -117,6 +134,7 @@ export function resetState() {
     modalState.restricted = false;
     modalState.belts = [];
     modalState.myPosition = null;
+    modalState.inOwnSystem = false;
     modalState.companionId = null;
     modalState.systemPlayers = [];
     modalState.shipIcon = '';

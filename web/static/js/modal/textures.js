@@ -11,7 +11,9 @@ const textureCache = new Map();
 // PNG после скана чужой планеты. 401 → reject без редиректа (фолбэк-круг на
 // канвасе, §6.1).
 export function getPlanetTexture(planet, size) {
-    const own = !!modalState.myPosition;
+    // own — своя система (in_own_system с сервера, баг 2026-09-22): режим full
+    // решает сервер по current_world_id == мира планеты (не по my_position).
+    const own = !!modalState.inOwnSystem;
     const known = !!planet.knowledge;
     const key = `planet_${planet.id}_${size}_${own ? 'own' : (known ? 'known' : 'unknown')}`;
     if (textureCache.has(key)) {

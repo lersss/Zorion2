@@ -5,6 +5,8 @@
 #     remove_bg_edge (барьер по размытой кромке) сохраняет;
 #  2) magenta-хромакей (рецепт 2026-09-22): remove_bg_chroma удаляет ровный
 #     magenta-фон, НЕ выедает magenta-детали внутри корпуса и даёт мягкую кромку.
+#  3) авто-детект фона кадра is_magenta_bg (рамка magenta vs чёрная) — источник
+#     выбора порога выреза (рецепт 2026-09-22: фон снова чёрный).
 # Запуск: C:\ComfyUI\venv\Scripts\python.exe tools\test_ship_sprite_cut.py
 # (или из корня: python tools/test_ship_sprite_cut.py)
 import os
@@ -16,6 +18,7 @@ from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ship_sprite_cut as sc  # noqa: E402
+import ship_recut_pool as recut  # noqa: E402
 
 TOL = 40
 EDGE = 20
@@ -111,6 +114,32 @@ class TestShipCutChroma(unittest.TestCase):
         a = alpha(sc.remove_bg_chroma(img, CHROMA_TOL, CHROMA_SOFT))
         band = int(((a > 20) & (a < 235)).sum())
         self.assertGreater(band, 50, "мягкая кромка: должны быть полупрозрачные пиксели")
+
+
+class TestMagentaBgDetect(unittest.TestCase):
+    """is_magenta_bg (tools/ship_recut_pool.py) — источник авто-детекта порога
+    выреза; Go-порт в студии — postproc.ShipCutTol/isMagentaFrame (рецепт
+    2026-09-22, фон снова чёрный: magenta-рамка → tol 100, чёрная → tol 40)."""
+
+    def test_magenta_border(self):
+        img = Image.new("RGB", (200, 200), CHROMA_BG)
+        self.assertTrue(recut.is_magenta_bg(img), "рамка magenta → фон magenta")
+
+    def test_black_border(self):
+        img = Image.new("RGB", (200, 200), (0, 0, 0))
+        self.assertFalse(recut.is_magenta_bg(img), "чёрная рамка → фон не magenta")
+
+    def test_dark_grey_border(self):
+        img = Image.new("RGB", (200, 200), (40, 40, 40))
+        self.assertFalse(recut.is_magenta_bg(img), "серый фон → не magenta")
+
+    def test_magenta_body_on_black_border(self):
+        """Magenta-корпус в центре, рамка чёрная → фон не magenta (деталь не решает)."""
+        img = Image.new("RGB", (200, 200), (0, 0, 0))
+        for y in range(60, 140):
+            for x in range(60, 140):
+                img.putpixel((x, y), CHROMA_BG)
+        self.assertFalse(recut.is_magenta_bg(img))
 
 
 if __name__ == "__main__":

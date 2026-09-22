@@ -162,7 +162,7 @@ func (c *JobCtx) genShipsJob(tasks []shipTask, per int, tags, p1o, p2o string, h
 		if prompt2 == "" {
 			prompt2 = BuildShipHiResPrompt(prompt1)
 		}
-		neg := ShipNeg(entry.Blocked)
+		neg := ShipNegRace(entry)
 		seed := int64(rng.Intn(999999999) + 1)
 		// (1) txt2img + (2) автопроверка кадра: негодный кадр → следующий seed
 		raw := ""

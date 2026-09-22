@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"math/rand"
 	"strings"
+	"unicode"
 
 	"zorion/cmd/art-studio/config"
 )
@@ -518,12 +519,13 @@ var ShipSubjectPool = []string{
 const (
 	// ShipViewAnchor — якорь ракурса: 3/4 сверху, нос вправо.
 	ShipViewAnchor = "dorsal three-quarter view of a single flying starship, nose pointing right"
-	// ShipBackground — фон и центрирование. Рецепт 2026-09-22: кислотный magenta
-	// chroma-key вместо чёрного (чёрный фон неотличим от тёмных кораблей —
-	// причина «фон режет корпус насквозь»). Проверено живой генерацией (Juggernaut):
-	// даёт ровную насыщенную magenta-заливку; жёсткий magenta-негатив против
-	// сцен/студийного фона — shipNegScene.
-	ShipBackground = "centered, isolated on a flat chroma magenta background, uniform magenta color fill, no background detail, no stars"
+	// ShipBackground — фон и центрирование. Рецепт 2026-09-22 (возврат к чёрному):
+	// magenta-хромакей заливал пунцовым САМ корабль — прогон 126 кандидатов дал
+	// 60 с пунцовым оттенком (28 сильных); в сырых кадрах ComfyUI фон и корпус
+	// оба пунцовые. Принятые ранее корабли на чёрном фоне пунцового оттенка не
+	// имеют (cast ≤ 0). Фон — плоский чёрный; расовый негатив фона — shipNegScene
+	// (+ ShipNegBackground).
+	ShipBackground = "centered, isolated on a pure flat black background, uniform black color fill, no background detail, no stars"
 	// ShipStyleAnchors — якоря стиля (игровой ассет, читаемый силуэт, greeble).
 	ShipStyleAnchors = "hard-surface sci-fi game asset, crisp readable silhouette, dense greeble detail, octane render"
 	// ShipHiresTail — хвост этапа Hi-Res (детализация финалистов).
@@ -532,10 +534,12 @@ const (
 	shipNegForm = "space station, ring, torus, circular disc, front view, symmetrical, planet, landscape, second ship, toy, plastic, cartoon, flat, blurry"
 	// shipNegSeaAir — негатив (б): жёсткий против лодок, самолётов и воды.
 	shipNegSeaAir = "boat, ship hull, sailing ship, sail, mast, anchor, water, sea, ocean, harbor, keel, airplane, aircraft, jet, fighter jet, wings of aircraft, propeller, runway, airport, atmosphere, sky, clouds, ground"
-	// shipNegScene — негатив (в): против сцен/студийного фона (рецепт 2026-09-22):
-	// magenta-хромакей получается ровным только если SDXL не дорисовывает серый
-	// студийный/сценический фон (без этого «magenta» уходил в грунт/серость).
-	shipNegScene = "grey background, gray background, dark background, black background, gradient background, studio backdrop, environment, ground, floor, terrain"
+	// shipNegScene — негатив (в): против сцен/студийного фона (рецепт 2026-09-22,
+	// чёрный фон): термы «black/dark/grey/gray background» убраны — негатив против
+	// позитивного чёрного фона уводил заливку в серость/градиент; остались
+	// градиент/студия/среда и добавлены landscape/horizon/rocky ground (борьба с
+	// «грязной землёй» и горизонтом).
+	shipNegScene = "gradient background, studio backdrop, environment, ground, floor, terrain, landscape, horizon, rocky ground"
 )
 
 // BuildShipTxt2ImgPrompt — промпт txt2img по рецепту 2026-09-21: {subject из
@@ -568,6 +572,75 @@ func ShipNeg(blocked []string) string {
 		out += ", " + strings.Join(blocked, ", ")
 	}
 	return out
+}
+
+// shipColorFamilies — семейства «фоновых» цветов (рецепт 2026-09-22, расо-
+// зависимый негатив фона): слова-цвета для распознавания родного цвета расы по
+// её texture (word-boundary) и фоновой формулировки. Магента теперь в списке:
+// magenta-хромакей из рецепта убран (фон чёрный, пунцовый заливал корпус) —
+// «magenta background» безопасно. Pink сгруппирован с magenta (один оттенок),
+// поэтому из семейства purple/violet убран — иначе «pink background» дублировался
+// у рас без родного pink (код не плодит дубли токенов негатива).
+var shipColorFamilies = [][]string{
+	{"teal", "cyan", "turquoise"},
+	{"brown", "beige"},
+	{"yellow", "amber", "golden", "gold"},
+	{"green"},
+	{"red"},
+	{"orange"},
+	{"purple", "violet"},
+	{"magenta", "pink"},
+}
+
+// ShipNegBackground — расо-зависимый негатив фона: цветные сцены/подложка
+// (горизонт, грунт) уходят, но родные цвета расы не подавляются. Для каждого
+// семейства: если цвет родной (встречается в texture отдельным словом) —
+// только сценово-квалифицированная форма «<цвет> ground, <цвет> environment,
+// <цвет> horizon» (корпус/деталь расы не страдает); иначе «<цвет> background»
+// по каждому синониму.
+func ShipNegBackground(entry config.ShipEntry) string {
+	tokens := shipColorTokens(entry.Texture)
+	var parts []string
+	for _, fam := range shipColorFamilies {
+		native := false
+		for _, w := range fam {
+			if tokens[w] {
+				native = true
+				break
+			}
+		}
+		for _, w := range fam {
+			if native {
+				parts = append(parts, w+" ground", w+" environment", w+" horizon")
+			} else {
+				parts = append(parts, w+" background")
+			}
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
+// ShipNegRace — негатив txt2img для расы: ShipNeg(blocked) + расо-зависимый
+// негатив фона (ShipNegBackground). Точка входа конвейера кораблей.
+func ShipNegRace(entry config.ShipEntry) string {
+	neg := ShipNeg(entry.Blocked)
+	if bg := ShipNegBackground(entry); bg != "" {
+		neg += ", " + bg
+	}
+	return neg
+}
+
+// shipColorTokens — множество слов texture (lowercase, только буквы): матч по
+// границам слов, а не подстроки — «scattered»/«blurred»/«armored» не делают
+// красный родным, а «blue-green» даёт «green».
+func shipColorTokens(texture string) map[string]bool {
+	set := map[string]bool{}
+	for _, tok := range strings.FieldsFunc(strings.ToLower(texture), func(r rune) bool {
+		return !unicode.IsLetter(r)
+	}) {
+		set[tok] = true
+	}
+	return set
 }
 
 // SilhouetteSpecJSON — сериализация spec для скрипта силуэтов.

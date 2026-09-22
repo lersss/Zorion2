@@ -594,6 +594,147 @@ func TestShipNeg(t *testing.T) {
 	}
 }
 
+// TestShipNegBackgroundCoastal — родные цвета Прибрежных (turquoise trim,
+// amber windows) не запрещаются как «background»; вместо этого — сценово-
+// квалифицированная форма (ground); неродной brown остаётся «brown background».
+func TestShipNegBackgroundCoastal(t *testing.T) {
+	texture := "salt-crusted coral and stone hull, brine-hardened organic plating, pale salt glints, warm amber lit windows, turquoise trim, wet reflective sheen, no machines, no fire"
+	neg := ShipNegBackground(config.ShipEntry{Texture: texture})
+	if strings.Contains(neg, "turquoise background") {
+		t.Errorf("родной turquoise запрещён как background: %s", neg)
+	}
+	if !strings.Contains(neg, "turquoise ground") {
+		t.Errorf("нет сценово-квалифицированной формы turquoise ground: %s", neg)
+	}
+	if !strings.Contains(neg, "brown background") {
+		t.Errorf("неродной brown background отсутствует: %s", neg)
+	}
+}
+
+// TestShipNegBackgroundMistfolk — родной cyan/teal Туманников не «background»,
+// а сценово-квалифицированная форма; тёплые цвета (не родные) — «background».
+func TestShipNegBackgroundMistfolk(t *testing.T) {
+	texture := "translucent grey-blue fog envelope, dense ammonia mist inside, sail fins, soft cyan glow within the haze, faint teal core light, frost-rim ribs, no warm colors, no fire, no machines"
+	neg := ShipNegBackground(config.ShipEntry{Texture: texture})
+	for _, w := range []string{"cyan background", "teal background"} {
+		if strings.Contains(neg, w) {
+			t.Errorf("родной цвет запрещён как background (%q): %s", w, neg)
+		}
+	}
+	if !strings.Contains(neg, "cyan ground") {
+		t.Errorf("нет cyan ground: %s", neg)
+	}
+	if !strings.Contains(neg, "yellow background") {
+		t.Errorf("нет yellow background (тёплый цвет не родной): %s", neg)
+	}
+}
+
+// TestShipNegBackgroundYellowBody — раса с родным жёлтым корпусом (nether/
+// sulfur_swarms): жёлтый фон идёт сценово-квалифицированно, не «yellow background».
+func TestShipNegBackgroundYellowBody(t *testing.T) {
+	texture := "golden sulfur rock hull with dark veins, terraced garden ledges, glowing red veins, dim ember glow, slick mucus surfaces, no frost, no water, no machines, no flames"
+	neg := ShipNegBackground(config.ShipEntry{Texture: texture})
+	if strings.Contains(neg, "yellow background") || strings.Contains(neg, "amber background") {
+		t.Errorf("родной жёлтый запрещён как background: %s", neg)
+	}
+	for _, w := range []string{"yellow ground", "yellow environment", "yellow horizon"} {
+		if !strings.Contains(neg, w) {
+			t.Errorf("нет %q: %s", w, neg)
+		}
+	}
+}
+
+// TestShipNegBackgroundNoNativeYellow — у расы без родного жёлтого запрет
+// «yellow background» присутствует.
+func TestShipNegBackgroundNoNativeYellow(t *testing.T) {
+	texture := "paneled white-grey metal hull with ceramic heat shield tiles, riveted seams, navigation lights, light blue cockpit glass"
+	neg := ShipNegBackground(config.ShipEntry{Texture: texture})
+	for _, w := range []string{"yellow background", "amber background", "brown background"} {
+		if !strings.Contains(neg, w) {
+			t.Errorf("нет %q: %s", w, neg)
+		}
+	}
+}
+
+// TestShipNegBackgroundWordBoundary — цвет ищется как слово: «scattered»/
+// «blurred»/«armored» не делают красный родным.
+func TestShipNegBackgroundWordBoundary(t *testing.T) {
+	texture := "scattered armor plates, blurred weathered surface, tiered layers"
+	neg := ShipNegBackground(config.ShipEntry{Texture: texture})
+	if !strings.Contains(neg, "red background") {
+		t.Errorf("ложный родной red (подстрочный матч): %s", neg)
+	}
+}
+
+// TestShipBackgroundBlack — рецепт 2026-09-22 (возврат к чёрному фону):
+// ShipBackground — плоский чёрный фон, без magenta (пунцовый заливал корпус);
+// негатив фона не должен спорить с позитивным чёрным.
+func TestShipBackgroundBlack(t *testing.T) {
+	if !strings.Contains(ShipBackground, "pure flat black background") {
+		t.Errorf("ShipBackground без чёрного фона: %s", ShipBackground)
+	}
+	if strings.Contains(strings.ToLower(ShipBackground), "magenta") {
+		t.Errorf("ShipBackground всё ещё magenta: %s", ShipBackground)
+	}
+	neg := ShipNeg(nil)
+	for _, bad := range []string{"black background", "dark background", "grey background", "gray background"} {
+		if strings.Contains(neg, bad) {
+			t.Errorf("негатив %q конфликтует с чёрным фоном: %s", bad, neg)
+		}
+	}
+	for _, want := range []string{"gradient background", "studio backdrop", "environment", "ground", "floor", "terrain", "landscape", "horizon", "rocky ground"} {
+		if !strings.Contains(neg, want) {
+			t.Errorf("негатив не содержит %q: %s", want, neg)
+		}
+	}
+}
+
+// TestShipNegBackgroundMagenta — magenta/pink теперь безопасны как фон-негатив
+// (хромакей убран): неродной magenta → «magenta background»; родной pink
+// (солевые, white-pink) → сценово-квалифицированно, не «pink background».
+func TestShipNegBackgroundMagenta(t *testing.T) {
+	plain := ShipNegBackground(config.ShipEntry{Texture: "plain hull"})
+	for _, want := range []string{"magenta background", "pink background"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("нет %q для неродного цвета: %s", want, plain)
+		}
+	}
+	salt := ShipNegBackground(config.ShipEntry{Texture: "white-pink crystallized salt hull with glowing orange veins"})
+	for _, bad := range []string{"magenta background", "pink background"} {
+		if strings.Contains(salt, bad) {
+			t.Errorf("родной pink запрещён как background (%q): %s", bad, salt)
+		}
+	}
+	for _, want := range []string{"magenta ground", "pink ground", "pink environment", "pink horizon"} {
+		if !strings.Contains(salt, want) {
+			t.Errorf("нет сценово-квалифицированной формы %q: %s", want, salt)
+		}
+	}
+}
+
+// TestShipNegBackgroundNoDuplicateTokens — токены фона-негатива уникальны:
+// pink не должен дублироваться при не-родном цвете (сгруппирован с magenta).
+func TestShipNegBackgroundNoDuplicateTokens(t *testing.T) {
+	neg := ShipNegBackground(config.ShipEntry{Texture: "plain hull"})
+	seen := map[string]bool{}
+	for _, part := range strings.Split(neg, ", ") {
+		if seen[part] {
+			t.Errorf("дубль токена %q в негативе: %s", part, neg)
+		}
+		seen[part] = true
+	}
+}
+
+// TestShipNegRace — ShipNegRace = ShipNeg(blocked) + расо-зависимый негатив фона.
+func TestShipNegRace(t *testing.T) {
+	neg := ShipNegRace(config.ShipEntry{Texture: "plain hull", Blocked: []string{"machine"}})
+	for _, want := range []string{"boat", "space station", "machine", "brown background"} {
+		if !strings.Contains(neg, want) {
+			t.Errorf("ShipNegRace не содержит %q: %s", want, neg)
+		}
+	}
+}
+
 // TestBuildShipHiResPrompt — промпт этапа Hi-Res = промпт txt2img + хвост.
 func TestBuildShipHiResPrompt(t *testing.T) {
 	p := BuildShipHiResPrompt("base prompt")

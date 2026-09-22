@@ -3,9 +3,14 @@ package postproc
 import (
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
 	"os"
 	"os/exec"
+	"sort"
 	"strconv"
+
+	"github.com/disintegration/imaging"
 )
 
 // ShipFrame — результат автопроверки кадра (рецепт 2026-09-21,
@@ -63,18 +68,91 @@ type ShipOrient struct {
 	Reason    string  `json:"reason"`
 }
 
-// ShipSpriteCut — вырез фона и нормализация кандидата. Рецепт 2026-09-22:
-// magenta-фон + вырез «edge» с увеличенным tol. Живой прогон (diamond/coastal)
-// показал, что SDXL по промпту magenta-фона кладёт фон ГРАДИЕНТОМ (яркая
-// магента → тёмная маренго; у «бирюзовых» рас примешивается cyan), а не ровной
-// заливкой. Из-за этого ключ по «магента-ности» (`chroma`) градиент не берёт:
-// оставляет ореол фона и (при понижении tol) выедает тёмный магента-корпус (у
-// Алмазных медиана m корпуса совпадает с фоном). Метод «edge» (diff от модели
-// фона + барьер по кромкам) на magenta-фоне отделяет фон надёжно: амплитуда
-// фон-градиента ≤ ~70, а корпус отличается от плоскости на 160–380. tol=100
-// подобран на diamond (корпус цел) и coastal; chroma оставлен в скрипте для
-// сравнения и регресс-тестов.
-// tools/ship_sprite_cut.py --method edge --tol 100 --edge 20
+// Пороги выреза `edge` по фону кадра (рецепт 2026-09-22): magenta-хромакей даёт
+// фон-градиент с амплитудой ≤ ~70 (рабочий tol 100), чёрный фон — tol 40 (на
+// tol ≥ 80 выедается тёмный корпус). Те же значения, что в
+// tools/ship_recut_pool.py (--tol / --tol-magenta).
+const (
+	shipCutTolMagenta = 100
+	shipCutTolBlack   = 40
+	// shipMagentaThresh — порог «магента-ности» рамки (min(R,B)−G), из
+	// is_magenta_bg tools/ship_recut_pool.py (thresh=40).
+	shipMagentaThresh = 40.0
+)
+
+// ShipCutTol — порог выреза `edge` по фону входного кадра: рамка magenta →
+// shipCutTolMagenta, иначе (чёрный) → shipCutTolBlack. Перенос авто-детекта
+// `is_magenta_bg` из tools/ship_recut_pool.py: рамка шириной max(2, min(w,h)/50),
+// «магента-ность» m = min(R,B)−G, 75-й квантиль рамки ≥ shipMagentaThresh.
+func ShipCutTol(inPath string) (int, error) {
+	img, err := imaging.Open(inPath)
+	if err != nil {
+		return 0, fmt.Errorf("ship_cut_tol: %v", err)
+	}
+	if isMagentaFrame(img) {
+		return shipCutTolMagenta, nil
+	}
+	return shipCutTolBlack, nil
+}
+
+// isMagentaFrame — фон кадра magenta? Смотрит рамку: magenta-фон даёт заметную
+// «магента-ность» (juggernaut ~85–110), чёрный ≈ 0. Берётся квантиль, а не
+// среднее, — шум/детали корпуса на кромке не решают.
+func isMagentaFrame(img image.Image) bool {
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if w == 0 || h == 0 {
+		return false
+	}
+	border := w
+	if h < border {
+		border = h
+	}
+	border /= 50
+	if border < 2 {
+		border = 2
+	}
+	if border > w {
+		border = w
+	}
+	if border > h {
+		border = h
+	}
+	vals := make([]float64, 0, 4*border*w)
+	for y := 0; y < border; y++ {
+		for x := 0; x < w; x++ {
+			vals = append(vals, magentaNess(img, b.Min.X+x, b.Min.Y+y))
+			vals = append(vals, magentaNess(img, b.Min.X+x, b.Min.Y+h-1-y))
+		}
+	}
+	for x := 0; x < border; x++ {
+		for y := 0; y < h; y++ {
+			vals = append(vals, magentaNess(img, b.Min.X+x, b.Min.Y+y))
+			vals = append(vals, magentaNess(img, b.Min.X+w-1-x, b.Min.Y+y))
+		}
+	}
+	sort.Float64s(vals)
+	return vals[len(vals)*3/4] >= shipMagentaThresh
+}
+
+// magentaNess — «магента-ность» пикселя min(R,B)−G (как is_magenta_bg в
+// tools/ship_recut_pool.py): чёрный/серый ≈ 0, magenta ≈ 85–110.
+func magentaNess(img image.Image, x, y int) float64 {
+	c := color.NRGBAModel.Convert(img.At(x, y)).(color.NRGBA)
+	r, g, bl := float64(c.R), float64(c.G), float64(c.B)
+	if r < bl {
+		return r - g
+	}
+	return bl - g
+}
+
+// ShipSpriteCut — вырез фона и нормализация кандидата. Рецепт 2026-09-22
+// (фон снова чёрный): `edge` (flood от рамки + барьер по Собелю от размытой
+// кромки). Порог tol выбирается по фону кадра — ShipCutTol: magenta-кадры 100
+// (фон-градиент шире), чёрно-фоновые 40 (tol=100 выедает тёмный корпус; на
+// tol ≥ 80 доля съеденного — Алмазные 0.21, Дисковые 0.31, Силикатные рои 0.34).
+// chroma оставлен в скрипте для сравнения и регресс-тестов.
+// tools/ship_sprite_cut.py --method edge --tol <по фону> --edge 20
 // --fill-holes --no-orient → прозрачный PNG canvas×canvas.
 // canvas — 200 (полный) или 100 (эскиз, 98c). --no-orient отключает пиксельный
 // доворот (нос/зеркало — метаданные пары (A, F), применяются при показе, спека
@@ -83,6 +161,10 @@ type ShipOrient struct {
 // (best-effort: нет отчёта — нулевая подсказка без ошибки).
 func ShipSpriteCut(pythonCmd, inPath, outPath string, canvas int) (ShipOrient, error) {
 	var orient ShipOrient
+	tol, err := ShipCutTol(inPath)
+	if err != nil {
+		return orient, err
+	}
 	tmp, err := os.CreateTemp("", "ship_cut_*.json")
 	if err != nil {
 		return orient, err
@@ -91,7 +173,7 @@ func ShipSpriteCut(pythonCmd, inPath, outPath string, canvas int) (ShipOrient, e
 	tmp.Close()
 	defer os.Remove(tmpPath)
 	args := []string{"tools/ship_sprite_cut.py", inPath, outPath, "--method", "edge",
-		"--tol", "100", "--edge", "20", "--fill-holes", "--no-orient", "--report", tmpPath}
+		"--tol", strconv.Itoa(tol), "--edge", "20", "--fill-holes", "--no-orient", "--report", tmpPath}
 	if canvas > 0 && canvas != 200 {
 		args = append(args, "--canvas", strconv.Itoa(canvas))
 	}

@@ -118,6 +118,7 @@ $exceptions = @(
     # код реализации и вспомогательные зоны — не сущности реестра (2026-09-18, 77a/88a/90a)
     'internal/', 'web/', 'cmd/', 'tools/', 'migrations/',
     'docs/QA/checklists/', 'docs/QA_CHECKLIST.md',
+    'docs/media/', 'readme.md',
     'docs/ARCHITECTURE.md', 'docs/PITFALLS.md',
     'docs/COORDINATION.md',
     'config/goods/',
@@ -127,7 +128,8 @@ $exceptions = @(
 
 $changedFiles = @()
 try {
-    $changedFiles = @(& git -C $RepoRoot -c core.quotepath=false log --name-only -n 20 --pretty=format: 2>$null | Where-Object { $_ -and $_.Trim() })
+    # --diff-filter=d — удалённые в этих коммитах файлы не «горячие точки»: реестр про то, что есть в проекте сейчас
+    $changedFiles = @(& git -C $RepoRoot -c core.quotepath=false log --name-only -n 20 --pretty=format: --diff-filter=d 2>$null | Where-Object { $_ -and $_.Trim() })
 } catch {
     # git недоступен или не репозиторий — сверку с git пропускаем
 }

@@ -11,7 +11,6 @@
 
 | # | Что | Где | Приоритет |
 |---|---|---|---|
-| B24 | «Проверка гипотез»: нельзя создать >1 поселения на планету — нужна настройка «поселений на планету» (срочно) | `internal/handlers/admin_hypothesis.go`, `internal/generator/planet/twin.go`, `web/static/js/admin/hypothesis.js` | 🔴 |
 | B14 | Вкладка «Тесты» в админке не работает на проде (cwd ≠ корень, `go.mod` не найден) | `internal/handlers/admin_tests.go` | 🟡 |
 | 75a | «Событие» пересчёта поселения не выбирало race_id → при первом открытии модалки «Люди» вместо реальной расы (до автообновления) | `internal/repository/economy_repository.go` | 🟡 |
 | B16 | Перебор с декластеризацией: кластеры не видны, звёзды почти равномерны (`sparse`) | `web/static/js/admin/generation.js` | 🟡 |

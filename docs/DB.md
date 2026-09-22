@@ -102,6 +102,13 @@ building_type='capital'` — одна столица на фракцию; кол
 чек-точка `processed_at`; буферы — вход/выход (ресурс → количество, `double`), FK `goods`
 CASCADE. Итерация 3 (добыча из залежи) — без миграции (`deposits.amount`, `processed_at`).
 
+`player_cargo` (содержимое трюма игрока, спека `2026-09-22-трюм-грузоподъёмность-корабля`,
+миграция `000068`): `(user_id, good_id, quantity)` — FK `users`/`goods` ON DELETE CASCADE,
+`quantity >= 0`, PK `(user_id, good_id)`; строки с нулём удаляются. Ёмкость трюма — врождённая
+`ship_models.base_capacity` + грузовые модули `equipment.type='cargo'` (`params.capacity`) в
+универсальном слоте. `player_cargo` **не** входит в `truncateTables` — состояние игрока,
+переживает очистку вселенной (§3.5).
+
 Удалены: `production_units` (легаси 000018-эпохи, снос миграцией `000050`,
 спека `2026-09-20-фабрики` §11.6, решение создателя 3b.6.8), `factories`/
 `goods_batches` (миграция `000034` — имя `factories` свободно), `assignments`
@@ -416,6 +423,13 @@ CASCADE. Итерация 3 (добыча из залежи) — без мигр
   WHERE race_id IS NOT NULL` (NULL разрешён — легаси-фракции без расы). Генератор —
   `internal/generator/faction/faction.go` (`GenerateFactions`), столица — на родной
   планете расы (`EnsureCapitals`).
+- `000068` — `000068_cargo_hold.sql` — трюм корабля (спека
+  `2026-09-22-трюм-грузоподъёмность-корабля` §8): CHECK `equipment.type` расширен
+  значением `cargo` + сид модуля `cargo_1` (`params.capacity=80`), колонка
+  `ship_models.base_capacity` (врождённая ёмкость 20), бэкфилл универсального слота,
+  таблица `player_cargo` (FK `users`/`goods` CASCADE, `quantity >= 0`,
+  PK `(user_id, good_id)`). `player_cargo` — состояние игрока, **не** в
+  `truncateTables` (переживает очистку вселенной).
 - Миграции, вступающие в силу на старте, требуют перезапуска сервера
   (`AGENTS.md` §4 п.13).
 - `VACUUM` внутрь миграции не положить — не работает внутри транзакции

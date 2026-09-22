@@ -663,17 +663,32 @@
       "id": "surface_weather",
       "type": "mechanic",
       "path": "docs/specs/2026-09-22-погода-поверхности-вид-и-физика.md",
-      "note": "погода прогулки — вид и связка с физикой планеты (2026-09-22, реализовано, коммит daafb02): выбор явления из осей планеты (жёсткие гейты по давлению/радиации, пороги из suit пакета; мягкие веса по температуре/токсичности/жидкости/биому; цикловой mulberry32, анти-повтор), 6 явлений (дымка по слоям, частицы в мировых колонках, 3 пояса параллакса, ветер с порывами), три прохода между слоями мира; только клиент, без сервера/БД",
+      "note": "погода прогулки — вид и связка с физикой планеты (2026-09-22, реализовано, коммит daafb02; второй пакет — коммит 0115e25): выбор явления из осей планеты (жёсткие гейты по давлению/радиации, пороги из suit пакета; мягкие веса по температуре/токсичности/жидкости/биому; цикловой mulberry32, анти-повтор), 11 явлений (6 пакета 1 + гроза/ледяные иглы/ледяной град/пепельный дождь/свечение), 6 вариантов существующих явлений (плотный CO₂/аммиачно-метановый туман, радиоактивный/инверсионный дождь, стеклянно-кристаллическая пыльная буря, магнитная буря) с подписями, фазовые реперы TRIPLE_POINT_K/DIAMOND_DUST_K/GLASS_FIELD_K, финальный эмиссивный проход drawEmissive, метель-снежинки и туман-гряды на воде; три прохода между слоями мира; только клиент, без сервера/БД",
       "impacts": [
         { "on": "surface_landing", "kind": "affects", "reason": "погода — часть прогулки; входы берёт из пакета land (§7.1)" },
         { "on": "web/static/js/surface/surface_weather.js", "kind": "docs", "reason": "модуль погоды: выбор (pickWeatherRun), три прохода (Back/Mid/Front), запекание сияния" },
         { "on": "web/static/js/surface/surface_config.js", "kind": "writes", "reason": "WEATHER_RULES + WEATHER_VISUALS (WEATHER_BY_CATEGORY удалён); WEATHER_IDS — контракт админ-чипов/HUD" },
-        { "on": "web/static/js/surface/surface_main.js", "kind": "affects", "reason": "три вызова погоды между слоями мира внутри трансформа камеры (зум/DPR не дублируются)" },
+        { "on": "web/static/js/surface/surface_main.js", "kind": "affects", "reason": "три вызова погоды между слоями мира (Back/Mid/Front) + четвёртый финальный эмиссивный drawEmissive после drawEnvironmentFront (второй пакет 2026-09-22); внутри трансформа камеры (зум/DPR не дублируются)" },
+        { "on": "web/static/js/surface/surface_weather_shapes.js", "kind": "docs", "reason": "примитивы отрисовки явлений (вынесены из surface_weather.js): lightning/glint/pellet/ash/glow + flake/bank/facet (2026-09-22)" },
         { "on": "web/static/js/surface/surface_world.js", "kind": "reads", "reason": "terrainHeight/farHeight + экспорт hash1 для мировых колонок частиц" },
-        { "on": "web/static/js/surface/surface_ui.js", "kind": "affects", "reason": "админские чипы погоды из WEATHER_IDS; подписи HUD (дельта на @uidesigner — §4.6)" },
+        { "on": "web/static/js/surface/surface_ui.js", "kind": "affects", "reason": "админские чипы 11 явлений из WEATHER_IDS по label; подписи HUD через weatherLabel (§5.3)" },
+        { "on": "surface_environment", "kind": "affects", "reason": "слой суток (2026-09-22): nightFactor/lightMul модулируют сияние/свечение/вспышки/звёзды; густое явление гасит звёзды (среда × явление)" },
+        { "on": "surface_landing", "kind": "reads", "reason": "дельта второго пакета (решение №5): life и biome_category влияют на выбор (свечение) — исключение из правила пакета 1 «life на погоду не влияет»" },
         { "on": "docs/specs/2026-09-21-высадка-прогулка-по-планете.md", "kind": "affects", "reason": "дельта §7.2 (погода: прежний выбор «только по biome_category» отменён)" },
         { "on": "docs/specs/2026-09-22-полярное-сияние-вид-направление.md", "kind": "docs", "reason": "направление @gdesigner по виду сияния (переделка «частокола»)" },
         { "on": "tools/e2e/surface-walk-check.js", "kind": "affects", "reason": "10g: детект игрока устойчив к пелене погоды (лучевой метод от тела)" }
+      ]
+    },
+    {
+      "id": "surface_environment",
+      "type": "mechanic",
+      "path": "docs/specs/2026-09-22-второй-пакет-погоды-поверхности.md",
+      "note": "слой среды прогулки — сутки (2026-09-22, коммит 0115e25): локальный детерминированный цикл день/рассвет/закат/ночь (6–10 мин, чистая функция f(seed, elapsed), без сервера), lightMul = 0.25+0.75·(1−nightFactor), три прохода drawEnvironmentBack/Mid/Front, звёздное поле, дуга светила и палитра в drawSky(..., env?); админ-чипы фаз",
+      "impacts": [
+        { "on": "surface_weather", "kind": "affects", "reason": "nightFactor/lightMul модулируют сияние/свечение/вспышки/звёзды; эмиссивный проход ночью не гасится" },
+        { "on": "web/static/js/surface/surface_environment.js", "kind": "docs", "reason": "модуль слоя среды: фазы, nightFactor/lightMul, drawEnvironmentBack/Mid/Front" },
+        { "on": "web/static/js/surface/surface_render.js", "kind": "affects", "reason": "drawSky(..., env?): дуга светила/палитра/звёзды (без env — прежний вид; дельта к запрету пакета 1 §9 п.4/§6.4)" },
+        { "on": "surface_landing", "kind": "reads", "reason": "seed, sky.star.color и прошедшее время прогулки (elapsed) — новых полей сервера не требует (класс A, §6.2)" }
       ]
     },
     {

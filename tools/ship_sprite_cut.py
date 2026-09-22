@@ -6,7 +6,9 @@
 #   black — порог по яркости + связность с рамкой (фон = тёмное, касающееся края);
 #   color — вырез по цвету фона (process_ship.remove_bg_by_color, BG_TOL=40);
 #   dark  — всё темнее порога (process_ship.remove_bg_by_dark);
-#   hyst  — гистерезис по плоскости фона (tol_close/tol_wide) — рецепт студии;
+#   hyst  — гистерезис по плоскости фона (tol_close/tol_wide);
+#   edge  — фон с барьером по кромкам (tol/edge/edge_blur) — рецепт студии
+#           (фикс 2026-09-22 «фон режет корпус насквозь»);
 #   rembg — U2Net (для сравнения; art_ships.md §3.3: режет корпус).
 # Метрика сравнения (compare): сколько фона осталось / сколько корпуса съедено.
 # Режимы: обычный (вырез+нормализация), --orient-only (подсказка носа,
@@ -384,6 +386,71 @@ def remove_bg_hyst(img, tol_close=14, tol_wide=34, min_share=0.02):
     return Image.fromarray(out)
 
 
+def remove_bg_edge(img, tol=40, edge=20, blur=3.0, min_share=0.02):
+    """Вырез фона с БАРЬЕРОМ ПО КРОМКАМ (рецепт 2026-09-22, фикс «фон режет
+    корпус насквозь»). Фон — пиксели в пределах tol (сумма |Δ| по каналам) от
+    плоскости фона, связные с рамкой, но flood от рамки НЕ пересекает кромки:
+    барьер — |∇| яркости (Собель) по РАЗМЫТОЙ (blur) яркости > edge. Размытие
+    гасит высокочастотный шум фона (звёздное небо/туманность), пропуская flood,
+    но сохраняет когерентную кромку корабля — тёмные части корпуса, цветом
+    близкие к фону (diff <= tol), остаются. В remove_bg_hyst достаточно цветовой
+    близости, поэтому связный с рамкой тёмный корпус там выедается."""
+    rgb = np.array(img.convert('RGB')).astype(np.float32)
+    plane = ps.estimate_background(rgb.astype(np.int16))
+    diff = np.abs(rgb - plane).sum(axis=2)
+    lum = 0.299 * rgb[:, :, 0] + 0.587 * rgb[:, :, 1] + 0.114 * rgb[:, :, 2]
+    if blur and blur > 0:
+        lum = ndimage.gaussian_filter(lum, blur)
+    g = np.hypot(ndimage.sobel(lum, axis=1), ndimage.sobel(lum, axis=0))
+    free = (diff <= tol) & (g <= edge)
+    labels, num = ndimage.label(free)
+    if num == 0:
+        return img
+    border = np.unique(np.concatenate([labels[0, :], labels[-1, :],
+                                       labels[:, 0], labels[:, -1]]))
+    border = border[border != 0]
+    if border.size == 0:
+        return img
+    bg = np.isin(labels, border)
+    if bg.mean() < min_share:
+        return img
+    out = np.array(img.convert('RGBA'))
+    out[bg] = (0, 0, 0, 0)
+    return Image.fromarray(out)
+
+
+def remove_bg_chroma(img, tol=60, soft=25, min_share=0.02):
+    """Вырез фона-хромакея (кислотный magenta, рецепт 2026-09-22). «Магента-ность»
+    m = min(R,B) - G: у magenta-фона m велика (~85–110), у корпуса мала.
+    Фон — пиксели m >= tol, СВЯЗНЫЕ С РАМКОЙ (flood): magenta-детали ВНУТРИ
+    корабля (напр. грани алмаза, s13) не выедаются. Край мягкий: в полосе
+    tol-soft..tol альфа плавно растёт 0→255 (не рваная кромка); расширение фона
+    в полосу — geodesic propagation от рамки — внутренняя magenta корабля
+    остаётся непрозрачной."""
+    rgb = np.array(img.convert('RGB')).astype(np.float32)
+    m = np.minimum(rgb[:, :, 0], rgb[:, :, 2]) - rgb[:, :, 1]
+    hard = m >= tol
+    labels, num = ndimage.label(hard)
+    if num == 0:
+        return img
+    border = np.unique(np.concatenate([labels[0, :], labels[-1, :],
+                                       labels[:, 0], labels[:, -1]]))
+    border = border[border != 0]
+    if border.size == 0:
+        return img
+    bg = np.isin(labels, border)
+    if bg.mean() < min_share:
+        return img
+    # мягкая кромка: фон расширяется в полосу tol-soft..tol, но не за неё
+    band = (m >= tol - soft) & (m < tol)
+    bg_soft = ndimage.binary_propagation(bg, mask=(bg | band))
+    ramp = np.clip((tol - m) / float(max(1, soft)), 0.0, 1.0)
+    alpha = np.where(bg_soft, ramp, 1.0)
+    out = np.array(img.convert('RGBA'))
+    out[:, :, 3] = (out[:, :, 3].astype(np.float32) * alpha).astype(np.uint8)
+    return Image.fromarray(out)
+
+
 def compare(raw_path, cut_rgba, bg_tol=8, hull_delta=60):
     """Числа выреза: доля оставшегося фона и съеденного корпуса.
     Определённый фон — в пределах bg_tol от плоскости фона и связный с рамкой;
@@ -412,10 +479,18 @@ def main():
     ap.add_argument("src")
     ap.add_argument("out", nargs="?", help="выходной PNG (не нужен с --orient-only)")
     ap.add_argument("--method", default="flat",
-                    choices=["flat", "hyst", "black", "color", "dark", "rembg"])
-    ap.add_argument("--tol", type=int, default=16, help="tol выреза ровного фона (flat)")
+                    choices=["flat", "hyst", "edge", "chroma", "black", "color", "dark", "rembg"])
+    ap.add_argument("--tol", type=int, default=16, help="tol выреза ровного фона (flat) / edge")
     ap.add_argument("--tol-close", type=int, default=14)
     ap.add_argument("--tol-wide", type=int, default=34)
+    ap.add_argument("--edge", type=int, default=20,
+                    help="порог кромки-барьера выреза edge (Собель по размытой яркости)")
+    ap.add_argument("--edge-blur", type=float, default=3.0,
+                    help="сигма размытия яркости перед барьером выреза edge")
+    ap.add_argument("--chroma-tol", type=int, default=60,
+                    help="порог «магента-ности» (min(R,B)-G) фона выреза chroma")
+    ap.add_argument("--chroma-soft", type=int, default=25,
+                    help="ширина мягкой кромки выреза chroma (полоса tol-soft..tol)")
     ap.add_argument("--bg-max", type=int, default=12)
     ap.add_argument("--dark", type=int, default=15)
     ap.add_argument("--fill", type=float, default=1.0)
@@ -461,6 +536,10 @@ def main():
         cut = remove_bg_flat(img, args.tol)
     elif args.method == "hyst":
         cut = remove_bg_hyst(img, args.tol_close, args.tol_wide)
+    elif args.method == "edge":
+        cut = remove_bg_edge(img, args.tol, args.edge, args.edge_blur)
+    elif args.method == "chroma":
+        cut = remove_bg_chroma(img, args.chroma_tol, args.chroma_soft)
     elif args.method == "black":
         cut = remove_bg_black(img, args.bg_max)
     elif args.method == "color":

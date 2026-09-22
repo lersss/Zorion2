@@ -518,8 +518,12 @@ var ShipSubjectPool = []string{
 const (
 	// ShipViewAnchor — якорь ракурса: 3/4 сверху, нос вправо.
 	ShipViewAnchor = "dorsal three-quarter view of a single flying starship, nose pointing right"
-	// ShipBackground — фон и центрирование.
-	ShipBackground = "centered, no stars, plain black background"
+	// ShipBackground — фон и центрирование. Рецепт 2026-09-22: кислотный magenta
+	// chroma-key вместо чёрного (чёрный фон неотличим от тёмных кораблей —
+	// причина «фон режет корпус насквозь»). Проверено живой генерацией (Juggernaut):
+	// даёт ровную насыщенную magenta-заливку; жёсткий magenta-негатив против
+	// сцен/студийного фона — shipNegScene.
+	ShipBackground = "centered, isolated on a flat chroma magenta background, uniform magenta color fill, no background detail, no stars"
 	// ShipStyleAnchors — якоря стиля (игровой ассет, читаемый силуэт, greeble).
 	ShipStyleAnchors = "hard-surface sci-fi game asset, crisp readable silhouette, dense greeble detail, octane render"
 	// ShipHiresTail — хвост этапа Hi-Res (детализация финалистов).
@@ -528,6 +532,10 @@ const (
 	shipNegForm = "space station, ring, torus, circular disc, front view, symmetrical, planet, landscape, second ship, toy, plastic, cartoon, flat, blurry"
 	// shipNegSeaAir — негатив (б): жёсткий против лодок, самолётов и воды.
 	shipNegSeaAir = "boat, ship hull, sailing ship, sail, mast, anchor, water, sea, ocean, harbor, keel, airplane, aircraft, jet, fighter jet, wings of aircraft, propeller, runway, airport, atmosphere, sky, clouds, ground"
+	// shipNegScene — негатив (в): против сцен/студийного фона (рецепт 2026-09-22):
+	// magenta-хромакей получается ровным только если SDXL не дорисовывает серый
+	// студийный/сценический фон (без этого «magenta» уходил в грунт/серость).
+	shipNegScene = "grey background, gray background, dark background, black background, gradient background, studio backdrop, environment, ground, floor, terrain"
 )
 
 // BuildShipTxt2ImgPrompt — промпт txt2img по рецепту 2026-09-21: {subject из
@@ -550,11 +558,12 @@ func BuildShipHiResPrompt(prompt1 string) string {
 	return prompt1 + ", " + ShipHiresTail
 }
 
-// ShipNeg — негатив txt2img по рецепту 2026-09-21: (а) против станций/мусора,
-// (б) против лодок/самолётов/воды, (в) blocked-термы расы. Тёплые/жёсткие
-// списки — константы пайплайна, меняются правкой рецепта, а не данными.
+// ShipNeg — негатив txt2img по рецепту 2026-09-22: (а) против станций/мусора,
+// (б) против лодок/самолётов/воды, (в) против сцен/студийного фона (магента-
+// хромакей), (г) blocked-термы расы. Тёплые/жёсткие списки — константы
+// пайплайна, меняются правкой рецепта, а не данными.
 func ShipNeg(blocked []string) string {
-	out := shipNegForm + ", " + shipNegSeaAir
+	out := shipNegForm + ", " + shipNegSeaAir + ", " + shipNegScene
 	if len(blocked) > 0 {
 		out += ", " + strings.Join(blocked, ", ")
 	}

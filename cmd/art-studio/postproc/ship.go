@@ -63,11 +63,21 @@ type ShipOrient struct {
 	Reason    string  `json:"reason"`
 }
 
-// ShipSpriteCut — вырез фона и нормализация кандидата (рецепт 2026-09-21):
-// tools/ship_sprite_cut.py --method hyst --tol-close 12 --tol-wide 40
-// --fill-holes --no-orient → прозрачный PNG canvas×canvas. canvas — 200
-// (полный) или 100 (эскиз, 98c). --no-orient отключает пиксельный доворот
-// (нос/зеркало — метаданные пары (A, F), применяются при показе, спека
+// ShipSpriteCut — вырез фона и нормализация кандидата. Рецепт 2026-09-22:
+// magenta-фон + вырез «edge» с увеличенным tol. Живой прогон (diamond/coastal)
+// показал, что SDXL по промпту magenta-фона кладёт фон ГРАДИЕНТОМ (яркая
+// магента → тёмная маренго; у «бирюзовых» рас примешивается cyan), а не ровной
+// заливкой. Из-за этого ключ по «магента-ности» (`chroma`) градиент не берёт:
+// оставляет ореол фона и (при понижении tol) выедает тёмный магента-корпус (у
+// Алмазных медиана m корпуса совпадает с фоном). Метод «edge» (diff от модели
+// фона + барьер по кромкам) на magenta-фоне отделяет фон надёжно: амплитуда
+// фон-градиента ≤ ~70, а корпус отличается от плоскости на 160–380. tol=100
+// подобран на diamond (корпус цел) и coastal; chroma оставлен в скрипте для
+// сравнения и регресс-тестов.
+// tools/ship_sprite_cut.py --method edge --tol 100 --edge 20
+// --fill-holes --no-orient → прозрачный PNG canvas×canvas.
+// canvas — 200 (полный) или 100 (эскиз, 98c). --no-orient отключает пиксельный
+// доворот (нос/зеркало — метаданные пары (A, F), применяются при показе, спека
 // 2026-09-21-угол-корабля-в-метаданных §5); кроп/масштаб/центрирование
 // остаются. Возвращает подсказку авто-ориентации из отчёта скрипта
 // (best-effort: нет отчёта — нулевая подсказка без ошибки).
@@ -80,8 +90,8 @@ func ShipSpriteCut(pythonCmd, inPath, outPath string, canvas int) (ShipOrient, e
 	tmpPath := tmp.Name()
 	tmp.Close()
 	defer os.Remove(tmpPath)
-	args := []string{"tools/ship_sprite_cut.py", inPath, outPath, "--method", "hyst",
-		"--tol-close", "12", "--tol-wide", "40", "--fill-holes", "--no-orient", "--report", tmpPath}
+	args := []string{"tools/ship_sprite_cut.py", inPath, outPath, "--method", "edge",
+		"--tol", "100", "--edge", "20", "--fill-holes", "--no-orient", "--report", tmpPath}
 	if canvas > 0 && canvas != 200 {
 		args = append(args, "--canvas", strconv.Itoa(canvas))
 	}

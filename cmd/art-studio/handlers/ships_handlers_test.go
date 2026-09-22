@@ -309,9 +309,9 @@ func TestShipsInfo(t *testing.T) {
 	}
 }
 
-// TestShipsPrompt — /ships/prompt: промпт txt2img по рецепту 2026-09-21
-// (субъект + texture расы + якорь ракурса) и промпт Hi-Res; без blocked в
-// позитиве.
+// TestShipsPrompt — /ships/prompt: промпт txt2img по рецепту 2026-09-22
+// (субъект + texture расы + якорь ракурса + magenta-фон) и промпт Hi-Res; без
+// blocked в позитиве.
 func TestShipsPrompt(t *testing.T) {
 	srv, _, _ := newShipsTestStudio(t)
 	rec := httptest.NewRecorder()
@@ -329,7 +329,7 @@ func TestShipsPrompt(t *testing.T) {
 	}
 	for _, want := range []string{
 		"STALE texture", "dorsal three-quarter view of a single flying starship, nose pointing right",
-		"plain black background", "hard-surface sci-fi game asset",
+		"flat chroma magenta background", "hard-surface sci-fi game asset",
 	} {
 		if !strings.Contains(resp.Prompt1, want) {
 			t.Errorf("prompt1 не содержит %q: %s", want, resp.Prompt1)

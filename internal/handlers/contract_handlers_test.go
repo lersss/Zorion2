@@ -17,6 +17,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/require"
 
+	"zorion/internal/models"
 	"zorion/internal/repository"
 	"zorion/internal/ship"
 )
@@ -591,13 +592,14 @@ func TestContractTakeNotFound(t *testing.T) {
 
 // Сроки перелёта (спека §4.3): срок исполнения = flight_time_ref·1.5,
 // окно предложения = flight_time_ref·10; flight_time_ref = max(dist·0.3, 3с).
+// Формула вынесена в models (единый источник с NPC-путём).
 func TestTravelDeadlineFormula(t *testing.T) {
 	// dist=100 → flight 30с → срок 45с, окно 300с.
-	require.Equal(t, 45*time.Second, travelDeadline(100))
-	require.Equal(t, 300*time.Second, travelOfferWindow(100))
+	require.Equal(t, 45*time.Second, models.TravelDeadline(100))
+	require.Equal(t, 300*time.Second, models.TravelOfferWindow(100))
 	// dist=1 → min 3с → срок 4.5с, окно 30с.
-	require.Equal(t, 4500*time.Millisecond, travelDeadline(1))
-	require.Equal(t, 30*time.Second, travelOfferWindow(1))
+	require.Equal(t, 4500*time.Millisecond, models.TravelDeadline(1))
+	require.Equal(t, 30*time.Second, models.TravelOfferWindow(1))
 }
 
 // Публикация перелёта валидирует payload (спека §1.2): from_world_id и
@@ -687,7 +689,7 @@ func TestContractTravelOfferWindowIgnoresClientExpiry(t *testing.T) {
 		WithArgs(sqlmock.AnyArg(), "travel", "player", "u1", "p1", "T", "",
 			sqlmock.AnyArg(), int64(500), "regular", int64(500), int64(0),
 			"deposit", "open", "public", nil, nil,
-			timeWithin{want: travelOfferWindow(100), tol: 20 * time.Second},
+			timeWithin{want: models.TravelOfferWindow(100), tol: 20 * time.Second},
 			sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO contract_requirements`).

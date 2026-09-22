@@ -104,13 +104,12 @@ type TravelResponse struct {
 // dist * speedFactor секунд, минимум 3 секунды (решение создателя 2026-09-16;
 // потолок 20 секунд от 2026-09-14 убран). speedFactor — скорость из
 // установленного двигателя игрока (спека 91a §7.1: ship.EngineSpeed, 0.3 —
-// значение 66a не меняется, меняется источник).
+// значение 66a не меняется, меняется источник). Формула — общий
+// models.TravelDuration: её же использует полёт NPC (npc.FlightDuration, свой
+// npcSpeedFactor) и срок/окно перелёта; NPC летит по своему пути (не через
+// travel.Manager/ArrivalHandler), общий здесь только расчёт длительности.
 func calcTravelDuration(dist float64, speedFactor float64) time.Duration {
-	duration := time.Duration(dist*speedFactor) * time.Second
-	if duration < 3*time.Second {
-		duration = 3 * time.Second
-	}
-	return duration
+	return models.TravelDuration(dist, speedFactor)
 }
 
 // redirectStartPoint — стартовая точка нового полёта при редиректе (61a):

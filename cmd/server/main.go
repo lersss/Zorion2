@@ -333,6 +333,9 @@ func main() {
 	// сетка миров строится из снапшота mapcache.
 	npcRepo := repository.NewNPCRepository(db)
 	npcManager := npc.NewManager(npcRepo, npc.NewMapCacheSource(mapCache), npc.DefaultSettings())
+	// Агент-исполнитель контракта-перелёта (спека перелёта §1.5, B2b):
+	// взятие при совпадении маршрута и закрытие по прибытии — до Start.
+	npcManager.SetContracts(contractRepo)
 	// Инвалидация кэша агентов при TRUNCATE npc_agents (ClearUniverse/
 	// GenerateUniverse, идея 26c A2): позиции и кэш сбросятся сразу.
 	adminHandlers.SetNPCManager(npcManager)

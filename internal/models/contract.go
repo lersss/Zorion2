@@ -133,6 +133,23 @@ type ContractRequirement struct {
 	Quantity      *int64   `json:"quantity,omitempty"`
 }
 
+// TravelContractRef — лёгкая ссылка на открытый перелёт для планировщика NPC
+// (спека 2026-09-22-контракт-перелёт-и-доска §1.5, B2b): маршрут from→dest
+// сопоставляется с выбранным маршрутом агента. Полный контракт на тик не
+// читается — payload и требования планировщику не нужны.
+type TravelContractRef struct {
+	ID          string
+	FromWorldID string
+	DestWorldID string
+}
+
+// AgentTravelArrival — прибытие агента-исполнителя (B2b): агент прибыл в
+// систему WorldID — кандидат на закрытие взятого им перелёта с этим dest.
+type AgentTravelArrival struct {
+	AgentID string
+	WorldID string
+}
+
 // ContractLogEntry — запись журнала жизни контракта (contract_log, §4.3).
 // ContractID без FK — лог переживает удаление контракта. Data.reason у
 // escrow_returned различает причины возврата залога.

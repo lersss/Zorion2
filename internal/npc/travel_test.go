@@ -12,8 +12,9 @@ import (
 
 func TestFlightDurationProportional(t *testing.T) {
 	// Эталон из спеки: средний перелёт в радиусе 1000 (dist=667) ≈ 200с.
+	// Общая формула models.TravelDuration округляет до целых секунд (как /travel).
 	d := FlightDuration(667, 0.3)
-	require.InDelta(t, 200.1, d.Seconds(), 0.01)
+	require.Equal(t, 200*time.Second, d)
 }
 
 func TestFlightDurationMin3s(t *testing.T) {
@@ -21,9 +22,9 @@ func TestFlightDurationMin3s(t *testing.T) {
 	require.Equal(t, 3*time.Second, FlightDuration(1, 0.3))
 	// dist=0 → 0с < мин 3с.
 	require.Equal(t, 3*time.Second, FlightDuration(0, 0.3))
-	// dist=9 → 2.7с < мин 3с; dist=11 → 3.3с ≥ мин.
+	// dist=9 → 2.7с < мин 3с; dist=11 → 3.3с → 3с (целые секунды ≥ мин).
 	require.Equal(t, 3*time.Second, FlightDuration(9, 0.3))
-	require.InDelta(t, 3.3, FlightDuration(11, 0.3).Seconds(), 0.01)
+	require.Equal(t, 3*time.Second, FlightDuration(11, 0.3))
 }
 
 func TestFlightDurationNoCap(t *testing.T) {

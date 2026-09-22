@@ -79,6 +79,10 @@ type Manager struct {
 	settings *Settings
 	notifier Notifier
 
+	// Контракты-перелёты для агента-исполнителя (спека перелёта §1.5, B2b).
+	// Задаётся SetContracts до Start; читается только горутиной тика.
+	contracts ContractStore
+
 	positions PositionCache
 
 	// Кэш агентов для интерполяции позиций (идея 26c A2, спека 20a.1 §2.2.B
@@ -319,6 +323,10 @@ func (m *Manager) processArrivals(arrivals []models.NPCAgent, now time.Time) {
 		return // БД не изменилась — кэш не трогаем (источник правды — БД)
 	}
 
+	// Контракты-перелёты: агент прибыл в целевую систему — закрытие взятого
+	// им перелёта (спека перелёта §1.5, B2b). Одна транзакция на батч.
+	m.closeArrivedTravels(updates)
+
 	// Кэш позиций (идея 26c A2): прибытие — idle в мире цели, кортеж полёта
 	// сбрасывается (позиция = координаты current_world_id).
 	for _, u := range updates {
@@ -359,6 +367,17 @@ func (m *Manager) processStarts(budget int, now time.Time) {
 	rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
 	speedFactor := m.settings.SpeedFactor()
 
+	// Контракты-перелёты: индекс открытых маршрутов на тик (спека §1.5, B2b).
+	travels := m.travelRoutes()
+
+	// Взятия откладываются до успешной записи flying: сбой UpdateStatusBatch не
+	// оставит контракт taken за агентом, который не полетел (спека §1.5/B2b).
+	type pendingTravel struct {
+		agentID, from, dest string
+		dist                float64
+	}
+	var pending []pendingTravel
+
 	updates := make([]models.AgentStatusUpdate, 0, len(idle))
 	for _, a := range idle {
 		cx, cy, ok := g.coordsOf(a.CurrentWorldID)
@@ -370,7 +389,14 @@ func (m *Manager) processStarts(budget int, now time.Time) {
 			continue // галактика пуста
 		}
 		tx, ty, _ := g.coordsOf(targetID)
-		duration := FlightDuration(math.Hypot(tx-cx, ty-cy), speedFactor)
+		dist := math.Hypot(tx-cx, ty-cy)
+		// Маршрут совпал с открытым перелётом — агент возьмёт его после успешной
+		// записи статуса (иначе летит как обычно, спека §1.5); срок
+		// перебазируется от взятия (§4.3). Двигатель к агенту не применяется.
+		if travels != nil {
+			pending = append(pending, pendingTravel{a.ID, a.CurrentWorldID, targetID, dist})
+		}
+		duration := FlightDuration(dist, speedFactor)
 		depart := now
 		arrive := now.Add(duration)
 		updates = append(updates, models.AgentStatusUpdate{
@@ -387,6 +413,12 @@ func (m *Manager) processStarts(budget int, now time.Time) {
 		if err := m.store.UpdateStatusBatch(updates); err != nil {
 			log.Printf("❌ NPCManager: UpdateStatusBatch (старты): %v", err)
 		} else {
+			// Взятие перелётов — ПОСЛЕ успешной записи flying: при сбое записи
+			// контракт не остаётся taken за нелетящим агентом; сбой/гонка самого
+			// взятия вреда не несёт (агент летит без контракта, контракт открыт).
+			for _, t := range pending {
+				m.takeMatchingTravel(travels, t.agentID, t.from, t.dest, t.dist, now)
+			}
 			// Кэш позиций (идея 26c A2): старт — flying с кортежем полёта
 			// (интерполяция from → target по depart/arrive). Обновляем только
 			// при успехе БД (источник правды — БД).

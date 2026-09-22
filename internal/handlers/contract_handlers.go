@@ -29,19 +29,12 @@ import (
 // выводится из времени полёта на референсной тяге (offer_window, §4.3).
 const defaultContractOfferWindow = 24 * time.Hour
 
-// Параметры срока перелёта (спека §4.3, заглушки «калибровать позже»):
-// speed_factor_ref — референсная тяга (стартовый двигатель, самый медленный);
-// reserve — запас сверх времени полёта; offerWindowFactor — жизнь предложения
-// на доске как множитель времени полёта.
-const (
-	contractDeadlineReserve = 0.5
-	contractOfferWindowMult = 10.0
-	// contractTravelGearSpeedFactorRef — порог требования к двигателю у перелёта
-	// (спека перелёта §1.3: «двигатель не хуже референсного»; референс — самый
-	// медленный стартовый двигатель, speed_factor_ref). Заглушка «калибровать
-	// позже», рядом со сроками.
-	contractTravelGearSpeedFactorRef = models.EngineSpeedDefault
-)
+// contractTravelGearSpeedFactorRef — порог требования к двигателю у перелёта
+// (спека перелёта §1.3: «двигатель не хуже референсного»; референс — самый
+// медленный стартовый двигатель, speed_factor_ref). Срок и окно предложения
+// перелёта — в models (TravelDeadline/TravelOfferWindow, единый источник с
+// NPC-путём).
+const contractTravelGearSpeedFactorRef = models.EngineSpeedDefault
 
 // ContractHandlers — игровые и админские операции над контрактами.
 type ContractHandlers struct {
@@ -239,7 +232,7 @@ func (h *ContractHandlers) TakeContract(w http.ResponseWriter, r *http.Request) 
 	var rebase *time.Time
 	if contract.Type == models.ContractTypeTravel {
 		if d, ok := h.travelDistance(contract.Payload); ok {
-			dl := time.Now().Add(travelDeadline(d))
+			dl := time.Now().Add(models.TravelDeadline(d))
 			rebase = &dl
 		}
 	}
@@ -366,22 +359,8 @@ func (h *ContractHandlers) travelDistance(payload map[string]interface{}) (float
 	return math.Sqrt(dx*dx + dy*dy), true
 }
 
-// travelFlightTimeRef — время полёта на референсной тяге (самый медленный
-// двигатель); переиспользует формулу /travel (calcTravelDuration, спека §4.1).
-func travelFlightTimeRef(dist float64) time.Duration {
-	return calcTravelDuration(dist, models.EngineSpeedDefault)
-}
-
-// travelDeadline — срок исполнения перелёта: время полёта на референсной тяге
-// плюс запас (спека §4.3). Отсчитывается от взятия (перебазирование).
-func travelDeadline(dist float64) time.Duration {
-	return time.Duration(float64(travelFlightTimeRef(dist)) * (1 + contractDeadlineReserve))
-}
-
-// travelOfferWindow — жизнь предложения на доске, пока контракт open (§4.3).
-func travelOfferWindow(dist float64) time.Duration {
-	return time.Duration(float64(travelFlightTimeRef(dist)) * contractOfferWindowMult)
-}
+// travelFlightTimeRef/travelDeadline/travelOfferWindow — формула срока перелёта
+// вынесена в models (единый источник с NPC-путём, спека §4.3).
 
 // expiresAt — срок публикации: из запроса, иначе заглушка. Для перелёта срок
 // **выводится** (offer_window от времени полёта, спека §4.3) — заказчик его не
@@ -389,7 +368,7 @@ func travelOfferWindow(dist float64) time.Duration {
 func (h *ContractHandlers) expiresAt(req createContractReq, now time.Time) time.Time {
 	if req.Type == models.ContractTypeTravel {
 		if d, ok := h.travelDistance(req.Payload); ok {
-			return now.Add(travelOfferWindow(d))
+			return now.Add(models.TravelOfferWindow(d))
 		}
 		return now.Add(defaultContractOfferWindow)
 	}

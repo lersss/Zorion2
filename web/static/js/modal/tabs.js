@@ -4,6 +4,36 @@ import { modalState } from './state.js';
 import { getPlanetTexture } from './textures.js';
 import { groupDeposits } from './deposits.js';
 import { branchesBlockHtml } from './branches.js';
+import { boardHtml, canPublishHere, publishFormHtml, escapeHtml } from './contracts.js';
+import { notifyError, notifySuccess } from '../ui/toast.js';
+
+// ---------- ИСТОРИЯ ФОРМИРОВАНИЯ (Ф4, спека 2026-09-22-облако-этап-2 §6.3) ----------
+
+// Флаг показа значка истории формирования. Решение создателя 2026-09-22
+// («давай попробуем значок, но чет сомневаюсь. Посмотрим»): показ обратим —
+// false гасит значок одним флагом, без правок бэкенда/API; текст описаний от
+// значка не зависит (каналы независимы).
+const SHOW_FORMATION_HISTORY_BADGE = true;
+
+// Подписи типов formation_history для тултипа значка.
+const FORMATION_HISTORY_LABELS = {
+    formed_early: 'сформировалась рано',
+    formed_late: 'сформировалась поздно',
+    migrated: 'мигрировала',
+    ice_lost: 'потеряла лёд',
+    stripped_embryo: 'сорванный эмбрион',
+};
+
+// formationHistoryBadge — компактная метка истории формирования (непустой
+// formation_history и знание планеты: сервер скрывает маркер без знания).
+function formationHistoryBadge(planet) {
+    if (!SHOW_FORMATION_HISTORY_BADGE) return '';
+    const hist = planet && planet.formation_history;
+    if (!Array.isArray(hist) || hist.length === 0) return '';
+    const labels = hist.map(e => FORMATION_HISTORY_LABELS[e.type] || e.type);
+    const tooltip = labels.join(', ');
+    return `<span title="${tooltip}" style="display:inline-block; margin-left:8px; padding:1px 8px; border-radius:10px; background:rgba(251,191,36,0.15); border:1px solid rgba(251,191,36,0.4); color:#fbbf24; font-size:0.8rem;">✦ история формирования</span>`;
+}
 
 // ---------- УТИЛИТЫ ----------
 
@@ -216,8 +246,8 @@ function renderGeneral(planet) {
     // карточки, над блоком «Тип»; заполняется renderOrbitView после вставки.
     html += orbitViewHtml(planet);
 
-    // Тип (название в шапке карточки)
-    html += `<p style="margin:4px 0;"><strong>Тип:</strong> ${planet.type || '—'}</p>`;
+    // Тип (название в шапке карточки) + значок истории формирования (Ф4).
+    html += `<p style="margin:4px 0;"><strong>Тип:</strong> ${planet.type || '—'}${formationHistoryBadge(planet)}</p>`;
 
     // Знание о планете (спека 77a §6.2): для player без знания сервер скрывает
     // детали (поверхность/недра/атмосфера/поселения) — заглушка «нет данных —
@@ -892,6 +922,173 @@ async function submitAddDeposit(planet, container, statusEl) {
     }
 }
 
+// ---------- КОНТРАКТЫ (спека 2026-09-22-контракт-перелёт-и-доска §2–§3) ----------
+
+// contractsGateOpen — пройден ли гейт знания планеты для доски (§2.2):
+// player без знания доски не видит (сервер отдаёт 403). Один источник для
+// renderContracts и initContracts — иначе вкладка рисует «нет данных», а
+// initContracts всё равно дёргает сервер и тостит 403.
+function contractsGateOpen(planet) {
+    return isAdmin() || !!planet.knowledge;
+}
+
+// renderContracts — вкладка «Задания/Контракты» карточки планеты (§2.1):
+// доска планеты (тип, заголовок, цена, «осталось N», требования, автор) и
+// форма «Опубликовать» — только когда игрок стоит на этой планете (§3).
+// Доска гейтится знанием планеты сервером (§2.2): player без знания — «нет
+// данных». Балансы и «кто взял» не показываются (§2.2).
+function renderContracts(planet) {
+    if (!contractsGateOpen(planet)) {
+        return `<p style="color: #666; text-align: center; padding: 20px 0;">Нет данных — купить отчёт</p>`;
+    }
+    let html = `<div data-contract-board><p style="color:#666; text-align:center; padding:12px 0;">Загрузка…</p></div>`;
+    if (canPublishHere(modalState.myPosition, planet.id)) {
+        html += publishFormHtml();
+    } else {
+        html += `<p style="color:#64748b; font-size:0.85rem; margin-top:12px;">Опубликовать контракт можно только с планеты, где вы находитесь</p>`;
+    }
+    return html;
+}
+
+// loadContracts — GET /api/planets/{id}/contracts (§2.3): доска планеты.
+// Ошибки (403 «планета не известна», 404) — тостом, доска остаётся пустой.
+// Доска всегда читается заново при открытии вкладки (свежесть важнее кэша).
+// Обработчики «Взять» вешаются ЗДЕСЬ, после заполнения доски: строки
+// появляются асинхронно, к моменту initContracts их ещё нет (иначе кнопка
+// мертва — блокирующий дефект ревью).
+async function loadContracts(planet, container) {
+    const token = modalState.authToken || localStorage.getItem('token');
+    let contracts = [];
+    try {
+        const res = await fetch('/api/planets/' + encodeURIComponent(planet.id) + '/contracts', {
+            headers: { 'Authorization': 'Bearer ' + token }
+        });
+        if (!res.ok) {
+            notifyError('Не удалось загрузить контракты: ' + (await res.text()));
+        } else {
+            const data = await res.json();
+            contracts = Array.isArray(data.contracts) ? data.contracts : [];
+        }
+    } catch (e) {
+        notifyError('Не удалось загрузить контракты: ' + e.message);
+    }
+    const board = container.querySelector('[data-contract-board]');
+    if (!board || !board.isConnected) return;
+    board.innerHTML = boardHtml(contracts, Date.now());
+    board.querySelectorAll('[data-contract-take]').forEach(btn => {
+        btn.addEventListener('click', () => takeContract(planet, container, btn.dataset.contractTake, btn));
+    });
+}
+
+// initContracts — грузит доску, наполняет список систем-назначений и вешает
+// обработчик публикации (вызывается после вставки вкладки в DOM). Гейт знания
+// не пройден — сервер не дёргаем (иначе 403-тост на пустой вкладке).
+function initContracts(planet, container) {
+    if (!contractsGateOpen(planet)) return;
+
+    loadContracts(planet, container);
+
+    const publishBtn = container.querySelector('[data-contract-publish]');
+    if (publishBtn) {
+        loadDestWorlds(container);
+        publishBtn.addEventListener('click', () => publishContract(planet, container));
+    }
+}
+
+// loadDestWorlds — список систем для выбора назначения перелёта (§3):
+// GET /worlds (видимость решает сервер, 77a). Текущая система исключается.
+async function loadDestWorlds(container) {
+    const sel = container.querySelector('[data-contract-dest-world]');
+    if (!sel) return;
+    const token = modalState.authToken || localStorage.getItem('token');
+    try {
+        const res = await fetch('/worlds', { headers: { 'Authorization': 'Bearer ' + token } });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const worlds = await res.json();
+        if (!sel.isConnected) return;
+        const list = (Array.isArray(worlds) ? worlds : []).filter(w => w.id !== modalState.worldId);
+        sel.innerHTML = '<option value="">система-назначение…</option>' +
+            list.map(w => `<option value="${escapeHtml(w.id)}">${escapeHtml(w.name || w.id)}</option>`).join('');
+    } catch (e) {
+        if (sel.isConnected) sel.innerHTML = '<option value="">системы недоступны</option>';
+    }
+}
+
+// takeContract — POST /api/contracts/take (§2.3): успех/ошибка тостом,
+// доска обновляется после действия. Ошибка сервера (напр. «двигатель
+// недостаточно быстр») показывается как есть.
+async function takeContract(planet, container, contractID, btn) {
+    const token = modalState.authToken || localStorage.getItem('token');
+    if (btn) btn.disabled = true;
+    try {
+        const res = await fetch('/api/contracts/take', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+            body: JSON.stringify({ contract_id: contractID })
+        });
+        const text = await res.text();
+        if (!res.ok) {
+            notifyError(text || ('Ошибка ' + res.status));
+        } else {
+            notifySuccess('Контракт взят');
+        }
+    } catch (e) {
+        notifyError('Не удалось взять контракт: ' + e.message);
+    }
+    // Доска обновляется после действия — только если вкладка ещё открыта
+    // (иначе перезапишем контент другой вкладки).
+    if (container.isConnected && modalState.activeTab === 'contracts') {
+        renderTabContent('contracts', planet, container);
+    }
+}
+
+// publishContract — POST /api/contracts (§3): публикация игроком с планеты,
+// где он стоит. Тип «перелёт»: from_world_id — текущая система игрока,
+// dest_world_id — выбранная система-назначение. Результат — тостом.
+async function publishContract(planet, container) {
+    const titleEl = container.querySelector('[data-contract-title]');
+    const rewardEl = container.querySelector('[data-contract-reward]');
+    const destEl = container.querySelector('[data-contract-dest-world]');
+    const statusEl = container.querySelector('[data-contract-publish-status]');
+    const title = titleEl ? titleEl.value.trim() : '';
+    const reward = rewardEl ? Number(rewardEl.value) : 0;
+    const destWorld = destEl ? destEl.value : '';
+    if (!title) { if (statusEl) statusEl.textContent = 'Укажите заголовок'; return; }
+    if (!reward || reward <= 0) { if (statusEl) statusEl.textContent = 'Укажите цену больше нуля'; return; }
+    if (!destWorld) { if (statusEl) statusEl.textContent = 'Выберите систему-назначение'; return; }
+    if (!modalState.worldId) { if (statusEl) statusEl.textContent = 'Не удалось определить текущую систему'; return; }
+
+    const token = modalState.authToken || localStorage.getItem('token');
+    if (statusEl) statusEl.textContent = 'Публикация…';
+    try {
+        const res = await fetch('/api/contracts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+            body: JSON.stringify({
+                planet_id: planet.id,
+                type: 'travel',
+                title: title,
+                reward: reward,
+                payload: { from_world_id: modalState.worldId, dest_world_id: destWorld, dest_planet_id: null }
+            })
+        });
+        const text = await res.text();
+        if (!res.ok) {
+            if (statusEl) statusEl.textContent = 'Ошибка ' + res.status + ': ' + text;
+            notifyError(text || ('Ошибка ' + res.status));
+            return;
+        }
+        notifySuccess('Контракт опубликован');
+    } catch (e) {
+        if (statusEl) statusEl.textContent = 'Ошибка: ' + e.message;
+        notifyError('Не удалось опубликовать контракт: ' + e.message);
+        return;
+    }
+    if (container.isConnected && modalState.activeTab === 'contracts') {
+        renderTabContent('contracts', planet, container);
+    }
+}
+
 // ---------- ГЛАВНЫЙ ЭКСПОРТ ----------
 
 // renderTabContent — рендерит контент вкладки в container.
@@ -916,6 +1113,10 @@ export function renderTabContent(tab, planet, container) {
             break;
         case 'factions':
             container.innerHTML = renderFactions(planet);
+            break;
+        case 'contracts':
+            container.innerHTML = renderContracts(planet);
+            initContracts(planet, container);
             break;
         default:
             container.innerHTML = '<p style="color: #666;">Неизвестная вкладка</p>';

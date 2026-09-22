@@ -488,6 +488,7 @@ function renderCard(panel, planets, selectedIndex) {
             <button class="tab-btn" data-tab="deposits" style="background: none; border: none; color: #888; padding: 4px 12px; cursor: pointer; font-size: 0.95rem; border-radius: 4px;">Залежи</button>
             <button class="tab-btn" data-tab="settlements" style="background: none; border: none; color: #888; padding: 4px 12px; cursor: pointer; font-size: 0.95rem; border-radius: 4px;">Поселения</button>
             <button class="tab-btn" data-tab="factions" style="background: none; border: none; color: #888; padding: 4px 12px; cursor: pointer; font-size: 0.95rem; border-radius: 4px;">Фракции</button>
+            <button class="tab-btn" data-tab="contracts" style="background: none; border: none; color: #888; padding: 4px 12px; cursor: pointer; font-size: 0.95rem; border-radius: 4px;">Задания/Контракты</button>
         </div>
         <div id="tab-content" style="font-size: 1rem; line-height: 1.7;"></div>
     `;

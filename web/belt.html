@@ -1,0 +1,87 @@
+<!-- web/belt.html -->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zorion — Добыча в поясе</title>
+    <link rel="stylesheet" href="/static/css/belt.css">
+</head>
+<body>
+    <canvas id="belt-canvas"></canvas>
+
+    <!-- HUD (§4): буфер захода, трюм, чипы запаса/класса, имя пояса,
+         подсказка у цели, кнопка выхода, легенда управления. -->
+    <div id="hud" style="display:none;">
+        <div class="hud-left">
+            <div class="hud-mined"><span class="hud-label">Добыто за заход</span> <span id="hud-mined">0 т</span></div>
+            <div class="cargo-bar-wrap">
+                <div class="cargo-bar"><div class="cargo-bar-fill" id="cargo-fill"></div></div>
+                <span class="cargo-bar-label" id="cargo-text">—</span>
+                <span id="cargo-full-badge" class="hud-badge" style="display:none;">Полон</span>
+            </div>
+            <div class="hud-chips">
+                <span id="hud-reserve" class="hud-chip"></span>
+                <span id="hud-belt-class" class="hud-chip"></span>
+            </div>
+        </div>
+        <div class="hud-center">
+            <span id="hud-belt"></span>
+            <div id="hud-hint"></div>
+        </div>
+        <div class="hud-right">
+            <button id="belt-leave-btn" title="Вернуться на корабль и выгрузить добычу в трюм">Вернуться на корабль</button>
+        </div>
+
+        <!-- Легенда управления (§4.2 п.7) — низ-лево. -->
+        <div class="hud-controls">
+            <span class="ctrl-key" data-key="up">⬆</span>
+            <span class="ctrl-key" data-key="left">⬅</span>
+            <span class="ctrl-key" data-key="down">⬇</span>
+            <span class="ctrl-key" data-key="right">➡</span>
+            <span class="ctrl-hint">WASD / стрелки — тяга</span>
+            <span class="ctrl-key ctrl-wide" data-key="brake">Shift</span>
+            <span class="ctrl-hint">— тормоз</span>
+            <span class="ctrl-key ctrl-wide" data-key="space">Space</span>
+            <span class="ctrl-hint">— добыча</span>
+        </div>
+    </div>
+
+    <!-- Пилл «нет связи» (§5.4) — верх-центр, ненавязчиво. -->
+    <div id="offline-pill">Нет связи — добыча приостановлена</div>
+    <!-- Пауза (Esc). -->
+    <div id="pause" class="overlay">
+        <div class="panel">
+            <h2>Пауза</h2>
+            <p>Добыча продолжается, пока вы в поясе.</p>
+            <div class="panel-actions">
+                <button id="pause-resume" class="primary">Продолжить</button>
+                <button id="pause-leave">Вернуться на корабль</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Экран ошибки входа/сети (§5.3). -->
+    <div id="error" class="overlay">
+        <div class="panel">
+            <h2>Заход в пояс невозможен</h2>
+            <p id="error-text"></p>
+            <div class="panel-actions">
+                <button id="error-retry">Повторить</button>
+                <button id="error-map" class="primary">Вернуться к карте</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Прелоадер (§4.1) — под интерактивными оверлеями. -->
+    <div id="loading" class="overlay">
+        <div class="panel">
+            <p id="loading-text">Заход в пояс…</p>
+        </div>
+    </div>
+
+    <div id="toast" style="display:none;"></div>
+
+    <script type="module" src="/static/js/belt/belt_main.js"></script>
+</body>
+</html>

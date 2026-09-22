@@ -192,7 +192,7 @@ export function setLeaveBusy(busy) {
     const b = $('belt-leave-btn');
     if (!b) return;
     b.disabled = !!busy;
-    b.textContent = busy ? 'Выходим…' : 'Вернуться на корабль';
+    b.textContent = busy ? 'Выходим…' : 'Вернуться на карту';
 }
 
 // ==================== ТОСТ (§6.1) ====================

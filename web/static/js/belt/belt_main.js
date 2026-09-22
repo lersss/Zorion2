@@ -1,7 +1,7 @@
 // web/static/js/belt/belt_main.js
 // Точка входа страницы добычи в поясе (UI-спека
 // 2026-09-22-пояса-малых-тел-этап-3-добыча-ui §4–§6): заход (enter) → сцена
-// (Canvas 2D, вид сверху, инерционный полёт, бурение) → «Вернуться на корабль»
+// (Canvas 2D, вид сверху, инерционный полёт, бурение) → «Вернуться на карту»
 // (leave). Вход: /belt.html?belt=<uuid> (кнопка «⛏ Добывать» в строке пояса).
 import * as C from './belt_config.js';
 import { BeltWorld } from './belt_world.js';
@@ -88,8 +88,8 @@ function refreshHUD() {
 
 function hintHtml(target) {
     if (state.full) {
-        return 'Трюм полон — добыча недоступна. Вернитесь на корабль. '
-            + '<button id="hint-leave" type="button" style="margin-left:8px; background:#2a2a4a; border:none; color:#fde68a; padding:3px 10px; border-radius:4px; cursor:pointer; font-size:0.8rem;">Вернуться на корабль</button>';
+        return 'Трюм полон — добыча недоступна. Вернитесь на карту. '
+            + '<button id="hint-leave" type="button" style="margin-left:8px; background:#2a2a4a; border:none; color:#fde68a; padding:3px 10px; border-radius:4px; cursor:pointer; font-size:0.8rem;">Вернуться на карту</button>';
     }
     if (state.depleted) return 'Пояс выработан — добывать больше нечего.';
     if (state.offline) return 'Нет связи — добыча приостановлена';
@@ -198,7 +198,7 @@ async function callShip() {
     state.leaving = true;
     playSound('ui_select');
     ui.setLeaveBusy(true);
-    ui.notify('Возвращаюсь на корабль…');
+    ui.notify('Возвращаюсь на карту…');
     const res = await leave();
     if (res.status === 401) { window.location.href = '/login-page'; return; }
     if (!res.ok) {

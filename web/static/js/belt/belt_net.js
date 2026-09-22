@@ -42,7 +42,7 @@ export function collect(amount) {
     return post('/api/belt/mine/collect', { amount });
 }
 
-// leave — «вернуться на корабль»: буфер захода в трюм, позиция → orbit/belt.
+// leave — «вернуться на карту»: буфер захода в трюм, позиция → orbit/belt.
 export function leave() {
     return post('/api/belt/mine/leave');
 }

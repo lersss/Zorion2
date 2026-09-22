@@ -284,7 +284,7 @@ func (g *Generator) generateWorldWithCountIntoBuffer(w WorldInfo, count int, buf
 		// Обломочный пояс WD — материализация disk_state = 'debris' (§4.4):
 		// это свойство мира, а не планет, поэтому появляется и при 0 планет.
 		if isDebrisWorld(w) {
-			buf.addBelt(g.debrisBelt(w))
+			buf.addBelt(g.debrisBelt(w, nil))
 		}
 		return 0
 	}
@@ -386,9 +386,10 @@ func (g *Generator) generateWorldWithCountIntoBuffer(w WorldInfo, count int, buf
 	if !isExoticObject(w.StarType) && !isCircumbinary && !isSupergiantExotic(w) {
 		worldBelts = append(worldBelts, g.kuiperBelt(w))
 	}
-	// Обломочный пояс WD — материализация disk_state = 'debris' (§4.4).
+	// Обломочный пояс WD — материализация disk_state = 'debris' (§4.4):
+	// свободная орбита (не садится на орбиту планеты).
 	if isDebrisWorld(w) {
-		worldBelts = append(worldBelts, g.debrisBelt(w))
+		worldBelts = append(worldBelts, g.debrisBelt(w, worldPlanets))
 	}
 
 	// Мягкий кламп суммы (§4.0.2): Σ планет + Σ поясов ≤ M_диск (типично;

@@ -618,7 +618,7 @@ func TestBeltDeterminism(t *testing.T) {
 		return []string{
 			sig(g.asteroidBelt(w, 5)),
 			sig(g.kuiperBelt(w)),
-			sig(g.debrisBelt(w)),
+			sig(g.debrisBelt(w, nil)),
 		}
 	}
 	assert.Equal(t, seq(), seq(), "один seed → одна последовательность поясов")

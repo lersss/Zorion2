@@ -136,9 +136,11 @@ func (g *Generator) kuiperBelt(w WorldInfo) BeltData {
 // debrisBelt — обломочный пояс белого карлика: материализация
 // disk_state = 'debris' (§4.4). Радиус — по выжившим орбитам WD
 // (orbitRadiusByIndex, БЕЗ масштаба √L); масса — константа типа.
-func (g *Generator) debrisBelt(w WorldInfo) BeltData {
+// Пояс занимает СВОБОДНУЮ орбиту (как пояс астероидов): planets — планеты
+// мира, на орбиту которых пояс сесть не должен.
+func (g *Generator) debrisBelt(w WorldInfo, planets []*PlanetData) BeltData {
 	l := luminosityBySpectral(w.SpectralClass)
-	orbit := 5 + beltRNG(w.ID, "debris", "orbit").Intn(4) // орбиты 5..8
+	orbit := debrisOrbit(beltRNG(w.ID, "debris", "orbit"), planets)
 	radius := orbitRadiusByIndex(orbit)
 	return BeltData{
 		ID:          uuid.New().String(),
@@ -154,6 +156,34 @@ func (g *Generator) debrisBelt(w WorldInfo) BeltData {
 		Visible:     true,
 		Data:        []byte("{}"),
 	}
+}
+
+// debrisOrbit — свободная орбита обломочного пояса (§4.4): предпочтение —
+// выжившие орбиты WD 5..8 (обход от выпавшей роллом), все заняты планетами —
+// ближайшая свободная за внешней планетой. Ролл идёт на ВЫДЕЛЕННОМ beltRNG
+// (по world_id), поэтому основной поток RNG мира не сдвигается.
+func debrisOrbit(rng *rand.Rand, planets []*PlanetData) int {
+	occupied := make(map[int]bool, len(planets))
+	maxOrbit := 0
+	for _, p := range planets {
+		occupied[p.OrbitIndex] = true
+		if p.OrbitIndex > maxOrbit {
+			maxOrbit = p.OrbitIndex
+		}
+	}
+	const firstOrbit, orbitSpan = 5, 4 // выжившие орбиты WD: 5..8
+	start := rng.Intn(orbitSpan)
+	for k := 0; k < orbitSpan; k++ {
+		if o := firstOrbit + (start+k)%orbitSpan; !occupied[o] {
+			return o
+		}
+	}
+	// Все выжившие орбиты заняты — за внешней планетой (WD-планеты 5..8).
+	o := maxOrbit + 1
+	for occupied[o] {
+		o++
+	}
+	return o
 }
 
 // beltComposition — состав пояса той же функцией зоны, что у планет

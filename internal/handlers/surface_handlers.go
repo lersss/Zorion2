@@ -432,9 +432,15 @@ func buildSurfaceSky(world *models.World, planets []models.Planet) SurfaceSky {
 	return sky
 }
 
-// sizeHint — визуальный размер тела в небе: Size (радиусы Земли) → 0.05..1.
+// sizeHint — визуальный размер тела в небе (спека 2026-09-22 §4.4): Size
+// (радиусы Земли) → 0.05..1. Степенная лестница h = size^0.6 / 4.26
+// (4.26 = 11.2^0.6 — нормализатор, гигант → 1.0): гиганты различимы, мелкий
+// камень не пропадает. Старый clamp(size/5,…) сливал все гиганты в 1.0.
 func sizeHint(size float64) float64 {
-	v := size / 5
+	if size <= 0 {
+		return 0.05
+	}
+	v := math.Pow(size, 0.6) / 4.26
 	if v < 0.05 {
 		return 0.05
 	}

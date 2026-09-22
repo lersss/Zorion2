@@ -32,31 +32,66 @@ function starColorOf(spec) {
 }
 
 // starSizeOf — размер звезды по спектру (для компаньона; главная — modalState.starRadius).
-function starSizeOf(spec, maxStarRadius) {
-    if (spec) return Math.min(getStarSize(spec, 'star'), maxStarRadius);
-    return Math.min(modalState.companionColor ? 0.5 * modalState.starRadius : modalState.starRadius, maxStarRadius);
+// Кламп под кадр снят: размер — от класса (спека §4.1/И-В1).
+function starSizeOf(spec) {
+    if (spec) return getStarSize(spec, 'star');
+    return modalState.companionColor ? 0.5 * modalState.starRadius : modalState.starRadius;
+}
+
+// planetRadius — единый радиус планеты (спека §4.2): мировые px схемы от
+// реального радиуса в R⊕. h = size^0.6, R_px = clamp(10·h, 5, 43); потолок 43 —
+// страховка (макс. гигант 11.2 → 42.6), пол 5 — при size < 0.315. Битый/
+// отсутствующий size → Земля (10 px), не NaN.
+export function planetRadius(size) {
+    const s = (typeof size === 'number' && isFinite(size) && size > 0) ? size : 1;
+    const r = 10 * Math.pow(s, 0.6);
+    return Math.max(5, Math.min(43, r));
+}
+
+// largestPlanetRadius — радиус крупнейшей планеты набора (0, если планет нет).
+function largestPlanetRadius(planets) {
+    return (planets || []).reduce((m, p) => Math.max(m, planetRadius(p && p.size)), 0);
+}
+
+// starFloorRadius — пол звезды (спека §4.1/§4.3): звезда не меньше
+// 1.15·радиуса крупнейшей планеты своей подсистемы. Планеты компаньона/
+// внешнего компонента в данных текущего мира не выделены (orbit_center —
+// только main/barycenter, 35b; подсистемы компонентов — отдельные миры-
+// записи, развилка Ф1 ещё не решена), поэтому пол для них считается по
+// крупнейшей планете мира: консервативно — ни один звёздный компонент не
+// мельче любой планеты системы.
+function starFloorRadius(baseRadius, largestPlanetR) {
+    return Math.max(baseRadius, 1.15 * largestPlanetR);
 }
 
 export function computeLayout(planets, starRadius, width, height) {
     const cx = width / 2;
     const cy = height / 2;
     const maxRadius = Math.min(width, height) * 0.4;
-    const maxStarRadius = maxRadius * 0.25;
-    const finalStarRadius = Math.min(starRadius, maxStarRadius);
+
+    // Пол звезды (спека §4.1, решение создателя 2026-09-22): звезда не меньше
+    // 1.15·радиуса крупнейшей планеты своей системы. Кламп под кадр снят —
+    // кадр окно, не рамка (И-В1/И-В2). Пол ≤ 49 (гигант 11.2 → 42.6), M (54)
+    // и выше не затронуты, порядок классов сохраняется. Экзотика (WD/ЧД/НЗ/
+    // протозвезда) компактна — пол к ней НЕ применяется (компактность — суть
+    // класса, §4.1). Пол применяется к каждой звезде, включая компаньонов и
+    // внешние компоненты (§4.3).
+    const largestPlanetR = largestPlanetRadius(planets);
+    const mainExotic = !!(modalState.starType && modalState.starType !== 'star');
+    const finalStarRadius = mainExotic ? starRadius : starFloorRadius(starRadius, largestPlanetR);
 
     const planetCount = planets ? planets.length : 0;
-    let sizeMultiplier = 1;
     let orbitSpacingMultiplier = 1;
     if (planetCount > 8 && planetCount <= 12) {
-        sizeMultiplier = 0.85;
         orbitSpacingMultiplier = 0.9;
     } else if (planetCount > 12) {
-        sizeMultiplier = 0.7;
         orbitSpacingMultiplier = 0.8;
     }
 
     const maxOrbit = planets ? planets.reduce((max, p) => Math.max(max, p.orbit_index), 0) : 0;
-    const availableRadius = maxRadius - finalStarRadius * 1.8;
+    // availableRadius без вычитания звезды (спека §5.2): большая звезда больше
+    // не «съедает» орбиты — клиренс starR·1.8 уходит в getOrbitRadius.
+    const availableRadius = maxRadius;
     const step = (maxOrbit > 0)
         ? (availableRadius / (maxOrbit + 1)) * orbitSpacingMultiplier
         : availableRadius / 3;
@@ -66,7 +101,7 @@ export function computeLayout(planets, starRadius, width, height) {
     // центр кадра). Для честной геометрии тесной пары смещается на d₁.
     let mainX = cx;
     let mainY = cy;
-    const stars = [{ kind: 'main', x: cx, y: cy, radius: finalStarRadius, color: modalState.starColor }];
+    const stars = [{ kind: 'main', x: cx, y: cy, radius: finalStarRadius, color: modalState.starColor, sspec: modalState.spectralClass }];
     // minimapStars — только фолбэк старых wide-миров без sepAU (51a): честной
     // позиции у них нет, миникарта рисует их по старой позиции.
     const minimapStars = [];
@@ -87,17 +122,17 @@ export function computeLayout(planets, starRadius, width, height) {
 
         const compSpec = modalState.companion;
         const compColor = starColorOf(compSpec);
-        const compRadius = starSizeOf(compSpec, maxStarRadius);
+        const compRadius = starFloorRadius(starSizeOf(compSpec), largestPlanetR);
 
         if (d2 > frameEdge) {
             // Wide (51a): главная в центре кадра (стартовый вид не уезжает),
             // компаньон честно на полном расстоянии honest справа (статика).
             mainX = cx;
             mainY = cy;
-            stars[0] = { kind: 'main', x: mainX, y: mainY, radius: finalStarRadius, color: modalState.starColor };
+            stars[0] = { kind: 'main', x: mainX, y: mainY, radius: finalStarRadius, color: modalState.starColor, sspec: modalState.spectralClass };
             stars.push({
                 kind: 'companion', x: cx + honest, y: cy,
-                radius: compRadius, color: compColor,
+                radius: compRadius, color: compColor, sspec: compSpec,
                 sepAU: sepAU, atEdge: false,
             });
         } else {
@@ -105,10 +140,10 @@ export function computeLayout(planets, starRadius, width, height) {
             // компаньон справа (статика).
             mainX = cx - d1;
             mainY = cy;
-            stars[0] = { kind: 'main', x: mainX, y: mainY, radius: finalStarRadius, color: modalState.starColor };
+            stars[0] = { kind: 'main', x: mainX, y: mainY, radius: finalStarRadius, color: modalState.starColor, sspec: modalState.spectralClass };
             stars.push({
                 kind: 'companion', x: cx + d2, y: cy,
-                radius: compRadius, color: compColor,
+                radius: compRadius, color: compColor, sspec: compSpec,
                 sepAU: sepAU, atEdge: false,
             });
         }
@@ -118,7 +153,7 @@ export function computeLayout(planets, starRadius, width, height) {
         (modalState.extraCompanions || []).forEach((ec, i) => {
             const spec = ec && ec.spectral_class;
             const color = spec ? getStarColor(spec, 'star') : compColor;
-            const radius = spec ? Math.min(getStarSize(spec, 'star'), maxStarRadius) : compRadius;
+            const radius = spec ? starFloorRadius(getStarSize(spec, 'star'), largestPlanetR) : compRadius;
             const angle = (i + 1) * (Math.PI / 3);
             const ecSepAU = (ec && typeof ec.sep_au === 'number') ? ec.sep_au : 0;
             if (ecSepAU > 0) {
@@ -127,7 +162,7 @@ export function computeLayout(planets, starRadius, width, height) {
                     kind: 'extra',
                     x: cx + Math.cos(angle) * r,
                     y: cy + Math.sin(angle) * r,
-                    radius, color,
+                    radius, color, sspec: spec,
                     sepAU: ecSepAU, atEdge: false,
                 });
             } else {
@@ -151,7 +186,7 @@ export function computeLayout(planets, starRadius, width, height) {
             stars.push({
                 kind: 'companion',
                 x: cx + finalStarRadius * 0.8, y: cy,
-                radius: finalStarRadius * 0.5, color: compColor,
+                radius: starFloorRadius(finalStarRadius * 0.5, largestPlanetR), color: compColor, sspec: compSpec,
                 sepAU: 0, atEdge: false,
             });
         } else {
@@ -185,7 +220,7 @@ export function computeLayout(planets, starRadius, width, height) {
         maxStarDistPx = Math.max(maxStarDistPx, Math.hypot(s.x - cx, s.y - cy));
     });
 
-    return { cx, cy, mainX, mainY, finalStarRadius, step, maxOrbit, sizeMultiplier, stars, minimapStars, frameEdge, maxStarDistPx };
+    return { cx, cy, mainX, mainY, finalStarRadius, step, maxOrbit, stars, minimapStars, frameEdge, maxStarDistPx };
 }
 
 // planetOrbitCenter — центр вращения планеты (35b §6.1): P-планеты вокруг
@@ -228,18 +263,6 @@ export function getPlanetPose(layout, p, idx, timeMs) {
         x: center.x + orbitRadius * Math.cos(angle),
         y: center.y + orbitRadius * Math.sin(angle)
     };
-}
-
-// Размер планет на экране (общий для рендера и ховера).
-export function getPlanetSize(p, sizeMultiplier) {
-    const type = (p.type || '').toLowerCase();
-    if (type.includes('газовый') || type === 'gas_giant') return 22 * sizeMultiplier;
-    if (type.includes('землеподобная') || type === 'terran' || type === 'earthlike') return 12 * sizeMultiplier;
-    if (type.includes('пустынная') || type === 'desert') return 10 * sizeMultiplier;
-    if (type.includes('ледяная') || type === 'ice') return 10 * sizeMultiplier;
-    if (type.includes('вулканическая') || type === 'volcanic') return 10 * sizeMultiplier;
-    if (type.includes('океаническая') || type === 'ocean') return 12 * sizeMultiplier;
-    return 8 * sizeMultiplier;
 }
 
 export function getAnimTime() {

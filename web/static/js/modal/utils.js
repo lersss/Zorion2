@@ -38,21 +38,25 @@ export function getStarColor(spectralClass, starType) {
     return colors[spectralClass] || '#ffffff';
 }
 
+// Размер звезды (мировые px схемы). Пропорции классов сохранены (O/M = 3.33),
+// масштаб ×1.5 (решение создателя 2026-09-22, спека §4.1): с лестницей планет
+// (§4.2, гигант до 42.6 px) прежние 36 px у M перестали доминировать. Экзотика
+// — фиксированный малый размер без масштабирования (компактность — суть класса).
 export function getStarSize(spectralClass, starType) {
     const sizes = {
-        'O': 120, 'B': 105, 'A': 90,
-        'F': 75, 'G': 60,
-        'K': 48, 'M': 36,
-        'L': 30, 'T': 24,
-        'Y': 18
+        'O': 180, 'B': 158, 'A': 135,
+        'F': 113, 'G': 90,
+        'K': 72, 'M': 54,
+        'L': 45, 'T': 36,
+        'Y': 27
     };
     if (starType && starType !== 'star') {
         // Экзотика — фиксированный малый размер (ЧД/НЗ/WD — компактные, §8).
         if (starType === 'black_hole' || starType === 'neutron') return 7;
         if (starType === 'white_dwarf') return 11;
-        return 20; // протозвезда
+        return 30; // протозвезда
     }
-    return sizes[spectralClass] || 60;
+    return sizes[spectralClass] || 90;
 }
 
 // starTypeLabel — человекочитаемый тип объекта для модалки (99.2.4 §8).

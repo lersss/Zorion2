@@ -1,7 +1,7 @@
 ﻿// web/static/js/modal/events.js
-import { modalState } from './state.js';
+import { modalState, flightModeForSystem } from './state.js';
 import { drawSystem, MIN_STAR_PX } from './modal_render.js';
-import { computeLayout, getOrbitRadius, getPlanetAngle, getPlanetSize, planetOrbitCenter } from './layout.js';
+import { computeLayout, getOrbitRadius, getPlanetAngle, planetRadius, planetOrbitCenter } from './layout.js';
 import { miniObjects } from './minimap.js';
 import { closeModal } from './index.js';
 import { getSpectralInfo, exoticStarInfo, formatStellarMass, formatAU } from './panel.js';
@@ -21,7 +21,7 @@ export function initEvents(canvas, spectralClass, planets, starRadius, starColor
         const layout = computeLayout(planets, starRadius, width, height);
         const orbitRadius = getOrbitRadius(layout, p, idx);
         const angle = getPlanetAngle(p, orbitRadius, idx, getAnimTime());
-        const radius = getPlanetSize(p, layout.sizeMultiplier);
+        const radius = planetRadius(p.size);
         const center = planetOrbitCenter(layout, p);
         const px = center.x + orbitRadius * Math.cos(angle);
         const py = center.y + orbitRadius * Math.sin(angle);
@@ -455,15 +455,17 @@ function showStarMenu(x, y) {
     menu.appendChild(title);
 
     // Внутрисистемный полёт доступен только в своей системе (спека 99.2.27
-    // §5.1): my_position != null. В своей системе «Лететь» из модалки
-    // убирается (М-6, осознанно) — вместо него «Лететь».
-    if (modalState.myPosition) {
+    // §5.1): явный флаг сервера (flightModeForSystem), а не my_position != null
+    // (баг 2026-09-22: в окне прибытия/межзвёздного полёта позиция пуста). В
+    // своей системе «Лететь» из модалки убирается (М-6, осознанно) — вместо
+    // него «Лететь».
+    if (flightModeForSystem() === 'intra') {
         // ПКМ-пункт скрывается, если игрок уже на орбите звезды (§5.6) или
         // летит ОТ этой звезды (запрос создателя «глупый тост»: цель == from
         // полёта — полёт к ней запрещён, отмены в UI нет — пункт не показываем).
         const pos = modalState.myPosition;
-        const onStarOrbit = pos.status === 'orbit' && pos.object_type === 'star' && pos.object_id === modalState.worldId;
-        const flyingFromStar = pos.status === 'in_flight' && pos.from_type === 'star' && pos.from_id === modalState.worldId;
+        const onStarOrbit = !!pos && pos.status === 'orbit' && pos.object_type === 'star' && pos.object_id === modalState.worldId;
+        const flyingFromStar = !!pos && pos.status === 'in_flight' && pos.from_type === 'star' && pos.from_id === modalState.worldId;
         if (!onStarOrbit && !flyingFromStar) {
             const btn = document.createElement('div');
             btn.style.cssText = `
@@ -549,8 +551,10 @@ function showCompanionMenu(x, y, starIndex) {
     if (!targetId) return;
 
     // Своя система — внутрисистемный полёт (как раньше); чужая — композитный
-    // маршрут (спека 99.2.30 §6.1, решение создателя 2026-09-21).
+    // маршрут (спека 99.2.30 §6.1, решение создателя 2026-09-21). «Своя система»
+    // — явный флаг сервера, а не my_position != null (баг 2026-09-22).
     const myPos = modalState.myPosition;
+    const intra = flightModeForSystem() === 'intra';
     if (myPos) {
         // Скрыт, если игрок уже на орбите этого компаньона (§5.6) или летит ОТ
         // него (запрос создателя «глупый тост»: цель == from полёта).
@@ -607,7 +611,7 @@ function showCompanionMenu(x, y, starIndex) {
             notifyError('Двигатель не установлен — полёт невозможен');
             return;
         }
-        if (myPos) {
+        if (intra) {
             await startIntraFlight('star', targetId);
         } else {
             await startCompositeFlight('companion', targetId);
@@ -633,6 +637,10 @@ function showPlanetMenu(x, y, planetIndex) {
     if (!planet) return;
 
     const myPos = modalState.myPosition;
+    // «Своя система» — явный флаг сервера (flightModeForSystem); при
+    // межзвёздном полёте в своей системе это композитный редирект, не intra
+    // (баг 2026-09-22: не выводить из my_position != null).
+    const intra = flightModeForSystem() === 'intra';
     let onThisOrbit = false;
     let onThisSurface = false;
     if (myPos) {
@@ -704,7 +712,7 @@ function showPlanetMenu(x, y, planetIndex) {
                 notifyError('Двигатель не установлен — полёт невозможен');
                 return;
             }
-            if (myPos) {
+            if (intra) {
                 await startIntraFlight('planet', planet.id);
             } else {
                 await startCompositeFlight('planet', planet.id);

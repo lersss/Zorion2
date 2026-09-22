@@ -2,7 +2,7 @@
 import { modalState } from './state.js';
 import { drawMiniMap } from './minimap.js';
 import { getPlanetTexture } from './textures.js';
-import { computeLayout, getOrbitRadius, getPlanetPose, getPlanetSize, planetOrbitCenter } from './layout.js';
+import { computeLayout, getOrbitRadius, getPlanetPose, planetRadius, planetOrbitCenter } from './layout.js';
 // Спрайт корабля игрока для маркера «я здесь»/корабля в полёте (спека 99.2.27
 // §5.8/§5.11): ship_sprites.js — автономный модуль (не импортирует map/config.js,
 // не требует canvas карты), перекраска gCO='hue' + восстановление альфы.
@@ -10,11 +10,33 @@ import { recolorShipSprite, shipOrientFor, shipDrawTransform } from '../map/ship
 // Звёздный фон (ТЗ @uidesigner, слой 0): starfield.js — автономный модуль
 // (offscreen-тайл + fillRect за кадр, без map/config.js), read-only импорт.
 import { drawStarfield, initStarfield } from '../map/starfield.js';
+// Рецептура ядра звёзд (правка 2026-09-22 «мишень»): общая чистая coreStops из
+// star_presets.js — формула живёт там, у модалки своя отрисовка (импорт
+// star_render.js сюда запрещён: тянет map/config.js и ломает Node-граф).
+import { coreStops } from '../map/star_presets.js';
 
 // Минимальный экранный радиус звезды (51a): на отдалённом зуме (0.02–0.3)
 // звезда не сжимается ниже ~4px на экране и остаётся яркой читаемой точкой.
 // Экспорт (70a): hit-тест в events.js использует тот же радиус, что рендер.
 export const MIN_STAR_PX = 4;
+
+// Корабль в схеме — крошечное мировое тело (спека 2026-09-22 §4.3/И-В4):
+// радиус SHIP_WORLD_R мировой px, экранный пол SHIP_MIN_PX — «виден на зуме».
+// Свои/чужие/NPC — один радиус тела; кольцо «я здесь» и бейджи — экранный UI.
+export const SHIP_WORLD_R = 1.0;
+const SHIP_MIN_PX = 2;
+
+// shipWorldSize — диаметр корабля в мировых px: 2·SHIP_WORLD_R с экранным полом
+// SHIP_MIN_PX (пол 2 px — как у звезды, экранный, не кламп размера).
+function shipWorldSize() {
+    return Math.max(2 * SHIP_WORLD_R, SHIP_MIN_PX / modalState.zoom);
+}
+
+// FX_PX — экранный масштаб полётных эффектов (трасса, частицы, вспышки, свечение,
+// пламя): остаются экранно-константными и читаемыми. Привязка эффектов к
+// крошечному телу — отдельная техправка спеки (этап 2/3); тело рисуется
+// shipWorldSize(), эффекты — FX_PX/zoom.
+const FX_PX = 16;
 
 // ==================== ЗВЁЗДНЫЙ ФОН (слой 0, ТЗ @uidesigner) ====================
 
@@ -101,6 +123,35 @@ function hexToRgba(hex, alpha) {
     return `rgba(${r},${g},${b},${alpha})`;
 }
 
+// drawModalStar — «яркая точка + мягкое свечение» (рецептура карты §1/§4,
+// правка 2026-09-22 «звёзды-мишень»): ореол rh = 1.6·rBase (мягче первой орбиты
+// 1.8·rBase) и ядро rBase двумя радиальными градиентами. Числа ядра — общая
+// coreStops(sspec); цвет — палитра модалки (s.color). Плоский круг + shadowBlur
+// убраны.
+function drawModalStar(ctx, x, y, rBase, color, sspec) {
+    const rh = rBase * 1.6;
+    const halo = ctx.createRadialGradient(x, y, 0, x, y, rh);
+    halo.addColorStop(0, hexToRgba(color, 0.42));
+    halo.addColorStop(0.20, hexToRgba(color, 0.20));
+    halo.addColorStop(0.55, hexToRgba(color, 0.07));
+    halo.addColorStop(1, hexToRgba(color, 0));
+    ctx.fillStyle = halo;
+    ctx.beginPath();
+    ctx.arc(x, y, rh, 0, 2 * Math.PI);
+    ctx.fill();
+
+    const cs = coreStops(sspec);
+    const core = ctx.createRadialGradient(x, y, 0, x, y, rBase);
+    core.addColorStop(0, `rgba(255,255,255,${cs.a1})`);
+    core.addColorStop(cs.r1, `rgba(255,255,255,${cs.a2})`);
+    core.addColorStop(cs.r2, hexToRgba(color, cs.ac));
+    core.addColorStop(1, hexToRgba(color, 0));
+    ctx.fillStyle = core;
+    ctx.beginPath();
+    ctx.arc(x, y, rBase, 0, 2 * Math.PI);
+    ctx.fill();
+}
+
 // roundRectPath — скруглённый прямоугольник (путь для fill/stroke).
 function roundRectPath(ctx, x, y, w, h, r) {
     ctx.beginPath();
@@ -133,7 +184,7 @@ export async function drawSystem(canvas, spectralClass, planets, starRadius, sta
     ctx.scale(dpr, dpr);
 
     const layout = computeLayout(planets, starRadius, width, height);
-    const { mainX, mainY, finalStarRadius, sizeMultiplier, stars } = layout;
+    const { mainX, mainY, finalStarRadius, stars } = layout;
     // Глобальные часы (51a): фаза планет не сбрасывается при переоткрытии модалки.
     const timeMs = performance.now();
 
@@ -188,22 +239,26 @@ export async function drawSystem(canvas, spectralClass, planets, starRadius, sta
     }
 
     // ---- СЛОЙ 2: ЗВЁЗДЫ (главная + компаньоны по честной геометрии, 35b §6.2) ----
+    // Вид — «яркая точка + мягкое свечение» (рецептура карты §1/§4, правка
+    // 2026-09-22 «мишень»): плоский круг + shadowBlur читались «просто кружком».
+    // Экзотика главной (starType !== 'star') — вне правки: прежний вид (рецептуру
+    // drawExotic карты сюда не переносим).
     stars.forEach(s => {
-        ctx.save();
-        if (s.kind === 'main') {
-            ctx.shadowColor = s.color;
-            ctx.shadowBlur = compactRemnant ? 0 : 40;
-        } else {
-            ctx.shadowColor = s.color;
-            ctx.shadowBlur = 25;
-        }
-        ctx.beginPath();
         // Минимальный радиус в мировых координатах: на отдалении звезда не
         // сжимается ниже MIN_STAR_PX экранных пикселей (51a).
-        ctx.arc(s.x, s.y, Math.max(s.radius, MIN_STAR_PX / modalState.zoom), 0, 2 * Math.PI);
-        ctx.fillStyle = s.color;
-        ctx.fill();
-        ctx.restore();
+        const rBase = Math.max(s.radius, MIN_STAR_PX / modalState.zoom);
+        if (s.kind === 'main' && modalState.starType && modalState.starType !== 'star') {
+            ctx.save();
+            ctx.shadowColor = s.color;
+            ctx.shadowBlur = compactRemnant ? 0 : 40;
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, rBase, 0, 2 * Math.PI);
+            ctx.fillStyle = s.color;
+            ctx.fill();
+            ctx.restore();
+            return;
+        }
+        drawModalStar(ctx, s.x, s.y, rBase, s.color, s.sspec);
     });
 
     // ---- СЛОЙ 3: ПЛАНЕТЫ (АСИНХРОННАЯ ЗАГРУЗКА ТЕКСТУР) ----
@@ -217,7 +272,7 @@ export async function drawSystem(canvas, spectralClass, planets, starRadius, sta
             }
 
             const pose = getPlanetPose(layout, p, idx, timeMs);
-            const drawRadius = (10 + (p.size || 10) * 0.6) * sizeMultiplier;
+            const drawRadius = planetRadius(p.size);
             return { x: pose.x, y: pose.y, radius: drawRadius, texture, idx };
         });
 
@@ -383,11 +438,10 @@ export function objectCanvasPos(layout, planets, objType, objId, timeMs) {
 export function orbitalPoint(layout, planets, objType, objId, timeMs) {
     const p = objectCanvasPos(layout, planets, objType, objId, timeMs);
     if (objType === 'star') {
-        // Экранно-константный размер (запрос создателя «ломается при зуме»):
-        // 16/zoom мировых = 16px экрана при любом зуме. Старый Math.max(14, 16/zoom)
-        // при zoom > 1.14 давал константу 14 (мировые) → экранный зазор от края
-        // звезды рос (7·zoom px) — маркер «уезжал» от звезды при зуме.
-        const shipSize = 16 / modalState.zoom;
+        // Смещение у звезды — полкорпуса крошечного тела (этап 1, §4.3): та же
+        // величина, что в drawMyPosition, иначе корабль «прыгает» в последнем
+        // кадре полёта (финальная позиция ≠ маркер «я здесь»).
+        const shipSize = shipWorldSize();
         return { x: p.x + layout.finalStarRadius + shipSize * 0.5, y: p.y };
     }
     return p;
@@ -412,21 +466,20 @@ function drawMyPosition(ctx, layout, planets, timeMs) {
     if (pos.object_type === 'belt') return;
 
     const p = objectCanvasPos(layout, planets, pos.object_type, pos.object_id, timeMs);
-    // Экранно-константный размер (запрос создателя «ломается при зуме»):
-    // 16/zoom мировых = 16px экрана при любом зуме; старый Math.max(14, 16/zoom)
-    // при zoom > 1.14 давал константу 14 (мировые) — экранный размер рос,
-    // маркер «уезжал» от звезды.
-    const shipSize = 16 / modalState.zoom;
+    // Тело — крошечное мировое (SHIP_WORLD_R, экранный пол 2 px); кольцо
+    // «я здесь» — экранный UI (FX_PX/zoom), не размер тела (И-В4).
+    const bodySize = shipWorldSize();
+    const fxSize = FX_PX / modalState.zoom;
 
     // Смещение у звезды (§5.11): корабль справа от звезды, не поверх неё.
     let drawX = p.x;
     let drawY = p.y;
     if (pos.object_type === 'star') {
-        drawX = p.x + layout.finalStarRadius + shipSize * 0.5;
+        drawX = p.x + layout.finalStarRadius + bodySize * 0.5;
     }
 
-    // Пульс-кольцо зелёное: радиус shipSize·(1.25+0.25·sin), альфа 0.30.
-    const ringR = shipSize * (1.25 + 0.25 * Math.sin(timeMs * 0.004));
+    // Пульс-кольцо зелёное: радиус fxSize·(1.25+0.25·sin), альфа 0.30 (UI).
+    const ringR = fxSize * (1.25 + 0.25 * Math.sin(timeMs * 0.004));
     ctx.save();
     ctx.strokeStyle = 'rgba(74,222,128,0.30)';
     ctx.lineWidth = 1.5 / modalState.zoom;
@@ -444,16 +497,16 @@ function drawMyPosition(ctx, layout, planets, timeMs) {
         ctx.translate(drawX, drawY);
         ctx.rotate(t.rotate);
         ctx.scale(t.scaleX, t.scaleY);
-        ctx.drawImage(sprite, -shipSize / 2, -shipSize / 2, shipSize, shipSize);
+        ctx.drawImage(sprite, -bodySize / 2, -bodySize / 2, bodySize, bodySize);
         ctx.restore();
     } else {
         // Фолбэк-ромб (И4): спрайт не загружен/имя неизвестно.
         ctx.save();
         ctx.beginPath();
-        ctx.moveTo(drawX, drawY - shipSize / 2);
-        ctx.lineTo(drawX + shipSize / 2, drawY);
-        ctx.lineTo(drawX, drawY + shipSize / 2);
-        ctx.lineTo(drawX - shipSize / 2, drawY);
+        ctx.moveTo(drawX, drawY - bodySize / 2);
+        ctx.lineTo(drawX + bodySize / 2, drawY);
+        ctx.lineTo(drawX, drawY + bodySize / 2);
+        ctx.lineTo(drawX - bodySize / 2, drawY);
         ctx.closePath();
         ctx.fillStyle = '#4ade80';
         ctx.fill();
@@ -621,10 +674,10 @@ function drawIntraFlightShip(ctx, layout, planets, timeMs, pos) {
     if (!isFinite(x) || !isFinite(y)) return;
     const angle = Math.atan2(to.y - from.y, to.x - from.x);
 
-    // Экранно-константный размер (запрос создателя «ломается при зуме»):
-    // 16/zoom мировых = 16px экрана при любом зуме (старый Math.max(14, 16/zoom)
-    // при zoom > 1.14 давал константу 14 — экранный размер рос).
-    const shipSize = 16 / modalState.zoom;
+    // Эффекты полёта — экранный масштаб FX_PX/zoom (остаются читаемыми);
+    // тело корабля — крошечное мировое (§4.3) и рисуется bodySize.
+    const shipSize = FX_PX / modalState.zoom;
+    const bodySize = shipWorldSize();
     const color = modalState.shipColor || '#fde68a';
 
     // Фазы.
@@ -687,13 +740,13 @@ function drawIntraFlightShip(ctx, layout, planets, timeMs, pos) {
     ctx.shadowBlur = (cruise ? 26 : 18) / modalState.zoom;
     const sprite = recolorShipSprite(modalState.shipIcon, modalState.shipColor);
     if (sprite) {
-        ctx.drawImage(sprite, -shipSize / 2, -shipSize / 2, shipSize, shipSize);
+        ctx.drawImage(sprite, -bodySize / 2, -bodySize / 2, bodySize, bodySize);
     } else {
         ctx.beginPath();
-        ctx.moveTo(shipSize * 0.55, 0);
-        ctx.lineTo(-shipSize * 0.4, -shipSize * 0.45);
-        ctx.lineTo(-shipSize * 0.2, 0);
-        ctx.lineTo(-shipSize * 0.4, shipSize * 0.45);
+        ctx.moveTo(bodySize * 0.55, 0);
+        ctx.lineTo(-bodySize * 0.4, -bodySize * 0.45);
+        ctx.lineTo(-bodySize * 0.2, 0);
+        ctx.lineTo(-bodySize * 0.4, bodySize * 0.45);
         ctx.closePath();
         ctx.fillStyle = '#4ade80';
         ctx.fill();
@@ -718,8 +771,10 @@ function drawIntraFlightShip(ctx, layout, planets, timeMs, pos) {
 function drawForeignPlayers(ctx, layout, planets, timeMs) {
     const players = modalState.systemPlayers || [];
     if (players.length === 0) return;
-    // Экранно-константный размер (запрос создателя «ломается при зуме»).
-    const shipSize = 16 / modalState.zoom;
+    // Тело чужого — тот же крошечный радиус, что у своих (SHIP_WORLD_R, §4.3);
+    // подложка-круг и развод по кругу — экранный UI (FX_PX/zoom), знак «чужой».
+    const shipSize = FX_PX / modalState.zoom;
+    const bodySize = shipWorldSize();
     const foreignSize = shipSize * 0.75;
 
     // Группировка по объекту для бейджа N≥2.
@@ -758,15 +813,15 @@ function drawForeignPlayers(ctx, layout, planets, timeMs) {
             ctx.translate(px, py);
             ctx.rotate(t.rotate);
             ctx.scale(t.scaleX, t.scaleY);
-            ctx.drawImage(sprite, -foreignSize / 2, -foreignSize / 2, foreignSize, foreignSize);
+            ctx.drawImage(sprite, -bodySize / 2, -bodySize / 2, bodySize, bodySize);
             ctx.restore();
         } else {
             ctx.save();
             ctx.beginPath();
-            ctx.moveTo(px, py - foreignSize / 2);
-            ctx.lineTo(px + foreignSize / 2, py);
-            ctx.lineTo(px, py + foreignSize / 2);
-            ctx.lineTo(px - foreignSize / 2, py);
+            ctx.moveTo(px, py - bodySize / 2);
+            ctx.lineTo(px + bodySize / 2, py);
+            ctx.lineTo(px, py + bodySize / 2);
+            ctx.lineTo(px - bodySize / 2, py);
             ctx.closePath();
             ctx.fillStyle = '#38bdf8';
             ctx.fill();

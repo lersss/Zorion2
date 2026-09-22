@@ -1,7 +1,7 @@
 // web/static/js/modal/index.js
 import { modalState, resetState } from './state.js';
 import { drawSystem, objectCanvasPos, orbitalPoint } from './modal_render.js';
-import { computeLayout } from './layout.js';
+import { computeLayout, getOrbitRadius } from './layout.js';
 import { initEvents } from './events.js';
 import { clearTextureCache } from './textures.js';
 import { getStarColor, getStarSize, starTypeLabel, systemTypeLabel, starModsBadges } from './utils.js';
@@ -240,6 +240,9 @@ export function refreshPlanets() {
         // на цель, полоса полёта уходит.
         const wasInFlight = modalState.myPosition && modalState.myPosition.status === 'in_flight';
         modalState.myPosition = (data && data.my_position) || null;
+        // Явный признак «своя система» (баг 2026-09-22) — обновляем вместе с
+        // позицией: current_world_id == worldId, независимо от my_position.
+        modalState.inOwnSystem = !!(data && data.in_own_system);
         // Прибытие (запрос создателя 99.2.27): камера мягко центрирует на объект
         // прибытия (позиция orbit = цель полёта), а не «вся система целиком».
         if (wasInFlight && modalState.myPosition && modalState.myPosition.status === 'orbit') {
@@ -547,6 +550,10 @@ function renderModal(worldId, worldName, spectralClass, data) {
     // только если игрок в этой системе; при активном полёте — status=in_flight
     // (модалка при открытии сразу показывает полосу полёта, 42a-паттерн).
     modalState.myPosition = data.my_position || null;
+    // Явный признак «своя система» (баг 2026-09-22): current_world_id == worldId
+    // из ответа системы. Кнопка полёта/пометка своей системы — по нему, а не по
+    // наличию my_position (позиция пуста в окне прибытия/межзвёздного полёта).
+    modalState.inOwnSystem = !!data.in_own_system;
     modalState.companionId = data.companion_id || null;
     modalState.canvas = canvas;
     modalState.canvasWrapper = canvasWrapper;
@@ -562,6 +569,24 @@ function renderModal(worldId, worldName, spectralClass, data) {
     // Пояса малых тел (спека поясов этап 2 §4.1): belts из ответа модалки.
     modalState.belts = Array.isArray(data && data.belts) ? data.belts : [];
     modalState.restricted = !!data.restricted;
+
+    // Стартовый зум z0 по «интересной зоне» (спека §5.2/§6.3, Ф4): в кадре —
+    // звезда + внутренняя орбита, не вся система (внешние орбиты честно за
+    // кадром, И-В2). z0 = clamp(0.45·min(w,h)/R_zone, 0.30, 1.0), где
+    // R_zone = max(2·R_звезды, мин. орбита планеты). При z0<1 барицентр (cx,cy)
+    // держим в центре кадра смещением (иначе звезда уезжает вверх-влево).
+    {
+        const startLayout = computeLayout(planets, starRadius, width, height);
+        const orbits = planets.map((p, i) => getOrbitRadius(startLayout, p, i));
+        const minOrbit = orbits.length ? Math.min.apply(null, orbits) : 0;
+        const rZone = Math.max(2 * startLayout.finalStarRadius, minOrbit);
+        if (rZone > 0) {
+            const z0 = Math.min(Math.max(0.45 * Math.min(width, height) / rZone, 0.30), 1.0);
+            modalState.zoom = z0;
+            modalState.offsetX = width / 2 * (1 - z0);
+            modalState.offsetY = height / 2 * (1 - z0);
+        }
+    }
 
     // Колбэк перерисовки спрайтов (запрос создателя 99.2.27): пока модалка
     // открыта, асинхронная загрузка спрайта игрока перерисовывает модалку
@@ -618,6 +643,12 @@ function renderModal(worldId, worldName, spectralClass, data) {
         const newRect = canvasWrapper.getBoundingClientRect();
         modalState.canvasWidth = newRect.width;
         modalState.canvasHeight = newRect.height;
+        // z0<1 держит барицентр в центре смещением; при ресайзе без ручного
+        // пана/зума пересчитываем offset, иначе звезда уезжает от центра.
+        if (!modalState.followDirty) {
+            modalState.offsetX = newRect.width / 2 * (1 - modalState.zoom);
+            modalState.offsetY = newRect.height / 2 * (1 - modalState.zoom);
+        }
         drawSystem(canvas, spectralClass, planets, starRadius, starColor, newRect.width, newRect.height);
     });
     resizeObserver.observe(canvasWrapper);

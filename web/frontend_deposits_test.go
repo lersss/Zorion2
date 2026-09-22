@@ -1,10 +1,11 @@
 // web/frontend_deposits_test.go
 // Node-тест клиентской группировки залежей поверхности (спека 2026-09-22-
-// поселение-добыча-сырья-биома-ленивый-буфер §5.2/T13): сервер отдаёт
-// deposits[] построчно, карточка планеты сводит пятна по ресурсу — число
-// пятен, суммарный запас, диапазон богатства. Паттерн — как в
-// TestGraphicsOptionsInNode (frontend_graphics_test.go): модуль исполняется в
-// Node (чистая функция, DOM не нужен).
+// поселение-добыча-сырья-биома-ленивый-буфер §5.2/T13 + спека итерации 3
+// §6/T14): сервер отдаёт deposits[] построчно, карточка планеты сводит пятна по
+// ресурсу — число пятен, суммарный запас, диапазон богатства, счётчик
+// выработанных (depleted). Паттерн — как в TestGraphicsOptionsInNode
+// (frontend_graphics_test.go): модуль исполняется в Node (чистая функция, DOM не
+// нужен).
 package web
 
 import (
@@ -63,6 +64,19 @@ eq('meat count', g[1].count, 1);
 eq('meat amount', g[1].amount, 1000);
 eq('meat wealth min', g[1].wealthMin, 0.5);
 eq('meat wealth max', g[1].wealthMax, 0.5);
+
+// Выработанные пятна (amount <= 0) — только у админа (спека итерации 3 §6/п.26):
+// группа считает счётчик depleted, но остаётся группой того же ресурса.
+const withDepleted = [
+    { good_id: 1, good_name: 'вода-ресурс', stratum: 'surface', wealth: 0.2, amount: 500 },
+    { good_id: 1, good_name: 'вода-ресурс', stratum: 'surface', wealth: 0.8, amount: 0 },
+    { good_id: 359, good_name: 'Мясо', stratum: 'surface', wealth: 0.5, amount: 1000 },
+];
+const gd = dep.groupDeposits(withDepleted);
+eq('depleted count', gd[0].depleted, 1);
+eq('depleted water count', gd[0].count, 2);
+eq('active group depleted', gd[1].depleted, 0);
+eq('active group count', gd[1].count, 1);
 
 console.log('DEPOSITS_GROUPING_OK');
 `

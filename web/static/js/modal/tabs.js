@@ -815,10 +815,14 @@ function renderDeposits(planet) {
     } else {
         html += `<p style="color:#888; font-size:0.9rem; text-transform:uppercase;">Залежи (${deposits.length})</p>`;
         groupDeposits(deposits).forEach(g => {
+            // «Выработано» — админская индикация (спека итерации 3 §6/п.26):
+            // выработанные залежи (amount = 0) игроку не приходят, поэтому
+            // счётчик ненулевой только у админа.
+            const depleted = g.depleted > 0 ? ` (выработано: ${g.depleted})` : '';
             html += `
                 <div style="margin:6px 0; padding:10px; background:#1a1a2e; border-radius:4px;">
                     <div><strong>${g.good_name || ('#' + g.good_id)}</strong></div>
-                    <div style="color:#ccc; margin-top:4px;">Пятен: <strong>${g.count}</strong></div>
+                    <div style="color:#ccc; margin-top:4px;">Пятен: <strong>${g.count}</strong>${depleted}</div>
                     <div style="color:#ccc;">Запас: <strong>${formatNumber(g.amount)}</strong></div>
                     <div style="color:#ccc;">Богатство: <strong>${wealthRangeLabel(g)}</strong></div>
                 </div>`;

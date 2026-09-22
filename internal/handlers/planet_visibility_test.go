@@ -62,13 +62,16 @@ func TestStripFactionsAndBuildings(t *testing.T) {
 	require.Len(t, p.Buildings, 1)
 }
 
-// TestStripDeposits — залежи поверхности (спека 2026-09-22-поселение-... §5.1):
-// player без знания их не видит; со знанием — остаются.
+// TestStripDeposits — залежи поверхности (спека 2026-09-22-поселение-... §5.1 и
+// спека итерации 3 §5.2/п.26): player без знания их не видит; со знанием —
+// только активные (amount > 0), выработанная (amount = 0) скрыта; admin идёт
+// мимо stripPlanetDetails и видит обе.
 func TestStripDeposits(t *testing.T) {
 	p := models.Planet{
 		ID: "p1",
 		Deposits: []models.SurfaceDeposit{
 			{GoodID: 359, GoodName: "Мясо", Stratum: "surface", Wealth: 0.5, Amount: 1000},
+			{GoodID: 1, GoodName: "вода-ресурс", Stratum: "surface", Wealth: 0.3, Amount: 0},
 		},
 	}
 
@@ -76,5 +79,10 @@ func TestStripDeposits(t *testing.T) {
 	require.Nil(t, stripped.Deposits, "без знания залежи скрыты (§5.1)")
 
 	withKnowledge := stripPlanetDetails(p, &models.PlanetKnowledgeView{})
-	require.Len(t, withKnowledge.Deposits, 1, "со знанием залежи остаются")
+	require.Len(t, withKnowledge.Deposits, 1, "со знанием остаются только активные залежи")
+	require.Equal(t, int64(359), withKnowledge.Deposits[0].GoodID, "выработанная (amount = 0) скрыта")
+
+	// admin/skycomposer фильтр не применяют (И7): планета не проходит
+	// stripPlanetDetails — обе залежи остаются как есть.
+	require.Len(t, p.Deposits, 2, "админу видны и выработанные залежи")
 }

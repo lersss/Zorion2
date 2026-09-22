@@ -83,6 +83,11 @@ func stripPlanetDetails(p models.Planet, view *models.PlanetKnowledgeView) model
 		// строения); со знанием остаются. attachDeposits зовётся только в
 		// GetPlanetsByWorldID — других путей к игроку нет.
 		p.Deposits = nil
+	} else {
+		// Со знанием игрок видит только активные залежи (спека итерации 3
+		// §5.2/п.26): выработанные (amount = 0) скрыты от player и видны
+		// только админу (admin идёт мимо stripPlanetDetails).
+		p.Deposits = filterActiveDeposits(p.Deposits)
 	}
 	p.Description = ""
 	p.SystemAge = 0
@@ -113,6 +118,22 @@ func stripBranchInputs(p *models.Planet) {
 			p.Settlements[i].Branches[j].Input = nil
 		}
 	}
+}
+
+// filterActiveDeposits — оставляет залежи с запасом > 0 (спека итерации 3
+// §5.2/п.26): выработанная залежь (`amount = 0`) скрыта от игрока; админ идёт
+// мимо stripPlanetDetails и видит её с пометкой «выработано».
+func filterActiveDeposits(deposits []models.SurfaceDeposit) []models.SurfaceDeposit {
+	if len(deposits) == 0 {
+		return deposits
+	}
+	out := make([]models.SurfaceDeposit, 0, len(deposits))
+	for _, d := range deposits {
+		if d.Amount > 0 {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 // applyBeltVisibility — выдача поясов игроку (спека

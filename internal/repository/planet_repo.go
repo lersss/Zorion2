@@ -359,24 +359,29 @@ func (r *PlanetRepository) attachFactionsAndBuildings(planets []models.Planet) e
 }
 
 // attachBranches — подтягивает ветки поселений и выполняет ленивый синк
-// переработки вход → выход (спека 2026-09-22-поселение-ветка-буферы-
-// переработка §4.2). Вызывается внутри attachSettlements ПОСЛЕ ленивого
-// пересчёта населения: скорость переработки берёт Population поселения той же
-// точки чтения. Δt < MinPersistInterval — пересчёт в памяти; иначе персистентный
-// синк (FOR UPDATE на ветке). У планет без поселений запросов нет.
+// переработки вход → выход + добычи из залежей своей планеты (спека
+// 2026-09-22-поселение-ветка-буферы-переработка §4.2; спека итерации 3 §4).
+// Вызывается внутри attachSettlements ПОСЛЕ ленивого пересчёта населения:
+// скорость переработки берёт Population поселения той же точки чтения; planet_id
+// поселения (для добора из залежей) — из уже обойдённой планеты, без нового JOIN
+// (§4.2 спеки итерации 3). Δt < MinPersistInterval — пересчёт в памяти; иначе
+// персистентный синк (FOR UPDATE на ветке → залежах). У планет без поселений
+// запросов нет.
 func (r *PlanetRepository) attachBranches(planets []models.Planet) error {
 	ids := make([]string, 0, len(planets))
 	populations := map[string]float64{}
+	planetBySettlement := map[string]string{}
 	for i := range planets {
 		for _, s := range planets[i].Settlements {
 			ids = append(ids, s.ID)
 			populations[s.ID] = float64(s.Population)
+			planetBySettlement[s.ID] = planets[i].ID
 		}
 	}
 	if len(ids) == 0 {
 		return nil
 	}
-	bySettlement, err := NewBranchRepository(r.db).SyncBranches(ids, populations, time.Now())
+	bySettlement, err := NewBranchRepository(r.db).SyncBranches(ids, populations, planetBySettlement, time.Now())
 	if err != nil {
 		return fmt.Errorf("failed to load branches: %w", err)
 	}

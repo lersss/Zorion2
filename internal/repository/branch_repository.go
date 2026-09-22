@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sort"
 	"time"
 
 	"github.com/lib/pq"
@@ -59,6 +60,28 @@ const (
 		FROM recipe_components rc
 		WHERE rc.recipe_id = ANY($1) AND rc.component_id IS NOT NULL
 		ORDER BY rc.recipe_id, rc.pos`
+
+	// depositExtractionSelectSQL — залежи планеты под блокировкой для добычи
+	// (спека итерации 3 §4.4): фильтр по ресурсам рецепта и запасу > 0; порядок
+	// строго по `id` (детерминированный порядок локов — дедлоков нет между
+	// синками), выбор «от крупной к мелкой» делает чистая функция (§3.2).
+	depositExtractionSelectSQL = `
+		SELECT id, good_id, amount FROM deposits
+		WHERE planet_id = $1 AND good_id = ANY($2) AND amount > 0
+		ORDER BY id
+		FOR UPDATE`
+
+	// depositMemorySelectSQL — залежи для пути «в памяти» (Δt <
+	// MinPersistInterval): только чтение, без блокировки и записи (§4.2).
+	depositMemorySelectSQL = `
+		SELECT planet_id, id, good_id, amount FROM deposits
+		WHERE planet_id = ANY($1) AND good_id = ANY($2) AND amount > 0
+		ORDER BY planet_id, id`
+
+	// depositWriteAmountSQL — абсолютная запись остатка залежи (кламп ≥ 0 —
+	// страховка БД CHECK (amount >= 0); штатно не срабатывает, §4.4).
+	depositWriteAmountSQL = `
+		UPDATE deposits SET amount = $1, updated_at = NOW() WHERE id = $2`
 )
 
 // countBranchesByGoodSQL — число веток, у которых товар-выход рецепта = good_id
@@ -91,8 +114,9 @@ type branchRecord struct {
 	components   []settlement.BranchComponent
 }
 
-// toBranch — состояние ветки для чистой функции переработки.
-func (rec *branchRecord) toBranch(population float64) settlement.Branch {
+// toBranch — состояние ветки для чистой функции переработки. deposits —
+// залежи своей планеты по good_id (источник добычи, спека итерации 3 §4).
+func (rec *branchRecord) toBranch(population float64, deposits map[int64][]settlement.DepositLot) settlement.Branch {
 	input := make(map[int64]float64, len(rec.branch.Input))
 	for _, e := range rec.branch.Input {
 		input[e.GoodID] = e.Amount
@@ -109,6 +133,7 @@ func (rec *branchRecord) toBranch(population float64) settlement.Branch {
 		Input:       input,
 		Output:      branchOutputAmount(rec.branch.Output, rec.outputGoodID),
 		ProcessedAt: rec.branch.ProcessedAt,
+		Deposits:    deposits,
 	}
 }
 
@@ -298,11 +323,15 @@ func attachBranchBuffers(ctx context.Context, q branchRowsQueryer, branchIDs []s
 // --- ленивый синк переработки (§4.2) ---
 
 // SyncBranches — загрузка веток поселений и ленивая переработка вход → выход
-// (§4.2). Для каждой ветки: Δt < MinPersistInterval (общий кадэнс ленивых
-// петель) — пересчёт в памяти без записи и блокировки; иначе — персистентный
-// синк (SyncBranchTx: FOR UPDATE + запись буферов и processed_at). Возвращает
+// (§4.2) с добором недостающего из залежей своей планеты (спека итерации 3 §4):
+// добыча — первая половина того же прохода. Для каждой ветки: Δt <
+// MinPersistInterval (общий кадэнс ленивых петель) — пересчёт в памяти без
+// записи и блокировки (и залежи читаются без блокировки, deposits не пишется);
+// иначе — персистентный синк (syncBranchTx: FOR UPDATE ветки → FOR UPDATE
+// залежей → запись буферов, залежей и processed_at). planetBySettlement даёт
+// planet_id каждого поселения (без нового JOIN-лока, §4.2). Возвращает
 // display-модели, сгруппированные по settlement_id.
-func (r *BranchRepository) SyncBranches(settlementIDs []string, populationBySettlement map[string]float64, now time.Time) (map[string][]models.SettlementBranch, error) {
+func (r *BranchRepository) SyncBranches(settlementIDs []string, populationBySettlement map[string]float64, planetBySettlement map[string]string, now time.Time) (map[string][]models.SettlementBranch, error) {
 	out := map[string][]models.SettlementBranch{}
 	if len(settlementIDs) == 0 {
 		return out, nil
@@ -311,12 +340,19 @@ func (r *BranchRepository) SyncBranches(settlementIDs []string, populationBySett
 	if err != nil {
 		return nil, err
 	}
+	// Залежи для веток пути «в памяти» — читаются один раз без блокировки
+	// (§4.2): в БД этот путь не пишет, но карточка показывает добор в памяти.
+	memDeposits, err := r.loadMemoryDeposits(recs, planetBySettlement, now)
+	if err != nil {
+		return nil, err
+	}
 	for _, rec := range recs {
 		population := populationBySettlement[rec.settlementID]
+		planetID := planetBySettlement[rec.settlementID]
 		if now.Sub(rec.branch.ProcessedAt) < settlement.MinPersistInterval {
-			rec.applyProcessed(settlement.ProcessBranch(rec.toBranch(population), now))
+			rec.applyProcessed(settlement.ProcessBranch(rec.toBranch(population, memDeposits[planetID]), now))
 		} else {
-			updated, err := r.syncBranchTx(context.Background(), rec.branch.ID, population, now)
+			updated, err := r.syncBranchTx(context.Background(), rec.branch.ID, planetID, population, now)
 			// Ветку удалили между загрузкой и блокировкой (чужая мутация/
 			// каскад) — не роняем чтение карточки: ветки больше нет, no-op.
 			if errors.Is(err, ErrBranchNotFound) {
@@ -332,11 +368,108 @@ func (r *BranchRepository) SyncBranches(settlementIDs []string, populationBySett
 	return out, nil
 }
 
+// componentGoodIDs — good_id заполненных компонентов рецепта без дублей (фильтр
+// залежей по составу рецепта, §3.2).
+func componentGoodIDs(comps []settlement.BranchComponent) []int64 {
+	var out []int64
+	for _, c := range comps {
+		out = appendUniqueInt64(out, c.GoodID)
+	}
+	return out
+}
+
+// loadMemoryDeposits — залежи планет веток пути «в памяти» (Δt <
+// MinPersistInterval), одним запросом без блокировки (§4.2, deposits не
+// пишется). Запрос — только если такие ветки есть и у них есть компоненты;
+// возвращает planet_id → good_id → залежи.
+func (r *BranchRepository) loadMemoryDeposits(recs []*branchRecord, planetBySettlement map[string]string, now time.Time) (map[string]map[int64][]settlement.DepositLot, error) {
+	var planetIDs []string
+	var goodIDs []int64
+	for _, rec := range recs {
+		if now.Sub(rec.branch.ProcessedAt) >= settlement.MinPersistInterval {
+			continue
+		}
+		planetID := planetBySettlement[rec.settlementID]
+		if planetID == "" {
+			continue
+		}
+		planetIDs = appendStringUnique(planetIDs, planetID)
+		for _, gid := range componentGoodIDs(rec.components) {
+			goodIDs = appendUniqueInt64(goodIDs, gid)
+		}
+	}
+	if len(planetIDs) == 0 || len(goodIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := r.db.QueryContext(context.Background(), depositMemorySelectSQL, pqStringArray(planetIDs), pq.Array(goodIDs))
+	if err != nil {
+		return nil, fmt.Errorf("failed to query deposits: %w", err)
+	}
+	defer rows.Close()
+	out := make(map[string]map[int64][]settlement.DepositLot, len(planetIDs))
+	for rows.Next() {
+		var planetID, lotID string
+		var goodID int64
+		var amount float64
+		if err := rows.Scan(&planetID, &lotID, &goodID, &amount); err != nil {
+			return nil, fmt.Errorf("failed to scan deposit: %w", err)
+		}
+		if out[planetID] == nil {
+			out[planetID] = map[int64][]settlement.DepositLot{}
+		}
+		out[planetID][goodID] = append(out[planetID][goodID], settlement.DepositLot{ID: lotID, GoodID: goodID, Amount: amount})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("deposits iteration error: %w", err)
+	}
+	return out, nil
+}
+
+// loadDepositsForUpdate — залежи планеты под блокировкой для персистентного
+// синка (§4.4): порядок «ветка → залежи», `FOR UPDATE` + `ORDER BY id` —
+// детерминированный порядок локов между синками (дедлоков нет). Фильтр —
+// ресурсы рецепта и запас > 0 (нулевые не блокируются и не трогаются).
+func loadDepositsForUpdate(ctx context.Context, tx *sql.Tx, planetID string, goodIDs []int64) (map[int64][]settlement.DepositLot, error) {
+	if planetID == "" || len(goodIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := tx.QueryContext(ctx, depositExtractionSelectSQL, planetID, pq.Array(goodIDs))
+	if err != nil {
+		return nil, fmt.Errorf("failed to lock deposits: %w", err)
+	}
+	defer rows.Close()
+	out := map[int64][]settlement.DepositLot{}
+	for rows.Next() {
+		var lotID string
+		var goodID int64
+		var amount float64
+		if err := rows.Scan(&lotID, &goodID, &amount); err != nil {
+			return nil, fmt.Errorf("failed to scan deposit: %w", err)
+		}
+		out[goodID] = append(out[goodID], settlement.DepositLot{ID: lotID, GoodID: goodID, Amount: amount})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("deposits iteration error: %w", err)
+	}
+	return out, nil
+}
+
+// appendStringUnique — добавить значение в срез, если его ещё нет.
+func appendStringUnique(s []string, v string) []string {
+	for _, x := range s {
+		if x == v {
+			return s
+		}
+	}
+	return append(s, v)
+}
+
 // syncBranchTx — персистентный путь «события» (§4.2): транзакция, FOR UPDATE на
-// строке ветки → топ-ап строк входа для текущих компонентов (T14) → пересчёт по
-// сохранённым буферам → абсолютная запись буферов и processed_at → COMMIT.
-// Порядок блокировок единый: ветка → буферы.
-func (r *BranchRepository) syncBranchTx(ctx context.Context, branchID string, population float64, now time.Time) (models.SettlementBranch, error) {
+// строке ветки → топ-ап строк входа для текущих компонентов (T14) → FOR UPDATE
+// залежей планеты (добыча, спека итерации 3 §4) → пересчёт по сохранённым
+// буферам и залежам → абсолютная запись буферов, залежей и processed_at →
+// COMMIT. Порядок блокировок единый: ветка → залежи.
+func (r *BranchRepository) syncBranchTx(ctx context.Context, branchID, planetID string, population float64, now time.Time) (models.SettlementBranch, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return models.SettlementBranch{}, err
@@ -372,7 +505,13 @@ func (r *BranchRepository) syncBranchTx(ctx context.Context, branchID string, po
 		return models.SettlementBranch{}, err
 	}
 
-	processed := settlement.ProcessBranch(rec.toBranch(population), now)
+	// Залежи планеты под блокировкой — после ветки (единый порядок локов).
+	deposits, err := loadDepositsForUpdate(ctx, tx, planetID, componentGoodIDs(rec.components))
+	if err != nil {
+		return models.SettlementBranch{}, err
+	}
+
+	processed := settlement.ProcessBranch(rec.toBranch(population, deposits), now)
 
 	// Абсолютная запись входа по текущим компонентам (под блокировкой ветки —
 	// инкремент админа не теряется, §4.2).
@@ -395,6 +534,16 @@ func (r *BranchRepository) syncBranchTx(ctx context.Context, branchID string, po
 	); err != nil {
 		return models.SettlementBranch{}, fmt.Errorf("branch write output: %w", err)
 	}
+	// Убыль залежей — абсолютная запись остатка (кламп ≥ 0 страховкой).
+	for _, lot := range sortedDepositLots(processed.Deposits) {
+		amount := lot.Amount
+		if amount < 0 {
+			amount = 0
+		}
+		if _, err := tx.ExecContext(ctx, depositWriteAmountSQL, amount, lot.ID); err != nil {
+			return models.SettlementBranch{}, fmt.Errorf("branch write deposit: %w", err)
+		}
+	}
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE settlement_branches SET processed_at = $1, updated_at = NOW() WHERE id = $2`,
 		now, branchID,
@@ -407,6 +556,25 @@ func (r *BranchRepository) syncBranchTx(ctx context.Context, branchID string, po
 
 	rec.applyProcessed(processed)
 	return rec.branch, nil
+}
+
+// sortedDepositLots — залежи результата в детерминированном порядке (good_id
+// ASC, затем порядок среза — «от крупной к мелкой»): запись залежей в БД не
+// зависит от порядка обхода map.
+func sortedDepositLots(deposits map[int64][]settlement.DepositLot) []settlement.DepositLot {
+	if len(deposits) == 0 {
+		return nil
+	}
+	goodIDs := make([]int64, 0, len(deposits))
+	for gid := range deposits {
+		goodIDs = append(goodIDs, gid)
+	}
+	sort.Slice(goodIDs, func(i, j int) bool { return goodIDs[i] < goodIDs[j] })
+	var out []settlement.DepositLot
+	for _, gid := range goodIDs {
+		out = append(out, deposits[gid]...)
+	}
+	return out
 }
 
 // loadBranchForUpdate — одна ветка под блокировкой строки (§4.2).

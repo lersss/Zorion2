@@ -10,7 +10,7 @@
 //  3. При выбранной расе «Голод» недоступен (не уходит в расовый эндпоинт).
 //
 // Живую фикстуру (товар+рецепт+ветка+поселение+нагрузка) скрипт кладёт сам из
-// tools/e2e/artifacts/effects-hunger-setup.sql (уборка — effects-hunger-resolve.sql).
+// tools/e2e/fixtures/effects-hunger-setup.sql (уборка — …-resolve.sql).
 // Chrome/Edge — системные (playwright-core, executablePath). Вывод ASCII.
 // Run: node qa-effects-hunger.js   (BASE_URL env)
 import { chromium } from 'playwright-core';
@@ -21,10 +21,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const BASE_URL = (process.env.BASE_URL || 'http://localhost:8080').replace(/\/+$/, '');
-const ARTIFACTS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'artifacts');
+const E2E_DIR = path.dirname(fileURLToPath(import.meta.url));
+const ARTIFACTS_DIR = path.join(E2E_DIR, 'artifacts');
+// Фикстуры — ВХОД прогона, поэтому лежат в отслеживаемой fixtures/ (не в
+// ignored artifacts/, иначе скрипт не запустится в чистом клоне).
+const FIXTURES_DIR = path.join(E2E_DIR, 'fixtures');
 const SETTLEMENT_ID = 'e0000000-0000-4000-8000-000000000001';
-const SETUP_SQL = path.join(ARTIFACTS_DIR, 'effects-hunger-setup.sql');
-const RESOLVE_SQL = path.join(ARTIFACTS_DIR, 'effects-hunger-resolve.sql');
+const SETUP_SQL = path.join(FIXTURES_DIR, 'effects-hunger-setup.sql');
+const RESOLVE_SQL = path.join(FIXTURES_DIR, 'effects-hunger-resolve.sql');
 const USER_PREFIX = 'e2e_eff_';
 const PASSWORD = 'e2e-effects-' + Date.now();
 const PSQL = process.env.PSQL || 'C:\\pgsql\\pgsql\\bin\\psql.exe';

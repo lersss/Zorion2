@@ -14,6 +14,13 @@ const (
 	ContractStatusExpired   = "expired"
 )
 
+// Тип контракта (contracts.type, §4.1) — открытый список; travel — первый
+// (спека перелёта §1). Тип-специфичные правила (перебазирование срока при
+// взятии) включаются по этому значению.
+const (
+	ContractTypeTravel = "travel"
+)
+
 // Типы автора контракта (contracts.author_type, §4.1) — шире buildings.owner_type:
 // добавлен building (заказчик-постройка). Полиморфно, FK нет.
 const (

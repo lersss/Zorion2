@@ -156,9 +156,13 @@ const insertMoneyOpSQL = `
 	VALUES ($1,$2,$3,$4,$5,$6,$7)`
 
 // Взятие: атомарный flip open→taken с проверкой срока (0 строк = гонка/истёк).
+// expires_at перебазируется, если передан новый срок ($5 != NULL) — правило
+// типа travel (спека перелёта §4.3: срок исполнения отсчитывается от взятия,
+// капкан «взял перед истечением»). У других типов $5 = NULL → срок не трогаем.
 const takeContractSQL = `
 	UPDATE contracts
-	SET status = 'taken', executor_type = $2, executor_id = $3, taken_at = $4, updated_at = $4
+	SET status = 'taken', executor_type = $2, executor_id = $3, taken_at = $4,
+	    expires_at = COALESCE($5::timestamptz, expires_at), updated_at = $4
 	WHERE id = $1 AND status = 'open' AND expires_at > NOW()`
 
 // Отмена автором: атомарный flip open→cancelled только для автора.
@@ -308,8 +312,10 @@ func (r *ContractRepository) Publish(p PublishContractParams) (*models.Contract,
 }
 
 // Take — взятие контракта: атомарный flip open→taken (0 строк = гонка/истёк).
-// Счёт агента-исполнителя гарантируется здесь (§3.4: агент не аутентифицируется).
-func (r *ContractRepository) Take(contractID, executorType, executorID string) (bool, error) {
+// expiresAt != nil — перебазирование срока при взятии (правило типа travel,
+// спека перелёта §4.3): срок исполнения отсчитывается от взятия. Счёт
+// агента-исполнителя гарантируется здесь (§3.4: агент не аутентифицируется).
+func (r *ContractRepository) Take(contractID, executorType, executorID string, expiresAt *time.Time) (bool, error) {
 	now := time.Now()
 	tx, err := r.db.Begin()
 	if err != nil {
@@ -323,7 +329,7 @@ func (r *ContractRepository) Take(contractID, executorType, executorID string) (
 		}
 	}
 
-	res, err := tx.Exec(takeContractSQL, contractID, executorType, executorID, now)
+	res, err := tx.Exec(takeContractSQL, contractID, executorType, executorID, now, expiresAt)
 	if err != nil {
 		return false, fmt.Errorf("take contract: %w", err)
 	}
@@ -374,13 +380,26 @@ func (r *ContractRepository) Cancel(contractID, authorType, authorID string) (bo
 // исполнителю (escrow_release / contract_work_earn) + лог. В B1 вызывается
 // точками прибытия перелёта (B2) — метод существует уже здесь.
 func (r *ContractRepository) Complete(contractID, executorID string) (bool, error) {
-	now := time.Now()
 	tx, err := r.db.Begin()
 	if err != nil {
 		return false, err
 	}
 	defer tx.Rollback()
 
+	ok, err := completeTx(tx, contractID, executorID, time.Now())
+	if err != nil {
+		return false, err
+	}
+	if !ok {
+		return false, nil
+	}
+	return true, tx.Commit()
+}
+
+// completeTx — тело завершения над querier (tx или БД): атомарный flip
+// taken→completed + выпуск залога исполнителю + лог. 0 строк (просрочен/не наш)
+// → (false, nil) без записи. Вынесено для CloseTravelArrivals (одна tx).
+func completeTx(q querier, contractID, executorID string, now time.Time) (bool, error) {
 	var (
 		id, authorType, authorID string
 		executorType             string
@@ -388,7 +407,7 @@ func (r *ContractRepository) Complete(contractID, executorID string) (bool, erro
 		amount, withdrawable     int64
 		funding                  string
 	)
-	err = tx.QueryRow(completeContractSQL, contractID, executorID).
+	err := q.QueryRow(completeContractSQL, contractID, executorID).
 		Scan(&id, &authorType, &authorID, &executorType, &eid, &amount, &withdrawable, &funding)
 	if err == sql.ErrNoRows {
 		return false, nil
@@ -401,7 +420,7 @@ func (r *ContractRepository) Complete(contractID, executorID string) (bool, erro
 	if err != nil {
 		return false, err
 	}
-	if err := ensureAccount(tx, ownerType, ownerID, 0); err != nil {
+	if err := ensureAccount(q, ownerType, ownerID, 0); err != nil {
 		return false, err
 	}
 	wDelta := int64(0)
@@ -411,42 +430,115 @@ func (r *ContractRepository) Complete(contractID, executorID string) (bool, erro
 		kind = models.MoneyOpContractWork
 	}
 	var balanceAfter int64
-	if err := tx.QueryRow(releaseEscrowSQL, ownerType, ownerID, amount, wDelta).
+	if err := q.QueryRow(releaseEscrowSQL, ownerType, ownerID, amount, wDelta).
 		Scan(&balanceAfter); err != nil {
 		return false, fmt.Errorf("escrow release: %w", err)
 	}
-	if err := insertMoneyOp(tx, ownerType, ownerID, amount, balanceAfter, kind, id, now); err != nil {
+	if err := insertMoneyOp(q, ownerType, ownerID, amount, balanceAfter, kind, id, now); err != nil {
 		return false, err
 	}
 
 	execActor := executorType
-	if err := insertContractLog(tx, id, models.ContractLogCompleted, &execActor, &eid,
+	if err := insertContractLog(q, id, models.ContractLogCompleted, &execActor, &eid,
 		map[string]interface{}{}, now); err != nil {
 		return false, err
 	}
-	if err := insertContractLog(tx, id, models.ContractLogEscrowReleased, &execActor, &eid,
+	if err := insertContractLog(q, id, models.ContractLogEscrowReleased, &execActor, &eid,
 		map[string]interface{}{"amount": amount, "funding": funding}, now); err != nil {
 		return false, err
 	}
-	return true, tx.Commit()
+	return true, nil
 }
 
-// ExpireDue — ленивое истечение (§6.3): одна транзакция — flip по сроку в
-// области + возврат залога автору + лог (failed при непустом executor_id, иначе
-// expired). Возвращает число истёкших контрактов.
-func (r *ContractRepository) ExpireDue(scope ContractScope) (int, error) {
-	where, args := scope.clause()
+// CloseTravelArrivals — закрытие контрактов-перелётов исполнителя по прибытии
+// (спека перелёта §1.1/§1.4, B2a). Две точки: цель-система (planetID == "",
+// payload->>'dest_planet_id' IS NULL) и цель-планета (planetID задан). Для
+// каждого найденного контракта СПЕРВА истечение (просроченный — провал, залог
+// автору), затем завершение (не просроченный, залог исполнителю); завершение
+// не трогает просроченный (AND expires_at > NOW()) — 0 строк.
+// Всё — ОДНОЙ транзакцией (инвариант «либо всё, либо ничего»): сбой на любом
+// контракте откатывает проход, иначе после успешного истечения сбой завершения
+// оставил бы контракт taken и прибытие (одноразовое) потеряло бы награду.
+// Возвращает число фактически выполненных контрактов.
+func (r *ContractRepository) CloseTravelArrivals(executorID, worldID, planetID string) (int, error) {
 	tx, err := r.db.Begin()
 	if err != nil {
 		return 0, err
 	}
 	defer tx.Rollback()
 
-	n, err := sweepEscrow(tx, expireDueSQL+where, args, models.ContractLogExpired, models.EscrowReasonExpired)
+	query := `SELECT id FROM contracts
+		WHERE type = 'travel' AND status = 'taken' AND executor_type = $1 AND executor_id = $2
+		  AND payload->>'dest_world_id' = $3`
+	args := []interface{}{models.ContractExecutorPlayer, executorID, worldID}
+	if planetID == "" {
+		query += ` AND payload->>'dest_planet_id' IS NULL`
+	} else {
+		query += ` AND payload->>'dest_planet_id' = $4`
+		args = append(args, planetID)
+	}
+	rows, err := tx.Query(query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("close travel arrivals: %w", err)
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return 0, err
+	}
+	rows.Close()
+
+	now := time.Now()
+	completed := 0
+	for _, id := range ids {
+		if _, err := expireDueTx(tx, ContractScope{ContractID: id}); err != nil {
+			return 0, err
+		}
+		ok, err := completeTx(tx, id, executorID, now)
+		if err != nil {
+			return 0, err
+		}
+		if ok {
+			completed++
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return completed, nil
+}
+
+// ExpireDue — ленивое истечение (§6.3): одна транзакция — flip по сроку в
+// области + возврат залога автору + лог (failed при непустом executor_id, иначе
+// expired). Возвращает число истёкших контрактов.
+func (r *ContractRepository) ExpireDue(scope ContractScope) (int, error) {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	n, err := expireDueTx(tx, scope)
 	if err != nil {
 		return 0, err
 	}
 	return n, tx.Commit()
+}
+
+// expireDueTx — тело ленивого истечения над querier (tx или БД): flip по сроку
+// в области + возврат залога автору + лог. Вынесено для CloseTravelArrivals
+// (одна tx: истечение и завершение атомарны сообща).
+func expireDueTx(q querier, scope ContractScope) (int, error) {
+	where, args := scope.clause()
+	return sweepEscrow(q, expireDueSQL+where, args, models.ContractLogExpired, models.EscrowReasonExpired)
 }
 
 // ReturnEscrowForContractsTx — возврат залога всех живых контрактов области

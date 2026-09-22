@@ -449,7 +449,7 @@ func TestIntraArrivalWritesKnowledge(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	intraMgr.StartIntraFlight(userID, "w1", "star", "w1", "planet", "p1", 30*time.Millisecond,
-		NewIntraArrivalHandler(h.intraRepo, h.planetRepo, h.knowledgeRepo))
+		NewIntraArrivalHandler(h.intraRepo, h.planetRepo, h.knowledgeRepo, nil))
 
 	require.Eventually(t, func() bool {
 		return mock.ExpectationsWereMet() == nil

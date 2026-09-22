@@ -121,12 +121,12 @@ func TestContractTakeAtomic(t *testing.T) {
 
 	mock.ExpectBegin()
 	mock.ExpectExec(`UPDATE contracts\s+SET status = 'taken'`).
-		WithArgs("c1", "player", "u1", sqlmock.AnyArg()).
+		WithArgs("c1", "player", "u1", sqlmock.AnyArg(), nil).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO contract_log`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	ok, err := NewContractRepository(db).Take("c1", "player", "u1")
+	ok, err := NewContractRepository(db).Take("c1", "player", "u1", nil)
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -143,7 +143,7 @@ func TestContractTakeConflict(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectRollback()
 
-	ok, err := NewContractRepository(db).Take("c1", "player", "u1")
+	ok, err := NewContractRepository(db).Take("c1", "player", "u1", nil)
 	require.NoError(t, err)
 	require.False(t, ok)
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -291,6 +291,140 @@ func TestContractCompleteExpiredNotCompleted(t *testing.T) {
 	ok, err := NewContractRepository(db).Complete("c1", "u1")
 	require.NoError(t, err)
 	require.False(t, ok, "просроченный taken не завершается (0 строк)")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// ==================== B2a: перелёт (перебазирование, закрытие) ====================
+
+// Взятие перелёта перебазирует срок: $5 != NULL → expires_at = COALESCE($5, ...)
+// (спека перелёта §4.3).
+func TestContractTakeRebasesExpiry(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	rebase := time.Now().Add(time.Hour)
+	mock.ExpectBegin()
+	mock.ExpectExec(`(?s)UPDATE contracts\s+SET status = 'taken'.*expires_at = COALESCE\(\$5::timestamptz, expires_at\).*expires_at > NOW\(\)`).
+		WithArgs("c1", "player", "u1", sqlmock.AnyArg(), rebase).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO contract_log`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	ok, err := NewContractRepository(db).Take("c1", "player", "u1", &rebase)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// completeRows — строка RETURNING завершения (8 колонок).
+func completeRows(id, executorID string, amount int64) *sqlmock.Rows {
+	return sqlmock.NewRows([]string{
+		"id", "author_type", "author_id", "executor_type", "executor_id",
+		"escrow_amount", "escrow_withdrawable", "funding",
+	}).AddRow(id, "faction", "f1", "player", executorID, amount, 0, "regular")
+}
+
+// expectExpireDueStmt — оператор истечения (без Begin/Commit): используется
+// внутри одной транзакции CloseTravelArrivals.
+func expectExpireDueStmt(mock sqlmock.Sqlmock, rows *sqlmock.Rows) {
+	mock.ExpectQuery(`UPDATE contracts\s+SET status = 'expired'`).
+		WillReturnRows(rows)
+}
+
+// expectCompleteStmt — оператор завершения + выпуск залога (без Begin/Commit):
+// используется внутри одной транзакции CloseTravelArrivals.
+func expectCompleteStmt(mock sqlmock.Sqlmock, executorID string, amount int64) {
+	mock.ExpectQuery(`(?s)UPDATE contracts\s+SET status = 'completed'.*expires_at > NOW\(\)`).
+		WithArgs("c1", executorID).
+		WillReturnRows(completeRows("c1", executorID, amount))
+	mock.ExpectExec(`INSERT INTO accounts`).
+		WithArgs("player", executorID, int64(0)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(`UPDATE accounts\s+SET balance = balance \+ \$3`).
+		WithArgs("player", executorID, amount, int64(0)).
+		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(amount))
+	mock.ExpectExec(`INSERT INTO money_operations`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO contract_log`).WillReturnResult(sqlmock.NewResult(0, 1)) // completed
+	mock.ExpectExec(`INSERT INTO contract_log`).WillReturnResult(sqlmock.NewResult(0, 1)) // escrow_released
+}
+
+// Цель-система (dest_planet_id IS NULL): кандидаты, истечение (не истёк —
+// 0 строк) и завершение — в ОДНОЙ транзакции → 1.
+func TestCloseTravelArrivalsSystemTarget(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT id FROM contracts\s+WHERE type = 'travel' AND status = 'taken' AND executor_type = \$1 AND executor_id = \$2\s+AND payload->>'dest_world_id' = \$3 AND payload->>'dest_planet_id' IS NULL`).
+		WithArgs("player", "u1", "w2").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("c1"))
+	expectExpireDueStmt(mock, rowSet6()) // не истёк
+	expectCompleteStmt(mock, "u1", 500)
+	mock.ExpectCommit()
+
+	n, err := NewContractRepository(db).CloseTravelArrivals("u1", "w2", "")
+	require.NoError(t, err)
+	require.Equal(t, 1, n)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Цель-планета: условие dest_planet_id = $4 (спека §1.1); одна транзакция.
+func TestCloseTravelArrivalsPlanetTarget(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT id FROM contracts\s+WHERE type = 'travel' AND status = 'taken' AND executor_type = \$1 AND executor_id = \$2\s+AND payload->>'dest_world_id' = \$3 AND payload->>'dest_planet_id' = \$4`).
+		WithArgs("player", "u1", "w2", "p9").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("c1"))
+	expectExpireDueStmt(mock, rowSet6())
+	expectCompleteStmt(mock, "u1", 500)
+	mock.ExpectCommit()
+
+	n, err := NewContractRepository(db).CloseTravelArrivals("u1", "w2", "p9")
+	require.NoError(t, err)
+	require.Equal(t, 1, n)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Просроченный при прибытии: истечение закрывает как провал (залог автору),
+// завершение не трогает (0 строк) → счётчик 0 (порядок истечение → завершение,
+// спека §1.4/§1.5); всё в одной транзакции.
+func TestCloseTravelArrivalsExpiredNotCompleted(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT id FROM contracts\s+WHERE type = 'travel'`).
+		WithArgs("player", "u1", "w2").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("c1"))
+	// Истечение: строка истекла, залог возвращается автору-фракции (лог failed).
+	expectExpireDueStmt(mock, rowSet6().AddRow("c1", "faction", "f1", "u1", 700, 0))
+	mock.ExpectExec(`INSERT INTO accounts`).
+		WithArgs("faction", "f1", int64(1000000000000000)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(`UPDATE accounts\s+SET balance = balance \+ \$3`).
+		WithArgs("faction", "f1", int64(700), int64(0)).
+		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(1000000000000700))
+	mock.ExpectExec(`INSERT INTO money_operations`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO contract_log`).WillReturnResult(sqlmock.NewResult(0, 1)) // failed
+	mock.ExpectExec(`INSERT INTO contract_log`).WillReturnResult(sqlmock.NewResult(0, 1)) // escrow_returned
+	// Завершение: просроченный → 0 строк.
+	mock.ExpectQuery(`(?s)UPDATE contracts\s+SET status = 'completed'.*expires_at > NOW\(\)`).
+		WithArgs("c1", "u1").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "author_type", "author_id", "executor_type", "executor_id",
+			"escrow_amount", "escrow_withdrawable", "funding",
+		}))
+	mock.ExpectCommit()
+
+	n, err := NewContractRepository(db).CloseTravelArrivals("u1", "w2", "")
+	require.NoError(t, err)
+	require.Equal(t, 0, n, "просроченный перелёт закрыт как провал, не завершён")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

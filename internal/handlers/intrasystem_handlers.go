@@ -31,6 +31,9 @@ type IntrasystemHandlers struct {
 	knowledgeRepo *repository.KnowledgeRepository
 	travelManager *travel.Manager
 	intraManager  *travel.IntrasystemManager
+	// Контракты-перелёты (спека перелёта §1.1, B2a): при прибытии к планете-цели
+	// контракт закрывается в NewIntraArrivalHandler. Сеттер: contractRepo — main.go.
+	contractRepo *repository.ContractRepository
 }
 
 func NewIntrasystemHandlers(
@@ -51,6 +54,12 @@ func NewIntrasystemHandlers(
 		travelManager: travelManager,
 		intraManager:  intraManager,
 	}
+}
+
+// SetContracts — подключает репозиторий контрактов (спека перелёта §1.1, B2a):
+// закрытие контрактов-перелётов с целью-планетой при внутрисистемном прибытии.
+func (h *IntrasystemHandlers) SetContracts(contractRepo *repository.ContractRepository) {
+	h.contractRepo = contractRepo
 }
 
 // CalcIntraDuration — длительность внутрисистемного полёта (спека §3.4, С4):
@@ -316,15 +325,19 @@ func companionIDFromMods(worldID string, mods map[string]interface{}, objID stri
 // orbit на цели (атомарно с удалением строки, С-1) + авто-знание
 // (source=presence, С6). Битая цель на момент прибытия → фолбэк «орбита
 // звезды» (ИП-4). Общая для хендлера и Restore (main.go).
+// contractRepo != nil — закрытие контракта-перелёта с целью-планетой (спека
+// перелёта §1.1, B2a: внутрисистемная точка).
 func NewIntraArrivalHandler(
 	intraRepo *repository.PlayerIntrasystemFlightRepository,
 	planetRepo *repository.PlanetRepository,
 	knowledgeRepo *repository.KnowledgeRepository,
+	contractRepo *repository.ContractRepository,
 ) travel.IntraArrivalFunc {
 	return func(userID string, f *travel.IntraFlightInfo) {
 		// 1. Позиция orbit на цели (или фолбэк «орбита звезды» при битой цели).
 		pos := models.OrbitPosition(f.ToType, f.ToID)
-		if !arrivalTargetValid(planetRepo, f.WorldID, f.ToType, f.ToID) {
+		arrivedAtTarget := arrivalTargetValid(planetRepo, f.WorldID, f.ToType, f.ToID)
+		if !arrivedAtTarget {
 			pos = models.StarOrbitPosition(f.WorldID)
 		}
 		if err := intraRepo.ArriveAtomic(userID, pos, f.StartTime, f.ArriveAt); err != nil {
@@ -344,6 +357,11 @@ func NewIntraArrivalHandler(
 					log.Printf("⚠️ intrasystem: knowledge (user %s, satellite %s): %v", userID, f.ToID, err)
 				}
 			}
+		}
+		// 3. Закрытие контракта-перелёта с целью-планетой (спека перелёта
+		// §1.1): только при реальном прибытии к планете-цели, не при фолбэке.
+		if arrivedAtTarget && f.ToType == "planet" {
+			closeTravelContractsForArrival(contractRepo, userID, f.WorldID, f.ToID)
 		}
 	}
 }
@@ -566,7 +584,7 @@ func (h *IntrasystemHandlers) StartIntraFlight(w http.ResponseWriter, r *http.Re
 	}
 
 	h.intraManager.StartIntraFlight(userID, worldID, fromType, fromID, req.ObjectType, req.ObjectID, duration,
-		NewIntraArrivalHandler(h.intraRepo, h.planetRepo, h.knowledgeRepo))
+		NewIntraArrivalHandler(h.intraRepo, h.planetRepo, h.knowledgeRepo, h.contractRepo))
 
 	writeJSONStatus(w, http.StatusAccepted, IntraFlightResponse{
 		Duration:  int(duration.Seconds()),

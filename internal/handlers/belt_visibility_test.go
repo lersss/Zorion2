@@ -528,7 +528,7 @@ func TestBeltArrivalPosition(t *testing.T) {
 	mock.ExpectCommit()
 
 	intraMgr.StartIntraFlight(userID, "w1", "star", "w1", "belt", "b1", 30*time.Millisecond,
-		NewIntraArrivalHandler(h.intraRepo, h.planetRepo, h.knowledgeRepo))
+		NewIntraArrivalHandler(h.intraRepo, h.planetRepo, h.knowledgeRepo, nil))
 
 	require.Eventually(t, func() bool {
 		return mock.ExpectationsWereMet() == nil
@@ -552,7 +552,7 @@ func TestBeltArrivalBrokenTarget(t *testing.T) {
 	mock.ExpectCommit()
 
 	intraMgr.StartIntraFlight(userID, "w1", "star", "w1", "belt", "b1", 30*time.Millisecond,
-		NewIntraArrivalHandler(h.intraRepo, h.planetRepo, h.knowledgeRepo))
+		NewIntraArrivalHandler(h.intraRepo, h.planetRepo, h.knowledgeRepo, nil))
 
 	require.Eventually(t, func() bool {
 		return mock.ExpectationsWereMet() == nil

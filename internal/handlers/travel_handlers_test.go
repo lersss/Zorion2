@@ -1183,3 +1183,191 @@ func TestRestorePendingDestinationsWorldMismatchClears(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 	require.Nil(t, intraManager.GetIntraFlight(userID), "игрок не в системе-цели — полёт не стартует")
 }
+
+// ==================== B2a: закрытие контрактов-перелётов ====================
+
+// travelCompleteRow — RETURNING-строка завершения (8 колонок).
+func travelCompleteRow(id, executorID string, amount int64) *sqlmock.Rows {
+	return sqlmock.NewRows([]string{
+		"id", "author_type", "author_id", "executor_type", "executor_id",
+		"escrow_amount", "escrow_withdrawable", "funding",
+	}).AddRow(id, "faction", "f1", "player", executorID, amount, 0, "regular")
+}
+
+// expectTravelCompleteStmt — оператор завершения + выпуск залога без
+// Begin/Commit: CloseTravelArrivals ведёт весь проход в одной транзакции.
+func expectTravelCompleteStmt(mock sqlmock.Sqlmock, executorID string, amount int64) {
+	mock.ExpectQuery(`(?s)UPDATE contracts\s+SET status = 'completed'.*expires_at > NOW\(\)`).
+		WithArgs("c1", executorID).
+		WillReturnRows(travelCompleteRow("c1", executorID, amount))
+	mock.ExpectExec(`INSERT INTO accounts`).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(`UPDATE accounts\s+SET balance = balance \+ \$3`).
+		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(amount))
+	mock.ExpectExec(`INSERT INTO money_operations`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO contract_log`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO contract_log`).WillReturnResult(sqlmock.NewResult(0, 1))
+}
+
+// expectTravelExpireDueStmt — оператор истечения без Begin/Commit (0 строк):
+// в одной транзакции с завершением.
+func expectTravelExpireDueStmt(mock sqlmock.Sqlmock) {
+	mock.ExpectQuery(`UPDATE contracts\s+SET status = 'expired'`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "author_type", "author_id", "executor_id",
+			"escrow_amount", "escrow_withdrawable"}))
+}
+
+// Межзвёздная точка: прибытие к звезде закрывает контракт-перелёт с
+// dest_planet_id IS NULL (спека §1.1). Цель-планета здесь НЕ закрывается
+// (условие в SQL).
+func TestArrivalHandlerClosesSystemTravelContract(t *testing.T) {
+	ship.LoadDefaults()
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	t.Cleanup(func() { db.Close() })
+	const userID = "11111111-1111-1111-1111-111111111111"
+	const target = "w2"
+
+	h := NewTravelHandlers(repository.NewWorldRepository(db), repository.NewUserRepository(db), travel.NewManager(nil))
+	h.SetContracts(repository.NewContractRepository(db))
+
+	expectArrivalBase(mock, userID, target, 10, 0)
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT id FROM contracts\s+WHERE type = 'travel' AND status = 'taken' AND executor_type = \$1 AND executor_id = \$2\s+AND payload->>'dest_world_id' = \$3 AND payload->>'dest_planet_id' IS NULL`).
+		WithArgs("player", userID, target).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("c1"))
+	expectTravelExpireDueStmt(mock)
+	expectTravelCompleteStmt(mock, userID, 500)
+	mock.ExpectCommit()
+	mock.ExpectQuery(`SELECT pending_destination FROM users WHERE id = \$1`).
+		WithArgs(userID).
+		WillReturnRows(sqlmock.NewRows([]string{"pending_destination"}).AddRow(nil))
+
+	h.ArrivalHandler(userID, target)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Внутрисистемная точка: прибытие intra-полёта к планете-цели закрывает
+// контракт-перелёт с dest_planet_id = прибывшая планета (спека §1.1).
+func TestIntraArrivalClosesPlanetTravelContract(t *testing.T) {
+	ship.LoadDefaults()
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	t.Cleanup(func() { db.Close() })
+	const userID = "22222222-2222-2222-2222-222222222222"
+
+	// 1. Валидация цели прибытия: планета существует в системе (полное чтение
+	// GetPlanetByID: планета + поселения + фракции/строения).
+	expectPlanetByID(mock, "p1", "w1")
+	// 2. Атомарно: позиция orbit + удаление строки.
+	mock.ExpectBegin()
+	mock.ExpectExec(`UPDATE users SET current_position = \$1, updated_at = NOW\(\) WHERE id = \$2`).
+		WithArgs(sqlmock.AnyArg(), userID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`DELETE FROM player_intrasystem_flights WHERE user_id = \$1 AND start_time = \$2 AND arrive_at = \$3`).
+		WithArgs(userID, sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	// 3. Авто-знание (С6).
+	mock.ExpectQuery(`SELECT COALESCE\(p.data->>'surface_dominant', ''\), COALESCE\(p.data->'surface_composition', '\{\}'::jsonb\), \(SELECT COUNT\(\*\) FROM settlements s WHERE s.planet_id = p.id\) FROM planets p WHERE p.id = \$1`).
+		WithArgs("p1").
+		WillReturnRows(sqlmock.NewRows([]string{"surface_dominant", "surface_composition", "settlements_count"}).
+			AddRow("вода", `{"вода":100}`, 0))
+	mock.ExpectExec(`INSERT INTO player_planet_knowledge.*ON CONFLICT.*DO UPDATE`).
+		WithArgs(userID, "p1", sqlmock.AnyArg(), "presence").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	// 4. Закрытие контракта-перелёта (цель-планета) — одной транзакцией.
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT id FROM contracts\s+WHERE type = 'travel' AND status = 'taken' AND executor_type = \$1 AND executor_id = \$2\s+AND payload->>'dest_world_id' = \$3 AND payload->>'dest_planet_id' = \$4`).
+		WithArgs("player", userID, "w1", "p1").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("c1"))
+	expectTravelExpireDueStmt(mock)
+	expectTravelCompleteStmt(mock, userID, 500)
+	mock.ExpectCommit()
+
+	intraRepo := repository.NewPlayerIntrasystemFlightRepository(db)
+	planetRepo := repository.NewPlanetRepository(db)
+	knowledgeRepo := repository.NewKnowledgeRepository(db)
+	intraMgr := travel.NewIntrasystemManager(nil)
+	intraMgr.StartIntraFlight(userID, "w1", "star", "w1", "planet", "p1", 30*time.Millisecond,
+		NewIntraArrivalHandler(intraRepo, planetRepo, knowledgeRepo, repository.NewContractRepository(db)))
+
+	require.Eventually(t, func() bool {
+		return mock.ExpectationsWereMet() == nil
+	}, 5*time.Second, 10*time.Millisecond)
+}
+
+// Фолбэк битой цели: внутрисистемное прибытие к несуществующей планете НЕ
+// закрывает контракт (arrivedAtTarget=false — «прибыл» на орбиту звезды).
+func TestIntraArrivalBrokenTargetDoesNotCloseTravelContract(t *testing.T) {
+	ship.LoadDefaults()
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	t.Cleanup(func() { db.Close() })
+	const userID = "33333333-3333-3333-3333-333333333333"
+	now := time.Now()
+
+	// 1. Цель бита: планета не найдена (arrivalTargetValid=false) → фолбэк.
+	mock.ExpectQuery(`SELECT id, world_id, name, orbit_index, data, created_at, updated_at FROM planets WHERE id = \$1`).
+		WithArgs("p1").
+		WillReturnError(sql.ErrNoRows)
+	// 2. Фолбэк «орбита звезды»: ArriveAtomic.
+	mock.ExpectBegin()
+	mock.ExpectExec(`UPDATE users SET current_position = \$1, updated_at = NOW\(\) WHERE id = \$2`).
+		WithArgs(sqlmock.AnyArg(), userID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`DELETE FROM player_intrasystem_flights WHERE user_id = \$1 AND start_time = \$2 AND arrive_at = \$3`).
+		WithArgs(userID, sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	// 3. Авто-знание по битой планете: ScanPlanet → ErrNoRows (лог, не падение).
+	mock.ExpectQuery(`SELECT COALESCE\(p.data->>'surface_dominant', ''\), COALESCE\(p.data->'surface_composition', '\{\}'::jsonb\), \(SELECT COUNT\(\*\) FROM settlements s WHERE s.planet_id = p.id\) FROM planets p WHERE p.id = \$1`).
+		WithArgs("p1").
+		WillReturnError(sql.ErrNoRows)
+	// Ожидание закрытия регистрируем, но оно НЕ должно быть востребовано: тогда
+	// ExpectationsWereMet вернёт ошибку — контракт не закрыт.
+	mock.ExpectQuery(`SELECT id FROM contracts\s+WHERE type = 'travel'`).
+		WithArgs("player", userID, "w1", "p1").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+
+	handler := NewIntraArrivalHandler(
+		repository.NewPlayerIntrasystemFlightRepository(db),
+		repository.NewPlanetRepository(db),
+		repository.NewKnowledgeRepository(db),
+		repository.NewContractRepository(db),
+	)
+	handler(userID, &travel.IntraFlightInfo{
+		WorldID: "w1", FromType: "star", FromID: "w1", ToType: "planet", ToID: "p1",
+		StartTime: now, ArriveAt: now,
+	})
+
+	require.Error(t, mock.ExpectationsWereMet(), "битая цель: контракт не закрывается")
+}
+
+// Межзвёздная точка закрывает только контракты с dest_planet_id IS NULL:
+// цель-планета (dest_planet_id <> NULL) сюда не попадает — предикат SQL.
+func TestArrivalHandlerSystemPointOnlyNullPlanetTarget(t *testing.T) {
+	ship.LoadDefaults()
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	t.Cleanup(func() { db.Close() })
+	const userID = "44444444-4444-4444-4444-444444444444"
+	const target = "w2"
+
+	h := NewTravelHandlers(repository.NewWorldRepository(db), repository.NewUserRepository(db), travel.NewManager(nil))
+	h.SetContracts(repository.NewContractRepository(db))
+
+	expectArrivalBase(mock, userID, target, 10, 0)
+	// Планетная цель отфильтрована предикатом IS NULL → пустая выборка; ничего
+	// не закрывается (нет ExpireDue/Complete).
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT id FROM contracts\s+WHERE type = 'travel' AND status = 'taken' AND executor_type = \$1 AND executor_id = \$2\s+AND payload->>'dest_world_id' = \$3 AND payload->>'dest_planet_id' IS NULL`).
+		WithArgs("player", userID, target).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	mock.ExpectCommit()
+	mock.ExpectQuery(`SELECT pending_destination FROM users WHERE id = \$1`).
+		WithArgs(userID).
+		WillReturnRows(sqlmock.NewRows([]string{"pending_destination"}).AddRow(nil))
+
+	h.ArrivalHandler(userID, target)
+	require.NoError(t, mock.ExpectationsWereMet())
+}

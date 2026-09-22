@@ -31,6 +31,10 @@ type TravelHandlers struct {
 	// (валидация «объект жив») и knowledgeRepo (авто-знание presence).
 	planetRepo    *repository.PlanetRepository
 	knowledgeRepo *repository.KnowledgeRepository
+	// Контракты-перелёты (спека перелёта §1.1, B2a): закрытие по прибытии
+	// межзвёздного полёта к звезде (цель-система, dest_planet_id IS NULL).
+	// Сеттер: contractRepo создаётся в main.go.
+	contractRepo *repository.ContractRepository
 }
 
 func NewTravelHandlers(
@@ -59,6 +63,13 @@ func (h *TravelHandlers) SetIntrasystem(intraManager *travel.IntrasystemManager,
 func (h *TravelHandlers) SetIntrasystemAutostart(planetRepo *repository.PlanetRepository, knowledgeRepo *repository.KnowledgeRepository) {
 	h.planetRepo = planetRepo
 	h.knowledgeRepo = knowledgeRepo
+}
+
+// SetContracts — подключает репозиторий контрактов (спека перелёта §1.1, B2a):
+// закрытие контрактов-перелётов по прибытии (межзвёздная точка — цель-система,
+// внутрисистемная — цель-планета). Сеттер: contractRepo создаётся в main.go.
+func (h *TravelHandlers) SetContracts(contractRepo *repository.ContractRepository) {
+	h.contractRepo = contractRepo
 }
 
 type TravelRequest struct {
@@ -433,6 +444,11 @@ func (h *TravelHandlers) ArrivalHandler(uid, worldID string) {
 	if err := h.userRepo.UpdateCurrentWorldAndPosition(uid, worldID, models.StarOrbitPosition(worldID)); err != nil {
 		log.Printf("Failed to update current world for user %s: %v", uid, err)
 	}
+	// Контракт-перелёт с целью-системой (dest_planet_id IS NULL) закрывается
+	// здесь (спека перелёта §1.1, B2a). Цель-планета закрывается во
+	// внутрисистемной точке (NewIntraArrivalHandler) — иначе игрок, летящий к
+	// планете композитным маршрутом, закрыл бы контракт на звезде раньше срока.
+	h.closeSystemArrivalContracts(uid, worldID)
 	// Спека 99.2.30 §4.1: чтение намерения ПОСЛЕ ИП-2 (позиция «орбита
 	// звезды» уже выставлена — фолбэк автостарта готов).
 	dest, err := h.userRepo.GetPendingDestination(uid)
@@ -453,6 +469,31 @@ func (h *TravelHandlers) ArrivalHandler(uid, worldID string) {
 	}
 	// world_id == worldID → автостарт внутрисистемного сегмента (§4.3).
 	h.autostartIntra(uid, worldID, dest)
+}
+
+// closeSystemArrivalContracts — закрытие контрактов-перелётов с целью-системой
+// при прибытии к звезде (спека перелёта §1.1, B2a). Nil-безопасно.
+func (h *TravelHandlers) closeSystemArrivalContracts(uid, worldID string) {
+	closeTravelContractsForArrival(h.contractRepo, uid, worldID, "")
+}
+
+// closeTravelContractsForArrival — общая точка закрытия контрактов-перелётов по
+// прибытии (спека §1.1/§1.4): planetID == "" — цель-система (межзвёздная
+// точка), иначе цель-планета (внутрисистемная). Nil-безопасно.
+func closeTravelContractsForArrival(contractRepo *repository.ContractRepository, executorID, worldID, planetID string) {
+	if contractRepo == nil {
+		return
+	}
+	n, err := contractRepo.CloseTravelArrivals(executorID, worldID, planetID)
+	if err != nil {
+		log.Printf("⚠️ contracts: закрытие перелёта (executor %s, world %s, planet %s): %v",
+			executorID, worldID, planetID, err)
+		return
+	}
+	if n > 0 {
+		log.Printf("✅ contracts: закрыто перелётов: %d (executor %s, world %s, planet %s)",
+			n, executorID, worldID, planetID)
+	}
 }
 
 // ==================== АВТОСТАРТ КОМПОЗИТНОГО МАРШРУТА (спека 99.2.30 §4) ====================
@@ -584,7 +625,7 @@ func (h *TravelHandlers) autostartIntra(uid, worldID string, dest *models.Pendin
 		return
 	}
 	h.intraManager.StartIntraFlight(uid, worldID, "star", worldID, intraToType, dest.ObjectID, duration,
-		NewIntraArrivalHandler(h.intraRepo, h.planetRepo, h.knowledgeRepo))
+		NewIntraArrivalHandler(h.intraRepo, h.planetRepo, h.knowledgeRepo, h.contractRepo))
 	// 5. Очистка намерения ПОСЛЕ StartAtomic (§4.4).
 	clearDest()
 }

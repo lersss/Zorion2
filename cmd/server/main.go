@@ -256,6 +256,9 @@ func main() {
 	travelHandlers := handlers.NewTravelHandlers(worldRepo, userRepo, travelManager)
 	travelHandlers.SetIntrasystem(intraManager, intraFlightRepo)
 	travelHandlers.SetIntrasystemAutostart(planetRepo, knowledgeRepo)
+	// Контракты-перелёты (спека перелёта §1.1, B2a): закрытие по прибытии
+	// (межзвёздная точка — цель-система; внутрисистемная — цель-планета).
+	travelHandlers.SetContracts(contractRepo)
 
 	// Фаза 1: Restore межзвёздных (97a) — onArrival через общий ArrivalHandler
 	// (спека 99.2.30 §4/И6): прибывшие засчитываются сразу (ИП-2 + автостарт
@@ -279,7 +282,7 @@ func main() {
 			}
 			return *u.CurrentWorldID
 		},
-		handlers.NewIntraArrivalHandler(intraFlightRepo, planetRepo, knowledgeRepo),
+		handlers.NewIntraArrivalHandler(intraFlightRepo, planetRepo, knowledgeRepo, contractRepo),
 	)
 	// Фаза 3: намерения композитного маршрута (спека 99.2.30 §4.5) — ПОСЛЕ
 	// фаз 1–2: автостарт для живых целей, очистка призраков/битых/съеденных.
@@ -298,10 +301,11 @@ func main() {
 	intrasystemHandlers := handlers.NewIntrasystemHandlers(
 		worldRepo, userRepo, planetRepo, intraFlightRepo, knowledgeRepo, travelManager, intraManager,
 	)
+	intrasystemHandlers.SetContracts(contractRepo)
 	// Высадка/прогулка (спека 2026-09-21 §6): POST /api/surface/land|leave.
 	surfaceHandlers := handlers.NewSurfaceHandlers(userRepo, worldRepo, planetRepo, intraManager)
 	wsHandler := handlers.NewWebSocketHandler(wsHub)
-	contractHandlers := handlers.NewContractHandlers(contractRepo, planetRepo, userRepo, knowledgeRepo)
+	contractHandlers := handlers.NewContractHandlers(contractRepo, planetRepo, userRepo, knowledgeRepo, worldRepo)
 	mapCache := mapcache.NewManager()
 	adminHandlers := handlers.NewAdminHandlers(worldRepo, db, mapCache)
 	compatHandlers := handlers.NewCompatibilityHandlers(db)

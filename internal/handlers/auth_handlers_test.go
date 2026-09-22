@@ -298,12 +298,21 @@ func TestGetMeShipSection(t *testing.T) {
 	assert.Equal(t, float64(1), slots["scanner"])
 	assert.Equal(t, float64(1), slots["engine"])
 
-	// ship_catalog: весь каталог (id/type/name/params), включая engine_1.
+	// ship_catalog: весь каталог (id/type/name/params), включая engine_1 и
+	// грузовой модуль cargo_1 (спека трюма §8.3).
 	catalog, ok := resp["ship_catalog"].([]interface{})
 	require.True(t, ok, "ship_catalog должен быть массивом")
-	require.Len(t, catalog, 3, "radar_1 + scanner_1 + engine_1")
-	engineItem, ok := catalog[0].(map[string]interface{})
-	require.True(t, ok, "сортировка по id: engine_1 первый")
+	require.Len(t, catalog, 4, "cargo_1 + engine_1 + radar_1 + scanner_1")
+	cargoItem, ok := catalog[0].(map[string]interface{})
+	require.True(t, ok, "сортировка по id: cargo_1 первый")
+	assert.Equal(t, "cargo_1", cargoItem["id"])
+	assert.Equal(t, "cargo", cargoItem["type"])
+	assert.Equal(t, "Грузовой модуль-1", cargoItem["name"])
+	cargoParams, ok := cargoItem["params"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, float64(80), cargoParams["capacity"])
+	engineItem, ok := catalog[1].(map[string]interface{})
+	require.True(t, ok, "сортировка по id: engine_1 второй")
 	assert.Equal(t, "engine_1", engineItem["id"])
 	assert.Equal(t, "engine", engineItem["type"])
 	assert.Equal(t, "Двигатель-1", engineItem["name"])

@@ -93,6 +93,20 @@
         .graphics-lite-note { color: #fbbf24; font-size: 0.82rem; margin: 0 0 1rem; }
         .graphics-footer { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.8rem; }
         .graphics-status { margin-top: 0.6rem; font-size: 0.8rem; color: #94a3b8; min-height: 1.1rem; }
+        /* Блок «Трюм» (спека трюма §9.3): полоса занято/всего + строки груза. */
+        .cargo-bar-wrap { display: flex; align-items: center; gap: 10px; margin: 8px 0 12px; }
+        .cargo-bar { flex: 1; height: 10px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; overflow: hidden; }
+        .cargo-bar-fill { height: 100%; width: 0; background: #3b82f6; transition: width 0.2s; }
+        .cargo-bar-label { font-size: 0.8rem; color: #cbd5e1; white-space: nowrap; }
+        .cargo-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 6px 0; border-bottom: 1px solid #1f2a3a; }
+        .cargo-row-info { display: flex; flex-direction: column; gap: 2px; }
+        .cargo-row-name { font-weight: 600; }
+        .cargo-row-meta { color: #94a3b8; font-size: 0.8rem; }
+        .cargo-row-act { display: flex; align-items: center; gap: 6px; }
+        .cargo-qty { width: 80px; padding: 4px 6px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #f0f4fa; }
+        .cargo-actions { margin-top: 12px; }
+        .cargo-empty { color: #94a3b8; padding: 6px 0; }
+        .cargo-status { margin-top: 8px; font-size: 0.8rem; color: #94a3b8; min-height: 1.1rem; }
     </style>
 </head>
 <body>
@@ -147,6 +161,24 @@
                         <div class="ship-slot ship-slot-future" style="top:52%; left:90%;"></div>
                     </div>
                     <div id="ship-section-stats"></div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>📦 Трюм</h2>
+                <div id="cargo-section">
+                    <!-- Полоса занято/всего (масса, тонны). used/total считает
+                         сервер (И2) — клиент вес не перемножает (спека трюма §9.1). -->
+                    <div class="cargo-bar-wrap">
+                        <div class="cargo-bar"><div class="cargo-bar-fill" id="cargoBarFill"></div></div>
+                        <span class="cargo-bar-label" id="cargoBarLabel">—</span>
+                    </div>
+                    <!-- Строки груза: товар — количество — масса + сброс за борт. -->
+                    <div id="cargo-items"></div>
+                    <div class="cargo-actions">
+                        <button class="btn-secondary" id="cargoJettisonAllBtn" type="button" hidden>🗑️ Выбросить всё</button>
+                    </div>
+                    <div id="cargo-status" class="cargo-status"></div>
                 </div>
             </div>
         </div>
@@ -258,6 +290,7 @@
         import { recolorShipSprite, getShipImage, setRedrawCallback, SHIP_COLOR_PALETTE, setShipOptions, shipOrientFor } from '/static/js/map/ship_sprites.js';
         import { loadEncyclopedia } from '/static/js/dashboard/encyclopedia.js';
         import { initGraphicsSettings } from '/static/js/dashboard/graphics.js';
+        import { initCargo } from '/static/js/dashboard/cargo.js';
 
         // orientCssTransform — CSS-трансформ показа пары (A, F) (спека §6.2):
         // A=0 → rotate(0) scaleX(F); A≠0 → scale(0.707) rotate(A) scaleX(F)
@@ -658,6 +691,8 @@
         loadUser();
         loadShipSelector();
         loadEncyclopedia();
+        // Блок «Трюм» (спека трюма §9.3): загрузка GET /api/cargo + сброс.
+        initCargo();
         // Вкладка «⚙️ Графика» (идея 2026-09-22): контролы читают/пишут
         // localStorage; карта миров читает те же ключи.
         initGraphicsSettings();

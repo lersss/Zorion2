@@ -23,7 +23,8 @@ var (
 )
 
 // defaultEquipment — дефолты на случай пустой БД (спека 77a §3.3/§4.2,
-// 91a §7.1: двигатель engine_1 — настоящий модуль).
+// 91a §7.1: двигатель engine_1 — настоящий модуль; трюм §8.3: грузовой
+// модуль cargo_1 — params.capacity в тоннах).
 var defaultEquipment = []models.EquipmentItem{
 	{ID: "radar_1", Type: models.EquipmentTypeRadar, Name: "Радар-1",
 		Params: map[string]interface{}{"radius": float64(models.RadarRadiusDefault)}},
@@ -31,6 +32,8 @@ var defaultEquipment = []models.EquipmentItem{
 		Params: map[string]interface{}{"depth": "surface", "settlements": true}},
 	{ID: "engine_1", Type: models.EquipmentTypeEngine, Name: "Двигатель-1",
 		Params: map[string]interface{}{"speed_factor": models.EngineSpeedDefault}},
+	{ID: models.StarterCargoModuleID, Type: models.EquipmentTypeCargo, Name: "Грузовой модуль-1",
+		Params: map[string]interface{}{"capacity": float64(80)}},
 }
 
 // LoadCatalog — читает справочник оборудования из БД. Пустая БД — дефолты.
@@ -139,4 +142,32 @@ func AllEquipment() []models.EquipmentItem {
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
 	return items
+}
+
+// CargoCapacityMass — ёмкость трюма по массе (тонны, спека трюма §4/§8.3):
+// врождённая ёмкость модели корабля + сумма params.capacity установленных
+// грузовых модулей (equipment.type='cargo'). modelID — users.ship_model_id,
+// userEquipment — users.equipment (JSONB).
+// Безопасное чтение (режим отказа §11): неизвестная модель, неизвестный/
+// битый модуль, чужой тип или нечисловой params — вклад не учитывается,
+// ёмкость не становится бесконечной (в худшем случае — только врождённая).
+func CargoCapacityMass(modelID string, userEquipment map[string]interface{}) float64 {
+	total := 0.0
+	if m := ShipModelByID(modelID); m != nil {
+		total = m.BaseCapacity
+	}
+	for _, v := range userEquipment {
+		id, ok := v.(string)
+		if !ok || id == "" {
+			continue
+		}
+		it := EquipmentByID(id)
+		if it == nil || it.Type != models.EquipmentTypeCargo {
+			continue
+		}
+		if c, ok := it.Params["capacity"].(float64); ok && c > 0 {
+			total += c
+		}
+	}
+	return total
 }

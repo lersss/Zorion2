@@ -21,15 +21,17 @@ var (
 
 // defaultShipModels — дефолты на случай пустой БД (спека 77a §2.2).
 // Slots — float64, как после json.Unmarshal из БД (консистентный вывод /me).
+// base_capacity 20 т + универсальный слот — трюм (спека трюма §5/§8.3).
 var defaultShipModels = []models.ShipModel{
 	{ID: models.StarterShipModelID, Name: "Стартовый разведчик",
-		Slots: map[string]interface{}{"radar": float64(1), "scanner": float64(1), "engine": float64(1)}},
+		Slots:        map[string]interface{}{"radar": float64(1), "scanner": float64(1), "engine": float64(1), "universal": float64(1)},
+		BaseCapacity: 20},
 }
 
 // LoadModels — читает справочник моделей кораблей из БД. Пустая БД — дефолты.
 // Ошибка чтения — дефолты + лог (сервер живёт, как каталог оборудования).
 func LoadModels(db *sql.DB) error {
-	rows, err := db.Query(`SELECT id, name, slots FROM ship_models`)
+	rows, err := db.Query(`SELECT id, name, slots, base_capacity FROM ship_models`)
 	if err != nil {
 		log.Printf("⚠️ ship: модели кораблей: %v (дефолты)", err)
 		loadModelDefaults()
@@ -41,7 +43,7 @@ func LoadModels(db *sql.DB) error {
 	for rows.Next() {
 		var m models.ShipModel
 		var slotsRaw []byte
-		if err := rows.Scan(&m.ID, &m.Name, &slotsRaw); err != nil {
+		if err := rows.Scan(&m.ID, &m.Name, &slotsRaw, &m.BaseCapacity); err != nil {
 			log.Printf("⚠️ ship: модели кораблей: %v (дефолты)", err)
 			loadModelDefaults()
 			return err

@@ -13,6 +13,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"zorion/internal/auth"
+	"zorion/internal/cargo"
 	"zorion/internal/config"
 	economySettlement "zorion/internal/economy/settlement"
 	"zorion/internal/generator/planet"
@@ -232,6 +233,12 @@ func main() {
 	// Деньги (спека 2026-09-22-деньги-и-эскроу): счёт актора + журнал движений.
 	accountRepo := repository.NewAccountRepository(db)
 
+	// Трюм игрока (спека 2026-09-22-трюм-грузоподъёмность-корабля): сервис
+	// player_cargo + расчёт ёмкости (ship.CargoCapacityMass). Пополнение —
+	// только внутренний сервис (добыча пояса и будущие потребители); игроку
+	// доступны чтение и сброс груза за борт.
+	cargoService := cargo.NewService(db)
+
 	// Активные полёты игроков (97a): персистентность в БД — полёт переживает
 	// рестарт сервера. Restore — ДО старта HTTP (гонок нет): прошлые прибытия
 	// засчитываются сразу (как у NPC), будущие — перерегистрируются с
@@ -297,6 +304,8 @@ func main() {
 	authHandlers.SetAccountRepo(accountRepo)
 	// Деньги игрока (спека 2026-09-22-деньги-и-эскроу §3.2): GET /me/money.
 	moneyHandlers := handlers.NewMoneyHandlers(accountRepo)
+	// Трюм игрока (спека трюма §9): GET /api/cargo + POST /api/cargo/jettison.
+	cargoHandlers := handlers.NewCargoHandlers(cargoService)
 	// Внутрисистемные полёты (спека 99.2.27 §4.1): POST /api/intrasystem-flight.
 	intrasystemHandlers := handlers.NewIntrasystemHandlers(
 		worldRepo, userRepo, planetRepo, intraFlightRepo, knowledgeRepo, travelManager, intraManager,
@@ -366,6 +375,11 @@ func main() {
 	http.HandleFunc("/me/money", auth.AuthMiddleware(moneyHandlers.GetMyMoney))
 	http.HandleFunc("/me/ship-icon", auth.AuthMiddleware(authHandlers.UpdateShipIcon))
 	http.HandleFunc("/me/ship-color", auth.AuthMiddleware(authHandlers.UpdateShipColor))
+
+	// API трюма (спека 2026-09-22-трюм-грузоподъёмность-корабля §9): чтение
+	// своего трюма и единственная player-facing запись — сброс за борт (§7.1).
+	http.HandleFunc("/api/cargo", auth.AuthMiddleware(cargoHandlers.GetCargo))
+	http.HandleFunc("/api/cargo/jettison", auth.AuthMiddleware(cargoHandlers.Jettison))
 
 	// Энциклопедия (спека 86a §8.1): публичный срез каталога рас + лор.
 	// Игровой JWT (как /me); без токена — 401.

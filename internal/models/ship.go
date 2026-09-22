@@ -10,10 +10,11 @@ import "time"
 // ShipModel — модель корабля: рамка механических характеристик (слоты под
 // оборудование), НЕ визуал (спека 77a §2).
 type ShipModel struct {
-	ID        string                 `json:"id"`
-	Name      string                 `json:"name"`
-	Slots     map[string]interface{} `json:"slots"` // {"radar":1,"scanner":1,"engine":1}
-	CreatedAt time.Time              `json:"created_at"`
+	ID           string                 `json:"id"`
+	Name         string                 `json:"name"`
+	Slots        map[string]interface{} `json:"slots"`         // {"radar":1,"scanner":1,"engine":1,"universal":1}
+	BaseCapacity float64                `json:"base_capacity"` // врождённая ёмкость трюма, тонны (спека трюма §4)
+	CreatedAt    time.Time              `json:"created_at"`
 }
 
 // EquipmentType — тип оборудования (спека 77a §3.2).
@@ -23,6 +24,7 @@ const (
 	EquipmentTypeRadar   EquipmentType = "radar"
 	EquipmentTypeScanner EquipmentType = "scanner"
 	EquipmentTypeEngine  EquipmentType = "engine"
+	EquipmentTypeCargo   EquipmentType = "cargo" // грузовой модуль (спека трюма §3.5)
 )
 
 // EquipmentItem — предмет оборудования из справочника (спека 77a §3.2).
@@ -54,13 +56,19 @@ const KnowledgeTTL = 7 * 24 * time.Hour
 const EngineSpeedDefault = 0.3
 
 // StarterShipModelID / StarterEquipment — стартовая комплектация (спека 77a
-// §3.3, обновлена 91a кругом 2): модель 'starter', радар-1 + сканер-1 +
-// двигатель-1 (двигатель — настоящий модуль, полёт требует его, спека 91a §6.1).
+// §3.3, обновлена 91a кругом 2, трюм §8.3): модель 'starter', радар-1 +
+// сканер-1 + двигатель-1 (двигатель — настоящий модуль, полёт требует его,
+// спека 91a §6.1) + грузовой модуль-1 в универсальном слоте (спека трюма).
 const StarterShipModelID = "starter"
+
+// StarterCargoModuleID — стартовый грузовой модуль (спека трюма §8.3):
+// выдаётся в универсальный слот, params.capacity = 80 т.
+const StarterCargoModuleID = "cargo_1"
 
 // StarterEquipment — JSON-значение users.equipment для нового игрока.
 var StarterEquipment = map[string]interface{}{
-	"radar":   "radar_1",
-	"scanner": "scanner_1",
-	"engine":  "engine_1",
+	"radar":     "radar_1",
+	"scanner":   "scanner_1",
+	"engine":    "engine_1",
+	"universal": StarterCargoModuleID,
 }

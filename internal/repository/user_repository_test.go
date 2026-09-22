@@ -43,6 +43,8 @@ func TestCreateUserDefaultsToPlayerRole(t *testing.T) {
 	require.Equal(t, models.StarterShipModelID, *user.ShipModelID)
 	require.Equal(t, "radar_1", user.Equipment["radar"], "стартовый радар")
 	require.Equal(t, "scanner_1", user.Equipment["scanner"], "стартовый сканер")
+	require.Equal(t, models.StarterCargoModuleID, user.Equipment["universal"],
+		"стартовый грузовой модуль в универсальном слоте (спека трюма §14 п.9)")
 }
 
 func TestCreateUserKeepsExplicitRole(t *testing.T) {

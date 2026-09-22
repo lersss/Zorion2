@@ -55,7 +55,8 @@
       "note": "ленивая переработка ветки вход → выход по Δt (итерация 2): чистая функция от (processed_at, now, population, состав рецепта, буферы), без тика; скорость — линейная, вариант A (решение создателя 2026-09-22): rate = k·population/complexity, k = 2.78·10⁻⁸ батч/(чел·ч), числа не калиброваны (@balancetester); кадэнс персистентности — общий MinPersistInterval (30 мин); единая точка сериализации — FOR UPDATE на строке ветки",
       "impacts": [
         { "on": "settlement_branches", "kind": "writes", "reason": "продвижение чек-точки processed_at, изменение amount буферов, top-up строк входа нового заполненного компонента (ON CONFLICT DO NOTHING)" },
-        { "on": "db:settlements", "kind": "reads", "reason": "population — множитель скорости (attachBranches идёт ПОСЛЕ ленивого пересчёта населения, та же цифра)" },
+        { "on": "db:settlements", "kind": "reads", "reason": "population — множитель скорости; ветки идут ДО пересчёта населения (порядок «производство → потребность → население»), берётся чек-точка населения предыдущего прохода" },
+        { "on": "needs_layer", "kind": "affects", "reason": "хвост eaten (потребление населением) убран из ProcessBranch — вынесен в слой потребности (needs_layer), который идёт ПОСЛЕ переработки веток" },
         { "on": "recipes", "kind": "reads", "reason": "состав читается «живой» (recipe_components, заполненные компоненты) + complexity и good_id как выход: правка рецепта меняет работающую ветку; NULL complexity → временный фолбэк 1" },
         { "on": "internal/goodsstudio/graph/tier.go", "kind": "affects", "reason": "канон студии: complexity NULL = «вычисляется по графу»; рантайм графа не считает — фолбэк NULL → 1 (при появлении рантайм-потребителя считать граф или материализовать)" },
         { "on": "internal/repository/planet_repo.go", "kind": "writes", "reason": "attachBranches внутри attachSettlements: ленивый синк на чтении карточки (хот-пат гасится MinPersistInterval)" },
@@ -1351,14 +1352,15 @@
       "id": "settlement_type_consumption",
       "type": "mechanic",
       "path": "internal/economy/settlement/branch.go",
-      "note": "Потребление населением выхода ветки (итерация 4 эпика «Экономика поселения», 2026-09-22, миграция 000067): eaten = min(eat_k(товар-выход ветки)·население·Δt, output) — хвост того же ленивого прохода, строго после переработки (порядок «производство → потребление»); кламп ≥0, идемпотентность, путь «в памяти» без записи. Норма — свойство типа поселения (producer_types.params.eat — гибкая структура {товар-выход → норма}), на товар-выход ветки, нормы изолированы (не суммируются); нет записи для товара / нет типа → DefaultEatK; явный 0 = «этот товар не едят». «Осадок» = видимый остаток выходного буфера (сделано − съедено), потолка нет; голод/эффекты при нехватке — только задел, применения нет (пп.42/43).",
+      "note": "Слой ПОТРЕБНОСТИ (спека 2026-09-22-эффекты-снабжения-задержка-голод, решение создателя 2026-09-23 «производство и потребности — разные слои», итерация 4 эпика «Экономика поселения» 2026-09-22, миграция 000067): потребность РАЗНЕСЕНА с производством. (1) Вход рецепта — ПРОИЗВОДСТВО, остаётся в ProcessBranch (списание компонентов из входа/залежей). (2) Нужда населения — СЛОЙ ПОТРЕБНОСТИ (internal/economy/settlement/needs.go, новый): спрос = население × норма(ПОЗИЦИЯ корзины), покрытие = Σ источников (сегодня выход веток), дефицит = max(0, спрос − покрытие), w = clamp01(дефицит/спрос). Позиция корзины = существующая категория categories (ЛЮБОЙ kind); норма — producer_types.params.eat ПО ПОЗИЦИИ (было по товару-выходу); нет записи → DefaultEatK; пустая карта eat спрос НЕ обнуляет; явный 0 = «не ест». Две ветки разных товаров одной позиции делят ОДНУ норму позиции. Порядок проходов: производство (ветки) → потребность → население; хвост eaten = min(eat_k·население·Δt, output) из ProcessBranch УБРАН. Единственная точка записи выходного буфера — слой потребности: O0_b + batches_b − drawn_b. Голод = дефицит позиции «продовольствие»; эффект/нагрузка — каркас effect_types/active_effects.",
       "impacts": [
-        { "on": "producer_types", "kind": "reads", "reason": "норма еды берётся из producer_types.params.eat[<товар-выход ветки>] живьём на каждом проходе — правка в студии меняет работающие ветки" },
-        { "on": "settlements", "kind": "reads", "reason": "объём еды линеен по population поселения; тип поселения выбирает норму" },
-        { "on": "goods", "kind": "reads", "reason": "норма выбирается по товару-выходу ветки (ключ params.eat) — новый товар даёт новую норму без переделок" },
-        { "on": "settlement_branch_processing", "kind": "affects", "reason": "потребление — хвост того же прохода; Δt/чек-точка processed_at задают объём еды" },
-        { "on": "settlement_branch_buffers", "kind": "writes", "reason": "убыль выходного буфера («осадок» = остаток); кламп eaten ≤ output, CHECK amount ≥ 0" },
-        { "on": "docs/specs/2026-09-22-поселение-потребление-населением-итерация-4.md", "kind": "docs", "reason": "спека итерации 4 (эта задача)" }
+        { "on": "needs_layer", "kind": "writes", "reason": "нужда населения: спрос/покрытие/дефицит/сила w; позиция = категория categories (любой kind); производство — один из источников покрытия (решение 11)" },
+        { "on": "producer_types", "kind": "reads", "reason": "норма еды берётся из producer_types.params.eat[<ПОЗИЦИЯ корзины>] живьём на каждом проходе (ключ переехал с товара-выхода на позицию); params.effects — привязка «позиция → тип эффекта»; правка в студии меняет работающие ветки" },
+        { "on": "settlements", "kind": "reads", "reason": "спрос линеен по population поселения (чек-точка computed_at); тип поселения задаёт нормы позиций" },
+        { "on": "goods", "kind": "reads", "reason": "ветка относится к позиции по категории товара-выхода: goods.category_id → categories.name_norm (JOIN categories, kind не фильтруется) — позиция закрывается любым товаром категории, в т.ч. привезённым" },
+        { "on": "settlement_branch_processing", "kind": "affects", "reason": "потребность идёт ПОСЛЕ переработки веток в том же owner-проходе; Δt/чек-точка processed_at и выходной базис O0_b задают покрытие" },
+        { "on": "settlement_branch_buffers", "kind": "writes", "reason": "единственная точка записи выходного буфера O0_b + batches_b − drawn_b; вход рецепта списывает ProcessBranch (производство)" },
+        { "on": "docs/specs/2026-09-22-поселение-потребление-населением-итерация-4.md", "kind": "docs", "reason": "спека итерации 4 — дельта: хвост eaten убран, норма params.eat переехала с товара-выхода на позицию, порядок «производство → потребность → население»" }
       ]
     },
     {
@@ -1398,6 +1400,156 @@
         { "on": "docs/specs/2026-09-22-пояса-малых-тел-этап-3-добыча.md", "kind": "docs", "reason": "основание (осн. §0/§5/§6/§7/§9/§10/§14); числа/Go/API/БД — не её зона" },
         { "on": "belt", "kind": "reads", "reason": "строка пояса и точка входа читают BeltView (payload /api/worlds/{id}/planets); полей belt_class/remaining_level пока нет — пробел данных (§12)" },
         { "on": "player_cargo", "kind": "docs", "reason": "экран захода и HUD опираются на блок «Трюм» дашборда (GET /api/cargo, dashboard/cargo.js)" }
+      ]
+    },
+    {
+      "id": "effect_types",
+      "type": "table",
+      "path": "db:effect_types",
+      "note": "Каталог типов эффектов (миграция 000070, спека 2026-09-22-эффекты-снабжения-задержка-голод, коммит 6aaa406): impact — ОТКРЫТЫЙ набор воздействий (сейчас population_rate), params.curve — ссылка на компоненту «Балансировки» (пилот hunger); recovery в типе НЕ хранится (скаляр компоненты). Каталог, в truncateTables НЕ входит; удаление типа с действующими эффектами запрещено (RESTRICT → студия 409).",
+      "impacts": [
+        { "on": "active_effects", "kind": "schema", "reason": "FK effect_type_id → effect_types(id) ON DELETE RESTRICT: тип с действующими эффектами не удаляется" },
+        { "on": "balancer_hunger", "kind": "affects", "reason": "params.curve — ссылка на компоненту «Балансировки»: правка кривой/скаляра recovery меняет силу уже работающего эффекта" },
+        { "on": "producer_types", "kind": "affects", "reason": "привязка идёт по имени: params.effects[<позиция>] = name_norm типа; переименование типа делает привязку молчаливым no-op (митигация — WARN и счётчик привязок в студии)" },
+        { "on": "web/studio.html", "kind": "writes", "reason": "CRUD типа в студии (/studio/api/effects*), счётчик привязок" },
+        { "on": "docs/specs/2026-09-22-эффекты-снабжения-задержка-голод.md", "kind": "docs", "reason": "спека (реализована, коммит 6aaa406) — источник модели типа" }
+      ]
+    },
+    {
+      "id": "active_effects",
+      "type": "table",
+      "path": "db:active_effects",
+      "note": "Действующие эффекты владельца (миграция 000070): состояние = f(load ≥ порог) производно, метки не хранятся; load/load_at — нагрузка и её базис (сило-часы); владелец полиморфен (owner_type/owner_id), owner_settlement_id — якорь очистки (CASCADE); источник — source_position (name_norm позиции корзины, TEXT, без FK). Входит в truncateTables.",
+      "impacts": [
+        { "on": "effect_types", "kind": "schema", "reason": "FK effect_type_id → effect_types(id) ON DELETE RESTRICT" },
+        { "on": "db:settlements", "kind": "schema", "reason": "FK owner_settlement_id → settlements(id) ON DELETE CASCADE (якорь очистки); CHECK owner_settlement_id = owner_id для owner_type='settlement'" },
+        { "on": "admin_universe", "kind": "writes", "reason": "active_effects входит в truncateTables (очистка вселенной)" },
+        { "on": "galaxy_population", "kind": "reads", "reason": "читатель без прохода веток берёт ХРАНИМЫЙ load + R(load), без догона; нет данных → R=0 + лог" }
+      ]
+    },
+    {
+      "id": "needs_layer",
+      "type": "mechanic",
+      "path": "internal/economy/settlement/needs.go",
+      "note": "Слой ПОТРЕБНОСТИ, отделённый от производства (решение создателя 2026-09-23 «производство и потребности — разные слои»): спрос = население × норма(ПОЗИЦИЯ корзины), покрытие = Σ источников (сегодня выход веток), дефицит = max(0, спрос − покрытие), w = clamp01(дефицит/спрос). Позиция = категория categories (любой kind), норма — producer_types.params.eat по позиции (нет записи → DefaultEatK; пустая карта eat спрос не обнуляет). Порядок «производство → потребность → население»; единственная точка записи выходного буфера O0_b + batches_b − drawn_b.",
+      "impacts": [
+        { "on": "producer_types", "kind": "reads", "reason": "params.eat[<позиция>] и params.effects[<позиция>] читаются живьём на каждом проходе; правка в студии меняет работающие поселения" },
+        { "on": "db:settlements", "kind": "reads", "reason": "спрос линеен по population поселения (чек-точка computed_at)" },
+        { "on": "goods", "kind": "reads", "reason": "ветка относится к позиции по категории товара-выхода (goods.category_id → categories.name_norm, kind не фильтруется)" },
+        { "on": "settlement_branch_processing", "kind": "affects", "reason": "потребность идёт ПОСЛЕ переработки веток в том же owner-проходе; Δt/чек-точка processed_at и выходной базис O0_b задают покрытие" },
+        { "on": "settlement_branch_buffers", "kind": "writes", "reason": "единственная точка записи выходного буфера O0_b + batches_b − drawn_b; вход рецепта списывает производство (ProcessBranch)" },
+        { "on": "effect_load_model", "kind": "affects", "reason": "поставляет силу условия w из дефицита позиции" },
+        { "on": "docs/specs/2026-09-22-эффекты-снабжения-задержка-голод.md", "kind": "docs", "reason": "спека слоя потребности (коммит 6aaa406)" }
+      ]
+    },
+    {
+      "id": "effect_load_model",
+      "type": "mechanic",
+      "path": "internal/economy/settlement/needs.go",
+      "note": "Универсальная нагрузка эффекта: load (сило-часы) += w·Δt/3600 при условии, −= recovery·Δt/3600 без условия, кламп ≥ 0; кривая R(load), порог включения = нулевой префикс кривой. Для голода нагрузка — отражение текущей нехватки (шрама нет), анти-абьюз из математики (крошка → w≈1 → нагрузка растёт; обнуление только длительным реальным покрытием). Хранимый базис (load, load_at) + аналитическая дельта — чтение не влияет на результат, третьей чек-точки нет.",
+      "impacts": [
+        { "on": "active_effects", "kind": "writes", "reason": "персистентная запись load/load_at (только на проходе владельца)" },
+        { "on": "change_components", "kind": "affects", "reason": "поставляет EffectForcePoint (кусочную траекторию силы)" },
+        { "on": "settlement_owner_pass", "kind": "affects", "reason": "запись нагрузки в той же owner-транзакции, что ветки и население (load_at = processed_at = computed_at)" },
+        { "on": "balancer_hunger", "kind": "reads", "reason": "R(load) и скаляр recovery берутся из store «Балансировки»" },
+        { "on": "settlements", "kind": "schema", "reason": "инвариант базиса: load_at == processed_at у всех веток владельца, computed_at — тот же now (общая owner-транзакция)" }
+      ]
+    },
+    {
+      "id": "change_components",
+      "type": "mechanic",
+      "path": "internal/economy/settlement/change_components.go",
+      "note": "Единственная точка сборки R: ChangeComponents = EnvComponents + Σ R_эффект(AsOf) после диспетчеризации (человеческий и расовый путь). Recompute идёт мимо ChangeComponents (посегментно) — двойного учёта вклада эффекта нет; DeathCause считает среду через envComponentRates, вклад эффекта добавлен туда же.",
+      "impacts": [
+        { "on": "balancer_hunger", "kind": "reads", "reason": "R(load) компоненты hunger" },
+        { "on": "settlements", "kind": "writes", "reason": "итоговая скорость R для пересчёта населения" },
+        { "on": "settlement_log", "kind": "writes", "reason": "при доминировании эффекта причина гибели — код hunger («Вымерло · Голод»)" },
+        { "on": "galaxy_population", "kind": "affects", "reason": "галактическая статистика обязана учитывать эффекты (иначе расходится с карточкой)" },
+        { "on": "18a_population_death.md", "kind": "affects", "reason": "линия эффектов — слагаемое R_среда + R_эффекты (кусочный интеграл)" }
+      ]
+    },
+    {
+      "id": "balancer_hunger",
+      "type": "mechanic",
+      "path": "internal/economy/settlement/balancer_store.go",
+      "note": "5-я ГЛОБАЛЬНАЯ компонента «Балансировки» hunger: кривая R(load) с осью «нагрузка» (X ∈ [0, 8760] сило-часов), порог включения — нулевой префикс (24 ≈ сутки полного условия), скаляр recovery (сило-ч/ч, заводское 0.25) в том же store. Пресеты несут и кривую, и скаляр. Расовый балансировщик компоненту НЕ принимает (IsRaceComponent; гейт в SetRaceCurve, расовых ручках и Sample?race_id= → 422).",
+      "impacts": [
+        { "on": "effect_load_model", "kind": "affects", "reason": "задаёт R(load) и скорость восстановления recovery" },
+        { "on": "admin_balancer", "kind": "affects", "reason": "кривая и скаляр редактируются через /admin/balancer/curve (PUT пишет кривую+скаляр атомарно)" },
+        { "on": "config/balancer_presets.json", "kind": "writes", "reason": "активные пресеты (включая hunger + recovery) сохраняются в файл и восстанавливаются при старте" },
+        { "on": "effect_types", "kind": "affects", "reason": "params.curve типа эффекта ссылается на компоненту по имени" }
+      ]
+    },
+    {
+      "id": "settlement_owner_pass",
+      "type": "mechanic",
+      "path": "internal/repository/settlement_owner_pass.go",
+      "note": "Owner-проход поселения одной транзакцией: advisory-лок pg_advisory_xact_lock(hashtext(settlement_id)) → производство (ветки, залежи) → потребность → население, единый now; load_at == processed_at == computed_at; UPSERT active_effects; ошибка ветки → откат (частичного персиста нет). Тот же advisory-ключ использует админ-правка нагрузки (SetSettlementEffectLoad) — гонки с расчётом нет.",
+      "impacts": [
+        { "on": "db:settlements", "kind": "writes", "reason": "population/population_exact/computed_at после пересчёта" },
+        { "on": "settlement_branch_processing", "kind": "writes", "reason": "processed_at и буферы веток в той же транзакции" },
+        { "on": "active_effects", "kind": "writes", "reason": "UPSERT load/load_at (DO UPDATE)" },
+        { "on": "needs_layer", "kind": "reads", "reason": "вызывает слой потребности после веток" },
+        { "on": "effect_load_model", "kind": "reads", "reason": "нагрузка из хранимого базиса + аналитическая дельта" }
+      ]
+    },
+    {
+      "id": "admin_balancer",
+      "type": "mechanic",
+      "path": "internal/handlers/admin_balancer.go",
+      "note": "Админ-ручки «Балансировки»: GET/PUT/reset/sample/etalons/пресеты. Для эффект-компоненты hunger PUT принимает recovery и пишет кривую+скаляр АТОМАРНО (SetCurveWithScalar), reset сбрасывает оба, пресеты несут скаляр; sample с race_id — только расовые компоненты (hunger → 422).",
+      "impacts": [
+        { "on": "balancer_hunger", "kind": "writes", "reason": "правка кривой и скаляра recovery (сохранил = применил)" },
+        { "on": "config/balancer_presets.json", "kind": "writes", "reason": "сохранение/применение/удаление пресетов (файл пишется атомарно)" }
+      ]
+    },
+    {
+      "id": "admin_universe",
+      "type": "mechanic",
+      "path": "internal/handlers/admin_universe.go",
+      "note": "Админ-инструменты вселенной: TRUNCATE truncateTables и связанные операции. Список truncateTables включает active_effects (эффекты снимаются вместе с поселениями), каталог effect_types не чистится.",
+      "impacts": [
+        { "on": "active_effects", "kind": "writes", "reason": "active_effects в truncateTables — очистка вселенной снимает все действующие эффекты" }
+      ]
+    },
+    {
+      "id": "galaxy_population",
+      "type": "mechanic",
+      "path": "internal/repository/galaxy_population.go",
+      "note": "Галактическая статистика населения: читатель без прохода веток берёт ХРАНИМЫЙ load эффекта + R(load) (без догона до now); нет данных → R = 0 + лог (не угадывание). Расхождение с карточкой (там полный догон) — названная цена ленивости.",
+      "impacts": [
+        { "on": "active_effects", "kind": "reads", "reason": "хранимая нагрузка по owner_settlement_id" },
+        { "on": "balancer_hunger", "kind": "reads", "reason": "R(load) по кривой компоненты" },
+        { "on": "settlements", "kind": "reads", "reason": "население и computed_at поселений" }
+      ]
+    },
+    {
+      "id": "effect_impact_registry",
+      "type": "mechanic",
+      "path": "internal/economy/settlement/effect_impact.go",
+      "note": "Реестр воздействий эффекта (impact — открытый набор; сейчас population_rate): неизвестный impact/curve → 0 + WARN (не тихий no-op). Добавление второго воздействия = запись в реестр, схема не меняется.",
+      "impacts": [
+        { "on": "change_components", "kind": "affects", "reason": "сила воздействия резолвится реестром impact → функция от R(load)" },
+        { "on": "effect_types", "kind": "reads", "reason": "impact типа — ключ реестра; неизвестный — безопасный ноль" }
+      ]
+    },
+    {
+      "id": "config/balancer_presets.json",
+      "type": "config",
+      "path": "config/balancer_presets.json",
+      "note": "Файл пресетов кривых «Балансировки» (путь через env BALANCER_PRESETS_FILE): плоский список пресетов + активные имена. С этапа 3 несёт компоненту hunger (кривая R(load) + скаляр recovery 0.25). Записывается атомарно (tmp + os.Rename); активные пресеты применяются к store при старте.",
+      "impacts": [
+        { "on": "balancer_hunger", "kind": "affects", "reason": "при старте активные пресеты (кривая + recovery) применяются к store; правка файла руками меняет расчёт" }
+      ]
+    },
+    {
+      "id": "death_go",
+      "type": "code",
+      "path": "internal/economy/settlement/death.go",
+      "note": "DeathCause/DeathTime: причина гибели и аналитическая оценка времени из чек-точки. Вклад эффекта считается через envComponentRates (МИМО ChangeComponents, чтобы не задваивать) — при доминировании эффекта код причины hunger.",
+      "impacts": [
+        { "on": "18a_population_death.md", "kind": "affects", "reason": "новая линия эффектов в R_среда + R_эффекты и код причины hunger" },
+        { "on": "settlement_log", "kind": "writes", "reason": "запись типа extinct с cause='hunger' через owner-транзакцию" }
       ]
     }
   ]

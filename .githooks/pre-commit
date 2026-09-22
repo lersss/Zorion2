@@ -17,8 +17,11 @@ if ! command -v go >/dev/null 2>&1; then
   exit 0
 fi
 
-echo "[pre-commit] go vet ./..."
-if ! go vet ./...; then
+# Проверяем только пакеты, чьи файлы входят в коммит: так чужие незакоммиченные
+# правки в других пакетах не блокируют этот коммит (параллельные сессии).
+pkgs=$(echo "$staged" | xargs -n1 dirname | sort -u | sed 's|^|./|' | sed 's|^\./\.$|./|')
+echo "[pre-commit] go vet $pkgs"
+if ! go vet $pkgs; then
   echo "[pre-commit] go vet не прошёл — коммит отменён (обход: git commit --no-verify)"
   exit 1
 fi

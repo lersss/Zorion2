@@ -257,10 +257,11 @@
       "id": "ship_models",
       "type": "table",
       "path": "db:ship_models",
-      "note": "справочник моделей кораблей (id, name, slots JSONB); users.ship_model_id → ship_models.id (000040)",
+      "note": "справочник моделей кораблей (id, name, slots JSONB, base_capacity DOUBLE — врождённая ёмкость трюма, 000068); users.ship_model_id → ship_models.id (000040)",
       "impacts": [
         { "on": "db:users.ship_model_id", "kind": "schema", "reason": "колонка users.ship_model_id ссылается на справочник; смена модели = UPDATE данных" },
         { "on": "internal/ship/catalog.go", "kind": "reads", "reason": "каталог моделей читается сервером (77a)" },
+        { "on": "cargo_capacity", "kind": "reads", "reason": "врождённая ёмкость модели base_capacity (трюм, коммит bdc76c7)" },
         { "on": "77a", "kind": "duplicates", "reason": "модели и слоты зафиксированы в спеке §2–§3" }
       ]
     },
@@ -268,10 +269,12 @@
       "id": "equipment",
       "type": "table",
       "path": "db:equipment",
-      "note": "справочник оборудования (radar/scanner/engine, params JSONB); users.equipment → справочник (000040/000042)",
+      "note": "справочник оборудования (radar/scanner/engine/cargo, params JSONB); users.equipment → справочник (000040/000042; тип cargo и модуль cargo_1 — миграция 000068, трюм)",
       "impacts": [
         { "on": "db:users.equipment", "kind": "schema", "reason": "колонка users.equipment JSONB хранит установленное оборудование; params = ключ справочника" },
         { "on": "internal/ship/catalog.go", "kind": "reads", "reason": "каталог оборудования читается сервером (77a)" },
+        { "on": "cargo_capacity", "kind": "reads", "reason": "params.capacity грузового модуля → ёмкость трюма (трюм, коммит bdc76c7)" },
+        { "on": "migrations/000068_cargo_hold.sql", "kind": "schema", "reason": "CHECK type расширен значением cargo + сид cargo_1 (трюм)" },
         { "on": "77a", "kind": "duplicates", "reason": "типы и параметры оборудования зафиксированы в спеке §2–§3" }
       ]
     },
@@ -1289,6 +1292,37 @@
         { "on": "belt", "kind": "affects", "reason": "владелец пояса — мир-компонент (у каждого компонента свои пояса)" },
         { "on": "disk_cloud", "kind": "affects", "reason": "ревизия «облако одно на систему» → у каждого компонента свой диск (спека облака §3.1)" },
         { "on": "docs/specs/2026-09-21-компаньоны-отдельные-миры.md", "kind": "duplicates", "reason": "спека-источник (этап 1 — модель данных; этапы 2–3 — карта/навигация)" }
+      ]
+    },
+    {
+      "id": "player_cargo",
+      "type": "table",
+      "path": "db:player_cargo",
+      "note": "содержимое трюма игрока (миграция 000068, коммит bdc76c7): (user_id UUID FK users ON DELETE CASCADE, good_id BIGINT FK goods ON DELETE CASCADE, quantity DOUBLE CHECK >= 0, updated_at, PK (user_id, good_id)). Состояние игрока — НЕ в truncateTables, переживает очистку вселенной (как accounts/player_flights); строки с нулём удаляются.",
+      "impacts": [
+        { "on": "goods", "kind": "schema", "reason": "FK good_id CASCADE: удаление записи каталога в студии сносит её груз у игроков (риск принят создателем 2026-09-22)" },
+        { "on": "db:users", "kind": "schema", "reason": "FK user_id CASCADE: удаление игрока чистит трюм" },
+        { "on": "cargo_capacity", "kind": "reads", "reason": "занятая масса = Σ quantity × goods.weight" },
+        { "on": "docs/DB.md", "kind": "docs", "reason": "таблица player_cargo, миграция 000068 — дельта при разносе доков" }
+      ]
+    },
+    {
+      "id": "cargo_capacity",
+      "type": "mechanic",
+      "path": "docs/specs/2026-09-22-трюм-грузоподъёмность-корабля.md",
+      "note": "грузоподъёмность корабля (трюм; спека 2026-09-22-трюм-грузоподъёмность-корабля, реализовано, коммит bdc76c7): ёмкость — производная (ship_models.base_capacity + Σ params.capacity установленных cargo-модулей в универсальном слоте); лимит — только масса (задел под объём вторым лимитом); жёсткий предел с частичной погрузкой; запись — внутренний сервис, единственная player-facing — «груз за борт» POST /api/cargo/jettison; чтение GET /api/cargo + блок «Трюм» в разделе «Корабль» (91a).",
+      "impacts": [
+        { "on": "ship_models", "kind": "reads", "reason": "врождённая ёмкость модели base_capacity" },
+        { "on": "equipment", "kind": "reads", "reason": "params.capacity установленных грузовых модулей типа cargo" },
+        { "on": "db:users.equipment", "kind": "reads", "reason": "какие модули стоят в слотах (в т.ч. universal)" },
+        { "on": "player_cargo", "kind": "reads", "reason": "занятая масса = Σ quantity × goods.weight" },
+        { "on": "internal/cargo/cargo.go", "kind": "writes", "reason": "сервис трюма: GetCargo/TryAddCargo/TakeCargo/JettisonCargo/CargoMass (коммит bdc76c7)" },
+        { "on": "internal/handlers/cargo_handlers.go", "kind": "api", "reason": "GET /api/cargo, POST /api/cargo/jettison" },
+        { "on": "web/static/js/dashboard/cargo.js", "kind": "reads", "reason": "блок «Трюм» в разделе «Корабль» дашборда" },
+        { "on": "belt", "kind": "affects", "reason": "будущее: добыча в поясе кладёт добытое в трюм (первый потребитель)" },
+        { "on": "internal/handlers/contract_handlers.go", "kind": "affects", "reason": "будущее: требование-окно «трюм N т» в контрактах на перевозку" },
+        { "on": "internal/travel/manager.go", "kind": "affects", "reason": "кандидат: скорость от загруженности (77a §1.3) — не сейчас" },
+        { "on": "docs/specs/2026-09-22-трюм-грузоподъёмность-корабля.md", "kind": "duplicates", "reason": "спека-источник (реализована, коммит bdc76c7)" }
       ]
     }
   ]

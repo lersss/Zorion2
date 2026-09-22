@@ -505,12 +505,22 @@ func (h *SurfaceHandlers) Land(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now()
 
+	// Роль для UI-гейта — из токена (её же проверяют ручки), фолбэк — БД
+	// (идея 2026-09-23: смена роли после выдачи токена не должна рассинхронить
+	// пакет прогулки и авторизацию).
+	role := string(user.Role)
+	if ctxRole, ok := r.Context().Value(auth.RoleKey).(string); ok && ctxRole != "" {
+		role = ctxRole
+	}
+
 	// Админский выбор биома (идея 2026-09-21 §2 п.3): поле biome принимается
 	// только от роли admin/skycomposer — явный отказ, не молчаливое
-	// игнорирование. Гейт стоит ДО идемпотентности: своя роль — не состояние
-	// прогулки. Валидация самого биома — ниже (шаг 7, после идемпотентности:
-	// повторный land отдаёт сохранённый биом, присланный не проверяется).
-	if req.Biome != "" && !isAdminRole(user.Role) {
+	// игнорирование. Роль — из токена (та же, что в пакете прогулки, идея
+	// 2026-09-23): иначе клиент покажет выбор биома, а сервер откажет. Гейт
+	// стоит ДО идемпотентности: своя роль — не состояние прогулки. Валидация
+	// самого биома — ниже (шаг 7, после идемпотентности: повторный land отдаёт
+	// сохранённый биом, присланный не проверяется).
+	if req.Biome != "" && !isAdminRole(models.Role(role)) {
 		writeJSONError(w, "Выбор биома доступен только администратору", http.StatusBadRequest)
 		return
 	}
@@ -525,7 +535,7 @@ func (h *SurfaceHandlers) Land(w http.ResponseWriter, r *http.Request) {
 			if p := findPlanetByID(planets, req.PlanetID); p != nil {
 				if biome := NormalizeSurfaceBiome(p, pos.Biome); biome != "" {
 					world, _ := h.worldRepo.GetByID(p.WorldID)
-					writeJSONStatus(w, http.StatusOK, h.buildWalkPackage(p, biome, pos, now, world, planets, string(user.Role)))
+					writeJSONStatus(w, http.StatusOK, h.buildWalkPackage(p, biome, pos, now, world, planets, role))
 					return
 				}
 			}
@@ -601,7 +611,7 @@ func (h *SurfaceHandlers) Land(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSONStatus(w, http.StatusOK, h.buildWalkPackage(p, biome, newPos, now, world, planets, string(user.Role)))
+	writeJSONStatus(w, http.StatusOK, h.buildWalkPackage(p, biome, newPos, now, world, planets, role))
 }
 
 // ==================== LEAVE (§6.3) ====================

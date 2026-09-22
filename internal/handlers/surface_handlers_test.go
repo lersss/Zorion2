@@ -216,6 +216,29 @@ func TestSurfaceLandSuccess(t *testing.T) {
 	assert.Equal(t, "player", pkg.Role, "роль игрока в пакете (§7.1, идея 2026-09-21)")
 }
 
+// Роль в пакете прогулки — из токена (контекста), не из БД (идея 2026-09-23):
+// клиент гейтит по ней, а ручки проверяют роль в токене. БД-роль player,
+// в токене admin (повышение после выдачи токена) → пакет отдаёт admin.
+func TestSurfaceLandRoleFromContext(t *testing.T) {
+	h, mock := newSurfaceHarness(t)
+	const uid = "11111111-1111-1111-1111-111111111111"
+	biome := testBiomeByCategory(t, "литосфера")
+	data := surfacePlanetData(biome.ID, 100, 288, 1.0, 0, true)
+
+	expectSurfaceUserRole(mock, uid, "w1", orbitPlanetPos, "player")
+	expectIntraWorld(mock, "w1")
+	expectSurfacePlanetsLight(mock, "w1", surfacePlanetRow("pl-1", "w1", "X", data))
+	expectSurfaceUpdate(mock, uid)
+
+	rec := execJSON(h.Land, withRole(surfaceLandRequest(uid, "pl-1"), "admin"))
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	var pkg SurfacePackage
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &pkg))
+	assert.Equal(t, "admin", pkg.Role, "роль из токена приоритетнее БД-роли")
+}
+
 // buildSurfaceSky отдаёт planet_id только у планет (идея 2026-09-22 §8.4):
 // спутникам картинки нет — id пуст, клиент рисует фолбэк-диск.
 func TestBuildSurfaceSkyPlanetID(t *testing.T) {
@@ -257,6 +280,45 @@ func TestSurfaceLandAdminBiome(t *testing.T) {
 	assert.Equal(t, pick.ID, pkg.Biome, "высадка в выбранный биом")
 	assert.Equal(t, pick.Name, pkg.BiomeName)
 	assert.Equal(t, "admin", pkg.Role)
+}
+
+// Гейт админского выбора биома — по роли из токена (идея 2026-09-23): БД-роль
+// player, токен admin (повышение после выдачи токена) → выбор принимается.
+func TestSurfaceLandAdminBiomeRoleFromContext(t *testing.T) {
+	h, mock := newSurfaceHarness(t)
+	const uid = "11111111-1111-1111-1111-111111111111"
+	dominant := testBiomeByCategory(t, "литосфера")
+	pick := testBiomeByCategory(t, "крио")
+	data := surfacePlanetDataMulti(map[string]float64{dominant.ID: 90, pick.ID: 10}, 288, 1.0, 0, false)
+
+	expectSurfaceUserRole(mock, uid, "w1", orbitPlanetPos, "player")
+	expectIntraWorld(mock, "w1")
+	expectSurfacePlanetsLight(mock, "w1", surfacePlanetRow("pl-1", "w1", "X", data))
+	expectSurfaceUpdateBiome(mock, uid, pick.ID)
+
+	rec := execJSON(h.Land, withRole(surfaceLandBiomeRequest(uid, "pl-1", pick.ID), "admin"))
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	var pkg SurfacePackage
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &pkg))
+	assert.Equal(t, pick.ID, pkg.Biome, "высадка в выбранный биом")
+	assert.Equal(t, "admin", pkg.Role)
+}
+
+// Гейт админского выбора биома — по токену: БД-роль admin, токен player
+// (понижение после выдачи токена) → 400, несмотря на БД-роль.
+func TestSurfaceLandAdminBiomeRoleFromContextDenied(t *testing.T) {
+	h, mock := newSurfaceHarness(t)
+	const uid = "11111111-1111-1111-1111-111111111111"
+	biome := testBiomeByCategory(t, "литосфера")
+
+	expectSurfaceUserRole(mock, uid, "w1", orbitPlanetPos, "admin")
+
+	rec := execJSON(h.Land, withRole(surfaceLandBiomeRequest(uid, "pl-1", biome.ID), "player"))
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Contains(t, rec.Body.String(), "Выбор биома доступен только администратору")
+	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 // Не-админ с полем biome → явный 400 (не молчаливое игнорирование), гейт

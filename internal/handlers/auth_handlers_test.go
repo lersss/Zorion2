@@ -129,6 +129,62 @@ func TestGetMeWithoutFlight(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+// ==================== /me: РОЛЬ ДЛЯ UI-ГЕЙТА (идея 2026-09-23) ====================
+
+// /me отдаёт роль из токена (контекста), а не из БД: панель гейтит по этой
+// роли, а админские ручки проверяют роль в токене — при смене роли после
+// выдачи токена рассинхрон давал 403-спам в админке.
+func TestGetMeRoleFromContext(t *testing.T) {
+	cases := []struct {
+		name    string
+		dbRole  string
+		ctxRole string
+		want    string
+	}{
+		{"db_admin_token_player", "admin", "player", "player"},
+		{"db_player_token_admin", "player", "admin", "admin"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			h, mock, _ := newAuthHandlersHarness(t)
+			userID := "12121212-1212-1212-1212-121212121212"
+			mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination FROM users WHERE id = \$1`).
+				WithArgs(userID).
+				WillReturnRows(sqlmock.NewRows(authUserCols).
+					AddRow(userID, "bob", "hash", nil, nil, nil, "ship_strela.svg", nil, nil, nil, c.dbRole, now(), now(), nil, nil))
+
+			req := withRole(httptest.NewRequest(http.MethodGet, "/me", nil), c.ctxRole)
+			rec := execJSON(h.GetMe, withUserID(req, userID))
+
+			require.Equal(t, http.StatusOK, rec.Code)
+			var resp map[string]interface{}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.Equal(t, c.want, resp["role"], "роль — из токена, а не из БД")
+			require.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+}
+
+// /me без роли в контексте (легаси-тесты/вызовы) → фолбэк на роль из БД.
+func TestGetMeRoleFallsBackToDB(t *testing.T) {
+	h, mock, _ := newAuthHandlersHarness(t)
+
+	userID := "13131313-1313-1313-1313-131313131313"
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination FROM users WHERE id = \$1`).
+		WithArgs(userID).
+		WillReturnRows(sqlmock.NewRows(authUserCols).
+			AddRow(userID, "bob", "hash", nil, nil, nil, "ship_strela.svg", nil, nil, nil, "admin", now(), now(), nil, nil))
+
+	req := httptest.NewRequest(http.MethodGet, "/me", nil)
+	rec := execJSON(h.GetMe, withUserID(req, userID))
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "admin", resp["role"], "нет роли в контексте → фолбэк на БД")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 // ==================== /me: МАППИНГ ship_icon (спека 61b §4) ====================
 
 // Legacy SVG-имя маппится в PNG-имя; ship_options — весь реестр спрайтов.

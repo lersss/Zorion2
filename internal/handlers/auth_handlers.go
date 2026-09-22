@@ -288,11 +288,19 @@ func (h *AuthHandlers) GetMe(w http.ResponseWriter, r *http.Request) {
 			shipModel = m
 		}
 	}
+	// Роль для UI-гейта — из токена (её же проверяют админские ручки), а не из
+	// БД: смена роли после выдачи токена иначе рассинхронит панель и ручки
+	// (403-спам в админке, идея 2026-09-23). Пусто в контексте — фолбэк на БД.
+	role := string(user.Role)
+	if ctxRole, ok := r.Context().Value(auth.RoleKey).(string); ok && ctxRole != "" {
+		role = ctxRole
+	}
+
 	response := map[string]interface{}{
 		"id":                 user.ID,
 		"username":           user.Username,
 		"email":              user.Email,
-		"role":               user.Role,
+		"role":               role,
 		"current_world_id":   user.CurrentWorldID,
 		"current_world_name": currentWorldName,
 		// Спека 61b §4: ship_icon маппится при чтении (legacy SVG-имя → PNG-имя,

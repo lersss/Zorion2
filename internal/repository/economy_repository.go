@@ -2,6 +2,9 @@ package repository
 
 import (
 	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"math"
 	"time"
 
@@ -21,21 +24,62 @@ func NewEconomyRepository(db *sql.DB) *EconomyRepository {
 
 // Settlement
 func (r *EconomyRepository) CreateSettlement(s *models.Settlement) error {
-	query := `INSERT INTO settlements (id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at)
-	          VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), NOW())`
-	_, err := r.db.Exec(query, s.ID, s.PlanetID, s.Population, float64(s.Population), s.Stability)
+	// Тип поселения — настоящая связь (спека итерации 4 §3.4): если не задан
+	// вызывающим, берём дефолтный подтип «Обычное поселение» (0 → NULL).
+	if s.SettlementTypeID == 0 {
+		typeID, err := ResolveDefaultSettlementTypeID(r.db)
+		if err != nil {
+			return err
+		}
+		s.SettlementTypeID = typeID
+	}
+	query := `INSERT INTO settlements (id, planet_id, population, population_exact, stability, computed_at, settlement_type_id, created_at, updated_at)
+	          VALUES ($1, $2, $3, $4, $5, NOW(), $6, NOW(), NOW())`
+	_, err := r.db.Exec(query, s.ID, s.PlanetID, s.Population, float64(s.Population), s.Stability, settlementTypeArg(s.SettlementTypeID))
 	return err
+}
+
+// ResolveDefaultSettlementTypeID — id дефолтного типа поселения по
+// name_norm='обычное поселение' (спека итерации 4 §3.4): вызывается один раз на
+// джоб генерации. Типа нет — 0 (без ошибки): связь остаётся NULL, чтение
+// применит фолбэк DefaultEatK (§3.2). НЕ lower() — collation C не портит
+// кириллицу только для Go-литералов (PITFALLS «БД и шелл»).
+func ResolveDefaultSettlementTypeID(db *sql.DB) (int64, error) {
+	var id int64
+	err := db.QueryRow(`SELECT id FROM producer_types WHERE name_norm = $1`, "обычное поселение").Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	return id, nil
+}
+
+// settlementTypeArg — id типа в параметр SQL: 0 (нет типа) → NULL (колонка
+// nullable, §3.1), иначе число.
+func settlementTypeArg(id int64) interface{} {
+	if id == 0 {
+		return nil
+	}
+	return id
 }
 
 // GetSettlementsByPlanetIDs — возвращает поселения планет,
 // сгруппированные по planet_id. Пустой список — планета без поселений.
+// LEFT JOIN producer_types несёт тип поселения и СЫРУЮ структуру норм
+// params->'eat' без COALESCE (спека итерации 4 §3.3): отсутствие записи
+// обязано приехать отсутствием ключа — фолбэк DefaultEatK применяет Go (§4.3).
 func (r *EconomyRepository) GetSettlementsByPlanetIDs(planetIDs []string) (map[string][]models.Settlement, error) {
 	if len(planetIDs) == 0 {
 		return map[string][]models.Settlement{}, nil
 	}
 
-	query := `SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at, race_id
-	          FROM settlements WHERE planet_id = ANY($1) ORDER BY created_at ASC`
+	query := `SELECT s.id, s.planet_id, s.population, s.population_exact, s.stability, s.computed_at,
+	                 s.created_at, s.updated_at, s.race_id, s.settlement_type_id, pt.name, pt.params->'eat'
+	          FROM settlements s
+	          LEFT JOIN producer_types pt ON pt.id = s.settlement_type_id
+	          WHERE s.planet_id = ANY($1) ORDER BY s.created_at ASC`
 	rows, err := r.db.Query(query, pqStringArray(planetIDs))
 	if err != nil {
 		return nil, err
@@ -45,15 +89,27 @@ func (r *EconomyRepository) GetSettlementsByPlanetIDs(planetIDs []string) (map[s
 	result := map[string][]models.Settlement{}
 	for rows.Next() {
 		var s models.Settlement
-		var raceID sql.NullString
+		var raceID, typeName sql.NullString
+		var typeID sql.NullInt64
+		var eatRaw []byte
 		if err := rows.Scan(
 			&s.ID, &s.PlanetID, &s.Population,
 			&s.PopulationExact, &s.Stability, &s.ComputedAt,
 			&s.CreatedAt, &s.UpdatedAt, &raceID,
+			&typeID, &typeName, &eatRaw,
 		); err != nil {
 			return nil, err
 		}
 		s.RaceID = raceID.String
+		s.SettlementTypeID = typeID.Int64
+		s.TypeName = typeName.String
+		if len(eatRaw) > 0 {
+			var eat map[string]float64
+			if err := json.Unmarshal(eatRaw, &eat); err != nil {
+				return nil, fmt.Errorf("settlement type eat (%s): %w", s.ID, err)
+			}
+			s.EatByGood = eat
+		}
 		result[s.PlanetID] = append(result[s.PlanetID], s)
 	}
 	return result, rows.Err()
@@ -148,6 +204,13 @@ func (r *EconomyRepository) RecomputeSettlementPopulation(s *models.Settlement, 
 		return models.Settlement{}, err
 	}
 
+	// SELECT ... FOR UPDATE читает только строку населения: тип поселения и
+	// нормы еды (params.eat) переносим из прочитанного поселения s — иначе
+	// путь «событие» вернул бы nil EatByGood, и синк веток ел бы по
+	// DefaultEatK (спека итерации 4 §3.3/§3.5; T6/T8/T19).
+	stored.SettlementTypeID = s.SettlementTypeID
+	stored.TypeName = s.TypeName
+	stored.EatByGood = s.EatByGood
 	stored.Population = newPopulation
 	stored.PopulationExact = newExact
 	stored.ComputedAt = now

@@ -19,17 +19,25 @@ func depositLot(id string, goodID int64, amount float64) DepositLot {
 	return DepositLot{ID: id, GoodID: goodID, Amount: amount}
 }
 
+// noEat — нормы «этот товар не едят»: тесты производства/добычи не зависят от
+// хвоста потребления (спека итерации 4 §3.2: явный 0 = не ест).
+func noEat(b Branch) Branch {
+	b.EatByGood = map[string]float64{"пища": 0}
+	b.OutputGoodNorm = "пища"
+	return b
+}
+
 // T1: базовый добор — пустой вход, большая залежь, Δt > 0 → залежь убыла на
 // batches×quantity, выход вырос, вход не вырос (проходной).
 func TestProcessBranchExtractsFromDeposit(t *testing.T) {
 	now := time.Now()
-	b := Branch{
+	b := noEat(Branch{
 		Population:  1e9,
 		Components:  []BranchComponent{{GoodID: 359, Quantity: 1}},
 		Input:       map[int64]float64{},
 		Deposits:    map[int64][]DepositLot{359: {depositLot("d1", 359, 5000)}},
 		ProcessedAt: now.Add(-2 * time.Hour),
-	}
+	})
 	want := BranchRate(1e9, nil) * 2.0
 
 	got := ProcessBranch(b, now)
@@ -71,13 +79,13 @@ func TestProcessBranchInputFirst(t *testing.T) {
 // на недостачу.
 func TestProcessBranchDepositCoversRemainder(t *testing.T) {
 	now := time.Now()
-	b := Branch{
+	b := noEat(Branch{
 		Population:  1e9,
 		Components:  []BranchComponent{{GoodID: 359, Quantity: 1}},
 		Input:       map[int64]float64{359: 2},
 		Deposits:    map[int64][]DepositLot{359: {depositLot("d1", 359, 5000)}},
 		ProcessedAt: now.Add(-2 * time.Hour),
-	}
+	})
 	want := BranchRate(1e9, nil) * 2.0
 
 	got := ProcessBranch(b, now)
@@ -97,13 +105,13 @@ func TestProcessBranchDepositCoversRemainder(t *testing.T) {
 // amount = 0 (не ниже), выход = affordable.
 func TestProcessBranchNoNegativeDeposit(t *testing.T) {
 	now := time.Now()
-	b := Branch{
+	b := noEat(Branch{
 		Population:  1e9,
 		Components:  []BranchComponent{{GoodID: 359, Quantity: 1}},
 		Input:       map[int64]float64{},
 		Deposits:    map[int64][]DepositLot{359: {depositLot("d1", 359, 3)}},
 		ProcessedAt: now.Add(-10000 * time.Hour),
-	}
+	})
 	got := ProcessBranch(b, now)
 	if got.Deposits[359][0].Amount != 0 {
 		t.Fatalf("залежь в минус/не обнулилась: %v", got.Deposits[359][0].Amount)
@@ -164,7 +172,7 @@ func TestProcessBranchDepositOrder(t *testing.T) {
 // целиком, даже если второй компонент доступен.
 func TestProcessBranchComponentLimitStops(t *testing.T) {
 	now := time.Now()
-	b := Branch{
+	b := noEat(Branch{
 		Population: 1e9,
 		Components: []BranchComponent{
 			{GoodID: 359, Quantity: 1},
@@ -174,7 +182,7 @@ func TestProcessBranchComponentLimitStops(t *testing.T) {
 		Deposits:    map[int64][]DepositLot{359: {depositLot("d1", 359, 1000)}}, // второй компонент недоступен
 		Output:      5,
 		ProcessedAt: now.Add(-2 * time.Hour),
-	}
+	})
 	got := ProcessBranch(b, now)
 	if got.Output != 5 {
 		t.Fatalf("ветка не встала: output %v", got.Output)
@@ -250,7 +258,7 @@ func TestProcessBranchZeroDelta(t *testing.T) {
 func TestProcessBranchConverts(t *testing.T) {
 	now := time.Now()
 	start := now.Add(-1 * time.Hour)
-	b := Branch{
+	b := noEat(Branch{
 		Population: 1e9,
 		Components: []BranchComponent{
 			{GoodID: 359, Quantity: 1},
@@ -259,7 +267,7 @@ func TestProcessBranchConverts(t *testing.T) {
 		Input:       map[int64]float64{359: 1000, 1: 1000},
 		Output:      0,
 		ProcessedAt: start,
-	}
+	})
 	wantBatch := BranchRate(1e9, nil) * 1.0 // desired за 1 час, вход не дефицитен
 
 	got := ProcessBranch(b, now)
@@ -282,7 +290,7 @@ func TestProcessBranchConverts(t *testing.T) {
 // минуса нет, выход = affordable.
 func TestProcessBranchInputDeficit(t *testing.T) {
 	now := time.Now()
-	b := Branch{
+	b := noEat(Branch{
 		Population: 1e9, // за час «хочется» ~27.8 батча
 		Components: []BranchComponent{
 			{GoodID: 359, Quantity: 1},
@@ -290,7 +298,7 @@ func TestProcessBranchInputDeficit(t *testing.T) {
 		},
 		Input:       map[int64]float64{359: 100, 1: 6}, // affordable = 6/2 = 3
 		ProcessedAt: now.Add(-10 * time.Hour),
-	}
+	})
 	got := ProcessBranch(b, now)
 	if got.Output != 3 {
 		t.Fatalf("выход = affordable: got %v want 3", got.Output)
@@ -380,13 +388,13 @@ func TestProcessBranchIndependent(t *testing.T) {
 func TestProcessBranchDuplicateComponentAggregated(t *testing.T) {
 	now := time.Now()
 	// Две строки одного ресурса: norms 1 + 2 = 3 за батч.
-	b := Branch{
+	b := noEat(Branch{
 		Population:  1e9,
 		Components:  []BranchComponent{{GoodID: 359, Quantity: 1}, {GoodID: 359, Quantity: 2}},
 		Input:       map[int64]float64{},
 		Deposits:    map[int64][]DepositLot{359: {depositLot("d1", 359, 300)}},
 		ProcessedAt: now.Add(-10000 * time.Hour), // desired ≫ запаса
-	}
+	})
 	got := ProcessBranch(b, now)
 
 	if got.Output != 100 { // affordable = 300/3
@@ -397,18 +405,220 @@ func TestProcessBranchDuplicateComponentAggregated(t *testing.T) {
 	}
 
 	// Нехватка считается по агрегату: 30/3 = 10 батч, списание 30 (не 90).
-	small := Branch{
+	small := noEat(Branch{
 		Population:  1e9,
 		Components:  []BranchComponent{{GoodID: 359, Quantity: 1}, {GoodID: 359, Quantity: 2}},
 		Input:       map[int64]float64{},
 		Deposits:    map[int64][]DepositLot{359: {depositLot("d2", 359, 30)}},
 		ProcessedAt: now.Add(-10000 * time.Hour),
-	}
+	})
 	sgot := ProcessBranch(small, now)
 	if sgot.Output != 10 {
 		t.Fatalf("выход при нехватке: got %v want 10", sgot.Output)
 	}
 	if sgot.Deposits[359][0].Amount != 0 {
 		t.Fatalf("запас при нехватке: %v", sgot.Deposits[359][0].Amount)
+	}
+}
+
+// ============ ПОТРЕБЛЕНИЕ НАСЕЛЕНИЕМ (спека итерации 4 §4) ============
+
+// consumeBranch — ветка с избытком входа (производство идёт) и заданным выходом:
+// для тестов хвоста потребления (спека итерации 4 §4.1).
+func consumeBranch(now time.Time, output, population, hours float64, eat map[string]float64, norm string) Branch {
+	return Branch{
+		Population:     population,
+		Components:     []BranchComponent{{GoodID: 359, Quantity: 1}},
+		Input:          map[int64]float64{359: 1e15},
+		Output:         output,
+		ProcessedAt:    now.Add(-time.Duration(hours * float64(time.Hour))),
+		EatByGood:      eat,
+		OutputGoodNorm: norm,
+	}
+}
+
+// T5: хвост прохода — сначала выход растёт на batches, затем убывает на
+// min(eat_k·P·Δt, output); ProducedLast/EatenLast несут результат прохода,
+// output ≥ 0 (порядок «производство → потребление»).
+func TestProcessBranchConsumesOutput(t *testing.T) {
+	now := time.Now()
+	b := consumeBranch(now, 100, 1e9, 1, map[string]float64{"пища": 2.5e-8}, "пища")
+	produced := BranchRate(1e9, nil) * 1.0
+	eaten := 2.5e-8 * 1e9 * 1.0
+
+	got := ProcessBranch(b, now)
+
+	if math.Abs(got.ProducedLast-produced) > 1e-9 {
+		t.Fatalf("produced: got %v want %v", got.ProducedLast, produced)
+	}
+	if math.Abs(got.EatenLast-eaten) > 1e-9 {
+		t.Fatalf("eaten: got %v want %v", got.EatenLast, eaten)
+	}
+	want := 100 + produced - eaten
+	if math.Abs(got.Output-want) > 1e-9 {
+		t.Fatalf("output: got %v want %v", got.Output, want)
+	}
+}
+
+// T6/T19: норма берётся по товару-выходу ветки — две ветки разных товаров едят
+// по своим нормам, значения не суммируются и не делятся.
+func TestProcessBranchEatKByOutputGood(t *testing.T) {
+	now := time.Now()
+	eat := map[string]float64{"вода": 2.5e-8, "пища": 1e-8}
+
+	w := ProcessBranch(consumeBranch(now, 1000, 1e9, 1, eat, "вода"), now)
+	f := ProcessBranch(consumeBranch(now, 1000, 1e9, 1, eat, "пища"), now)
+
+	if math.Abs(w.EatenLast-25) > 1e-9 {
+		t.Fatalf("вода: eaten got %v want 25", w.EatenLast)
+	}
+	if math.Abs(f.EatenLast-10) > 1e-9 {
+		t.Fatalf("пища: eaten got %v want 10", f.EatenLast)
+	}
+}
+
+// T6: явный eat_k = 0 для товара → этот товар не едят (не фолбэк).
+func TestProcessBranchExplicitZeroNoEat(t *testing.T) {
+	now := time.Now()
+	b := consumeBranch(now, 1000, 1e9, 1, map[string]float64{"пища": 0}, "пища")
+
+	got := ProcessBranch(b, now)
+
+	if got.EatenLast != 0 {
+		t.Fatalf("явный 0 → не ест, got %v", got.EatenLast)
+	}
+	if math.Abs(got.Output-(1000+BranchRate(1e9, nil))) > 1e-9 {
+		t.Fatalf("выход без еды: got %v", got.Output)
+	}
+}
+
+// T8: записи для товара ветки нет → фолбэк DefaultEatK (не «не ест»).
+func TestProcessBranchMissingEatKUsesDefault(t *testing.T) {
+	now := time.Now()
+	b := consumeBranch(now, 1000, 1e9, 1, map[string]float64{"вода": 1e-8}, "пища")
+
+	got := ProcessBranch(b, now)
+
+	if math.Abs(got.EatenLast-DefaultEatK*1e9) > 1e-9 {
+		t.Fatalf("фолбэк: got %v want %v", got.EatenLast, DefaultEatK*1e9)
+	}
+}
+
+// T8: тип поселения не задан (nil-структура) → фолбэк DefaultEatK.
+func TestProcessBranchNoTypeUsesDefault(t *testing.T) {
+	now := time.Now()
+	b := consumeBranch(now, 1000, 1e9, 1, nil, "пища")
+
+	got := ProcessBranch(b, now)
+
+	if math.Abs(got.EatenLast-DefaultEatK*1e9) > 1e-9 {
+		t.Fatalf("нет типа (nil): got %v want %v", got.EatenLast, DefaultEatK*1e9)
+	}
+}
+
+// T7: кламп/дренаж — eaten ≤ output, минуса нет; output = 0 → eaten = 0
+// (голода нет, п.35); производство 0 и накопленный выход → выход выедается.
+func TestProcessBranchConsumptionClampAndDrain(t *testing.T) {
+	now := time.Now()
+
+	// Большой Δt, малый выход → съедается ровно накопленное, output = 0.
+	b := Branch{
+		Population:     1e9,
+		Output:         5,
+		ProcessedAt:    now.Add(-100 * time.Hour),
+		EatByGood:      map[string]float64{"пища": 2.5e-8},
+		OutputGoodNorm: "пища",
+	}
+	got := ProcessBranch(b, now)
+	if got.Output != 0 {
+		t.Fatalf("output должен обнулиться: %v", got.Output)
+	}
+	if math.Abs(got.EatenLast-5) > 1e-9 {
+		t.Fatalf("eaten = накопленное: got %v", got.EatenLast)
+	}
+
+	// output = 0 → eaten = 0 (голода нет).
+	zero := Branch{
+		Population:     1e9,
+		Output:         0,
+		ProcessedAt:    now.Add(-time.Hour),
+		EatByGood:      map[string]float64{"пища": 2.5e-8},
+		OutputGoodNorm: "пища",
+	}
+	zgot := ProcessBranch(zero, now)
+	if zgot.Output != 0 || zgot.EatenLast != 0 {
+		t.Fatalf("нет выхода → нет еды: output=%v eaten=%v", zgot.Output, zgot.EatenLast)
+	}
+
+	// Производство 0 (нет компонентов), накопленный выход выедается.
+	stall := Branch{
+		Population:     1e9,
+		Output:         100,
+		ProcessedAt:    now.Add(-time.Hour),
+		EatByGood:      map[string]float64{"пища": 2.5e-8},
+		OutputGoodNorm: "пища",
+	}
+	sgot := ProcessBranch(stall, now)
+	if math.Abs(sgot.EatenLast-25) > 1e-9 || math.Abs(sgot.Output-75) > 1e-9 {
+		t.Fatalf("питание накопленным: eaten=%v output=%v", sgot.EatenLast, sgot.Output)
+	}
+}
+
+// T17: при complexity = 1 отношение еда/производство = eat_k / BranchRateK и
+// не зависит от населения; при complexity = 2 отношение = eat_k·2 / BranchRateK
+// (производство вдвое медленнее, названный дренаж, §8). Выход взят большим,
+// чтобы eaten не упирался в кламп и отношение было аналитическим.
+func TestProcessBranchEatToProductionIndependentOfPopulation(t *testing.T) {
+	now := time.Now()
+	eat := map[string]float64{"пища": 2.5e-8}
+	ratio := func(pop float64, complexity *int, hours float64) float64 {
+		b := Branch{
+			Population:     pop,
+			Complexity:     complexity,
+			Components:     []BranchComponent{{GoodID: 359, Quantity: 1}},
+			Input:          map[int64]float64{359: 1e15},
+			Output:         1e9, // большой остаток — кламп eaten ≤ output не срабатывает
+			ProcessedAt:    now.Add(-time.Duration(hours * float64(time.Hour))),
+			EatByGood:      eat,
+			OutputGoodNorm: "пища",
+		}
+		got := ProcessBranch(b, now)
+		if got.ProducedLast == 0 {
+			t.Fatalf("нет производства для отношения")
+		}
+		return got.EatenLast / got.ProducedLast
+	}
+
+	r1 := ratio(1e5, nil, 1000)
+	r2 := ratio(1e9, nil, 100)
+	if math.Abs(r1-r2) > 1e-9 {
+		t.Fatalf("при complexity=1 отношение не зависит от населения: %v vs %v", r1, r2)
+	}
+	// Аналитическое отношение при complexity=1: eat_k / BranchRateK.
+	if want := 2.5e-8 / BranchRateK; math.Abs(r1-want) > 1e-9 {
+		t.Fatalf("аналитическое отношение complexity=1: got %v want %v", r1, want)
+	}
+	// При complexity=2 производство вдвое медленнее → отношение = eat_k·2/BranchRateK.
+	if want := 2.5e-8 * 2 / BranchRateK; math.Abs(ratio(1e9, ptrInt(2), 100)-want) > 1e-9 {
+		t.Fatalf("аналитическое отношение complexity=2: got %v want %v", ratio(1e9, ptrInt(2), 100), want)
+	}
+}
+
+// T19: нормы изолированы — изменение нормы одного товара не меняет еду ветки
+// другого товара; ветка товара без записи ест по DefaultEatK.
+func TestProcessBranchEatNormsIsolated(t *testing.T) {
+	now := time.Now()
+	eat1 := map[string]float64{"вода": 2.5e-8, "пища": 1e-8}
+	eat2 := map[string]float64{"вода": 9e-8, "пища": 1e-8}
+
+	f1 := ProcessBranch(consumeBranch(now, 1000, 1e9, 1, eat1, "пища"), now)
+	f2 := ProcessBranch(consumeBranch(now, 1000, 1e9, 1, eat2, "пища"), now)
+	if math.Abs(f1.EatenLast-f2.EatenLast) > 1e-12 {
+		t.Fatalf("нормы изолированы: «пища» изменилась %v vs %v", f1.EatenLast, f2.EatenLast)
+	}
+
+	w := ProcessBranch(consumeBranch(now, 1000, 1e9, 1, map[string]float64{"пища": 1e-8}, "вода"), now)
+	if math.Abs(w.EatenLast-DefaultEatK*1e9) > 1e-9 {
+		t.Fatalf("ветка без записи → DefaultEatK: got %v", w.EatenLast)
 	}
 }

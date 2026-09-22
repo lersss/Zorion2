@@ -196,11 +196,12 @@ func TestGetPlanetsByWorldInsideRadius(t *testing.T) {
 			AddRow("p1", "w2", "Планета1", 0, `{"type":"землеподобная","surface_dominant":"вода"}`, now(), now()))
 
 	// Поселения планеты (пусто).
-	mock.ExpectQuery(`SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at, race_id FROM settlements WHERE planet_id = ANY\(\$1\) ORDER BY created_at ASC`).
+	mock.ExpectQuery(`SELECT s\.id, s\.planet_id.*FROM settlements s LEFT JOIN producer_types pt.*WHERE s\.planet_id = ANY\(\$1\) ORDER BY s\.created_at ASC`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "planet_id", "population", "population_exact", "stability",
 			"computed_at", "created_at", "updated_at", "race_id",
+			"settlement_type_id", "name", "eat",
 		}))
 
 	// Фракции/строения планеты (спека 2026-09-21-фабрики-релиз-2) — пусто.
@@ -269,11 +270,12 @@ func TestGetPlanetsByWorldIgnitedOutsideRadiusNoScan(t *testing.T) {
 			AddRow("p1", "w3", "Планета1", 0, `{"type":"землеподобная"}`, now(), now()))
 
 	// Поселения планеты (пусто).
-	mock.ExpectQuery(`SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at, race_id FROM settlements WHERE planet_id = ANY\(\$1\) ORDER BY created_at ASC`).
+	mock.ExpectQuery(`SELECT s\.id, s\.planet_id.*FROM settlements s LEFT JOIN producer_types pt.*WHERE s\.planet_id = ANY\(\$1\) ORDER BY s\.created_at ASC`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "planet_id", "population", "population_exact", "stability",
 			"computed_at", "created_at", "updated_at", "race_id",
+			"settlement_type_id", "name", "eat",
 		}))
 
 	// Фракции/строения планеты (спека 2026-09-21-фабрики-релиз-2) — пусто.
@@ -705,11 +707,12 @@ func TestGetPlanetsByWorldMyPositionAndCompanion(t *testing.T) {
 			AddRow("p1", "w2", "Планета1", 0, `{"type":"землеподобная","orbit_radius_au":1.0}`, now(), now()))
 
 	// Поселения планеты (пусто).
-	mock.ExpectQuery(`SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at, race_id FROM settlements WHERE planet_id = ANY\(\$1\) ORDER BY created_at ASC`).
+	mock.ExpectQuery(`SELECT s\.id, s\.planet_id.*FROM settlements s LEFT JOIN producer_types pt.*WHERE s\.planet_id = ANY\(\$1\) ORDER BY s\.created_at ASC`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "planet_id", "population", "population_exact", "stability",
 			"computed_at", "created_at", "updated_at", "race_id",
+			"settlement_type_id", "name", "eat",
 		}))
 
 	// Фракции/строения планеты (спека 2026-09-21-фабрики-релиз-2) — пусто.
@@ -773,11 +776,12 @@ func TestGetPlanetsByWorldMyPositionOtherSystem(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "world_id", "name", "orbit_index", "data", "created_at", "updated_at"}).
 			AddRow("p1", "w2", "Планета1", 0, `{"type":"землеподобная"}`, now(), now()))
 
-	mock.ExpectQuery(`SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at, race_id FROM settlements WHERE planet_id = ANY\(\$1\) ORDER BY created_at ASC`).
+	mock.ExpectQuery(`SELECT s\.id, s\.planet_id.*FROM settlements s LEFT JOIN producer_types pt.*WHERE s\.planet_id = ANY\(\$1\) ORDER BY s\.created_at ASC`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "planet_id", "population", "population_exact", "stability",
 			"computed_at", "created_at", "updated_at", "race_id",
+			"settlement_type_id", "name", "eat",
 		}))
 
 	// Фракции/строения планеты (спека 2026-09-21-фабрики-релиз-2) — пусто.
@@ -835,11 +839,12 @@ func TestGetPlanetsByWorldMyPositionBrokenTargetFallback(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "world_id", "name", "orbit_index", "data", "created_at", "updated_at"}).
 			AddRow("p1", "w2", "Планета1", 0, `{"type":"землеподобная"}`, now(), now()))
 
-	mock.ExpectQuery(`SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at, race_id FROM settlements WHERE planet_id = ANY\(\$1\) ORDER BY created_at ASC`).
+	mock.ExpectQuery(`SELECT s\.id, s\.planet_id.*FROM settlements s LEFT JOIN producer_types pt.*WHERE s\.planet_id = ANY\(\$1\) ORDER BY s\.created_at ASC`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "planet_id", "population", "population_exact", "stability",
 			"computed_at", "created_at", "updated_at", "race_id",
+			"settlement_type_id", "name", "eat",
 		}))
 
 	// Фракции/строения планеты (спека 2026-09-21-фабрики-релиз-2) — пусто.
@@ -901,11 +906,12 @@ func TestGetPlanetsByWorldExtraCompanionIDs(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "world_id", "name", "orbit_index", "data", "created_at", "updated_at"}).
 			AddRow("p1", "w2", "Планета1", 0, `{"type":"землеподобная"}`, now(), now()))
 
-	mock.ExpectQuery(`SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at, race_id FROM settlements WHERE planet_id = ANY\(\$1\) ORDER BY created_at ASC`).
+	mock.ExpectQuery(`SELECT s\.id, s\.planet_id.*FROM settlements s LEFT JOIN producer_types pt.*WHERE s\.planet_id = ANY\(\$1\) ORDER BY s\.created_at ASC`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "planet_id", "population", "population_exact", "stability",
 			"computed_at", "created_at", "updated_at", "race_id",
+			"settlement_type_id", "name", "eat",
 		}))
 
 	// Фракции/строения планеты (спека 2026-09-21-фабрики-релиз-2) — пусто.

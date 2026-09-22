@@ -2057,11 +2057,18 @@ function renderProdPopup() {
   // select — категории с применяемым слотом родителя на уровне записи
   // (инвариант С4, спека скрытых §3.4/§1.4 п.1)
   if (p.kind === "goods" && p.parent_id) {
-    html += '<div class="dmeta">категория: <select class="dcat" onchange="changeProdCategory(this.value)">' +
-      prodCategoryOptions(p) +
-      '</select></div>';
-    // блок «набор рецептов» + кнопка копирования (ТЗ §13.2)
-    html += copyRecipesBlock(p);
+    const parent = state.producer_types.find(x => x.id === p.parent_id);
+    if (!parent || prodSlots(parent).length === 0) {
+      // класс строения без товарной категории (тип-родитель слотов не имеет,
+      // напр. «Поселение»): выбирать категорию товаров не из чего (§5.3 п.4)
+      html += '<div class="dmeta">класс строения — без товарной категории (у типа-родителя нет слотов)</div>';
+    } else {
+      html += '<div class="dmeta">категория товаров: <select class="dcat" onchange="changeProdCategory(this.value)">' +
+        prodCategoryOptions(p) +
+        '</select></div>';
+      // блок «набор рецептов» + кнопка копирования (ТЗ §13.2)
+      html += copyRecipesBlock(p);
+    }
   }
   // семейство + раса (спека §5): каскад семейство → расы семейства; запись —
   // через PUT {race_family, race} (соответствие каталогу проверяет сервер)
@@ -2073,6 +2080,11 @@ function renderProdPopup() {
   // kind=goods (items/energy — без секции, §1.4 п.3)
   if (p.kind === "goods" && !p.parent_id) {
     html += prodSlotEditor(p);
+    // «+ подтип» — для типа БЕЗ слотов (класс строения, напр. «Поселение»):
+    // создание подтипа без товарной категории (итерация 4 §5.3 п.4)
+    if (prodSlots(p).length === 0) {
+      html += '<div class="btns"><button class="gen" onclick="openProdSubtypeCreatePopup(' + p.id + ')">+ подтип</button></div>';
+    }
   }
   html += '<div class="dmeta">вход (input): <textarea id="prodInput" rows="3">' + esc(jsonText(p.input)) + '</textarea></div>';
   html += '<div class="dmeta">выход (output): <textarea id="prodOutput" rows="2">' + esc(jsonText(p.output)) + '</textarea></div>';
@@ -2094,6 +2106,43 @@ function renderProdPopup() {
   html += '<button class="del" onclick="askDeleteProducer()">удалить</button>';
   html += '</div>';
   el.innerHTML = html;
+}
+
+// openProdSubtypeCreatePopup — попап создания подтипа у типа БЕЗ слотов
+// (класс строения: «Поселение» → «Обычное поселение», итерация 4 §5.3 п.4):
+// POST без товарной категории (у такого подтипа её нет по определению).
+// Нормы еды задаются JSON-редактором «параметры (params)» в карточке.
+function openProdSubtypeCreatePopup(typeId) {
+  const type = state.producer_types.find(p => p.id === typeId);
+  if (!type) return;
+  const raceInfo = prodRaceLevel === "universal" ? ""
+    : prodRaceLevel === "family" ? familyLabelById(prodRaceFamily) : raceName(prodRace);
+  openModal(
+    '<h3>Создать подтип</h3>' +
+    '<div>Класс строения: <b>' + esc(type.name) + '</b>' +
+    (raceInfo ? ' · расовость: <b>' + esc(raceInfo) + '</b>' : '') + '</div>' +
+    '<div style="margin-top:8px">Имя: <input id="prodCreateName" type="text" name="studio_new_subtype_name" value="' + esc(type.name + " (подтип)") + '" style="width:100%;box-sizing:border-box" autocomplete="off"></div>' +
+    '<div class="hint">У типа нет слотов — подтип создаётся без товарной категории. Нормы задаются в «параметрах (params)».</div>',
+    [
+      {label: "Создать", cls: "gen", primary: true, action: () => doProdSubtypeCreate(type)},
+      {label: "Отмена", cls: "", action: closeModal}
+    ]
+  );
+  const inp = $("prodCreateName");
+  inp.focus(); inp.select();
+}
+async function doProdSubtypeCreate(type) {
+  const name = $("prodCreateName").value.trim();
+  if (!name) return;
+  closeModal();
+  const body = {name, kind: type.kind, parent_id: type.id};
+  if (prodRaceLevel === "family") body.race_family = prodRaceFamily;
+  if (prodRaceLevel === "race") { body.race_family = raceFamilyOf(prodRace); body.race = prodRace; }
+  const r = await api("POST", "/studio/api/producers", body);
+  if (!r) return;
+  const p = await r.json();
+  selected = prodNodeId(p);
+  fetchState();
 }
 function startProdRename() {
   const p = state.producer_types.find(x => x.id === popupGoodId);
@@ -2548,6 +2597,9 @@ function prodNodeVisible(p) {
   if (!p.parent_id) return true; // типы не скрываются (§1.4 п.1)
   const t = state.producer_types.find(x => x.id === p.parent_id);
   if (!t || t.kind !== "goods") return true; // items/energy — как раньше
+  // класс строения без товарной категории (тип без слотов, напр. «Поселение»):
+  // своя ось — слотов нет, набор категорий к нему неприменим (§5.3 п.4)
+  if (prodSlots(t).length === 0 && p.category_id == null) return true;
   if (!prodCatInSet(t, p.category_id)) return false; // категория вне набора уровня
   const catHidden = prodCatHidden(t, p.category_id);
   if (catHidden) return prodShowHidden; // скрыта: без галки ничего, с галкой — все
@@ -2564,6 +2616,15 @@ function prodNodeById(id) {
   return state.producer_types.find(p => p.id === Number(m[2]));
 }
 
+// prodSubtypeNoCatRecords — подтипы типа БЕЗ товарной категории (класс
+// строения: «Поселение» → «Обычное поселение», итерация 4 §5.3 п.4): у типа
+// нет слотов, значит товарной категории у подтипа нет по определению; ось —
+// только prodVisible (класс строения у постройки есть всегда).
+function prodSubtypeNoCatRecords(t) {
+  return state.producer_types.filter(s =>
+    s.parent_id === t.id && s.category_id == null && prodVisible(s));
+}
+
 // buildProdTree — дерево построек (спека §5.2–§5.4): корень → классы
 // (фиксированные узлы UI, не записи БД) → типы (parent_id NULL, по классам
 // через kind) → подтипы + узлы-приглашения. Тип kind=goods раскрывает
@@ -2571,8 +2632,10 @@ function prodNodeById(id) {
 // рисуется; скрытая категория (OR осей) — state 2 (без галки ничего, с
 // галкой — затемнённые карточки всех применяемых записей или заглушка);
 // видимая — лестница: победитель + затемнённые скрытые записи, приглашение,
-// если записей нет (лосеры-видимые не рисуются). Типы items/energy — подтипы
-// как раньше (по prodVisible), без лестницы и оси скрытости.
+// если записей нет (лосеры-видимые не рисуются). У типа kind=goods БЕЗ слотов
+// вместо категорий рисуются подтипы без товарной категории (§5.3 п.4). Типы
+// items/energy — подтипы как раньше (по prodVisible), без лестницы и оси
+// скрытости.
 function buildProdTree() {
   const classes = [
     {id: "class-goods", label: "Производители товаров", cls: "goods", children: []},
@@ -2617,6 +2680,10 @@ function buildProdTree() {
           }
         }
       });
+      // тип без слотов: подтипы-классы строения без товарной категории (§5.3 п.4)
+      if (prodSlots(t).length === 0) {
+        prodSubtypeNoCatRecords(t).forEach(s => node.children.push(subtypeNode(s, false)));
+      }
       // записи подтипов с категорией ВНЕ набора уровня не рисуются (§5.2)
     } else {
       // Типы items/energy: подтипы как раньше (по prodVisible), без лестницы

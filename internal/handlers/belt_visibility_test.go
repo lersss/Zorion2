@@ -103,11 +103,12 @@ func expectBeltPlanets(mock sqlmock.Sqlmock, worldID string, rows ...[]driver.Va
 
 // expectBeltPlanetAttachments — пустые поселения/фракции/строения/залежи.
 func expectBeltPlanetAttachments(mock sqlmock.Sqlmock) {
-	mock.ExpectQuery(`SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at, race_id FROM settlements WHERE planet_id = ANY\(\$1\) ORDER BY created_at ASC`).
+	mock.ExpectQuery(`SELECT s\.id, s\.planet_id.*FROM settlements s LEFT JOIN producer_types pt.*WHERE s\.planet_id = ANY\(\$1\) ORDER BY s\.created_at ASC`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "planet_id", "population", "population_exact", "stability",
 			"computed_at", "created_at", "updated_at", "race_id",
+			"settlement_type_id", "name", "eat",
 		}))
 	expectEmptyFactionsBuildings(mock)
 	expectEmptyDeposits(mock)

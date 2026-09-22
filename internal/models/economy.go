@@ -19,6 +19,16 @@ type Settlement struct {
 	// RaceName — человекочитаемое имя расы поселения (JSON-вывод, не колонка
 	// БД): вычисляется в attachSettlements из каталога рас; пусто = легаси/люди.
 	RaceName string `json:"race_name,omitempty"`
+	// SettlementTypeID — тип поселения (FK producer_types, подтип «Поселения»,
+	// спека итерации 4 §3.3); 0 = тип не задан (легаси/ручные фикстуры) → норма
+	// еды по DefaultEatK.
+	SettlementTypeID int64 `json:"type_id,omitempty"`
+	// TypeName — имя типа поселения (JSON-вывод, не колонка БД), как RaceName.
+	TypeName string `json:"type_name,omitempty"`
+	// EatByGood — структура норм еды типа поселения (producer_types.params.eat),
+	// внутреннее поле для синка веток (ключ — name_norm товара-выхода, §3.2/§3.3);
+	// в JSON не выводится (нормы живут в студии, §6).
+	EatByGood map[string]float64 `json:"-"`
 	// Branches — ветки поселения (спека 2026-09-22-поселение-ветка-буферы-
 	// переработка §6): связь поселение ↔ рецепт каталога с входным/выходным
 	// буфером и своей чек-точкой. Подтягиваются в attachSettlements после
@@ -42,6 +52,14 @@ type SettlementBranch struct {
 	ProcessedAt time.Time           `json:"processed_at"`
 	Output      []BranchBufferEntry `json:"output,omitempty"`
 	Input       []BranchBufferEntry `json:"input,omitempty"`
+	// Produced — произведено товара-выхода за последний проход переработки
+	// (транзитное, не хранится; спека итерации 4 §6).
+	Produced float64 `json:"produced,omitempty"`
+	// Eaten — съедено населением за последний проход (транзитное; §6).
+	Eaten float64 `json:"eaten,omitempty"`
+	// EatenRate — текущая скорость поедания, единиц/сек:
+	// eat_k(товар ветки) · население / 3600 (п.39, §6).
+	EatenRate float64 `json:"eaten_rate,omitempty"`
 }
 
 // BranchBufferEntry — запись буфера ветки «ресурс → количество» (таблица

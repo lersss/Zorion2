@@ -33,6 +33,10 @@ func TestStudioCreateProducer(t *testing.T) {
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM categories WHERE id = \$1\)`).
 		WithArgs(int64(3)).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	// суженный С4 (итерация 4 §5.1): у родителя есть слоты
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_slots WHERE parent_id = \$1\)`).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	// слот-инвариант С4: применяемый слот родителя
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_slots WHERE parent_id = \$1 AND category_id = \$2 AND \(race_family IS NULL OR \(race_family = \$3 AND race IS NULL\) OR race = \$4\)\)`).
 		WithArgs(int64(1), int64(3), nil, nil).
@@ -397,6 +401,9 @@ func TestStudioCreateProducerNoSlot(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"kind", "parent_id_is_null"}).AddRow("goods", true))
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM categories WHERE id = \$1\)`).
 		WithArgs(int64(3)).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_slots WHERE parent_id = \$1\)`).
+		WithArgs(int64(1)).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_slots WHERE parent_id = \$1 AND category_id = \$2 AND \(race_family IS NULL OR \(race_family = \$3 AND race IS NULL\) OR race = \$4\)\)`).
 		WithArgs(int64(1), int64(3), nil, nil).

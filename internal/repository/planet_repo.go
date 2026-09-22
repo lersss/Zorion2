@@ -370,18 +370,20 @@ func (r *PlanetRepository) attachFactionsAndBuildings(planets []models.Planet) e
 func (r *PlanetRepository) attachBranches(planets []models.Planet) error {
 	ids := make([]string, 0, len(planets))
 	populations := map[string]float64{}
+	eatBySettlement := map[string]map[string]float64{}
 	planetBySettlement := map[string]string{}
 	for i := range planets {
 		for _, s := range planets[i].Settlements {
 			ids = append(ids, s.ID)
 			populations[s.ID] = float64(s.Population)
+			eatBySettlement[s.ID] = s.EatByGood
 			planetBySettlement[s.ID] = planets[i].ID
 		}
 	}
 	if len(ids) == 0 {
 		return nil
 	}
-	bySettlement, err := NewBranchRepository(r.db).SyncBranches(ids, populations, planetBySettlement, time.Now())
+	bySettlement, err := NewBranchRepository(r.db).SyncBranches(ids, populations, eatBySettlement, planetBySettlement, time.Now())
 	if err != nil {
 		return fmt.Errorf("failed to load branches: %w", err)
 	}

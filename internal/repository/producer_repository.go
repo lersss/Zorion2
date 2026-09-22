@@ -150,6 +150,17 @@ func producerSlotApplied(q queryer, parentID, categoryID int64, family, race sql
 	return ok, err
 }
 
+// parentHasSlots — есть ли у родителя хотя бы один слот (итерация 4 §5.1
+// п.1): решает, нужна ли категория подтипу вообще. Не уровень расовости и
+// не конкретная категория — отдельная проверка «есть слоты вообще».
+func parentHasSlots(q queryer, parentID int64) (bool, error) {
+	var ok bool
+	err := q.QueryRow(
+		`SELECT EXISTS(SELECT 1 FROM producer_slots WHERE parent_id = $1)`, parentID,
+	).Scan(&ok)
+	return ok, err
+}
+
 // --- снимок ---
 
 // loadProducerTypes — все типы производителей каталога.
@@ -244,8 +255,10 @@ func loadProducerItems(q queryer) ([]ProducerItemRow, error) {
 // только у подтипов kind=goods (тип kind=goods абстрактен, категория = NULL),
 // уникальность подтипа (parent_id, category_id, race_family, race) — 409,
 // дубликат нормализованного имени — 409. Слот-инвариант С4 (спека скрытых
-// §1.4 п.1): подтип kind=goods требует применяемого слота родителя
-// (parent_id, category_id, уровень расовости записи) — иначе 400. Соответствие
+// §1.4 п.1), суженный (итерация 4 §5.1, вариант B): подтип kind=goods требует
+// применяемого слота родителя (parent_id, category_id, уровень расовости
+// записи) — иначе 400, но ТОЛЬКО если у родителя есть слоты; у типа без
+// слотов (Поселение) подтип — без категории. Соответствие
 // race → race_family каталогу рас проверяет хендлер (races.LoreByID); здесь —
 // структурная проверка «раса задана → семейство задано».
 func (r *GoodsRepository) CreateProducerType(name, kind string, categoryID *int64, parentID *int64, raceFamily, race *string) (ProducerTypeRow, error) {
@@ -283,13 +296,22 @@ func (r *GoodsRepository) CreateProducerType(name, kind string, categoryID *int6
 		}
 	}
 	// Категория — только у подтипов kind=goods (спека §1.2 п.4): тип
-	// (parent_id NULL) с kind=goods абстрактен, категория = NULL.
+	// (parent_id NULL) с kind=goods абстрактен, категория = NULL. Сужение
+	// С4 (итерация 4 §5.1, вариант B): категория обязательна, только если у
+	// родителя ЕСТЬ слоты; у типа без слотов (Поселение) подтип — без
+	// категории.
 	if kind == "goods" {
 		if parentID == nil && categoryID != nil {
 			return ProducerTypeRow{}, errCatalog(400, "у типа kind=goods категория не задаётся — категории живут в подтипах")
 		}
 		if parentID != nil && categoryID == nil {
-			return ProducerTypeRow{}, errCatalog(400, "для подтипа kind=goods категория обязательна")
+			hasSlots, err := parentHasSlots(tx, *parentID)
+			if err != nil {
+				return ProducerTypeRow{}, err
+			}
+			if hasSlots {
+				return ProducerTypeRow{}, errCatalog(400, "для подтипа kind=goods обязательна категория товаров")
+			}
 		}
 	}
 	if categoryID != nil {
@@ -303,10 +325,18 @@ func (r *GoodsRepository) CreateProducerType(name, kind string, categoryID *int6
 			return ProducerTypeRow{}, errCatalog(400, "категория не найдена")
 		}
 	}
-	// Слот-инвариант С4 (спека скрытых §1.4 п.1): подтип kind=goods требует
-	// применяемого слота родителя на уровне расовости записи (§2.1).
-	// Наследуемый слот базы засчитывается.
+	// Слот-инвариант С4 (спека скрытых §1.4 п.1), суженный (итерация 4
+	// §5.1): применяемый слот родителя требуется, только если у родителя
+	// есть слоты; у типа без слотов категории быть не может. Наследуемый
+	// слот базы засчитывается.
 	if parentID != nil && kind == "goods" && categoryID != nil {
+		hasSlots, err := parentHasSlots(tx, *parentID)
+		if err != nil {
+			return ProducerTypeRow{}, err
+		}
+		if !hasSlots {
+			return ProducerTypeRow{}, errCatalog(400, "у типа без слотов не бывает категории товаров")
+		}
 		hasSlot, err := producerSlotApplied(tx, *parentID, *categoryID, nullStrNS(raceFamily), nullStrNS(race))
 		if err != nil {
 			return ProducerTypeRow{}, err
@@ -328,8 +358,10 @@ func (r *GoodsRepository) CreateProducerType(name, kind string, categoryID *int6
 	if exists {
 		return ProducerTypeRow{}, errCatalog(409, "тип с таким именем уже есть")
 	}
-	// Уникальность подтипа: (parent_id, category_id, race_family, race) — 409.
-	if parentID != nil {
+	// Уникальность подтипа применяется только при непустой категории:
+	// два типа поселений (категории нет) с одним уровнем расовости — не
+	// дубли (итерация 4 §5.1).
+	if parentID != nil && categoryID != nil {
 		var dup bool
 		if err := tx.QueryRow(
 			`SELECT EXISTS(SELECT 1 FROM producer_types
@@ -368,8 +400,9 @@ func (r *GoodsRepository) CreateProducerType(name, kind string, categoryID *int6
 // 409); дубликат имени — 409. parentID — **int64: nil = не менять, &id = новый
 // родитель. Снятие родителя (подтип → тип) через API не поддерживается
 // (UI родителя не редактирует); тип с подтипами нельзя сделать подтипом
-// (глубина 2) — 409. Слот-инвариант С4 (§1.4 п.1): смена категории у подтипа
-// kind=goods требует применяемого слота нового родителя. JSON-поля
+// (глубина 2) — 409. Слот-инвариант С4 (§1.4 п.1), суженный (итерация 4
+// §5.1): смена категории у подтипа kind=goods требует применяемого слота
+// нового родителя, только если у родителя есть слоты. JSON-поля
 // (output/input/params) — валидный JSON.
 func (r *GoodsRepository) UpdateProducerType(id int64, name *string, categoryID *int64, parentID **int64, raceFamily *string, race *string, output, input, params *string) error {
 	tx, err := r.beginMutation()
@@ -411,13 +444,19 @@ func (r *GoodsRepository) UpdateProducerType(id int64, name *string, categoryID 
 	if finalRace == nil && curRace.Valid {
 		finalRace = &curRace.String
 	}
-	// Слот-инвариант С4 (спека скрытых §1.4 п.1): подтип kind=goods требует
-	// применяемого слота родителя на ИТОГОВОМ уровне расовости записи.
-	// Проверяется при изменении кортежа (категория/семейство/раса могли уйти
-	// на уровень без слота); наследуемая база засчитывается (для сид-типов с
-	// universal-слотами 400 не возникает).
+	// Слот-инвариант С4 (спека скрытых §1.4 п.1), суженный (итерация 4
+	// §5.1): применяемый слот требуется, только если у родителя есть слоты;
+	// у типа без слотов категории быть не может. Проверяется при изменении
+	// кортежа (категория/семейство/раса могли уйти на уровень без слота).
 	if kind == "goods" && finalParent != nil && finalCategory != nil &&
 		(categoryID != nil || raceFamily != nil || race != nil) {
+		hasSlots, err := parentHasSlots(tx, *finalParent)
+		if err != nil {
+			return err
+		}
+		if !hasSlots {
+			return errCatalog(400, "у типа без слотов не бывает категории товаров")
+		}
 		hasSlot, err := producerSlotApplied(tx, *finalParent, *finalCategory, nullStrNS(finalRaceFamily), nullStrNS(finalRace))
 		if err != nil {
 			return err
@@ -464,6 +503,18 @@ func (r *GoodsRepository) UpdateProducerType(id int64, name *string, categoryID 
 		}
 		if hasSubtypes {
 			return errCatalog(409, "нельзя сделать тип с подтипами подтипом — сначала удалите подтипы")
+		}
+	}
+	// Симметрия С4 (итерация 4 §5.1): подтип kind=goods у родителя СО
+	// слотами обязан иметь категорию. Смена родителя на слот-родителя без
+	// категории запрещена — иначе С4 обойдён в обход CreateProducerType.
+	if kind == "goods" && finalParent != nil && finalCategory == nil {
+		hasSlots, err := parentHasSlots(tx, *finalParent)
+		if err != nil {
+			return err
+		}
+		if hasSlots {
+			return errCatalog(400, "для подтипа kind=goods обязательна категория товаров")
 		}
 	}
 	if name != nil {
@@ -535,10 +586,12 @@ func (r *GoodsRepository) UpdateProducerType(id int64, name *string, categoryID 
 			return err
 		}
 	}
-	// Уникальность подтипа: итоговый (parent_id, category_id, race_family, race).
-	// Проверяется ТОЛЬКО при фактическом изменении кортежа — чистое
-	// переименование не проверяется (лаборатории легитимно делят кортеж, B1).
-	if finalParent != nil && subtypeTupleChanged(curParent, curCategory, curRaceFamily, curRace,
+	// Уникальность подтипа: итоговый (parent_id, category_id, race_family,
+	// race) — только при непустой категории (иначе типы поселений с одним
+	// уровнем расовости считались бы дублем). Проверяется ТОЛЬКО при
+	// фактическом изменении кортежа — чистое переименование не проверяется
+	// (лаборатории легитимно делят кортеж, B1).
+	if finalParent != nil && finalCategory != nil && subtypeTupleChanged(curParent, curCategory, curRaceFamily, curRace,
 		finalParent, finalCategory, finalRaceFamily, finalRace) {
 		var dup bool
 		if err := tx.QueryRow(
@@ -578,7 +631,8 @@ func (r *GoodsRepository) UpdateProducerType(id int64, name *string, categoryID 
 // DeleteProducerType — удаление типа (связи producer_items — каскадом).
 // RESTRICT (спека 2026-09-21 §1.2 п.7): тип с подтипами не удаляется — 409
 // «сначала удалите подтипы» (каскад запрещён: снос Фабрики не должен уносить
-// фабрики категорий).
+// фабрики категорий); тип, на который ссылаются поселения, — 409 «тип
+// используется поселениями» (итерация 4 §5.3 п.3, FK ON DELETE RESTRICT).
 func (r *GoodsRepository) DeleteProducerType(id int64) error {
 	tx, err := r.beginMutation()
 	if err != nil {
@@ -602,6 +656,18 @@ func (r *GoodsRepository) DeleteProducerType(id int64) error {
 	}
 	if hasSubtypes {
 		return errCatalog(409, "сначала удалите подтипы")
+	}
+	// Тип, на который ссылаются поселения, не удаляется (итерация 4 §5.3
+	// п.3): FK settlements.settlement_type_id ON DELETE RESTRICT — отдаём
+	// понятный 409, а не сырую ошибку внешнего ключа (500).
+	var usedBySettlements bool
+	if err := tx.QueryRow(
+		`SELECT EXISTS(SELECT 1 FROM settlements WHERE settlement_type_id = $1)`, id,
+	).Scan(&usedBySettlements); err != nil {
+		return err
+	}
+	if usedBySettlements {
+		return errCatalog(409, "тип используется поселениями")
 	}
 	if _, err := tx.Exec(`DELETE FROM producer_types WHERE id = $1`, id); err != nil {
 		return err

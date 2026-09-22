@@ -21,6 +21,12 @@ import (
 // ≈41 год, 1e9 → ≈1.5 суток) принят создателем осознанно 2026-09-22.
 const BranchRateK = 2.78e-8
 
+// DefaultEatK — норма еды по умолчанию, батч/(чел·ч): фолбэк, когда у типа
+// поселения нет записи params.eat для товара-выхода ветки (спека итерации 4
+// §3.2/§4.2). Одно утверждённое число с миграцией 000067 и Go-сидом (§8, T18):
+// согласованность трёх мест закреплена тестом.
+const DefaultEatK = 2.5e-8
+
 // BranchComponent — заполненный компонент рецепта ветки (recipe_components,
 // component_id IS NOT NULL): норма расхода quantity за один батч. Компонент —
 // любой kind (§3.3): вход фильтруется по component_id, не по kind='resource'.
@@ -54,6 +60,18 @@ type Branch struct {
 	Output      float64
 	ProcessedAt time.Time
 	Deposits    map[int64][]DepositLot
+	// EatByGood — структура норм еды типа поселения (producer_types.params.eat,
+	// спека итерации 4 §3.2): ключ — name_norm товара-выхода рецепта, значение —
+	// норма батч/(чел·ч). Запись есть (в т.ч. явный 0) — берём буквально;
+	// отсутствует/NULL → DefaultEatK. Нормы разных товаров изолированы (п.45).
+	EatByGood map[string]float64
+	// OutputGoodNorm — name_norm товара-выхода рецепта ветки: ключ выборки нормы
+	// из EatByGood (§4.1/§4.2). Пусто — записи нет → DefaultEatK.
+	OutputGoodNorm string
+	// ProducedLast / EatenLast — транзитные результаты последнего прохода (для
+	// карточки, §6): сколько произведено и сколько съедено за Δt. Не состояние БД.
+	ProducedLast float64
+	EatenLast    float64
 }
 
 // BranchRate — батчей в час: k · population / max(1, complexity). complexity
@@ -64,6 +82,17 @@ func BranchRate(population float64, complexity *int) float64 {
 		c = *complexity
 	}
 	return BranchRateK * population / float64(c)
+}
+
+// EatK — норма еды типа поселения для товара-выхода ветки (спека итерации 4
+// §3.2): запись params.eat[goodNorm] есть → берём буквально (в т.ч. явный 0 —
+// «этот товар не едят»); записи нет / структуры нет → DefaultEatK. Единая
+// семантика для всех путей (T6/T8/T19); нормы разных товаров изолированы (п.45).
+func EatK(eatByGood map[string]float64, goodNorm string) float64 {
+	if k, ok := eatByGood[goodNorm]; ok {
+		return k
+	}
+	return DefaultEatK
 }
 
 // ProcessBranch — чистая функция переработки вход → выход по Δt (§4.1/§4.2) с
@@ -78,6 +107,9 @@ func BranchRate(population float64, complexity *int) float64 {
 //	потребление_i = batches · quantity_i: сначала из input_i, остаток — из
 //	                залежей (от крупной к мелкой, amount DESC, id ASC)
 //	output    += batches
+//	eat_k     = EatK(EatByGood, товар-выход ветки)  (params.eat[<товар>], иначе DefaultEatK)
+//	eaten     = min(eat_k · population · hours, output)       (кламп ≥ 0)
+//	output    -= eaten
 //	processed_at = now
 //
 // Идемпотентна: после записи processed_at = now повторный вызов с тем же now
@@ -132,6 +164,16 @@ func ProcessBranch(b Branch, now time.Time) Branch {
 		out.Deposits[c.GoodID] = withdrawDeposits(out.Deposits[c.GoodID], need-fromInput)
 	}
 	out.Output = b.Output + batches
+	out.ProducedLast = batches
+	// Потребление — хвост того же прохода (спека итерации 4 §4.1): порядок
+	// жёсткий «производство → потребление»; eaten клампится остатком выхода
+	// (output ≥ 0), голода нет (п.35).
+	eaten := math.Min(EatK(b.EatByGood, b.OutputGoodNorm)*b.Population*hours, out.Output)
+	if eaten < 0 {
+		eaten = 0
+	}
+	out.Output -= eaten
+	out.EatenLast = eaten
 	out.ProcessedAt = now
 	return out
 }

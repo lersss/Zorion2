@@ -112,7 +112,7 @@ func TestSyncBranchesPersistentPath(t *testing.T) {
 	mock.ExpectExec(sqlWriteCheckpoint).WithArgs(sqlmock.AnyArg(), "b1").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	out, err := NewBranchRepository(db).SyncBranches([]string{"s1"}, map[string]float64{"s1": 1e9}, settlementPlanets(), now)
+	out, err := NewBranchRepository(db).SyncBranches([]string{"s1"}, map[string]float64{"s1": 1e9}, nil, settlementPlanets(), now)
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 
@@ -149,7 +149,7 @@ func TestSyncBranchesPersistentExtractsDeposit(t *testing.T) {
 	mock.ExpectExec(sqlWriteCheckpoint).WithArgs(sqlmock.AnyArg(), "b1").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	out, err := NewBranchRepository(db).SyncBranches([]string{"s1"}, map[string]float64{"s1": 1e9}, settlementPlanets(), now)
+	out, err := NewBranchRepository(db).SyncBranches([]string{"s1"}, map[string]float64{"s1": 1e9}, nil, settlementPlanets(), now)
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 
@@ -171,7 +171,7 @@ func TestSyncBranchesMemoryPath(t *testing.T) {
 	// Залежь читается, но не блокируется и не пишется.
 	mock.ExpectQuery(sqlDepositsMemory).WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnRows(branchMemoryDepositRows())
 
-	out, err := NewBranchRepository(db).SyncBranches([]string{"s1"}, map[string]float64{"s1": 1e9}, settlementPlanets(), now)
+	out, err := NewBranchRepository(db).SyncBranches([]string{"s1"}, map[string]float64{"s1": 1e9}, nil, settlementPlanets(), now)
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 	require.Len(t, out["s1"], 1)
@@ -193,7 +193,7 @@ func TestSyncBranchesZeroDeltaNoWrite(t *testing.T) {
 	mock.ExpectQuery(sqlDepositsMemory).WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnRows(branchMemoryDepositRows())
 	// Ни Begin, ни Exec не ожидаются: любой запрос записи уронит тест.
 
-	out, err := NewBranchRepository(db).SyncBranches([]string{"s1"}, map[string]float64{"s1": 1e9}, settlementPlanets(), now)
+	out, err := NewBranchRepository(db).SyncBranches([]string{"s1"}, map[string]float64{"s1": 1e9}, nil, settlementPlanets(), now)
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 
@@ -237,7 +237,7 @@ func TestSyncBranchesTopUpNewComponent(t *testing.T) {
 	mock.ExpectExec(sqlWriteCheckpoint).WithArgs(sqlmock.AnyArg(), "b1").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	_, err = NewBranchRepository(db).SyncBranches([]string{"s1"}, map[string]float64{"s1": 1e9}, settlementPlanets(), now)
+	_, err = NewBranchRepository(db).SyncBranches([]string{"s1"}, map[string]float64{"s1": 1e9}, nil, settlementPlanets(), now)
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -259,7 +259,7 @@ func TestSyncBranchesNoDoubleAccountingMemoryThenPersist(t *testing.T) {
 	//    чек-точка в результате не сдвинулась.
 	expectBranchLoads(mock, now.Add(-time.Minute))
 	mock.ExpectQuery(sqlDepositsMemory).WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnRows(branchMemoryDepositRows())
-	out, err := repo.SyncBranches([]string{"s1"}, map[string]float64{"s1": 1e9}, settlementPlanets(), now)
+	out, err := repo.SyncBranches([]string{"s1"}, map[string]float64{"s1": 1e9}, nil, settlementPlanets(), now)
 	require.NoError(t, err)
 	// В память чек-точка вынесена (карточка свежая), но в БД НЕ записана —
 	// ExpectationsWereMet докажет отсутствие Begin/Exec.
@@ -284,7 +284,7 @@ func TestSyncBranchesNoDoubleAccountingMemoryThenPersist(t *testing.T) {
 	mock.ExpectExec(sqlWriteCheckpoint).WithArgs(sqlmock.AnyArg(), "b1").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	_, err = repo.SyncBranches([]string{"s1"}, map[string]float64{"s1": 1e9}, settlementPlanets(), now)
+	_, err = repo.SyncBranches([]string{"s1"}, map[string]float64{"s1": 1e9}, nil, settlementPlanets(), now)
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -305,7 +305,7 @@ func TestSyncBranchesBranchDeletedNoOp(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "settlement_id", "recipe_id", "processed_at", "good_id", "name", "complexity"}))
 	mock.ExpectRollback()
 
-	out, err := NewBranchRepository(db).SyncBranches([]string{"s1"}, map[string]float64{"s1": 1e9}, settlementPlanets(), now)
+	out, err := NewBranchRepository(db).SyncBranches([]string{"s1"}, map[string]float64{"s1": 1e9}, nil, settlementPlanets(), now)
 	require.NoError(t, err, "удалённая ветка — no-op, не 500")
 	require.NoError(t, mock.ExpectationsWereMet())
 	require.Empty(t, out["s1"], "удалённой ветки в результате нет")
@@ -329,4 +329,38 @@ func TestSyncBranchesLockOrderOnlyLive(t *testing.T) {
 // явный риск §4.4 спеки итерации 3; рантайм-проверка живого сервера за @tester.
 func TestSyncBranchesDeleteGoodDeadlockOnlyLive(t *testing.T) {
 	t.Skip("DeleteGood ∥ синк веток — только живая БД под -race (передать @tester)")
+}
+
+// T6/T8 (итерация 4): персистентный путь с НЕНУЛЕВОЙ картой норм — норма
+// `params.eat` товара-выхода ветки доезжает до ProcessBranch (не подменяется
+// DefaultEatK). «Пища» = 1e-8 ≠ DefaultEatK 2.5e-8: output = 27.8 − 10 = 17.8.
+func TestSyncBranchesPersistentUsesEatNorm(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
+	require.NoError(t, err)
+	defer db.Close()
+
+	now := time.Now()
+	expectBranchLoads(mock, now.Add(-time.Hour))
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(sqlBranchByIDLock).WithArgs("b1").WillReturnRows(branchRows(now.Add(-time.Hour)))
+	mock.ExpectQuery(sqlBranchComponents).WithArgs(sqlmock.AnyArg()).WillReturnRows(branchComponentRows())
+	mock.ExpectExec(sqlTopUpInput).WithArgs("b1", int64(359)).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(sqlBranchBuffers).WithArgs(sqlmock.AnyArg()).WillReturnRows(branchBufferRows())
+	mock.ExpectQuery(sqlDepositsForUpdate).WithArgs("p1", sqlmock.AnyArg()).WillReturnRows(branchDepositRows())
+	mock.ExpectExec(sqlWriteInput).WithArgs(sqlmock.AnyArg(), "b1", int64(359)).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(sqlWriteOutput).WithArgs("b1", int64(378), amountNear{17.8}).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(sqlWriteDeposit).WithArgs(amountNear{5000}, "dep1").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(sqlWriteCheckpoint).WithArgs(sqlmock.AnyArg(), "b1").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	eatBySettlement := map[string]map[string]float64{"s1": {"пища": 1e-8}}
+	out, err := NewBranchRepository(db).SyncBranches([]string{"s1"}, map[string]float64{"s1": 1e9}, eatBySettlement, settlementPlanets(), now)
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	require.Len(t, out["s1"], 1)
+	require.InDelta(t, 17.8, out["s1"][0].Output[0].Amount, 1e-6,
+		"норма params.eat должна использоваться, а не DefaultEatK")
+	require.InDelta(t, 1e-8*1e9/3600, out["s1"][0].EatenRate, 1e-12)
 }

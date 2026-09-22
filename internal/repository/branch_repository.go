@@ -19,6 +19,7 @@ import (
 	"github.com/lib/pq"
 
 	"zorion/internal/economy/settlement"
+	"zorion/internal/goodsstudio/graph"
 	"zorion/internal/models"
 )
 
@@ -116,7 +117,9 @@ type branchRecord struct {
 
 // toBranch — состояние ветки для чистой функции переработки. deposits —
 // залежи своей планеты по good_id (источник добычи, спека итерации 3 §4).
-func (rec *branchRecord) toBranch(population float64, deposits map[int64][]settlement.DepositLot) settlement.Branch {
+// eatByGood — структура норм типа поселения (params.eat, спека итерации 4
+// §3.3), ключ выборки — name_norm товара-выхода рецепта (спека §4.2).
+func (rec *branchRecord) toBranch(population float64, deposits map[int64][]settlement.DepositLot, eatByGood map[string]float64) settlement.Branch {
 	input := make(map[int64]float64, len(rec.branch.Input))
 	for _, e := range rec.branch.Input {
 		input[e.GoodID] = e.Amount
@@ -127,20 +130,23 @@ func (rec *branchRecord) toBranch(population float64, deposits map[int64][]settl
 		complexity = &c
 	}
 	return settlement.Branch{
-		Population:  population,
-		Complexity:  complexity,
-		Components:  rec.components,
-		Input:       input,
-		Output:      branchOutputAmount(rec.branch.Output, rec.outputGoodID),
-		ProcessedAt: rec.branch.ProcessedAt,
-		Deposits:    deposits,
+		Population:     population,
+		Complexity:     complexity,
+		Components:     rec.components,
+		Input:          input,
+		Output:         branchOutputAmount(rec.branch.Output, rec.outputGoodID),
+		ProcessedAt:    rec.branch.ProcessedAt,
+		Deposits:       deposits,
+		EatByGood:      eatByGood,
+		OutputGoodNorm: graph.NormalizeName(rec.branch.RecipeName),
 	}
 }
 
 // applyProcessed — вынести результат переработки в display-модель. Новых строк
 // не создаёт (путь «в памяти» записей в БД не делает — §4.2/T14): обновляются
-// только уже загруженные записи.
-func (rec *branchRecord) applyProcessed(p settlement.Branch) {
+// только уже загруженные записи. Produced/Eaten — за последний проход, EatenRate
+// — текущая скорость еды (спека итерации 4 §6).
+func (rec *branchRecord) applyProcessed(p settlement.Branch, population float64) {
 	for i := range rec.branch.Input {
 		if v, ok := p.Input[rec.branch.Input[i].GoodID]; ok {
 			rec.branch.Input[i].Amount = v
@@ -152,6 +158,9 @@ func (rec *branchRecord) applyProcessed(p settlement.Branch) {
 		}
 	}
 	rec.branch.ProcessedAt = p.ProcessedAt
+	rec.branch.Produced = p.ProducedLast
+	rec.branch.Eaten = p.EatenLast
+	rec.branch.EatenRate = settlement.EatK(p.EatByGood, p.OutputGoodNorm) * population / 3600
 }
 
 // branchOutputAmount — накопленное количество товара-выхода рецепта.
@@ -329,9 +338,11 @@ func attachBranchBuffers(ctx context.Context, q branchRowsQueryer, branchIDs []s
 // записи и блокировки (и залежи читаются без блокировки, deposits не пишется);
 // иначе — персистентный синк (syncBranchTx: FOR UPDATE ветки → FOR UPDATE
 // залежей → запись буферов, залежей и processed_at). planetBySettlement даёт
-// planet_id каждого поселения (без нового JOIN-лока, §4.2). Возвращает
+// planet_id каждого поселения (без нового JOIN-лока, §4.2). eatBySettlement —
+// структура норм типа (params.eat) каждого поселения (спека итерации 4 §3.3):
+// норма выбирается в ProcessBranch по товару-выходу ветки. Возвращает
 // display-модели, сгруппированные по settlement_id.
-func (r *BranchRepository) SyncBranches(settlementIDs []string, populationBySettlement map[string]float64, planetBySettlement map[string]string, now time.Time) (map[string][]models.SettlementBranch, error) {
+func (r *BranchRepository) SyncBranches(settlementIDs []string, populationBySettlement map[string]float64, eatBySettlement map[string]map[string]float64, planetBySettlement map[string]string, now time.Time) (map[string][]models.SettlementBranch, error) {
 	out := map[string][]models.SettlementBranch{}
 	if len(settlementIDs) == 0 {
 		return out, nil
@@ -349,10 +360,11 @@ func (r *BranchRepository) SyncBranches(settlementIDs []string, populationBySett
 	for _, rec := range recs {
 		population := populationBySettlement[rec.settlementID]
 		planetID := planetBySettlement[rec.settlementID]
+		eatByGood := eatBySettlement[rec.settlementID]
 		if now.Sub(rec.branch.ProcessedAt) < settlement.MinPersistInterval {
-			rec.applyProcessed(settlement.ProcessBranch(rec.toBranch(population, memDeposits[planetID]), now))
+			rec.applyProcessed(settlement.ProcessBranch(rec.toBranch(population, memDeposits[planetID], eatByGood), now), population)
 		} else {
-			updated, err := r.syncBranchTx(context.Background(), rec.branch.ID, planetID, population, now)
+			updated, err := r.syncBranchTx(context.Background(), rec.branch.ID, planetID, population, eatByGood, now)
 			// Ветку удалили между загрузкой и блокировкой (чужая мутация/
 			// каскад) — не роняем чтение карточки: ветки больше нет, no-op.
 			if errors.Is(err, ErrBranchNotFound) {
@@ -468,8 +480,9 @@ func appendStringUnique(s []string, v string) []string {
 // строке ветки → топ-ап строк входа для текущих компонентов (T14) → FOR UPDATE
 // залежей планеты (добыча, спека итерации 3 §4) → пересчёт по сохранённым
 // буферам и залежам → абсолютная запись буферов, залежей и processed_at →
-// COMMIT. Порядок блокировок единый: ветка → залежи.
-func (r *BranchRepository) syncBranchTx(ctx context.Context, branchID, planetID string, population float64, now time.Time) (models.SettlementBranch, error) {
+// COMMIT. Порядок блокировок единый: ветка → залежи. eatByGood — нормы типа
+// поселения для выбора нормы еды по товару-выходу ветки (спека итерации 4 §4).
+func (r *BranchRepository) syncBranchTx(ctx context.Context, branchID, planetID string, population float64, eatByGood map[string]float64, now time.Time) (models.SettlementBranch, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return models.SettlementBranch{}, err
@@ -511,7 +524,7 @@ func (r *BranchRepository) syncBranchTx(ctx context.Context, branchID, planetID 
 		return models.SettlementBranch{}, err
 	}
 
-	processed := settlement.ProcessBranch(rec.toBranch(population, deposits), now)
+	processed := settlement.ProcessBranch(rec.toBranch(population, deposits, eatByGood), now)
 
 	// Абсолютная запись входа по текущим компонентам (под блокировкой ветки —
 	// инкремент админа не теряется, §4.2).
@@ -554,7 +567,7 @@ func (r *BranchRepository) syncBranchTx(ctx context.Context, branchID, planetID 
 		return models.SettlementBranch{}, err
 	}
 
-	rec.applyProcessed(processed)
+	rec.applyProcessed(processed, population)
 	return rec.branch, nil
 }
 

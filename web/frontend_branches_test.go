@@ -38,7 +38,8 @@ function assert(cond, msg) { if (!cond) throw new Error(msg); }
 const b = {
     id: 'b1', recipe_id: 69, recipe_name: 'Пища', complexity: 1,
     output: [{ good_id: 378, good_name: 'Пища', amount: 30 }],
-    input: [{ good_id: 359, good_name: 'Мясо', amount: 97 }]
+    input: [{ good_id: 359, good_name: 'Мясо', amount: 97 }],
+    produced: 12, eaten: 5, eaten_rate: 0.25
 };
 
 // Выход виден всем; вход — только админу.
@@ -48,6 +49,15 @@ assert(admin.includes('Мясо') && admin.includes('97'), 'admin: вход ви
 const player = br.branchBlockHtml(b, false);
 assert(player.includes('Пища'), 'player: выход виден');
 assert(!player.includes('Мясо'), 'player: вход скрыт');
+
+// Петля потребления (итерация 4 §6/T13): «остаток (осадок)», «сделано» /
+// «съедено» за последний проход и «скорость поедания» (ед/сек).
+assert(admin.includes('остаток (осадок)'), 'admin: выход = остаток (осадок)');
+assert(admin.includes('сделано') && admin.includes('12'), 'admin: сделано за проход');
+assert(admin.includes('съедено') && admin.includes('5'), 'admin: съедено за проход');
+assert(admin.includes('скорость поедания') && admin.includes('0.25') && admin.includes('ед/сек'), 'admin: скорость поедания');
+assert(player.includes('сделано') && player.includes('съедено'), 'player: петля видна и игроку');
+assert(!/всего/i.test(admin), 'нет слова «всего» — «съедено» за проход, не накопительно');
 
 // Блок всех веток: заголовок + форма создания с id поселения; у player без
 // веток — пусто.

@@ -30,13 +30,19 @@ export function branchBlockHtml(branch, isAdmin) {
     let html = `
         <div style="margin:8px 0; padding:10px; background:#14142a; border-radius:4px;">
             <div><strong>${title}</strong><span style="color:#888;">${complexity}</span></div>
-            <div style="color:#888; font-size:0.85rem; margin-top:6px; text-transform:uppercase;">Выход</div>`;
+            <div style="color:#888; font-size:0.85rem; margin-top:6px; text-transform:uppercase;">Выход · остаток (осадок)</div>`;
     const output = branch.output || [];
     if (output.length === 0) {
         html += `<div style="color:#666;">— пусто —</div>`;
     } else {
         output.forEach(e => { html += bufferRowHtml(e); });
     }
+    // Петля потребления (итерация 4 §6): «сделано» и «съедено» за ПОСЛЕДНИЙ
+    // проход (не накопительный счётчик) + текущая скорость поедания, ед/сек.
+    // Значения — скаляры; 0 приходит отсутствием поля (omitempty), поэтому
+    // строку «за проход» показываем всегда.
+    html += `<div style="color:#888; font-size:0.85rem; margin-top:6px;">за проход: сделано <strong>${formatAmount(branch.produced || 0)}</strong> · съедено <strong>${formatAmount(branch.eaten || 0)}</strong></div>`;
+    html += `<div style="color:#888; font-size:0.85rem;">скорость поедания: <strong>${formatAmount(branch.eaten_rate || 0)}</strong> ед/сек</div>`;
     if (isAdmin) {
         html += `<div style="color:#facc15; font-size:0.85rem; margin-top:6px; text-transform:uppercase;">Вход (виден только админу)</div>`;
         const input = branch.input || [];

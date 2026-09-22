@@ -20,6 +20,7 @@ import (
 	"github.com/google/uuid"
 	"zorion/internal/models"
 	"zorion/internal/races"
+	"zorion/internal/repository"
 )
 
 // RaceGenConfig — параметры генерации поселений рас.
@@ -114,6 +115,16 @@ func (g *Generator) GenerateRaceSettlements(ctx context.Context, cfg RaceGenConf
 		return 0, unsettledRaces(settledRaces), nil
 	}
 
+	// Тип поселения — настоящая связь (спека итерации 4 §3.4): дефолтный подтип
+	// резолвится один раз на джоб и дописывается в каждую строку (0 → NULL).
+	typeID, err := repository.ResolveDefaultSettlementTypeID(g.db)
+	if err != nil {
+		return 0, nil, fmt.Errorf("resolve settlement type: %w", err)
+	}
+	for i := range settlementRows {
+		settlementRows[i] = append(settlementRows[i].([]interface{}), nullableTypeID(typeID))
+	}
+
 	tx, err := g.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, nil, err
@@ -121,8 +132,8 @@ func (g *Generator) GenerateRaceSettlements(ctx context.Context, cfg RaceGenConf
 	defer tx.Rollback()
 
 	if err := copyInRows(tx, "settlements",
-		[]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "race_id"},
-		flatten(settlementRows), 7); err != nil {
+		[]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "race_id", "settlement_type_id"},
+		flatten(settlementRows), 8); err != nil {
 		return 0, nil, fmt.Errorf("copy race settlements: %w", err)
 	}
 

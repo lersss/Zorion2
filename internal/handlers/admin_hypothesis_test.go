@@ -56,6 +56,12 @@ func TestRunHypothesisJobPipeline(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
+	// Тип поселения (спека итерации 4 §3.4): резолв дефолтного подтипа один раз
+	// на джоб — до начала транзакции очистки.
+	mock.ExpectQuery(`SELECT id FROM producer_types WHERE name_norm = \$1`).
+		WithArgs("обычное поселение").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(1)))
+
 	// 1. Очистка вселенной (clearUniverseTx).
 	mock.ExpectBegin()
 	mock.ExpectQuery(`UPDATE contracts\s+SET status = CASE WHEN executor_id IS NULL`).
@@ -79,7 +85,7 @@ func TestRunHypothesisJobPipeline(t *testing.T) {
 			WillReturnResult(sqlmock.NewResult(0, 1))
 	}
 	for i := 0; i < 4; i++ {
-		mock.ExpectExec(`INSERT INTO settlements \(id, planet_id, population, population_exact, stability, computed_at`).
+		mock.ExpectExec(`INSERT INTO settlements \(id, planet_id, population, population_exact, stability, computed_at, race_id, settlement_type_id, created_at, updated_at\)`).
 			WillReturnResult(sqlmock.NewResult(0, 1))
 	}
 
@@ -270,6 +276,11 @@ func TestRunHypothesisRaceGate(t *testing.T) {
 			require.NoError(t, err)
 			defer db.Close()
 
+			// Тип поселения (спека итерации 4 §3.4): резолв один раз на джоб.
+			mock.ExpectQuery(`SELECT id FROM producer_types WHERE name_norm = \$1`).
+				WithArgs("обычное поселение").
+				WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(1)))
+
 			// Очистка вселенной.
 			mock.ExpectBegin()
 			mock.ExpectQuery(`UPDATE contracts\s+SET status = CASE WHEN executor_id IS NULL`).
@@ -289,7 +300,7 @@ func TestRunHypothesisRaceGate(t *testing.T) {
 			}
 			// Поселения: только если раса пригодна (или race_id пуст).
 			for i := 0; i < tc.wantSettled; i++ {
-				mock.ExpectExec(`INSERT INTO settlements \(id, planet_id, population, population_exact, stability, computed_at`).
+				mock.ExpectExec(`INSERT INTO settlements \(id, planet_id, population, population_exact, stability, computed_at, race_id, settlement_type_id, created_at, updated_at\)`).
 					WillReturnResult(sqlmock.NewResult(0, 1))
 			}
 

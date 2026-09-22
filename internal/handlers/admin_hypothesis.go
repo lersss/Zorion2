@@ -26,6 +26,7 @@ import (
 	"zorion/internal/generator"
 	"zorion/internal/generator/planet"
 	"zorion/internal/races"
+	"zorion/internal/repository"
 )
 
 // RunHypothesis — запуск «Проверки гипотез».
@@ -97,6 +98,16 @@ func (h *AdminHandlers) RunHypothesis(w http.ResponseWriter, r *http.Request) {
 // «невозможных» планет).
 func (h *AdminHandlers) runHypothesisJob(ctx context.Context, spec planet.TwinSpec) (settled int, report string, err error) {
 	planetGen := planet.NewGenerator(h.db, 0)
+	// Тип поселения — настоящая связь (спека итерации 4 §3.4): один резолв на
+	// джоб; типа нет → NULL (чтение применит DefaultEatK).
+	settlementTypeID, err := repository.ResolveDefaultSettlementTypeID(h.db)
+	if err != nil {
+		return 0, "", err
+	}
+	var settlementTypeArg interface{}
+	if settlementTypeID != 0 {
+		settlementTypeArg = settlementTypeID
+	}
 	// Карта ресурсов каталога для залежей (спека залежей §3.1): генератор
 	// сеттер, БД сама не ходит. Пустая карта — залежей не будет.
 	planetGen.SetGoodsIndex(loadResourceGoodsIndex(h.db))
@@ -204,11 +215,11 @@ func (h *AdminHandlers) runHypothesisJob(ctx context.Context, spec planet.TwinSp
 					raceIDArg = group.RaceID
 				}
 				if _, err := tx.ExecContext(ctx, `
-					INSERT INTO settlements (id, planet_id, population, population_exact, stability, computed_at, race_id, created_at, updated_at)
-					VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+					INSERT INTO settlements (id, planet_id, population, population_exact, stability, computed_at, race_id, settlement_type_id, created_at, updated_at)
+					VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 					uuid.New().String(), p.ID,
 					population, float64(population),
-					rng.Intn(41)+40, now, raceIDArg, now, now,
+					rng.Intn(41)+40, now, raceIDArg, settlementTypeArg, now, now,
 				); err != nil {
 					return 0, "", err
 				}

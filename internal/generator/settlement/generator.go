@@ -12,6 +12,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
+
+	"zorion/internal/repository"
 )
 
 // Generator — генератор поселений. Проходит по таблице planets и создаёт
@@ -87,6 +89,17 @@ func (g *Generator) GenerateSettlements(ctx context.Context, model *Model, progr
 		return 0, nil
 	}
 
+	// Тип поселения — настоящая связь (спека итерации 4 §3.4): дефолтный подтип
+	// «Обычное поселение» резолвится один раз на джоб и дописывается в каждую
+	// строку (типа нет → NULL, чтение применит фолбэк DefaultEatK).
+	typeID, err := repository.ResolveDefaultSettlementTypeID(g.db)
+	if err != nil {
+		return 0, fmt.Errorf("resolve settlement type: %w", err)
+	}
+	for i := range settlementRows {
+		settlementRows[i] = append(settlementRows[i].([]interface{}), nullableTypeID(typeID))
+	}
+
 	tx, err := g.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
@@ -94,8 +107,8 @@ func (g *Generator) GenerateSettlements(ctx context.Context, model *Model, progr
 	defer tx.Rollback()
 
 	if err := copyInRows(tx, "settlements",
-		[]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at"},
-		flatten(settlementRows), 6); err != nil {
+		[]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "settlement_type_id"},
+		flatten(settlementRows), 7); err != nil {
 		return 0, fmt.Errorf("copy settlements: %w", err)
 	}
 
@@ -112,6 +125,8 @@ func (g *Generator) GenerateSettlements(ctx context.Context, model *Model, progr
 // population_exact и computed_at — точное состояние для пересчёта смерти от
 // среды (18a_population_death.md), стартует равным population на момент
 // генерации (w-сброса нет — R-модель, 99.2.12).
+// settlement_type_id дописывается вызывающим один раз на джоб (спека итерации 4
+// §3.4) — здесь строка из 6 полей.
 func buildSettlement(planetID string, population, stability int) []interface{} {
 	return []interface{}{
 		uuid.New().String(),
@@ -121,6 +136,15 @@ func buildSettlement(planetID string, population, stability int) []interface{} {
 		stability,
 		time.Now(),
 	}
+}
+
+// nullableTypeID — id типа поселения в параметр вставки: 0 (типа нет) → NULL
+// (колонка nullable, спека итерации 4 §3.1), иначе число.
+func nullableTypeID(id int64) interface{} {
+	if id == 0 {
+		return nil
+	}
+	return id
 }
 
 // ==================== ХЕЛПЕРЫ JSON ====================

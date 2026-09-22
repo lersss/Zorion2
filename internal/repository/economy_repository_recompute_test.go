@@ -56,6 +56,48 @@ func TestRecomputeSettlementPopulationEventComfortableUnchanged(t *testing.T) {
 	require.Equal(t, "microcrack", got.RaceID, "путь «событие» не должен терять расу (75a)")
 }
 
+// T6/T8/T19 (итерация 4): путь «событие» не должен терять тип поселения и
+// нормы еды (params.eat) — иначе синк веток ест по DefaultEatK и настройка
+// студии игнорируется (спека §3.3/§3.5, находка ревью 2026-09-22).
+func TestRecomputeSettlementPopulationEventKeepsTypeAndEat(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
+	require.NoError(t, err)
+	defer db.Close()
+
+	since := time.Now().Add(-24 * time.Hour) // Δt ≥ MinPersistInterval → путь «событие»
+	now := time.Now()
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`
+		SELECT id, planet_id, population, population_exact, stability, computed_at, created_at, updated_at, race_id
+		FROM settlements WHERE id = $1 FOR UPDATE`).
+		WithArgs("s1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id"}).
+			AddRow("s1", "p1", 1_000_000, float64(1_000_000), 60, since, since, since, ""))
+	mock.ExpectExec(`
+		UPDATE settlements SET population = $1, population_exact = $2, computed_at = $3, updated_at = NOW()
+		WHERE id = $4`).
+		WithArgs(1_000_000, float64(1_000_000), now, "s1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	s := loadSettlement("s1", 1_000_000, since)
+	s.SettlementTypeID = 148
+	s.TypeName = "Обычное поселение"
+	s.EatByGood = map[string]float64{"пища": 1e-8}
+
+	input := settlement.PlanetInput{TemperatureK: 288, GravityG: 1.0, CoreRadioactivity: 5}
+	got, err := NewEconomyRepository(db).RecomputeSettlementPopulation(s, input, now)
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	require.Equal(t, int64(148), got.SettlementTypeID,
+		"путь «событие» не должен терять тип поселения")
+	require.Equal(t, "Обычное поселение", got.TypeName)
+	require.Equal(t, 1e-8, got.EatByGood["пища"],
+		"путь «событие» не должен терять нормы params.eat (иначе ветка ест по DefaultEatK)")
+}
+
 // «Событие» на жаркой планете: население убывает, чек-точка продвигается.
 func TestRecomputeSettlementPopulationEventHotDecreases(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))

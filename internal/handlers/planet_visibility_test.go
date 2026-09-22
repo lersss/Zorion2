@@ -7,6 +7,7 @@ package handlers
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"zorion/internal/models"
@@ -102,4 +103,37 @@ func TestStripFormationHistory(t *testing.T) {
 
 	withKnowledge := stripPlanetDetails(p, &models.PlanetKnowledgeView{})
 	require.Len(t, withKnowledge.FormationHistory, 2, "со знанием маркер остаётся")
+}
+
+// ==================== ГЕЙТ ЗНАНИЯ ПОЯСА (спека поясов этап 3 §6.4/§8.4) ====================
+
+// M21: без знания пояса BeltView не отдаёт belt_class/remaining_level; при
+// знании (радар ИЛИ присутствие mining) — отдаёт обе шкалы.
+func TestBeltKnowledgeGate(t *testing.T) {
+	rem := 300.0
+	b := models.Belt{
+		ID: "b1", Visible: true,
+		Composition:   map[string]float64{"rock": 0.6, "iron": 0.3, "ice": 0.1},
+		IronRemaining: &rem,
+	}
+
+	// Без знания — обе шкалы не отдаются.
+	out := applyBeltVisibility([]models.Belt{b}, false, nil)
+	require.Len(t, out, 1)
+	assert.Nil(t, out[0].Composition)
+	assert.Empty(t, out[0].BeltClass)
+	assert.Empty(t, out[0].RemainingLevel)
+
+	// Знание по радару — обе шкалы есть.
+	out2 := applyBeltVisibility([]models.Belt{b}, true, nil)
+	require.Len(t, out2, 1)
+	assert.Equal(t, "богатый", out2[0].BeltClass)
+	assert.Equal(t, "истощается", out2[0].RemainingLevel, "300/600 = 0.5")
+
+	// Присутствие во время захода (mining) — тоже знание (не только orbit).
+	pos := &models.CurrentPosition{Status: "mining", ObjectType: "belt", ObjectID: "b1", Level: "mining"}
+	out3 := applyBeltVisibility([]models.Belt{b}, false, pos)
+	require.Len(t, out3, 1)
+	assert.Equal(t, "богатый", out3[0].BeltClass)
+	assert.Equal(t, "истощается", out3[0].RemainingLevel)
 }

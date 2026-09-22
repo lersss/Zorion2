@@ -10,23 +10,30 @@ import "time"
 
 // CurrentPosition — внутрисистемная позиция игрока.
 type CurrentPosition struct {
-	Status     string `json:"status"`                // orbit | in_flight | surface
-	ObjectType string `json:"object_type,omitempty"` // star|planet|satellite|belt (orbit/surface)
-	ObjectID   string `json:"object_id,omitempty"`   // UUID или синтетический id компаньона (orbit/surface)
-	Level      string `json:"level,omitempty"`       // orbit | surface
+	Status     string `json:"status"`                // orbit | in_flight | surface | mining
+	ObjectType string `json:"object_type,omitempty"` // star|planet|satellite|belt (orbit/surface/mining)
+	ObjectID   string `json:"object_id,omitempty"`   // UUID или синтетический id компаньона (orbit/surface/mining)
+	Level      string `json:"level,omitempty"`       // orbit | surface | mining
 	Biome      string `json:"biome,omitempty"`       // surface: form биома прогулки
 	// HP и LandedAt — серверно-авторитетное здоровье прогулки (спека
 	// 2026-09-21 §4.2/§8.7): hp ∈ [0,100], landed_at — UTC RFC3339. Пишет и
 	// пересчитывает только сервер; клиент урон не присылает. Указатель — ноль
 	// (смерть) значим и не теряется omitempty.
-	HP        *float64 `json:"hp,omitempty"`
-	LandedAt  string   `json:"landed_at,omitempty"`
-	FromType  string   `json:"from_type,omitempty"` // star|planet|satellite|belt (in_flight)
-	FromID    string   `json:"from_id,omitempty"`
-	ToType    string   `json:"to_type,omitempty"`
-	ToID      string   `json:"to_id,omitempty"`
-	StartTime int64    `json:"start_time,omitempty"` // UnixMilli (in_flight)
-	ArriveAt  int64    `json:"arrive_at,omitempty"`  // UnixMilli (in_flight)
+	HP       *float64 `json:"hp,omitempty"`
+	LandedAt string   `json:"landed_at,omitempty"`
+	// Заход в пояс (спека 2026-09-22-пояса-малых-тел-этап-3-добыча §3): состояние
+	// мини-игры добычи — аддитивные ключи позиции (как hp/landed_at у surface).
+	// Mined — буфер захода (т, серверно-авторитетный), указатель: ноль значим и
+	// не теряется omitempty. StartedAt/LastCollectAt — UTC RFC3339.
+	StartedAt     string   `json:"started_at,omitempty"`
+	Mined         *float64 `json:"mined,omitempty"`
+	LastCollectAt string   `json:"last_collect_at,omitempty"`
+	FromType      string   `json:"from_type,omitempty"` // star|planet|satellite|belt (in_flight)
+	FromID        string   `json:"from_id,omitempty"`
+	ToType        string   `json:"to_type,omitempty"`
+	ToID          string   `json:"to_id,omitempty"`
+	StartTime     int64    `json:"start_time,omitempty"` // UnixMilli (in_flight)
+	ArriveAt      int64    `json:"arrive_at,omitempty"`  // UnixMilli (in_flight)
 }
 
 // OrbitPosition — позиция «на орбите объекта» (покой).
@@ -78,5 +85,26 @@ func SurfacePosition(planetID, biome string, hp float64, landedAt time.Time) *Cu
 		Biome:      biome,
 		HP:         &hp,
 		LandedAt:   t.Format(time.RFC3339),
+	}
+}
+
+// MiningPosition — позиция «игрок добывает в поясе» (спека
+// 2026-09-22-пояса-малых-тел-этап-3-добыча §3): {status:"mining", level:"mining",
+// object_type:"belt", object_id, started_at, mined:0, last_collect_at}.
+// Буфер захода (mined) стартует с нуля; состояние персистится в JSONB позиции
+// (новой таблицы нет). started_at — UTC RFC3339.
+func MiningPosition(beltID string, startedAt time.Time) *CurrentPosition {
+	t := startedAt.UTC().Format(time.RFC3339)
+	mined := 0.0
+	return &CurrentPosition{
+		Status:     "mining",
+		ObjectType: "belt",
+		ObjectID:   beltID,
+		Level:      "mining",
+		StartedAt:  t,
+		Mined:      &mined,
+		// last_collect_at — nano-точность: секундная гранулярность давала бы
+		// Δ ≈ 1 c двум сборам в одну секунду (обход клампа скорости §5.3.1).
+		LastCollectAt: startedAt.UTC().Format(time.RFC3339Nano),
 	}
 }

@@ -7,6 +7,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"log"
 	"math"
@@ -34,6 +35,11 @@ type IntrasystemHandlers struct {
 	// Контракты-перелёты (спека перелёта §1.1, B2a): при прибытии к планете-цели
 	// контракт закрывается в NewIntraArrivalHandler. Сеттер: contractRepo — main.go.
 	contractRepo *repository.ContractRepository
+	// Перелив буфера захода в трюм при взлёте из пояса (спека поясов этап 3
+	// §6.5) — в одной транзакции со стартом полёта. Сеттер: main.go; nil —
+	// перелива нет (старые тесты).
+	db           *sql.DB
+	miningBuffer *MiningBuffer
 }
 
 func NewIntrasystemHandlers(
@@ -60,6 +66,13 @@ func NewIntrasystemHandlers(
 // закрытие контрактов-перелётов с целью-планетой при внутрисистемном прибытии.
 func (h *IntrasystemHandlers) SetContracts(contractRepo *repository.ContractRepository) {
 	h.contractRepo = contractRepo
+}
+
+// SetMiningBuffer — подключает перелив буфера захода в трюм при взлёте из
+// пояса (спека поясов этап 3 §6.5). Сеттер: main.go; nil — перелива нет.
+func (h *IntrasystemHandlers) SetMiningBuffer(db *sql.DB, mb *MiningBuffer) {
+	h.db = db
+	h.miningBuffer = mb
 }
 
 // CalcIntraDuration — длительность внутрисистемного полёта (спека §3.4, С4):
@@ -290,6 +303,13 @@ func normalizeMyPosition(pos *models.CurrentPosition, worldID string, planets []
 				pos.HP = &hp
 				return pos
 			}
+		}
+	case "mining":
+		// Заход в пояс (спека поясов этап 3 §6.4): валидный mining сохраняется;
+		// битый пояс (перегенерация) → «орбита звезды» (ИП-4). Заход НЕ должен
+		// проваливаться в фолбэк при живом поясе.
+		if positionObjectValid("belt", pos.ObjectID, worldID, planets, belts, validStar) {
+			return pos
 		}
 	}
 	return models.StarOrbitPosition(worldID)
@@ -528,7 +548,8 @@ func (h *IntrasystemHandlers) StartIntraFlight(w http.ResponseWriter, r *http.Re
 		alreadyMsg = "Вы уже в поясе"
 	}
 	if pos != nil {
-		if pos.Status == "orbit" && pos.ObjectType == req.ObjectType && pos.ObjectID == req.ObjectID {
+		if (pos.Status == "orbit" || pos.Status == "mining") &&
+			pos.ObjectType == req.ObjectType && pos.ObjectID == req.ObjectID {
 			writeJSONError(w, alreadyMsg, http.StatusBadRequest)
 			return
 		}
@@ -541,7 +562,9 @@ func (h *IntrasystemHandlers) StartIntraFlight(w http.ResponseWriter, r *http.Re
 	// From: объект позиции (покой) или объект отправления активного полёта
 	// (редирект от объекта отправления, §3.5); surface — планета, на которой
 	// стоит игрок (взлёт без отдельного шага, идея 2026-09-21: «Лететь» с
-	// поверхности = взлёт + сегмент); NULL-позиция (легаси) — «орбита звезды».
+	// поверхности = взлёт + сегмент); mining — пояс захода (спека поясов этап 3
+	// §6.5: взлёт из пояса берёт from = (belt, id)); NULL-позиция (легаси) —
+	// «орбита звезды».
 	fromType, fromID := "star", worldID
 	if pos != nil {
 		if pos.Status == "orbit" {
@@ -550,6 +573,8 @@ func (h *IntrasystemHandlers) StartIntraFlight(w http.ResponseWriter, r *http.Re
 			fromType, fromID = pos.FromType, pos.FromID
 		} else if pos.Status == "surface" {
 			fromType, fromID = "planet", pos.ObjectID
+		} else if pos.Status == "mining" {
+			fromType, fromID = "belt", pos.ObjectID
 		}
 	}
 
@@ -577,7 +602,18 @@ func (h *IntrasystemHandlers) StartIntraFlight(w http.ResponseWriter, r *http.Re
 		StartTime: now,
 		ArriveAt:  arriveAt,
 	}
-	if err := h.intraRepo.StartAtomic(flight, models.InFlightPosition(fromType, fromID, req.ObjectType, req.ObjectID, now, arriveAt)); err != nil {
+	inFlightPos := models.InFlightPosition(fromType, fromID, req.ObjectType, req.ObjectID, now, arriveAt)
+
+	// Взлёт из пояса во время захода (спека поясов этап 3 §6.5): перелив буфера
+	// в трюм — в ОДНОЙ транзакции со стартом полёта (после всех валидаций,
+	// чтобы неудачный старт не перелил буфер дважды).
+	if h.miningBuffer != nil && h.db != nil && h.intraRepo != nil && pos != nil && pos.Status == "mining" {
+		if err := h.startIntraWithBuffer(userID, flight, inFlightPos); err != nil {
+			log.Printf("⚠️ intrasystem: start with mining buffer (user %s): %v", userID, err)
+			writeJSONError(w, "Не удалось начать полёт", http.StatusInternalServerError)
+			return
+		}
+	} else if err := h.intraRepo.StartAtomic(flight, inFlightPos); err != nil {
 		log.Printf("⚠️ intrasystem: StartAtomic (user %s): %v", userID, err)
 		writeJSONError(w, "Не удалось начать полёт", http.StatusInternalServerError)
 		return
@@ -595,4 +631,24 @@ func (h *IntrasystemHandlers) StartIntraFlight(w http.ResponseWriter, r *http.Re
 		StartTime: now.UnixMilli(),
 		ArriveAt:  arriveAt.UnixMilli(),
 	})
+}
+
+// startIntraWithBuffer — старт внутрисистемного полёта с переливом буфера захода
+// (спека поясов этап 3 §6.5) в ОДНОЙ транзакции: TryAddCargoTx + строка полёта +
+// позиция in_flight. Сбой на любом шаге откатывает всё (буфер не теряется и не
+// зачитывается дважды).
+func (h *IntrasystemHandlers) startIntraWithBuffer(userID string, flight models.PlayerIntrasystemFlight, pos *models.CurrentPosition) error {
+	tx, err := h.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := h.miningBuffer.FlushTx(tx, userID); err != nil {
+		return err
+	}
+	if err := h.intraRepo.StartAtomicTx(tx, flight, pos); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

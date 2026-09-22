@@ -311,6 +311,19 @@ func main() {
 		worldRepo, userRepo, planetRepo, intraFlightRepo, knowledgeRepo, travelManager, intraManager,
 	)
 	intrasystemHandlers.SetContracts(contractRepo)
+	// Добыча в поясе малых тел (спека 2026-09-22-пояса-малых-тел-этап-3-добыча
+	// §6): POST /api/belt/mine/enter|collect|leave. Состояние захода — позиция
+	// mining в users.current_position; запас пояса — system_belts.iron_remaining
+	// (миграция 000069), инициализируется лениво при первом enter.
+	beltMiningHandlers := handlers.NewBeltMiningHandlers(
+		db, userRepo, worldRepo, planetRepo, cargoService, travelManager, intraManager,
+	)
+	// Перелив буфера захода в трюм при взлёте из пояса (§6.5) — в одной
+	// транзакции со стартом/отменой полёта: оба обработчика (внутрисистемный и
+	// межзвёздный), решение §10.2-(A) «без последствий».
+	beltMiningBuffer := handlers.NewMiningBuffer(cargoService)
+	intrasystemHandlers.SetMiningBuffer(db, beltMiningBuffer)
+	travelHandlers.SetMiningBuffer(db, beltMiningBuffer)
 	// Высадка/прогулка (спека 2026-09-21 §6): POST /api/surface/land|leave.
 	surfaceHandlers := handlers.NewSurfaceHandlers(userRepo, worldRepo, planetRepo, intraManager)
 	wsHandler := handlers.NewWebSocketHandler(wsHub)
@@ -371,6 +384,11 @@ func main() {
 	http.HandleFunc("/api/intrasystem-flight", auth.AuthMiddleware(intrasystemHandlers.StartIntraFlight))
 	http.HandleFunc("/api/surface/land", auth.AuthMiddleware(surfaceHandlers.Land))
 	http.HandleFunc("/api/surface/leave", auth.AuthMiddleware(surfaceHandlers.Leave))
+	// Добыча в поясе малых тел (спека 2026-09-22-пояса-малых-тел-этап-3-добыча
+	// §6.2): вход/сбор/выход захода.
+	http.HandleFunc("/api/belt/mine/enter", auth.AuthMiddleware(beltMiningHandlers.Enter))
+	http.HandleFunc("/api/belt/mine/collect", auth.AuthMiddleware(beltMiningHandlers.Collect))
+	http.HandleFunc("/api/belt/mine/leave", auth.AuthMiddleware(beltMiningHandlers.Leave))
 	http.HandleFunc("/me", auth.AuthMiddleware(authHandlers.GetMe))
 	http.HandleFunc("/me/money", auth.AuthMiddleware(moneyHandlers.GetMyMoney))
 	http.HandleFunc("/me/ship-icon", auth.AuthMiddleware(authHandlers.UpdateShipIcon))

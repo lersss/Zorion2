@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"zorion/internal/models"
 	"zorion/internal/repository"
 	"zorion/internal/ship"
 	"zorion/internal/travel"
@@ -531,4 +532,54 @@ func TestStartIntraFlightRedirect(t *testing.T) {
 	assert.Equal(t, "w1", resp.FromID)
 	assert.Equal(t, "p2", resp.ToID)
 	assert.Equal(t, 3, resp.Duration, "dist = |0−2| = 2 → минимум 3 сек")
+}
+
+// ==================== ЗАХОД В ПОЯС (спека поясов этап 3 §6.4/§6.5) ====================
+
+// M14: валидный mining сохраняется; битый пояс → «орбита звезды» (ИП-4).
+func TestNormalizeMyPositionMining(t *testing.T) {
+	belts := []models.Belt{{ID: "b1"}}
+	validStar := func(id string) bool { return id == "w1" }
+
+	pos := &models.CurrentPosition{Status: "mining", ObjectType: "belt", ObjectID: "b1", Level: "mining"}
+	got := normalizeMyPosition(pos, "w1", nil, belts, validStar)
+	require.Equal(t, "mining", got.Status, "валидный заход не проваливается в фолбэк")
+	require.Equal(t, "belt", got.ObjectType)
+	require.Equal(t, "b1", got.ObjectID)
+
+	broken := &models.CurrentPosition{Status: "mining", ObjectType: "belt", ObjectID: "GONE", Level: "mining"}
+	got2 := normalizeMyPosition(broken, "w1", nil, belts, validStar)
+	require.Equal(t, "orbit", got2.Status)
+	require.Equal(t, "star", got2.ObjectType)
+	require.Equal(t, "w1", got2.ObjectID)
+}
+
+// M15: взлёт из пояса — from = (belt, id); буфер перелит в трюм в ОДНОЙ
+// транзакции со стартом полёта (§6.5).
+func TestStartIntraFlightFromMining(t *testing.T) {
+	h, c, mock := newIntraHarnessWithMining(t)
+	const userID = "11111111-1111-1111-1111-111111111111"
+
+	expectIntraUser(mock, userID, miningPosJSON("b1", 3))
+	expectIntraWorld(mock, "w1")
+	expectPlanetsAndBelts(mock, "w1",
+		beltRow("b1", "w1", "asteroid", "Пояс", 2, 3.0, 0.6, 0.05, 120.0, `{}`, true, `{}`),
+		planetRow("p1", "w1", "Планета1", 0, 5.0))
+	// Одна транзакция: FlushTx (лок позиции + резолв железа) → StartAtomicTx.
+	mock.ExpectBegin()
+	expectMiningFlushTx(mock, userID, "b1", 3)
+	expectIntraStartAtomicTx(mock, userID, "belt", "b1")
+	mock.ExpectCommit()
+
+	rec := execJSON(h.StartIntraFlight, intraRequest(userID, "planet", "p1"))
+	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	var resp IntraFlightResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "belt", resp.FromType, "from = пояс захода")
+	assert.Equal(t, "b1", resp.FromID)
+	assert.Equal(t, 1, c.addCalls, "буфер перелит в трюм")
+	assert.Equal(t, int64(21), c.addGood)
+	assert.InDelta(t, 3.0, c.addQty, 1e-9)
 }

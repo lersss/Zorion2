@@ -31,10 +31,12 @@ import (
 // ==================== ХЕЛПЕРЫ ====================
 
 // beltRow — строка system_belts для sqlmock (порядок колонок GetBeltsByWorldID).
+// iron_remaining — nil («нет данных о запасе», этап 3 §4); значение задаётся
+// отдельно там, где нужно (тесты добычи).
 func beltRow(id, worldID, kind, name string, orbitIndex interface{}, radiusAU, widthAU, mass, bodySizeKm float64, composition string, visible bool, data string) []driver.Value {
 	return []driver.Value{
 		id, worldID, kind, name, orbitIndex, radiusAU, widthAU, mass, bodySizeKm,
-		composition, visible, data, now(), now(),
+		composition, visible, data, nil, now(), now(),
 	}
 }
 
@@ -42,12 +44,13 @@ func beltRow(id, worldID, kind, name string, orbitIndex interface{}, radiusAU, w
 func expectBelts(mock sqlmock.Sqlmock, worldID string, rows ...[]driver.Value) {
 	r := sqlmock.NewRows([]string{
 		"id", "world_id", "kind", "name", "orbit_index", "radius_au", "width_au",
-		"mass", "body_size_km", "composition", "visible", "data", "created_at", "updated_at",
+		"mass", "body_size_km", "composition", "visible", "data", "iron_remaining",
+		"created_at", "updated_at",
 	})
 	for _, row := range rows {
 		r.AddRow(row...)
 	}
-	mock.ExpectQuery(`SELECT id, world_id, kind, name, orbit_index, radius_au, width_au, mass,\s+body_size_km, composition, visible, data, created_at, updated_at\s+FROM system_belts\s+WHERE world_id = \$1\s+ORDER BY radius_au ASC`).
+	mock.ExpectQuery(`SELECT id, world_id, kind, name, orbit_index, radius_au, width_au, mass,\s+body_size_km, composition, visible, data, iron_remaining, created_at, updated_at\s+FROM system_belts\s+WHERE world_id = \$1\s+ORDER BY radius_au ASC`).
 		WithArgs(worldID).
 		WillReturnRows(r)
 }

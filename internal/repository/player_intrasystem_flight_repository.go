@@ -76,16 +76,29 @@ func (r *PlayerIntrasystemFlightRepository) ListAll() ([]models.PlayerIntrasyste
 // строка полёта + current_position = {status: in_flight} не расходятся
 // (краш-окно закрыто; модалка/my_position сразу видят полёт).
 func (r *PlayerIntrasystemFlightRepository) StartAtomic(f models.PlayerIntrasystemFlight, pos *models.CurrentPosition) error {
-	posJSON, err := json.Marshal(pos)
-	if err != nil {
-		return fmt.Errorf("start intra flight: marshal position: %w", err)
-	}
 	tx, err := r.db.Begin()
 	if err != nil {
 		return fmt.Errorf("start intra flight: begin: %w", err)
 	}
 	defer tx.Rollback()
 
+	if err := r.StartAtomicTx(tx, f, pos); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("start intra flight: commit: %w", err)
+	}
+	return nil
+}
+
+// StartAtomicTx — тело StartAtomic в транзакции вызывающего (спека поясов
+// этап 3 §6.5: перелив буфера захода в трюм — в ОДНОЙ транзакции со стартом
+// полёта и записью новой позиции).
+func (r *PlayerIntrasystemFlightRepository) StartAtomicTx(tx *sql.Tx, f models.PlayerIntrasystemFlight, pos *models.CurrentPosition) error {
+	posJSON, err := json.Marshal(pos)
+	if err != nil {
+		return fmt.Errorf("start intra flight: marshal position: %w", err)
+	}
 	if _, err := tx.Exec(`
 		INSERT INTO player_intrasystem_flights (user_id, world_id, from_type, from_id, to_type, to_id, start_time, arrive_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -102,9 +115,6 @@ func (r *PlayerIntrasystemFlightRepository) StartAtomic(f models.PlayerIntrasyst
 	}
 	if _, err := tx.Exec(`UPDATE users SET current_position = $1, updated_at = NOW() WHERE id = $2`, posJSON, f.UserID); err != nil {
 		return fmt.Errorf("start intra flight: update position: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("start intra flight: commit: %w", err)
 	}
 	return nil
 }
@@ -162,24 +172,34 @@ func (r *PlayerIntrasystemFlightRepository) CancelAtomicWithDestination(userID s
 // cancelAtomic — общая транзакция отмены intra + позиция NULL + намерение.
 // dest == nil → pending_destination = NULL (M1); dest != nil → запись (ИН-4).
 func (r *PlayerIntrasystemFlightRepository) cancelAtomic(userID string, dest *models.PendingDestination) error {
-	destJSON, err := marshalDestination(dest)
-	if err != nil {
-		return fmt.Errorf("cancel intra flight: marshal destination: %w", err)
-	}
 	tx, err := r.db.Begin()
 	if err != nil {
 		return fmt.Errorf("cancel intra flight: begin: %w", err)
 	}
 	defer tx.Rollback()
 
+	if err := r.CancelAtomicWithDestinationTx(tx, userID, dest); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("cancel intra flight: commit: %w", err)
+	}
+	return nil
+}
+
+// CancelAtomicWithDestinationTx — тело отмены в транзакции вызывающего (спека
+// поясов этап 3 §6.5: перелив буфера захода в трюм — в ОДНОЙ транзакции с
+// обнулением позиции при межзвёздном старте).
+func (r *PlayerIntrasystemFlightRepository) CancelAtomicWithDestinationTx(tx *sql.Tx, userID string, dest *models.PendingDestination) error {
+	destJSON, err := marshalDestination(dest)
+	if err != nil {
+		return fmt.Errorf("cancel intra flight: marshal destination: %w", err)
+	}
 	if _, err := tx.Exec(`DELETE FROM player_intrasystem_flights WHERE user_id = $1`, userID); err != nil {
 		return fmt.Errorf("cancel intra flight: delete row: %w", err)
 	}
 	if _, err := tx.Exec(`UPDATE users SET current_position = NULL, pending_destination = $1, updated_at = NOW() WHERE id = $2`, destJSON, userID); err != nil {
 		return fmt.Errorf("cancel intra flight: clear position: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("cancel intra flight: commit: %w", err)
 	}
 	return nil
 }

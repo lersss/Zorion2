@@ -145,7 +145,10 @@ func (h *AdminHandlers) PlayersPositions(w http.ResponseWriter, r *http.Request)
 		// Игрок на поверхности скрыт от других (решение создателя 2026-09-21,
 		// §6.6/§7.6 п.7): явный guard — фильтра `!= orbit` в батч-блоке имён
 		// недостаточно, иначе ветка surface протечёт как «в системе X».
-		if u.CurrentPosition != nil && u.CurrentPosition.Status == "surface" {
+		// Заход в пояс (спека поясов этап 3 §6.4) — приватный инстанс, как
+		// поверхность: status=mining тоже скрыт (нет интерактива).
+		if u.CurrentPosition != nil &&
+			(u.CurrentPosition.Status == "surface" || u.CurrentPosition.Status == "mining") {
 			continue
 		}
 		coords, ok := worldCoords[*u.CurrentWorldID]
@@ -210,8 +213,12 @@ func resolveIntraStatus(u *models.User, worldName string, planetNames, satNames,
 	pos := u.CurrentPosition
 	worldID := *u.CurrentWorldID
 	// Поверхность скрыта от других (спека 2026-09-21 §7.6 п.7): основной цикл
-	// выдачи пропускает status=surface; здесь — защитный фолбэк.
+	// выдачи пропускает status=surface; здесь — защитный фолбэк. Заход в пояс
+	// (спека поясов этап 3 §6.4) — так же скрыт: защитный фолбэк.
 	if pos.Status == "surface" {
+		return "в системе " + worldName, "star", worldID
+	}
+	if pos.Status == "mining" {
 		return "в системе " + worldName, "star", worldID
 	}
 	if pos.Status == "in_flight" {

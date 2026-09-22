@@ -169,10 +169,12 @@ func visibleBelts(belts []models.Belt) []models.Belt {
 	return out
 }
 
-// beltPresence — игрок физически в этом поясе (позиция orbit на belt, §4.3
-// условие 2): присутствие даёт состав без сканера.
+// beltPresence — игрок физически в этом поясе (позиция orbit/mining на belt,
+// §4.3 условие 2): присутствие даёт состав без сканера. `mining` (спека поясов
+// этап 3 §6.4) — тоже присутствие: иначе во время захода состав/уровень запаса
+// внезапно скрылись бы, а при выходе вернулись.
 func beltPresence(pos *models.CurrentPosition, beltID string) bool {
-	return pos != nil && pos.Status == "orbit" &&
+	return pos != nil && (pos.Status == "orbit" || pos.Status == "mining") &&
 		pos.ObjectType == "belt" && pos.ObjectID == beltID
 }
 
@@ -195,6 +197,19 @@ func stripBeltDetails(b models.Belt, compositionRevealed bool) models.BeltView {
 	}
 	if compositionRevealed {
 		v.Composition = b.Composition
+		// Две шкалы запаса (спека поясов этап 3 §8.4) — только при знании, как
+		// composition: belt_class по composition.iron; remaining_level по
+		// f = iron_remaining/reserve. Точные числа клиенту не отдаются.
+		iron := 0.0
+		if b.Composition != nil {
+			iron = b.Composition["iron"]
+		}
+		if iron > 0 {
+			v.BeltClass = beltClassByIron(iron)
+		}
+		if b.IronRemaining != nil {
+			v.RemainingLevel = beltRemainingLevel(*b.IronRemaining, beltReserve(iron))
+		}
 	}
 	return v
 }

@@ -157,7 +157,7 @@ func (r *PlanetRepository) GetPlanetsLightByWorldID(worldID string) ([]models.Pl
 func (r *PlanetRepository) GetBeltsByWorldID(worldID string) ([]models.Belt, error) {
 	query := `
 		SELECT id, world_id, kind, name, orbit_index, radius_au, width_au, mass,
-		       body_size_km, composition, visible, data, created_at, updated_at
+		       body_size_km, composition, visible, data, iron_remaining, created_at, updated_at
 		FROM system_belts
 		WHERE world_id = $1
 		ORDER BY radius_au ASC
@@ -172,17 +172,22 @@ func (r *PlanetRepository) GetBeltsByWorldID(worldID string) ([]models.Belt, err
 	for rows.Next() {
 		var b models.Belt
 		var orbitIndex sql.NullInt64
+		var ironRemaining sql.NullFloat64
 		var compJSON, dataJSON []byte
 		if err := rows.Scan(
 			&b.ID, &b.WorldID, &b.Kind, &b.Name, &orbitIndex, &b.RadiusAU,
 			&b.WidthAU, &b.Mass, &b.BodySizeKm, &compJSON, &b.Visible, &dataJSON,
-			&b.CreatedAt, &b.UpdatedAt,
+			&ironRemaining, &b.CreatedAt, &b.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan belt: %w", err)
 		}
 		if orbitIndex.Valid {
 			idx := int(orbitIndex.Int64)
 			b.OrbitIndex = &idx
+		}
+		if ironRemaining.Valid {
+			v := ironRemaining.Float64
+			b.IronRemaining = &v
 		}
 		if len(compJSON) > 0 {
 			if err := json.Unmarshal(compJSON, &b.Composition); err != nil {
@@ -197,6 +202,97 @@ func (r *PlanetRepository) GetBeltsByWorldID(worldID string) ([]models.Belt, err
 		belts = append(belts, b)
 	}
 	return belts, rows.Err()
+}
+
+// GetBeltByID — один пояс по id (спека поясов этап 3 §7): источник состава и
+// запаса для пакета захода/сбора. Не найден — (nil, nil).
+func (r *PlanetRepository) GetBeltByID(beltID string) (*models.Belt, error) {
+	query := `
+		SELECT id, world_id, kind, name, orbit_index, radius_au, width_au, mass,
+		       body_size_km, composition, visible, data, iron_remaining, created_at, updated_at
+		FROM system_belts
+		WHERE id = $1
+	`
+	var b models.Belt
+	var orbitIndex sql.NullInt64
+	var ironRemaining sql.NullFloat64
+	var compJSON, dataJSON []byte
+	err := r.db.QueryRow(query, beltID).Scan(
+		&b.ID, &b.WorldID, &b.Kind, &b.Name, &orbitIndex, &b.RadiusAU,
+		&b.WidthAU, &b.Mass, &b.BodySizeKm, &compJSON, &b.Visible, &dataJSON,
+		&ironRemaining, &b.CreatedAt, &b.UpdatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to query belt by id: %w", err)
+	}
+	if orbitIndex.Valid {
+		idx := int(orbitIndex.Int64)
+		b.OrbitIndex = &idx
+	}
+	if ironRemaining.Valid {
+		v := ironRemaining.Float64
+		b.IronRemaining = &v
+	}
+	if len(compJSON) > 0 {
+		if err := json.Unmarshal(compJSON, &b.Composition); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal belt composition: %w", err)
+		}
+	}
+	if len(dataJSON) > 0 {
+		if err := json.Unmarshal(dataJSON, &b.Data); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal belt data: %w", err)
+		}
+	}
+	return &b, nil
+}
+
+// LockBeltForUpdate — строка пояса под блокировкой (спека поясов этап 3
+// §5.3/§6.2): сериализация списания запаса и ленивой инициализации. Вызывается
+// внутри транзакции вызывающего. Не найден — (nil, nil).
+func (r *PlanetRepository) LockBeltForUpdate(tx *sql.Tx, beltID string) (*models.Belt, error) {
+	query := `
+		SELECT id, world_id, kind, name, composition, visible, iron_remaining
+		FROM system_belts
+		WHERE id = $1 FOR UPDATE
+	`
+	var b models.Belt
+	var compJSON []byte
+	var ironRemaining sql.NullFloat64
+	err := tx.QueryRow(query, beltID).Scan(
+		&b.ID, &b.WorldID, &b.Kind, &b.Name, &compJSON, &b.Visible, &ironRemaining,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to lock belt: %w", err)
+	}
+	if ironRemaining.Valid {
+		v := ironRemaining.Float64
+		b.IronRemaining = &v
+	}
+	if len(compJSON) > 0 {
+		if err := json.Unmarshal(compJSON, &b.Composition); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal belt composition: %w", err)
+		}
+	}
+	return &b, nil
+}
+
+// SetBeltIronRemaining — запись запаса пояса (спека поясов этап 3 §4): ленивая
+// инициализация при первом обращении. Внутри транзакции вызывающего.
+func (r *PlanetRepository) SetBeltIronRemaining(tx *sql.Tx, beltID string, value float64) error {
+	_, err := tx.Exec(
+		`UPDATE system_belts SET iron_remaining = $1, updated_at = NOW() WHERE id = $2`,
+		value, beltID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to set belt iron_remaining: %w", err)
+	}
+	return nil
 }
 
 // FindPlanetBySatellite — родительская планета спутника (спека 99.2.27 §3.6):

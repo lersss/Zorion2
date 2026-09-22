@@ -197,6 +197,24 @@ func (s *Service) View(userID string) (*View, error) {
 	}, nil
 }
 
+// Free — свободная ёмкость трюма игрока по массе (тонны): Capacity − CargoMass,
+// не меньше нуля. Кламп сбора в поясе (спека поясов этап 3 §5.3.2) и вход.
+func (s *Service) Free(userID string) (float64, error) {
+	total, err := s.Capacity(userID)
+	if err != nil {
+		return 0, err
+	}
+	used, err := s.CargoMass(userID)
+	if err != nil {
+		return 0, err
+	}
+	free := total - used
+	if free < 0 {
+		free = 0
+	}
+	return free, nil
+}
+
 // TryAddCargo — положить qty единиц товара с клампом по свободной ёмкости
 // (§7-A, жёсткий предел): принимает min(qty, свободно в единицах), остаток
 // не списывается у источника. qty ≤ 0 — no-op. Возвращает принятое количество.
@@ -212,6 +230,33 @@ func (s *Service) TryAddCargo(userID string, goodID int64, qty float64) (float64
 	}
 	defer tx.Rollback()
 
+	accepted, err := tryAddCargoTx(tx, userID, goodID, qty)
+	if err != nil {
+		return 0, err
+	}
+	// Ничего не принято (полный трюм/битый вес) — транзакция не коммитится
+	// (defer Rollback): поведение прежнее, лишних записей нет.
+	if accepted <= 0 {
+		return 0, nil
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("cargo: commit: %w", err)
+	}
+	return accepted, nil
+}
+
+// TryAddCargoTx — то же пополнение в транзакции вызывающего (спека поясов
+// этап 3 §5.4/§6.5: перелив буфера захода в трюм одной транзакцией с записью
+// позиции). Блокировка строки users (FOR UPDATE) сохраняется. qty ≤ 0 — no-op.
+func (s *Service) TryAddCargoTx(tx *sql.Tx, userID string, goodID int64, qty float64) (float64, error) {
+	if qty <= 0 {
+		return 0, nil
+	}
+	return tryAddCargoTx(tx, userID, goodID, qty)
+}
+
+// tryAddCargoTx — тело пополнения (без begin/commit): вызывающий владеет tx.
+func tryAddCargoTx(tx *sql.Tx, userID string, goodID int64, qty float64) (float64, error) {
 	total, err := capacity(tx, userID, true)
 	if err != nil {
 		return 0, err
@@ -261,9 +306,6 @@ func (s *Service) TryAddCargo(userID string, goodID int64, qty float64) (float64
 
 	if _, err := tx.Exec(upsertCargoSQL, userID, goodID, accepted); err != nil {
 		return 0, fmt.Errorf("cargo: запись груза: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return 0, fmt.Errorf("cargo: commit: %w", err)
 	}
 	return accepted, nil
 }

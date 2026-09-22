@@ -240,6 +240,31 @@ func TestPlayersPositionsSurfaceHidden(t *testing.T) {
 	require.Len(t, resp.Players, 0, "поверхность скрыта от других (guard status=surface)")
 }
 
+// ==================== ЗАХОД В ПОЯС СКРЫТ (спека поясов этап 3 §6.4) ====================
+
+// M13: status=mining не отдаётся другим (guard, как surface).
+func TestMiningHiddenFromPlayersPositions(t *testing.T) {
+	h, mock := newPlayersPositionsHarness(t)
+	const userID = "u1"
+
+	expectPlayerUser(mock, userID)
+	expectPositionsUsers(mock,
+		[]driver.Value{userID, "player", "ship_strela.svg", nil, "w1", "player", nil},
+		[]driver.Value{"p2", "alice", "shark.png", nil, "w2", "player",
+			`{"status":"mining","level":"mining","object_type":"belt","object_id":"b1","started_at":"2026-09-22T12:00:00Z","mined":5,"last_collect_at":"2026-09-22T12:00:00Z"}`},
+	)
+
+	rec := execJSON(h.PlayersPositions, playersPositionsRequest(userID, string(models.RolePlayer)))
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	var resp struct {
+		Players []map[string]interface{} `json:"players"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Players, 0, "заход в пояс скрыт от других (guard status=mining)")
+}
+
 // ==================== АДМИН (И7) ====================
 // Админ видит стоящих без фильтра радиуса.
 func TestPlayersPositionsAdminSeesStanding(t *testing.T) {

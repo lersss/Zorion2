@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
@@ -35,6 +36,11 @@ type TravelHandlers struct {
 	// межзвёздного полёта к звезде (цель-система, dest_planet_id IS NULL).
 	// Сеттер: contractRepo создаётся в main.go.
 	contractRepo *repository.ContractRepository
+	// Перелив буфера захода в трюм при взлёте из пояса (спека поясов этап 3
+	// §6.5) — в одной транзакции с обнулением позиции. Сеттер: main.go; nil —
+	// перелива нет.
+	db           *sql.DB
+	miningBuffer *MiningBuffer
 }
 
 func NewTravelHandlers(
@@ -70,6 +76,13 @@ func (h *TravelHandlers) SetIntrasystemAutostart(planetRepo *repository.PlanetRe
 // внутрисистемная — цель-планета). Сеттер: contractRepo создаётся в main.go.
 func (h *TravelHandlers) SetContracts(contractRepo *repository.ContractRepository) {
 	h.contractRepo = contractRepo
+}
+
+// SetMiningBuffer — подключает перелив буфера захода в трюм при взлёте из
+// пояса (спека поясов этап 3 §6.5). Сеттер: main.go; nil — перелива нет.
+func (h *TravelHandlers) SetMiningBuffer(db *sql.DB, mb *MiningBuffer) {
+	h.db = db
+	h.miningBuffer = mb
 }
 
 type TravelRequest struct {
@@ -398,7 +411,13 @@ func (h *TravelHandlers) StartTravel(w http.ResponseWriter, r *http.Request) {
 	// Порядок: СНАЧАЛА транзакция (строка + позиция NULL + намерение), ПОТОМ
 	// in-memory отмена — при краше в окне между ними позиция уже NULL (не
 	// in_flight без строки полёта).
-	if h.intraRepo != nil {
+	// Перелив буфера захода (спека поясов этап 3 §6.5) — в ТОЙ ЖЕ транзакции:
+	// FlushTx (no-op для не-захода) + CancelAtomicWithDestinationTx.
+	if h.miningBuffer != nil && h.db != nil && h.intraRepo != nil {
+		if err := h.cancelAtomicWithBuffer(userID, dest); err != nil {
+			log.Printf("⚠️ travel: cancel intrasystem with buffer (user %s): %v", userID, err)
+		}
+	} else if h.intraRepo != nil {
 		if err := h.intraRepo.CancelAtomicWithDestination(userID, dest); err != nil {
 			log.Printf("⚠️ travel: cancel intrasystem (user %s): %v", userID, err)
 		}
@@ -422,6 +441,26 @@ func (h *TravelHandlers) StartTravel(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	json.NewEncoder(w).Encode(resp)
+}
+
+// cancelAtomicWithBuffer — отмена внутрисистемного полёта с переливом буфера
+// захода (спека поясов этап 3 §6.5) в ОДНОЙ транзакции: FlushTx (no-op, если
+// игрок не в заходе) + CancelAtomicWithDestinationTx (позиция NULL + намерение).
+// Сбой на любом шаге откатывает всё (буфер не теряется и не зачитывается дважды).
+func (h *TravelHandlers) cancelAtomicWithBuffer(userID string, dest *models.PendingDestination) error {
+	tx, err := h.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := h.miningBuffer.FlushTx(tx, userID); err != nil {
+		return err
+	}
+	if err := h.intraRepo.CancelAtomicWithDestinationTx(tx, userID, dest); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // ArrivalHandler — общий обработчик прибытия межзвёздного полёта (спека

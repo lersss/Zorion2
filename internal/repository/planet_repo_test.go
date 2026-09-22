@@ -2,6 +2,8 @@ package repository
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -9,6 +11,22 @@ import (
 
 	"zorion/internal/models"
 )
+
+// ==================== МИГРАЦИЯ 000069 (спека поясов этап 3 §4) ====================
+
+// M17: колонка iron_remaining — nullable (NULL «нет данных»), CHECK >= 0,
+// без DEFAULT (0 = «выработан» — самостоятельное состояние, а не дефолт).
+func TestMigrationIronRemaining(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "..", "migrations", "000069_belt_mining.sql"))
+	require.NoError(t, err, "миграция 000069_belt_mining.sql должна существовать")
+	s := string(src)
+	require.Contains(t, s, "ADD COLUMN IF NOT EXISTS iron_remaining DOUBLE PRECISION")
+	require.Contains(t, s, "CHECK (iron_remaining >= 0)", "инвариант «запас не уходит в минус»")
+	require.NotContains(t, s, "iron_remaining DOUBLE PRECISION NOT NULL",
+		"NULL = «нет данных о запасе» — колонка nullable")
+	require.NotContains(t, s, "DEFAULT 0",
+		"без DEFAULT: старый мир не должен молча выглядеть выработанным")
+}
 
 // ==================== getStr ====================
 

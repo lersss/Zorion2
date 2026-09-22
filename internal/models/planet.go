@@ -133,6 +133,12 @@ type Belt struct {
 	Visible     bool                   `json:"visible"`
 	Data        map[string]interface{} `json:"data"`
 
+	// IronRemaining — запас железа пояса, т (спека
+	// 2026-09-22-пояса-малых-тел-этап-3-добыча §4/§8.4): nil = «нет данных»
+	// (старый мир), 0 = «выработан», > 0 = запас. Игроку напрямую не отдаётся —
+	// BeltView несёт только качественный remaining_level; admin видит значение.
+	IronRemaining *float64 `json:"iron_remaining,omitempty"`
+
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -155,6 +161,12 @@ type BeltView struct {
 	BodySizeKm float64 `json:"body_size_km"`
 	// Composition — доли породы/железа/льда; отсутствует без знания (§4.3).
 	Composition map[string]float64 `json:"composition,omitempty"`
+	// BeltClass — класс пояса по composition.iron (богатый/средний/бедный,
+	// «стоит ли лететь», §8.4-а); RemainingLevel — уровень остатка запаса
+	// (полный/истощается/выработан, §8.4-б). Оба — только при знании пояса
+	// (тот же гейт, что composition); без знания не отдаются (omitempty).
+	BeltClass      string `json:"belt_class,omitempty"`
+	RemainingLevel string `json:"remaining_level,omitempty"`
 }
 
 // Biome — биом поверхности планеты (99.2.28 §3.1): объект {form, share},

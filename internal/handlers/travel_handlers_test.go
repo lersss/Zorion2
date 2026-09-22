@@ -1371,3 +1371,43 @@ func TestArrivalHandlerSystemPointOnlyNullPlanetTarget(t *testing.T) {
 	h.ArrivalHandler(userID, target)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
+
+// ==================== ЗАХОД В ПОЯС (спека поясов этап 3 §6.5) ====================
+
+// M20: межзвёздный старт из захода: буфер перелит в трюм в ОДНОЙ транзакции с
+// обнулением позиции (§6.5).
+func TestStartTravelFromMining(t *testing.T) {
+	h, c, mock := newTravelHarnessWithMining(t)
+	const userID = "11111111-1111-1111-1111-111111111111"
+
+	// Целевой мир w2.
+	mock.ExpectQuery(`SELECT id, name, coord_x, coord_y, COALESCE\(spectral_class,''\), temperature, star_type, system_type, stellar_mods, stellar_mass, age, created_at, updated_at FROM worlds WHERE id = \$1`).
+		WithArgs("w2").WillReturnRows(travelWorldRow("w2", 1000, 0))
+	// Пользователь (GetByID) в w1 — двигатель установлен.
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at FROM users WHERE id = \$1`).
+		WithArgs(userID).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "username", "password_hash", "email", "agent_id", "current_world_id",
+			"ship_icon", "ship_color", "ship_model_id", "equipment", "role", "created_at", "updated_at",
+		}).AddRow(userID, "player", "hash", nil, nil, "w1", "ship_strela.svg", nil, "starter",
+			`{"radar":"radar_1","scanner":"scanner_1","engine":"engine_1"}`, "player", now(), now()))
+	// Мир отправления w1 (StartTravel читает его дважды: проверка current_world
+	// и стартовая точка сегмента).
+	mock.ExpectQuery(`SELECT id, name, coord_x, coord_y, COALESCE\(spectral_class,''\), temperature, star_type, system_type, stellar_mods, stellar_mass, age, created_at, updated_at FROM worlds WHERE id = \$1`).
+		WithArgs("w1").WillReturnRows(travelWorldRow("w1", 0, 0))
+	mock.ExpectQuery(`SELECT id, name, coord_x, coord_y, COALESCE\(spectral_class,''\), temperature, star_type, system_type, stellar_mods, stellar_mass, age, created_at, updated_at FROM worlds WHERE id = \$1`).
+		WithArgs("w1").WillReturnRows(travelWorldRow("w1", 0, 0))
+
+	// Одна транзакция: FlushTx (лок позиции + резолв железа) → отмена intra.
+	mock.ExpectBegin()
+	expectMiningFlushTx(mock, userID, "b1", 3)
+	expectCancelAtomicTx(mock, userID)
+	mock.ExpectCommit()
+
+	rec := execJSON(h.StartTravel, travelRequest(userID, "w2"))
+	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+	require.NoError(t, mock.ExpectationsWereMet())
+	assert.Equal(t, 1, c.addCalls, "буфер захода перелит в трюм при взлёте")
+	assert.Equal(t, int64(21), c.addGood)
+	assert.InDelta(t, 3.0, c.addQty, 1e-9)
+}

@@ -8,10 +8,21 @@ import { drawDecorPrim } from './surface_decor.js';
 import { planetTexture } from './surface_net.js';
 import { recolorShipSprite, shipDrawTransform } from '../map/ship_sprites.js';
 
-// 700 (не 620): полоса парящих камней (FLOAT_SPAN над рельефом) при высоких
-// горах вылезала за верх канваса чанка (вулканизм — на ~17 px, §4 п.4).
-const CHUNK_TOP_MARGIN = 700;
-const CHUNK_HEIGHT = 1700;
+// 700 → 1200 (Э3, 2026-09-23): рецепт гор (scale 0.55, crest+spike+step+fan)
+// поднимает профиль до ~550 px над рест-линией, а полоса парящей породы
+// (FLOAT_SPAN) требует ещё 260 px над рельефом — при 700 земля уходила за верх
+// канваса (твёрдая, но не нарисованная, §6 п.6). Рост ВЫСОТЫ канваса не нужен:
+// память = (CHUNK+1)·CHUNK_HEIGHT·SS²·4 — от margin НЕ зависит, меняется лишь
+// topY. Низ растра при этом опускается до baseY − margin + CHUNK_HEIGHT = 800;
+// максимум рельефа всех биомов (fallback + рецепты) = 544 — запас 256 px.
+export const CHUNK_TOP_MARGIN = 1200;
+export const CHUNK_HEIGHT = 1700;
+
+// Глубинный градиент (объём) привязан к РЕСТ-линии мира (baseY − DEPTH_TOP_MARGIN),
+// а не к верху растра: рост CHUNK_TOP_MARGIN вверх не должен менять затемнение
+// мира (иначе весь кадр уходит в тень). Мировой диапазон [-400, 1300] — как до Э3;
+// общий проход и запечённый в чанк градиент считаются от одного якоря и совпадают.
+const DEPTH_TOP_MARGIN = 700;
 
 // Суперсэмплинг растра чанка под зум (идея 2026-09-22 §8.2): рендер в
 // повышенном разрешении, отрисовка — в логическом размере. Иначе 1:1-растр
@@ -45,6 +56,45 @@ function fillFloatRun(ctx, lx, yTop, yBottom, topY) {
     const y1 = Math.min(CHUNK_HEIGHT - 1, Math.floor(yBottom - topY) + FLOAT_BLEED);
     if (y1 < y0) return;
     ctx.fillRect(lx - 1, y0, 3, y1 - y0 + 1);
+}
+
+// Снеговая линия (§4.3): локальный максимум профиля в окне SNOW_W, линия на
+// `snowLine` px НИЖЕ него; на теневой стороне линия ниже (больше снега).
+// `snowLine` — число рецепта, а числа рецепта дорелейные (их умножает
+// relief.scale, как `amp` слоёв) → линия масштабируется тем же множителем,
+// иначе при смене `scale` снег накрывал бы весь склон. Абсолютной шкалы высот
+// в прогулке нет — линия относительная (осознанное отклонение §11). Окно
+// пересекает границы чанков: viewHeight — чистая функция мира, поэтому расчёт
+// корректен и в запечённом канвасе чанка.
+const SNOW_W = 700;   // полуокно локального максимума (px)
+const SNOW_CS = 24;   // шаг грубой выборки профиля (px)
+
+function drawSnowBand(ctx, world, baseX, topY) {
+    const line = world.snowLine * world.reliefScale;
+    if (!line) return;
+    const lo = baseX - SNOW_W;
+    const n = Math.ceil((CHUNK + 2 * SNOW_W) / SNOW_CS) + 2;
+    const prof = new Array(n);
+    for (let j = 0; j < n; j++) prof[j] = world.viewHeight(lo + j * SNOW_CS);
+    const k = Math.ceil(SNOW_W / SNOW_CS);
+    ctx.fillStyle = world.palette.snow;
+    for (let lx = 0; lx <= CHUNK; lx++) {
+        const wx = baseX + lx;
+        const j0 = Math.round((wx - lo) / SNOW_CS);
+        let m = prof[j0];
+        for (let j = Math.max(0, j0 - k); j <= Math.min(n - 1, j0 + k); j++) if (prof[j] < m) m = prof[j];
+        const y = world.surfaceY(wx);
+        // Теневая сторона — склон, поднимающийся вправо (условная ориентация: оси
+        // солнца в прогулке нет). §11: «южный склон поднимает снег на 300–800 м» →
+        // на освещённом склоне линия выше (снега меньше), на теневом — ниже
+        // (снега больше): px-ниже-максимума делится на snowLineShadow (§4.3).
+        const shadow = prof[Math.min(n - 1, j0 + 1)] < prof[Math.max(0, j0 - 1)];
+        const lineEff = shadow ? line / Math.max(0.2, world.snowLineShadow) : line;
+        const top = m + lineEff;          // y растёт вниз: линия ниже максимума
+        if (y > top) continue;            // ниже линии — снега нет
+        const depth = Math.min(60, 4 + (top - y) * 0.5);
+        ctx.fillRect(lx, Math.floor(y - topY), 1, depth);
+    }
 }
 
 // getChunkCanvas — лениво отрисованный чанк (кэш). Рельеф + пещеры.
@@ -82,7 +132,9 @@ export function getChunkCanvas(world, index) {
     ctx.fillStyle = rock;
     for (let lx = 0; lx <= CHUNK; lx++) {
         const wx = baseX + lx;
-        const th = world.terrainHeight(wx);
+        // Верх отрисовки — surfaceY (физический профиль ∪ viewOnly-рябь, §3.1/§6 п.4):
+        // растр — надмножество твёрдой области, физика по terrainHeight.
+        const th = world.surfaceY(wx);
         const y0 = Math.floor(th - topY);
         if (y0 >= CHUNK_HEIGHT) continue;
         ctx.fillRect(lx, Math.max(0, y0), 1, CHUNK_HEIGHT - Math.max(0, y0));
@@ -133,7 +185,8 @@ export function getChunkCanvas(world, index) {
     // непрозрачен лишь под рельефом → перекрытие на стыке не даёт двойного
     // композита полупрозрачного слоя (тёмных полос). Небо/дальний план тем же
     // мировым градиентом темнит общий проход drawTerrain (до блитов).
-    const grad = ctx.createLinearGradient(0, 0, 0, CHUNK_HEIGHT);
+    const gradTop = (world.baseY - DEPTH_TOP_MARGIN) - topY;
+    const grad = ctx.createLinearGradient(0, gradTop, 0, gradTop + CHUNK_HEIGHT);
     grad.addColorStop(0, 'rgba(0,0,0,0)');
     grad.addColorStop(1, 'rgba(0,0,0,0.72)');
     ctx.globalCompositeOperation = 'source-atop';
@@ -146,9 +199,12 @@ export function getChunkCanvas(world, index) {
     ctx.fillStyle = world.hasView ? world.palette.light : shade(world.color, 1.15);
     for (let lx = 0; lx <= CHUNK; lx++) {
         const wx = baseX + lx;
-        const ly = Math.floor(world.terrainHeight(wx) - topY);
+        const ly = Math.floor(world.surfaceY(wx) - topY);
         if (ly >= 0 && ly < CHUNK_HEIGHT) ctx.fillRect(lx, ly, 1, 2);
     }
+
+    // Снеговые шапки (горы, §4.3) — поверх кромки, в тот же запечённый канвас.
+    drawSnowBand(ctx, world, baseX, topY);
 
     const result = { canvas, topY };
     world._chunkCache.set(index, result);
@@ -356,7 +412,7 @@ function viewChunkRadius(vw) {
 // на стыке (перекрытие CHUNK+1) композитился дважды — тёмная вертикальная полоса
 // каждые CHUNK·ZOOM px.
 function drawDepthGradient(ctx, world, camera, vw, vh) {
-    const topY = world.baseY - CHUNK_TOP_MARGIN;
+    const topY = world.baseY - DEPTH_TOP_MARGIN;
     const y0 = topY - camera.y + vh / 2;
     const grad = ctx.createLinearGradient(0, y0, 0, y0 + CHUNK_HEIGHT);
     grad.addColorStop(0, 'rgba(0,0,0,0)');

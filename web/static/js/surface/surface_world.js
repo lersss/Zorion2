@@ -148,60 +148,172 @@ export const VIEW_SCHEMA_VERSION = 1;
 // создателя 2026-09-23); третий — только отдельным решением.
 export const HORIZON_MAX_LAYERS = 2;
 
-// rangeMid — середина диапазона [lo,hi] или само число. Ярусу нужна низкая
-// частота (крупные lambda/amp), пер-волновая рябь здесь не требуется.
-function rangeMid(v, def) {
+// ==================== ПРОФИЛЬНЫЕ ПРИМИТИВЫ РЕЛЬЕФА (§3.1, Э3) ====================
+//
+// Восемь примитивов — чистые функции (x, params, seed) → Δy (отрицательное = вверх),
+// складываются с базой terrainHeight. Семантика общих параметров (§3.1): `amp` —
+// полуразмах; `share` — доля регионов, где слой включён (детерминированно от seed
+// и индекса региона); `viewOnly` — слой только в отрисовке (viewHeight); `dir` —
+// сторона асимметрии. Единая реализация для боевого стека (terrainHeight) и яруса
+// горизонта (§3.6) — второй реализации одной формы нет.
+
+// num — число из рецепта или дефолт.
+function num(v, def) {
+    return typeof v === 'number' ? v : def;
+}
+
+// primRange — [lo,hi] по индексу фичи i (детерминированно от seed) или число.
+function primRange(v, i, seed, def) {
     if (typeof v === 'number') return v;
     if (Array.isArray(v) && v.length === 2 && typeof v[0] === 'number' && typeof v[1] === 'number') {
-        return (v[0] + v[1]) / 2;
+        return v[0] + hash1(i, seed) * (v[1] - v[0]);
     }
     return def;
 }
 
-// horizonHeight — мировая высота силуэта яруса (отрицательная = вверх) в точке x.
-// Силуэт — из профильных примитивов §3.1 (отдельного kind нет, §2.1), низкая
-// частота, без мелкой детализации. Реализованы примитивы, используемые ярусами
-// (wave/crest/dome/spike); полный стек профилей — Э3. Детерминирован от seed.
-export function horizonHeight(prim, params, x, seed) {
-    const p = params || {};
-    const s = (seed ^ 0x4f21) >>> 0;
-    if (prim === 'crest') {
-        // Гребень/хребет: ridged-шум (1−|2n−1|), заострение sharpness.
-        const lambda = rangeMid(p.lambda, 800);
-        const amp = rangeMid(p.amp, 140);
-        const sharp = typeof p.sharpness === 'number' ? p.sharpness : 0.7;
-        const ridged = 1 - Math.abs(2 * fbm1(x / lambda, s, 2) - 1);
-        return -amp * Math.pow(ridged, 0.6 + 0.8 * sharp);
-    }
-    if (prim === 'dome') {
-        // Купол/всхолмление: плавные холмы (линии крон).
-        const lambda = rangeMid(p.lambda, 300);
-        const amp = rangeMid(p.amp, 50);
-        return -amp * (0.35 + 0.65 * fbm1(x / lambda, s, 2));
-    }
-    if (prim === 'spike') {
-        // Отдельные узкие пики/шпили: треугольник у детерминированного центра.
-        const tile = rangeMid(p.tile, rangeMid(p.lambda, 300));
-        const h = rangeMid(p.h, 120);
-        const w = rangeMid(p.w, 40);
-        const i = Math.floor(x / tile);
-        const c = i * tile + hash1(i, s ^ 0x51ce) * tile;
-        const d = Math.abs(x - c);
-        return d > w ? 0 : -h * (1 - d / w);
-    }
-    // wave (по умолчанию): асимметричная волна — гряды дюн/валы (skew = доля
-    // длины на пологом наветренном склоне).
-    const lambda = rangeMid(p.lambda, 900);
-    const amp = rangeMid(p.amp, 60);
-    // skew — доля длины волны на пологом склоне; клампим в (0,1): при 0 или 1
-    // деление f/skew или (1−f)/(1−skew) дало бы NaN (валидатор skew не ограничен).
-    const rawSkew = typeof p.skew === 'number' ? p.skew : 0.85;
-    const skew = Math.max(0.01, Math.min(0.99, rawSkew));
+// primWave — асимметричная волна (дюны/барханы/валы/зыбь): пологий наветренный
+// склон (доля `skew` длины) и крутой подветренный. `leeMaxDeg` — угол естественного
+// отсыпа: подветренный склон не круче него, выше гребень «срезается» (модель
+// лавинного срыва, §4.1). `dir` — сторона асимметрии (+1 = пологий слева).
+function primWave(x, l, seed) {
+    const lambda = primRange(l.lambda, 0, seed ^ 0xa1, 600);
+    const amp = primRange(l.amp, 0, seed ^ 0xa2, 40);
+    const skew = Math.max(0.05, Math.min(0.95, num(l.skew, 0.85)));
     const ph = x / lambda;
     const i = Math.floor(ph);
-    const f = ph - i;
-    const localAmp = amp * (0.7 + 0.6 * hash1(i, s ^ 0x77aa));
-    return -localAmp * (f < skew ? f / skew : (1 - f) / (1 - skew));
+    let f = ph - i;
+    if (l.dir === -1) f = 1 - f; // зеркало стороны асимметрии
+    let a = amp * (0.75 + 0.5 * hash1(i, seed ^ 0xa3));
+    if (typeof l.leeMaxDeg === 'number') {
+        const maxSlope = Math.tan(l.leeMaxDeg * Math.PI / 180);
+        const leeLen = (1 - skew) * lambda;
+        if (leeLen > 0 && a / leeLen > maxSlope) a = maxSlope * leeLen; // срыв гребня
+    }
+    return -a * (f < skew ? f / skew : (1 - f) / (1 - skew));
+}
+
+// primCrest — гребень/хребет: ridged-шум (1−|2n−1|), `sharpness` заостряет пики.
+function primCrest(x, l, seed) {
+    const lambda = primRange(l.lambda, 0, seed ^ 0xc1, 700);
+    const amp = primRange(l.amp, 0, seed ^ 0xc2, 120);
+    const sharp = num(l.sharpness, 0.7);
+    const ridged = 1 - Math.abs(2 * fbm1(x / lambda, seed ^ 0xc3, 2) - 1);
+    return -amp * Math.pow(ridged, 0.6 + 0.8 * sharp);
+}
+
+// primSpike — отдельные узкие пики/шпили/иглы: `perRegion` (или `count`) штук на
+// регион, треугольник высоты `h` и полуширины `w`. `taper` заостряет вершину;
+// `cluster` — гипотеза (образцами не задаётся).
+function primSpike(x, l, seed, region) {
+    const R = region || 1400;
+    const cntRaw = l.perRegion != null ? l.perRegion : l.count;
+    const taper = num(l.taper, 0);
+    const base = Math.floor(x / R);
+    let sum = 0;
+    // Соседние регионы тоже: пик у границы региона не должен «обрезаться»
+    // (иначе разрыв профиля на границе — уклон-скачок).
+    for (let rr = base - 1; rr <= base + 1; rr++) {
+        const n = Math.max(0, Math.round(primRange(cntRaw, rr, seed ^ 0xd0, 1)));
+        for (let k = 0; k < n; k++) {
+            const idx = rr * 131 + k;
+            const c = rr * R + hash1(idx, seed ^ 0xd1) * R;
+            const h = primRange(l.h, idx, seed ^ 0xd2, 120);
+            const w = primRange(l.w, idx, seed ^ 0xd3, 40);
+            const d = Math.abs(x - c);
+            if (d < w) sum -= h * Math.pow(1 - d / w, 1 + 2 * taper);
+        }
+    }
+    return sum;
+}
+
+// primStep — террасы/пласты/меса: квантование низкочастотного профиля в уступы
+// высоты `stepH`; `stepW` — горизонтальный масштаб, `jitter` — сдвиг границ.
+function primStep(x, l, seed) {
+    const stepH = primRange(l.stepH, 0, seed ^ 0xe1, 60);
+    const stepW = Math.max(1, primRange(l.stepW, 0, seed ^ 0xe2, 240));
+    const jitter = num(l.jitter, 0);
+    const cell = Math.floor(x / stepW);
+    const n = fbm1(x / (stepW * 3), seed ^ 0xe3, 2) + jitter * (hash1(cell, seed ^ 0xe4) - 0.5);
+    return -stepH * Math.floor(clamp01(n) * 4);
+}
+
+// primDome — купол/всхолмление (холмы, пинго, тумули): плавные холмы ±`amp`.
+// `squash` — «сплюснутость» (горизонтальное расширение купола).
+function primDome(x, l, seed) {
+    const lambda = primRange(l.lambda, 0, seed ^ 0xf1, 300);
+    const amp = primRange(l.amp, 0, seed ^ 0xf2, 50);
+    const squash = Math.max(0.1, num(l.squash, 1));
+    const n = fbm1(x / (lambda * squash), seed ^ 0xf3, 2);
+    return -amp * (2 * n - 1);
+}
+
+// primCarve — вырез (каньон/русло/трещина/воронка): вниз на `depth` в центре русла
+// полуширины `w`; `rim` — приподнятый борт у краёв («подмытые берега»), shape V/U.
+// `closed` — гипотеза (образцами не задаётся).
+function primCarve(x, l, seed) {
+    const lambda = primRange(l.lambda, 0, seed ^ 0x11, 700);
+    const depth = primRange(l.depth, 0, seed ^ 0x12, 60);
+    const w = Math.max(1, primRange(l.w, 0, seed ^ 0x13, 160));
+    const rim = num(l.rim, 0);
+    const ph = x / lambda;
+    const f = ph - Math.floor(ph);
+    const d = Math.abs(f - 0.5) * lambda; // расстояние до центра русла (px)
+    if (d >= w) return 0;
+    const t = 1 - d / w;                  // 1 в центре, 0 на краю
+    const prof = l.shape === 'V' ? t : t * t * (3 - 2 * t);
+    // Борт (rim): вал у края русла — поднятие над базовой линией, максимум при
+    // t≈0.15, ноль на самом краю (t=0) и дальше от края; «подмытые берега» §4.2.
+    const lip = t < 0.3 ? Math.sin(Math.PI * t / 0.3) : 0;
+    return depth * prof - depth * rim * lip;
+}
+
+// primFan — осыпь/конус выноса: уклон не круче `angleMax` (угол отсыпа), вынос =
+// h / tan(angleMax). `roughness`/`w` — гипотеза (образцы не задают).
+function primFan(x, l, seed, region) {
+    const R = region || 1400;
+    const angleMax = num(l.angleMax, 34);
+    const tanA = Math.tan(angleMax * Math.PI / 180);
+    const base = Math.floor(x / R);
+    let sum = 0;
+    // Соседние регионы — как у spike: конус у границы региона не обрезается.
+    for (let rr = base - 1; rr <= base + 1; rr++) {
+        const h = primRange(l.h, rr, seed ^ 0x21, 60);
+        const halfW = Math.max(8, h / tanA);
+        const c = rr * R + hash1(rr, seed ^ 0x23) * R;
+        const d = Math.abs(x - c);
+        if (d <= halfW) sum -= h * (1 - d / halfW);
+    }
+    return sum;
+}
+
+// primFlow — язык потока (лава/грязь/лёд/сель). Образцами ЧК0 не используется —
+// минимальная реализация (низкочастотный вал), помечена как гипотеза.
+function primFlow(x, l, seed) {
+    const len = primRange(l.len, 0, seed ^ 0x31, 300);
+    const w = primRange(l.w, 0, seed ^ 0x32, 120);
+    const n = fbm1(x / len, seed ^ 0x33, 1);
+    return -w * 0.25 * (2 * n - 1);
+}
+
+// primHeight — диспетчер примитивов (§3.1). Неизвестный prim → 0 (forward-compat).
+export function primHeight(prim, x, l, seed, region) {
+    switch (prim) {
+        case 'wave': return primWave(x, l, seed);
+        case 'crest': return primCrest(x, l, seed);
+        case 'spike': return primSpike(x, l, seed, region);
+        case 'step': return primStep(x, l, seed);
+        case 'dome': return primDome(x, l, seed);
+        case 'carve': return primCarve(x, l, seed);
+        case 'fan': return primFan(x, l, seed, region);
+        case 'flow': return primFlow(x, l, seed);
+        default: return 0;
+    }
+}
+
+// horizonHeight — силуэт яруса горизонта (§3.6): та же библиотека примитивов, что и
+// боевой стек (§3.1) — единая реализация формы, второго набора нет.
+export function horizonHeight(prim, params, x, seed) {
+    return primHeight(prim, x, params || {}, seed, 1400);
 }
 
 export class SurfaceWorld {
@@ -236,6 +348,19 @@ export class SurfaceWorld {
         // (фолбэк 1:1). Потолок 2 (§6 п.8) — лишние пояса игнорируются.
         const hz = this.view && this.view.horizon;
         this.horizon = (hz && Array.isArray(hz.layers)) ? hz.layers.slice(0, HORIZON_MAX_LAYERS) : null;
+        // Профиль формы (§3.1, Э3): базовые скаляры рецепта (ridge/flatten/offset/
+        // caves/float/base) + стек слоёв; `scale` — общий множитель амплитуд.
+        const rel = (this.view && this.view.relief) || null;
+        this.relief = rel;
+        this.reliefScale = rel ? Math.max(0, num(rel.scale, 1)) : 1;
+        const layers = (rel && Array.isArray(rel.layers)) ? rel.layers : null;
+        // viewOnly-слои — только отрисовка (viewHeight), физика их не знает (§3.1).
+        this.physLayers = layers ? layers.filter((l) => !l.viewOnly) : null;
+        this.viewLayers = layers ? layers.filter((l) => !!l.viewOnly) : null;
+        // Снеговая линия (§4.3): px ниже ЛОКАЛЬНОГО максимума профиля; абсолютной
+        // шкалы высот в прогулке нет — линия относительная (осознанное отклонение).
+        this.snowLine = (this.view && typeof this.view.snowLine === 'number') ? this.view.snowLine : null;
+        this.snowLineShadow = num(this.view && this.view.snowLineShadow, 0.85);
     }
 
     _formationForRegion(idx) {
@@ -249,6 +374,20 @@ export class SurfaceWorld {
     // ниже игрока (упор в стену, идея 2026-09-21 §4). Смешиваем на входе региона
     // (prev→cur) — так высота в точке спавна x=0 (local=0) не меняется.
     formationBlend(x) {
+        // Рецепт формы (§3.1): базовые скаляры заданы рецептом и постоянны; регион
+        // нужен только для `share` слоёв. Нет рецепта — прежняя смесь формаций.
+        if (this.relief) {
+            const r = this.relief;
+            return {
+                id: this.biome,
+                ridge: num(r.ridge, 0),
+                flatten: num(r.flatten, 0),
+                offset: num(r.offset, 0),
+                caves: num(r.caves, 0),
+                float: !!r.float,
+                base: num(r.base, 1),
+            };
+        }
         const R = this.region;
         const i = Math.floor(x / R);
         const local = (x - i * R) / R;
@@ -264,14 +403,55 @@ export class SurfaceWorld {
             offset: mix('offset'),
             caves: mix('caves'),
             float: cur.float,
+            base: 1,
         };
     }
 
+    // layerHeight — Δy слоя (§3.1): 0, если слой выключен по региону (share < 1).
+    layerHeight(l, x) {
+        const share = num(l.share, 1);
+        if (share < 1 && hash1(Math.floor(x / this.region), this.seed ^ 0x5a5a) >= share) return 0;
+        return primHeight(l.prim, x, l, this.seed, this.region);
+    }
+
+    // sumLayers — сумма Δy слоёв стека.
+    sumLayers(layers, x) {
+        let s = 0;
+        for (const l of layers) s += this.layerHeight(l, x);
+        return s;
+    }
+
+    // terrainHeight — ФИЗИЧЕСКИЙ профиль: база (ridge/flatten/offset + fbm) + стек
+    // relief.layers (без viewOnly), общий множитель relief.scale (§3.1, §6 п.6).
+    // Нет рецепта — прежняя формула 1:1 (фолбэк §6 п.10).
     terrainHeight(x) {
         const f = this.formationBlend(x);
-        const large = (fbm1(x * 0.0015, this.seed, 2) - 0.5) * 230 * (0.5 + 0.8 * f.ridge);
+        const large = (fbm1(x * 0.0015, this.seed, 2) - 0.5) * 230 * (0.5 + 0.8 * f.ridge) * f.base;
         const detail = (fbm1(x * 0.02, this.seed ^ 0x9e37, 3) - 0.5) * 80 * (1 - 0.7 * f.flatten);
-        return this.baseY + f.offset - large - detail;
+        // scale — общий множитель амплитуд (база + деталь + слои), как в бюджете
+        // §4.3/§6 п.6 и в серверном валидаторе declaredReliefTop. Фолбэк: scale = 1.
+        // База вычитается (крупное положительное = выше), а слои ПРИБАВЛЯЮТСЯ: у
+        // примитивов Δy отрицательна = вверх (§3.1), поэтому формула спеки —
+        // `baseY + offset − large − detail + Σ layers`. Внутри отрицаемого `rise`
+        // слои складывать нельзя — форма переворачивается (гребень = впадина).
+        let y = this.baseY + f.offset - this.reliefScale * (large + detail);
+        if (this.physLayers) y += this.reliefScale * this.sumLayers(this.physLayers, x);
+        return y;
+    }
+
+    // viewHeight — профиль ОТРИСОВКИ: физический профиль + viewOnly-слои (рябь
+    // песков, §3.1). Физика (isSolid/terrainHeight) их не знает.
+    viewHeight(x) {
+        if (!this.viewLayers || !this.viewLayers.length) return this.terrainHeight(x);
+        return this.terrainHeight(x) + this.reliefScale * this.sumLayers(this.viewLayers, x);
+    }
+
+    // surfaceY — верх отрисовки поверхности: минимум физического и видового профиля
+    // (растр — надмножество твёрдой области, §6 п.4: viewOnly-рябь поднимает гребни,
+    // но не оставляет непокрашенной физическую кромку).
+    surfaceY(x) {
+        if (!this.viewLayers || !this.viewLayers.length) return this.terrainHeight(x);
+        return Math.min(this.terrainHeight(x), this.viewHeight(x));
     }
 
     // farHeight — свой низкочастотный профиль дальнего плана (идея 2026-09-21

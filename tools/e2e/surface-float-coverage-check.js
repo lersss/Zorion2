@@ -45,10 +45,11 @@ async function main() {
 
     const data = await page.evaluate(async () => {
       const { SurfaceWorld } = await import('/static/js/surface/surface_world.js');
-      const { getChunkCanvas } = await import('/static/js/surface/surface_render.js');
+      const { getChunkCanvas, CHUNK_TOP_MARGIN, CHUNK_HEIGHT } = await import('/static/js/surface/surface_render.js');
       const { CHUNK, FLOAT_SPAN, FLOAT_GAP, FORMATIONS } = await import('/static/js/surface/surface_config.js');
-      const CHUNK_HEIGHT = 1700;
-      const TOP_MARGIN = 700;
+      // Рамка растра — из рендера (единственный источник), не хардкод: смена
+      // CHUNK_TOP_MARGIN иначе молча сдвигала бы маску и давала ложный 100% miss.
+      const TOP_MARGIN = CHUNK_TOP_MARGIN;
       const sx = 0.5, sy = 0.5;
 
       // Control raster: OLD algorithm (exact copy of the pre-fix loop in

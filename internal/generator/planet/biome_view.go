@@ -141,14 +141,16 @@ func nestedString(m map[string]any, path ...string) (string, bool) {
 }
 
 // Запас вертикали чанка (спека 2026-09-23 §6 п.6): растр чанка —
-// [baseY − CHUNK_TOP_MARGIN, baseY + CHUNK_HEIGHT]. Числа зеркалят
-// web/static/js/surface/surface_render.js / surface_config.js (baseY = 300,
-// CHUNK_TOP_MARGIN = 700). Объявленный профиль рецепта не должен выходить за
-// верх растра — иначе земля твёрдая, но не нарисована (класс «невидимые стены»).
-// Точная граница с FLOAT_SPAN/24 — рантайм-тест T-budget (Э3).
+// [baseY − CHUNK_TOP_MARGIN, baseY − CHUNK_TOP_MARGIN + CHUNK_HEIGHT]. Числа
+// зеркалят web/static/js/surface/surface_render.js / surface_config.js
+// (baseY = 300, CHUNK_TOP_MARGIN = 1200 — поднят 700 → 1200 в Э3 под рецепт гор
+// scale 0.55; высота канваса та же, память не растёт). Объявленный профиль
+// рецепта не должен выходить за верх растра — иначе земля твёрдая, но не
+// нарисована (класс «невидимые стены»). Точная граница с FLOAT_SPAN/24 —
+// рантайм-тест T-budget (Э3, tools/surface-profile-check.mjs).
 const (
 	viewBaseY          = 300.0
-	viewChunkTopMargin = 700.0
+	viewChunkTopMargin = 1200.0
 )
 
 // declaredReliefTop — верхняя (минимальная по y) точка объявленного профиля:

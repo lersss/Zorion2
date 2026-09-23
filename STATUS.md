@@ -4,7 +4,7 @@
 > История — в `CHANGELOG.md` и git. План — у создателя и в `docs/gamedesign/99_roadmap.md`.
 > Стек/структура/команды — `AGENTS.md`; карта доков — `docs/INDEX.md`; БД — `docs/DB.md`; ловушки — `docs/PITFALLS.md`.
 
-**Обновлено:** 2026-09-22 · **Ветка:** master · **Remote:** `github.com/lersss/Zorion2`
+**Обновлено:** 2026-09-23 · **Ветка:** master · **Remote:** `github.com/lersss/Zorion2`
 **Состояние:** прод на Amvera (`https://zorion-game-skycomposer.amvera.io/`, `/status` → All systems ready); локально `go build`/`vet`/`test` зелёные, `-race` доступен (93a); dev-БД (факт 2026-09-22, `tools/db.ps1`): 10 000 звёзд, ~40 000 планет, ~36 000 поселений, 78 600 залежей, 3 000 NPC, 529 юзеров, 38 изученных планет.
 
 ## Баги
@@ -13,7 +13,6 @@
 |---|---|---|---|
 | B14 | Вкладка «Тесты» в админке не работает на проде (cwd ≠ корень, `go.mod` не найден) | `internal/handlers/admin_tests.go` | 🟡 |
 | B16 | Перебор с декластеризацией: кластеры не видны, звёзды почти равномерны (`sparse`) | `web/static/js/admin/generation.js` | 🟡 |
-| B27 | При Restore внутрисистемного полёта с битой целью строка полёта удаляется, а позиция игрока остаётся «в полёте» — застревание до следующего действия (общий случай для `star`/`planet`/`satellite`/`belt`; пред-существующий, не регресс; рекомендация QA — чистить `current_position` при удалении строки без прибытия) | `internal/travel/intrasystem_manager.go` (`RestoreIntra`) | 🟡 |
 
 ## Открытые решения
 

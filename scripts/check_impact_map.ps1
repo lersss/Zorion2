@@ -121,6 +121,7 @@ $exceptions = @(
     'docs/media/', 'readme.md',
     'docs/ARCHITECTURE.md', 'docs/PITFALLS.md',
     'docs/COORDINATION.md',
+    'docs/CONTRIBUTORS.md',
     'config/goods/',
     'AGENTS.md', 'docs/INDEX.md',
     'go.mod', 'go.sum', '.gitignore'

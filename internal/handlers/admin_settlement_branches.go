@@ -98,8 +98,17 @@ func (h *AdminHandlers) AddBranch(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
+	// Единый порядок локов с owner-проходом (advisory → settlements → ветки →
+	// залежи, спека 2026-09-23 §6.3): иначе админ-INSERT ветки гоняется с
+	// добором веток при переходе стадии → дубль по UNIQUE (500).
+	repo := repository.NewBranchRepository(h.db)
+	if err := repo.LockOwnerTx(ctx, tx, settlementID); err != nil {
+		http.Error(w, "Failed to lock settlement: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	var planetID string
-	err = tx.QueryRowContext(ctx, `SELECT planet_id FROM settlements WHERE id = $1`, settlementID).Scan(&planetID)
+	err = tx.QueryRowContext(ctx, `SELECT planet_id FROM settlements WHERE id = $1 FOR UPDATE`, settlementID).Scan(&planetID)
 	if errors.Is(err, sql.ErrNoRows) {
 		http.Error(w, "Поселение не найдено", http.StatusNotFound)
 		return
@@ -147,7 +156,6 @@ func (h *AdminHandlers) AddBranch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	repo := repository.NewBranchRepository(h.db)
 	branchID := uuid.New().String()
 	if err := repo.CreateBranchTx(ctx, tx, branchID, settlementID, body.RecipeID); err != nil {
 		http.Error(w, "Failed to create branch: "+err.Error(), http.StatusInternalServerError)

@@ -40,6 +40,10 @@ func (r *EconomyRepository) CreateSettlement(s *models.Settlement) error {
 	return err
 }
 
+// defaultSettlementTypeSelectSQL — id базового типа поселения из
+// generation_config (ключ models.DefaultSettlementTypeIDKey).
+const defaultSettlementTypeSelectSQL = `SELECT payload FROM generation_config WHERE key = $1`
+
 // ResolveDefaultSettlementTypeID — id дефолтного типа поселения из
 // generation_config по ключу models.DefaultSettlementTypeIDKey (решение
 // создателя 2026-09-23: резолв по id, а НЕ по name_norm — переименование типа
@@ -51,7 +55,7 @@ func (r *EconomyRepository) CreateSettlement(s *models.Settlement) error {
 func ResolveDefaultSettlementTypeID(db *sql.DB) (int64, error) {
 	var raw []byte
 	err := db.QueryRow(
-		`SELECT payload FROM generation_config WHERE key = $1`, models.DefaultSettlementTypeIDKey,
+		defaultSettlementTypeSelectSQL, models.DefaultSettlementTypeIDKey,
 	).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
 		log.Printf("WARN: generation_config.%s не задан — новые поселения получат settlement_type_id = NULL (без потребностей/голода)",

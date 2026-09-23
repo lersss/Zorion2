@@ -26,6 +26,12 @@ func branchReq(method, path, body string) *http.Request {
 	return httptest.NewRequest(method, path, strings.NewReader(body))
 }
 
+// mockBranchAdvisoryLock — advisory-лок поселения первым действием AddBranch
+// (единый порядок локов с owner-проходом, спека 2026-09-23 §6.3).
+func mockBranchAdvisoryLock(mock sqlmock.Sqlmock) {
+	mock.ExpectExec(`pg_advisory_xact_lock`).WithArgs(sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 0))
+}
+
 // mockBranchLoadRows — ожидания чтения блока веток (loadBranches): ветка +
 // компоненты рецепта + буферы. Возвращает одну ветку «Пища» (s1) с входом
 // Мясо=97 и выходом Пища=30.
@@ -49,6 +55,7 @@ func TestAddBranchHappyPath(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectBegin()
+	mockBranchAdvisoryLock(mock)
 	mock.ExpectQuery(`SELECT planet_id FROM settlements WHERE id = \$1`).
 		WithArgs("s1").WillReturnRows(sqlmock.NewRows([]string{"planet_id"}).AddRow("p1"))
 	mock.ExpectQuery(`SELECT good_id, complexity FROM recipes WHERE id = \$1`).
@@ -98,6 +105,7 @@ func TestAddBranchSettlementNotFound(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectBegin()
+	mockBranchAdvisoryLock(mock)
 	mock.ExpectQuery(`SELECT planet_id FROM settlements WHERE id = \$1`).
 		WithArgs("sX").WillReturnRows(sqlmock.NewRows([]string{"planet_id"}))
 	mock.ExpectRollback()
@@ -116,6 +124,7 @@ func TestAddBranchRecipeNotFound(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectBegin()
+	mockBranchAdvisoryLock(mock)
 	mock.ExpectQuery(`SELECT planet_id FROM settlements WHERE id = \$1`).
 		WithArgs("s1").WillReturnRows(sqlmock.NewRows([]string{"planet_id"}).AddRow("p1"))
 	mock.ExpectQuery(`SELECT good_id, complexity FROM recipes WHERE id = \$1`).
@@ -136,6 +145,7 @@ func TestAddBranchNoComponents(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectBegin()
+	mockBranchAdvisoryLock(mock)
 	mock.ExpectQuery(`SELECT planet_id FROM settlements WHERE id = \$1`).
 		WithArgs("s1").WillReturnRows(sqlmock.NewRows([]string{"planet_id"}).AddRow("p1"))
 	mock.ExpectQuery(`SELECT good_id, complexity FROM recipes WHERE id = \$1`).
@@ -158,6 +168,7 @@ func TestAddBranchDuplicate(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectBegin()
+	mockBranchAdvisoryLock(mock)
 	mock.ExpectQuery(`SELECT planet_id FROM settlements WHERE id = \$1`).
 		WithArgs("s1").WillReturnRows(sqlmock.NewRows([]string{"planet_id"}).AddRow("p1"))
 	mock.ExpectQuery(`SELECT good_id, complexity FROM recipes WHERE id = \$1`).

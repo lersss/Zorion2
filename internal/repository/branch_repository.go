@@ -438,6 +438,14 @@ func (r *BranchRepository) CreateBranchTx(ctx context.Context, tx *sql.Tx, branc
 	return nil
 }
 
+// LockOwnerTx — advisory-лок поселения первым действием транзакции (единый
+// порядок локов с owner-проходом: advisory → settlements → ветки → залежи,
+// спека 2026-09-23 §6.3): админ-создание ветки не гоняется с пересборкой.
+func (r *BranchRepository) LockOwnerTx(ctx context.Context, tx *sql.Tx, settlementID string) error {
+	_, err := tx.ExecContext(ctx, advisoryOwnerLockSQL, settlementID)
+	return err
+}
+
 // LockBranchTx — единая точка сериализации с синком (§4.2): первым действием
 // транзакции берёт FOR UPDATE на строке ветки; возвращает settlement_id и
 // recipe_id. Ветки нет — ErrBranchNotFound (404).

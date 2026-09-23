@@ -270,6 +270,7 @@ func TestAttachSettlementsOwnerPass(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(settlementPopulationWriteSQL).WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "s1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	expectOrphanCleanup(mock, "s1", []int64{1})
 	mock.ExpectCommit()
 
 	expectEmptySettlementLog(mock)

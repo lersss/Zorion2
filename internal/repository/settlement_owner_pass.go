@@ -194,16 +194,32 @@ func (r *BranchRepository) SyncSettlements(now time.Time, owners []OwnerSettleme
 	if err != nil {
 		return nil, err
 	}
-	// Числа скорости пар (тип × рецепт) — один запрос на пачку владельцев
-	// (спека 2026-09-23 §3.3 п.3): карта typeID → recipeID → rate. Хватает на
-	// обоих путях (персистентный и «в памяти»).
-	rates, err := r.loadProducerRates(ctx, ownerTypeIDs(owners))
+	// Ладдера стадий — одним предикатом класса на пачку (спека 2026-09-23
+	// §3.3 п.3/§4.3). Типы ладдеры объединяются с типами владельцев: после
+	// перехода число/нормы берутся по НОВОМУ типу, иначе пары (тип, рецепт) не
+	// нашлись бы в картах.
+	ladder, ladderTypeIDs, err := r.loadStageLadder(ctx)
 	if err != nil {
 		return nil, err
 	}
+	typeIDs := ownerTypeIDs(owners)
+	for _, id := range ladderTypeIDs {
+		typeIDs = appendUniqueInt64(typeIDs, id)
+	}
+	types, err := r.loadProducerTypes(ctx, typeIDs)
+	if err != nil {
+		return nil, err
+	}
+	// Числа скорости пар (тип × рецепт) — карта typeID → recipeID → rate
+	// (ед/сутки/млрд). Хватает на обоих путях (персистентный и «в памяти»).
+	rates, err := r.loadProducerRates(ctx, typeIDs)
+	if err != nil {
+		return nil, err
+	}
+	data := ownerBatchData{rates: rates, types: types, ladder: ladder}
 
 	for _, o := range owners {
-		res, err := r.syncOwner(ctx, o, bySettlement[o.ID], stored[o.ID], catalog, knownPositions, rates, now)
+		res, err := r.syncOwner(ctx, o, bySettlement[o.ID], stored[o.ID], catalog, knownPositions, data, now)
 		if err != nil {
 			return nil, err
 		}
@@ -235,7 +251,7 @@ func rateForPair(rates map[int64]map[int64]float64, typeID, recipeID int64) floa
 }
 
 // syncOwner — проход по одному поселению: персистентный путь или «в памяти».
-func (r *BranchRepository) syncOwner(ctx context.Context, o OwnerSettlement, branches []*branchRecord, stored []storedEffect, catalog map[string]effectTypeMeta, knownPositions map[string]bool, rates map[int64]map[int64]float64, now time.Time) (OwnerResult, error) {
+func (r *BranchRepository) syncOwner(ctx context.Context, o OwnerSettlement, branches []*branchRecord, stored []storedEffect, catalog map[string]effectTypeMeta, knownPositions map[string]bool, data ownerBatchData, now time.Time) (OwnerResult, error) {
 	// Персистентный путь, если «событие» наступило хоть у одной чек-точки
 	// владельца (население или ветка): обе продвигаются одним now (§4.5),
 	// поэтому устаревание любой из них требует записи.
@@ -250,7 +266,7 @@ func (r *BranchRepository) syncOwner(ctx context.Context, o OwnerSettlement, bra
 		if err != nil {
 			return OwnerResult{}, err
 		}
-		run, err := runOwnerPass(o, branches, stored, catalog, knownPositions, rates, deposits, now)
+		run, err := runOwnerPass(o, branches, stored, catalog, knownPositions, data.rates, deposits, now)
 		if err != nil {
 			return OwnerResult{}, err
 		}
@@ -305,7 +321,27 @@ func (r *BranchRepository) syncOwner(ctx context.Context, o OwnerSettlement, bra
 		return OwnerResult{}, err
 	}
 
-	run, err := runOwnerPass(o, txRecs, stored, catalog, knownPositions, rates, deposits, now)
+	// Оценка стадии — только на персистентном пути, по ХРАНИМОМУ населению, ДО
+	// производства и ДО расчёта потребности (§4.2/§4.4): производство и
+	// население этого прохода считаются по настройкам одной актуальной стадии.
+	if newTypeID, changed := data.ladder.Select(o.SettlementTypeID, float64(population)); changed {
+		if err := r.applyStageTransition(ctx, tx, &o, newTypeID, txRecs, data.types); err != nil {
+			return OwnerResult{}, err
+		}
+		// Перечитать ветки: доборные — в составе, буферы сохранённых обнулены
+		// (§5.1 пп.3–4). Базис нагрузки сброшен и в ПАМЯТИ (§5.1 п.5): stored =
+		// nil → ComputeNeeds получит load = 0, load_at = now в этом же проходе.
+		txRecs, err = loadSettlementBranchesForUpdate(ctx, tx, o.ID)
+		if err != nil {
+			return OwnerResult{}, err
+		}
+		if err := loadBranchComponentsForRecords(ctx, tx, txRecs); err != nil {
+			return OwnerResult{}, err
+		}
+		stored = nil
+	}
+
+	run, err := runOwnerPass(o, txRecs, stored, catalog, knownPositions, data.rates, deposits, now)
 	if err != nil {
 		return OwnerResult{}, err
 	}
@@ -616,12 +652,28 @@ func writeOwnerTx(ctx context.Context, tx *sql.Tx, o OwnerSettlement, run ownerR
 			}
 		}
 	}
+
+	// Корневая очистка сирот active_effects (§5.4): ключ — тип эффекта из
+	// текущих привязок стадии. Пустой набор → удаляются все строки владельца.
+	effectTypeIDs := make([]int64, 0, len(run.result.Effects))
+	for _, e := range run.result.Effects {
+		effectTypeIDs = appendUniqueInt64(effectTypeIDs, e.EffectTypeID)
+	}
+	if err := cleanupOrphanEffects(ctx, tx, o.ID, effectTypeIDs); err != nil {
+		return err
+	}
 	return nil
 }
 
-// loadEffectTypeCatalog — каталог типов эффектов по name_norm.
+// loadEffectTypeCatalog — каталог типов эффектов по name_norm (owner-проход).
 func (r *BranchRepository) loadEffectTypeCatalog(ctx context.Context) (map[string]effectTypeMeta, error) {
-	rows, err := r.db.QueryContext(ctx, effectTypeCatalogSQL)
+	return queryEffectTypeCatalog(ctx, r.db)
+}
+
+// queryEffectTypeCatalog — единый SQL каталога типов эффектов по name_norm
+// (образец для читателей: owner-проход и гвард галактической сводки §5.4).
+func queryEffectTypeCatalog(ctx context.Context, q branchRowsQueryer) (map[string]effectTypeMeta, error) {
+	rows, err := q.QueryContext(ctx, effectTypeCatalogSQL)
 	if err != nil {
 		return nil, err
 	}

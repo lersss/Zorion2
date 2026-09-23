@@ -89,6 +89,10 @@ func expectOwnerPassEmptyRegexp(mock sqlmock.Sqlmock) {
 	mock.ExpectQuery(`SELECT ae\.effect_type_id.*FROM active_effects ae`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"effect_type_id", "source_position", "load", "load_at", "impact", "curve", "owner_id"}))
+	// Ладдера стадий: нет ключа базового типа → пусто; типа у поселения нет →
+	// запросы настроек/чисел не идут.
+	mock.ExpectQuery(`SELECT payload FROM generation_config WHERE key = \$1`).
+		WillReturnRows(sqlmock.NewRows([]string{"payload"}))
 }
 
 // expectModesSettlementLog — пустой лог поселений (owner-проход).

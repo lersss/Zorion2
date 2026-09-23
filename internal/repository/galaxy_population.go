@@ -2,6 +2,7 @@
 package repository
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"log"
@@ -39,7 +40,8 @@ const (
 	TrendStable  = "stable"  // — без изменений
 )
 
-// galaxySettlementRow — поселение галактической сводки с позициями привязок.
+// galaxySettlementRow — поселение галактической сводки с привязками эффектов
+// (params.effects: позиция → имя типа эффекта).
 type galaxySettlementRow struct {
 	id        string
 	worldID   string
@@ -48,7 +50,7 @@ type galaxySettlementRow struct {
 	exact     float64
 	computed  time.Time
 	createdAt time.Time
-	positions []string
+	effects   map[string]string
 }
 
 // GalaxyPopulation — один запрос: поселения → планеты (физика) → миры.
@@ -88,9 +90,7 @@ func (r *EconomyRepository) GalaxyPopulation(now time.Time) (*GalaxyPopulationRe
 		if len(effectsRaw) > 0 {
 			var effects map[string]string
 			if err := json.Unmarshal(effectsRaw, &effects); err == nil {
-				for pos := range effects {
-					row.positions = append(row.positions, pos)
-				}
+				row.effects = effects
 			}
 		}
 		list = append(list, row)
@@ -104,6 +104,19 @@ func (r *EconomyRepository) GalaxyPopulation(now time.Time) (*GalaxyPopulationRe
 	stored, err := r.activeEffectsByOwner(ids)
 	if err != nil {
 		return nil, err
+	}
+
+	// Каталог типов эффектов нужен только для гварда по типу (§5.4, S5):
+	// грузим его, лишь когда у кого-то из поселений есть привязки.
+	var catalog map[string]effectTypeMeta
+	for _, row := range list {
+		if len(row.effects) > 0 {
+			catalog, err = queryEffectTypeCatalog(context.Background(), r.db)
+			if err != nil {
+				return nil, err
+			}
+			break
+		}
 	}
 
 	report := &GalaxyPopulationReport{ByWorld: map[string]int64{}, byWorldChange: map[string]float64{}}
@@ -121,7 +134,7 @@ func (r *EconomyRepository) GalaxyPopulation(now time.Time) (*GalaxyPopulationRe
 			RaceID: row.raceID,
 		}
 		// Минимальный путь (С3): хранимый load + R(load), без догона.
-		input.Effects, input.AsOf = galaxyEffects(row, stored[row.id], now)
+		input.Effects, input.AsOf = galaxyEffects(row, stored[row.id], catalog, now)
 
 		rPerSec := settlement.ChangeComponents(input)
 		live := settlement.Recompute(input, row.exact, row.computed, now, row.createdAt)
@@ -139,9 +152,20 @@ func (r *EconomyRepository) GalaxyPopulation(now time.Time) (*GalaxyPopulationRe
 // galaxyEffects — сила эффектов для читателя без прохода веток (§5.5): по
 // хранимому базису `load_at`, без догона до now. Нет данных (привязка есть, а
 // строки active_effects нет) → R = 0 + лог, не угадывается.
-func galaxyEffects(row galaxySettlementRow, stored []storedEffect, now time.Time) ([]settlement.EffectForcePoint, time.Time) {
-	if len(row.positions) == 0 {
+//
+// Гвард сирот — по ТИПУ ЭФФЕКТА, не по source_position (§5.4, S5): хранимая
+// строка учитывается, только если её effect_type_id входит в текущие привязки
+// владельца (params.effects → name_norm → id каталога). source_position — лишь
+// первая позиция группы, сверка по нему отбросила бы живую строку.
+func galaxyEffects(row galaxySettlementRow, stored []storedEffect, catalog map[string]effectTypeMeta, now time.Time) ([]settlement.EffectForcePoint, time.Time) {
+	if len(row.effects) == 0 {
 		return nil, now
+	}
+	allowed := make(map[int64]bool, len(row.effects))
+	for _, typeName := range row.effects {
+		if meta, ok := catalog[typeName]; ok {
+			allowed[meta.ID] = true
+		}
 	}
 	if len(stored) == 0 {
 		log.Printf("⚠️ effect: у поселения %s нет строки active_effects при привязке позиций — R=0 (нет данных)", row.id)
@@ -150,6 +174,9 @@ func galaxyEffects(row galaxySettlementRow, stored []storedEffect, now time.Time
 	var out []settlement.EffectForcePoint
 	asOf := now
 	for _, se := range stored {
+		if !allowed[se.effectTypeID] {
+			continue // сирота: тип эффекта больше не привязан к позиции владельца
+		}
 		rate := settlement.EffectRate(se.impact, se.curve, se.load, settlement.BalancerCurveLookup)
 		if se.loadAt.Before(asOf) {
 			asOf = se.loadAt

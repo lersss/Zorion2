@@ -49,4 +49,8 @@ func expectOwnerPassEmpty(mock sqlmock.Sqlmock) {
 		JOIN effect_types et ON et.id = ae.effect_type_id
 		WHERE ae.owner_type = 'settlement' AND ae.owner_id = ANY($1)
 	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"effect_type_id", "source_position", "load", "load_at", "impact", "curve", "owner_id"}))
+	// Ладдера стадий пуста (нет ключа базового типа): у поселения типа нет —
+	// запросы настроек типов/чисел скорости не идут (пустое объединение).
+	mock.ExpectQuery(`SELECT payload FROM generation_config WHERE key = $1`).
+		WillReturnRows(sqlmock.NewRows([]string{"payload"}))
 }

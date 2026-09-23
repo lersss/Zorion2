@@ -10,6 +10,7 @@ import (
 	"database/sql/driver"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/lib/pq"
 )
 
 // effectTypeRows — каталог типов эффектов: один «голод» (id 1, curve hunger).
@@ -40,6 +41,21 @@ func producerRateRows() *sqlmock.Rows {
 		AddRow(int64(ownerTestTypeID), int64(70), ownerTestRate)
 }
 
+// emptyProducerTypeRows — выборка настроек типов без строк (ладдера не нужна).
+func emptyProducerTypeRows() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{"id", "eat", "effects"})
+}
+
+// emptyProducerRateRows — выборка чисел скорости без строк.
+func emptyProducerRateRows() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{"producer_type_id", "recipe_id", "rate"})
+}
+
+// emptyDefaultTypeRows — generation_config без ключа базового типа → ладдера пуста.
+func emptyDefaultTypeRows() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{"payload"})
+}
+
 // emptyBranchRows — выборка веток без строк (поселения без веток).
 func emptyBranchRows() *sqlmock.Rows {
 	return sqlmock.NewRows([]string{"id", "settlement_id", "recipe_id", "processed_at", "good_id", "name", "complexity", "name_norm"})
@@ -57,6 +73,7 @@ func activeEffectRows(values ...driver.Value) *sqlmock.Rows {
 
 // expectOwnerPassHead — каталог эффектов + словарь категорий (первый шаг
 // SyncSettlements), затем выборка веток. stored == nil — хранимой нагрузки нет.
+// Ладдера стадий пуста (нет ключа базового типа) — переключений нет.
 func expectOwnerPassHead(mock sqlmock.Sqlmock, branchRows *sqlmock.Rows, stored *sqlmock.Rows) {
 	mock.ExpectQuery(effectTypeCatalogSQL).WillReturnRows(effectTypeRows())
 	mock.ExpectQuery(categoryNamesSQL).WillReturnRows(categoryNameRows())
@@ -65,7 +82,23 @@ func expectOwnerPassHead(mock sqlmock.Sqlmock, branchRows *sqlmock.Rows, stored 
 		stored = activeEffectRows()
 	}
 	mock.ExpectQuery(activeEffectsSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(stored)
+	expectBatchStageQueries(mock)
+}
+
+// expectBatchStageQueries — запросы пачки, общие для обоих путей: ладдера
+// стадий (пусто), настройки типов, числа скорости.
+func expectBatchStageQueries(mock sqlmock.Sqlmock) {
+	mock.ExpectQuery(defaultSettlementTypeSelectSQL).WillReturnRows(emptyDefaultTypeRows())
+	mock.ExpectQuery(producerTypesSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(emptyProducerTypeRows())
 	mock.ExpectQuery(producerRatesSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(producerRateRows())
+}
+
+// expectOrphanCleanup — корневая очистка сирот active_effects в конце
+// персистентного прохода (§5.4): ключ — типы эффектов текущих привязок.
+func expectOrphanCleanup(mock sqlmock.Sqlmock, ownerID string, effectTypeIDs []int64) {
+	v, _ := pq.Array(effectTypeIDs).Value()
+	mock.ExpectExec(orphanEffectsDeleteSQL).WithArgs(ownerID, v).
+		WillReturnResult(sqlmock.NewResult(0, 0))
 }
 
 // expectOwnerPassNoBranches — owner-проход без веток: ветки пусты, составы и
@@ -86,5 +119,5 @@ func expectOwnerPassWithBranches(mock sqlmock.Sqlmock, branchRows, componentRows
 		stored = activeEffectRows()
 	}
 	mock.ExpectQuery(activeEffectsSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(stored)
-	mock.ExpectQuery(producerRatesSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(producerRateRows())
+	expectBatchStageQueries(mock)
 }

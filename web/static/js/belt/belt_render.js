@@ -7,6 +7,58 @@
 import * as C from './belt_config.js';
 import { shipDrawTransform } from '../map/ship_sprites.js';
 
+// Кэш Image спрайтов/паттернов (арт-ТЗ §4.3, прелоад): имя → Image. Ошибка
+// загрузки/отсутствие файла → null, рисующий код берёт фолбэк-многоугольник.
+const spriteCache = new Map();
+
+// getSprite — Image из кэша; null, если файл не загрузился (фолбэк §4.5).
+export function getSprite(name) {
+    if (!name) return null;
+    const img = spriteCache.get(name);
+    if (!img || !img.complete || img.naturalWidth === 0) return null;
+    return img;
+}
+
+// preloadSprites — прогрев кэша до старта сцены (§4.3): без «мигания» первых
+// кадров подменой многоугольников. Возвращает Promise, который резолвится,
+// когда все файлы либо загружены, либо провалились (ошибка → фолбэк).
+export function preloadSprites() {
+    const names = C.ROCK_SPRITES.concat(C.DEBRIS_SPRITES, C.VEIN_SPRITES);
+    const jobs = names.map((name) => new Promise((resolve) => {
+        if (spriteCache.has(name)) { resolve(); return; }
+        const img = new Image();
+        img.onload = () => resolve();
+        img.onerror = () => resolve(); // нет файла — фолбэк, сцена не падает
+        img.src = C.SPRITE_BASE + name + '.png';
+        spriteCache.set(name, img);
+    }));
+    return Promise.all(jobs);
+}
+
+// tintCache — затемнённые копии спрайтов (истощение, арт-ТЗ §4.3): тонировка
+// делается в offscreen-канвасе, где есть только спрайт, — иначе source-atop
+// заливает фон сцены и вокруг камня виден квадрат. Ключ "name|tone".
+const tintCache = new Map();
+
+function getTintedSprite(name, tone) {
+    const img = getSprite(name);
+    if (!img) return null;
+    const key = name + '|' + tone.toFixed(2);
+    let canvas = tintCache.get(key);
+    if (canvas) return canvas;
+    canvas = document.createElement('canvas');
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const c = canvas.getContext('2d');
+    c.drawImage(img, 0, 0);
+    c.globalCompositeOperation = 'source-atop';
+    c.globalAlpha = tone;
+    c.fillStyle = C.COLORS.asteroidDark;
+    c.fillRect(0, 0, canvas.width, canvas.height);
+    tintCache.set(key, canvas);
+    return canvas;
+}
+
 function toScreen(wx, wy, cam, vw, vh) {
     return { x: (wx - cam.x) * C.WORLD_SCALE + vw / 2, y: (wy - cam.y) * C.WORLD_SCALE + vh / 2 };
 }
@@ -75,9 +127,9 @@ function drawDust(ctx, dust, cam, vw, vh) {
     }
 }
 
-// drawAsteroid — плейсхолдер астероида: неровный многоугольник + блеск жилы.
-// parallax — множитель слоя (декор 0.6, жилы 1.0). Наведённая цель
-// подсвечивается контуром accent-цвета (§4.6 UI-спеки).
+// drawAsteroid — тело: спрайт-камень (арт-ТЗ §4.3) или фолбэк-многоугольник,
+// если файл не загрузился. parallax — множитель слоя (декор 0.6, жилы 1.0).
+// Наведённая цель подсвечивается контуром accent-цвета (§4.6 UI-спеки).
 function drawAsteroid(ctx, a, cam, vw, vh, opts, parallax) {
     const p = toScreen(a.x - cam.x * (parallax - 1), a.y - cam.y * (parallax - 1), cam, vw, vh);
     const rad = a.r * C.WORLD_SCALE;
@@ -85,32 +137,129 @@ function drawAsteroid(ctx, a, cam, vw, vh, opts, parallax) {
 
     const depleted = !!opts.depleted;
     const dim = a.drill; // визуальное истощение конкретной жилы
+    const rockName = a.vein ? C.ROCK_SPRITES[a.sprite] : C.DEBRIS_SPRITES[a.sprite];
+    const rock = getSprite(rockName);
 
     ctx.save();
     ctx.translate(p.x, p.y);
     ctx.rotate(a.rot);
-    ctx.beginPath();
-    const n = a.shape.length;
-    for (let i = 0; i < n; i++) {
-        const ang = (i / n) * Math.PI * 2;
-        const rr = rad * a.shape[i];
-        const x = Math.cos(ang) * rr;
-        const y = Math.sin(ang) * rr;
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-    }
-    ctx.closePath();
-    ctx.fillStyle = depleted ? C.COLORS.asteroidDark : (a.vein ? C.COLORS.asteroidVein : C.COLORS.asteroid);
-    if (dim > 0 && !depleted) ctx.globalAlpha = Math.max(0.55, 1 - dim * 0.4);
-    ctx.fill();
-    ctx.globalAlpha = 1;
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = C.COLORS.asteroidEdge;
-    ctx.stroke();
 
-    // Блеск руды на жилах — гаснет при выработке/локальном истощении.
+    if (rock) {
+        // Спрайт: масштаб = 2r / SPRITE_LONG_SIDE (визуальный размер ≈ 2r,
+        // отдельного «визуального радиуса» нет — §4.5).
+        const scale = (rad * 2) / C.SPRITE_LONG_SIDE;
+        const size = C.SPRITE_LONG_SIDE * scale;
+        // Истощение: помимо гашения руды — тёмная/обесцвеченная тонировка камня
+        // (offscreen-копия, чтобы не залить фон сцены).
+        const tone = depleted ? 0.55 : Math.min(0.45, dim * 0.45);
+        const img = tone > 0.01 ? (getTintedSprite(rockName, tone) || rock) : rock;
+        ctx.drawImage(img, -size / 2, -size / 2, size, size);
+    } else {
+        // Фолбэк-многоугольник (инвариант §4.5): нет файла/ошибка загрузки.
+        ctx.beginPath();
+        const n = a.shape.length;
+        for (let i = 0; i < n; i++) {
+            const ang = (i / n) * Math.PI * 2;
+            const rr = rad * a.shape[i];
+            const x = Math.cos(ang) * rr;
+            const y = Math.sin(ang) * rr;
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        }
+        ctx.closePath();
+        ctx.fillStyle = depleted ? C.COLORS.asteroidDark : (a.vein ? C.COLORS.asteroidVein : C.COLORS.asteroid);
+        if (dim > 0 && !depleted) ctx.globalAlpha = Math.max(0.55, 1 - dim * 0.4);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = C.COLORS.asteroidEdge;
+        ctx.stroke();
+    }
+    ctx.restore();
+
+    // Слой руды (арт-ТЗ §4.3): аддитивно поверх камня, поворот a.rot+veinRot,
+    // alpha ∝ veinRich·(1−drill); при выработанном поясе не рисуется.
+    if (a.vein && !depleted) {
+        const vein = getSprite(C.VEIN_SPRITES[a.veinPattern]);
+        const veinA = a.veinRich * Math.max(0, 1 - dim);
+        if (vein && veinA > 0.01) {
+            const vs = (rad * 2) / C.SPRITE_LONG_SIDE * a.veinScale;
+            const vSize = C.SPRITE_LONG_SIDE * vs;
+            ctx.save();
+            ctx.translate(p.x, p.y);
+            ctx.rotate(a.rot + a.veinRot);
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.globalAlpha = veinA;
+            ctx.drawImage(vein, -vSize / 2, -vSize / 2, vSize, vSize);
+            ctx.restore();
+        }
+    }
+
+    // rim-light (арт-ТЗ §4.3): радиальный градиент в ЭКРАННОМ пространстве,
+    // постоянное направление (сторона звезды), не вращается с телом. Свет
+    // обрезается по альфе спрайта (offscreen + destination-in) — иначе вокруг
+    // камня виден мягкий ореол поверх фона. Фолбэк-многоугольник — clip по
+    // его контуру (свет только на теле).
+    const lx = opts.lightX || 0;
+    const ly = opts.lightY || 0;
+    if (rock) {
+        const scale = (rad * 2) / C.SPRITE_LONG_SIDE;
+        const size = C.SPRITE_LONG_SIDE * scale;
+        const buf = document.createElement('canvas');
+        buf.width = Math.max(1, Math.ceil(size));
+        buf.height = Math.max(1, Math.ceil(size));
+        const bctx = buf.getContext('2d');
+        const cx = buf.width / 2;
+        const cy = buf.height / 2;
+        const g = bctx.createRadialGradient(
+            cx + lx * rad, cy + ly * rad, rad * 0.15,
+            cx, cy, rad * 1.05);
+        g.addColorStop(0, 'rgba(200,210,230,0.28)');
+        g.addColorStop(0.55, 'rgba(160,175,205,0.10)');
+        g.addColorStop(1, 'rgba(120,130,160,0)');
+        bctx.fillStyle = g;
+        bctx.fillRect(0, 0, buf.width, buf.height);
+        // Обрезка по альфе спрайта: свет остаётся только на камне.
+        bctx.globalCompositeOperation = 'destination-in';
+        bctx.drawImage(rock, 0, 0, buf.width, buf.height);
+        bctx.globalCompositeOperation = 'source-over';
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.drawImage(buf, -size / 2, -size / 2, size, size);
+        ctx.restore();
+    } else {
+        // Фолбэк: свет по контуру многоугольника (без ореола на фоне).
+        ctx.save();
+        ctx.beginPath();
+        const n = a.shape.length;
+        for (let i = 0; i < n; i++) {
+            const ang = (i / n) * Math.PI * 2;
+            const rr = rad * a.shape[i];
+            const x = Math.cos(ang) * rr;
+            const y = Math.sin(ang) * rr;
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        }
+        ctx.closePath();
+        ctx.clip();
+        const g = ctx.createRadialGradient(
+            lx * rad, ly * rad, rad * 0.15,
+            0, 0, rad * 1.05);
+        g.addColorStop(0, 'rgba(200,210,230,0.28)');
+        g.addColorStop(0.55, 'rgba(160,175,205,0.10)');
+        g.addColorStop(1, 'rgba(120,130,160,0)');
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.fillStyle = g;
+        ctx.fillRect(-rad * 1.1, -rad * 1.1, rad * 2.2, rad * 2.2);
+        ctx.restore();
+    }
+
+    // Блеск руды на жилах — искры поверх руды, гаснут при выработке/истощении.
     if (a.vein && !depleted) {
         const glintA = Math.max(0, 1 - dim);
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(a.rot);
         for (const g of a.glints) {
             ctx.globalAlpha = glintA * (0.5 + 0.5 * Math.sin(opts.now * 0.002 + g.x));
             ctx.fillStyle = C.COLORS.glint;
@@ -118,18 +267,23 @@ function drawAsteroid(ctx, a, cam, vw, vh, opts, parallax) {
             ctx.arc(g.x, g.y, g.r, 0, Math.PI * 2);
             ctx.fill();
         }
+        ctx.restore();
         ctx.globalAlpha = 1;
     }
 
     // Подсветка наведённой жилы (§4.6): контур цели — сильнее, чем у прочих.
     if (opts.target === a && !depleted) {
+        ctx.save();
+        ctx.translate(p.x, p.y);
         ctx.globalAlpha = 0.9;
         ctx.lineWidth = 2.5;
         ctx.strokeStyle = C.COLORS.glint;
+        ctx.beginPath();
+        ctx.arc(0, 0, rad, 0, Math.PI * 2);
         ctx.stroke();
+        ctx.restore();
         ctx.globalAlpha = 1;
     }
-    ctx.restore();
 }
 
 function drawParticles(ctx, parts, cam, vw, vh) {

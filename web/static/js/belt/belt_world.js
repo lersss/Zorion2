@@ -137,6 +137,14 @@ export class BeltWorld {
             b.rotSpeed = (rng() - 0.5) * 2 * C.ASTEROID_SPIN_MAX;
             b.vein = true;
             b.drill = 0;
+            // Спрайт/руда (арт-ТЗ §4.2): индексы и параметры — из того же rng
+            // ячейки (детерминизм; Math.random запрещён). shape[]/glints[] выше
+            // остаются фолбэком, если файл спрайта не загрузился.
+            b.sprite = Math.floor(rng() * C.ROCK_SPRITES.length);
+            b.veinPattern = Math.floor(rng() * C.VEIN_SPRITES.length);
+            b.veinRot = rng() * Math.PI * 2;
+            b.veinScale = 0.7 + rng() * 0.5;
+            b.veinRich = 0.35 + rng() * 0.65;
             out.push(b);
         }
         return out;
@@ -172,6 +180,13 @@ export class BeltWorld {
             b.rotSpeed = (rng() - 0.5) * 2 * C.ASTEROID_SPIN_MAX;
             b.vein = false;
             b.drill = 0;
+            // Мелкие обломки — спрайт из DEBRIS_SPRITES (в пилоте файлов нет →
+            // фолбэк-многоугольник); руды у них нет.
+            b.sprite = Math.floor(rng() * C.DEBRIS_SPRITES.length);
+            b.veinPattern = 0;
+            b.veinRot = 0;
+            b.veinScale = 1;
+            b.veinRich = 0;
             out.push(b);
         }
         return out;

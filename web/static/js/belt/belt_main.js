@@ -6,6 +6,7 @@
 import * as C from './belt_config.js';
 import { BeltWorld } from './belt_world.js';
 import { drawScene } from './belt_render.js';
+import { preloadSprites } from './belt_render.js';
 import { enter, collect, leave } from './belt_net.js';
 import { bindInput, drillHeld } from './belt_input.js';
 import * as ui from './belt_ui.js';
@@ -161,6 +162,10 @@ function frame(now) {
         shipOrient: state.shipOrient,
         offBelt,
         now,
+        // rim-light: постоянное направление (сторона звезды), в экранном
+        // пространстве — не вращается вместе с телом (арт-ТЗ §4.3).
+        lightX: -0.55,
+        lightY: -0.55,
     });
 
     refreshHUD();
@@ -270,6 +275,9 @@ async function boot() {
     if (!beltID) { window.location.href = '/map'; return; }
     ui.showLoading('Заход в пояс…');
     loadShipSprite();
+    // Прелоад спрайтов/паттернов до старта сцены (арт-ТЗ §4.3): первый кадр
+    // уже со спрайтами, без подмены многоугольников. Ошибка файла → фолбэк.
+    await preloadSprites();
     const res = await enter(beltID);
     if (!res.ok) {
         if (res.status === 401) { window.location.href = '/login-page'; return; }
@@ -292,6 +300,7 @@ async function boot() {
     state.depleted = state.remainingLevel === 'выработан';
     state.toastFullShown = state.full;
     state.world = new BeltWorld(num(pkg.seed));
+    window.__beltWorld = state.world; // e2e-снимки (tools/e2e/belt-sprites-shot.js)
     state.camera.x = 0;
     state.camera.y = 0;
 

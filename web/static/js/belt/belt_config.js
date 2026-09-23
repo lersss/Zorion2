@@ -63,6 +63,22 @@ export const PARALLAX_DECOR = 0.6;
 // Сеть: событие сбора раз в ~0.5–1 с (§5.3).
 export const COLLECT_INTERVAL_MS = 700;
 
+// Реестр спрайтов астероидов (арт-ТЗ art_belt_asteroids.md §3.7/§4.1, подэтап
+// 3c): имена файлов в web/static/sprites/belt/. В папке — массовый набор
+// (16 камней + 3 обломка + 4 паттерна руды), фолбэков нет. Отсутствующий файл
+// (или ошибка загрузки) даёт фолбэк-многоугольник (инвариант §4.5).
+// Паттерны руды — grayscale-альфа, белый = руда.
+export const SPRITE_BASE = '/static/sprites/belt/';
+export const SPRITE_LONG_SIDE = 256; // нормализация: тело вписано по длинной стороне
+export const ROCK_SPRITES = [
+    'rock_01a', 'rock_01b', 'rock_02a', 'rock_02b',
+    'rock_03a', 'rock_03b', 'rock_04a', 'rock_04b',
+    'rock_05a', 'rock_05b', 'rock_06a', 'rock_06b',
+    'rock_07a', 'rock_07b', 'rock_08a', 'rock_08b',
+];
+export const DEBRIS_SPRITES = ['debris_01', 'debris_02', 'debris_03'];
+export const VEIN_SPRITES = ['vein_crack', 'vein_nest', 'vein_seam', 'vein_speck'];
+
 // Палитра сцены — существующие цвета проекта (новых не вводим).
 export const COLORS = {
     bg: '#05070f',

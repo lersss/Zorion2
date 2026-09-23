@@ -12,9 +12,7 @@
 | # | Что | Где | Приоритет |
 |---|---|---|---|
 | B14 | Вкладка «Тесты» в админке не работает на проде (cwd ≠ корень, `go.mod` не найден) | `internal/handlers/admin_tests.go` | 🟡 |
-| 75a | «Событие» пересчёта поселения не выбирало race_id → при первом открытии модалки «Люди» вместо реальной расы (до автообновления) | `internal/repository/economy_repository.go` | 🟡 |
 | B16 | Перебор с декластеризацией: кластеры не видны, звёзды почти равномерны (`sparse`) | `web/static/js/admin/generation.js` | 🟡 |
-| B25 | Перегенерация планет/вселенной падает на удалении планет: `player_planet_knowledge.planet_id` ссылается на `planets` без ON DELETE CASCADE → FK-ошибка (воспроизведено 2026-09-21) | `migrations/000040_ship_equipment_radar.sql`, `internal/handlers/admin_universe.go` | 🟡 |
 | B27 | При Restore внутрисистемного полёта с битой целью строка полёта удаляется, а позиция игрока остаётся «в полёте» — застревание до следующего действия (общий случай для `star`/`planet`/`satellite`/`belt`; пред-существующий, не регресс; рекомендация QA — чистить `current_position` при удалении строки без прибытия) | `internal/travel/intrasystem_manager.go` (`RestoreIntra`) | 🟡 |
 
 ## Открытые решения

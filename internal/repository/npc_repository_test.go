@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"zorion/internal/models"
+	"zorion/internal/npc"
 )
 
 // ==================== LIST ====================
@@ -47,6 +48,27 @@ func TestNPCListBatchCursor(t *testing.T) {
 	require.Nil(t, agents[0].ArriveAt)
 	require.Nil(t, agents[0].LastObservedAt)
 	require.True(t, agents[0].NotifyEnabled)
+}
+
+// RaceHomeworlds — пул «раса → родной мир» (спека 2026-09-23 §5.1): мир
+// берётся у родной планеты фракции (factions.homeworld_id → planets.world_id),
+// т.к. homeworld_id ссылается на planets(id), а агент живёт в мире.
+func TestNPCRaceHomeworlds(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectQuery(`SELECT f\.race_id, p\.world_id\s+FROM factions f\s+JOIN planets p ON p\.id = f\.homeworld_id\s+WHERE f\.race_id IS NOT NULL AND f\.homeworld_id IS NOT NULL`).
+		WillReturnRows(sqlmock.NewRows([]string{"race_id", "world_id"}).
+			AddRow("humans", "w1").
+			AddRow("coastal", "w2"))
+
+	out, err := NewNPCRepository(db).RaceHomeworlds()
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+	require.Len(t, out, 2)
+	require.Equal(t, npc.RaceHomeworld{RaceID: "humans", HomeworldID: "w1"}, out[0])
+	require.Equal(t, npc.RaceHomeworld{RaceID: "coastal", HomeworldID: "w2"}, out[1])
 }
 
 // Прибытия: status='flying' и arrive_at <= now — фильтр по времени в SQL
@@ -355,28 +377,29 @@ func TestNPCInsertDefaultsIdle(t *testing.T) {
 // ==================== BULK INSERT (COPY) ====================
 
 // BulkInsert — пачка одной COPY-операцией (pq.CopyIn, спека 26a.1 §4.2):
-// одна транзакция, статус idle, notify_enabled=false. Колонки — только
-// создание; кортеж полёта не входит (DEFAULT NULL).
+// одна транзакция, статус idle, notify_enabled=false, race_id — раса агента
+// (спека 2026-09-23 §5.2). Колонки — только создание; кортеж полёта не входит
+// (DEFAULT NULL).
 func TestNPCBulkInsert(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
 	defer db.Close()
 
 	mock.ExpectBegin()
-	mock.ExpectPrepare(`COPY "npc_agents" \("id", "name", "status", "current_world_id", "notify_enabled", "created_at", "updated_at"\) FROM STDIN`)
-	mock.ExpectExec(`COPY "npc_agents" \("id", "name", "status", "current_world_id", "notify_enabled", "created_at", "updated_at"\) FROM STDIN`).
-		WithArgs("a1", "Marion Hale", "idle", "w1", false, sqlmock.AnyArg(), sqlmock.AnyArg()).
+	mock.ExpectPrepare(`COPY "npc_agents" \("id", "name", "status", "current_world_id", "race_id", "notify_enabled", "created_at", "updated_at"\) FROM STDIN`)
+	mock.ExpectExec(`COPY "npc_agents" \("id", "name", "status", "current_world_id", "race_id", "notify_enabled", "created_at", "updated_at"\) FROM STDIN`).
+		WithArgs("a1", "Marion Hale", "idle", "w1", "humans", false, sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(`COPY "npc_agents" \("id", "name", "status", "current_world_id", "notify_enabled", "created_at", "updated_at"\) FROM STDIN`).
-		WithArgs("a2", "Cyrus Venn", "idle", "w2", false, sqlmock.AnyArg(), sqlmock.AnyArg()).
+	mock.ExpectExec(`COPY "npc_agents" \("id", "name", "status", "current_world_id", "race_id", "notify_enabled", "created_at", "updated_at"\) FROM STDIN`).
+		WithArgs("a2", "Cyrus Venn", "idle", "w2", "coastal", false, sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(`COPY "npc_agents" \("id", "name", "status", "current_world_id", "notify_enabled", "created_at", "updated_at"\) FROM STDIN`).
+	mock.ExpectExec(`COPY "npc_agents" \("id", "name", "status", "current_world_id", "race_id", "notify_enabled", "created_at", "updated_at"\) FROM STDIN`).
 		WillReturnResult(sqlmock.NewResult(0, 0)) // flush без аргументов
 	mock.ExpectCommit()
 
 	agents := []models.NPCAgent{
-		{ID: "a1", Name: "Marion Hale", CurrentWorldID: "w1", NotifyEnabled: true}, // принудительно true — COPY должен писать false
-		{ID: "a2", Name: "Cyrus Venn", CurrentWorldID: "w2"},
+		{ID: "a1", Name: "Marion Hale", CurrentWorldID: "w1", RaceID: "humans", NotifyEnabled: true}, // принудительно true — COPY должен писать false
+		{ID: "a2", Name: "Cyrus Venn", CurrentWorldID: "w2", RaceID: "coastal"},
 	}
 	require.NoError(t, NewNPCRepository(db).BulkInsert(agents))
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -389,18 +412,18 @@ func TestNPCBulkInsertRollback(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectBegin()
-	mock.ExpectPrepare(`COPY "npc_agents" \("id", "name", "status", "current_world_id", "notify_enabled", "created_at", "updated_at"\) FROM STDIN`)
-	mock.ExpectExec(`COPY "npc_agents" \("id", "name", "status", "current_world_id", "notify_enabled", "created_at", "updated_at"\) FROM STDIN`).
-		WithArgs("a1", "Marion Hale", "idle", "w1", false, sqlmock.AnyArg(), sqlmock.AnyArg()).
+	mock.ExpectPrepare(`COPY "npc_agents" \("id", "name", "status", "current_world_id", "race_id", "notify_enabled", "created_at", "updated_at"\) FROM STDIN`)
+	mock.ExpectExec(`COPY "npc_agents" \("id", "name", "status", "current_world_id", "race_id", "notify_enabled", "created_at", "updated_at"\) FROM STDIN`).
+		WithArgs("a1", "Marion Hale", "idle", "w1", "humans", false, sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(`COPY "npc_agents" \("id", "name", "status", "current_world_id", "notify_enabled", "created_at", "updated_at"\) FROM STDIN`).
-		WithArgs("a2", "Cyrus Venn", "idle", "w2", false, sqlmock.AnyArg(), sqlmock.AnyArg()).
+	mock.ExpectExec(`COPY "npc_agents" \("id", "name", "status", "current_world_id", "race_id", "notify_enabled", "created_at", "updated_at"\) FROM STDIN`).
+		WithArgs("a2", "Cyrus Venn", "idle", "w2", "coastal", false, sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnError(errors.New("boom"))
 	mock.ExpectRollback()
 
 	agents := []models.NPCAgent{
-		{ID: "a1", Name: "Marion Hale", CurrentWorldID: "w1"},
-		{ID: "a2", Name: "Cyrus Venn", CurrentWorldID: "w2"},
+		{ID: "a1", Name: "Marion Hale", CurrentWorldID: "w1", RaceID: "humans"},
+		{ID: "a2", Name: "Cyrus Venn", CurrentWorldID: "w2", RaceID: "coastal"},
 	}
 	err = NewNPCRepository(db).BulkInsert(agents)
 	require.Error(t, err, "ошибка в середине COPY → ошибка транзакции")

@@ -286,9 +286,10 @@ func (h *AdminNPCHandlers) DeleteAgent(w http.ResponseWriter, r *http.Request, i
 // GenerateNPC — POST /admin/npc/generate: {count} → 202, асинхронный джоб
 // (спека §4.1, паттерн генерации вселенной/гипотез: TryStart + 202 + poll).
 // count ≥ 1, без верхнего лимита (§4.3); 409 — джоб уже крутится; 400 —
-// count невалиден или нет миров для старта. Джоб: seed имён из БД →
-// генерация имён + стартовые миры (случайные по галактике) → BulkInsert
-// одной COPY-транзакцией → отчёт «Создано агентов: N за X.X с».
+// count невалиден или пул «раса → родной мир» пуст (фракции не сгенерированы,
+// спека 2026-09-23 §5.4). Джоб: seed имён из БД → генерация имён + случайные
+// происхождения (раса и её родной мир) → BulkInsert одной COPY-транзакцией →
+// отчёт «Создано агентов: N за X.X с».
 func (h *AdminNPCHandlers) GenerateNPC(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSONError(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
@@ -314,11 +315,13 @@ func (h *AdminNPCHandlers) GenerateNPC(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Стартовые миры — случайные по всей галактике: предвычисленный слайс
-	// id из сетки, O(1) на агента, без N запросов к БД (§4.4).
-	worlds, ok := h.manager.RandomWorlds(count)
+	// Стартовые происхождения — случайные (раса + её родной мир): снимок пула
+	// «раса → родной мир», O(1) на агента, без N запросов к БД (спека
+	// 2026-09-23 §5.2–5.3). Пул пуст (фракции не сгенерированы) — понятный 400,
+	// не 500 и не пустая пачка (§5.4).
+	origins, ok := h.manager.RandomRaceHomeworlds(count)
 	if !ok {
-		writeJSONError(w, "Нет миров для старта (карта не загружена или галактика пуста)", http.StatusBadRequest)
+		writeJSONError(w, "Нет рас с родным миром — сгенерируйте фракции", http.StatusBadRequest)
 		return
 	}
 
@@ -353,16 +356,17 @@ func (h *AdminNPCHandlers) GenerateNPC(w http.ResponseWriter, r *http.Request) {
 			usedNames[n] = true
 		}
 
-		// 2. Цикл генерации: имя + случайный стартовый мир; прогресс каждые
-		// 10к (§4.1). Локальный rand на джоб — общие *rand.Rand не
-		// потокобезопасны (AGENTS.md §0).
+		// 2. Цикл генерации: имя + случайное происхождение (раса и её родной
+		// мир); прогресс каждые 10к (§4.1). Локальный rand на джоб — общие
+		// *rand.Rand не потокобезопасны (AGENTS.md §0).
 		rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
 		agents := make([]models.NPCAgent, 0, count)
 		for i := 0; i < count; i++ {
 			agents = append(agents, models.NPCAgent{
 				ID:             uuid.New().String(),
 				Name:           names.GenerateAgentName(rnd, usedNames),
-				CurrentWorldID: worlds[i],
+				CurrentWorldID: origins[i].WorldID, // агент стартует в мире своей расы (§5.2)
+				RaceID:         origins[i].RaceID,
 			})
 			if (i+1)%10000 == 0 || i == count-1 {
 				statusManager.Progress(generator.JobGenerateNPC, i+1)

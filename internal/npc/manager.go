@@ -27,6 +27,32 @@ type WorldSource interface {
 	Snapshot() *mapcache.Snapshot
 }
 
+// RaceHomeworld — пара «раса → родной мир»: слаг расы и мир, где она
+// стартует (homeworld). Источник — factions (спека 2026-09-23 §5.1).
+type RaceHomeworld struct {
+	RaceID      string
+	HomeworldID string
+}
+
+// RaceHomeworldSource — источник пула «раса → родной мир» (спека §5.1, N3b).
+// SQL живёт в repository (NPCRepository.RaceHomeworlds), не в пакете npc;
+// интерфейс — для юнит-тестов.
+type RaceHomeworldSource interface {
+	RaceHomeworlds() ([]RaceHomeworld, error)
+}
+
+// AgentOrigin — стартовое происхождение агента (спека §5.2): раса и её
+// родной мир. WorldID — мир (worlds), а не планета: агент живёт в мире.
+type AgentOrigin struct {
+	RaceID  string
+	WorldID string
+}
+
+// raceHomeworlds — read-only снимок пула «раса → родной мир» (спека §5.1).
+type raceHomeworlds struct {
+	origins []AgentOrigin
+}
+
 // MapCacheSource — адаптер mapcache.Manager к WorldSource.
 type MapCacheSource struct {
 	m *mapcache.Manager
@@ -76,6 +102,7 @@ type ManagerMetrics struct {
 type Manager struct {
 	store    AgentStore
 	worlds   WorldSource
+	factions RaceHomeworldSource
 	settings *Settings
 	notifier Notifier
 
@@ -107,6 +134,16 @@ type Manager struct {
 	gridMu       sync.Mutex
 	gridSnapshot *mapcache.Snapshot
 
+	// Пул «раса → родной мир» (спека 2026-09-23 §5.1): read-only снимок из
+	// factions. Читатели (RandomRaceHomeworlds) — через atomic pointer без
+	// блокировок (инвариант И8); перестройка под racePoolMu (тик и явная
+	// инвалидация из GenerateFactions). racePoolSnapshot — снапшот карты, под
+	// который построен пул: смена указателя (перегенерация/Пакман) — сигнал
+	// перестроить (приём refreshGrid).
+	racePoolPtr      atomic.Pointer[raceHomeworlds]
+	racePoolMu       sync.Mutex
+	racePoolSnapshot *mapcache.Snapshot
+
 	// Метрики поведения (спека 26a.1 §8): атомарные счётчики тика и
 	// последней пачки массовой генерации; in-memory — при рестарте
 	// сбрасываются (для инструмента замеров ок, §2 Р4-B).
@@ -122,14 +159,17 @@ type Manager struct {
 	done chan struct{}
 }
 
-// NewManager — создаёт планировщик. settings=nil → дефолты §2.4.
-func NewManager(store AgentStore, worlds WorldSource, settings *Settings) *Manager {
+// NewManager — создаёт планировщик. factions — источник пула «раса → родной
+// мир» (спека 2026-09-23 §5.1, третий аргумент; nil — генерация агентов без
+// пула недоступна). settings=nil → дефолты §2.4.
+func NewManager(store AgentStore, worlds WorldSource, factions RaceHomeworldSource, settings *Settings) *Manager {
 	if settings == nil {
 		settings = DefaultSettings()
 	}
 	return &Manager{
 		store:    store,
 		worlds:   worlds,
+		factions: factions,
 		settings: settings,
 		notifier: LogNotifier{},
 		stop:     make(chan struct{}),
@@ -200,6 +240,78 @@ func (m *Manager) RandomWorlds(n int) ([]string, bool) {
 	return g.randomWorlds(rnd, n)
 }
 
+// RandomRaceHomeworlds — n случайных происхождений агентов (раса + её родной
+// мир) для стартовых позиций пачки (спека 2026-09-23 §5.2–5.3): O(1) на
+// агента по снимку пула, без запросов к БД; повторы допустимы. false — пул
+// пуст (фракции не сгенерированы / родные миры выпали из галактики). Вызов из
+// хендлера (другая горутина) — перед чтением пул освежается по смене снапшота.
+func (m *Manager) RandomRaceHomeworlds(n int) ([]AgentOrigin, bool) {
+	m.ensureRaceHomeworlds()
+	p := m.racePoolPtr.Load()
+	if p == nil || len(p.origins) == 0 {
+		return nil, false
+	}
+	// Локальный rand — общие *rand.Rand не потокобезопасны (§0).
+	rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
+	out := make([]AgentOrigin, n)
+	for i := range out {
+		out[i] = p.origins[rnd.Intn(len(p.origins))]
+	}
+	return out, true
+}
+
+// RefreshRaceHomeworlds — перечитывает пул «раса → родной мир» из источника и
+// заменяет снимок (спека §5.1). Вызывается после успешной генерации фракций
+// (GenerateFactions, N3a) и по смене снапшота карты (ensureRaceHomeworlds).
+// Записи, чей родной мир отсутствует в текущем множестве миров, отбрасываются
+// — страховка от рассинхрона factions и миров (Пакман/перегенерация).
+func (m *Manager) RefreshRaceHomeworlds() {
+	if m.factions == nil {
+		return // источник не подключён (тесты/конструктор без фракций)
+	}
+	snap := m.worlds.Snapshot()
+	if snap == nil {
+		return // карта ещё не загружена — родных миров не знаем
+	}
+	origins, err := m.factions.RaceHomeworlds()
+	if err != nil {
+		log.Printf("❌ NPCManager: RaceHomeworlds: %v", err)
+		return
+	}
+	known := make(map[string]struct{}, snap.Len())
+	for _, w := range snap.Worlds() {
+		known[w.ID] = struct{}{}
+	}
+	pool := make([]AgentOrigin, 0, len(origins))
+	for _, o := range origins {
+		if _, ok := known[o.HomeworldID]; !ok {
+			continue // мира нет в галактике — раса родной мир потеряла
+		}
+		pool = append(pool, AgentOrigin{RaceID: o.RaceID, WorldID: o.HomeworldID})
+	}
+	m.racePoolMu.Lock()
+	m.racePoolSnapshot = snap
+	m.racePoolPtr.Store(&raceHomeworlds{origins: pool})
+	m.racePoolMu.Unlock()
+}
+
+// ensureRaceHomeworlds — строит пул, если он ещё не построен или сменился
+// снапшот карты (приём refreshGrid: сравнение указателя). Снапшот не готов —
+// пул не строим.
+func (m *Manager) ensureRaceHomeworlds() {
+	snap := m.worlds.Snapshot()
+	if snap == nil {
+		return
+	}
+	m.racePoolMu.Lock()
+	built := m.racePoolSnapshot == snap
+	m.racePoolMu.Unlock()
+	if built {
+		return
+	}
+	m.RefreshRaceHomeworlds()
+}
+
 // WorldName — имя мира по id (спека §5: уведомления {"world": {id, name}}).
 // Источник — сетка миров из снапшота mapcache; "" — мира нет в сетке.
 func (m *Manager) WorldName(id string) string {
@@ -253,6 +365,9 @@ func (m *Manager) tick() {
 	}()
 
 	m.refreshGrid()
+	// Пул «раса → родной мир» производен ещё и от миров: сменился снапшот
+	// (перегенерация/Пакман) — перестраиваем (спека §5.1, триггер 1).
+	m.ensureRaceHomeworlds()
 
 	// Кэш агентов (идея 26c A2): загрузка при старте (первый тик) и
 	// перезагрузка после внешних мутаций (MarkDirty/OnAgentsDeleted).

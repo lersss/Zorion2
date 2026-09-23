@@ -754,6 +754,15 @@ func (h *AdminHandlers) GenerateFactions(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		log.Printf("✅ GenerateFactions: %d factions, %d capitals", factions, capitals)
+		// Пул «раса → родной мир» NPC-менеджера устарел после записи фракций
+		// (спека 2026-09-23 §5.1, N3a): инвалидация — строго здесь, ПОСЛЕ
+		// успешной генерации (хендлер отвечает 202 раньше) и ДО Done, иначе
+		// генерация агентов сразу после джоба получила бы пустой пул. Ветка
+		// total == 0 выше вызова не делает (состав factions не менялся);
+		// h.npcManager == nil — тесты/харднесс без менеджера (пропуск).
+		if h.npcManager != nil {
+			h.npcManager.RefreshRaceHomeworlds()
+		}
 		statusManager.Done(generator.JobGenerateFactions)
 	}()
 

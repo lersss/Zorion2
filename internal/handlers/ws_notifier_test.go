@@ -68,7 +68,7 @@ func TestWSNotifierSendsBatch(t *testing.T) {
 	hub := NewWebSocketHub()
 	client := newWSClient(t, hub)
 
-	manager := npc.NewManager(npcFakeStore{}, npcFakeWorlds{}, npc.DefaultSettings())
+	manager := npc.NewManager(npcFakeStore{}, npcFakeWorlds{}, nil, npc.DefaultSettings())
 	notifier := NewWSNotifier(hub, manager, 200*time.Millisecond, 100)
 	notifier.Start()
 	t.Cleanup(notifier.Stop)
@@ -113,7 +113,7 @@ func TestWSNotifierBatchesArrivals(t *testing.T) {
 	hub := NewWebSocketHub()
 	client := newWSClient(t, hub)
 
-	manager := npc.NewManager(npcFakeStore{}, npcFakeWorlds{}, npc.DefaultSettings())
+	manager := npc.NewManager(npcFakeStore{}, npcFakeWorlds{}, nil, npc.DefaultSettings())
 	notifier := NewWSNotifier(hub, manager, 200*time.Millisecond, 100)
 	notifier.Start()
 	t.Cleanup(notifier.Stop)

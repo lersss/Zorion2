@@ -12,6 +12,7 @@ import (
 	"github.com/lib/pq"
 
 	"zorion/internal/models"
+	"zorion/internal/npc"
 )
 
 // NPCRepository — доступ к таблице npc_agents (спека 20a.1 §2.1).
@@ -164,6 +165,35 @@ func (r *NPCRepository) ListAll() ([]models.NPCAgent, error) {
 	}
 	defer rows.Close()
 	return scanNPCAgents(rows)
+}
+
+// ==================== ПУЛ «РАСА → РОДНОЙ МИР» (спека 2026-09-23 §5.1) =========
+
+// RaceHomeworlds — пул «раса → родной мир» для генерации агентов: по одной
+// фракции на расу (uq_factions_race, миграция 000066). factions.homeworld_id
+// ссылается на planets(id), а агент живёт в мире (worlds) — возвращается мир
+// родной планеты (planets.world_id), чтобы CurrentWorldID был валидным миром
+// (npc_agents.current_world_id REFERENCES worlds(id)).
+func (r *NPCRepository) RaceHomeworlds() ([]npc.RaceHomeworld, error) {
+	rows, err := r.db.Query(`
+		SELECT f.race_id, p.world_id
+		FROM factions f
+		JOIN planets p ON p.id = f.homeworld_id
+		WHERE f.race_id IS NOT NULL AND f.homeworld_id IS NOT NULL
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []npc.RaceHomeworld
+	for rows.Next() {
+		var o npc.RaceHomeworld
+		if err := rows.Scan(&o.RaceID, &o.HomeworldID); err != nil {
+			return nil, err
+		}
+		out = append(out, o)
+	}
+	return out, rows.Err()
 }
 
 // UpdateStatusBatch применяет смены состояния агентов одной транзакцией
@@ -323,15 +353,16 @@ func (r *NPCRepository) BulkInsert(agents []models.NPCAgent) error {
 	defer tx.Rollback()
 
 	// Колонки создания; кортеж полёта не входит — DEFAULT NULL (спека §4.2).
+	// race_id — раса агента (спека 2026-09-23 §5.2): генерация всегда её ставит.
 	stmt, err := tx.Prepare(pq.CopyIn("npc_agents",
-		"id", "name", "status", "current_world_id", "notify_enabled", "created_at", "updated_at"))
+		"id", "name", "status", "current_world_id", "race_id", "notify_enabled", "created_at", "updated_at"))
 	if err != nil {
 		return fmt.Errorf("prepare copy npc_agents: %w", err)
 	}
 
 	now := time.Now()
 	for _, a := range agents {
-		if _, err := stmt.Exec(a.ID, a.Name, models.NPCAgentStatusIdle, a.CurrentWorldID, false, now, now); err != nil {
+		if _, err := stmt.Exec(a.ID, a.Name, models.NPCAgentStatusIdle, a.CurrentWorldID, a.RaceID, false, now, now); err != nil {
 			stmt.Close()
 			return fmt.Errorf("copy npc_agents row: %w", err)
 		}

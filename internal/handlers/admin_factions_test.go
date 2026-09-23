@@ -4,17 +4,22 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/require"
 
 	"zorion/internal/generator"
+	"zorion/internal/mapcache"
+	"zorion/internal/npc"
+	"zorion/internal/repository"
 )
 
 // expectEmptyFactionsBuildings — ожидания attachFactionsAndBuildings (пустые
@@ -124,6 +129,95 @@ func TestGenerateFactionsEmptyUniverseMutexGate(t *testing.T) {
 
 	require.Equal(t, http.StatusConflict, rec.Code, "мьютекс мутаций занят — догон не стартует")
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// newFactionsRaceManager — NPC-менеджер с источником пула «раса → родной мир»
+// на той же sqlmock-БД + сетка из одного мира (валидация пула, спека §5.1).
+func newFactionsRaceManager(t *testing.T, db *sql.DB, worldID string) *npc.Manager {
+	t.Helper()
+	mc := mapcache.NewManager()
+	mc.Replace(mapcache.NewSnapshot([]mapcache.World{{ID: worldID, X: 0, Y: 0}}))
+	repo := repository.NewNPCRepository(db)
+	return npc.NewManager(repo, npc.NewMapCacheSource(mc), repo, npc.DefaultSettings())
+}
+
+// waitJobDone — ждёт смены статуса джоба из «running» (паттерн
+// admin_npc_test.go).
+func waitJobDone(t *testing.T, jt generator.JobType) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		_, _, status, _, _ := statusManager.GetStatus(jt)
+		if status != "running" {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("джоб %s не завершился за отведённое время", jt)
+}
+
+// TestGenerateFactionsRefreshesRacePool — N3a (спека 2026-09-23 §5.1): успешная
+// генерация фракций инвалидирует пул «раса → родной мир» NPC-менеджера СТРОГО
+// после записи фракций (sqlmock в порядке объявления: запрос пула стоит после
+// INSERT фракций/столиц) и до Done джоба.
+func TestGenerateFactionsRefreshesRacePool(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectRaceCandidateCount(mock, 1)
+	// GenerateFactions: заселённые расы — кандидаты на фракцию.
+	mock.ExpectQuery(`SELECT s\.race_id, s\.planet_id, s\.population, p\.name, p\.data\s+FROM settlements s\s+JOIN planets p ON p\.id = s\.planet_id`).
+		WillReturnRows(sqlmock.NewRows([]string{"race_id", "planet_id", "population", "name", "data"}).
+			AddRow("humans", "p1", 100, "Earth", []byte("{}")))
+	// existingRaceIDs: фракций ещё нет.
+	mock.ExpectQuery(`SELECT race_id FROM factions WHERE race_id IS NOT NULL`).
+		WillReturnRows(sqlmock.NewRows([]string{"race_id"}))
+	// saveFaction — запись фракции (смена состава factions).
+	mock.ExpectExec(`INSERT INTO factions \(id, name, type, race_id, homeworld_id, strength, resources, color, description, created_at, updated_at\)`).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	// EnsureCapitals.
+	mock.ExpectExec(`INSERT INTO buildings \(planet_id, building_type, owner_type, owner_id\)`).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	// Пул «раса → родной мир» — ТОЛЬКО здесь: после записи фракций, не раньше.
+	mock.ExpectQuery(`SELECT f\.race_id, p\.world_id\s+FROM factions f\s+JOIN planets p ON p\.id = f\.homeworld_id`).
+		WillReturnRows(sqlmock.NewRows([]string{"race_id", "world_id"}).AddRow("humans", "w1"))
+
+	mgr := newFactionsRaceManager(t, db, "w1")
+	h := &AdminHandlers{db: db, npcManager: mgr}
+	rec := httptest.NewRecorder()
+	h.GenerateFactions(rec, httptest.NewRequest(http.MethodPost, "/admin/generate-factions", nil))
+	require.Equal(t, http.StatusAccepted, rec.Code)
+
+	waitJobDone(t, generator.JobGenerateFactions)
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	out, ok := mgr.RandomRaceHomeworlds(1)
+	require.True(t, ok, "пул наполнен после генерации фракций")
+	require.Equal(t, "humans", out[0].RaceID)
+	require.Equal(t, "w1", out[0].WorldID, "родной мир — мир родной планеты")
+}
+
+// TestGenerateFactionsEmptyUniverseNoRacePoolRefresh — N3a: ветка total == 0
+// (фракции не создаются) пул не инвалидирует — запроса пула нет.
+func TestGenerateFactionsEmptyUniverseNoRacePoolRefresh(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectRaceCandidateCount(mock, 0)
+	mock.ExpectExec(`INSERT INTO buildings \(planet_id, building_type, owner_type, owner_id\)`).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	mgr := newFactionsRaceManager(t, db, "w1")
+	h := &AdminHandlers{db: db, npcManager: mgr}
+	rec := httptest.NewRecorder()
+	h.GenerateFactions(rec, httptest.NewRequest(http.MethodPost, "/admin/generate-factions", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Порядок sqlmock: лишний запрос пула (если он был бы) — неожиданный.
+	require.NoError(t, mock.ExpectationsWereMet(),
+		"total == 0 — состав factions не менялся, пул не перечитывается")
 }
 
 // TestTruncateTablesIncludesBuildings — страховка от TRUNCATE-ловушки:

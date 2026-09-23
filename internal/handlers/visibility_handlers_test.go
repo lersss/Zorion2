@@ -332,7 +332,7 @@ func TestNPCPositionsFilteredByRadius(t *testing.T) {
 	userRepo := repository.NewUserRepository(db)
 	v := NewVisibility(userRepo, tm, mc, repository.NewKnowledgeRepository(db))
 
-	npcManager := npc.NewManager(repository.NewNPCRepository(db), npc.NewMapCacheSource(mc), npc.DefaultSettings())
+	npcManager := npc.NewManager(repository.NewNPCRepository(db), npc.NewMapCacheSource(mc), nil, npc.DefaultSettings())
 	h := NewAdminNPCHandlers(repository.NewNPCRepository(db), repository.NewWorldRepository(db), npcManager)
 	h.SetVisibility(v)
 
@@ -375,7 +375,7 @@ func TestNPCSearchHidesCoordsOutsideRadius(t *testing.T) {
 	userRepo := repository.NewUserRepository(db)
 	v := NewVisibility(userRepo, tm, mc, repository.NewKnowledgeRepository(db))
 
-	npcManager := npc.NewManager(repository.NewNPCRepository(db), npc.NewMapCacheSource(mc), npc.DefaultSettings())
+	npcManager := npc.NewManager(repository.NewNPCRepository(db), npc.NewMapCacheSource(mc), nil, npc.DefaultSettings())
 	h := NewAdminNPCHandlers(repository.NewNPCRepository(db), repository.NewWorldRepository(db), npcManager)
 	h.SetVisibility(v)
 
@@ -1120,7 +1120,7 @@ func TestNPCPositionsOnlyFlying(t *testing.T) {
 	userRepo := repository.NewUserRepository(db)
 	v := NewVisibility(userRepo, tm, mc, repository.NewKnowledgeRepository(db))
 
-	npcManager := npc.NewManager(repository.NewNPCRepository(db), npc.NewMapCacheSource(mc), npc.DefaultSettings())
+	npcManager := npc.NewManager(repository.NewNPCRepository(db), npc.NewMapCacheSource(mc), nil, npc.DefaultSettings())
 	h := NewAdminNPCHandlers(repository.NewNPCRepository(db), repository.NewWorldRepository(db), npcManager)
 	h.SetVisibility(v)
 
@@ -1161,7 +1161,7 @@ func TestNPCPositionsAdminOnlyFlying(t *testing.T) {
 	userRepo := repository.NewUserRepository(db)
 	v := NewVisibility(userRepo, tm, mc, repository.NewKnowledgeRepository(db))
 
-	npcManager := npc.NewManager(repository.NewNPCRepository(db), npc.NewMapCacheSource(mc), npc.DefaultSettings())
+	npcManager := npc.NewManager(repository.NewNPCRepository(db), npc.NewMapCacheSource(mc), nil, npc.DefaultSettings())
 	h := NewAdminNPCHandlers(repository.NewNPCRepository(db), repository.NewWorldRepository(db), npcManager)
 	h.SetVisibility(v)
 

@@ -41,13 +41,19 @@ type npcFakeWorlds struct{}
 
 func (npcFakeWorlds) Snapshot() *mapcache.Snapshot { return nil }
 
+// npcFakeRaces — RaceHomeworldSource в памяти (пул «раса → родной мир»,
+// спека 2026-09-23 §5.1).
+type npcFakeRaces struct{ origins []npc.RaceHomeworld }
+
+func (f npcFakeRaces) RaceHomeworlds() ([]npc.RaceHomeworld, error) { return f.origins, nil }
+
 // newAdminNPCHarness — sqlmock-БД + хендлеры NPC с менеджером без сетки.
 func newAdminNPCHarness(t *testing.T) (*AdminNPCHandlers, sqlmock.Sqlmock) {
 	t.Helper()
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })
-	manager := npc.NewManager(npcFakeStore{}, npcFakeWorlds{}, npc.DefaultSettings())
+	manager := npc.NewManager(npcFakeStore{}, npcFakeWorlds{}, nil, npc.DefaultSettings())
 	return NewAdminNPCHandlers(
 		repository.NewNPCRepository(db),
 		repository.NewWorldRepository(db),
@@ -163,8 +169,19 @@ type npcGridWorlds struct{ m *mapcache.Manager }
 func (g npcGridWorlds) Snapshot() *mapcache.Snapshot { return g.m.Snapshot() }
 
 // newBulkHarness — sqlmock-БД + хендлеры NPC с менеджером, у которого сетка
-// из двух миров (снапшот загружается через mapcache.LoadAndSwap).
+// из двух миров (снапшот загружается через mapcache.LoadAndSwap) и пул
+// «раса → родной мир» из двух рас. Каждая раса — в своём мире (спека §5.2).
 func newBulkHarness(t *testing.T) (*AdminNPCHandlers, *sql.DB, sqlmock.Sqlmock) {
+	t.Helper()
+	return newBulkHarnessWithRaces(t, []npc.RaceHomeworld{
+		{RaceID: "humans", HomeworldID: "w1"},
+		{RaceID: "coastal", HomeworldID: "w2"},
+	})
+}
+
+// newBulkHarnessWithRaces — тот же харнесс с заданным пулом расы → родной мир
+// (origins=nil — пустой пул, спека §5.4).
+func newBulkHarnessWithRaces(t *testing.T, origins []npc.RaceHomeworld) (*AdminNPCHandlers, *sql.DB, sqlmock.Sqlmock) {
 	t.Helper()
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
@@ -179,7 +196,7 @@ func newBulkHarness(t *testing.T) (*AdminNPCHandlers, *sql.DB, sqlmock.Sqlmock) 
 		WillReturnRows(sqlmock.NewRows([]string{"world_id", "life", "type", "resources", "settled"}))
 	require.NoError(t, mapCache.LoadAndSwap(context.Background(), db))
 
-	manager := npc.NewManager(npcFakeStore{}, npcGridWorlds{mapCache}, npc.DefaultSettings())
+	manager := npc.NewManager(npcFakeStore{}, npcGridWorlds{mapCache}, npcFakeRaces{origins}, npc.DefaultSettings())
 	return NewAdminNPCHandlers(
 		repository.NewNPCRepository(db),
 		repository.NewWorldRepository(db),
@@ -358,14 +375,26 @@ func TestAdminNPCGenerateInvalidCount(t *testing.T) {
 	}
 }
 
-// Нет сетки миров (снапшот карты не готов / галактика пуста) — 400
-// «Нет миров для старта» (спека §4.3).
+// Нет пула «раса → родной мир» (снапшот карты не готов, источник не
+// подключён) — 400 «Нет рас с родным миром» (спека 2026-09-23 §5.4).
 func TestAdminNPCGenerateNoWorlds(t *testing.T) {
 	h, _ := newAdminNPCHarness(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/admin/npc/generate", strings.NewReader(`{"count":5}`))
 	rec := execJSON(h.HandleObject, req)
 	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Contains(t, rec.Body.String(), "Нет рас с родным миром")
+}
+
+// Пул расы пуст (фракции не сгенерированы) при готовой карте — 400 с понятным
+// сообщением, а не 500 и не пустая пачка (спека §5.4).
+func TestAdminNPCGenerateEmptyRacePool(t *testing.T) {
+	h, _, _ := newBulkHarnessWithRaces(t, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/npc/generate", strings.NewReader(`{"count":5}`))
+	rec := execJSON(h.HandleObject, req)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Contains(t, rec.Body.String(), "Нет рас с родным миром")
 }
 
 // 409 — джоб generate_npc уже крутится (TryStart, защита от двойного клика).
@@ -382,19 +411,21 @@ func TestAdminNPCGenerateConflict(t *testing.T) {
 }
 
 // Успех: 202 → джоб доходит до done с отчётом «Создано агентов: N за X.X с»;
-// BulkInsert — одной COPY-транзакцией (спека §4.1, §4.2).
+// BulkInsert — одной COPY-транзакцией (спека §4.1, §4.2). Агент получает расу
+// и стартует в её родном мире (спека 2026-09-23 §5.2): один origin в пуле —
+// проверяем точные пару (race_id, current_world_id) в COPY-строке.
 func TestAdminNPCGenerateSuccess(t *testing.T) {
-	h, _, mock := newBulkHarness(t)
+	h, _, mock := newBulkHarnessWithRaces(t, []npc.RaceHomeworld{{RaceID: "coastal", HomeworldID: "w2"}})
 
 	// Джоб: seed имён (ListNames) + COPY-вставка одной транзакцией.
 	mock.ExpectQuery(`SELECT name FROM npc_agents`).
 		WillReturnRows(sqlmock.NewRows([]string{"name"}).AddRow("Старый Агент"))
 	mock.ExpectBegin()
 	mock.ExpectPrepare(`COPY "npc_agents"`)
-	mock.ExpectExec(`COPY "npc_agents" \("id", "name", "status", "current_world_id", "notify_enabled", "created_at", "updated_at"\) FROM STDIN`).
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "idle", sqlmock.AnyArg(), false, sqlmock.AnyArg(), sqlmock.AnyArg()).
+	mock.ExpectExec(`COPY "npc_agents" \("id", "name", "status", "current_world_id", "race_id", "notify_enabled", "created_at", "updated_at"\) FROM STDIN`).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "idle", "w2", "coastal", false, sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(`COPY "npc_agents" \("id", "name", "status", "current_world_id", "notify_enabled", "created_at", "updated_at"\) FROM STDIN`).
+	mock.ExpectExec(`COPY "npc_agents" \("id", "name", "status", "current_world_id", "race_id", "notify_enabled", "created_at", "updated_at"\) FROM STDIN`).
 		WillReturnResult(sqlmock.NewResult(0, 0)) // flush
 	mock.ExpectCommit()
 

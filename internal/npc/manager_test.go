@@ -111,6 +111,26 @@ type fakeWorlds struct{}
 
 func (fakeWorlds) Snapshot() *mapcache.Snapshot { return nil }
 
+// snapshotWorlds — WorldSource с готовым снапшотом (тесты пула расы).
+type snapshotWorlds struct{ snap *mapcache.Snapshot }
+
+func (s snapshotWorlds) Snapshot() *mapcache.Snapshot { return s.snap }
+
+// fakeRaceSource — RaceHomeworldSource в памяти (пул «раса → родной мир»).
+type fakeRaceSource struct {
+	origins []RaceHomeworld
+	calls   int
+	err     error
+}
+
+func (f *fakeRaceSource) RaceHomeworlds() ([]RaceHomeworld, error) {
+	f.calls++
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.origins, nil
+}
+
 type silentNotifier struct{}
 
 func (silentNotifier) NotifyArrival(models.NPCAgent, time.Time) {}
@@ -120,7 +140,7 @@ type recordingNotifier struct{ calls int }
 func (r *recordingNotifier) NotifyArrival(models.NPCAgent, time.Time) { r.calls++ }
 
 func newTestManager(store AgentStore) *Manager {
-	m := NewManager(store, fakeWorlds{}, DefaultSettings())
+	m := NewManager(store, fakeWorlds{}, nil, DefaultSettings())
 	m.SetNotifier(silentNotifier{})
 	return m
 }
@@ -381,6 +401,100 @@ func TestManagerRandomWorlds(t *testing.T) {
 	for _, id := range out {
 		require.Contains(t, []string{"w1", "w2"}, id)
 	}
+}
+
+// ==================== ПУЛ «РАСА → РОДНОЙ МИР» (спека 2026-09-23 §5) ==========
+
+// RandomRaceHomeworlds — происхождения агентов: случайная раса, а мир — родной
+// мир этой расы (§5.2). Пул подгружается из источника при первом чтении;
+// повторное чтение без смены снапшота источник не дёргает (И8).
+func TestManagerRandomRaceHomeworlds(t *testing.T) {
+	snap := mapcache.NewSnapshot([]mapcache.World{{ID: "w1", X: 0, Y: 0}, {ID: "w2", X: 100, Y: 0}})
+	src := &fakeRaceSource{origins: []RaceHomeworld{
+		{RaceID: "humans", HomeworldID: "w1"},
+		{RaceID: "coastal", HomeworldID: "w2"},
+	}}
+	m := NewManager(&fakeStore{}, snapshotWorlds{snap}, src, DefaultSettings())
+	m.SetNotifier(silentNotifier{})
+
+	out, ok := m.RandomRaceHomeworlds(4)
+	require.True(t, ok)
+	require.Len(t, out, 4)
+	byRace := map[string]string{"humans": "w1", "coastal": "w2"}
+	for _, o := range out {
+		require.Equal(t, byRace[o.RaceID], o.WorldID, "мир агента — родной мир его расы")
+	}
+	require.Equal(t, 1, src.calls, "снапшот не менялся — повторное чтение источника не нужно")
+
+	m.RandomRaceHomeworlds(1)
+	require.Equal(t, 1, src.calls, "пул берётся из снимка, источник не дёргается")
+}
+
+// Пул пуст (фракции не сгенерированы / источник пуст) → false (§5.4: отказ,
+// не пустая пачка).
+func TestManagerRandomRaceHomeworldsEmptyPool(t *testing.T) {
+	snap := mapcache.NewSnapshot([]mapcache.World{{ID: "w1"}})
+	m := NewManager(&fakeStore{}, snapshotWorlds{snap}, &fakeRaceSource{}, DefaultSettings())
+
+	_, ok := m.RandomRaceHomeworlds(3)
+	require.False(t, ok, "пустой пул — происхождений нет")
+}
+
+// Смена снапшота карты (Пакман/перегенерация) → пул перестраивается: раса,
+// чей родной мир съеден, из пула выпадает (спека §5.1, триггер 1 + валидация).
+func TestManagerRacePoolDropsRemovedWorlds(t *testing.T) {
+	mc := mapcache.NewManager()
+	mc.Replace(mapcache.NewSnapshot([]mapcache.World{{ID: "w1", X: 0, Y: 0}, {ID: "w2", X: 100, Y: 0}}))
+	src := &fakeRaceSource{origins: []RaceHomeworld{
+		{RaceID: "humans", HomeworldID: "w1"},
+		{RaceID: "coastal", HomeworldID: "w2"},
+	}}
+	m := NewManager(&fakeStore{}, NewMapCacheSource(mc), src, DefaultSettings())
+
+	out, ok := m.RandomRaceHomeworlds(1)
+	require.True(t, ok)
+	require.Len(t, m.racePoolPtr.Load().origins, 2, "до вайпа — обе расы в пуле")
+
+	// w2 съеден: новый снапшот без него.
+	mc.Replace(mapcache.NewSnapshot([]mapcache.World{{ID: "w1", X: 0, Y: 0}}))
+
+	out, ok = m.RandomRaceHomeworlds(1)
+	require.True(t, ok)
+	require.Len(t, m.racePoolPtr.Load().origins, 1, "мир выпал — запись пула отброшена")
+	require.Equal(t, "humans", out[0].RaceID)
+	require.Equal(t, "w1", out[0].WorldID)
+}
+
+// RefreshRaceHomeworlds — явная инвалидация перечитывает источник, не меняя
+// снапшот (спека §5.1, триггер 2: после генерации фракций).
+func TestManagerRefreshRaceHomeworlds(t *testing.T) {
+	mc := mapcache.NewManager()
+	mc.Replace(mapcache.NewSnapshot([]mapcache.World{{ID: "w1", X: 0, Y: 0}, {ID: "w2", X: 100, Y: 0}}))
+	src := &fakeRaceSource{origins: []RaceHomeworld{{RaceID: "humans", HomeworldID: "w1"}}}
+	m := NewManager(&fakeStore{}, NewMapCacheSource(mc), src, DefaultSettings())
+
+	_, ok := m.RandomRaceHomeworlds(1)
+	require.True(t, ok)
+	require.Equal(t, 1, src.calls)
+
+	// Фракции достроились: источник обогатился, снапшот карты не менялся.
+	src.origins = append(src.origins, RaceHomeworld{RaceID: "coastal", HomeworldID: "w2"})
+	m.RefreshRaceHomeworlds()
+
+	require.Equal(t, 2, src.calls, "явная инвалидация перечитала источник")
+	require.Len(t, m.racePoolPtr.Load().origins, 2)
+}
+
+// Источник пула не подключён (nil) — методы не паникуют, void-инвалидация
+// безопасна (харднессы без фракций).
+func TestManagerRacePoolWithoutSource(t *testing.T) {
+	snap := mapcache.NewSnapshot([]mapcache.World{{ID: "w1"}})
+	m := NewManager(&fakeStore{}, snapshotWorlds{snap}, nil, DefaultSettings())
+
+	require.NotPanics(t, func() { m.RefreshRaceHomeworlds() })
+	m.ensureRaceHomeworlds()
+	_, ok := m.RandomRaceHomeworlds(1)
+	require.False(t, ok)
 }
 
 // ==================== КЭШ ПОЗИЦИЙ (идея 26c A2) ====================

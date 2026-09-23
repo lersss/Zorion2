@@ -335,6 +335,15 @@
   `.Valid` (как `ship_model_id`). Порядок колонки в SELECT и в `Scan` обязан
   совпадать (в П1 `race_id` — ПОСЛЕ `pending_destination`).
 
+- **`factions.homeworld_id` — это ПЛАНЕТА, не мир (`REFERENCES planets(id)`).**
+  «Мир расы» для агента — мир родной планеты: `JOIN planets p ON
+  p.id = f.homeworld_id`, берётся `p.world_id`. Прямой `SELECT race_id,
+  homeworld_id FROM factions` в `npc_agents.current_world_id` даёт FK-нарушение
+  (`current_world_id REFERENCES worlds(id)`) — массовая генерация падает целиком.
+  Проверено 2026-09-23: все 28 фракций dev-БД ссылаются на планеты, на миры — 0
+  (`internal/repository/npc_repository.go::RaceHomeworlds`; спека кораблей рас
+  §5.1 предписывала прямой SELECT без джойна — исправлено).
+
 - **Комбинаторный словарь форм арт-студии: полное произведение ~69M строк
   (F2) — юнит-тесту материализовать нельзя.** Спека 67a.1 §11.6 закладывала
   28×25×20×25 = 350k компонентов, но оси `forms.json` выросли (78a/88a/76a)

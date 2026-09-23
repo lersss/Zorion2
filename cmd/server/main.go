@@ -371,7 +371,10 @@ func main() {
 	// тик каждые npcTickInterval. Стартует после загрузки карты —
 	// сетка миров строится из снапшота mapcache.
 	npcRepo := repository.NewNPCRepository(db)
-	npcManager := npc.NewManager(npcRepo, npc.NewMapCacheSource(mapCache), npc.DefaultSettings())
+	// npcRepo — и хранилище агентов, и источник пула «раса → родной мир»
+	// (RaceHomeworldSource, спека 2026-09-23 §5.1): генерация агентов стартует
+	// их в мире расы.
+	npcManager := npc.NewManager(npcRepo, npc.NewMapCacheSource(mapCache), npcRepo, npc.DefaultSettings())
 	// Агент-исполнитель контракта-перелёта (спека перелёта §1.5, B2b):
 	// взятие при совпадении маршрута и закрытие по прибытии — до Start.
 	npcManager.SetContracts(contractRepo)

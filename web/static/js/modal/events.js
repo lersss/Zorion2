@@ -871,9 +871,13 @@ export function showBeltMenu(x, y, beltId, worldX, worldY) {
         return el;
     };
 
-    // «Лететь» — скрыт, когда уже в поясе / цель или отправление полёта /
-    // активный межзвёздный. Без двигателя — пункт есть, клик → тост.
-    if (!inThisBelt && !flyingTo && !flyingFrom && !modalState.interstellarFlight) {
+    // «Лететь» — скрыт, когда уже в поясе / цель или отправление полёта.
+    // Активный межзвёздный полёт НЕ блокирует (спека 99.2.30 §6.2): в этом
+    // состоянии flightModeForSystem() даёт 'composite' (даже в своей системе),
+    // а композитный пункт при межзвёздном — это /travel-редирект с текущей
+    // точки корабля (61a), не 400. Внутрисистемный старт сюда не доходит
+    // (intra = false). Без двигателя — пункт есть, клик → тост.
+    if (!inThisBelt && !flyingTo && !flyingFrom) {
         const btn = menuItem(`🚀 <span>Лететь</span>`);
         btn.addEventListener('click', async () => {
             hideStarMenu();

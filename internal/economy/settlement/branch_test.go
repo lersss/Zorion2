@@ -2,8 +2,10 @@
 //
 // Юнит-тесты чистой функции переработки ветки (спека 2026-09-22-поселение-
 // ветка-буферы-переработка §4, тесты T5–T7/T9/T10): Δt/дефицит входа/
-// идемпотентность/скорость по населению и сложности/независимость веток.
-// Плюс добыча из залежей своей планеты (спека итерации 3 §12, T1–T6/T10/T16).
+// идемпотентность/скорость по числу пары/независимость веток. Плюс добыча из
+// залежей своей планеты (спека итерации 3 §12, T1–T6/T10/T16) и число скорости
+// пары (спека 2026-09-23-стадии-поселения §3.2, T-Р1/T-Р2): rate NULL/0 →
+// ветка инертна, залежь не трогается; rate > 0 → пропорционально населению и Δt.
 package settlement
 
 import (
@@ -12,7 +14,13 @@ import (
 	"time"
 )
 
-func ptrInt(v int) *int { return &v }
+// testRate — число скорости пары для тестов, ед/сутки/млрд (600 при населении
+// 1e9 даёт ровно 25 батч/час — читаемые числа).
+const testRate = 600
+
+// batchFor — батчей за hours при населении 1e9 и testRate (через единую точку
+// конверсии — то, что тесты и проверяют).
+func batchFor(hours float64) float64 { return PerSecond(testRate, 1e9) * hours * 3600 }
 
 // depositLot — залежь для тестов добычи (спека итерации 3 §4).
 func depositLot(id string, goodID int64, amount float64) DepositLot {
@@ -30,13 +38,14 @@ func noEat(b Branch) Branch { return b }
 func TestProcessBranchExtractsFromDeposit(t *testing.T) {
 	now := time.Now()
 	b := noEat(Branch{
-		Population:  1e9,
-		Components:  []BranchComponent{{GoodID: 359, Quantity: 1}},
-		Input:       map[int64]float64{},
-		Deposits:    map[int64][]DepositLot{359: {depositLot("d1", 359, 5000)}},
-		ProcessedAt: now.Add(-2 * time.Hour),
+		Population:           1e9,
+		RatePerDayPerBillion: testRate,
+		Components:           []BranchComponent{{GoodID: 359, Quantity: 1}},
+		Input:                map[int64]float64{},
+		Deposits:             map[int64][]DepositLot{359: {depositLot("d1", 359, 5000)}},
+		ProcessedAt:          now.Add(-2 * time.Hour),
 	})
-	want := BranchRate(1e9, nil) * 2.0
+	want := batchFor(2.0)
 
 	got := ProcessBranch(b, now)
 
@@ -58,11 +67,12 @@ func TestProcessBranchExtractsFromDeposit(t *testing.T) {
 func TestProcessBranchInputFirst(t *testing.T) {
 	now := time.Now()
 	b := Branch{
-		Population:  1e9, // за 2 часа хочется ≈55.6 батча
-		Components:  []BranchComponent{{GoodID: 359, Quantity: 1}},
-		Input:       map[int64]float64{359: 1000},
-		Deposits:    map[int64][]DepositLot{359: {depositLot("d1", 359, 5000)}},
-		ProcessedAt: now.Add(-2 * time.Hour),
+		Population:           1e9, // за 2 часа хочется 50 батч (testRate)
+		RatePerDayPerBillion: testRate,
+		Components:           []BranchComponent{{GoodID: 359, Quantity: 1}},
+		Input:                map[int64]float64{359: 1000},
+		Deposits:             map[int64][]DepositLot{359: {depositLot("d1", 359, 5000)}},
+		ProcessedAt:          now.Add(-2 * time.Hour),
 	}
 	got := ProcessBranch(b, now)
 	if got.Deposits[359][0].Amount != 5000 {
@@ -78,13 +88,14 @@ func TestProcessBranchInputFirst(t *testing.T) {
 func TestProcessBranchDepositCoversRemainder(t *testing.T) {
 	now := time.Now()
 	b := noEat(Branch{
-		Population:  1e9,
-		Components:  []BranchComponent{{GoodID: 359, Quantity: 1}},
-		Input:       map[int64]float64{359: 2},
-		Deposits:    map[int64][]DepositLot{359: {depositLot("d1", 359, 5000)}},
-		ProcessedAt: now.Add(-2 * time.Hour),
+		Population:           1e9,
+		RatePerDayPerBillion: testRate,
+		Components:           []BranchComponent{{GoodID: 359, Quantity: 1}},
+		Input:                map[int64]float64{359: 2},
+		Deposits:             map[int64][]DepositLot{359: {depositLot("d1", 359, 5000)}},
+		ProcessedAt:          now.Add(-2 * time.Hour),
 	})
-	want := BranchRate(1e9, nil) * 2.0
+	want := batchFor(2.0)
 
 	got := ProcessBranch(b, now)
 
@@ -104,11 +115,12 @@ func TestProcessBranchDepositCoversRemainder(t *testing.T) {
 func TestProcessBranchNoNegativeDeposit(t *testing.T) {
 	now := time.Now()
 	b := noEat(Branch{
-		Population:  1e9,
-		Components:  []BranchComponent{{GoodID: 359, Quantity: 1}},
-		Input:       map[int64]float64{},
-		Deposits:    map[int64][]DepositLot{359: {depositLot("d1", 359, 3)}},
-		ProcessedAt: now.Add(-10000 * time.Hour),
+		Population:           1e9,
+		RatePerDayPerBillion: testRate,
+		Components:           []BranchComponent{{GoodID: 359, Quantity: 1}},
+		Input:                map[int64]float64{},
+		Deposits:             map[int64][]DepositLot{359: {depositLot("d1", 359, 3)}},
+		ProcessedAt:          now.Add(-10000 * time.Hour),
 	})
 	got := ProcessBranch(b, now)
 	if got.Deposits[359][0].Amount != 0 {
@@ -124,14 +136,15 @@ func TestProcessBranchNoNegativeDeposit(t *testing.T) {
 func TestProcessBranchDepositOrder(t *testing.T) {
 	now := time.Now()
 	start := now.Add(-2 * time.Hour)
-	want := BranchRate(1e9, nil) * 2.0 // ≈55.6
+	want := batchFor(2.0) // 50
 
 	big := Branch{
-		Population:  1e9,
-		Components:  []BranchComponent{{GoodID: 359, Quantity: 1}},
-		Input:       map[int64]float64{},
-		Deposits:    map[int64][]DepositLot{359: {depositLot("small", 359, 100), depositLot("big", 359, 300)}},
-		ProcessedAt: start,
+		Population:           1e9,
+		RatePerDayPerBillion: testRate,
+		Components:           []BranchComponent{{GoodID: 359, Quantity: 1}},
+		Input:                map[int64]float64{},
+		Deposits:             map[int64][]DepositLot{359: {depositLot("small", 359, 100), depositLot("big", 359, 300)}},
+		ProcessedAt:          start,
 	}
 	got := ProcessBranch(big, now)
 	byID := map[string]float64{}
@@ -147,11 +160,12 @@ func TestProcessBranchDepositOrder(t *testing.T) {
 
 	// Ничья по запасу → меньший id первым.
 	tie := Branch{
-		Population:  1e9,
-		Components:  []BranchComponent{{GoodID: 359, Quantity: 1}},
-		Input:       map[int64]float64{},
-		Deposits:    map[int64][]DepositLot{359: {depositLot("b", 359, 100), depositLot("a", 359, 100)}},
-		ProcessedAt: start,
+		Population:           1e9,
+		RatePerDayPerBillion: testRate,
+		Components:           []BranchComponent{{GoodID: 359, Quantity: 1}},
+		Input:                map[int64]float64{},
+		Deposits:             map[int64][]DepositLot{359: {depositLot("b", 359, 100), depositLot("a", 359, 100)}},
+		ProcessedAt:          start,
 	}
 	tgot := ProcessBranch(tie, now)
 	tieByID := map[string]float64{}
@@ -171,7 +185,8 @@ func TestProcessBranchDepositOrder(t *testing.T) {
 func TestProcessBranchComponentLimitStops(t *testing.T) {
 	now := time.Now()
 	b := noEat(Branch{
-		Population: 1e9,
+		Population:           1e9,
+		RatePerDayPerBillion: testRate,
 		Components: []BranchComponent{
 			{GoodID: 359, Quantity: 1},
 			{GoodID: 1, Quantity: 1},
@@ -195,11 +210,12 @@ func TestProcessBranchComponentLimitStops(t *testing.T) {
 func TestProcessBranchDepositIdempotent(t *testing.T) {
 	now := time.Now()
 	b := Branch{
-		Population:  5e8,
-		Components:  []BranchComponent{{GoodID: 359, Quantity: 1}},
-		Input:       map[int64]float64{359: 10},
-		Deposits:    map[int64][]DepositLot{359: {depositLot("d1", 359, 1000)}},
-		ProcessedAt: now.Add(-2 * time.Hour),
+		Population:           5e8,
+		RatePerDayPerBillion: testRate,
+		Components:           []BranchComponent{{GoodID: 359, Quantity: 1}},
+		Input:                map[int64]float64{359: 10},
+		Deposits:             map[int64][]DepositLot{359: {depositLot("d1", 359, 1000)}},
+		ProcessedAt:          now.Add(-2 * time.Hour),
 	}
 	once := ProcessBranch(b, now)
 	twice := ProcessBranch(once, now)
@@ -216,12 +232,12 @@ func TestProcessBranchTwoBranchesShareDeposit(t *testing.T) {
 	start := now.Add(-2 * time.Hour)
 	dep := map[int64][]DepositLot{359: {depositLot("d1", 359, 1000)}}
 
-	a := Branch{Population: 1e9, Components: []BranchComponent{{GoodID: 359, Quantity: 1}}, Input: map[int64]float64{}, Deposits: dep, ProcessedAt: start}
-	b := Branch{Population: 1e9, Components: []BranchComponent{{GoodID: 359, Quantity: 1}}, Input: map[int64]float64{}, Deposits: dep, ProcessedAt: start}
+	a := Branch{Population: 1e9, RatePerDayPerBillion: testRate, Components: []BranchComponent{{GoodID: 359, Quantity: 1}}, Input: map[int64]float64{}, Deposits: dep, ProcessedAt: start}
+	b := Branch{Population: 1e9, RatePerDayPerBillion: testRate, Components: []BranchComponent{{GoodID: 359, Quantity: 1}}, Input: map[int64]float64{}, Deposits: dep, ProcessedAt: start}
 
 	ra := ProcessBranch(a, now)
 	rb := ProcessBranch(b, now) // второй читатель общей залежи (не должен делить с первым)
-	want := 2 * (BranchRate(1e9, nil) * 2.0)
+	want := 2 * batchFor(2.0)
 
 	sumWithdraw := (1000 - ra.Deposits[359][0].Amount) + (1000 - rb.Deposits[359][0].Amount)
 	if math.Abs(sumWithdraw-want) > 1e-9 {
@@ -236,11 +252,12 @@ func TestProcessBranchTwoBranchesShareDeposit(t *testing.T) {
 func TestProcessBranchZeroDelta(t *testing.T) {
 	now := time.Now()
 	b := Branch{
-		Population:  1e9,
-		Components:  []BranchComponent{{GoodID: 359, Quantity: 1}},
-		Input:       map[int64]float64{359: 100},
-		Output:      5,
-		ProcessedAt: now,
+		Population:           1e9,
+		RatePerDayPerBillion: testRate,
+		Components:           []BranchComponent{{GoodID: 359, Quantity: 1}},
+		Input:                map[int64]float64{359: 100},
+		Output:               5,
+		ProcessedAt:          now,
 	}
 	got := ProcessBranch(b, now)
 	if got.ProcessedAt != b.ProcessedAt {
@@ -257,7 +274,8 @@ func TestProcessBranchConverts(t *testing.T) {
 	now := time.Now()
 	start := now.Add(-1 * time.Hour)
 	b := noEat(Branch{
-		Population: 1e9,
+		Population:           1e9,
+		RatePerDayPerBillion: testRate,
 		Components: []BranchComponent{
 			{GoodID: 359, Quantity: 1},
 			{GoodID: 1, Quantity: 1},
@@ -266,7 +284,7 @@ func TestProcessBranchConverts(t *testing.T) {
 		Output:      0,
 		ProcessedAt: start,
 	})
-	wantBatch := BranchRate(1e9, nil) * 1.0 // desired за 1 час, вход не дефицитен
+	wantBatch := batchFor(1.0) // desired за 1 час, вход не дефицитен
 
 	got := ProcessBranch(b, now)
 
@@ -289,7 +307,8 @@ func TestProcessBranchConverts(t *testing.T) {
 func TestProcessBranchInputDeficit(t *testing.T) {
 	now := time.Now()
 	b := noEat(Branch{
-		Population: 1e9, // за час «хочется» ~27.8 батча
+		Population:           1e9,
+		RatePerDayPerBillion: testRate, // за 10 часов «хочется» 250 батч
 		Components: []BranchComponent{
 			{GoodID: 359, Quantity: 1},
 			{GoodID: 1, Quantity: 2},
@@ -318,10 +337,11 @@ func TestProcessBranchInputDeficit(t *testing.T) {
 func TestProcessBranchIdempotent(t *testing.T) {
 	now := time.Now()
 	b := Branch{
-		Population:  5e8,
-		Components:  []BranchComponent{{GoodID: 359, Quantity: 1}},
-		Input:       map[int64]float64{359: 1000},
-		ProcessedAt: now.Add(-2 * time.Hour),
+		Population:           5e8,
+		RatePerDayPerBillion: testRate,
+		Components:           []BranchComponent{{GoodID: 359, Quantity: 1}},
+		Input:                map[int64]float64{359: 1000},
+		ProcessedAt:          now.Add(-2 * time.Hour),
 	}
 	once := ProcessBranch(b, now)
 	twice := ProcessBranch(once, now)
@@ -330,24 +350,97 @@ func TestProcessBranchIdempotent(t *testing.T) {
 	}
 }
 
-// T9: rate линеен по населению (вариант A) и не возрастает по сложности;
-// complexity NULL → 1 и 0 → 1 дают ту же скорость, что 1.
-func TestBranchRateLinearAndComplexity(t *testing.T) {
-	if got, want := BranchRate(2e8, nil), 2*BranchRate(1e8, nil); math.Abs(got-want) > 1e-18 {
-		t.Fatalf("rate не линеен по населению: got %v want %v", got, want)
+// T-Р1 (скорость): число скорости линейно по rate и населению, Δt-пропорционально
+// (формула rate×population/1e9/86400×Δt); complexity на темп не влияет — её в
+// чистой функции нет вовсе (спека 2026-09-23 §3.2).
+func TestProcessBranchRateLinear(t *testing.T) {
+	now := time.Now()
+	batches := func(rate, pop float64, secs float64) float64 {
+		b := Branch{
+			Population:           pop,
+			RatePerDayPerBillion: rate,
+			Components:           []BranchComponent{{GoodID: 359, Quantity: 1}},
+			Input:                map[int64]float64{359: 1e15},
+			ProcessedAt:          now.Add(-time.Duration(secs) * time.Second),
+		}
+		return ProcessBranch(b, now).ProducedLast
 	}
-	if BranchRate(1e9, ptrInt(5)) >= BranchRate(1e9, ptrInt(1)) {
-		t.Fatalf("сложность 5 не должна ускорять против сложности 1")
+	if got, want := batches(2*testRate, 1e9, 3600), 2*batches(testRate, 1e9, 3600); math.Abs(got-want) > 1e-9 {
+		t.Fatalf("rate не линеен: got %v want %v", got, want)
 	}
-	base := BranchRate(1e9, ptrInt(1))
-	if BranchRate(1e9, nil) != base {
-		t.Fatalf("complexity NULL → 1: got %v want %v", BranchRate(1e9, nil), base)
+	if got, want := batches(testRate, 2e9, 3600), 2*batches(testRate, 1e9, 3600); math.Abs(got-want) > 1e-9 {
+		t.Fatalf("скорость не линейна по населению: got %v want %v", got, want)
 	}
-	if BranchRate(1e9, ptrInt(0)) != base {
-		t.Fatalf("complexity 0 → 1: got %v want %v", BranchRate(1e9, ptrInt(0)), base)
+	if got, want := batches(testRate, 1e9, 7200), 2*batches(testRate, 1e9, 3600); math.Abs(got-want) > 1e-9 {
+		t.Fatalf("скорость не пропорциональна Δt: got %v want %v", got, want)
 	}
-	if BranchRate(1e9, ptrInt(4)) != base/4 {
-		t.Fatalf("complexity 4 → делитель 4")
+}
+
+// T-Р1 (инертность): rate = 0 (и население 0) → desired = 0: ветка не
+// производит, вход/залежь не трогаются, выход не растёт, processed_at
+// продвигается (штатное «не объявлено», не ошибка, спека 2026-09-23 §3.2).
+func TestProcessBranchZeroRateInert(t *testing.T) {
+	now := time.Now()
+	b := Branch{
+		Population:           1e9,
+		RatePerDayPerBillion: 0,
+		Components:           []BranchComponent{{GoodID: 359, Quantity: 1}},
+		Input:                map[int64]float64{359: 100},
+		Output:               7,
+		Deposits:             map[int64][]DepositLot{359: {depositLot("d1", 359, 5000)}},
+		ProcessedAt:          now.Add(-2 * time.Hour),
+	}
+	got := ProcessBranch(b, now)
+	if got.Output != 7 || got.ProducedLast != 0 {
+		t.Fatalf("rate=0 произвёл: output=%v produced=%v", got.Output, got.ProducedLast)
+	}
+	if got.Input[359] != 100 {
+		t.Fatalf("вход тронут при rate=0: %v", got.Input[359])
+	}
+	if got.Deposits[359][0].Amount != 5000 {
+		t.Fatalf("залежь тронута при rate=0: %v", got.Deposits[359][0].Amount)
+	}
+	if !got.ProcessedAt.Equal(now) {
+		t.Fatalf("processed_at не продвинулся при rate=0: %v", got.ProcessedAt)
+	}
+
+	// Население 0 → rate×0 = 0: тот же режим.
+	empty := b
+	empty.Population = 0
+	empty.Output = 7
+	gotEmpty := ProcessBranch(empty, now)
+	if gotEmpty.Output != 7 || gotEmpty.ProducedLast != 0 {
+		t.Fatalf("население 0 произвело: output=%v produced=%v", gotEmpty.Output, gotEmpty.ProducedLast)
+	}
+	if !gotEmpty.ProcessedAt.Equal(now) {
+		t.Fatalf("processed_at не продвинулся при населении 0")
+	}
+}
+
+// T-Р2 (расход входа): состав «3 воды + 1 мяса на 1 пищу» — расход входа =
+// batches × quantity по каждому компоненту (перекос из рецепта), не поровну.
+func TestProcessBranchInputConsumptionPerComponent(t *testing.T) {
+	now := time.Now()
+	b := Branch{
+		Population:           1e9,
+		RatePerDayPerBillion: testRate,
+		Components: []BranchComponent{
+			{GoodID: 1, Quantity: 3}, // вода ×3
+			{GoodID: 2, Quantity: 1}, // мясо ×1
+		},
+		Input:       map[int64]float64{1: 1e9, 2: 1e9},
+		ProcessedAt: now.Add(-1 * time.Hour),
+	}
+	got := ProcessBranch(b, now)
+	batches := batchFor(1.0)
+	if math.Abs(got.Output-batches) > 1e-9 {
+		t.Fatalf("выход: got %v want %v", got.Output, batches)
+	}
+	if math.Abs(got.Input[1]-(1e9-3*batches)) > 1e-9 {
+		t.Fatalf("расход воды ≠ 3×batches: got %v", got.Input[1])
+	}
+	if math.Abs(got.Input[2]-(1e9-batches)) > 1e-9 {
+		t.Fatalf("расход мяса ≠ 1×batches: got %v", got.Input[2])
 	}
 }
 
@@ -356,16 +449,18 @@ func TestBranchRateLinearAndComplexity(t *testing.T) {
 func TestProcessBranchIndependent(t *testing.T) {
 	now := time.Now()
 	a := Branch{
-		Population:  1e9,
-		Components:  []BranchComponent{{GoodID: 1, Quantity: 1}},
-		Input:       map[int64]float64{1: 100},
-		ProcessedAt: now.Add(-1 * time.Hour),
+		Population:           1e9,
+		RatePerDayPerBillion: testRate,
+		Components:           []BranchComponent{{GoodID: 1, Quantity: 1}},
+		Input:                map[int64]float64{1: 100},
+		ProcessedAt:          now.Add(-1 * time.Hour),
 	}
 	b := Branch{
-		Population:  1e9,
-		Components:  []BranchComponent{{GoodID: 378, Quantity: 1}},
-		Input:       map[int64]float64{378: 100},
-		ProcessedAt: now.Add(-1 * time.Hour),
+		Population:           1e9,
+		RatePerDayPerBillion: testRate,
+		Components:           []BranchComponent{{GoodID: 378, Quantity: 1}},
+		Input:                map[int64]float64{378: 100},
+		ProcessedAt:          now.Add(-1 * time.Hour),
 	}
 	na := ProcessBranch(a, now)
 	nb := ProcessBranch(b, now)
@@ -387,11 +482,12 @@ func TestProcessBranchDuplicateComponentAggregated(t *testing.T) {
 	now := time.Now()
 	// Две строки одного ресурса: norms 1 + 2 = 3 за батч.
 	b := noEat(Branch{
-		Population:  1e9,
-		Components:  []BranchComponent{{GoodID: 359, Quantity: 1}, {GoodID: 359, Quantity: 2}},
-		Input:       map[int64]float64{},
-		Deposits:    map[int64][]DepositLot{359: {depositLot("d1", 359, 300)}},
-		ProcessedAt: now.Add(-10000 * time.Hour), // desired ≫ запаса
+		Population:           1e9,
+		RatePerDayPerBillion: testRate,
+		Components:           []BranchComponent{{GoodID: 359, Quantity: 1}, {GoodID: 359, Quantity: 2}},
+		Input:                map[int64]float64{},
+		Deposits:             map[int64][]DepositLot{359: {depositLot("d1", 359, 300)}},
+		ProcessedAt:          now.Add(-10000 * time.Hour), // desired ≫ запаса
 	})
 	got := ProcessBranch(b, now)
 
@@ -404,11 +500,12 @@ func TestProcessBranchDuplicateComponentAggregated(t *testing.T) {
 
 	// Нехватка считается по агрегату: 30/3 = 10 батч, списание 30 (не 90).
 	small := noEat(Branch{
-		Population:  1e9,
-		Components:  []BranchComponent{{GoodID: 359, Quantity: 1}, {GoodID: 359, Quantity: 2}},
-		Input:       map[int64]float64{},
-		Deposits:    map[int64][]DepositLot{359: {depositLot("d2", 359, 30)}},
-		ProcessedAt: now.Add(-10000 * time.Hour),
+		Population:           1e9,
+		RatePerDayPerBillion: testRate,
+		Components:           []BranchComponent{{GoodID: 359, Quantity: 1}, {GoodID: 359, Quantity: 2}},
+		Input:                map[int64]float64{},
+		Deposits:             map[int64][]DepositLot{359: {depositLot("d2", 359, 30)}},
+		ProcessedAt:          now.Add(-10000 * time.Hour),
 	})
 	sgot := ProcessBranch(small, now)
 	if sgot.Output != 10 {
@@ -425,14 +522,15 @@ func TestProcessBranchDuplicateComponentAggregated(t *testing.T) {
 func TestProcessBranchNoEatenTail(t *testing.T) {
 	now := time.Now()
 	b := Branch{
-		Population:  1e9,
-		Components:  []BranchComponent{{GoodID: 359, Quantity: 1}},
-		Input:       map[int64]float64{359: 1e15},
-		Output:      100,
-		ProcessedAt: now.Add(-time.Hour),
+		Population:           1e9,
+		RatePerDayPerBillion: testRate,
+		Components:           []BranchComponent{{GoodID: 359, Quantity: 1}},
+		Input:                map[int64]float64{359: 1e15},
+		Output:               100,
+		ProcessedAt:          now.Add(-time.Hour),
 	}
 	got := ProcessBranch(b, now)
-	if math.Abs(got.Output-(100+BranchRate(1e9, nil))) > 1e-9 {
+	if math.Abs(got.Output-(100+batchFor(1.0))) > 1e-9 {
 		t.Fatalf("ветка не ест сама: output=%v (хвост eaten убран)", got.Output)
 	}
 }

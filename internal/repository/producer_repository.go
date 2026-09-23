@@ -1097,6 +1097,92 @@ func (r *GoodsRepository) BindRecipe(producerTypeID, recipeID int64) error {
 	return tx.Commit()
 }
 
+// SetRecipeRate — число скорости пары «постройка-подтип × рецепт»
+// (PUT /studio/api/producers/{id}/recipes/{recipe_id}, спека 2026-09-23 §10):
+// ед/сутки/млрд; nil = NULL («не объявлено» → не производит). 404 — нет типа/
+// рецепта; 409 — пары нет (сначала привязать); 422 — rate < 0.
+func (r *GoodsRepository) SetRecipeRate(producerTypeID, recipeID int64, rate *float64) error {
+	if rate != nil && *rate < 0 {
+		return errCatalog(422, "rate < 0 — недопустимо")
+	}
+	tx, err := r.beginMutation()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var exists bool
+	if err := tx.QueryRow(
+		`SELECT EXISTS(SELECT 1 FROM producer_types WHERE id = $1)`, producerTypeID,
+	).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return errCatalog(404, "тип не найден")
+	}
+	if err := tx.QueryRow(
+		`SELECT EXISTS(SELECT 1 FROM recipes WHERE id = $1)`, recipeID,
+	).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return errCatalog(404, "рецепт не найден")
+	}
+	if err := tx.QueryRow(
+		`SELECT EXISTS(SELECT 1 FROM producer_recipes WHERE producer_type_id = $1 AND recipe_id = $2)`,
+		producerTypeID, recipeID,
+	).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return errCatalog(409, "пара не найдена — сначала привяжите рецепт")
+	}
+	var arg interface{}
+	if rate != nil {
+		arg = *rate
+	}
+	if _, err := tx.Exec(
+		`UPDATE producer_recipes SET rate = $1::double precision WHERE producer_type_id = $2 AND recipe_id = $3`,
+		arg, producerTypeID, recipeID,
+	); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// ProducerParamsRaw — текущий params типа (для слияния типизированных полей
+// редактора стадии, спека 2026-09-23 §10, приоритет M6): NULL/отсутствие → nil.
+func (r *GoodsRepository) ProducerParamsRaw(id int64) (json.RawMessage, error) {
+	var raw []byte
+	err := r.db.QueryRow(`SELECT params FROM producer_types WHERE id = $1`, id).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, errCatalog(404, "тип не найден")
+	}
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(raw), nil
+}
+
+// CategoryNameNorms — словарь name_norm категорий (валидация позиций редактора
+// стадии, спека 2026-09-23 §10): позиция обязана существовать в справочнике.
+func (r *GoodsRepository) CategoryNameNorms() (map[string]bool, error) {
+	rows, err := r.db.Query(categoryNamesSQL)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		out[name] = true
+	}
+	return out, rows.Err()
+}
+
 // UnbindRecipe — отвязать рецепт от фабрики (DELETE
 // /studio/api/producers/{id}/recipes/{recipe_id}).
 func (r *GoodsRepository) UnbindRecipe(producerTypeID, recipeID int64) error {

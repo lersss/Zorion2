@@ -68,35 +68,42 @@ func TestSettlementTypeMigrationShape(t *testing.T) {
 	require.Equal(t, "", sub.Category, "подтип типа без слотов — без категории (п.37)")
 }
 
-// T18: значение нормы каждого товара («вода», «пища») совпадает во всех трёх
-// местах — миграция, сид, DefaultEatK.
+// T18: нормы согласованы между ИСТОРИЧЕСКИМИ литералами миграций (000067 —
+// вода/пища, 000070 — продовольствие; их НЕ переписываем, §2.3), Go-константой
+// DefaultEatK и сидом (сразу в новой единице + признак eat_units). Инвариант —
+// «старый литерал × 2.4e10 = новое значение», спека 2026-09-23 §2.3/§15.1.
 func TestSettlementTypeEatKConsistency(t *testing.T) {
-	mig := findSettlementTypeMigration(t)
-
-	// Числа из SQL-структуры params.eat миграции.
-	re := regexp.MustCompile(`"(вода|пища)":\s*([0-9][0-9.eE+-]*)`)
-	migK := map[string]float64{}
-	for _, m := range re.FindAllStringSubmatch(mig, -1) {
+	// 000067: `"вода": 2.5e-08` / `"пища": 2.5e-08` (JSON-структура params.eat).
+	reJSON := regexp.MustCompile(`"(вода|пища)":\s*([0-9][0-9.eE+-]*)`)
+	hist := map[string]float64{}
+	for _, m := range reJSON.FindAllStringSubmatch(findSettlementTypeMigration(t), -1) {
 		v, err := strconv.ParseFloat(m[2], 64)
 		require.NoError(t, err)
-		migK[m[1]] = v
+		hist[m[1]] = v
 	}
-	require.Contains(t, migK, "вода")
-	require.Contains(t, migK, "пища")
+	// 000070: пилотная привязка `jsonb_build_object('продовольствие', 2.5e-08)`.
+	reJSONB := regexp.MustCompile(`'продовольствие',\s*([0-9][0-9.eE+-]*)`)
+	if m := reJSONB.FindStringSubmatch(findSupplyEffectsMigration(t)); m != nil {
+		v, err := strconv.ParseFloat(m[1], 64)
+		require.NoError(t, err)
+		hist["продовольствие"] = v
+	}
+	for _, pos := range []string{"вода", "пища", "продовольствие"} {
+		require.Contains(t, hist, pos, "исторический литерал нормы %q не найден в миграциях", pos)
+		require.InDelta(t, settlement.DefaultEatK, hist[pos]*2.4e10, 1e-6,
+			"исторический литерал %q × 2.4·10¹⁰ должен равняться DefaultEatK (=600)", pos)
+	}
 
-	// Числа из сида.
+	// Сид: сразу 600 в новой единице + признак eat_units (§2.3/§2.5).
 	sub := settlementSeedSubtype(t)
 	var seedParams struct {
-		Eat map[string]float64 `json:"eat"`
+		Eat      map[string]float64 `json:"eat"`
+		EatUnits string             `json:"eat_units"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(sub.Params), &seedParams))
-	require.Contains(t, seedParams.Eat, "вода")
-	require.Contains(t, seedParams.Eat, "пища")
-
-	for _, good := range []string{"вода", "пища"} {
-		require.InDelta(t, settlement.DefaultEatK, migK[good], 1e-20,
-			"миграция: норма %q должна равняться DefaultEatK", good)
-		require.InDelta(t, settlement.DefaultEatK, seedParams.Eat[good], 1e-20,
-			"сид: норма %q должна равняться DefaultEatK", good)
+	require.Equal(t, "per_day_per_billion", seedParams.EatUnits, "сид несёт признак единицы (§2.5)")
+	for _, pos := range []string{"вода", "пища", "продовольствие"} {
+		require.InDelta(t, settlement.DefaultEatK, seedParams.Eat[pos], 1e-9,
+			"сид: норма %q — сразу в новой единице (=600)", pos)
 	}
 }

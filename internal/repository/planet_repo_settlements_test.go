@@ -65,8 +65,8 @@ func TestGetPlanetsByWorldIDWithSettlements(t *testing.T) {
 	`).WithArgs("w1").WillReturnRows(planetRows)
 
 	settlementRows := sqlmock.NewRows(settlementCols()).
-		AddRow("s1", "p1", 5_000_000, float64(5_000_000), 60, now, now, now, nil, nil, nil, nil, nil).
-		AddRow("s2", "p1", 8_000_000, float64(8_000_000), 70, now, now, now, nil, nil, nil, nil, nil)
+		AddRow("s1", "p1", 5_000_000, float64(5_000_000), 60, now, now, now, nil, int64(ownerTestTypeID), nil, nil, nil).
+		AddRow("s2", "p1", 8_000_000, float64(8_000_000), 70, now, now, now, nil, int64(ownerTestTypeID), nil, nil, nil)
 	mock.ExpectQuery(settlementsQuery).WithArgs(sqlmock.AnyArg()).WillReturnRows(settlementRows)
 
 	// Owner-проход: у поселений веток нет и computed_at = now (Δt < порога) —
@@ -197,8 +197,8 @@ func TestGetPlanetsByWorldIDRaceName(t *testing.T) {
 	`).WithArgs("w1").WillReturnRows(planetRows)
 
 	settlementRows := sqlmock.NewRows(settlementCols()).
-		AddRow("s1", "p1", 5_000_000, float64(5_000_000), 60, now, now, now, nil, nil, nil, nil, nil).
-		AddRow("s2", "p1", 8_000_000, float64(8_000_000), 70, now, now, now, "sulfur_nests", nil, nil, nil, nil)
+		AddRow("s1", "p1", 5_000_000, float64(5_000_000), 60, now, now, now, nil, int64(ownerTestTypeID), nil, nil, nil).
+		AddRow("s2", "p1", 8_000_000, float64(8_000_000), 70, now, now, now, "sulfur_nests", int64(ownerTestTypeID), nil, nil, nil)
 	mock.ExpectQuery(settlementsQuery).WithArgs(sqlmock.AnyArg()).WillReturnRows(settlementRows)
 
 	expectOwnerPassNoBranches(mock, nil)
@@ -243,7 +243,7 @@ func TestAttachSettlementsOwnerPass(t *testing.T) {
 
 	settlementRows := sqlmock.NewRows(settlementCols()).
 		AddRow("s1", "p1", 1_000_000_000, float64(1_000_000_000), 85, computedAt, computedAt, computedAt, nil, int64(148), "Обычное поселение",
-			[]byte(`{"продовольствие": 2.5e-08}`), []byte(`{"продовольствие": "голод"}`))
+			[]byte(`{"продовольствие": 600}`), []byte(`{"продовольствие": "голод"}`))
 	mock.ExpectQuery(settlementsQuery).WithArgs(sqlmock.AnyArg()).WillReturnRows(settlementRows)
 
 	expectOwnerPassWithBranches(mock, ownerBranchRows(computedAt, "продовольствие"), ownerComponentRows(), ownerBufferRows(), nil)
@@ -251,8 +251,8 @@ func TestAttachSettlementsOwnerPass(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectExec(advisoryOwnerLockSQL).WithArgs("s1").WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(settlementLockSQL).WithArgs("s1").
-		WillReturnRows(sqlmock.NewRows([]string{"population", "population_exact", "computed_at", "created_at", "race_id"}).
-			AddRow(1_000_000_000, float64(1_000_000_000), computedAt, computedAt, ""))
+		WillReturnRows(sqlmock.NewRows([]string{"population", "population_exact", "computed_at", "created_at", "race_id", "settlement_type_id"}).
+			AddRow(1_000_000_000, float64(1_000_000_000), computedAt, computedAt, "", int64(148)))
 	mock.ExpectQuery(branchSelectBySettlementForUpdateSQL).WithArgs("s1").
 		WillReturnRows(ownerBranchRows(computedAt, "продовольствие"))
 	mock.ExpectQuery(branchBuffersSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(ownerBufferRows())

@@ -169,12 +169,14 @@ func TestSupplyEffectsMigrationPilotBindingByKey(t *testing.T) {
 func TestSettlementSeedCarriesPilotBinding(t *testing.T) {
 	sub := settlementSeedSubtype(t)
 	var p struct {
-		Eat     map[string]float64 `json:"eat"`
-		Effects map[string]string  `json:"effects"`
+		Eat      map[string]float64 `json:"eat"`
+		Effects  map[string]string  `json:"effects"`
+		EatUnits string             `json:"eat_units"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(sub.Params), &p))
 	require.Equal(t, "голод", p.Effects["продовольствие"], "сид свежей БД несёт пилотную привязку по позиции (§7.5)")
-	require.InDelta(t, settlement.DefaultEatK, p.Eat["продовольствие"], 1e-20)
+	require.Equal(t, "per_day_per_billion", p.EatUnits, "сид пишет норму сразу в новой единице с признаком (§2.5)")
+	require.InDelta(t, settlement.DefaultEatK, p.Eat["продовольствие"], 1e-9)
 	// Нормы итерации 4 не потеряны.
 	require.Contains(t, p.Eat, "вода")
 	require.Contains(t, p.Eat, "пища")

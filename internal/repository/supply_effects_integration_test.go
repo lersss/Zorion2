@@ -189,6 +189,34 @@ func supplyITSeedSettlement(t *testing.T, db *sql.DB, planetID string, populatio
 	return id
 }
 
+// supplyITSeedProducerType — тип-постройка (producer_types) как множитель «чей
+// рецепт» для числа скорости (И1, спека 2026-09-23 §3.3).
+func supplyITSeedProducerType(t *testing.T, db *sql.DB, nameNorm string) int64 {
+	t.Helper()
+	var id int64
+	if err := db.QueryRow(
+		`INSERT INTO producer_types (name, name_norm, kind) VALUES ($1, $2, 'goods') RETURNING id`,
+		nameNorm, nameNorm).Scan(&id); err != nil {
+		t.Fatalf("insert producer_type %q: %v", nameNorm, err)
+	}
+	return id
+}
+
+// supplyITBindRate — число скорости пары (тип, рецепт), ед/сутки/млрд (§3.1).
+func supplyITBindRate(t *testing.T, db *sql.DB, typeID, recipeID int64, rate float64) {
+	t.Helper()
+	supplyITExec(t, db,
+		`INSERT INTO producer_recipes (producer_type_id, recipe_id, rate) VALUES ($1, $2, $3)`,
+		typeID, recipeID, rate)
+}
+
+// supplyITSetSettlementType — тип поселения: число скорости читается по паре
+// (тип, рецепт) (И1, §3.3).
+func supplyITSetSettlementType(t *testing.T, db *sql.DB, settlementID string, typeID int64) {
+	t.Helper()
+	supplyITExec(t, db, `UPDATE settlements SET settlement_type_id = $1 WHERE id = $2`, typeID, settlementID)
+}
+
 // supplyITSeedBranch — ветка с буферами входа (компонент) и выхода (товар-выход).
 func supplyITSeedBranch(t *testing.T, db *sql.DB, settlementID string, recipeID, outputGoodID, componentGoodID int64, input, output float64, processedAt time.Time) string {
 	t.Helper()
@@ -236,6 +264,14 @@ func supplyITOwner(settlementID, planetID string, computedAt time.Time, populati
 	}
 }
 
+// supplyITOwnerTyped — supplyITOwner с типом поселения (число скорости читается
+// по паре (тип, рецепт), И1 §3.3: тип несёт OwnerSettlement).
+func supplyITOwnerTyped(settlementID, planetID string, computedAt time.Time, population int, typeID int64) OwnerSettlement {
+	o := supplyITOwner(settlementID, planetID, computedAt, population)
+	o.SettlementTypeID = typeID
+	return o
+}
+
 // supplyITSyncRun — один owner-проход и разбор единственного эффекта.
 func supplyITSyncRun(t *testing.T, db *sql.DB, o OwnerSettlement, now time.Time) OwnerResult {
 	t.Helper()
@@ -261,7 +297,7 @@ func supplyITRunPass(t *testing.T, db *sql.DB, o OwnerSettlement, now time.Time)
 	require.NoError(t, err)
 	stored, err := repo.loadActiveEffects(ctx, []string{o.ID})
 	require.NoError(t, err)
-	run, err := runOwnerPass(o, recs, stored[o.ID], catalog, known, nil, now)
+	run, err := runOwnerPass(o, recs, stored[o.ID], catalog, known, nil, nil, now)
 	require.NoError(t, err)
 	return run.result, run.deathInput.Effects
 }
@@ -280,17 +316,23 @@ func TestSupplyEffectsIntegrationBindingAndDeficitW(t *testing.T) {
 	comp := supplyITSeedGood(t, db, "Мясо", "мясо", catID)
 	r1 := supplyITSeedRecipe(t, db, out1, comp, 1)
 	r2 := supplyITSeedRecipe(t, db, out2, comp, 1)
+	// Число скорости пары (тип × рецепт): 660 > нормы 600 — производство
+	// покрывает спрос позиции (И1, §3.2). Без числа ветка была бы инертна.
+	pt := supplyITSeedProducerType(t, db, "ит-тип-1")
+	supplyITBindRate(t, db, pt, r1, 660)
+	supplyITBindRate(t, db, pt, r2, 660)
 
 	t0 := time.Now().Add(-2 * time.Hour).Truncate(time.Microsecond)
 	s1 := supplyITSeedSettlement(t, db, planetID, 1_000_000, t0)
+	supplyITSetSettlementType(t, db, s1, pt)
 	supplyITSeedBranch(t, db, s1, r1, out1, comp, 1e6, 0, t0)
 	// Базис нагрузки на computed_at: иначе (новая строка) load_at = now и
 	// интервал нулевой — покрытие/дефицит не наблюдаются (М4, §3.2).
 	supplyITSeedActiveEffect(t, db, s1, typeID, 0, t0)
 
-	// Шаг A: источник есть, профицит (complexity=1) → w=0, нагрузка не растёт.
+	// Шаг A: источник есть, числа скорости хватает на спрос → w=0, нагрузка не растёт.
 	nowA := time.Now()
-	resA := supplyITSyncRun(t, db, supplyITOwner(s1, planetID, t0, 1_000_000), nowA)
+	resA := supplyITSyncRun(t, db, supplyITOwnerTyped(s1, planetID, t0, 1_000_000, pt), nowA)
 	require.Len(t, resA.Effects, 1, "привязка по категории-позиции → один эффект")
 	require.InDelta(t, 0.0, resA.Effects[0].W, 1e-9, "полное покрытие → w=0")
 	require.InDelta(t, 0.0, resA.Effects[0].Load, 1e-9, "при w=0 нагрузка не растёт")
@@ -300,7 +342,7 @@ func TestSupplyEffectsIntegrationBindingAndDeficitW(t *testing.T) {
 	// Шаг B: вторая ветка/товар ТОЙ ЖЕ позиции → по-прежнему один эффект/строка.
 	supplyITSeedBranch(t, db, s1, r2, out2, comp, 1e6, 0, nowA)
 	nowB := nowA.Add(time.Hour)
-	resB := supplyITSyncRun(t, db, supplyITOwner(s1, planetID, nowA, 1_000_000), nowB)
+	resB := supplyITSyncRun(t, db, supplyITOwnerTyped(s1, planetID, nowA, 1_000_000, pt), nowB)
 	require.Len(t, resB.Effects, 1, "две ветки одной позиции → один эффект (T13)")
 	require.InDelta(t, 0.0, resB.Effects[0].W, 1e-9, "позиция всё ещё покрыта")
 	require.Equal(t, int64(1), supplyITScalarInt(t, db, `SELECT COUNT(*) FROM active_effects WHERE owner_id = $1`, s1),
@@ -310,7 +352,7 @@ func TestSupplyEffectsIntegrationBindingAndDeficitW(t *testing.T) {
 	// coverage=0, w=1, без падения (T31/T36); эффект не снимается (T13).
 	supplyITExec(t, db, `DELETE FROM settlement_branches WHERE settlement_id = $1`, s1)
 	nowC := nowB.Add(2 * time.Hour)
-	resC := supplyITSyncRun(t, db, supplyITOwner(s1, planetID, nowB, 1_000_000), nowC)
+	resC := supplyITSyncRun(t, db, supplyITOwnerTyped(s1, planetID, nowB, 1_000_000, pt), nowC)
 	require.Len(t, resC.Effects, 1, "удаление ветки-источника эффект не снимает (T13)")
 	require.InDelta(t, 1.0, resC.Effects[0].W, 1e-9, "позиция без источника → w=1 (T36)")
 	require.InDelta(t, 2.0, resC.Effects[0].Load, 1e-6, "2 часа при w=1 → load = 2 сило-часа (T4)")
@@ -402,11 +444,15 @@ func TestSupplyEffectsIntegrationRecoveryToZeroAndBasis(t *testing.T) {
 	// load = 30 сило-ч; recovery = 0.25/ч → нуль при покрытии за 120 ч.
 	computedAt := time.Now().Add(-120 * time.Hour).Truncate(time.Microsecond)
 	s1 := supplyITSeedSettlement(t, db, planetID, 1_000_000, computedAt)
+	// Число скорости пары покрывает спрос (660 > 600): w=0 весь интервал.
+	pt := supplyITSeedProducerType(t, db, "ит-тип-recovery")
+	supplyITBindRate(t, db, pt, recipe, 660)
+	supplyITSetSettlementType(t, db, s1, pt)
 	supplyITSeedBranch(t, db, s1, recipe, outGood, comp, 1e6, 0, computedAt)
 	supplyITSeedActiveEffect(t, db, s1, typeID, 30, computedAt)
 
 	now := time.Now()
-	res := supplyITSyncRun(t, db, supplyITOwner(s1, planetID, computedAt, 1_000_000), now)
+	res := supplyITSyncRun(t, db, supplyITOwnerTyped(s1, planetID, computedAt, 1_000_000, pt), now)
 
 	require.Len(t, res.Effects, 1)
 	require.InDelta(t, 0.0, res.Effects[0].W, 1e-9, "полное покрытие производством → w=0")
@@ -462,9 +508,13 @@ func TestSupplyEffectsIntegrationOutputBufferSingleWrite(t *testing.T) {
 	catID := supplyITSeedCategory(t, db, "Продовольствие", supplyITPosition)
 	outGood := supplyITSeedGood(t, db, "Пища", "пища", catID)
 	comp := supplyITSeedGood(t, db, "Мясо", "мясо", catID)
-	// complexity=2 → p/c = 0.556 < 1: производство меньше спроса, дефицит
-	// покрывается из базиса буфера (drawn > 0).
-	recipe := supplyITSeedRecipe(t, db, outGood, comp, 2)
+	recipe := supplyITSeedRecipe(t, db, outGood, comp, 1)
+	// Число скорости 333.6 < нормы 600: производство меньше спроса (p/demand =
+	// 0.556), дефицит покрывается из базиса буфера (drawn > 0). Прежняя формула
+	// давала тот же перекос через complexity=2 — теперь темп задаёт число пары.
+	const ratePerDay = 333.6
+	pt := supplyITSeedProducerType(t, db, "ит-тип-single")
+	supplyITBindRate(t, db, pt, recipe, ratePerDay)
 
 	const (
 		population = 1_000_000
@@ -473,14 +523,16 @@ func TestSupplyEffectsIntegrationOutputBufferSingleWrite(t *testing.T) {
 	now := time.Now()
 	computedAt := now.Add(-time.Hour).Truncate(time.Microsecond)
 	s1 := supplyITSeedSettlement(t, db, planetID, population, computedAt)
+	supplyITSetSettlementType(t, db, s1, pt)
 	branchID := supplyITSeedBranch(t, db, s1, recipe, outGood, comp, 1e6, baseO0, computedAt)
 	supplyITSeedActiveEffect(t, db, s1, typeID, 0, computedAt)
 
-	res := supplyITSyncRun(t, db, supplyITOwner(s1, planetID, computedAt, population), now)
+	res := supplyITSyncRun(t, db, supplyITOwnerTyped(s1, planetID, computedAt, population, pt), now)
 
-	// Ожидания: batches = BranchRate·1ч; demand = норма·P/3600; drawn = (demand−p)·3600.
-	batches := settlement.BranchRate(float64(population), intPtr(2))
-	demand := settlement.DefaultEatK * float64(population) / 3600
+	// Ожидания: batches = PerSecond(rate, P)·1ч; demand = PerSecond(норма, P);
+	// drawn = (demand − p)·3600 — единая точка конверсии, без ·/3600.
+	batches := settlement.PerSecond(ratePerDay, float64(population)) * 3600
+	demand := settlement.PerSecond(settlement.DefaultEatK, float64(population))
 	netPerSec := demand - batches/3600
 	drawn := netPerSec * 3600
 	want := baseO0 + batches - drawn
@@ -523,6 +575,3 @@ func TestSupplyEffectsIntegrationExtinctHunger(t *testing.T) {
 		WHERE settlement_id = $1 AND type = 'extinct' AND cause = 'hunger'`, s1),
 		"лог «Вымерло · Голод» (T8)")
 }
-
-// intPtr — указатель на int (complexity рецепта).
-func intPtr(v int) *int { return &v }

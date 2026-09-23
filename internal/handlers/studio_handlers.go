@@ -119,6 +119,9 @@ type RecipeBindingView struct {
 	ProducerTypeID int64 `json:"producer_type_id"`
 	RecipeID       int64 `json:"recipe_id"`
 	GoodID         int64 `json:"good_id"`
+	// Rate — число скорости пары, ед/сутки/млрд (спека 2026-09-23 §10);
+	// null = «не объявлено» → постройка не производит.
+	Rate *float64 `json:"rate"`
 }
 
 // ProducerTypeView — тип производителя в представлении состояния (спека
@@ -420,7 +423,7 @@ func (h *StudioHandlers) buildStateView(snap *repository.CatalogSnapshot) StateV
 	view.ProducerRecipes = make([]RecipeBindingView, 0, len(snap.Bindings))
 	for _, b := range snap.Bindings {
 		view.ProducerRecipes = append(view.ProducerRecipes, RecipeBindingView{
-			ProducerTypeID: b.ProducerTypeID, RecipeID: b.RecipeID, GoodID: b.GoodID,
+			ProducerTypeID: b.ProducerTypeID, RecipeID: b.RecipeID, GoodID: b.GoodID, Rate: b.Rate,
 		})
 	}
 	return view
@@ -718,8 +721,8 @@ func (h *StudioHandlers) Producers(w http.ResponseWriter, r *http.Request) {
 }
 
 // ProducerByID — PUT/DELETE /studio/api/producers/{id} и под-пути
-// (hidden, items, items/{itemId}, recipes, recipes/{recipe_id},
-// recipes/copy-universal).
+// (hidden, items, items/{itemId}, recipes, recipes/{recipe_id} —
+// DELETE отвязка / PUT число скорости, recipes/copy-universal).
 func (h *StudioHandlers) ProducerByID(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/studio/api/producers/")
 	parts := strings.Split(rest, "/")
@@ -756,7 +759,7 @@ func (h *StudioHandlers) ProducerByID(w http.ResponseWriter, r *http.Request) {
 			studioErr(w, "не найдено", http.StatusNotFound)
 			return
 		}
-		h.producerUnbindRecipe(w, r, id, recipeID)
+		h.producerRecipeByID(w, r, id, recipeID)
 	default:
 		studioErr(w, "не найдено", http.StatusNotFound)
 	}
@@ -775,6 +778,12 @@ func (h *StudioHandlers) producer(w http.ResponseWriter, r *http.Request, id int
 			Output     *string `json:"output"`
 			Input      *string `json:"input"`
 			Params     *string `json:"params"`
+			// Типизированные поля редактора стадии (спека 2026-09-23 §10):
+			// eat — позиция → норма (ед/сутки/млрд), effects — позиция → имя
+			// типа эффекта, stage — пороги {enter, exit}. Всё ложится в params.
+			Eat     *map[string]float64 `json:"eat"`
+			Effects *map[string]string  `json:"effects"`
+			Stage   *stageParamsInput   `json:"stage"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			studioErr(w, "невалидный JSON", http.StatusBadRequest)
@@ -784,11 +793,28 @@ func (h *StudioHandlers) producer(w http.ResponseWriter, r *http.Request, id int
 			writeCatalogErr(w, err)
 			return
 		}
-		if err := h.repo.UpdateProducerType(id, body.Name, body.CategoryID, body.ParentID, body.RaceFamily, body.Race, body.Output, body.Input, body.Params); err != nil {
+		// Приоритет полей (M6, §10): при типизированных полях побеждают они —
+		// строка params участвует лишь как источник остальных ключей.
+		paramsArg := body.Params
+		var warnings []string
+		if body.Eat != nil || body.Effects != nil || body.Stage != nil {
+			merged, warns, err := h.buildTypedProducerParams(id, body.Params, body.Eat, body.Effects, body.Stage)
+			if err != nil {
+				writeCatalogErr(w, err)
+				return
+			}
+			paramsArg = &merged
+			warnings = warns
+		}
+		if err := h.repo.UpdateProducerType(id, body.Name, body.CategoryID, body.ParentID, body.RaceFamily, body.Race, body.Output, body.Input, paramsArg); err != nil {
 			writeCatalogErr(w, err)
 			return
 		}
-		studioJSON(w, http.StatusOK, map[string]int64{"id": id})
+		resp := map[string]interface{}{"id": id}
+		if len(warnings) > 0 {
+			resp["warnings"] = warnings
+		}
+		studioJSON(w, http.StatusOK, resp)
 	case http.MethodDelete:
 		if err := h.repo.DeleteProducerType(id); err != nil {
 			writeCatalogErr(w, err)

@@ -125,24 +125,21 @@ type branchRecord struct {
 // toBranch — состояние ветки для чистой функции переработки. deposits —
 // залежи своей планеты по good_id (источник добычи, спека итерации 3 §4).
 // outputAmount — базис выходного буфера ДО производства (O0_b, §4.2).
-func (rec *branchRecord) toBranch(population float64, outputAmount float64, deposits map[int64][]settlement.DepositLot) settlement.Branch {
+// ratePerDayPerBillion — число скорости пары «тип поселения × рецепт»
+// (producer_recipes.rate, ед/сутки/млрд; 0 = не объявлено → инертна, §3.2).
+func (rec *branchRecord) toBranch(population float64, outputAmount float64, ratePerDayPerBillion float64, deposits map[int64][]settlement.DepositLot) settlement.Branch {
 	input := make(map[int64]float64, len(rec.branch.Input))
 	for _, e := range rec.branch.Input {
 		input[e.GoodID] = e.Amount
 	}
-	var complexity *int
-	if rec.branch.Complexity > 0 {
-		c := rec.branch.Complexity
-		complexity = &c
-	}
 	return settlement.Branch{
-		Population:  population,
-		Complexity:  complexity,
-		Components:  rec.components,
-		Input:       input,
-		Output:      outputAmount,
-		ProcessedAt: rec.branch.ProcessedAt,
-		Deposits:    deposits,
+		Population:           population,
+		RatePerDayPerBillion: ratePerDayPerBillion,
+		Components:           rec.components,
+		Input:                input,
+		Output:               outputAmount,
+		ProcessedAt:          rec.branch.ProcessedAt,
+		Deposits:             deposits,
 	}
 }
 

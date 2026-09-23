@@ -28,8 +28,12 @@ const (
 	advisoryOwnerLockSQL = `SELECT pg_advisory_xact_lock(hashtext($1))`
 
 	// settlementLockSQL — читает чек-точку населения под блокировкой строки.
+	// settlement_type_id читается и здесь (спека 2026-09-23 §3.3 п.2): путь
+	// «событие» обязан увидеть тип, сменившийся между чтением и локом, — иначе
+	// число скорости пары возьмётся по устаревшему типу.
 	settlementLockSQL = `
-		SELECT population, population_exact, computed_at, created_at, COALESCE(race_id, '')
+		SELECT population, population_exact, computed_at, created_at, COALESCE(race_id, ''),
+		       COALESCE(settlement_type_id, 0)
 		FROM settlements WHERE id = $1 FOR UPDATE`
 
 	// settlementPopulationWriteSQL — запись населения тем же now, что load_at.
@@ -61,6 +65,14 @@ const (
 	// categoryNamesSQL — словарь позиций корзины (categories.name_norm, любой kind).
 	categoryNamesSQL = `SELECT name_norm FROM categories`
 
+	// producerRatesSelectSQL — числа скорости пар «тип × рецепт» (спека
+	// 2026-09-23 §3.3 п.3): один запрос на пачку владельцев, карта
+	// typeID → recipeID → rate (ед/сутки/млрд). NULL/0 = не объявлено → ветка
+	// инертна; rate = 0 в карту не кладётся (отсутствие ключа = ноль).
+	producerRatesSelectSQL = `
+		SELECT producer_type_id, recipe_id, rate FROM producer_recipes
+		WHERE producer_type_id = ANY($1) AND rate IS NOT NULL`
+
 	branchTopUpInputSQL = `
 		INSERT INTO settlement_branch_buffers (branch_id, direction, good_id, amount)
 		VALUES ($1, 'input', $2, 0) ON CONFLICT (branch_id, direction, good_id) DO NOTHING`
@@ -80,15 +92,19 @@ const (
 )
 
 // OwnerSettlement — вход owner-прохода по одному поселению (§4.1/§4.5): чек-точка
-// населения, тип поселения (нормы/привязки), физика планеты.
+// населения, тип поселения (нормы/привязки + множитель «чей рецепт» для числа
+// скорости, спека 2026-09-23 §3.3), физика планеты.
 type OwnerSettlement struct {
-	ID                string
-	PlanetID          string
-	Population        int
-	PopulationExact   float64
-	ComputedAt        time.Time
-	CreatedAt         time.Time
-	RaceID            string
+	ID              string
+	PlanetID        string
+	Population      int
+	PopulationExact float64
+	ComputedAt      time.Time
+	CreatedAt       time.Time
+	RaceID          string
+	// SettlementTypeID — тип поселения (settlements.settlement_type_id) вместе с
+	// recipe_id ветки задаёт пару для числа скорости producer_recipes.rate (§3.3).
+	SettlementTypeID  int64
 	Planet            settlement.PlanetInput
 	EatByPosition     map[string]float64
 	EffectsByPosition map[string]string
@@ -178,9 +194,16 @@ func (r *BranchRepository) SyncSettlements(now time.Time, owners []OwnerSettleme
 	if err != nil {
 		return nil, err
 	}
+	// Числа скорости пар (тип × рецепт) — один запрос на пачку владельцев
+	// (спека 2026-09-23 §3.3 п.3): карта typeID → recipeID → rate. Хватает на
+	// обоих путях (персистентный и «в памяти»).
+	rates, err := r.loadProducerRates(ctx, ownerTypeIDs(owners))
+	if err != nil {
+		return nil, err
+	}
 
 	for _, o := range owners {
-		res, err := r.syncOwner(ctx, o, bySettlement[o.ID], stored[o.ID], catalog, knownPositions, now)
+		res, err := r.syncOwner(ctx, o, bySettlement[o.ID], stored[o.ID], catalog, knownPositions, rates, now)
 		if err != nil {
 			return nil, err
 		}
@@ -189,8 +212,30 @@ func (r *BranchRepository) SyncSettlements(now time.Time, owners []OwnerSettleme
 	return out, nil
 }
 
+// ownerTypeIDs — уникальные непустые типы поселений пачки (множитель «чей
+// рецепт» для числа скорости).
+func ownerTypeIDs(owners []OwnerSettlement) []int64 {
+	var out []int64
+	for _, o := range owners {
+		if o.SettlementTypeID == 0 {
+			continue
+		}
+		out = appendUniqueInt64(out, o.SettlementTypeID)
+	}
+	return out
+}
+
+// rateForPair — число скорости пары (тип поселения, рецепт) из карты пачки:
+// нет типа/пары → 0 («не объявлено» → ветка инертна, §3.2/§3.5).
+func rateForPair(rates map[int64]map[int64]float64, typeID, recipeID int64) float64 {
+	if typeID == 0 {
+		return 0
+	}
+	return rates[typeID][recipeID]
+}
+
 // syncOwner — проход по одному поселению: персистентный путь или «в памяти».
-func (r *BranchRepository) syncOwner(ctx context.Context, o OwnerSettlement, branches []*branchRecord, stored []storedEffect, catalog map[string]effectTypeMeta, knownPositions map[string]bool, now time.Time) (OwnerResult, error) {
+func (r *BranchRepository) syncOwner(ctx context.Context, o OwnerSettlement, branches []*branchRecord, stored []storedEffect, catalog map[string]effectTypeMeta, knownPositions map[string]bool, rates map[int64]map[int64]float64, now time.Time) (OwnerResult, error) {
 	// Персистентный путь, если «событие» наступило хоть у одной чек-точки
 	// владельца (население или ветка): обе продвигаются одним now (§4.5),
 	// поэтому устаревание любой из них требует записи.
@@ -205,7 +250,7 @@ func (r *BranchRepository) syncOwner(ctx context.Context, o OwnerSettlement, bra
 		if err != nil {
 			return OwnerResult{}, err
 		}
-		run, err := runOwnerPass(o, branches, stored, catalog, knownPositions, deposits, now)
+		run, err := runOwnerPass(o, branches, stored, catalog, knownPositions, rates, deposits, now)
 		if err != nil {
 			return OwnerResult{}, err
 		}
@@ -226,8 +271,9 @@ func (r *BranchRepository) syncOwner(ctx context.Context, o OwnerSettlement, bra
 	var populationExact float64
 	var computedAt, createdAt time.Time
 	var raceID string
+	var settlementTypeID int64
 	err = tx.QueryRowContext(ctx, settlementLockSQL, o.ID).
-		Scan(&population, &populationExact, &computedAt, &createdAt, &raceID)
+		Scan(&population, &populationExact, &computedAt, &createdAt, &raceID, &settlementTypeID)
 	if err == sql.ErrNoRows {
 		// Поселение удалено между чтением и локом — no-op (не роняем карточку).
 		return OwnerResult{}, nil
@@ -239,6 +285,7 @@ func (r *BranchRepository) syncOwner(ctx context.Context, o OwnerSettlement, bra
 	o.PopulationExact = populationExact
 	o.ComputedAt = computedAt
 	o.CreatedAt = createdAt
+	o.SettlementTypeID = settlementTypeID
 	if raceID != "" {
 		o.RaceID = raceID
 	}
@@ -258,7 +305,7 @@ func (r *BranchRepository) syncOwner(ctx context.Context, o OwnerSettlement, bra
 		return OwnerResult{}, err
 	}
 
-	run, err := runOwnerPass(o, txRecs, stored, catalog, knownPositions, deposits, now)
+	run, err := runOwnerPass(o, txRecs, stored, catalog, knownPositions, rates, deposits, now)
 	if err != nil {
 		return OwnerResult{}, err
 	}
@@ -272,8 +319,9 @@ func (r *BranchRepository) syncOwner(ctx context.Context, o OwnerSettlement, bra
 }
 
 // runOwnerPass — производство → потребность → население (без записи): мутирует
-// display-копии веток и собирает данные записи.
-func runOwnerPass(o OwnerSettlement, branches []*branchRecord, stored []storedEffect, catalog map[string]effectTypeMeta, knownPositions map[string]bool, deposits map[int64][]settlement.DepositLot, now time.Time) (ownerRun, error) {
+// display-копии веток и собирает данные записи. rates — карта чисел скорости
+// пачкой (typeID → recipeID → rate, ед/сутки/млрд, §3.3).
+func runOwnerPass(o OwnerSettlement, branches []*branchRecord, stored []storedEffect, catalog map[string]effectTypeMeta, knownPositions map[string]bool, rates map[int64]map[int64]float64, deposits map[int64][]settlement.DepositLot, now time.Time) (ownerRun, error) {
 	population := float64(o.Population)
 
 	// 1) Производство: снимок выходного буфера O0_b ДО ProcessBranch (finding 6).
@@ -282,7 +330,8 @@ func runOwnerPass(o OwnerSettlement, branches []*branchRecord, stored []storedEf
 	for _, rec := range branches {
 		base := branchOutputAmount(rec.branch.Output, rec.outputGoodID)
 		deltaSec := now.Sub(rec.branch.ProcessedAt).Seconds()
-		p := settlement.ProcessBranch(rec.toBranch(population, base, deposits), now)
+		rate := rateForPair(rates, o.SettlementTypeID, rec.branch.RecipeID)
+		p := settlement.ProcessBranch(rec.toBranch(population, base, rate, deposits), now)
 		sources = append(sources, settlement.NeedsSource{
 			ID:         rec.branch.ID,
 			Position:   rec.outputCategory,
@@ -412,11 +461,11 @@ func buildBindings(o OwnerSettlement, catalog map[string]effectTypeMeta, knownPo
 			continue
 		}
 		bindings = append(bindings, settlement.NeedsBinding{
-			Position:     position,
-			EffectTypeID: meta.ID,
-			Impact:       meta.Impact,
-			Curve:        meta.Curve,
-			NormPerHour:  settlement.EatK(o.EatByPosition, position),
+			Position:             position,
+			EffectTypeID:         meta.ID,
+			Impact:               meta.Impact,
+			Curve:                meta.Curve,
+			NormPerDayPerBillion: settlement.EatK(o.EatByPosition, position),
 		})
 	}
 	return bindings
@@ -603,6 +652,33 @@ func (r *BranchRepository) loadCategoryNames(ctx context.Context) (map[string]bo
 			return nil, err
 		}
 		out[name] = true
+	}
+	return out, rows.Err()
+}
+
+// loadProducerRates — числа скорости пар «тип × рецепт» (producer_recipes.rate)
+// одним запросом на пачку (спека 2026-09-23 §3.3 п.3). Пустой список типов —
+// пустая карта без запроса. Возвращает typeID → recipeID → rate (ед/сутки/млрд).
+func (r *BranchRepository) loadProducerRates(ctx context.Context, typeIDs []int64) (map[int64]map[int64]float64, error) {
+	out := map[int64]map[int64]float64{}
+	if len(typeIDs) == 0 {
+		return out, nil
+	}
+	rows, err := r.db.QueryContext(ctx, producerRatesSelectSQL, pq.Array(typeIDs))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var typeID, recipeID int64
+		var rate float64
+		if err := rows.Scan(&typeID, &recipeID, &rate); err != nil {
+			return nil, err
+		}
+		if out[typeID] == nil {
+			out[typeID] = map[int64]float64{}
+		}
+		out[typeID][recipeID] = rate
 	}
 	return out, rows.Err()
 }

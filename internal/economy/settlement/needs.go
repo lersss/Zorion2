@@ -9,8 +9,9 @@
 //
 // Позиция корзины = существующая категория `categories` (любой kind):
 // товар-выход ветки принадлежит позиции через categories.name_norm.
-// Единицы: `demand`/`p_b` — батч/СЕК; нормы `params.eat` — батч/(чел·ч) →
-// /3600; `t*` — СЕКУНДЫ; `load` — сило-часы; `recovery` — сило-часы/час.
+// Единицы: `demand`/`p_b` — батч/СЕК; нормы `params.eat` — ед/сутки/млрд →
+// через PerSecond (единая точка конверсии, §2.2); `t*` — СЕКУНДЫ; `load` —
+// сило-часы; `recovery` — сило-часы/час.
 // Функция чистая (никакого доступа к БД/store): кривая и порог передаются
 // резолверами, поэтому `load(now)` — чистая функция от базиса.
 package settlement
@@ -22,19 +23,16 @@ import (
 	"time"
 )
 
-// needSecondsPerHour — перевод сек → ч (М1): и накопление нагрузки, и
-// восстановление приводятся к часам одним и тем же множителем (§4.3).
-const needSecondsPerHour = 3600.0
-
 // NeedsBinding — привязка позиции корзины к эффекту (params.effects +
-// params.eat типа поселения, §4.2). NormPerHour — норма позиции
-// (params.eat[position]); записи нет → фолбэк делает вызывающий (DefaultEatK).
+// params.eat типа поселения, §4.2). NormPerDayPerBillion — норма позиции
+// (params.eat[position], «ед/сутки/млрд»); записи нет → фолбэк делает
+// вызывающий (DefaultEatK).
 type NeedsBinding struct {
-	Position     string
-	EffectTypeID int64
-	Impact       string
-	Curve        string
-	NormPerHour  float64
+	Position             string
+	EffectTypeID         int64
+	Impact               string
+	Curve                string
+	NormPerDayPerBillion float64
 }
 
 // NeedsSource — ветка как источник покрытия позиции (§4.2): Position —
@@ -251,7 +249,7 @@ func positionTrajectory(b NeedsBinding, population float64, loadAt, now time.Tim
 		return nil, drawn
 	}
 
-	demand := b.NormPerHour * population / needSecondsPerHour // батч/сек
+	demand := PerSecond(b.NormPerDayPerBillion, population) // батч/сек
 
 	// Точки разбиения интервала [loadAt, now]: loadAt, now и моменты создания
 	// веток внутри интервала (Since_b строго между ними) — §4.3.

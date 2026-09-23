@@ -221,17 +221,36 @@ func (h *StudioHandlers) producerBindRecipe(w http.ResponseWriter, r *http.Reque
 	studioJSON(w, http.StatusOK, map[string]interface{}{"producer_type_id": id, "recipe_id": body.RecipeID})
 }
 
-// producerUnbindRecipe — DELETE /studio/api/producers/{id}/recipes/{recipe_id}.
-func (h *StudioHandlers) producerUnbindRecipe(w http.ResponseWriter, r *http.Request, id, recipeID int64) {
-	if r.Method != http.MethodDelete {
-		studioErr(w, "только DELETE", http.StatusMethodNotAllowed)
-		return
+// producerRecipeByID — DELETE (отвязать) / PUT (число скорости)
+// /studio/api/producers/{id}/recipes/{recipe_id}. PUT — тело {rate: number|null}
+// (ед/сутки/млрд; null = «не объявлено»): 200; 404 — нет типа/рецепта; 409 —
+// пары нет (сначала привязать, спека 2026-09-23 §10); 422 — rate < 0.
+func (h *StudioHandlers) producerRecipeByID(w http.ResponseWriter, r *http.Request, id, recipeID int64) {
+	switch r.Method {
+	case http.MethodDelete:
+		if err := h.repo.UnbindRecipe(id, recipeID); err != nil {
+			writeCatalogErr(w, err)
+			return
+		}
+		studioJSON(w, http.StatusOK, map[string]interface{}{"producer_type_id": id, "recipe_id": recipeID})
+	case http.MethodPut:
+		var body struct {
+			Rate *float64 `json:"rate"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			studioErr(w, "невалидный JSON", http.StatusBadRequest)
+			return
+		}
+		if err := h.repo.SetRecipeRate(id, recipeID, body.Rate); err != nil {
+			writeCatalogErr(w, err)
+			return
+		}
+		studioJSON(w, http.StatusOK, map[string]interface{}{
+			"producer_type_id": id, "recipe_id": recipeID, "rate": body.Rate,
+		})
+	default:
+		studioErr(w, "только PUT/DELETE", http.StatusMethodNotAllowed)
 	}
-	if err := h.repo.UnbindRecipe(id, recipeID); err != nil {
-		writeCatalogErr(w, err)
-		return
-	}
-	studioJSON(w, http.StatusOK, map[string]interface{}{"producer_type_id": id, "recipe_id": recipeID})
 }
 
 // producerCopyUniversal — POST

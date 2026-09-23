@@ -234,8 +234,8 @@ func TestStudioStateProducersFields(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, parent_id, category_id, race_family, race, hidden, created_at FROM producer_slots ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "parent_id", "category_id", "race_family", "race", "hidden", "created_at"}).
 			AddRow(int64(5), int64(2), int64(1), nil, nil, false, time.Now()))
-	mock.ExpectQuery(`SELECT pr.producer_type_id, pr.recipe_id, r.good_id FROM producer_recipes pr JOIN recipes r ON r.id = pr.recipe_id ORDER BY pr.producer_type_id, pr.recipe_id`).
-		WillReturnRows(sqlmock.NewRows([]string{"producer_type_id", "recipe_id", "good_id"}))
+	mock.ExpectQuery(`SELECT pr.producer_type_id, pr.recipe_id, pr.rate, r.good_id FROM producer_recipes pr JOIN recipes r ON r.id = pr.recipe_id ORDER BY pr.producer_type_id, pr.recipe_id`).
+		WillReturnRows(sqlmock.NewRows([]string{"producer_type_id", "recipe_id", "rate", "good_id"}))
 	mock.ExpectCommit()
 
 	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", "build", time.Second, 0), "test-model")

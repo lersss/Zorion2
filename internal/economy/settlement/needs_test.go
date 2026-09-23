@@ -28,11 +28,11 @@ func testLookup(rate func(load float64) float64) CurveLookup {
 // noRate — кривая-ноль (сила не влияет на проверяемую нагрузку).
 func noRate() CurveLookup { return testLookup(func(float64) float64 { return 0 }) }
 
-const testNorm = 2.5e-8 // батч/(чел·ч) — норма позиции (DefaultEatK)
+const testNorm = 600 // ед/сутки/млрд — норма позиции (DefaultEatK, §2.1/§2.3)
 
 // hungerBinding — привязка позиции «продовольствие» к типу 1.
 func hungerBinding(norm float64) NeedsBinding {
-	return NeedsBinding{Position: "продовольствие", EffectTypeID: 1, Impact: ImpactPopulationRate, Curve: "hunger", NormPerHour: norm}
+	return NeedsBinding{Position: "продовольствие", EffectTypeID: 1, Impact: ImpactPopulationRate, Curve: "hunger", NormPerDayPerBillion: norm}
 }
 
 // input собирает NeedsInput с одним типом, базисом load_at = t0 и now = t0+Δ.
@@ -66,7 +66,7 @@ func TestNeedsUncoveredOneHourAddsOne(t *testing.T) {
 // T2: покрытие не ниже спроса → w = 0, нагрузка не растёт.
 func TestNeedsCoveredNoLoad(t *testing.T) {
 	t0 := time.Unix(1_700_000_000, 0)
-	demandPerSec := testNorm * 1000 / 3600 // батч/сек
+	demandPerSec := PerSecond(testNorm, 1000) // батч/сек
 	// Производство ровно по спросу за час.
 	batch := demandPerSec * 3600
 	in := needsInput(t0, time.Hour, 1000, 0, 0.25, NeedsSource{ID: "b1", Position: "продовольствие", Batches: batch, DeltaSec: 3600, OutputBase: 0})
@@ -79,7 +79,7 @@ func TestNeedsCoveredNoLoad(t *testing.T) {
 // расход ∝ O0_b при нескольких ветках.
 func TestNeedsBufferBreakpointSecondsAndProportionalDraw(t *testing.T) {
 	t0 := time.Unix(1_700_000_000, 0)
-	demandPerSec := testNorm * 1000 / 3600
+	demandPerSec := PerSecond(testNorm, 1000)
 	// Две ветки одной позиции: O0 = 3:1 (1.2e-5 : 4e-6), производство 0.
 	// t* = O0_sum/demand = 1.6e-5/6.944e-9 ≈ 2304 с < 3600.
 	o1, o2 := demandPerSec*1728, demandPerSec*576 // суммарно 2304 с базиса
@@ -153,7 +153,7 @@ func TestNeedsForceTrajectoryAndPurity(t *testing.T) {
 func TestNeedsAntiAbuse(t *testing.T) {
 	t0 := time.Unix(1_700_000_000, 0)
 	// Крошка: за час произведена 1/1000 спроса → w ≈ 0.999.
-	demandPerSec := testNorm * 1000 / 3600
+	demandPerSec := PerSecond(testNorm, 1000)
 	crumb := []NeedsSource{{ID: "b1", Position: "продовольствие", Batches: demandPerSec * 3600 / 1000, DeltaSec: 3600}}
 	res := ComputeNeeds(needsInput(t0, time.Hour, 1000, 0, 0.25, crumb...))
 	require.Greater(t, res.Effects[0].Load, 0.99, "крошка → нагрузка растёт (не сбрасывается)")
@@ -185,7 +185,7 @@ func TestNeedsTwoBranchesOneEffect(t *testing.T) {
 // существовавшая на load_at (Since ≤ load_at), покрывает весь интервал.
 func TestNeedsSourceSinceInsideInterval(t *testing.T) {
 	t0 := time.Unix(1_700_000_000, 0)
-	demandPerSec := testNorm * 1000 / 3600 // батч/сек — спрос при 1000 человек
+	demandPerSec := PerSecond(testNorm, 1000) // батч/сек — спрос при 1000 человек
 	since := t0.Add(30 * time.Minute)
 
 	// Ветка создана на середине часа; далее производит ровно по спросу.
@@ -209,7 +209,7 @@ func TestNeedsSourceSinceInsideInterval(t *testing.T) {
 // базисом на стыке Since дают одно и то же.
 func TestNeedsSplitReadsInvariant(t *testing.T) {
 	t0 := time.Unix(1_700_000_000, 0)
-	demandPerSec := testNorm * 1000 / 3600
+	demandPerSec := PerSecond(testNorm, 1000)
 	since := t0.Add(30 * time.Minute)
 	src := NeedsSource{ID: "b1", Position: "продовольствие", Batches: demandPerSec * 1800, DeltaSec: 1800, Since: since}
 

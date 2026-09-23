@@ -77,11 +77,13 @@ type CatalogSnapshot struct {
 
 // RecipeBindingRow — привязка рецепта к конкретной фабрике (producer_recipes,
 // спека 2026-09-21-рецепт-сущность §2.3): good_id рецепта — джойном, для
-// проекции в State.Bindings и верхнеуровневого producer_recipes в state.
+// проекции в State.Bindings и верхнеуровневого producer_recipes в state. Rate —
+// число скорости пары (ед/сутки/млрд; NULL = не объявлено, спека 2026-09-23 §3.1).
 type RecipeBindingRow struct {
 	ProducerTypeID int64
 	RecipeID       int64
 	GoodID         int64
+	Rate           *float64
 }
 
 // ResourceView — ресурс палитры (GET /studio/api/resources, спека §7).
@@ -1398,11 +1400,11 @@ func loadSlots(q queryer) (map[string][]model.Slot, error) {
 }
 
 // loadBindings — привязки рецептов к фабрикам (producer_recipes) с good_id
-// выхода — проекция CatalogSnapshot.Bindings (спека 2026-09-21-рецепт-сущность
-// §5).
+// выхода и числом скорости пары — проекция CatalogSnapshot.Bindings (спека
+// 2026-09-21-рецепт-сущность §5; rate — спека 2026-09-23 §10).
 func loadBindings(q queryer) ([]RecipeBindingRow, error) {
 	rows, err := q.Query(
-		`SELECT pr.producer_type_id, pr.recipe_id, r.good_id
+		`SELECT pr.producer_type_id, pr.recipe_id, pr.rate, r.good_id
 		 FROM producer_recipes pr JOIN recipes r ON r.id = pr.recipe_id
 		 ORDER BY pr.producer_type_id, pr.recipe_id`)
 	if err != nil {
@@ -1413,8 +1415,13 @@ func loadBindings(q queryer) ([]RecipeBindingRow, error) {
 	var out []RecipeBindingRow
 	for rows.Next() {
 		var b RecipeBindingRow
-		if err := rows.Scan(&b.ProducerTypeID, &b.RecipeID, &b.GoodID); err != nil {
+		var rate sql.NullFloat64
+		if err := rows.Scan(&b.ProducerTypeID, &b.RecipeID, &rate, &b.GoodID); err != nil {
 			return nil, err
+		}
+		if rate.Valid {
+			v := rate.Float64
+			b.Rate = &v
 		}
 		out = append(out, b)
 	}

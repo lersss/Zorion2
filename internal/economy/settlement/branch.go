@@ -4,8 +4,9 @@
 // поселение-ветка-буферы-переработка §4) + добыча из залежей своей планеты —
 // первая половина того же прохода (спека 2026-09-22-поселение-добыча-из-
 // залежи-итерация-3 §1/§4): чистая функция от чек-точки ветки, её буферов,
-// состава рецепта, залежей планеты и населения. Скорость — вариант A
-// (линейная), k = 2.78·10⁻⁸ батч/(чел·ч), решение создателя 2026-09-22 (§4.1).
+// состава рецепта, залежей планеты и населения. Скорость ветки — число скорости
+// пары «тип поселения × рецепт» (producer_recipes.rate, ед/сутки/млрд), спека
+// 2026-09-23-стадии-поселения §3.2: формула k·population/complexity заменена.
 // Числа не калиброваны (@balancetester). Отдельного тика нет — расчёт по Δt
 // при чтении (инвариант 2 GD_PROMPT).
 package settlement
@@ -16,17 +17,12 @@ import (
 	"time"
 )
 
-// BranchRateK — вариант A (спека §4.1): rate_батч/час = k · population /
-// complexity, k = 2.78·10⁻⁸ батч/(чел·ч). Разлёт времени по населению (1e5 →
-// ≈41 год, 1e9 → ≈1.5 суток) принят создателем осознанно 2026-09-22.
-const BranchRateK = 2.78e-8
-
-// DefaultEatK — норма еды по умолчанию, батч/(чел·ч): фолбэк, когда у типа
-// поселения нет записи params.eat для ПОЗИЦИИ корзины (спека итерации 4 §3.2/
-// §4.2; ключ переехал с товара-выхода на позицию — спека 2026-09-22-эффекты-
-// снабжения §4.2). Одно утверждённое число с миграцией 000070 и Go-сидом (§8,
-// T18): согласованность трёх мест закреплена тестом.
-const DefaultEatK = 2.5e-8
+// DefaultEatK — норма еды по умолчанию, ед/сутки/млрд (спека 2026-09-23
+// §2.3/§2.5): фолбэк, когда у типа поселения нет записи params.eat для ПОЗИЦИИ
+// корзины (ключ — позиция, спека 2026-09-22-эффекты-снабжения §4.2). Одно
+// утверждённое число с признаком params.eat_units и Go-сидом (§8, T18):
+// согласованность мест нормы закреплена тестом.
+const DefaultEatK = 600
 
 // BranchComponent — заполненный компонент рецепта ветки (recipe_components,
 // component_id IS NOT NULL): норма расхода quantity за один батч. Компонент —
@@ -46,36 +42,29 @@ type DepositLot struct {
 	Amount float64
 }
 
-// Branch — состояние ветки для переработки: население (скорость), состав
-// рецепта, сложность (делитель), входной буфер (good_id → amount), накопленное
+// Branch — состояние ветки для переработки: население, число скорости пары
+// (ед/сутки/млрд), состав рецепта, входной буфер (good_id → amount), накопленное
 // количество выхода и своя чек-точка processed_at. Идентификатор товара-выхода
 // чистой функции не нужен (выход — один скаляр Output; привязка good_id к
 // строке output-буфера — забота репозитория). Deposits — залежи своей планеты по
 // good_id (источник добора); ProcessBranch их не мутирует, результат несёт
-// уменьшенные копии (для записи репозиторием).
+// уменьшенные копии (для записи репозиторием). Complexity из скорости убран
+// (спека 2026-09-23 §3.2) — сложность рецепта на темп не влияет.
 type Branch struct {
-	Population  float64
-	Complexity  *int // nil = NULL («вычисляется по графу») → временный фолбэк 1 (§4.1)
-	Components  []BranchComponent
-	Input       map[int64]float64
-	Output      float64
-	ProcessedAt time.Time
-	Deposits    map[int64][]DepositLot
+	Population float64
+	// RatePerDayPerBillion — число скорости пары «тип поселения × рецепт»
+	// (producer_recipes.rate), ед/сутки/млрд. NULL/0 → ветка инертна (§3.2).
+	RatePerDayPerBillion float64
+	Components           []BranchComponent
+	Input                map[int64]float64
+	Output               float64
+	ProcessedAt          time.Time
+	Deposits             map[int64][]DepositLot
 	// ProducedLast — транзитный результат последнего прохода (для карточки,
 	// §6): сколько произведено за Δt. Не состояние БД. Потребление населением
 	// из ProcessBranch УБРАНО (спека 2026-09-22-эффекты-снабжения §4.1/§10.9):
 	// нужда населения — слой потребности (needs.go), а не хвост ветки.
 	ProducedLast float64
-}
-
-// BranchRate — батчей в час: k · population / max(1, complexity). complexity
-// NULL → 1, 0 → 1 (делитель ≥ 1, §4.1); сложность не увеличивает скорость.
-func BranchRate(population float64, complexity *int) float64 {
-	c := 1
-	if complexity != nil && *complexity > 1 {
-		c = *complexity
-	}
-	return BranchRateK * population / float64(c)
 }
 
 // EatK — норма еды типа поселения для ПОЗИЦИИ корзины (спека итерации 4 §3.2;
@@ -93,16 +82,20 @@ func EatK(eat map[string]float64, position string) float64 {
 // ProcessBranch — чистая функция переработки вход → выход по Δt (§4.1/§4.2) с
 // добором недостающего из залежей планеты (спека итерации 3 §1/§4):
 //
-//	hours      = (now − processed_at) в часах; ≤ 0 → без изменений
+//	seconds    = (now − processed_at) в секундах; ≤ 0 → без изменений
 //	components = строки рецепта, свёрнутые по good_id (quantity_i = Σ quantity)
 //	stock_i    = input_i + Σ запас залежей планеты с good_id = i
-//	desired    = BranchRate(population) · hours
+//	desired    = PerSecond(rate, population) · seconds
 //	affordable = min_i(stock_i / quantity_i); компонентов нет → 0
 //	batches    = min(desired, affordable)                     (дробное)
 //	потребление_i = batches · quantity_i: сначала из input_i, остаток — из
 //	                залежей (от крупной к мелкой, amount DESC, id ASC)
 //	output    += batches
 //	processed_at = now
+//
+// Скорость — из числа пары (rate, ед/сутки/млрд), complexity из формулы убран
+// (спека 2026-09-23 §3.2). rate = 0/NULL → desired = 0 → ветка инертна:
+// processed_at продвигается, залежь не трогается, выход не растёт.
 //
 // Хвоста `eaten` НЕТ (спека 2026-09-22-эффекты-снабжения §4.1/§4.2, решение
 // создателя 2026-09-23 «производство и потребности — разные слои»): вход
@@ -113,8 +106,8 @@ func EatK(eat map[string]float64, position string) float64 {
 // даёт Δt = 0 → без изменений. Дефицит источников — естественный предел
 // (batches = affordable); ни вход, ни залежи в минус не уходят (кламп ≥ 0).
 func ProcessBranch(b Branch, now time.Time) Branch {
-	hours := now.Sub(b.ProcessedAt).Hours()
-	if hours <= 0 {
+	seconds := now.Sub(b.ProcessedAt).Seconds()
+	if seconds <= 0 {
 		return b
 	}
 
@@ -123,7 +116,7 @@ func ProcessBranch(b Branch, now time.Time) Branch {
 	// выход не завышается.
 	comps := aggregateComponents(b.Components)
 
-	desired := BranchRate(b.Population, b.Complexity) * hours
+	desired := PerSecond(b.RatePerDayPerBillion, b.Population) * seconds
 
 	// stock_i = вход + суммарный запас залежей планеты по этому ресурсу (§1).
 	stock := make(map[int64]float64, len(comps))

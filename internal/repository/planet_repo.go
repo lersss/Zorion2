@@ -432,6 +432,7 @@ func (r *PlanetRepository) syncSettlements(planets []models.Planet) error {
 				ComputedAt:        s.ComputedAt,
 				CreatedAt:         s.CreatedAt,
 				RaceID:            s.RaceID,
+				SettlementTypeID:  s.SettlementTypeID,
 				Planet:            input,
 				EatByPosition:     s.EatByPosition,
 				EffectsByPosition: s.EffectsByPosition,

@@ -25,6 +25,21 @@ func categoryNameRows() *sqlmock.Rows {
 		AddRow("металлы")
 }
 
+// ownerTestTypeID — тип поселения тестов owner-прохода (settlement_type_id).
+const ownerTestTypeID = 148
+
+// ownerTestRate — число скорости пар тестов, ед/сутки/млрд: при населении 1e9
+// даёт 27.8 батч/час (прежняя скорость от формулы k·P/complexity=1).
+const ownerTestRate = 667.2
+
+// producerRateRows — числа скорости пар (producer_type_id, recipe_id, rate) для
+// веток тестов (рецепты 69/70, спека 2026-09-23 §3.3).
+func producerRateRows() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{"producer_type_id", "recipe_id", "rate"}).
+		AddRow(int64(ownerTestTypeID), int64(69), ownerTestRate).
+		AddRow(int64(ownerTestTypeID), int64(70), ownerTestRate)
+}
+
 // emptyBranchRows — выборка веток без строк (поселения без веток).
 func emptyBranchRows() *sqlmock.Rows {
 	return sqlmock.NewRows([]string{"id", "settlement_id", "recipe_id", "processed_at", "good_id", "name", "complexity", "name_norm"})
@@ -50,6 +65,7 @@ func expectOwnerPassHead(mock sqlmock.Sqlmock, branchRows *sqlmock.Rows, stored 
 		stored = activeEffectRows()
 	}
 	mock.ExpectQuery(activeEffectsSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(stored)
+	mock.ExpectQuery(producerRatesSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(producerRateRows())
 }
 
 // expectOwnerPassNoBranches — owner-проход без веток: ветки пусты, составы и
@@ -70,4 +86,5 @@ func expectOwnerPassWithBranches(mock sqlmock.Sqlmock, branchRows, componentRows
 		stored = activeEffectRows()
 	}
 	mock.ExpectQuery(activeEffectsSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(stored)
+	mock.ExpectQuery(producerRatesSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(producerRateRows())
 }

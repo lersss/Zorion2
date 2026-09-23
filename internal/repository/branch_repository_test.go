@@ -46,8 +46,8 @@ func ownerBufferRows() *sqlmock.Rows {
 		AddRow("b1", "input", int64(359), "Мясо", 1e15)
 }
 
-// ownerInput — вход owner-прохода: поселение s1 (1e9) с привязкой позиции
-// «продовольствие» → тип «голод», норма 2.5e-8.
+// ownerInput — вход owner-прохода: поселение s1 (1e9, тип ownerTestTypeID) с
+// привязкой позиции «продовольствие» → тип «голод», норма 600 ед/сутки/млрд.
 func ownerInput(computedAt time.Time) OwnerSettlement {
 	return OwnerSettlement{
 		ID:                "s1",
@@ -56,8 +56,9 @@ func ownerInput(computedAt time.Time) OwnerSettlement {
 		PopulationExact:   1_000_000_000,
 		ComputedAt:        computedAt,
 		CreatedAt:         computedAt,
+		SettlementTypeID:  ownerTestTypeID,
 		Planet:            settlement.PlanetInput{TemperatureK: 288, GravityG: 1.0, CoreRadioactivity: 5},
-		EatByPosition:     map[string]float64{"продовольствие": 2.5e-8},
+		EatByPosition:     map[string]float64{"продовольствие": settlement.DefaultEatK},
 		EffectsByPosition: map[string]string{"продовольствие": "голод"},
 	}
 }
@@ -82,8 +83,8 @@ func TestSyncSettlementsPersistentPath(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectExec(advisoryOwnerLockSQL).WithArgs("s1").WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(settlementLockSQL).WithArgs("s1").
-		WillReturnRows(sqlmock.NewRows([]string{"population", "population_exact", "computed_at", "created_at", "race_id"}).
-			AddRow(1_000_000_000, float64(1_000_000_000), computedAt, computedAt, ""))
+		WillReturnRows(sqlmock.NewRows([]string{"population", "population_exact", "computed_at", "created_at", "race_id", "settlement_type_id"}).
+			AddRow(1_000_000_000, float64(1_000_000_000), computedAt, computedAt, "", int64(ownerTestTypeID)))
 	mock.ExpectQuery(branchSelectBySettlementForUpdateSQL).WithArgs("s1").
 		WillReturnRows(ownerBranchRows(computedAt, "металлы"))
 	mock.ExpectQuery(branchBuffersSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(ownerBufferRows())
@@ -163,8 +164,8 @@ func TestSyncSettlementsBasisInvariant(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectExec(advisoryOwnerLockSQL).WithArgs("s1").WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(settlementLockSQL).WithArgs("s1").
-		WillReturnRows(sqlmock.NewRows([]string{"population", "population_exact", "computed_at", "created_at", "race_id"}).
-			AddRow(1_000_000_000, float64(1_000_000_000), computedAt, computedAt, ""))
+		WillReturnRows(sqlmock.NewRows([]string{"population", "population_exact", "computed_at", "created_at", "race_id", "settlement_type_id"}).
+			AddRow(1_000_000_000, float64(1_000_000_000), computedAt, computedAt, "", int64(ownerTestTypeID)))
 	mock.ExpectQuery(branchSelectBySettlementForUpdateSQL).WithArgs("s1").
 		WillReturnRows(ownerBranchRows(computedAt, "продовольствие"))
 	mock.ExpectQuery(branchBuffersSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(ownerBufferRows())
@@ -212,4 +213,55 @@ func TestSyncSettlementsTwoBranchesOneEffect(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 	require.Len(t, out["s1"].Effects, 1, "две ветки одной позиции → один эффект (T13)")
+}
+
+// T-Р3 (число по паре): OwnerSettlement несёт тип, тип пути «событие» читается
+// из settlementLockSQL; промах пары (тип, рецепт) → числа нет → ветка инертна,
+// но жива: произведено 0, вход/залежь не тронуты, processed_at продвигается
+// (спека 2026-09-23 §3.2/§3.5).
+func TestSyncSettlementsRateMissInert(t *testing.T) {
+	require.Contains(t, settlementLockSQL, "settlement_type_id",
+		"путь «событие» читает тип поселения из settlementLockSQL (§3.3 п.2)")
+
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
+	require.NoError(t, err)
+	defer db.Close()
+
+	now := time.Now()
+	computedAt := now.Add(-2 * time.Hour)
+	expectOwnerPassWithBranches(mock, ownerBranchRows(computedAt, "продовольствие"), ownerComponentRows(), ownerBufferRows(), nil)
+
+	o := ownerInput(computedAt)
+	o.SettlementTypeID = 999 // пары (999, 69) нет → числа нет → инертна
+
+	mock.ExpectBegin()
+	mock.ExpectExec(advisoryOwnerLockSQL).WithArgs("s1").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(settlementLockSQL).WithArgs("s1").
+		WillReturnRows(sqlmock.NewRows([]string{"population", "population_exact", "computed_at", "created_at", "race_id", "settlement_type_id"}).
+			AddRow(1_000_000_000, float64(1_000_000_000), computedAt, computedAt, "", int64(999)))
+	mock.ExpectQuery(branchSelectBySettlementForUpdateSQL).WithArgs("s1").
+		WillReturnRows(ownerBranchRows(computedAt, "продовольствие"))
+	mock.ExpectQuery(branchBuffersSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(ownerBufferRows())
+	mock.ExpectQuery(branchComponentsSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(ownerComponentRows())
+	mock.ExpectExec(branchTopUpInputSQL).WithArgs("b1", int64(359)).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(depositExtractionSelectSQL).WithArgs("p1", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "good_id", "amount"}))
+	mock.ExpectExec(branchWriteInputSQL).WithArgs(amountNear{1e15}, "b1", int64(359)).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(branchWriteOutputSQL).WithArgs("b1", int64(378), amountNear{0}).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(branchWriteCheckpointSQL).WithArgs(sqlmock.AnyArg(), "b1").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(activeEffectUpsertSQL).WithArgs(int64(1), "s1", "продовольствие", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(settlementPopulationWriteSQL).WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "s1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	out, err := NewBranchRepository(db).SyncSettlements(now, []OwnerSettlement{o})
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	res := out["s1"]
+	require.Len(t, res.Branches, 1, "ветка жива — не удаляется молча (§3.5)")
+	require.Zero(t, res.Branches[0].Produced, "числа нет → ветка инертна")
+	require.InDelta(t, 1e15, res.Branches[0].Input[0].Amount, 1e-6, "вход не тронут при промахе числа")
+	require.WithinDuration(t, now, res.Branches[0].ProcessedAt, time.Second, "processed_at продвигается — не застой")
 }

@@ -10,6 +10,9 @@ import { modalState } from '../modal/state.js';
 import { openSystemModal, closeModal, refreshPlanets } from '../modal/index.js';
 import { notifyInfo } from '../ui/toast.js';
 import { startFlightHum, playArrival } from '../ui/sound.js';
+// Подпись баланса в шапке карты (идея 2026-09-23 §5.1): единый форматтер
+// «… Cr» из модуля денег — второй форматтер не заводим.
+import { moneyLabel } from '../dashboard/money.js';
 
 // Размер ячейки кластеризации на экране, в пикселях.
 export const CLUSTER_CELL_PX = 40;
@@ -36,6 +39,29 @@ let lastFlightReloadAt = 0;
 // Вейтеры, ждущие освобождения loadingData (фикс 33b): ветка прибытия
 // дожидается конца полётного перезапроса, чтобы loadClusters не потерялся.
 const loadIdleWaiters = [];
+
+// loadAccountBalance — баланс игрока в шапку карты (идея 2026-09-23 §5.1).
+// Источник — отдельный GET /me/money (эндпоинт §3.2/О-д4 уже есть; контракт
+// /me не трогаем). Показываем только свой счёт (канон 14_money.md §14.4).
+// Тихий сбой: без баланса карта работает, в шапке остаётся «—».
+async function loadAccountBalance(token) {
+    const el = document.getElementById('accountBalance');
+    if (!el) return;
+    try {
+        const res = await fetch('/me/money', {
+            headers: { 'Authorization': 'Bearer ' + token }
+        });
+        if (res.status === 401 || res.status === 403) {
+            handleUnauthorized();
+            return;
+        }
+        if (!res.ok) return;
+        const data = await res.json();
+        el.textContent = moneyLabel(data && data.balance);
+    } catch (e) {
+        console.warn('loadAccountBalance error:', e);
+    }
+}
 
 // lastFetchedBounds — границы вьюпорта, для которых загружены кластеры.
 // Полётный цикл сравнивает с ними текущий вьюпорт, чтобы не дёргать API
@@ -406,6 +432,10 @@ export async function loadUserData(force = false) {
                 if (label) label.textContent = world.name;
             }
         }
+
+        // Баланс в шапку карты (идея 2026-09-23 §5.1) — без await, чтобы
+        // загрузка карты не блокировалась вторым запросом.
+        loadAccountBalance(token);
 
         // Восстановление полёта после рефреша (идея 42a): сервер помнит
         // полёт в travel.Manager, /me отдаёт его в user.flight. Восстанавливаем

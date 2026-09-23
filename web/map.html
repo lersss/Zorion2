@@ -11,6 +11,9 @@
     <div id="header">
         <h1>🗺️ Карта миров</h1>
         <div style="margin-left:auto;">
+            <!-- Баланс игрока в шапке карты (идея 2026-09-23 §5.1): счёт → текущий
+                 мир → кнопки. Заполняется в map/data.js (GET /me/money). -->
+            <span id="accountBalanceLabel" style="margin-right:1rem;color:#94a3b8;">Счёт: <strong id="accountBalance">—</strong></span>
             <span id="currentWorldLabel" style="margin-right:1rem;color:#94a3b8;"><span id="currentWorldPrefix">Текущий мир:</span> <strong id="currentWorldName">—</strong></span>
             <button onclick="location.href='/'">🏠 Дашборд</button>
             <!-- Кнопка «В админку» (пожелание 2026-09-19): видна только

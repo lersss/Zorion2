@@ -107,6 +107,21 @@
         .cargo-actions { margin-top: 12px; }
         .cargo-empty { color: #94a3b8; padding: 6px 0; }
         .cargo-status { margin-top: 8px; font-size: 0.8rem; color: #94a3b8; min-height: 1.1rem; }
+        /* Вкладка «💳 Счёт» (идея 2026-09-23 §5.2): сводка баланса + строки
+           операций (тип + дата слева, сумма со знаком справа). Палитра — из
+           дашборда; цвета +/− (§5.2): gain #4ade80, loss #f87171. */
+        .money-summary { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0 10px; border-bottom: 1px solid #334155; }
+        .money-summary-label { color: #94a3b8; }
+        .money-summary-value { font-size: 1.1rem; font-weight: 600; }
+        .money-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid #1f2a3a; }
+        .money-row-info { display: flex; flex-direction: column; gap: 2px; }
+        .money-row-kind { font-weight: 600; }
+        .money-row-meta { color: #94a3b8; font-size: 0.8rem; }
+        .money-row-amount { font-weight: 600; white-space: nowrap; }
+        .money-gain { color: #4ade80; }
+        .money-loss { color: #f87171; }
+        .money-empty { color: #94a3b8; padding: 6px 0; }
+        .money-status { margin-top: 8px; font-size: 0.8rem; color: #94a3b8; min-height: 1.1rem; }
     </style>
 </head>
 <body>
@@ -118,6 +133,7 @@
                 <p><strong>Корабль:</strong> <span id="shipPreview"></span></p>
                 <p><strong>Текущий мир:</strong> <span id="currentWorld">—</span></p>
                 <p><strong>Статус полёта:</strong> <span id="flightStatus">—</span></p>
+                <p><strong>Счёт:</strong> <span id="accountBalance">—</span></p>
             </div>
             <button onclick="location.href='/map'">🗺️ Карта миров</button>
             <button class="btn-secondary" id="logoutBtn">🚪 Выйти</button>
@@ -129,6 +145,7 @@
             <button class="tab-btn" data-tab="tab-graphics">⚙️ Графика</button>
             <button class="tab-btn" data-tab="tab-stats">📊 Статистика</button>
             <button class="tab-btn" data-tab="tab-encyclopedia">📖 Энциклопедия</button>
+            <button class="tab-btn" data-tab="tab-account">💳 Счёт</button>
         </div>
 
         <div class="tab-pane" id="tab-ship">
@@ -284,6 +301,18 @@
                 <div id="encyclopedia"></div>
             </div>
         </div>
+
+        <div class="tab-pane" id="tab-account">
+            <div class="card">
+                <h2>💳 Счёт</h2>
+                <div class="money-summary">
+                    <span class="money-summary-label">Баланс:</span>
+                    <span class="money-summary-value" id="money-balance">—</span>
+                </div>
+                <div id="money-history"></div>
+                <div id="money-status" class="money-status">⏳ Загрузка…</div>
+            </div>
+        </div>
     </div>
 
     <script type="module">
@@ -291,6 +320,7 @@
         import { loadEncyclopedia } from '/static/js/dashboard/encyclopedia.js';
         import { initGraphicsSettings } from '/static/js/dashboard/graphics.js';
         import { initCargo } from '/static/js/dashboard/cargo.js';
+        import { initMoney } from '/static/js/dashboard/money.js';
 
         // orientCssTransform — CSS-трансформ показа пары (A, F) (спека §6.2):
         // A=0 → rotate(0) scaleX(F); A≠0 → scale(0.707) rotate(A) scaleX(F)
@@ -693,6 +723,9 @@
         loadEncyclopedia();
         // Блок «Трюм» (спека трюма §9.3): загрузка GET /api/cargo + сброс.
         initCargo();
+        // Блок «Счёт» (идея 2026-09-23 §5.1/§5.2): баланс в шапке + история
+        // операций во вкладке «💳 Счёт» (GET /me/money).
+        initMoney();
         // Вкладка «⚙️ Графика» (идея 2026-09-22): контролы читают/пишут
         // localStorage; карта миров читает те же ключи.
         initGraphicsSettings();

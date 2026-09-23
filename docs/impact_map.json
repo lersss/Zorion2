@@ -525,6 +525,20 @@
       ]
     },
     {
+      "id": "internal/goodsstudio/aiserve",
+      "type": "code",
+      "path": "internal/goodsstudio/aiserve/",
+      "note": "управление локальным ИИ-помощником opencode serve (2026-09-24): состояние по факту проб (TCP-проба порта из OPENCODE_URL + health; running определяется и по подтверждённому владельцу порта), запуск отдельного процесса (cmd /c npx -y opencode-ai serve --port <port>, DETACHED_PROCESS + CREATE_NEW_PROCESS_GROUP, лог logs/opencode_serve.log), гашение с опознанием (владелец порта либо процессы opencode+serve+токен порта; taskkill /PID /T /F; критерий успеха — освобождение порта), single-flight и кэш вердикта под sync.RWMutex; гейт managed = Windows + loopback + npx (иначе managed=false, ручки 409); stop запрещён при активном ИИ-джобе студии (решение создателя 2026-09-24, вариант 1)",
+      "impacts": [
+        { "on": "internal/goodsstudio/ai", "kind": "reads", "reason": "URL и порт помощника — общий источник OPENCODE_URL: клиент ИИ и управление не разъезжаются" },
+        { "on": "internal/handlers/studio_handlers.go", "kind": "api", "reason": "поле ai в StateView (GET /studio/api/state) + ручки /studio/api/ai/{status,start,stop} (studio_ai.go) под auth.AdminAuth" },
+        { "on": "internal/config/config.go", "kind": "reads", "reason": "OPENCODE_URL и новая OPENCODE_START_TIMEOUT_S (дефолт 300 с; ≤0 → дефолт)" },
+        { "on": "web/studio.html", "kind": "api", "reason": "индикатор #aiStatus + кнопки «запустить»/«остановить»; дизейбл ИИ-кнопок при state≠running (спека 2026-09-24 §4)" },
+        { "on": "start-all.cmd", "kind": "affects", "reason": "сервис [7/7] «ИИ-помощник» (порт 3456, переключатель AI) — порт обязан совпадать с OPENCODE_URL" },
+        { "on": "docs/specs/2026-09-24-студия-управление-локальным-ии.md", "kind": "docs", "reason": "спека фичи (2026-09-24)" }
+      ]
+    },
+    {
       "id": "web/static/js/auth.js",
       "type": "code",
       "path": "web/static/js/auth.js",
@@ -548,6 +562,7 @@
         { "on": "web/static/js/auth.js", "kind": "reads", "reason": "студия: bootstrap и window.* из адаптера studio/auth.js (ядро auth.js), общий adminToken с админкой" },
         { "on": "internal/handlers/studio_handlers.go", "kind": "api", "reason": "все действия UI идут в /studio/api/* (iterA §7) + fill/apply/cancel (iterC)" },
         { "on": "internal/goodsstudio/ai", "kind": "api", "reason": "попап «Предложения ИИ» опрашивает state (proposals/report), отправляет apply/cancel (iterC); попап «Описания ИИ» — descriptions/fill|apply|cancel (2026-09-21)" },
+        { "on": "internal/goodsstudio/aiserve", "kind": "api", "reason": "индикатор #aiStatus + кнопки «запустить»/«остановить» локального ИИ-помощника (2026-09-24)" },
         { "on": "docs/ARCHITECTURE.md", "kind": "docs", "reason": "роуты /studio + статика web/studio.html (дельта iterA §16)" },
         { "on": "docs/specs/2026-09-21-студия-товары-рецепты-ui.md", "kind": "docs", "reason": "UI-ТЗ рецептов (2026-09-21): селекторы фабрики/семейства, граф замыкания, попап «Состав рецепта»/«Сложность»/привязки, drag&drop, кнопка копирования набора" },
         { "on": "docs/specs/2026-09-21-рецепт-сущность-и-граф-фабрики.md", "kind": "duplicates", "reason": "модель/API рецептов (§4–§5): селектор фабрики, фильтр семейства, попап, роуты рецептов/привязок" }

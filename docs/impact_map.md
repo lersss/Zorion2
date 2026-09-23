@@ -37,6 +37,7 @@
 | goods | db:goods (categories/goods) | каталог товаров/ресурсов в PostgreSQL (миграция 000045, перенос iterA): categories (товарные + 6 ресурсных системных), goods (n… |
 | internal/goodsstudio | internal/goodsstudio/ | доменный пакет каталога (перенос iterA, iterC): model (Category/Good/Slot/Status/Kind/Source), graph (tier/cycles/names), valid… |
 | internal/goodsstudio/ai | internal/goodsstudio/ai/ | ИИ «заполнить комплектующие» (перенос cmd/goods-studio/ai, iterC 2026-09-20): client (opencode HTTP, env OPENCODE_URL/MODEL/TIM… |
+| internal/goodsstudio/aiserve | internal/goodsstudio/aiserve/ | управление локальным ИИ-помощником opencode serve (2026-09-24): состояние по факту проб (порт + health, running и по владельцу порта), запуск отдельного процесса, гашение с опознанием (taskkill /T, критерий — освобождение порта), single-flight + кэш под RWMutex; гейт managed = Windows + loopback + npx; ручки /studio/api/ai/* |
 | web/static/js/auth.js | web/static/js/auth.js | общий модуль авторизации (iterC 2026-09-20, «причеши»): ядро auth.js (getToken/setToken/validateToken/login/fetchWithAuth); тон… |
 | web/studio.html | web/studio.html | UI студии товаров на игровом сервере (перенос iterA/iterB/iterC): перенесённый cmd/goods-studio/web/index.html; подключён к /st… |
 | nav-admin-map | web/map.html | Переходы админка ↔ карта (2026-09-19): синхронизация JWT между ключами token/adminToken при навигации; клик по 🌍 в шапке админ… |

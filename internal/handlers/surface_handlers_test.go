@@ -559,6 +559,33 @@ func TestSurfaceLandNoBiomes(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+// Класс без поверхности (газовый гигант, мини-нептун — спека 2026-09-23 §8.3):
+// высадки нет, отказ осмысленный (не «нет данных»); клиент блокирует пункт
+// «Высадиться» для обоих классов (modal/events.js).
+func TestSurfaceLandSurfacelessClass(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		data string
+	}{
+		{"газовый гигант", `{"temperature":288,"gravity":1.0,"biomes":[],"is_gas_giant":true}`},
+		{"мини-нептун", `{"temperature":288,"gravity":1.0,"biomes":[],"is_mini_neptune":true,"type":"мини-нептун"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h, mock := newSurfaceHarness(t)
+			const uid = "11111111-1111-1111-1111-111111111111"
+
+			expectSurfaceUser(mock, uid, "w1", orbitPlanetPos)
+			expectIntraWorld(mock, "w1")
+			expectSurfacePlanetsLight(mock, "w1", surfacePlanetRow("pl-1", "w1", "X", tc.data))
+
+			rec := execJSON(h.Land, surfaceLandRequest(uid, "pl-1"))
+			require.Equal(t, http.StatusBadRequest, rec.Code)
+			require.Contains(t, rec.Body.String(), "нет поверхности")
+			require.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+}
+
 // Биомы есть, но все form неизвестны каталогу → valid пуст → 400 (В5).
 func TestSurfaceLandUnknownBiome(t *testing.T) {
 	h, mock := newSurfaceHarness(t)

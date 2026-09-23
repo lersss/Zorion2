@@ -67,10 +67,18 @@ func TestFieldRegistryCoversGenerator(t *testing.T) {
 	assert.LessOrEqual(t, *s.Min, 0.13, "gravity min")
 	assert.GreaterOrEqual(t, *s.Max, GasGiantMassMax/(GasGiantRadiusMax*GasGiantRadiusMax), "gravity max")
 
-	// moons: 0…10 (гиганты 3–10, стандартные ≤ 4).
+	// moons: 0…10 (гиганты 3–10, мини-нептуны 0–4, стандартные ≤ 4).
 	s = requireSpec("moons")
 	assert.LessOrEqual(t, *s.Min, 0.0, "moons min")
 	assert.GreaterOrEqual(t, *s.Max, 10.0, "moons max")
+
+	// Мини-нептун — новый класс (спека 2026-09-23 §11.2): поле-флаг в реестре,
+	// значение типа в списке (иначе класс молча недоступен формам).
+	if _, ok := reg["is_mini_neptune"]; !ok {
+		t.Error("нет поля is_mini_neptune в реестре (спека 2026-09-23 §11.2)")
+	}
+	assert.Contains(t, reg["type"].Values, "мини-нептун", "тип «мини-нептун» в реестре")
+	assert.Contains(t, reg["surface_dominant"].Values, "мини-нептун", "surface_dominant «мини-нептун»")
 
 	// Остальные числовые поля.
 	for _, tc := range []struct {

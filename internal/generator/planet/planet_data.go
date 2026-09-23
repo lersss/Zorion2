@@ -65,13 +65,24 @@ type Generator struct {
 	// 0.7–1.3 (админка, generation_config).
 	racePlanetCountMult float64
 
-	// giantOrbit — орбита газового гиганта системы (спека 2026-09-20 §4.2):
-	// 0 — гиганта нет; иначе индекс орбиты. Per-системное решение,
-	// выставляется один раз до цикла орбит (generateWorldWithCountIntoBuffer /
-	// GeneratePlanetsForWorld); generatePlanet проверяет orbitIndex ==
-	// giantOrbit без ролла (не потребляет энтропию в циклах). Генерация
+	// giantOrbit — орбита ПЕРВИЧНОГО газового гиганта системы (перелив,
+	// спека 2026-09-23 §4.2): 0 — гиганта нет; иначе индекс орбиты после
+	// миграции. Per-системное решение, выставляется один раз до цикла орбит
+	// (generateWorldWithCountIntoBuffer / GeneratePlanetsForWorld) из
+	// overflow.giantOrbit; читается f_обр (retentionFactor), маркером
+	// stripped_embryo (compositionFromHistory) и asteroidBelt. Генерация
 	// однопоточная на мир — поле безопасно (как profile).
 	giantOrbit int
+
+	// gasReservoir — газовый резервуар системы M_gas (M⊕, спека 2026-09-23
+	// §7.2): ОТДЕЛЬНАЯ от твёрдого M_диск величина, из него берётся только
+	// оболочка (гиганты/мини-нептуны). Один ролл на мир, до цикла орбит.
+	gasReservoir float64
+
+	// overflow — пред-слой перелива уровня мира (спека 2026-09-23 §4.2):
+	// классы и массы тел решены ДО цикла орбит. active = false — легаси-путь
+	// (экзотика/P-ветка/сверхгиганты): каскад роллит ζ сам.
+	overflow overflowPlan
 
 	// cloudBudget — бюджет облака M_диск (спека поясов малых тел §4.0,
 	// ревизия спеки 2026-09-21; бывший B): M_диск ~ logN(ln S₀, 0.5), один
@@ -133,10 +144,9 @@ func (g *Generator) SetRaceTuning(softness, planetCountMult float64) {
 // Для массовой генерации (100k миров) — использовать GeneratePlanetsForWorlds,
 // там батчи по многим мирам в одной транзакции.
 //
-// ВАЖНО (регрессия П1): легаси-путь без WorldInfo/Mods — сверхгигантов
-// («прочая экзотика», фаза I + lbv/wr) не различает и может дать им гиганта
-// (ролл по классу O/B/A на орбиту 1 фолбэком). Вызовов в коде нет; продакшн-
-// поток — generateWorldWithCountIntoBuffer (там сверхгиганты исключены).
+// Легаси-путь без WorldInfo/Mods: сверхгигантов не различает (нет Mods), но
+// использует тот же пред-слой перелива (спека 2026-09-23 §4) — гигант
+// рождается из порога M_crit, а не по классу. Вызовов в коде нет.
 func (g *Generator) GeneratePlanetsForWorld(worldID, worldName, spectralClass string, temperature int) (int, error) {
 	planetCount := g.determinePlanetCount(spectralClass)
 	if planetCount == 0 {
@@ -145,11 +155,16 @@ func (g *Generator) GeneratePlanetsForWorld(worldID, worldName, spectralClass st
 
 	sp := stellarParamsFromClass(spectralClass, temperature, g.rng)
 
-	// Per-системное решение гиганта (спека 2026-09-20 §4.2): один ролл до
-	// цикла орбит.
-	g.giantOrbit = g.rollGiantOrbit(sp, planetCount)
-	// Бюджет облака M_диск (спека 2026-09-21 §4): один ролл на систему.
+	// Бюджет облака M_диск и газовый резервуар M_gas (спека 2026-09-23 §7.2):
+	// роллы в порядке потока §4.4 — M_диск → M_gas → migrationMode.
 	g.cloudBudget = g.rollCloudBudget()
+	g.gasReservoir = g.rollGasReservoir()
+	g.migrationMode = g.rollMigrationMode()
+
+	// Пред-слой перелива (§4): g₀, класс, миграция, пересчёт масс с f_обр.
+	g.giantOrbit = 0
+	g.overflow = g.rollOverflow(planetCount, sp.Metallicity, massMax)
+	g.giantOrbit = g.overflow.giantOrbit
 
 	tx, err := g.db.Begin()
 	if err != nil {
@@ -304,12 +319,24 @@ func (g *Generator) generateWorldWithCountIntoBuffer(w WorldInfo, count int, buf
 		w.Mods.BinaryType == "close" && w.Mods.CompanionSepAU != nil
 
 	// Бюджет облака M_диск (спека поясов малых тел §4.0): один ролл до цикла
-	// орбит (образец giantOrbit). Диск кратной системы один — M_диск
+	// орбит (образец прежнего giantOrbit). Диск кратной системы один — M_диск
 	// наследуется компаньонами и P-планетами; экзотика (остатки) M_диск не
 	// потребляет (дефолт нейтрален — значения планет сохраняются).
 	g.cloudBudget = cloudProfileSum
 	if !isExoticObject(w.StarType) {
 		g.cloudBudget = g.rollCloudBudget()
+	}
+
+	// Мир обычного пути перелива (спека 2026-09-23 §4): обычная одиночная
+	// звезда с планетами. Экзотика/P-ветка/сверхгиганты — без перелива
+	// (гигантов не получают, O18).
+	isOverflowWorld := !isExoticObject(w.StarType) && !isCircumbinary && !isSupergiantExotic(w)
+
+	// Газовый резервуар M_gas (спека 2026-09-23 §7.2): отдельный ролл сразу
+	// после M_диск — порядок потока §4.4. Только у миров перелива.
+	g.gasReservoir = 0
+	if isOverflowWorld {
+		g.gasReservoir = g.rollGasReservoir()
 	}
 
 	// Гейт миграции мира (спека 2026-09-22-облако-этап-2 §4.4, Ф2 = б): один
@@ -319,21 +346,25 @@ func (g *Generator) generateWorldWithCountIntoBuffer(w WorldInfo, count int, buf
 		g.migrationMode = g.rollMigrationMode()
 	}
 
-	// Per-системное решение гиганта (спека 2026-09-20 §4.2): один ролл до
-	// цикла орбит. Экзотика (ЧД/НЗ/WD/протозвезда/сверхгиганты) — гигантов
-	// нет (99.2.4 §5.3); P-ветка — свой ролл (generateCircumbinaryPlanet,
-	// одна P-планета на систему).
+	// ==================== ПРЕД-СЛОЙ ПЕРЕЛИВА (спека 2026-09-23 §4) ============
+	// Двухпроходный: сырые ядра без гиганта → порог убегающей аккреции →
+	// орбита рождения g₀ → класс/миграция → пересчёт масс с f_обр. Заменяет
+	// per-системный ролл гиганта (rollGiantOrbit, спека 2026-09-20 §4.2).
+	g.overflow = overflowPlan{}
 	g.giantOrbit = 0
-	if !isExoticObject(w.StarType) && !isCircumbinary && !isSupergiantExotic(w) {
-		g.giantOrbit = g.rollGiantOrbit(stellarParamsFromWorld(w, g.rng), count)
+	if isOverflowWorld {
+		sp := stellarParamsFromWorld(w, g.rng)
+		if count > 0 {
+			g.overflow = g.rollOverflow(count, sp.Metallicity, massMax)
+			g.giantOrbit = g.overflow.giantOrbit
+		}
 	}
 
-	// Решение пояса астероидов (§4.1, §4.7): пояс занимает орбиту g−1
-	// (резонансное окно гиганта 3:1–2:1) вместо планеты. Только у обычных
+	// Решение пояса астероидов (§4.1, §4.7 спеки поясов): пояс занимает орбиту
+	// g−1 (резонансное окно гиганта 3:1–2:1) вместо планеты. Только у обычных
 	// звёзд с гигантом на орбите ≥ 2; при g = 1 внутренней орбиты нет.
 	beltOrbit := 0
-	if !isExoticObject(w.StarType) && !isCircumbinary && !isSupergiantExotic(w) &&
-		g.giantOrbit >= 2 {
+	if isOverflowWorld && g.giantOrbit >= 2 {
 		beltOrbit = g.giantOrbit - 1
 	}
 
@@ -372,6 +403,11 @@ func (g *Generator) generateWorldWithCountIntoBuffer(w WorldInfo, count int, buf
 		if orbitIndex == beltOrbit {
 			// Орбита пояса: планета не формируется (класс A, §4.1).
 			worldBelts = append(worldBelts, g.asteroidBelt(w, g.giantOrbit))
+			continue
+		}
+		if g.overflow.active && g.overflow.abandonedOrbit(orbitIndex) {
+			// Покинутая орбита рождения g₀ (миграция) — щель (спека
+			// 2026-09-23 §4.2 проход 5): планета там не формируется.
 			continue
 		}
 		planet := g.generatePlanet(w.ID, w.Name, orbitIndex, stellarParamsFromWorld(w, g.rng))
@@ -505,8 +541,10 @@ func (g *Generator) applySumClamp(planets []*PlanetData, belts []BeltData) {
 	if g.cloudBudget <= 0 {
 		return
 	}
-	// Σ планет — только по бюджетным телам (Mass > 0 у каменистых/ледяных
-	// S/P; гиганты и экзотика бюджет не потребляют — Mass = 0).
+	// Σ планет — только по бюджетным телам (Mass > 0: каменистые/ледяные
+	// S/P и ТВЁРДОЕ ЯДРО гигантов/мини-нептунов — срез M_диск, §7.2).
+	// Оболочка тел ветки оболочки идёт из M_gas и в сумму НЕ входит;
+	// экзотика — Mass = 0 (бюджет облака не потребляет).
 	planetSum := 0.0
 	for _, p := range planets {
 		planetSum += p.Mass
@@ -539,12 +577,20 @@ func (g *Generator) applySumClamp(planets []*PlanetData, belts []BeltData) {
 // множитель < 1) с сохранением физической согласованности: R = (M/ρ)^(1/3)
 // (плотность не меняется), g = M/R², v_esc = 11.2·√(M/R). Правка — в JSON
 // data; описание/биомы не пересчитываются (текст/объекты уже сгенерированы).
+//
+// У тел ветки оболочки (гигант/мини-нептун) кламп ужимает ТОЛЬКО твёрдое
+// ядро (p.Mass): оболочка из газового резервуара M_gas твёрдый бюджет не
+// тратит, а витринная масса обязана лежать на кривой M→R (§7.2).
 func scalePlanetBudgetMass(p *PlanetData, k float64) {
 	if p.Mass <= 0 || k >= 1 {
 		return
 	}
 	var data map[string]interface{}
 	if err := json.Unmarshal(p.Data, &data); err != nil {
+		return
+	}
+	if data["is_gas_giant"] == true || data["is_mini_neptune"] == true {
+		p.Mass *= k
 		return
 	}
 	mass, _ := data["mass"].(float64)

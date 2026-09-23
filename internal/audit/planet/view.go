@@ -44,6 +44,7 @@ type View struct {
 	Biosphere       string
 
 	IsGasGiant    bool
+	IsMiniNeptune bool
 	IsRadioactive bool
 	Life          bool
 
@@ -156,6 +157,7 @@ func Parse(data map[string]interface{}) *View {
 	v.Biosphere = aStr(data, "biosphere")
 
 	v.IsGasGiant = aBool(data, "is_gas_giant")
+	v.IsMiniNeptune = aBool(data, "is_mini_neptune")
 	v.IsRadioactive = aBool(data, "radioactive")
 	v.Life = aBool(data, "life")
 

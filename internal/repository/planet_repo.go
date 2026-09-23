@@ -655,8 +655,9 @@ func populatePlanetFromJSON(p *models.Planet, data map[string]interface{}) {
 	// Ядро
 	p.Core = parseCore(data)
 
-	// Газовый гигант и спутники
+	// Газовый гигант, мини-нептун и спутники
 	p.IsGasGiant = getBool(data, "is_gas_giant")
+	p.IsMiniNeptune = getBool(data, "is_mini_neptune")
 	p.Satellites = parseSatellites(data)
 
 	// Прочее

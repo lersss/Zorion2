@@ -78,12 +78,20 @@ func planetsOf(t *testing.T, buf *batchBuffers) map[int]float64 {
 	return m
 }
 
-// worldSum — Σ масс планет (без гигантов) + Σ масс поясов мира.
+// worldSum — Σ ТВЁРДЫХ масс планет (без гигантов и мини-нептунов: у тел ветки
+// оболочки твёрдый бюджет тратит только ядро, спека 2026-09-23 §7.2) + Σ масс
+// поясов мира.
 func worldSum(t *testing.T, buf *batchBuffers) float64 {
 	t.Helper()
 	sum := 0.0
-	for _, m := range planetsOf(t, buf) {
-		sum += m
+	for _, row := range buf.planetRows {
+		f := row.([]interface{})
+		var data map[string]interface{}
+		require.NoError(t, json.Unmarshal([]byte(f[4].(string)), &data))
+		if data["is_gas_giant"] == true || data["is_mini_neptune"] == true {
+			continue
+		}
+		sum += data["mass"].(float64)
 	}
 	for _, b := range beltsOf(t, buf) {
 		sum += b.mass
@@ -651,8 +659,11 @@ func TestBeltCompositionMatchesZone(t *testing.T) {
 	assert.Greater(t, k.Composition["ice"], 0.3, "Койпера — за снеговой линией (лёд)")
 }
 
-// B14 — доля астероидных поясов: ≈4.3% всех звёзд / ≈9.5% F/G/K (вес ×
-// P(гигант) × 0.95). Объёмный замер — вне быстрого цикла.
+// B14 — доля астероидных поясов при переливе (спека 2026-09-23 §9.1):
+// пояс есть при g ≥ 2 без миграции, поэтому доля ≈ P_giant·(1 − P_mig) ≈ 6.8%
+// (было ≈4.3% — прежний per-системный бросок; тест ПЕРЕЗАМЕРЕН). Класс звезды
+// частоту больше не задаёт (она зависит от числа орбит n) — при форсированном
+// count = 6 доля одинакова для всех классов. Объёмный замер — вне быстрого цикла.
 func TestBeltShareDistribution(t *testing.T) {
 	if testing.Short() {
 		t.Skip("объёмный статистический смоук — вне быстрого цикла, гоняется отдельно")
@@ -688,8 +699,8 @@ func TestBeltShareDistribution(t *testing.T) {
 	}
 	allFrac := float64(all) / float64(allN)
 	fgkFrac := float64(fgk) / float64(fgkAll)
-	t.Logf("доля астероидных поясов: все %.2f%% (ожидание ≈4.3%%), F/G/K %.2f%% (≈9.5%%)",
+	t.Logf("доля астероидных поясов: все %.2f%% (перезамер §9.1: ≈6.8%%), F/G/K %.2f%%",
 		allFrac*100, fgkFrac*100)
-	assert.InDelta(t, 0.043, allFrac, 0.02, "доля всех звёзд")
-	assert.InDelta(t, 0.095, fgkFrac, 0.04, "доля F/G/K")
+	assert.InDelta(t, 0.068, allFrac, 0.02, "доля всех звёзд (перезамер §9.1)")
+	assert.InDelta(t, allFrac, fgkFrac, 0.02, "класс больше не задаёт частоту (вилка по n)")
 }

@@ -237,7 +237,7 @@ func TestFormationHistorySchema(t *testing.T) {
 	// Данные планеты: ключ — массив объектов с type.
 	g := NewGenerator(nil, 7002)
 	sp := stellarParamsFromClass("G", 5772, g.rng)
-	pd := g.generateStandardPlanet("w", "W", 4, sp, false, nil, nil)
+	pd := g.generateStandardPlanet("w", "W", 4, sp, false, nil, nil, 0)
 	var data map[string]interface{}
 	require.NoError(t, json.Unmarshal(pd.Data, &data))
 	arr, ok := data["formation_history"].([]interface{})

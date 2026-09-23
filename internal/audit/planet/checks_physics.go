@@ -28,7 +28,9 @@ func checkTemperatureRange(v *View) []audit.Issue {
 //
 // Для газовых гигантов — инвариант кривой M→R (gasGiantRadius): размер обязан
 // лежать на кривой с насыщением (наивная формула (M/ρ)^(1/3) для гигантов
-// отклонена, 99.2.15). Для обычных планет — как раньше: (M/ρ)^(1/3).
+// отклонена, 99.2.15). Для мини-нептунов — своя кривая (MiniNeptuneRadius,
+// спека 2026-09-23 §8.2/§14.3, зеркало giant_radius_mismatch). Для обычных
+// планет — как раньше: (M/ρ)^(1/3).
 func checkMassSizeDensity(v *View) []audit.Issue {
 	if v.Density <= 0 || v.Mass <= 0 {
 		return nil
@@ -39,6 +41,20 @@ func checkMassSizeDensity(v *View) []audit.Issue {
 		if diff > 0.2 {
 			return []audit.Issue{newIssueWithDetails(v, "giant_radius_mismatch", audit.SeverityMedium,
 				fmt.Sprintf("R=%.3f, но кривая гиганта gasGiantRadius(M)=%.3f (отклонение %.3f)", v.Size, expected, diff),
+				map[string]interface{}{
+					"size":     v.Size,
+					"mass":     v.Mass,
+					"expected": expected,
+				})}
+		}
+		return nil
+	}
+	if v.IsMiniNeptune {
+		expected := genplanet.MiniNeptuneRadius(v.Mass)
+		diff := math.Abs(expected - v.Size)
+		if diff > 0.2 {
+			return []audit.Issue{newIssueWithDetails(v, "minineptune_radius_mismatch", audit.SeverityMedium,
+				fmt.Sprintf("R=%.3f, но кривая мини-нептуна MiniNeptuneRadius(M)=%.3f (отклонение %.3f)", v.Size, expected, diff),
 				map[string]interface{}{
 					"size":     v.Size,
 					"mass":     v.Mass,
@@ -294,10 +310,10 @@ func checkMethaneInHeat(v *View) []audit.Issue {
 
 // checkHydrogenInHeat — водородно-гелиевая, водородная, гелиевая при высокой T.
 //
-// Газовые гиганты исключены: у них H-He атмосфера по определению,
-// и даже горячие газовые гиганты — норма.
+// Газовые гиганты и мини-нептуны исключены: у них H-He атмосфера по
+// определению, и даже горячие тела — норма (спека 2026-09-23 §11.2/§14.3).
 func checkHydrogenInHeat(v *View) []audit.Issue {
-	if v.IsGasGiant {
+	if v.IsGasGiant || v.IsMiniNeptune {
 		return nil
 	}
 	if v.Temperature <= 700 {
@@ -369,9 +385,10 @@ func checkCoreTypeMismatch(v *View) []audit.Issue {
 
 // ==================== СПУТНИКИ ====================
 
-// checkSatelliteTemperature — спутник горячее газового гиганта.
+// checkSatelliteTemperature — спутник горячее газового гиганта (или
+// мини-нептуна, у которого спутники — гипотеза 0–4, спека 2026-09-23 §14.3).
 func checkSatelliteTemperature(v *View) []audit.Issue {
-	if !v.IsGasGiant || len(v.Satellites) == 0 {
+	if !(v.IsGasGiant || v.IsMiniNeptune) || len(v.Satellites) == 0 {
 		return nil
 	}
 	var issues []audit.Issue
@@ -385,9 +402,10 @@ func checkSatelliteTemperature(v *View) []audit.Issue {
 	return issues
 }
 
-// checkSatelliteMass — масса спутника слишком большая.
+// checkSatelliteMass — масса спутника слишком большая (газовый гигант или
+// мини-нептун, спека 2026-09-23 §14.3).
 func checkSatelliteMass(v *View) []audit.Issue {
-	if !v.IsGasGiant || len(v.Satellites) == 0 {
+	if !(v.IsGasGiant || v.IsMiniNeptune) || len(v.Satellites) == 0 {
 		return nil
 	}
 	var issues []audit.Issue

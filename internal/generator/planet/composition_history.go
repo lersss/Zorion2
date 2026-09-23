@@ -300,7 +300,7 @@ func compositionFromHistory(
 }
 
 // rollMigrationMode — гейт миграции мира (§4.4, Ф2 = б): один ролл на мир,
-// до цикла орбит (рядом с rollGiantOrbit/rollCloudBudget). Возвращает
+// до цикла орбит (рядом с rollCloudBudget/rollGasReservoir). Возвращает
 // migrationNone/Moderate/Strong.
 func (g *Generator) rollMigrationMode() int {
 	u := g.rng.Float64()

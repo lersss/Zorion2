@@ -59,19 +59,22 @@ func TestProfilePlanetCountPerWorld(t *testing.T) {
 		ProfileIntensity: regionprofile.Strong}
 
 	const n = 5000
+	// Сверяется ЗАПРОШЕННЫЙ счёт (mean-модель), а не число строк буфера: в
+	// мире перелива одна-две орбиты планеты не дают — пояс (g−1, §9.1) и
+	// покинутая миграцией g₀ (§4.2 проход 5). Допуск — спековый 0.15
+	// (mean 6.5 × 1.3 → 8; 6.5 × 0.7 → 4.55, спека 99.2.10 §8 P3).
+	sum1, sum2 := 0, 0
 	for i := 0; i < n; i++ {
-		g.generateWorldIntoBuffer(w1, buf)
-		g.generateWorldIntoBuffer(w2, buf)
+		buf.reset()
+		sum1 += g.generateWorldIntoBuffer(w1, buf) + skippedOrbits(g)
+		buf.reset()
+		sum2 += g.generateWorldIntoBuffer(w2, buf) + skippedOrbits(g)
 	}
-
-	counts := map[string]int{}
-	for _, row := range buf.planetRows {
-		fields := row.([]interface{})
-		counts[fields[1].(string)]++
-	}
-	// w1: mean 6.5 × 1.3 = 8.45 → кламп 8 (спека §4.6); w2: mean 6.5 × 0.7 = 4.55.
-	assert.InDelta(t, 8.0, float64(counts["w1"])/n, 0.15, "мир 1 считает по своему региону")
-	assert.InDelta(t, 6.5*0.7, float64(counts["w2"])/n, 0.15, "мир 2 считает по своему региону, а не по предыдущему")
+	w1avg := float64(sum1) / n
+	w2avg := float64(sum2) / n
+	assert.InDelta(t, 8.0, w1avg, 0.15, "мир 1 считает по своему региону")
+	assert.InDelta(t, 6.5*0.7, w2avg, 0.15, "мир 2 считает по своему региону, а не по предыдущему")
+	assert.Greater(t, w1avg, w2avg+2.0, "регионы не перепутаны (stale-профиль)")
 }
 
 func planetCountAverage(g *Generator, cls string, n int) float64 {
@@ -80,6 +83,21 @@ func planetCountAverage(g *Generator, cls string, n int) float64 {
 		total += g.determinePlanetCount(cls)
 	}
 	return float64(total) / float64(n)
+}
+
+// skippedOrbits — орбиты мира, не давшие планету: пояс астероидов (g−1,
+// спека поясов §4.1) и покинутая миграцией орбита рождения g₀ (спека
+// 2026-09-23 §4.2 проход 5). Нужны, чтобы сверять ЗАПРОШЕННЫЙ счёт планет
+// (mean-модель), а не фактические строки буфера.
+func skippedOrbits(g *Generator) int {
+	skipped := 0
+	if g.giantOrbit >= 2 {
+		skipped++ // орбиту занимает пояс
+	}
+	if g.overflow.abandonedOrbit(g.overflow.birthOrbit) {
+		skipped++
+	}
+	return skipped
 }
 
 // ==================== ГАЗОВЫЕ ГИГАНТЫ (59a §8 P4, инвариант §11.5) ====================

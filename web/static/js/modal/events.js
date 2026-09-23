@@ -779,12 +779,17 @@ function showPlanetMenu(x, y, planetIndex) {
                 window.location.href = '/surface.html?planet=' + encodeURIComponent(planet.id);
             });
             menu.appendChild(surfaceItem);
-        } else if (planet.is_gas_giant) {
+        } else if (planet.is_gas_giant || planet.is_mini_neptune) {
+            // Класс без поверхности: газовый гигант и мини-нептун несут только
+            // оболочку — биомов/недр нет (спека 2026-09-23 §8.3: мини-нептун
+            // ведёт себя как гигант). Высадка disabled; сервер отвечает отказом.
+            const surfaceless = planet.is_mini_neptune ? 'мини-нептун' : 'газовый гигант';
             const landItem = menuItem(`🚶 <span style="color:#64748b;">Высадиться</span>
-               <span title="Высадка: биом случаен — чем больше доля, тем вероятнее"
-                     style="color:#64748b; font-size:0.75rem; margin-left:auto;">газовый гигант</span>`);
+               <span title="Высадка недоступна: у планеты нет поверхности"
+                     style="color:#64748b; font-size:0.75rem; margin-left:auto;">${surfaceless}</span>`);
             landItem.style.cursor = 'default';
-            landItem.addEventListener('click', () => notifyError('Газовый гигант — высадка невозможна'));
+            landItem.addEventListener('click', () => notifyError(
+                planet.is_mini_neptune ? 'Мини-нептун — высадка невозможна' : 'Газовый гигант — высадка невозможна'));
             menu.appendChild(landItem);
         } else {
             appendLandItem(menu, planet);

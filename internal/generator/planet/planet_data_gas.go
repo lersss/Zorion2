@@ -13,11 +13,15 @@ import (
 // композиции поверхности (только атмосфера), но есть спутники — каждый
 // полноценная локация.
 //
-// Кривая M→R, распределение масс, ρ = M/R³, g = M/R² — без изменений
-// (99.2.15, эталон создателя). Температура — T⁴ + Кельвина–Гельмгольца
-// (F_KH): чинит известную особенность «гигант 13 MJ → 20 K» (Юпитер ≈ 118 K).
-// Старая формула tEq × greenhouse + 30 отброшена.
+// Кривая M→R переанкерена решением создателя 2026-09-23 (§7.5 спеки
+// 2026-09-23-перелив-массы-в-гигантов-и-мини-нептуны), ρ = M/R³, g = M/R².
+// Температура — T⁴ + Кельвина–Гельмгольца (F_KH): чинит известную особенность
+// «гигант 13 MJ → 20 K» (Юпитер ≈ 118 K). Старая формула tEq × greenhouse + 30
+// отброшена.
 //
+// mass — готовая M_body из пред-слоя перелива (ядро + оболочка, §7.1);
+// coreMass — твёрдое ядро (срез M_диск, идёт в сумму applySumClamp, §7.2).
+// Для P-ветки/легаси mass = 0 → масса из gasGiantMass() (усечённый логнормаль).
 // tune — подкрутка расы-дома (99.2.22 §3.3): гиганты подстраиваются частично
 // (сдвиг орбиты + возраст; состав/поверхность — нет); nil — без подкрутки.
 func (g *Generator) generateGasGiant(
@@ -26,6 +30,7 @@ func (g *Generator) generateGasGiant(
 	orbitIndex int,
 	sp StellarParams,
 	tune *raceTune,
+	mass, coreMass float64,
 ) *PlanetData {
 	name := names.GeneratePlanetName(g.rng, g.usedNames)
 	if name == "" {
@@ -44,6 +49,7 @@ func (g *Generator) generateGasGiant(
 		TEff:          sp.TEff,
 		OrbitRadiusAU: orbitRadius,
 		OrbitIndex:    orbitIndex,
+		MassOverride:  mass,
 	})
 
 	// --- СПУТНИКИ ---
@@ -122,6 +128,10 @@ func (g *Generator) generateGasGiant(
 		OrbitIndex: orbitIndex,
 		Data:       dataJSON,
 		Resources:  resources,
+		// Mass — твёрдое ядро (срез M_диск): оболочка гиганта из M_gas в
+		// твёрдую сумму не входит (§7.2, applySumClamp). 0 — у P-ветки/легаси
+		// (ядро бюджета облака не тратит).
+		Mass: coreMass,
 	}
 }
 

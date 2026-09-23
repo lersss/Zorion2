@@ -75,6 +75,10 @@ type Planet struct {
 	IsGasGiant bool              `json:"is_gas_giant,omitempty"`
 	Satellites []PlanetSatellite `json:"satellites,omitempty"`
 
+	// Мини-нептун — класс (M_crit, 16] M⊕ (спека 2026-09-23 §11.2): зеркало
+	// IsGasGiant; отдельный ключ, иначе класс теряется на выдаче API (whitelist).
+	IsMiniNeptune bool `json:"is_mini_neptune,omitempty"`
+
 	// Поселения планеты (источник населения)
 	Settlements []Settlement `json:"settlements,omitempty"`
 

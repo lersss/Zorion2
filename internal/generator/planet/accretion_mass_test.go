@@ -238,19 +238,16 @@ func TestMassNoLuminosityDoubleCount(t *testing.T) {
 	assert.Less(t, diff, 0.20, "медианы G и M на орбите 2 отличаются < 20%%")
 }
 
-// ==================== T9: ГИГАНТЫ НЕ ЗАТРОНУТЫ (регресс) ====================
-
-// T9 — кривая M→R и распределение масс гигантов не изменены.
-func TestGiantMassUntouched(t *testing.T) {
-	assert.Equal(t, GasGiantRadiusMax, GasGiantRadius(GasGiantMassRef), "кривая M→R")
-	assert.Equal(t, GasGiantRadiusMax, GasGiantRadius(GasGiantMassMax), "плато насыщения")
-	g := NewGenerator(nil, 20260929)
-	for i := 0; i < 2000; i++ {
-		m := g.gasGiantMass()
-		require.GreaterOrEqual(t, m, GasGiantMassMin)
-		require.LessOrEqual(t, m, GasGiantMassMax)
-	}
-}
+// ==================== T9: ПЕРЕПИСАН (спека 2026-09-23 §12.2) ====================
+//
+// T9 `TestGiantMassUntouched` («кривая M→R и распределение масс гигантов не
+// изменены») снят: после перелива масса гиганта — выход аккреции, а кривая
+// ПЕРЕАНКЕРЕНА (§7.5). Покрытие разнесено без дублирования:
+//   - путь перелива: O9 `TestGiantMassFromAccretion`, O10
+//     `TestGiantMassTargetLine` (overflow_giant_test.go);
+//   - кривая M→R: `TestGasGiantCurveReferencePoints`/`Monotonic`
+//     (gas_giant_test.go);
+//   - распределение P-ветки: `TestGasGiantMassDistribution` (там же).
 
 // ==================== T10: АУДИТ M–R–ρ (регресс) ====================
 
@@ -430,22 +427,17 @@ func TestSystemBudgetSingleRollPerSystem(t *testing.T) {
 	assert.Greater(t, r, 0.30, "планеты системы имеют общий множитель M_диск")
 }
 
-// ==================== T16: B НЕ ПРИМЕНЯЕТСЯ К ГИГАНТАМ/ЭКЗОТИКЕ ====================
+// ==================== T16: БЮДЖЕТ НЕ ПРИМЕНЯЕТСЯ К ОБОЛОЧКЕ И ЭКЗОТИКЕ ====================
 
-// T16 — масса газовых гигантов (15.9–4131, эталон 99.2.15) и экзотики
-// (0.05–0.45, своё происхождение) не зависит от M_диск (cloudBudget).
-func TestSystemBudgetNotAppliedToGiantsAndExotic(t *testing.T) {
-	giantMass := func(budget float64) float64 {
-		g := NewGenerator(nil, 777)
-		g.cloudBudget = budget
-		res := g.runCascadeGiant(cascadeInput{
-			Luminosity: 1, StellarMass: 1, AgeGyr: 4.6, Metallicity: 0, TEff: 5772,
-			OrbitRadiusAU: 5.2, OrbitIndex: 5,
-		})
-		return res.Mass
-	}
-	assert.Equal(t, giantMass(1), giantMass(100), "масса гиганта не зависит от B")
-
+// T16 переписан по спеке 2026-09-23 §12.2. Прежняя форма («масса гиганта не
+// зависит от M_диск») НЕВЕРНА: ядро гиганта — срез твёрдого бюджета
+// (M_core = M_диск·w_{g₀}·ζ·10^(0.5·[Fe/H])) и масштабируется бюджетом, а
+// оболочка (M_env = κ_rich·M_gas·w_{g₀}) — нет. Разделение ядро/оболочка
+// покрыто O19 (`TestGasReservoirIndependentOfSolid`: отдельный ролл M_gas,
+// масштаб ядра, кламп суммы) и O22; здесь — вторая половина прежнего T16,
+// которую O19 не покрывает: экзотика (0.05–0.45 M⊕, своё происхождение,
+// M_диск не читает).
+func TestExoticMassNotAppliedToBudget(t *testing.T) {
 	exoticMass := func(budget float64) float64 {
 		g := NewGenerator(nil, 778)
 		g.cloudBudget = budget
@@ -466,9 +458,9 @@ func TestSystemBudgetNotAppliedToGiantsAndExotic(t *testing.T) {
 // C1 — TestProtoDiskSingleRollPerSystem — покрыт T15(а): поток после
 // rollCloudBudget идентичен потоку после одного rng.NormFloat64() (ровно
 // один нормальный ролл на систему); отдельный счётчик не дублируется.
-// C3 — TestProtoDiskNotAppliedToGiantsAndExotic — покрыт T16
-// (TestSystemBudgetNotAppliedToGiantsAndExotic): масса гигантов (15.9–4131)
-// и экзотики (0.05–0.45) не зависит от M_диск (cloudBudget).
+// C3 — TestProtoDiskNotAppliedToGiantsAndExotic — покрыт O19
+// (TestGasReservoirIndependentOfSolid: оболочка не зависит от M_диск, ядро
+// масштабируется) и TestExoticMassNotAppliedToBudget (экзотика 0.05–0.45).
 
 // C2 — медиана M_диск = S₀ = cloudProfileSum (ревизия этапа 1, спека поясов
 // §4.0.1/§9 п.1): приор пере-калиброван (было 1), калибровка орбиты 2 (1 M⊕)
@@ -699,7 +691,12 @@ func TestTruncationKeepsTrend(t *testing.T) {
 	assert.Less(t, m6, m7, "орб. 6 < 7")
 }
 
-// T20 — f_обр не применяется к гигантам, экзотике и MassOverride.
+// T20 — f_обр не применяется к гигантам, экзотике и MassOverride. Тест
+// остаётся валидным после перелива (спека 2026-09-23 §12.2 его не переписывает):
+// он проверяет легаси/P-ветку (`runCascadeGiant` с MassOverride = 0 читает
+// `gasGiantMass()`, а не giantOrbit) и `MassOverride`-ветку каскада; на пути
+// перелива тело ветки оболочки f_обр не берёт ПО ПОСТРОЕНИЮ (§7.1 — `bodyMass`
+// не проходит `rockyMass`), это покрыто O7.
 func TestTruncationNotAppliedToGiantsAndExotic(t *testing.T) {
 	// Масса гиганта не читает giantOrbit/f_обр.
 	giantMass := func(giantOrbit int) float64 {

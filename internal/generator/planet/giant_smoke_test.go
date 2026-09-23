@@ -53,17 +53,19 @@ func rollSmokeBinaryMods(g *Generator, cls string) *models.StellarMods {
 	return mods
 }
 
-// TestSmoke20000Worlds — смоук 20 000 миров по критерию приёмки §11:
-// G/K/F с гигантом 8–12%, M 2–5%, O/B < 1%, A ≤ 3%, горячие юпитеры
-// глобально [0.5%, 1.0%], максимум планет M/G/K ≥ 4 и любой ≤ 8,
-// обитаемая доля (окно 2.0–4%). Доля обитаемых — не инвариант (решение
-// создателя 2026-09-21): может быть больше или меньше; значение измеряется
-// и докладывается, подгонки под окно нет.
+// TestSmoke20000Worlds — смоук 20 000 миров по критерию приёмки §13 спеки
+// 2026-09-23-перелив-массы-в-гигантов-и-мини-нептуны: G/F с гигантом 8–12%
+// (≈10.1%), K/M ≈5.7% (вилка по числу орбит n, не по классу), A/O/B/L/T/Y < 1%,
+// горячие юпитеры глобально [0.5%, 1.0%] (Wright 2012, ≈0.94%), максимум планет
+// M/G/K ≥ 4 и любой ≤ 8, обитаемая доля (окно 2.0–4%), мини-нептуны непусты.
+// Доля обитаемых — не инвариант (решение создателя 2026-09-21): может быть
+// больше или меньше; значение измеряется и докладывается, подгонки нет.
 //
-// Мировой поток (ревью 2026-09-21, правка 2): планеты генерируются
-// generateWorldWithCountIntoBuffer, а не runCascade напрямую, — ролится
-// per-системный бюджет B (как в игре). Пригодность — настоящий флаг
-// Settleable (races.HumansSuitable, правка 3), а не широкая эвристика.
+// Мировой поток: планеты генерируются generateWorldWithCountIntoBuffer —
+// ролится бюджет облака M_диск, газовый резервуар M_gas и пред-слой перелива
+// (как в игре). Горячие юпитеры — только мигрировавшие гиганты перелива
+// (P-ветка двойных исключена: `circumbinary`). Пригодность — настоящий флаг
+// Settleable (races.HumansSuitable), а не широкая эвристика.
 func TestSmoke20000Worlds(t *testing.T) {
 	if testing.Short() {
 		t.Skip("объёмный статистический смоук — вне быстрого цикла, гоняется отдельно")
@@ -86,6 +88,8 @@ func TestSmoke20000Worlds(t *testing.T) {
 	broadHabitable := 0
 	maxPlanets := 0
 	maxPlanetsMGK := 0
+	miniNeptunes := 0
+	worldsWithMini := 0
 
 	buf := newBatchBuffers(64)
 	for i := 0; i < worlds; i++ {
@@ -121,6 +125,7 @@ func TestSmoke20000Worlds(t *testing.T) {
 		}
 
 		worldHasGiant := false
+		worldHasMini := false
 		for _, row := range buf.planetRows {
 			fields := row.([]interface{})
 			orbit, _ := fields[3].(int)
@@ -128,9 +133,17 @@ func TestSmoke20000Worlds(t *testing.T) {
 			require.NoError(t, json.Unmarshal([]byte(fields[4].(string)), &data))
 			if data["is_gas_giant"] == true {
 				worldHasGiant = true
-				if orbit <= 2 {
-					hotJupiters++ // горячий юпитер (орбита 1–2)
+				// Горячий юпитер — мигрировавший гигант перелива на орбите
+				// 1–2. Циркумбинарные P-гиганты (orbit_center = barycenter,
+				// своя P-ветка §9.2) в метрику НЕ входят — это не миграция.
+				if orbit <= 2 && data["circumbinary"] != true {
+					hotJupiters++
 				}
+				continue
+			}
+			if data["is_mini_neptune"] == true {
+				worldHasMini = true
+				miniNeptunes++
 				continue
 			}
 			// Настоящий флаг пригодности (races.HumansSuitable) — тот же
@@ -150,6 +163,9 @@ func TestSmoke20000Worlds(t *testing.T) {
 		if worldHasGiant {
 			classGiants[cls]++
 		}
+		if worldHasMini {
+			worldsWithMini++
+		}
 	}
 
 	rate := func(classes ...string) float64 {
@@ -160,32 +176,55 @@ func TestSmoke20000Worlds(t *testing.T) {
 		}
 		return float64(gi) / float64(w)
 	}
+	gf := rate("G", "F")
+	km := rate("K", "M")
 	gkf := rate("G", "K", "F")
 	m := rate("M")
 	ob := rate("O", "B")
 	a := rate("A")
+	lty := rate("L", "T", "Y")
 	hotGlobal := float64(hotJupiters) / float64(worlds)
 	settleableFrac := float64(settleable) / float64(totalPlanets)
 	broadFrac := float64(broadHabitable) / float64(totalPlanets)
 
-	t.Logf("смоук 20 000 миров (спека 2026-09-20 §11):")
-	t.Logf("  G/K/F с гигантом: %.2f%% (цель 8–12%%)", gkf*100)
-	t.Logf("  M с гигантом: %.2f%% (цель 2–5%%)", m*100)
+	t.Logf("смоук 20 000 миров (спека 2026-09-23 §13):")
+	t.Logf("  G/F с гигантом: %.2f%% (цель ≈10.1%%, окно 8–12%%)", gf*100)
+	t.Logf("  K/M с гигантом: %.2f%% (цель ≈5.7%%, вилка по n)", km*100)
+	t.Logf("  G/K/F с гигантом: %.2f%% (инфо, устаревший пул)", gkf*100)
+	t.Logf("  M с гигантом: %.2f%% (инфо)", m*100)
 	t.Logf("  O/B с гигантом: %.2f%% (цель < 1%%)", ob*100)
-	t.Logf("  A с гигантом: %.2f%% (цель ≤ 3%%)", a*100)
-	t.Logf("  горячие юпитеры глобально: %.2f%% (цель 0.5–1.0%%)", hotGlobal*100)
+	t.Logf("  A с гигантом: %.2f%% (цель < 1%%)", a*100)
+	t.Logf("  L/T/Y с гигантом: %.2f%% (цель < 1%%)", lty*100)
+	t.Logf("  горячие юпитеры глобально: %.2f%% (цель ≈0.94%%, вилка Wright 0.5–1.0%%)", hotGlobal*100)
+	t.Logf("  мини-нептуны: планет %d (%.2f%% планет), миров %d (%.2f%%)",
+		miniNeptunes, float64(miniNeptunes)/float64(totalPlanets)*100,
+		worldsWithMini, float64(worldsWithMini)/float64(worlds)*100)
 	t.Logf("  максимум планет (M/G/K): %d (цель ≥ 4)", maxPlanetsMGK)
 	t.Logf("  максимум планет (все): %d (цель ≤ 8)", maxPlanets)
 	t.Logf("  пригодная доля (Settleable): %.2f%% (окно 2.0–4%%, этап 1)", settleableFrac*100)
 	t.Logf("  широкая эвристика (инфо, без окна): %.2f%%", broadFrac*100)
 	t.Logf("  планет всего: %d (спека §8: ≈ 76 000)", totalPlanets)
 
-	// Критерий приёмки §11.
-	assert.InDelta(t, 0.1045, gkf, 0.02, "G/K/F с гигантом 8–12%%")
-	assert.InDelta(t, 0.031, m, 0.015, "M с гигантом 2–5%%")
-	assert.Less(t, ob, 0.01, "O/B < 1%% (флип с 0.8)")
-	assert.LessOrEqual(t, a, 0.03, "A ≤ 3%%")
-	assert.InDelta(t, 0.007, hotGlobal, 0.003, "горячие юпитеры глобально 0.5–1.0%%")
+	// Критерий приёмки §13 (частота — по числу орбит n, не по классу звезды).
+	assert.GreaterOrEqual(t, gf, 0.08, "G/F с гигантом ≥ 8%%")
+	assert.LessOrEqual(t, gf, 0.12, "G/F с гигантом ≤ 12%%")
+	// K/M: спека окна не задаёт (§13: окно [8,12]% — только для G/F, K/M —
+	// вилка по n), но даёт ЗАМЕР §10.7 — 5.7%. Допуск ±2 п.п. назван:
+	// сэмплинг 20 000 миров (SE ≈ 0.4 п.п.) + разброс по сидам; это не
+	// спековое окно, а привязка к измеренной величине.
+	assert.InDelta(t, 0.057, km, 0.02, "K/M с гигантом ≈ 5.7%% (замер §10.7, окно спека не задаёт)")
+	assert.Less(t, ob, 0.01, "O/B < 1%%")
+	assert.Less(t, a, 0.01, "A < 1%% (n ≡ 1)")
+	assert.Less(t, lty, 0.01, "L/T/Y < 1%% (n ≡ 1)")
+	// §13: горячие юпитеры глобально 0.5–1.0% (Wright 2012; цель ≈0.94%).
+	// Метрика — только мигрировавшие гиганты перелива (P-ветка исключена).
+	assert.GreaterOrEqual(t, hotGlobal, 0.005, "горячие юпитеры ≥ 0.5%%")
+	assert.LessOrEqual(t, hotGlobal, 0.010, "горячие юпитеры ≤ 1.0%%")
+	// Мини-нептуны: класс непуст (критерий приёмки §13); доля = P_ov·(1−f_eff).
+	assert.Greater(t, worldsWithMini, 0, "мини-нептуны встречаются (класс непуст)")
+	// Санити-граница (не спековое окно): доля миров с мини-нептуном по модели
+	// P_ov·(1−f_eff) ≈ 4%; 15% отсекает грубую ошибку, спекой окно не задано.
+	assert.Less(t, float64(worldsWithMini)/float64(worlds), 0.15, "мини-нептуны не доминируют (санити)")
 	assert.GreaterOrEqual(t, maxPlanetsMGK, 4, "максимум планет M/G/K ≥ 4")
 	assert.LessOrEqual(t, maxPlanets, 8, "максимум планет ≤ 8")
 	// Доля обитаемых — не инвариант (решение создателя 2026-09-21): может

@@ -1,8 +1,10 @@
 // internal/generator/planet/gas_giant_test.go
 //
-// Тесты честных газовых гигантов (99.2.15): кривая масса→радиус с насыщением
-// (опорные точки эталона), логнормальное распределение масс с пересэмплингом,
-// производные ρ = M/R³ и g = M/R² у сгенерированного гиганта.
+// Тесты газовых гигантов (99.2.15 с переанкеровкой кривой решением создателя
+// 2026-09-23 — спека 2026-09-23-перелив-массы-в-гигантов-и-мини-нептуны §7.5):
+// кривая масса→радиус на реальных анкерах, производные ρ = M/R³ и g = M/R²,
+// усечённый логнормаль массы P-ветки (gasGiantMass жив для двойных, §9.2).
+// Масса пути перелива (аккреция) — O9/O10 в overflow_giant_test.go.
 package planet
 
 import (
@@ -15,48 +17,64 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Кривая M→R проходит через опорные точки эталона: P1=(15.9; 5.9),
-// P2=(317.8; 11.2), P3=(4131; 11.2). Плотность и гравитация — производные:
-// ρ = M/R³, g = M/R².
+// Переанкеренная кривая M→R проходит через реальные опорные точки:
+// 16 → 3.7 (стык с мини-нептуном), 95 → 9.4 (Сатурн), 317.8 → 11.2 (Юпитер),
+// плато до 4131. Плотность и гравитация — производные: ρ = M/R³, g = M/R².
 func TestGasGiantCurveReferencePoints(t *testing.T) {
-	assert.InDelta(t, GasGiantRadiusMin, GasGiantRadius(GasGiantMassMin), 0.01)
-	assert.Equal(t, GasGiantRadiusMax, GasGiantRadius(GasGiantMassRef))
-	assert.Equal(t, GasGiantRadiusMax, GasGiantRadius(GasGiantMassMax))
+	assert.InDelta(t, GasGiantRadiusMin, GasGiantRadius(GasGiantMassMin), 0.01, "низ кривой 16 → 3.7")
+	assert.InDelta(t, 9.4, GasGiantRadius(95), 0.01, "Сатурн 95 → 9.4")
+	assert.Equal(t, GasGiantRadiusMax, GasGiantRadius(GasGiantMassRef), "Юпитер 317.8 → 11.2")
+	assert.Equal(t, GasGiantRadiusMax, GasGiantRadius(GasGiantMassMax), "плато до 4131")
+
+	// Нептун (17.1) — проверка стыка: на кривой гигантов R ≈ 3.83 (промах 1.3%).
+	assert.InDelta(t, 3.83, GasGiantRadius(17.1), 0.02, "Нептун на кривой гигантов")
+
+	// Производные у низа: ρ(16) ≈ 0.316, g(16) ≈ 1.17 (было 0.077/0.46).
+	rho0 := GasGiantMassMin / math.Pow(GasGiantRadiusMin, 3)
+	assert.InDelta(t, 0.316, rho0, 0.005, "ρ(16) — фактический минимум плотности")
+	assert.InDelta(t, 1.17, computeGravity(GasGiantMassMin, GasGiantRadiusMin), 0.02, "g(16)")
+
+	// Сатурн: R = 9.4, ρ = 95/9.4³ = 0.114 — минимум плотности кривой.
+	rhoSaturn := 95.0 / math.Pow(9.4, 3)
+	assert.InDelta(t, 0.1144, rhoSaturn, 0.002, "ρ(Сатурн)")
 
 	// 13 MJ (4131): ρ = 4131/11.2³ = 2.9403 ≈ «~2.9»; g = 4131/11.2² = 32.93.
 	rho := GasGiantMassMax / math.Pow(GasGiantRadiusMax, 3)
 	assert.InDelta(t, 2.9403, rho, 0.01)
 	assert.InDelta(t, 32.93, computeGravity(GasGiantMassMax, GasGiantRadiusMax), 0.1)
 
-	// 1 MJ (317.8): R=11.2, ρ=0.226, g=2.53 — сходится с пресетом GIANT.
+	// 1 MJ (317.8): R = 11.2, ρ = 0.226, g = 2.53 — сходится с пресетом GIANT.
 	rho1 := GasGiantMassRef / math.Pow(GasGiantRadiusMax, 3)
 	assert.InDelta(t, 0.226, rho1, 0.005)
 	assert.InDelta(t, 2.53, computeGravity(GasGiantMassRef, GasGiantRadiusMax), 0.01)
-
-	// 0.05 MJ (15.9): R=5.9, ρ=0.077.
-	rho0 := GasGiantMassMin / math.Pow(GasGiantRadiusMin, 3)
-	assert.InDelta(t, 0.077, rho0, 0.005)
 }
 
-// Инварианты кривой на всём диапазоне: R не убывает, ρ и g строго растут.
+// Инварианты кривой на всём диапазоне: R не убывает, значения конечны.
+// Плотность и гравитация на переанкеренной кривой НЕ монотонны (реальные
+// объекты: ρ(Нептун) = 0.316 > ρ(Сатурн) = 0.114 < ρ(Юпитер) = 0.226) —
+// строгий рост из старой двухточечной кривой снят вместе с анкером 5.9.
 func TestGasGiantCurveMonotonic(t *testing.T) {
-	prevR, prevRho, prevG := 0.0, 0.0, 0.0
+	prevR := 0.0
 	steps := 200.0
 	for i := 0; i <= int(steps); i++ {
 		m := GasGiantMassMin + float64(i)*(GasGiantMassMax-GasGiantMassMin)/steps
 		r := GasGiantRadius(m)
 		rho := m / math.Pow(r, 3)
 		gv := computeGravity(m, r)
+		require.False(t, math.IsNaN(r) || math.IsInf(r, 0), "R конечен при M=%.2f", m)
 		require.GreaterOrEqual(t, r, prevR-1e-9, "R не убывает при M=%.2f", m)
-		require.Greater(t, rho, prevRho, "ρ строго растёт при M=%.2f", m)
-		require.Greater(t, gv, prevG, "g строго растёт при M=%.2f", m)
-		prevR, prevRho, prevG = r, rho, gv
+		require.Greater(t, rho, 0.0, "ρ > 0 при M=%.2f", m)
+		require.Greater(t, gv, 0.0, "g > 0 при M=%.2f", m)
+		prevR = r
 	}
+	// Плато насыщения выше 1 MJ.
+	assert.Equal(t, GasGiantRadiusMax, GasGiantRadius(GasGiantMassRef*1.5))
+	assert.Equal(t, GasGiantRadiusMax, GasGiantRadius(GasGiantMassMax))
 }
 
-// Распределение масс: усечённое логнормальное (медиана 317.8 M⊕, σ = 0.9
-// декады, [15.9, 4131]) через пересэмплинг — НЕ кламп. Доли усечённого
-// распределения: >1000 ≈ 22%, <100 ≈ 26% (допуск ±5 п.п. — случайность).
+// Распределение масс P-ветки двойных (gasGiantMass жив, §9.2): усечённое
+// логнормальное (медиана 317.8 M⊕, σ = 0.9 декады, [16, 4131]) через
+// пересэмплинг — НЕ кламп. Доли: >1000 ≈ 22%, <100 ≈ 26% (±5 п.п.).
 func TestGasGiantMassDistribution(t *testing.T) {
 	g := NewGenerator(nil, 7)
 	const n = 1000
@@ -91,13 +109,12 @@ func TestGasGiantMassDistribution(t *testing.T) {
 	assert.Zero(t, atMax, "клампа нет: масса не должна пайковаться ровно на 4131")
 }
 
-// Сгенерированный гигант честен по построению: R = gasGiantRadius(M),
-// ρ = M/R³, g = M/R², масса в [15.9, 4131] — ни один показатель не вылезает
-// за рамки генератора.
+// Сгенерированный гигант (легаси-путь, масса из gasGiantMass) честен по
+// построению: R = GasGiantRadius(M), ρ = M/R³, g = M/R², масса в [16, 4131].
 func TestGenerateGasGiantHonest(t *testing.T) {
 	g := NewGenerator(nil, 99)
 	for i := 0; i < 200; i++ {
-		pd := g.generateGasGiant("w", "World", 4, stellarParamsFromClass("G", 0, g.rng), nil)
+		pd := g.generateGasGiant("w", "World", 4, stellarParamsFromClass("G", 0, g.rng), nil, 0, 0)
 		var data map[string]interface{}
 		require.NoError(t, json.Unmarshal(pd.Data, &data))
 

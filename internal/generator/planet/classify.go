@@ -12,6 +12,7 @@ package planet
 
 const (
 	TypeGasGiant    = "газовый гигант"
+	TypeMiniNeptune = "мини-нептун"
 	TypeRadioactive = "радиоактивная"
 	TypeEarthlike   = "землеподобная"
 	TypeOceanic     = "океаническая"
@@ -26,7 +27,8 @@ const (
 )
 
 // AllGameDesignTypes — все возможные типы (для UI, фильтров, статистики).
-// Правила справочника покрывают 11 типов; «мёртвая» — ветка экзотики.
+// Правила справочника покрывают 11 типов; «мини-нептун» и «газовый гигант» —
+// явные флаги класса вне правил; «мёртвая» — ветка экзотики.
 var AllGameDesignTypes = []string{
 	TypeEarthlike,
 	TypeOceanic,
@@ -39,12 +41,14 @@ var AllGameDesignTypes = []string{
 	TypeRocky,
 	TypeRadioactive,
 	TypeGasGiant,
+	TypeMiniNeptune,
 	TypeDead,
 }
 
 // PlanetClassificationInput — входные данные для классификации.
 type PlanetClassificationInput struct {
 	IsGasGiant    bool
+	IsMiniNeptune bool
 	IsRadioactive bool
 	Surface       Composition
 	Temperature   float64
@@ -60,6 +64,11 @@ func ClassifyGameDesignType(in PlanetClassificationInput) string {
 	// 1. Газовый гигант — отдельный флаг вне правил (как в старом classify.go).
 	if in.IsGasGiant {
 		return TypeGasGiant
+	}
+	// 2. Мини-нептун — тоже флаг класса вне правил (спека 2026-09-23 §11.2):
+	// справочник типов класс не описывает (пустые биомы/недра).
+	if in.IsMiniNeptune {
+		return TypeMiniNeptune
 	}
 
 	cat := GetBiomeCatalog()

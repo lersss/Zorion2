@@ -30,8 +30,13 @@ const (
 	densityHighMin = 1.5
 
 	// Масса (в единицах Земли)
-	massThreshold       = 5.0
-	massThresholdGas    = 100.0
+	massThreshold = 5.0
+	// massThresholdGas — производная константа (спека 2026-09-23 §12.3):
+	// порог тега massive у ГИГАНТОВ, сохранён 100 (середина целевой линии
+	// [16, 4131]). Следствия: мини-нептуны (8–16, порог massThreshold = 5) —
+	// всегда massive; гиганты нижнего хвоста [16, 100] — без massive
+	// (названное следствие §12.3).
+	massThresholdGas = 100.0
 
 	// Орбита (1-based)
 	orbitInnerMax = 2

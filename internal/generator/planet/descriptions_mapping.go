@@ -36,6 +36,11 @@ func typeToFolder(gdType string) string {
 		return "organic"
 	case TypeRocky:
 		return "rocky"
+	case TypeMiniNeptune:
+		// Класс (M_crit, 16] M⊕ (спека 2026-09-23 §11.2). Контент описаний —
+		// подэтап 2/3 (@writer): тип зарегистрирован нейтральной заготовкой,
+		// чтобы генерация не сыпала логом «неизвестный тип» на каждой планете.
+		return "minineptune"
 	}
 	return ""
 }

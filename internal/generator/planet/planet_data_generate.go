@@ -301,52 +301,9 @@ func (g *Generator) gasGiantChanceShifted(sp StellarParams) float64 {
 	return c
 }
 
-// hotGiantChance — шанс миграции гиганта к звезде (P_hot|giant, спека
-// 2026-09-20 §5.3): F/G/K/M — 10% (миграция), A — 10% (но n ≡ 1 — фолбэк
-// «горячий по необходимости»), O/B и L/T/Y — 0 (фолбэк, миграции нет).
-func hotGiantChance(spectralClass string) float64 {
-	switch spectralClass {
-	case "A", "F", "G", "K", "M":
-		return 0.10
-	default:
-		return 0
-	}
-}
-
-// rollGiantOrbit — per-системное решение гиганта (спека 2026-09-20 §4.2):
-// 0 — гиганта нет; иначе индекс орбиты гиганта. Ролл «есть гигант» —
-// P_giant_eff (класс × металличность × профиль, §5.2/§4.4/§4.5); при
-// наличии — ролл «мигрировал?» (P_hot|giant, §5.3): да → орбита 1–2,
-// нет → равномерно в [3, planetCount]. planetCount < 3 — гигант на орбите
-// 1–2 («горячий по необходимости», §5.4; при planetCount = 1 — орбита 1).
-// Решение — один раз на систему, до цикла орбит (не потребляет энтропию
-// в циклах; при planetCount = 0 — без ролла).
-func (g *Generator) rollGiantOrbit(sp StellarParams, planetCount int) int {
-	if planetCount <= 0 {
-		return 0
-	}
-	if g.rng.Float64() >= g.gasGiantChanceShifted(sp) {
-		return 0
-	}
-	// Гигант есть.
-	if planetCount < 3 {
-		// Фолбэк «горячий по необходимости» (§5.4): орбита 1–2.
-		if planetCount == 1 {
-			return 1
-		}
-		return 1 + g.rng.Intn(2)
-	}
-	if g.rng.Float64() < hotGiantChance(sp.SpectralClass) {
-		// Миграция: орбита 1–2.
-		return 1 + g.rng.Intn(2)
-	}
-	// Дальняя орбита: равномерно в [3, planetCount].
-	return 3 + g.rng.Intn(planetCount-2)
-}
-
 // rollCloudBudget — бюджет облака M_диск (спека поясов малых тел §4.0,
 // ревизия спеки 2026-09-21 §4; бывший B): M_диск ~ logN(ln S₀, 0.5), один
-// ролл на мир (образец rollGiantOrbit): ПРИОР ПЕРЕ-КАЛИБРОВАН — медиана
+// ролл на мир (образец per-системных роллов): ПРИОР ПЕРЕ-КАЛИБРОВАН — медиана
 // S₀ = cloudProfileSum (≈ 18.551, вся лестница орбит 1..8), а не 1. Так
 // M_диск становится ОБЩЕЙ МАССОЙ диска (планеты берут нормированные доли
 // профиля w_i = c_i/S₀, cascade.go), а не масштабом. Значения планет при
@@ -411,11 +368,11 @@ func stellarParamsFromClass(spectralClass string, temperature int, rng *rand.Ran
 
 // ==================== ОБЫЧНАЯ ПЛАНЕТА ====================
 
-// generatePlanet — планета обычной звезды (99.2.20): газовый гигант на
-// орбите giantOrbit (per-системное решение, спека 2026-09-20 §4.2) или
-// физический каскад. Подветки океанических/радиоактивных растворены в
-// каскаде (типы возникают из физики: гидросфера «океаны» + вода > 60;
-// core.radioactivity > 50).
+// generatePlanet — планета обычной звезды (99.2.20): тело пред-слоя перелива
+// (мини-нептун/гигант/каменистая, спека 2026-09-23 §4) или физический каскад
+// легаси-пути (экзотика/прототип). Подветки океанических/радиоактивных
+// растворены в каскаде (типы возникают из физики: гидросфера «океаны» +
+// вода > 60; core.radioactivity > 50).
 func (g *Generator) generatePlanet(worldID, worldName string, orbitIndex int, sp StellarParams) *PlanetData {
 	// --- ПОДКРУТКА ПОД РАСУ-ДОМА (99.2.22 §3.3–§4) ---
 	// Слой 2: ролл «планета подстроена» в фиксированной позиции (до каскада,
@@ -427,16 +384,26 @@ func (g *Generator) generatePlanet(worldID, worldName string, orbitIndex int, sp
 		sp.AgeGyr = tune.ageGyr
 	}
 
-	// --- ГАЗОВЫЙ ГИГАНТ (спека 2026-09-20 §4.2) ---
-	// Per-системное решение: гигант только на орбите giantOrbit (0 = нет).
-	// Решение вынесено из цикла орбит (generateWorldWithCountIntoBuffer /
-	// GeneratePlanetsForWorld) — здесь только проверка, без ролла.
-	if orbitIndex == g.giantOrbit {
-		return g.generateGasGiant(worldID, worldName, orbitIndex, sp, tune)
+	// --- ПРЕД-СЛОЙ ПЕРЕЛИВА (спека 2026-09-23 §4): класс и масса уже решены ---
+	// Роллов здесь нет: g₀, миграция, f_обр и оболочка зафиксированы в
+	// пред-слое уровня мира (M_i — функция от M_диск, ζ, M_crit, g).
+	if g.overflow.active {
+		core := g.overflow.coreMass[orbitIndex]
+		switch g.overflow.class[orbitIndex] {
+		case bodyGiant:
+			return g.generateGasGiant(worldID, worldName, orbitIndex, sp, tune,
+				g.overflow.bodyMass[orbitIndex], core)
+		case bodyMiniNeptune:
+			return g.generateMiniNeptune(worldID, worldName, orbitIndex, sp, tune,
+				g.overflow.bodyMass[orbitIndex], core)
+		default:
+			return g.generateStandardPlanet(worldID, worldName, orbitIndex, sp, false, tune, nil,
+				g.overflow.rockyMass(orbitIndex))
+		}
 	}
 
-	// --- СТАНДАРТНАЯ ГЕНЕРАЦИЯ ЧЕРЕЗ ФИЗИЧЕСКИЙ КАСКАД ---
-	return g.generateStandardPlanet(worldID, worldName, orbitIndex, sp, false, tune, nil)
+	// --- ЛЕГАСИ-ПУТЬ (экзотика/прототип): гиганта у мира нет ---
+	return g.generateStandardPlanet(worldID, worldName, orbitIndex, sp, false, tune, nil, 0)
 }
 
 // generateStandardPlanet — планета по физическому каскаду (стандартный путь).
@@ -447,6 +414,8 @@ func (g *Generator) generatePlanet(worldID, worldName string, orbitIndex int, sp
 // proto — оверрайды прототипа поселения (99.2.28 §16.1): проводятся через
 // каскад (FinalTempOverride/WaterPercentOverride), чтобы биомы были
 // согласованы с форсированными данными; nil — без оверрайдов.
+// overflowMass — готовая масса тела из пред-слоя перелива (§4.2 проход 5);
+// 0 — легаси-путь (экзотика/прототип/прямые вызовы): ζ ролится в каскаде.
 func (g *Generator) generateStandardPlanet(
 	worldID, worldName string,
 	orbitIndex int,
@@ -454,6 +423,7 @@ func (g *Generator) generateStandardPlanet(
 	forceLife bool,
 	tune *raceTune,
 	proto *prototypeOverrides,
+	overflowMass float64,
 ) *PlanetData {
 	orbitRadius := orbitRadiusScaled(orbitIndex, sp.Luminosity)
 	if tune != nil && tune.orbitMult > 0 {
@@ -468,6 +438,7 @@ func (g *Generator) generateStandardPlanet(
 		OrbitRadiusAU: orbitRadius,
 		OrbitIndex:    orbitIndex,
 		ForceLife:     forceLife,
+		OverflowMass:  overflowMass,
 	}
 	if proto != nil {
 		in.FinalTempOverride = proto.finalTempK
@@ -619,7 +590,7 @@ type prototypeOverrides struct {
 func (g *Generator) GeneratePrototypePlanet(worldID, worldName, spectralClass string) *PlanetData {
 	sp := stellarParamsFromClass(spectralClass, 0, g.rng)
 	pd := g.generateStandardPlanet(worldID, worldName, 1, sp, true, nil,
-		&prototypeOverrides{finalTempK: 288, waterPercent: 80})
+		&prototypeOverrides{finalTempK: 288, waterPercent: 80}, 0)
 	// Залежи поверхности (спека 2026-09-22-поселение-... §3.2/§3.4): прототип
 	// не идёт через generateWorldWithCountIntoBuffer — точка вызова здесь.
 	g.generateDeposits(pd)

@@ -46,13 +46,16 @@ func checkBiosphereWithoutConditions(v *View) []audit.Issue {
 	return issues
 }
 
-// checkEmptyBiomes — ключ biomes присутствует и пуст у не-гиганта → High
-// (99.2.28 §14): новый мир без биомов — ошибка. Отсутствие ключа = старый
-// мир — НЕ проверяется (находка @critic «не различает старые миры»);
-// то же для subterrain.
+// checkEmptyBiomes — ключ biomes присутствует и пуст у не-гиганта и
+// не-мини-нептуна → High (99.2.28 §14): новый мир без биомов — ошибка.
+// Отсутствие ключа = старый мир — НЕ проверяется (находка @critic «не
+// различает старые миры»); то же для subterrain. Мини-нептуны исключены
+// (спека 2026-09-23 §11.2/§14.3): пустые биомы/недры — норма класса
+// (поверхность под оболочкой в модели не описывается, как у гиганта);
+// без исключения правило флагует High на каждом мини-нептуне.
 func checkEmptyBiomes(v *View) []audit.Issue {
 	var issues []audit.Issue
-	if !v.IsGasGiant {
+	if !v.IsGasGiant && !v.IsMiniNeptune {
 		if raw, ok := v.Raw["biomes"].([]interface{}); ok && len(raw) == 0 {
 			issues = append(issues, newIssue(v, "empty_biomes", audit.SeverityHigh,
 				"Ключ biomes присутствует и пуст у не-гиганта (новый мир без биомов)"))

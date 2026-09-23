@@ -46,6 +46,16 @@ func (m *descriptionsManager) generate(ctx DescriptionContext) string {
 		return fallbackDescription(ctx.PlanetID)
 	}
 
+	m.mu.RLock()
+	_, hasOpenings := m.openings[folder]
+	_, hasClosings := m.closings[folder]
+	m.mu.RUnlock()
+	if !hasOpenings && !hasClosings {
+		// Тип зарегистрирован, но папки описаний ещё нет (мини-нептун, спека
+		// 2026-09-23 §11.2): нейтральный fallback БЕЗ лога на каждую планету.
+		return fallbackDescription(ctx.PlanetID)
+	}
+
 	tags := computeTags(ctx)
 
 	m.mu.RLock()

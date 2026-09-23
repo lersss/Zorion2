@@ -439,6 +439,9 @@ func TestBiomeSmokeDistribution(t *testing.T) {
 			if !ok {
 				continue // газовый гигант — без биомов (99.2.28 §9.5)
 			}
+			if data["is_mini_neptune"] == true {
+				continue // мини-нептун — класс без биомов (спека 2026-09-23 §8.3)
+			}
 			planets++
 			require.NotEmpty(t, biomes, "не-гигант без биомов (страховка минимум 1)")
 			biomeCount[len(biomes)]++

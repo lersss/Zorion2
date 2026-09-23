@@ -183,7 +183,8 @@ export function renderPlanetsList() {
 
     // Пояс (правка создателя 2026-09-23): кнопок «Лететь»/«Добывать» у строки
     // нет — вместо них правый клик по строке открывает то же меню, что ПКМ по
-    // кольцу на канвасе (events.js showBeltMenu).
+    // кольцу на канвасе (events.js showBeltMenu). Точки клика у строки нет —
+    // «Лететь» летит к ближайшей к кораблю точке кольца (фолбэк меню).
     panel.querySelectorAll('tr[data-belt-row]').forEach(tr => {
         const beltId = tr.dataset.beltRow;
         tr.addEventListener('contextmenu', (e) => {

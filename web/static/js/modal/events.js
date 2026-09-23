@@ -318,8 +318,9 @@ export function initEvents(canvas, spectralClass, planets, starRadius, starColor
             // Планета (претензия создателя «как на карте»): ПКМ → «Лететь».
             showPlanetMenu(e.clientX, e.clientY, hit.index);
         } else if (hit && hit.type === 'belt') {
-            // Пояс (ТЗ §9.4): ПКМ → «Лететь»/«Добывать».
-            showBeltMenu(e.clientX, e.clientY, hit.id);
+            // Пояс (ТЗ §9.4): ПКМ → «Лететь»/«Добывать». Точка клика (worldX/worldY)
+            // едет в меню: «Лететь» летит в место клика (правка создателя 2026-09-23).
+            showBeltMenu(e.clientX, e.clientY, hit.id, worldX, worldY);
         } else {
             hideStarMenu();
         }
@@ -800,10 +801,14 @@ function showPlanetMenu(x, y, planetIndex) {
 // отправление активного полёта / активный межзвёздный (иначе старт даст 400).
 // «Добывать» — активен только в этом поясе, не выработан, нет активного полёта;
 // иначе disabled (как у кнопки). Экспорт — для ПКМ по строке пояса (panel.js).
-export function showBeltMenu(x, y, beltId) {
+// worldX/worldY — канвасные координаты клика по кольцу (contextmenu): «Лететь»
+// летит в место клика (правка создателя 2026-09-23). ПКМ по СТРОКЕ списка их не
+// передаёт — точка прибытия = ближайшая к кораблю (фолбэк, старт без точки).
+export function showBeltMenu(x, y, beltId, worldX, worldY) {
     hideStarMenu(); // скрыть предыдущее меню сразу (паттерн showStarMenu)
     const belt = (modalState.belts || []).find(b => b.id === beltId);
     if (!belt) return;
+    const clickPoint = (isFinite(worldX) && isFinite(worldY)) ? { x: worldX, y: worldY } : null;
 
     const myPos = modalState.myPosition;
     // «Своя система» — явный флаг сервера (flightModeForSystem), не my_position.
@@ -872,8 +877,12 @@ export function showBeltMenu(x, y, beltId) {
                 return;
             }
             if (intra) {
-                await startIntraFlight('belt', belt.id);
+                // clickPoint = место клика по кольцу (null — ПКМ по строке списка:
+                // цель станет ближайшей к кораблю точкой, фолбэк внутри старта).
+                await startIntraFlight('belt', belt.id, clickPoint);
             } else {
+                // Композитный маршрут: точку прибытия считает сервер (§6) —
+                // клик ему не передаём.
                 await startCompositeFlight('belt', belt.id);
             }
         });
@@ -1081,8 +1090,11 @@ function appendLandItem(menu, planet) {
 // startIntraFlight — старт внутрисистемного полёта (спека 99.2.27 §4.1):
 // POST /api/intrasystem-flight. Модалка НЕ закрывается (суть пожелания):
 // полоса полёта появляется из ответа (my_position = in_flight).
+// clickPoint — необязательная точка клика по кольцу пояса (канвасные world-
+// координаты, ПКМ на канвасе): цель полёта к поясу = место клика (правка
+// создателя 2026-09-23). Другие цели и «Лететь» из списка её не передают.
 // Экспорт — для кнопки «Лететь» в карточках (panel.js, динамический импорт).
-export async function startIntraFlight(objectType, objectId) {
+export async function startIntraFlight(objectType, objectId, clickPoint) {
     const token = modalState.authToken || localStorage.getItem('token');
     if (!token) return;
     // Позиция ДО старта — для цели полёта к поясу (правка создателя 2026-09-23:
@@ -1105,10 +1117,11 @@ export async function startIntraFlight(objectType, objectId) {
             return;
         }
         const data = JSON.parse(text);
-        // Пояс: цель полёта — ближайшая точка осевой линии кольца к кораблю на
-        // момент старта (запоминаем ДО смены позиции). Точку берёт beltPoint —
-        // один источник для полёта, маркера, камеры и чужих игроков (§9.3 п.2).
-        if (objectType === 'belt') storeBeltArrivalAngle(objectId, before);
+        // Пояс: цель полёта — место клика по кольцу, а без точки клика (ПКМ по
+        // строке списка) — ближайшая к кораблю точка осевой линии на момент
+        // старта (запоминаем ДО смены позиции). Точку берёт beltPoint — один
+        // источник для полёта, маркера, камеры и чужих игроков (§9.3 п.2).
+        if (objectType === 'belt') storeBeltArrivalAngle(objectId, before, clickPoint);
         // Позиция = полёт (решение создателя): модалка сразу показывает полосу.
         // Новый полёт — центрирование по прибытии снимается (слежение берёт верх).
         modalState.arrivalObject = null;
@@ -1174,20 +1187,30 @@ async function startTravelToStar() {
     }
 }
 
-// storeBeltArrivalAngle — зафиксировать азимут прибытия к поясу: направление от
-// центра кольца на корабль (позиция до старта полёта) = ближайшая точка осевой
-// линии (§9.3). Позиции нет (окно прибытия/межзвёздный полёт) или она уже в этом
-// поясе — не трогаем: beltPoint оставит канонический beltAngle (маркер не
-// исчезает, §9.3 п.2).
-function storeBeltArrivalAngle(beltId, beforePos) {
+// storeBeltArrivalAngle — зафиксировать азимут прибытия к поясу. Источник точки
+// (правка создателя 2026-09-23 «летим на место клика»): clickPoint — проекция
+// клика по кольцу на осевую линию (ровно под курсором); без него (ПКМ по строке
+// списка «Объекты») — направление от центра кольца на корабль (позиция до старта
+// полёта), т.е. ближайшая точка осевой линии (§9.3). Позиции нет (окно
+// прибытия/межзвёздный полёт) или она уже в этом поясе — не трогаем: beltPoint
+// оставит канонический beltAngle (маркер не исчезает, §9.3 п.2).
+function storeBeltArrivalAngle(beltId, beforePos, clickPoint) {
     const belt = (modalState.belts || []).find(b => b.id === beltId);
-    if (!belt || !beforePos) return;
-    if (beforePos.status === 'in_flight') return;
-    if (beforePos.object_type === 'belt' && beforePos.object_id === beltId) return;
+    if (!belt) return;
     const layout = computeLayout(
         modalState.planets, modalState.starRadius,
         modalState.canvasWidth, modalState.canvasHeight
     );
+    // Место клика — корабль-ориентир не нужен: точка прибытия ровно под курсором
+    // (beltNearestAngle — направление от центра кольца на точку).
+    if (clickPoint && isFinite(clickPoint.x) && isFinite(clickPoint.y)) {
+        const angle = beltNearestAngle(layout, belt, clickPoint.x, clickPoint.y);
+        if (angle !== null) setBeltArrivalAngle(belt, angle);
+        return;
+    }
+    if (!beforePos) return;
+    if (beforePos.status === 'in_flight') return;
+    if (beforePos.object_type === 'belt' && beforePos.object_id === beltId) return;
     const ship = orbitalPoint(
         layout, modalState.planets || [],
         beforePos.object_type, beforePos.object_id, performance.now()

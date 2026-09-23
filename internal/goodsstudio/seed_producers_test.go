@@ -1,12 +1,13 @@
 // internal/goodsstudio/seed_producers_test.go
 // Тесты сидера каталога производителей (спека 2026-09-20-фабрики §10.1 п.2 +
 // 2026-09-21-студия-дерево-построек-канвас §1.4): маркер producer_catalog_seed —
-// пропуск; полный сид — 10 типов производителей (включая «Лабораторию»-родителя
-// и «Фабрику продовольствия»-подтип) + 4 предмета + 4 связи + маркер, всё в
-// одной транзакции.
+// пропуск; полный сид — 17 типов производителей (включая «Лабораторию»-родителя,
+// «Фабрику продовольствия»-подтип и 7 подтипов-ступеней «Поселения») + 4 предмета
+// + 4 связи + маркер, всё в одной транзакции.
 package goodsstudio
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -32,7 +33,7 @@ func TestSeedProducersMarkerSkips(t *testing.T) {
 
 // TestSeedProducersFull — нет маркера → полный сид в одной транзакции:
 // категории (минералы — не используется, продовольствие — для фабрики
-// продовольствия), 10 типов, 4 предмета, 4 связи, маркер.
+// продовольствия), 17 типов, 4 предмета, 4 связи, маркер.
 func TestSeedProducersFull(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
@@ -50,7 +51,7 @@ func TestSeedProducersFull(t *testing.T) {
 			AddRow(int64(7), "минералы").
 			AddRow(int64(8), "продовольствие"))
 
-	// 10 типов производителей (статуса нет — запись живая, hidden из дефолта;
+	// 17 типов производителей (статуса нет — запись живая, hidden из дефолта;
 	// ON CONFLICT DO NOTHING — миграция 000051 могла создать «Лабораторию»).
 	for range seedProducers {
 		mock.ExpectQuery(`INSERT INTO producer_types \(name, name_norm, kind, category_id, race_family, parent_id, race, output, input, params\)\s+VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, \$9, \$10\)\s+ON CONFLICT \(name_norm\) DO NOTHING RETURNING id`).
@@ -99,15 +100,16 @@ func TestSeedProducersFull(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// TestSeedProducersContent — состав сида: 11 типов (поселение, подтип
-// «Обычное поселение», фабрика, автофабрика, добывающая платформа,
-// энергостанция, лаборатория-родитель, 3 лаборатории-подтипа, фабрика
-// продовольствия), 4 предмета (чертёж, сертификат, модуль, кирка), 4 связи;
+// TestSeedProducersContent — состав сида: 17 типов (поселение, 7
+// подтипов-ступеней «Поселения» (Аутпост → … → Экуменополис), фабрика,
+// автофабрика, добывающая платформа, энергостанция, лаборатория-родитель,
+// 3 лаборатории-подтипа, фабрика продовольствия), 4 предмета (чертёж,
+// сертификат, модуль, кирка), 4 связи;
 // автофабрика — корзина роботов (энергия + механика + электроника, НЕ еда);
 // дерево построек: лаборатории — подтипы «Лаборатории», фабрика продовольствия
 // — подтип «Фабрики» с категорией, платформа — без категории.
 func TestSeedProducersContent(t *testing.T) {
-	require.Len(t, seedProducers, 11, "поселение, подтип поселения, фабрика, автофабрика, платформа, станция, лаборатория, 3 лаборатории-подтипа, фабрика продовольствия")
+	require.Len(t, seedProducers, 17, "поселение, 7 ступеней поселения, фабрика, автофабрика, платформа, станция, лаборатория, 3 лаборатории-подтипа, фабрика продовольствия")
 	require.Len(t, seedItems, 4, "чертёж, сертификат анализа, модуль корабля, кирка")
 	require.Len(t, seedProducerItems, 4, "3 лаборатории → предметы + сертификат")
 
@@ -147,11 +149,12 @@ func TestSeedProducersContent(t *testing.T) {
 	require.Equal(t, "", byName["Добывающая платформа"].Category, "платформа — чистый тип уровня 3, без категории")
 	require.Equal(t, "", byName["Лаборатория"].Parent, "лаборатория — тип-родитель")
 
-	// Тип поселения (спека итерации 4 §5.2): подтип «Поселения» без категории,
-	// неиспользуемый residual у родителя снят, нормы еды — структура params.eat.
+	// Базовая ступень поселения (спека стадий §4.3, итерации 4 §5.2): подтип
+	// «Поселения» без категории, residual у родителя снят, нормы еды —
+	// структура params.eat, порог — params.stage (пол, enter = 0).
 	require.Equal(t, "{}", byName["Поселение"].Output, "residual у «Поселения» снят (решение п.38)")
-	sub := byName["Обычное поселение"]
-	require.Equal(t, "Поселение", sub.Parent, "тип поселения — подтип «Поселения»")
+	sub := byName["Аутпост"]
+	require.Equal(t, "Поселение", sub.Parent, "базовая ступень — подтип «Поселения»")
 	require.Equal(t, "goods", sub.Kind)
 	require.Equal(t, "", sub.Category, "подтип типа без слотов — без категории (п.37)")
 	require.Equal(t, "{}", sub.Output)
@@ -159,4 +162,63 @@ func TestSeedProducersContent(t *testing.T) {
 	require.Contains(t, sub.Params, `"eat"`, "нормы еды — структура params.eat (п.45)")
 	require.Contains(t, sub.Params, `"вода"`)
 	require.Contains(t, sub.Params, `"пища"`)
+}
+
+// TestSeedSettlementStageLadder — сид даёт ровно 7 подтипов-ступеней класса
+// «Поселение» (parent «Поселение») с корректными params.stage (спека стадий
+// §4.3): Аутпост — пол (enter 0, exit не задан), далее enter/exit по таблице,
+// exit = 75 % от enter (зазор гистерезиса exit < enter). Красный на сиде без
+// ступеней.
+func TestSeedSettlementStageLadder(t *testing.T) {
+	type stage struct {
+		Enter *float64 `json:"enter"`
+		Exit  *float64 `json:"exit"`
+	}
+	type ladderEntry struct {
+		name    string
+		enter   float64
+		exit    float64
+		hasExit bool
+	}
+	want := []ladderEntry{
+		{"Аутпост", 0, 0, false},
+		{"Посёлок", 1000, 750, true},
+		{"Городок", 10000, 7500, true},
+		{"Город", 100000, 75000, true},
+		{"Мегаполис", 1000000, 750000, true},
+		{"Метрополия", 10000000, 7500000, true},
+		{"Экуменополис", 100000000, 75000000, true},
+	}
+
+	byName := map[string]seedProducer{}
+	stages := 0
+	for _, p := range seedProducers {
+		byName[p.Name] = p
+		if p.Parent == "Поселение" {
+			stages++
+		}
+	}
+	require.Equal(t, 7, stages, "класс «Поселение» — ровно 7 подтипов-ступеней")
+
+	for _, w := range want {
+		p, ok := byName[w.name]
+		require.True(t, ok, "в сиде нет ступени %q", w.name)
+		require.Equal(t, "goods", p.Kind)
+		require.Equal(t, "Поселение", p.Parent)
+		require.Equal(t, "", p.Category, "ступени — без категории")
+		var params struct {
+			Stage *stage `json:"stage"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(p.Params), &params))
+		require.NotNil(t, params.Stage, "ступень %q без params.stage", w.name)
+		require.NotNil(t, params.Stage.Enter, "ступень %q без enter", w.name)
+		require.Equal(t, w.enter, *params.Stage.Enter, "enter ступени %q", w.name)
+		if !w.hasExit {
+			require.Nil(t, params.Stage.Exit, "у пола (Аутпост) exit не задаётся")
+			continue
+		}
+		require.NotNil(t, params.Stage.Exit, "ступень %q без exit", w.name)
+		require.Equal(t, w.exit, *params.Stage.Exit, "exit ступени %q", w.name)
+		require.Less(t, *params.Stage.Exit, *params.Stage.Enter, "зазор exit < enter (%q)", w.name)
+	}
 }

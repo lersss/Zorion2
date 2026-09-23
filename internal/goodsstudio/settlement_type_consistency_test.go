@@ -1,8 +1,8 @@
 // internal/goodsstudio/settlement_type_consistency_test.go
 // Критерии T1/T18 спеки 2026-09-22-поселение-потребление-населением-итерация-4
-// (§12): миграция создаёт ровно один дефолтный подтип «Обычное поселение»
-// идемпотентно; числа норм `params.eat` в миграции, в Go-сиде и в константе
-// `DefaultEatK` — ОДНО утверждённое число (расхождение = красный тест).
+// (§12): миграция создаёт ровно один дефолтный подтип (базовая ступень
+// «Аутпост») идемпотентно; числа норм `params.eat` в миграции, в Go-сиде и в
+// константе `DefaultEatK` — ОДНО утверждённое число (расхождение = красный тест).
 package goodsstudio
 
 import (
@@ -38,16 +38,16 @@ func findSettlementTypeMigration(t *testing.T) string {
 	return ""
 }
 
-// settlementSeedSubtype — подтип «Обычное поселение» из сида.
+// settlementSeedSubtype — базовая ступень «Аутпост» из сида.
 func settlementSeedSubtype(t *testing.T) seedProducer {
 	t.Helper()
 	var found *seedProducer
 	for i := range seedProducers {
-		if seedProducers[i].Name == "Обычное поселение" {
+		if seedProducers[i].Name == "Аутпост" {
 			found = &seedProducers[i]
 		}
 	}
-	require.NotNil(t, found, "в сиде обязан быть ровно один подтип «Обычное поселение»")
+	require.NotNil(t, found, "в сиде обязана быть ровно одна базовая ступень «Аутпост»")
 	return *found
 }
 

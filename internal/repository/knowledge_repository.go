@@ -52,6 +52,13 @@ func (r *KnowledgeRepository) GetKnowledge(userID, planetID string) (*models.Pla
 // спеки 2026-09-23 §3.3): ключи, которых нет во входящем payload, сохраняются.
 // За счёт этого ленивый скан (ScanSystem/ScanPlanet) физически не может стереть
 // `data.snapshot`, который пишет FixatePresence.
+//
+// ⚠️ ЛОВУШКА: `||` — слияние ТОЛЬКО верхнего уровня. Вложенный объект
+// заменяется целиком: если payload несёт `surface_composition`/`snapshot`, старое
+// значение этого ключа исчезнет, даже если внутри лежали нужные под-ключи.
+// Нужно сохранить часть вложенного объекта — сначала прочитай запись
+// (GetKnowledge), собери значение в Go и отправь целиком; «частичных» обновлений
+// внутри JSONB здесь нет.
 func (r *KnowledgeRepository) UpsertKnowledge(userID, planetID string, data map[string]interface{}, source string) error {
 	dataJSON, err := json.Marshal(data)
 	if err != nil {

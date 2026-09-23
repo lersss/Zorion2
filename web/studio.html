@@ -104,6 +104,10 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
   .popup-body .prow:last-child{margin-bottom:0}
   .popup-body .prow .plabel{font-size:var(--fs-label);color:#999}
   .popup-body .prow .pval{font-size:var(--fs-body);color:#e8e8e8;flex:1;min-width:0;word-break:break-word}
+  /* поля блоков «Производит»/«Потребляет» (спека 2026-09-23 §11.1): число
+     скорости и строки позиция → эффект → норма */
+  .popup-body .pblock input[type=number]{background:#222;border:1px solid #444;color:#ddd;padding:3px;border-radius:6px;font-size:var(--fs-body)}
+  .popup-body .eat-row select{background:#222;border:1px solid #444;color:#ddd;padding:3px;border-radius:6px;font-size:var(--fs-body);max-width:200px}
 .slot{background:#262626;border:1px solid #4a4a4a;border-radius:6px;padding:6px;margin-bottom:6px;min-height:28px;font-size:var(--fs-body)}
   .slot.empty{border-style:dashed;color:#999}
  .slot.drop-target{border-color:#8cf;background:#1e2a3a;box-shadow:0 0 0 1px #8cf}
@@ -475,6 +479,16 @@ const bindingInFlight = new Set(); // recipe_id в полёте — защита
 let dndActive = false; // перетаскивание карточки на канвас — глушит зум/пан (ТЗ §7.3.3)
 let dndDepth = 0;      // счётчик dragenter/dragleave для подсветки канваса (ТЗ §7.3.3)
 let prodDropHighlight = null; // узел дерева построек под курсором при drag (идея 2026-09-23, шаг 2 §3.1)
+// Редактор «Потребляет» (спека 2026-09-23 §11.1 п.1): строки позиция → эффект
+// при нехватке → норма. Модель живёт, пока открыт попап этого типа
+// (prodEatRowsFor = id), иначе пересобирается из params.eat/effects.
+let prodEatRows = null;
+let prodEatRowsFor = null;
+// Типы эффектов для селекта «эффект при нехватке»: отдельный эндпоинт
+// /studio/api/effects (в общем state их нет), кэш на сессию.
+let effectTypes = null;
+let effectTypesLoading = false;
+let effectTypesFailed = false;
 
 const canvas = $("graph");
 const ctx = canvas.getContext("2d");
@@ -2234,29 +2248,21 @@ function prodDblClick(id) {
 }
 function openProdPopup(id) {
   popupGoodId = id;
+  // модель «Потребляет» пересобирается под новый тип (спека 2026-09-23 §11.1)
+  prodEatRows = null;
+  prodEatRowsFor = null;
+  effectTypesFailed = false; // повторная попытка загрузить справочник эффектов
   $("detailPopup").style.display = "flex";
   $("detailOverlay").style.display = "block";
   renderProdPopup();
 }
-// prodSpecRows — читаемые строки карточки постройки из input/output/params
-// (итерация 1: только отображение, без полей). Возвращает [заголовок,
-// значение]; пусто — строку не рисуем. Источник — существующие JSONB-поля.
 // prodSpecRows — источники строк карточки постройки, разложенные по блокам
-// (спека 2026-09-23 §4): {consumes, conditions, people}. Каждая строка —
-// [подпись, значение] (пустая подпись → значение без подписи). Пусто → блок
-// не показываем. Источник — существующие JSONB-поля input/output/params.
+// (спека 2026-09-23 §4): {conditions, people}. Каждая строка — [подпись,
+// значение] (пустая подпись → значение без подписи). Пусто → блок не
+// показываем. Блок «Потребляет» с итерации И1 — поля (eatBlock, §11.1 п.1),
+// поэтому в consumes его больше нет. Источник — JSONB-поля input/params.
 function prodSpecRows(p) {
   const inp = p.input || {}, par = p.params || {};
-  const keys = o => (o && typeof o === "object") ? Object.keys(o) : [];
-  // Потребляет — товары из params.eat (нормы — итерация 2), эффекты нехватки,
-  // расходники
-  const consumes = [];
-  const eat = keys(par.eat);
-  if (eat.length) consumes.push(["", eat.join(", ")]);
-  const eff = (par.effects && typeof par.effects === "object") ? Object.values(par.effects) : [];
-  if (eff.length) consumes.push(["При нехватке", eff.join(", ")]);
-  const cons = Array.isArray(inp.consumables) ? inp.consumables : [];
-  if (cons.length) consumes.push(["Расходники", cons.join(", ")]);
   // Условия работы — нужно (energy/fuel/robots), КПД, цена робота
   const conditions = [];
   const need = [];
@@ -2269,7 +2275,7 @@ function prodSpecRows(p) {
   // Люди — вместимость
   const people = [];
   if (inp.people && inp.people.capacity != null) people.push(["Вмещает людей", String(inp.people.capacity)]);
-  return {consumes, conditions, people};
+  return {conditions, people};
 }
 // specRow — строка-характеристика блока (подпись + значение).
 function specRow(r) {
@@ -2287,6 +2293,7 @@ function renderProdPopup() {
   if (!popupGoodId) return;
   const p = state.producer_types.find(x => x.id === popupGoodId);
   if (!p) { closePopup(); return; }
+  fetchEffectTypes(); // селект «эффект при нехватке» (кэш, §11.1 п.1)
   $("popupTitle").textContent = p.name;
   let html = '';
   html += '<div class="dname"><span class="rename" onclick="startProdRename()" title="переименовать">' + esc(p.name) + '</span></div>';
@@ -2326,10 +2333,13 @@ function renderProdPopup() {
   // (+ «− отвязать») и выходы output; пусто у подтипа — подсказка про
   // перетаскивание. У типа без выходов блока нет (рецепт туда не назначить).
   if (p.parent_id || prodHasOutputs(p)) html += recipesBlock(p);
-  // Блоки характеристик (спека §4.3–§4.5): Потребляет → Условия работы → Люди.
+  // Блоки характеристик (спека §4.3–§4.5): Условия работы → Люди.
   // Пустые блоки не показываем (pblockHtml вернёт "").
   const spec = prodSpecRows(p);
-  html += pblockHtml("Потребляет", spec.consumes);
+  // «Потребляет» — поля (спека 2026-09-23 §11.1 п.1) и проекция арифметики
+  // «на млрд» (§8.1) — только у записи-подтипа (у типа конфигурации нет).
+  if (p.parent_id) html += eatBlock(p);
+  html += prodArithmeticBlock(p);
   html += pblockHtml("Условия работы", spec.conditions);
   html += pblockHtml("Люди", spec.people);
   // Слоты категорий — редактор родителя (спека §4.6): только тип kind=goods
@@ -2484,9 +2494,11 @@ function prodOutputs(p) {
 function prodProducesText(p) {
   return prodOutputs(p).map(g => g.name + ' · т' + g.tier).join(', ');
 }
-// recipesBlock — блок «Производит» карточки постройки (спека 2026-09-23 §4.2):
-// список «имя · тN [− отвязать]» у ЛЮБОГО подтипа + выходы output одной строкой;
-// пусто у подтипа — подсказка про перетаскивание. Кнопка копирования набора
+// recipesBlock — блок «Производит» карточки постройки (спека 2026-09-23 §4.2 и
+// §11.1 п.2): список «имя · тN [число ед/сутки/млрд] [− отвязать]» у ЛЮБОГО
+// подтипа + выходы output одной строкой; строка без числа — предупреждение
+// «не производит»; ниже — «забирает» по составу рецепта (§8.2). Пусто у
+// подтипа — подсказка про перетаскивание. Кнопка копирования набора
 // универсальной фабрики — только у категорийного подтипа kind=goods.
 function recipesBlock(p) {
   const outs = prodOutputs(p);
@@ -2498,8 +2510,20 @@ function recipesBlock(p) {
     if (p.parent_id) inner = '<div class="empty-note">перетащите рецепт из справочника (режим «Товары»)</div>';
   } else {
     outs.forEach(g => {
-      inner += '<div class="usedin-item">' + esc(g.name) + ' <span style="color:#777">· т' + g.tier + '</span>' +
-        '<button class="bind-del" style="float:right" onclick="unbindFactoryRecipe(' + p.id + ',' + g.recipe_id + ')" title="отвязать рецепт от постройки">− отвязать</button></div>';
+      const rate = recipeRate(p, g.recipe_id);
+      inner += '<div class="usedin-item" style="display:flex;align-items:center;gap:6px;cursor:default">' +
+        '<span>' + esc(g.name) + ' <span style="color:#777">· т' + g.tier + '</span></span>' +
+        '<input type="number" min="0" step="any" style="width:96px;margin-left:auto" ' +
+          'value="' + (rate == null ? '' : String(rate)) + '" placeholder="не производит" ' +
+          'title="число скорости, ед/сутки/млрд (пусто = не производит, 0 = объявленный ноль)" ' +
+          'onchange="saveRecipeRate(' + p.id + ',' + g.recipe_id + ',this.value)">' +
+        '<button class="bind-del" onclick="unbindFactoryRecipe(' + p.id + ',' + g.recipe_id + ')" title="отвязать рецепт от постройки">− отвязать</button>' +
+        '</div>';
+      // предупреждение (не блок): рецепт в наборе без числа — не производит (§7.1)
+      if (rate == null) inner += '<div class="hint" style="color:#d9a">рецепт «' + esc(g.name) + '» в наборе без числа — не производит</div>';
+      // проекция «забирает» по составу рецепта (§8.2)
+      const take = recipeTakeText(g, rate);
+      if (take) inner += '<div class="prow"><span class="pval">' + esc(take) + '</span></div>';
     });
     // выходы output (спека §4.2): «энергия — N» + предметы — одной строкой
     const emits = [];
@@ -2507,12 +2531,193 @@ function recipesBlock(p) {
     if (hasOutputs) emits.push(...out.items);
     if (emits.length) inner += specRow(["Выпускает", emits.join(", ")]);
   }
+  // единица числа и различие «пусто vs 0» (спека 2026-09-23 §11.2)
+  if (outs.length) inner = '<div class="hint">число — ед/сутки/млрд (пусто = не производит, 0 = объявленный ноль)</div>' + inner;
   let html = '<div class="pblock"><div class="pblock-h">Производит</div>' + inner;
   // кнопка копирования набора — только у категорийного подтипа kind=goods (§13.2)
   if (p.kind === "goods" && p.parent_id) {
     const parent = state.producer_types.find(x => x.id === p.parent_id);
     if (parent && prodSlots(parent).length > 0) html += copyRecipesBlock(p);
   }
+  html += '</div>';
+  return html;
+}
+// recipeRate — число скорости пары «постройка × рецепт» (producer_recipes.rate,
+// ед/сутки/млрд; null = «не объявлено» → не производит, спека 2026-09-23 §3.1).
+function recipeRate(p, recipeId) {
+  const b = (state.producer_recipes || []).find(pr =>
+    String(pr.producer_type_id) === String(p.id) && String(pr.recipe_id) === String(recipeId));
+  return b ? b.rate : null;
+}
+// saveRecipeRate — сохранение числа пары через PUT
+// /studio/api/producers/{id}/recipes/{recipe_id} (спека §10): пусто → null
+// («не производит»), 0 → объявленный ноль, < 0 → отказ.
+async function saveRecipeRate(producerId, recipeId, val) {
+  const v = String(val).trim();
+  const rate = v === "" ? null : Number(v);
+  if (rate != null && (!isFinite(rate) || rate < 0)) { showReport(["число скорости — неотрицательное"]); renderProdPopup(); return; }
+  const r = await api("PUT", "/studio/api/producers/" + producerId + "/recipes/" + recipeId, {rate});
+  if (r) fetchState(); else renderProdPopup();
+}
+// fmtNum — число арифметики на млрд без хвостовых нулей (§8.1).
+function fmtNum(n) {
+  if (n == null || !isFinite(n)) return "—";
+  return String(Math.round(n * 100) / 100);
+}
+// recipeTakeText — «забирает» по ветке (§8.2): состав рецепта (quantity_i × товар
+// за 1 выход) и, при заданном числе, расчётный расход в сутки на млрд.
+function recipeTakeText(g, rate) {
+  const comps = (Array.isArray(g.recipe) ? g.recipe : []).filter(c => c.good_id);
+  if (!comps.length) return "";
+  let s = 'забирает: ' + comps.map(c => (c.quantity || 1) + ' × ' + c.name).join(' + ') + ' за 1 ' + g.name;
+  if (rate != null) s += ' → ' + comps.map(c => fmtNum((c.quantity || 1) * rate) + ' ' + c.name).join(' + ') + ' за сутки (на млрд)';
+  return s;
+}
+// prodNorm — нормализация имени позиции (graph.NormalizeName: lower + trim +
+// сжатие пробелов); ключи params.eat/effects — это categories.name_norm (§10).
+function prodNorm(s) { return String(s == null ? "" : s).toLowerCase().trim().replace(/\s+/g, " "); }
+// catByNorm/catNameByNorm — категория по нормализованному имени (§11.2:
+// отсутствующая в справочнике позиция — предупреждение).
+function catByNorm(norm) { return state.categories.find(c => prodNorm(c.name) === norm) || null; }
+function catNameByNorm(norm) { const c = catByNorm(norm); return c ? c.name : norm; }
+// prodPosOptions — селект позиции (категории): value = name_norm.
+function prodPosOptions(cur) {
+  let html = '<option value=""' + (cur ? '' : ' selected') + '>— позиция —</option>';
+  const known = state.categories.some(c => prodNorm(c.name) === cur);
+  state.categories.forEach(c => {
+    const n = prodNorm(c.name);
+    html += '<option value="' + esc(n) + '"' + (n === cur ? ' selected' : '') + '>' + esc(c.name) + '</option>';
+  });
+  if (cur && !known) html += '<option value="' + esc(cur) + '" selected>' + esc(cur) + ' (нет в справочнике)</option>';
+  return html;
+}
+// prodEffOptions — селект типа эффекта при нехватке: value = name_norm.
+function prodEffOptions(cur) {
+  // пока справочник не загружен (effectTypes === null) — не помечаем значение
+  // «нет в справочнике»: это была бы ложная тревога (спека §11.2)
+  const list = effectTypes || [];
+  let html = '<option value=""' + (cur ? '' : ' selected') + '>— без эффекта —</option>';
+  const known = list.some(e => e.name_norm === cur);
+  list.forEach(e => {
+    html += '<option value="' + esc(e.name_norm) + '"' + (e.name_norm === cur ? ' selected' : '') + '>' + esc(e.name) + '</option>';
+  });
+  if (cur && !known) html += '<option value="' + esc(cur) + '" selected>' + esc(cur) + (effectTypes !== null ? ' (нет в справочнике)' : '') + '</option>';
+  return html;
+}
+// fetchEffectTypes — кэш типов эффектов (/studio/api/effects) для селекта
+// «Потребляет» (в общем state их нет); после загрузки перерисовывает попап.
+async function fetchEffectTypes() {
+  if (effectTypes !== null || effectTypesLoading || effectTypesFailed) return;
+  effectTypesLoading = true;
+  const r = await api("GET", "/studio/api/effects");
+  effectTypesLoading = false;
+  if (!r) { effectTypesFailed = true; return; } // повтор — при следующем открытии попапа
+  const data = await r.json();
+  effectTypes = (data && data.effects) || [];
+  // перерисовываем только открытую карточку постройки (не карточку товара)
+  if (popupGoodId && state.producer_types.some(p => p.id === popupGoodId)) renderProdPopup();
+}
+// prodEatRowsFromParams — строки редактора из params.eat/effects (объединение
+// ключей, порядок устойчивый). norm: "" = записи нет (мир применит 600, §8.2).
+function prodEatRowsFromParams(eat, effects) {
+  const keys = [...new Set([...Object.keys(effects), ...Object.keys(eat)])].sort();
+  return keys.map(k => ({pos: k, eff: effects[k] || "", norm: eat[k] == null ? "" : String(eat[k])}));
+}
+// prodEatRowHtml — одна строка «Потребляет»: позиция → эффект → норма (§11.1 п.1).
+function prodEatRowHtml(r, i) {
+  return '<div class="eat-row" style="display:flex;gap:6px;align-items:center;margin-bottom:4px">' +
+    '<select class="dcat" onchange="prodEatPosChange(' + i + ',this.value)">' + prodPosOptions(r.pos) + '</select>' +
+    '<span style="color:#777">→</span>' +
+    '<select class="dcat" onchange="prodEatEffChange(' + i + ',this.value)">' + prodEffOptions(r.eff) + '</select>' +
+    '<input type="number" min="0" step="any" style="width:96px" value="' + esc(r.norm) + '" placeholder="по умолчанию 600" ' +
+      'title="норма, ед/сутки/млрд (пусто = по умолчанию 600 при наличии эффекта)" ' +
+      'onchange="prodEatNormChange(' + i + ',this.value)">' +
+    '<button class="bind-del" style="margin-left:0" onclick="prodEatDelRow(' + i + ')" title="удалить строку">−</button>' +
+    '</div>';
+}
+// eatBlock — блок «Потребляет» карточки постройки (спека 2026-09-23 §11.1 п.1):
+// строки позиция → эффект при нехватке → норма, добавить/удалить. Семантика §8.2:
+// потребляется только то, что попало в effects; позиция без эффекта —
+// предупреждение «не потребляется»; пустой effects → «не потребляет».
+function eatBlock(p) {
+  const par = p.params || {};
+  const eat = (par.eat && typeof par.eat === "object") ? par.eat : {};
+  const effects = (par.effects && typeof par.effects === "object") ? par.effects : {};
+  if (prodEatRowsFor !== p.id) { prodEatRows = prodEatRowsFromParams(eat, effects); prodEatRowsFor = p.id; }
+  let html = '<div class="pblock"><div class="pblock-h">Потребляет</div>';
+  html += '<div class="hint">потребляется только то, что попало в «эффект»; норма — ед/сутки/млрд (пусто при эффекте = по умолчанию 600)</div>';
+  if (!prodEatRows.length) html += '<div class="empty-note">строк нет — добавьте позицию ниже</div>';
+  prodEatRows.forEach((r, i) => {
+    html += prodEatRowHtml(r, i);
+    if (r.pos && !r.eff) html += '<div class="hint" style="color:#d9a">позиция «' + esc(catNameByNorm(r.pos)) + '» без эффекта — не потребляется</div>';
+    if (r.pos && !catByNorm(r.pos)) html += '<div class="hint" style="color:#d9a">позиция «' + esc(r.pos) + '» отсутствует в справочнике категорий — не сохраняется</div>';
+    if (r.eff && effectTypes !== null && !effectTypes.some(e => e.name_norm === r.eff)) html += '<div class="hint" style="color:#d9a">тип эффекта «' + esc(r.eff) + '» отсутствует в справочнике — не сохраняется</div>';
+  });
+  if (!prodEatRows.some(r => r.pos && r.eff)) html += '<div class="hint">не потребляет (ни одной позиции с эффектом)</div>';
+  // расходники (input.consumables) — read-only, как в прежнем блоке «Потребляет»
+  const cons = (p.input && Array.isArray(p.input.consumables)) ? p.input.consumables : [];
+  if (cons.length) html += specRow(["Расходники", cons.join(", ")]);
+  html += '<div class="addrow" style="margin-top:4px"><button class="gen" onclick="prodEatAddRow()">+ строка</button></div>';
+  html += '</div>';
+  return html;
+}
+// prodEatAddRow/prodEatDelRow — добавить/удалить строку редактора (§11.1).
+function prodEatAddRow() {
+  if (!prodEatRows) prodEatRows = [];
+  prodEatRows.push({pos: "", eff: "", norm: ""});
+  renderProdPopup();
+}
+function prodEatDelRow(i) {
+  if (!prodEatRows) return;
+  prodEatRows.splice(i, 1);
+  saveEatBlock();
+}
+function prodEatPosChange(i, val) { if (prodEatRows && prodEatRows[i]) { prodEatRows[i].pos = val; saveEatBlock(); } }
+function prodEatEffChange(i, val) { if (prodEatRows && prodEatRows[i]) { prodEatRows[i].eff = val; saveEatBlock(); } }
+function prodEatNormChange(i, val) { if (prodEatRows && prodEatRows[i]) { prodEatRows[i].norm = String(val).trim(); saveEatBlock(); } }
+// saveEatBlock — запись типизированных eat/effects (PUT /producers/{id}, §10):
+// строка без позиции пропускается; норма пуста → в eat не пишем (мир возьмёт
+// 600); позиция/тип эффекта вне справочника не шлются (сервер вернёт 422, §10),
+// но норма такой позиции остаётся в eat (позиция без эффекта — «не потребляется»).
+async function saveEatBlock() {
+  if (!popupGoodId) return;
+  const eat = {}, effects = {};
+  const effKnown = e => effectTypes === null || effectTypes.some(x => x.name_norm === e);
+  (prodEatRows || []).forEach(r => {
+    if (!r.pos || !catByNorm(r.pos)) return;
+    if (r.eff && effKnown(r.eff)) effects[r.pos] = r.eff;
+    if (r.norm !== "") eat[r.pos] = Number(r.norm);
+  });
+  const r = await api("PUT", "/studio/api/producers/" + popupGoodId, {eat, effects});
+  if (r) fetchState(); else renderProdPopup();
+}
+// prodArithmeticBlock — проекция арифметики «на млрд особей» (спека 2026-09-23
+// §8.1/§8.2): по позиции производим − потребляем = сверх (отрицательное —
+// «дефицит»). «Производим» — сумма чисел рецептов набора по позиции выхода;
+// «потребляем» — только позиции из effects (норма eat[pos] или DefaultEatK 600).
+function prodArithmeticBlock(p) {
+  const par = p.params || {};
+  const eat = (par.eat && typeof par.eat === "object") ? par.eat : {};
+  const effects = (par.effects && typeof par.effects === "object") ? par.effects : {};
+  const produced = {};
+  prodOutputs(p).forEach(g => {
+    const rate = recipeRate(p, g.recipe_id);
+    if (rate == null) return;
+    const cat = state.categories.find(c => c.id === g.category_id);
+    if (!cat) return;
+    const pos = prodNorm(cat.name);
+    produced[pos] = (produced[pos] || 0) + rate;
+  });
+  const positions = [...new Set([...Object.keys(produced), ...Object.keys(effects)])].sort();
+  if (!positions.length) return "";
+  let html = '<div class="pblock"><div class="pblock-h">Арифметика (на млрд особей)</div>';
+  positions.forEach(pos => {
+    const prod = produced[pos] || 0;
+    const cons = Object.prototype.hasOwnProperty.call(effects, pos) ? (eat[pos] != null ? Number(eat[pos]) : 600) : 0;
+    const diff = prod - cons;
+    const tail = diff < 0 ? 'дефицит ' + fmtNum(-diff) : 'сверх потребления +' + fmtNum(diff);
+    html += specRow(["", catNameByNorm(pos) + ': производим ' + fmtNum(prod) + ' ед/сутки · потребляем ' + fmtNum(cons) + ' ед/сутки · ' + tail + ' ед/сутки']);
+  });
   html += '</div>';
   return html;
 }
@@ -3733,7 +3938,7 @@ async function addEffectType() {
   const curve = $("effNewCurve").value.trim();
   if (!name) return;
   const r = await api("POST", "/studio/api/effects", {name, impact, curve});
-  if (r) { $("effNewName").value = ""; $("effNewCurve").value = ""; renderEffectPopup(); }
+  if (r) { effectTypes = null; effectTypesFailed = false; $("effNewName").value = ""; $("effNewCurve").value = ""; renderEffectPopup(); } // кэш селекта «Потребляет»
 }
 // удаление: тип с действующими эффектами → 409 (сервер); сначала счётчик
 async function askDeleteEffectType(id) {
@@ -3754,7 +3959,7 @@ async function askDeleteEffectType(id) {
 async function deleteEffectType(id) {
   closeModal();
   const r = await api("DELETE", "/studio/api/effects/" + id);
-  if (r) renderEffectPopup();
+  if (r) { effectTypes = null; effectTypesFailed = false; renderEffectPopup(); } // кэш селекта «Потребляет»
 }
 // «+ товар» — единственный путь создания товара (addbar удалён по решению
 // создателя 2026-09-19; 99a.3-ui §13). Форма — в попапе (ТЗ §7.3): поля

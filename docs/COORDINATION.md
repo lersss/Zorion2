@@ -53,12 +53,13 @@
 
 | Файл | Кто правит | До какого коммита |
 |---|---|---|
-| — | нет активных меток (последняя — И1 «стадии поселения и скорость производства», сдана 2026-09-24, коммит `23f5367`) | — |
+| — | нет активных меток. И2 эпика «Экономика поселения» (стадии): **И2.1 и И2.2 сданы 2026-09-24** (коммиты `25c3c1e`, `588d358`); **И2.3 (карточка поселения + поля порогов в студии) не начат** — `web/studio.html` занят другой задачей | — |
 
 ## Занято ранее (историческое, не блокирует — чистится @manager по мере надобности)
 
 | Файл | Кто правит | До какого коммита |
 |---|---|---|
+| `internal/economy/settlement/{stage,arithmetic,units}.go`, `internal/repository/{settlement_owner_pass,settlement_stage,galaxy_population,branch_repository,economy_repository,planet_repo}.go` (+ тесты), `internal/handlers/{admin_settlement_branches,admin_settlement_settings,planet_visibility,planet_handler}.go` (+ тесты), `internal/models/{economy,generation_config}.go` | @developer (И2.1 + И2.2 эпика «Экономика поселения»: механика стадий, витрина арифметики, видимость игроку) | коммиты `25c3c1e`, `588d358` (2026-09-24) |
 | `internal/generator/planet/cascade.go` / `planet_data.go` / `planet_data_generate.go` / `accretion_mass_test.go` / `giant_smoke_test.go` | @developer (этап 1 «протопылевое облако», 2026-09-21) | коммит dd37a8c |
 | `internal/generator/planet/*` (cascade.go, planet_data.go, planet_data_generate.go, planet_data_belt.go, planet_data_batch.go, belt_test.go), `internal/models/planet.go`, `internal/handlers/admin_universe.go`, `internal/handlers/admin_regenerate_planets.go`, `migrations/000059_system_belts.sql` | @developer (пояса малых тел — этап 1а/1б, 2026-09-21/22) | коммит b24e358 |
 | `internal/generator/planet/biome_*.go` (+seed.json, biome_test.go) | @developer (99.2.28) | коммит 99.2.28 |

@@ -890,8 +890,10 @@ function drawBelts(ctx, layout) {
         const hovered = !!modalState.hoveredObject &&
             modalState.hoveredObject.type === 'belt' && modalState.hoveredObject.id === b.id;
 
-        // Подложка-annulus: серым низкой альфы (при выработанном — глуше). Кромки
-        // — тонкие линии в тон орбит (#444), при ховере — светлее (интерактив).
+        // Подложка-annulus: только заливка, серым низкой альфы (при выработанном —
+        // глуше). Обводки кромок нет (правка создателя 2026-09-23: «не нужна эта
+        // обводка» — кольцо читалось «трубой/шариком»); интерактив (ховер) —
+        // усилением той же заливки, а не кромкой.
         const outer = g.radius + g.half;
         const inner = Math.max(0, g.radius - g.half);
         ctx.save();
@@ -900,11 +902,10 @@ function drawBelts(ctx, layout) {
         ctx.moveTo(g.cx + inner, g.cy);
         ctx.arc(g.cx, g.cy, inner, 0, 2 * Math.PI, true);
         ctx.closePath();
-        ctx.fillStyle = depleted ? 'rgba(107,114,128,0.05)' : 'rgba(107,114,128,0.10)';
+        ctx.fillStyle = hovered
+            ? 'rgba(107,114,128,0.24)'
+            : (depleted ? 'rgba(107,114,128,0.05)' : 'rgba(107,114,128,0.10)');
         ctx.fill();
-        ctx.strokeStyle = hovered ? 'rgba(255,255,255,0.45)' : 'rgba(68,68,68,0.55)';
-        ctx.lineWidth = (hovered ? 1.5 : 1) / modalState.zoom;
-        ctx.stroke();
         ctx.restore();
 
         // Камни — только когда кольцо достаточно крупно на экране (риск шума на
@@ -957,9 +958,8 @@ function drawBeltStone(ctx, x, y, size, rot, tone) {
     }
     ctx.closePath();
     ctx.fillStyle = tone;
+    // Обводки камня нет (правка создателя 2026-09-23: «не нужна эта обводка») —
+    // иначе контур кольца возвращался бы на россыпи.
     ctx.fill();
-    ctx.strokeStyle = '#454c58';
-    ctx.lineWidth = 1 / modalState.zoom;
-    ctx.stroke();
     ctx.restore();
 }

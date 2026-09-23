@@ -314,17 +314,46 @@ export function beltRing(layout, belt) {
     return { cx: layout.mainX, cy: layout.mainY, radius, half };
 }
 
-// beltAngle — детерминированный азимут точки пояса (рад): hash(belt.id) → 0..360°
+// beltAngle — канонический азимут точки пояса (рад): hash(belt.id) → 0..360°
 // (§9.3), не зависит от времени кадра. Разные пояса — разный азимут.
 export function beltAngle(belt) {
     return ((fnv1a(String((belt && belt.id) || '')) % 360) * Math.PI) / 180;
 }
 
-// beltPoint — каноническая точка пояса (середина кольца, осевая линия) на
-// азимуте beltAngle. Один источник для маркера «я здесь», начала/конца полёта,
-// слежения камеры и чужих игроков в поясе (§9.3 п.1–2).
+// beltArrivalAngles — азимут прибытия к поясу (правка создателя 2026-09-23):
+// ближайшая точка осевой линии кольца к кораблю на момент старта полёта
+// («не лететь через полкарты к чужой точке кольца»). Живёт в модуле — переживает
+// закрытие/переоткрытие модалки (иначе маркер «я здесь» прыгал бы на канонический
+// азимут); после перезагрузки страницы (F5) карта пуста — beltPoint берёт
+// канонический beltAngle, и маркер не исчезает (§9.3 п.2).
+const beltArrivalAngles = new Map();
+
+// setBeltArrivalAngle — запомнить азимут прибытия к поясу (рад).
+export function setBeltArrivalAngle(belt, angle) {
+    const id = String((belt && belt.id) || '');
+    if (!id || !isFinite(angle)) return;
+    beltArrivalAngles.set(id, angle);
+}
+
+// beltNearestAngle — азимут ближайшей точки осевой линии кольца к точке (x, y)
+// в канвасных координатах: направление от центра кольца на точку (§9.3: точка —
+// на осевой линии). Совпадает с центром (dx=dy=0) — null (нет направления).
+export function beltNearestAngle(layout, belt, x, y) {
+    const g = beltRing(layout, belt);
+    const dx = x - g.cx;
+    const dy = y - g.cy;
+    if (!isFinite(dx) || !isFinite(dy) || (dx === 0 && dy === 0)) return null;
+    return Math.atan2(dy, dx);
+}
+
+// beltPoint — точка пояса (середина кольца, осевая линия): ближайшая к кораблю
+// на момент старта полёта (beltArrivalAngles), иначе каноническая (beltAngle).
+// Один источник для маркера «я здесь», начала/конца полёта, слежения камеры и
+// чужих игроков в поясе (§9.3 п.1–2) — финальный кадр полёта совпадает с
+// маркером без «прыжка».
 export function beltPoint(layout, belt) {
     const g = beltRing(layout, belt);
-    const a = beltAngle(belt);
+    const stored = beltArrivalAngles.get(String((belt && belt.id) || ''));
+    const a = isFinite(stored) ? stored : beltAngle(belt);
     return { x: g.cx + g.radius * Math.cos(a), y: g.cy + g.radius * Math.sin(a) };
 }

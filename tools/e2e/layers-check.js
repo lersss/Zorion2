@@ -227,8 +227,10 @@ async function main() {
         return { menu: !!m, z: m ? getComputedStyle(m).zIndex : null };
       });
       const topWorldMenu = await topLayerState(page);
+      // z проверяем по ПОЛОСЕ (в полосе menu может быть ещё пассивный слой —
+      // тултип NPC/координат: шаг 10 внутри полосы), а не точным числом.
       report('m1 map-world-menu-layer',
-        worldMenu.menu && Number(worldMenu.z) === bands.menu &&
+        worldMenu.menu && Number(worldMenu.z) >= bands.menu && Number(worldMenu.z) < bands.banner &&
         !!topWorldMenu && topWorldMenu.level === 'menu' && topWorldMenu.connected,
         `menu=${worldMenu.menu} z=${worldMenu.z} top=${JSON.stringify(topWorldMenu)}`);
       await page.keyboard.press('Escape');
@@ -252,7 +254,8 @@ async function main() {
       });
       const topCoords = await topLayerState(page);
       report('m3 coords-tooltip-passive',
-        coords.exists && Number(coords.z) === bands.menu && topCoords === null,
+        coords.exists && Number(coords.z) >= bands.menu && Number(coords.z) < bands.banner &&
+        topCoords === null,
         `exists=${coords.exists} z=${coords.z} top=${JSON.stringify(topCoords)}`);
       await page.mouse.click(mapPoints.empty.x + 30, mapPoints.empty.y + 30);
       await page.waitForTimeout(250);
@@ -264,10 +267,11 @@ async function main() {
         !coordsAfter.exists && coordsAfter.top === null,
         `exists=${coordsAfter.exists} top=${JSON.stringify(coordsAfter.top)}`);
 
-      // Три цикла показа/скрытия: z тултипа не растёт — мёртвых записей в
-      // стеке не остаётся (при «призраке» каждый цикл прибавлял бы +10).
+      // Пять циклов показа/скрытия: z тултипа не растёт — мёртвых записей в
+      // стеке не остаётся (при «призраке» каждый цикл прибавлял бы +10; допуск
+      // +10 — соседний пассивный слой полосы, тултип NPC).
       const cycleZ = [];
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < 5; i++) {
         await page.mouse.click(mapPoints.empty.x, mapPoints.empty.y, { button: 'right' });
         await page.waitForTimeout(200);
         cycleZ.push(await page.evaluate(() => {
@@ -278,7 +282,8 @@ async function main() {
         await page.waitForTimeout(200);
       }
       report('m5 coords-tooltip-no-z-growth',
-        cycleZ.every(z => z !== null && z >= bands.menu) && cycleZ[0] === cycleZ[1] && cycleZ[1] === cycleZ[2],
+        cycleZ.every(z => z !== null && z >= bands.menu && z < bands.banner) &&
+        cycleZ[cycleZ.length - 1] - cycleZ[0] <= 10,
         `z=${JSON.stringify(cycleZ)}`);
     } else {
       report('m3 coords-tooltip-passive', false, 'нет пустой точки в кадре');

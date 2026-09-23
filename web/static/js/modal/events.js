@@ -1,7 +1,7 @@
 ﻿// web/static/js/modal/events.js
 import { modalState, flightModeForSystem } from './state.js';
-import { drawSystem, MIN_STAR_PX } from './modal_render.js';
-import { computeLayout, getOrbitRadius, getPlanetAngle, planetRadius, planetOrbitCenter, beltRing } from './layout.js';
+import { drawSystem, MIN_STAR_PX, orbitalPoint } from './modal_render.js';
+import { computeLayout, getOrbitRadius, getPlanetAngle, planetRadius, planetOrbitCenter, beltRing, beltNearestAngle, setBeltArrivalAngle } from './layout.js';
 import { miniObjects } from './minimap.js';
 import { closeModal } from './index.js';
 import { getSpectralInfo, exoticStarInfo, formatStellarMass, formatAU } from './panel.js';
@@ -1089,6 +1089,9 @@ function appendLandItem(menu, planet) {
 export async function startIntraFlight(objectType, objectId) {
     const token = modalState.authToken || localStorage.getItem('token');
     if (!token) return;
+    // Позиция ДО старта — для цели полёта к поясу (правка создателя 2026-09-23:
+    // «лететь к ближайшей» точке кольца, а не через полкарты к канонической).
+    const before = modalState.myPosition;
     try {
         const res = await fetch('/api/intrasystem-flight', {
             method: 'POST',
@@ -1106,6 +1109,10 @@ export async function startIntraFlight(objectType, objectId) {
             return;
         }
         const data = JSON.parse(text);
+        // Пояс: цель полёта — ближайшая точка осевой линии кольца к кораблю на
+        // момент старта (запоминаем ДО смены позиции). Точку берёт beltPoint —
+        // один источник для полёта, маркера, камеры и чужих игроков (§9.3 п.2).
+        if (objectType === 'belt') storeBeltArrivalAngle(objectId, before);
         // Позиция = полёт (решение создателя): модалка сразу показывает полосу.
         // Новый полёт — центрирование по прибытии снимается (слежение берёт верх).
         modalState.arrivalObject = null;
@@ -1169,6 +1176,28 @@ async function startTravelToStar() {
         // (гейт создателя, идея §8 п.7в) — слежение как кнопка «Найти меня».
         returnToMapInFlight();
     }
+}
+
+// storeBeltArrivalAngle — зафиксировать азимут прибытия к поясу: направление от
+// центра кольца на корабль (позиция до старта полёта) = ближайшая точка осевой
+// линии (§9.3). Позиции нет (окно прибытия/межзвёздный полёт) или она уже в этом
+// поясе — не трогаем: beltPoint оставит канонический beltAngle (маркер не
+// исчезает, §9.3 п.2).
+function storeBeltArrivalAngle(beltId, beforePos) {
+    const belt = (modalState.belts || []).find(b => b.id === beltId);
+    if (!belt || !beforePos) return;
+    if (beforePos.status === 'in_flight') return;
+    if (beforePos.object_type === 'belt' && beforePos.object_id === beltId) return;
+    const layout = computeLayout(
+        modalState.planets, modalState.starRadius,
+        modalState.canvasWidth, modalState.canvasHeight
+    );
+    const ship = orbitalPoint(
+        layout, modalState.planets || [],
+        beforePos.object_type, beforePos.object_id, performance.now()
+    );
+    const angle = beltNearestAngle(layout, belt, ship.x, ship.y);
+    if (angle !== null) setBeltArrivalAngle(belt, angle);
 }
 
 // startCompositeFlight — старт композитного маршрута (спека 99.2.30 §6.1/§6.7):

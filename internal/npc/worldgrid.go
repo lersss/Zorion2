@@ -31,7 +31,6 @@ type worldGrid struct {
 	cellSize float64
 	cells    map[cellKey][]gridWorld
 	byID     map[string]gridWorld // координаты мира по id (позиции, §2.2.B)
-	allIDs   []string             // все id миров галактики (массовая генерация, спека 26a.1 §4.1)
 }
 
 func buildGrid(worlds []mapcache.World) *worldGrid {
@@ -39,7 +38,6 @@ func buildGrid(worlds []mapcache.World) *worldGrid {
 		cellSize: routeRadius,
 		cells:    make(map[cellKey][]gridWorld, len(worlds)/8),
 		byID:     make(map[string]gridWorld, len(worlds)),
-		allIDs:   make([]string, 0, len(worlds)),
 	}
 	for _, w := range worlds {
 		gw := gridWorld{id: w.ID, name: w.Name, x: w.X, y: w.Y}
@@ -49,7 +47,6 @@ func buildGrid(worlds []mapcache.World) *worldGrid {
 		}
 		g.cells[key] = append(g.cells[key], gw)
 		g.byID[w.ID] = gw
-		g.allIDs = append(g.allIDs, w.ID)
 	}
 	return g
 }
@@ -150,20 +147,4 @@ func (g *worldGrid) pickTarget(x, y float64, avoidID string, rnd *rand.Rand) (st
 		return ids[rnd.Intn(len(ids))], true
 	}
 	return "", false
-}
-
-// randomWorlds — n случайных миров галактики для стартовых позиций пачки
-// (спека 26a.1 §4.4): по предвычисленному allIDs, O(1) на агента, без
-// построения слайса на каждый вызов. Повторы допустимы («случайные по всей
-// галактике» ≠ «разные миры»). false — галактика пуста. rnd — локальный
-// *rand.Rand вызывающего (не потокобезопасны).
-func (g *worldGrid) randomWorlds(rnd *rand.Rand, n int) ([]string, bool) {
-	if g == nil || len(g.allIDs) == 0 {
-		return nil, false
-	}
-	out := make([]string, n)
-	for i := range out {
-		out[i] = g.allIDs[rnd.Intn(len(g.allIDs))]
-	}
-	return out, true
 }

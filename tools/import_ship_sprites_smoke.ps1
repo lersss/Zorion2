@@ -61,7 +61,7 @@ $meta | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $accDir 's
 $reg = @'
 package models
 
-var ShipSprites = []ShipSprite{}
+var RaceShipSprites = []ShipSprite{}
 '@
 Set-Content -LiteralPath $regFile -Value $reg -Encoding UTF8
 

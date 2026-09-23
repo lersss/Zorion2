@@ -187,7 +187,7 @@ func TestGetMeRoleFallsBackToDB(t *testing.T) {
 
 // ==================== /me: МАППИНГ ship_icon (спека 61b §4) ====================
 
-// Legacy SVG-имя маппится в PNG-имя; ship_options — весь реестр спрайтов.
+// Легаси-имя ship_icon → DefaultHumanShip (race_humans_starship.png); ship_options — весь реестр спрайтов.
 func TestGetMeMapsLegacyShipIcon(t *testing.T) {
 	h, mock, _ := newAuthHandlersHarness(t)
 
@@ -211,7 +211,7 @@ func TestGetMeMapsLegacyShipIcon(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// Неизвестное имя ship_icon → дефолт crescent.png.
+// Неизвестное имя ship_icon → дефолт DefaultHumanShip (race_humans_starship.png).
 func TestGetMeMapsUnknownShipIconToDefault(t *testing.T) {
 	h, mock, _ := newAuthHandlersHarness(t)
 

@@ -3,7 +3,7 @@
 # и docs/specs/2026-09-23-корабли-рас-раса-агентов-и-игрока.md §6.1 п.5/6):
 # копирует принятые PNG в web/static/sprites/ (сверка по sha256, а НЕ по имени:
 # имена принятых race_<slug>_NN.png и файлов реестра race_<slug>_<word>.png не
-# совпадают), печатает строки реестра ShipSprites для вставки ВРУЧНУЮ и отчёт.
+# совпадают), печатает строки реестра RaceShipSprites для вставки ВРУЧНУЮ и отчёт.
 # Реестр скрипт НЕ переписывает.
 #
 # Фильтр (спека §6.1 п.1–2): импортируются ТОЛЬКО записи ships_meta.json; PNG
@@ -25,7 +25,7 @@
 param(
     [string]$AcceptedDir = 'ai_drafts/final_accepted/ships',
     [string]$SpritesDir = 'web/static/sprites',
-    [string]$Registry = 'internal/models/ship_sprites.go'
+    [string]$Registry = 'internal/models/race_ship_sprites.go'
 )
 
 $ErrorActionPreference = 'Stop'

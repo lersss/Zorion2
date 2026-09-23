@@ -127,7 +127,7 @@ type Manager struct {
 
 	// Сетка миров: перестраивается только при смене снапшота mapcache
 	// (после перегенерации вселенной), не на каждом тике (И2).
-	// atomic.Pointer: сетку читает и хендлер (RandomWorld/RandomWorlds) из
+	// atomic.Pointer: сетку читает и хендлер (WorldName) из
 	// другой горутины (AGENTS.md §0); после построения сетка immutable.
 	// gridMu сериализует перестройку (tick + хендлер массовой генерации).
 	gridPtr      atomic.Pointer[worldGrid]
@@ -210,34 +210,6 @@ func (m *Manager) SetPositions(pos []InterpolatedPosition) {
 // Settings — настройки менеджера (админ-ручка /admin/npc/settings, §6).
 func (m *Manager) Settings() *Settings {
 	return m.settings
-}
-
-// RandomWorld — случайный мир галактики для стартовой позиции агента
-// (спека §8: стартовый мир, если не указан). Источник — сетка миров
-// (atomic.Pointer — чтение из хендлера, AGENTS.md §0): предвычисленный
-// allIDs, O(1) без построения слайса на каждый вызов (спека 26a.1 §4.4).
-// false — снапшот карты не готов или галактика пуста.
-func (m *Manager) RandomWorld() (string, bool) {
-	g := m.gridPtr.Load()
-	if g == nil || len(g.allIDs) == 0 {
-		return "", false
-	}
-	return g.allIDs[rand.Intn(len(g.allIDs))], true
-}
-
-// RandomWorlds — n случайных миров галактики для стартовых позиций пачки
-// (спека 26a.1 §4.1, §4.4): O(1) на агента по предвычисленному allIDs,
-// повторы допустимы. false — снапшот не готов или галактика пуста.
-// Вызывается из хендлера (другая горутина) — перестройка сетки под gridMu.
-func (m *Manager) RandomWorlds(n int) ([]string, bool) {
-	m.refreshGrid()
-	g := m.gridPtr.Load()
-	if g == nil || len(g.allIDs) == 0 {
-		return nil, false
-	}
-	// Локальный rand — общие *rand.Rand не потокобезопасны (§0).
-	rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
-	return g.randomWorlds(rnd, n)
 }
 
 // RandomRaceHomeworlds — n случайных происхождений агентов (раса + её родной
@@ -567,8 +539,8 @@ func (m *Manager) processStarts(budget int, now time.Time) {
 
 // refreshGrid — перестраивает сетку миров только при смене снапшота
 // mapcache (после генерации вселенной), не на каждом тике (спека §9 И2).
-// gridMu сериализует перестройку: сетку строит и тик, и хендлер массовой
-// генерации (RandomWorlds) — gridSnapshot иначе был бы data race (§0).
+// gridMu сериализует перестройку: сетку строит тик (перестройка сетки иначе
+// была бы data race с читателями-хендлерами, §0).
 func (m *Manager) refreshGrid() {
 	m.gridMu.Lock()
 	defer m.gridMu.Unlock()

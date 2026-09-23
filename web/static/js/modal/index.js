@@ -91,7 +91,7 @@ export function openSystemModal(worldId, worldName, spectralClass, focusOpts, au
 
     // Гарантированный спрайт (запрос создателя 99.2.27): /me — надёжный источник
     // (auth_handlers /me ВСЕГДА отдаёт валидный ship_icon через ResolveShipIcon:
-    // legacy SVG→PNG, реестр→как есть, неизвестное/пустое→crescent.png).
+    // реестр→как есть, неизвестное/пустое→DefaultHumanShip).
     // Запрашиваем ВСЕГДА (не только при отсутствии starInfo) — перекрывает
     // starInfo, если карта отдала устаревшее/пустое; работает из любого входа
     // (карта/поиск/админка). rAF-тик перерисовывает каждый кадр — достаточно

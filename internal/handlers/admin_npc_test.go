@@ -36,7 +36,7 @@ func (npcFakeStore) ListBatch(models.NPCAgentStatus, string, int) ([]models.NPCA
 func (npcFakeStore) UpdateStatusBatch([]models.AgentStatusUpdate) error { return nil }
 func (npcFakeStore) ListAll() ([]models.NPCAgent, error)                { return nil, nil }
 
-// npcFakeWorlds — WorldSource без снапшота (RandomWorld → false).
+// npcFakeWorlds — WorldSource без снапшота.
 type npcFakeWorlds struct{}
 
 func (npcFakeWorlds) Snapshot() *mapcache.Snapshot { return nil }

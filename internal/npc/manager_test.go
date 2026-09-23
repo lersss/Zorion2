@@ -328,21 +328,6 @@ func TestManagerStartSkipsWithoutWorlds(t *testing.T) {
 
 // ==================== СЛУЧАЙНЫЙ СТАРТОВЫЙ МИР ====================
 
-// RandomWorld — случайный мир из сетки (спека §8: стартовый мир, если не
-// указан); false, если сетки нет.
-func TestManagerRandomWorld(t *testing.T) {
-	grid := buildGrid([]mapcache.World{{ID: "w1", X: 0, Y: 0}, {ID: "w2", X: 100, Y: 0}})
-	m := newTestManager(&fakeStore{})
-
-	_, ok := m.RandomWorld()
-	require.False(t, ok, "сетки нет — мира нет")
-
-	m.gridPtr.Store(grid)
-	id, ok := m.RandomWorld()
-	require.True(t, ok)
-	require.Contains(t, []string{"w1", "w2"}, id)
-}
-
 // WorldName — имя мира для уведомлений из сетки (спека §5).
 func TestManagerWorldName(t *testing.T) {
 	grid := buildGrid([]mapcache.World{{ID: "w1", Name: "Sirius", X: 0, Y: 0}})
@@ -383,24 +368,6 @@ func TestManagerTickMetrics(t *testing.T) {
 	require.Equal(t, int64(100), mm.LastBulk.Count)
 	require.Equal(t, int64(2300), mm.LastBulk.DurationMs)
 	require.NotZero(t, mm.LastBulk.FinishedAt)
-}
-
-// RandomWorlds — n случайных миров из сетки (спека 26a.1 §4.4): O(1) на
-// агента по предвычисленному allIDs; false — сетки нет.
-func TestManagerRandomWorlds(t *testing.T) {
-	grid := buildGrid([]mapcache.World{{ID: "w1", X: 0, Y: 0}, {ID: "w2", X: 100, Y: 0}})
-	m := newTestManager(&fakeStore{})
-
-	_, ok := m.RandomWorlds(3)
-	require.False(t, ok, "сетки нет — миров нет")
-
-	m.gridPtr.Store(grid)
-	out, ok := m.RandomWorlds(5)
-	require.True(t, ok)
-	require.Len(t, out, 5)
-	for _, id := range out {
-		require.Contains(t, []string{"w1", "w2"}, id)
-	}
 }
 
 // ==================== ПУЛ «РАСА → РОДНОЙ МИР» (спека 2026-09-23 §5) ==========

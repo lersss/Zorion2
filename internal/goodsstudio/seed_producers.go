@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"zorion/internal/goodsstudio/graph"
+	"zorion/internal/models"
 )
 
 // ProducerSeedMarkerKey — ключ маркера сидера производителей в
@@ -185,6 +186,21 @@ func SeedProducers(db *sql.DB) error {
 			return fmt.Errorf("seed producers: тип %s: %w", p.Name, err)
 		}
 		producerIDs[p.Name] = id
+	}
+
+	// Базовый тип поселения — id в generation_config (решение создателя
+	// 2026-09-23: связь по id, не по имени). Путь свежей БД: миграция 000075
+	// видит пустые settlements и ключ не ставит — ставит сид. Читает
+	// repository.ResolveDefaultSettlementTypeID. Upsert идемпотентен и живёт в
+	// той же транзакции, что и остальной сид.
+	if id, ok := producerIDs["Обычное поселение"]; ok {
+		if _, err := tx.Exec(
+			`INSERT INTO generation_config (key, payload) VALUES ($1, to_jsonb($2::bigint))
+			 ON CONFLICT (key) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`,
+			models.DefaultSettlementTypeIDKey, id,
+		); err != nil {
+			return fmt.Errorf("seed producers: default_settlement_type_id: %w", err)
+		}
 	}
 
 	// Слоты родителя (спека 2026-09-21-скрытые §1.3, путь 2 — свежие БД):

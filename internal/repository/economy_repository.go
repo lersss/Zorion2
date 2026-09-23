@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"time"
 
@@ -25,7 +26,7 @@ func NewEconomyRepository(db *sql.DB) *EconomyRepository {
 // Settlement
 func (r *EconomyRepository) CreateSettlement(s *models.Settlement) error {
 	// Тип поселения — настоящая связь (спека итерации 4 §3.4): если не задан
-	// вызывающим, берём дефолтный подтип «Обычное поселение» (0 → NULL).
+	// вызывающим, берём дефолтный тип из generation_config (0 → NULL).
 	if s.SettlementTypeID == 0 {
 		typeID, err := ResolveDefaultSettlementTypeID(r.db)
 		if err != nil {
@@ -39,19 +40,32 @@ func (r *EconomyRepository) CreateSettlement(s *models.Settlement) error {
 	return err
 }
 
-// ResolveDefaultSettlementTypeID — id дефолтного типа поселения по
-// name_norm='обычное поселение' (спека итерации 4 §3.4): вызывается один раз на
-// джоб генерации. Типа нет — 0 (без ошибки): связь остаётся NULL, чтение
-// применит фолбэк DefaultEatK (§3.2). НЕ lower() — collation C не портит
-// кириллицу только для Go-литералов (PITFALLS «БД и шелл»).
+// ResolveDefaultSettlementTypeID — id дефолтного типа поселения из
+// generation_config по ключу models.DefaultSettlementTypeIDKey (решение
+// создателя 2026-09-23: резолв по id, а НЕ по name_norm — переименование типа
+// («Обычное поселение» → «Городок») иначе оставляло новые поселения без типа).
+// Ключ пишут миграция 000075 (существующие БД) и сид каталога (свежая БД).
+// Вызывается один раз на джоб генерации. Ключа нет или payload не число —
+// 0 (без ошибки, но с WARN в лог, не тихий no-op): связь остаётся NULL, чтение
+// применит фолбэк DefaultEatK (§3.2).
 func ResolveDefaultSettlementTypeID(db *sql.DB) (int64, error) {
-	var id int64
-	err := db.QueryRow(`SELECT id FROM producer_types WHERE name_norm = $1`, "обычное поселение").Scan(&id)
+	var raw []byte
+	err := db.QueryRow(
+		`SELECT payload FROM generation_config WHERE key = $1`, models.DefaultSettlementTypeIDKey,
+	).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
+		log.Printf("WARN: generation_config.%s не задан — новые поселения получат settlement_type_id = NULL (без потребностей/голода)",
+			models.DefaultSettlementTypeIDKey)
 		return 0, nil
 	}
 	if err != nil {
 		return 0, err
+	}
+	var id int64
+	if err := json.Unmarshal(raw, &id); err != nil {
+		log.Printf("WARN: generation_config.%s: payload %q не число: %v — новые поселения получат settlement_type_id = NULL",
+			models.DefaultSettlementTypeIDKey, raw, err)
+		return 0, nil
 	}
 	return id, nil
 }

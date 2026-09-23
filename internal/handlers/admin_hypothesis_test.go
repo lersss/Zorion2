@@ -19,6 +19,7 @@ import (
 	"zorion/internal/generator/planet"
 	gensettlement "zorion/internal/generator/settlement"
 	"zorion/internal/mapcache"
+	"zorion/internal/models"
 	"zorion/internal/races"
 )
 
@@ -56,11 +57,11 @@ func TestRunHypothesisJobPipeline(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	// Тип поселения (спека итерации 4 §3.4): резолв дефолтного подтипа один раз
-	// на джоб — до начала транзакции очистки.
-	mock.ExpectQuery(`SELECT id FROM producer_types WHERE name_norm = \$1`).
-		WithArgs("обычное поселение").
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(1)))
+	// Тип поселения (спека итерации 4 §3.4): резолв дефолтного типа по id из
+	// generation_config один раз на джоб — до начала транзакции очистки.
+	mock.ExpectQuery(`SELECT payload FROM generation_config WHERE key = \$1`).
+		WithArgs(models.DefaultSettlementTypeIDKey).
+		WillReturnRows(sqlmock.NewRows([]string{"payload"}).AddRow([]byte(`1`)))
 
 	// 1. Очистка вселенной (clearUniverseTx).
 	mock.ExpectBegin()
@@ -276,10 +277,11 @@ func TestRunHypothesisRaceGate(t *testing.T) {
 			require.NoError(t, err)
 			defer db.Close()
 
-			// Тип поселения (спека итерации 4 §3.4): резолв один раз на джоб.
-			mock.ExpectQuery(`SELECT id FROM producer_types WHERE name_norm = \$1`).
-				WithArgs("обычное поселение").
-				WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(1)))
+			// Тип поселения (спека итерации 4 §3.4): резолв по id из
+			// generation_config один раз на джоб.
+			mock.ExpectQuery(`SELECT payload FROM generation_config WHERE key = \$1`).
+				WithArgs(models.DefaultSettlementTypeIDKey).
+				WillReturnRows(sqlmock.NewRows([]string{"payload"}).AddRow([]byte(`1`)))
 
 			// Очистка вселенной.
 			mock.ExpectBegin()

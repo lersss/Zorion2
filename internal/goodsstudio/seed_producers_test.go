@@ -11,6 +11,8 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/require"
+
+	"zorion/internal/models"
 )
 
 // TestSeedProducersMarkerSkips — маркер есть → сид пропускается (повторный
@@ -54,6 +56,13 @@ func TestSeedProducersFull(t *testing.T) {
 		mock.ExpectQuery(`INSERT INTO producer_types \(name, name_norm, kind, category_id, race_family, parent_id, race, output, input, params\)\s+VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, \$9, \$10\)\s+ON CONFLICT \(name_norm\) DO NOTHING RETURNING id`).
 			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(1)))
 	}
+
+	// Базовый тип поселения — id в generation_config (решение создателя
+	// 2026-09-23: связь по id, не по имени; путь свежей БД — миграция 000075
+	// ключ не ставит).
+	mock.ExpectExec(`INSERT INTO generation_config \(key, payload\) VALUES \(\$1, to_jsonb\(\$2::bigint\)\)\s+ON CONFLICT \(key\) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW\(\)`).
+		WithArgs(models.DefaultSettlementTypeIDKey, sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	// Слоты родителя (спека скрытых §1.3, путь 2): категории по kind —
 	// Фабрика/Автофабрика × good (продовольствие), Платформа × resource

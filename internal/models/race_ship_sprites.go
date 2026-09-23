@@ -34,7 +34,7 @@ var NeutralShip = ShipSprite{ID: "neutral", Name: "Нейтральный", File
 // внутри типа вариант base → _02 → _03. Новые записи — только в конец (И7).
 var RaceShipSprites = []ShipSprite{
 	{ID: "race_humans_starship", Name: "Звёздный корабль (люди)", File: "race_humans_starship.png", Race: RaceHumans, Angle: 21.1},
-	{ID: "race_humans_starship_02", Name: "Звёздный корабль (люди) · 2", File: "race_humans_starship_02.png", Race: RaceHumans, Angle: -88},
+	{ID: "race_humans_starship_02", Name: "Звёздный корабль (люди) · 2", File: "race_humans_starship_02.png", Race: RaceHumans},
 	{ID: "race_humans_starship_03", Name: "Звёздный корабль (люди) · 3", File: "race_humans_starship_03.png", Race: RaceHumans, Angle: -39},
 	{ID: "race_humans_cruiser", Name: "Крейсер (люди)", File: "race_humans_cruiser.png", Race: RaceHumans, Angle: -31.1},
 	{ID: "race_humans_cruiser_02", Name: "Крейсер (люди) · 2", File: "race_humans_cruiser_02.png", Race: RaceHumans, Angle: -45, Flip: true},

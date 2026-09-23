@@ -64,36 +64,27 @@ func TestShipSpritesOrientInRange(t *testing.T) {
 	}
 }
 
-// DefaultShipIcon ∈ реестр (§4.1).
-func TestDefaultShipIconInRegistry(t *testing.T) {
-	require.True(t, IsValidShipIcon(DefaultShipIcon))
+// DefaultHumanShip ∈ расовый реестр (спека 2026-09-23 §4.1/§6.2: дефолт
+// users.ship_icon — член реестра).
+func TestDefaultHumanShipInRegistry(t *testing.T) {
+	require.True(t, IsValidShipIcon(DefaultHumanShip))
 }
 
-// Маппинг — биекция (И3): ровно 21 legacy-имя, все значения — имена из
-// реестра, дублей значений нет.
-func TestLegacyShipIconMapBijection(t *testing.T) {
-	require.Len(t, LegacyShipIconMap, 21)
-	seen := map[string]bool{}
-	for legacy, png := range LegacyShipIconMap {
-		require.True(t, IsValidShipIcon(png), "%s → %s: значение не из реестра", legacy, png)
-		require.False(t, seen[png], "дубль значения %s", png)
-		seen[png] = true
-	}
+// Неизвестное имя / пустое / битое / легаси → людской корабль (спека
+// 2026-09-23 §8.1: правило упрощено, легаси-маппинг при чтении не применяется).
+func TestResolveShipIconUnknownToDefaultHuman(t *testing.T) {
+	require.Equal(t, DefaultHumanShip, ResolveShipIcon("x.png"))
+	require.Equal(t, DefaultHumanShip, ResolveShipIcon(""))
+	require.Equal(t, DefaultHumanShip, ResolveShipIcon("ship_unknown"))
+	require.Equal(t, DefaultHumanShip, ResolveShipIcon("ship_strela.svg"))
+	require.Equal(t, DefaultHumanShip, ResolveShipIcon("boomerang.png"))
 }
 
-// Неизвестное имя / пустое / битое → дефолт (§4).
-func TestResolveShipIconUnknownToDefault(t *testing.T) {
-	require.Equal(t, DefaultShipIcon, ResolveShipIcon("x.png"))
-	require.Equal(t, DefaultShipIcon, ResolveShipIcon(""))
-	require.Equal(t, DefaultShipIcon, ResolveShipIcon("ship_unknown"))
-}
-
-// Legacy-имя → PNG-имя; уже PNG-имя из реестра → как есть (§4).
-func TestResolveShipIconMapping(t *testing.T) {
-	require.Equal(t, "boomerang.png", ResolveShipIcon("ship_strela.svg"))
-	require.Equal(t, "shark.png", ResolveShipIcon("ship_akula.svg"))
-	require.Equal(t, "crescent.png", ResolveShipIcon("crescent.png"))
-	require.Equal(t, "volcano.png", ResolveShipIcon("volcano.png"))
+// Имя из расового реестра (включая нейтральный) → как есть (спека §8.1, N2).
+func TestResolveShipIconRegistryPassthrough(t *testing.T) {
+	require.Equal(t, "race_humans_starship.png", ResolveShipIcon("race_humans_starship.png"))
+	require.Equal(t, "race_humans_cruiser_03.png", ResolveShipIcon("race_humans_cruiser_03.png"))
+	require.Equal(t, "neutral.png", ResolveShipIcon("neutral.png"))
 }
 
 // Палитра — ровно 9 хроматических цветов (§5.5); вне палитры — невалидно.
@@ -118,8 +109,9 @@ func TestShipOrientByFile(t *testing.T) {
 	require.Zero(t, angle)
 	require.False(t, flip)
 
-	// Каждая запись реестра отдаёт свою пару (сейчас все легаси-нули).
-	for _, s := range ShipSprites {
+	// Каждая запись расового реестра отдаёт свою пару (спека 2026-09-23:
+	// источник — RaceShipSprites, не легаси-21).
+	for _, s := range RaceShipSprites {
 		a, f := ShipOrientByFile(s.File)
 		require.Equal(t, s.Angle, a, s.File)
 		require.Equal(t, s.Flip, f, s.File)

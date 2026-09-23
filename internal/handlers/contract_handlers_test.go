@@ -45,14 +45,14 @@ func newContractHarness(t *testing.T) (*ContractHandlers, sqlmock.Sqlmock) {
 func contractUserRow(id, world, role string) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
 		"id", "username", "password_hash", "email", "agent_id", "current_world_id",
-		"ship_icon", "ship_color", "ship_model_id", "equipment", "role", "created_at", "updated_at",
+		"ship_icon", "ship_color", "ship_model_id", "equipment", "role", "created_at", "updated_at", "race_id",
 	}).AddRow(id, "player", "hash", nil, nil, world, "ship_strela.svg", nil, "starter",
-		`{"radar":"radar_1","scanner":"scanner_1","engine":null}`, role, now(), now())
+		`{"radar":"radar_1","scanner":"scanner_1","engine":null}`, role, now(), now(), nil)
 }
 
 // expectContractUser — ожидание GetByID (роль любая; player — expectPlayerUser).
 func expectContractUser(mock sqlmock.Sqlmock, id, world, role string) {
-	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at FROM users WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, race_id FROM users WHERE id = \$1`).
 		WithArgs(id).
 		WillReturnRows(contractUserRow(id, world, role))
 }
@@ -555,7 +555,7 @@ func TestContractTakeTravelEngineRequirement(t *testing.T) {
 			contractReqRowsGear("c1", "speed_factor", "le", contractTravelGearSpeedFactorRef))
 		// Игрок без двигателя (role=player): полёт невозможен (91a §6.1), и
 		// дефолт EngineSpeed 0.3 не должен «пропускать» его через le 0.3.
-		mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at FROM users WHERE id = \$1`).
+		mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, race_id FROM users WHERE id = \$1`).
 			WithArgs("u1").
 			WillReturnRows(userRowNoEngine("u1", "w1"))
 

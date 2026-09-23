@@ -321,6 +321,20 @@
   `LoadCatalog` с sqlmock) — как `newVisibilityHarness` в
   `internal/handlers/visibility_test.go`.
 
+- **Новая колонка `users` в `userSelect`/`GetByIDWithPosition` — тройная правка
+  тестов (sqlmock).** Список колонок `users` захардкожен в продакшене в ДВУХ
+  местах (`userSelect` — 13 колонок; `GetByIDWithPosition` — своя строка
+  `:212`), и в ~45 местах тестов (39 SELECT + 6 INSERT) лежат его КОПИИ: строка
+  запроса-регекса, список колонок `sqlmock.NewRows([...])` и значения
+  `AddRow(...)`. `AddRow` **паникует**, если число значений ≠ числу колонок
+  (v1.5.2, `rows.go`). Добавляя колонку (пример — `race_id`, миграция `000074`),
+  правь ВСЕ три слоя во всех файлах, иначе получишь либо «not expected»
+  (регекс не совпал), либо панику. Второй подводный камень: `race_id` в тестах
+  передают `nil`, а скан в `string` падает (`converting NULL to string is
+  unsupported`) — скан `race_id` идёт через `sql.NullString` с проверкой
+  `.Valid` (как `ship_model_id`). Порядок колонки в SELECT и в `Scan` обязан
+  совпадать (в П1 `race_id` — ПОСЛЕ `pending_destination`).
+
 - **Комбинаторный словарь форм арт-студии: полное произведение ~69M строк
   (F2) — юнит-тесту материализовать нельзя.** Спека 67a.1 §11.6 закладывала
   28×25×20×25 = 350k компонентов, но оси `forms.json` выросли (78a/88a/76a)

@@ -41,17 +41,17 @@ func newAuthHandlersHarness(t *testing.T) (*AuthHandlers, sqlmock.Sqlmock, *trav
 // authUserCols — колонки users для sqlmock (GetByIDWithPosition:
 // + current_position, + pending_destination — спека 99.2.30 §6.3).
 var authUserCols = []string{
-	"id", "username", "password_hash", "email", "agent_id", "current_world_id", "ship_icon", "ship_color", "ship_model_id", "equipment", "role", "created_at", "updated_at", "current_position", "pending_destination",
+	"id", "username", "password_hash", "email", "agent_id", "current_world_id", "ship_icon", "ship_color", "ship_model_id", "equipment", "role", "created_at", "updated_at", "current_position", "pending_destination", "race_id",
 }
 
 func TestGetMeWithActiveFlight(t *testing.T) {
 	h, mock, tm := newAuthHandlersHarness(t)
 
 	userID := "11111111-1111-1111-1111-111111111111"
-	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination FROM users WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination, race_id FROM users WHERE id = \$1`).
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows(authUserCols).
-			AddRow(userID, "bob", "hash", nil, nil, nil, "ship_strela.svg", nil, nil, nil, "player", now(), now(), nil, nil))
+			AddRow(userID, "bob", "hash", nil, nil, nil, "ship_strela.svg", nil, nil, nil, "player", now(), now(), nil, nil, nil))
 
 	// Полёт с часовой длительностью — не завершится во время теста.
 	tm.StartFlight(userID, "w-from", "w-to", 10.5, 20.5, time.Hour, nil)
@@ -85,10 +85,10 @@ func TestGetMeSurfacePosition(t *testing.T) {
 	biome := testBiomeByCategory(t, "вулканизм")
 	// Давно прошедшая высадка на жёсткой планете → серверный hp ≈ 0.
 	pos := `{"status":"surface","level":"surface","object_type":"planet","object_id":"pl-1","biome":"` + biome.ID + `","hp":80,"landed_at":"2020-01-01T00:00:00Z"}`
-	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination FROM users WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination, race_id FROM users WHERE id = \$1`).
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows(authUserCols).
-			AddRow(userID, "bob", "hash", nil, nil, "w1", "ship_strela.svg", nil, nil, nil, "player", now(), now(), pos, nil))
+			AddRow(userID, "bob", "hash", nil, nil, "w1", "ship_strela.svg", nil, nil, nil, "player", now(), now(), pos, nil, nil))
 	// Имя мира (GetMe) + планета системы для пересчёта HP.
 	expectIntraWorld(mock, "w1")
 	expectSurfacePlanetsLight(mock, "w1",
@@ -114,10 +114,10 @@ func TestGetMeWithoutFlight(t *testing.T) {
 	h, mock, _ := newAuthHandlersHarness(t)
 
 	userID := "22222222-2222-2222-2222-222222222222"
-	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination FROM users WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination, race_id FROM users WHERE id = \$1`).
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows(authUserCols).
-			AddRow(userID, "alice", "hash", nil, nil, nil, "ship_strela.svg", nil, nil, nil, "player", now(), now(), nil, nil))
+			AddRow(userID, "alice", "hash", nil, nil, nil, "ship_strela.svg", nil, nil, nil, "player", now(), now(), nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/me", nil)
 	rec := execJSON(h.GetMe, withUserID(req, userID))
@@ -148,10 +148,10 @@ func TestGetMeRoleFromContext(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			h, mock, _ := newAuthHandlersHarness(t)
 			userID := "12121212-1212-1212-1212-121212121212"
-			mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination FROM users WHERE id = \$1`).
+			mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination, race_id FROM users WHERE id = \$1`).
 				WithArgs(userID).
 				WillReturnRows(sqlmock.NewRows(authUserCols).
-					AddRow(userID, "bob", "hash", nil, nil, nil, "ship_strela.svg", nil, nil, nil, c.dbRole, now(), now(), nil, nil))
+					AddRow(userID, "bob", "hash", nil, nil, nil, "ship_strela.svg", nil, nil, nil, c.dbRole, now(), now(), nil, nil, nil))
 
 			req := withRole(httptest.NewRequest(http.MethodGet, "/me", nil), c.ctxRole)
 			rec := execJSON(h.GetMe, withUserID(req, userID))
@@ -170,10 +170,10 @@ func TestGetMeRoleFallsBackToDB(t *testing.T) {
 	h, mock, _ := newAuthHandlersHarness(t)
 
 	userID := "13131313-1313-1313-1313-131313131313"
-	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination FROM users WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination, race_id FROM users WHERE id = \$1`).
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows(authUserCols).
-			AddRow(userID, "bob", "hash", nil, nil, nil, "ship_strela.svg", nil, nil, nil, "admin", now(), now(), nil, nil))
+			AddRow(userID, "bob", "hash", nil, nil, nil, "ship_strela.svg", nil, nil, nil, "admin", now(), now(), nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/me", nil)
 	rec := execJSON(h.GetMe, withUserID(req, userID))
@@ -192,10 +192,10 @@ func TestGetMeMapsLegacyShipIcon(t *testing.T) {
 	h, mock, _ := newAuthHandlersHarness(t)
 
 	userID := "33333333-3333-3333-3333-333333333333"
-	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination FROM users WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination, race_id FROM users WHERE id = \$1`).
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows(authUserCols).
-			AddRow(userID, "bob", "hash", nil, nil, nil, "ship_strela.svg", nil, nil, nil, "player", now(), now(), nil, nil))
+			AddRow(userID, "bob", "hash", nil, nil, nil, "ship_strela.svg", nil, nil, nil, "player", now(), now(), nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/me", nil)
 	rec := execJSON(h.GetMe, withUserID(req, userID))
@@ -203,11 +203,11 @@ func TestGetMeMapsLegacyShipIcon(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]interface{}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, "boomerang.png", resp["ship_icon"], "ship_strela.svg должен смаппиться в boomerang.png")
+	assert.Equal(t, "race_humans_starship.png", resp["ship_icon"], "легаси ship_strela.svg → людской корабль")
 	assert.Nil(t, resp["ship_color"], "NULL цвет = «Оригинал»")
 	opts, ok := resp["ship_options"].([]interface{})
 	require.True(t, ok, "ship_options должен быть массивом")
-	assert.Len(t, opts, len(models.ShipSprites), "ship_options — весь реестр спрайтов")
+	assert.Len(t, opts, len(models.ShipOptions), "ship_options — расовый транспорт реестра")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -216,10 +216,10 @@ func TestGetMeMapsUnknownShipIconToDefault(t *testing.T) {
 	h, mock, _ := newAuthHandlersHarness(t)
 
 	userID := "44444444-4444-4444-4444-444444444444"
-	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination FROM users WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination, race_id FROM users WHERE id = \$1`).
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows(authUserCols).
-			AddRow(userID, "bob", "hash", nil, nil, nil, "x.png", nil, nil, nil, "player", now(), now(), nil, nil))
+			AddRow(userID, "bob", "hash", nil, nil, nil, "x.png", nil, nil, nil, "player", now(), now(), nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/me", nil)
 	rec := execJSON(h.GetMe, withUserID(req, userID))
@@ -227,7 +227,7 @@ func TestGetMeMapsUnknownShipIconToDefault(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]interface{}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, "crescent.png", resp["ship_icon"], "неизвестное имя → дефолт")
+	assert.Equal(t, "race_humans_starship.png", resp["ship_icon"], "неизвестное имя → людской корабль")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -239,16 +239,16 @@ func TestUpdateShipIconAcceptsRegistryName(t *testing.T) {
 
 	userID := "55555555-5555-5555-5555-555555555555"
 	mock.ExpectExec(`UPDATE users SET ship_icon = \$1, updated_at = NOW\(\) WHERE id = \$2`).
-		WithArgs("shark.png", userID).
+		WithArgs("race_humans_cruiser.png", userID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	req := httptest.NewRequest(http.MethodPut, "/me/ship-icon", strings.NewReader(`{"ship_icon":"shark.png"}`))
+	req := httptest.NewRequest(http.MethodPut, "/me/ship-icon", strings.NewReader(`{"ship_icon":"race_humans_cruiser.png"}`))
 	rec := execJSON(h.UpdateShipIcon, withUserID(req, userID))
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]interface{}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, "shark.png", resp["ship_icon"])
+	assert.Equal(t, "race_humans_cruiser.png", resp["ship_icon"])
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -330,11 +330,11 @@ func TestGetMeShipSection(t *testing.T) {
 	h, mock, _ := newAuthHandlersHarness(t)
 
 	userID := "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination FROM users WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination, race_id FROM users WHERE id = \$1`).
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows(authUserCols).
 			AddRow(userID, "bob", "hash", nil, nil, nil, "ship_strela.svg", nil, "starter",
-				`{"radar":"radar_1","scanner":"scanner_1","engine":"engine_1"}`, "player", now(), now(), nil, nil))
+				`{"radar":"radar_1","scanner":"scanner_1","engine":"engine_1"}`, "player", now(), now(), nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/me", nil)
 	rec := execJSON(h.GetMe, withUserID(req, userID))
@@ -393,11 +393,11 @@ func TestGetMeShipSectionNoEngine(t *testing.T) {
 	h, mock, _ := newAuthHandlersHarness(t)
 
 	userID := "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
-	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination FROM users WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination, race_id FROM users WHERE id = \$1`).
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows(authUserCols).
 			AddRow(userID, "bob", "hash", nil, nil, nil, "ship_strela.svg", nil, "starter",
-				`{"radar":"radar_1","scanner":"scanner_1","engine":null}`, "player", now(), now(), nil, nil))
+				`{"radar":"radar_1","scanner":"scanner_1","engine":null}`, "player", now(), now(), nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/me", nil)
 	rec := execJSON(h.GetMe, withUserID(req, userID))
@@ -418,10 +418,10 @@ func TestGetMeCurrentPosition(t *testing.T) {
 
 	userID := "cccccccc-cccc-cccc-cccc-cccccccccccc"
 	pos := `{"status":"in_flight","from_type":"star","from_id":"w1","to_type":"planet","to_id":"p1","start_time":1726800000000,"arrive_at":1726800014000}`
-	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination FROM users WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination, race_id FROM users WHERE id = \$1`).
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows(authUserCols).
-			AddRow(userID, "bob", "hash", nil, nil, "w1", "ship_strela.svg", nil, nil, nil, "player", now(), now(), pos, nil))
+			AddRow(userID, "bob", "hash", nil, nil, "w1", "ship_strela.svg", nil, nil, nil, "player", now(), now(), pos, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/me", nil)
 	rec := execJSON(h.GetMe, withUserID(req, userID))
@@ -444,10 +444,10 @@ func TestGetMeCurrentPositionNull(t *testing.T) {
 	h, mock, _ := newAuthHandlersHarness(t)
 
 	userID := "dddddddd-dddd-dddd-dddd-dddddddddddd"
-	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination FROM users WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination, race_id FROM users WHERE id = \$1`).
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows(authUserCols).
-			AddRow(userID, "bob", "hash", nil, nil, "w1", "ship_strela.svg", nil, nil, nil, "player", now(), now(), nil, nil))
+			AddRow(userID, "bob", "hash", nil, nil, "w1", "ship_strela.svg", nil, nil, nil, "player", now(), now(), nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/me", nil)
 	rec := execJSON(h.GetMe, withUserID(req, userID))
@@ -464,12 +464,12 @@ func TestGetMeCurrentPositionNull(t *testing.T) {
 // authUserColsRegister — колонки users для sqlmock (13 колонок userSelect).
 var authUserColsRegister = []string{
 	"id", "username", "password_hash", "email", "agent_id", "current_world_id",
-	"ship_icon", "ship_color", "ship_model_id", "equipment", "role", "created_at", "updated_at",
+	"ship_icon", "ship_color", "ship_model_id", "equipment", "role", "created_at", "updated_at", "race_id",
 }
 
 // expectRegisterPrecheck — pre-check занятости имени (пусто).
 func expectRegisterPrecheck(mock sqlmock.Sqlmock, username string) {
-	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at FROM users WHERE username = \$1`).
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, race_id FROM users WHERE username = \$1`).
 		WithArgs(username).
 		WillReturnRows(sqlmock.NewRows(authUserColsRegister))
 }
@@ -478,8 +478,8 @@ func expectRegisterPrecheck(mock sqlmock.Sqlmock, username string) {
 // транзакции (спека 2026-09-22-деньги-и-эскроу §3.4); current_world_id — как задан.
 func expectRegisterInsert(mock sqlmock.Sqlmock, username string, currentWorldID interface{}) {
 	mock.ExpectBegin()
-	mock.ExpectExec(`INSERT INTO users \(id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_model_id, equipment, role, created_at, updated_at\) VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, \$9, \$10, \$11, \$12\)`).
-		WithArgs(sqlmock.AnyArg(), username, sqlmock.AnyArg(), nil, nil, currentWorldID, "crescent.png", "starter", sqlmock.AnyArg(), "player", sqlmock.AnyArg(), sqlmock.AnyArg()).
+	mock.ExpectExec(`INSERT INTO users \(id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_model_id, equipment, role, created_at, updated_at, race_id\) VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, \$9, \$10, \$11, \$12, \$13\)`).
+		WithArgs(sqlmock.AnyArg(), username, sqlmock.AnyArg(), nil, nil, currentWorldID, sqlmock.AnyArg(), "starter", sqlmock.AnyArg(), "player", sqlmock.AnyArg(), sqlmock.AnyArg(), "humans").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	// Счёт игрока: seed PlayerBalanceSeed, идемпотентно (ON CONFLICT DO NOTHING).
 	mock.ExpectExec(`INSERT INTO accounts \(owner_type, owner_id, balance, withdrawable, created_at, updated_at\)`).
@@ -559,10 +559,10 @@ func TestGetMeEnsuresPlayerAccount(t *testing.T) {
 	h.SetAccountRepo(repository.NewAccountRepository(db))
 
 	userID := "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
-	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination FROM users WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination, race_id FROM users WHERE id = \$1`).
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows(authUserCols).
-			AddRow(userID, "bob", "hash", nil, nil, nil, "ship_strela.svg", nil, nil, nil, "player", now(), now(), nil, nil))
+			AddRow(userID, "bob", "hash", nil, nil, nil, "ship_strela.svg", nil, nil, nil, "player", now(), now(), nil, nil, nil))
 	mock.ExpectExec(`INSERT INTO accounts \(owner_type, owner_id, balance, withdrawable, created_at, updated_at\)`).
 		WithArgs("player", userID, int64(models.PlayerBalanceSeed)).
 		WillReturnResult(sqlmock.NewResult(0, 1))

@@ -42,7 +42,11 @@ func newSurfaceHarness(t *testing.T) (*SurfaceHandlers, sqlmock.Sqlmock) {
 	), mock
 }
 
-const surfaceUserQueryRe = `SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination FROM users WHERE id = \$1`
+// surfaceUserQueryRe — регекс обязан следовать за SELECT в
+// repository.GetByIDWithPosition (user_repository.go): при правке списка колонок
+// (например, добавлении race_id) обновлять здесь же — иначе sqlmock не матчит
+// запрос, и все surface-тесты падают 404 (ловушка тестового харнесса).
+const surfaceUserQueryRe = `SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination, race_id FROM users WHERE id = \$1`
 
 // expectSurfaceUser — GetByIDWithPosition (worldID/posRaw могут быть nil),
 // роль player (для админских тестов — expectSurfaceUserRole).
@@ -63,7 +67,7 @@ func expectSurfaceUserShip(mock sqlmock.Sqlmock, id string, worldID, posRaw inte
 		WithArgs(id).
 		WillReturnRows(sqlmock.NewRows(intraUserCols).
 			AddRow(id, "player", "hash", nil, nil, worldID, icon, color, "starter",
-				`{"radar":"radar_1","scanner":"scanner_1","engine":"engine_1"}`, role, now(), now(), posRaw, nil))
+				`{"radar":"radar_1","scanner":"scanner_1","engine":"engine_1"}`, role, now(), now(), posRaw, nil, "humans"))
 }
 
 // expectSurfacePlanetsLight — планеты системы (лёгкий запрос).
@@ -257,9 +261,9 @@ func TestSurfaceLandShipFields(t *testing.T) {
 		wantColor string
 		hasColor  bool
 	}{
-		{"legacy SVG → PNG", "ship_strela.svg", nil, "boomerang.png", "", false},
-		{"PNG из реестра + цвет", "volcano.png", "#ef4444", "volcano.png", "#ef4444", true},
-		{"неизвестный → дефолт", "broken.png", nil, models.DefaultShipIcon, "", false},
+		{"легаси SVG → людской корабль", "ship_strela.svg", nil, "race_humans_starship.png", "", false},
+		{"PNG из реестра + цвет", "race_humans_cruiser.png", "#ef4444", "race_humans_cruiser.png", "#ef4444", true},
+		{"неизвестный → людской корабль", "broken.png", nil, models.DefaultHumanShip, "", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

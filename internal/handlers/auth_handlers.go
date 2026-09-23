@@ -121,7 +121,8 @@ func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 		ID:           uuid.New().String(),
 		Username:     req.Username,
 		PasswordHash: string(hashed),
-		ShipIcon:     models.DefaultShipIcon,
+		ShipIcon:     models.RandomShipForRace(models.RaceHumans),
+		RaceID:       models.RaceHumans,
 		Role:         models.RolePlayer,
 	}
 	if req.Email != "" {
@@ -303,12 +304,15 @@ func (h *AuthHandlers) GetMe(w http.ResponseWriter, r *http.Request) {
 		"role":               role,
 		"current_world_id":   user.CurrentWorldID,
 		"current_world_name": currentWorldName,
-		// Спека 61b §4: ship_icon маппится при чтении (legacy SVG-имя → PNG-имя,
-		// неизвестное → дефолт); ship_color — NULL = «Оригинал»; ship_options —
-		// реестр 21 спрайта для дашборда (И1: клиент не дублирует список).
+		// Спека 61b §4 + 2026-09-23 §8.1: ship_icon — имя из расового реестра
+		// (иначе людской корабль); ship_color — NULL = «Оригинал»; ship_options —
+		// расовый транспорт реестра (П1: 12 людских + neutral) для дашборда
+		// (И1: клиент не дублирует список); race_id — раса игрока (для
+		// фильтрации пула селектором, спека §6.5/§7.1).
 		"ship_icon":    models.ResolveShipIcon(user.ShipIcon),
 		"ship_color":   user.ShipColor,
-		"ship_options": models.ShipSprites,
+		"ship_options": models.ShipOptions,
+		"race_id":      user.RaceID,
 		// Спека 77a §12: модель корабля, установленное оборудование и
 		// вычисленный радиус радара (для отрисовки границы видимости на карте).
 		"ship_model_id": user.ShipModelID,
@@ -342,8 +346,8 @@ type ShipIconRequest struct {
 }
 
 // UpdateShipIcon сохраняет выбранную иконку корабля пользователя.
-// Спека 61b §4: принимаются только имена из реестра ShipSprites (21 PNG-имя);
-// legacy-имена и прочие → 400 (выбор теперь делается из нового набора).
+// Спека 61b §4 + 2026-09-23 §8.1: принимаются только имена расового реестра
+// (RaceShipSprites + NeutralShip); legacy-имена и прочие → 400.
 func (h *AuthHandlers) UpdateShipIcon(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(auth.UserIDKey).(string)
 	if !ok || userID == "" {

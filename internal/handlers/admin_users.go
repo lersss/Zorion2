@@ -154,7 +154,8 @@ func (h *AdminUsersHandlers) CreateUser(w http.ResponseWriter, r *http.Request) 
 		ID:           uuid.New().String(),
 		Username:     req.Username,
 		PasswordHash: string(hashed),
-		ShipIcon:     models.DefaultShipIcon,
+		ShipIcon:     models.RandomShipForRace(models.RaceHumans),
+		RaceID:       models.RaceHumans,
 		Role:         models.Role(role),
 	}
 	if req.Email != "" {

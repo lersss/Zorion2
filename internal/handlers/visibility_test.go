@@ -47,8 +47,8 @@ func newVisibilityHarness(t *testing.T) (*Visibility, sqlmock.Sqlmock, *travel.M
 func visUserRow(id, world string, equipment string) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
 		"id", "username", "password_hash", "email", "agent_id", "current_world_id",
-		"ship_icon", "ship_color", "ship_model_id", "equipment", "role", "created_at", "updated_at",
-	}).AddRow(id, "player", "hash", nil, nil, world, "ship_strela.svg", nil, "starter", equipment, "player", now(), now())
+		"ship_icon", "ship_color", "ship_model_id", "equipment", "role", "created_at", "updated_at", "race_id",
+	}).AddRow(id, "player", "hash", nil, nil, world, "ship_strela.svg", nil, "starter", equipment, "player", now(), now(), nil)
 }
 
 func TestIsVisible(t *testing.T) {
@@ -74,7 +74,7 @@ func TestRadarRadius(t *testing.T) {
 func TestPlayerPositionNoFlight(t *testing.T) {
 	v, mock, _ := newVisibilityHarness(t)
 
-	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at FROM users WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, race_id FROM users WHERE id = \$1`).
 		WithArgs("u1").
 		WillReturnRows(visUserRow("u1", "w2", `{"radar":"radar_1","scanner":"scanner_1","engine":null}`))
 

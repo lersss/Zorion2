@@ -85,5 +85,18 @@ o = mod.shipOrientFor('a.png');
 chk('index angle', o.angle, 20);
 chkBool('index flip', o.flip, true);
 
+// N12: индекс «раса → файлы» из ship_options (пул расы + нейтральный)
+mod.setShipOptions([
+    { file: 'race_humans_starship.png', race: 'humans' },
+    { file: 'race_humans_cruiser.png', race: 'humans' },
+    { file: 'neutral.png', race: '' },
+]);
+let pool = mod.shipFilesForRace('humans');
+if (pool.length !== 2 || pool[0] !== 'race_humans_starship.png') throw new Error('pool humans: ' + JSON.stringify(pool));
+pool = mod.shipFilesForRace('');
+if (pool.length !== 1 || pool[0] !== 'neutral.png') throw new Error('pool neutral: ' + JSON.stringify(pool));
+pool = mod.shipFilesForRace('unknown');
+if (pool.length !== 1 || pool[0] !== 'neutral.png') throw new Error('pool fallback: ' + JSON.stringify(pool));
+
 console.log('SHIP_TRANSFORM_OK');
 `

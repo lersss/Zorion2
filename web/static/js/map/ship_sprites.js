@@ -3,9 +3,9 @@
 // схем кораблей. Игрок — цельный PNG из web/static/sprites/ (имя из /me,
 // уже смаппленное), перекраска — тонирование gCO='hue' + ОБЯЗАТЕЛЬНОЕ
 // восстановление альфы 'destination-in' (иначе фон красится в цвет, §5.3).
-// Агенты — спрайт + цвет от spriteForAgent(id) (FNV-1a % 21 / % 9),
-// перекрашиваются ИЗ КЭША (прелоад 21×9, уточнение 2026-09-16) — ноль
-// ленивых перекрасок в рантайме. Фолбэк (И4): спрайт не загрузился / имя
+// Агенты — спрайт + цвет от spriteForAgent(id) (FNV-1a % len(реестра) / % 9),
+// перекрашиваются ИЗ КЭША (прелоад файлов реестра ×9, уточнение 2026-09-16) —
+// ноль ленивых перекрасок в рантайме. Фолбэк (И4): спрайт не загрузился / имя
 // неизвестно → null, рисующий код использует примитив (полёт) / ромб
 // (агент) — без падений.
 
@@ -28,27 +28,49 @@ export function getRedrawCallback() {
     return redrawCallback;
 }
 
-// shipFiles — порядок реестра ShipSprites с сервера (/me.ship_options,
+// shipFiles — порядок реестра кораблей с сервера (/me.ship_options,
 // спека §3.2: порядок фиксирован — он же источник индексов spriteForAgent).
 // Клиент НЕ дублирует список имён (И1): берёт его из /me.
 let shipFiles = [];
+
+// shipFilesByRace — клиентский индекс «раса → файлы» (спека 2026-09-23 §6.2,
+// N12): строится в setShipOptions из /me.ship_options (поле race). Порядок
+// файлов расы = порядок реестра; ключ "" → нейтральный пул (NeutralShip).
+// Источник состава пула для spriteForAgent/pickVariant (П3).
+let shipFilesByRace = new Map(); // race -> [file]
 
 // shipOrientIndex — пара показа (A, F) по имени файла из /me.ship_options
 // (спека 2026-09-21 §6.2): единственный источник ориентации на клиенте.
 const shipOrientIndex = new Map(); // file -> {angle, flip}
 
-// setShipOptions — кладёт порядок реестра спрайтов и пару (A, F) из
-// /me.ship_options (массив {id, name, file, angle?, flip?}). Вызывается из
-// data.js после загрузки /me (карта) и из дашборда (loadShipSelector).
+// setShipOptions — кладёт порядок реестра спрайтов, пару (A, F) и индекс
+// «раса → файлы» из /me.ship_options (массив {id, name, file, race?, angle?,
+// flip?}). Вызывается из data.js после загрузки /me (карта), belt_main.js
+// (мини-игра пояса) и дашборда (loadShipSelector).
 export function setShipOptions(options) {
     const list = Array.isArray(options) ? options : [];
     shipFiles = list.map(o => o.file);
     shipOrientIndex.clear();
+    shipFilesByRace = new Map();
     for (const o of list) {
-        if (o && o.file) {
-            shipOrientIndex.set(o.file, { angle: Number(o.angle) || 0, flip: !!o.flip });
+        if (!o || !o.file) continue;
+        shipOrientIndex.set(o.file, { angle: Number(o.angle) || 0, flip: !!o.flip });
+        const race = o.race || '';
+        const pool = shipFilesByRace.get(race);
+        if (pool) {
+            pool.push(o.file);
+        } else {
+            shipFilesByRace.set(race, [o.file]);
         }
     }
+}
+
+// shipFilesForRace — пул файлов расы из /me.ship_options (порядок = реестр);
+// ключ "" — нейтральный пул. Нет расы/пула → нейтральный пул, иначе пустой
+// массив (фолбэк клиента, спека §6.3–§6.4).
+export function shipFilesForRace(raceId) {
+    const key = raceId || '';
+    return shipFilesByRace.get(key) || shipFilesByRace.get('') || [];
 }
 
 // shipOrientFor — пара (A, F) файла; файл неизвестен/реестр пуст → (0, false) —
@@ -79,7 +101,7 @@ export function shipDrawTransform(headingRad, orient) {
 
 const imageCache = new Map(); // name -> Image
 
-// getShipImage — кэш 21 Image; загрузка /static/sprites/{name}.png.
+// getShipImage — кэш Image по имени файла; загрузка /static/sprites/{name}.png.
 // onload → scheduleRedraw (первый кадр мог уйти с фолбэком). null — имя
 // неизвестно/пусто: рисующий код использует фолбэк (И4).
 export function getShipImage(name) {
@@ -155,7 +177,7 @@ function hashSeed(s) {
 }
 
 // spriteForAgent — детерминированный выбор спрайта агента от id (уточнение
-// 2026-09-16): file = shipFiles[FNV-1a(id) % 21], color =
+// 2026-09-16): file = shipFiles[FNV-1a(id) % shipFiles.length], color =
 // SHIP_COLOR_PALETTE[FNV-1a(id+1) % 9]; angle/flip — пара показа выбранного
 // файла (спека 2026-09-21 §6.2). ЕДИНСТВЕННАЯ точка замены под расовый
 // визуал (тело функции, сигнатура фиксирована). null — реестр не загружен
@@ -170,12 +192,13 @@ export function spriteForAgent(id) {
 
 // ==================== ПРЕЛОАД (уточнение 2026-09-16) ====================
 
-// preloadShipSprites — прогрев кэша перекраски для всех 21×9 комбинаций +
-// 21 оригинал (Image). Вызывается из main.js после /me (когда shipFiles
+// preloadShipSprites — прогрев кэша перекраски для всех файлов реестра ×9
+// цветов + оригиналы (Image). Вызывается из main.js после /me (когда shipFiles
 // заполнен). Не блокирует старт карты: прогрев идёт по мере onload каждого
 // Image (как только спрайт загружен — прогреваются его 9 цветов); уже
 // загруженные — сразу. После прелоада отрисовка агентов/игрока — всегда из
-// готового кэша, ноль ленивых перекрасок в рантайме.
+// готового кэша, ноль ленивых перекрасок в рантайме. (П1: 13 файлов; в П3
+// реестр растёт до 119 — прогрев станет ленивым, спека 2026-09-23 §7.3.)
 export function preloadShipSprites() {
     if (shipFiles.length === 0) return;
     for (const file of shipFiles) {

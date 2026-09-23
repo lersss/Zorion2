@@ -31,8 +31,8 @@ func TestCreateUserDefaultsToPlayerRole(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	mock.ExpectExec(`INSERT INTO users (id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_model_id, equipment, role, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`).
+	mock.ExpectExec(`INSERT INTO users (id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_model_id, equipment, role, created_at, updated_at, race_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	user := &models.User{ID: "u1", Username: "bob", PasswordHash: "hash"}
@@ -52,8 +52,8 @@ func TestCreateUserKeepsExplicitRole(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	mock.ExpectExec(`INSERT INTO users (id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_model_id, equipment, role, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`).
+	mock.ExpectExec(`INSERT INTO users (id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_model_id, equipment, role, created_at, updated_at, race_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	user := &models.User{ID: "u1", Username: "sky", PasswordHash: "hash", Role: models.RoleSkycomposer}
@@ -70,8 +70,8 @@ func TestCreateUserWithAccountSameTx(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectBegin()
-	mock.ExpectExec(`INSERT INTO users \(id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_model_id, equipment, role, created_at, updated_at\)\s*VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, \$9, \$10, \$11, \$12\)`).
-		WithArgs("u1", "bob", "hash", nil, nil, nil, sqlmock.AnyArg(), "starter", sqlmock.AnyArg(), "player", sqlmock.AnyArg(), sqlmock.AnyArg()).
+	mock.ExpectExec(`INSERT INTO users \(id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_model_id, equipment, role, created_at, updated_at, race_id\)\s*VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, \$9, \$10, \$11, \$12, \$13\)`).
+		WithArgs("u1", "bob", "hash", nil, nil, nil, sqlmock.AnyArg(), "starter", sqlmock.AnyArg(), "player", sqlmock.AnyArg(), sqlmock.AnyArg(), "humans").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO accounts \(owner_type, owner_id, balance, withdrawable, created_at, updated_at\)`).
 		WithArgs("player", "u1", int64(models.PlayerBalanceSeed)).
@@ -110,11 +110,11 @@ func TestGetByUsernameScansRole(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at FROM users WHERE username = \$1`).
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, race_id FROM users WHERE username = \$1`).
 		WithArgs("bob").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "username", "password_hash", "email", "agent_id", "current_world_id", "ship_icon", "ship_color", "ship_model_id", "equipment", "role", "created_at", "updated_at",
-		}).AddRow("u1", "bob", "hash", nil, nil, nil, "ship_strela.svg", nil, nil, nil, "admin", now(), now()))
+			"id", "username", "password_hash", "email", "agent_id", "current_world_id", "ship_icon", "ship_color", "ship_model_id", "equipment", "role", "created_at", "updated_at", "race_id",
+		}).AddRow("u1", "bob", "hash", nil, nil, nil, "ship_strela.svg", nil, nil, nil, "admin", now(), now(), nil))
 
 	u, err := NewUserRepository(db).GetByUsername("bob")
 	require.NoError(t, err)
@@ -162,8 +162,8 @@ func TestListUsersPagination(t *testing.T) {
 	mock.ExpectQuery(`FROM users WHERE \(username ILIKE.*ORDER BY created_at DESC, id LIMIT \$2 OFFSET \$3`).
 		WithArgs("bo", 20, 0).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "username", "password_hash", "email", "agent_id", "current_world_id", "ship_icon", "ship_color", "ship_model_id", "equipment", "role", "created_at", "updated_at",
-		}).AddRow("u1", "bob", "hash", nil, nil, nil, "ship_strela.svg", nil, nil, nil, "player", now(), now()))
+			"id", "username", "password_hash", "email", "agent_id", "current_world_id", "ship_icon", "ship_color", "ship_model_id", "equipment", "role", "created_at", "updated_at", "race_id",
+		}).AddRow("u1", "bob", "hash", nil, nil, nil, "ship_strela.svg", nil, nil, nil, "player", now(), now(), nil))
 
 	users, err := NewUserRepository(db).List("bo", "", 1, 20)
 	require.NoError(t, err)

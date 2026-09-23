@@ -153,9 +153,9 @@ func (m jsonContains) Match(v driver.Value) bool {
 func userRow(id, fromWorld string) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
 		"id", "username", "password_hash", "email", "agent_id", "current_world_id",
-		"ship_icon", "ship_color", "ship_model_id", "equipment", "role", "created_at", "updated_at",
+		"ship_icon", "ship_color", "ship_model_id", "equipment", "role", "created_at", "updated_at", "race_id",
 	}).AddRow(id, "player", "hash", nil, nil, fromWorld, "ship_strela.svg", nil, nil,
-		`{"radar":"radar_1","scanner":"scanner_1","engine":"engine_1"}`, "player", now(), now())
+		`{"radar":"radar_1","scanner":"scanner_1","engine":"engine_1"}`, "player", now(), now(), nil)
 }
 
 // userRowNoEngine — игрок без двигателя (слот engine пуст): полёт запрещён
@@ -163,18 +163,18 @@ func userRow(id, fromWorld string) *sqlmock.Rows {
 func userRowNoEngine(id, fromWorld string) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
 		"id", "username", "password_hash", "email", "agent_id", "current_world_id",
-		"ship_icon", "ship_color", "ship_model_id", "equipment", "role", "created_at", "updated_at",
+		"ship_icon", "ship_color", "ship_model_id", "equipment", "role", "created_at", "updated_at", "race_id",
 	}).AddRow(id, "player", "hash", nil, nil, fromWorld, "ship_strela.svg", nil, nil,
-		`{"radar":"radar_1","scanner":"scanner_1","engine":null}`, "player", now(), now())
+		`{"radar":"radar_1","scanner":"scanner_1","engine":null}`, "player", now(), now(), nil)
 }
 
 // userRowAdminNoEngine — админ без двигателя: летает всегда (исключение 91a §6.1).
 func userRowAdminNoEngine(id, fromWorld string) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{
 		"id", "username", "password_hash", "email", "agent_id", "current_world_id",
-		"ship_icon", "ship_color", "ship_model_id", "equipment", "role", "created_at", "updated_at",
+		"ship_icon", "ship_color", "ship_model_id", "equipment", "role", "created_at", "updated_at", "race_id",
 	}).AddRow(id, "admin", "hash", nil, nil, fromWorld, "ship_strela.svg", nil, nil,
-		`{"radar":"radar_1","scanner":"scanner_1","engine":null}`, "admin", now(), now())
+		`{"radar":"radar_1","scanner":"scanner_1","engine":null}`, "admin", now(), now(), nil)
 }
 
 // expectWorld — ожидание SELECT мира по id.
@@ -193,7 +193,7 @@ func expectWorldWithMods(mock sqlmock.Sqlmock, id string, x, y float64, mods str
 
 // expectUser — ожидание SELECT пользователя по id.
 func expectUser(mock sqlmock.Sqlmock, id, fromWorld string) {
-	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at FROM users WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, race_id FROM users WHERE id = \$1`).
 		WithArgs(id).
 		WillReturnRows(userRow(id, fromWorld))
 }
@@ -646,7 +646,7 @@ func TestStartTravelNoEngine(t *testing.T) {
 
 	// Цель и пользователь (без двигателя) — дальше валидация останавливает.
 	expectWorld(mock, target, 10, 0)
-	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at FROM users WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, race_id FROM users WHERE id = \$1`).
 		WithArgs(userID).
 		WillReturnRows(userRowNoEngine(userID, fromWorld))
 
@@ -664,7 +664,7 @@ func TestStartTravelAdminNoEngine(t *testing.T) {
 	const target = "w2"
 
 	expectWorld(mock, target, 10, 0)
-	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at FROM users WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, race_id FROM users WHERE id = \$1`).
 		WithArgs(userID).
 		WillReturnRows(userRowAdminNoEngine(userID, fromWorld))
 	expectWorld(mock, fromWorld, 0, 0)
@@ -961,7 +961,7 @@ func TestArrivalHandlerAutostartNoEngine(t *testing.T) {
 	expectWorld(mock, target, 10, 0)
 	expectPlanetByID(mock, "p1", target)
 	// Игрок без двигателя (role=player) — автостарт не запускается.
-	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at FROM users WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, race_id FROM users WHERE id = \$1`).
 		WithArgs(userID).
 		WillReturnRows(userRowNoEngine(userID, target))
 	expectClearPendingDestination(mock, userID)
@@ -1394,13 +1394,13 @@ func TestStartTravelFromMining(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, name, coord_x, coord_y, COALESCE\(spectral_class,''\), temperature, star_type, system_type, stellar_mods, stellar_mass, age, created_at, updated_at FROM worlds WHERE id = \$1`).
 		WithArgs("w2").WillReturnRows(travelWorldRow("w2", 1000, 0))
 	// Пользователь (GetByID) в w1 — двигатель установлен.
-	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at FROM users WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, race_id FROM users WHERE id = \$1`).
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "username", "password_hash", "email", "agent_id", "current_world_id",
-			"ship_icon", "ship_color", "ship_model_id", "equipment", "role", "created_at", "updated_at",
+			"ship_icon", "ship_color", "ship_model_id", "equipment", "role", "created_at", "updated_at", "race_id",
 		}).AddRow(userID, "player", "hash", nil, nil, "w1", "ship_strela.svg", nil, "starter",
-			`{"radar":"radar_1","scanner":"scanner_1","engine":"engine_1"}`, "player", now(), now()))
+			`{"radar":"radar_1","scanner":"scanner_1","engine":"engine_1"}`, "player", now(), now(), nil))
 	// Мир отправления w1 (StartTravel читает его дважды: проверка current_world
 	// и стартовая точка сегмента).
 	mock.ExpectQuery(`SELECT id, name, coord_x, coord_y, COALESCE\(spectral_class,''\), temperature, star_type, system_type, stellar_mods, stellar_mass, age, created_at, updated_at FROM worlds WHERE id = \$1`).

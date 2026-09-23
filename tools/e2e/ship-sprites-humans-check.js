@@ -1,10 +1,11 @@
 // tools/e2e/ship-sprites-humans-check.js
-// Probe (2026-09-21): three "humans" race ship sprites in the dashboard grid
-// (tab "Внешний вид", #ship-sel). Registers a player, opens the look tab,
-// checks the tile count equals len(/me.ship_options) (no hardcoded 24 — the
-// registry grows on import) and that the 3 humans ones rendered (img loaded),
-// screenshots the grid. Console output is ASCII on purpose (Windows PowerShell
-// cp866 breaks Cyrillic).
+// Probe (2026-09-21, обновлена 2026-09-23 под П1): three "humans" race ship
+// sprites in the dashboard grid (tab "Внешний вид", #ship-sel). Registers a
+// player, opens the look tab, checks the tile count equals the player's race
+// pool from /me.ship_options (selector filters by race — neutral is NOT
+// selectable, so tiles = humans pool = 12, not len(ship_options) = 13) and
+// that the 3 humans ones rendered (img loaded), screenshots the grid. Console
+// output is ASCII on purpose (Windows PowerShell cp866 breaks Cyrillic).
 // Run: node ship-sprites-humans-check.js   (BASE_URL overrides default)
 import { chromium } from 'playwright-core';
 import { existsSync, mkdirSync } from 'node:fs';
@@ -51,15 +52,19 @@ async function finish(code) {
 async function main() {
   mkdirSync(ARTIFACTS_DIR, { recursive: true });
   const token = await register();
-  // Ожидаемое число плиток — из реестра на сервере (растёт при импорте, И6).
+  // Ожидаемое число плиток — пул расы игрока из /me.ship_options (растёт при
+  // импорте, И6). Селектор фильтрует по расе игрока (спека 2026-09-23 §6.5):
+  // нейтральный корабль не выбирается, поэтому плиток 12, а не 13.
   let expected = 0;
   try {
     const meRes = await fetch(BASE_URL + '/me', { headers: { Authorization: 'Bearer ' + token } });
     const me = await meRes.json();
-    expected = Array.isArray(me.ship_options) ? me.ship_options.length : 0;
+    const opts = Array.isArray(me.ship_options) ? me.ship_options : [];
+    const race = me.race_id || 'humans';
+    expected = opts.filter((o) => (o.race || '') === race).length;
   } catch (e) { /* пусто — ниже FAIL с диагностикой */ }
   if (expected <= 0) {
-    console.log('RESULT: FAIL - /me.ship_options empty');
+    console.log('RESULT: FAIL - /me.ship_options has no tiles for player race');
     return finish(1);
   }
   const exe = findExecutable();

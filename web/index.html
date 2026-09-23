@@ -505,9 +505,10 @@
         // Палитра — единый источник на клиенте (ship_sprites.js, уточнение
         // 2026-09-16): SHIP_COLOR_PALETTE, порядок совпадает с серверным.
 
-        let shipOptions = []; // 21 {id, name, file} из /me
+        let shipOptions = []; // расовый реестр {id, name, file, race, angle?, flip?} из /me
         let shipIcon = '';    // выбранный PNG-файл
         let shipColor = null; // выбранный цвет (null = «Оригинал»)
+        let playerRace = 'humans'; // раса игрока (/me.race_id) — фильтр сетки (спека 2026-09-23 §6.5)
 
         // shipTilePreviewEl — миниатюра 52px для сетки выбора: перекрашенный
         // canvas (если цвет задан и спрайт загружен), иначе исходный Image,
@@ -535,7 +536,9 @@
             const sel = document.getElementById('ship-sel');
             if (!sel) return;
             sel.innerHTML = '';
-            shipOptions.forEach(s => {
+            // Селектор показывает пул расы игрока (спека 2026-09-23 §6.5/§7.1):
+            // клиентская фильтрация по полю race из ship_options.
+            shipOptions.filter(s => (s.race || '') === playerRace).forEach(s => {
                 const tile = document.createElement('div');
                 tile.dataset.file = s.file;
                 tile.title = s.name;
@@ -705,6 +708,7 @@
                 shipOptions = Array.isArray(data.ship_options) ? data.ship_options : [];
                 // Индекс пары (A, F) для превью/миниатюр (единый — в ship_sprites.js).
                 setShipOptions(shipOptions);
+                playerRace = data.race_id || 'humans';
                 if (data.ship_icon) shipIcon = data.ship_icon; // уже смапплено сервером
                 shipColor = data.ship_color || null;
                 renderShipGrid();

@@ -58,7 +58,8 @@ func bootstrapSkycomposer(db *sql.DB, username, password string) {
 		ID:           uuid.New().String(),
 		Username:     username,
 		PasswordHash: string(hashed),
-		ShipIcon:     models.DefaultShipIcon,
+		ShipIcon:     models.RandomShipForRace(models.RaceHumans),
+		RaceID:       models.RaceHumans,
 		Role:         models.RoleSkycomposer,
 	}
 	if err := userRepo.Create(user); err != nil {

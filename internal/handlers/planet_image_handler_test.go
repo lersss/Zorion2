@@ -58,7 +58,7 @@ func expectPlanetImageFetch(mock sqlmock.Sqlmock, id, worldID, data string) {
 
 // expectUserFetch — ожидания GetByID пользователя.
 func expectUserFetch(mock sqlmock.Sqlmock, id, world string) {
-	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at FROM users WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, race_id FROM users WHERE id = \$1`).
 		WithArgs(id).
 		WillReturnRows(visUserRow(id, world, `{}`))
 }

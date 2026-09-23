@@ -7,14 +7,19 @@
 package models
 
 // ShipSprite — одна запись реестра: id (имя без .png), человеческое имя,
-// file (имя файла в web/static/sprites/), ориентация показа — пара (Angle, Flip).
+// file (имя файла в web/static/sprites/), race (слаг расы; пусто — легаси/
+// нейтральный), ориентация показа — пара (Angle, Flip).
 // Пиксели спрайта не поворачиваются: пара применяется при отрисовке
 // (спека 2026-09-21-угол-корабля-в-метаданных §6.1). Легаси (базовые 21 и
-// расовые «люди») — нули, поля в JSON отсутствуют (omitempty).
+// расовые «люди») — нули, поля angle/flip в JSON отсутствуют (omitempty).
+// race отдаётся ВСЕГДА (без omitempty): у нейтральной записи он пустой, но
+// поле обязано присутствовать — клиент строит индекс «раса → файлы» по
+// ключу "" (спека 2026-09-23 §6.2, N12).
 type ShipSprite struct {
 	ID    string  `json:"id"`
 	Name  string  `json:"name"`
 	File  string  `json:"file"`
+	Race  string  `json:"race"`            // слаг расы (спека 2026-09-23 §6.2)
 	Angle float64 `json:"angle,omitempty"` // градусы, по часовой, (−180,180]; 0 = нос вправо
 	Flip  bool    `json:"flip,omitempty"`  // зеркало, применяется ДО поворота
 }
@@ -91,40 +96,29 @@ var ShipColorPalette = []string{
 	"#0ea5e9", "#3b82f6", "#8b5cf6", "#ec4899",
 }
 
-// shipSpriteByFile — индекс реестра по имени файла (для ResolveShipIcon
-// и валидации PUT /me/ship-icon).
-var shipSpriteByFile = func() map[string]ShipSprite {
-	m := make(map[string]ShipSprite, len(ShipSprites))
-	for _, s := range ShipSprites {
-		m[s.File] = s
-	}
-	return m
-}()
-
-// ResolveShipIcon — единое правило маппинга ship_icon при чтении (спека §4):
-// legacy SVG-имя → PNG-имя; уже PNG-имя из реестра → как есть; любое другое
-// (неизвестное, битое, пустое) → DefaultShipIcon.
+// ResolveShipIcon — единое правило маппинга ship_icon при чтении (спека
+// 2026-09-23 §8.1, N5): имя ∈ расовый реестр (включая NeutralShip) → как есть;
+// любое другое (легаси-имя, неизвестное, битое, пустое) → DefaultHumanShip.
+// Индекс shipSpriteByFile — расовый (race_ship_sprites.go).
 func ResolveShipIcon(icon string) string {
-	if png, ok := LegacyShipIconMap[icon]; ok {
-		return png
-	}
 	if _, ok := shipSpriteByFile[icon]; ok {
 		return icon
 	}
-	return DefaultShipIcon
+	return DefaultHumanShip
 }
 
-// IsValidShipIcon — имя файла ∈ реестр (для PUT /me/ship-icon, спека §4:
-// принимаются только имена из реестра (24 PNG-имени); legacy-имена и мусор → 400).
+// IsValidShipIcon — имя файла ∈ расовый реестр (для PUT /me/ship-icon, спека
+// 2026-09-23 §8.1: принимаются только имена реестра RaceShipSprites + NeutralShip;
+// legacy-имена и мусор → 400).
 func IsValidShipIcon(file string) bool {
 	_, ok := shipSpriteByFile[file]
 	return ok
 }
 
 // ShipOrientByFile — пара показа (angle°, flip) спрайта по имени файла
-// (ЧК-ship, идея 2026-09-23 §5): значение из реестра ShipSprites через тот же
-// индекс shipSpriteByFile (реестр не дублируется). Файл неизвестен/пустой →
-// (0, false) — тот же фолбэк, что у клиентского shipOrientFor.
+// (ЧК-ship, идея 2026-09-23 §5): значение из расового реестра RaceShipSprites
+// через индекс shipSpriteByFile (реестр не дублируется). Файл неизвестен/
+// пустой → (0, false) — тот же фолбэк, что у клиентского shipOrientFor.
 func ShipOrientByFile(file string) (float64, bool) {
 	if s, ok := shipSpriteByFile[file]; ok {
 		return s.Angle, s.Flip

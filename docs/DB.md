@@ -9,7 +9,8 @@
 `factions` (NPC-фракции, одна на расу: `race_id`, миграция `000066`), `events`, `settlements`,
 `goods_batches`, `planet_resources`, `compatibility_matrix`, `regions`,
 `settlement_log` (лог поселения, миграция `000024`), `npc_agents`
-(NPC-агенты, миграция `000026`, спека `20a.1` §2.1), `generation_config`
+(NPC-агенты, миграция `000026`, спека `20a.1` §2.1; `race_id` — миграция
+`000074`, спека `2026-09-23-корабли-рас`), `generation_config`
 (реестр конфигов генерации, миграция `000031`, спека `99.2.3` §3:
 `key` TEXT PK + `payload` JSONB — паттерн «дефолты в коде + override в БД»,
 как матрица совместимости), `player_flights` (активные полёты игроков,
@@ -477,6 +478,17 @@ TIMESTAMPTZ `DEFAULT NOW()`; чек-точка **своя** — не `settlement
   (`clearPlanetsOf`, `admin_regenerate_planets.go`), `DeleteWorld` (каскад
   `worlds → planets`, `admin_worlds.go`). Номер `000073` забронирован менеджером
   (`000072` — за спекой `2026-09-23-орбита-планеты-присутствие-и-снимок`).
+- `000074` — `000074_race_ships.sql` — корабли рас: раса агента и игрока
+  (спека `2026-09-23-корабли-рас-раса-агентов-и-игрока` §4.3, П1): `ALTER TABLE
+  npc_agents ADD COLUMN IF NOT EXISTS race_id TEXT` (раса агента, NULL =
+  нейтральный корабль), `ALTER TABLE users ADD COLUMN IF NOT EXISTS race_id TEXT
+  NOT NULL DEFAULT 'humans'` (раса игрока, задел), смена DEFAULT `users.ship_icon`
+  на `race_humans_starship.png` (член расового реестра `RaceShipSprites`); бэкфилл
+  агентов — случайная раса из ДАННЫХ (`array_agg(DISTINCT race_id) FROM factions`,
+  пул пуст → NULL), идемпотентно (`WHERE race_id IS NULL`); бэкфилл `users.ship_icon`
+  — всё, что не расовый файл (`NOT LIKE 'race\_%'`), → людской корабль,
+  идемпотентно. `VACUUM` не кладётся (не работает в транзакции). Номер `000074`
+  забронирован менеджером.
 - Миграции, вступающие в силу на старте, требуют перезапуска сервера
   (`AGENTS.md` §4 п.13).
 - `VACUUM` внутрь миграции не положить — не работает внутри транзакции

@@ -25,6 +25,7 @@ type NPCAgent struct {
 	DepartAt       *time.Time     `json:"depart_at,omitempty"`       // вылет
 	ArriveAt       *time.Time     `json:"arrive_at,omitempty"`       // прибытие (абсолютно — переживает рестарт)
 	NotifyEnabled  bool           `json:"notify_enabled"`
+	RaceID         string         `json:"race_id,omitempty"`          // раса агента (спека 2026-09-23 §4.1); пусто = не задана → нейтральный корабль
 	LastObservedAt *time.Time     `json:"last_observed_at,omitempty"` // последнее посещение мира
 	CreatedAt      time.Time      `json:"created_at"`
 	UpdatedAt      time.Time      `json:"updated_at"`

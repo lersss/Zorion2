@@ -77,25 +77,25 @@ func newIntraHarness(t *testing.T) (*IntrasystemHandlers, *travel.IntrasystemMan
 // + pending_destination, спека 99.2.30 §6.3).
 var intraUserCols = []string{
 	"id", "username", "password_hash", "email", "agent_id", "current_world_id",
-	"ship_icon", "ship_color", "ship_model_id", "equipment", "role", "created_at", "updated_at", "current_position", "pending_destination",
+	"ship_icon", "ship_color", "ship_model_id", "equipment", "role", "created_at", "updated_at", "current_position", "pending_destination", "race_id",
 }
 
 // expectIntraUser — ожидание GetByIDWithPosition (в w1, двигатель установлен).
 func expectIntraUser(mock sqlmock.Sqlmock, id string, posRaw interface{}) {
-	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination FROM users WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination, race_id FROM users WHERE id = \$1`).
 		WithArgs(id).
 		WillReturnRows(sqlmock.NewRows(intraUserCols).
 			AddRow(id, "player", "hash", nil, nil, "w1", "ship_strela.svg", nil, "starter",
-				`{"radar":"radar_1","scanner":"scanner_1","engine":"engine_1"}`, "player", now(), now(), posRaw, nil))
+				`{"radar":"radar_1","scanner":"scanner_1","engine":"engine_1"}`, "player", now(), now(), posRaw, nil, nil))
 }
 
 // expectIntraUserNoEngine — игрок без двигателя (полёт запрещён для player).
 func expectIntraUserNoEngine(mock sqlmock.Sqlmock, id string) {
-	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination FROM users WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination, race_id FROM users WHERE id = \$1`).
 		WithArgs(id).
 		WillReturnRows(sqlmock.NewRows(intraUserCols).
 			AddRow(id, "player", "hash", nil, nil, "w1", "ship_strela.svg", nil, "starter",
-				`{"radar":"radar_1","scanner":"scanner_1","engine":null}`, "player", now(), now(), nil, nil))
+				`{"radar":"radar_1","scanner":"scanner_1","engine":null}`, "player", now(), now(), nil, nil, nil))
 }
 
 // expectIntraWorld — ожидание мира w1 (G-звезда, без компаньонов).
@@ -261,11 +261,11 @@ func TestStartIntraFlightNoWorld(t *testing.T) {
 	h, _, mock := newIntraHarness(t)
 	const userID = "11111111-1111-1111-1111-111111111111"
 
-	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination FROM users WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination, race_id FROM users WHERE id = \$1`).
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows(intraUserCols).
 			AddRow(userID, "player", "hash", nil, nil, nil, "ship_strela.svg", nil, "starter",
-				`{"radar":"radar_1","scanner":"scanner_1","engine":"engine_1"}`, "player", now(), now(), nil, nil))
+				`{"radar":"radar_1","scanner":"scanner_1","engine":"engine_1"}`, "player", now(), now(), nil, nil, nil))
 
 	rec := execJSON(h.StartIntraFlight, intraRequest(userID, "planet", "p1"))
 	require.Equal(t, http.StatusBadRequest, rec.Code)

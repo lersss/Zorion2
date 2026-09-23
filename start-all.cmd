@@ -13,6 +13,7 @@ REM --- что поднимать: 1 = да, 0 = пропустить ---------------------------------
 set "COMFY=1"
 set "STUDIO=1"
 set "DASH=1"
+set "AI=1"
 
 REM --- пути ------------------------------------------------------------------
 set "PG_BIN=C:\pgsql\pgsql\bin"
@@ -34,9 +35,10 @@ echo.
 call :pg
 call :redis
 call :game
-if "%COMFY%"=="1" (call :comfy) else (echo [4/6] Генерация картинок - выключено в настройках)
-if "%DASH%"=="1" (call :dash) else (echo [5/6] Учёт агентов - выключено в настройках)
-if "%STUDIO%"=="1" (call :studio) else (echo [6/6] Арт-студия - выключено в настройках)
+if "%COMFY%"=="1" (call :comfy) else (echo [4/7] Генерация картинок - выключено в настройках)
+if "%DASH%"=="1" (call :dash) else (echo [5/7] Учёт агентов - выключено в настройках)
+if "%STUDIO%"=="1" (call :studio) else (echo [6/7] Арт-студия - выключено в настройках)
+if "%AI%"=="1" (call :ai) else (echo [7/7] ИИ-помощник - выключено в настройках)
 
 call :summary
 call :the_end
@@ -73,7 +75,7 @@ exit /b 1
 REM ============================ сервера =====================================
 
 :pg
-echo [1/6] База данных, порт 5432
+echo [1/7] База данных, порт 5432
 call :pg_ready
 if not errorlevel 1 (
   echo       уже работает
@@ -90,7 +92,7 @@ echo       поднята
 exit /b 0
 
 :redis
-echo [2/6] Redis, порт 6379
+echo [2/7] Redis, порт 6379
 sc query Redis 2>nul | findstr /I "RUNNING" >nul
 if not errorlevel 1 (
   echo       уже работает
@@ -106,7 +108,7 @@ echo       поднят
 exit /b 0
 
 :game
-echo [3/6] Игровой сервер, порт 8080
+echo [3/7] Игровой сервер, порт 8080
 call :portcheck 8080
 if not errorlevel 1 (
   echo       уже работает
@@ -123,7 +125,7 @@ echo       поднят
 exit /b 0
 
 :comfy
-echo [4/6] Генерация картинок, порт 8188
+echo [4/7] Генерация картинок, порт 8188
 call :portcheck 8188
 if not errorlevel 1 (
   echo       уже работает
@@ -140,7 +142,7 @@ echo       поднят
 exit /b 0
 
 :dash
-echo [5/6] Учёт агентов, порт 8790
+echo [5/7] Учёт агентов, порт 8790
 call :portcheck 8790
 if not errorlevel 1 (
   echo       уже работает
@@ -157,7 +159,7 @@ echo       поднят
 exit /b 0
 
 :studio
-echo [6/6] Арт-студия, порт 8798
+echo [6/7] Арт-студия, порт 8798
 call :portcheck 8798
 if not errorlevel 1 (
   echo       уже работает
@@ -171,6 +173,23 @@ if errorlevel 1 (
   exit /b 1
 )
 echo       поднята
+exit /b 0
+
+:ai
+echo [7/7] ИИ-помощник, порт 3456
+call :portcheck 3456
+if not errorlevel 1 (
+  echo       уже работает
+  exit /b 0
+)
+echo       поднимаю...
+start "ИИ-помощник" /min cmd /c "npx -y opencode-ai serve --port 3456 >> logs\opencode_serve.log 2>&1"
+call :wait_port 3456 15
+if errorlevel 1 (
+  echo       поднимается в фоне (первый запуск качает пакет), статус - в студии
+  exit /b 0
+)
+echo       поднят
 exit /b 0
 
 
@@ -194,6 +213,7 @@ call :report 8080 "Игровой сервер"
 call :report 8188 "Генерация картинок"
 call :report 8790 "Учёт агентов"
 call :report 8798 "Арт-студия"
+call :report 3456 "ИИ-помощник"
 echo.
 echo Игра:         http://127.0.0.1:8080
 echo Арт-студия:   http://127.0.0.1:8798

@@ -28,7 +28,7 @@ func loadWithEnv(t *testing.T, set map[string]string) *Config {
 		os.Setenv(k, v)
 	}
 	// очистка opencode-переменных — дефолты
-	for _, k := range []string{"OPENCODE_URL", "OPENCODE_MODEL", "OPENCODE_AGENT", "OPENCODE_TIMEOUT_S", "OPENCODE_MAX_RETRIES"} {
+	for _, k := range []string{"OPENCODE_URL", "OPENCODE_MODEL", "OPENCODE_AGENT", "OPENCODE_TIMEOUT_S", "OPENCODE_MAX_RETRIES", "OPENCODE_START_TIMEOUT_S"} {
 		if _, ok := set[k]; !ok {
 			os.Unsetenv(k)
 		}
@@ -52,20 +52,32 @@ func TestOpenCodeDefaults(t *testing.T) {
 	require.Equal(t, "build", cfg.OpenCodeAgent)
 	require.Equal(t, 120*time.Second, cfg.OpenCodeTimeout)
 	require.Equal(t, 2, cfg.OpenCodeMaxRetries)
+	require.Equal(t, 300*time.Second, cfg.OpenCodeStartTimeout)
 }
 
 // TestOpenCodeEnvOverride — env переопределяют дефолты.
 func TestOpenCodeEnvOverride(t *testing.T) {
 	cfg := loadWithEnv(t, map[string]string{
-		"OPENCODE_URL":         "http://127.0.0.1:9999",
-		"OPENCODE_MODEL":       "opencode/other-model",
-		"OPENCODE_AGENT":       "custom",
-		"OPENCODE_TIMEOUT_S":   "30",
-		"OPENCODE_MAX_RETRIES": "5",
+		"OPENCODE_URL":             "http://127.0.0.1:9999",
+		"OPENCODE_MODEL":           "opencode/other-model",
+		"OPENCODE_AGENT":           "custom",
+		"OPENCODE_TIMEOUT_S":       "30",
+		"OPENCODE_MAX_RETRIES":     "5",
+		"OPENCODE_START_TIMEOUT_S": "45",
 	})
 	require.Equal(t, "http://127.0.0.1:9999", cfg.OpenCodeURL)
 	require.Equal(t, "opencode/other-model", cfg.OpenCodeModel)
 	require.Equal(t, "custom", cfg.OpenCodeAgent)
 	require.Equal(t, 30*time.Second, cfg.OpenCodeTimeout)
 	require.Equal(t, 5, cfg.OpenCodeMaxRetries)
+	require.Equal(t, 45*time.Second, cfg.OpenCodeStartTimeout)
+}
+
+// TestOpenCodeStartTimeoutInvalid — 0/минус → дефолт 300 с (защита от
+// мгновенного таймаута готовности).
+func TestOpenCodeStartTimeoutInvalid(t *testing.T) {
+	for _, v := range []string{"0", "-5"} {
+		cfg := loadWithEnv(t, map[string]string{"OPENCODE_START_TIMEOUT_S": v})
+		require.Equal(t, 300*time.Second, cfg.OpenCodeStartTimeout, "значение %q", v)
+	}
 }

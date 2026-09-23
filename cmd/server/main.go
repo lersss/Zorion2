@@ -20,6 +20,7 @@ import (
 	"zorion/internal/generator/settlement"
 	"zorion/internal/goodsstudio"
 	"zorion/internal/goodsstudio/ai"
+	"zorion/internal/goodsstudio/aiserve"
 	"zorion/internal/handlers"
 	"zorion/internal/mapcache"
 	"zorion/internal/models"
@@ -567,6 +568,10 @@ func main() {
 	// на проде env не заданы — fill честно падает «ИИ недоступен».
 	aiClient := ai.NewClient(cfg.OpenCodeURL, cfg.OpenCodeModel, cfg.OpenCodeAgent, cfg.OpenCodeTimeout, cfg.OpenCodeMaxRetries)
 	studioHandlers := handlers.NewStudioHandlers(db, aiClient, cfg.OpenCodeModel)
+	// Управление локальным ИИ-помощником из студии (спека 2026-09-24-студия-
+	// управление-локальным-ии §3): состояние/запуск/остановка opencode serve.
+	// managed — только Windows + loopback + npx; на проде честное «недоступно».
+	studioHandlers.SetAIServe(aiserve.NewManager(cfg.OpenCodeURL, cfg.OpenCodeStartTimeout, aiserve.DefaultLogPath))
 	http.HandleFunc("/studio/api/state", auth.AdminAuth(studioHandlers.State))
 	http.HandleFunc("/studio/api/resources", auth.AdminAuth(studioHandlers.Resources))
 	http.HandleFunc("/studio/api/categories", auth.AdminAuth(studioHandlers.Categories))
@@ -604,6 +609,11 @@ func main() {
 	// CRUD типа эффекта студии (имя/impact/params.curve) + счётчики привязок.
 	http.HandleFunc("/studio/api/effects", auth.AdminAuth(studioHandlers.Effects))
 	http.HandleFunc("/studio/api/effects/", auth.AdminAuth(studioHandlers.EffectByID))
+	// Управление локальным ИИ-помощником (спека 2026-09-24-студия-управление-
+	// локальным-ии §3): статус/запуск/остановка opencode serve.
+	http.HandleFunc("/studio/api/ai/status", auth.AdminAuth(studioHandlers.AIStatus))
+	http.HandleFunc("/studio/api/ai/start", auth.AdminAuth(studioHandlers.AIStart))
+	http.HandleFunc("/studio/api/ai/stop", auth.AdminAuth(studioHandlers.AIStop))
 
 	http.Handle("/studio", noCache(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./web/studio.html")

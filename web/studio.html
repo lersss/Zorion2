@@ -202,6 +202,12 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
   #btnDescBatch{font-size:13px;background:#2b2b2b;border:1px solid #4a4a4a;color:#ddd;border-radius:6px;padding:5px 8px;cursor:pointer}
   #btnDescBatch:hover{background:#363636}
   #btnDescBatch:disabled{opacity:.5;cursor:default}
+  /* индикатор + кнопки локального ИИ-помощника (спека 2026-09-24 §4) */
+  #aiStatus{display:inline-flex;align-items:center;gap:6px}
+  #aiStatusText{color:#8cf;font-size:13px}
+  #aiStatus button{font-size:12px;background:#2b2b2b;border:1px solid #4a4a4a;color:#ddd;border-radius:6px;padding:4px 8px;cursor:pointer}
+  #aiStatus button:hover{background:#363636}
+  #aiStatus button:disabled{opacity:.5;cursor:default}
   .popup-head{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid #333;cursor:move;user-select:none;font-size:var(--fs-body);color:#fff;gap:8px}
   .popup-head .ptitle{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-popup-title);font-weight:600}
   .popup-head button{background:none;border:none;color:#999;font-size:20px;cursor:pointer;padding:0 6px;line-height:1}
@@ -265,6 +271,11 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
     <h1 style="display:inline-block">Студия товаров</h1>
     <span class="head-status">
       <span id="modelInfo">Модель ИИ: —</span>
+      <span id="aiStatus" title="Локальный ИИ-помощник (opencode serve)">
+        <span id="aiStatusText">ИИ: проверка…</span>
+        <button id="btnAiStart" title="Запустить локальный ИИ-помощник (opencode serve)">запустить</button>
+        <button id="btnAiStop" title="Остановить локальный ИИ-помощник">остановить</button>
+      </span>
       <span id="genIndicator"></span>
     </span>
     <button onclick="location.href='/admin'" title="Перейти в админку (общий админский токен)" style="background:#2b2b2b; border:1px solid #4a4a4a; color:#ddd; border-radius:6px; padding:5px 12px; font-size:12px; cursor:pointer;">⚙️ Админка</button>
@@ -511,6 +522,7 @@ async function fetchState() {
     offline = false;
     $("modelInfo").textContent = "Модель ИИ: " + (state.model || "—");
     $("genIndicator").textContent = state.generating ? "⚙ генерация… (" + (state.model || "модель не задана") + ")" : "";
+    updateAIStatus(); // индикатор/кнопки локального ИИ-помощника (спека 2026-09-24 §4)
     updateDescBatchBtn(); // кнопка пакетного прогона: disabled при generating (спека §9.6)
     // отчёт fill — один раз, по изменению содержимого (не мигает при опросах;
     // спека iterC §6.4, эталон index.html:269–273)
@@ -1611,11 +1623,13 @@ function renderPopup() {
   html += '<button onclick="askAddParent()" title="Добавить этот товар составляющей в рецепт другого товара (новый слот)">добавить родителя</button>';
   if (!isRes) {
     const hasEmpty = (g.recipe || []).some(s => !s.good_id);
-    const fillDisabled = state.generating || !hasEmpty;
+    const fillDisabled = state.generating || !hasEmpty || !aiRunning();
+    const fillTitle = state.generating ? "идёт генерация" : (!hasEmpty ? "Сначала добавьте слот («+ слот»)" : "Сначала запустите помощника");
     html += '<button class="gen" onclick="addSlot()">+ слот</button>';
-    html += '<button class="gen" onclick="fillGood()"' + (fillDisabled ? ' disabled title="' + (state.generating ? "идёт генерация" : "Сначала добавьте слот («+ слот»)") + '"' : '') + '>заполнить комплектующие</button>';
+    html += '<button class="gen" onclick="fillGood()"' + (fillDisabled ? ' disabled title="' + fillTitle + '"' : '') + '>заполнить комплектующие</button>';
   }
-  html += '<button class="gen" onclick="describeGood()"' + (state.generating ? ' disabled title="идёт генерация"' : ' title="ИИ предложит описание (перезапишет существующее)"') + '>предложить описание</button>';
+  const descDisabled = state.generating || !aiRunning();
+  html += '<button class="gen" onclick="describeGood()"' + (descDisabled ? ' disabled title="' + (state.generating ? "идёт генерация" : "Сначала запустите помощника") + '"' : ' title="ИИ предложит описание (перезапишет существующее)"') + '>предложить описание</button>';
   html += '<button class="del" onclick="askDeleteGood()">удалить</button>';
   html += '</div>';
   // «Доступен постройкам» и «Используется в» — после кнопок (спека §5, прим.)
@@ -1966,14 +1980,45 @@ async function startDescBatch() {
 function descMissingCount() {
   return state.goods.filter(g => !g.description).length;
 }
-// updateDescBatchBtn — счётчик/доступность кнопки пакетного прогона
+// updateDescBatchBtn — счётчик/доступность кнопки пакетного прогона.
+// F5 (спека 2026-09-24 §4): при помощнике не running кнопка выключена.
 function updateDescBatchBtn() {
   const btn = $("btnDescBatch");
   if (!btn) return;
   const n = descMissingCount();
   btn.textContent = "описания ИИ: " + n + " без описания";
-  btn.disabled = n === 0 || state.generating;
+  btn.disabled = n === 0 || state.generating || !aiRunning();
+  btn.title = !aiRunning() ? "Сначала запустите помощника" : "ИИ предложит описания всем записям без описания";
 }
+// ---------- локальный ИИ-помощник (opencode serve): индикатор и кнопки ----------
+// Спека 2026-09-24-студия-управление-локальным-ии §4: состояние — из state.ai
+// (GET /studio/api/state), тексты серверные (detail), кнопки — от state+managed.
+function aiState() { return (state && state.ai) || {state: "stopped", managed: false, detail: "ИИ: недоступен"}; }
+function aiRunning() { return aiState().state === "running"; }
+function updateAIStatus() {
+  const txt = $("aiStatusText");
+  if (!txt) return;
+  const a = aiState();
+  txt.textContent = a.detail || "ИИ: —";
+  const start = $("btnAiStart"), stop = $("btnAiStop");
+  const managed = !!a.managed;
+  const busy = !!(state.generating || state.desc_generating);
+  start.disabled = !(managed && a.state === "stopped");
+  stop.disabled = !(managed && (a.state === "running" || a.state === "starting")) || busy;
+  stop.title = busy ? "идёт прогон — сначала остановите прогон" : "Остановить локальный ИИ-помощник";
+}
+// aiAction — POST start/stop → немедленный GET status → перерисовка; ошибку
+// показываем человеческим текстом (api/showReport), не сырой простыней.
+async function aiAction(path) {
+  const r = await api("POST", "/studio/api/ai/" + path);
+  if (r) {
+    const s = await api("GET", "/studio/api/ai/status");
+    if (s) { state.ai = await s.json(); updateAIStatus(); }
+  }
+  fetchState();
+}
+function aiStart() { aiAction("start"); }
+function aiStop() { aiAction("stop"); }
 // Защита несохранённого текста от авто-обновления (спека §9.7): авто-перерисовка
 // пропускается, если фокус в textarea попапа, а значение отличается от модельного.
 function descInputDirty() {
@@ -4376,6 +4421,9 @@ $("proposalsOverlay").addEventListener("click", closeProposalsPopup);
 $("descPopupClose").addEventListener("click", closeDescPopup);
 $("descOverlay").addEventListener("click", closeDescPopup);
 $("btnDescBatch").addEventListener("click", runDescBatch);
+// кнопки локального ИИ-помощника (спека 2026-09-24 §4)
+$("btnAiStart").addEventListener("click", aiStart);
+$("btnAiStop").addEventListener("click", aiStop);
 // кнопки вызова форм добавления (ТЗ §7.2): сами формы живут в попапах (#modal),
 // обработчики полей/кнопок навешивает openModal — при загрузке их в DOM нет
 $("btnNewGoodOpen").addEventListener("click", openNewGoodPopup);

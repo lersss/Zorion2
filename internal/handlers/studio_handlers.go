@@ -16,6 +16,7 @@ import (
 	"sync"
 
 	"zorion/internal/goodsstudio/ai"
+	"zorion/internal/goodsstudio/aiserve"
 	"zorion/internal/goodsstudio/graph"
 	"zorion/internal/goodsstudio/model"
 	"zorion/internal/goodsstudio/validate"
@@ -33,6 +34,9 @@ type StudioHandlers struct {
 	effects  *repository.EffectRepository
 	ai       *ai.Client
 	aiModel  string
+	// aiServe — управление локальным ИИ-помощником (спека 2026-09-24 §3);
+	// nil — состояние «недоступен» (тесты/выключено).
+	aiServe aiController
 
 	fillMu              sync.Mutex
 	fillGenerating      bool // любой ИИ-джоб студии (И6): fill ИЛИ описания
@@ -194,6 +198,9 @@ type StateView struct {
 	Items           []ItemView          `json:"items"`
 	ProducerSlots   []ProducerSlotView  `json:"producer_slots"`
 	ProducerRecipes []RecipeBindingView `json:"producer_recipes"`
+	// AI — состояние локального ИИ-помощника (спека 2026-09-24 §3/§4):
+	// аддитивно, обновляется существующим циклом fetchState (~3 с).
+	AI aiserve.Status `json:"ai"`
 }
 
 // DescProposalView — предложение описания для попапа «Описания ИИ» (спека
@@ -426,6 +433,8 @@ func (h *StudioHandlers) buildStateView(snap *repository.CatalogSnapshot) StateV
 			ProducerTypeID: b.ProducerTypeID, RecipeID: b.RecipeID, GoodID: b.GoodID, Rate: b.Rate,
 		})
 	}
+	// Состояние ИИ-помощника (спека 2026-09-24 §3/§4) — по факту пробы.
+	view.AI = h.aiStatus()
 	return view
 }
 

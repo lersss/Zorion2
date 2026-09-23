@@ -420,6 +420,64 @@ async function main() {
       (rNon && rNon.status === 400 && rRes && rRes.status === 400) ? 'PASS' : 'FAIL',
       `non=${rNon && rNon.status}(${nonConcrete && nonConcrete.id}) res=${rRes && rRes.status}(${resCatFac && resCatFac.id})`);
 
+    // ============ Step 10: локальный ИИ-помощник — индикатор и ручки (спека
+    // 2026-09-24-студия-управление-локальным-ии §8, E1–E5) ============
+    // E1: в шапке есть #aiStatusText, текст — один из допустимых (начинается с «ИИ:»).
+    const aiText = await page.evaluate(() => {
+      const el = document.getElementById('aiStatusText');
+      return el ? el.textContent.trim() : null;
+    });
+    const e1ok = !!aiText && aiText.indexOf('ИИ:') === 0;
+    report('10a E1 AI indicator present', e1ok ? 'PASS' : 'FAIL', 'text="' + aiText + '"');
+
+    // E2: GET /studio/api/ai/status → 200 и state из множества.
+    const aiSt = await api('GET', '/studio/api/ai/status');
+    const aiStates = ['stopped', 'starting', 'running', 'foreign'];
+    const e2ok = aiSt.status === 200 && aiSt.data && aiStates.indexOf(aiSt.data.state) >= 0;
+    report('10b E2 AI status endpoint', e2ok ? 'PASS' : 'FAIL',
+      `status=${aiSt.status} state=${aiSt.data && aiSt.data.state} managed=${aiSt.data && aiSt.data.managed}`);
+
+    // E3: при managed=false/foreign кнопка «запустить» выключена, а ручка
+    // честно отвечает 409 человеческим текстом; страница не падает (процесс
+    // не создаётся — клик по выключенной кнопке невозможен).
+    const errBefore = pageErrors.length;
+    if (aiSt.data && (aiSt.data.managed === false || aiSt.data.state === 'foreign')) {
+      const btnDisabled = await page.evaluate(() => document.getElementById('btnAiStart').disabled);
+      const raw = await fetch(BASE_URL + '/studio/api/ai/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+      });
+      const rawBody = await raw.json().catch(() => null);
+      const human = raw.status === 409 && rawBody && typeof rawBody.error === 'string' && rawBody.error.length > 0;
+      report('10c E3 AI start guarded',
+        (btnDisabled && human && pageErrors.length === errBefore) ? 'PASS' : 'FAIL',
+        `btnDisabled=${btnDisabled} api=${raw.status} err="${rawBody && rawBody.error}"`);
+    } else {
+      report('10c E3 AI start guarded', 'SKIP', 'managed=true, state=' + (aiSt.data && aiSt.data.state));
+    }
+
+    // E4: индикатор обновляется без перезагрузки — после fetchState текст
+    // строки совпадает с серверным detail (провод state → #aiStatusText).
+    const e4 = await page.evaluate(async () => {
+      await fetchState();
+      const txt = document.getElementById('aiStatusText').textContent;
+      return { txt, detail: (state.ai && state.ai.detail) || '' };
+    });
+    report('10d E4 AI state live', (e4.txt === e4.detail && e4.txt.length > 0) ? 'PASS' : 'FAIL',
+      `txt="${e4.txt}"`);
+
+    // E5: во время активного ИИ-прогона «остановить» выключена с подсказкой.
+    const e5 = await page.evaluate(() => {
+      const saved = {g: state.generating, d: state.desc_generating};
+      state.generating = true; updateAIStatus();
+      const stop = document.getElementById('btnAiStop');
+      const res = {disabled: stop.disabled, title: stop.title};
+      state.generating = saved.g; state.desc_generating = saved.d; updateAIStatus();
+      return res;
+    });
+    report('10e E5 AI stop disabled during run',
+      (e5.disabled && e5.title.indexOf('прогон') >= 0) ? 'PASS' : 'FAIL', JSON.stringify(e5));
+
   } catch (err) {
     report('UNCAUGHT', 'FAIL', String(err && err.message ? err.message : err));
   }

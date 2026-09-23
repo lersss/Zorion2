@@ -24,6 +24,7 @@ type Config struct {
 	OpenCodeAgent                string
 	OpenCodeTimeout              time.Duration
 	OpenCodeMaxRetries           int
+	OpenCodeStartTimeout         time.Duration
 }
 
 func Load() *Config {
@@ -123,6 +124,21 @@ func Load() *Config {
 	if err != nil {
 		log.Fatalf("invalid OPENCODE_MAX_RETRIES: %v", err)
 	}
+	// Таймаут готовности помощника при запуске из студии (спека
+	// 2026-09-24-студия-управление-локальным-ии §3.2/§10 F3): дефолт 300 с —
+	// первый `npx` качает пакет. При таймауте процесс не гасим.
+	ocStartTimeoutS := os.Getenv("OPENCODE_START_TIMEOUT_S")
+	if ocStartTimeoutS == "" {
+		ocStartTimeoutS = "300"
+	}
+	ocStartTimeout, err := strconv.Atoi(ocStartTimeoutS)
+	if err != nil {
+		log.Fatalf("invalid OPENCODE_START_TIMEOUT_S: %v", err)
+	}
+	if ocStartTimeout <= 0 {
+		log.Printf("⚠️ OPENCODE_START_TIMEOUT_S=%d некорректен — беру 300 с", ocStartTimeout)
+		ocStartTimeout = 300
+	}
 
 	return &Config{
 		ServerPort:                   port,
@@ -140,5 +156,6 @@ func Load() *Config {
 		OpenCodeAgent:                ocAgent,
 		OpenCodeTimeout:              time.Duration(ocTimeout) * time.Second,
 		OpenCodeMaxRetries:           ocMaxRetries,
+		OpenCodeStartTimeout:         time.Duration(ocStartTimeout) * time.Second,
 	}
 }

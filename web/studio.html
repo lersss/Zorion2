@@ -478,7 +478,10 @@ let prodDropHighlight = null; // узел дерева построек под �
 
 const canvas = $("graph");
 const ctx = canvas.getContext("2d");
-const CARD_W = 190, CARD_H = 86, GAP_X = 26, SLOT_H = 26, ROW_GAP = 64, PAD = 30;
+const CARD_W = 190, CARD_H = 86, GAP_X = 26, SLOT_H = 26, ROW_GAP = 64, PAD = 30, LINE_H = 12;
+// нижняя граница зума — общая для колеса и авто-вписывания (авто не должно
+// уходить ниже доступного вручную): дерево построек ~35 колонок требует ~0.134.
+const MIN_ZOOM = 0.1;
 let dropTarget = null; // {goodId, slotIndex} — подсветка слота под курсором при drag
 
 // ---------- состояние ----------
@@ -859,8 +862,8 @@ function computeLayout(subset, placeholderFor) {
 // орто-ребро: вертикально вниз → горизонтально по зазору между рядами →
 // вертикально к дочке. Не заезжает на чужие карточки (решение создателя
 // 2026-09-19: «линии не должны выходить на территорию под другим блоком»).
-function orthoEdge(a, b) {
-  const x1 = a.x + CARD_W/2, y1 = a.y + CARD_H;   // низ родителя
+function orthoEdge(a, b, aH) {
+  const x1 = a.x + CARD_W/2, y1 = a.y + (aH || CARD_H);   // низ родителя
   const x2 = b.x + CARD_W/2, y2 = b.y;            // верх дочки
   const midY = (y1 + y2) / 2;                     // «улица» между рядами
   ctx.beginPath();
@@ -986,6 +989,23 @@ function truncPx(s, maxPx, maxChars) {
     if (ctx.measureText(s.slice(0, mid) + "…").width <= maxPx) lo = mid; else hi = mid - 1;
   }
   return s.slice(0, lo) + "…";
+}
+// wrapPx — перенос текста по фактической ширине (ctx.measureText, вызывать
+// после установки ctx.font): массив строк. Слово, само шире строки, обрезается
+// truncPx (многоточие) — как раньше. Пустая строка → [].
+function wrapPx(s, maxPx) {
+  s = String(s == null ? "" : s);
+  const lines = [];
+  let cur = "";
+  s.split(" ").forEach(w => {
+    const test = cur ? cur + " " + w : w;
+    if (ctx.measureText(test).width <= maxPx) { cur = test; return; }
+    if (cur) { lines.push(cur); cur = ""; }
+    if (ctx.measureText(w).width <= maxPx) { cur = w; return; }
+    lines.push(truncPx(w, maxPx, w.length));
+  });
+  if (cur) lines.push(cur);
+  return lines;
 }
 function roundRect(x, y, w, h, r) {
   ctx.beginPath();
@@ -1115,7 +1135,7 @@ canvas.addEventListener("wheel", ev => {
   const rect = canvas.getBoundingClientRect();
   const mx = ev.clientX - rect.left, my = ev.clientY - rect.top;
   const factor = ev.deltaY < 0 ? 1.15 : 1 / 1.15;
-  const nz = Math.min(4, Math.max(0.2, zoom * factor));
+  const nz = Math.min(4, Math.max(MIN_ZOOM, zoom * factor));
   panX = mx - (mx - panX) * (nz / zoom);
   panY = my - (my - panY) * (nz / zoom);
   zoom = nz;
@@ -1156,20 +1176,22 @@ function centerTop() {
   const list = top.length ? top : goods;
   const first = list[0], p = L.pos[first.id];
   // масштаб: чтобы верхний ряд поместился в ширину экрана
-  const nz = Math.max(0.2, Math.min(1, (rect.width - 40) / (list.length * (CARD_W + GAP_X))));
-  zoom = Math.max(0.2, Math.min(4, nz));
+  const nz = Math.max(MIN_ZOOM, Math.min(1, (rect.width - 40) / (list.length * (CARD_W + GAP_X))));
+  zoom = Math.max(MIN_ZOOM, Math.min(4, nz));
   panX = rect.width / 2 - (p.x + CARD_W / 2) * zoom;
   panY = rect.height / 2 - (p.y + CARD_H / 2) * zoom;
   saveView(); renderGraph();
 }
-// centerProdTree — центрирование дерева построек целиком (4 уровня в кадр).
+// centerProdTree — центрирование дерева построек целиком (высота из раскладки).
 function centerProdTree() {
   const L = prodTreeLayout();
   const rect = canvas.getBoundingClientRect();
-  const w = L.maxCols * (CARD_W + GAP_X) - GAP_X + PAD * 2;
-  const h = 4 * (CARD_H + ROW_GAP) + PAD * 2; // 4 уровня дерева
-  const nz = Math.max(0.2, Math.min(1, Math.min((rect.width - 40) / w, (rect.height - 40) / h)));
-  zoom = Math.max(0.2, Math.min(4, nz));
+  // maxCols из prodTreeLayout — уже пиксели (правый край дерева + GAP_X),
+  // поэтому ширина = maxCols − GAP_X (правый край) − PAD (левый край) + 2·PAD.
+  const w = L.maxCols - GAP_X + PAD;
+  const h = L.treeH + PAD * 2; // сумма высот рядов дерева
+  const nz = Math.max(MIN_ZOOM, Math.min(1, Math.min((rect.width - 40) / w, (rect.height - 40) / h)));
+  zoom = Math.max(MIN_ZOOM, Math.min(4, nz));
   panX = rect.width / 2 - (L.pos["root"].x + CARD_W / 2) * zoom;
   panY = rect.height / 2 - (L.pos["root"].y + CARD_H / 2) * zoom;
   saveView(); renderGraph();
@@ -1183,7 +1205,7 @@ function centerOn(id) {
     if (!p) return;
     const rect = canvas.getBoundingClientRect();
     panX = rect.width / 2 - (p.x + CARD_W / 2) * zoom;
-    panY = rect.height / 2 - (p.y + CARD_H / 2) * zoom;
+    panY = rect.height / 2 - (p.y + (L.h[id] || CARD_H) / 2) * zoom;
     saveView(); renderGraph();
     return;
   }
@@ -2993,8 +3015,22 @@ function buildProdTree() {
   return root;
 }
 
-// prodTreeLayout — раскладка дерева (4 уровня-ряда, как computeLayout):
+// prodCardHeight — высота карточки дерева построек от содержимого: базовая
+// CARD_H, если строк «производит» нет; иначе растёт под число строк списка
+// (шрифт 11px Arial, LINE_H). Ширина карточки фиксированная (CARD_W) — ряды
+// дерева не разъезжаются, решение создателя 2026-09-23.
+function prodCardHeight(n) {
+  const produces = (n.ref && n.ref.parent_id) ? prodProducesText(n.ref) : "";
+  if (!produces) return CARD_H;
+  ctx.font = "11px Arial";
+  const lines = wrapPx(produces, CARD_W - 16).length;
+  return Math.max(CARD_H, 68 + (lines - 1) * LINE_H + 8);
+}
+
+// prodTreeLayout — раскладка дерева (уровни-ряды, как computeLayout):
 // ширина поддерева = сумма детей, родитель центрируется над детьми.
+// Высота ряда = максимум prodCardHeight карточек ряда (карточки растут от
+// контента), y узла = PAD + сумма высот предыдущих рядов и ROW_GAP.
 function prodTreeLayout() {
   const root = buildProdTree();
   const cols = {};
@@ -3006,18 +3042,28 @@ function prodTreeLayout() {
     cols[n.id] = s;
     return s;
   }
-  const pos = {};
+  // высота каждого ряда = максимум высот карточек этого ряда
+  const rowH = [];
+  (function measure(n, depth) {
+    rowH[depth] = Math.max(rowH[depth] || 0, prodCardHeight(n));
+    n.children.forEach(c => measure(c, depth + 1));
+  })(root, 0);
+  const rowY = [PAD];
+  for (let d = 1; d < rowH.length; d++) rowY[d] = rowY[d - 1] + rowH[d - 1] + ROW_GAP;
+  const pos = {}, h = {};
   let maxCols = 1;
-  const rowH = CARD_H + ROW_GAP;
   function place(n, x, depth) {
     const blockW = colsOf(n) * (CARD_W + GAP_X) - GAP_X;
-    pos[n.id] = {x: x + (blockW - CARD_W) / 2, y: PAD + depth * rowH};
+    pos[n.id] = {x: x + (blockW - CARD_W) / 2, y: rowY[depth]};
+    h[n.id] = prodCardHeight(n);
     maxCols = Math.max(maxCols, x + blockW + GAP_X);
     let cx = x;
     n.children.forEach(c => { place(c, cx, depth + 1); cx += colsOf(c) * (CARD_W + GAP_X); });
   }
   place(root, PAD, 0);
-  return {root, pos, maxCols};
+  let treeH = 0;
+  rowH.forEach((rh, d) => { treeH += rh + (d ? ROW_GAP : 0); });
+  return {root, pos, maxCols, h, treeH};
 }
 
 // renderProdTree — дерево построек на канвасе (спека §2.5): карточки уровней,
@@ -3035,7 +3081,7 @@ function renderProdTree() {
   ctx.lineWidth = 1.5;
   (function edges(n) {
     n.children.forEach(c => {
-      if (L.pos[c.id]) orthoEdge(L.pos[n.id], L.pos[c.id]);
+      if (L.pos[c.id]) orthoEdge(L.pos[n.id], L.pos[c.id], L.h[n.id]);
       edges(c);
     });
   })(L.root);
@@ -3090,7 +3136,7 @@ function renderProdTree() {
       ctx.fillStyle = isDropHere ? "#1e2a3a" : isFixed ? "#2a2a2a" : isHidden ? "#3a3a3a" : "#3d3d3d";
       ctx.strokeStyle = (isDropHere || sel) ? "#8cf" : (isFixed ? "#666" : isHidden ? "#4a4a4a" : "#5a5a5a");
       ctx.lineWidth = isDropHere ? 3 : sel ? 2 : 1;
-      roundRect(x, y, CARD_W, CARD_H, 8);
+      roundRect(x, y, CARD_W, L.h[n.id], 8);
       ctx.fill(); ctx.stroke();
       ctx.fillStyle = isHidden ? "#ddd" : "#fff";
       ctx.font = "14px Arial";
@@ -3119,7 +3165,7 @@ function renderProdTree() {
         if (produces) {
           ctx.fillStyle = isHidden ? "#7a7" : "#9c9";
           ctx.font = "11px Arial";
-          ctx.fillText(truncPx(produces, CARD_W - 16, 28), x + 8, y + 68);
+          wrapPx(produces, CARD_W - 16).forEach((ln, i) => ctx.fillText(ln, x + 8, y + 68 + i * LINE_H));
         }
       }
     }
@@ -3132,7 +3178,7 @@ function prodTreeHitTest(mx, my) {
   const L = prodTreeLayout();
   for (const id in L.pos) {
     const p = L.pos[id];
-    if (mx >= p.x && mx <= p.x + CARD_W && my >= p.y && my <= p.y + CARD_H) return {type: "card", id: id};
+    if (mx >= p.x && mx <= p.x + CARD_W && my >= p.y && my <= p.y + (L.h[id] || CARD_H)) return {type: "card", id: id};
   }
   return null;
 }

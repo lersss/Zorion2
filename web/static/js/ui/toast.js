@@ -1,8 +1,16 @@
 // web/static/js/ui/toast.js
 // Красивые попап-уведомления вместо стандартных alert().
+// z-index полосы toast выдаёт реестр слоёв (ui/layers.js); тост — пассивный
+// слой (вне Esc/клик-вне/фокуса, спека 2026-09-23 §1/§2): видимый тост не
+// перехватывает Esc у модалки под ним, а свой крестик остаётся своим.
 import { playToast } from './sound.js';
+import { openLayer } from './layers.js';
 
 let toastStyleAdded = false;
+
+// toastLayerHandle — слой контейнера тостов: открыт, пока в нём есть тосты.
+// Пассивный: closeAll() его не гасит, снимается сам по пустому контейнеру.
+let toastLayerHandle = null;
 
 function ensureStyle() {
     if (toastStyleAdded) return;
@@ -14,7 +22,6 @@ function ensureStyle() {
             position: fixed;
             top: 16px;
             right: 16px;
-            z-index: 10000;
             display: flex;
             flex-direction: column;
             gap: 10px;
@@ -85,6 +92,16 @@ function ensureContainer() {
         container.className = 'toast-container';
         document.body.appendChild(container);
     }
+    if (!toastLayerHandle) {
+        toastLayerHandle = openLayer(container, {
+            level: 'toast',
+            passive: true,
+            closeOnEsc: false,
+            closeOnOutside: false,
+            trapFocus: false,
+            onClose: () => { toastLayerHandle = null; },
+        });
+    }
     return container;
 }
 
@@ -117,7 +134,12 @@ function showToast(message, type = 'error', duration = 5000) {
         if (timer) { clearTimeout(timer); timer = null; }
         if (!t || !t.parentNode) return;
         t.classList.add('hide');
-        setTimeout(() => { if (t.parentNode) t.parentNode.removeChild(t); }, 250);
+        setTimeout(() => {
+            if (t.parentNode) t.parentNode.removeChild(t);
+            // Тостов больше нет — слой контейнера закрывается (без «призраков»
+            // в стеке: иначе Esc/клик-вне адресовались бы к пустому контейнеру).
+            if (!container.children.length && toastLayerHandle) toastLayerHandle.close();
+        }, 250);
     }
     el.dismiss = dismiss;
 

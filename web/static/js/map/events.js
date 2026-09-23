@@ -10,6 +10,10 @@ import { openSystemModal } from '../modal/index.js';
 import { startFlight } from './flight.js';
 import { notifyError } from '../ui/toast.js';
 import { findNPCAgentAt, showNPCTooltip, hideNPCTooltip, clearNPCHighlight } from './npc_agents.js';
+// Реестр слоёв (спека 2026-09-23 §5): меню мира — полоса menu (закрытие Esc/
+// клик-вне — реестром), тултип координат — пассивный слой той же полосы (свой
+// цикл 3 с + скрытие по ЛКМ сохраняются).
+import { openLayer } from '../ui/layers.js';
 
 const { map: mapCfg } = CONFIG;
 
@@ -221,6 +225,9 @@ export function initFlyBtn() {
 
 // ==================== КОНТЕКСТНОЕ МЕНЮ (ПКМ по миру на карте) ====================
 
+// worldMenuHandle — слой меню мира (#map-context-menu) в реестре слоёв.
+let worldMenuHandle = null;
+
 // coordsTooltipEl — тултип координат точки (ПКМ по пустому месту).
 // Создаётся лениво один раз; pointer-events: none — не перехватывает клики.
 // Минимальное время жизни 3 с (правка создателя 2026-09-16): после показа
@@ -228,6 +235,7 @@ export function initFlyBtn() {
 // mousemove. Жёсткое скрытие (ЛКМ, ПКМ по звезде) — сразу, hideCoordsTooltip.
 const COORDS_TOOLTIP_MIN_MS = 3000;
 let coordsTooltipEl = null;
+let coordsTooltipHandle = null;
 let coordsShownAt = 0;
 let coordsHideTimer = null;
 
@@ -236,10 +244,10 @@ function showCoordsTooltip(screenX, screenY, worldX, worldY) {
     if (!coordsTooltipEl) {
         coordsTooltipEl = document.createElement('div');
         coordsTooltipEl.id = 'coords-tooltip';
+        // z-index не задаём: его выдаёт реестр (пассивный слой полосы menu).
         coordsTooltipEl.style.cssText = `
             position: fixed;
             pointer-events: none;
-            z-index: 1100;
             background: #1a1a2e;
             border: 1px solid #334155;
             border-radius: 8px;
@@ -252,6 +260,19 @@ function showCoordsTooltip(screenX, screenY, worldX, worldY) {
         `;
         document.body.appendChild(coordsTooltipEl);
     }
+    if (!coordsTooltipHandle) {
+        coordsTooltipHandle = openLayer(coordsTooltipEl, {
+            level: 'menu',
+            passive: true,
+            closeOnEsc: false,
+            closeOnOutside: false,
+            trapFocus: false,
+            onClose: () => {
+                coordsTooltipHandle = null;
+                if (coordsTooltipEl) { coordsTooltipEl.remove(); coordsTooltipEl = null; }
+            },
+        });
+    }
     coordsTooltipEl.textContent = `Координаты: (${worldX}; ${worldY})`;
     // Смещение от курсора (14px); у правого края — влево, чтобы не уходить за экран.
     const left = screenX + 14 + coordsTooltipEl.offsetWidth > window.innerWidth
@@ -262,8 +283,11 @@ function showCoordsTooltip(screenX, screenY, worldX, worldY) {
     coordsShownAt = Date.now();
 }
 
+// hideCoordsTooltip — скрытие через слой реестра (пассивный: свой цикл 3 с +
+// скрытие по ЛКМ сохраняются, спека F8); фолбэк — снять узел без слоя.
 function hideCoordsTooltip() {
     if (coordsHideTimer) { clearTimeout(coordsHideTimer); coordsHideTimer = null; }
+    if (coordsTooltipHandle) { coordsTooltipHandle.close(); return; }
     if (coordsTooltipEl) coordsTooltipEl.remove();
     coordsTooltipEl = null;
 }
@@ -337,10 +361,10 @@ export function initContextMenu() {
         showWorldMenu(e.clientX, e.clientY, worldId, elements.tooltipName.textContent || 'Мир');
     });
 
-    // Левая кнопка вне меню — скрывает меню мира и тултип координат
-    // (жёстко: ЛКМ — новое действие). ПКМ — отдаём канвасу.
+    // Левая кнопка — жёсткое скрытие тултипа координат (его собственное
+    // поведение, спека F8): ЛКМ — новое действие. Меню мира закрывает реестр
+    // слоёв (клик-вне/Esc верхнего слоя) — своего слушателя у него больше нет.
     document.addEventListener('mousedown', (e) => {
-        if (e.button !== 2 && !e.target.closest('#map-context-menu')) hideWorldMenu();
         if (e.button !== 2) hideCoordsTooltip();
     });
 }
@@ -360,7 +384,6 @@ function showWorldMenu(x, y, worldId, name) {
         box-shadow: 0 8px 24px rgba(0,0,0,0.5);
         padding: 4px;
         min-width: 180px;
-        z-index: 1100;
         font-size: 0.9rem;
         color: #e0e0e0;
         user-select: none;
@@ -403,10 +426,27 @@ function showWorldMenu(x, y, worldId, name) {
     });
     menu.appendChild(flyBtn);
 
-    document.body.appendChild(menu);
+    openWorldMenu(menu);
 }
 
+// openWorldMenu — смонтировать меню мира и зарегистрировать его слоем полосы
+// menu (спека 2026-09-23 §5): порядок закрытия Esc/клик-вне — по стеку.
+function openWorldMenu(menu) {
+    if (worldMenuHandle) { const h = worldMenuHandle; worldMenuHandle = null; h.close(); }
+    document.body.appendChild(menu);
+    worldMenuHandle = openLayer(menu, {
+        level: 'menu',
+        onClose: () => {
+            worldMenuHandle = null;
+            if (menu.parentNode) menu.remove();
+        },
+    });
+}
+
+// hideWorldMenu — закрытие через слой реестра (в начале каждого показа меню и
+// по пункту «Лететь»); фолбэк — убрать узел без слоя.
 function hideWorldMenu() {
+    if (worldMenuHandle) { worldMenuHandle.close(); return; }
     const menu = document.getElementById('map-context-menu');
     if (menu) menu.remove();
 }

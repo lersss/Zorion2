@@ -8,6 +8,9 @@ import { state } from './config.js';
 import { isFiniteNumber } from './utils.js';
 import { notifyInfo, notifyError } from '../ui/toast.js';
 import { scheduleReload, loadUserData } from './data.js';
+// Реестр слоёв (спека 2026-09-23 §5): баннер пакмана и оверлей «Галактика
+// пуста» — пассивные слои полосы banner (z от реестра, маршрутизация мимо).
+import { openLayer } from '../ui/layers.js';
 // draw — циклический импорт map_render.js (map_render импортирует drawPacman
 // из этого модуля, как npc_agents.js): ES-модули допускают цикл, доступ к
 // draw только в рантайме (pacmanAnimTick), после инициализации обоих модулей.
@@ -41,8 +44,13 @@ let pacmanParticles = [];
 // След: последние позиции в мировых координатах.
 let pacmanTrail = [];
 // DOM-элементы баннера/оверлея пустой галактики (создаются лениво).
+// Оба — пассивные слои полосы banner (спека 2026-09-23 §5): z от реестра,
+// поведение прежнее (авто по событию WS), Esc/клик-вне их не касаются и они
+// не «съедают» Esc у модалки.
 let pacmanBannerEl = null;
+let pacmanBannerHandle = null;
 let pacmanEmptyEl = null;
+let pacmanEmptyHandle = null;
 // rAF-цикл перерисовки (анимация рта/движения при активном пакмане; без него
 // карта перерисовывается ~3 раз/с по событиям — рот «замирал», 2026-09-20).
 let pacmanAnimFrame = 0;
@@ -223,12 +231,12 @@ function showPacmanBanner() {
     if (!pacmanBannerEl) {
         pacmanBannerEl = document.createElement('div');
         pacmanBannerEl.id = 'pacman-banner';
+        // z-index не задаём: его выдаёт реестр (пассивный слой полосы banner).
         pacmanBannerEl.style.cssText = `
             position: fixed;
             top: 12px;
             left: 50%;
             transform: translateX(-50%);
-            z-index: 1300;
             background: rgba(10,15,32,0.92);
             border: 1px solid #facc15;
             border-radius: 10px;
@@ -247,6 +255,19 @@ function showPacmanBanner() {
         `;
         document.body.appendChild(pacmanBannerEl);
     }
+    if (!pacmanBannerHandle) {
+        pacmanBannerHandle = openLayer(pacmanBannerEl, {
+            level: 'banner',
+            passive: true,
+            closeOnEsc: false,
+            closeOnOutside: false,
+            trapFocus: false,
+            onClose: () => {
+                pacmanBannerHandle = null;
+                if (pacmanBannerEl) pacmanBannerEl.style.display = 'none';
+            },
+        });
+    }
     pacmanBannerEl.style.display = 'block';
     updatePacmanBanner();
     showPacmanFollowButton();
@@ -264,8 +285,11 @@ function updatePacmanBanner() {
     if (bar && p.total > 0) bar.value = p.eatenTotal / p.total * 100;
 }
 
+// hidePacmanBanner — скрытие через слой реестра (без мёртвой записи в стеке);
+// фолбэк — погасить узел без слоя (элемент переиспользуется, не удаляется).
 function hidePacmanBanner() {
-    if (pacmanBannerEl) pacmanBannerEl.style.display = 'none';
+    if (pacmanBannerHandle) pacmanBannerHandle.close();
+    else if (pacmanBannerEl) pacmanBannerEl.style.display = 'none';
     hidePacmanFollowButton();
 }
 
@@ -279,12 +303,12 @@ function updateEmptyGalaxyOverlay() {
     if (empty && !pacmanEmptyEl) {
         pacmanEmptyEl = document.createElement('div');
         pacmanEmptyEl.id = 'pacman-empty-overlay';
+        // z-index не задаём: его выдаёт реестр (пассивный слой полосы banner).
         pacmanEmptyEl.style.cssText = `
             position: fixed;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            z-index: 1200;
             background: rgba(10,15,32,0.85);
             border: 1px solid #334155;
             border-radius: 12px;
@@ -297,9 +321,21 @@ function updateEmptyGalaxyOverlay() {
         `;
         pacmanEmptyEl.textContent = '🌌 Галактика пуста — ждём генерации';
         document.body.appendChild(pacmanEmptyEl);
+        pacmanEmptyHandle = openLayer(pacmanEmptyEl, {
+            level: 'banner',
+            passive: true,
+            closeOnEsc: false,
+            closeOnOutside: false,
+            trapFocus: false,
+            onClose: () => {
+                pacmanEmptyHandle = null;
+                if (pacmanEmptyEl) { pacmanEmptyEl.remove(); pacmanEmptyEl = null; }
+            },
+        });
     } else if (!empty && pacmanEmptyEl) {
-        pacmanEmptyEl.remove();
-        pacmanEmptyEl = null;
+        // Скрытие — только через handle реестра (§5, «призрачные слои»).
+        if (pacmanEmptyHandle) pacmanEmptyHandle.close();
+        else { pacmanEmptyEl.remove(); pacmanEmptyEl = null; }
     }
 }
 

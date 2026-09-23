@@ -13,6 +13,10 @@ import { handleUnauthorized } from './data.js';
 import { recolorShipSprite, spriteForAgent, shipDrawTransform } from './ship_sprites.js';
 import { focusAgent } from './navigation.js';
 import { handlePacmanMessage } from './pacman.js';
+// Реестр слоёв (спека 2026-09-23 §5): тултип агента — пассивный слой полосы
+// menu, дропдаун поиска — маршрутизируемый слой той же полосы (закрытие Esc/
+// клик-вне делает реестр, локального document-слушателя нет).
+import { openLayer } from '../ui/layers.js';
 // draw — циклический импорт map_render.js (map_render импортирует
 // drawNPCAgents из этого модуля): ES-модули допускают цикл, доступ к draw
 // только в рантайме (loadNPCPositions), после инициализации обоих модулей.
@@ -315,7 +319,10 @@ export function drawNPCAgents(ctx, canvasWidth, canvasHeight) {
 // первом наведении). pointer-events: none — не перехватывает клики/драг
 // карты (наведение ≠ клик). Позиция обновляется по mousemove без
 // пересоздания DOM (тултип не должен дёргаться на частых событиях).
+// Тултип — пассивный слой полосы menu (спека 2026-09-23 §5): z от реестра,
+// маршрутизация Esc/клик-вне его не касается (свой цикл по уводу мыши).
 let npcTooltipEl = null;
+let npcTooltipHandle = null;
 
 // showNPCTooltip — показать данные агента (имя, статус, текущий/целевой
 // мир) рядом с курсором. Вызывается из initHover (events.js) при наведении
@@ -327,7 +334,6 @@ export function showNPCTooltip(agent, screenX, screenY) {
         npcTooltipEl.style.cssText = `
             position: fixed;
             pointer-events: none;
-            z-index: 1100;
             background: #1a1a2e;
             border: 1px solid #334155;
             border-radius: 8px;
@@ -339,6 +345,19 @@ export function showNPCTooltip(agent, screenX, screenY) {
             user-select: none;
         `;
         document.body.appendChild(npcTooltipEl);
+    }
+    if (!npcTooltipHandle) {
+        npcTooltipHandle = openLayer(npcTooltipEl, {
+            level: 'menu',
+            passive: true,
+            closeOnEsc: false,
+            closeOnOutside: false,
+            trapFocus: false,
+            onClose: () => {
+                npcTooltipHandle = null;
+                if (npcTooltipEl) { npcTooltipEl.remove(); npcTooltipEl = null; }
+            },
+        });
     }
     // worldLabel — название мира из позиции; фолбэк на обрезанный айди, если
     // имени нет (защитно: позиция без мира в сетке не отдаётся — имя есть).
@@ -357,7 +376,10 @@ export function showNPCTooltip(agent, screenX, screenY) {
     npcTooltipEl.style.top = Math.max(4, screenY - 10) + 'px';
 }
 
+// hideNPCTooltip — скрытие через слой реестра (без мёртвой записи в стеке);
+// фолбэк — снять узел без слоя.
 export function hideNPCTooltip() {
+    if (npcTooltipHandle) { npcTooltipHandle.close(); return; }
     if (npcTooltipEl) npcTooltipEl.remove();
     npcTooltipEl = null;
 }
@@ -386,6 +408,9 @@ export function findNPCAgentAt(mouseX, mouseY) {
 
 // ==================== ПОИСК АГЕНТА НА КАРТЕ (спека 26a.1 §6.2) ====================
 
+// npcSearchHandle — слой дропдауна результатов поиска (#npc-search-results).
+let npcSearchHandle = null;
+
 // clearNPCHighlight — сброс подсветки (новый поиск / клик по пустому месту).
 export function clearNPCHighlight() {
     if (state.highlightedNpcId) {
@@ -405,13 +430,8 @@ export function initNPCSearch() {
     const run = () => searchNPCAgent(input.value.trim());
     btn.addEventListener('click', run);
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') run(); });
-    // Клик вне поля/списка — скрыть список результатов.
-    document.addEventListener('click', (e) => {
-        if (!e.target.closest('#npc-search-results') &&
-            e.target !== input && e.target !== btn) {
-            hideNPCSearchResults();
-        }
-    });
+    // Клик вне списка результатов закрывает его реестр слоёв (слой полосы
+    // menu, closeOnOutside) — своего document-слушателя у списка нет.
 }
 
 async function searchNPCAgent(q) {
@@ -478,7 +498,6 @@ function showNPCSearchResults(results) {
         border: 1px solid #334155;
         border-radius: 8px;
         box-shadow: 0 8px 24px rgba(0,0,0,0.5);
-        z-index: 1200;
         font-size: 0.85rem;
         color: #e0e0e0;
         user-select: none;
@@ -510,9 +529,22 @@ function showNPCSearchResults(results) {
         box.appendChild(more);
     }
     document.body.appendChild(box);
+    // Список — слой полосы menu (спека 2026-09-23 §5): порядок внутри полосы по
+    // открытию (ложится над тултипом того же уровня), закрытие — реестром
+    // (Esc/клик-вне) или явным handle.close().
+    if (npcSearchHandle) { const h = npcSearchHandle; npcSearchHandle = null; h.close(); }
+    npcSearchHandle = openLayer(box, {
+        level: 'menu',
+        onClose: () => {
+            npcSearchHandle = null;
+            if (box.parentNode) box.remove();
+        },
+    });
 }
 
+// hideNPCSearchResults — закрытие через слой реестра; фолбэк — убрать узел.
 function hideNPCSearchResults() {
+    if (npcSearchHandle) { npcSearchHandle.close(); return; }
     const el = document.getElementById('npc-search-results');
     if (el) el.remove();
 }

@@ -5,10 +5,17 @@ import { loadClusters, handleUnauthorized } from './map/data.js';
 import { openSystemModal } from './modal/index.js';
 import { notifyError } from './ui/toast.js';
 import { formatZoom } from './map/utils.js';
+// Реестр слоёв (спека 2026-09-23 §5/§6.2): дропдаун результатов — слой полосы
+// menu (иначе при открытой модалке уходил под неё, аудит §0); Esc/клик-вне —
+// реестр, у дропдауна своих слушателей нет.
+import { openLayer } from './ui/layers.js';
 
 const SEARCH_DEBOUNCE_MS = 250;
 const MAX_RESULTS = 20;
 const FOCUS_ZOOM = 6;
+
+// dropdownHandle — слой дропдауна #entity-search-results (открыт, пока список виден).
+let dropdownHandle = null;
 
 // initEntitySearch — включает поиск по точному имени объекта в фильтрах-баре.
 export function initEntitySearch() {
@@ -30,16 +37,15 @@ export function initEntitySearch() {
             clearTimeout(timer);
             runSearch(input, dropdown);
         }
-        if (e.key === 'Escape') {
-            hideDropdown(dropdown);
-            input.blur();
-        }
+        // Esc закрывает дропдаун через реестр слоёв (свой обработчик снят,
+        // спека §6.2) — здесь остаётся только Enter.
     });
 
-    // Закрытие по клику вне поля + очистка подсветки фокуса.
+    // Клик вне поля — очистка подсветки найденного мира. Закрытие дропдауна
+    // делает реестр (слой полосы menu, closeOnOutside), а не этот слушатель:
+    // двойное закрытие и «Esc убил модалку под меню» не возвращаем (§6.3).
     document.addEventListener('click', (e) => {
         if (e.target.closest('.filter-search')) return;
-        hideDropdown(dropdown);
         clearFocus();
     });
 }
@@ -102,10 +108,22 @@ function renderDropdown(dropdown, results) {
     }
 
     dropdown.hidden = false;
+    // Дропдаун — слой полосы menu (спека §6.2): выходит НАД модалкой (1000) и
+    // закрывается реестром (Esc/клик-вне) или явным handle.close().
+    if (dropdownHandle) { const h = dropdownHandle; dropdownHandle = null; h.close(); }
+    dropdownHandle = openLayer(dropdown, {
+        level: 'menu',
+        closeOnEsc: true,
+        closeOnOutside: true,
+        onClose: () => { dropdownHandle = null; dropdown.hidden = true; },
+    });
 }
 
+// hideDropdown — закрытие через слой реестра (без мёртвой записи в стеке);
+// фолбэк — спрятать узел без слоя (элемент статичный, не удаляется).
 function hideDropdown(dropdown) {
     const el = dropdown || document.getElementById('entity-search-results');
+    if (dropdownHandle && (!el || dropdownHandle.el === el)) { dropdownHandle.close(); return; }
     if (el) el.hidden = true;
 }
 

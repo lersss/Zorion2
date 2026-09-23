@@ -8,6 +8,9 @@ import { getStarColor, getStarSize, starTypeLabel, systemTypeLabel, starModsBadg
 import { renderRightPanel } from './panel.js';
 import { cleanupOrbitView } from './tabs.js';
 import { notifyError } from '../ui/toast.js';
+// Реестр слоёв (спека 2026-09-23 §5): модалка — слой полосы modal; Esc и
+// клик-вне адресуются реестром только к верхнему слою, локальных слушателей нет.
+import { openLayer, closeToLayer, closeAll } from '../ui/layers.js';
 import { playSound, startFlightHum, stopFlightHum, playArrival } from '../ui/sound.js';
 import { repaintPopulationNumbers } from './extrapolate.js';
 import { record } from '../dashboard/journal.js';
@@ -19,6 +22,11 @@ import { setRedrawCallback, getRedrawCallback } from '../map/ship_sprites.js';
 // prevRedrawCallback — колбэк карты/дашборда, сохранённый при открытии модалки
 // (восстанавливается в closeModal, чтобы не сломать карту).
 let prevRedrawCallback = null;
+
+// modalLayerHandle — слой модалки в реестре слоёв (ui/layers.js); modalTornDown
+// — защита от повторного входа в уборку (спека 2026-09-23 §5).
+let modalLayerHandle = null;
+let modalTornDown = false;
 
 // Синхронный источник полёта карты (спека 99.2.30 §6.4/§6.9): mapState.isFlying
 // — фолбэк для клика 🎯 до резолва /me (modalState.interstellarFlight ещё null).
@@ -39,6 +47,9 @@ if (document.getElementById('mapCanvas')) {
 function handleUnauthorized() {
     localStorage.removeItem('token');
     if (window.location.pathname !== '/login-page') {
+        // Стек слоёв закрываем перед уходом (спека 2026-09-23 §3.4) — страница
+        // всё равно перезагрузится, но блокировка прокрутки снимется сразу.
+        closeAll();
         window.location.href = '/login-page';
     }
 }
@@ -334,11 +345,11 @@ function renderModal(worldId, worldName, spectralClass, data) {
     // Оверлей
     const overlay = document.createElement('div');
     overlay.id = 'system-modal-overlay';
+    // z-index не задаём: его выдаёт реестр слоёв (openLayer, полоса modal).
     overlay.style.cssText = `
         position: fixed;
         top: 0; left: 0; width: 100%; height: 100%;
         background: rgba(0,0,0,0.7);
-        z-index: 1000;
         display: flex;
         justify-content: center;
         align-items: center;
@@ -509,16 +520,16 @@ function renderModal(worldId, worldName, spectralClass, data) {
     overlay.appendChild(modal);
     document.body.appendChild(overlay);
 
-    // Закрытие по клику на оверлей
-    overlay.addEventListener('click', (e) => {
-        if (e.target === overlay) closeModal();
+    // Модалка — слой полосы modal (спека 2026-09-23 §5): Esc и клик-вне
+    // (клик по подложке = вне содержимого) маршрутизирует реестр; закрытие
+    // приходит в onClose → teardownModal (та же уборка, что была в closeModal).
+    modalTornDown = false;
+    modalLayerHandle = openLayer(overlay, {
+        level: 'modal',
+        contentEl: modal,
+        label: titleText,
+        onClose: () => { modalLayerHandle = null; teardownModal(); },
     });
-
-    // ESC
-    function handleKeydown(e) {
-        if (e.key === 'Escape') closeModal();
-    }
-    document.addEventListener('keydown', handleKeydown);
 
     // Размеры
     const rect = canvasWrapper.getBoundingClientRect();
@@ -652,8 +663,6 @@ function renderModal(worldId, worldName, spectralClass, data) {
         drawSystem(canvas, spectralClass, planets, starRadius, starColor, newRect.width, newRect.height);
     });
     resizeObserver.observe(canvasWrapper);
-
-    modalState._escListener = handleKeydown;
 
     // ---- АНИМАЦИЯ: rAF-цикл вращения планет ----
     // Попутно — косметическая тень населения (extrapolate.js): раз в секунду
@@ -993,7 +1002,23 @@ async function loadSystemPlayers() {
 
 // ==================== ЗАКРЫТИЕ ====================
 
+// closeModal — единственная точка закрытия модалки (кнопка ✕, полёты,
+// карта). Если слой открыт в реестре — закрываем через него (реестр вызовет
+// onClose → teardownModal); иначе убираем напрямую (повторный вызов).
 export function closeModal() {
+    if (modalLayerHandle) { modalLayerHandle.close(); return; }
+    teardownModal();
+}
+
+// teardownModal — уборка модалки (тело прежнего closeModal). Идемпотентна:
+// вызывается из onClose слоя и напрямую; повторный вход — no-op.
+function teardownModal() {
+    if (modalTornDown) return;
+    modalTornDown = true;
+    modalLayerHandle = null;
+    // Слои выше модалки (меню, алерт) закрываем через реестр ДО снятия DOM —
+    // их onClose сам убирает свои узлы (без призрачных записей в стеке, §5).
+    closeToLayer('modal', { inclusive: true });
     const overlay = document.getElementById('system-modal-overlay');
     if (overlay) overlay.remove();
     // Гул: закрытие модалки на внутрисистемном полёте глушит гул (полоса
@@ -1008,10 +1033,8 @@ export function closeModal() {
     // 99.2.27): модалка закрыта — её колбэк больше не нужен.
     setRedrawCallback(prevRedrawCallback);
     prevRedrawCallback = null;
-    if (modalState._escListener) {
-        document.removeEventListener('keydown', modalState._escListener);
-        delete modalState._escListener;
-    }
+    // Меню/тултип модалки уже сняты реестром (closeToLayer выше) — это
+    // страховка от «висящих» узлов, если слой закрыли в обход реестра.
     const ctxMenu = document.getElementById('star-context-menu');
     if (ctxMenu) ctxMenu.remove();
     const starTooltip = document.getElementById('star-tooltip');

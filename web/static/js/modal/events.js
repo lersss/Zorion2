@@ -8,6 +8,12 @@ import { getSpectralInfo, exoticStarInfo, formatStellarMass, formatAU } from './
 import { starTypeLabel } from './utils.js';
 import { notifyError } from '../ui/toast.js';
 import { biomeIconHtml, prettyName } from './tabs.js';
+// Реестр слоёв (спека 2026-09-23 §5): контекстные меню модалки — полоса menu
+// (маршрутизируемые), тултип звезды — пассивный слой той же полосы. Закрытие —
+// только через handle.close() (иначе в стеке остаётся мёртвая запись).
+// openAlert (полоса alert, диалог поверх модалки) — из ui/alert.js.
+import { openLayer } from '../ui/layers.js';
+import { openAlert } from '../ui/alert.js';
 
 export function initEvents(canvas, spectralClass, planets, starRadius, starColor, width, height) {
     const dpr = window.devicePixelRatio || 1;
@@ -319,28 +325,28 @@ export function initEvents(canvas, spectralClass, planets, starRadius, starColor
         }
     });
 
-    // Левая кнопка вне меню — скрывает. ПКМ по контекстному меню не должен закрывать его.
-    document.addEventListener('mousedown', (e) => {
-        if (e.button !== 2 && !e.target.closest('#star-context-menu')) hideStarMenu();
-    });
 }
 
 // ---- ТУЛТИП ЗВЕЗДЫ (70a) ----
 // starTooltipEl — тултип информации о звезде при наведении на канвасе модалки.
 // Создаётся лениво один раз; pointer-events: none — не перехватывает клики.
 // Прячется при уходе мыши с объекта/канваса и при драге; удаляется в closeModal.
+// Пассивный слой полосы menu (спека §1/§2): получает z, но вне Esc/клик-вне.
 let starTooltipEl = null;
+let starTooltipHandle = null;
 
 function getStarTooltipEl() {
     // isConnected: closeModal удаляет элемент из DOM — при повторном открытии
-    // модалки пересоздаём (иначе ссылка ведёт на отсоединённый узел).
+    // модалки пересоздаём (иначе ссылка ведёт на отсоединённый узел). Заодно
+    // снимаем «мёртвую» запись прежнего слоя: тултип пассивный, реестр его по
+    // закрытию модалки не гасит (F2) — иначе новый тултип не зарегистрируется.
     if (!starTooltipEl || !starTooltipEl.isConnected) {
+        if (starTooltipHandle) starTooltipHandle.close();
         starTooltipEl = document.createElement('div');
         starTooltipEl.id = 'star-tooltip';
         starTooltipEl.style.cssText = `
             position: fixed;
             pointer-events: none;
-            z-index: 1100;
             background: #1a1a2e;
             border: 1px solid #334155;
             border-radius: 8px;
@@ -357,7 +363,10 @@ function getStarTooltipEl() {
     return starTooltipEl;
 }
 
+// hideStarTooltip — скрытие через реестр (без «призрачной» записи в стеке);
+// собственное display:none остаётся фолбэком для узла без слоя.
 function hideStarTooltip() {
+    if (starTooltipHandle) { starTooltipHandle.close(); return; }
     if (starTooltipEl) starTooltipEl.style.display = 'none';
 }
 
@@ -365,6 +374,19 @@ function hideStarTooltip() {
 // {type:'star', starIndex} (компаньон/внешний из layout.stars).
 function showStarTooltip(e, hit) {
     const el = getStarTooltipEl();
+    if (!starTooltipHandle) {
+        starTooltipHandle = openLayer(el, {
+            level: 'menu',
+            passive: true,
+            closeOnEsc: false,
+            closeOnOutside: false,
+            trapFocus: false,
+            onClose: () => {
+                starTooltipHandle = null;
+                if (starTooltipEl) starTooltipEl.style.display = 'none';
+            },
+        });
+    }
     el.innerHTML = buildStarTooltipHtml(hit);
     el.style.display = 'block';
     // Смещение от курсора (14px); у правого края — влево, чтобы не уходить за экран.
@@ -461,7 +483,6 @@ function showStarMenu(x, y) {
         box-shadow: 0 8px 24px rgba(0,0,0,0.5);
         padding: 4px;
         min-width: 160px;
-        z-index: 1100;
         font-size: 0.9rem;
         color: #e0e0e0;
     `;
@@ -539,7 +560,7 @@ function showStarMenu(x, y) {
         menu.appendChild(btn);
     }
 
-    document.body.appendChild(menu);
+    openStarMenu(menu);
 }
 
 // showCompanionMenu — ПКМ по компаньону/внешнему компаньону (спека 99.2.27
@@ -600,7 +621,6 @@ function showCompanionMenu(x, y, starIndex) {
         box-shadow: 0 8px 24px rgba(0,0,0,0.5);
         padding: 4px;
         min-width: 180px;
-        z-index: 1100;
         font-size: 0.9rem;
         color: #e0e0e0;
     `;
@@ -642,7 +662,7 @@ function showCompanionMenu(x, y, starIndex) {
     });
     menu.appendChild(btn);
 
-    document.body.appendChild(menu);
+    openStarMenu(menu);
 }
 
 // showPlanetMenu — ПКМ по планете на канвасе (спека 99.2.27 §5.5 + 99.2.30
@@ -691,7 +711,6 @@ function showPlanetMenu(x, y, planetIndex) {
         box-shadow: 0 8px 24px rgba(0,0,0,0.5);
         padding: 4px;
         min-width: 160px;
-        z-index: 1100;
         font-size: 0.9rem;
         color: #e0e0e0;
     `;
@@ -771,7 +790,7 @@ function showPlanetMenu(x, y, planetIndex) {
         }
     }
 
-    document.body.appendChild(menu);
+    openStarMenu(menu);
 }
 
 // showBeltMenu — ПКМ по поясу (ТЗ §9.4): пункты «🚀 Лететь» и «⛏ Добывать» в
@@ -810,7 +829,6 @@ export function showBeltMenu(x, y, beltId) {
         box-shadow: 0 8px 24px rgba(0,0,0,0.5);
         padding: 4px;
         min-width: 180px;
-        z-index: 1100;
         font-size: 0.9rem;
         color: #e0e0e0;
     `;
@@ -864,6 +882,8 @@ export function showBeltMenu(x, y, beltId) {
 
     // «Добывать» — точка входа в мини-игру (двигатель не требуется). Активна,
     // когда игрок в этом поясе, запас не выработан и нет активного полёта.
+    // Финальный ответ по клику — read-only вердикт + алерт поверх модалки
+    // (спека 2026-09-23 §4.2): отказ больше не уводит с карты на belt.html.
     const level = belt.remaining_level || '';
     let mineTitle = '';
     if (inFlight) mineTitle = 'Вы в полёте — дождитесь прибытия';
@@ -878,14 +898,86 @@ export function showBeltMenu(x, y, beltId) {
         if (myPos && myPos.status === 'mining') {
             mineBtn.innerHTML = `⛏ <span>Продолжить добычу</span>`;
         }
-        mineBtn.addEventListener('click', () => {
+        mineBtn.addEventListener('click', async () => {
             hideStarMenu();
+            // «Выработан» важнее mining (F4): пункт disabled, но финальный
+            // ответ по клику — всё равно алерт, а не навигация.
+            if (level === 'выработан') {
+                openAlert({ title: 'Пояс выработан', text: 'Добывать здесь больше нечего.' });
+                return;
+            }
+            // «⛏ Продолжить добычу» (status='mining') — прямая навигация без
+            // пречека (§4.2 п.4): заход уже открыт, состояние не меняем.
+            if (myPos && myPos.status === 'mining') {
+                window.location.href = '/belt.html?belt=' + encodeURIComponent(belt.id);
+                return;
+            }
+            const verdict = await beltMineVerdict(belt);
+            if (!verdict.ok) {
+                // «Нельзя» → алерт полосы alert (2000) ПОВЕРХ модалки: игрок
+                // остаётся на карте, модалка открыта, enter не вызывается.
+                openAlert({ title: verdict.title, text: verdict.text });
+                return;
+            }
             window.location.href = '/belt.html?belt=' + encodeURIComponent(belt.id);
         });
     }
     menu.appendChild(mineBtn);
 
-    document.body.appendChild(menu);
+    openStarMenu(menu);
+}
+
+// beltMineVerdict — read-only вердикт «можно ли зайти в пояс» (спека §4.2),
+// БЕЗ вызова POST /api/belt/mine/enter (он не read-only: пишет
+// users.current_position и лениво инициализирует запас пояса). Данные уже
+// есть на карте: modalState.myPosition (в этом ли поясе), modalState.belts[]
+// (remaining_level/belt_class под гейтом знания), GET /api/cargo (свободный
+// трюм). Приоритет причин: не в поясе → выработан → нет данных → полон трюм.
+async function beltMineVerdict(belt) {
+    const myPos = modalState.myPosition;
+    const inThisBelt = !!myPos && (myPos.status === 'orbit' || myPos.status === 'mining') &&
+        myPos.object_type === 'belt' && myPos.object_id === belt.id;
+    if (!inThisBelt) {
+        return { ok: false, title: 'Сначала долетите до пояса', text: 'Подлетите к поясу и попробуйте снова.' };
+    }
+    const level = belt.remaining_level || '';
+    if (level === 'выработан') {
+        return { ok: false, title: 'Пояс выработан', text: 'Добывать здесь больше нечего.' };
+    }
+    // Пусто ≠ «выработан»: запас инициализируется лениво на первом enter
+    // (осн. §6.3/§8.4) — до него данных нет.
+    if (!level) {
+        return { ok: false, title: 'Нет данных о запасе пояса', text: 'Заход в пояс невозможен.' };
+    }
+    if (await cargoIsFull()) {
+        return {
+            ok: false,
+            title: 'Трюм полон',
+            text: 'Нет свободного места в трюме — добывать некуда. Выгрузите груз на дашборде (раздел «Корабль», блок «Трюм») и возвращайтесь.',
+        };
+    }
+    return { ok: true };
+}
+
+// cargoIsFull — трюм без свободного места по GET /api/cargo (лимит массы
+// used/total считает сервер, спека трюма §9.1). Сеть/ответ недоступны (null) —
+// вердикт «трюм» пропускаем: из-за сети игрока не блокируем, остальные
+// проверки работают (§4.2).
+async function cargoIsFull() {
+    const token = modalState.authToken || localStorage.getItem('token');
+    if (!token) return null;
+    try {
+        const res = await fetch('/api/cargo', { headers: { 'Authorization': 'Bearer ' + token } });
+        if (!res.ok) return null;
+        const data = await res.json();
+        const mass = (data && data.limits && data.limits.mass) || {};
+        const used = Number(mass.used);
+        const total = Number(mass.total);
+        if (!isFinite(used) || !isFinite(total)) return null;
+        return total - used <= 0;
+    } catch (e) {
+        return null;
+    }
 }
 
 // isAdminRole — роль из /me (как tabs.js isAdmin): админский инструмент.
@@ -1031,7 +1123,28 @@ export async function startIntraFlight(objectType, objectId) {
     }
 }
 
+// starMenuHandle — слой контекстного меню модалки (#star-context-menu) в
+// реестре слоёв; меню в DOM без handle не остаётся (hideStarMenu).
+let starMenuHandle = null;
+
+// openStarMenu — смонтировать меню и зарегистрировать его слоем полосы menu
+// (спека 2026-09-23 §5): меню над модалкой, Esc/клик-вне закрывают именно его.
+function openStarMenu(menu) {
+    if (starMenuHandle) { const h = starMenuHandle; starMenuHandle = null; h.close(); }
+    document.body.appendChild(menu);
+    starMenuHandle = openLayer(menu, {
+        level: 'menu',
+        onClose: () => {
+            starMenuHandle = null;
+            if (menu.parentNode) menu.remove();
+        },
+    });
+}
+
+// hideStarMenu — закрытие через слой реестра (вызывается в начале каждого
+// show…Menu и по выбору пункта); фолбэк — убрать узел без слоя.
 function hideStarMenu() {
+    if (starMenuHandle) { starMenuHandle.close(); return; }
     const menu = document.getElementById('star-context-menu');
     if (menu) menu.remove();
 }

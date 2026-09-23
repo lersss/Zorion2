@@ -181,9 +181,9 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
   .cat-row input{flex:1;min-width:0;background:#222;border:1px solid #444;color:#ddd;padding:3px 5px;border-radius:4px;font-size:14px}
   /* крупный центрированный попап карточек (спека 2026-09-23 §2): ~720 px, центр
      без ручного сдвига под панель 320 px */
-  #detailPopup{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(720px,calc(100% - 48px));max-height:88vh;background:#1c1c1c;border:1px solid #555;border-radius:10px;z-index:11;display:none;flex-direction:column;box-shadow:0 8px 32px #000c}
+  #detailPopup{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(720px,calc(100% - 48px));max-height:calc(100% - 16px);background:#1c1c1c;border:1px solid #555;border-radius:10px;z-index:11;display:none;flex-direction:column;box-shadow:0 8px 32px #000c}
   @media (max-width:820px){
-    #detailPopup{width:calc(100% - 24px);max-height:92vh}
+    #detailPopup{width:calc(100% - 24px);max-height:calc(100% - 12px)}
     #detailPopup .popup-body{padding:10px}
   }
   /* попап «Предложения ИИ» (спека iterC §6.5): в стиле попапа-детали, шире — селект категорий */
@@ -220,7 +220,9 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
   /* Крупная карточка попапа (правка вида 2026-09-23): только #detailPopup —
      ширина ~1080, кегли/отступы ×1,5. Справочник, шапка, прочие попапы и canvas
      не затронуты (селекторы скоуплены на #detailPopup). */
-  #detailPopup{width:min(1080px,calc(100% - 48px));max-height:92vh}
+  /* Высота попапа — от его области (#main), не от экрана: центрируется он в
+     области канваса, поэтому «92vh» уводил низ за экран (идея 2026-09-24). */
+  #detailPopup{width:min(1080px,calc(100% - 48px));max-height:calc(100% - 16px)}
   #detailPopup .popup-head{padding:14px 20px;font-size:21px}
   #detailPopup .popup-head .ptitle{font-size:27px}
   #detailPopup .popup-head button{font-size:30px;padding:0 9px}
@@ -254,7 +256,7 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
   #detailPopup .prod-slots-list{max-height:260px;padding:6px 9px}
   #detailPopup .dname,#detailPopup .dmeta,#detailPopup .pblock-h,#detailPopup .pval,#detailPopup .usedin-item,#detailPopup .bind-row{overflow-wrap:anywhere}
   @media (max-width:820px){
-    #detailPopup{width:calc(100% - 24px);max-height:92vh}
+    #detailPopup{width:calc(100% - 24px);max-height:calc(100% - 12px)}
     #detailPopup .popup-body{padding:12px}
   }
 </style></head><body>

@@ -26,9 +26,9 @@ func settlementSelectCols() []string {
 // эффектов, словарь категорий, пустые ветки, хранимая нагрузка.
 func expectOwnerPassEmpty(mock sqlmock.Sqlmock) {
 	mock.ExpectQuery(`
-		SELECT id, name_norm, impact, COALESCE(params->>'curve', '')
+		SELECT id, name, name_norm, impact, COALESCE(params->>'curve', '')
 		FROM effect_types
-	`).WillReturnRows(sqlmock.NewRows([]string{"id", "name_norm", "impact", "curve"}))
+	`).WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm", "impact", "curve"}))
 	mock.ExpectQuery(`
 		SELECT name_norm FROM categories
 	`).WillReturnRows(sqlmock.NewRows([]string{"name_norm"}))

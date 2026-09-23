@@ -14,8 +14,8 @@ import (
 
 // effectTypeRows — каталог типов эффектов: один «голод» (id 1, curve hunger).
 func effectTypeRows() *sqlmock.Rows {
-	return sqlmock.NewRows([]string{"id", "name_norm", "impact", "curve"}).
-		AddRow(int64(1), "голод", "population_rate", "hunger")
+	return sqlmock.NewRows([]string{"id", "name", "name_norm", "impact", "curve"}).
+		AddRow(int64(1), "Голод", "голод", "population_rate", "hunger")
 }
 
 // categoryNameRows — словарь позиций корзины (categories.name_norm).

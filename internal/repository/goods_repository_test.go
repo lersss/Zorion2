@@ -223,9 +223,9 @@ func TestUpdateGoodCategoryMismatch(t *testing.T) {
 	defer db.Close()
 
 	expectMutationBegin(mock)
-	mock.ExpectQuery(`SELECT kind, category_id FROM goods WHERE id = \$1 FOR UPDATE`).
+	mock.ExpectQuery(`SELECT kind FROM goods WHERE id = \$1 FOR UPDATE`).
 		WithArgs(int64(1)).
-		WillReturnRows(sqlmock.NewRows([]string{"kind", "category_id"}).AddRow("good", int64(1)))
+		WillReturnRows(sqlmock.NewRows([]string{"kind"}).AddRow("good"))
 	mock.ExpectQuery(`SELECT kind FROM categories WHERE id = \$1`).
 		WithArgs(int64(7)).
 		WillReturnRows(sqlmock.NewRows([]string{"kind"}).AddRow("resource"))
@@ -238,30 +238,28 @@ func TestUpdateGoodCategoryMismatch(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// TestUpdateGoodCategoryBound409 — смена категории товара с привязанным
-// рецептом → 409 (инвариант «выход рецепта = категория фабрики», §2.4/§5).
-func TestUpdateGoodCategoryBound409(t *testing.T) {
+// TestUpdateGoodCategoryBoundOK — смена категории товара, чей рецепт
+// привязан к постройкам, больше не блокируется → 200 (мёртвый 409 снят;
+// запроса producer_recipes нет).
+func TestUpdateGoodCategoryBoundOK(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
 	defer db.Close()
 
 	expectMutationBegin(mock)
-	mock.ExpectQuery(`SELECT kind, category_id FROM goods WHERE id = \$1 FOR UPDATE`).
+	mock.ExpectQuery(`SELECT kind FROM goods WHERE id = \$1 FOR UPDATE`).
 		WithArgs(int64(1)).
-		WillReturnRows(sqlmock.NewRows([]string{"kind", "category_id"}).AddRow("good", int64(1)))
+		WillReturnRows(sqlmock.NewRows([]string{"kind"}).AddRow("good"))
 	mock.ExpectQuery(`SELECT kind FROM categories WHERE id = \$1`).
 		WithArgs(int64(5)).
 		WillReturnRows(sqlmock.NewRows([]string{"kind"}).AddRow("good"))
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_recipes pr JOIN recipes r ON r\.id = pr\.recipe_id WHERE r\.good_id = \$1\)`).
-		WithArgs(int64(1)).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectExec(`UPDATE goods SET category_id = \$1 WHERE id = \$2`).
+		WithArgs(int64(5), int64(1)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
 
 	catID := int64(5)
-	err = NewGoodsRepository(db).UpdateGood(1, nil, &catID, nil, nil, nil)
-	var ce *ErrCatalog
-	require.True(t, errors.As(err, &ce))
-	require.Equal(t, 409, ce.Status)
-	require.Contains(t, ce.Msg, "отвяжите")
+	require.NoError(t, NewGoodsRepository(db).UpdateGood(1, nil, &catID, nil, nil, nil))
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -273,15 +271,12 @@ func TestUpdateGoodCategoryUnboundFree(t *testing.T) {
 	defer db.Close()
 
 	expectMutationBegin(mock)
-	mock.ExpectQuery(`SELECT kind, category_id FROM goods WHERE id = \$1 FOR UPDATE`).
+	mock.ExpectQuery(`SELECT kind FROM goods WHERE id = \$1 FOR UPDATE`).
 		WithArgs(int64(1)).
-		WillReturnRows(sqlmock.NewRows([]string{"kind", "category_id"}).AddRow("good", int64(1)))
+		WillReturnRows(sqlmock.NewRows([]string{"kind"}).AddRow("good"))
 	mock.ExpectQuery(`SELECT kind FROM categories WHERE id = \$1`).
 		WithArgs(int64(5)).
 		WillReturnRows(sqlmock.NewRows([]string{"kind"}).AddRow("good"))
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_recipes pr JOIN recipes r ON r\.id = pr\.recipe_id WHERE r\.good_id = \$1\)`).
-		WithArgs(int64(1)).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 	mock.ExpectExec(`UPDATE goods SET category_id = \$1 WHERE id = \$2`).
 		WithArgs(int64(5), int64(1)).
 		WillReturnResult(sqlmock.NewResult(0, 1))

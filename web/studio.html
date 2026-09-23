@@ -2,22 +2,23 @@
 <html lang="ru"><head><meta charset="utf-8">
 <title>Студия товаров Zorion</title>
 <style>
+:root{--fs-h1:20px;--fs-h3:15px;--fs-popup-title:18px;--fs-name:20px;--fs-section:13px;--fs-body:14px;--fs-label:13px;--fs-small:12px;--fs-canvas:14px;--fs-canvas-sub:12px}
 body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;height:100vh;box-sizing:border-box;display:flex;flex-direction:column;overflow:hidden;position:relative}
- h1{font-size:18px;margin:0 12px 0 0}
- h3{font-size:13px;color:#8cf;margin:10px 0 4px}
+ h1{font-size:var(--fs-h1);margin:0 12px 0 0}
+ h3{font-size:var(--fs-h3);color:#8cf;margin:10px 0 4px}
  .headbar{display:flex;flex-direction:column;gap:4px;margin-bottom:6px;margin-right:320px}
   .head-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   .head-title{justify-content:space-between}
   .head-status{display:flex;gap:12px;align-items:center}
   .tool-seg{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;padding:3px 8px;border-radius:8px;background:#1d1d1d;border:1px solid #333}
-  .seg-label{font-size:11px;color:#888;letter-spacing:.5px;text-transform:uppercase;white-space:nowrap}
-  .seg-sub{font-size:11px;color:#666;white-space:nowrap}
+  .seg-label{font-size:var(--fs-small);color:#888;letter-spacing:.5px;text-transform:uppercase;white-space:nowrap}
+  .seg-sub{font-size:var(--fs-small);color:#666;white-space:nowrap}
   .seg-body{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px}
-  .tool-seg input,.tool-seg select{background:#222;border:1px solid #444;color:#ddd;padding:5px;border-radius:6px}
+  .tool-seg input,.tool-seg select{background:#222;border:1px solid #444;color:#ddd;padding:5px;border-radius:6px;font-size:var(--fs-body)}
   details.tool-seg summary{list-style:none;cursor:pointer}
   details.tool-seg summary::-webkit-details-marker{display:none}
   details.tool-seg[open] summary{margin-bottom:2px}
- button{border:none;border-radius:6px;padding:6px 12px;font-size:13px;cursor:pointer;color:#ddd;background:#333}
+ button{border:none;border-radius:6px;padding:6px 12px;font-size:var(--fs-body);cursor:pointer;color:#ddd;background:#333}
  button:hover{background:#3a3a3a}
  button:active{background:#444}
  button:disabled{opacity:.45;cursor:not-allowed}
@@ -47,26 +48,27 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
   /* шапка справочника фиксированная (не скроллится); скроллится только #spravList
      (требование создателя 2026-09-19: «Справочник снова скроллится») */
   .sprav-head{flex-shrink:0}
-  #sprav .filters{font-size:12px;margin-bottom:6px;display:flex;flex-wrap:wrap;gap:2px 8px}
+  #sprav .filters{font-size:var(--fs-label);margin-bottom:6px;display:flex;flex-wrap:wrap;gap:2px 8px}
   #sprav .filters label{cursor:pointer;color:#bbb}
   #sprav .filters input{margin-right:3px;vertical-align:middle}
   /* пилюли-фильтры тиров (99a.3-ui §5.3): без подписи, выбор = акцент */
   .tierf{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px}
-  .pill{display:inline-block;font-size:11px;background:#222;border:1px solid #444;color:#ddd;border-radius:10px;padding:1px 8px;cursor:pointer;user-select:none}
+  .pill{display:inline-block;font-size:var(--fs-small);background:#222;border:1px solid #444;color:#ddd;border-radius:10px;padding:1px 8px;cursor:pointer;user-select:none}
   .pill:hover{background:#2b2b2b}
   .pill.on{background:#26a;border-color:#26a;color:#fff}
   #spravList{flex:1;min-height:0;overflow-y:auto}
+  #spravSearch,#spravCat{font-size:var(--fs-body)}
 .card{background:#2b2b2b;border:1px solid #4a4a4a;border-radius:8px;padding:8px;margin-bottom:8px;cursor:grab}
   .card:hover{background:#363636;border-color:#5a5a5a}
   .card:active{background:#404040}
- .card .nm{font-size:13px;color:#eee;word-break:break-word}
- .card .meta{font-size:11px;color:#999;margin-top:2px}
- .badge{display:inline-block;font-size:10px;border-radius:4px;padding:1px 5px;margin-right:4px}
+ .card .nm{font-size:15px;color:#eee;word-break:break-word}
+ .card .meta{font-size:13px;color:#999;margin-top:2px;word-break:break-word}
+ .badge{display:inline-block;font-size:11px;border-radius:4px;padding:1px 5px;margin-right:4px}
   .b-hidden{background:#333;color:#aaa} /* бейдж «скрыта» (спека скрытых §3.3) */
   .b-override{background:#26a;color:#fff} /* бейдж «переопределён» (редактор слотов, §3.2) */
   /* редактор слотов родителя (спека скрытых §3.2): список категорий набора */
   .prod-slots-list{max-height:200px;overflow-y:auto;border:1px solid #333;border-radius:6px;padding:4px 6px;margin:4px 0 6px}
-  .pslot{display:flex;align-items:center;gap:8px;padding:4px 4px;border-radius:6px;font-size:12px}
+  .pslot{display:flex;align-items:center;gap:8px;padding:4px 4px;border-radius:6px;font-size:13px}
   .pslot:hover{background:#242424}
   .pslot.hidden{background:#222}
   .pslot.hidden .cname{color:#999} /* скрытая строка — фон/имя, БЕЗ opacity: галка кликабельна */
@@ -83,56 +85,64 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
   #goodsFactorySel{max-width:280px}
   #goodsFamilySel{max-width:170px}
   /* список привязок рецепта к фабрикам (ТЗ §6.4) */
-  .bind-row{display:flex;align-items:center;gap:6px;font-size:12px;color:#ddd;padding:3px 6px;border-radius:4px}
+  .bind-row{display:flex;align-items:center;gap:6px;font-size:var(--fs-body);color:#ddd;padding:3px 6px;border-radius:4px;word-break:break-word}
   .bind-row:hover{background:#242424}
-  .bind-del{background:#555;border:none;border-radius:4px;color:#fff;cursor:pointer;font-size:11px;padding:2px 6px;margin-left:auto}
+  .bind-del{background:#555;border:none;border-radius:4px;color:#fff;cursor:pointer;font-size:12px;padding:2px 8px;min-height:26px;margin-left:auto}
   .bind-del:hover{background:#666}
   .bind-add{display:flex;gap:6px;margin-top:6px}
-  .bind-add select{flex:1;min-width:0;background:#222;border:1px solid #444;color:#ddd;padding:3px;border-radius:6px;font-size:12px}
-.popup-body .dname{font-size:15px;color:#fff;margin-bottom:4px}
+  .bind-add select{flex:1;min-width:0;background:#222;border:1px solid #444;color:#ddd;padding:3px;border-radius:6px;font-size:var(--fs-body)}
+.popup-body .dname{font-size:var(--fs-name);font-weight:600;color:#fff;margin-bottom:6px}
   .popup-body .dname .rename{cursor:pointer;border-bottom:1px dashed #555}
   .popup-body .dname .rename:hover{color:#8cf;border-bottom-color:#8cf}
-  .popup-body .dmeta{font-size:12px;color:#999;margin-bottom:8px}
-  .popup-body .dmeta select{background:#222;border:1px solid #444;color:#ddd;padding:3px;border-radius:6px;font-size:12px}
-.slot{background:#262626;border:1px solid #4a4a4a;border-radius:6px;padding:6px;margin-bottom:6px;min-height:28px;font-size:12px}
+  .popup-body .dmeta{font-size:var(--fs-body);color:#e8e8e8;margin-bottom:8px;word-break:break-word}
+  .popup-body .dmeta select{background:#222;border:1px solid #444;color:#ddd;padding:3px;border-radius:6px;font-size:var(--fs-body)}
+  /* блоки карточки (крупный попап, спека 2026-09-23 §3–§5): блок-карточка,
+     заголовок капсом, строки-характеристики */
+  .popup-body .pblock{background:#232323;border:1px solid #333;border-radius:8px;padding:12px 14px;margin:0 0 14px}
+  .popup-body .pblock-h{font-size:var(--fs-section);color:#8cf;font-weight:600;letter-spacing:.5px;text-transform:uppercase;margin:0 0 8px}
+  .popup-body .prow{display:flex;flex-wrap:wrap;gap:6px;font-size:var(--fs-body);color:#e8e8e8;margin:0 0 4px}
+  .popup-body .prow:last-child{margin-bottom:0}
+  .popup-body .prow .plabel{font-size:var(--fs-label);color:#999}
+  .popup-body .prow .pval{font-size:var(--fs-body);color:#e8e8e8;flex:1;min-width:0;word-break:break-word}
+.slot{background:#262626;border:1px solid #4a4a4a;border-radius:6px;padding:6px;margin-bottom:6px;min-height:28px;font-size:var(--fs-body)}
   .slot.empty{border-style:dashed;color:#999}
  .slot.drop-target{border-color:#8cf;background:#1e2a3a;box-shadow:0 0 0 1px #8cf}
- .slot .sname{color:#8cf}
- .slot .sreason{color:#777;font-size:11px;margin-top:2px}
- .slot .allowres{display:block;margin-top:4px;font-size:11px;color:#999;cursor:pointer}
+ .slot .sname{color:#8cf;font-size:15px}
+ .slot .sreason{color:#777;font-size:var(--fs-small);margin-top:2px}
+ .slot .allowres{display:block;margin-top:4px;font-size:13px;color:#999;cursor:pointer}
  .slot .allowres input{margin-right:4px;vertical-align:middle}
- .slot button{float:right;background:#a33;border:none;border-radius:4px;color:#fff;cursor:pointer;font-size:11px;padding:2px 6px;min-width:24px;min-height:24px;margin-left:4px}
+ .slot button{float:right;background:#a33;border:none;border-radius:4px;color:#fff;cursor:pointer;font-size:14px;padding:2px 6px;min-width:28px;min-height:28px;margin-left:4px}
  .slot button.delslot{background:#555}
  .slot button.delslot:hover{background:#666}
 .popup-body .btns{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
-  .popup-body .btns button{border:none;border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer}
+  .popup-body .btns button{border:none;border-radius:6px;padding:6px 12px;font-size:var(--fs-body);cursor:pointer}
  .usedin{margin-top:10px;border-top:1px solid #333;padding-top:8px}
- .usedin-h{font-size:12px;color:#8cf;margin-bottom:4px}
- .usedin-item{font-size:12px;color:#ddd;padding:3px 6px;border-radius:4px;cursor:pointer}
+ .usedin-h{font-size:var(--fs-section);color:#8cf;font-weight:600;letter-spacing:.5px;text-transform:uppercase;margin-bottom:6px}
+ .usedin-item{font-size:var(--fs-body);color:#ddd;padding:4px 6px;border-radius:4px;cursor:pointer;word-break:break-word}
  .usedin-item:hover{background:#242424;color:#8cf}
- #report{position:fixed;bottom:10px;right:10px;max-width:420px;background:#1c1c1c;border:1px solid #555;border-radius:8px;padding:10px;font-size:12px;color:#fa0;display:none;z-index:10}
+ #report{position:fixed;bottom:10px;right:10px;max-width:420px;background:#1c1c1c;border:1px solid #555;border-radius:8px;padding:10px;font-size:13px;color:#fa0;display:none;z-index:10}
  #report .rline{margin:2px 0}
- .hint{color:#666;font-size:11px;margin-top:4px}
- .empty-note{color:#666;font-size:12px;padding:6px}
+ .hint{color:#666;font-size:var(--fs-small);margin-top:4px}
+ .empty-note{color:#666;font-size:var(--fs-small);padding:6px}
  .overlay{position:absolute;inset:0;display:none;align-items:center;justify-content:center;flex-direction:column;gap:10px;background:#161616cc;color:#ddd;font-size:14px;z-index:5;text-align:center}
  .spinner{width:28px;height:28px;border:3px solid #333;border-top-color:#8cf;border-radius:50%;animation:spin .8s linear infinite}
  @keyframes spin{to{transform:rotate(360deg)}}
  #offlinePill{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);background:#a62;color:#fff;padding:6px 12px;border-radius:6px;font-size:12px;display:none;z-index:6;white-space:nowrap}
- #tip{position:absolute;background:#1c1c1c;border:1px solid #555;border-radius:6px;padding:6px 8px;font-size:12px;color:#ddd;pointer-events:none;z-index:7;max-width:260px;box-shadow:0 2px 8px #000a;display:none}
+ #tip{position:absolute;background:#1c1c1c;border:1px solid #555;border-radius:6px;padding:6px 8px;font-size:13px;color:#ddd;pointer-events:none;z-index:7;max-width:260px;box-shadow:0 2px 8px #000a;display:none}
   #ctxMenu{position:fixed;background:#1c1c1c;border:1px solid #444;border-radius:8px;padding:4px;z-index:30;min-width:210px;box-shadow:0 4px 16px #000a;display:none}
-  #ctxMenu button{display:block;width:100%;text-align:left;background:none;border:none;color:#ddd;padding:6px 10px;font-size:13px;border-radius:6px;cursor:pointer}
+  #ctxMenu button{display:block;width:100%;text-align:left;background:none;border:none;color:#ddd;padding:6px 10px;font-size:14px;border-radius:6px;cursor:pointer}
   #ctxMenu button:hover{background:#2b2b2b;color:#8cf}
  #modalOverlay{position:fixed;inset:0;background:#000c;display:none;align-items:center;justify-content:center;z-index:20}
  #modal{background:#1c1c1c;border:1px solid #444;border-radius:8px;padding:14px;max-width:480px;width:90%;max-height:80vh;overflow-y:auto}
  #modal h3{margin:0 0 8px;color:#fff}
  #modal .wlist{max-height:180px;overflow-y:auto;border:1px solid #333;border-radius:6px;padding:6px;margin-top:8px}
- #modal .wline{font-size:12px;color:#fa0;margin:3px 0}
-  #modal .pline{font-size:12px;color:#ddd;padding:3px 6px;border-radius:4px;cursor:pointer}
+ #modal .wline{font-size:13px;color:#fa0;margin:3px 0}
+  #modal .pline{font-size:14px;color:#ddd;padding:3px 6px;border-radius:4px;cursor:pointer}
   #modal .pline:hover{background:#242424;color:#8cf}
  #modal .mbtns{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
   /* поля форм добавления в попапе (ТЗ §7.3): на всю ширину окна — формы переехали
      из узкой панели #sprav (инлайн-строки .addrow удалены) */
-  #modal input[type=text],#modal select,#modal textarea{width:100%;box-sizing:border-box;display:block;margin:6px 0;background:#222;border:1px solid #444;color:#ddd;padding:5px;border-radius:6px;font-size:13px;font-family:inherit}
+  #modal input[type=text],#modal select,#modal textarea{width:100%;box-sizing:border-box;display:block;margin:6px 0;background:#222;border:1px solid #444;color:#ddd;padding:5px;border-radius:6px;font-size:14px;font-family:inherit}
   /* оверлей логина (спека iterB §4.1): инлайн-копия паттерна админки, стиль студии */
   #studioLoginOverlay{position:fixed;inset:0;background:#111f;z-index:40;display:none;align-items:center;justify-content:center}
   #studioLoginOverlay .login-card{background:#1c1c1c;border:1px solid #444;border-radius:10px;padding:20px;width:340px;box-sizing:border-box;box-shadow:0 8px 32px #000c}
@@ -154,49 +164,95 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
   #effOverlay.expanded{right:0}
   #effPopup{position:absolute;left:calc(50% - 200px);top:50%;transform:translate(-50%,-50%);width:400px;max-height:80%;background:#1c1c1c;border:1px solid #555;border-radius:10px;z-index:11;display:none;flex-direction:column;box-shadow:0 8px 32px #000c}
   .cat-add{display:flex;gap:6px;margin-bottom:8px}
-  .cat-add input{flex:1;min-width:0;background:#222;border:1px solid #444;color:#ddd;padding:5px;border-radius:6px}
-  .cat-row{display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:6px;font-size:12px}
+  .cat-add input{flex:1;min-width:0;background:#222;border:1px solid #444;color:#ddd;padding:5px;border-radius:6px;font-size:14px}
+  .cat-row{display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:6px;font-size:14px}
   .cat-row:hover{background:#242424}
   .cat-row .cname{flex:1;min-width:0;cursor:pointer;color:#ddd;word-break:break-word}
   .cat-row .cname:hover{color:#8cf}
-  .cat-row .ccount{color:#888;font-size:11px;white-space:nowrap}
-  .cat-row button{background:none;border:none;color:#999;cursor:pointer;font-size:13px;padding:2px 4px;min-width:24px;min-height:24px;border-radius:4px}
+  .cat-row .ccount{color:#888;font-size:12px;white-space:nowrap}
+  .cat-row button{background:none;border:none;color:#999;cursor:pointer;font-size:14px;padding:2px 4px;min-width:26px;min-height:26px;border-radius:4px}
   .cat-row button:hover{background:#333;color:#fff}
   .cat-row button:disabled{opacity:.35;cursor:not-allowed}
   .cat-row button:disabled:hover{background:none;color:#999}
-  .cat-row input{flex:1;min-width:0;background:#222;border:1px solid #444;color:#ddd;padding:3px 5px;border-radius:4px;font-size:12px}
-  #detailPopup{position:absolute;left:calc(50% - 160px);top:50%;transform:translate(-50%,-50%);width:400px;max-height:80%;background:#1c1c1c;border:1px solid #555;border-radius:10px;z-index:11;display:none;flex-direction:column;box-shadow:0 8px 32px #000c}
+  .cat-row input{flex:1;min-width:0;background:#222;border:1px solid #444;color:#ddd;padding:3px 5px;border-radius:4px;font-size:14px}
+  /* крупный центрированный попап карточек (спека 2026-09-23 §2): ~720 px, центр
+     без ручного сдвига под панель 320 px */
+  #detailPopup{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(720px,calc(100% - 48px));max-height:88vh;background:#1c1c1c;border:1px solid #555;border-radius:10px;z-index:11;display:none;flex-direction:column;box-shadow:0 8px 32px #000c}
+  @media (max-width:820px){
+    #detailPopup{width:calc(100% - 24px);max-height:92vh}
+    #detailPopup .popup-body{padding:10px}
+  }
   /* попап «Предложения ИИ» (спека iterC §6.5): в стиле попапа-детали, шире — селект категорий */
   #proposalsOverlay{position:absolute;left:0;top:0;right:320px;bottom:0;background:#000a;z-index:10;display:none}
   #proposalsOverlay.expanded{right:0}
   #proposalsPopup{position:absolute;left:calc(50% - 240px);top:50%;transform:translate(-50%,-50%);width:480px;max-height:80%;background:#1c1c1c;border:1px solid #555;border-radius:10px;z-index:11;display:none;flex-direction:column;box-shadow:0 8px 32px #000c}
-  #proposalsPopup .popup-body select{background:#222;border:1px solid #444;color:#ddd;padding:3px;border-radius:6px;font-size:12px;margin-top:4px}
+  #proposalsPopup .popup-body select{background:#222;border:1px solid #444;color:#ddd;padding:3px;border-radius:6px;font-size:14px;margin-top:4px}
   /* попап «Описания ИИ» (спека 2026-09-21-каталог-описание §9.4): по образцу #proposalsPopup */
   #descOverlay{position:absolute;left:0;top:0;right:320px;bottom:0;background:#000a;z-index:10;display:none}
   #descOverlay.expanded{right:0}
   #descPopup{position:absolute;left:calc(50% - 260px);top:50%;transform:translate(-50%,-50%);width:520px;max-height:80%;background:#1c1c1c;border:1px solid #555;border-radius:10px;z-index:11;display:none;flex-direction:column;box-shadow:0 8px 32px #000c}
   #descPopupBody{max-height:60vh;overflow:auto}
-  #descPopupBody textarea{width:100%;box-sizing:border-box;background:#222;border:1px solid #444;color:#ddd;border-radius:6px;padding:4px;font-size:12px;font-family:inherit;margin-top:4px}
-  .descai{font-size:12px;color:#bbb;white-space:nowrap}
+  #descPopupBody textarea{width:100%;box-sizing:border-box;background:#222;border:1px solid #444;color:#ddd;border-radius:6px;padding:4px;font-size:14px;font-family:inherit;margin-top:4px}
+  .descai{font-size:13px;color:#bbb;white-space:nowrap}
   .descai input{margin-right:4px;vertical-align:middle}
-  #btnDescBatch{font-size:12px;background:#2b2b2b;border:1px solid #4a4a4a;color:#ddd;border-radius:6px;padding:5px 8px;cursor:pointer}
+  #btnDescBatch{font-size:13px;background:#2b2b2b;border:1px solid #4a4a4a;color:#ddd;border-radius:6px;padding:5px 8px;cursor:pointer}
   #btnDescBatch:hover{background:#363636}
   #btnDescBatch:disabled{opacity:.5;cursor:default}
-  .popup-head{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid #333;cursor:move;user-select:none;font-size:14px;color:#fff;gap:8px}
-  .popup-head .ptitle{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .popup-head button{background:none;border:none;color:#999;font-size:18px;cursor:pointer;padding:0 6px;line-height:1}
+  .popup-head{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid #333;cursor:move;user-select:none;font-size:var(--fs-body);color:#fff;gap:8px}
+  .popup-head .ptitle{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-popup-title);font-weight:600}
+  .popup-head button{background:none;border:none;color:#999;font-size:20px;cursor:pointer;padding:0 6px;line-height:1}
   .popup-head button:hover{color:#fff}
-  .popup-body{overflow-y:auto;padding:10px;font-size:12px}
-  .tier-warn{color:#fa0;font-size:11px;margin-top:2px}
-  #modeBadge{position:absolute;left:10px;bottom:10px;background:#1c1c1ccc;color:#666;font-size:11px;padding:3px 8px;border-radius:6px;z-index:4;pointer-events:none}
+  .popup-body{overflow-y:auto;padding:14px 16px;font-size:var(--fs-body);line-height:1.5}
+  .tier-warn{color:#fa0;font-size:var(--fs-small);margin-top:2px}
+  #modeBadge{position:absolute;left:10px;bottom:10px;background:#1c1c1ccc;color:#666;font-size:var(--fs-small);padding:3px 8px;border-radius:6px;z-index:4;pointer-events:none}
   .card.hidden{opacity:.55;background:#222;border-color:#444} /* скрытая запись-фабрика / скрытая категория строений (спека скрытых §3.3) */
-  .card .info{background:none;border:none;color:#8cf;cursor:pointer;font-size:12px;padding:0 2px;float:right}
+  .card .info{background:none;border:none;color:#8cf;cursor:pointer;font-size:13px;padding:0 2px;float:right}
   .card .info:hover{color:#fff}
   /* разделы студии (спека 2026-09-20-фабрики §4): Товары/Производители/Предметы */
-  .branch-btn{background:#2b2b2b;border:1px solid #4a4a4a;color:#ddd;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer}
+  .branch-btn{background:#2b2b2b;border:1px solid #4a4a4a;color:#ddd;border-radius:6px;padding:5px 12px;font-size:13px;cursor:pointer}
   .branch-btn:hover{background:#363636}
   .branch-btn.on{background:#26a;border-color:#26a;color:#fff}
-  .popup-body textarea{background:#222;border:1px solid #444;color:#ddd;border-radius:6px;padding:4px;font-size:12px;font-family:inherit}
+  .popup-body textarea{background:#222;border:1px solid #444;color:#ddd;border-radius:6px;padding:6px;font-size:var(--fs-body);font-family:inherit}
+  /* Крупная карточка попапа (правка вида 2026-09-23): только #detailPopup —
+     ширина ~1080, кегли/отступы ×1,5. Справочник, шапка, прочие попапы и canvas
+     не затронуты (селекторы скоуплены на #detailPopup). */
+  #detailPopup{width:min(1080px,calc(100% - 48px));max-height:92vh}
+  #detailPopup .popup-head{padding:14px 20px;font-size:21px}
+  #detailPopup .popup-head .ptitle{font-size:27px}
+  #detailPopup .popup-head button{font-size:30px;padding:0 9px}
+  #detailPopup .popup-body{padding:20px 24px;font-size:21px}
+  #detailPopup .dname{font-size:30px;margin-bottom:9px}
+  #detailPopup .dmeta{font-size:21px;margin-bottom:12px}
+  #detailPopup .dmeta select{font-size:21px}
+  #detailPopup .pblock{padding:18px 20px;margin-bottom:20px}
+  #detailPopup .pblock-h{font-size:20px;margin-bottom:12px}
+  #detailPopup .prow{font-size:21px;margin-bottom:6px}
+  #detailPopup .prow .plabel{font-size:20px}
+  #detailPopup .prow .pval{font-size:21px}
+  #detailPopup .usedin-h{font-size:20px;margin-bottom:9px}
+  #detailPopup .usedin-item{font-size:21px;padding:6px 9px}
+  #detailPopup .slot{font-size:21px;padding:9px;margin-bottom:9px;min-height:42px}
+  #detailPopup .slot .sname{font-size:22px}
+  #detailPopup .slot .sreason{font-size:18px}
+  #detailPopup .slot .allowres{font-size:19px}
+  #detailPopup .slot button{font-size:21px;min-width:42px;min-height:42px;padding:3px 9px}
+  #detailPopup .btns button{font-size:21px;padding:9px 18px}
+  #detailPopup .hint,#detailPopup .empty-note{font-size:18px}
+  #detailPopup .badge{font-size:16px}
+  #detailPopup textarea,#detailPopup input,#detailPopup select{font-size:21px}
+  #detailPopup input[type=number]{min-width:96px}
+  #detailPopup .bind-row{font-size:21px}
+  #detailPopup .bind-del{font-size:18px;min-height:39px;padding:3px 12px}
+  #detailPopup .bind-add select{font-size:21px}
+  #detailPopup .tier-warn{font-size:18px}
+  #detailPopup .pslot{font-size:20px}
+  #detailPopup .pslot button{font-size:20px;min-width:36px;min-height:36px}
+  #detailPopup .prod-slots-list{max-height:260px;padding:6px 9px}
+  #detailPopup .dname,#detailPopup .dmeta,#detailPopup .pblock-h,#detailPopup .pval,#detailPopup .usedin-item,#detailPopup .bind-row{overflow-wrap:anywhere}
+  @media (max-width:820px){
+    #detailPopup{width:calc(100% - 24px);max-height:92vh}
+    #detailPopup .popup-body{padding:12px}
+  }
 </style></head><body>
 <header id="headbar" class="headbar">
   <div class="head-row head-title">
@@ -418,6 +474,7 @@ let spravMode = localStorage.getItem("gs_spravMode") || "buildings";
 const bindingInFlight = new Set(); // recipe_id в полёте — защита от двойного POST привязки (ТЗ §7.3.2)
 let dndActive = false; // перетаскивание карточки на канвас — глушит зум/пан (ТЗ §7.3.3)
 let dndDepth = 0;      // счётчик dragenter/dragleave для подсветки канваса (ТЗ §7.3.3)
+let prodDropHighlight = null; // узел дерева построек под курсором при drag (идея 2026-09-23, шаг 2 §3.1)
 
 const canvas = $("graph");
 const ctx = canvas.getContext("2d");
@@ -869,23 +926,24 @@ function renderGraph() {
     roundRect(x, y, CARD_W, CARD_H, 8);
     ctx.fill(); ctx.stroke();
     ctx.fillStyle = dim ? "#aaa" : "#fff";
-    ctx.font = "12px Arial";
-    ctx.fillText(trunc(g.name, 26), x + 8, y + 18);
+    ctx.font = "14px Arial";
+    ctx.fillText(truncPx(g.name, CARD_W - 16, 24), x + 8, y + 18);
     ctx.fillStyle = dim ? "#888" : "#bbb";
-    ctx.font = "10px Arial";
-    ctx.fillText(catName(g.category_id), x + 8, y + 32);
+    ctx.font = "12px Arial";
+    ctx.fillText(truncPx(catName(g.category_id), CARD_W - 16, 22), x + 8, y + 32);
     // бейджи: тир — эффективный из серверного поля (99a.3 §9.3, М5)
     const badges = [];
     badges.push({t: "тир " + g.tier, c: "#5a5a5a"});
     // маркер «производится другой фабрикой» в режиме фабрики (ТЗ §5.3)
     if (isOtherFactoryComponent(g)) badges.push({t: "др. фабрика", c: "#357"});
+    ctx.font = "11px Arial";
     let bx = x + 8;
     badges.forEach(b => {
       const w = ctx.measureText(b.t).width + 10;
       ctx.fillStyle = b.c;
-      roundRect(bx, y + 40, w, 16, 4); ctx.fill();
+      roundRect(bx, y + 40, w, 18, 4); ctx.fill();
       ctx.fillStyle = "#fff";
-      ctx.fillText(b.t, bx + 5, y + 52);
+      ctx.fillText(b.t, bx + 5, y + 53);
       bx += w + 4;
     });
     // Слоты под карточкой НЕ рисуются: заполненный слот = карточка дочки +
@@ -907,14 +965,28 @@ function renderGraph() {
     ctx.fill(); ctx.stroke();
     ctx.setLineDash([]);
     ctx.fillStyle = "#999";
-    ctx.font = "12px Arial";
+    ctx.font = "14px Arial";
     // галка «заполнять ресурсом» (99a Пакет 4, п.8): метка на плейсхолдере
     ctx.fillText(sl.allowResource ? "⚙ ресурс" : "пусто", x + 8, y + 18);
-    ctx.font = "10px Arial";
-    ctx.fillText("слот для «" + trunc(parentName, 22) + "»", x + 8, y + 32);
+    ctx.font = "12px Arial";
+    ctx.fillText(truncPx("слот для «" + parentName + "»", CARD_W - 16, 26), x + 8, y + 32);
   });
 }
 function trunc(s, n) { return s.length > n ? s.slice(0, n - 1) + "…" : s; }
+// truncPx — обрезка по фактической ширине (текст не вылезает за canvas-карточку);
+// maxChars — верхняя граница по символам (спека 2026-09-23 §3.3). Вызывать
+// после установки ctx.font.
+function truncPx(s, maxPx, maxChars) {
+  s = String(s == null ? "" : s);
+  const cap = Math.min(s.length, maxChars);
+  if (ctx.measureText(s).width <= maxPx && s.length <= maxChars) return s;
+  let lo = 0, hi = cap;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (ctx.measureText(s.slice(0, mid) + "…").width <= maxPx) lo = mid; else hi = mid - 1;
+  }
+  return s.slice(0, lo) + "…";
+}
 function roundRect(x, y, w, h, r) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
@@ -1025,7 +1097,15 @@ canvas.addEventListener("dblclick", ev => {
   // hitTest может не найти карточку: первый клик двойного перестроил подграф,
   // карточка уехала из точки клика — fallback на downOnCard (карточка первого клика)
   const id = hit && hit.type === "card" ? hit.id : downOnCard;
-  if (id) { selected = id; openPopup(id); renderAll(); }
+  if (id) {
+    selected = id;
+    // Клик по дереву построек ВСЕГДА открывает карточку постройки: режим
+    // справочника («Товары») влияет только на список справа, не на канвас.
+    // Через openPopup нельзя — в режиме «Товары» он уводит в товарный попап
+    // (идея 2026-09-23, шаг 2).
+    if (branch === "producers") openProdNodePopup(id); else openPopup(id);
+    renderAll();
+  }
   downOnCard = null;
 });
 canvas.addEventListener("mouseleave", hideTip);
@@ -1279,69 +1359,126 @@ document.addEventListener("keydown", ev => {
 canvas.addEventListener("wheel", hideCtxMenu);
 
 // ---------- drag&drop карточки справочника на канвас = привязка (ТЗ §7.3) ----------
-// Новая функциональность (D1): канвас принимает drop — рецепт перетащенного
-// товара привязывается к ВЫБРАННОЙ фабрике. Бросок в любую точку канваса —
-// одно действие (привязка — свойство фабрики, не слота); состав рецепта drop
-// не меняет. Слоты попапа — отдельные цели (dropOnSlot), не конфликтуют.
+// Ветка «Товары»: канвас принимает drop — рецепт перетащенного товара
+// привязывается к ВЫБРАННОЙ фабрике. Бросок в любую точку канваса — одно
+// действие (привязка — свойство фабрики, не слота); состав рецепта drop не
+// меняет. Слоты попапа — отдельные цели (dropOnSlot), не конфликтуют.
+// Ветка «Производители» в режиме справочника «Товары» (идея 2026-09-23,
+// шаг 2 §3.1): цель — УЗЕЛ ПОД КУРСОРОМ в дереве построек (hitTest →
+// prodNodeById), а не выбранный; это ДРУГОЙ резолвер цели при общем
+// bindRecipeToFactory (ловушка §10).
+function prodMode() { return branch === "producers" && spravMode === "goods"; }
+// prodDropBlock — причина, по которой бросок недоступен (null = можно).
+// Матрица §3.1: подтип — можно; тип/класс/заглушка — «не классу»; invite —
+// «сначала создайте»; ресурс/без рецепта/повтор — свои тосты.
+function prodDropBlock(g, nodeId, p) {
+  if (!p || !p.parent_id) {
+    if (nodeId.indexOf("invite:") === 0) return "Сначала создайте постройку";
+    return "Рецепт назначается конкретной постройке (дочке), не классу";
+  }
+  if (!g) return "товар не найден";
+  if (g.kind === "resource") return "ресурс нельзя назначить как рецепт";
+  if (!g.recipe_id) return "рецепт не создан";
+  if ((g.bound_factories || []).some(fid => String(fid) === String(p.id))) return "уже в наборе постройки";
+  return null;
+}
 function dndReset() {
   dndDepth = 0;
   dndActive = false;
+  const wasHighlighted = !!prodDropHighlight;
+  prodDropHighlight = null;
   $("canvasWrap").classList.remove("dnd-over");
+  if (wasHighlighted && branch === "producers") renderGraph();
 }
 $("canvasWrap").addEventListener("dragenter", ev => {
-  if (branch !== "goods") return; // «Производители»: дерево не draggable — drop инертен
+  if (branch === "goods") {
+    dndActive = true;
+    dndDepth++;
+    if (factoryMode()) $("canvasWrap").classList.add("dnd-over"); // подсветка только с выбранной фабрикой
+    return;
+  }
+  if (!prodMode()) return; // «Производители» без режима «Товары» — дерево drop не принимает
   dndActive = true;
   dndDepth++;
-  if (factoryMode()) $("canvasWrap").classList.add("dnd-over"); // подсветка только с выбранной фабрикой
 });
 $("canvasWrap").addEventListener("dragleave", ev => {
   if (dndDepth > 0) dndDepth--;
-  if (dndDepth === 0) $("canvasWrap").classList.remove("dnd-over");
+  if (dndDepth === 0) dndReset2();
 });
+// dndReset2 — снять подсветку при уходе курсора с канваса, не сбрасывая dndActive
+// (перетаскивание продолжается, ТЗ §7.3.3).
+function dndReset2() {
+  $("canvasWrap").classList.remove("dnd-over");
+  if (prodDropHighlight) { prodDropHighlight = null; renderGraph(); }
+}
 $("canvasWrap").addEventListener("dragover", ev => {
-  if (branch !== "goods") return; // без preventDefault — drop инертен
+  if (branch === "goods") {
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = factoryMode() ? "copy" : "none";
+    return;
+  }
+  if (!prodMode()) return; // без preventDefault — drop инертен
   ev.preventDefault();
-  ev.dataTransfer.dropEffect = factoryMode() ? "copy" : "none";
+  const hit = hitTest(ev);
+  const nodeId = hit && hit.type === "card" ? hit.id : null;
+  const target = nodeId ? prodNodeById(nodeId) : null;
+  const ok = !!(target && target.parent_id); // цель — только запись-подтип (шаг 2 §3.1)
+  ev.dataTransfer.dropEffect = ok ? "copy" : "none";
+  const next = ok ? nodeId : null;
+  if (prodDropHighlight !== next) { prodDropHighlight = next; renderGraph(); } // подсветка карточки-подтипа
 });
 $("canvasWrap").addEventListener("drop", ev => {
   dndReset();
-  if (branch !== "goods") return;
-  ev.preventDefault();
   const goodId = ev.dataTransfer.getData("text/plain");
   const g = state.goods.find(x => x.id === goodId);
-  if (!factoryMode()) {
-    showReport(["Выберите фабрику в шапке — перетаскивание привяжет рецепт к ней"]);
+  if (branch === "goods") {
+    ev.preventDefault();
+    if (!factoryMode()) {
+      showReport(["Выберите фабрику в шапке — перетаскивание привяжет рецепт к ней"]);
+      return;
+    }
+    if (!g) { showReport(["товар не найден"]); return; }
+    const ft = factoryType();
+    if (g.kind === "resource") { showReport(["ресурс нельзя привязать как рецепт"]); return; }
+    if (g.category_id !== ft.category_id) {
+      showReport(["товар другой категории — фабрика производит только «" + catName(ft.category_id) + "»"]);
+      return;
+    }
+    if ((g.bound_factories || []).includes(ft.id)) { showReport(["уже в наборе постройки"]); return; }
+    bindRecipeToFactory(g, ft.id);
     return;
   }
-  if (!g) { showReport(["товар не найден"]); return; }
-  const ft = factoryType();
-  if (g.kind === "resource") { showReport(["ресурс нельзя привязать как рецепт"]); return; }
-  if (g.category_id !== ft.category_id) {
-    showReport(["товар другой категории — фабрика производит только «" + catName(ft.category_id) + "»"]);
-    return;
-  }
-  if ((g.bound_factories || []).includes(ft.id)) { showReport(["уже в наборе фабрики"]); return; }
-  bindRecipeToFactory(g, ft.id);
+  if (!prodMode()) return;
+  ev.preventDefault();
+  const hit = hitTest(ev);
+  const nodeId = hit && hit.type === "card" ? hit.id : null;
+  if (!nodeId) return; // пустое место канваса — инертно, без тоста (случайный промах)
+  const p = prodNodeById(nodeId);
+  const block = prodDropBlock(g, nodeId, p);
+  if (block) { showReport([block]); return; }
+  bindRecipeToFactory(g, p.id);
 });
 // отмена переноса (Esc/drop вне цели/другая программа) — снять подсветку/счётчик
 // (делегированно: карточки справочника перерисовываются, ТЗ §7.3.3)
 document.addEventListener("dragend", dndReset);
 
-// bindRecipeToFactory — единый путь привязки рецепта к фабрике (drop §7.3.2,
+// bindRecipeToFactory — единый путь привязки рецепта к постройке (drop §7.3.2,
 // контекстное меню §7.6, попап §6.4). Успех — без тоста (визуальная обратная
 // связь: узел в графе + бейдж «в наборе»); 4xx — тост api(). Защита от
-// двойного POST — bindingInFlight (ТЗ §7.3.2).
+// двойного POST — bindingInFlight по ключу producerId:recipeId (иначе быстрый
+// бросок одного рецепта на две разные постройки молча терял второй, §3.1).
 async function bindRecipeToFactory(g, factoryId) {
   if (!g) return false;
   if (!g.recipe_id) { showReport(["рецепт не создан"]); return false; }
-  if (bindingInFlight.has(g.recipe_id)) return false;
-  bindingInFlight.add(g.recipe_id);
+  const key = factoryId + ":" + g.recipe_id;
+  if (bindingInFlight.has(key)) return false;
+  bindingInFlight.add(key);
   try {
     const r = await api("POST", "/studio/api/producers/" + factoryId + "/recipes", {recipe_id: g.recipe_id});
     if (r) { fetchState(); return true; }
     return false;
   } finally {
-    bindingInFlight.delete(g.recipe_id);
+    bindingInFlight.delete(key);
   }
 }
 
@@ -1378,14 +1515,9 @@ function renderPopup() {
   let html = '';
   // имя: клик — inline-переименование (ресурсы без привилегий, спека iterB §4.5)
   html += '<div class="dname"><span class="rename" onclick="startRename()" title="переименовать">' + esc(g.name) + '</span></div>';
-  // категория: селект — смена (товарные/ресурсные раздельно, §4.5)
-  const bound = g.bound_factories || [];
-  html += '<div class="dmeta">';
-  // смена категории привязанного товара — 409 на сервере (спека §5); селект
-  // заблокирован, чтобы не упираться в отказ (ТЗ §6.1). Ресурс привязок не имеет.
-  const catLocked = !isRes && bound.length > 0;
-  html += '<select class="dcat" onchange="changeCategory(this.value)"' +
-    (catLocked ? ' disabled title="Товар привязан к фабрикам — сначала отвяжите (секция «Доступен фабрикам»)"' : '') + '>' +
+  // шапка-блок (спека 2026-09-23 §5.1): категория, сложность рецепта, источник
+  html += '<div class="pblock"><div class="dmeta" style="margin-bottom:0">';
+  html += '<select class="dcat" onchange="changeCategory(this.value)">' +
     state.categories.filter(c => c.kind === (isRes ? "resource" : "good")).map(c => '<option value="' + c.id + '"' + (c.id === g.category_id ? ' selected' : '') + '>' + esc(c.name) + '</option>').join("") +
     '</select>';
   // сложность рецепта (recipes.complexity) вместо тир-оверрайда (ТЗ §6.2):
@@ -1402,20 +1534,11 @@ function renderPopup() {
     }
   }
   html += (g.source === "ai" ? ' · ИИ' : g.source === "import" ? ' · импорт' : '');
-  html += '</div>';
-  // объём/вес — данные каталога (спека 2026-09-20-фабрики §3.1, 3b.6.4):
-  // значение есть всегда (Р2, 2026-09-21) — дефолт 1, пустой ввод = 1
-  html += '<div class="dmeta">объём: <input id="volInput" type="number" min="0" step="any" style="width:70px" value="' + (g.volume !== null && g.volume !== undefined ? g.volume : 1) + '" onchange="setVolumeWeight(this.value, null)" title="объём единицы товара">' +
-    ' · вес: <input id="wgtInput" type="number" min="0" step="any" style="width:70px" value="' + (g.weight !== null && g.weight !== undefined ? g.weight : 1) + '" onchange="setVolumeWeight(null, this.value)" title="вес единицы товара"></div>';
-  // описание каталога (спека 2026-09-21-каталог-описание §9.1): многострочное,
-  // пусто = описания нет; автосохранение по потере фокуса (как объём/вес)
-  html += '<div class="dmeta">описание:<br>' +
-    '<textarea id="descInput" rows="3" placeholder="описание — увидят игроки; пусто = описания нет" onchange="setDescription(this.value)">' + esc(g.description || "") + '</textarea></div>';
-  // слоты: только у товаров (ресурс — лист, слотов нет, §4.5); заполненный и
-  // пустой — оба drop-target (замена в одно действие); тир в заполненном
-  // слоте — эффективный из SlotView.Tier (99a.3 §9.3)
+  html += '</div></div>';
+  // Состав рецепта (спека §5.2) — только у товаров (ресурс — лист, слотов нет):
+  // заполненный и пустой — оба drop-target; обработчики не меняются
   if (!isRes) {
-    html += '<h3>Состав рецепта</h3>';
+    html += '<div class="pblock"><div class="pblock-h">Состав рецепта</div>';
     (g.recipe || []).forEach((s, i) => {
       if (s.good_id) {
         html += '<div class="slot" ondragover="slotDragOver(event,this)" ondragleave="slotDragLeave(this)" ondrop="dropOnSlot(event,' + i + ')">' +
@@ -1423,7 +1546,7 @@ function renderPopup() {
                 '<button class="delslot" onclick="delSlot(' + i + ')" title="удалить слот целиком" aria-label="удалить слот">🗑</button>' +
                 '<span class="sname">' + esc(s.name || s.good_id) + '</span>' +
                 ' <span style="color:#777">тир ' + s.tier + '</span>' +
-                ' <span style="color:#999">×</span> <input type="number" min="1" style="width:52px" value="' + (s.quantity || 1) + '" onchange="setQuantity(' + i + ', this.value)" title="количество единиц составляющей">' +
+                ' <span style="color:#999">×</span> <input type="number" min="1" style="width:56px" value="' + (s.quantity || 1) + '" onchange="setQuantity(' + i + ', this.value)" title="количество единиц составляющей">' +
                 (s.reason ? '<div class="sreason">' + esc(s.reason) + '</div>' : '') + '</div>';
       } else {
         html += '<div class="slot empty" ondragover="slotDragOver(event,this)" ondragleave="slotDragLeave(this)" ondrop="dropOnSlot(event,' + i + ')">' +
@@ -1432,7 +1555,17 @@ function renderPopup() {
                 '<label class="allowres" title="разрешить ресурс в этом компоненте (для ИИ): с галкой ИИ может предложить ресурс; без галки — только товары"><input type="checkbox" onchange="setAllowResource(' + i + ', this.checked)"' + (s.allow_resource ? ' checked' : '') + '> разрешить ресурс в этом компоненте (для ИИ)</label></div>';
       }
     });
+    html += '</div>';
   }
+  // Объём и вес (спека §5.3) — данные каталога; значение есть всегда (Р2),
+  // дефолт 1, пустой ввод = 1
+  html += '<div class="pblock"><div class="pblock-h">Объём и вес</div>' +
+    '<div class="dmeta" style="margin-bottom:0">объём: <input id="volInput" type="number" min="0" step="any" style="width:80px" value="' + (g.volume !== null && g.volume !== undefined ? g.volume : 1) + '" onchange="setVolumeWeight(this.value, null)" title="объём единицы товара">' +
+    ' · вес: <input id="wgtInput" type="number" min="0" step="any" style="width:80px" value="' + (g.weight !== null && g.weight !== undefined ? g.weight : 1) + '" onchange="setVolumeWeight(null, this.value)" title="вес единицы товара"></div></div>';
+  // Описание каталога (спека §5.4): многострочное, пусто = нет; автосохранение
+  // по потере фокуса; защита несохранённого — как есть
+  html += '<div class="pblock"><div class="pblock-h">Описание</div>' +
+    '<textarea id="descInput" rows="4" style="width:100%;box-sizing:border-box;min-height:90px" placeholder="описание — увидят игроки; пусто = описания нет" onchange="setDescription(this.value)">' + esc(g.description || "") + '</textarea></div>';
   // кнопки (ресурсы — без слотов/fill; скрытия у товара нет — только «удалить»)
   html += '<div class="btns">';
   html += '<button onclick="askAddParent()" title="Добавить этот товар составляющей в рецепт другого товара (новый слот)">добавить родителя</button>';
@@ -1445,11 +1578,11 @@ function renderPopup() {
   html += '<button class="gen" onclick="describeGood()"' + (state.generating ? ' disabled title="идёт генерация"' : ' title="ИИ предложит описание (перезапишет существующее)"') + '>предложить описание</button>';
   html += '<button class="del" onclick="askDeleteGood()">удалить</button>';
   html += '</div>';
-  // секция «Доступен фабрикам:» — привязки рецепта (ТЗ §6.4, только товар)
+  // «Доступен постройкам» и «Используется в» — после кнопок (спека §5, прим.)
   if (!isRes) html += renderBindSection(g);
   // «Используется в:» — клик по родителю = выбор родителя + попап на нём (99a.3 §10.3)
   const parents = state.goods.filter(p => (p.recipe || []).some(s => s.good_id === g.id));
-  html += '<div class="usedin"><div class="usedin-h">Используется в:</div>';
+  html += '<div class="pblock"><div class="pblock-h">Используется в</div>';
   if (parents.length) {
     html += parents.map(p => '<div class="usedin-item" onclick="openParent(\'' + p.id + '\')">' + esc(p.name) + ' <span style="color:#777">· тир ' + p.tier + '</span></div>').join("");
   } else {
@@ -1458,26 +1591,29 @@ function renderPopup() {
   html += '</div>';
   el.innerHTML = html;
 }
-// renderBindSection — секция «Доступен фабрикам:» попапа товара (ТЗ §6.4):
-// список привязок (bound_factories) с «− отвязать» + селект фабрик своей
-// категории (исключая уже привязанные) с «+ привязать».
+// renderBindSection — секция «Доступен постройкам:» попапа товара (ТЗ §6.4):
+// список привязок (bound_factories) с «− отвязать» + селект записей-подтипов
+// своей категории (исключая уже привязанные) с «+ привязать».
 function renderBindSection(g) {
   const ft = factoryMode() ? factoryType() : null;
   const bound = g.bound_factories || [];
-  let html = '<div class="usedin"><div class="usedin-h">Доступен фабрикам:</div>';
+  let html = '<div class="pblock"><div class="pblock-h">Доступен постройкам</div>';
   if (bound.length) {
     bound.forEach(fid => {
       const p = state.producer_types.find(x => x.id === fid);
       if (!p) return;
       const inset = ft && ft.id === fid;
+      // категория — фрагмент только если она есть (подтип без товарной
+      // категории, напр. поселение: «Поселение · универсальная», без «null»)
+      const catPart = p.category_id != null ? esc(p.category_name || catName(p.category_id)) + ' · ' : '';
       html += '<div class="bind-row">' +
-        (p.parent_name ? esc(p.parent_name) + ' · ' : '') + esc(p.category_name || catName(p.category_id)) + ' · ' + esc(factoryLevelLabel(p)) +
+        (p.parent_name ? esc(p.parent_name) + ' · ' : '') + catPart + esc(factoryLevelLabel(p)) +
         (inset ? ' <span class="badge b-inset" title="в наборе выбранной фабрики">в наборе</span>' : '') +
-        '<button class="bind-del" onclick="unbindFactory(' + fid + ')" title="отвязать рецепт от фабрики">− отвязать</button>' +
+        '<button class="bind-del" onclick="unbindFactory(' + fid + ')" title="отвязать рецепт от постройки">− отвязать</button>' +
         '</div>';
     });
   } else {
-    html += '<div class="empty-note">не привязан ни к одной фабрике</div>';
+    html += '<div class="empty-note">не привязан ни к одной постройке</div>';
   }
   html += '</div>';
   const avail = state.producer_types.filter(p =>
@@ -1640,7 +1776,7 @@ function renderProposalsPopup() {
         '</div>';
     } else {
       const catOpts = goodCats.map(c => '<option value="' + c.id + '"' + (c.id === a.category_id ? ' selected' : '') + '>' + esc(c.name) + '</option>').join("");
-      const warn = !p.category_valid ? '<div style="color:#f66;font-size:11px;margin-top:2px">категория «' + esc(p.category) + '» не найдена — выбрана категория родителя</div>' : '';
+      const warn = !p.category_valid ? '<div style="color:#f66;font-size:12px;margin-top:2px">категория «' + esc(p.category) + '» не найдена — выбрана категория родителя</div>' : '';
       html += '<div class="slot" style="margin-bottom:8px">' +
         '<label style="display:block;margin-bottom:4px;cursor:pointer"><input type="checkbox"' + (a.accepted ? ' checked' : '') + ' onchange="toggleProposal(' + i + ', this.checked)"> Создать новый товар «' + esc(p.name) + '»</label>' +
         '<select onchange="proposalCategory(' + i + ', this.value)">' + catOpts + '</select>' + warn +
@@ -2019,7 +2155,7 @@ function renderGoodsSprav() {
     const bound = g.bound_factories || [];
     let badge = '';
     if (g.kind === "good") {
-      if (bound.length === 0) badge = ' <span class="badge b-unbound" title="рецепт не привязан ни к одной фабрике">не привязан</span>';
+      if (bound.length === 0) badge = ' <span class="badge b-unbound" title="рецепт не привязан ни к одной постройке">не привязан</span>';
       else if (ft && bound.includes(ft.id)) badge = ' <span class="badge b-inset" title="в наборе выбранной фабрики">в наборе</span>';
     }
     return '<div class="card" draggable="true" ondragstart="dragStart(event,\'' + g.id + '\')" onclick="spravClick(\'' + g.id + '\')" ondblclick="spravDblClick(\'' + g.id + '\')" oncontextmenu="showSpravCtxMenu(event,\'' + g.id + '\');return false">' +
@@ -2051,10 +2187,12 @@ function renderProdSprav() {
   $("spravList").innerHTML = list.map(p => {
     const t = p.parent_id ? state.producer_types.find(x => x.id === p.parent_id) : null;
     const catHidden = !!(t && t.kind === "goods" && prodCatHidden(t, p.category_id));
+    const produces = p.parent_id ? prodProducesText(p) : ""; // выводы набора (шаг 2 §3.2)
     return '<div class="card' + ((p.hidden || catHidden) ? ' hidden' : '') + '" onclick="prodClick(' + p.id + ')" ondblclick="prodDblClick(' + p.id + ')">' +
     '<div class="nm">' + esc(p.name) + '<button class="info" onclick="event.stopPropagation();openProdPopup(' + p.id + ')" title="деталь (без смены выбора)">ⓘ</button></div>' +
     '<div class="meta">' + esc(kindLabel(p.kind)) + (p.category_name ? ' · ' + esc(p.category_name) : '') +
     (p.parent_name ? ' · ← ' + esc(p.parent_name) : '') +
+    (produces ? ' · производит: ' + esc(produces) : '') +
     (p.hidden ? ' <span class="badge b-hidden" title="запись-фабрика скрыта">скрыта</span>' : '') +
     (catHidden ? ' <span class="badge b-hidden" title="категория скрыта на этом уровне расовости">скрыта</span>' : '') + '</div>' +
     '</div>';
@@ -2081,6 +2219,50 @@ function openProdPopup(id) {
   $("detailOverlay").style.display = "block";
   renderProdPopup();
 }
+// prodSpecRows — читаемые строки карточки постройки из input/output/params
+// (итерация 1: только отображение, без полей). Возвращает [заголовок,
+// значение]; пусто — строку не рисуем. Источник — существующие JSONB-поля.
+// prodSpecRows — источники строк карточки постройки, разложенные по блокам
+// (спека 2026-09-23 §4): {consumes, conditions, people}. Каждая строка —
+// [подпись, значение] (пустая подпись → значение без подписи). Пусто → блок
+// не показываем. Источник — существующие JSONB-поля input/output/params.
+function prodSpecRows(p) {
+  const inp = p.input || {}, par = p.params || {};
+  const keys = o => (o && typeof o === "object") ? Object.keys(o) : [];
+  // Потребляет — товары из params.eat (нормы — итерация 2), эффекты нехватки,
+  // расходники
+  const consumes = [];
+  const eat = keys(par.eat);
+  if (eat.length) consumes.push(["", eat.join(", ")]);
+  const eff = (par.effects && typeof par.effects === "object") ? Object.values(par.effects) : [];
+  if (eff.length) consumes.push(["При нехватке", eff.join(", ")]);
+  const cons = Array.isArray(inp.consumables) ? inp.consumables : [];
+  if (cons.length) consumes.push(["Расходники", cons.join(", ")]);
+  // Условия работы — нужно (energy/fuel/robots), КПД, цена робота
+  const conditions = [];
+  const need = [];
+  if (inp.energy) need.push("электричество");
+  if (inp.fuel) need.push("топливо");
+  if (inp.robots) need.push("роботы");
+  if (need.length) conditions.push(["Нужно", need.join(", ")]);
+  if (par.efficiency != null) conditions.push(["КПД", String(par.efficiency)]);
+  if (par.robot_cost != null) conditions.push(["цена робота", String(par.robot_cost)]);
+  // Люди — вместимость
+  const people = [];
+  if (inp.people && inp.people.capacity != null) people.push(["Вмещает людей", String(inp.people.capacity)]);
+  return {consumes, conditions, people};
+}
+// specRow — строка-характеристика блока (подпись + значение).
+function specRow(r) {
+  return r[0]
+    ? '<div class="prow"><span class="plabel">' + esc(r[0]) + ':</span> <span class="pval">' + esc(r[1]) + '</span></div>'
+    : '<div class="prow"><span class="pval">' + esc(r[1]) + '</span></div>';
+}
+// pblockHtml — блок-карточка с заголовком (пустой rowsHtml → "").
+function pblockHtml(title, rows) {
+  if (!rows.length) return "";
+  return '<div class="pblock"><div class="pblock-h">' + esc(title) + '</div>' + rows.map(specRow).join("") + '</div>';
+}
 function renderProdPopup() {
   const el = $("popupBody");
   if (!popupGoodId) return;
@@ -2089,8 +2271,11 @@ function renderProdPopup() {
   $("popupTitle").textContent = p.name;
   let html = '';
   html += '<div class="dname"><span class="rename" onclick="startProdRename()" title="переименовать">' + esc(p.name) + '</span></div>';
-  html += '<div class="dmeta">' + esc(kindLabel(p.kind)) +
-    ' · <label style="font-size:12px" title="Не показывать запись-фабрику по умолчанию и не предлагать в лестнице"><input type="checkbox" onchange="saveProdHidden(this.checked)"' + (p.hidden ? ' checked' : '') + '> скрытая</label></div>';
+  // Шапка-блок (спека §4.1): вид/скрытая, родитель, категория, семейство/раса.
+  // Подпись вида («товары») — только у записи с товарной категорией.
+  html += '<div class="pblock">';
+  html += '<div class="dmeta" style="margin-bottom:0">' + (p.category_id != null ? esc(kindLabel(p.kind)) + ' · ' : '') +
+    '<label style="font-size:13px" title="Не показывать запись-фабрику по умолчанию и не предлагать в лестнице"><input type="checkbox" onchange="saveProdHidden(this.checked)"' + (p.hidden ? ' checked' : '') + '> скрытая</label></div>';
   // родитель (дерево построек 2026-09-21 §1.2): подтип → тип-родитель
   if (p.parent_id) {
     const parent = state.producer_types.find(x => x.id === p.parent_id);
@@ -2109,34 +2294,38 @@ function renderProdPopup() {
       html += '<div class="dmeta">категория товаров: <select class="dcat" onchange="changeProdCategory(this.value)">' +
         prodCategoryOptions(p) +
         '</select></div>';
-      // блок «набор рецептов» + кнопка копирования (ТЗ §13.2)
-      html += copyRecipesBlock(p);
     }
   }
   // семейство + раса (спека §5): каскад семейство → расы семейства; запись —
   // через PUT {race_family, race} (соответствие каталогу проверяет сервер)
-  html += '<div class="dmeta">семейство рас: <select id="popupRaceFamilySel" onchange="popupRaceFamilyChanged()">' +
+  html += '<div class="dmeta" style="margin-bottom:0">семейство рас: <select id="popupRaceFamilySel" onchange="popupRaceFamilyChanged()">' +
     '<option value="">универсальный</option>' + (racesData ? racesData.families.map(f =>
       '<option value="' + f.id + '"' + (f.id === p.race_family ? ' selected' : '') + '>' + esc(familyLabelById(f.id)) + '</option>').join("") : '') +
     '</select> · раса: <select id="popupRaceSel" onchange="popupRaceChanged()">' + prodRaceOptions(p.race) + '</select></div>';
-  // Карточка родителя — редактор слотов (спека скрытых §3.2): только тип
-  // kind=goods (items/energy — без секции, §1.4 п.3)
+  html += '</div>';
+  // Производит — у ЛЮБОГО подтипа (спека §4.2): выводы назначенных рецептов
+  // (+ «− отвязать») и выходы output; пусто у подтипа — подсказка про
+  // перетаскивание. У типа без выходов блока нет (рецепт туда не назначить).
+  if (p.parent_id || prodHasOutputs(p)) html += recipesBlock(p);
+  // Блоки характеристик (спека §4.3–§4.5): Потребляет → Условия работы → Люди.
+  // Пустые блоки не показываем (pblockHtml вернёт "").
+  const spec = prodSpecRows(p);
+  html += pblockHtml("Потребляет", spec.consumes);
+  html += pblockHtml("Условия работы", spec.conditions);
+  html += pblockHtml("Люди", spec.people);
+  // Слоты категорий — редактор родителя (спека §4.6): только тип kind=goods
+  // (items/energy — без секции, §1.4 п.3); «+ подтип» — для класса без слотов
   if (p.kind === "goods" && !p.parent_id) {
     html += prodSlotEditor(p);
-    // «+ подтип» — для типа БЕЗ слотов (класс строения, напр. «Поселение»):
-    // создание подтипа без товарной категории (итерация 4 §5.3 п.4)
     if (prodSlots(p).length === 0) {
       html += '<div class="btns"><button class="gen" onclick="openProdSubtypeCreatePopup(' + p.id + ')">+ подтип</button></div>';
     }
   }
-  html += '<div class="dmeta">вход (input): <textarea id="prodInput" rows="3">' + esc(jsonText(p.input)) + '</textarea></div>';
-  html += '<div class="dmeta">выход (output): <textarea id="prodOutput" rows="2">' + esc(jsonText(p.output)) + '</textarea></div>';
-  html += '<div class="dmeta">параметры (params): <textarea id="prodParams" rows="2">' + esc(jsonText(p.params)) + '</textarea></div>';
-  html += '<div class="btns"><button class="gen" onclick="saveProdJSON()">сохранить JSON</button></div>';
+  // Производит предметы — только kind=items (спека §4.7)
   if (p.kind === "items") {
-    html += '<div class="usedin"><div class="usedin-h">Производит предметы:</div>';
+    html += '<div class="pblock"><div class="pblock-h">Производит предметы</div>';
     (p.items || []).forEach(it => {
-      html += '<div class="usedin-item">' + esc(it.name) + ' <span style="color:#777">· ' + esc(it.slot_type) + '</span>' +
+      html += '<div class="usedin-item" style="cursor:default">' + esc(it.name) + ' <span style="color:#777">· ' + esc(it.slot_type) + '</span>' +
         '<button class="del" style="float:right" onclick="unlinkItem(' + it.id + ')">отвязать</button></div>';
     });
     const free = state.items.filter(it => !(p.items || []).some(x => x.id === it.id));
@@ -2145,6 +2334,15 @@ function renderProdPopup() {
       '</select><button class="gen" onclick="linkItem()"' + (free.length ? '' : ' disabled') + '>+ предмет</button></div>';
     html += '</div>';
   }
+  // Служебные параметры (JSON) — свёрнуто (спека §4.8); id-шники и saveProdJSON
+  // сохранены для итерации 2.
+  html += '<details class="prod-json"><summary>служебные параметры (JSON)</summary>' +
+    '<div class="dmeta">вход (input): <textarea id="prodInput" rows="3">' + esc(jsonText(p.input)) + '</textarea></div>' +
+    '<div class="dmeta">выход (output): <textarea id="prodOutput" rows="2">' + esc(jsonText(p.output)) + '</textarea></div>' +
+    '<div class="dmeta">параметры (params): <textarea id="prodParams" rows="2">' + esc(jsonText(p.params)) + '</textarea></div>' +
+    '<div class="btns"><button class="gen" onclick="saveProdJSON()">сохранить JSON</button></div>' +
+    '</details>';
+  // Кнопки (спека §4.9)
   html += '<div class="btns">';
   html += '<button class="del" onclick="askDeleteProducer()">удалить</button>';
   html += '</div>';
@@ -2224,10 +2422,10 @@ function copyRecipesCounts(p) {
   srcIds.forEach(rid => { if (own.has(rid)) m++; else k++; });
   return {srcs, srcIds, own, k, m};
 }
-// copyRecipesBlock — разметка блока «набор рецептов» в попапе фабрики (§13.2).
+// copyRecipesBlock — разметка кнопки копирования набора рецептов в попапе
+// постройки (§13.2). Счётчик набора рисует recipesBlock (шаг 2 §3.2).
 function copyRecipesBlock(p) {
   const {srcs, srcIds, k, m} = copyRecipesCounts(p);
-  const n = factoryRecipeIds(p.id).length;
   const names = srcs.map(s => s.name).join('», «');
   let disabled, hint;
   if (!srcs.length) {
@@ -2240,11 +2438,70 @@ function copyRecipesBlock(p) {
     disabled = false;
     hint = 'источник: «' + names + '» · будет добавлено ' + k + ' (уже есть ' + m + ')';
   }
-  return '<div class="dmeta">набор рецептов: ' + n + ' · ' +
+  return '<div class="dmeta">' +
     '<button class="gen" onclick="copyRecipes(' + p.id + ')"' +
     (disabled ? ' disabled title="' + esc(hint) + '"' : ' title="скопировать привязки универсальных фабрик категории"') +
     '>скопировать набор универсальной фабрики</button></div>' +
     '<div class="hint">' + esc(hint) + '</div>';
+}
+// prodHasOutputs — есть ли у постройки выходы output (энергия/предметы): у типа
+// без выходов блок «Производит» не показываем (рецепт туда не назначить).
+function prodHasOutputs(p) {
+  const out = p.output || {};
+  return out.energy != null || (Array.isArray(out.items) && out.items.length > 0);
+}
+// prodOutputs — выводы назначенных постройке рецептов (идея 2026-09-23, шаг 2
+// §4): товары, чей recipe_id привязан к p. Порядок устойчивый — по тиру, затем
+// по имени (иначе текст «плавает» между перерисовками).
+function prodOutputs(p) {
+  if (!p) return [];
+  const bound = new Set(factoryRecipeIds(p.id));
+  return state.goods
+    .filter(g => g.recipe_id && bound.has(g.recipe_id))
+    .sort((a, b) => (a.tier - b.tier) || a.name.localeCompare(b.name, "ru"));
+}
+// prodProducesText — компактная надпись «производит»: «Пища · т1, Вода · т1»;
+// пустой набор — пустая строка (строку не показываем, §4).
+function prodProducesText(p) {
+  return prodOutputs(p).map(g => g.name + ' · т' + g.tier).join(', ');
+}
+// recipesBlock — блок «Производит» карточки постройки (спека 2026-09-23 §4.2):
+// список «имя · тN [− отвязать]» у ЛЮБОГО подтипа + выходы output одной строкой;
+// пусто у подтипа — подсказка про перетаскивание. Кнопка копирования набора
+// универсальной фабрики — только у категорийного подтипа kind=goods.
+function recipesBlock(p) {
+  const outs = prodOutputs(p);
+  const out = p.output || {};
+  const hasOutputs = Array.isArray(out.items) && out.items.length > 0;
+  let inner = '';
+  if (!outs.length && out.energy == null && !hasOutputs) {
+    // подсказка — только у записи-подтипа (только ей можно назначить рецепт)
+    if (p.parent_id) inner = '<div class="empty-note">перетащите рецепт из справочника (режим «Товары»)</div>';
+  } else {
+    outs.forEach(g => {
+      inner += '<div class="usedin-item">' + esc(g.name) + ' <span style="color:#777">· т' + g.tier + '</span>' +
+        '<button class="bind-del" style="float:right" onclick="unbindFactoryRecipe(' + p.id + ',' + g.recipe_id + ')" title="отвязать рецепт от постройки">− отвязать</button></div>';
+    });
+    // выходы output (спека §4.2): «энергия — N» + предметы — одной строкой
+    const emits = [];
+    if (out.energy != null) emits.push("энергия — " + out.energy);
+    if (hasOutputs) emits.push(...out.items);
+    if (emits.length) inner += specRow(["Выпускает", emits.join(", ")]);
+  }
+  let html = '<div class="pblock"><div class="pblock-h">Производит</div>' + inner;
+  // кнопка копирования набора — только у категорийного подтипа kind=goods (§13.2)
+  if (p.kind === "goods" && p.parent_id) {
+    const parent = state.producer_types.find(x => x.id === p.parent_id);
+    if (parent && prodSlots(parent).length > 0) html += copyRecipesBlock(p);
+  }
+  html += '</div>';
+  return html;
+}
+// unbindFactoryRecipe — «− отвязать» из набора постройки (DELETE
+// /studio/api/producers/{id}/recipes/{recipe_id}, шаг 2 §3.2).
+async function unbindFactoryRecipe(producerId, recipeId) {
+  const r = await api("DELETE", "/studio/api/producers/" + producerId + "/recipes/" + recipeId);
+  if (r) fetchState();
 }
 // copyRecipes — подтверждение перед копированием (§13.3): объём K понятен заранее.
 function copyRecipes(id) {
@@ -2336,7 +2593,7 @@ function prodSlotEditor(t) {
     : "Раса " + raceName(prodRace);
   const applied = prodAppliedSlots(t);
   const catIDs = [...new Set(applied.map(s => s.category_id))];
-  let html = '<div class="usedin" style="margin-top:8px"><div class="usedin-h">Слоты категорий <span class="seg-sub">· ' + esc(levelLabel) + '</span></div>';
+  let html = '<div class="pblock"><div class="pblock-h">Слоты категорий <span class="seg-sub">· ' + esc(levelLabel) + '</span></div>';
   if (!catIDs.length) {
     html += '<div class="empty-note">слотов нет — добавьте категории ниже</div>';
   } else {
@@ -2351,16 +2608,16 @@ function prodSlotEditor(t) {
       const inherited = !own; // на universal own = база → переопределения нет
       // Обратный кейс (§3.2): скрытая база + видимое переопределение — хинт
       const baseHiddenHint = (base && own && own !== base && base.hidden && !own.hidden)
-        ? '<span style="color:#777;font-size:10px"> база скрыта</span>' : '';
+        ? '<span style="color:#777;font-size:12px"> база скрыта</span>' : '';
       const labelHtml = inherited
-        ? '<span style="color:#777;font-size:10px">унаследован</span>'
+        ? '<span style="color:#777;font-size:12px">унаследован</span>'
         : '<span class="badge b-override">переопределён</span>';
       const removeBtn = own
         ? '<button onclick="removeProdSlot(' + t.id + ',' + catID + ')" title="' +
           (own.race_family ? 'снять переопределение' : 'убрать из набора родителя') + '">−</button>'
         : '';
       html += '<div class="pslot' + (most.hidden ? ' hidden' : '') + '">' +
-        '<label style="font-size:12px"><input type="checkbox"' + (most.hidden ? ' checked' : '') +
+        '<label style="font-size:13px"><input type="checkbox"' + (most.hidden ? ' checked' : '') +
         ' onchange="toggleProdSlot(' + t.id + ',' + catID + ',this.checked)" title="Не показывать категорию на этом уровне расовости"> скрытая</label>' +
         '<span class="cname" title="' + esc(cat.name) + '">' + esc(cat.name) + '</span>' + labelHtml + baseHiddenHint + removeBtn +
         '</div>';
@@ -2802,10 +3059,10 @@ function renderProdTree() {
       ctx.fill(); ctx.stroke();
       ctx.setLineDash([]);
       ctx.fillStyle = "#999";
-      ctx.font = "12px Arial";
+      ctx.font = "14px Arial";
       ctx.fillText("создать", x + 8, y + 18);
-      ctx.font = "10px Arial";
-      ctx.fillText(trunc(n.label, 24), x + 8, y + 32);
+      ctx.font = "12px Arial";
+      ctx.fillText(truncPx(n.label, CARD_W - 16, 24), x + 8, y + 32);
     } else if (n.kind === "hiddenStub") {
       // Карточка-заглушка скрытой пустой категории (спека скрытых §2.2 п.2):
       // сплошная затемнённая карточка, подпись «нет заводов», бейдж «скрыта»;
@@ -2816,44 +3073,57 @@ function renderProdTree() {
       roundRect(x, y, CARD_W, CARD_H, 8);
       ctx.fill(); ctx.stroke();
       ctx.fillStyle = "#ddd";
-      ctx.font = "12px Arial";
-      ctx.fillText(trunc(n.label, 26), x + 8, y + 18);
+      ctx.font = "14px Arial";
+      ctx.fillText(truncPx(n.label, CARD_W - 16, 24), x + 8, y + 18);
       ctx.fillStyle = "#888";
-      ctx.font = "10px Arial";
+      ctx.font = "12px Arial";
       ctx.fillText("нет заводов", x + 8, y + 32);
+      ctx.font = "11px Arial";
       const b = "скрыта";
       const w = ctx.measureText(b).width + 10;
       ctx.fillStyle = "#333";
-      roundRect(x + 8, y + 40, w, 16, 4); ctx.fill();
+      roundRect(x + 8, y + 40, w, 18, 4); ctx.fill();
       ctx.fillStyle = "#aaa";
-      ctx.fillText(b, x + 13, y + 52);
+      ctx.fillText(b, x + 13, y + 53);
     } else {
       const isHidden = !!n.hidden;
+      const isDropHere = prodDropHighlight === n.id; // карточка-подтип под курсором при drag (§3.1)
       // Скрытая запись (спека скрытых §3.4): затемнение ЦВЕТАМИ (fill/border/
       // имя/подпись), не globalAlpha — выделение #8cf остаётся ярким.
-      ctx.fillStyle = isFixed ? "#2a2a2a" : isHidden ? "#3a3a3a" : "#3d3d3d";
-      ctx.strokeStyle = sel ? "#8cf" : (isFixed ? "#666" : isHidden ? "#4a4a4a" : "#5a5a5a");
-      ctx.lineWidth = sel ? 2 : 1;
+      ctx.fillStyle = isDropHere ? "#1e2a3a" : isFixed ? "#2a2a2a" : isHidden ? "#3a3a3a" : "#3d3d3d";
+      ctx.strokeStyle = (isDropHere || sel) ? "#8cf" : (isFixed ? "#666" : isHidden ? "#4a4a4a" : "#5a5a5a");
+      ctx.lineWidth = isDropHere ? 3 : sel ? 2 : 1;
       roundRect(x, y, CARD_W, CARD_H, 8);
       ctx.fill(); ctx.stroke();
       ctx.fillStyle = isHidden ? "#ddd" : "#fff";
-      ctx.font = "12px Arial";
-      ctx.fillText(trunc(n.label, 26), x + 8, y + 18);
+      ctx.font = "14px Arial";
+      ctx.fillText(truncPx(n.label, CARD_W - 16, 24), x + 8, y + 18);
       ctx.fillStyle = isHidden ? "#888" : "#bbb";
-      ctx.font = "10px Arial";
+      ctx.font = "12px Arial";
       const sub = n.kind === "type" ? kindLabel(n.ref.kind)
         : n.kind === "subtype" ? (n.ref.category_name || kindLabel(n.ref.kind))
         : (n.id === "class-other" ? "задел" : "фиксированный класс");
-      ctx.fillText(sub, x + 8, y + 32);
-      // бейдж «скрыта» — ряд на y+40 (measureText+10, radius 4)
+      ctx.fillText(truncPx(sub, CARD_W - 16, 22), x + 8, y + 32);
+      // бейдж «скрыта» — ряд на y+40 (высота 18, текст y+53)
       let bx = x + 8;
       if (isHidden) {
+        ctx.font = "11px Arial";
         const b = "скрыта";
         const w = ctx.measureText(b).width + 10;
         ctx.fillStyle = "#333";
-        roundRect(bx, y + 40, w, 16, 4); ctx.fill();
+        roundRect(bx, y + 40, w, 18, 4); ctx.fill();
         ctx.fillStyle = "#aaa";
-        ctx.fillText(b, bx + 5, y + 52);
+        ctx.fillText(b, bx + 5, y + 53);
+      }
+      // 3-я строка — выводы назначенных рецептов (идея 2026-09-23, шаг 2 §3.2):
+      // только у подтипа; пустой набор — строку не рисуем (карточка не меняется)
+      if (n.ref && n.ref.parent_id) {
+        const produces = prodProducesText(n.ref);
+        if (produces) {
+          ctx.fillStyle = isHidden ? "#7a7" : "#9c9";
+          ctx.font = "11px Arial";
+          ctx.fillText(truncPx(produces, CARD_W - 16, 28), x + 8, y + 68);
+        }
       }
     }
     n.children.forEach(draw);

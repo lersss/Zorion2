@@ -432,16 +432,12 @@ func TestStudioBindRecipe(t *testing.T) {
 	defer db.Close()
 
 	expectStudioMutation(mock)
-	mock.ExpectQuery(`SELECT kind, parent_id, category_id FROM producer_types WHERE id = \$1 FOR UPDATE`).
+	mock.ExpectQuery(`SELECT parent_id FROM producer_types WHERE id = \$1 FOR UPDATE`).
 		WithArgs(int64(5)).
-		WillReturnRows(sqlmock.NewRows([]string{"kind", "parent_id", "category_id"}).
-			AddRow("goods", int64(2), int64(8)))
-	mock.ExpectQuery(`SELECT good_id FROM recipes WHERE id = \$1`).
+		WillReturnRows(sqlmock.NewRows([]string{"parent_id"}).AddRow(int64(2)))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM recipes WHERE id = \$1\)`).
 		WithArgs(int64(10)).
-		WillReturnRows(sqlmock.NewRows([]string{"good_id"}).AddRow(int64(20)))
-	mock.ExpectQuery(`SELECT kind, category_id FROM goods WHERE id = \$1`).
-		WithArgs(int64(20)).
-		WillReturnRows(sqlmock.NewRows([]string{"kind", "category_id"}).AddRow("good", int64(8)))
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_recipes WHERE producer_type_id = \$1 AND recipe_id = \$2\)`).
 		WithArgs(int64(5), int64(10)).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))

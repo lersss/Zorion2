@@ -728,8 +728,7 @@ func (r *GoodsRepository) UpdateGood(id int64, name *string, categoryID *int64, 
 	defer tx.Rollback()
 
 	var kind string
-	var curCategoryID int64
-	err = tx.QueryRow(`SELECT kind, category_id FROM goods WHERE id = $1 FOR UPDATE`, id).Scan(&kind, &curCategoryID)
+	err = tx.QueryRow(`SELECT kind FROM goods WHERE id = $1 FOR UPDATE`, id).Scan(&kind)
 	if errors.Is(err, sql.ErrNoRows) {
 		return errCatalog(404, "товар не найден")
 	}
@@ -766,23 +765,6 @@ func (r *GoodsRepository) UpdateGood(id int64, name *string, categoryID *int64, 
 		}
 		if catKind != kind {
 			return errCatalog(400, "категория не соответствует kind товара")
-		}
-		// Инвариант «выход рецепта = категория фабрики» (спека
-		// 2026-09-21-рецепт-сущность §2.4/§5): смена категории товара с
-		// привязанным рецептом запрещена — иначе выход перестанет быть
-		// категорией фабрики. Без привязок — свободно; смена на ту же самую
-		// категорию — не изменение.
-		if kind == "good" && *categoryID != curCategoryID {
-			var bound bool
-			if err := tx.QueryRow(
-				`SELECT EXISTS(SELECT 1 FROM producer_recipes pr
-				 JOIN recipes r ON r.id = pr.recipe_id WHERE r.good_id = $1)`, id,
-			).Scan(&bound); err != nil {
-				return err
-			}
-			if bound {
-				return errCatalog(409, "товар привязан к фабрикам — сначала отвяжите")
-			}
 		}
 		if _, err := tx.Exec(`UPDATE goods SET category_id = $1 WHERE id = $2`, *categoryID, id); err != nil {
 			return err

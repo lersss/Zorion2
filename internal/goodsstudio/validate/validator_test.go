@@ -66,7 +66,7 @@ func TestMissingResourceCovered(t *testing.T) {
 }
 
 // TestCleanState — валидное состояние без предупреждений (товар привязан
-// к фабрике — unbound_recipe не срабатывает).
+// к постройке — unbound_recipe не срабатывает).
 func TestCleanState(t *testing.T) {
 	v, w := 1.0, 1.0
 	st := mkState(
@@ -80,7 +80,7 @@ func TestCleanState(t *testing.T) {
 }
 
 // TestUnboundRecipe — товар (kind=good), чей рецепт не привязан ни к одной
-// фабрике, — warning unbound_recipe (спека 2026-09-21-рецепт-сущность §5).
+// постройке, — warning unbound_recipe (спека 2026-09-21-рецепт-сущность §5).
 func TestUnboundRecipe(t *testing.T) {
 	v, w := 1.0, 1.0
 	st := mkState(
@@ -95,6 +95,27 @@ func TestUnboundRecipe(t *testing.T) {
 	require.NotContains(t, codes(Validate(st)), "unbound_recipe")
 	// ресурс без привязки не флагается (рецепта у ресурса нет)
 	require.NotContains(t, codes(Validate(mkState(res("r1", "Железо Fe")))), "unbound_recipe")
+}
+
+// TestUnboundRecipeWording — код unbound_recipe жив, формулировка называет
+// постройки, а не только фабрики (спека 2026-09-23-студия-назначение-
+// рецептов §2).
+func TestUnboundRecipeWording(t *testing.T) {
+	v, w := 1.0, 1.0
+	st := mkState(
+		good("1", "Сталь", model.Slot{GoodID: "res:zhelezo"}),
+		res("res:zhelezo", "Железо Fe"),
+	)
+	st.Goods[0].Volume = &v
+	st.Goods[0].Weight = &w
+
+	var found string
+	for _, warn := range Validate(st) {
+		if warn.Code == "unbound_recipe" {
+			found = warn.Message
+		}
+	}
+	require.Contains(t, found, "постройке")
 }
 
 // TestMissingVolumeWeight — Р2 (2026-09-21): значение веса/объёма есть всегда

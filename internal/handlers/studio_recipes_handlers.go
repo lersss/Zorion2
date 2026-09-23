@@ -1,10 +1,11 @@
 // internal/handlers/studio_recipes_handlers.go
-// HTTP-хендлеры рецептов /studio/api/recipes* и привязок рецептов к фабрикам
-// /studio/api/producers/{id}/recipes* (спека
-// 2026-09-21-рецепт-сущность-и-граф-фабрики §5). Вынесены из
+// HTTP-хендлеры рецептов /studio/api/recipes* и привязок рецептов к
+// постройкам /studio/api/producers/{id}/recipes* (спека
+// 2026-09-21-рецепт-сущность-и-граф-фабрики §5; инвариант привязки ослаблен
+// спекой 2026-09-23-студия-назначение-рецептов §1). Вынесены из
 // studio_handlers.go (файл > 300 строк, §4.9: имена файлов уникальны).
 // Доступ — auth.AdminAuth (admin/skycomposer). Ошибки — {"error": "..."}:
-// 400 невалидный вход/чужой выход · 404 не найдено · 409 дубликат/цикл/
+// 400 невалидный вход/тип-класс · 404 не найдено · 409 дубликат/цикл/
 // привязка есть.
 package handlers
 
@@ -191,11 +192,12 @@ func (h *StudioHandlers) recipeComponentAllowResource(w http.ResponseWriter, r *
 	studioJSON(w, http.StatusOK, map[string]interface{}{"id": id, "pos": pos})
 }
 
-// --- привязки рецептов к фабрикам (producer_recipes, спека §5) ---
+// --- привязки рецептов к постройкам (producer_recipes, спека §5) ---
 
 // producerBindRecipe — POST /studio/api/producers/{id}/recipes {recipe_id}:
-// привязать рецепт к конкретной фабрике (400: не конкретная фабрика / чужой
-// выход; 409: повтор).
+// привязать рецепт к записи-подтипу постройки (400: тип/класс вместо
+// подтипа; 404: нет типа/рецепта; 409: повтор). Ограничения по категории и
+// виду выхода рецепта сняты (инвариант 2026-09-23 §1).
 func (h *StudioHandlers) producerBindRecipe(w http.ResponseWriter, r *http.Request, id int64) {
 	if r.Method != http.MethodPost {
 		studioErr(w, "только POST", http.StatusMethodNotAllowed)

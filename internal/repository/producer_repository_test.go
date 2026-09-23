@@ -449,10 +449,6 @@ func TestUpdateProducerTypeSubtypeTupleConflict(t *testing.T) {
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM categories WHERE id = \$1\)`).
 		WithArgs(int64(8)).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	// инвариант «выход = категория»: привязанных рецептов нет — смена свободна
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_recipes WHERE producer_type_id = \$1\)`).
-		WithArgs(int64(15)).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 	mock.ExpectExec(`UPDATE producer_types SET category_id = \$1 WHERE id = \$2`).
 		WithArgs(int64(8), int64(15)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -1154,24 +1150,20 @@ func TestDeleteProducerSlotRaceRaceRecord(t *testing.T) {
 
 // --- привязки рецептов к фабрикам (producer_recipes, спека 2026-09-21-рецепт-сущность §5) ---
 
-// TestBindRecipe — привязка рецепта к конкретной фабрике: выход рецепта =
-// категория фабрики, привязки нет → INSERT.
+// TestBindRecipe — привязка рецепта к записи-подтипу постройки:
+// привязки нет → INSERT (запроса к goods нет).
 func TestBindRecipe(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
 	defer db.Close()
 
 	expectMutationBegin(mock)
-	mock.ExpectQuery(`SELECT kind, parent_id, category_id FROM producer_types WHERE id = \$1 FOR UPDATE`).
+	mock.ExpectQuery(`SELECT parent_id FROM producer_types WHERE id = \$1 FOR UPDATE`).
 		WithArgs(int64(5)).
-		WillReturnRows(sqlmock.NewRows([]string{"kind", "parent_id", "category_id"}).
-			AddRow("goods", int64(2), int64(8)))
-	mock.ExpectQuery(`SELECT good_id FROM recipes WHERE id = \$1`).
+		WillReturnRows(sqlmock.NewRows([]string{"parent_id"}).AddRow(int64(2)))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM recipes WHERE id = \$1\)`).
 		WithArgs(int64(10)).
-		WillReturnRows(sqlmock.NewRows([]string{"good_id"}).AddRow(int64(20)))
-	mock.ExpectQuery(`SELECT kind, category_id FROM goods WHERE id = \$1`).
-		WithArgs(int64(20)).
-		WillReturnRows(sqlmock.NewRows([]string{"kind", "category_id"}).AddRow("good", int64(8)))
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_recipes WHERE producer_type_id = \$1 AND recipe_id = \$2\)`).
 		WithArgs(int64(5), int64(10)).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
@@ -1184,49 +1176,69 @@ func TestBindRecipe(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// TestBindRecipeWrongCategory400 — выход рецепта не категория фабрики → 400.
-func TestBindRecipeWrongCategory400(t *testing.T) {
+// TestBindRecipeWrongCategoryOK — выход рецепта «чужой» категории больше не
+// ограничивает привязку (BindRecipe не читает goods) → 200.
+func TestBindRecipeWrongCategoryOK(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
 	defer db.Close()
 
 	expectMutationBegin(mock)
-	mock.ExpectQuery(`SELECT kind, parent_id, category_id FROM producer_types WHERE id = \$1 FOR UPDATE`).
+	mock.ExpectQuery(`SELECT parent_id FROM producer_types WHERE id = \$1 FOR UPDATE`).
 		WithArgs(int64(5)).
-		WillReturnRows(sqlmock.NewRows([]string{"kind", "parent_id", "category_id"}).
-			AddRow("goods", int64(2), int64(8)))
-	mock.ExpectQuery(`SELECT good_id FROM recipes WHERE id = \$1`).
+		WillReturnRows(sqlmock.NewRows([]string{"parent_id"}).AddRow(int64(2)))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM recipes WHERE id = \$1\)`).
 		WithArgs(int64(10)).
-		WillReturnRows(sqlmock.NewRows([]string{"good_id"}).AddRow(int64(20)))
-	mock.ExpectQuery(`SELECT kind, category_id FROM goods WHERE id = \$1`).
-		WithArgs(int64(20)).
-		WillReturnRows(sqlmock.NewRows([]string{"kind", "category_id"}).AddRow("good", int64(7)))
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_recipes WHERE producer_type_id = \$1 AND recipe_id = \$2\)`).
+		WithArgs(int64(5), int64(10)).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectExec(`INSERT INTO producer_recipes \(producer_type_id, recipe_id\) VALUES \(\$1, \$2\)`).
+		WithArgs(int64(5), int64(10)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
 
-	err = NewGoodsRepository(db).BindRecipe(5, 10)
-	var ce *ErrCatalog
-	require.True(t, errors.As(err, &ce))
-	require.Equal(t, 400, ce.Status)
-	require.Contains(t, ce.Msg, "не категория фабрики")
+	require.NoError(t, NewGoodsRepository(db).BindRecipe(5, 10))
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// TestBindRecipeNotConcrete400 — тип (parent_id NULL) / не kind=goods → 400.
+// TestBindRecipeNotConcrete400 — тип любого kind (parent_id NULL) → 400.
 func TestBindRecipeNotConcrete400(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
 	defer db.Close()
 
 	expectMutationBegin(mock)
-	mock.ExpectQuery(`SELECT kind, parent_id, category_id FROM producer_types WHERE id = \$1 FOR UPDATE`).
+	mock.ExpectQuery(`SELECT parent_id FROM producer_types WHERE id = \$1 FOR UPDATE`).
 		WithArgs(int64(2)).
-		WillReturnRows(sqlmock.NewRows([]string{"kind", "parent_id", "category_id"}).
-			AddRow("goods", nil, nil))
+		WillReturnRows(sqlmock.NewRows([]string{"parent_id"}).AddRow(nil))
 
 	err = NewGoodsRepository(db).BindRecipe(2, 10)
 	var ce *ErrCatalog
 	require.True(t, errors.As(err, &ce))
 	require.Equal(t, 400, ce.Status)
-	require.Contains(t, ce.Msg, "конкретной фабрике")
+	require.Contains(t, ce.Msg, "записи-подтипу")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestBindRecipeStillRejectsType400 — регресс-гейт: абстрактный тип/класс
+// (parent_id IS NULL) привязку не принимает → 400 (мёртвая привязка
+// невозможна и при появлении наследования наборов).
+func TestBindRecipeStillRejectsType400(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectMutationBegin(mock)
+	mock.ExpectQuery(`SELECT parent_id FROM producer_types WHERE id = \$1 FOR UPDATE`).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"parent_id"}).AddRow(nil))
+
+	err = NewGoodsRepository(db).BindRecipe(1, 10)
+	var ce *ErrCatalog
+	require.True(t, errors.As(err, &ce))
+	require.Equal(t, 400, ce.Status)
+	require.Contains(t, ce.Msg, "не типу/классу")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -1237,16 +1249,12 @@ func TestBindRecipeDuplicate409(t *testing.T) {
 	defer db.Close()
 
 	expectMutationBegin(mock)
-	mock.ExpectQuery(`SELECT kind, parent_id, category_id FROM producer_types WHERE id = \$1 FOR UPDATE`).
+	mock.ExpectQuery(`SELECT parent_id FROM producer_types WHERE id = \$1 FOR UPDATE`).
 		WithArgs(int64(5)).
-		WillReturnRows(sqlmock.NewRows([]string{"kind", "parent_id", "category_id"}).
-			AddRow("goods", int64(2), int64(8)))
-	mock.ExpectQuery(`SELECT good_id FROM recipes WHERE id = \$1`).
+		WillReturnRows(sqlmock.NewRows([]string{"parent_id"}).AddRow(int64(2)))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM recipes WHERE id = \$1\)`).
 		WithArgs(int64(10)).
-		WillReturnRows(sqlmock.NewRows([]string{"good_id"}).AddRow(int64(20)))
-	mock.ExpectQuery(`SELECT kind, category_id FROM goods WHERE id = \$1`).
-		WithArgs(int64(20)).
-		WillReturnRows(sqlmock.NewRows([]string{"kind", "category_id"}).AddRow("good", int64(8)))
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_recipes WHERE producer_type_id = \$1 AND recipe_id = \$2\)`).
 		WithArgs(int64(5), int64(10)).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
@@ -1258,29 +1266,81 @@ func TestBindRecipeDuplicate409(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// TestBindRecipeResourceGood400 — рецепт на ресурс не привязывается → 400.
-func TestBindRecipeResourceGood400(t *testing.T) {
+// TestBindRecipeResourceGoodOK — рецепт на ресурс (выход — resource) больше
+// не отбивается → 200.
+func TestBindRecipeResourceGoodOK(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
 	defer db.Close()
 
 	expectMutationBegin(mock)
-	mock.ExpectQuery(`SELECT kind, parent_id, category_id FROM producer_types WHERE id = \$1 FOR UPDATE`).
+	mock.ExpectQuery(`SELECT parent_id FROM producer_types WHERE id = \$1 FOR UPDATE`).
 		WithArgs(int64(5)).
-		WillReturnRows(sqlmock.NewRows([]string{"kind", "parent_id", "category_id"}).
-			AddRow("goods", int64(2), int64(8)))
-	mock.ExpectQuery(`SELECT good_id FROM recipes WHERE id = \$1`).
+		WillReturnRows(sqlmock.NewRows([]string{"parent_id"}).AddRow(int64(2)))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM recipes WHERE id = \$1\)`).
 		WithArgs(int64(10)).
-		WillReturnRows(sqlmock.NewRows([]string{"good_id"}).AddRow(int64(20)))
-	mock.ExpectQuery(`SELECT kind, category_id FROM goods WHERE id = \$1`).
-		WithArgs(int64(20)).
-		WillReturnRows(sqlmock.NewRows([]string{"kind", "category_id"}).AddRow("resource", int64(8)))
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_recipes WHERE producer_type_id = \$1 AND recipe_id = \$2\)`).
+		WithArgs(int64(5), int64(10)).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectExec(`INSERT INTO producer_recipes \(producer_type_id, recipe_id\) VALUES \(\$1, \$2\)`).
+		WithArgs(int64(5), int64(10)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
 
-	err = NewGoodsRepository(db).BindRecipe(5, 10)
-	var ce *ErrCatalog
-	require.True(t, errors.As(err, &ce))
-	require.Equal(t, 400, ce.Status)
-	require.Contains(t, ce.Msg, "только товар")
+	require.NoError(t, NewGoodsRepository(db).BindRecipe(5, 10))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestBindRecipeSettlementSubtypeOK — запись-подтип без товарной категории
+// (тип поселения, аналог dev id=148) держит рецепт → 200.
+func TestBindRecipeSettlementSubtypeOK(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectMutationBegin(mock)
+	mock.ExpectQuery(`SELECT parent_id FROM producer_types WHERE id = \$1 FOR UPDATE`).
+		WithArgs(int64(148)).
+		WillReturnRows(sqlmock.NewRows([]string{"parent_id"}).AddRow(int64(1)))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM recipes WHERE id = \$1\)`).
+		WithArgs(int64(10)).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_recipes WHERE producer_type_id = \$1 AND recipe_id = \$2\)`).
+		WithArgs(int64(148), int64(10)).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectExec(`INSERT INTO producer_recipes \(producer_type_id, recipe_id\) VALUES \(\$1, \$2\)`).
+		WithArgs(int64(148), int64(10)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	require.NoError(t, NewGoodsRepository(db).BindRecipe(148, 10))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestBindRecipeItemsKindSubtypeOK — подтип kind=items держит рецепт
+// (универсальность: kind подтипа не ограничивает) → 200.
+func TestBindRecipeItemsKindSubtypeOK(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectMutationBegin(mock)
+	mock.ExpectQuery(`SELECT parent_id FROM producer_types WHERE id = \$1 FOR UPDATE`).
+		WithArgs(int64(30)).
+		WillReturnRows(sqlmock.NewRows([]string{"parent_id"}).AddRow(int64(29)))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM recipes WHERE id = \$1\)`).
+		WithArgs(int64(10)).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_recipes WHERE producer_type_id = \$1 AND recipe_id = \$2\)`).
+		WithArgs(int64(30), int64(10)).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectExec(`INSERT INTO producer_recipes \(producer_type_id, recipe_id\) VALUES \(\$1, \$2\)`).
+		WithArgs(int64(30), int64(10)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	require.NoError(t, NewGoodsRepository(db).BindRecipe(30, 10))
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -1444,9 +1504,10 @@ func TestCopyUniversalRecipesNotConcrete400(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// TestUpdateProducerTypeCategoryBound409 — смена категории фабрики с
-// привязанными рецептами → 409 (симметрия §2.4).
-func TestUpdateProducerTypeCategoryBound409(t *testing.T) {
+// TestUpdateProducerTypeCategoryBoundOK — смена категории подтипа, у
+// которого есть привязанные рецепты, больше не блокируется → 200 (мёртвый
+// 409 снят; запроса producer_recipes нет).
+func TestUpdateProducerTypeCategoryBoundOK(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
 	defer db.Close()
@@ -1466,16 +1527,51 @@ func TestUpdateProducerTypeCategoryBound409(t *testing.T) {
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM categories WHERE id = \$1\)`).
 		WithArgs(int64(8)).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_recipes WHERE producer_type_id = \$1\)`).
-		WithArgs(int64(15)).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectExec(`UPDATE producer_types SET category_id = \$1 WHERE id = \$2`).
+		WithArgs(int64(8), int64(15)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_types WHERE parent_id = \$1 AND category_id IS NOT DISTINCT FROM \$2 AND race_family IS NOT DISTINCT FROM \$3 AND race IS NOT DISTINCT FROM \$4 AND id <> \$5\)`).
+		WithArgs(int64(2), int64(8), nil, nil, int64(15)).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectCommit()
 
 	catID := int64(8)
-	err = NewGoodsRepository(db).UpdateProducerType(15, nil, &catID, nil, nil, nil, nil, nil, nil)
-	var ce *ErrCatalog
-	require.True(t, errors.As(err, &ce))
-	require.Equal(t, 409, ce.Status)
-	require.Contains(t, ce.Msg, "отвяжите рецепты")
+	require.NoError(t, NewGoodsRepository(db).UpdateProducerType(15, nil, &catID, nil, nil, nil, nil, nil, nil))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestUpdateProducerTypeCategoryWithBindingOK — регресс-гейт: подтип с
+// привязками и семейством меняет категорию без отвязки рецептов → 200
+// (запрос producer_recipes в UpdateProducerType отсутствует).
+func TestUpdateProducerTypeCategoryWithBindingOK(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectMutationBegin(mock)
+	mock.ExpectQuery(`SELECT kind, parent_id, category_id, race_family, race FROM producer_types WHERE id = \$1 FOR UPDATE`).
+		WithArgs(int64(16)).
+		WillReturnRows(sqlmock.NewRows([]string{"kind", "parent_id", "category_id", "race_family", "race"}).
+			AddRow("goods", int64(2), int64(7), "F2", nil))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_slots WHERE parent_id = \$1\)`).
+		WithArgs(int64(2)).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_slots WHERE parent_id = \$1 AND category_id = \$2 AND \(race_family IS NULL OR \(race_family = \$3 AND race IS NULL\) OR race = \$4\)\)`).
+		WithArgs(int64(2), int64(8), "F2", nil).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM categories WHERE id = \$1\)`).
+		WithArgs(int64(8)).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectExec(`UPDATE producer_types SET category_id = \$1 WHERE id = \$2`).
+		WithArgs(int64(8), int64(16)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_types WHERE parent_id = \$1 AND category_id IS NOT DISTINCT FROM \$2 AND race_family IS NOT DISTINCT FROM \$3 AND race IS NOT DISTINCT FROM \$4 AND id <> \$5\)`).
+		WithArgs(int64(2), int64(8), "F2", nil, int64(16)).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectCommit()
+
+	catID := int64(8)
+	require.NoError(t, NewGoodsRepository(db).UpdateProducerType(16, nil, &catID, nil, nil, nil, nil, nil, nil))
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -1603,24 +1699,29 @@ func TestDeleteProducerTypeSettlements409(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// TestBindRecipeNoCategorySubtype400 — T15: подтип без категории (тип
-// поселения) не трактуется как конкретная фабрика — привязка рецепта → 400.
-func TestBindRecipeNoCategorySubtype400(t *testing.T) {
+// TestBindRecipeNoCategorySubtypeOK — T15 (перевёрнут): запись-подтип без
+// товарной категории (тип поселения) держит рецепт → 200.
+func TestBindRecipeNoCategorySubtypeOK(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
 	defer db.Close()
 
 	expectMutationBegin(mock)
-	mock.ExpectQuery(`SELECT kind, parent_id, category_id FROM producer_types WHERE id = \$1 FOR UPDATE`).
+	mock.ExpectQuery(`SELECT parent_id FROM producer_types WHERE id = \$1 FOR UPDATE`).
 		WithArgs(int64(9)).
-		WillReturnRows(sqlmock.NewRows([]string{"kind", "parent_id", "category_id"}).
-			AddRow("goods", int64(1), nil))
+		WillReturnRows(sqlmock.NewRows([]string{"parent_id"}).AddRow(int64(1)))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM recipes WHERE id = \$1\)`).
+		WithArgs(int64(10)).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_recipes WHERE producer_type_id = \$1 AND recipe_id = \$2\)`).
+		WithArgs(int64(9), int64(10)).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectExec(`INSERT INTO producer_recipes \(producer_type_id, recipe_id\) VALUES \(\$1, \$2\)`).
+		WithArgs(int64(9), int64(10)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
 
-	err = NewGoodsRepository(db).BindRecipe(9, 10)
-	var ce *ErrCatalog
-	require.True(t, errors.As(err, &ce))
-	require.Equal(t, 400, ce.Status)
-	require.Contains(t, ce.Msg, "рецепт привязывается только к конкретной фабрике")
+	require.NoError(t, NewGoodsRepository(db).BindRecipe(9, 10))
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

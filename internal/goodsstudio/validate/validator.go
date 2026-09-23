@@ -96,7 +96,7 @@ func Validate(st *model.State) []Warning {
 	}
 
 	// 4. «Товар без привязки» (спека 2026-09-21-рецепт-сущность §5):
-	// товар (kind=good), чей рецепт не привязан ни к одной фабрике
+	// товар (kind=good), чей рецепт не привязан ни к одной постройке
 	// (producer_recipes) — «ничей» (спека фабрик §4.3); правится привязкой в
 	// студии. Источник — st.Bindings (recipe_id/producer_type_id/good_id).
 	// Носитель в UI — не этот warning: видимый маркер «не привязан» —
@@ -113,7 +113,7 @@ func Validate(st *model.State) []Warning {
 		if !bound[g.ID] {
 			out = append(out, Warning{
 				Code:    "unbound_recipe",
-				Message: fmt.Sprintf("«Товар без привязки»: %s — рецепт не привязан ни к одной фабрике", g.Name),
+				Message: fmt.Sprintf("«Товар без привязки»: %s — рецепт не привязан ни к одной постройке", g.Name),
 			})
 		}
 	}

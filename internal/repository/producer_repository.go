@@ -552,21 +552,6 @@ func (r *GoodsRepository) UpdateProducerType(id int64, name *string, categoryID 
 				return errCatalog(400, "категория не найдена")
 			}
 			// Применяемый слот проверен выше (С4, §1.4 п.1) по итоговому уровню.
-			// Инвариант «выход рецепта = категория фабрики» (спека
-			// 2026-09-21-рецепт-сущность §2.4/§5): смена категории конкретной
-			// фабрики с привязанными рецептами запрещена — иначе выход
-			// привязанных рецептов перестанет быть категорией фабрики.
-			if !curCategory.Valid || *categoryID != curCategory.Int64 {
-				var boundRecipes bool
-				if err := tx.QueryRow(
-					`SELECT EXISTS(SELECT 1 FROM producer_recipes WHERE producer_type_id = $1)`, id,
-				).Scan(&boundRecipes); err != nil {
-					return err
-				}
-				if boundRecipes {
-					return errCatalog(409, "сначала отвяжите рецепты")
-				}
-			}
 		}
 		if _, err := tx.Exec(`UPDATE producer_types SET category_id = $1 WHERE id = $2`, *categoryID, id); err != nil {
 			return err
@@ -1056,11 +1041,12 @@ func (r *GoodsRepository) DeleteItem(id int64) error {
 
 // --- рецепты фабрики (producer_recipes, спека 2026-09-21-рецепт-сущность §5) ---
 
-// BindRecipe — привязать рецепт к конкретной фабрике (POST
-// /studio/api/producers/{id}/recipes). Инварианты §2.4: фабрика — конкретная
-// (kind='goods', parent_id NOT NULL, category_id NOT NULL); рецепт
-// существует; выход рецепта — товар (kind='good') её категории (иначе 400);
-// повтор — 409.
+// BindRecipe — привязать рецепт к записи-подтипу постройки (POST
+// /studio/api/producers/{id}/recipes). Инвариант спеки
+// 2026-09-23-студия-назначение-рецептов §1: любая запись-подтип
+// (parent_id IS NOT NULL) держит любой рецепт каталога — ограничения по
+// товарной категории, kind подтипа и виду выхода сняты. Тип/класс
+// (parent_id IS NULL) — 400; рецепта нет — 404; повтор — 409.
 func (r *GoodsRepository) BindRecipe(producerTypeID, recipeID int64) error {
 	tx, err := r.beginMutation()
 	if err != nil {
@@ -1068,44 +1054,28 @@ func (r *GoodsRepository) BindRecipe(producerTypeID, recipeID int64) error {
 	}
 	defer tx.Rollback()
 
-	var kind string
-	var parentID, categoryID sql.NullInt64
+	var parentID sql.NullInt64
 	err = tx.QueryRow(
-		`SELECT kind, parent_id, category_id FROM producer_types WHERE id = $1 FOR UPDATE`, producerTypeID,
-	).Scan(&kind, &parentID, &categoryID)
+		`SELECT parent_id FROM producer_types WHERE id = $1 FOR UPDATE`, producerTypeID,
+	).Scan(&parentID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return errCatalog(404, "тип не найден")
 	}
 	if err != nil {
 		return err
 	}
-	if kind != "goods" || !parentID.Valid || !categoryID.Valid {
-		return errCatalog(400, "рецепт привязывается только к конкретной фабрике (kind=goods, подтип с категорией)")
-	}
-	var goodID int64
-	err = tx.QueryRow(`SELECT good_id FROM recipes WHERE id = $1`, recipeID).Scan(&goodID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return errCatalog(404, "рецепт не найден")
-	}
-	if err != nil {
-		return err
-	}
-	var goodKind string
-	var goodCategory int64
-	err = tx.QueryRow(`SELECT kind, category_id FROM goods WHERE id = $1`, goodID).Scan(&goodKind, &goodCategory)
-	if errors.Is(err, sql.ErrNoRows) {
-		return errCatalog(404, "товар рецепта не найден")
-	}
-	if err != nil {
-		return err
-	}
-	if goodKind != "good" {
-		return errCatalog(400, "рецепт на ресурс не привязывается (выход — только товар)")
-	}
-	if goodCategory != categoryID.Int64 {
-		return errCatalog(400, "выход рецепта — не категория фабрики")
+	if !parentID.Valid {
+		return errCatalog(400, "рецепт назначается записи-подтипу (дочке), не типу/классу")
 	}
 	var exists bool
+	if err := tx.QueryRow(
+		`SELECT EXISTS(SELECT 1 FROM recipes WHERE id = $1)`, recipeID,
+	).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return errCatalog(404, "рецепт не найден")
+	}
 	if err := tx.QueryRow(
 		`SELECT EXISTS(SELECT 1 FROM producer_recipes WHERE producer_type_id = $1 AND recipe_id = $2)`,
 		producerTypeID, recipeID,
@@ -1113,14 +1083,14 @@ func (r *GoodsRepository) BindRecipe(producerTypeID, recipeID int64) error {
 		return err
 	}
 	if exists {
-		return errCatalog(409, "рецепт уже привязан к этой фабрике")
+		return errCatalog(409, "рецепт уже назначен этой постройке")
 	}
 	if _, err := tx.Exec(
 		`INSERT INTO producer_recipes (producer_type_id, recipe_id) VALUES ($1, $2)`,
 		producerTypeID, recipeID,
 	); err != nil {
 		if isUniqueViolation(err) {
-			return errCatalog(409, "рецепт уже привязан к этой фабрике")
+			return errCatalog(409, "рецепт уже назначен этой постройке")
 		}
 		return err
 	}

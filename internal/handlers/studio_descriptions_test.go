@@ -28,9 +28,9 @@ func TestStudioGoodPutNoDescription(t *testing.T) {
 	defer db.Close()
 
 	expectStudioMutation(mock)
-	mock.ExpectQuery(`SELECT kind, category_id FROM goods WHERE id = \$1 FOR UPDATE`).
+	mock.ExpectQuery(`SELECT kind FROM goods WHERE id = \$1 FOR UPDATE`).
 		WithArgs(int64(1)).
-		WillReturnRows(sqlmock.NewRows([]string{"kind", "category_id"}).AddRow("good", int64(1)))
+		WillReturnRows(sqlmock.NewRows([]string{"kind"}).AddRow("good"))
 	mock.ExpectCommit()
 
 	h := newFillHandlers(db)
@@ -49,9 +49,9 @@ func TestStudioGoodPutDescriptionClear(t *testing.T) {
 	defer db.Close()
 
 	expectStudioMutation(mock)
-	mock.ExpectQuery(`SELECT kind, category_id FROM goods WHERE id = \$1 FOR UPDATE`).
+	mock.ExpectQuery(`SELECT kind FROM goods WHERE id = \$1 FOR UPDATE`).
 		WithArgs(int64(1)).
-		WillReturnRows(sqlmock.NewRows([]string{"kind", "category_id"}).AddRow("good", int64(1)))
+		WillReturnRows(sqlmock.NewRows([]string{"kind"}).AddRow("good"))
 	mock.ExpectExec(`UPDATE goods SET description = NULL WHERE id = \$1`).
 		WithArgs(int64(1)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -73,9 +73,9 @@ func TestStudioGoodPutDescriptionSet(t *testing.T) {
 	defer db.Close()
 
 	expectStudioMutation(mock)
-	mock.ExpectQuery(`SELECT kind, category_id FROM goods WHERE id = \$1 FOR UPDATE`).
+	mock.ExpectQuery(`SELECT kind FROM goods WHERE id = \$1 FOR UPDATE`).
 		WithArgs(int64(1)).
-		WillReturnRows(sqlmock.NewRows([]string{"kind", "category_id"}).AddRow("resource", int64(7)))
+		WillReturnRows(sqlmock.NewRows([]string{"kind"}).AddRow("resource"))
 	mock.ExpectExec(`UPDATE goods SET description = \$1 WHERE id = \$2`).
 		WithArgs("Металл.", int64(1)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -98,9 +98,9 @@ func TestStudioGoodPutDescriptionTooLong(t *testing.T) {
 
 	long := strings.Repeat("я", ai.MaxDescriptionRunes+1)
 	expectStudioMutation(mock)
-	mock.ExpectQuery(`SELECT kind, category_id FROM goods WHERE id = \$1 FOR UPDATE`).
+	mock.ExpectQuery(`SELECT kind FROM goods WHERE id = \$1 FOR UPDATE`).
 		WithArgs(int64(1)).
-		WillReturnRows(sqlmock.NewRows([]string{"kind", "category_id"}).AddRow("good", int64(1)))
+		WillReturnRows(sqlmock.NewRows([]string{"kind"}).AddRow("good"))
 	mock.ExpectRollback()
 
 	h := newFillHandlers(db)

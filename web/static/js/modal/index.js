@@ -332,10 +332,20 @@ function renderModal(worldId, worldName, spectralClass, data) {
     const shipIcon = modalState.shipIcon;
     const shipColor = modalState.shipColor;
     const role = modalState.role;
+    // Межзвёздный полёт (баг 2026-09-24): /me асинхронный и мог вернуться ДО
+    // renderModal — resetState сбрасывал interstellarFlight, режим модалки
+    // становился 'intra', «Лететь» уходил во внутрисистемный старт → сервер
+    // отвечал 400 «Вы в межзвёздном полёте» (пояс/планета в своей системе
+    // становились недостижимы из полёта). Та же гонка, что у role/shipIcon —
+    // сохраняем и восстанавливаем (имя цели — для тултипа композитной кнопки).
+    const interstellarFlight = modalState.interstellarFlight;
+    const interstellarFlightName = modalState.interstellarFlightName;
     resetState();
     modalState.shipIcon = shipIcon;
     modalState.shipColor = shipColor;
     modalState.role = role;
+    modalState.interstellarFlight = interstellarFlight;
+    modalState.interstellarFlightName = interstellarFlightName;
 
     const planets = Array.isArray(data && data.planets) ? data.planets : [];
     const starType = (data && data.star_type) || 'star';

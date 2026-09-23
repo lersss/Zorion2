@@ -290,6 +290,23 @@ func main() {
 			return *u.CurrentWorldID
 		},
 		handlers.NewIntraArrivalHandler(intraFlightRepo, planetRepo, knowledgeRepo, contractRepo),
+		// B27: битая цель полёта при рестарте → игрок возвращается на «орбиту
+		// звезды» системы, иначе застревает в in_flight без строки полёта.
+		// Пишем только если текущая позиция наша (in_flight или NULL) — иначе
+		// позицией владеет другой поток (прибытие/высадка) и её трогать нельзя.
+		func(userID, worldID string) {
+			pos, err := userRepo.GetCurrentPosition(userID)
+			if err != nil {
+				log.Printf("⚠️ intrasystem: RestoreIntra reset get position (user %s): %v", userID, err)
+				return
+			}
+			if pos != nil && pos.Status != "in_flight" {
+				return
+			}
+			if err := userRepo.UpdatePosition(userID, models.StarOrbitPosition(worldID)); err != nil {
+				log.Printf("⚠️ intrasystem: RestoreIntra reset position (user %s): %v", userID, err)
+			}
+		},
 	)
 	// Фаза 3: намерения композитного маршрута (спека 99.2.30 §4.5) — ПОСЛЕ
 	// фаз 1–2: автостарт для живых целей, очистка призраков/битых/съеденных.

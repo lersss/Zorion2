@@ -228,17 +228,23 @@ func (m *IntrasystemManager) IsInIntraFlight(userID string) bool {
 //     запишется при новом current_world_id — нарушение ИП-1);
 //   - игрок уже в другой системе (currentWorldID != row.WorldID — межзвёздная
 //     прибыла при Restore) → то же;
-//   - битая система/цель (validTarget = false) → строка удаляется, позиция
-//     не трогается;
+//   - битая система/цель (validTarget = false) → строка удаляется, а игрок
+//     возвращается на «орбиту звезды» системы (resetPosition, B27): иначе он
+//     остаётся в статусе in_flight без строки полёта и застревает;
 //   - arrive_at <= now → onArrival сразу + удаление строки;
 //   - arrive_at > now → перерегистрация в памяти с ОРИГИНАЛЬНЫМИ временами,
 //     горутина ждёт остаток (waitFor = arrive_at - now).
+//
+// resetPosition вызывается ТОЛЬКО в ветке битой цели; в ветках «межзвёздная
+// побеждает» и «игрок уже в другой системе» позицией владеет межзвёздный полёт
+// (current_position = NULL / уже записан прибытием) — трогать её нельзя.
 func (m *IntrasystemManager) RestoreIntra(
 	now time.Time,
 	validTarget func(worldID, objType, objID string) bool,
 	hasInterstellar func(userID string) bool,
 	currentWorldID func(userID string) string,
 	onArrival IntraArrivalFunc,
+	resetPosition func(userID, worldID string),
 ) {
 	if m.store == nil {
 		return
@@ -265,10 +271,15 @@ func (m *IntrasystemManager) RestoreIntra(
 				continue
 			}
 		}
-		// Битая система/цель (перегенерация) — полёт не восстанавливаем.
+		// Битая система/цель (перегенерация) — полёт не восстанавливаем;
+		// игрок возвращается на «орбиту звезды» системы (B27), иначе он
+		// застревает в in_flight без строки полёта.
 		if validTarget != nil && !validTarget(row.WorldID, row.ToType, row.ToID) {
 			if err := m.store.Delete(row.UserID); err != nil {
 				log.Printf("⚠️ intrasystem: Restore delete (broken target, user %s): %v", row.UserID, err)
+			}
+			if resetPosition != nil {
+				resetPosition(row.UserID, row.WorldID)
 			}
 			continue
 		}

@@ -323,7 +323,8 @@ func TestIntraRestoreFutureArrival(t *testing.T) {
 		func(worldID, objType, objID string) bool { return true },
 		func(userID string) bool { return false },
 		func(userID string) string { return "w1" },
-		func(userID string, f *IntraFlightInfo) { arrived <- userID + ":" + f.ToID })
+		func(userID string, f *IntraFlightInfo) { arrived <- userID + ":" + f.ToID },
+		nil)
 
 	flight := m.GetIntraFlight("user-1")
 	require.NotNil(t, flight, "будущий arrive_at → полёт перерегистрируется")
@@ -355,7 +356,8 @@ func TestIntraRestorePastArrival(t *testing.T) {
 		func(worldID, objType, objID string) bool { return true },
 		func(userID string) bool { return false },
 		func(userID string) string { return "w1" },
-		func(userID string, f *IntraFlightInfo) { arrived <- userID + ":" + f.ToID })
+		func(userID string, f *IntraFlightInfo) { arrived <- userID + ":" + f.ToID },
+		nil)
 
 	select {
 	case msg := <-arrived:
@@ -368,7 +370,8 @@ func TestIntraRestorePastArrival(t *testing.T) {
 }
 
 // Битая цель (планета удалена перегенерацией) → полёт НЕ восстанавливается,
-// строка удаляется, onArrival не вызывается, позиция не трогается.
+// строка удаляется, onArrival не вызывается, игрок возвращается на «орбиту
+// звезды» системы (resetPosition, B27).
 func TestIntraRestoreBrokenTarget(t *testing.T) {
 	store := newFakeIntraStore()
 	m := NewIntrasystemManager(store)
@@ -380,15 +383,21 @@ func TestIntraRestoreBrokenTarget(t *testing.T) {
 	}
 
 	called := false
+	resetCalls := 0
+	var resetUser, resetWorld string
 	m.RestoreIntra(time.Now(),
 		func(worldID, objType, objID string) bool { return objID != "GONE" },
 		func(userID string) bool { return false },
 		func(userID string) string { return "w1" },
-		func(userID string, f *IntraFlightInfo) { called = true })
+		func(userID string, f *IntraFlightInfo) { called = true },
+		func(userID, worldID string) { resetCalls++; resetUser, resetWorld = userID, worldID })
 
 	assert.False(t, called, "битый полёт не засчитывает прибытие")
 	assert.False(t, m.IsInIntraFlight("user-1"))
 	require.False(t, store.has("user-1"), "строка с битой целью удалена")
+	assert.Equal(t, 1, resetCalls, "resetPosition вызван ровно один раз")
+	assert.Equal(t, "user-1", resetUser)
+	assert.Equal(t, "w1", resetWorld)
 }
 
 // С-1: у игрока есть межзвёздная строка → внутрисистемная удаляется БЕЗ
@@ -405,13 +414,16 @@ func TestIntraRestoreInterstellarWins(t *testing.T) {
 	}
 
 	called := false
+	resetCalled := false
 	m.RestoreIntra(time.Now(),
 		func(worldID, objType, objID string) bool { return true },
 		func(userID string) bool { return userID == "user-1" }, // межзвёздная есть
 		func(userID string) string { return "w1" },
-		func(userID string, f *IntraFlightInfo) { called = true })
+		func(userID string, f *IntraFlightInfo) { called = true },
+		func(userID, worldID string) { resetCalled = true })
 
 	assert.False(t, called, "межзвёздная строка побеждает: onArrival не вызывается")
+	assert.False(t, resetCalled, "позицией владеет межзвёздный полёт: resetPosition не вызывается")
 	assert.False(t, m.IsInIntraFlight("user-1"))
 	require.False(t, store.has("user-1"), "intra удаляется без onArrival")
 }
@@ -429,13 +441,16 @@ func TestIntraRestoreMovedSystem(t *testing.T) {
 	}
 
 	called := false
+	resetCalled := false
 	m.RestoreIntra(time.Now(),
 		func(worldID, objType, objID string) bool { return true },
 		func(userID string) bool { return false },
 		func(userID string) string { return "w2" }, // игрок уже в другой системе
-		func(userID string, f *IntraFlightInfo) { called = true })
+		func(userID string, f *IntraFlightInfo) { called = true },
+		func(userID, worldID string) { resetCalled = true })
 
 	assert.False(t, called, "игрок в другой системе: onArrival не вызывается")
+	assert.False(t, resetCalled, "позицию записал прибывший межзвёздный полёт: resetPosition не вызывается")
 	assert.False(t, m.IsInIntraFlight("user-1"))
 	require.False(t, store.has("user-1"), "intra удаляется без onArrival")
 }

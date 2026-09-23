@@ -288,7 +288,14 @@
         { "on": "internal/models/knowledge.go", "kind": "reads", "reason": "модель знания; протухание 7 дней — статус актуальности на чтении" },
         { "on": "internal/repository/knowledge_repository.go", "kind": "reads", "reason": "доступ к каталогу знания (77a)" },
         { "on": "internal/handlers/visibility.go", "kind": "api", "reason": "видимость деталей систем решается знанием + радиусом радара" },
-        { "on": "77a", "kind": "duplicates", "reason": "структура каталога и протухание — в спеке §4" }
+        { "on": "77a", "kind": "duplicates", "reason": "структура каталога и протухание — в спеке §4" },
+        { "on": "internal/repository/knowledge_repository.go", "kind": "writes", "reason": "merge-запись `data || EXCLUDED.data` (2026-09-23): ленивый скан не стирает снимок; FixatePresence пишет data.snapshot" },
+        { "on": "internal/handlers/intrasystem_handlers.go", "kind": "writes", "reason": "фиксация снимка при прибытии (A1/A2, спутник → родитель) и при отлёте внутрисистемным полётом (D1)" },
+        { "on": "internal/handlers/travel_handlers.go", "kind": "writes", "reason": "фиксация снимка при старте межзвёздного полёта с планеты/спутника (D2)" },
+        { "on": "internal/handlers/planet_handler.go", "kind": "reads", "reason": "режимы presence/snapshot/scan, ленивый скан, флаг can_buy_report" },
+        { "on": "internal/models/knowledge.go", "kind": "duplicates", "reason": "поля mode/snapshot_at/snapshot_fresh и контракт data.snapshot (спека 2026-09-23 §5.2)" },
+        { "on": "planet_knowledge_snapshot", "kind": "affects", "reason": "снимок живёт полем data.snapshot этой записи (одна строка на игрок × планета)" },
+        { "on": "docs/specs/2026-09-23-орбита-планеты-присутствие-и-снимок.md", "kind": "docs", "reason": "спека-источник §3.3/§8.2 (реализована, коммит 86c620c)" }
       ]
     },
     {
@@ -1333,7 +1340,10 @@
       "note": "Поселения на планете (миграции 000018/19/20/21/24/39: planet_id, population, population_exact, stability, race_id, computed_at — ленивый пересчёт населения). Итерация 4 эпика «Экономика поселения» (2026-09-22, миграция 000067): + settlement_type_id BIGINT NULL REFERENCES producer_types(id) ON DELETE RESTRICT — настоящая связь «поселение → его тип» (подтип «Обычное поселение», класс строения без товарной категории), тип несёт структуру норм еды params.eat; бэкфилл существующих поселений; тип проставляется во всех 5 точках создания (генерация миров + админ-инструменты, п.40).",
       "impacts": [
         { "on": "producer_types", "kind": "schema", "reason": "FK settlement_type_id → producer_types(id) ON DELETE RESTRICT: удаление типа, на который ссылаются поселения, запрещено (студия отдаёт 409 — DeleteProducerType)" },
-        { "on": "settlement_type_consumption", "kind": "affects", "reason": "население поселения определяет объём еды ветки (линейно); тип поселения выбирает норму еды" }
+        { "on": "settlement_type_consumption", "kind": "affects", "reason": "население поселения определяет объём еды ветки (линейно); тип поселения выбирает норму еды" },
+        { "on": "internal/handlers/planet_visibility.go", "kind": "affects", "reason": "детали поселений открываются присутствием/снимком (2026-09-23): presence — живые, snapshot — замороженные, без эффектов и лога" },
+        { "on": "planet_knowledge_snapshot", "kind": "writes", "reason": "поселения (раса/население/стабильность/ветки) входят в снимок на момент отлёта" },
+        { "on": "docs/specs/2026-09-23-орбита-планеты-присутствие-и-снимок.md", "kind": "docs", "reason": "спека: показ поселений игроку и заморозка в снимке (§2.2/§5.1)" }
       ]
     },
     {
@@ -1558,6 +1568,64 @@
       "impacts": [
         { "on": "18a_population_death.md", "kind": "affects", "reason": "новая линия эффектов в R_среда + R_эффекты и код причины hunger" },
         { "on": "settlement_log", "kind": "writes", "reason": "запись типа extinct с cause='hunger' через owner-транзакцию" }
+      ]
+    },
+    {
+      "id": "planet_knowledge_snapshot",
+      "type": "mechanic",
+      "path": "internal/repository/knowledge_repository.go",
+      "note": "Снимок знания (спека 2026-09-23, коммит 86c620c): замороженная картина планеты на момент фиксации присутствия — поле data.snapshot в player_planet_knowledge. Состав: поверхность, поселения (раса/население/стабильность/ветки), фракции, строения; эффекты и лог вымирания НЕ замораживаются. Хранит результат (округлённое население, без population_exact/computed_at/R-компонент) — чтение не двигает чек-точку (18a). Фиксация: прибытие (A1/A2) и отлёт (D1/D2); F5/рестарт/высадка/взлёт — не отлёт. Запись знания — merge (data || EXCLUDED.data): скан не стирает снимок. Миграции нет.",
+      "impacts": [
+        { "on": "player_planet_knowledge", "kind": "writes", "reason": "снимок живёт полем data.snapshot той же записи (игрок × планета)" },
+        { "on": "settlements", "kind": "reads", "reason": "сборка снимка: раса/население/стабильность/ветки на момент фиксации" },
+        { "on": "settlement_branches", "kind": "reads", "reason": "ветки производства в снимок (рецепт + выход; вход не попадает)" },
+        { "on": "factions", "kind": "reads", "reason": "фракции планеты замораживаются в снимке (отменяет решение 2026-09-21 «снимок фракций не хранит»)" },
+        { "on": "buildings", "kind": "reads", "reason": "строения планеты замораживаются в снимке (поселения — тоже строения)" },
+        { "on": "internal/handlers/intrasystem_handlers.go", "kind": "writes", "reason": "фиксация при прибытии (A1/A2: спутник → родитель) и при старте внутрисистемного полёта (D1)" },
+        { "on": "internal/handlers/travel_handlers.go", "kind": "writes", "reason": "фиксация при старте межзвёздного полёта с планеты/спутника (D2)" },
+        { "on": "internal/handlers/planet_visibility.go", "kind": "affects", "reason": "режимы presence/snapshot/scan/none: раскладка снимка в ответ игроку без эффектов и лога" },
+        { "on": "internal/handlers/planet_handler.go", "kind": "reads", "reason": "режим присутствия, ленивый скан, флаг can_buy_report" },
+        { "on": "web/static/js/modal/tabs.js", "kind": "reads", "reason": "плашки знания (§6.1), дата снимка, управление «купить отчёт»" },
+        { "on": "internal/models/knowledge.go", "kind": "duplicates", "reason": "поля mode/snapshot_at/snapshot_fresh — контракт выдачи снимка" },
+        { "on": "docs/specs/2026-09-23-орбита-планеты-присутствие-и-снимок.md", "kind": "docs", "reason": "спека-источник §3 (реализована, коммит 86c620c)" }
+      ]
+    },
+    {
+      "id": "game_calendar",
+      "type": "mechanic",
+      "path": "web/static/js/game_date.js",
+      "note": "Общеигровой календарь (спека 2026-09-23, коммит 86c620c): год серверного времени +1000 (сегодня — 3026) в UTC, единый формат «ДД.ММ.ГГГГ, чч:мм» во всём интерфейсе, включая админку. Сдвиг — только при отображении; арифметика времени (прогресс полёта, «осталось N») считается по реальным меткам. Уточняет прежний канон 18a «игровое время равно реальному, отдельного календаря нет».",
+      "impacts": [
+        { "on": "web/static/js/modal/tabs.js", "kind": "reads", "reason": "дата лога вымирания — через gameDate" },
+        { "on": "18a_population_death.md", "kind": "affects", "reason": "раздел «Время»: календарь +1000 (UTC) вместо «отдельного календаря нет»; три новых эталона-пары в FAQ" },
+        { "on": "18b_settlement_log.md", "kind": "affects", "reason": "«дата — реальная» → дата показывается в общеигровом календаре (UTC)" },
+        { "on": "docs/specs/2026-09-23-орбита-планеты-присутствие-и-снимок.md", "kind": "docs", "reason": "спека-источник §7 (реализована, коммит 86c620c)" }
+      ]
+    },
+    {
+      "id": "docs/specs/2026-09-23-орбита-планеты-присутствие-и-снимок.md",
+      "type": "spec",
+      "path": "docs/specs/2026-09-23-орбита-планеты-присутствие-и-снимок.md",
+      "note": "Спека 2026-09-23 (реализована, коммит 86c620c): присутствие на орбите планеты даёт полные данные о поверхности и поселениях (раса/население/стабильность/ветки/эффекты/лог, фракции, строения); снимок знания на момент отлёта (data.snapshot, merge-запись, без миграции); общеигровой календарь +1000 (UTC); режимы presence/snapshot/scan/none; player-safe DTO эффектов без нагрузки и силы; флаг can_buy_report (покупка отчёта — заглушка, только с планеты и про другие планеты). Утверждена создателем 2026-09-23; @critic 1 крупное/7 средних/5 мелких — разобраны.",
+      "impacts": [
+        { "on": "player_planet_knowledge", "kind": "affects", "reason": "merge-запись знания и контракт data.snapshot (§3.3/§8.2)" },
+        { "on": "planet_knowledge_snapshot", "kind": "duplicates", "reason": "механика снимка зафиксирована спекой (§3.1)" },
+        { "on": "game_calendar", "kind": "duplicates", "reason": "общеигровой календарь +1000 (UTC) зафиксирован спекой (§7)" },
+        { "on": "77a", "kind": "affects", "reason": "дельта §6.2/§8.1/§11.2: присутствие и снимок как каналы деталей поселений; merge-запись data" },
+        { "on": "docs/gamedesign/10_exploration.md", "kind": "affects", "reason": "дельта §10.3.1/§10.3.4: снимок как реализация «видит в момент отлёта»; расы — не только покупкой отчёта" },
+        { "on": "22_races.md", "kind": "affects", "reason": "дельта §2.6 + FAQ: присутствие открывает расу; эталон 2026-09-16 уточнён" },
+        { "on": "18a_population_death.md", "kind": "affects", "reason": "дельта §«Время» + три эталона-пары (календарь; что видно на орбите и в снимке)" },
+        { "on": "18b_settlement_log.md", "kind": "affects", "reason": "дельта: дата смерти — в общеигровом календаре" },
+        { "on": "docs/gamedesign/18_needs.md", "kind": "affects", "reason": "дельта §18.2.1: стабильность показывается на орбите как временная витрина" },
+        { "on": "docs/GLOSSARY.md", "kind": "affects", "reason": "дельта §1 «Присутствие» (объём — орбита планеты) и §4 «Снимок знания»" },
+        { "on": "settlements", "kind": "affects", "reason": "детали поселений открываются присутствием/снимком (§5.1)" },
+        { "on": "settlement_log", "kind": "affects", "reason": "лог вымирания показывается игроку только при присутствии (§2.2)" },
+        { "on": "active_effects", "kind": "affects", "reason": "эффекты — только при присутствии, player-safe DTO без load/load_at/силы (§5.4)" },
+        { "on": "effect_types", "kind": "affects", "reason": "имя/что делает/состояние эффекта — витрина игроку (§5.4)" },
+        { "on": "buildings", "kind": "affects", "reason": "строения планеты: живые при присутствии, замороженные в снимке (§3.1)" },
+        { "on": "factions", "kind": "affects", "reason": "фракции планеты: живые при присутствии, замороженные в снимке; нейтральный текст пустого состояния (§6.2 п.7)" },
+        { "on": "docs/specs/2026-09-21-фабрики-релиз-2-столицы-фракций.md", "kind": "affects", "reason": "дельта §5/§7 п.6: отмена решения 2026-09-21 «снимок фракций не хранит»" },
+        { "on": "docs/specs/README.md", "kind": "docs", "reason": "манифест спек: строка этой спеки" }
       ]
     }
   ]

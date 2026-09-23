@@ -15,6 +15,7 @@
         --text: #e6e9ee;
         --accent: #6db3f2;
         --warn: #e0a33e;
+        --yellow: #d9c84a;
         --bad: #e06c6c;
       }
       * { box-sizing: border-box; }
@@ -62,6 +63,7 @@
       td.name { white-space: normal; min-width: 220px; }
       .live { color: #6ee7a0; }
       .hi { color: var(--warn); }
+      .yellow { color: var(--yellow); }
       .bad { color: var(--bad); }
       .zoomctl { display: inline-flex; align-items: center; gap: 6px; margin-right: 10px; }
       .scroll { max-height: none; overflow: visible; }
@@ -156,7 +158,7 @@
         report: null,
         sort: { agents: ["cost", -1], features: ["cost", -1], active: ["cost", -1] },
         updatedAt: 0,
-        limits: { memWarn: 700000, memStop: 900000 },
+        limits: { memWarn: 700000, memStop: 900000, workNoteMin: 15, workWarnMin: 30, workBadMin: 60 },
         extensions: {},
         prev: new Map(),
         deltas: new Map(),
@@ -177,6 +179,27 @@
         if (s < 60) return s + " с";
         const m = Math.floor(s / 60);
         return m < 60 ? m + " мин" : Math.floor(m / 60) + " ч " + (m % 60) + " мин";
+      };
+
+      // Активное время работы сессии — часы и минуты без секунд. Паузы дольше
+      // 10 минут (сон, ожидание человека) в счёт не идут — как и в stats.mjs.
+      const WORK_GAP_MS = 10 * 60 * 1000;
+      const workFmt = (ms) => {
+        const m = Math.floor(ms / 60000);
+        if (m < 1) return "<1 мин";
+        if (m < 60) return m + " мин";
+        return Math.floor(m / 60) + " ч " + String(m % 60).padStart(2, "0") + " мин";
+      };
+      // Цвет цифры по длительности: жёлтый / оранжевый / красный. Менеджера и
+      // диспетчера не красим — их вкладки по природе длинные.
+      const workCls = (agent, ms) => {
+        if (agent === "manager" || agent === "dispatcher") return "";
+        const m = ms / 60000;
+        const lim = state.limits;
+        if (m > (lim.workBadMin || 60)) return "bad";
+        if (m > (lim.workWarnMin || 30)) return "hi";
+        if (m > (lim.workNoteMin || 15)) return "yellow";
+        return "";
       };
 
       // Верхний блок: кто работает прямо сейчас, с ценой, остатком бюджета памяти
@@ -228,6 +251,9 @@
         const cells = all.map((a) => {
           const key = a.id || a.agent + "|" + a.title;
           const d = state.deltas.get(key);
+          // Живое активное время: посчитанное по сессии плюс текущий промежуток
+          // «сейчас − последнее сообщение» (тоже с ограничением 10 минут).
+          const work = (a.workMs || 0) + Math.min(now - a.last, WORK_GAP_MS);
           const pct = Math.min(100, Math.round((a.peak / stop) * 100));
           const cls = a.peak >= stop ? "bad" : a.peak >= warn ? "warn" : "";
           const left = Math.max(0, stop - a.peak);
@@ -247,7 +273,7 @@
                 <span class="delta">${a.turns} ответов${d && d.turns > 0 ? " (+" + d.turns + ")" : ""}</span>
                 <span class="pill ${a.recentRepeats > 50 ? "bad" : a.recentRepeats > 0 ? "hi" : ""}">повторов ${a.recentLabel || "в задаче"}: ${a.recentRepeats || 0}</span>
                 <span class="pill ${a.guard ? "bad" : ""}">сторож: ${a.guard || 0}</span>
-                <span class="delta"><span class="dot ${now - a.last < 60000 ? "" : "calm"}"></span>${ago(a.last, now)} назад</span>
+                <span class="delta" title="${ago(a.last, now)} назад"><span class="dot ${now - a.last < 60000 ? "" : "calm"}"></span><span class="${workCls(a.agent, work)}">${workFmt(work)}</span></span>
                 ${a.id ? pardonControls(a.id) : ""}
                 ${a.id ? extendControls(a.id) : ""}
               </div>

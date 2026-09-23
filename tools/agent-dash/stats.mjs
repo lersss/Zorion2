@@ -193,6 +193,18 @@ export function createStore({
      FROM part WHERE session_id=?`
   );
 
+  // Активное время сессии: сумма промежутков между соседними сообщениями, но
+  // пауза дольше 10 минут в счёт не идёт (сон/ожидание человека не раздувают
+  // цифру). Роль сообщения неважна: opencode прячет служебные под ролью user,
+  // поэтому считаем по всем сообщениям сессии.
+  const WORK_GAP_MS = 10 * 60 * 1000;
+  const workGaps = db.prepare(
+    `SELECT SUM(min(dt, ?)) work FROM (
+       SELECT time_created - lag(time_created) OVER (ORDER BY time_created) dt
+       FROM message WHERE session_id = ?
+     ) WHERE dt IS NOT NULL`
+  );
+
   function newSession(r) {
     return {
       id: r.id,
@@ -332,6 +344,10 @@ export function createStore({
   }
 
   const statOf = (id) => stats.get(id) || EMPTY_STAT;
+
+  // Активное время сессии целиком (не режется периодом): сколько она реально
+  // работала. Считаем только для показанных карточек — это дёшево.
+  const workOf = (id) => workGaps.get(WORK_GAP_MS, id)?.work || 0;
 
   // Тяжёлые счётчики (вызовы, повторы, сторож, сжатия памяти) досчитываются
   // порциями: сначала самые дорогие сессии, чтобы цифры появлялись сверху вниз.
@@ -530,6 +546,7 @@ export function createStore({
             peak: activity.peak,
             turns: activity.turns,
             last: activity.last,
+            workMs: workOf(s.id),
             live: now - activity.last < 5 * 60 * 1000,
             guard: guard.blocked + guard.aborted,
             repeats: stat.repeats,

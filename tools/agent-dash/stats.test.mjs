@@ -134,6 +134,12 @@ const liveRow = today.active.find((a) => a.id === "s2");
 check("активная сессия попадает в верхний блок", !!liveRow && liveRow.live === true, JSON.stringify(today.active.map((a) => [a.id, a.live])));
 check("в записи активной сессии есть цена, память и роль", !!liveRow && liveRow.cost > 0 && liveRow.peak > 0 && liveRow.agent === "developer", JSON.stringify(liveRow));
 check("в записи активной сессии есть заголовок фичи", liveRow?.parent === "Фича А", JSON.stringify(liveRow?.parent));
+
+// Активное время сессии (поле workMs): пауза больше 10 минут в счёт не идёт.
+const workRow = all.active.find((a) => a.id === "s1");
+check("поле workMs есть в записи активной сессии", all.active.every((a) => typeof a.workMs === "number"), JSON.stringify(all.active.map((a) => [a.id, a.workMs])));
+check("пауза больше 10 минут обрезается до 10 минут", workRow?.workMs === 600000, JSON.stringify(workRow?.workMs));
+check("у сессии с одним сообщением активное время ноль", liveRow?.workMs === 0, JSON.stringify(liveRow?.workMs));
 check("период «сегодня» режет по дням", Math.abs(today.totals.cost - 2.75) < 1e-9, JSON.stringify(today.totals.cost));
 check("в периоде «сегодня» три сессии", today.totals.sessions === 3, JSON.stringify(today.totals.sessions));
 check("вчерашняя фича не попала в «сегодня»", !today.features.some((f) => f.label === "Фича Б"), JSON.stringify(today.features.map((f) => f.label)));

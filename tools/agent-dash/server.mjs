@@ -141,6 +141,9 @@ const server = http.createServer(async (req, res) => {
     report.limits = {
       memWarn: Number(process.env.GUARD_MEM_WARN || 700000),
       memStop: Number(process.env.GUARD_MEM_STOP || 900000),
+      workNoteMin: Number(process.env.DASH_WORK_NOTE_MIN || 15),
+      workWarnMin: Number(process.env.DASH_WORK_WARN_MIN || 30),
+      workBadMin: Number(process.env.DASH_WORK_BAD_MIN || 60),
     };
     report.liveWindowMs = 5 * 60 * 1000;
     report.extensions = activeExtensions();

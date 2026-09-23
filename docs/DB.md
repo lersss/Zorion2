@@ -463,6 +463,13 @@ TIMESTAMPTZ `DEFAULT NOW()`; чек-точка **своя** — не `settlement
   и индекс `idx_contracts_package_open`. Идёт после `000062_contracts.sql`; номер
   подтверждён менеджером (`000070` зарезервирован спекой
   `2026-09-22-эффекты-снабжения-задержка-голод`).
+- `000073` — `000073_planet_knowledge_cascade.sql` — B25: `player_planet_knowledge.planet_id`
+  пересоздан как FK `planets(id)` **`ON DELETE CASCADE`** (был без каскада, `000040`) —
+  знание о планете чистится при удалении планеты. Чинит падавшие пути удаления планет:
+  `GeneratePlanets` (`clearPlanets`, `admin_universe.go`), `RegeneratePlanets`
+  (`clearPlanetsOf`, `admin_regenerate_planets.go`), `DeleteWorld` (каскад
+  `worlds → planets`, `admin_worlds.go`). Номер `000073` забронирован менеджером
+  (`000072` — за спекой `2026-09-23-орбита-планеты-присутствие-и-снимок`).
 - Миграции, вступающие в силу на старте, требуют перезапуска сервера
   (`AGENTS.md` §4 п.13).
 - `VACUUM` внутрь миграции не положить — не работает внутри транзакции

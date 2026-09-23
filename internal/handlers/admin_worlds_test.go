@@ -8,12 +8,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/require"
 
+	"zorion/internal/mapcache"
 	"zorion/internal/repository"
 )
 
@@ -219,4 +221,56 @@ func TestGetAllWorldsEmptyGalaxy(t *testing.T) {
 	require.Equal(t, float64(0), resp.Data[0].Population)
 	// Мир без поселений — «stable» (нет населения, нет и тренда убыли).
 	require.Equal(t, "stable", resp.Data[0].PopulationTrend)
+}
+
+// DeleteWorld: перед `DELETE FROM worlds` та же транзакция чистит ссылки на
+// удаляемый мир (шаги 1, 2, 3, 4, 4.5 пакман-очистки — общий хелпер, B25),
+// иначе удаление мира падает на FK без каскада (npc_agents, users).
+func TestDeleteWorldClearsReferences(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	now := time.Now()
+	// Мир найден (GetByID).
+	mock.ExpectQuery(`SELECT id, name, coord_x, coord_y, COALESCE\(spectral_class,''\), temperature, star_type, system_type, stellar_mods, stellar_mass, age, created_at, updated_at FROM worlds WHERE id = \$1`).
+		WithArgs("w1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "coord_x", "coord_y", "spectral_class", "temperature", "star_type", "system_type", "stellar_mods", "stellar_mass", "age", "created_at", "updated_at"}).
+			AddRow(worldRow("w1", "Альфа", now)...))
+
+	mock.ExpectBegin()
+	// Возврат залога контрактов мира (§6.5) — до очистки/DELETE.
+	mock.ExpectQuery(`UPDATE contracts\s+SET status = CASE WHEN executor_id IS NULL`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "author_type", "author_id", "executor_id", "escrow_amount", "escrow_withdrawable"}))
+	// Очистка ссылок на мир: игроки → NPC-агенты → знание → полёты → намерения.
+	mock.ExpectQuery(`UPDATE users u SET current_world_id = NULL, current_position = NULL\s+FROM worlds w\s+WHERE u\.current_world_id = ANY\(\$1\) AND w\.id = u\.current_world_id\s+RETURNING u\.id, w\.name`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name"}))
+	mock.ExpectExec(`DELETE FROM npc_agents\s+WHERE current_world_id = ANY\(\$1\) OR from_world_id = ANY\(\$1\) OR target_world_id = ANY\(\$1\)`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectExec(`DELETE FROM player_planet_knowledge\s+WHERE planet_id IN \(SELECT id FROM planets WHERE world_id = ANY\(\$1\)\)`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 3))
+	mock.ExpectExec(`DELETE FROM player_intrasystem_flights\s+WHERE world_id = ANY\(\$1\)`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`UPDATE users SET pending_destination = NULL\s+WHERE \(pending_destination->>'world_id'\)::uuid = ANY\(\$1\)`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	// Мир — каскад на планеты и прочее.
+	mock.ExpectExec(`DELETE FROM worlds WHERE id = \$1`).
+		WithArgs("w1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	h := &AdminHandlers{db: db, worldRepo: repository.NewWorldRepository(db), mapCache: mapcache.NewManager()}
+	req := httptest.NewRequest(http.MethodPost, "/admin/worlds/delete", strings.NewReader(`{"id":"w1"}`))
+	rec := httptest.NewRecorder()
+
+	h.DeleteWorld(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.JSONEq(t, `{"status":"deleted"}`, rec.Body.String())
+	require.NoError(t, mock.ExpectationsWereMet())
 }

@@ -326,85 +326,15 @@ func (h *AdminHandlers) eatPacmanBatchOnce(ids []string) (pacmanBatchStats, erro
 	}
 	defer tx.Rollback()
 
-	// 1. Игроки в съеденных мирах: без мира и без внутрисистемной позиции.
-	// RETURNING u.id, w.name — PK users = id (колонки user_id нет, Н2 критика);
-	// имя мира — для персонального уведомления (§5.3).
-	rows, err := tx.QueryContext(context.Background(), `
-		UPDATE users u SET current_world_id = NULL, current_position = NULL
-		FROM worlds w
-		WHERE u.current_world_id = ANY($1) AND w.id = u.current_world_id
-		RETURNING u.id, w.name`, pq.Array(ids))
+	// 1–4.5. Очистка ссылок на съедаемые миры — общий хелпер с DeleteWorld
+	// (admin_worlds.go): пути очистки мира не должны разъезжаться (класс B25).
+	cleanup, err := h.clearWorldReferencesForWorlds(tx, ids)
 	if err != nil {
 		return stats, err
 	}
-	type affectedUser struct{ id, worldName string }
-	var affected []affectedUser
-	for rows.Next() {
-		var u affectedUser
-		if err := rows.Scan(&u.id, &u.worldName); err != nil {
-			rows.Close()
-			return stats, err
-		}
-		affected = append(affected, u)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return stats, err
-	}
-	stats.users = len(affected)
-
-	// 2. NPC-агенты в съеденных мирах / летящие в них — исчезают (решение
-	// создателя): FK npc_agents → worlds NO ACTION (000026), явный DELETE.
-	// В итерации 1 агент — только исполнитель (не автор), поэтому удаление
-	// агента ДО возврата залога (шаг 4.6) безопасно: returnEscrowRow резолвит
-	// счёт АВТОРА, а не исполнителя. В B2 (агент-автор) порядок придётся
-	// изменить: сперва вернуть залог контрактов агента-автора (иначе
-	// resolvePayerAccountQ не найдёт удалённого агента и уронит батч), затем
-	// удалять агента; счёт агента (accounts owner_type='agent') тоже чистить —
-	// сейчас он остаётся сиротой (FK нет, спека денег §3.5 покрывает только
-	// очистку вселенной).
-	res, err := tx.ExecContext(context.Background(), `
-		DELETE FROM npc_agents
-		WHERE current_world_id = ANY($1) OR from_world_id = ANY($1) OR target_world_id = ANY($1)`,
-		pq.Array(ids))
-	if err != nil {
-		return stats, err
-	}
-	if n, err := res.RowsAffected(); err == nil {
-		stats.agents = int(n)
-	}
-
-	// 3. Знания игроков о съеденных планетах стираются (решение создателя):
-	// FK player_planet_knowledge → planets NO ACTION (000040), явный DELETE.
-	res, err = tx.ExecContext(context.Background(), `
-		DELETE FROM player_planet_knowledge
-		WHERE planet_id IN (SELECT id FROM planets WHERE world_id = ANY($1))`,
-		pq.Array(ids))
-	if err != nil {
-		return stats, err
-	}
-	if n, err := res.RowsAffected(); err == nil {
-		stats.knowledge = int(n)
-	}
-
-	// 4. Внутрисистемные полёты в съеденных мирах — строки долой (без FK,
-	// 000046; in-memory самозалечивается, §7.2).
-	res, err = tx.ExecContext(context.Background(), `
-		DELETE FROM player_intrasystem_flights WHERE world_id = ANY($1)`,
-		pq.Array(ids))
-	if err != nil {
-		return stats, err
-	}
-
-	// 4.5. Намерения композитного маршрута к съеденным мирам (спека 99.2.30
-	// §5, M3): игрок с намерением к съеденному миру летит из другой системы —
-	// шаг 1 (current_world_id = ANY($1)) его не трогает, нужен отдельный
-	// UPDATE. Счётчик в отчёт не добавляется (намерение — состояние, не
-	// сущность отчёта). Плюс дефенсив onArrival (§4.2 спеки 99.2.30) как
-	// страховка от гонки.
-	if err := h.clearPendingDestinationsForWorlds(tx, ids); err != nil {
-		return stats, err
-	}
+	stats.users = len(cleanup.users)
+	stats.agents = cleanup.agents
+	stats.knowledge = cleanup.knowledge
 
 	// 4.6. Возврат залога живых контрактов съедаемых миров (§6.5) — до DELETE,
 	// в той же транзакции. Форма возврата по статусу внутри ReturnEscrow
@@ -435,7 +365,7 @@ func (h *AdminHandlers) eatPacmanBatchOnce(ids []string) (pacmanBatchStats, erro
 
 	// 5. Миры — каскад на всё остальное (planets/locations/contracts/
 	// settlements/factions/planet_resources/settlement_log).
-	res, err = tx.ExecContext(context.Background(), `DELETE FROM worlds WHERE id = ANY($1)`, pq.Array(ids))
+	res, err := tx.ExecContext(context.Background(), `DELETE FROM worlds WHERE id = ANY($1)`, pq.Array(ids))
 	if err != nil {
 		return stats, err
 	}
@@ -452,7 +382,7 @@ func (h *AdminHandlers) eatPacmanBatchOnce(ids []string) (pacmanBatchStats, erro
 	h.cancelFlightsTo(ids)
 
 	// Персональные уведомления игрокам без мира (§5.3).
-	for _, u := range affected {
+	for _, u := range cleanup.users {
 		if h.pacmanNotifier != nil {
 			msg := "Ваш мир съеден пакманом"
 			if u.worldName != "" {
@@ -463,6 +393,109 @@ func (h *AdminHandlers) eatPacmanBatchOnce(ids []string) (pacmanBatchStats, erro
 	}
 
 	return stats, nil
+}
+
+// worldCleanupResult — итоги очистки ссылок на удаляемые миры: игроки,
+// потерявшие мир (персональное уведомление пакмана §5.3), и счётчики
+// удалённых NPC-агентов/знаний (отчёт пакмана §3.4).
+type worldCleanupResult struct {
+	users     []affectedWorldUser
+	agents    int
+	knowledge int
+}
+
+// affectedWorldUser — игрок, потерявший мир: id для персонального уведомления
+// пакмана (§5.3), имя мира — текст сообщения.
+type affectedWorldUser struct{ id, worldName string }
+
+// clearWorldReferencesForWorlds — общая очистка ссылок на удаляемые миры
+// (шаги 1, 2, 3, 4, 4.5 пакман-очистки §3.2): игроки теряют текущий мир и
+// внутрисистемную позицию, NPC-агенты с этими мирами удаляются, знание о
+// планетах стирается, внутрисистемные полёты и намерения композитного
+// маршрута к мирам — долой. Вызывается в той же транзакции, что и DELETE
+// worlds: пакман — батч миров, DeleteWorld — один мир. Общий хелпер держит
+// пути очистки мира синхронными (класс бага B25 — разъехавшиеся шаги).
+func (h *AdminHandlers) clearWorldReferencesForWorlds(tx *sql.Tx, ids []string) (worldCleanupResult, error) {
+	var res worldCleanupResult
+
+	// 1. Игроки в удаляемых мирах: без мира и без внутрисистемной позиции.
+	// RETURNING u.id, w.name — PK users = id (колонки user_id нет, Н2 критика);
+	// имя мира — для персонального уведомления пакмана (§5.3).
+	rows, err := tx.QueryContext(context.Background(), `
+		UPDATE users u SET current_world_id = NULL, current_position = NULL
+		FROM worlds w
+		WHERE u.current_world_id = ANY($1) AND w.id = u.current_world_id
+		RETURNING u.id, w.name`, pq.Array(ids))
+	if err != nil {
+		return res, err
+	}
+	for rows.Next() {
+		var u affectedWorldUser
+		if err := rows.Scan(&u.id, &u.worldName); err != nil {
+			rows.Close()
+			return res, err
+		}
+		res.users = append(res.users, u)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return res, err
+	}
+
+	// 2. NPC-агенты в удаляемых мирах / летящие в них — исчезают (решение
+	// создателя): FK npc_agents → worlds NO ACTION (000026), явный DELETE.
+	// В итерации 1 агент — только исполнитель (не автор), поэтому удаление
+	// агента ДО возврата залога (шаг 4.6) безопасно: returnEscrowRow резолвит
+	// счёт АВТОРА, а не исполнителя. В B2 (агент-автор) порядок придётся
+	// изменить: сперва вернуть залог контрактов агента-автора (иначе
+	// resolvePayerAccountQ не найдёт удалённого агента и уронит батч), затем
+	// удалять агента; счёт агента (accounts owner_type='agent') тоже чистить —
+	// сейчас он остаётся сиротой (FK нет, спека денег §3.5 покрывает только
+	// очистку вселенной).
+	resDelete, err := tx.ExecContext(context.Background(), `
+		DELETE FROM npc_agents
+		WHERE current_world_id = ANY($1) OR from_world_id = ANY($1) OR target_world_id = ANY($1)`,
+		pq.Array(ids))
+	if err != nil {
+		return res, err
+	}
+	if n, err := resDelete.RowsAffected(); err == nil {
+		res.agents = int(n)
+	}
+
+	// 3. Знания игроков о планетах удаляемых миров стираются (решение
+	// создателя): FK player_planet_knowledge → planets каскадом с 000073, но
+	// явный DELETE оставлен как страховка (на БД без миграции DELETE worlds
+	// падал — B25).
+	resDelete, err = tx.ExecContext(context.Background(), `
+		DELETE FROM player_planet_knowledge
+		WHERE planet_id IN (SELECT id FROM planets WHERE world_id = ANY($1))`,
+		pq.Array(ids))
+	if err != nil {
+		return res, err
+	}
+	if n, err := resDelete.RowsAffected(); err == nil {
+		res.knowledge = int(n)
+	}
+
+	// 4. Внутрисистемные полёты в удаляемых мирах — строки долой (без FK,
+	// 000046; in-memory самозалечивается, §7.2).
+	if _, err := tx.ExecContext(context.Background(), `
+		DELETE FROM player_intrasystem_flights WHERE world_id = ANY($1)`,
+		pq.Array(ids)); err != nil {
+		return res, err
+	}
+
+	// 4.5. Намерения композитного маршрута к удаляемым мирам (спека 99.2.30
+	// §5, M3): игрок с намерением к миру летит из другой системы — шаг 1
+	// (current_world_id = ANY($1)) его не трогает, нужен отдельный UPDATE.
+	// Счётчик в отчёт не добавляется (намерение — состояние, не сущность
+	// отчёта). Плюс дефенсив onArrival (§4.2 спеки 99.2.30) как страховка от
+	// гонки.
+	if err := h.clearPendingDestinationsForWorlds(tx, ids); err != nil {
+		return res, err
+	}
+	return res, nil
 }
 
 // clearPendingDestinationsForWorlds — очистка намерений композитного маршрута

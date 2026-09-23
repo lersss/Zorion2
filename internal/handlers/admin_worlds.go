@@ -146,6 +146,14 @@ func (h *AdminHandlers) DeleteWorld(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to return escrow: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// Очистка ссылок на удаляемый мир (шаги 1, 2, 3, 4, 4.5 пакман-очистки,
+	// общий хелпер §3.2): игроки теряют мир, NPC-агенты/знание/внутрисистемные
+	// полёты/намерения маршрута сносятся — иначе DELETE worlds падает на FK
+	// без каскада (npc_agents.current/from/target_world_id — NO ACTION, B25).
+	if _, err := h.clearWorldReferencesForWorlds(tx, []string{req.ID}); err != nil {
+		http.Error(w, "Failed to clear world references: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 	if _, err := tx.Exec(`DELETE FROM worlds WHERE id = $1`, req.ID); err != nil {
 		http.Error(w, "Failed to delete world: "+err.Error(), http.StatusInternalServerError)
 		return

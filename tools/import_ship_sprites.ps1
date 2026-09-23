@@ -1,9 +1,16 @@
 ﻿# tools/import_ship_sprites.ps1
-# Шаг «принятое -> игра» (спека docs/specs/2026-09-21-угол-корабля-в-метаданных.md §7):
+# Шаг «принятое -> игра» (спеки docs/specs/2026-09-21-угол-корабля-в-метаданных.md §7
+# и docs/specs/2026-09-23-корабли-рас-раса-агентов-и-игрока.md §6.1 п.5/6):
 # копирует принятые PNG в web/static/sprites/ (сверка по sha256, а НЕ по имени:
 # имена принятых race_<slug>_NN.png и файлов реестра race_<slug>_<word>.png не
-# совпадают), печатает строки реестра ShipSprites для вставки ВРУЧНУЮ (только в
-# конец) и отчёт. Реестр скрипт НЕ переписывает.
+# совпадают), печатает строки реестра ShipSprites для вставки ВРУЧНУЮ и отчёт.
+# Реестр скрипт НЕ переписывает.
+#
+# Фильтр (спека §6.1 п.1–2): импортируются ТОЛЬКО записи ships_meta.json; PNG
+# без записи (сироты) и старые безымянные люди race_humans_01..06.png — не берутся.
+# Порядок строк (спека §6.1 п.6): людской блок первым (тип starship → cruiser →
+# carrier → fighter, внутри типа base → _02 → _03), затем прочие расы в порядке
+# меты. Строка несёт Race (слаг расы из меты).
 #
 # Гвард orient_meta: пару (A, F) берёт ТОЛЬКО при маркере orient_meta:true;
 # записи без маркера (принятые старым способом — угол уже запечён в пиксели)
@@ -58,6 +65,29 @@ $raw = Get-Content -LiteralPath $metaPath -Raw -Encoding UTF8
 $parsed = ConvertFrom-Json -InputObject $raw
 $records = @($parsed)
 
+# Порядок реестра (спека §6.1 п.6): людской блок первым (тип starship → cruiser →
+# carrier → fighter, внутри типа base → _02 → _03), затем прочие расы в порядке
+# меты. Фильтр (спека §6.1 п.1–2): только записи меты; старые безымянные люди
+# race_humans_01..06.png не импортируются (вытеснены типизированными).
+$humanTypes = @('starship', 'cruiser', 'carrier', 'fighter')
+$ordered = @()
+$legacyHumans = 0
+$metaIdx = 0
+foreach ($rec in $records) {
+    $metaIdx++
+    $file = [string]$rec.file
+    if ($file -match '^race_humans_0[1-6]\.png$') { $legacyHumans++; continue }
+    $m = [regex]::Match($file, '^race_humans_([a-z]+?)(?:_(\d+))?\.png$')
+    $typeIdx = if ($m.Success) { [array]::IndexOf($humanTypes, $m.Groups[1].Value) } else { -1 }
+    if ($typeIdx -ge 0) {
+        $variant = if ($m.Groups[2].Success) { [int]$m.Groups[2].Value } else { 1 }
+        $ordered += [pscustomobject]@{ Rec = $rec; Human = $true; TypeIdx = $typeIdx; Variant = $variant; Meta = $metaIdx }
+    } else {
+        $ordered += [pscustomobject]@{ Rec = $rec; Human = $false; TypeIdx = 0; Variant = 0; Meta = $metaIdx }
+    }
+}
+$ordered = @($ordered | Sort-Object @{Expression = 'Human'; Descending = $true}, TypeIdx, Variant, Meta)
+
 # Карта sha256 -> имя файла в игре: сопоставление по СОДЕРЖИМОМУ, не по имени.
 $hashToName = @{}
 foreach ($f in Get-ChildItem -LiteralPath $SpritesDir -Filter *.png -File) {
@@ -71,7 +101,8 @@ function Test-InRegistry([string]$name) {
 }
 
 $already = 0; $copied = 0; $legacy = 0; $rows = 0; $errors = 0; $idx = 0
-foreach ($rec in $records) {
+foreach ($item in $ordered) {
+    $rec = $item.Rec
     $idx++
     $file = [string]$rec.file
     $src = Join-Path $AcceptedDir $file
@@ -122,8 +153,10 @@ foreach ($rec in $records) {
     $id = $gameName -replace '\.png$', ''
     $name = ([string]$rec.race_name) + ' · ' + $nn
 
+    $race = [string]$rec.race
+
     if (Test-InRegistry $gameName) { continue }  # строка уже в реестре — не печатаем
-    Write-Output ('{ID: "' + $id + '", Name: "' + $name + '", File: "' + $gameName + '", Angle: ' + $aStr + ', Flip: ' + $fStr + '},')
+    Write-Output ('{ID: "' + $id + '", Name: "' + $name + '", File: "' + $gameName + '", Race: "' + $race + '", Angle: ' + $aStr + ', Flip: ' + $fStr + '},')
     $rows++
 }
 
@@ -131,5 +164,6 @@ Write-Output '---'
 Write-Output ("уже в игре: " + $already)
 Write-Output ("скопировано: " + $copied)
 Write-Output ("легаси: пара обнулена: " + $legacy)
+Write-Output ("легаси-люди (race_humans_01..06) не импортируются: " + $legacyHumans)
 Write-Output ("нужна строка в реестр: " + $rows)
 if ($errors -gt 0) { Write-Output ("ошибок: " + $errors) }

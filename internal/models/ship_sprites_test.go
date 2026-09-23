@@ -87,6 +87,27 @@ func TestResolveShipIconRegistryPassthrough(t *testing.T) {
 	require.Equal(t, "neutral.png", ResolveShipIcon("neutral.png"))
 }
 
+// ShipRaceByFile — раса файла для валидации PUT /me/ship-icon (спека §6.5):
+// файл реестра → слаг расы; нейтральный → ""; неизвестный/пусто → ok=false.
+func TestShipRaceByFile(t *testing.T) {
+	race, ok := ShipRaceByFile("race_humans_cruiser.png")
+	require.True(t, ok)
+	require.Equal(t, RaceHumans, race)
+
+	race, ok = ShipRaceByFile("race_ammonia_02.png")
+	require.True(t, ok)
+	require.Equal(t, "ammonia", race)
+
+	race, ok = ShipRaceByFile("neutral.png")
+	require.True(t, ok)
+	require.Empty(t, race, "нейтральный корабль — раса пустая")
+
+	_, ok = ShipRaceByFile("crescent.png")
+	require.False(t, ok)
+	_, ok = ShipRaceByFile("")
+	require.False(t, ok)
+}
+
 // Палитра — ровно 9 хроматических цветов (§5.5); вне палитры — невалидно.
 func TestShipColorPalette(t *testing.T) {
 	require.Len(t, ShipColorPalette, 9)

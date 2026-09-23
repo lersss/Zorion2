@@ -13,15 +13,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// П1: 12 людских типизированных записей (4 типа × 3 варианта) + нейтральный.
+// П3: 117 расовых записей (12 людских типизированных + 105 расовых).
 func TestRaceShipSpritesSize(t *testing.T) {
-	require.Len(t, RaceShipSprites, 12)
+	require.Len(t, RaceShipSprites, 117)
 }
 
-// Порядок фиксирован (спека §6.1 п.6): starship → cruiser → carrier → fighter,
-// внутри типа base → _02 → _03. Все записи — раса humans.
+// Порядок фиксирован (спека §6.1 п.6): людские записи первыми — starship →
+// cruiser → carrier → fighter, внутри типа base → _02 → _03 (12); затем 105
+// расовых дописаны В КОНЕЦ (И7). ID = имя файла без .png — у всех записей.
 func TestRaceShipSpritesOrder(t *testing.T) {
-	want := []string{
+	humanBlock := []string{
 		"race_humans_starship.png",
 		"race_humans_starship_02.png",
 		"race_humans_starship_03.png",
@@ -35,11 +36,18 @@ func TestRaceShipSpritesOrder(t *testing.T) {
 		"race_humans_fighter_02.png",
 		"race_humans_fighter_03.png",
 	}
-	require.Len(t, RaceShipSprites, len(want))
-	for i, s := range RaceShipSprites {
-		require.Equal(t, want[i], s.File, "позиция %d", i)
-		require.Equal(t, RaceHumans, s.Race, "%s: раса", s.File)
+	for _, s := range RaceShipSprites {
 		require.Equal(t, s.File[:len(s.File)-len(".png")], s.ID, "%s: ID = имя без .png", s.File)
+	}
+	require.Len(t, RaceShipSprites, len(humanBlock)+105)
+	for i, f := range humanBlock {
+		require.Equal(t, f, RaceShipSprites[i].File, "людской блок, позиция %d", i)
+		require.Equal(t, RaceHumans, RaceShipSprites[i].Race, "%s: раса humans", f)
+	}
+	// После людского блока — только расовые записи (не humans), порядок меты.
+	for i := len(humanBlock); i < len(RaceShipSprites); i++ {
+		require.NotEqual(t, RaceHumans, RaceShipSprites[i].Race,
+			"%s: расовые записи идут после людского блока (И7)", RaceShipSprites[i].File)
 	}
 }
 
@@ -68,9 +76,9 @@ func TestNeutralShipIsRegistryMember(t *testing.T) {
 	require.True(t, IsValidShipIcon(NeutralShip.File))
 }
 
-// ship_options (П1) = 12 людских + neutral = 13 строк, нейтральный последним.
-func TestShipOptionsP1(t *testing.T) {
-	require.Len(t, ShipOptions, 13)
+// ship_options (П3) = 117 расовых + neutral = 118 строк, нейтральный последним.
+func TestShipOptionsSize(t *testing.T) {
+	require.Len(t, ShipOptions, 118)
 	require.Equal(t, NeutralShip, ShipOptions[len(ShipOptions)-1])
 }
 
@@ -93,6 +101,22 @@ func TestShipFilesByRaceIndex(t *testing.T) {
 	require.Len(t, shipFilesByRace[RaceHumans], 12)
 	require.Equal(t, []string{NeutralShip.File}, shipFilesByRace[""])
 	require.Equal(t, RaceShipSprites[0].File, shipFilesByRace[RaceHumans][0])
+}
+
+// 57 рас с кораблями (humans + 56 расовых), спека §10. 3 расы без корабля
+// (cryo_sky, geysers, ice_plankton) пула не имеют — клиент берёт нейтральный
+// (§6.4), не уходя в него при неполном наборе суффиксов.
+func TestRaceShipSpritesRaceCount(t *testing.T) {
+	races := map[string]bool{}
+	for _, s := range RaceShipSprites {
+		races[s.Race] = true
+	}
+	require.Len(t, races, 57)
+	require.True(t, races[RaceHumans])
+	for _, race := range []string{"cryo_sky", "geysers", "ice_plankton"} {
+		require.Empty(t, shipFilesByRace[race], "%s: расы нет в реестре кораблей", race)
+		require.False(t, races[race])
+	}
 }
 
 // RandomShipForRace: humans → файл людского пула; неизвестная раса/пусто →

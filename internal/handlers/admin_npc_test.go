@@ -68,11 +68,11 @@ const agentID = "11111111-1111-1111-1111-111111111111"
 func TestAdminNPCListSuccess(t *testing.T) {
 	h, mock := newAdminNPCHarness(t)
 
-	mock.ExpectQuery(`SELECT id, name, status, current_world_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at FROM npc_agents ORDER BY created_at DESC, id DESC LIMIT \$1`).
+	mock.ExpectQuery(`SELECT id, name, status, current_world_id, race_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at FROM npc_agents ORDER BY created_at DESC, id DESC LIMIT \$1`).
 		WithArgs(200). // дефолтный limit (спека 26a.1 §5.2)
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "status", "current_world_id", "from_world_id", "target_world_id", "depart_at", "arrive_at", "notify_enabled", "last_observed_at", "created_at", "updated_at",
-		}).AddRow(agentID, "Наблюдатель-1", "flying", "w1", "w1", "w2", now(), now().Add(time.Minute), true, nil, now(), now()))
+			"id", "name", "status", "current_world_id", "race_id", "from_world_id", "target_world_id", "depart_at", "arrive_at", "notify_enabled", "last_observed_at", "created_at", "updated_at",
+		}).AddRow(agentID, "Наблюдатель-1", "flying", "w1", "humans", "w1", "w2", now(), now().Add(time.Minute), true, nil, now(), now()))
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/npc", nil)
 	rec := execJSON(h.HandleCollection, req)
@@ -100,11 +100,11 @@ func TestAdminNPCListPagination(t *testing.T) {
 
 	created := now()
 	// Первая страница: ровно limit строк → next_cursor не null.
-	mock.ExpectQuery(`SELECT id, name, status, current_world_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at FROM npc_agents ORDER BY created_at DESC, id DESC LIMIT \$1`).
+	mock.ExpectQuery(`SELECT id, name, status, current_world_id, race_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at FROM npc_agents ORDER BY created_at DESC, id DESC LIMIT \$1`).
 		WithArgs(1).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "status", "current_world_id", "from_world_id", "target_world_id", "depart_at", "arrive_at", "notify_enabled", "last_observed_at", "created_at", "updated_at",
-		}).AddRow("a2", "Cyrus Venn", "idle", "w2", nil, nil, nil, nil, false, nil, created.Add(time.Minute), created.Add(time.Minute)))
+			"id", "name", "status", "current_world_id", "race_id", "from_world_id", "target_world_id", "depart_at", "arrive_at", "notify_enabled", "last_observed_at", "created_at", "updated_at",
+		}).AddRow("a2", "Cyrus Venn", "idle", "w2", nil, nil, nil, nil, nil, false, nil, created.Add(time.Minute), created.Add(time.Minute)))
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/npc?limit=1", nil)
 	rec := execJSON(h.HandleCollection, req)
@@ -120,11 +120,11 @@ func TestAdminNPCListPagination(t *testing.T) {
 
 	// Вторая страница: WHERE (created_at, id) < ($1, $2); строк меньше
 	// лимита — конец списка (next_cursor = null).
-	mock.ExpectQuery(`SELECT id, name, status, current_world_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at FROM npc_agents WHERE \(created_at, id\) < \(\$1, \$2\) ORDER BY created_at DESC, id DESC LIMIT \$3`).
+	mock.ExpectQuery(`SELECT id, name, status, current_world_id, race_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at FROM npc_agents WHERE \(created_at, id\) < \(\$1, \$2\) ORDER BY created_at DESC, id DESC LIMIT \$3`).
 		WithArgs(created.Add(time.Minute), "a2", 2).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "status", "current_world_id", "from_world_id", "target_world_id", "depart_at", "arrive_at", "notify_enabled", "last_observed_at", "created_at", "updated_at",
-		}).AddRow("a1", "Marion Hale", "idle", "w1", nil, nil, nil, nil, false, nil, created, created))
+			"id", "name", "status", "current_world_id", "race_id", "from_world_id", "target_world_id", "depart_at", "arrive_at", "notify_enabled", "last_observed_at", "created_at", "updated_at",
+		}).AddRow("a1", "Marion Hale", "idle", "w1", nil, nil, nil, nil, nil, false, nil, created, created))
 
 	req2 := httptest.NewRequest(http.MethodGet, "/admin/npc?limit=2&cursor="+cursor, nil)
 	rec2 := execJSON(h.HandleCollection, req2)
@@ -207,15 +207,17 @@ func newBulkHarnessWithRaces(t *testing.T, origins []npc.RaceHomeworld) (*AdminN
 // ==================== POST /admin/npc ====================
 
 func TestAdminNPCCreateWithStartWorld(t *testing.T) {
-	h, mock := newAdminNPCHarness(t)
+	// Пул расы непуст (snapshot карты + источник): одиночное создание ставит
+	// расу из пула (спека 2026-09-23 §5.2), стартовый мир — явно указанный.
+	h, _, mock := newBulkHarnessWithRaces(t, []npc.RaceHomeworld{{RaceID: "humans", HomeworldID: "w1"}})
 
 	mock.ExpectQuery(`SELECT id, name, coord_x, coord_y, COALESCE\(spectral_class,''\), temperature, star_type, system_type, stellar_mods, stellar_mass, age, created_at, updated_at FROM worlds WHERE id = \$1`).
 		WithArgs("22222222-2222-2222-2222-222222222222").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "name", "coord_x", "coord_y", "spectral_class", "temperature", "star_type", "system_type", "stellar_mods", "stellar_mass", "age", "created_at", "updated_at",
 		}).AddRow("22222222-2222-2222-2222-222222222222", "Sirius", 0, 0, "A", 10000, "star", "single", nil, nil, nil, now(), now()))
-	mock.ExpectExec(`INSERT INTO npc_agents \(id, name, status, current_world_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at\) VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, \$9, \$10, NOW\(\), NOW\(\)\)`).
-		WithArgs(sqlmock.AnyArg(), "Наблюдатель-1", "idle", "22222222-2222-2222-2222-222222222222", nil, nil, nil, nil, false, nil).
+	mock.ExpectExec(`INSERT INTO npc_agents \(id, name, status, current_world_id, race_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at\) VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, \$9, \$10, \$11, NOW\(\), NOW\(\)\)`).
+		WithArgs(sqlmock.AnyArg(), "Наблюдатель-1", "idle", "22222222-2222-2222-2222-222222222222", "humans", nil, nil, nil, nil, false, nil).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	body := `{"name":"Наблюдатель-1","start_world_id":"22222222-2222-2222-2222-222222222222"}`
@@ -226,11 +228,24 @@ func TestAdminNPCCreateWithStartWorld(t *testing.T) {
 	var resp struct {
 		ID     string `json:"id"`
 		Status string `json:"status"`
+		RaceID string `json:"race_id"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, "idle", resp.Status, "создание ставит агента в idle (спека §8)")
+	require.Equal(t, "humans", resp.RaceID, "одиночное создание ставит расу из пула (спека §5.2)")
 	require.True(t, h.manager.IsAgentsDirty(), "одиночное создание инвалидирует кэш агентов (идея 26c A2)")
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Пустой пул «раса → родной мир» (фракции не сгенерированы) — 400 с понятным
+// сообщением: новых агентов с race_id NULL не появляется (спека §5.2, §5.4).
+func TestAdminNPCCreateNoRacePool(t *testing.T) {
+	h, _, _ := newBulkHarnessWithRaces(t, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/npc", strings.NewReader(`{"name":"A"}`))
+	rec := execJSON(h.HandleCollection, req)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Contains(t, rec.Body.String(), "Нет рас с родным миром")
 }
 
 func TestAdminNPCCreateEmptyName(t *testing.T) {
@@ -265,7 +280,8 @@ func TestAdminNPCCreateWorldNotFound(t *testing.T) {
 }
 
 func TestAdminNPCCreateNoWorlds(t *testing.T) {
-	// Без start_world_id и без сетки миров (менеджер RandomWorld → false) — 400.
+	// Источник пула рас не подключён (менеджер без фракций) — пул пуст → 400
+	// «Нет рас с родным миром» (спека 2026-09-23 §5.4).
 	h, _ := newAdminNPCHarness(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/admin/npc", strings.NewReader(`{"name":"A"}`))
@@ -318,11 +334,11 @@ func TestAdminNPCPatchSuccess(t *testing.T) {
 	mock.ExpectExec(`UPDATE npc_agents SET name = \$1, notify_enabled = \$2, updated_at = NOW\(\) WHERE id = \$3`).
 		WithArgs("Новое имя", false, agentID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectQuery(`SELECT id, name, status, current_world_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at FROM npc_agents WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, name, status, current_world_id, race_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at FROM npc_agents WHERE id = \$1`).
 		WithArgs(agentID).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "status", "current_world_id", "from_world_id", "target_world_id", "depart_at", "arrive_at", "notify_enabled", "last_observed_at", "created_at", "updated_at",
-		}).AddRow(agentID, "Новое имя", "idle", "w1", nil, nil, nil, nil, false, nil, now(), now()))
+			"id", "name", "status", "current_world_id", "race_id", "from_world_id", "target_world_id", "depart_at", "arrive_at", "notify_enabled", "last_observed_at", "created_at", "updated_at",
+		}).AddRow(agentID, "Новое имя", "idle", "w1", nil, nil, nil, nil, nil, false, nil, now(), now()))
 
 	req := httptest.NewRequest(http.MethodPatch, "/admin/npc/"+agentID, strings.NewReader(`{"name":"Новое имя","notify_enabled":false}`))
 	rec := execJSON(h.HandleObject, req)
@@ -530,11 +546,11 @@ func TestAdminNPCSearchByName(t *testing.T) {
 func TestAdminNPCSearchByUUID(t *testing.T) {
 	h, mock := newAdminNPCHarness(t)
 
-	mock.ExpectQuery(`SELECT id, name, status, current_world_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at FROM npc_agents WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, name, status, current_world_id, race_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at FROM npc_agents WHERE id = \$1`).
 		WithArgs(agentID).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "status", "current_world_id", "from_world_id", "target_world_id", "depart_at", "arrive_at", "notify_enabled", "last_observed_at", "created_at", "updated_at",
-		}).AddRow(agentID, "Marion Hale", "idle", "w1", nil, nil, nil, nil, false, nil, now(), now()))
+			"id", "name", "status", "current_world_id", "race_id", "from_world_id", "target_world_id", "depart_at", "arrive_at", "notify_enabled", "last_observed_at", "created_at", "updated_at",
+		}).AddRow(agentID, "Marion Hale", "idle", "w1", nil, nil, nil, nil, nil, false, nil, now(), now()))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/npc/search?q="+agentID, nil)
 	rec := execJSON(h.SearchAgent, req)
@@ -557,10 +573,10 @@ func TestAdminNPCSearchByUUID(t *testing.T) {
 func TestAdminNPCSearchByUUIDNotFound(t *testing.T) {
 	h, mock := newAdminNPCHarness(t)
 
-	mock.ExpectQuery(`SELECT id, name, status, current_world_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at FROM npc_agents WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, name, status, current_world_id, race_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at FROM npc_agents WHERE id = \$1`).
 		WithArgs(agentID).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "status", "current_world_id", "from_world_id", "target_world_id", "depart_at", "arrive_at", "notify_enabled", "last_observed_at", "created_at", "updated_at",
+			"id", "name", "status", "current_world_id", "race_id", "from_world_id", "target_world_id", "depart_at", "arrive_at", "notify_enabled", "last_observed_at", "created_at", "updated_at",
 		}))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/npc/search?q="+agentID, nil)
@@ -704,4 +720,27 @@ func TestAdminNPCPositionsEmpty(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Empty(t, resp.Positions, "позиций нет — пустой массив, не null")
+}
+
+// Позиция агента несёт race_id (спека 2026-09-23 §7.2): клиент выбирает
+// корабль расы (spriteForAgent(race_id, id)).
+func TestAdminNPCPositionsCarriesRaceID(t *testing.T) {
+	h, _ := newAdminNPCHarness(t)
+	h.manager.SetPositions([]npc.InterpolatedPosition{
+		{ID: "a1", Status: models.NPCAgentStatusFlying, X: 1, Y: 2, RaceID: "coastal"},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/npc/positions", nil)
+	rec := execJSON(h.Positions, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp struct {
+		Positions []struct {
+			ID     string `json:"id"`
+			RaceID string `json:"race_id"`
+		} `json:"positions"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Positions, 1)
+	require.Equal(t, "coastal", resp.Positions[0].RaceID)
 }

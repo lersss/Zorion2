@@ -21,6 +21,9 @@ type InterpolatedPosition struct {
 	TargetWorldID    *string              `json:"target_world_id,omitempty"`
 	CurrentWorldName string               `json:"current_world_name"`
 	TargetWorldName  *string              `json:"target_world_name,omitempty"`
+	// RaceID — раса агента (спека 2026-09-23 §7.2): клиент выбирает корабль
+	// расы (spriteForAgent(race_id, id)); пусто → нейтральный корабль.
+	RaceID string `json:"race_id"`
 }
 
 // PositionCache — in-memory snapshot позиций всех агентов (спека §2.2.B).
@@ -74,6 +77,7 @@ func interpolatePosition(a models.NPCAgent, g *worldGrid, now time.Time) (Interp
 		Status:         a.Status,
 		CurrentWorldID: a.CurrentWorldID,
 		TargetWorldID:  a.TargetWorldID,
+		RaceID:         a.RaceID,
 	}
 	if n, ok := g.nameOf(a.CurrentWorldID); ok {
 		p.CurrentWorldName = n

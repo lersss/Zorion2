@@ -115,8 +115,10 @@ func (h *AdminNPCHandlers) ListAgents(w http.ResponseWriter, r *http.Request) {
 }
 
 // CreateAgent — POST /admin/npc: {name, start_world_id?} → 201, статус idle
-// (спека §8). Стартовый мир — указанный (проверяется существование) или
-// случайный из сетки, если не указан.
+// (спека §8). Раса — из пула «раса → родной мир» (спека 2026-09-23 §5.2):
+// одиночное создание тоже ставит расу, чтобы не появлялось агентов с
+// race_id NULL. Стартовый мир — указанный (проверяется существование) или
+// родной мир расы, если не указан. Пул пуст (фракции не сгенерированы) → 400.
 func (h *AdminNPCHandlers) CreateAgent(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name         string `json:"name"`
@@ -135,16 +137,29 @@ func (h *AdminNPCHandlers) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	startWorld, err := h.resolveStartWorld(req.StartWorldID)
-	if err != nil {
-		writeJSONError(w, err.Error(), http.StatusBadRequest)
+	// Раса и стартовый мир по умолчанию — из пула «раса → родной мир»
+	// (спека 2026-09-23 §5.2–5.4). Пул пуст — понятный 400, не 500 и не агент
+	// с race_id NULL.
+	origins, ok := h.manager.RandomRaceHomeworlds(1)
+	if !ok {
+		writeJSONError(w, "Нет рас с родным миром — сгенерируйте фракции", http.StatusBadRequest)
 		return
+	}
+	startWorld := origins[0].WorldID
+	if req.StartWorldID != "" {
+		resolved, err := h.resolveStartWorld(req.StartWorldID)
+		if err != nil {
+			writeJSONError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		startWorld = resolved
 	}
 
 	agent := &models.NPCAgent{
 		ID:             uuid.New().String(),
 		Name:           req.Name,
 		CurrentWorldID: startWorld,
+		RaceID:         origins[0].RaceID,
 	}
 	if err := h.npcRepo.Insert(agent); err != nil {
 		log.Printf("CreateAgent: Insert error: %v", err)
@@ -155,16 +170,10 @@ func (h *AdminNPCHandlers) CreateAgent(w http.ResponseWriter, r *http.Request) {
 	writeJSONStatus(w, http.StatusCreated, agent)
 }
 
-// resolveStartWorld — стартовый мир агента: указанный (проверка
-// существования) или случайный из галактики.
+// resolveStartWorld — стартовый мир агента по явно указанному id (проверка
+// существования). Пустой id сюда не попадает: мир по умолчанию — родной мир
+// расы из пула (CreateAgent, спека 2026-09-23 §5.2).
 func (h *AdminNPCHandlers) resolveStartWorld(startWorldID string) (string, error) {
-	if startWorldID == "" {
-		worldID, ok := h.manager.RandomWorld()
-		if !ok {
-			return "", errors.New("Нет миров для старта (карта не загружена или галактика пуста)")
-		}
-		return worldID, nil
-	}
 	if _, err := uuid.Parse(startWorldID); err != nil {
 		return "", errors.New("Невалидный start_world_id")
 	}

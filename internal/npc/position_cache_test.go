@@ -3,6 +3,7 @@
 package npc
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -40,6 +41,7 @@ func TestInterpolatePositionFlying(t *testing.T) {
 		CurrentWorldID: "w1",
 		FromWorldID:    ptrStr("w1"), TargetWorldID: ptrStr("w2"),
 		DepartAt: ptrTime(depart), ArriveAt: ptrTime(arrive),
+		RaceID: "coastal",
 	}
 
 	// Середина пути: (0+100)/2, 0.
@@ -49,6 +51,8 @@ func TestInterpolatePositionFlying(t *testing.T) {
 	require.InDelta(t, 0.0, p.Y, 0.001)
 	require.NotNil(t, p.TargetWorldID)
 	require.Equal(t, "w2", *p.TargetWorldID)
+	// Раса агента едет в позиции карты (спека 2026-09-23 §7.2).
+	require.Equal(t, "coastal", p.RaceID)
 	// Имена миров для тултипа агента (идея 2026-09-18): названия, не айди.
 	require.Equal(t, "Alpha", p.CurrentWorldName)
 	require.NotNil(t, p.TargetWorldName)
@@ -92,4 +96,16 @@ func TestPositionCacheReplaceSnapshot(t *testing.T) {
 	c.Replace([]InterpolatedPosition{{ID: "a2", X: 3, Y: 4}})
 	require.Len(t, c.Snapshot(), 1)
 	require.Equal(t, "a2", c.Snapshot()[0].ID)
+}
+
+// race_id всегда в JSON позиции (клиент выбирает корабль расы, спека §7.2):
+// значение расы или пустая строка — поле не исчезает (omitempty не стоит).
+func TestInterpolatedPositionRaceIDJSON(t *testing.T) {
+	raw, err := json.Marshal(InterpolatedPosition{ID: "a1", RaceID: "coastal"})
+	require.NoError(t, err)
+	require.Contains(t, string(raw), `"race_id":"coastal"`)
+
+	raw, err = json.Marshal(InterpolatedPosition{ID: "a2"})
+	require.NoError(t, err)
+	require.Contains(t, string(raw), `"race_id":""`)
 }

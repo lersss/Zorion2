@@ -244,10 +244,10 @@ function npcAngle(p, pos) {
 // drawNPCAgents — иконки агентов. Вызывается из draw() в map_render.js.
 // Видимость: когда видны имена звёзд (тот же порог nameDisplayThreshold,
 // спека §7: на галактическом обзоре агенты скрыты). Вместо ромба — мини-спрайт
-// агента (spriteForAgent(id) → {file, color, angle, flip} → recolorShipSprite,
-// уточнение 2026-09-16: агенты перекрашиваются из кэша/прелоада); трансформ —
+// агента (spriteForAgent(p.race_id, p.id) → {file, color, angle, flip} →
+// recolorShipSprite; расовый визуал — спека 2026-09-23 §6.3); трансформ —
 // shipDrawTransform(курс, пара) (спека 2026-09-21 §6.2/§6.4); спрайт не
-// загружен/реестр пуст — фолбэк-ромб (И4).
+// загружен/пул пуст — фолбэк-ромб (И4).
 export function drawNPCAgents(ctx, canvasWidth, canvasHeight) {
     if (state.scale <= mapCfg.nameDisplayThreshold) return;
     const positions = state.npcPositions || [];
@@ -264,7 +264,7 @@ export function drawNPCAgents(ctx, canvasWidth, canvasHeight) {
         // Экранный cull как у звёзд.
         if (px < -50 || py < -50 || px > canvasWidth + 50 || py > canvasHeight + 50) continue;
 
-        const sel = spriteForAgent(p.id);
+        const sel = spriteForAgent(p.race_id, p.id);
         const sprite = sel ? recolorShipSprite(sel.file, sel.color) : null;
         if (sprite) {
             // Полный трансформ (спека §6.2/§6.4): rotate = H + V·A, зеркало и

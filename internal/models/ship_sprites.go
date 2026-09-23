@@ -115,6 +115,17 @@ func IsValidShipIcon(file string) bool {
 	return ok
 }
 
+// ShipRaceByFile — слаг расы корабля по имени файла (спека 2026-09-23 §6.5:
+// PUT /me/ship-icon принимает только файл расы игрока). Второе значение —
+// файл ∈ реестр; у нейтрального корабля раса пустая.
+func ShipRaceByFile(file string) (string, bool) {
+	s, ok := shipSpriteByFile[file]
+	if !ok {
+		return "", false
+	}
+	return s.Race, true
+}
+
 // ShipOrientByFile — пара показа (angle°, flip) спрайта по имени файла
 // (ЧК-ship, идея 2026-09-23 §5): значение из расового реестра RaceShipSprites
 // через индекс shipSpriteByFile (реестр не дублируется). Файл неизвестен/

@@ -29,11 +29,11 @@ func TestNPCListBatchCursor(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	mock.ExpectQuery(`SELECT id, name, status, current_world_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at FROM npc_agents WHERE status = \$1 AND id > \$2 ORDER BY id LIMIT \$3`).
+	mock.ExpectQuery(`SELECT id, name, status, current_world_id, race_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at FROM npc_agents WHERE status = \$1 AND id > \$2 ORDER BY id LIMIT \$3`).
 		WithArgs("idle", "00000000-0000-0000-0000-000000000000", 10).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "status", "current_world_id", "from_world_id", "target_world_id", "depart_at", "arrive_at", "notify_enabled", "last_observed_at", "created_at", "updated_at",
-		}).AddRow("a1", "Наблюдатель-1", "idle", "w1", nil, nil, nil, nil, true, nil, now(), now()))
+			"id", "name", "status", "current_world_id", "race_id", "from_world_id", "target_world_id", "depart_at", "arrive_at", "notify_enabled", "last_observed_at", "created_at", "updated_at",
+		}).AddRow("a1", "Наблюдатель-1", "idle", "w1", "humans", nil, nil, nil, nil, true, nil, now(), now()))
 
 	agents, err := NewNPCRepository(db).ListBatch(models.NPCAgentStatusIdle, "", 10)
 	require.NoError(t, err)
@@ -42,6 +42,7 @@ func TestNPCListBatchCursor(t *testing.T) {
 	require.Equal(t, "a1", agents[0].ID)
 	require.Equal(t, models.NPCAgentStatusIdle, agents[0].Status)
 	require.Equal(t, "w1", agents[0].CurrentWorldID)
+	require.Equal(t, "humans", agents[0].RaceID, "раса агента из race_id (спека §7.2)")
 	require.Nil(t, agents[0].FromWorldID, "idle-агент не в полёте — from/target/depart/arrive = NULL")
 	require.Nil(t, agents[0].TargetWorldID)
 	require.Nil(t, agents[0].DepartAt)
@@ -78,11 +79,11 @@ func TestNPCListDueArrivals(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	mock.ExpectQuery(`SELECT id, name, status, current_world_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at FROM npc_agents WHERE status = 'flying' AND arrive_at <= \$1 AND id > \$2 ORDER BY id LIMIT \$3`).
+	mock.ExpectQuery(`SELECT id, name, status, current_world_id, race_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at FROM npc_agents WHERE status = 'flying' AND arrive_at <= \$1 AND id > \$2 ORDER BY id LIMIT \$3`).
 		WithArgs(now(), "00000000-0000-0000-0000-000000000000", 5).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "status", "current_world_id", "from_world_id", "target_world_id", "depart_at", "arrive_at", "notify_enabled", "last_observed_at", "created_at", "updated_at",
-		}).AddRow("a2", "Наблюдатель-2", "flying", "w1", "w1", "w2", now().Add(-time.Minute), now().Add(-time.Second), true, nil, now(), now()))
+			"id", "name", "status", "current_world_id", "race_id", "from_world_id", "target_world_id", "depart_at", "arrive_at", "notify_enabled", "last_observed_at", "created_at", "updated_at",
+		}).AddRow("a2", "Наблюдатель-2", "flying", "w1", "coastal", "w1", "w2", now().Add(-time.Minute), now().Add(-time.Second), true, nil, now(), now()))
 
 	agents, err := NewNPCRepository(db).ListDueArrivals(now(), "", 5)
 	require.NoError(t, err)
@@ -103,11 +104,11 @@ func TestNPCGetByID(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	mock.ExpectQuery(`SELECT id, name, status, current_world_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at FROM npc_agents WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, name, status, current_world_id, race_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at FROM npc_agents WHERE id = \$1`).
 		WithArgs("a1").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "status", "current_world_id", "from_world_id", "target_world_id", "depart_at", "arrive_at", "notify_enabled", "last_observed_at", "created_at", "updated_at",
-		}).AddRow("a1", "Наблюдатель-1", "idle", "w1", nil, nil, nil, nil, true, nil, now(), now()))
+			"id", "name", "status", "current_world_id", "race_id", "from_world_id", "target_world_id", "depart_at", "arrive_at", "notify_enabled", "last_observed_at", "created_at", "updated_at",
+		}).AddRow("a1", "Наблюдатель-1", "idle", "w1", nil, nil, nil, nil, nil, true, nil, now(), now()))
 
 	agent, err := NewNPCRepository(db).GetByID("a1")
 	require.NoError(t, err)
@@ -115,6 +116,7 @@ func TestNPCGetByID(t *testing.T) {
 	require.NotNil(t, agent)
 	require.Equal(t, "a1", agent.ID)
 	require.Nil(t, agent.TargetWorldID)
+	require.Empty(t, agent.RaceID, "NULL race_id сканируется как пустая раса (sql.NullString)")
 }
 
 func TestNPCGetByIDNotFound(t *testing.T) {
@@ -122,10 +124,10 @@ func TestNPCGetByIDNotFound(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	mock.ExpectQuery(`SELECT id, name, status, current_world_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at FROM npc_agents WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, name, status, current_world_id, race_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at FROM npc_agents WHERE id = \$1`).
 		WithArgs("nope").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "status", "current_world_id", "from_world_id", "target_world_id", "depart_at", "arrive_at", "notify_enabled", "last_observed_at", "created_at", "updated_at",
+			"id", "name", "status", "current_world_id", "race_id", "from_world_id", "target_world_id", "depart_at", "arrive_at", "notify_enabled", "last_observed_at", "created_at", "updated_at",
 		}))
 
 	agent, err := NewNPCRepository(db).GetByID("nope")
@@ -215,10 +217,10 @@ func TestNPCListAll(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	mock.ExpectQuery(`SELECT id, name, status, current_world_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at FROM npc_agents`).
+	mock.ExpectQuery(`SELECT id, name, status, current_world_id, race_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at FROM npc_agents`).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "status", "current_world_id", "from_world_id", "target_world_id", "depart_at", "arrive_at", "notify_enabled", "last_observed_at", "created_at", "updated_at",
-		}).AddRow("a1", "Наблюдатель-1", "flying", "w1", "w1", "w2", now(), now().Add(time.Minute), true, nil, now(), now()))
+			"id", "name", "status", "current_world_id", "race_id", "from_world_id", "target_world_id", "depart_at", "arrive_at", "notify_enabled", "last_observed_at", "created_at", "updated_at",
+		}).AddRow("a1", "Наблюдатель-1", "flying", "w1", "humans", "w1", "w2", now(), now().Add(time.Minute), true, nil, now(), now()))
 
 	agents, err := NewNPCRepository(db).ListAll()
 	require.NoError(t, err)
@@ -363,11 +365,11 @@ func TestNPCInsertDefaultsIdle(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	mock.ExpectExec(`INSERT INTO npc_agents \(id, name, status, current_world_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at\) VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, \$9, \$10, NOW\(\), NOW\(\)\)`).
-		WithArgs("a1", "Наблюдатель-1", "idle", "w1", nil, nil, nil, nil, false, nil).
+	mock.ExpectExec(`INSERT INTO npc_agents \(id, name, status, current_world_id, race_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at\) VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, \$9, \$10, \$11, NOW\(\), NOW\(\)\)`).
+		WithArgs("a1", "Наблюдатель-1", "idle", "w1", "humans", nil, nil, nil, nil, false, nil).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	agent := &models.NPCAgent{ID: "a1", Name: "Наблюдатель-1", CurrentWorldID: "w1"}
+	agent := &models.NPCAgent{ID: "a1", Name: "Наблюдатель-1", CurrentWorldID: "w1", RaceID: "humans"}
 	require.NoError(t, NewNPCRepository(db).Insert(agent))
 	require.NoError(t, mock.ExpectationsWereMet())
 	require.Equal(t, models.NPCAgentStatusIdle, agent.Status, "модель должна получить статус idle")
@@ -469,13 +471,13 @@ func TestNPCListPageFirst(t *testing.T) {
 	defer db.Close()
 
 	created := now()
-	mock.ExpectQuery(`SELECT id, name, status, current_world_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at FROM npc_agents ORDER BY created_at DESC, id DESC LIMIT \$1`).
+	mock.ExpectQuery(`SELECT id, name, status, current_world_id, race_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at FROM npc_agents ORDER BY created_at DESC, id DESC LIMIT \$1`).
 		WithArgs(2).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "status", "current_world_id", "from_world_id", "target_world_id", "depart_at", "arrive_at", "notify_enabled", "last_observed_at", "created_at", "updated_at",
+			"id", "name", "status", "current_world_id", "race_id", "from_world_id", "target_world_id", "depart_at", "arrive_at", "notify_enabled", "last_observed_at", "created_at", "updated_at",
 		}).
-			AddRow("a2", "Cyrus Venn", "idle", "w2", nil, nil, nil, nil, false, nil, created.Add(time.Minute), created.Add(time.Minute)).
-			AddRow("a1", "Marion Hale", "idle", "w1", nil, nil, nil, nil, false, nil, created, created))
+			AddRow("a2", "Cyrus Venn", "idle", "w2", nil, nil, nil, nil, nil, false, nil, created.Add(time.Minute), created.Add(time.Minute)).
+			AddRow("a1", "Marion Hale", "idle", "w1", nil, nil, nil, nil, nil, false, nil, created, created))
 
 	agents, next, err := NewNPCRepository(db).ListPage(2, "")
 	require.NoError(t, err)
@@ -500,12 +502,12 @@ func TestNPCListPageSecondAndEnd(t *testing.T) {
 
 	created := now()
 	cursor := encodeCursor(created, "a1")
-	mock.ExpectQuery(`SELECT id, name, status, current_world_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at FROM npc_agents WHERE \(created_at, id\) < \(\$1, \$2\) ORDER BY created_at DESC, id DESC LIMIT \$3`).
+	mock.ExpectQuery(`SELECT id, name, status, current_world_id, race_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at FROM npc_agents WHERE \(created_at, id\) < \(\$1, \$2\) ORDER BY created_at DESC, id DESC LIMIT \$3`).
 		WithArgs(created, "a1", 2).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "status", "current_world_id", "from_world_id", "target_world_id", "depart_at", "arrive_at", "notify_enabled", "last_observed_at", "created_at", "updated_at",
+			"id", "name", "status", "current_world_id", "race_id", "from_world_id", "target_world_id", "depart_at", "arrive_at", "notify_enabled", "last_observed_at", "created_at", "updated_at",
 		}).
-			AddRow("a0", "Old One", "idle", "w0", nil, nil, nil, nil, false, nil, created.Add(-time.Minute), created.Add(-time.Minute)))
+			AddRow("a0", "Old One", "idle", "w0", nil, nil, nil, nil, nil, false, nil, created.Add(-time.Minute), created.Add(-time.Minute)))
 
 	agents, next, err := NewNPCRepository(db).ListPage(2, cursor)
 	require.NoError(t, err)

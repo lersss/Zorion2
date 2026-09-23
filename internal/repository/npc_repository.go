@@ -29,8 +29,9 @@ func NewNPCRepository(db *sql.DB) *NPCRepository {
 const zeroUUID = "00000000-0000-0000-0000-000000000000"
 
 // npcAgentColumns — порядок колонок всех SELECT по npc_agents (совпадает
-// с модельным скан-порядком scanNPCAgents).
-const npcAgentColumns = `id, name, status, current_world_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at`
+// с модельным скан-порядком scanNPCAgents). race_id — раса агента
+// (спека 2026-09-23 §7.2): едет в позиции карты (GET /api/npc/positions).
+const npcAgentColumns = `id, name, status, current_world_id, race_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at`
 
 // ListBatch — курсорная выборка до limit агентов со статусом status и
 // id > after (спека 20a.1 §2.2.A: cursor-based, не OFFSET). after = "" —
@@ -79,15 +80,20 @@ func scanNPCAgents(rows *sql.Rows) ([]models.NPCAgent, error) {
 }
 
 // scanNPCAgent — сканирование одной строки SELECT npcAgentColumns; nullable
-// колонки полёта/наблюдения — в nil-указатели. Работает с *sql.Row и *sql.Rows.
+// колонки race_id/полёта/наблюдения — в nil-указатели. Работает с *sql.Row и
+// *sql.Rows. race_id — через sql.NullString (в тестах передают nil; скан в
+// string падает на NULL, спека 2026-09-23 §7.2, PITFALLS).
 func scanNPCAgent(scanner interface{ Scan(dest ...any) error }) (models.NPCAgent, error) {
 	var a models.NPCAgent
-	var from, target sql.NullString
+	var race, from, target sql.NullString
 	var depart, arrive, observed sql.NullTime
-	if err := scanner.Scan(&a.ID, &a.Name, &a.Status, &a.CurrentWorldID,
+	if err := scanner.Scan(&a.ID, &a.Name, &a.Status, &a.CurrentWorldID, &race,
 		&from, &target, &depart, &arrive, &a.NotifyEnabled, &observed,
 		&a.CreatedAt, &a.UpdatedAt); err != nil {
 		return models.NPCAgent{}, err
+	}
+	if race.Valid {
+		a.RaceID = race.String
 	}
 	if from.Valid {
 		a.FromWorldID = &from.String
@@ -286,15 +292,16 @@ func statusBatchStartQuery(updates []models.AgentStatusUpdate) (string, []interf
 // Insert создаёт агента (спека 20a.1 §8): статус idle на стартовом мире,
 // дальше подхватывает планировщик. Пустой Status в модели → idle.
 // notify_enabled = false — дефолт новых агентов (спека 26a.1 §7.4: пуши —
-// только через глобальный рубильник; был true до 26a).
+// только через глобальный рубильник; был true до 26a). race_id — раса агента
+// (спека 2026-09-23 §5.2, §7.2): одиночное создание тоже ставит расу из пула.
 func (r *NPCRepository) Insert(a *models.NPCAgent) error {
 	if a.Status == "" {
 		a.Status = models.NPCAgentStatusIdle
 	}
 	a.NotifyEnabled = false
-	query := `INSERT INTO npc_agents (id, name, status, current_world_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())`
+	query := `INSERT INTO npc_agents (id, name, status, current_world_id, race_id, from_world_id, target_world_id, depart_at, arrive_at, notify_enabled, last_observed_at, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())`
 	_, err := r.db.Exec(query,
-		a.ID, a.Name, a.Status, a.CurrentWorldID,
+		a.ID, a.Name, a.Status, a.CurrentWorldID, a.RaceID,
 		a.FromWorldID, a.TargetWorldID, a.DepartAt, a.ArriveAt,
 		a.NotifyEnabled, a.LastObservedAt)
 	if err != nil {

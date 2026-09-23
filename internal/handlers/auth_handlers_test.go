@@ -233,11 +233,16 @@ func TestGetMeMapsUnknownShipIconToDefault(t *testing.T) {
 
 // ==================== PUT /me/ship-icon (спека 61b §4) ====================
 
-// Имя из реестра принимается.
+// Имя из реестра принимается (и принадлежит расе игрока — спека §6.5).
 func TestUpdateShipIconAcceptsRegistryName(t *testing.T) {
 	h, mock, _ := newAuthHandlersHarness(t)
 
 	userID := "55555555-5555-5555-5555-555555555555"
+	// Валидация расы (спека 2026-09-23 §6.5): игрок-человек, файл людского пула.
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, race_id FROM users WHERE id = \$1`).
+		WithArgs(userID).
+		WillReturnRows(sqlmock.NewRows(authUserColsRegister).
+			AddRow(userID, "bob", "hash", nil, nil, nil, "race_humans_starship.png", nil, nil, nil, "player", now(), now(), "humans"))
 	mock.ExpectExec(`UPDATE users SET ship_icon = \$1, updated_at = NOW\(\) WHERE id = \$2`).
 		WithArgs("race_humans_cruiser.png", userID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -250,6 +255,23 @@ func TestUpdateShipIconAcceptsRegistryName(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, "race_humans_cruiser.png", resp["ship_icon"])
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Файл чужой расы → 400 (спека 2026-09-23 §6.5: игрок-человек не летает
+// кораблём аммиачных), БД не трогается.
+func TestUpdateShipIconRejectsOtherRace(t *testing.T) {
+	h, mock, _ := newAuthHandlersHarness(t)
+
+	userID := "55555555-5555-5555-5555-555555555555"
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, race_id FROM users WHERE id = \$1`).
+		WithArgs(userID).
+		WillReturnRows(sqlmock.NewRows(authUserColsRegister).
+			AddRow(userID, "bob", "hash", nil, nil, nil, "race_humans_starship.png", nil, nil, nil, "player", now(), now(), "humans"))
+
+	req := httptest.NewRequest(http.MethodPut, "/me/ship-icon", strings.NewReader(`{"ship_icon":"race_ammonia_02.png"}`))
+	rec := execJSON(h.UpdateShipIcon, withUserID(req, userID))
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	require.NoError(t, mock.ExpectationsWereMet(), "чужой расовый корабль не должен трогать БД")
 }
 
 // Legacy-имя и мусор → 400 (выбор только из нового набора).

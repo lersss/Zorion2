@@ -346,8 +346,9 @@ type ShipIconRequest struct {
 }
 
 // UpdateShipIcon сохраняет выбранную иконку корабля пользователя.
-// Спека 61b §4 + 2026-09-23 §8.1: принимаются только имена расового реестра
-// (RaceShipSprites + NeutralShip); legacy-имена и прочие → 400.
+// Спека 61b §4 + 2026-09-23 §6.5: принимается только имя расового реестра
+// (RaceShipSprites + NeutralShip) И файл расы игрока (`race(file) == race_id`);
+// legacy-имена, мусор и чужой расовый корабль → 400.
 func (h *AuthHandlers) UpdateShipIcon(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(auth.UserIDKey).(string)
 	if !ok || userID == "" {
@@ -360,8 +361,18 @@ func (h *AuthHandlers) UpdateShipIcon(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, "Некорректное тело запроса", http.StatusBadRequest)
 		return
 	}
-	if !models.IsValidShipIcon(req.ShipIcon) {
+	race, ok := models.ShipRaceByFile(req.ShipIcon)
+	if !ok {
 		writeJSONError(w, "Некорректное имя иконки корабля", http.StatusBadRequest)
+		return
+	}
+	user, err := h.userRepo.GetByID(userID)
+	if err != nil || user == nil {
+		writeJSONError(w, "Не удалось получить игрока", http.StatusInternalServerError)
+		return
+	}
+	if race != user.RaceID {
+		writeJSONError(w, "Корабль не принадлежит расе игрока", http.StatusBadRequest)
 		return
 	}
 

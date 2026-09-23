@@ -487,6 +487,20 @@ export async function loadUserData(force = false) {
                 }
             }
         }
+        // Возврат из добычи в поясе (решение создателя 2026-09-23): страница
+        // добычи перед уходом на карту ставит метку beltReturn = world_id —
+        // открываем попап системы игрока (он остался на орбите пояса). Метку
+        // стираем в любом случае: не совпала с current_world_id — устарела.
+        // Обычный заход на карту метки не имеет → попап не открывается сам.
+        if (!currentWorldIdLoaded) {
+            const beltReturn = sessionStorage.getItem('beltReturn');
+            if (beltReturn) {
+                sessionStorage.removeItem('beltReturn');
+                if (user.current_world_id && beltReturn === user.current_world_id) {
+                    checkBeltReturn(user);
+                }
+            }
+        }
         currentWorldIdLoaded = true;
         return user;
     } catch (e) {
@@ -582,6 +596,31 @@ export async function checkCompositeArrival(user) {
     notifyInfo('🚀 Прибыли в систему ' + worldName);
     // Гонка таймеров — повторный /me-чек (см. выше).
     if (sign1 && !sign2) scheduleCompositeArrivalRecheck();
+}
+
+// checkBeltReturn — возврат из добычи в поясе (решение создателя 2026-09-23):
+// страница добычи ставит перед уходом метку beltReturn = world_id. Открываем
+// попап системы игрока (он остался на орбите пояса). Без тоста/гула прибытия —
+// это не прибытие. Фокус пустой: у пояса нет канвас-координат (как в
+// checkCompositeArrival). Метку стирает loadUserData до вызова.
+async function checkBeltReturn(user) {
+    const worldId = user && user.current_world_id;
+    if (!worldId) return;
+    let world = state.worlds.find(w => w.id === worldId);
+    if (!world) {
+        const token = localStorage.getItem('token');
+        world = await fetchWorldByID(worldId, token);
+        if (world) state.worlds.push(world);
+    }
+    const worldName = world ? world.name : '—';
+    // Модалка уже открыта на этой системе — не переоткрывать.
+    if (document.getElementById('system-modal-overlay') && modalState.worldId === worldId) return;
+    if (document.getElementById('system-modal-overlay')) closeModal();
+    openSystemModal(worldId, worldName, world ? world.spectral_class : '', {}, null, {
+        hasEngine: state.hasEngine,
+        shipIcon: state.userShipIcon,
+        shipColor: state.userShipColor,
+    });
 }
 
 // scheduleCompositeArrivalRecheck — повторный /me-чек через ~1 с (спека 99.2.30

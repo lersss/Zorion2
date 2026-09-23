@@ -168,7 +168,13 @@ export function showError(message, opts) {
         }
     }
     const map = $('error-map');
-    if (map) map.onclick = () => { window.location.href = '/map'; };
+    // onReturn (решение создателя 2026-09-23): «Вернуться» ведёт на карту с
+    // меткой системы — карта откроет попап. Не задан — обычный переход на /map.
+    if (map) {
+        map.onclick = (opts && typeof opts.onReturn === 'function')
+            ? opts.onReturn
+            : () => { window.location.href = '/map'; };
+    }
     const o = $('error');
     if (o) o.style.display = 'flex';
 }
@@ -200,7 +206,7 @@ export function setLeaveBusy(busy) {
     const b = $('belt-leave-btn');
     if (!b) return;
     b.disabled = !!busy;
-    b.textContent = busy ? 'Выходим…' : 'Вернуться на карту';
+    b.textContent = busy ? 'Выходим…' : 'Вернуться';
 }
 
 // ==================== ТОСТ (§6.1) ====================

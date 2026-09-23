@@ -1,8 +1,8 @@
 // web/static/js/belt/belt_main.js
 // Точка входа страницы добычи в поясе (UI-спека
 // 2026-09-22-пояса-малых-тел-этап-3-добыча-ui §4–§6): заход (enter) → сцена
-// (Canvas 2D, вид сверху, инерционный полёт, бурение) → «Вернуться на карту»
-// (leave). Вход: /belt.html?belt=<uuid> (кнопка «⛏ Добывать» в строке пояса).
+// (Canvas 2D, вид сверху, инерционный полёт, бурение) → «Вернуться» (leave).
+// Вход: /belt.html?belt=<uuid> (кнопка «⛏ Добывать» в строке пояса).
 import * as C from './belt_config.js';
 import { BeltWorld } from './belt_world.js';
 import { drawScene } from './belt_render.js';
@@ -37,6 +37,7 @@ const state = {
     shipSprite: null,
     shipSpriteName: '',
     shipColor: null,
+    worldId: '',
     shipOrient: { angle: 0, flip: false },
     collectTimer: null,
     toastFullShown: false,
@@ -63,6 +64,10 @@ async function loadShipSprite() {
         setShipOptions(me.ship_options);
         state.shipSpriteName = me.ship_icon || '';
         state.shipColor = me.ship_color;
+        // Система игрока — для метки «вернуться к системе» при выходе из пояса
+        // (решение создателя 2026-09-23): игрок остаётся на орбите пояса этой
+        // системы, карта по метке откроет её попап.
+        state.worldId = me.current_world_id || '';
         state.shipOrient = shipOrientFor(state.shipSpriteName);
         state.shipSprite = recolorShipSprite(state.shipSpriteName, state.shipColor);
     } catch (e) { /* фолбэк-треугольник */ }
@@ -89,8 +94,8 @@ function refreshHUD() {
 
 function hintHtml(hit, inRange, offBelt) {
     if (state.full) {
-        return 'Трюм полон — добыча недоступна. Вернитесь на карту. '
-            + '<button id="hint-leave" type="button" style="margin-left:8px; background:#2a2a4a; border:none; color:#fde68a; padding:3px 10px; border-radius:4px; cursor:pointer; font-size:0.8rem;">Вернуться на карту</button>';
+        return 'Трюм полон — добыча недоступна. '
+            + '<button id="hint-leave" type="button" style="margin-left:8px; background:#2a2a4a; border:none; color:#fde68a; padding:3px 10px; border-radius:4px; cursor:pointer; font-size:0.8rem;">Вернуться</button>';
     }
     if (state.depleted) return 'Пояс выработан — добывать больше нечего.';
     if (state.offline) return 'Нет связи — добыча приостановлена';
@@ -218,12 +223,36 @@ async function collectTick() {
 }
 
 // ---- Выход ----
+// returnToMap — уход на карту с меткой «вернуться к системе пояса» (решение
+// создателя 2026-09-23): карта при загрузке откроет попап системы игрока (он
+// остался на орбите пояса). Метку ставим, только если знаем систему; обычный
+// заход на карту (без метки) попап не открывает. Редиректы на /login-page (401)
+// идут мимо — метку не ставят.
+async function returnToMap() {
+    let worldId = state.worldId;
+    if (!worldId) {
+        // loadShipSprite ещё не успел (быстрый выход / экран ошибки) — берём /me.
+        try {
+            const t = localStorage.getItem('token') || sessionStorage.getItem('token');
+            if (t) {
+                const res = await fetch('/me', { headers: { 'Authorization': 'Bearer ' + t } });
+                if (res.ok) {
+                    const me = await res.json();
+                    worldId = me.current_world_id || '';
+                }
+            }
+        } catch (e) { /* метку не ставим — обычный заход на карту */ }
+    }
+    if (worldId) sessionStorage.setItem('beltReturn', worldId);
+    window.location.href = '/map';
+}
+
 async function callShip() {
     if (state.leaving) return;
     state.leaving = true;
     playSound('ui_select');
     ui.setLeaveBusy(true);
-    ui.notify('Возвращаюсь на карту…');
+    ui.notify('Возвращаюсь…');
     const res = await leave();
     if (res.status === 401) { window.location.href = '/login-page'; return; }
     if (!res.ok) {
@@ -236,7 +265,7 @@ async function callShip() {
     playSound('ui_success');
     state.running = false;
     clearInterval(state.collectTimer);
-    window.location.href = '/map';
+    returnToMap();
 }
 
 // ---- Ввод ----
@@ -264,7 +293,9 @@ function showEnterError(res) {
     ui.hideLoading();
     const info = enterErrorMessage(res);
     playSound('ui_error');
-    ui.showError(info.text, info.retry ? { retry: boot } : {});
+    // «Вернуться» с экрана ошибки тоже ведёт на карту с меткой системы (решение
+    // создателя 2026-09-23): попап откроется, если метка совпадёт с current_world_id.
+    ui.showError(info.text, { retry: info.retry ? boot : null, onReturn: returnToMap });
 }
 
 // ---- Запуск ----

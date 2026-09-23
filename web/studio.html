@@ -267,6 +267,14 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
   <div id="sprav">
 <div class="sprav-head">
         <h3 id="spravTitle">Справочник</h3>
+        <!-- переключатель справочника на вкладке «Производители» (идея
+             2026-09-23, шаг 1): «Постройки» (текущее) | «Товары» (каталог,
+             как на вкладке «Товары»). Виден только на «Производителях». -->
+        <div class="tool-seg" id="segSpravMode" style="display:none;margin-bottom:6px">
+          <span class="seg-label">Справочник</span>
+          <button class="branch-btn on" id="spravModeBuildings" title="Список типов построек">Постройки</button>
+          <button class="branch-btn" id="spravModeGoods" title="Справочник каталога товаров — как на вкладке «Товары»">Товары</button>
+        </div>
         <input id="spravSearch" type="text" placeholder="поиск по справочнику" style="width:100%;box-sizing:border-box;margin-bottom:6px">
         <select id="spravCat" title="Фильтр справочника по категории" style="width:100%;box-sizing:border-box;margin-bottom:6px"><option value="">все категории</option></select>
         <div class="filters" id="filters">
@@ -403,6 +411,10 @@ let racesLoaded = false;
 // рас ("" = «Все семейства»). Сохраняются в localStorage (§8 ТЗ).
 let goodsFactory = localStorage.getItem("gs_goodsFactory") || "";
 let goodsFamily = localStorage.getItem("gs_goodsFamily") || "";
+// Режим справочника вкладки «Производители» (идея 2026-09-23, шаг 1):
+// "buildings" — список типов построек (текущее поведение), "goods" — справочник
+// каталога товаров. Влияет ТОЛЬКО на правую панель; канвас-дерево не трогает.
+let spravMode = localStorage.getItem("gs_spravMode") || "buildings";
 const bindingInFlight = new Set(); // recipe_id в полёте — защита от двойного POST привязки (ТЗ §7.3.2)
 let dndActive = false; // перетаскивание карточки на канвас — глушит зум/пан (ТЗ §7.3.3)
 let dndDepth = 0;      // счётчик dragenter/dragleave для подсветки канваса (ТЗ §7.3.3)
@@ -1339,7 +1351,9 @@ async function bindRecipeToFactory(g, factoryId) {
 // действия попапа идут в /api/goods/{popupGoodId} (вердикт критика С1).
 function openPopup(id) {
   // Ветка «Производители»: узел дерева → попап детали/создания/справка (§2.5).
-  if (branch === "producers") { openProdNodePopup(id); return; }
+  // Исключение — режим «Товары» справочника производителей (идея 2026-09-23,
+  // шаг 1): карточка каталога открывает товарный попап.
+  if (branch === "producers" && spravMode !== "goods") { openProdNodePopup(id); return; }
   popupGoodId = id;
   $("detailPopup").style.display = "flex";
   $("detailOverlay").style.display = "block";
@@ -1950,8 +1964,14 @@ async function addParent(parentId) {
 // галки-фильтры (ортогональны, по умолчанию выключены), карточки draggable
 // (источник drag&drop в слоты попапа), клик = выбор, двойной клик / ⓘ = попап.
 function renderSprav() {
-  if (branch === "producers") { renderProdSprav(); return; }
+  if (branch === "producers" && spravMode !== "goods") { renderProdSprav(); return; }
   if (branch === "items") { renderItemSprav(); return; }
+  renderGoodsSprav();
+}
+// renderGoodsSprav — тело товарного справочника (вкладка «Товары» и режим
+// «Товары» на «Производителях», идея 2026-09-23 шаг 1): один общий код, чтобы
+// списки не разъезжались.
+function renderGoodsSprav() {
   const sc = $("spravList").scrollTop; // сохранить scroll списка при пересборке (поиск/пилюли/галки)
   const q = $("spravSearch").value.trim().toLowerCase();
   // фильтр по категории (пусто = все); при старте renderSprav идёт до renderCatSelects —
@@ -3669,7 +3689,11 @@ function renderAll() {
     renderCatSelects();
   } else if (branch === "producers") {
     renderGraph(); // дерево построек на канвасе (спека 2026-09-21 §2)
-    renderProdPopup(); // попап производителя (если открыт)
+    // режим «Товары» справочника (идея 2026-09-23, шаг 1): фильтр категорий
+    // каталога + товарный попап (renderProdPopup закрыл бы карточку товара)
+    if (spravMode === "goods") renderCatSelects();
+    if (spravMode === "goods" && popupGoodId && state.goods.some(g => g.id === popupGoodId)) renderPopup();
+    else renderProdPopup(); // попап производителя (если открыт)
     renderSprav(); // список справочника — вспомогательный (§2.5)
   } else {
     renderSprav();
@@ -3721,9 +3745,26 @@ function applyBranchUI() {
   // переключатель уровня расовости — только ветка «Производители» (спека §5)
   $("segProdRace").style.display = isProducers ? "" : "none";
   $("spravSearch").style.display = (isGoods || isProducers) ? "" : "none";
-  $("spravCat").style.display = isGoods ? "" : "none";
-  $("filters").style.display = isGoods ? "" : "none";
-  $("tierFilters").style.display = isGoods ? "" : "none";
+  // переключатель справочника «Постройки | Товары» — только ветка «Производители»
+  // (идея 2026-09-23, шаг 1); фильтры каталога видны на «Товарах» и в режиме
+  // «Товары» справочника производителей
+  $("segSpravMode").style.display = isProducers ? "" : "none";
+  $("spravModeBuildings").classList.toggle("on", spravMode !== "goods");
+  $("spravModeGoods").classList.toggle("on", spravMode === "goods");
+  const goodsCat = isGoods || (isProducers && spravMode === "goods");
+  $("spravCat").style.display = goodsCat ? "" : "none";
+  $("filters").style.display = goodsCat ? "" : "none";
+  $("tierFilters").style.display = goodsCat ? "" : "none";
+}
+// setSpravMode — переключатель «Постройки | Товары» правой панели вкладки
+// «Производители» (идея 2026-09-23, шаг 1): влияет только на справочник,
+// канвас-дерево построек не перерисовывается.
+function setSpravMode(m) {
+  spravMode = m;
+  localStorage.setItem("gs_spravMode", m);
+  if (m === "goods") renderCatSelects(); // заполнить фильтр категорий (вне renderAll)
+  applyBranchUI();
+  renderSprav();
 }
 function kindLabel(k) {
   return {goods: "товары", items: "предметы", energy: "энергия"}[k] || k;
@@ -3818,6 +3859,10 @@ $("btnTop").addEventListener("click", centerTop);
 $("branchGoods").addEventListener("click", () => setBranch("goods"));
 $("branchProducers").addEventListener("click", () => setBranch("producers"));
 $("branchItems").addEventListener("click", () => setBranch("items"));
+// справочник вкладки «Производители»: переключатель «Постройки | Товары»
+// (идея 2026-09-23, шаг 1)
+$("spravModeBuildings").addEventListener("click", () => setSpravMode("buildings"));
+$("spravModeGoods").addEventListener("click", () => setSpravMode("goods"));
 // попап-деталь: закрытие (крестик/подложка), перетаскивание за заголовок
 $("popupClose").addEventListener("click", closePopup);
 $("detailOverlay").addEventListener("click", closePopup);

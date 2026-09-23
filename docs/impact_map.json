@@ -1726,6 +1726,96 @@
         { "on": "money_ui", "kind": "affects", "reason": "UI игрока читает баланс/историю (шапки дашборда/карты + вкладка «Счёт»)" },
         { "on": "docs/specs/2026-09-22-деньги-и-эскроу.md", "kind": "docs", "reason": "спека-источник §3.1–§3.4 (модель, приватность, эскроу)" }
       ]
+    },
+    {
+      "id": "npc_agents",
+      "type": "table",
+      "path": "db:npc_agents",
+      "note": "NPC-агенты (миграция 000026, спека 20a.1): наблюдатели; current_world_id/from_world_id/target_world_id — миры. Узел заведён 2026-09-23 (идея «корабли рас: раса агентов и игрока»).",
+      "impacts": [
+        { "on": "internal/repository/npc_repository.go", "kind": "writes", "reason": "4 точки: npcAgentColumns (SELECT-список), scanNPCAgent, INSERT, pq.CopyIn (BulkInsert)" },
+        { "on": "internal/models/npc_agent.go", "kind": "reads", "reason": "модель NPCAgent" },
+        { "on": "internal/npc/position_cache.go", "kind": "reads", "reason": "InterpolatedPosition.RaceID — раса едет на карту" },
+        { "on": "internal/handlers/npc_positions.go", "kind": "api", "reason": "GET /api/npc/positions отдаёт race_id" },
+        { "on": "internal/handlers/admin_npc.go", "kind": "writes", "reason": "генерация ставит расу и стартовый мир" }
+      ]
+    },
+    {
+      "id": "npc_agents.race_id",
+      "type": "table",
+      "path": "db:npc_agents.race_id",
+      "note": "Раса NPC-агента (миграция 000074, спека 2026-09-23-корабли-рас-раса-агентов-и-игрока): слаг из config/races.json, при генерации — рандомно; NULL = раса не задана → нейтральный корабль. Стартовый мир агента — factions.homeworld_id расы.",
+      "impacts": [
+        { "on": "npc_agents", "kind": "schema", "reason": "колонка таблицы агентов" },
+        { "on": "race_ship_registry", "kind": "affects", "reason": "корабль агента выбирается по расе" },
+        { "on": "agent_origin", "kind": "affects", "reason": "раса → родной мир (factions.homeworld_id)" },
+        { "on": "internal/repository/npc_repository.go", "kind": "schema", "reason": "список колонок/скан/INSERT/COPY (+race_id)" }
+      ]
+    },
+    {
+      "id": "users.race_id",
+      "type": "table",
+      "path": "db:users.race_id",
+      "note": "Раса игрока (миграция 000074): NOT NULL DEFAULT 'humans' (пока единственное значение). Задел под будущий выбор расы; потребитель — корабль игрока по расе и валидация PUT /me/ship-icon.",
+      "impacts": [
+        { "on": "internal/repository/user_repository.go", "kind": "schema", "reason": "userSelect/scanUser, GetByIDWithPosition/scanUserWithPosition (+race_id)" },
+        { "on": "internal/handlers/auth_handlers.go", "kind": "reads", "reason": "регистрация, /me, PUT /me/ship-icon (только своя раса)" },
+        { "on": "internal/handlers/admin_users.go", "kind": "writes", "reason": "создание игрока админом — случайный корабль пула расы" },
+        { "on": "cmd/server/bootstrap.go", "kind": "writes", "reason": "корабль при регистрации" }
+      ]
+    },
+    {
+      "id": "users.ship_icon",
+      "type": "table",
+      "path": "db:users.ship_icon",
+      "note": "Иконка корабля игрока (миграция 000037; семантика изменена 2026-09-23): имя файла расового реестра. Миграция 000074 переписала старые значения на людской корабль и сменила DEFAULT на race_humans_starship.png; легаси-маппинг удалён (П4).",
+      "impacts": [
+        { "on": "internal/repository/user_repository.go", "kind": "schema", "reason": "userSelect/GetByID/GetByIDWithPosition/PlayerPositions" },
+        { "on": "internal/handlers/auth_handlers.go", "kind": "reads", "reason": "/me (ResolveShipIcon), PUT /me/ship-icon" },
+        { "on": "internal/handlers/players_positions.go", "kind": "reads", "reason": "корабль чужих игроков на карте" },
+        { "on": "internal/handlers/surface_handlers.go", "kind": "reads", "reason": "ResolveShipIcon + ShipOrientByFile в пакете высадки" },
+        { "on": "migrations/000074_race_ships.sql", "kind": "schema", "reason": "бэкфилл старых значений + смена DEFAULT" }
+      ]
+    },
+    {
+      "id": "ship_options",
+      "type": "mechanic",
+      "path": "internal/handlers/auth_handlers.go",
+      "note": "Транспорт расового реестра кораблей клиенту (GET /me.ship_options, спека 2026-09-23-корабли-рас-раса-агентов-и-игрока §7.1): {id,name,file,angle,flip} + race; 118 строк (117 расовых + нейтральный). НЕ выпилен — второй источник не заводится.",
+      "impacts": [
+        { "on": "internal/handlers/auth_handlers.go", "kind": "api", "reason": "GET /me.ship_options" },
+        { "on": "web/static/js/map/data.js", "kind": "reads", "reason": "индекс для карты" },
+        { "on": "web/static/js/belt/belt_main.js", "kind": "reads", "reason": "индекс ориентации корабля игрока в мини-игре" },
+        { "on": "web/index.html", "kind": "reads", "reason": "сетка селектора дашборда (фильтр по расе игрока)" },
+        { "on": "web/static/js/map/ship_sprites.js", "kind": "reads", "reason": "setShipOptions — клиентский индекс «раса → файлы»" }
+      ]
+    },
+    {
+      "id": "race_ship_registry",
+      "type": "mechanic",
+      "path": "internal/models/race_ship_sprites.go",
+      "note": "Расовый реестр кораблей (спека 2026-09-23-корабли-рас-раса-агентов-и-игрока §6): 117 расовых PNG + NeutralShip; корабль агента — spriteForAgent(race_id, id) (суффиксный выбор варианта, SHIP_VARIANT_SLOTS=9 — гипотеза); корабль игрока — users.ship_icon; легаси-21 выпилен (П4). Палитра 9 цветов — ShipColorPalette.",
+      "impacts": [
+        { "on": "web/static/js/map/ship_sprites.js", "kind": "affects", "reason": "spriteForAgent/preloadShipSprites/setShipOptions" },
+        { "on": "web/static/js/map/npc_agents.js", "kind": "affects", "reason": "передаёт p.race_id в spriteForAgent" },
+        { "on": "internal/handlers/auth_handlers.go", "kind": "reads", "reason": "ship_options + валидация PUT /me/ship-icon" },
+        { "on": "internal/handlers/surface_handlers.go", "kind": "reads", "reason": "ShipOrientByFile" },
+        { "on": "tools/import_ship_sprites.ps1", "kind": "affects", "reason": "печать строк реестра (порядок: людские первыми)" },
+        { "on": "docs/gamedesign/21_ships.md", "kind": "docs", "reason": "эталоны В4/В5 переписаны (§21.7) — дельта @dispatcher" }
+      ]
+    },
+    {
+      "id": "agent_origin",
+      "type": "mechanic",
+      "path": "internal/npc/manager.go",
+      "note": "Раса → родной мир агента (спека 2026-09-23-корабли-рас-раса-агентов-и-игрока §5): пул из factions (race_id + homeworld_id, мир через planets.world_id); агент стартует в мире расы. Триггеры обновления — смена снапшота WorldSource + инвалидация внутри горутины GenerateFactions после успеха. Расы без родного мира агентов пока не получают.",
+      "impacts": [
+        { "on": "factions", "kind": "reads", "reason": "race_id + homeworld_id (планета) → planets.world_id (мир)" },
+        { "on": "internal/npc/manager.go", "kind": "affects", "reason": "RaceHomeworldSource, RefreshRaceHomeworlds, RandomRaceHomeworlds" },
+        { "on": "internal/repository/npc_repository.go", "kind": "reads", "reason": "метод RaceHomeworlds — SQL" },
+        { "on": "cmd/server/main.go", "kind": "affects", "reason": "npc.NewManager — третий аргумент (RaceHomeworldSource)" },
+        { "on": "internal/handlers/admin_universe.go", "kind": "affects", "reason": "GenerateFactions — инвалидация пула внутри горутины после успеха" }
+      ]
     }
   ]
 }

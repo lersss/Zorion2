@@ -1525,9 +1525,16 @@ function openPopup(id) {
   // шаг 1): карточка каталога открывает товарный попап.
   if (branch === "producers" && spravMode !== "goods") { openProdNodePopup(id); return; }
   popupGoodId = id;
+  resetPopupPos();
   $("detailPopup").style.display = "flex";
   $("detailOverlay").style.display = "block";
   renderPopup();
+}
+// сброс позиции перетаскивания: попап всегда открывается по центру — иначе
+// оставленные drag-ом inline left/top уводят его за экран (идея 2026-09-24)
+function resetPopupPos() {
+  const p = $("detailPopup");
+  p.style.left = ""; p.style.top = ""; p.style.transform = "";
 }
 function closePopup() {
   popupGoodId = null;
@@ -2254,6 +2261,7 @@ function openProdPopup(id) {
   prodEatRows = null;
   prodEatRowsFor = null;
   effectTypesFailed = false; // повторная попытка загрузить справочник эффектов
+  resetPopupPos();
   $("detailPopup").style.display = "flex";
   $("detailOverlay").style.display = "block";
   renderProdPopup();
@@ -3601,6 +3609,7 @@ function itemClick(id) { selected = id; renderAll(); }
 function itemDblClick(id) { selected = id; openItemPopup(id); renderAll(); }
 function openItemPopup(id) {
   popupGoodId = id;
+  resetPopupPos();
   $("detailPopup").style.display = "flex";
   $("detailOverlay").style.display = "block";
   renderItemPopup();

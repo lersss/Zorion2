@@ -7,8 +7,9 @@
 //  - V5: детерминизм (тот же seed/вид → тот же декор), Math.random не используется;
 //  - V6: диспетчер декора — известные примитивы рисуют, неизвестный — пропуск.
 // Запуск: node tools/surface-view-check.mjs
-import { SurfaceWorld } from '../web/static/js/surface/surface_world.js';
+import { SurfaceWorld, horizonHeight } from '../web/static/js/surface/surface_world.js';
 import { drawDecorPrim } from '../web/static/js/surface/surface_decor.js';
+import { horizonProfile, drawHorizon } from '../web/static/js/surface/surface_render.js';
 
 const results = [];
 function check(name, ok, detail) {
@@ -19,7 +20,8 @@ function check(name, ok, detail) {
 function mkPkg(over = {}) {
     return {
         seed: 424242, biome: 'x', biome_category: 'литосфера',
-        biome_color: '#8a7a6a', life: true, view_source: 'fallback', ...over,
+        biome_color: '#8a7a6a', life: true, view_source: 'fallback',
+        view_version: 1, ...over,
     };
 }
 
@@ -187,6 +189,62 @@ const desertView = {
     check('V9c where side: обе стороны встречаются', L.size > 0 && R.size > 0, `L=${L.size} R=${R.size}`);
     let overlap = 0; for (const x of L) if (R.has(x)) overlap++;
     check('V9d where side: стороны не пересекаются', overlap === 0, `overlap=${overlap}`);
+}
+
+// H1–H5 — ярусный горизонт (§3.6, Э2): разбор рецепта, потолок 2 пояса,
+// детерминизм, цельный уезд силуэта, отрисовка и фолбэк.
+{
+    const desertHz = {
+        ...desertView,
+        horizon: { layers: [
+            { parallax: 0.5, profile: { prim: 'wave', lambda: [900, 1400], amp: [45, 75], skew: 0.85 }, fill: 'dark', haze: 0.55, step: 24 },
+            { parallax: 0.7, profile: { prim: 'wave', lambda: [520, 820], amp: [55, 95], skew: 0.85 }, fill: 'dark', haze: 0.3, step: 24 },
+        ] },
+    };
+    const wv = new SurfaceWorld(mkPkg({ biome_view: desertHz, view_source: 'catalog' }));
+    check('H1a рецепт с horizon → 2 пояса', Array.isArray(wv.horizon) && wv.horizon.length === 2, 'layers=' + (wv.horizon && wv.horizon.length));
+    check('H1b без рецепта → ярусов нет (фолбэк 1:1)', new SurfaceWorld(mkPkg()).horizon === null);
+    check('H1c незнакомая view_version → фолбэк (§2.6)',
+        new SurfaceWorld(mkPkg({ biome_view: desertHz, view_source: 'catalog', view_version: 2 })).hasView === false);
+    check('H1d view_version=1 → рецепт применён',
+        new SurfaceWorld(mkPkg({ biome_view: desertHz, view_source: 'catalog', view_version: 1 })).hasView === true);
+
+    const w3 = new SurfaceWorld(mkPkg({
+        biome_view: { ...desertHz, horizon: { layers: [...desertHz.horizon.layers, { parallax: 0.8, profile: { prim: 'wave' } }] } },
+        view_source: 'catalog',
+    }));
+    check('H2 потолок 2 пояса — третий отброшен', w3.horizon.length === 2, 'layers=' + w3.horizon.length);
+
+    const cam = { x: 0, y: 0 };
+    const ptsA = horizonProfile(wv, cam, 800, 600, wv.horizon[0]);
+    const ptsB = horizonProfile(new SurfaceWorld(mkPkg({ biome_view: desertHz, view_source: 'catalog' })), cam, 800, 600, wv.horizon[0]);
+    check('H3 профиль детерминирован (тот же seed → те же точки)', JSON.stringify(ptsA) === JSON.stringify(ptsB));
+
+    // Силуэт уезжает цельно: сдвиг камеры на Δ → экранный сдвиг Δ·p (точка wx общая).
+    const ptsC = horizonProfile(wv, { x: 100, y: 0 }, 800, 600, wv.horizon[0]);
+    const a0 = ptsA.find(p => p.wx === 0), c0 = ptsC.find(p => p.wx === 0);
+    check('H4a общая точка wx=0 на обеих решётках', !!a0 && !!c0);
+    check('H4b уезжает цельно (Δ·p=50, y без изменений)',
+        !!a0 && !!c0 && Math.abs((a0.sx - c0.sx) - 50) < 1e-9 && a0.y === c0.y,
+        a0 && c0 ? `dsx=${(a0.sx - c0.sx).toFixed(2)} dy=${(a0.y - c0.y).toFixed(2)}` : 'нет точки');
+
+    // H5 — отрисовка: нет ярусов → ничего; с ярусами → силуэт + дымка на каждый пояс.
+    const fills = { n: 0 };
+    const noop = () => {};
+    const ctx = {
+        fillRect: noop, beginPath: noop, moveTo: noop, lineTo: noop, closePath: noop,
+        fill: () => { fills.n++; }, fillStyle: '', globalAlpha: 1,
+    };
+    fills.n = 0; drawHorizon(ctx, new SurfaceWorld(mkPkg()), cam, 800, 600, null);
+    check('H5a без рецепта drawHorizon не рисует', fills.n === 0, 'fills=' + fills.n);
+    fills.n = 0; drawHorizon(ctx, wv, cam, 800, 600, null);
+    check('H5b 2 пояса → 4 заливки (силуэт+дымка каждый)', fills.n === 4, 'fills=' + fills.n);
+
+    // H6 — устойчивость skew (§3.1): 0/1 не должны давать NaN (кламп в (0,1)).
+    const ySkew0 = horizonHeight('wave', { lambda: 900, amp: 60, skew: 0 }, 1234, 7);
+    const ySkew1 = horizonHeight('wave', { lambda: 900, amp: 60, skew: 1 }, 1234, 7);
+    check('H6a skew=0 → конечное число', Number.isFinite(ySkew0), String(ySkew0));
+    check('H6b skew=1 → конечное число', Number.isFinite(ySkew1), String(ySkew1));
 }
 
 const failed = results.filter(r => !r.ok);

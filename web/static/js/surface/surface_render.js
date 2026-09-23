@@ -3,7 +3,7 @@
 // пакета), дальний рельеф, основной рельеф/пещеры (чанки кэшируются), декор,
 // жизнь, игрок, HUD (в surface_ui.js). Canvas 2D. Погода — surface_weather.js.
 import { CHUNK, CHUNK_RADIUS, COLORS, FLOAT_SPAN, FLOAT_GAP, ZOOM, SHIP_DECOR_SIZE, SHIP_DECOR_X, SHIP_HOVER_BOTTOM, SHIP_BOB_AMP, SHIP_BOB_PERIOD_MS } from './surface_config.js';
-import { shade, rgba } from './surface_world.js';
+import { shade, rgba, horizonHeight } from './surface_world.js';
 import { drawDecorPrim } from './surface_decor.js';
 import { planetTexture } from './surface_net.js';
 import { recolorShipSprite, shipDrawTransform } from '../map/ship_sprites.js';
@@ -61,7 +61,11 @@ export function getChunkCanvas(world, index) {
     const canvas = document.createElement('canvas');
     // +1 колонка (CHUNK..CHUNK+1): реальные данные следующей мировой колонки —
     // перекрывает 1-px шов на стыке чанков при апскейле зума (билинейная выборка
-    // края канваса иначе даёт полупрозрачную полосу). Растр — в SS раз больше
+    // края канваса иначе даёт полупрозрачную полосу). Канвас несёт ТОЛЬКО
+    // непрозрачное (рельеф/пещеры/парящая порода), а глубинный градиент и светлая
+    // кромка поверхности вынесены в общий проход drawTerrain: полупрозрачный
+    // градиент внутри канваса на стыке чанков композитился дважды и давал тёмную
+    // вертикальную полосу каждые CHUNK·ZOOM px. Растр — в SS раз больше
     // логического размера; рисование идёт в логических координатах.
     canvas.width = Math.round((CHUNK + 1) * ss);
     canvas.height = Math.round(CHUNK_HEIGHT * ss);
@@ -124,14 +128,21 @@ export function getChunkCanvas(world, index) {
         if (yTop !== null) fillFloatRun(ctx, lx, yTop, yBottom, topY);
     }
 
-    // Глубинный градиент (объём).
+    // Глубинный градиент (объём) — source-atop: ложится ТОЛЬКО на уже нарисованное
+    // (рельеф/пещеры/парящая порода), небо остаётся прозрачным. Так канвас чанка
+    // непрозрачен лишь под рельефом → перекрытие на стыке не даёт двойного
+    // композита полупрозрачного слоя (тёмных полос). Небо/дальний план тем же
+    // мировым градиентом темнит общий проход drawTerrain (до блитов).
     const grad = ctx.createLinearGradient(0, 0, 0, CHUNK_HEIGHT);
     grad.addColorStop(0, 'rgba(0,0,0,0)');
     grad.addColorStop(1, 'rgba(0,0,0,0.72)');
+    ctx.globalCompositeOperation = 'source-atop';
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, CHUNK + 1, CHUNK_HEIGHT);
+    ctx.globalCompositeOperation = 'source-over';
 
-    // Кромка поверхности — светлее (палитра: light; фолбэк — shade).
+    // Кромка поверхности — светлее (палитра: light; фолбэк — shade). Непрозрачна,
+    // печётся в канвас чанка (в кэш): каждый кадр её рисовать не нужно.
     ctx.fillStyle = world.hasView ? world.palette.light : shade(world.color, 1.15);
     for (let lx = 0; lx <= CHUNK; lx++) {
         const wx = baseX + lx;
@@ -269,6 +280,65 @@ export function drawFarRelief(ctx, world, camera, vw, vh) {
     ctx.fill();
 }
 
+// horizonFill — цвет заливки яруса из палитры биома (§3.6 правило 2): fill —
+// ключ палитры (dark/base/…); неизвестный/пустой — dark, затем base.
+function horizonFill(palette, key) {
+    const k = (typeof key === 'string' && key) ? key : 'dark';
+    return palette[k] || palette.dark || palette.base;
+}
+
+// horizonProfile — точки силуэта одного яруса (§3.6): фиксированная мировая
+// решётка step (не по экрану — силуэт «уезжает цельно», §2.2), параллакс p,
+// низкочастотный профиль примитива. Экранная координата непрерывна от камеры.
+export function horizonProfile(world, camera, vw, vh, layer) {
+    const p = Math.max(0.36, Math.min(0.99, Number(layer.parallax) || 0.5));
+    const step = Math.max(4, Number(layer.step) || FAR_STEP);
+    const prof = layer.profile || {};
+    const camP = camera.x * p;
+    const half = vw / 2;
+    const start = Math.floor((camP - half) / step) * step;
+    const end = camP + half;
+    // Базисная линия: дальний пояс (меньший параллакс) выше, ближний — ниже.
+    // Смещение подобрано так, чтобы пояс читался над линией земли (у спавна она
+    // на ~vh·0.6): дальний ~0.45vh, ближний ~0.51vh.
+    const baseY = world.baseY - 230 + (p - 0.5) * 470;
+    const yOff = -camera.y * p + vh * 0.5;
+    const pts = [];
+    for (let wx = start; wx <= end; wx += step) {
+        pts.push({ wx, sx: wx - camP + half, y: baseY + horizonHeight(prof.prim, prof, wx, world.seed) + yOff });
+    }
+    return pts;
+}
+
+// drawHorizon — пояса параллакса между farRelief и drawEnvironmentMid (§3.6,
+// §6 п.1). Ярусы декоративны: физика (terrainHeight/isSolid) их не знает (§6
+// п.3). Заливка — из палитры биома (fill: dark/base), дымка смешивает силуэт с
+// текущим небом — согласована с суточным циклом (ночью ярус не светлее неба,
+// §3.6 правило 3). Нет рецепта / нет horizon — не рисуется (фолбэк 1:1).
+export function drawHorizon(ctx, world, camera, vw, vh, env) {
+    const layers = world.horizon;
+    if (!layers || !layers.length) return;
+    const sc = (env && typeof env.skyColors === 'function') ? env.skyColors() : null;
+    const hazeCss = (a) => sc
+        ? `rgba(${sc.bottom.r},${sc.bottom.g},${sc.bottom.b},${a})`
+        : rgba(world.palette.base, a);
+    for (const layer of layers) {
+        const pts = horizonProfile(world, camera, vw, vh, layer);
+        if (pts.length < 2) continue;
+        const haze = Math.max(0, Math.min(1, Number(layer.haze) || 0));
+        ctx.beginPath();
+        ctx.moveTo(0, vh);
+        ctx.lineTo(0, pts[0].y);
+        for (const pt of pts) ctx.lineTo(pt.sx, pt.y);
+        ctx.lineTo(vw, pts[pts.length - 1].y);
+        ctx.lineTo(vw, vh);
+        ctx.closePath();
+        ctx.fillStyle = horizonFill(world.palette, layer.fill);
+        ctx.fill();
+        if (haze > 0) { ctx.fillStyle = hazeCss(haze); ctx.fill(); }
+    }
+}
+
 // viewChunkRadius — сколько чанков влево/вправо покрывает экран при масштабе
 // ZOOM: видимая ширина мира = vw / ZOOM. Не константа CHUNK_RADIUS (идея
 // 2026-09-22 §8.3): иначе на широких экранах за краями чанков земли нет, а
@@ -278,8 +348,30 @@ function viewChunkRadius(vw) {
     return Math.max(CHUNK_RADIUS, Math.ceil(vw / (2 * ZOOM) / CHUNK) + 1);
 }
 
-// drawTerrain — основной рельеф из кэшированных чанков.
+// drawDepthGradient — глубинный градиент (объём) для неба/дальнего плана/ярусов:
+// ОДИН проход на весь экран, ДО блитов чанков (рельеф перекроет его и получит
+// затемнение из канваса чанка, source-atop). Градиент мировой (от topY до
+// topY+CHUNK_HEIGHT) — общий проход и запечённый в чанк профиль совпадают, стык
+// «небо↔рельеф» непрерывен. Раньше слой рисовался внутри канваса каждого чанка и
+// на стыке (перекрытие CHUNK+1) композитился дважды — тёмная вертикальная полоса
+// каждые CHUNK·ZOOM px.
+function drawDepthGradient(ctx, world, camera, vw, vh) {
+    const topY = world.baseY - CHUNK_TOP_MARGIN;
+    const y0 = topY - camera.y + vh / 2;
+    const grad = ctx.createLinearGradient(0, y0, 0, y0 + CHUNK_HEIGHT);
+    grad.addColorStop(0, 'rgba(0,0,0,0)');
+    grad.addColorStop(1, 'rgba(0,0,0,0.72)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, y0, vw, CHUNK_HEIGHT);
+}
+
+// drawTerrain — основной рельеф из кэшированных чанков. Глубинный градиент —
+// один общий проход ДО блитов (темнит небо/дальний план/ярусы/погоду, нарисованные
+// раньше); рельеф тем же мировым градиентом запечён в канвас чанка (source-atop).
+// Кромка поверхности тоже запечена в чанк. Полос на стыках нет: канвас чанка
+// непрозрачен только под рельефом, перекрытие CHUNK+1 безопасно.
 export function drawTerrain(ctx, world, camera, vw, vh) {
+    drawDepthGradient(ctx, world, camera, vw, vh);
     const centerChunk = Math.floor(camera.x / CHUNK);
     const radius = viewChunkRadius(vw);
     for (let i = centerChunk - radius; i <= centerChunk + radius; i++) {

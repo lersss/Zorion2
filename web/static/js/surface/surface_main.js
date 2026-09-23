@@ -4,7 +4,7 @@
 // Вход: /surface.html?planet=<uuid> (правый клик по планете → «Высадиться»).
 import { CAMERA_LERP, WEATHER_MIN_MS, WEATHER_MAX_MS, PPM, ZOOM } from './surface_config.js';
 import { SurfaceWorld } from './surface_world.js';
-import { drawSky, drawFarRelief, drawTerrain, drawDecor, drawShip, drawCreatures, drawPlayer } from './surface_render.js';
+import { drawSky, drawFarRelief, drawHorizon, drawTerrain, drawDecor, drawShip, drawCreatures, drawPlayer } from './surface_render.js';
 import { pickWeatherRun, drawWeatherBack, drawWeatherMid, drawWeatherFront, drawEmissive, weatherLabel } from './surface_weather.js';
 import { SurfaceEnvironment, drawEnvironmentBack, drawEnvironmentMid, drawEnvironmentFront } from './surface_environment.js';
 import { Player, serverHp } from './surface_player.js';
@@ -141,6 +141,8 @@ function frame(now) {
     ctx.translate(-vw / 2, -vh / 2);
     drawWeatherBack(ctx, state.world, state.camera, vw, vh, state.weather, state.env);
     drawFarRelief(ctx, state.world, state.camera, vw, vh);
+    // Ярусы горизонта (§3.6, §6 п.1) — строго между farRelief и environmentMid.
+    drawHorizon(ctx, state.world, state.camera, vw, vh, state.env);
     drawEnvironmentMid(ctx, state.world, state.camera, vw, vh, state.env);
     drawWeatherMid(ctx, state.world, state.camera, vw, vh, state.weather, state.env);
     drawTerrain(ctx, state.world, state.camera, vw, vh);

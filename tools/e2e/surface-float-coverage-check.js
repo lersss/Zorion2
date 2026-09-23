@@ -169,7 +169,11 @@ async function main() {
           const bi = (py * b.width + 0) * 4;
           checked++;
           if (Math.abs(ca.data[ai] - cb.data[bi]) > 2 || Math.abs(ca.data[ai + 1] - cb.data[bi + 1]) > 2 || Math.abs(ca.data[ai + 2] - cb.data[bi + 2]) > 2) mismatch++;
-          if (ca.data[ai + 3] === 0 && cb.data[bi + 3] === 0) gap++;
+          // «Щель» = односторонняя прозрачность на стыке (один чанк красит,
+          // другой нет) — ступенька. «Оба прозрачны» легально: канвас чанка
+          // непрозрачен только под рельефом (глубинный градиент и кромка —
+          // общий проход drawTerrain, не в канвасе чанка).
+          if (Math.abs(ca.data[ai + 3] - cb.data[bi + 3]) > 2) gap++;
         }
         world._chunkCache = null;
         return { checked, mismatch, gap };
@@ -226,7 +230,7 @@ async function main() {
       `avg=${data.genMs.toFixed(1)} ms/chunk (cached after first paint)`);
     report('C7 chunk seam: adjacent columns match, no gap',
       data.seamRes.mismatch === 0 && data.seamRes.gap === 0,
-      `checked=${data.seamRes.checked} mismatch=${data.seamRes.mismatch} transparentBoth=${data.seamRes.gap}`);
+      `checked=${data.seamRes.checked} mismatch=${data.seamRes.mismatch} alphaStep=${data.seamRes.gap}`);
 
     const failed = results.filter((r) => !r.ok).length;
     console.log('SUMMARY: ' + results.filter((r) => r.ok).length + ' PASS / ' + failed + ' FAIL');

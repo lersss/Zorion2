@@ -137,6 +137,73 @@ function resolvePalette(view, color) {
     };
 }
 
+// ==================== ЯРУСНЫЙ ГОРИЗОНТ (§3.6, Э2) ====================
+
+// VIEW_SCHEMA_VERSION — версия схемы рецепта вида, которую понимает клиент
+// (совпадает с planet.ViewSchemaVersion на сервере, §2.6). Пакет с другой версией
+// игнорируется → фолбэк FORMATIONS/LIFE_DENSITY.
+export const VIEW_SCHEMA_VERSION = 1;
+
+// HORIZON_MAX_LAYERS — потолок поясов яруса (§6 п.8): 2 пояса (решение
+// создателя 2026-09-23); третий — только отдельным решением.
+export const HORIZON_MAX_LAYERS = 2;
+
+// rangeMid — середина диапазона [lo,hi] или само число. Ярусу нужна низкая
+// частота (крупные lambda/amp), пер-волновая рябь здесь не требуется.
+function rangeMid(v, def) {
+    if (typeof v === 'number') return v;
+    if (Array.isArray(v) && v.length === 2 && typeof v[0] === 'number' && typeof v[1] === 'number') {
+        return (v[0] + v[1]) / 2;
+    }
+    return def;
+}
+
+// horizonHeight — мировая высота силуэта яруса (отрицательная = вверх) в точке x.
+// Силуэт — из профильных примитивов §3.1 (отдельного kind нет, §2.1), низкая
+// частота, без мелкой детализации. Реализованы примитивы, используемые ярусами
+// (wave/crest/dome/spike); полный стек профилей — Э3. Детерминирован от seed.
+export function horizonHeight(prim, params, x, seed) {
+    const p = params || {};
+    const s = (seed ^ 0x4f21) >>> 0;
+    if (prim === 'crest') {
+        // Гребень/хребет: ridged-шум (1−|2n−1|), заострение sharpness.
+        const lambda = rangeMid(p.lambda, 800);
+        const amp = rangeMid(p.amp, 140);
+        const sharp = typeof p.sharpness === 'number' ? p.sharpness : 0.7;
+        const ridged = 1 - Math.abs(2 * fbm1(x / lambda, s, 2) - 1);
+        return -amp * Math.pow(ridged, 0.6 + 0.8 * sharp);
+    }
+    if (prim === 'dome') {
+        // Купол/всхолмление: плавные холмы (линии крон).
+        const lambda = rangeMid(p.lambda, 300);
+        const amp = rangeMid(p.amp, 50);
+        return -amp * (0.35 + 0.65 * fbm1(x / lambda, s, 2));
+    }
+    if (prim === 'spike') {
+        // Отдельные узкие пики/шпили: треугольник у детерминированного центра.
+        const tile = rangeMid(p.tile, rangeMid(p.lambda, 300));
+        const h = rangeMid(p.h, 120);
+        const w = rangeMid(p.w, 40);
+        const i = Math.floor(x / tile);
+        const c = i * tile + hash1(i, s ^ 0x51ce) * tile;
+        const d = Math.abs(x - c);
+        return d > w ? 0 : -h * (1 - d / w);
+    }
+    // wave (по умолчанию): асимметричная волна — гряды дюн/валы (skew = доля
+    // длины на пологом наветренном склоне).
+    const lambda = rangeMid(p.lambda, 900);
+    const amp = rangeMid(p.amp, 60);
+    // skew — доля длины волны на пологом склоне; клампим в (0,1): при 0 или 1
+    // деление f/skew или (1−f)/(1−skew) дало бы NaN (валидатор skew не ограничен).
+    const rawSkew = typeof p.skew === 'number' ? p.skew : 0.85;
+    const skew = Math.max(0.01, Math.min(0.99, rawSkew));
+    const ph = x / lambda;
+    const i = Math.floor(ph);
+    const f = ph - i;
+    const localAmp = amp * (0.7 + 0.6 * hash1(i, s ^ 0x77aa));
+    return -localAmp * (f < skew ? f / skew : (1 - f) / (1 - skew));
+}
+
 export class SurfaceWorld {
     constructor(pkg) {
         this.seed = (pkg.seed | 0) >>> 0;
@@ -148,9 +215,12 @@ export class SurfaceWorld {
         this.region = 1400;
         this.formations = FORMATIONS[this.category] || FORMATIONS['литосфера'];
         // Рецепт вида (спека 2026-09-23 §2.6): применяется только когда сервер
-        // отдал резолвленный рецепт (view_source === 'catalog'). Иначе — фолбэк
-        // 1:1 на FORMATIONS/LIFE_DENSITY (старые пакеты/биомы без рецепта).
-        this.view = (pkg.biome_view && pkg.view_source === 'catalog') ? pkg.biome_view : null;
+        // отдал резолвленный рецепт (view_source === 'catalog') И версия схемы
+        // знакома клиенту (view_version === VIEW_SCHEMA_VERSION, §2.6 —
+        // «клиент умеет игнорировать незнакомую версию»). Иначе — фолбэк 1:1 на
+        // FORMATIONS/LIFE_DENSITY (старые пакеты/биомы без рецепта/новая схема).
+        this.view = (pkg.biome_view && pkg.view_source === 'catalog'
+            && pkg.view_version === VIEW_SCHEMA_VERSION) ? pkg.biome_view : null;
         this.hasView = !!this.view;
         this.palette = resolvePalette(this.view, this.color);
         this.placement = (this.view && this.view.placement) || null;
@@ -162,6 +232,10 @@ export class SurfaceWorld {
         this.lifeDensity = this.view
             ? (typeof this.view.life_density === 'number' ? this.view.life_density : 0)
             : (this.life ? (LIFE_DENSITY[this.category] || 0.08) : 0);
+        // Ярусный горизонт (§3.6): 2 пояса из рецепта; нет рецепта — ярусов нет
+        // (фолбэк 1:1). Потолок 2 (§6 п.8) — лишние пояса игнорируются.
+        const hz = this.view && this.view.horizon;
+        this.horizon = (hz && Array.isArray(hz.layers)) ? hz.layers.slice(0, HORIZON_MAX_LAYERS) : null;
     }
 
     _formationForRegion(idx) {

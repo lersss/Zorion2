@@ -40,10 +40,25 @@ type ActiveEffect struct {
 	// состояние (load ≥ порог) — производное, не хранится.
 	Curve  string `json:"curve,omitempty"`
 	Impact string `json:"impact,omitempty"`
+	// Name — имя типа эффекта (effect_types.name, спека 2026-09-23 §5.4):
+	// витрина, не колонка. json:"-" — админский JSON не меняется; игроку имя
+	// отдаётся отдельным player-safe DTO EffectView (см. ниже).
+	Name string `json:"-"`
 	// Threshold/Enabled — без omitempty: у снятого эффекта они равны 0/false,
 	// и omitempty скрывал бы само состояние (порог 0 и «снят») в ответе.
 	Threshold float64 `json:"threshold"`
 	Rate      float64 `json:"rate,omitempty"`
 	W         float64 `json:"w,omitempty"`
 	Enabled   bool    `json:"enabled"`
+}
+
+// EffectView — player-safe DTO действующего эффекта (спека
+// 2026-09-23-орбита-планеты-присутствие-и-снимок §5.4): только имя, вид
+// воздействия и состояние. Нагрузка/порог/кривая/владелец/сила R(load) игроку
+// не отдаются (§5.4, §15). Показывается только в режиме presence; при
+// snapshot/scan/none список эффектов пуст.
+type EffectView struct {
+	Name   string `json:"name"`
+	Impact string `json:"impact"`
+	State  string `json:"state"` // active / inactive (load ≥ порог)
 }

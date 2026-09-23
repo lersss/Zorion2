@@ -102,6 +102,14 @@ type Planet struct {
 	// клиент показывает «нет данных — купить отчёт».
 	Knowledge *PlanetKnowledgeView `json:"knowledge"`
 
+	// CanBuyReport — верхнеуровневый флаг канала покупки отчёта (спека
+	// 2026-09-23-орбита-планеты-присутствие-и-снимок §5.2/§5.3): true ⟺ игрок
+	// присутствует на ДРУГОЙ планете (присутствие на спутнике считается по
+	// родителю). Только role=player; admin/skycomposer — false. Поле — рядом с
+	// knowledge (не внутри): в режиме none knowledge == nil, а признак нужен
+	// всегда. По умолчанию false.
+	CanBuyReport bool `json:"can_buy_report"`
+
 	// Прочее
 	Description string    `json:"description,omitempty"`
 	SystemAge   float64   `json:"system_age,omitempty"`
@@ -207,7 +215,15 @@ type PlanetFormationEvent struct {
 // PlanetKnowledgeView — знание игрока о планете в ответе модалки (спека 77a
 // §6.2/§8.2): поверхность и наличие поселений с датой актуальности (И8).
 // Недра/атмосфера/детали поселений сканер не вскрывает — их нет в ответе.
+//
+// Режим показа (спека 2026-09-23-орбита-планеты-присутствие-и-снимок §5.1/§5.2):
+// presence — полные данные (живое присутствие); snapshot — замороженная картина
+// из data.snapshot; scan — скан-уровень. Mode/SnapshotAt/SnapshotFresh добавлены
+// Э3; существующие поля сохранены.
 type PlanetKnowledgeView struct {
+	Mode               string             `json:"mode"`         // presence / snapshot / scan (§5.1)
+	SnapshotAt         *time.Time         `json:"snapshot_at,omitempty"`  // дата последней фиксации присутствия
+	SnapshotFresh      bool               `json:"snapshot_fresh"`         // snapshot_at ≥ now − KnowledgeTTL
 	ScannedAt          time.Time          `json:"scanned_at"` // дата актуальности (момент скана)
 	Fresh              bool               `json:"fresh"`      // актуально (≤ 7 дней, §8.2)
 	SurfaceDominant    string             `json:"surface_dominant,omitempty"`

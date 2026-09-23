@@ -68,9 +68,11 @@ assert(all.includes('data-branch-create-form="s1"'), 'админ-форма со
 assert(all.includes('data-branch-input-form="b1"'), 'админ-форма входа');
 assert(br.branchesBlockHtml([], false, 's1') === '', 'player без веток — пусто');
 
-// Эффекты поселения (спека 2026-09-22-эффекты-снабжения §6/T14): витрина
-// только админу — тип/источник (позиция), нагрузка, порог, состояние, сила/w
-// + админ-форма ручной нагрузки.
+// Эффекты поселения (спека 2026-09-22-эффекты-снабжения §6/T14 + спека
+// 2026-09-23-орбита-планеты-присутствие-и-снимок §5.4/§6.2 п.2): витрина
+// админу — тип/источник (позиция), нагрузка, порог, состояние, сила/w
+// + админ-форма ручной нагрузки; игроку — player-safe DTO {name, impact, state}
+// без нагрузки/порога/силы/админ-форм.
 const effects = [
     { effect_type_id: 1, source_position: 'продовольствие', load: 30, threshold: 24, rate: 1e-7, w: 0.8, enabled: true, curve: 'hunger' }
 ];
@@ -83,12 +85,27 @@ assert(effAdmin.includes('включён'), 'эффекты: состояние 
 assert(effAdmin.includes('сила') && effAdmin.includes('w'), 'эффекты: сила и w');
 assert(effAdmin.includes('data-effect-load-form="s1"'), 'эффекты: админ-форма нагрузки');
 assert(effAdmin.includes('data-effect-load-set'), 'эффекты: кнопка «задать нагрузку»');
-assert(br.effectsBlockHtml(effects, false, 's1') === '', 'player не видит эффекты');
 assert(br.effectsBlockHtml([], true, 's1').includes('Эффектов нет'), 'эффекты: пусто у админа');
 
 // Снятый эффект: состояние «снят».
 const off = br.effectsBlockHtml([{ effect_type_id: 2, load: 1, threshold: 24, enabled: false }], true, 's1');
 assert(off.includes('снят'), 'эффекты: состояние снят');
+
+// Player-ветка (спека 2026-09-23 §5.4): только name/impact/state; силы,
+// нагрузки, порога, источника и админ-форм нет; пусто — блока нет.
+const playerEffects = [
+    { name: 'Голод', impact: 'population_rate', state: 'active' }
+];
+const effPlayer = br.effectsBlockHtml(playerEffects, false, 's1');
+assert(effPlayer.includes('Голод'), 'player: имя эффекта');
+assert(effPlayer.includes('влияет на население'), 'player: подпись impact');
+assert(effPlayer.includes('действует'), 'player: state=active → «действует»');
+assert(!/нагрузк|порог|сила|силу/i.test(effPlayer), 'player: нет нагрузки/порога/силы');
+assert(!effPlayer.includes('продовольствие'), 'player: нет источника');
+assert(!effPlayer.includes('data-effect-load-form'), 'player: нет админ-формы');
+assert(br.effectsBlockHtml([{ name: 'Голод', impact: 'population_rate', state: 'inactive' }], false, 's1').includes('не действует'), 'player: state=inactive → «не действует»');
+assert(br.effectsBlockHtml([], false, 's1') === '', 'player: пустой список — блока нет');
+assert(br.effectsBlockHtml([{ name: 'Прочее', impact: 'unknown_key', state: 'active' }], false, 's1').includes('unknown_key'), 'player: неизвестный impact показан как есть');
 
 console.log('BRANCHES_OK');
 `

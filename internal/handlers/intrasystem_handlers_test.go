@@ -208,6 +208,11 @@ func TestStartIntraFlightFromPlanetOrbit(t *testing.T) {
 	expectIntraPlanets(mock, "w1",
 		planetRow("p1", "w1", "Планета1", 0, 1.0),
 		planetRow("p2", "w1", "Планета2", 1, 2.0))
+	// Отлёт D1 (спека 2026-09-23 §3.2): снимок планеты ДО StartAtomic.
+	expectPlanetByID(mock, "p1", "w1")
+	mock.ExpectExec(`INSERT INTO player_planet_knowledge.*ON CONFLICT.*DO UPDATE`).
+		WithArgs(userID, "p1", sqlmock.AnyArg(), "presence").
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	expectIntraStartAtomic(mock, userID, "planet", "p1")
 
 	rec := execJSON(h.StartIntraFlight, intraRequest(userID, "planet", "p2"))
@@ -352,6 +357,11 @@ func TestStartIntraFlightFromSurface(t *testing.T) {
 	expectIntraPlanets(mock, "w1",
 		planetRow("p1", "w1", "Планета1", 0, 1.0),
 		planetRow("p2", "w1", "Планета2", 1, 2.0))
+	// Отлёт D1 с поверхности (спека 2026-09-23 §3.2): снимок планеты.
+	expectPlanetByID(mock, "p1", "w1")
+	mock.ExpectExec(`INSERT INTO player_planet_knowledge.*ON CONFLICT.*DO UPDATE`).
+		WithArgs(userID, "p1", sqlmock.AnyArg(), "presence").
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	expectIntraStartAtomic(mock, userID, "planet", "p1")
 
 	rec := execJSON(h.StartIntraFlight, intraRequest(userID, "planet", "p2"))
@@ -414,7 +424,8 @@ func TestStartIntraFlightInvalidCompanionID(t *testing.T) {
 // ==================== ПРИБЫТИЕ: АВТО-ЗНАНИЕ (С6, спека §3.6) ====================
 
 // Прибытие на орбиту планеты: позиция orbit (атомарно с удалением строки) +
-// авто-знание (UPSERT player_planet_knowledge, source=presence).
+// снимок присутствия (FixatePresence, спека 2026-09-23 §3.2): запись
+// player_planet_knowledge с source=presence и data.snapshot.
 func TestIntraArrivalWritesKnowledge(t *testing.T) {
 	h, intraMgr, mock := newIntraHarness(t)
 	const userID = "11111111-1111-1111-1111-111111111111"
@@ -424,11 +435,8 @@ func TestIntraArrivalWritesKnowledge(t *testing.T) {
 	// (горутина onArrival стартует раньше, чем sqlmock-ожидания готовы),
 	// флейк ~1 раз на 7–20 прогонов.
 
-	// 1. Валидация цели прибытия: планета существует в системе.
-	mock.ExpectQuery(`SELECT id, world_id, name, orbit_index, data, created_at, updated_at FROM planets WHERE id = \$1`).
-		WithArgs("p1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "world_id", "name", "orbit_index", "data", "created_at", "updated_at"}).
-			AddRow("p1", "w1", "Планета1", 0, `{"type":"землеподобная"}`, now(), now()))
+	// 1. Валидация цели прибытия: планета существует в системе (GetPlanetByID).
+	expectPlanetByID(mock, "p1", "w1")
 
 	// 2. Атомарно: позиция orbit + удаление строки.
 	mock.ExpectBegin()
@@ -440,11 +448,8 @@ func TestIntraArrivalWritesKnowledge(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	// 3. Авто-знание (С6): данные как у сканера, source=presence.
-	mock.ExpectQuery(`SELECT COALESCE\(p.data->>'surface_dominant', ''\), COALESCE\(p.data->'surface_composition', '\{\}'::jsonb\), \(SELECT COUNT\(\*\) FROM settlements s WHERE s.planet_id = p.id\) FROM planets p WHERE p.id = \$1`).
-		WithArgs("p1").
-		WillReturnRows(sqlmock.NewRows([]string{"surface_dominant", "surface_composition", "settlements_count"}).
-			AddRow("вода", `{"вода":100}`, 0))
+	// 3. Снимок присутствия: FixatePresence (GetPlanetByID + merge-UPSERT).
+	expectPlanetByID(mock, "p1", "w1")
 	mock.ExpectExec(`INSERT INTO player_planet_knowledge.*ON CONFLICT.*DO UPDATE`).
 		WithArgs(userID, "p1", sqlmock.AnyArg(), "presence").
 		WillReturnResult(sqlmock.NewResult(0, 1))

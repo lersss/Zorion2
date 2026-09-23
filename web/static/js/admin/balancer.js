@@ -10,6 +10,7 @@
 import { fetchWithAuth } from './auth.js';
 import { notifyError, notifySuccess } from '../ui/toast.js';
 import { render, hitTest, dataToScreen, screenToData, evaluateCurveClient, fmtR } from './balancerCanvas.js';
+import { gameDateUtc } from '../game_date.js';
 
 // Диапазоны X компонент (для начального обзора и клампа X при drag).
 // Единицы: жара и холод — °C (решение создателя 2026-09-15), гравитация — g,
@@ -441,7 +442,7 @@ function renderPresetSelect() {
     for (const p of state.presets) {
         const opt = document.createElement('option');
         opt.value = p.name;
-        const date = p.updated_at ? new Date(p.updated_at).toISOString().slice(0, 16) + ' UTC' : '';
+        const date = p.updated_at ? gameDateUtc(p.updated_at) : '';
         opt.title = `обновлён: ${date}`;
         opt.textContent = p.name === state.presetActive ? `${p.name} (активный)` : p.name;
         sel.appendChild(opt);

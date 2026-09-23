@@ -38,8 +38,9 @@ const (
 		WHERE id = $4`
 
 	// effectTypeCatalogSQL — каталог типов эффектов (резолв ссылки params.effects).
+	// name — для player-safe DTO эффекта (спека 2026-09-23 §5.4).
 	effectTypeCatalogSQL = `
-		SELECT id, name_norm, impact, COALESCE(params->>'curve', '') FROM effect_types`
+		SELECT id, name, name_norm, impact, COALESCE(params->>'curve', '') FROM effect_types`
 
 	// activeEffectsSelectSQL — хранимый базис нагрузки владельцев.
 	activeEffectsSelectSQL = `
@@ -108,6 +109,7 @@ type OwnerResult struct {
 // effectTypeMeta — запись каталога типов эффектов (резолв по name_norm).
 type effectTypeMeta struct {
 	ID     int64
+	Name   string
 	Impact string
 	Curve  string
 }
@@ -361,7 +363,7 @@ func runOwnerPass(o OwnerSettlement, branches []*branchRecord, stored []storedEf
 		RPerSec:         rPerSec,
 		NDead:           settlement.NDead,
 		Branches:        branchModels,
-		Effects:         buildEffectModels(o, needs, now),
+		Effects:         buildEffectModels(o, needs, catalog, now),
 	}
 	return ownerRun{
 		result:     res,
@@ -471,8 +473,14 @@ func lastRate(needs settlement.NeedsResult) float64 {
 }
 
 // buildEffectModels — витрина эффектов владельца (§6): нагрузка, порог,
-// состояние (load ≥ порог), текущая сила, сила условия `w`.
-func buildEffectModels(o OwnerSettlement, needs settlement.NeedsResult, now time.Time) []models.ActiveEffect {
+// состояние (load ≥ порог), текущая сила, сила условия `w`. Имя типа эффекта
+// (catalog.name) кладётся в витрину для player-safe DTO (спека 2026-09-23 §5.4);
+// в админском JSON имя не сериализуется (ActiveEffect.Name json:"-").
+func buildEffectModels(o OwnerSettlement, needs settlement.NeedsResult, catalog map[string]effectTypeMeta, now time.Time) []models.ActiveEffect {
+	nameByID := make(map[int64]string, len(catalog))
+	for _, m := range catalog {
+		nameByID[m.ID] = m.Name
+	}
 	out := make([]models.ActiveEffect, 0, len(needs.Effects))
 	for _, run := range needs.Effects {
 		pos := ""
@@ -481,6 +489,7 @@ func buildEffectModels(o OwnerSettlement, needs settlement.NeedsResult, now time
 		}
 		e := models.ActiveEffect{
 			EffectTypeID: run.EffectTypeID,
+			Name:         nameByID[run.EffectTypeID],
 			OwnerType:    "settlement",
 			OwnerID:      o.ID,
 			Load:         run.Load,
@@ -572,7 +581,7 @@ func (r *BranchRepository) loadEffectTypeCatalog(ctx context.Context) (map[strin
 	for rows.Next() {
 		var nameNorm string
 		var m effectTypeMeta
-		if err := rows.Scan(&m.ID, &nameNorm, &m.Impact, &m.Curve); err != nil {
+		if err := rows.Scan(&m.ID, &m.Name, &nameNorm, &m.Impact, &m.Curve); err != nil {
 			return nil, err
 		}
 		out[nameNorm] = m

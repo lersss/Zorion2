@@ -6,6 +6,7 @@ import { groupDeposits } from './deposits.js';
 import { branchesBlockHtml, effectsBlockHtml } from './branches.js';
 import { boardHtml, canPublishHere, publishFormHtml, escapeHtml } from './contracts.js';
 import { notifyError, notifySuccess } from '../ui/toast.js';
+import { gameDate } from '../game_date.js';
 
 // ---------- ИСТОРИЯ ФОРМИРОВАНИЯ (Ф4, спека 2026-09-22-облако-этап-2 §6.3) ----------
 
@@ -576,7 +577,8 @@ const EXTINCT_CAUSE_TEXT = {
     'gravity_high': 'Высокая гравитация',
     'gravity_low': 'Низкая гравитация',
     'radiation': 'Радиоактивный фон',
-    'natural': 'Естественная убыль'
+    'natural': 'Естественная убыль',
+    'hunger': 'Голод'
 };
 
 // settlementLogRows — строки лога поселения «Вымерло · дата · причина»,
@@ -591,54 +593,150 @@ function settlementLogRows(s) {
         .slice(0, 3);
     let html = `<div style="color:#888; font-size:0.9rem; text-transform:uppercase; margin-top:8px;">Лог</div>`;
     rows.forEach(e => {
-        const when = e.occurred_at ? new Date(e.occurred_at).toLocaleString('ru-RU') : '—';
+        const when = gameDate(e.occurred_at);
         const cause = EXTINCT_CAUSE_TEXT[e.cause] || e.cause || '';
         html += `<div style="color:#ccc; margin-top:4px;">💀 Вымерло · ${when} · ${cause}</div>`;
     });
     return html;
 }
 
-function renderSettlements(planet) {
-    // Для player без знания сканера сервер скрывает поселения (спека 77a
-    // §6.2): «нет данных — купить отчёт» вместо «нет поселений» (последнее —
-    // само по себе знание). У admin/skycomposer settlements на месте (И7).
-    if (!planet.knowledge && !planet.settlements) {
-        return `<p style="color: #666; text-align: center; padding: 20px 0;">Нет данных — купить отчёт</p>`;
-    }
-    // Player со знанием сканера: детали поселений скрыты (население/раса —
-    // платные отчёты), видно только наличие + число (спека 77a §6.2).
-    if (planet.knowledge && !planet.settlements) {
-        const n = planet.knowledge.settlements_count || 0;
-        if (n <= 0) {
-            return `<p style="color: #666; text-align: center; padding: 20px 0;">🏙️ На планете нет поселений</p>`;
-        }
-        return `<p style="color:#888; font-size:0.9rem; text-transform:uppercase;">Поселения (${n})</p>
-            <p style="color:#94a3b8; font-size:0.85rem; padding: 8px 0;">Детали поселений — купить отчёт</p>`;
-    }
+// ---------- РЕЖИМ ЗНАНИЯ (спека 2026-09-23-орбита-планеты-присутствие-и-снимок §5.1/§6.1) ----------
 
-    const list = planet.settlements;
-    if (!list || list.length === 0) {
-        return `<p style="color: #666; text-align: center; padding: 20px 0;">🏙️ На планете нет поселений</p>`;
-    }
+// knowledgeMode — режим показа планеты: presence (живое присутствие) /
+// snapshot (память — замороженная картина) / scan (скан-уровень) / none
+// (знания нет). Режим приходит с сервера (planet.knowledge.mode, §5.1);
+// admin/skycomposer видят всё и плашек не получают — 'admin'.
+export function knowledgeMode(planet) {
+    if (isAdmin()) return 'admin';
+    const mode = planet && planet.knowledge ? planet.knowledge.mode : null;
+    if (mode === 'presence' || mode === 'snapshot' || mode === 'scan') return mode;
+    // Знание есть, режим не пришёл (старый ответ) — скан-уровень, как раньше.
+    return planet && planet.knowledge ? 'scan' : 'none';
+}
 
-    let html = `<p style="color:#888; font-size:0.9rem; text-transform:uppercase;">Поселения (${list.length})</p>`;
-    list.forEach((s, i) => {
-        html += `
+// knowledgeStripHtml — плашка знания (§6.1): зелёный ● — только живое (без
+// даты), серый 📷 — только память (всегда с датой), янтарный — устаревшее
+// (память/скан старше 7 дней, « · устарело»), пунктирная серая — только
+// «данных нет». У админа плашек нет.
+export function knowledgeStripHtml(planet, mode) {
+    const m = mode || knowledgeMode(planet);
+    if (isAdmin()) return '';
+    const k = (planet && planet.knowledge) || {};
+    if (m === 'presence') {
+        return `<div style="margin:6px 0; padding:6px 10px; border-radius:8px; background:rgba(74,222,128,0.12); border:1px solid rgba(74,222,128,0.4); color:#4ade80; font-size:0.85rem;">● Свежие данные</div>`;
+    }
+    if (m === 'snapshot') {
+        return knowledgeBadgeHtml('📷 Данные на ' + gameDate(k.snapshot_at), k.snapshot_fresh === false);
+    }
+    if (m === 'scan') {
+        return knowledgeBadgeHtml('🔍 Данные сканера на ' + gameDate(k.scanned_at), k.fresh === false);
+    }
+    // none — пунктирная серая плашка единственная «данных нет» (§6.1).
+    return `<p style="margin:8px 0; padding:8px 10px; background:rgba(148,163,184,0.08); border:1px dashed rgba(148,163,184,0.3); border-radius:8px; color:#94a3b8; font-size:0.85rem;">Нет данных — купить отчёт</p>`;
+}
+
+// knowledgeBadgeHtml — плашка памяти/скана (§6.1): серая; устаревшая — янтарная
+// с « · устарело».
+function knowledgeBadgeHtml(text, stale) {
+    const suffix = stale ? ' · устарело' : '';
+    const bg = stale ? 'rgba(251,191,36,0.12)' : 'rgba(148,163,184,0.10)';
+    const border = stale ? 'rgba(251,191,36,0.4)' : 'rgba(148,163,184,0.35)';
+    const color = stale ? '#fbbf24' : '#94a3b8';
+    return `<div style="margin:6px 0; padding:6px 10px; border-radius:8px; background:${bg}; border:1px solid ${border}; color:${color}; font-size:0.85rem;">${text}${suffix}</div>`;
+}
+
+// buyReportControlHtml — управление «купить отчёт» (§5.3): элемент появляется
+// ТОЛЬКО при can_buy_report (§5.2) и только во вкладке «Поселения». Это серая
+// заглушка: рынка отчётов нет, по нажатию ничего не отправляется (initBuyReport
+// показывает честную подпись). Без флага элемента нет — остаётся прежний текст.
+export function buyReportControlHtml(planet) {
+    if (!planet || planet.can_buy_report !== true) return '';
+    return `<button data-buy-report style="margin:10px 0 0 0; background:#2a2a4a; border:1px solid #334155; color:#64748b; padding:6px 14px; border-radius:4px; cursor:not-allowed; font-size:0.95rem;">Купить отчёт</button>
+        <div data-buy-report-status style="margin-top:6px; color:#94a3b8; font-size:0.85rem;"></div>`;
+}
+
+// initBuyReport — обработчик заглушки (§5.3): ничего не отправляем, только
+// честная подпись «Покупка пока недоступна».
+export function initBuyReport(planet, container) {
+    const btn = container.querySelector('[data-buy-report]');
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+        const status = container.querySelector('[data-buy-report-status]');
+        if (status) status.textContent = 'Покупка пока недоступна';
+    });
+}
+
+// settlementCardHtml — карточка поселения (§6.2 п.1). presence — полная (раса/
+// население/стабильность/ветки/эффекты/лог) без админ-форм и входа веток;
+// snapshot — та же карточка без эффектов, лога и стрелки тренда (память без
+// тренда); admin — как раньше (эффекты админа, тренд, лог).
+function settlementCardHtml(s, i, mode) {
+    const admin = isAdmin();
+    const snapshotMode = mode === 'snapshot';
+    const showEffects = admin || mode === 'presence';
+    return `
             <div style="margin: 6px 0; padding: 10px; background:#1a1a2e; border-radius:4px;">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <strong>Поселение ${i + 1}</strong>
                 </div>
                 <div style="color:#ccc; margin-top:6px;">
                     <div>Раса: <strong>${s.race_name || 'Люди'}</strong></div>
-                    <div>Население: <strong id="pop-${s.id}">${formatNumber(populationAt(s, Date.now()))}</strong>${settlementTrendArrow(s)}</div>
+                    <div>Население: <strong id="pop-${s.id}">${formatNumber(populationAt(s, Date.now()))}</strong>${snapshotMode ? '' : settlementTrendArrow(s)}</div>
                     <div>Стабильность: <strong>${populationAt(s, Date.now()) === 0 ? '—' : (s.stability != null ? s.stability + '%' : '—')}</strong></div>
                 </div>
-                ${settlementLogRows(s)}
-                ${branchesBlockHtml(s.branches, isAdmin(), s.id)}
-                ${effectsBlockHtml(s.effects, isAdmin(), s.id)}
+                ${snapshotMode ? '' : settlementLogRows(s)}
+                ${branchesBlockHtml(s.branches, admin, s.id)}
+                ${showEffects ? effectsBlockHtml(s.effects, admin, s.id) : ''}
             </div>`;
-    });
-    return html;
+}
+
+// renderSettlements — вкладка «Поселения» (§6.2 п.1): режим с сервера задаёт
+// содержимое. presence — полная карточка + `● Свежие данные` (без даты);
+// snapshot — карточка + `📷 Данные на <дата>` (без эффектов/лога/тренда);
+// scan — как раньше + `🔍 Данные сканера на <дата>`; none — «нет данных».
+// Управление покупки — только здесь и только по can_buy_report (§5.3).
+export function renderSettlements(planet) {
+    const mode = knowledgeMode(planet);
+
+    // admin/skycomposer — как раньше: полная карточка без плашек (И7).
+    if (mode === 'admin') {
+        if (!planet.settlements) {
+            return `<p style="color: #666; text-align: center; padding: 20px 0;">Нет данных — купить отчёт</p>`;
+        }
+        const adminList = planet.settlements;
+        let adminHtml = `<p style="color:#888; font-size:0.9rem; text-transform:uppercase;">Поселения (${adminList.length})</p>`;
+        adminList.forEach((s, i) => { adminHtml += settlementCardHtml(s, i, 'admin'); });
+        return adminHtml;
+    }
+
+    // none — знания нет: «нет данных — купить отчёт» (как сейчас).
+    if (mode === 'none') {
+        return knowledgeStripHtml(planet, mode) + buyReportControlHtml(planet);
+    }
+
+    // scan — уровень сканера: поверхность + число поселений, детали платные.
+    if (mode === 'scan') {
+        const n = (planet.knowledge && planet.knowledge.settlements_count) || 0;
+        let html = knowledgeStripHtml(planet, mode);
+        if (n <= 0) {
+            html += `<p style="color: #666; text-align: center; padding: 20px 0;">🏙️ На планете нет поселений</p>`;
+        } else {
+            html += `<p style="color:#888; font-size:0.9rem; text-transform:uppercase;">Поселения (${n})</p>
+                <p style="color:#94a3b8; font-size:0.85rem; padding: 8px 0;">Детали поселений — купить отчёт</p>`;
+        }
+        return html + buyReportControlHtml(planet);
+    }
+
+    // presence / snapshot — карточка поселений.
+    const list = planet.settlements;
+    const plashka = knowledgeStripHtml(planet, mode);
+    const buy = buyReportControlHtml(planet);
+    if (!list || list.length === 0) {
+        return plashka + `<p style="color: #666; text-align: center; padding: 20px 0;">🏙️ На планете нет поселений</p>` + buy;
+    }
+    let html = plashka + `<p style="color:#888; font-size:0.9rem; text-transform:uppercase;">Поселения (${list.length})</p>`;
+    list.forEach((s, i) => { html += settlementCardHtml(s, i, mode); });
+    return html + buy;
 }
 
 // ---------- ВЕТКИ ПОСЕЛЕНИЯ (спека 2026-09-22-поселение-ветка-буферы-переработка §6) ----------
@@ -792,7 +890,7 @@ function factionCapitalHtml(faction, planet) {
 // renderFactions — вкладка «Фракции» карточки планеты: фракции, для которых
 // планета родная (factions.homeworld_id), и строка столицы у владельца-фракции.
 // Сила (strength) не показывается — генератор пишет заглушку 1 (§4.2).
-function renderFactions(planet) {
+export function renderFactions(planet) {
     // Player без знания о планете сервер фракции/строения не отдаёт (§5):
     // пустое состояние как у поселений — «нет данных — купить отчёт»
     // (у admin/skycomposer знание не требуется, И7).
@@ -802,9 +900,9 @@ function renderFactions(planet) {
 
     const factions = planet.factions || [];
     if (factions.length === 0) {
-        // Снимок знания фракций не содержит и может быть устаревшим (§4.4):
-        // отсутствие фракций в отчёте — не факт «фракций нет».
-        return `<p style="color: #666; text-align: center; padding: 20px 0;">В отчёте сканера фракции не значились</p>`;
+        // Нейтральное пустое состояние (§6.2 п.7, Д9): снимок хранит фракции
+        // (§9.11), поэтому «в отчёте не значились» больше не утверждаем.
+        return `<p style="color: #666; text-align: center; padding: 20px 0;">Фракции не отмечены</p>`;
     }
 
     const buildings = planet.buildings || [];
@@ -1163,6 +1261,7 @@ export function renderTabContent(tab, planet, container) {
             container.innerHTML = renderSettlements(planet);
             initBranchesAdmin(planet, container);
             initEffectsAdmin(planet, container);
+            initBuyReport(planet, container);
             break;
         case 'factions':
             container.innerHTML = renderFactions(planet);

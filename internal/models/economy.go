@@ -1,6 +1,9 @@
 package models
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 type Settlement struct {
 	ID              string                `json:"id"`
@@ -34,9 +37,13 @@ type Settlement struct {
 	// (producer_types.params.effects, §4.2): множество позиций объекта. В JSON
 	// не выводится (привязки — в студии).
 	EffectsByPosition map[string]string `json:"-"`
-	// Effects — действующие эффекты поселения (нагрузка/порог/состояние/сила),
-	// витрина админа (§6); заполняется owner-проходом.
-	Effects []ActiveEffect `json:"effects,omitempty"`
+	// Effects — витрина действующих эффектов поселения, ключ `effects`.
+	// interface{} — один JSON-ключ на две роли (спека 2026-09-23-орбита-планеты-
+	// присутствие-и-снимок §5.4): админ получает []ActiveEffect (нагрузка/порог/
+	// сила/владелец — как раньше), игрок в режиме presence — []EffectView
+	// (только name/impact/state, без внутренних полей). Смена контейнера не
+	// меняет ни load/load_at/кривые, ни админский JSON.
+	Effects interface{} `json:"effects,omitempty"`
 	// Branches — ветки поселения (спека 2026-09-22-поселение-ветка-буферы-
 	// переработка §6): связь поселение ↔ рецепт каталога с входным/выходным
 	// буфером и своей чек-точкой. Подтягиваются в attachSettlements после
@@ -92,4 +99,55 @@ type SettlementLogEntry struct {
 	OccurredAt   time.Time  `json:"occurred_at"`
 	Cause        *string    `json:"cause,omitempty"`
 	CreatedAt    time.Time  `json:"created_at"`
+}
+
+// MarshalJSON — пустые служебные чек-точки не сериализуются (спека
+// 2026-09-23-орбита-планеты-присутствие-и-снимок §3.1/§15): у player-витрины
+// присутствия (playerSettlements) обнулены population_exact/computed_at/
+// R-компоненты, у снимковых поселений чек-точки не заполнены вовсе — иначе
+// клиент достроит население по формуле (extrapolate.js) и «замороженное» число
+// поплывёт. created_at/updated_at витрина не обнуляет (спекой §15 они не
+// запрещены) — omitempty лишь скрывает незаполненные значения; у админских
+// поселений они заполнены, вывод не меняется.
+func (s Settlement) MarshalJSON() ([]byte, error) {
+	type alias Settlement
+	out := struct {
+		alias
+		PopulationExact *float64   `json:"population_exact,omitempty"`
+		ComputedAt      *time.Time `json:"computed_at,omitempty"`
+		CreatedAt       *time.Time `json:"created_at,omitempty"`
+		UpdatedAt       *time.Time `json:"updated_at,omitempty"`
+	}{alias: alias(s)}
+	if s.PopulationExact != 0 {
+		v := s.PopulationExact
+		out.PopulationExact = &v
+	}
+	if !s.ComputedAt.IsZero() {
+		v := s.ComputedAt
+		out.ComputedAt = &v
+	}
+	if !s.CreatedAt.IsZero() {
+		v := s.CreatedAt
+		out.CreatedAt = &v
+	}
+	if !s.UpdatedAt.IsZero() {
+		v := s.UpdatedAt
+		out.UpdatedAt = &v
+	}
+	return json.Marshal(out)
+}
+
+// MarshalJSON — пустой processed_at ветки не сериализуется (та же витрина
+// снимка, §3.1): у админских/живых веток чек-точка заполнена, у снимка — нет.
+func (b SettlementBranch) MarshalJSON() ([]byte, error) {
+	type alias SettlementBranch
+	out := struct {
+		alias
+		ProcessedAt *time.Time `json:"processed_at,omitempty"`
+	}{alias: alias(b)}
+	if !b.ProcessedAt.IsZero() {
+		v := b.ProcessedAt
+		out.ProcessedAt = &v
+	}
+	return json.Marshal(out)
 }

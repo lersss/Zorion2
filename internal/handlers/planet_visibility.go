@@ -4,50 +4,186 @@
 // И8); недра/атмосфера/детали поселений — всегда скрыты (сканер их не
 // вскрывает, §6.2). Без знания — Knowledge=nil, клиент показывает
 // «нет данных — купить отчёт». admin/skycomposer — без фильтра (И7).
+//
+// Режимы показа (спека 2026-09-23-орбита-планеты-присутствие-и-снимок §5.1):
+// presence (игрок на орбите/поверхности планеты или её спутника) → полные
+// данные поверхности и поселений; snapshot (есть data.snapshot) → замороженная
+// картина из снимка; scan (знание без снимка) → скан-уровень; none (знания нет)
+// → заглушка. Приоритет: presence → snapshot → scan → none.
 package handlers
 
 import (
+	"encoding/json"
 	"time"
 
 	"zorion/internal/models"
 	"zorion/internal/repository"
 )
 
-// applyPlanetVisibility — применяет знание к планетам системы для player.
-func applyPlanetVisibility(userID string, planets []models.Planet, knowledge *repository.KnowledgeRepository) []models.Planet {
+// Режимы знания планеты (спека 2026-09-23 §5.1).
+const (
+	knowledgeModePresence = "presence"
+	knowledgeModeSnapshot = "snapshot"
+	knowledgeModeScan     = "scan"
+)
+
+// applyPlanetVisibility — применяет знание к планетам системы для player и
+// выставляет режим показа каждой планеты (§5.1). presenceID — планета
+// присутствия игрока (§2.1, спутник — по родителю; "" — присутствия нет):
+// у неё полные данные, у остальных — snapshot/scan/none. can_buy_report
+// (§5.2) — истина только при присутствии на ДРУГОЙ планете.
+func applyPlanetVisibility(userID string, planets []models.Planet, knowledge *repository.KnowledgeRepository, presenceID string) []models.Planet {
+	now := time.Now()
 	out := make([]models.Planet, 0, len(planets))
 	for _, p := range planets {
 		k, err := knowledge.GetKnowledge(userID, p.ID)
-		if err != nil || k == nil {
+		if err != nil {
+			k = nil
+		}
+		view := buildKnowledgeView(k, now)
+		p.CanBuyReport = presenceID != "" && p.ID != presenceID
+
+		switch {
+		case presenceID != "" && p.ID == presenceID:
+			// Присутствие — живой канал (§5.1): знание не обязательно, режим
+			// не зависит от записи в player_planet_knowledge.
+			if view == nil {
+				view = &models.PlanetKnowledgeView{}
+			}
+			view.Mode = knowledgeModePresence
+			out = append(out, stripPlanetDetails(p, view))
+		case view == nil:
+			// Знания нет — заглушка «нет данных» (knowledge == nil).
 			out = append(out, stripPlanetDetails(p, nil))
-			continue
+		default:
+			if snap, ok := parseSnapshot(k); ok {
+				// Снимок приоритетнее скана (§5.1, решение О1): свежий скан не
+				// перебивает «как было на момент отлёта».
+				view.Mode = knowledgeModeSnapshot
+				view.SnapshotAt = &snap.at
+				view.SnapshotFresh = now.Sub(snap.at) <= models.KnowledgeTTL
+				p = applySnapshotToPlanet(p, snap)
+			} else {
+				view.Mode = knowledgeModeScan
+			}
+			out = append(out, stripPlanetDetails(p, view))
 		}
-		view := &models.PlanetKnowledgeView{
-			ScannedAt: k.ScannedAt,
-			Fresh:     k.IsFresh(time.Now()),
-		}
-		if sd, ok := k.Data["surface_dominant"].(string); ok {
-			view.SurfaceDominant = sd
-		}
-		if sc, ok := k.Data["surface_composition"].(map[string]interface{}); ok {
-			view.SurfaceComposition = toFloatMap(sc)
-		}
-		if n, ok := k.Data["settlements_count"].(float64); ok {
-			view.SettlementsCount = int(n)
-		}
-		out = append(out, stripPlanetDetails(p, view))
 	}
 	return out
 }
 
-// stripPlanetDetails — убирает детали планеты из ответа для player:
-// поверхность/недра/атмосфера/ядро/поселения/описание. Базовые поля объекта
-// (имя, тип, орбита, физика) остаются (спека 77a §5.2). Знание (если есть) —
-// в p.Knowledge.
+// buildKnowledgeView — поля знания игрока о планете (спека 77a §8.2 + дельта
+// 2026-09-23 §5.2): существующие поля (surface_*/settlements_count/scanned_at/
+// fresh) + дата снимка (snapshot_at/snapshot_fresh). nil, если знания нет.
+func buildKnowledgeView(k *models.PlanetKnowledge, now time.Time) *models.PlanetKnowledgeView {
+	if k == nil {
+		return nil
+	}
+	view := &models.PlanetKnowledgeView{
+		ScannedAt: k.ScannedAt,
+		Fresh:     k.IsFresh(now),
+	}
+	if sd, ok := k.Data["surface_dominant"].(string); ok {
+		view.SurfaceDominant = sd
+	}
+	if sc, ok := k.Data["surface_composition"].(map[string]interface{}); ok {
+		view.SurfaceComposition = toFloatMap(sc)
+	}
+	if n, ok := k.Data["settlements_count"].(float64); ok {
+		view.SettlementsCount = int(n)
+	}
+	if snap, ok := parseSnapshot(k); ok {
+		at := snap.at
+		view.SnapshotAt = &at
+		view.SnapshotFresh = now.Sub(at) <= models.KnowledgeTTL
+	}
+	return view
+}
+
+// parsedSnapshot — внутренний разбор data.snapshot (§3.1) для раскладки в уже
+// существующие поля ответа (§5.2). Отдельного DTO ответа нет.
+type parsedSnapshot struct {
+	at                 time.Time
+	SurfaceDominant    string
+	SurfaceComposition map[string]float64
+	Settlements        []models.Settlement
+	Factions           []models.PlanetFaction
+	Buildings          []models.PlanetBuilding
+}
+
+// parseSnapshot — читает data.snapshot из записи знания. ok=false, если снимка
+// нет или он нечитаем (тогда планета — скан-уровня). Момент снимка — в at.
+func parseSnapshot(k *models.PlanetKnowledge) (parsedSnapshot, bool) {
+	if k == nil {
+		return parsedSnapshot{}, false
+	}
+	raw, ok := k.Data["snapshot"]
+	if !ok || raw == nil {
+		return parsedSnapshot{}, false
+	}
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return parsedSnapshot{}, false
+	}
+	var s struct {
+		At                 string                  `json:"at"`
+		SurfaceDominant    string                  `json:"surface_dominant"`
+		SurfaceComposition map[string]float64      `json:"surface_composition"`
+		Settlements        []models.Settlement     `json:"settlements"`
+		Factions           []models.PlanetFaction  `json:"factions"`
+		Buildings          []models.PlanetBuilding `json:"buildings"`
+	}
+	if err := json.Unmarshal(b, &s); err != nil {
+		return parsedSnapshot{}, false
+	}
+	at, err := time.Parse(time.RFC3339, s.At)
+	if err != nil {
+		return parsedSnapshot{}, false
+	}
+	return parsedSnapshot{
+		at:                 at,
+		SurfaceDominant:    s.SurfaceDominant,
+		SurfaceComposition: s.SurfaceComposition,
+		Settlements:        s.Settlements,
+		Factions:           s.Factions,
+		Buildings:          s.Buildings,
+	}, true
+}
+
+// applySnapshotToPlanet — раскладывает содержимое снимка в существующие поля
+// планеты (§5.2): поверхность, поселения (models.Settlement — без эффектов и
+// лога), фракции, строения; население — сумма поселений снимка.
+func applySnapshotToPlanet(p models.Planet, snap parsedSnapshot) models.Planet {
+	p.SurfaceDominant = snap.SurfaceDominant
+	p.SurfaceComposition = snap.SurfaceComposition
+	p.Settlements = snap.Settlements
+	p.Factions = snap.Factions
+	p.Buildings = snap.Buildings
+	var pop int64
+	for i := range snap.Settlements {
+		pop += int64(snap.Settlements[i].Population)
+	}
+	p.Population = pop
+	return p
+}
+
+// stripPlanetDetails — убирает детали планеты из ответа для player в
+// соответствии с режимом знания (§5.1). Базовые поля объекта (имя, тип, орбита,
+// физика) остаются (спека 77a §5.2). Знание (если есть) — в p.Knowledge.
+//
+//   - presence: поверхность + поселения (раса/население/стабильность/ветки/
+//     лог, эффекты — player-safe DTO), фракции, строения, активные залежи;
+//   - snapshot: замороженная картина (уже разложена в поля), без эффектов и лога;
+//   - scan/none (и пустой режим — совместимость вызовов): поверхность + счётчик,
+//     детали поселений скрыты.
 func stripPlanetDetails(p models.Planet, view *models.PlanetKnowledgeView) models.Planet {
 	p.Knowledge = view
-	p.SurfaceDominant = ""
-	p.SurfaceComposition = nil
+	mode := ""
+	if view != nil {
+		mode = view.Mode
+	}
+	// Физика — скрыта всегда, в любом режиме (§1.4): недра/атмосфера/ядро/
+	// описание/биомы игроку не показываются ни сканом, ни присутствием.
 	p.SubterrainComposition = nil
 	// Биомы/недры объектами (99.2.28 §9.3) — тоже скрыты для player: утечка
 	// И1 с релиза 99.2.28 (находка 2026-09-20 §10.5). Картинка планеты из
@@ -64,41 +200,13 @@ func stripPlanetDetails(p models.Planet, view *models.PlanetKnowledgeView) model
 	p.Eccentricity = 0
 	p.EscapeVelocity = 0
 	p.TidalLock = false
-	p.Population = 0
 	p.Core = nil
-	// Ветки поселений (спека 2026-09-22-поселение-ветка-буферы-переработка §6):
-	// входной буфер ветки видит только админ — обнуляем Input у каждой ветки ДО
-	// обнуления поселений (защита в глубину, как Deposits/Factions/Buildings).
-	stripBranchInputs(&p)
-	p.Settlements = nil
-	// Фракции/строения планеты (спека 2026-09-21-фабрики-релиз-2-столицы-фракций
-	// §5/§7 п.6): player видит их только со знанием о планете (сканер вскрывает
-	// фракции — осознанная дельта 77a §6.2). Без знания — nil (защита в
-	// глубину, как у поселений); со знанием — остаются.
-	if view == nil {
-		p.Factions = nil
-		p.Buildings = nil
-		// Залежи поверхности (спека 2026-09-22-поселение-... §5.1): без знания
-		// о планете игрок залежей не видит — защита в глубину (как фракции/
-		// строения); со знанием остаются. attachDeposits зовётся только в
-		// GetPlanetsByWorldID — других путей к игроку нет.
-		p.Deposits = nil
-		// История формирования (спека 2026-09-22-облако-этап-2-... §6.5):
-		// значок в карточке виден только со знанием о планете — без знания
-		// маркер скрыт (защита в глубину, как фракции/строения).
-		p.FormationHistory = nil
-	} else {
-		// Со знанием игрок видит только активные залежи (спека итерации 3
-		// §5.2/п.26): выработанные (amount = 0) скрыты от player и видны
-		// только админу (admin идёт мимо stripPlanetDetails).
-		p.Deposits = filterActiveDeposits(p.Deposits)
-	}
 	p.Description = ""
 	p.SystemAge = 0
 	p.Moons = 0
 	p.Radioactive = false
 	// Спутники — объекты системы; их детали (поверхность/атмосфера) тоже
-	// скрыты для player (консистентность с §5.2).
+	// скрыты для player (консистентность с §5.2, M5: деталей спутника нет).
 	for i := range p.Satellites {
 		s := &p.Satellites[i]
 		s.SurfaceDominant = ""
@@ -108,7 +216,102 @@ func stripPlanetDetails(p models.Planet, view *models.PlanetKnowledgeView) model
 		s.Biosphere = ""
 		s.Description = ""
 	}
+
+	switch mode {
+	case knowledgeModePresence:
+		// Полные данные присутствия (§5.1): ветки без входа, эффекты —
+		// player-safe DTO без нагрузки/порога/силы (§5.4), залежи — активные.
+		stripBranchInputs(&p)
+		p.Settlements = playerSettlements(p.Settlements)
+		p.Deposits = filterActiveDeposits(p.Deposits)
+	case knowledgeModeSnapshot:
+		// Замороженная картина (§3.1): эффектов и лога нет (в снимок не
+		// замораживаются); вход веток — никогда; залежи — как сегодня (живые).
+		stripBranchInputs(&p)
+		stripSnapshotSettlementSecrets(&p)
+		p.Deposits = filterActiveDeposits(p.Deposits)
+	default:
+		// scan/none: поверхность и наличие поселений — только в knowledge;
+		// детали поселений/фракций/строений — за знанием (§6.2).
+		p.SurfaceDominant = ""
+		p.SurfaceComposition = nil
+		p.Population = 0
+		stripBranchInputs(&p)
+		p.Settlements = nil
+		if view == nil {
+			p.Factions = nil
+			p.Buildings = nil
+			// Залежи поверхности (спека 2026-09-22-поселение-... §5.1): без знания
+			// о планете игрок залежей не видит — защита в глубину (как фракции/
+			// строения); со знанием остаются. attachDeposits зовётся только в
+			// GetPlanetsByWorldID — других путей к игроку нет.
+			p.Deposits = nil
+			// История формирования (спека 2026-09-22-облако-этап-2-... §6.5):
+			// значок в карточке виден только со знанием о планете — без знания
+			// маркер скрыт (защита в глубину, как фракции/строения).
+			p.FormationHistory = nil
+		} else {
+			// Со знанием игрок видит только активные залежи (спека итерации 3
+			// §5.2/п.26): выработанные (amount = 0) скрыты от player и видны
+			// только админу (admin идёт мимо stripPlanetDetails).
+			p.Deposits = filterActiveDeposits(p.Deposits)
+		}
+	}
 	return p
+}
+
+// playerSettlements — витрина поселений игрока в присутствии (§5.1/§5.4):
+// копия списка с убранными служебными чек-точками (population_exact/computed_at/
+// R-компоненты — §15) и player-safe DTO эффектов. Лог и ветки остаются.
+func playerSettlements(in []models.Settlement) []models.Settlement {
+	if len(in) == 0 {
+		return in
+	}
+	out := make([]models.Settlement, len(in))
+	copy(out, in)
+	for i := range out {
+		out[i].PopulationExact = 0
+		out[i].ComputedAt = time.Time{}
+		out[i].RPerSec = 0
+		out[i].LambdaPerHour = 0
+		out[i].NDead = 0
+		out[i].Effects = effectViews(out[i].Effects)
+	}
+	return out
+}
+
+// stripSnapshotSettlementSecrets — страховка в глубину для снимка: эффектов и
+// лога в снимке нет (§3.1, п.3 решения); чек-точки снимок не несёт.
+func stripSnapshotSettlementSecrets(p *models.Planet) {
+	for i := range p.Settlements {
+		s := &p.Settlements[i]
+		s.Effects = nil
+		s.Log = nil
+		s.PopulationExact = 0
+		s.ComputedAt = time.Time{}
+		s.RPerSec = 0
+		s.LambdaPerHour = 0
+		s.NDead = 0
+	}
+}
+
+// effectViews — player-safe DTO эффектов (§5.4): только name/impact/state.
+// Нагрузка/порог/кривая/владелец/сила R(load) игроку не отдаются. Пустой
+// список → nil (ключ `effects` не выводится).
+func effectViews(v interface{}) interface{} {
+	list, ok := v.([]models.ActiveEffect)
+	if !ok || len(list) == 0 {
+		return nil
+	}
+	out := make([]models.EffectView, 0, len(list))
+	for _, e := range list {
+		state := "inactive"
+		if e.Enabled {
+			state = "active"
+		}
+		out = append(out, models.EffectView{Name: e.Name, Impact: e.Impact, State: state})
+	}
+	return out
 }
 
 // stripBranchInputs — обнуляет входной буфер веток поселений (спека

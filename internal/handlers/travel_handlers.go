@@ -85,6 +85,27 @@ func (h *TravelHandlers) SetMiningBuffer(db *sql.DB, mb *MiningBuffer) {
 	h.miningBuffer = mb
 }
 
+// fixateDeparturePresence — фиксация снимка при отлёте (спека 2026-09-23 §3.2,
+// D2): если позиция — присутствие на планете (или её спутнике), снимок пишется
+// ДО смены позиции. Best-effort: ошибки логируются, полёт не роняется.
+func (h *TravelHandlers) fixateDeparturePresence(userID, worldID string) {
+	if h.knowledgeRepo == nil {
+		return
+	}
+	pos, err := h.userRepo.GetCurrentPosition(userID)
+	if err != nil {
+		log.Printf("⚠️ travel: read position for presence (user %s): %v", userID, err)
+		return
+	}
+	planetID := presencePlanetID(pos, worldID, h.planetRepo)
+	if planetID == "" {
+		return
+	}
+	if err := h.knowledgeRepo.FixatePresence(userID, planetID, "presence"); err != nil {
+		log.Printf("⚠️ travel: fixate presence at departure (user %s, planet %s): %v", userID, planetID, err)
+	}
+}
+
 type TravelRequest struct {
 	WorldID string `json:"world_id"`
 	// Спека 99.2.30 §3.1: необязательная цель композитного маршрута —
@@ -400,6 +421,12 @@ func (h *TravelHandlers) StartTravel(w http.ResponseWriter, r *http.Request) {
 	// UPDATE (С-1), затем автостарт композитного маршрута по намерению. Тот же
 	// колбэк используется Restore-фазой 1 в main.go (И6: автостарт работает и
 	// для восстановленного после рестарта полёта).
+
+	// Отлёт (спека 2026-09-23-орбита-планеты-присутствие-и-снимок §3.2, D2):
+	// старт межзвёздного полёта с планеты (orbit/surface) или её спутника —
+	// фиксация снимка ДО NULL-ения позиции. Best-effort: сбой записи не роняет
+	// полёт.
+	h.fixateDeparturePresence(userID, fromWorldID)
 
 	// С1 (спека 99.2.27 §4.2): старт межзвёздного полёта отменяет активный
 	// внутрисистемный полёт и NULL-ит позицию (игрок покидает систему).

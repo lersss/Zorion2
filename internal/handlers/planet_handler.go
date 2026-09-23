@@ -25,7 +25,18 @@ func (h *AdminHandlers) GetPlanetsByWorld(w http.ResponseWriter, r *http.Request
 	worldID := pathParts[3]
 
 	planetRepo := repository.NewPlanetRepository(h.db)
-	planets, err := planetRepo.GetPlanetsByWorldID(worldID)
+	// Путь игрока (спека 2026-09-23-орбита-планеты-присутствие-и-снимок §5.6,
+	// И-С3): поселения читаются без ленивого owner-прохода — чтение снимка не
+	// двигает чек-точку population_exact. Живой путь (планета присутствия)
+	// синхронизируется ниже точечно. admin/skycomposer — полный путь как раньше.
+	isPlayer := roleFromContext(r) == string(models.RolePlayer)
+	var planets []models.Planet
+	var err error
+	if isPlayer {
+		planets, err = planetRepo.GetPlanetsByWorldIDForPlayer(worldID)
+	} else {
+		planets, err = planetRepo.GetPlanetsByWorldID(worldID)
+	}
 	if err != nil {
 		http.Error(w, "Failed to fetch planets: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -146,7 +157,27 @@ func (h *AdminHandlers) GetPlanetsByWorld(w http.ResponseWriter, r *http.Request
 					log.Printf("⚠️ ScanSystem %s: %v", worldID, err)
 				}
 			}
-			planets = applyPlanetVisibility(userID, planets, h.visibility.knowledge)
+			// Планета присутствия (§2.1, спутник — по родителю): presenceID —
+			// по СЫРОЙ позиции игрока и его СВОЕЙ системе (current_world_id), а
+			// не по myPosition (тот null в чужой системе). Так флаг канала
+			// покупки (§5.2) виден и в карточке чужой системы: игрок
+			// присутствует на планете P ≠ планета карточки Q.
+			presenceID := ""
+			if user.CurrentWorldID != nil && h.visibility.travelMgr.GetFlight(userID) == nil {
+				presenceID = presencePlanetID(pos, *user.CurrentWorldID, planetRepo)
+			}
+			// Ленивый owner-проход — живой путь (И-С3): ровно по планете
+			// присутствия и только когда она в этой же системе (карточка чужой
+			// системы синка не делает — её планеты не являются планетой
+			// присутствия). Остальные планеты игрок видит из снимка/скана — на
+			// чтении снимка запись запрещена. Срез planets[idx:idx+1] алиасит
+			// элемент: owner-проход правит именно планету присутствия.
+			if idx := planetIndexByID(planets, presenceID); idx >= 0 {
+				if err := planetRepo.SyncPresenceSettlements(planets[idx : idx+1]); err != nil {
+					log.Printf("⚠️ presence settlements %s: %v", worldID, err)
+				}
+			}
+			planets = applyPlanetVisibility(userID, planets, h.visibility.knowledge, presenceID)
 		}
 	} else {
 		// visibility не подключён (админ-путь без видимости) — пояса грузим

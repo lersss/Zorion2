@@ -1,7 +1,7 @@
 // web/static/js/modal/panel.js
 import { modalState } from './state.js';
 import { drawSystem } from './modal_render.js';
-import { renderTabContent, renderSatelliteCard } from './tabs.js';
+import { renderTabContent, renderSatelliteCard, knowledgeMode } from './tabs.js';
 import { planetPopulationAt } from './extrapolate.js';
 import { escapeHtml } from './contracts.js';
 
@@ -440,11 +440,21 @@ function renderCard(panel, planets, selectedIndex) {
     // Поверхность этой планеты (спека 2026-09-21 §7.6 п.5): бейдж «вы на поверхности».
     const onThisSurface = myPos && myPos.status === 'surface' &&
         myPos.object_type === 'planet' && myPos.object_id === planet.id;
+    // Позиция на спутнике этой планеты (спека 2026-09-23 §6.2 п.1): свежесть
+    // данных родителя объясняет бейдж «на орбите спутника», а не «планеты».
+    const onSatelliteOfPlanet = myPos && (myPos.status === 'orbit' || myPos.status === 'surface') &&
+        myPos.object_type === 'satellite' &&
+        (planet.satellites || []).some(s => s.id === myPos.object_id);
     const orbitBadge = onThisOrbit
         ? `<span style="background:rgba(74,222,128,0.15); border:1px solid rgba(74,222,128,0.4); color:#4ade80; border-radius:10px; padding:2px 8px; font-size:0.8rem; margin-left:8px;">● Вы на орбите</span>`
         : onThisSurface
             ? `<span style="background:rgba(56,189,248,0.15); border:1px solid rgba(56,189,248,0.4); color:#38bdf8; border-radius:10px; padding:2px 8px; font-size:0.8rem; margin-left:8px;">● Вы на поверхности</span>`
-            : '';
+            : onSatelliteOfPlanet
+                ? `<span style="background:rgba(74,222,128,0.15); border:1px solid rgba(74,222,128,0.4); color:#4ade80; border-radius:10px; padding:2px 8px; font-size:0.8rem; margin-left:8px;">● Вы на орбите спутника</span>`
+                : '';
+    // Снимок — память без тренда (спека 2026-09-23 §6.2 п.1): стрелку в шапке
+    // не рисуем (сервер отдаёт замороженное число).
+    const snapshotMode = knowledgeMode(planet) === 'snapshot';
     const shipsHere = (modalState.systemPlayers || []).filter(p =>
         p.object_type === 'planet' && p.object_id === planet.id
     ).length;
@@ -454,7 +464,7 @@ function renderCard(panel, planets, selectedIndex) {
 
     panel.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <h3 style="margin: 0; font-size: 1.2rem; color: #aaa;">${capitalize(planet.name) || `Планета #${selectedIndex + 1}`}${planet.population ? ` (<span id="planet-pop-num">${formatPopulation(planetPopulationAt(planet, Date.now()))}</span>${populationTrendArrow(planet)})` : ''}${orbitBadge}</h3>
+            <h3 style="margin: 0; font-size: 1.2rem; color: #aaa;">${capitalize(planet.name) || `Планета #${selectedIndex + 1}`}${planet.population ? ` (<span id="planet-pop-num">${formatPopulation(planetPopulationAt(planet, Date.now()))}</span>${snapshotMode ? '' : populationTrendArrow(planet)})` : ''}${orbitBadge}</h3>
             <div style="display:flex; gap:8px;">
                 <button id="refresh-planet-btn" title="Пересчитать население от среды и перезагрузить данные" style="background: #2a2a4a; border: none; color: #aaa; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 0.95rem;">🔄 Обновить</button>
                 <button id="back-to-list-btn" style="background: #2a2a4a; border: none; color: #aaa; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 0.95rem;">← Назад</button>

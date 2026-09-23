@@ -468,6 +468,10 @@ func TestStartTravelDestinationCompanionValid(t *testing.T) {
 	expectWorldWithMods(mock, target, 10, 0, testCompanionMods)
 	expectWorld(mock, fromWorld, 0, 0)
 	expectWorld(mock, fromWorld, 0, 0)
+	// D2 (спека 2026-09-23 §3.2): позиции нет → снимок не пишется.
+	mock.ExpectQuery(`SELECT current_position FROM users WHERE id = \$1`).
+		WithArgs(userID).
+		WillReturnRows(sqlmock.NewRows([]string{"current_position"}).AddRow(nil))
 	// С1 + ИН-4: отмена intra + позиция NULL + намерение одной транзакцией.
 	mock.ExpectBegin()
 	mock.ExpectExec(`DELETE FROM player_intrasystem_flights WHERE user_id = \$1`).
@@ -536,6 +540,10 @@ func TestStartTravelIdempotentWithCompanionDestination(t *testing.T) {
 
 	// Первый полёт: w1 -> w2 (обычный, без destination).
 	expectTravelQueries(mock, userID, fromWorld, 0, 0, target, 10, 0)
+	// D2 (спека 2026-09-23 §3.2): позиции нет → снимок не пишется.
+	mock.ExpectQuery(`SELECT current_position FROM users WHERE id = \$1`).
+		WithArgs(userID).
+		WillReturnRows(sqlmock.NewRows([]string{"current_position"}).AddRow(nil))
 	rec := execJSON(h.StartTravel, travelRequest(userID, target))
 	require.Equal(t, http.StatusAccepted, rec.Code)
 
@@ -572,6 +580,10 @@ func TestStartTravelIdempotentWithDestinationWrites(t *testing.T) {
 
 	// Первый полёт: w1 -> w2 (обычный, без destination).
 	expectTravelQueries(mock, userID, fromWorld, 0, 0, target, 10, 0)
+	// D2 (спека 2026-09-23 §3.2): позиции нет → снимок не пишется.
+	mock.ExpectQuery(`SELECT current_position FROM users WHERE id = \$1`).
+		WithArgs(userID).
+		WillReturnRows(sqlmock.NewRows([]string{"current_position"}).AddRow(nil))
 	rec := execJSON(h.StartTravel, travelRequest(userID, target))
 	require.Equal(t, http.StatusAccepted, rec.Code)
 
@@ -1267,11 +1279,8 @@ func TestIntraArrivalClosesPlanetTravelContract(t *testing.T) {
 		WithArgs(userID, sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
-	// 3. Авто-знание (С6).
-	mock.ExpectQuery(`SELECT COALESCE\(p.data->>'surface_dominant', ''\), COALESCE\(p.data->'surface_composition', '\{\}'::jsonb\), \(SELECT COUNT\(\*\) FROM settlements s WHERE s.planet_id = p.id\) FROM planets p WHERE p.id = \$1`).
-		WithArgs("p1").
-		WillReturnRows(sqlmock.NewRows([]string{"surface_dominant", "surface_composition", "settlements_count"}).
-			AddRow("вода", `{"вода":100}`, 0))
+	// 3. Снимок присутствия (FixatePresence, спека 2026-09-23 §3.2).
+	expectPlanetByID(mock, "p1", "w1")
 	mock.ExpectExec(`INSERT INTO player_planet_knowledge.*ON CONFLICT.*DO UPDATE`).
 		WithArgs(userID, "p1", sqlmock.AnyArg(), "presence").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -1319,8 +1328,9 @@ func TestIntraArrivalBrokenTargetDoesNotCloseTravelContract(t *testing.T) {
 		WithArgs(userID, sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
-	// 3. Авто-знание по битой планете: ScanPlanet → ErrNoRows (лог, не падение).
-	mock.ExpectQuery(`SELECT COALESCE\(p.data->>'surface_dominant', ''\), COALESCE\(p.data->'surface_composition', '\{\}'::jsonb\), \(SELECT COUNT\(\*\) FROM settlements s WHERE s.planet_id = p.id\) FROM planets p WHERE p.id = \$1`).
+	// 3. Снимок по битой планете: FixatePresence → GetPlanetByID → ErrNoRows
+	// (лог, не падение).
+	mock.ExpectQuery(`SELECT id, world_id, name, orbit_index, data, created_at, updated_at FROM planets WHERE id = \$1`).
 		WithArgs("p1").
 		WillReturnError(sql.ErrNoRows)
 	// Ожидание закрытия регистрируем, но оно НЕ должно быть востребовано: тогда

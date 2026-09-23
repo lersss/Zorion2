@@ -317,12 +317,67 @@ func normalizeMyPosition(pos *models.CurrentPosition, worldID string, planets []
 
 // findPlanetByID — планета системы по id (nil, если нет).
 func findPlanetByID(planets []models.Planet, id string) *models.Planet {
-	for i := range planets {
-		if planets[i].ID == id {
-			return &planets[i]
-		}
+	if i := planetIndexByID(planets, id); i >= 0 {
+		return &planets[i]
 	}
 	return nil
+}
+
+// planetIndexByID — индекс планеты системы по id (-1, если нет). Нужен там, где
+// важен алиасинг элемента (owner-проход планеты присутствия правит planets[i]
+// через срез planets[i:i+1], а не копию).
+func planetIndexByID(planets []models.Planet, id string) int {
+	for i := range planets {
+		if planets[i].ID == id {
+			return i
+		}
+	}
+	return -1
+}
+
+// presencePlanetID — планета присутствия по позиции игрока (спека
+// 2026-09-23-орбита-планеты-присутствие-и-снимок §2.1): поверхность/орбита
+// планеты → сама планета; орбита/заход спутника → его родительская планета
+// (п.9 решения, присутствие на спутнике = присутствие на родителе). Пустая
+// строка — позиция присутствием на планете не является (орбита звезды или
+// компаньона, пояс, полёт, NULL).
+func presencePlanetID(pos *models.CurrentPosition, worldID string, planetRepo *repository.PlanetRepository) string {
+	if pos == nil {
+		return ""
+	}
+	if pos.Status == "surface" {
+		return pos.ObjectID
+	}
+	if pos.Status == "orbit" && pos.ObjectType == "planet" {
+		return pos.ObjectID
+	}
+	if (pos.Status == "orbit" || pos.Status == "mining") && pos.ObjectType == "satellite" {
+		if planetRepo == nil {
+			return ""
+		}
+		parent, err := planetRepo.FindPlanetBySatellite(worldID, pos.ObjectID)
+		if err != nil || parent == nil {
+			return ""
+		}
+		return parent.ID
+	}
+	return ""
+}
+
+// fixateDeparturePresence — фиксация снимка при отлёте (спека 2026-09-23 §3.2,
+// D1): если позиция — присутствие на планете (или её спутнике), снимок
+// пишется ДО смены позиции. Best-effort: ошибка логируется, полёт не роняется.
+func (h *IntrasystemHandlers) fixateDeparturePresence(userID, worldID string, pos *models.CurrentPosition) {
+	if h.knowledgeRepo == nil {
+		return
+	}
+	planetID := presencePlanetID(pos, worldID, h.planetRepo)
+	if planetID == "" {
+		return
+	}
+	if err := h.knowledgeRepo.FixatePresence(userID, planetID, "presence"); err != nil {
+		log.Printf("⚠️ intrasystem: fixate presence at departure (user %s, planet %s): %v", userID, planetID, err)
+	}
 }
 
 // companionIDFromMods — валидный синтетический id компаньона по raw
@@ -364,17 +419,21 @@ func NewIntraArrivalHandler(
 			log.Printf("⚠️ intrasystem: onArrival (user %s): %v", userID, err)
 			return
 		}
-		// 2. Авто-знание (С6): планета → UPSERT; спутник → родительская планета.
+		// 2. Авто-знание/снимок (спека 99.2.27 §3.6 + спека 2026-09-23 §3.2,
+		// A1/A2): планета → FixatePresence (поверхность + snapshot); спутник →
+		// родительская планета (присутствие на спутнике = присутствие на
+		// родителе, п.9 решения). Best-effort: сбой логируется, позиция уже
+		// выставлена.
 		switch f.ToType {
 		case "planet":
-			if err := knowledgeRepo.ScanPlanet(userID, f.ToID, "presence"); err != nil {
-				log.Printf("⚠️ intrasystem: knowledge (user %s, planet %s): %v", userID, f.ToID, err)
+			if err := knowledgeRepo.FixatePresence(userID, f.ToID, "presence"); err != nil {
+				log.Printf("⚠️ intrasystem: presence knowledge (user %s, planet %s): %v", userID, f.ToID, err)
 			}
 		case "satellite":
 			parent, err := planetRepo.FindPlanetBySatellite(f.WorldID, f.ToID)
 			if err == nil && parent != nil {
-				if err := knowledgeRepo.ScanPlanet(userID, parent.ID, "presence"); err != nil {
-					log.Printf("⚠️ intrasystem: knowledge (user %s, satellite %s): %v", userID, f.ToID, err)
+				if err := knowledgeRepo.FixatePresence(userID, parent.ID, "presence"); err != nil {
+					log.Printf("⚠️ intrasystem: presence knowledge (user %s, satellite %s): %v", userID, f.ToID, err)
 				}
 			}
 		}
@@ -587,6 +646,11 @@ func (h *IntrasystemHandlers) StartIntraFlight(w http.ResponseWriter, r *http.Re
 	}
 	dist := math.Abs(fromR - toR)
 	duration := CalcIntraDuration(dist, ship.EngineSpeed(user.Equipment))
+
+	// Отлёт (спека 2026-09-23 §3.2, D1): старт с планеты или её спутника —
+	// фиксация снимка ДО изменения позиции (позиция ещё присутствие). Best-
+	// effort: сбой записи не роняет полёт (§3.2).
+	h.fixateDeparturePresence(userID, worldID, pos)
 
 	// Атомарный старт (С-1): строка полёта + current_position = in_flight
 	// одной транзакцией — позиция и таблица не расходятся.

@@ -268,6 +268,29 @@ func scanUserWithPosition(row *sql.Row) (*models.User, *models.CurrentPosition, 
 	return &u, pos, dest, nil
 }
 
+// GetCurrentPosition — внутрисистемная позиция игрока (спека 2026-09-23
+// §3.2, хук D2): users.current_position JSONB; nil = позиции нет. Лёгкое
+// чтение (без остальных колонок users) — только там, где позиция нужна
+// отдельно от полной загрузки пользователя.
+func (r *UserRepository) GetCurrentPosition(userID string) (*models.CurrentPosition, error) {
+	var posRaw []byte
+	err := r.db.QueryRow(`SELECT current_position FROM users WHERE id = $1`, userID).Scan(&posRaw)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if len(posRaw) == 0 || string(posRaw) == "null" {
+		return nil, nil
+	}
+	var pos models.CurrentPosition
+	if err := json.Unmarshal(posRaw, &pos); err != nil {
+		return nil, err
+	}
+	return &pos, nil
+}
+
 // GetPendingDestination — намерение композитного маршрута игрока (спека
 // 99.2.30 §4.1): users.pending_destination JSONB; nil = намерения нет.
 func (r *UserRepository) GetPendingDestination(userID string) (*models.PendingDestination, error) {

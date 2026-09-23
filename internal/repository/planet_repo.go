@@ -24,6 +24,61 @@ func NewPlanetRepository(db *sql.DB) *PlanetRepository {
 // GetPlanetsByWorldID — возвращает планеты мира с полной структурой,
 // включая композиции, ядро, спутники.
 func (r *PlanetRepository) GetPlanetsByWorldID(worldID string) ([]models.Planet, error) {
+	planets, err := r.planetsByWorldID(worldID)
+	if err != nil {
+		return nil, err
+	}
+	if err := r.attachSettlements(planets); err != nil {
+		return nil, err
+	}
+	if err := r.attachFactionsAndBuildings(planets); err != nil {
+		return nil, err
+	}
+	// Залежи — только здесь: GetPlanetsByWorldID кормит единственный путь,
+	// сериализуемый игроку (GET /api/worlds/{id}/planets) и проходящий
+	// applyPlanetVisibility → stripPlanetDetails (§5.1 спеки залежей).
+	if err := r.attachDeposits(planets); err != nil {
+		return nil, err
+	}
+	return planets, nil
+}
+
+// GetPlanetsByWorldIDForPlayer — планеты системы для карточки игрока (спека
+// 2026-09-23-орбита-планеты-присутствие-и-снимок §5.6, И-С3): поселения
+// читаются (SELECT), но ленивый owner-проход — запись чек-точки населения и
+// веток — НЕ выполняется. Чтение планеты в режиме snapshot не двигает
+// population_exact; живой путь (планета присутствия) синхронизируется отдельно
+// через SyncPresenceSettlements. Фракции/строения/залежи — как в
+// GetPlanetsByWorldID.
+func (r *PlanetRepository) GetPlanetsByWorldIDForPlayer(worldID string) ([]models.Planet, error) {
+	planets, err := r.planetsByWorldID(worldID)
+	if err != nil {
+		return nil, err
+	}
+	if err := r.loadSettlements(planets); err != nil {
+		return nil, err
+	}
+	if err := r.attachFactionsAndBuildings(planets); err != nil {
+		return nil, err
+	}
+	if err := r.attachDeposits(planets); err != nil {
+		return nil, err
+	}
+	return planets, nil
+}
+
+// SyncPresenceSettlements — ленивый owner-проход для планет присутствия (живой
+// путь, спека 2026-09-23 §5.6): пересчитывает население/ветки/эффекты и при
+// устаревших чек-точках пишет их в БД. Карточка игрока зовёт это ровно для
+// планеты, на которой он стоит; планеты в режиме snapshot/scan/none проходят
+// через GetPlanetsByWorldIDForPlayer без записи (И-С3).
+func (r *PlanetRepository) SyncPresenceSettlements(planets []models.Planet) error {
+	return r.syncSettlements(planets)
+}
+
+// planetsByWorldID — планеты системы из planets (композиции/ядро/спутники), без
+// поселений/фракций/строений/залежей.
+func (r *PlanetRepository) planetsByWorldID(worldID string) ([]models.Planet, error) {
 	query := `
 		SELECT id, world_id, name, orbit_index, data, created_at, updated_at
 		FROM planets
@@ -59,18 +114,6 @@ func (r *PlanetRepository) GetPlanetsByWorldID(worldID string) ([]models.Planet,
 	}
 	if err = rows.Err(); err != nil {
 		return nil, fmt.Errorf("rows iteration error: %w", err)
-	}
-	if err := r.attachSettlements(planets); err != nil {
-		return nil, err
-	}
-	if err := r.attachFactionsAndBuildings(planets); err != nil {
-		return nil, err
-	}
-	// Залежи — только здесь: GetPlanetsByWorldID кормит единственный путь,
-	// сериализуемый игроку (GET /api/worlds/{id}/planets) и проходящий
-	// applyPlanetVisibility → stripPlanetDetails (§5.1 спеки залежей).
-	if err := r.attachDeposits(planets); err != nil {
-		return nil, err
 	}
 	return planets, nil
 }
@@ -333,6 +376,16 @@ func (r *PlanetRepository) FindPlanetBySatellite(worldID, satelliteID string) (*
 // на поселение (advisory-лок, один now → load_at == processed_at == computed_at).
 // Планеты без поселений: население 0, необитаемы.
 func (r *PlanetRepository) attachSettlements(planets []models.Planet) error {
+	if err := r.loadSettlements(planets); err != nil {
+		return err
+	}
+	return r.syncSettlements(planets)
+}
+
+// loadSettlements — только чтение поселений планет (SELECT + заполнение), без
+// owner-прохода и без записи. Нужен пути игрока (GetPlanetsByWorldIDForPlayer),
+// где запись чек-точек на чтении снимка запрещена (спека 2026-09-23 И-С3).
+func (r *PlanetRepository) loadSettlements(planets []models.Planet) error {
 	if len(planets) == 0 {
 		return nil
 	}
@@ -346,12 +399,28 @@ func (r *PlanetRepository) attachSettlements(planets []models.Planet) error {
 	if err != nil {
 		return fmt.Errorf("failed to load settlements: %w", err)
 	}
+	for i := range planets {
+		settlements := byPlanet[planets[i].ID]
+		planets[i].Settlements = settlements
+		planets[i].Habitable = len(settlements) > 0
+	}
+	return nil
+}
+
+// syncSettlements — owner-проход «производство → потребность → население» по
+// уже загруженным поселениям планет: считает в памяти или пишет одной
+// транзакцией на поселение (см. attachSettlements). Двигает чек-точку
+// population_exact и ветки — поэтому вызывается только на живом пути.
+func (r *PlanetRepository) syncSettlements(planets []models.Planet) error {
+	if len(planets) == 0 {
+		return nil
+	}
 
 	now := time.Now()
 	owners := make([]OwnerSettlement, 0, len(planets))
 	settlementIDs := make([]string, 0, len(planets))
 	for i := range planets {
-		settlements := byPlanet[planets[i].ID]
+		settlements := planets[i].Settlements
 		input := planetMortalityInput(planets[i])
 		for j := range settlements {
 			s := settlements[j]
@@ -369,8 +438,6 @@ func (r *PlanetRepository) attachSettlements(planets []models.Planet) error {
 			})
 			settlementIDs = append(settlementIDs, s.ID)
 		}
-		planets[i].Settlements = settlements
-		planets[i].Habitable = len(settlements) > 0
 	}
 
 	results, err := NewBranchRepository(r.db).SyncSettlements(now, owners)

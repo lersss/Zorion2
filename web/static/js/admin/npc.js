@@ -7,6 +7,7 @@
 import { fetchWithAuth } from './auth.js';
 import { notifyError, notifySuccess } from '../ui/toast.js';
 import { pollJob, pollIntervals } from './poll.js';
+import { gameDate } from '../game_date.js';
 
 const REFRESH_MS = 10000;      // авторефреш списка агентов (полёты идут постоянно)
 const METRICS_MS = 5000;       // опрос метрик (спека 26a.1 §9)
@@ -21,12 +22,6 @@ function esc(s) {
     return String(s ?? '').replace(/[&<>"']/g, c => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
     }[c]));
-}
-
-function fmtDate(v) {
-    if (!v) return '—';
-    const d = new Date(v);
-    return isNaN(d.getTime()) ? '—' : d.toLocaleString('ru-RU');
 }
 
 function fmtWorld(id) {
@@ -46,7 +41,7 @@ function renderNPCRow(a) {
         <td>${STATUS_LABEL[a.status] || esc(a.status)}</td>
         <td title="${esc(a.current_world_id || '')}">${fmtWorld(a.current_world_id)}</td>
         <td title="${esc(a.target_world_id || '')}">${fmtWorld(a.target_world_id)}</td>
-        <td>${fmtDate(a.last_observed_at)}</td>
+        <td>${gameDate(a.last_observed_at)}</td>
         <td><input type="checkbox" ${a.notify_enabled ? 'checked' : ''}></td>
         <td><button class="btn-small danger">Удалить</button></td>`;
     const chk = row.querySelector('input[type=checkbox]');

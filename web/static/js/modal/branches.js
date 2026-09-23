@@ -143,13 +143,19 @@ export function adminEffectLoadFormHtml(settlementID) {
         </div>`;
 }
 
-// effectsBlockHtml — блок действующих эффектов поселения (§6): виден ТОЛЬКО
-// админу (игроку детали поселения не отдаются, stripPlanetDetails). На эффект:
-// тип/источник, нагрузка, порог, состояние, сила/w; внизу — админ-форма
-// ручного задания нагрузки.
+// effectsBlockHtml — блок действующих эффектов поселения (§6): админу — как
+// раньше (тип/источник, нагрузка, порог, состояние, сила/w + форма ручной
+// нагрузки); игроку (спека 2026-09-23-орбита-планеты-присутствие-и-снимок §5.4/
+// §6.2 п.2) — player-safe DTO {name, impact, state} без нагрузки/порога/силы.
+// Пустой список игроку не показываем (блока нет).
 export function effectsBlockHtml(effects, isAdmin, settlementID) {
-    if (!isAdmin) return '';
     const list = Array.isArray(effects) ? effects : [];
+    if (!isAdmin) {
+        if (list.length === 0) return '';
+        let playerHtml = `<div style="color:#888; font-size:0.9rem; text-transform:uppercase; margin-top:8px;">Эффекты (${list.length})</div>`;
+        list.forEach(e => { playerHtml += playerEffectRowHtml(e); });
+        return playerHtml;
+    }
     let html = `<div style="color:#888; font-size:0.9rem; text-transform:uppercase; margin-top:8px;">Эффекты (${list.length})</div>`;
     if (list.length === 0) {
         html += `<div style="color:#666; font-size:0.85rem;">Эффектов нет</div>`;
@@ -157,4 +163,27 @@ export function effectsBlockHtml(effects, isAdmin, settlementID) {
     list.forEach(e => { html += effectRowHtml(e); });
     html += adminEffectLoadFormHtml(settlementID);
     return html;
+}
+
+// EFFECT_IMPACT_LABELS — словарь подписей вида воздействия (effect_types.impact,
+// §5.4): единственное место перевода ключа в человекочитаемый текст; неизвестный
+// ключ показывается как есть (тот же паттерн, что BUILDING_TYPE_LABELS в tabs.js).
+const EFFECT_IMPACT_LABELS = {
+    population_rate: 'влияет на население'
+};
+
+// playerEffectRowHtml — строка эффекта игроку (§5.4): имя, вид воздействия,
+// состояние («действует»/«не действует»). Нагрузки/порога/кривой/силы R(load)
+// игроку не отдаём и не рисуем (§15).
+function playerEffectRowHtml(e) {
+    const name = (e && e.name) ? e.name : 'Эффект';
+    const impactKey = e && e.impact;
+    const impact = impactKey ? (EFFECT_IMPACT_LABELS[impactKey] || impactKey) : '';
+    const impactLine = impact ? ` · <span style="color:#94a3b8;">${impact}</span>` : '';
+    const state = (e && e.state === 'active') ? 'действует' : 'не действует';
+    return `
+        <div style="margin:6px 0; padding:8px; background:#14142a; border-radius:4px;">
+            <div><strong>${name}</strong>${impactLine}</div>
+            <div style="color:#ccc; font-size:0.9rem;">состояние: <strong>${state}</strong></div>
+        </div>`;
 }

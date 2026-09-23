@@ -4,6 +4,7 @@
 // Доступен только skycomposer — вкладку скрывает main.js по роли из /me.
 import { fetchWithAuth } from './auth.js';
 import { notifyError, notifySuccess } from '../ui/toast.js';
+import { gameDate } from '../game_date.js';
 
 let currentPage = 1;
 let profileId = null;
@@ -13,12 +14,6 @@ function esc(s) {
     return String(s ?? '').replace(/[&<>"']/g, c => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
     }[c]));
-}
-
-function fmtDate(v) {
-    if (!v) return '—';
-    const d = new Date(v);
-    return isNaN(d.getTime()) ? '—' : d.toLocaleString('ru-RU');
 }
 
 // ==================== СПИСОК ====================
@@ -49,8 +44,8 @@ export async function loadUsers(page) {
                     <td>${esc(u.username)}</td>
                     <td>${u.email ? esc(u.email) : '—'}</td>
                     <td>${esc(u.role)}</td>
-                    <td>${fmtDate(u.created_at)}</td>
-                    <td>${fmtDate(u.updated_at)}</td>
+                    <td>${gameDate(u.created_at)}</td>
+                    <td>${gameDate(u.updated_at)}</td>
                     <td><button class="btn-small">Профиль</button></td>`;
                 row.querySelector('button').addEventListener('click', () => openUserProfile(u.id));
                 tbody.appendChild(row);
@@ -148,8 +143,8 @@ export async function openUserProfile(id) {
                 <div><span style="color:#94a3b8;">Иконка корабля:</span> ${esc(u.ship_icon)}</div>
                 <div><span style="color:#94a3b8;">Текущий мир:</span> ${u.current_world_name ? esc(u.current_world_name) : '—'}</div>
                 <div><span style="color:#94a3b8;">agent_id:</span> ${u.agent_id ? esc(u.agent_id) : '—'}</div>
-                <div><span style="color:#94a3b8;">Создан:</span> ${fmtDate(u.created_at)}</div>
-                <div><span style="color:#94a3b8;">Обновлён:</span> ${fmtDate(u.updated_at)}</div>
+                <div><span style="color:#94a3b8;">Создан:</span> ${gameDate(u.created_at)}</div>
+                <div><span style="color:#94a3b8;">Обновлён:</span> ${gameDate(u.updated_at)}</div>
             </div>
             <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center; border-top:1px solid #334155; padding-top:12px;">
                 <label style="color:#94a3b8; font-size:0.85rem;">Роль:</label>

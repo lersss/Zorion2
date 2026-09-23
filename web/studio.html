@@ -1265,10 +1265,8 @@ function ctxBindToFactory(id) {
   const ft = factoryMode() ? factoryType() : null;
   if (!g || !ft) return;
   if (g.kind === "resource") { showReport(["ресурс нельзя привязать как рецепт"]); return; }
-  if (g.category_id !== ft.category_id) {
-    showReport(["товар другой категории — фабрика производит только «" + catName(ft.category_id) + "»"]);
-    return;
-  }
+  // категория НЕ ограничивает набор (шаг 2 §3.2.1): кросс-категорийная привязка
+  // разрешена и здесь, как на дереве «Производителей» (решение создателя 2026-09-23)
   bindRecipeToFactory(g, ft.id);
 }
 // depositsCountForDelete — предпроверка числа залежей ресурса перед удалением
@@ -1440,10 +1438,7 @@ $("canvasWrap").addEventListener("drop", ev => {
     if (!g) { showReport(["товар не найден"]); return; }
     const ft = factoryType();
     if (g.kind === "resource") { showReport(["ресурс нельзя привязать как рецепт"]); return; }
-    if (g.category_id !== ft.category_id) {
-      showReport(["товар другой категории — фабрика производит только «" + catName(ft.category_id) + "»"]);
-      return;
-    }
+    // категория НЕ ограничивает набор (шаг 2 §3.2.1) — как на дереве «Производителей»
     if ((g.bound_factories || []).includes(ft.id)) { showReport(["уже в наборе постройки"]); return; }
     bindRecipeToFactory(g, ft.id);
     return;

@@ -78,6 +78,65 @@ const LIFE_DENSITY = {
     'литосфера': 0.06, 'крио': 0.06, 'вулканизм': 0.03,
 };
 
+// resolveRange — [lo,hi] → детерминированное число от seed (§3.2); число — как
+// есть. Дефолт — если параметра нет.
+function resolveRange(v, col, seed, def) {
+    if (typeof v === 'number') return v;
+    if (Array.isArray(v) && v.length === 2 && typeof v[0] === 'number' && typeof v[1] === 'number') {
+        return v[0] + hash1(col, seed) * (v[1] - v[0]);
+    }
+    return def;
+}
+
+// LIVING_DECOR — примитивы, изображающие жизнь (§3.2). На безжизненной планете
+// (pkg.life=false) не рисуются (решение менеджера 2026-09-23); неживой декор
+// (rock/crystal/bone/debris/vent) остаётся. Фолбэк-биомы (без рецепта) не
+// затрагиваются — там своя ветка `_legacyDecorAt`.
+const LIVING_DECOR = new Set(['tree', 'conifer', 'palm', 'mushroom', 'cactus', 'bush', 'fern', 'grass', 'lichen', 'growth']);
+
+// keySeed — детерминированный seed из имени параметра (для разворота разных
+// диапазонов одной записи независимо; без Math.random).
+function keySeed(key) {
+    let h = 0;
+    for (let i = 0; i < key.length; i++) h = (Math.imul(h, 31) + key.charCodeAt(i)) | 0;
+    return h >>> 0;
+}
+
+// decorAllowed — фильтр `where` записи декора (§3.2): высота и сторона склона.
+// `alt` — насколько земля выше базовой линии (px, больше = выше); `slope` —
+// знак уклона (terrainHeight(x+1) − terrainHeight(x), меньше = подъём вправо).
+function decorAllowed(where, alt, slope) {
+    if (!where) return true;
+    if (typeof where.maxAlt === 'number' && alt > where.maxAlt) return false;
+    if (typeof where.minAlt === 'number' && alt < where.minAlt) return false;
+    if (where.side === 'left' && slope <= 0) return false;
+    if (where.side === 'right' && slope >= 0) return false;
+    return true;
+}
+
+// resolvePalette — палитра вида (§3.4): обязателен base, остальные ключи
+// выводятся из base; без рецепта — от пакетного biome_color. Значения — hex
+// (shadeHex), чтобы работали rgba()/shade().
+function resolvePalette(view, color) {
+    const src = (view && view.palette) || {};
+    const base = src.base || color;
+    return {
+        base,
+        dark: src.dark || shadeHex(base, 0.62),
+        light: src.light || shadeHex(base, 1.15),
+        accent: src.accent || shadeHex(base, 0.85),
+        rock: src.rock || shadeHex(base, 0.55),
+        trunk: src.trunk || shadeHex(base, 0.5),
+        moss: src.moss || src.accent || shadeHex(base, 1.3),
+        snow: src.snow || '#eef3f7',
+        snowShade: src.snowShade || '#b3c6d6',
+        ice: src.ice || '#a9c6dc',
+        haze: src.haze || null,
+        glow: src.glow || src.accent || shadeHex(base, 1.4),
+        ember: src.ember || src.accent || base,
+    };
+}
+
 export class SurfaceWorld {
     constructor(pkg) {
         this.seed = (pkg.seed | 0) >>> 0;
@@ -88,7 +147,21 @@ export class SurfaceWorld {
         this.baseY = 300;
         this.region = 1400;
         this.formations = FORMATIONS[this.category] || FORMATIONS['литосфера'];
-        this.lifeDensity = this.life ? (LIFE_DENSITY[this.category] || 0.08) : 0;
+        // Рецепт вида (спека 2026-09-23 §2.6): применяется только когда сервер
+        // отдал резолвленный рецепт (view_source === 'catalog'). Иначе — фолбэк
+        // 1:1 на FORMATIONS/LIFE_DENSITY (старые пакеты/биомы без рецепта).
+        this.view = (pkg.biome_view && pkg.view_source === 'catalog') ? pkg.biome_view : null;
+        this.hasView = !!this.view;
+        this.palette = resolvePalette(this.view, this.color);
+        this.placement = (this.view && this.view.placement) || null;
+        const rawDecor = (this.view && Array.isArray(this.view.decor)) ? this.view.decor : [];
+        // Живой декор гейтится по pkg.life (§3.2): нет жизни → нет живого декора.
+        this.decorList = this.life ? rawDecor : rawDecor.filter((d) => !LIVING_DECOR.has(d.prim));
+        this.hangList = (this.view && Array.isArray(this.view.hang)) ? this.view.hang : [];
+        this._hasWhere = this.decorList.some((d) => d.where);
+        this.lifeDensity = this.view
+            ? (typeof this.view.life_density === 'number' ? this.view.life_density : 0)
+            : (this.life ? (LIFE_DENSITY[this.category] || 0.08) : 0);
     }
 
     _formationForRegion(idx) {
@@ -165,8 +238,74 @@ export class SurfaceWorld {
         return false;
     }
 
-    // decorAt — декор колонки (растительность/лишайники/камни).
+    // decorAt — декор колонки: по рецепту вида (если есть) или легаси-фолбэк.
     decorAt(x) {
+        if (this.hasView) return this._viewDecorAt(x);
+        return this._legacyDecorAt(x);
+    }
+
+    // _viewDecorAt — декор по рецепту (§3.2/§3.3): правила размещения
+    // uniform/clustered, плотность life_density (доля кластерных колонок),
+    // фильтр `where` по высоте/склону, выбор примитива взвешенно по p. Всё
+    // детерминировано от seed.
+    _viewDecorAt(x) {
+        if (!this.decorList.length) return null;
+        const col = Math.floor(x);
+        const p = this.placement || {};
+        if (p.mode === 'clustered') {
+            const tile = p.tile || 256;
+            const gap = p.gap || 16;
+            const t = Math.floor(col / tile);
+            const span = Math.max(1, tile - gap);
+            const start = t * tile + Math.floor(hash1(t, this.seed ^ 0xc105) * gap);
+            if (col < start || col >= start + span) return null; // зазор между кучками
+        }
+        if (hash1(col, this.seed ^ 0xdec0) >= this.lifeDensity) return null;
+        let list = this.decorList;
+        if (this._hasWhere) {
+            const alt = this.baseY - this.terrainHeight(col);
+            const slope = this.terrainHeight(col + 1) - this.terrainHeight(col);
+            list = list.filter((d) => decorAllowed(d.where, alt, slope));
+            if (!list.length) return null;
+        }
+        let total = 0;
+        for (const d of list) total += (d.p || 0);
+        if (total <= 0) return null;
+        let u = hash1(col, this.seed ^ 0xd3c1) * total;
+        let pick = list[list.length - 1];
+        for (const d of list) {
+            u -= (d.p || 0);
+            if (u < 0) { pick = d; break; }
+        }
+        // Форвардим ВСЕ параметры примитива (buttress/crown/arms/fronds/blades/
+        // capR/plume/…); диапазоны [lo,hi] разворачиваем в число детерминированно
+        // от seed (§3.2) — иначе `for (i < [2,3])` не рисует крону/вайи.
+        const out = { ...pick, col };
+        for (const key of Object.keys(out)) {
+            if (key === 'h' || key === 'w') continue;
+            const v = out[key];
+            if (Array.isArray(v) && v.length === 2 && typeof v[0] === 'number' && typeof v[1] === 'number') {
+                out[key] = resolveRange(v, col, (this.seed ^ keySeed(key)) >>> 0, v[0]);
+            }
+        }
+        out.h = resolveRange(pick.h, col, this.seed ^ 0x4848, 24);
+        out.w = resolveRange(pick.w, col, this.seed ^ 0x5757, out.h);
+        // Лианы (hang, §3.2): привязаны к дереву — только к нему и только
+        // детерминированно по колонке.
+        if (pick.prim === 'tree' && this.hangList.length) {
+            for (const hg of this.hangList) {
+                if (hg.from && hg.from !== 'tree') continue;
+                if (hash1(col, this.seed ^ 0x11a5) < (hg.p || 0)) {
+                    out.hang = { prim: hg.prim, len: resolveRange(hg.len, col, this.seed ^ 0x6c6c, 30) };
+                    break;
+                }
+            }
+        }
+        return out;
+    }
+
+    // _legacyDecorAt — прежний декор по категории (фолбэк 1:1, §2.3/§6 п.10).
+    _legacyDecorAt(x) {
         const col = Math.floor(x);
         if (this.life) {
             const r = hash1(col, this.seed ^ 0xdec0);
@@ -185,13 +324,17 @@ export class SurfaceWorld {
         return null;
     }
 
-    // rareDecorAt — редкая декорация-находка (любопытство, §9): ≥1 на участок
-    // 6000 px; вид детерминирован участком.
+    // rareDecorAt — редкая декорация-находка (любопытство, §9/§3.3): ≥1 на
+    // участок landmark.perRegion (по умолчанию 6000 px); вид — landmark.prim
+    // рецепта (например, сухая котловина), иначе легаси-набор; детерминирован
+    // участком.
     rareDecorAt(x) {
-        const R = 6000;
+        const lm = (this.view && this.view.landmark) || null;
+        const R = (lm && lm.perRegion) || 6000;
         const i = Math.floor(x / R);
         const cx = i * R + R * 0.5;
         if (Math.abs(x - cx) > 30) return null;
+        if (lm && lm.prim) return { prim: lm.prim, x: cx };
         const kinds = ['окаменелость', 'кристалл', 'обломок'];
         const kind = kinds[Math.floor(hash1(i, this.seed ^ 0xbeef) * kinds.length) % kinds.length];
         return { kind, x: cx };
@@ -234,6 +377,15 @@ export function shade(hex, factor) {
     const c = parseHex(hex);
     const f = (v) => Math.max(0, Math.min(255, Math.round(v * factor)));
     return `rgb(${f(c.r)},${f(c.g)},${f(c.b)})`;
+}
+
+// shadeHex — как shade(), но возвращает hex: производные ключи палитры (§3.4)
+// должны оставаться hex, иначе rgba()/shade() по ним ломаются.
+export function shadeHex(hex, factor) {
+    const c = parseHex(hex);
+    const f = (v) => Math.max(0, Math.min(255, Math.round(v * factor)));
+    const to = (v) => f(v).toString(16).padStart(2, '0');
+    return '#' + to(c.r) + to(c.g) + to(c.b);
 }
 
 export function rgba(hex, alpha) {

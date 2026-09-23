@@ -1150,12 +1150,17 @@ export async function saveBiomeCatalog() {
             const res = await fetchWithAuth('/admin/biome-catalog', {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
+                // PATCH — полная замена справочника: секции вида обязаны
+                // переноситься, иначе правка одного color затрёт всю грамматику
+                // (§7, критерий §10 п.14). Редактор вида — позже.
                 body: JSON.stringify({
                     biomes: state.catalog.biomes,
                     subterrain_types: state.catalog.subterrain_types,
                     planet_types: state.catalog.planet_types,
                     fallback_type: state.catalog.fallback_type,
                     params: state.catalog.params,
+                    view_families: state.catalog.view_families || [],
+                    view_primitives: state.catalog.view_primitives || [],
                 }),
             });
             if (!res.ok) {

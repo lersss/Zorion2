@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -90,6 +91,41 @@ func TestAdminBiomeCatalogGet(t *testing.T) {
 	require.Len(t, resp.PlanetTypes, 9, "сид: 9 правил типов")
 	require.NotNil(t, resp.ClimateBands, "полосы климатов в ответе")
 	require.Len(t, resp.ClimateBands.Climates, 1, "temp-полосы")
+}
+
+// ==================== РЕЦЕПТ ВИДА: ПЕРЕНОС GET/PATCH (§7, §10 п.14) ====================
+
+// GET несёт секции вида и диагностику; PATCH (в т.ч. правка одного color) их не
+// теряет — иначе сохранение из админки затирало бы всю грамматику вида.
+func TestAdminBiomeCatalogViewSectionsRoundTrip(t *testing.T) {
+	biomeCatalogHarness(t)
+	h := &AdminHandlers{}
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/biome-catalog", nil)
+	rec := execJSON(h.GetBiomeCatalog, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var got biomeCatalogResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Len(t, got.ViewFamilies, 9, "9 семейств вида (§3.5)")
+	require.GreaterOrEqual(t, len(got.ViewPrimitives), 26, "реестр примитивов вида")
+	require.NotEmpty(t, got.ViewDiagnostics.Missing, "биомы без рецепта видны (§2.7)")
+
+	// Правка одного color биома — секции вида обязаны уцелеть.
+	cat := catalogCopy(t)
+	families, prims := cat.ViewFamilies, cat.ViewPrimitives
+	cat.Biomes[0].Color = "#123456"
+	body, err := json.Marshal(cat)
+	require.NoError(t, err)
+	req = httptest.NewRequest(http.MethodPatch, "/admin/biome-catalog", strings.NewReader(string(body)))
+	req = withRole(req, string(auth.RoleAdmin))
+	rec = execJSON(h.PatchBiomeCatalog, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var after biomeCatalogResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &after))
+	require.True(t, reflect.DeepEqual(families, after.ViewFamilies), "view_families перенесены без потерь")
+	require.True(t, reflect.DeepEqual(prims, after.ViewPrimitives), "view_primitives перенесены без потерь")
+	require.Equal(t, "#123456", planet.GetBiomeCatalog().Biomes[0].Color, "правка color сохранена")
 }
 
 // ==================== PATCH: ВАЛИДАЦИЯ (инвариант 17) ====================

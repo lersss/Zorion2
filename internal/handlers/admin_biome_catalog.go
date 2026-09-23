@@ -34,18 +34,34 @@ type biomeCatalogResponse struct {
 	PlanetTypes     []planet.PlanetTypeRule    `json:"planet_types"`
 	FallbackType    string                     `json:"fallback_type"`
 	Params          planet.CatalogParams       `json:"params"`
-	ClimateBands    *planet.ArchetypeConfig    `json:"climate_bands"`
+	// Рецепт вида (спека 2026-09-23 §7): GET обязан нести секции и диагностику —
+	// PATCH — полная замена, поэтому сохранение обязано переносить их без потерь.
+	ViewFamilies    []map[string]any        `json:"view_families"`
+	ViewPrimitives  []planet.ViewPrimitive  `json:"view_primitives"`
+	ViewDiagnostics planet.ViewDiagnostics  `json:"view_diagnostics"`
+	ClimateBands    *planet.ArchetypeConfig `json:"climate_bands"`
 }
 
 // biomeCatalogResponseFromStore — сборка ответа из текущего store.
 func biomeCatalogResponseFromStore() biomeCatalogResponse {
 	cat := planet.GetBiomeCatalog()
+	families := cat.ViewFamilies
+	if families == nil {
+		families = []map[string]any{}
+	}
+	prims := cat.ViewPrimitives
+	if prims == nil {
+		prims = []planet.ViewPrimitive{}
+	}
 	return biomeCatalogResponse{
 		Biomes:          cat.Biomes,
 		SubterrainTypes: cat.SubterrainTypes,
 		PlanetTypes:     cat.PlanetTypes,
 		FallbackType:    cat.FallbackType,
 		Params:          cat.Params,
+		ViewFamilies:    families,
+		ViewPrimitives:  prims,
+		ViewDiagnostics: cat.ViewDiagnostics(),
 		ClimateBands:    planet.GetArchetypes(),
 	}
 }

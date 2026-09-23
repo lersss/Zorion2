@@ -66,6 +66,11 @@ type BiomeDef struct {
 	// необязательный hex #RRGGBB; пусто = база категории + сдвиги. Правка —
 	// только через админку (вкладка «Основное», редактор биома).
 	Color string `json:"color,omitempty"`
+
+	// View — рецепт вида биома (спека 2026-09-23 §2.2): дельта к семейству
+	// вида. Свободная структура (скаляры/карты/списки) — резолвится сервером
+	// (§2.3), в пакет прогулки едет готовым (biome_view). Пусто = фолбэк вида.
+	View map[string]any `json:"view,omitempty"`
 }
 
 // SubterrainTypeDef — определение типа недр (99.2.28 §5.5, приложение §2).
@@ -126,6 +131,12 @@ type BiomeCatalog struct {
 	PlanetTypes     []PlanetTypeRule    `json:"planet_types"`
 	FallbackType    string              `json:"fallback_type"`
 	Params          CatalogParams       `json:"params"`
+
+	// Рецепт вида (спека 2026-09-23 §2.1): семейства вида (пресеты грамматики)
+	// и реестр допустимых примитивов. Часть справочника — в обеих копиях (§2.7),
+	// переносятся GET/PATCH админки (§7).
+	ViewFamilies   []map[string]any `json:"view_families,omitempty"`
+	ViewPrimitives []ViewPrimitive  `json:"view_primitives,omitempty"`
 }
 
 // ==================== STORE (RWMutex, hot-reload) ====================
@@ -166,6 +177,9 @@ func LoadBiomeCatalog(path string) error {
 	if err := cat.Validate(); err != nil {
 		return err
 	}
+	// Проверка вида — нефатальная, отдельная от Validate() (§2.8): ошибки
+	// рецептов видимы в логе, но не роняют каталог/генерацию.
+	logViewDiagnostics(&cat)
 	biomeCatalogMu.Lock()
 	biomeCatalog = &cat
 	biomeCatalogPath = absPath
@@ -181,6 +195,7 @@ func RebuildBiomeCatalog(cat *BiomeCatalog) error {
 	if err := cat.Validate(); err != nil {
 		return err
 	}
+	logViewDiagnostics(cat) // нефатальная проверка вида (§2.8)
 	biomeCatalogMu.Lock()
 	biomeCatalog = cat
 	biomeCatalogMu.Unlock()

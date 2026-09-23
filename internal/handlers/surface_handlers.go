@@ -91,30 +91,36 @@ type SurfacePackage struct {
 	// визуальный якорь «я только что сел здесь». Иконка уже резолвлена
 	// (models.ResolveShipIcon: legacy/битая → дефолт), цвет NULL = «Оригинал»;
 	// pose (angle/flip) — из того же реестра, что и остальной визуал корабля.
-	ShipIcon         string        `json:"ship_icon"`
-	ShipColor        *string       `json:"ship_color"`
-	ShipAngle        float64       `json:"ship_angle"`
-	ShipFlip         bool          `json:"ship_flip"`
-	Biome            string        `json:"biome"`
-	BiomeName        string        `json:"biome_name"`
-	BiomeShare       float64       `json:"biome_share"`
-	BiomeCategory    string        `json:"biome_category"`
-	BiomeColor       string        `json:"biome_color"`
-	BiomeDescription string        `json:"biome_description,omitempty"`
-	Seed             uint32        `json:"seed"`
-	Life             bool          `json:"life"`
-	Gravity          float64       `json:"gravity"`
-	Temperature      float64       `json:"temperature"`
-	PressureAtm      float64       `json:"pressure_atm"`
-	Radioactive      bool          `json:"radioactive"`
-	Radioactivity    float64       `json:"radioactivity"`
-	Toxic            bool          `json:"toxic"`
-	LiquidMedium     string        `json:"liquid_medium"`
-	Suit             SurfaceSuit   `json:"suit"`
-	HP               float64       `json:"hp"`
-	LandedAt         string        `json:"landed_at"`
-	Hazard           SurfaceHazard `json:"hazard"`
-	Sky              SurfaceSky    `json:"sky"`
+	ShipIcon         string  `json:"ship_icon"`
+	ShipColor        *string `json:"ship_color"`
+	ShipAngle        float64 `json:"ship_angle"`
+	ShipFlip         bool    `json:"ship_flip"`
+	Biome            string  `json:"biome"`
+	BiomeName        string  `json:"biome_name"`
+	BiomeShare       float64 `json:"biome_share"`
+	BiomeCategory    string  `json:"biome_category"`
+	BiomeColor       string  `json:"biome_color"`
+	BiomeDescription string  `json:"biome_description,omitempty"`
+	// Рецепт вида биома (спека 2026-09-23 §2.6): аддитивные поля. biome_view —
+	// резолвленный рецепт (пусто → клиент по фолбэку FORMATIONS/LIFE_DENSITY);
+	// view_source — "catalog"|"fallback"; view_version — версия схемы рецепта.
+	BiomeView     map[string]any `json:"biome_view,omitempty"`
+	ViewSource    string         `json:"view_source"`
+	ViewVersion   int            `json:"view_version"`
+	Seed          uint32         `json:"seed"`
+	Life          bool           `json:"life"`
+	Gravity       float64        `json:"gravity"`
+	Temperature   float64        `json:"temperature"`
+	PressureAtm   float64        `json:"pressure_atm"`
+	Radioactive   bool           `json:"radioactive"`
+	Radioactivity float64        `json:"radioactivity"`
+	Toxic         bool           `json:"toxic"`
+	LiquidMedium  string         `json:"liquid_medium"`
+	Suit          SurfaceSuit    `json:"suit"`
+	HP            float64        `json:"hp"`
+	LandedAt      string         `json:"landed_at"`
+	Hazard        SurfaceHazard  `json:"hazard"`
+	Sky           SurfaceSky     `json:"sky"`
 }
 
 // ==================== ЖРЕБИЙ БИОМА (§5.1) ====================
@@ -358,6 +364,8 @@ func (h *SurfaceHandlers) buildWalkPackage(p *models.Planet, biome string, pos *
 	// Корабль: резолвим иконку и берём её позу из реестра (ЧК-ship).
 	shipIcon := models.ResolveShipIcon(user.ShipIcon)
 	shipAngle, shipFlip := models.ShipOrientByFile(shipIcon)
+	// Рецепт вида (§2.6): резолв на сервере — клиент не читает справочник сам.
+	biomeView, viewSource := cat.ResolveBiomeView(biome)
 
 	return SurfacePackage{
 		PlanetID:         p.ID,
@@ -373,6 +381,9 @@ func (h *SurfaceHandlers) buildWalkPackage(p *models.Planet, biome string, pos *
 		BiomeCategory:    category,
 		BiomeColor:       planet.SurfaceBiomeColorHex(biome, p.Temperature),
 		BiomeDescription: description,
+		BiomeView:        biomeView,
+		ViewSource:       viewSource,
+		ViewVersion:      planet.ViewSchemaVersion,
 		Seed:             surfaceSeed(p.ID, biome),
 		Life:             p.Life,
 		Gravity:          p.Gravity,

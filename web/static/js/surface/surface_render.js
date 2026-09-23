@@ -4,6 +4,7 @@
 // жизнь, игрок, HUD (в surface_ui.js). Canvas 2D. Погода — surface_weather.js.
 import { CHUNK, CHUNK_RADIUS, COLORS, FLOAT_SPAN, FLOAT_GAP, ZOOM, SHIP_DECOR_SIZE, SHIP_DECOR_X, SHIP_HOVER_BOTTOM, SHIP_BOB_AMP, SHIP_BOB_PERIOD_MS } from './surface_config.js';
 import { shade, rgba } from './surface_world.js';
+import { drawDecorPrim } from './surface_decor.js';
 import { planetTexture } from './surface_net.js';
 import { recolorShipSprite, shipDrawTransform } from '../map/ship_sprites.js';
 
@@ -70,7 +71,9 @@ export function getChunkCanvas(world, index) {
     ctx.scale(canvas.width / (CHUNK + 1), canvas.height / CHUNK_HEIGHT);
     const topY = world.baseY - CHUNK_TOP_MARGIN;
     const baseX = index * CHUNK;
-    const rock = shade(world.color, 0.62);
+    // Цвет земли: с рецептом — палитра биома (§3.4, base — «земля»), иначе
+    // прежний затемнённый biome_color (фолбэк 1:1).
+    const rock = world.hasView ? world.palette.base : shade(world.color, 0.62);
 
     ctx.fillStyle = rock;
     for (let lx = 0; lx <= CHUNK; lx++) {
@@ -128,8 +131,8 @@ export function getChunkCanvas(world, index) {
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, CHUNK + 1, CHUNK_HEIGHT);
 
-    // Кромка поверхности — светлее.
-    ctx.fillStyle = shade(world.color, 1.15);
+    // Кромка поверхности — светлее (палитра: light; фолбэк — shade).
+    ctx.fillStyle = world.hasView ? world.palette.light : shade(world.color, 1.15);
     for (let lx = 0; lx <= CHUNK; lx++) {
         const wx = baseX + lx;
         const ly = Math.floor(world.terrainHeight(wx) - topY);
@@ -299,7 +302,7 @@ export function visibleDecor(world, camera, vw) {
     for (let wx = Math.floor(left) - margin; wx <= Math.ceil(camera.x + vw / 2) + margin; wx++) {
         const d = world.decorAt(wx);
         if (!d) continue;
-        out.push({ wx, x: wx - camera.x + vw / 2, kind: d.kind, h: d.h });
+        out.push({ wx, x: wx - camera.x + vw / 2, ...d });
     }
     return out;
 }
@@ -309,6 +312,8 @@ export function drawDecor(ctx, world, camera, vw, vh) {
     for (const d of visibleDecor(world, camera, vw)) {
         const x = d.x;
         const gy = world.terrainHeight(d.wx) - camera.y + vh / 2;
+        // Рецепт вида (§3.2): отрисовка по примитиву.
+        if (d.prim) { drawDecorPrim(ctx, world, d, x, gy); continue; }
         if (d.kind === 'tree') {
             ctx.strokeStyle = shade(world.color, 0.5);
             ctx.lineWidth = 3;
@@ -346,6 +351,8 @@ export function drawDecor(ctx, world, camera, vw, vh) {
         if (!r) continue;
         const x = r.x - camera.x + vw / 2;
         const gy = world.terrainHeight(r.x) - camera.y + vh / 2;
+        // Примета биома по рецепту (landmark.prim, §3.3) — библиотека декора.
+        if (r.prim) { drawDecorPrim(ctx, world, { prim: r.prim, h: 20 }, x, gy); continue; }
         ctx.save();
         ctx.fillStyle = r.kind === 'кристалл' ? '#9ae6ff' : r.kind === 'обломок' ? '#b0b7c3' : '#e3d1a0';
         ctx.beginPath();

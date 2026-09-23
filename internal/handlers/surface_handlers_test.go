@@ -739,3 +739,61 @@ func TestNormalizeMyPositionSurface(t *testing.T) {
 	out3 := normalizeMyPosition(pos3, "w1", planets, nil, validStar)
 	assert.Equal(t, b1.ID, out3.Biome)
 }
+
+// ==================== РЕЦЕПТ ВИДА В ПАКЕТЕ (§2.6) ====================
+
+// Образец с рецептом → аддитивные поля biome_view/view_source/view_version;
+// пакет — единственный вход клиента (второго реестра в JS нет).
+func TestSurfaceLandCarriesBiomeView(t *testing.T) {
+	h, mock := newSurfaceHarness(t)
+	const uid = "11111111-1111-1111-1111-111111111111"
+	biome := testBiomeByCategory(t, "литосфера") // «горы» — образец с рецептом
+	require.NotEmpty(t, biome.View, "первый литосферный биом обязан быть образцом")
+	data := surfacePlanetData(biome.ID, 100, 288, 1.0, 0, true)
+
+	expectSurfaceUser(mock, uid, "w1", orbitPlanetPos)
+	expectIntraWorld(mock, "w1")
+	expectSurfacePlanetsLight(mock, "w1", surfacePlanetRow("pl-1", "w1", "X", data))
+	expectSurfaceUpdate(mock, uid)
+
+	rec := execJSON(h.Land, surfaceLandRequest(uid, "pl-1"))
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var pkg SurfacePackage
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &pkg))
+	assert.Equal(t, "catalog", pkg.ViewSource)
+	assert.Equal(t, genplanet.ViewSchemaVersion, pkg.ViewVersion)
+	require.NotNil(t, pkg.BiomeView, "резолвленный рецепт в пакете")
+	assert.Contains(t, pkg.BiomeView, "palette")
+	assert.Equal(t, biome.Color, pkg.BiomeColor)
+}
+
+// Биом без рецепта → фолбэк вида: biome_view пусто, view_source = "fallback"
+// (клиент работает по FORMATIONS/LIFE_DENSITY, поведение 1:1).
+func TestSurfaceLandViewFallback(t *testing.T) {
+	h, mock := newSurfaceHarness(t)
+	const uid = "11111111-1111-1111-1111-111111111111"
+	var plain genplanet.BiomeDef
+	for _, b := range genplanet.GetBiomeCatalog().Biomes {
+		if b.Category == "литосфера" && len(b.View) == 0 {
+			plain = b
+			break
+		}
+	}
+	require.NotEmpty(t, plain.ID, "нужен литосферный биом без рецепта")
+	data := surfacePlanetData(plain.ID, 100, 288, 1.0, 0, true)
+
+	expectSurfaceUser(mock, uid, "w1", orbitPlanetPos)
+	expectIntraWorld(mock, "w1")
+	expectSurfacePlanetsLight(mock, "w1", surfacePlanetRow("pl-1", "w1", "X", data))
+	expectSurfaceUpdate(mock, uid)
+
+	rec := execJSON(h.Land, surfaceLandRequest(uid, "pl-1"))
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var pkg SurfacePackage
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &pkg))
+	assert.Equal(t, "fallback", pkg.ViewSource)
+	assert.Nil(t, pkg.BiomeView, "нет рецепта — поля нет (omitempty)")
+	assert.Equal(t, genplanet.ViewSchemaVersion, pkg.ViewVersion)
+}

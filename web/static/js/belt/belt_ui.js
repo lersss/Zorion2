@@ -24,7 +24,7 @@ const CLASS_NODATA = { text: 'Пояс: нет данных', color: '#64748b' }
 
 const KIND_LABELS = {
     asteroid: 'пояс астероидов',
-    kuiper: 'пояс Койпера',
+    kuiper: 'пояс астероидов',
     debris: 'обломочный пояс',
     dust_ring: 'пылевое кольцо',
     oort: 'облако Оорта',

@@ -876,10 +876,46 @@ function drawForeignPlayers(ctx, layout, planets, timeMs) {
 // Палитра камня — существующая (belt_render.js COLORS, ТЗ §9.0): новых цветов
 // не вводим.
 const BELT_STONE_COLORS = ['#6b7280', '#8b93a1', '#454c58', '#3b414b'];
+// Тона камней при наведении — подсветка россыпи вместо подложки-annulus.
+const BELT_STONE_HOVER_COLORS = ['#94a3b8', '#a8b3c2', '#7c8798', '#8b93a1'];
+// Выработанный пояс: светлых тонов нет (ТЗ §5) — только тёмная часть палитры.
+const BELT_STONE_DEPLETED_COLORS = ['#6b7280', '#454c58', '#3b414b'];
+// Веса тонов (та же палитра, новых цветов нет): светлые реже — светотень
+// (светлый край) читается на тёмном теле, россыпь не сливается в светлую кашу.
+const BELT_STONE_TONE_WEIGHTS = [0.32, 0.14, 0.30, 0.24];
+// Светотень (ТЗ §4): свет со стороны звезды — светлый край на внутренней
+// стороне камня, тёмный кант на внешней. Оба тона — из существующей палитры.
+const BELT_STONE_LIGHT = '#8b93a1';
+const BELT_STONE_SHADOW = '#3b414b';
+// Пороги светотени в ЭКРАННЫХ px камня: мельче — только тон (иначе грязь).
+const BELT_LIGHT_MIN_PX = 2.5;
+const BELT_SHADOW_MIN_PX = 4;
 
-// drawBelts — слой кольца поясов (вариант C «россыпь камней», ТЗ §9.1/§9.2):
-// лёгкая подложка-annulus + процедурные камни по осевой линии. Геометрия — из
-// beltRing (один источник с хит-тестом, §9.4); цвета — существующая палитра.
+// beltStoneCount — число камней россыпи пояса: от ПРОТЯЖЁННОСТИ (width_au —
+// видимая геометрия карточки). Класс/богатство (belt_class, remaining_level) НЕ
+// используются: они скрыты до скана, а вид пояса не должен меняться после скана
+// (утечка знания; решение приёмной 2026-09-23). Внутри полосы точное число — из
+// сида fnv1a(belt.id) (детерминизм §9.6). Выработанный пояс — вдвое реже, но не
+// меньше 2 камней (иначе пояс исчезнет со схемы, а ПКМ по нему нужен).
+export function beltStoneCount(belt) {
+    const w = Number(belt && belt.width_au);
+    let min, max;
+    if (!isFinite(w) || w <= 0) { min = 10; max = 16; } // нет данных — «средняя» полоса
+    else if (w < 0.5) { min = 6; max = 10; }
+    else if (w < 2) { min = 10; max = 16; }
+    else if (w <= 8) { min = 16; max = 22; }
+    else { min = 22; max = 28; }
+    const rng = mulberry32(fnv1a(String((belt && belt.id) || '')));
+    const count = min + Math.floor(rng() * (max - min + 1));
+    if (belt && belt.remaining_level === 'выработан') {
+        return Math.max(2, Math.round(count * 0.5));
+    }
+    return count;
+}
+
+// drawBelts — слой кольца поясов (вариант C «россыпь камней», ТЗ §9.1/§9.2).
+// Геометрия — из beltRing (один источник с хит-тестом, §9.4); цвета —
+// существующая палитра.
 function drawBelts(ctx, layout) {
     const belts = modalState.belts || [];
     if (belts.length === 0) return;
@@ -890,76 +926,165 @@ function drawBelts(ctx, layout) {
         const hovered = !!modalState.hoveredObject &&
             modalState.hoveredObject.type === 'belt' && modalState.hoveredObject.id === b.id;
 
-        // Подложка-annulus: только заливка, серым низкой альфы (при выработанном —
-        // глуше). Обводки кромок нет (правка создателя 2026-09-23: «не нужна эта
-        // обводка» — кольцо читалось «трубой/шариком»); интерактив (ховер) —
-        // усилением той же заливки, а не кромкой.
-        const outer = g.radius + g.half;
-        const inner = Math.max(0, g.radius - g.half);
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(g.cx, g.cy, outer, 0, 2 * Math.PI);
-        ctx.moveTo(g.cx + inner, g.cy);
-        ctx.arc(g.cx, g.cy, inner, 0, 2 * Math.PI, true);
-        ctx.closePath();
-        ctx.fillStyle = hovered
-            ? 'rgba(107,114,128,0.24)'
-            : (depleted ? 'rgba(107,114,128,0.05)' : 'rgba(107,114,128,0.10)');
-        ctx.fill();
-        ctx.restore();
-
-        // Камни — только когда кольцо достаточно крупно на экране (риск шума на
-        // малом масштабе, §9.2): annulus читается и без них.
-        if (g.radius * modalState.zoom < 20) return;
-        drawBeltStones(ctx, b, g, depleted);
+        // Подложки-annulus нет (правки создателя 2026-09-23: сначала «не нужна эта
+        // обводка», затем «полупрозрачное кольцо так и осталось») — пояс на схеме
+        // рисуется ТОЛЬКО россыпью камней. Геометрия beltRing остаётся источником
+        // для хит-теста/ПКМ (невидимая зона клика, §9.4); интерактив (ховер) —
+        // подсветкой камней, а не подложкой.
+        drawBeltStones(ctx, b, g, depleted, hovered);
     });
 }
 
-// drawBeltStones — 12–24 процедурных камня по осевой линии кольца (вариант C).
+// drawBeltStones — россыпь камней пояса. Число камней — beltStoneCount (от
+// протяжённости пояса); раскладка: 2–6 куч по 3–6 камней с пустыми
+// промежутками между ними + 0–2 одиночки (ТЗ визуального дизайна 2026-09-23 §2);
+// размеры: ~20–25 % «якорных» (×1.0–1.5 от base), остальные мелкие (×0.5–0.85) —
+// разброс вместо «одинаковых» (§1); крупные рисуются поверх мелких (§5).
 // Детерминизм от belt.id (mulberry32), без Math.random (инвариант §9.6).
-function drawBeltStones(ctx, belt, g, depleted) {
+// Светотень — ОТДЕЛЬНЫМ проходом после тел (§4): переживёт подмену камня на
+// спрайт (drawBeltStone остаётся единой точкой подмены, §9.5).
+function drawBeltStones(ctx, belt, g, depleted, hovered) {
     const rng = mulberry32(fnv1a(String(belt.id)));
-    const count = 12 + Math.floor(rng() * 13); // 12..24
+    const count = beltStoneCount(belt);
     const base = Math.max(g.half * 0.45, 1.5 / modalState.zoom); // экранный пол
+    const tones = hovered
+        ? BELT_STONE_HOVER_COLORS
+        : (depleted ? BELT_STONE_DEPLETED_COLORS : BELT_STONE_COLORS);
+
+    // Кучи и одиночки (§2): count камней = кучи (по 3–6) + 0–2 одиночки.
+    const nClusters = Math.max(2, Math.min(6, Math.round(count / 5)));
+    const singles = Math.min(Math.floor(rng() * 3), Math.max(0, count - nClusters * 3));
+    const inClusters = count - singles;
+    const perCluster = [];
+    for (let i = 0; i < nClusters; i++) {
+        perCluster.push(Math.floor(inClusters / nClusters) + (i < inClusters % nClusters ? 1 : 0));
+    }
+
+    const stones = [];
+    // sizeFor — «якорные» камни (×1.0–1.5) против мелких (×0.5–0.85) (§1).
+    const sizeFor = () => (rng() < 0.22 ? base * (1.0 + rng() * 0.5) : base * (0.5 + rng() * 0.35));
+    // Тон с весами (светлые реже) — по тому же rng (детерминизм §9.6).
+    const toneFor = () => {
+        let r = rng();
+        for (let i = 0; i < tones.length; i++) {
+            r -= BELT_STONE_TONE_WEIGHTS[i] || 0;
+            if (r <= 0) return tones[i];
+        }
+        return tones[tones.length - 1];
+    };
+    const pushStone = (angle, size, radialJitter) => {
+        const rr = g.radius + (rng() - 0.5) * radialJitter;
+        stones.push({
+            x: g.cx + Math.cos(angle) * rr,
+            y: g.cy + Math.sin(angle) * rr,
+            size,
+            rot: rng() * 2 * Math.PI,
+            verts: 7 + Math.floor(rng() * 5),                        // 7..11 вершин (§3)
+            spread: size >= base ? [0.60, 1.0] : [0.80, 1.0],        // у крупных разброс сильнее (§3)
+            aspect: rng() < 0.3 ? 1.3 + rng() * 0.3 : 1,             // ~30 % вытянутые (§3)
+            tone: toneFor(),
+        });
+    };
+    for (let c = 0; c < nClusters; c++) {
+        const a0 = rng() * 2 * Math.PI;
+        const n = perCluster[c];
+        // Куча плотная, но камни НЕ сливаются: дуга ≈ 2.1 радиуса на камень
+        // (≈1 поперечник + малый зазор); поперёк кольца разброс малый — куча
+        // читается сгустком, между кучами остаются пустые промежутки (§2).
+        const span = (n * base * 2.1) / Math.max(1, g.radius);
+        for (let i = 0; i < n; i++) {
+            const t = n === 1 ? 0.5 : i / (n - 1);
+            pushStone(a0 + (t - 0.5) * span, sizeFor(), Math.min(g.half, base * 1.6));
+        }
+    }
+    for (let i = 0; i < singles; i++) pushStone(rng() * 2 * Math.PI, sizeFor(), g.half);
+
+    stones.sort((p, q) => p.size - q.size); // крупные поверх мелких (§5)
+
     ctx.save();
-    if (depleted) ctx.globalAlpha = 0.5; // выработан — приглушено (§9.1)
-    for (let i = 0; i < count; i++) {
-        const a = (i / count) * 2 * Math.PI + (rng() - 0.5) * 0.25;
-        const rr = g.radius + (rng() - 0.5) * g.half * 1.2;
-        const x = g.cx + Math.cos(a) * rr;
-        const y = g.cy + Math.sin(a) * rr;
-        const size = base * (0.6 + rng() * 0.7);
-        const rot = rng() * 2 * Math.PI;
-        const tone = BELT_STONE_COLORS[Math.floor(rng() * BELT_STONE_COLORS.length)];
-        drawBeltStone(ctx, x, y, size, rot, tone);
+    if (depleted) ctx.globalAlpha = 0.4; // выработан — приглушено (§9.1)
+    for (const s of stones) drawBeltStone(ctx, s);
+    // Светотень (§4): у выработанного светлых тонов/блика нет — проход пропущен.
+    if (!depleted) {
+        for (const s of stones) drawBeltStoneLight(ctx, s, g);
     }
     ctx.restore();
 }
 
-// drawBeltStone — один камень: процедурный многоугольник (образец
-// belt_render.js drawAsteroid, 8–10 вершин). ЕДИНАЯ точка будущей подмены на
-// спрайт (drawImage из web/static/sprites/belt/, направление 2 §1): геометрия
-// кольца, точка пояса и хит-тест при этом не трогаются (§9.5). Форма — от
-// позиции/размера камня (детерминизм, без Math.random). size — радиус, мировые px.
-function drawBeltStone(ctx, x, y, size, rot, tone) {
-    const rng = mulberry32(((Math.floor(x * 7) ^ Math.floor(y * 13) ^ Math.floor(size * 31)) >>> 0));
-    const verts = 8 + Math.floor(rng() * 3); // 8..10 вершин
+// beltStonePath — путь камня (общий для тела и светотени): процедурный
+// многоугольник в локальной системе (translate/rotate/scale(aspect)); координаты
+// запекаются в путь, transform снимается сразу. Форма — от позиции/размера камня
+// (детерминизм, без Math.random).
+function beltStonePath(ctx, s) {
+    const rng = mulberry32(((Math.floor(s.x * 7) ^ Math.floor(s.y * 13) ^ Math.floor(s.size * 31)) >>> 0));
     ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(rot);
+    ctx.translate(s.x, s.y);
+    ctx.rotate(s.rot);
+    ctx.scale(s.aspect, 1);
     ctx.beginPath();
-    for (let i = 0; i < verts; i++) {
-        const a = (i / verts) * 2 * Math.PI;
-        const r = size * (0.72 + rng() * 0.28);
+    for (let i = 0; i < s.verts; i++) {
+        const a = (i / s.verts) * 2 * Math.PI;
+        const r = s.size * (s.spread[0] + rng() * (s.spread[1] - s.spread[0]));
         const px = Math.cos(a) * r;
         const py = Math.sin(a) * r;
         if (i === 0) ctx.moveTo(px, py);
         else ctx.lineTo(px, py);
     }
     ctx.closePath();
-    ctx.fillStyle = tone;
-    // Обводки камня нет (правка создателя 2026-09-23: «не нужна эта обводка») —
-    // иначе контур кольца возвращался бы на россыпи.
+    ctx.restore();
+}
+
+// drawBeltStone — тело камня (заливка тоном). ЕДИНАЯ точка будущей подмены на
+// спрайт (drawImage из web/static/sprites/belt/, направление 2 §1): геометрия
+// кольца, точка пояса и хит-тест при этом не трогаются (§9.5), а светотень —
+// отдельный проход (drawBeltStoneLight), поэтому переживёт подмену. Обводки нет
+// (правка создателя 2026-09-23).
+function drawBeltStone(ctx, s) {
+    beltStonePath(ctx, s);
+    ctx.fillStyle = s.tone;
     ctx.fill();
+}
+
+// drawBeltStoneLight — светотень камня (§4): звезда — центр кольца, свет
+// радиально наружу ⇒ светлый край (BELT_STONE_LIGHT) на ВНУТРЕННЕЙ стороне
+// камня, тёмный кант (BELT_STONE_SHADOW) — на внешней. Свет ЭКРАННЫЙ: считается
+// от направления «центр кольца → камень» и не зависит от rot камня. Пороги по
+// экранному размеру: < 2.5 px — только тон, ≥ 4 px — ещё и тёмный кант.
+function drawBeltStoneLight(ctx, s, g) {
+    const screenPx = s.size * modalState.zoom;
+    if (screenPx < BELT_LIGHT_MIN_PX) return;
+    let ux = s.x - g.cx;
+    let uy = s.y - g.cy;
+    const len = Math.hypot(ux, uy);
+    if (!isFinite(len) || len === 0) return;
+    ux /= len;
+    uy /= len;
+    const perpX = -uy;
+    const perpY = ux;
+    const big = s.size * 4; // заведомо больше камня
+
+    // Полуплоскость от линии через точку (cut вдоль u): innerSide — сторона к
+    // звезде (dot ≤ cut), иначе внешняя (dot ≥ cut). Обрезается путём камня.
+    const halfPlane = (cut, color, innerSide) => {
+        const sgn = innerSide ? -1 : 1;
+        const bx = s.x + ux * cut;
+        const by = s.y + uy * cut;
+        const farX = ux * sgn * 2 * big;
+        const farY = uy * sgn * 2 * big;
+        ctx.beginPath();
+        ctx.moveTo(bx + perpX * big, by + perpY * big);
+        ctx.lineTo(bx - perpX * big, by - perpY * big);
+        ctx.lineTo(bx - perpX * big + farX, by - perpY * big + farY);
+        ctx.lineTo(bx + perpX * big + farX, by + perpY * big + farY);
+        ctx.closePath();
+        ctx.fillStyle = color;
+        ctx.fill();
+    };
+
+    ctx.save();
+    beltStonePath(ctx, s);
+    ctx.clip();
+    halfPlane(-s.size * 0.25, BELT_STONE_LIGHT, true);
+    if (screenPx >= BELT_SHADOW_MIN_PX) halfPlane(s.size * 0.6, BELT_STONE_SHADOW, false);
     ctx.restore();
 }

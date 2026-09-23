@@ -197,7 +197,7 @@ export function renderPlanetsList() {
 function beltKindLabel(kind) {
     const labels = {
         asteroid: 'пояс астероидов',
-        kuiper: 'пояс Койпера',
+        kuiper: 'пояс астероидов',
         debris: 'обломочный пояс',
         dust_ring: 'пылевое кольцо',
         oort: 'облако Оорта',

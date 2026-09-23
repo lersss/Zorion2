@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 	"zorion/internal/generator"
 	"zorion/internal/generator/faction"
 	"zorion/internal/generator/galaxy"
@@ -97,6 +99,62 @@ func clearUniverseTx(ctx context.Context, tx *sql.Tx) error {
 		return fmt.Errorf("re-add fk: %w", err)
 	}
 
+	return nil
+}
+
+// Параметры авто-повтора очистки при дедлоке: 3 попытки, пауза растёт
+// (150, 300 мс). Дедлок здесь кратковременный — фоновый NPC-тик держит
+// npc_agents и ждёт worlds (KEY SHARE под FK), TRUNCATE держит worlds и ждёт
+// npc_agents; Postgres убивает очистку (40P01). Данные целы (откат), чиним
+// устойчивость.
+const (
+	clearUniverseAttempts  = 3
+	clearUniverseRetryWait = 150 * time.Millisecond
+)
+
+// isDeadlockErr — дедлок Postgres (SQLSTATE 40P01). После него транзакция
+// мертва, но повтор безопасен: Postgres уже откатил её целиком.
+func isDeadlockErr(err error) bool {
+	var pqErr *pq.Error
+	return errors.As(err, &pqErr) && pqErr.Code == "40P01"
+}
+
+// clearUniverseWithRetry выполняет очистку в отдельной транзакции, повторяя
+// её при дедлоке (40P01). Каждый повтор — свежий BeginTx: после дедлока
+// транзакция непригодна. Другие ошибки не ретраятся.
+func clearUniverseWithRetry(ctx context.Context, db *sql.DB, attempts int, retryWait time.Duration) error {
+	var err error
+	for attempt := 0; attempt < attempts; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Duration(attempt) * retryWait):
+			}
+		}
+		err = clearUniverseOnce(ctx, db)
+		if err == nil || !isDeadlockErr(err) {
+			return err
+		}
+		log.Printf("⚠️ ClearUniverse: deadlock (попытка %d/%d), повтор", attempt+1, attempts)
+	}
+	return err
+}
+
+// clearUniverseOnce — одна попытка очистки: Begin → clearUniverseTx → Commit.
+func clearUniverseOnce(ctx context.Context, db *sql.DB) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	if err := clearUniverseTx(ctx, tx); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
 	return nil
 }
 
@@ -840,23 +898,9 @@ func (h *AdminHandlers) ClearUniverse(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("🗑️ ClearUniverse: начало (worlds=%d, planets=%d, users=%d)", worldsBefore, planetsBefore, usersBefore)
 
-	tx, err := h.db.BeginTx(r.Context(), nil)
-	if err != nil {
-		log.Printf("❌ ClearUniverse: begin tx: %v", err)
-		http.Error(w, "Failed to start transaction", http.StatusInternalServerError)
-		return
-	}
-	defer tx.Rollback()
-
-	if err := clearUniverseTx(r.Context(), tx); err != nil {
+	if err := clearUniverseWithRetry(r.Context(), h.db, clearUniverseAttempts, clearUniverseRetryWait); err != nil {
 		log.Printf("❌ ClearUniverse: %v", err)
 		http.Error(w, "Failed to clear universe: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	if err := tx.Commit(); err != nil {
-		log.Printf("❌ ClearUniverse: commit: %v", err)
-		http.Error(w, "Failed to commit", http.StatusInternalServerError)
 		return
 	}
 

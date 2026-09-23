@@ -11,8 +11,10 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 
 	"zorion/internal/models"
@@ -93,6 +95,84 @@ func TestClearUniverseTx(t *testing.T) {
 	require.NoError(t, clearUniverseTx(context.Background(), tx))
 	require.NoError(t, tx.Commit())
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestClearUniverseRetriesOnDeadlock — дедлок на TRUNCATE (40P01) не роняет
+// очистку: первая попытка убита Postgres (TRUNCATE × фоновый NPC-тик), вторая
+// идёт со свежим BeginTx и доходит до Commit. Итог — успех без ошибки.
+func TestClearUniverseRetriesOnDeadlock(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	// Попытка 1: TRUNCATE падает дедлоком, транзакция откатывается.
+	expectClearUniversePrefix(mock)
+	mock.ExpectExec(`TRUNCATE TABLE ` + truncateTables).
+		WillReturnError(&pq.Error{Code: "40P01", Message: "deadlock detected"})
+	mock.ExpectRollback()
+
+	// Попытка 2: свежая транзакция проходит целиком.
+	expectClearUniversePrefix(mock)
+	mock.ExpectExec(`TRUNCATE TABLE ` + truncateTables).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(`DELETE FROM accounts WHERE owner_type IN \('faction', 'agent'\)`).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(regexp.QuoteMeta(`ALTER TABLE users ADD CONSTRAINT users_current_world_id_fkey FOREIGN KEY (current_world_id) REFERENCES worlds(id) ON DELETE SET NULL`)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
+
+	require.NoError(t, clearUniverseWithRetry(context.Background(), db, clearUniverseAttempts, time.Millisecond))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestClearUniverseRetryExhausted — все попытки в дедлоке: функция
+// возвращает ошибку 40P01 (без паники), транзакции откатываются.
+func TestClearUniverseRetryExhausted(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	for i := 0; i < 2; i++ {
+		expectClearUniversePrefix(mock)
+		mock.ExpectExec(`TRUNCATE TABLE ` + truncateTables).
+			WillReturnError(&pq.Error{Code: "40P01", Message: "deadlock detected"})
+		mock.ExpectRollback()
+	}
+
+	err = clearUniverseWithRetry(context.Background(), db, 2, time.Millisecond)
+	require.Error(t, err)
+	require.True(t, isDeadlockErr(err), "исчерпание попыток отдаёт исходный дедлок: %v", err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestClearUniverseNoRetryOnOtherError — не-дедлок не ретраится: одна
+// транзакция, ошибка наружу (защита от лишних попыток).
+func TestClearUniverseNoRetryOnOtherError(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectClearUniversePrefix(mock)
+	mock.ExpectExec(`TRUNCATE TABLE ` + truncateTables).
+		WillReturnError(&pq.Error{Code: "23503", Message: "foreign key violation"})
+	mock.ExpectRollback()
+
+	err = clearUniverseWithRetry(context.Background(), db, clearUniverseAttempts, time.Millisecond)
+	require.Error(t, err)
+	require.False(t, isDeadlockErr(err))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// expectClearUniversePrefix — шаги попытки очистки до TRUNCATE (Begin,
+// возврат залога, снятие current_world_id, снятие FK).
+func expectClearUniversePrefix(mock sqlmock.Sqlmock) {
+	mock.ExpectBegin()
+	mock.ExpectQuery(`UPDATE contracts\s+SET status = CASE WHEN executor_id IS NULL`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "author_type", "author_id", "executor_id", "escrow_amount", "escrow_withdrawable"}))
+	mock.ExpectExec(`UPDATE users SET current_world_id = NULL WHERE current_world_id IS NOT NULL`).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_current_world_id_fkey`).
+		WillReturnResult(sqlmock.NewResult(0, 0))
 }
 
 // TestTruncateTablesCoverMigrationFK — защита от регрессии вида:

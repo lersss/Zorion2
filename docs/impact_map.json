@@ -674,6 +674,32 @@
       ]
     },
     {
+      "id": "surface_view_recipe",
+      "type": "mechanic",
+      "path": "docs/specs/2026-09-23-мир-прогулки-рецепты-биомов.md",
+      "note": "Рецепт вида биома — как выглядит биом в прогулке (эпик «Мир прогулки», ЧК0, 2026-09-23). Вид (форма рельефа, палитра, декор, размещение, ярусный горизонт, снеговая линия) задаётся ДАННЫМИ справочника биомов, а не константами клиента. Схема: BiomeDef.view (дельта к семейству) + секции view_families (9 пресетов) / view_primitives (реестр id, 4 вида: relief1d/relief2d/decor/placement); слияние «скаляр — перекрытие, карта — по ключам, список — замена целиком». Резолв на СЕРВЕРЕ (семейство ⊕ дельта), доставка аддитивными полями пакета высадки biome_view/view_source/view_version (schema 1; клиент игнорирует незнакомую версию). Фолбэк — сегодняшние FORMATIONS/LIFE_DENSITY (поведение 1:1) до Э4. Валидация вида — нефатальная (ошибка → биом в фолбэк, предупреждение → рецепт применяется). Статус: Э0 (данные/резолвер) + Э1 (цвет/палитра/декор 4 образцов: пески/джунгли/лес/горы; бамп ImageGenVersion v4→v5) — коммит c3e5602; Э2 (ярусный горизонт — 2 пояса параллакса между farRelief 0.35 и миром; попутный фикс тёмных полос на стыках чанков — полупрозрачный градиент вынесен из канваса чанка) — коммит cd3a474; далее Э3 (8 профилей формы + снеговая линия), Э4 (раскатка ЧК1–ЧК5), Э5 (2D-объём), ЧК6 (вода, отложено).",
+      "impacts": [
+        { "on": "biome_catalog.json", "kind": "writes", "reason": "рецепт вида живёт в справочнике: BiomeDef.view + секции view_families/view_primitives; правится в админке, hot-reload" },
+        { "on": "biome_catalog_seed.json", "kind": "affects", "reason": "заводской сид обязан быть синхронен рабочему справочнику (TestBiomeViewSeedSynced); иначе «Сбросить к заводским» теряет рецепты" },
+        { "on": "surface_landing", "kind": "affects", "reason": "пакет высадки несёт резолвленный рецепт (biome_view/view_source/view_version); при высадке вид строится по рецепту, иначе — фолбэк FORMATIONS" },
+        { "on": "planet_image", "kind": "affects", "reason": "заполнение color у биома меняет цвет планеты с орбиты (та же палитра) → бамп ImageGenVersion v4→v5, иначе диск-кэш отдаёт старую картинку" },
+        { "on": "web/static/js/surface/surface_world.js", "kind": "reads", "reason": "клиент применяет biome_view только при view_source=catalog и view_version=1, иначе фолбэк; горизонт — horizonHeight (детерминирован от seed)" },
+        { "on": "web/static/js/surface/surface_render.js", "kind": "reads", "reason": "отрисовка по рецепту: палитра земли/кромка, декор, ярусный горизонт (drawHorizon между drawFarRelief и drawEnvironmentMid)" },
+        { "on": "web/static/js/surface/surface_decor.js", "kind": "docs", "reason": "библиотека примитивов декора (15 базовых + композиты oasis/reef/ruins)" },
+        { "on": "internal/handlers/admin_biome_catalog.go", "kind": "affects", "reason": "GET/PATCH обязаны нести и переносить view_families/view_primitives — иначе сохранение из админки (полная замена) стирает рецепты" },
+        { "on": "99.2.28", "kind": "affects", "reason": "вид — атрибут биома справочника (§3.1 planets.data.biomes {form, share}); рецепт НЕ читается генератором и не сдвигает RNG" }
+      ]
+    },
+    {
+      "id": "biome_catalog_seed.json",
+      "type": "config",
+      "path": "internal/generator/planet/biome_catalog_seed.json",
+      "note": "Заводской сид справочника биомов (go:embed, biome_catalog_seed.go): store стартует с него, пока не загружена рабочая копия; «Сбросить к заводским» (ResetBiomeCatalogToSeed) возвращает к нему. Обязан быть синхронен config/biome_catalog.json — иначе сброс теряет правки (в т.ч. рецепты вида, секции view_families/view_primitives).",
+      "impacts": [
+        { "on": "biome_catalog.json", "kind": "affects", "reason": "две копии одного справочника; синхронность проверяется тестом TestBiomeViewSeedSynced" }
+      ]
+    },
+    {
       "id": "surface_weather",
       "type": "mechanic",
       "path": "docs/specs/2026-09-22-погода-поверхности-вид-и-физика.md",

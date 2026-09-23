@@ -1587,8 +1587,9 @@ function renderPopup() {
   el.innerHTML = html;
 }
 // renderBindSection — секция «Доступен постройкам:» попапа товара (ТЗ §6.4):
-// список привязок (bound_factories) с «− отвязать» + селект записей-подтипов
-// своей категории (исключая уже привязанные) с «+ привязать».
+// список привязок (bound_factories) с «− отвязать» + селект любых записей-
+// подтипов (исключая уже привязанные) с «+ привязать» (решение создателя
+// 2026-09-23: категория и kind постройки список не сужают).
 function renderBindSection(g) {
   const ft = factoryMode() ? factoryType() : null;
   const bound = g.bound_factories || [];
@@ -1598,11 +1599,12 @@ function renderBindSection(g) {
       const p = state.producer_types.find(x => x.id === fid);
       if (!p) return;
       const inset = ft && ft.id === fid;
+      // имя постройки первым — строки-тёзки под одним родителем различимы;
       // категория — фрагмент только если она есть (подтип без товарной
-      // категории, напр. поселение: «Поселение · универсальная», без «null»)
+      // категории, напр. «Городок · Поселение · универсальная», без «null»)
       const catPart = p.category_id != null ? esc(p.category_name || catName(p.category_id)) + ' · ' : '';
       html += '<div class="bind-row">' +
-        (p.parent_name ? esc(p.parent_name) + ' · ' : '') + catPart + esc(factoryLevelLabel(p)) +
+        esc(p.name) + ' · ' + (p.parent_name ? esc(p.parent_name) + ' · ' : '') + catPart + esc(factoryLevelLabel(p)) +
         (inset ? ' <span class="badge b-inset" title="в наборе выбранной фабрики">в наборе</span>' : '') +
         '<button class="bind-del" onclick="unbindFactory(' + fid + ')" title="отвязать рецепт от постройки">− отвязать</button>' +
         '</div>';
@@ -1612,7 +1614,7 @@ function renderBindSection(g) {
   }
   html += '</div>';
   const avail = state.producer_types.filter(p =>
-    p.parent_id && p.kind === "goods" && p.category_id === g.category_id && !bound.includes(p.id));
+    p.parent_id && !bound.includes(p.id));
   html += '<div class="bind-add">';
   if (avail.length) {
     const groups = {}, order = [];
@@ -1623,13 +1625,13 @@ function renderBindSection(g) {
     });
     html += '<select id="bindFactorySel">' + order.map(k =>
       '<optgroup label="' + esc(k) + '">' + groups[k].map(p =>
-        '<option value="' + p.id + '">' + esc(k) + ' — ' + esc(factoryLevelLabel(p)) + '</option>').join("") + '</optgroup>').join("") + '</select>';
+        '<option value="' + p.id + '">' + esc(p.name) + ' — ' + esc(factoryLevelLabel(p)) + '</option>').join("") + '</optgroup>').join("") + '</select>';
     html += '<button class="gen" onclick="bindFactory()">+ привязать</button>';
   } else {
-    const anyCat = state.producer_types.some(p => p.parent_id && p.kind === "goods" && p.category_id === g.category_id);
-    html += '<span class="hint">' + (anyCat
-      ? 'нет других фабрик категории «' + esc(catName(g.category_id)) + '»'
-      : 'Фабрик нет — раздел «Производители»') + '</span>';
+    const anyBuilding = state.producer_types.some(p => p.parent_id);
+    html += '<span class="hint">' + (anyBuilding
+      ? 'все постройки уже привязаны'
+      : 'Построек нет — раздел «Производители»') + '</span>';
   }
   html += '</div>';
   return html;

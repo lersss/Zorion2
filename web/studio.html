@@ -488,6 +488,12 @@ let goodsFamily = localStorage.getItem("gs_goodsFamily") || "";
 // "buildings" — список типов построек (текущее поведение), "goods" — справочник
 // каталога товаров. Влияет ТОЛЬКО на правую панель; канвас-дерево не трогает.
 let spravMode = localStorage.getItem("gs_spravMode") || "buildings";
+// Масштаб отображения/ввода единицы темпа (задача «переключатель масштаба
+// единицы», спека 2026-09-23 §2.1). Хранимая единица одна — «ед/сутки/млрд»;
+// масштаб влияет ТОЛЬКО на показ/ввод, на сервер значение уходит в хранимой
+// единице. Ключ общий с витриной поселения; дефолт — хранимая единица («на
+// млрд», как было до переключателя). Множители — в web/static/js/unit_scale.js.
+let unitScale = localStorage.getItem("gs_unitScale") || "billion";
 const bindingInFlight = new Set(); // recipe_id в полёте — защита от двойного POST привязки (ТЗ §7.3.2)
 let dndActive = false; // перетаскивание карточки на канвас — глушит зум/пан (ТЗ §7.3.3)
 let dndDepth = 0;      // счётчик dragenter/dragleave для подсветки канваса (ТЗ §7.3.3)
@@ -2352,6 +2358,7 @@ function renderProdPopup() {
   $("popupTitle").textContent = p.name;
   let html = '';
   html += '<div class="dname"><span class="rename" onclick="startProdRename()" title="переименовать">' + esc(p.name) + '</span></div>';
+  html += unitScaleSegmentHtml(); // переключатель масштаба единицы темпа (§2.1)
   // Шапка-блок (спека §4.1): вид/скрытая, родитель, категория, семейство/раса.
   // Подпись вида («товары») — только у записи с товарной категорией.
   html += '<div class="pblock">';
@@ -2569,8 +2576,8 @@ function recipesBlock(p) {
       inner += '<div class="usedin-item" style="display:flex;align-items:center;gap:6px;cursor:default">' +
         '<span>' + esc(g.name) + ' <span style="color:#777">· т' + g.tier + '</span></span>' +
         '<input type="number" min="0" step="any" style="width:96px;margin-left:auto" ' +
-          'value="' + (rate == null ? '' : String(rate)) + '" placeholder="не производит" ' +
-          'title="число скорости, ед/сутки/млрд (пусто = не производит, 0 = объявленный ноль)" ' +
+          'value="' + (rate == null ? '' : esc(String(scaleToDisplay(rate)))) + '" placeholder="не производит" ' +
+          'title="число скорости, ' + esc(scaleUnitText()) + ' (пусто = не производит, 0 = объявленный ноль)" ' +
           'onchange="saveRecipeRate(' + p.id + ',' + g.recipe_id + ',this.value)">' +
         '<button class="bind-del" onclick="unbindFactoryRecipe(' + p.id + ',' + g.recipe_id + ')" title="отвязать рецепт от постройки">− отвязать</button>' +
         '</div>';
@@ -2587,7 +2594,7 @@ function recipesBlock(p) {
     if (emits.length) inner += specRow(["Выпускает", emits.join(", ")]);
   }
   // единица числа и различие «пусто vs 0» (спека 2026-09-23 §11.2)
-  if (outs.length) inner = '<div class="hint">число — ед/сутки/млрд (пусто = не производит, 0 = объявленный ноль)</div>' + inner;
+  if (outs.length) inner = '<div class="hint">число — ' + esc(scaleUnitText()) + ' (пусто = не производит, 0 = объявленный ноль)</div>' + inner;
   let html = '<div class="pblock"><div class="pblock-h">Производит</div>' + inner;
   // кнопка копирования набора — только у категорийного подтипа kind=goods (§13.2)
   if (p.kind === "goods" && p.parent_id) {
@@ -2609,10 +2616,46 @@ function recipeRate(p, recipeId) {
 // («не производит»), 0 → объявленный ноль, < 0 → отказ.
 async function saveRecipeRate(producerId, recipeId, val) {
   const v = String(val).trim();
-  const rate = v === "" ? null : Number(v);
-  if (rate != null && (!isFinite(rate) || rate < 0)) { showReport(["число скорости — неотрицательное"]); renderProdPopup(); return; }
+  const display = v === "" ? null : Number(v); // ввод — в выбранном масштабе
+  if (display != null && (!isFinite(display) || display < 0)) { showReport(["число скорости — неотрицательное"]); renderProdPopup(); return; }
+  const rate = display == null ? null : scaleToStored(display); // на сервер — хранимая единица
   const r = await api("PUT", "/studio/api/producers/" + producerId + "/recipes/" + recipeId, {rate});
   if (r) fetchState(); else renderProdPopup();
+}
+// ---------- масштаб единицы темпа (спека 2026-09-23 §2.1) ----------
+// Обёртки над единой точкой конверсии web/static/js/unit_scale.js (глобал
+// UnitScale; классический скрипт студии не умеет ES-import). Множители не
+// дублируем: если модуль не загрузился — показываем в хранимой единице (×1).
+function unitScaleModule() { return globalThis.UnitScale || null; }
+// scaleDef — описание выбранного масштаба (модуль недоступен → хранимая единица).
+function scaleDef() {
+  const U = unitScaleModule();
+  if (!U) return {key: "billion", mul: 1, label: "на млрд", unit: "ед/сутки / 10⁹"};
+  return U.unitScaleDef(unitScale);
+}
+// scaleToStored/scaleToDisplay — прямой и обратный перевод единицы (§2.1).
+function scaleToStored(v) { const U = unitScaleModule(); return U ? U.displayToStored(v, unitScale) : v; }
+function scaleToDisplay(v) { const U = unitScaleModule(); return U ? U.storedToDisplay(v, unitScale) : v; }
+function scaleUnitText() { return scaleDef().unit; }
+function scaleLabel() { return scaleDef().label; }
+// unitScaleSegmentHtml — переключатель масштаба в карточке постройки.
+function unitScaleSegmentHtml() {
+  const U = unitScaleModule();
+  const list = U ? U.UNIT_SCALE_LIST : [];
+  let html = '<div class="tool-seg" style="margin:6px 0"><span class="seg-label">Единица темпа</span>';
+  list.forEach(s => {
+    html += '<button type="button" class="branch-btn' + (s.key === unitScale ? ' on' : '') +
+      '" onclick="setUnitScale(\'' + s.key + '\')" title="показывать и вводить число как ' + esc(s.unit) + '">' + esc(s.label) + '</button>';
+  });
+  html += '<span class="seg-sub">на сервер — ед/сутки/млрд</span></div>';
+  return html;
+}
+// setUnitScale — сохраняет масштаб (общий localStorage) и перерисовывает карточку.
+function setUnitScale(key) {
+  unitScale = key;
+  localStorage.setItem("gs_unitScale", key);
+  if (globalThis.UnitScale) unitScale = globalThis.UnitScale.readUnitScale(localStorage);
+  renderProdPopup();
 }
 // fmtNum — число арифметики на млрд без хвостовых нулей (§8.1).
 function fmtNum(n) {
@@ -2625,7 +2668,7 @@ function recipeTakeText(g, rate) {
   const comps = (Array.isArray(g.recipe) ? g.recipe : []).filter(c => c.good_id);
   if (!comps.length) return "";
   let s = 'забирает: ' + comps.map(c => (c.quantity || 1) + ' × ' + c.name).join(' + ') + ' за 1 ' + g.name;
-  if (rate != null) s += ' → ' + comps.map(c => fmtNum((c.quantity || 1) * rate) + ' ' + c.name).join(' + ') + ' за сутки (на млрд)';
+  if (rate != null) s += ' → ' + comps.map(c => fmtNum(scaleToDisplay((c.quantity || 1) * rate)) + ' ' + c.name).join(' + ') + ' за сутки (' + esc(scaleLabel()) + ')';
   return s;
 }
 // prodNorm — нормализация имени позиции (graph.NormalizeName: lower + trim +
@@ -2680,12 +2723,15 @@ function prodEatRowsFromParams(eat, effects) {
 }
 // prodEatRowHtml — одна строка «Потребляет»: позиция → эффект → норма (§11.1 п.1).
 function prodEatRowHtml(r, i) {
+  // r.norm хранится в единице модели («ед/сутки/млрд»); показываем в масштабе.
+  const shown = r.norm === "" ? "" : String(scaleToDisplay(Number(r.norm)));
+  const defEat = String(scaleToDisplay(600)); // DefaultEatK — в выбранном масштабе
   return '<div class="eat-row" style="display:flex;gap:6px;align-items:center;margin-bottom:4px">' +
     '<select class="dcat" onchange="prodEatPosChange(' + i + ',this.value)">' + prodPosOptions(r.pos) + '</select>' +
     '<span style="color:#777">→</span>' +
     '<select class="dcat" onchange="prodEatEffChange(' + i + ',this.value)">' + prodEffOptions(r.eff) + '</select>' +
-    '<input type="number" min="0" step="any" style="width:96px" value="' + esc(r.norm) + '" placeholder="по умолчанию 600" ' +
-      'title="норма, ед/сутки/млрд (пусто = по умолчанию 600 при наличии эффекта)" ' +
+    '<input type="number" min="0" step="any" style="width:96px" value="' + esc(shown) + '" placeholder="по умолчанию ' + esc(defEat) + '" ' +
+      'title="норма, ' + esc(scaleUnitText()) + ' (пусто = по умолчанию ' + esc(defEat) + ' при наличии эффекта)" ' +
       'onchange="prodEatNormChange(' + i + ',this.value)">' +
     '<button class="bind-del" style="margin-left:0" onclick="prodEatDelRow(' + i + ')" title="удалить строку">−</button>' +
     '</div>';
@@ -2700,7 +2746,7 @@ function eatBlock(p) {
   const effects = (par.effects && typeof par.effects === "object") ? par.effects : {};
   if (prodEatRowsFor !== p.id) { prodEatRows = prodEatRowsFromParams(eat, effects); prodEatRowsFor = p.id; }
   let html = '<div class="pblock"><div class="pblock-h">Потребляет</div>';
-  html += '<div class="hint">потребляется только то, что попало в «эффект»; норма — ед/сутки/млрд (пусто при эффекте = по умолчанию 600)</div>';
+  html += '<div class="hint">потребляется только то, что попало в «эффект»; норма — ' + esc(scaleUnitText()) + ' (пусто при эффекте = по умолчанию ' + esc(String(scaleToDisplay(600))) + ')</div>';
   if (!prodEatRows.length) html += '<div class="empty-note">строк нет — добавьте позицию ниже</div>';
   prodEatRows.forEach((r, i) => {
     html += prodEatRowHtml(r, i);
@@ -2729,7 +2775,13 @@ function prodEatDelRow(i) {
 }
 function prodEatPosChange(i, val) { if (prodEatRows && prodEatRows[i]) { prodEatRows[i].pos = val; saveEatBlock(); } }
 function prodEatEffChange(i, val) { if (prodEatRows && prodEatRows[i]) { prodEatRows[i].eff = val; saveEatBlock(); } }
-function prodEatNormChange(i, val) { if (prodEatRows && prodEatRows[i]) { prodEatRows[i].norm = String(val).trim(); saveEatBlock(); } }
+function prodEatNormChange(i, val) {
+  if (!prodEatRows || !prodEatRows[i]) return;
+  const v = String(val).trim();
+  // модель хранит норму в единице модели: ввод в масштабе → хранимое; пусто — пусто.
+  prodEatRows[i].norm = v === "" ? "" : String(scaleToStored(Number(v)));
+  saveEatBlock();
+}
 // saveEatBlock — запись типизированных eat/effects (PUT /producers/{id}, §10):
 // строка без позиции пропускается; норма пуста → в eat не пишем (мир возьмёт
 // 600); позиция/тип эффекта вне справочника не шлются (сервер вернёт 422, §10),
@@ -2765,13 +2817,14 @@ function prodArithmeticBlock(p) {
   });
   const positions = [...new Set([...Object.keys(produced), ...Object.keys(effects)])].sort();
   if (!positions.length) return "";
-  let html = '<div class="pblock"><div class="pblock-h">Арифметика (на млрд особей)</div>';
+  const unit = scaleUnitText();
+  let html = '<div class="pblock"><div class="pblock-h">Арифметика (' + esc(scaleLabel()) + ')</div>';
   positions.forEach(pos => {
     const prod = produced[pos] || 0;
     const cons = Object.prototype.hasOwnProperty.call(effects, pos) ? (eat[pos] != null ? Number(eat[pos]) : 600) : 0;
-    const diff = prod - cons;
-    const tail = diff < 0 ? 'дефицит ' + fmtNum(-diff) : 'сверх потребления +' + fmtNum(diff);
-    html += specRow(["", catNameByNorm(pos) + ': производим ' + fmtNum(prod) + ' ед/сутки · потребляем ' + fmtNum(cons) + ' ед/сутки · ' + tail + ' ед/сутки']);
+    const diff = prod - cons; // всё в хранимой единице; показ — в выбранном масштабе
+    const tail = diff < 0 ? 'дефицит ' + fmtNum(scaleToDisplay(-diff)) : 'сверх потребления +' + fmtNum(scaleToDisplay(diff));
+    html += specRow(["", catNameByNorm(pos) + ': производим ' + fmtNum(scaleToDisplay(prod)) + ' ' + unit + ' · потребляем ' + fmtNum(scaleToDisplay(cons)) + ' ' + unit + ' · ' + tail + ' ' + unit]);
   });
   html += '</div>';
   return html;
@@ -4546,6 +4599,10 @@ window.addEventListener("load", () => setTimeout(() => {
   if (localStorage.getItem("gs_viewPos") !== "1") centerTop();
 }, 300));
 </script>
+<!-- Единая точка конверсии масштаба единицы темпа (задача «переключатель
+     масштаба единицы»): классический скрипт студии читает синглтон
+     globalThis.UnitScale; модуль обязан выполниться до auth.js (start). -->
+<script type="module" src="/static/js/unit_scale.js"></script>
 <!-- Авторизация (спека iterC §8.3): модуль-адаптер поверх ядра ../auth.js;
      выполняется после классического скрипта — start/showReport уже определены -->
 <script type="module" src="/static/js/studio/auth.js"></script>

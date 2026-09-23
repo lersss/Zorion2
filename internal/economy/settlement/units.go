@@ -24,3 +24,41 @@ func PerSecond(unitsPerDayPerBillion, population float64) float64 {
 func PerDay(unitsPerDayPerBillion, population float64) float64 {
 	return PerSecond(unitsPerDayPerBillion, population) * secondsPerDay
 }
+
+// UnitScale — масштаб отображения/ввода единицы темпа «ед/сутки/млрд» (задача
+// «переключатель масштаба единицы»). Модель и ХРАНИМАЯ единица не меняются:
+// масштаб влияет только на показ и ввод, значение на сервер всегда уходит в
+// хранимой единице. Ключи совпадают с JS-дублем (web/static/js/unit_scale.js).
+type UnitScale string
+
+const (
+	ScalePerBillion  UnitScale = "billion" // ×1 — вид по умолчанию, как до переключателя
+	ScalePerMillion  UnitScale = "mega"    // ×1e-3
+	ScalePerThousand UnitScale = "kilo"    // ×1e-6
+	ScalePerPerson   UnitScale = "person"  // ×1e-9
+)
+
+// UnitScaleMultiplier — множитель «хранимое → отображаемое». Неизвестный
+// масштаб (в т.ч. пустой) — хранимая единица (×1), без паники.
+func UnitScaleMultiplier(s UnitScale) float64 {
+	switch s {
+	case ScalePerPerson:
+		return 1e-9
+	case ScalePerThousand:
+		return 1e-6
+	case ScalePerMillion:
+		return 1e-3
+	default:
+		return 1
+	}
+}
+
+// StoredToDisplay — «ед/сутки/млрд» → значение в масштабе s (показ).
+func StoredToDisplay(storedPerDayPerBillion float64, s UnitScale) float64 {
+	return storedPerDayPerBillion * UnitScaleMultiplier(s)
+}
+
+// DisplayToStored — значение в масштабе s → «ед/сутки/млрд» (ввод).
+func DisplayToStored(display float64, s UnitScale) float64 {
+	return display / UnitScaleMultiplier(s)
+}

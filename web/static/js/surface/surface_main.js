@@ -4,7 +4,7 @@
 // Вход: /surface.html?planet=<uuid> (правый клик по планете → «Высадиться»).
 import { CAMERA_LERP, WEATHER_MIN_MS, WEATHER_MAX_MS, PPM, ZOOM } from './surface_config.js';
 import { SurfaceWorld } from './surface_world.js';
-import { drawSky, drawFarRelief, drawTerrain, drawDecor, drawCreatures, drawPlayer } from './surface_render.js';
+import { drawSky, drawFarRelief, drawTerrain, drawDecor, drawShip, drawCreatures, drawPlayer } from './surface_render.js';
 import { pickWeatherRun, drawWeatherBack, drawWeatherMid, drawWeatherFront, drawEmissive, weatherLabel } from './surface_weather.js';
 import { SurfaceEnvironment, drawEnvironmentBack, drawEnvironmentMid, drawEnvironmentFront } from './surface_environment.js';
 import { Player, serverHp } from './surface_player.js';
@@ -145,6 +145,8 @@ function frame(now) {
     drawWeatherMid(ctx, state.world, state.camera, vw, vh, state.weather, state.env);
     drawTerrain(ctx, state.world, state.camera, vw, vh);
     drawDecor(ctx, state.world, state.camera, vw, vh);
+    // Корабль игрока — парящая декорация у точки спавна, позади игрока (ЧК-ship).
+    drawShip(ctx, state.world, state.camera, vw, vh, state.pkg, now);
     drawCreatures(ctx, state.world, state.camera, vw, vh, state.player, now);
     drawPlayer(ctx, state.player, state.camera, vw, vh, now);
     drawWeatherFront(ctx, state.world, state.camera, vw, vh, state.weather, state.env);

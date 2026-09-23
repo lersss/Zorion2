@@ -84,9 +84,17 @@ type SurfaceSky struct {
 // SurfacePackage — ответ `land` (пакет прогулки, §7.1): единственный вход
 // клиентского генератора.
 type SurfacePackage struct {
-	PlanetID         string        `json:"planet_id"`
-	PlanetName       string        `json:"planet_name"`
-	Role             string        `json:"role"` // роль самого игрока (идея 2026-09-21): клиент не делает лишний GET /me
+	PlanetID   string `json:"planet_id"`
+	PlanetName string `json:"planet_name"`
+	Role       string `json:"role"` // роль самого игрока (идея 2026-09-21): клиент не делает лишний GET /me
+	// Корабль игрока (ЧК-ship, идея 2026-09-23 §5): спрайт у точки спавна —
+	// визуальный якорь «я только что сел здесь». Иконка уже резолвлена
+	// (models.ResolveShipIcon: legacy/битая → дефолт), цвет NULL = «Оригинал»;
+	// pose (angle/flip) — из того же реестра, что и остальной визуал корабля.
+	ShipIcon         string        `json:"ship_icon"`
+	ShipColor        *string       `json:"ship_color"`
+	ShipAngle        float64       `json:"ship_angle"`
+	ShipFlip         bool          `json:"ship_flip"`
 	Biome            string        `json:"biome"`
 	BiomeName        string        `json:"biome_name"`
 	BiomeShare       float64       `json:"biome_share"`
@@ -330,10 +338,11 @@ func planetSuit() SurfaceSuit {
 }
 
 // buildWalkPackage собирает пакет прогулки (§7.1): биом + справочник + seed +
-// физика + признак жизни + профиль опасности + небо. hp пересчитан от landed_at
-// на этом чтении (§8.7). world/planets переданы вызывающим (одна выборка на
-// высадку; O(числа планет системы)). Не падает при битом каталоге (И8).
-func (h *SurfaceHandlers) buildWalkPackage(p *models.Planet, biome string, pos *models.CurrentPosition, now time.Time, world *models.World, planets []models.Planet, role string) SurfacePackage {
+// физика + признак жизни + профиль опасности + небо + корабль игрока. hp
+// пересчитан от landed_at на этом чтении (§8.7). world/planets переданы
+// вызывающим (одна выборка на высадку; O(числа планет системы)). Не падает при
+// битом каталоге (И8).
+func (h *SurfaceHandlers) buildWalkPackage(p *models.Planet, biome string, pos *models.CurrentPosition, now time.Time, world *models.World, planets []models.Planet, role string, user *models.User) SurfacePackage {
 	cat := planet.GetBiomeCatalog()
 	def := cat.BiomeByID(biome)
 	name, category, description, liquid := "", "", "", ""
@@ -346,11 +355,18 @@ func (h *SurfaceHandlers) buildWalkPackage(p *models.Planet, biome string, pos *
 	hazard := surfaceHazardFor(p, biome)
 	landedAt, _ := time.Parse(time.RFC3339, pos.LandedAt)
 	hp := surfaceHPAt(landedAt, hazard.Total, now)
+	// Корабль: резолвим иконку и берём её позу из реестра (ЧК-ship).
+	shipIcon := models.ResolveShipIcon(user.ShipIcon)
+	shipAngle, shipFlip := models.ShipOrientByFile(shipIcon)
 
 	return SurfacePackage{
 		PlanetID:         p.ID,
 		PlanetName:       p.Name,
 		Role:             role,
+		ShipIcon:         shipIcon,
+		ShipColor:        user.ShipColor,
+		ShipAngle:        shipAngle,
+		ShipFlip:         shipFlip,
 		Biome:            biome,
 		BiomeName:        name,
 		BiomeShare:       biomeShare(p, biome),
@@ -535,7 +551,7 @@ func (h *SurfaceHandlers) Land(w http.ResponseWriter, r *http.Request) {
 			if p := findPlanetByID(planets, req.PlanetID); p != nil {
 				if biome := NormalizeSurfaceBiome(p, pos.Biome); biome != "" {
 					world, _ := h.worldRepo.GetByID(p.WorldID)
-					writeJSONStatus(w, http.StatusOK, h.buildWalkPackage(p, biome, pos, now, world, planets, role))
+					writeJSONStatus(w, http.StatusOK, h.buildWalkPackage(p, biome, pos, now, world, planets, role, user))
 					return
 				}
 			}
@@ -611,7 +627,7 @@ func (h *SurfaceHandlers) Land(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSONStatus(w, http.StatusOK, h.buildWalkPackage(p, biome, newPos, now, world, planets, role))
+	writeJSONStatus(w, http.StatusOK, h.buildWalkPackage(p, biome, newPos, now, world, planets, role, user))
 }
 
 // ==================== LEAVE (§6.3) ====================

@@ -53,10 +53,16 @@ func expectSurfaceUser(mock sqlmock.Sqlmock, id string, worldID, posRaw interfac
 // expectSurfaceUserRole — как expectSurfaceUser, но с заданной ролью
 // (идея 2026-09-21: выбор биома — только admin/skycomposer).
 func expectSurfaceUserRole(mock sqlmock.Sqlmock, id string, worldID, posRaw interface{}, role string) {
+	expectSurfaceUserShip(mock, id, worldID, posRaw, role, "ship_strela.svg", nil)
+}
+
+// expectSurfaceUserShip — как expectSurfaceUserRole, но с заданными ship_icon/
+// ship_color (ЧК-ship, идея 2026-09-23 §5: пакет прогулки несёт корабль игрока).
+func expectSurfaceUserShip(mock sqlmock.Sqlmock, id string, worldID, posRaw interface{}, role, icon string, color interface{}) {
 	mock.ExpectQuery(surfaceUserQueryRe).
 		WithArgs(id).
 		WillReturnRows(sqlmock.NewRows(intraUserCols).
-			AddRow(id, "player", "hash", nil, nil, worldID, "ship_strela.svg", nil, "starter",
+			AddRow(id, "player", "hash", nil, nil, worldID, icon, color, "starter",
 				`{"radar":"radar_1","scanner":"scanner_1","engine":"engine_1"}`, role, now(), now(), posRaw, nil))
 }
 
@@ -237,6 +243,80 @@ func TestSurfaceLandRoleFromContext(t *testing.T) {
 	var pkg SurfacePackage
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &pkg))
 	assert.Equal(t, "admin", pkg.Role, "роль из токена приоритетнее БД-роли")
+}
+
+// Пакет прогулки несёт корабль игрока (ЧК-ship, идея 2026-09-23 §5):
+// ship_icon резолвится (legacy SVG → PNG; неизвестный → дефолт), ship_color —
+// как в БД (NULL = «Оригинал»).
+func TestSurfaceLandShipFields(t *testing.T) {
+	cases := []struct {
+		name      string
+		icon      string
+		color     interface{}
+		wantIcon  string
+		wantColor string
+		hasColor  bool
+	}{
+		{"legacy SVG → PNG", "ship_strela.svg", nil, "boomerang.png", "", false},
+		{"PNG из реестра + цвет", "volcano.png", "#ef4444", "volcano.png", "#ef4444", true},
+		{"неизвестный → дефолт", "broken.png", nil, models.DefaultShipIcon, "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h, mock := newSurfaceHarness(t)
+			const uid = "11111111-1111-1111-1111-111111111111"
+			biome := testBiomeByCategory(t, "литосфера")
+			data := surfacePlanetData(biome.ID, 100, 288, 1.0, 0, true)
+
+			expectSurfaceUserShip(mock, uid, "w1", orbitPlanetPos, "player", tc.icon, tc.color)
+			expectIntraWorld(mock, "w1")
+			expectSurfacePlanetsLight(mock, "w1", surfacePlanetRow("pl-1", "w1", "Nemurzan II", data))
+			expectSurfaceUpdate(mock, uid)
+
+			rec := execJSON(h.Land, surfaceLandRequest(uid, "pl-1"))
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			require.NoError(t, mock.ExpectationsWereMet())
+
+			var pkg SurfacePackage
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &pkg))
+			assert.Equal(t, tc.wantIcon, pkg.ShipIcon)
+			if tc.hasColor {
+				require.NotNil(t, pkg.ShipColor)
+				assert.Equal(t, tc.wantColor, *pkg.ShipColor)
+			} else {
+				assert.Nil(t, pkg.ShipColor)
+			}
+		})
+	}
+}
+
+// Ориентация корабля едет в пакете (ЧК-ship, идея 2026-09-23 §5): pose берётся
+// из реестра моделей по резолвленной иконке. Сейчас все записи реестра —
+// легаси-нули (в т.ч. расовые), поэтому тест фиксирует связь «пакет == реестр»
+// и заработает автоматически, когда расовым спрайтам проставят angle/flip в
+// metadata (плумбинг ненулевого угла — TestShipOrientByFile в internal/models).
+func TestSurfaceLandShipOrientFromRegistry(t *testing.T) {
+	h, mock := newSurfaceHarness(t)
+	const uid = "11111111-1111-1111-1111-111111111111"
+	const icon = "race_humans_starship.png"
+	wantAngle, wantFlip := models.ShipOrientByFile(icon)
+	biome := testBiomeByCategory(t, "литосфера")
+	data := surfacePlanetData(biome.ID, 100, 288, 1.0, 0, true)
+
+	expectSurfaceUserShip(mock, uid, "w1", orbitPlanetPos, "player", icon, nil)
+	expectIntraWorld(mock, "w1")
+	expectSurfacePlanetsLight(mock, "w1", surfacePlanetRow("pl-1", "w1", "Nemurzan II", data))
+	expectSurfaceUpdate(mock, uid)
+
+	rec := execJSON(h.Land, surfaceLandRequest(uid, "pl-1"))
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	var pkg SurfacePackage
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &pkg))
+	assert.Equal(t, icon, pkg.ShipIcon)
+	assert.Equal(t, wantAngle, pkg.ShipAngle)
+	assert.Equal(t, wantFlip, pkg.ShipFlip)
 }
 
 // buildSurfaceSky отдаёт planet_id только у планет (идея 2026-09-22 §8.4):

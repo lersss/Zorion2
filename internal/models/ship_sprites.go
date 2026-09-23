@@ -121,6 +121,17 @@ func IsValidShipIcon(file string) bool {
 	return ok
 }
 
+// ShipOrientByFile — пара показа (angle°, flip) спрайта по имени файла
+// (ЧК-ship, идея 2026-09-23 §5): значение из реестра ShipSprites через тот же
+// индекс shipSpriteByFile (реестр не дублируется). Файл неизвестен/пустой →
+// (0, false) — тот же фолбэк, что у клиентского shipOrientFor.
+func ShipOrientByFile(file string) (float64, bool) {
+	if s, ok := shipSpriteByFile[file]; ok {
+		return s.Angle, s.Flip
+	}
+	return 0, false
+}
+
 // IsValidShipColor — цвет ∈ палитры (для PUT /me/ship-color, спека §7:
 // NULL или hex из ShipColorPalette, иначе 400).
 func IsValidShipColor(color string) bool {

@@ -105,3 +105,31 @@ func TestShipColorPalette(t *testing.T) {
 	require.False(t, IsValidShipColor("#000000"))
 	require.False(t, IsValidShipColor("red"))
 }
+
+// ShipOrientByFile — поза по имени файла (ЧК-ship, идея 2026-09-23 §5): реюз
+// индекса реестра, неизвестный/пустой файл → (0, false) — как фолбэк клиента.
+// Плумбинг ненулевого угла проверяется временной записью в индексе (сам
+// реестр ShipSprites не трогаем — порядок фиксирован, И8).
+func TestShipOrientByFile(t *testing.T) {
+	angle, flip := ShipOrientByFile("nope.png")
+	require.Zero(t, angle)
+	require.False(t, flip)
+	angle, flip = ShipOrientByFile("")
+	require.Zero(t, angle)
+	require.False(t, flip)
+
+	// Каждая запись реестра отдаёт свою пару (сейчас все легаси-нули).
+	for _, s := range ShipSprites {
+		a, f := ShipOrientByFile(s.File)
+		require.Equal(t, s.Angle, a, s.File)
+		require.Equal(t, s.Flip, f, s.File)
+	}
+
+	// Ненулевой угол/зеркало: временная запись в индексе.
+	const tmp = "test_race_angled.png"
+	shipSpriteByFile[tmp] = ShipSprite{ID: "test_race_angled", File: tmp, Angle: -90, Flip: true}
+	defer delete(shipSpriteByFile, tmp)
+	a, f := ShipOrientByFile(tmp)
+	require.Equal(t, -90.0, a)
+	require.True(t, f)
+}

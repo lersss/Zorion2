@@ -2,9 +2,10 @@
 // Отрисовка прогулки (спека 2026-09-21 §7.2): параллакс-небо (только из sky
 // пакета), дальний рельеф, основной рельеф/пещеры (чанки кэшируются), декор,
 // жизнь, игрок, HUD (в surface_ui.js). Canvas 2D. Погода — surface_weather.js.
-import { CHUNK, CHUNK_RADIUS, COLORS, FLOAT_SPAN, FLOAT_GAP, ZOOM } from './surface_config.js';
+import { CHUNK, CHUNK_RADIUS, COLORS, FLOAT_SPAN, FLOAT_GAP, ZOOM, SHIP_DECOR_SIZE, SHIP_DECOR_X, SHIP_HOVER_BOTTOM, SHIP_BOB_AMP, SHIP_BOB_PERIOD_MS } from './surface_config.js';
 import { shade, rgba } from './surface_world.js';
 import { planetTexture } from './surface_net.js';
+import { recolorShipSprite, shipDrawTransform } from '../map/ship_sprites.js';
 
 // 700 (не 620): полоса парящих камней (FLOAT_SPAN над рельефом) при высоких
 // горах вылезала за верх канваса чанка (вулканизм — на ~17 px, §4 п.4).
@@ -357,6 +358,34 @@ export function drawDecor(ctx, world, camera, vw, vh) {
         ctx.fill();
         ctx.restore();
     }
+}
+
+// drawShip — корабль игрока парит над точкой высадки (ЧК-ship, идея
+// 2026-09-23 §5; решение создателя 2026-09-23 — «подвесить его… без лестницы»):
+// статичная декорация (не интерактивна, ничего не персистит). Низ спрайта — на
+// SHIP_HOVER_BOTTOM над землёй, лёгкое вертикальное покачивание от времени
+// кадра (физику игрока и ввод не трогает). Поза — каноническая пара
+// (angle, flip) из пакета (на прогулке /me не зовём): курса нет →
+// shipDrawTransform(0, orient). Спрайт перекрашивается recolorShipSprite (кэш);
+// фолбэк И4: не загружен/имя неизвестно → null, ничего не рисуем (отрисовка не
+// ломается). Рисуется до игрока — тот поверх.
+export function drawShip(ctx, world, camera, vw, vh, pkg, timeMs) {
+    if (!pkg || !pkg.ship_icon) return;
+    const sprite = recolorShipSprite(pkg.ship_icon, pkg.ship_color);
+    if (!sprite) return;
+    const wx = SHIP_DECOR_X;
+    const x = wx - camera.x + vw / 2;
+    const gy = world.terrainHeight(wx) - camera.y + vh / 2;
+    const bob = Math.sin((timeMs || 0) * 2 * Math.PI / SHIP_BOB_PERIOD_MS) * SHIP_BOB_AMP;
+    const orient = { angle: Number(pkg.ship_angle) || 0, flip: !!pkg.ship_flip };
+    const t = shipDrawTransform(0, orient);
+    ctx.save();
+    // Центр спрайта = низ над землёй (SHIP_HOVER_BOTTOM) + половина размера + покачивание.
+    ctx.translate(x, gy - SHIP_HOVER_BOTTOM - SHIP_DECOR_SIZE / 2 + bob);
+    ctx.rotate(t.rotate);
+    ctx.scale(t.scaleX, t.scaleY);
+    ctx.drawImage(sprite, -SHIP_DECOR_SIZE / 2, -SHIP_DECOR_SIZE / 2, SHIP_DECOR_SIZE, SHIP_DECOR_SIZE);
+    ctx.restore();
 }
 
 // drawCreatures — животные (не бой, §7.3): пасётся/убегает/подходит/стайка/детёныш.

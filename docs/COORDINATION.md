@@ -53,9 +53,7 @@
 
 | Файл | Кто правит | До какого коммита |
 |---|---|---|
-| `cmd/art-studio/postproc/ship.go`, `cmd/art-studio/generator/ships_job.go`, `cmd/art-studio/postproc/ship_cut_method_test.go` | @developer (вырез кораблей студии → rembg, 2026-09-23) | до коммита задачи rembg |
-| `docs/PITFALLS.md` (пункт «вырез кораблей → rembg») | @developer (вырез кораблей студии → rembg, 2026-09-23) | до коммита задачи rembg |
-| `web/static/js/ui/layers.js` (новый), `web/static/js/ui/alert.js` (новый), `web/static/js/ui/toast.js`, `web/static/js/modal/index.js`, `web/static/js/modal/events.js`, `web/static/js/map/events.js`, `web/static/js/map/npc_agents.js`, `web/static/js/map/pacman.js`, `web/static/js/search.js`, `tools/e2e/layers-check.js` (новый) | @developer (слои интерфейса и стек попапов, этапы 0–1, 2026-09-23) | до коммита задачи слоёв |
+| — | нет активных меток (задача rembg сдана, коммит `265fc87`, 2026-09-23) | — |
 
 ## Занято ранее (историческое, не блокирует — чистится @manager по мере надобности)
 

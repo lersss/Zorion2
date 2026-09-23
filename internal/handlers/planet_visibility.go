@@ -32,7 +32,7 @@ const (
 // присутствия игрока (§2.1, спутник — по родителю; "" — присутствия нет):
 // у неё полные данные, у остальных — snapshot/scan/none. can_buy_report
 // (§5.2) — истина только при присутствии на ДРУГОЙ планете.
-func applyPlanetVisibility(userID string, planets []models.Planet, knowledge *repository.KnowledgeRepository, presenceID string) []models.Planet {
+func applyPlanetVisibility(userID string, planets []models.Planet, knowledge *repository.KnowledgeRepository, presenceID string, arithmeticVisible bool) []models.Planet {
 	now := time.Now()
 	out := make([]models.Planet, 0, len(planets))
 	for _, p := range planets {
@@ -51,10 +51,10 @@ func applyPlanetVisibility(userID string, planets []models.Planet, knowledge *re
 				view = &models.PlanetKnowledgeView{}
 			}
 			view.Mode = knowledgeModePresence
-			out = append(out, stripPlanetDetails(p, view))
+			out = append(out, stripPlanetDetails(p, view, arithmeticVisible))
 		case view == nil:
 			// Знания нет — заглушка «нет данных» (knowledge == nil).
-			out = append(out, stripPlanetDetails(p, nil))
+			out = append(out, stripPlanetDetails(p, nil, arithmeticVisible))
 		default:
 			if snap, ok := parseSnapshot(k); ok {
 				// Снимок приоритетнее скана (§5.1, решение О1): свежий скан не
@@ -66,7 +66,7 @@ func applyPlanetVisibility(userID string, planets []models.Planet, knowledge *re
 			} else {
 				view.Mode = knowledgeModeScan
 			}
-			out = append(out, stripPlanetDetails(p, view))
+			out = append(out, stripPlanetDetails(p, view, arithmeticVisible))
 		}
 	}
 	return out
@@ -173,10 +173,12 @@ func applySnapshotToPlanet(p models.Planet, snap parsedSnapshot) models.Planet {
 //
 //   - presence: поверхность + поселения (раса/население/стабильность/ветки/
 //     лог, эффекты — player-safe DTO), фракции, строения, активные залежи;
-//   - snapshot: замороженная картина (уже разложена в поля), без эффектов и лога;
+//     блок арифметики — только при arithmeticVisible (настройка §8.3);
+//   - snapshot: замороженная картина (уже разложена в поля), без эффектов и лога,
+//     блок арифметики не замораживается — чистится всегда (§8.3 п.5);
 //   - scan/none (и пустой режим — совместимость вызовов): поверхность + счётчик,
 //     детали поселений скрыты.
-func stripPlanetDetails(p models.Planet, view *models.PlanetKnowledgeView) models.Planet {
+func stripPlanetDetails(p models.Planet, view *models.PlanetKnowledgeView, arithmeticVisible bool) models.Planet {
 	p.Knowledge = view
 	mode := ""
 	if view != nil {
@@ -221,12 +223,15 @@ func stripPlanetDetails(p models.Planet, view *models.PlanetKnowledgeView) model
 	case knowledgeModePresence:
 		// Полные данные присутствия (§5.1): ветки без входа, эффекты —
 		// player-safe DTO без нагрузки/порога/силы (§5.4), залежи — активные.
+		// Блок арифметики и новые поля веток — только при включённой настройке
+		// (§8.3 п.4); type_id/type_name стадии остаются всегда.
 		stripBranchInputs(&p)
-		p.Settlements = playerSettlements(p.Settlements)
+		p.Settlements = playerSettlements(p.Settlements, arithmeticVisible)
 		p.Deposits = filterActiveDeposits(p.Deposits)
 	case knowledgeModeSnapshot:
 		// Замороженная картина (§3.1): эффектов и лога нет (в снимок не
-		// замораживаются); вход веток — никогда; залежи — как сегодня (живые).
+		// замораживаются); вход веток — никогда; блок арифметики не
+		// замораживается — чистится всегда (§8.3 п.5); залежи — как сегодня.
 		stripBranchInputs(&p)
 		stripSnapshotSettlementSecrets(&p)
 		p.Deposits = filterActiveDeposits(p.Deposits)
@@ -262,8 +267,10 @@ func stripPlanetDetails(p models.Planet, view *models.PlanetKnowledgeView) model
 
 // playerSettlements — витрина поселений игрока в присутствии (§5.1/§5.4):
 // копия списка с убранными служебными чек-точками (population_exact/computed_at/
-// R-компоненты — §15) и player-safe DTO эффектов. Лог и ветки остаются.
-func playerSettlements(in []models.Settlement) []models.Settlement {
+// R-компоненты — §15) и player-safe DTO эффектов. Лог и ветки остаются. Новые
+// витринные поля арифметики (блок позиций, число скорости/признак/«забираем» на
+// ветке) остаются только при arithmeticVisible — иначе явная очистка (§8.3 п.4).
+func playerSettlements(in []models.Settlement, arithmeticVisible bool) []models.Settlement {
 	if len(in) == 0 {
 		return in
 	}
@@ -276,12 +283,63 @@ func playerSettlements(in []models.Settlement) []models.Settlement {
 		out[i].LambdaPerHour = 0
 		out[i].NDead = 0
 		out[i].Effects = effectViews(out[i].Effects)
+		if !arithmeticVisible {
+			out[i].Arithmetic = nil
+			out[i].Branches = copyBranches(out[i].Branches)
+			for j := range out[i].Branches {
+				stripBranchArithmetic(&out[i].Branches[j])
+			}
+		}
 	}
 	return out
 }
 
+// copyBranches — копия среза веток перед точечной правкой: копия поселений выше
+// поверхностная, и очистка не должна писать в исходный срез (иначе витрина
+// побочно мутирует планеты запроса — новая точка алиасинга). nil → nil.
+func copyBranches(in []models.SettlementBranch) []models.SettlementBranch {
+	if in == nil {
+		return nil
+	}
+	out := make([]models.SettlementBranch, len(in))
+	copy(out, in)
+	return out
+}
+
+// stripBranchArithmetic — очистка новых витринных полей ветки (§8.3 п.4): число
+// скорости пары, признак «рецепт не в наборе стадии», «забираем», доля залежи.
+func stripBranchArithmetic(b *models.SettlementBranch) {
+	b.RatePerDayPerBillion = nil
+	b.NotInStageSet = false
+	b.Take = nil
+	b.DepositShare = 0
+}
+
+// planetsHaveSettlementArithmetic — есть ли в планетах новые витринные поля
+// арифметики (блок позиций или поля ветки). Нужен, чтобы читать настройку
+// видимости только когда есть что скрывать (§8.3): иначе лишний запрос к БД на
+// каждую карточку без арифметики.
+func planetsHaveSettlementArithmetic(planets []models.Planet) bool {
+	for i := range planets {
+		for j := range planets[i].Settlements {
+			s := &planets[i].Settlements[j]
+			if len(s.Arithmetic) > 0 {
+				return true
+			}
+			for k := range s.Branches {
+				b := &s.Branches[k]
+				if b.RatePerDayPerBillion != nil || b.NotInStageSet || len(b.Take) > 0 || b.DepositShare != 0 {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 // stripSnapshotSettlementSecrets — страховка в глубину для снимка: эффектов и
-// лога в снимке нет (§3.1, п.3 решения); чек-точки снимок не несёт.
+// лога в снимке нет (§3.1, п.3 решения); чек-точки снимок не несёт; блок
+// арифметики в снимок не замораживается — чистится ВСЕГДА (§8.3 п.5).
 func stripSnapshotSettlementSecrets(p *models.Planet) {
 	for i := range p.Settlements {
 		s := &p.Settlements[i]
@@ -292,6 +350,11 @@ func stripSnapshotSettlementSecrets(p *models.Planet) {
 		s.RPerSec = 0
 		s.LambdaPerHour = 0
 		s.NDead = 0
+		s.Arithmetic = nil
+		s.Branches = copyBranches(s.Branches)
+		for j := range s.Branches {
+			stripBranchArithmetic(&s.Branches[j])
+		}
 	}
 }
 

@@ -83,6 +83,40 @@ func settlementTypeArg(id int64) interface{} {
 	return id
 }
 
+// SettlementArithmeticVisibleToPlayer — видимость блока арифметики поселения
+// игроку (generation_config.SettlementArithmeticVisibleKey, спека 2026-09-23-
+// стадии-поселения §8.3/§10). Дефолт true при отсутствии ключа или нечитаемом
+// payload («включено по умолчанию, позже выключим» — решение Г5). Читается на
+// каждое обращение (не кэш): выключение обязано действовать немедленно.
+func SettlementArithmeticVisibleToPlayer(db *sql.DB) (bool, error) {
+	var raw []byte
+	err := db.QueryRow(defaultSettlementTypeSelectSQL, models.SettlementArithmeticVisibleKey).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return true, nil
+	}
+	if err != nil {
+		return true, err
+	}
+	var visible bool
+	if err := json.Unmarshal(raw, &visible); err != nil {
+		log.Printf("WARN: generation_config.%s: payload %q не bool — видимость арифметики считается включённой",
+			models.SettlementArithmeticVisibleKey, raw)
+		return true, nil
+	}
+	return visible, nil
+}
+
+// SetSettlementArithmeticVisibleToPlayer — запись настройки видимости арифметики
+// (upsert по ключу, §10: расширение PATCH /admin/settlement-settings).
+func SetSettlementArithmeticVisibleToPlayer(db *sql.DB, visible bool) error {
+	_, err := db.Exec(`
+		INSERT INTO generation_config (key, payload, updated_at)
+		VALUES ($1, to_jsonb($2::boolean), NOW())
+		ON CONFLICT (key) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`,
+		models.SettlementArithmeticVisibleKey, visible)
+	return err
+}
+
 // GetSettlementsByPlanetIDs — возвращает поселения планет,
 // сгруппированные по planet_id. Пустой список — планета без поселений.
 // LEFT JOIN producer_types несёт тип поселения и СЫРЫЕ структуры норм

@@ -65,13 +65,15 @@ const (
 	// categoryNamesSQL — словарь позиций корзины (categories.name_norm, любой kind).
 	categoryNamesSQL = `SELECT name_norm FROM categories`
 
-	// producerRatesSelectSQL — числа скорости пар «тип × рецепт» (спека
+	// producerRatesSelectSQL — пары «тип × рецепт» с числом скорости (спека
 	// 2026-09-23 §3.3 п.3): один запрос на пачку владельцев, карта
-	// typeID → recipeID → rate (ед/сутки/млрд). NULL/0 = не объявлено → ветка
-	// инертна; rate = 0 в карту не кладётся (отсутствие ключа = ноль).
+	// typeID → recipeID → *rate (ед/сутки/млрд) + набор пар. NULL/0 = не
+	// объявлено → ветка инертна; nil-указатель отличает «числа нет» от
+	// «объявленного нуля» для витрины (§11.2). Набор пар нужен признаку
+	// «рецепт не в наборе стадии» (§3.5, §8.3).
 	producerRatesSelectSQL = `
 		SELECT producer_type_id, recipe_id, rate FROM producer_recipes
-		WHERE producer_type_id = ANY($1) AND rate IS NOT NULL`
+		WHERE producer_type_id = ANY($1)`
 
 	branchTopUpInputSQL = `
 		INSERT INTO settlement_branch_buffers (branch_id, direction, good_id, amount)
@@ -111,7 +113,8 @@ type OwnerSettlement struct {
 }
 
 // OwnerResult — результат owner-прохода: пересчитанные население, ветки,
-// витрина эффектов и мгновенная скорость изменения (для r_per_sec).
+// витрина эффектов, арифметика на текущем населении и мгновенная скорость
+// изменения (для r_per_sec).
 type OwnerResult struct {
 	Population      int
 	PopulationExact float64
@@ -120,6 +123,9 @@ type OwnerResult struct {
 	NDead           float64
 	Branches        []models.SettlementBranch
 	Effects         []models.ActiveEffect
+	// Arithmetic — витрина арифметики по позициям на текущем населении
+	// (спека 2026-09-23 §8.1/§8.2).
+	Arithmetic []models.SettlementPositionArithmetic
 }
 
 // effectTypeMeta — запись каталога типов эффектов (резолв по name_norm).
@@ -140,15 +146,20 @@ type storedEffect struct {
 	curve          string
 }
 
-// ownerBranchWrite — данные записи по одной ветке (после слоя потребности).
+// ownerBranchWrite — данные записи по одной ветке (после слоя потребности):
+// плюс витринные поля ветки (число скорости пары, признак «не в наборе стадии»)
+// и снимок входа ДО прохода (для доли добора из залежей, §8.2).
 type ownerBranchWrite struct {
-	rec      *branchRecord
-	input    map[int64]float64
-	deposits map[int64][]settlement.DepositLot
-	produced float64
-	drawn    float64
-	output   float64 // итоговый буфер O0_b + batches_b − drawn_b
-	deltaSec float64
+	rec         *branchRecord
+	input       map[int64]float64
+	deposits    map[int64][]settlement.DepositLot
+	produced    float64
+	drawn       float64
+	output      float64 // итоговый буфер O0_b + batches_b − drawn_b
+	deltaSec    float64
+	rate        *float64
+	notInStage  bool
+	inputBefore map[int64]float64
 }
 
 // ownerRun — полный результат owner-прохода (витрина + данные записи).
@@ -210,13 +221,14 @@ func (r *BranchRepository) SyncSettlements(now time.Time, owners []OwnerSettleme
 	if err != nil {
 		return nil, err
 	}
-	// Числа скорости пар (тип × рецепт) — карта typeID → recipeID → rate
-	// (ед/сутки/млрд). Хватает на обоих путях (персистентный и «в памяти»).
-	rates, err := r.loadProducerRates(ctx, typeIDs)
+	// Числа скорости пар (тип × рецепт) — карта typeID → recipeID → *rate
+	// (ед/сутки/млрд) + набор пар. Хватает на обоих путях (персистентный и
+	// «в памяти»).
+	rates, recipes, err := r.loadProducerRates(ctx, typeIDs)
 	if err != nil {
 		return nil, err
 	}
-	data := ownerBatchData{rates: rates, types: types, ladder: ladder}
+	data := ownerBatchData{rates: rates, recipes: recipes, types: types, ladder: ladder}
 
 	for _, o := range owners {
 		res, err := r.syncOwner(ctx, o, bySettlement[o.ID], stored[o.ID], catalog, knownPositions, data, now)
@@ -242,12 +254,29 @@ func ownerTypeIDs(owners []OwnerSettlement) []int64 {
 }
 
 // rateForPair — число скорости пары (тип поселения, рецепт) из карты пачки:
-// нет типа/пары → 0 («не объявлено» → ветка инертна, §3.2/§3.5).
-func rateForPair(rates map[int64]map[int64]float64, typeID, recipeID int64) float64 {
+// нет типа/пары/числа → nil («не объявлено» → ветка инертна, §3.2/§3.5).
+func rateForPair(rates map[int64]map[int64]*float64, typeID, recipeID int64) *float64 {
 	if typeID == 0 {
-		return 0
+		return nil
 	}
 	return rates[typeID][recipeID]
+}
+
+// rateValue — число скорости как скаляр: nil (не объявлено) → 0.
+func rateValue(rate *float64) float64 {
+	if rate == nil {
+		return 0
+	}
+	return *rate
+}
+
+// notInStageSet — рецепт отсутствует в наборе рецептов стадии (producer_recipes
+// текущего типа поселения, §3.5): ветка не производит.
+func notInStageSet(recipes map[int64]map[int64]bool, typeID, recipeID int64) bool {
+	if typeID == 0 {
+		return false
+	}
+	return !recipes[typeID][recipeID]
 }
 
 // syncOwner — проход по одному поселению: персистентный путь или «в памяти».
@@ -266,7 +295,7 @@ func (r *BranchRepository) syncOwner(ctx context.Context, o OwnerSettlement, bra
 		if err != nil {
 			return OwnerResult{}, err
 		}
-		run, err := runOwnerPass(o, branches, stored, catalog, knownPositions, data.rates, deposits, now)
+		run, err := runOwnerPass(o, branches, stored, catalog, knownPositions, data, deposits, now)
 		if err != nil {
 			return OwnerResult{}, err
 		}
@@ -341,7 +370,7 @@ func (r *BranchRepository) syncOwner(ctx context.Context, o OwnerSettlement, bra
 		stored = nil
 	}
 
-	run, err := runOwnerPass(o, txRecs, stored, catalog, knownPositions, data.rates, deposits, now)
+	run, err := runOwnerPass(o, txRecs, stored, catalog, knownPositions, data, deposits, now)
 	if err != nil {
 		return OwnerResult{}, err
 	}
@@ -355,19 +384,20 @@ func (r *BranchRepository) syncOwner(ctx context.Context, o OwnerSettlement, bra
 }
 
 // runOwnerPass — производство → потребность → население (без записи): мутирует
-// display-копии веток и собирает данные записи. rates — карта чисел скорости
-// пачкой (typeID → recipeID → rate, ед/сутки/млрд, §3.3).
-func runOwnerPass(o OwnerSettlement, branches []*branchRecord, stored []storedEffect, catalog map[string]effectTypeMeta, knownPositions map[string]bool, rates map[int64]map[int64]float64, deposits map[int64][]settlement.DepositLot, now time.Time) (ownerRun, error) {
+// display-копии веток и собирает данные записи. data — карты пачки (числа
+// скорости пар + набор рецептов стадии, §3.3).
+func runOwnerPass(o OwnerSettlement, branches []*branchRecord, stored []storedEffect, catalog map[string]effectTypeMeta, knownPositions map[string]bool, data ownerBatchData, deposits map[int64][]settlement.DepositLot, now time.Time) (ownerRun, error) {
 	population := float64(o.Population)
 
 	// 1) Производство: снимок выходного буфера O0_b ДО ProcessBranch (finding 6).
 	sources := make([]settlement.NeedsSource, 0, len(branches))
+	arithmeticSources := make([]settlement.ArithmeticSource, 0, len(branches))
 	writes := make([]ownerBranchWrite, 0, len(branches))
 	for _, rec := range branches {
 		base := branchOutputAmount(rec.branch.Output, rec.outputGoodID)
 		deltaSec := now.Sub(rec.branch.ProcessedAt).Seconds()
-		rate := rateForPair(rates, o.SettlementTypeID, rec.branch.RecipeID)
-		p := settlement.ProcessBranch(rec.toBranch(population, base, rate, deposits), now)
+		rate := rateForPair(data.rates, o.SettlementTypeID, rec.branch.RecipeID)
+		p := settlement.ProcessBranch(rec.toBranch(population, base, rateValue(rate), deposits), now)
 		sources = append(sources, settlement.NeedsSource{
 			ID:         rec.branch.ID,
 			Position:   rec.outputCategory,
@@ -376,9 +406,22 @@ func runOwnerPass(o OwnerSettlement, branches []*branchRecord, stored []storedEf
 			OutputBase: base,
 			Since:      rec.branch.ProcessedAt, // ветка создана внутри [loadAt, now] → покрытие только с Since (§4.3, С1)
 		})
+		// Витрина арифметики: производим по позиции — расчётный выход ветки
+		// (rate × население), независимо от фактического прохода (§8.2). Ветка
+		// без объявленного числа (nil) позиции не создаёт — как проекция
+		// студии; объявленный ноль (0) — создаёт с нулём.
+		if rate != nil {
+			arithmeticSources = append(arithmeticSources, settlement.ArithmeticSource{
+				Position:             rec.outputCategory,
+				RatePerDayPerBillion: *rate,
+			})
+		}
 		writes = append(writes, ownerBranchWrite{
 			rec: rec, input: p.Input, deposits: p.Deposits,
 			produced: p.ProducedLast, output: p.Output, deltaSec: deltaSec,
+			rate:        rate,
+			notInStage:  notInStageSet(data.recipes, o.SettlementTypeID, rec.branch.RecipeID),
+			inputBefore: branchInputAmounts(rec.branch.Input),
 		})
 	}
 
@@ -418,7 +461,7 @@ func runOwnerPass(o OwnerSettlement, branches []*branchRecord, stored []storedEf
 		w := &writes[i]
 		w.drawn = needs.DrawnBySource[w.rec.branch.ID]
 		w.output -= w.drawn
-		applyOwnerBranch(w, now)
+		applyOwnerBranch(w, now, population)
 		branchModels = append(branchModels, w.rec.branch)
 	}
 
@@ -449,6 +492,7 @@ func runOwnerPass(o OwnerSettlement, branches []*branchRecord, stored []storedEf
 		NDead:           settlement.NDead,
 		Branches:        branchModels,
 		Effects:         buildEffectModels(o, needs, catalog, now),
+		Arithmetic:      arithmeticModels(settlement.ComputePositionArithmetic(population, o.EffectsByPosition, o.EatByPosition, arithmeticSources)),
 	}
 	return ownerRun{
 		result:     res,
@@ -459,8 +503,9 @@ func runOwnerPass(o OwnerSettlement, branches []*branchRecord, stored []storedEf
 }
 
 // applyOwnerBranch — вынести результат прохода ветки в display-модель: буферы,
-// чек-точка, произведено, списано слоем потребности.
-func applyOwnerBranch(w *ownerBranchWrite, now time.Time) {
+// чек-точка, произведено, списано слоем потребности, витрина арифметики ветки
+// (число скорости пары, признак «не в наборе стадии», «забираем», доля залежи).
+func applyOwnerBranch(w *ownerBranchWrite, now time.Time, population float64) {
 	rec := w.rec
 	for i := range rec.branch.Input {
 		if v, ok := w.input[rec.branch.Input[i].GoodID]; ok {
@@ -479,6 +524,63 @@ func applyOwnerBranch(w *ownerBranchWrite, now time.Time) {
 	if w.deltaSec > 0 {
 		rec.branch.EatenRate = w.drawn / w.deltaSec
 	}
+	rec.branch.RatePerDayPerBillion = w.rate
+	rec.branch.NotInStageSet = w.notInStage
+	rec.branch.Take = branchTakeModels(w, population)
+	rec.branch.DepositShare = settlement.BranchDepositShare(w.produced, rec.components, w.inputBefore, w.input)
+}
+
+// arithmeticModels — доменная арифметика позиции → витрина ответа (§8.2).
+func arithmeticModels(in []settlement.PositionArithmetic) []models.SettlementPositionArithmetic {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]models.SettlementPositionArithmetic, 0, len(in))
+	for _, a := range in {
+		out = append(out, models.SettlementPositionArithmetic{
+			Position:       a.Position,
+			ProducedPerDay: a.ProducedPerDay,
+			ConsumedPerDay: a.ConsumedPerDay,
+			NetPerDay:      a.NetPerDay,
+		})
+	}
+	return out
+}
+
+// branchInputAmounts — снимок входного буфера ветки «good_id → amount» ДО
+// прохода (для доли добора из залежей, §8.2).
+func branchInputAmounts(entries []models.BranchBufferEntry) map[int64]float64 {
+	out := make(map[int64]float64, len(entries))
+	for _, e := range entries {
+		out[e.GoodID] = e.Amount
+	}
+	return out
+}
+
+// branchTakeModels — «забираем» по ветке в модель ответа (§8.2): расчётная
+// производная рецепта (выход × quantity_i), имена компонентов — из входного
+// буфера. Числа скорости нет → пусто (выход 0, забирать нечего).
+func branchTakeModels(w *ownerBranchWrite, population float64) []models.SettlementBranchTake {
+	if w.rate == nil {
+		return nil
+	}
+	takes := settlement.BranchTakePerDay(rateValue(w.rate), population, w.rec.components)
+	if len(takes) == 0 {
+		return nil
+	}
+	nameByGood := make(map[int64]string, len(w.rec.branch.Input))
+	for _, e := range w.rec.branch.Input {
+		nameByGood[e.GoodID] = e.GoodName
+	}
+	out := make([]models.SettlementBranchTake, 0, len(takes))
+	for _, t := range takes {
+		out = append(out, models.SettlementBranchTake{
+			GoodID:   t.GoodID,
+			GoodName: nameByGood[t.GoodID],
+			PerDay:   t.PerDay,
+		})
+	}
+	return out
 }
 
 // buildBindings — привязки «позиция → тип эффекта» по params.effects (§4.2):
@@ -708,31 +810,42 @@ func (r *BranchRepository) loadCategoryNames(ctx context.Context) (map[string]bo
 	return out, rows.Err()
 }
 
-// loadProducerRates — числа скорости пар «тип × рецепт» (producer_recipes.rate)
-// одним запросом на пачку (спека 2026-09-23 §3.3 п.3). Пустой список типов —
-// пустая карта без запроса. Возвращает typeID → recipeID → rate (ед/сутки/млрд).
-func (r *BranchRepository) loadProducerRates(ctx context.Context, typeIDs []int64) (map[int64]map[int64]float64, error) {
-	out := map[int64]map[int64]float64{}
+// loadProducerRates — пары «тип × рецепт» (producer_recipes) одним запросом на
+// пачку (спека 2026-09-23 §3.3 п.3). Пустой список типов — пустые карты без
+// запроса. Возвращает rates: typeID → recipeID → *rate (ед/сутки/млрд; nil =
+// число не объявлено) и recipes: typeID → recipeID → true (набор рецептов
+// стадии — признак «не в наборе», §3.5).
+func (r *BranchRepository) loadProducerRates(ctx context.Context, typeIDs []int64) (map[int64]map[int64]*float64, map[int64]map[int64]bool, error) {
+	rates := map[int64]map[int64]*float64{}
+	recipes := map[int64]map[int64]bool{}
 	if len(typeIDs) == 0 {
-		return out, nil
+		return rates, recipes, nil
 	}
 	rows, err := r.db.QueryContext(ctx, producerRatesSelectSQL, pq.Array(typeIDs))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var typeID, recipeID int64
-		var rate float64
+		var rate sql.NullFloat64
 		if err := rows.Scan(&typeID, &recipeID, &rate); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		if out[typeID] == nil {
-			out[typeID] = map[int64]float64{}
+		if recipes[typeID] == nil {
+			recipes[typeID] = map[int64]bool{}
 		}
-		out[typeID][recipeID] = rate
+		recipes[typeID][recipeID] = true
+		if !rate.Valid {
+			continue
+		}
+		v := rate.Float64
+		if rates[typeID] == nil {
+			rates[typeID] = map[int64]*float64{}
+		}
+		rates[typeID][recipeID] = &v
 	}
-	return out, rows.Err()
+	return rates, recipes, rows.Err()
 }
 
 // loadActiveEffects — хранимые базисы нагрузки поселений по settlement_id.

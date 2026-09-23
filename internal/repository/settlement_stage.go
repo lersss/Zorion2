@@ -94,12 +94,14 @@ type producerTypeMeta struct {
 }
 
 // ownerBatchData — данные, загруженные ОДИН раз на пачку поселений (§3.3):
-// числа скорости пар «тип × рецепт», настройки типов (объединение «владельцы ∪
-// ладдера») и ладдера стадий.
+// числа скорости пар «тип × рецепт» (rates; nil = число не объявлено), набор
+// рецептов стадии (recipes — признак «не в наборе», §3.5), настройки типов
+// (объединение «владельцы ∪ ладдера») и ладдера стадий.
 type ownerBatchData struct {
-	rates  map[int64]map[int64]float64
-	types  map[int64]producerTypeMeta
-	ladder settlement.StageLadder
+	rates   map[int64]map[int64]*float64
+	recipes map[int64]map[int64]bool
+	types   map[int64]producerTypeMeta
+	ladder  settlement.StageLadder
 }
 
 // stageJSON — params.stage в БД: пороги входа/выхода (в людях).

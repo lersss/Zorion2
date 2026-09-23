@@ -177,7 +177,20 @@ func (h *AdminHandlers) GetPlanetsByWorld(w http.ResponseWriter, r *http.Request
 					log.Printf("⚠️ presence settlements %s: %v", worldID, err)
 				}
 			}
-			planets = applyPlanetVisibility(userID, planets, h.visibility.knowledge, presenceID)
+			// Настройка видимости арифметики игроку (спека 2026-09-23-стадии-
+			// поселения §8.3/§10): persistent-ключ generation_config, дефолт
+			// true. Читается с БД только когда есть что показывать (иначе лишний
+			// запрос); выключение действует немедленно — сервер не сериализует
+			// блок, а не «клиент скрывает».
+			arithmeticVisible := true
+			if planetsHaveSettlementArithmetic(planets) {
+				if v, err := repository.SettlementArithmeticVisibleToPlayer(h.db); err == nil {
+					arithmeticVisible = v
+				} else {
+					log.Printf("⚠️ settlement arithmetic visibility: %v", err)
+				}
+			}
+			planets = applyPlanetVisibility(userID, planets, h.visibility.knowledge, presenceID, arithmeticVisible)
 		}
 	} else {
 		// visibility не подключён (админ-путь без видимости) — пояса грузим

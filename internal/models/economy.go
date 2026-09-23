@@ -50,8 +50,32 @@ type Settlement struct {
 	// ленивого пересчёта населения (§4.2); входной буфер виден только админу
 	// (stripPlanetDetails обнуляет Input для player).
 	Branches  []SettlementBranch `json:"branches,omitempty"`
-	CreatedAt time.Time          `json:"created_at"`
-	UpdatedAt time.Time          `json:"updated_at"`
+	// Arithmetic — витрина арифметики на текущем населении по позициям
+	// (спека 2026-09-23-стадии-поселения §8.1/§8.2): производим/потребляем/сверх.
+	// Админ-вид полный; игроку (presence) — под настройкой видимости, снимок —
+	// блок не несёт (strip всегда чистит, §8.3).
+	Arithmetic []SettlementPositionArithmetic `json:"arithmetic,omitempty"`
+	CreatedAt  time.Time                      `json:"created_at"`
+	UpdatedAt  time.Time                      `json:"updated_at"`
+}
+
+// SettlementPositionArithmetic — арифметика одной позиции корзины на текущем
+// населении, ед/сутки (спека 2026-09-23-стадии-поселения §8.2). NetPerDay < 0 —
+// дефицит позиции.
+type SettlementPositionArithmetic struct {
+	Position       string  `json:"position"`
+	ProducedPerDay float64 `json:"produced_per_day"`
+	ConsumedPerDay float64 `json:"consumed_per_day"`
+	NetPerDay      float64 `json:"net_per_day"`
+}
+
+// SettlementBranchTake — «забираем» по компоненту рецепта ветки, ед/сутки
+// (выход × quantity_i, §8.2). Игроку идёт как расчётная производная рецепта,
+// не как содержимое входного буфера (склад закрыт stripBranchInputs).
+type SettlementBranchTake struct {
+	GoodID   int64   `json:"good_id"`
+	GoodName string  `json:"good_name,omitempty"`
+	PerDay   float64 `json:"per_day"`
 }
 
 // SettlementBranch — ветка поселения в ответе карточки (спека 2026-09-22-
@@ -76,6 +100,21 @@ type SettlementBranch struct {
 	Eaten float64 `json:"eaten,omitempty"`
 	// EatenRate — скорость списания из буфера, единиц/сек (витрина, §6).
 	EatenRate float64 `json:"eaten_rate,omitempty"`
+	// RatePerDayPerBillion — число скорости пары «тип поселения × рецепт»
+	// (producer_recipes.rate, ед/сутки/млрд, спека 2026-09-23-стадии-поселения
+	// §8.1/§11.3): nil = «не объявлено» (ключа нет вовсе или rate NULL), 0 —
+	// объявленный ноль. Витринное поле: игроку — под настройкой, снимок не несёт.
+	RatePerDayPerBillion *float64 `json:"rate,omitempty"`
+	// NotInStageSet — рецепт ветки отсутствует в наборе рецептов текущей стадии
+	// (producer_recipes типа поселения) → ветка не производит (§3.5). Признак
+	// админ-вида; игроку — под настройкой видимости (strip §8.3 п.4).
+	NotInStageSet bool `json:"not_in_stage_set,omitempty"`
+	// Take — «забираем» по ветке (расход входа, §8.2): выход × quantity по
+	// компонентам рецепта, ед/сутки. Player-безопасная производная рецепта.
+	Take []SettlementBranchTake `json:"take,omitempty"`
+	// DepositShare — доля «забираем», добранная из залежей за последний проход
+	// (0..1, §8.2): доля ветки, не атрибуция по позиции.
+	DepositShare float64 `json:"deposit_share,omitempty"`
 }
 
 // BranchBufferEntry — запись буфера ветки «ресурс → количество» (таблица

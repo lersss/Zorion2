@@ -24,7 +24,7 @@ func TestStripBiomes(t *testing.T) {
 		Core:                  &models.PlanetCore{Type: "железное"},
 		Settlements:           []models.Settlement{{ID: "s1"}},
 	}
-	stripped := stripPlanetDetails(p, nil)
+	stripped := stripPlanetDetails(p, nil, true)
 
 	require.Nil(t, stripped.Biomes, "Biomes скрыты для player (77a И1, находка §10.5)")
 	require.Nil(t, stripped.Subterrain, "Subterrain скрыт для player (77a И1, находка §10.5)")
@@ -48,12 +48,12 @@ func TestStripFactionsAndBuildings(t *testing.T) {
 	}
 
 	// Player без знания — деталей о фракциях/строениях нет.
-	stripped := stripPlanetDetails(p, nil)
+	stripped := stripPlanetDetails(p, nil, true)
 	require.Nil(t, stripped.Factions, "без знания фракции скрыты")
 	require.Nil(t, stripped.Buildings, "без знания строения скрыты")
 
 	// Player со знанием — фракции/строения остаются.
-	withKnowledge := stripPlanetDetails(p, &models.PlanetKnowledgeView{})
+	withKnowledge := stripPlanetDetails(p, &models.PlanetKnowledgeView{}, true)
 	require.Len(t, withKnowledge.Factions, 1)
 	require.Len(t, withKnowledge.Buildings, 1)
 
@@ -76,10 +76,10 @@ func TestStripDeposits(t *testing.T) {
 		},
 	}
 
-	stripped := stripPlanetDetails(p, nil)
+	stripped := stripPlanetDetails(p, nil, true)
 	require.Nil(t, stripped.Deposits, "без знания залежи скрыты (§5.1)")
 
-	withKnowledge := stripPlanetDetails(p, &models.PlanetKnowledgeView{})
+	withKnowledge := stripPlanetDetails(p, &models.PlanetKnowledgeView{}, true)
 	require.Len(t, withKnowledge.Deposits, 1, "со знанием остаются только активные залежи")
 	require.Equal(t, int64(359), withKnowledge.Deposits[0].GoodID, "выработанная (amount = 0) скрыта")
 
@@ -98,10 +98,10 @@ func TestStripFormationHistory(t *testing.T) {
 		FormationHistory: []models.PlanetFormationEvent{{Type: "migrated"}, {Type: "ice_lost"}},
 	}
 
-	stripped := stripPlanetDetails(p, nil)
+	stripped := stripPlanetDetails(p, nil, true)
 	require.Nil(t, stripped.FormationHistory, "без знания маркер скрыт (§6.5)")
 
-	withKnowledge := stripPlanetDetails(p, &models.PlanetKnowledgeView{})
+	withKnowledge := stripPlanetDetails(p, &models.PlanetKnowledgeView{}, true)
 	require.Len(t, withKnowledge.FormationHistory, 2, "со знанием маркер остаётся")
 }
 

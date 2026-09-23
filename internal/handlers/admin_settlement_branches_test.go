@@ -331,7 +331,7 @@ func TestStripPlanetDetailsHidesBranchInput(t *testing.T) {
 			}},
 		}},
 	}
-	out := stripPlanetDetails(p, nil)
+	out := stripPlanetDetails(p, nil, true)
 	// Поселения игроку без знания не отдаются вовсе.
 	require.Nil(t, out.Settlements)
 }

@@ -297,7 +297,7 @@ func supplyITRunPass(t *testing.T, db *sql.DB, o OwnerSettlement, now time.Time)
 	require.NoError(t, err)
 	stored, err := repo.loadActiveEffects(ctx, []string{o.ID})
 	require.NoError(t, err)
-	run, err := runOwnerPass(o, recs, stored[o.ID], catalog, known, nil, nil, now)
+	run, err := runOwnerPass(o, recs, stored[o.ID], catalog, known, ownerBatchData{}, nil, now)
 	require.NoError(t, err)
 	return run.result, run.deathInput.Effects
 }

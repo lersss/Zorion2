@@ -11,9 +11,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/require"
 
 	"zorion/internal/economy/settlement"
+	"zorion/internal/models"
+	"zorion/internal/repository"
 )
 
 func TestAdminSettlementSettingsGet(t *testing.T) {
@@ -90,4 +93,44 @@ func TestAdminSettlementSettingsMethodNotAllowed(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/admin/settlement-settings", nil)
 	rec := execJSON(h.HandleSettlementSettings, req)
 	require.Equal(t, http.StatusMethodNotAllowed, rec.Code)
+}
+
+// T-А3 (§8.3/§10): PATCH добавляет необязательное поле видимости арифметики
+// игроку; запись идёт в generation_config и действует немедленно — чтение сразу
+// после записи видит новое значение (настройка не кэшируется).
+func TestAdminSettlementSettingsPatchArithmeticVisibility(t *testing.T) {
+	t.Cleanup(settlement.ResetPopulationSettings)
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectExec(`INSERT INTO generation_config \(key, payload, updated_at\)\s+VALUES \(\$1, to_jsonb\(\$2::boolean\), NOW\(\)\)\s+ON CONFLICT \(key\) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW\(\)`).
+		WithArgs(models.SettlementArithmeticVisibleKey, false).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(`SELECT payload FROM generation_config WHERE key = \$1`).
+		WithArgs(models.SettlementArithmeticVisibleKey).
+		WillReturnRows(sqlmock.NewRows([]string{"payload"}).AddRow([]byte("false")))
+
+	h := &AdminHandlers{db: db}
+	req := httptest.NewRequest(http.MethodPatch, "/admin/settlement-settings",
+		strings.NewReader(`{"settlement_arithmetic_visible_to_player":false}`))
+	rec := execJSON(h.PatchSettlementSettings, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		LifeExpectancyYears  float64 `json:"life_expectancy_years"`
+		BirthRateCoefficient float64 `json:"birth_rate_coefficient"`
+		ArithmeticVisible    *bool   `json:"settlement_arithmetic_visible_to_player"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NotNil(t, resp.ArithmeticVisible)
+	require.False(t, *resp.ArithmeticVisible)
+	require.Equal(t, 50.0, resp.LifeExpectancyYears, "существующие поля не меняются")
+	require.Equal(t, 2.0, resp.BirthRateCoefficient)
+
+	// Выключение действует немедленно: следующий читатель видит false.
+	visible, err := repository.SettlementArithmeticVisibleToPlayer(db)
+	require.NoError(t, err)
+	require.False(t, visible)
+	require.NoError(t, mock.ExpectationsWereMet())
 }

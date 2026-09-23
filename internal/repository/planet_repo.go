@@ -461,6 +461,7 @@ func (r *PlanetRepository) syncSettlements(planets []models.Planet) error {
 			s.NDead = res.NDead
 			s.Branches = res.Branches
 			s.Effects = res.Effects
+			s.Arithmetic = res.Arithmetic
 			s.RaceName = raceName(s.RaceID)
 			planets[i].Population += int64(s.Population)
 		}

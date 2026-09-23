@@ -96,7 +96,7 @@ func TestStripPresenceModeFullDetails(t *testing.T) {
 		},
 	}
 
-	out := stripPlanetDetails(p, &models.PlanetKnowledgeView{Mode: knowledgeModePresence})
+	out := stripPlanetDetails(p, &models.PlanetKnowledgeView{Mode: knowledgeModePresence}, true)
 
 	require.Equal(t, "горы", out.SurfaceDominant, "поверхность видна при присутствии")
 	require.Len(t, out.Settlements, 1, "поселения видны при присутствии")
@@ -135,7 +135,7 @@ func TestStripSnapshotModeFrozenPicture(t *testing.T) {
 	require.True(t, ok)
 	view.Mode = knowledgeModeSnapshot
 	p := applySnapshotToPlanet(models.Planet{ID: "p1"}, snap)
-	out := stripPlanetDetails(p, view)
+	out := stripPlanetDetails(p, view, true)
 
 	assert.Equal(t, "горы", out.SurfaceDominant)
 	assert.Equal(t, map[string]float64{"горы": 62.0, "пыль": 38.0}, out.SurfaceComposition)
@@ -174,7 +174,7 @@ func TestStripScanMode(t *testing.T) {
 	view := &models.PlanetKnowledgeView{
 		Mode: knowledgeModeScan, SurfaceDominant: "вода", SettlementsCount: 1,
 	}
-	out := stripPlanetDetails(p, view)
+	out := stripPlanetDetails(p, view, true)
 
 	assert.Empty(t, out.SurfaceDominant, "поверхность — только в knowledge")
 	assert.Nil(t, out.Settlements, "детали поселений скрыты")
@@ -195,7 +195,7 @@ func TestStripNoneMode(t *testing.T) {
 		Buildings:       []models.PlanetBuilding{{ID: "b1"}},
 		Deposits:        []models.SurfaceDeposit{{GoodID: 1, Amount: 10}},
 	}
-	out := stripPlanetDetails(p, nil)
+	out := stripPlanetDetails(p, nil, true)
 
 	assert.Nil(t, out.Knowledge, "нет знания — knowledge nil")
 	assert.Empty(t, out.SurfaceDominant)
@@ -222,7 +222,7 @@ func TestPlayerEffectsDTO(t *testing.T) {
 			}},
 		}},
 	}
-	out := stripPlanetDetails(p, &models.PlanetKnowledgeView{Mode: knowledgeModePresence})
+	out := stripPlanetDetails(p, &models.PlanetKnowledgeView{Mode: knowledgeModePresence}, true)
 	require.Len(t, out.Settlements, 1)
 
 	views, ok := out.Settlements[0].Effects.([]models.EffectView)
@@ -256,14 +256,14 @@ func TestEffectsOnlyInPresence(t *testing.T) {
 		}},
 	}
 
-	snap := stripPlanetDetails(base, &models.PlanetKnowledgeView{Mode: knowledgeModeSnapshot})
+	snap := stripPlanetDetails(base, &models.PlanetKnowledgeView{Mode: knowledgeModeSnapshot}, true)
 	require.Len(t, snap.Settlements, 1)
 	assert.Nil(t, snap.Settlements[0].Effects, "в снимке эффектов нет")
 
-	scan := stripPlanetDetails(base, &models.PlanetKnowledgeView{Mode: knowledgeModeScan})
+	scan := stripPlanetDetails(base, &models.PlanetKnowledgeView{Mode: knowledgeModeScan}, true)
 	assert.Nil(t, scan.Settlements, "в скане деталей поселений нет")
 
-	none := stripPlanetDetails(base, nil)
+	none := stripPlanetDetails(base, nil, true)
 	assert.Nil(t, none.Settlements)
 }
 
@@ -284,7 +284,7 @@ func TestPresenceSettlementNoCheckpoints(t *testing.T) {
 			}},
 		}},
 	}
-	out := stripPlanetDetails(p, &models.PlanetKnowledgeView{Mode: knowledgeModePresence})
+	out := stripPlanetDetails(p, &models.PlanetKnowledgeView{Mode: knowledgeModePresence}, true)
 	raw, err := json.Marshal(out.Settlements[0])
 	require.NoError(t, err)
 	s := string(raw)

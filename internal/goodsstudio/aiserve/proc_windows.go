@@ -31,6 +31,10 @@ func spawnHelper(port int, logPath string) (int, error) {
 	}
 	defer logFile.Close()
 	cmd := exec.Command("cmd.exe", "/c", "npx", "-y", "opencode-ai", "serve", "--port", strconv.Itoa(port))
+	// Помощник не должен наследовать OPENCODE_SERVER_PASSWORD/USERNAME из
+	// окружения игрового сервера (спека §0: пароль считается незаданным) —
+	// иначе он требует basic-auth, а клиент студии его не отправляет (401).
+	cmd.Env = helperEnv(os.Environ())
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	cmd.SysProcAttr = &syscall.SysProcAttr{

@@ -1801,7 +1801,8 @@
         { "on": "internal/handlers/auth_handlers.go", "kind": "reads", "reason": "ship_options + валидация PUT /me/ship-icon" },
         { "on": "internal/handlers/surface_handlers.go", "kind": "reads", "reason": "ShipOrientByFile" },
         { "on": "tools/import_ship_sprites.ps1", "kind": "affects", "reason": "печать строк реестра (порядок: людские первыми)" },
-        { "on": "docs/gamedesign/21_ships.md", "kind": "docs", "reason": "эталоны В4/В5 переписаны (§21.7) — дельта @dispatcher" }
+        { "on": "docs/gamedesign/21_ships.md", "kind": "docs", "reason": "эталоны В4/В5 переписаны (§21.7) — дельта @dispatcher" },
+        { "on": "docs/specs/2026-09-23-корабли-рас-раса-агентов-и-игрока.md", "kind": "docs", "reason": "спека-источник §6 (расовый реестр, spriteForAgent, вариант B — все 117); приложение — чек-лист потребителей и рёбра" }
       ]
     },
     {

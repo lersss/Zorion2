@@ -62,11 +62,6 @@ const (
 		ON CONFLICT (owner_type, owner_id, effect_type_id)
 		DO UPDATE SET load = $5, load_at = $4, updated_at = NOW()`
 
-	// categoryNamesSQL — словарь name_norm категорий (валидация позиций
-	// редактора стадии студии, `CategoryNameNorms`). Позиция потребления
-	// owner-прохода ключуется ТОВАРОМ, не категорией (спека 2026-09-24 §6.1/§9.4).
-	categoryNamesSQL = `SELECT name_norm FROM categories`
-
 	// goodsNamesSQL — словарь позиций-ТОВАРОВ (goods.name_norm): ключ
 	// params.eat/params.effects читается только как товар (спека 2026-09-24
 	// §6.1/§9.4); категория-«сахар» как позиция снята.

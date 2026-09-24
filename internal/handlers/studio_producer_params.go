@@ -48,18 +48,19 @@ func (h *StudioHandlers) buildTypedProducerParams(id int64, raw *string, eat *ma
 		}
 	}
 
-	// Валидация (сервер — источник истины, 422; §10): позиции — в categories по
-	// name_norm, типы эффектов — в effect_types по name_norm, нормы ≥ 0,
-	// пороги отрицательные или без зазора (exit ≥ enter) — ошибка: требуется
+	// Валидация (сервер — источник истины, 422; спека 2026-09-24 §9.2): позиции —
+	// в goods по name_norm (позиция = ТОВАР, категория как позиция снята),
+	// типы эффектов — в effect_types по name_norm, нормы ≥ 0, пороги
+	// отрицательные или без зазора (exit ≥ enter) — ошибка: требуется
 	// exit < enter (зазор гистерезиса, §4.3).
-	positions, err := h.repo.CategoryNameNorms()
+	positions, err := h.repo.GoodNameNorms()
 	if err != nil {
 		return "", nil, err
 	}
 	if eat != nil {
 		for pos, norm := range *eat {
 			if !positions[pos] {
-				return "", nil, &repository.ErrCatalog{Status: 422, Msg: "позиция «" + pos + "» отсутствует в категориях"}
+				return "", nil, &repository.ErrCatalog{Status: 422, Msg: "позиция «" + pos + "» отсутствует в товарах — выберите товар"}
 			}
 			if norm < 0 {
 				return "", nil, &repository.ErrCatalog{Status: 422, Msg: "норма позиции «" + pos + "» < 0"}
@@ -73,7 +74,7 @@ func (h *StudioHandlers) buildTypedProducerParams(id int64, raw *string, eat *ma
 	if effects != nil {
 		for pos, typeName := range *effects {
 			if !positions[pos] {
-				return "", nil, &repository.ErrCatalog{Status: 422, Msg: "позиция «" + pos + "» отсутствует в категориях"}
+				return "", nil, &repository.ErrCatalog{Status: 422, Msg: "позиция «" + pos + "» отсутствует в товарах — выберите товар"}
 			}
 			if !effectNames[typeName] {
 				return "", nil, &repository.ErrCatalog{Status: 422, Msg: "тип эффекта «" + typeName + "» не найден"}

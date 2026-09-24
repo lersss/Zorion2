@@ -2672,19 +2672,20 @@ function recipeTakeText(g, rate) {
   return s;
 }
 // prodNorm — нормализация имени позиции (graph.NormalizeName: lower + trim +
-// сжатие пробелов); ключи params.eat/effects — это categories.name_norm (§10).
+// сжатие пробелов); ключи params.eat/effects — это goods.name_norm (спека
+// 2026-09-24 §9.1: позиция потребления — ТОВАР, категория как позиция снята).
 function prodNorm(s) { return String(s == null ? "" : s).toLowerCase().trim().replace(/\s+/g, " "); }
-// catByNorm/catNameByNorm — категория по нормализованному имени (§11.2:
+// goodByNorm/goodNameByNorm — товар по нормализованному имени (§11.2:
 // отсутствующая в справочнике позиция — предупреждение).
-function catByNorm(norm) { return state.categories.find(c => prodNorm(c.name) === norm) || null; }
-function catNameByNorm(norm) { const c = catByNorm(norm); return c ? c.name : norm; }
-// prodPosOptions — селект позиции (категории): value = name_norm.
+function goodByNorm(norm) { return state.goods.find(g => prodNorm(g.name) === norm) || null; }
+function goodNameByNorm(norm) { const g = goodByNorm(norm); return g ? g.name : norm; }
+// prodPosOptions — селект позиции (ТОВАРЫ, goods.name_norm): value = name_norm.
 function prodPosOptions(cur) {
   let html = '<option value=""' + (cur ? '' : ' selected') + '>— позиция —</option>';
-  const known = state.categories.some(c => prodNorm(c.name) === cur);
-  state.categories.forEach(c => {
-    const n = prodNorm(c.name);
-    html += '<option value="' + esc(n) + '"' + (n === cur ? ' selected' : '') + '>' + esc(c.name) + '</option>';
+  const known = state.goods.some(g => prodNorm(g.name) === cur);
+  state.goods.forEach(g => {
+    const n = prodNorm(g.name);
+    html += '<option value="' + esc(n) + '"' + (n === cur ? ' selected' : '') + '>' + esc(g.name) + '</option>';
   });
   if (cur && !known) html += '<option value="' + esc(cur) + '" selected>' + esc(cur) + ' (нет в справочнике)</option>';
   return html;
@@ -2750,8 +2751,8 @@ function eatBlock(p) {
   if (!prodEatRows.length) html += '<div class="empty-note">строк нет — добавьте позицию ниже</div>';
   prodEatRows.forEach((r, i) => {
     html += prodEatRowHtml(r, i);
-    if (r.pos && !r.eff) html += '<div class="hint" style="color:#d9a">позиция «' + esc(catNameByNorm(r.pos)) + '» без эффекта — не потребляется</div>';
-    if (r.pos && !catByNorm(r.pos)) html += '<div class="hint" style="color:#d9a">позиция «' + esc(r.pos) + '» отсутствует в справочнике категорий — не сохраняется</div>';
+    if (r.pos && !r.eff) html += '<div class="hint" style="color:#d9a">позиция «' + esc(goodNameByNorm(r.pos)) + '» без эффекта — не потребляется</div>';
+    if (r.pos && !goodByNorm(r.pos)) html += '<div class="hint" style="color:#d9a">позиция «' + esc(r.pos) + '» отсутствует в справочнике товаров — не сохраняется</div>';
     if (r.eff && effectTypes !== null && !effectTypes.some(e => e.name_norm === r.eff)) html += '<div class="hint" style="color:#d9a">тип эффекта «' + esc(r.eff) + '» отсутствует в справочнике — не сохраняется</div>';
   });
   if (!prodEatRows.some(r => r.pos && r.eff)) html += '<div class="hint">не потребляет (ни одной позиции с эффектом)</div>';
@@ -2784,14 +2785,14 @@ function prodEatNormChange(i, val) {
 }
 // saveEatBlock — запись типизированных eat/effects (PUT /producers/{id}, §10):
 // строка без позиции пропускается; норма пуста → в eat не пишем (мир возьмёт
-// 600); позиция/тип эффекта вне справочника не шлются (сервер вернёт 422, §10),
+// 600); позиция/тип эффекта вне справочника не шлются (сервер вернёт 422, §9.2),
 // но норма такой позиции остаётся в eat (позиция без эффекта — «не потребляется»).
 async function saveEatBlock() {
   if (!popupGoodId) return;
   const eat = {}, effects = {};
   const effKnown = e => effectTypes === null || effectTypes.some(x => x.name_norm === e);
   (prodEatRows || []).forEach(r => {
-    if (!r.pos || !catByNorm(r.pos)) return;
+    if (!r.pos || !goodByNorm(r.pos)) return;
     if (r.eff && effKnown(r.eff)) effects[r.pos] = r.eff;
     if (r.norm !== "") eat[r.pos] = Number(r.norm);
   });
@@ -2810,9 +2811,8 @@ function prodArithmeticBlock(p) {
   prodOutputs(p).forEach(g => {
     const rate = recipeRate(p, g.recipe_id);
     if (rate == null) return;
-    const cat = state.categories.find(c => c.id === g.category_id);
-    if (!cat) return;
-    const pos = prodNorm(cat.name);
+    // позиция = ТОВАР-выход ветки (goods.name_norm, спека 2026-09-24 §7.3)
+    const pos = prodNorm(g.name);
     produced[pos] = (produced[pos] || 0) + rate;
   });
   const positions = [...new Set([...Object.keys(produced), ...Object.keys(effects)])].sort();
@@ -2824,7 +2824,7 @@ function prodArithmeticBlock(p) {
     const cons = Object.prototype.hasOwnProperty.call(effects, pos) ? (eat[pos] != null ? Number(eat[pos]) : 600) : 0;
     const diff = prod - cons; // всё в хранимой единице; показ — в выбранном масштабе
     const tail = diff < 0 ? 'дефицит ' + fmtNum(scaleToDisplay(-diff)) : 'сверх потребления +' + fmtNum(scaleToDisplay(diff));
-    html += specRow(["", catNameByNorm(pos) + ': производим ' + fmtNum(scaleToDisplay(prod)) + ' ' + unit + ' · потребляем ' + fmtNum(scaleToDisplay(cons)) + ' ' + unit + ' · ' + tail + ' ' + unit]);
+    html += specRow(["", goodNameByNorm(pos) + ': производим ' + fmtNum(scaleToDisplay(prod)) + ' ' + unit + ' · потребляем ' + fmtNum(scaleToDisplay(cons)) + ' ' + unit + ' · ' + tail + ' ' + unit]);
   });
   html += '</div>';
   return html;

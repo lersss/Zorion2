@@ -1164,10 +1164,12 @@ func (r *GoodsRepository) ProducerParamsRaw(id int64) (json.RawMessage, error) {
 	return json.RawMessage(raw), nil
 }
 
-// CategoryNameNorms — словарь name_norm категорий (валидация позиций редактора
-// стадии, спека 2026-09-23 §10): позиция обязана существовать в справочнике.
-func (r *GoodsRepository) CategoryNameNorms() (map[string]bool, error) {
-	rows, err := r.db.Query(categoryNamesSQL)
+// GoodNameNorms — словарь name_norm ТОВАРОВ (валидация позиций редактора
+// стадии, спека 2026-09-24 §9.2): позиция потребления — товар goods.name_norm,
+// категория как позиция снята. Тот же словарь, что читает owner-проход
+// (goodsNamesSQL, §9.4).
+func (r *GoodsRepository) GoodNameNorms() (map[string]bool, error) {
+	rows, err := r.db.Query(goodsNamesSQL)
 	if err != nil {
 		return nil, err
 	}

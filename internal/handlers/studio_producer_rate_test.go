@@ -160,12 +160,12 @@ func TestStudioProducerTypedParams(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	// buildTypedProducerParams: текущий params типа (NULL) → словарь категорий →
+	// buildTypedProducerParams: текущий params типа (NULL) → словарь товаров →
 	// каталог типов эффектов (для валидации позиций/типов).
 	mock.ExpectQuery(`SELECT params FROM producer_types WHERE id = \$1`).
 		WithArgs(int64(5)).WillReturnRows(sqlmock.NewRows([]string{"params"}).AddRow(nil))
-	mock.ExpectQuery(`SELECT name_norm FROM categories`).
-		WillReturnRows(sqlmock.NewRows([]string{"name_norm"}).AddRow("продовольствие"))
+	mock.ExpectQuery(`SELECT name_norm FROM goods`).
+		WillReturnRows(sqlmock.NewRows([]string{"name_norm"}).AddRow("пища"))
 	mock.ExpectQuery(`SELECT id, name, name_norm, impact, COALESCE\(params->>'curve', ''\), created_at FROM effect_types ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm", "impact", "curve", "created_at"}).
 			AddRow(int64(1), "Голод", "голод", "population_rate", "hunger", time.Now()))
@@ -177,12 +177,12 @@ func TestStudioProducerTypedParams(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"kind", "parent_id", "category_id", "race_family", "race"}).
 			AddRow("goods", nil, nil, nil, nil))
 	mock.ExpectExec(`UPDATE producer_types SET params = \$1 WHERE id = \$2`).
-		WithArgs(jsonArgContains{parts: []string{`"eat_units":"per_day_per_billion"`, `"продовольствие":600`, `"effects":{"продовольствие":"голод"}`, `"stage":{"enter":100000000,"exit":50000000}`}}, int64(5)).
+		WithArgs(jsonArgContains{parts: []string{`"eat_units":"per_day_per_billion"`, `"пища":600`, `"effects":{"пища":"голод"}`, `"stage":{"enter":100000000,"exit":50000000}`}}, int64(5)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
 	h := newRateTestHandlers(t, db)
-	body := `{"eat":{"продовольствие":600},"effects":{"продовольствие":"голод"},"stage":{"enter":100000000,"exit":50000000}}`
+	body := `{"eat":{"пища":600},"effects":{"пища":"голод"},"stage":{"enter":100000000,"exit":50000000}}`
 	req := httptest.NewRequest(http.MethodPut, "/studio/api/producers/5", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	h.ProducerByID(rec, req)
@@ -190,6 +190,28 @@ func TestStudioProducerTypedParams(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]interface{}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestStudioProducerTypedCategoryRejected — позиция, совпавшая с именем
+// категории, но не товара → 422 (спека 2026-09-24 §9.2: категория — не позиция).
+func TestStudioProducerTypedCategoryRejected(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectQuery(`SELECT params FROM producer_types WHERE id = \$1`).
+		WithArgs(int64(5)).WillReturnRows(sqlmock.NewRows([]string{"params"}).AddRow(nil))
+	// словарь товаров не содержит «продовольствие» — это имя категории
+	mock.ExpectQuery(`SELECT name_norm FROM goods`).
+		WillReturnRows(sqlmock.NewRows([]string{"name_norm"}).AddRow("пища"))
+
+	h := newRateTestHandlers(t, db)
+	req := httptest.NewRequest(http.MethodPut, "/studio/api/producers/5", strings.NewReader(`{"eat":{"продовольствие":600}}`))
+	rec := httptest.NewRecorder()
+	h.ProducerByID(rec, req)
+
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -201,8 +223,8 @@ func TestStudioProducerTypedWarning(t *testing.T) {
 
 	mock.ExpectQuery(`SELECT params FROM producer_types WHERE id = \$1`).
 		WithArgs(int64(5)).WillReturnRows(sqlmock.NewRows([]string{"params"}).AddRow(nil))
-	mock.ExpectQuery(`SELECT name_norm FROM categories`).
-		WillReturnRows(sqlmock.NewRows([]string{"name_norm"}).AddRow("продовольствие"))
+	mock.ExpectQuery(`SELECT name_norm FROM goods`).
+		WillReturnRows(sqlmock.NewRows([]string{"name_norm"}).AddRow("пища"))
 	mock.ExpectQuery(`SELECT id, name, name_norm, impact, COALESCE\(params->>'curve', ''\), created_at FROM effect_types ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm", "impact", "curve", "created_at"}))
 
@@ -216,7 +238,7 @@ func TestStudioProducerTypedWarning(t *testing.T) {
 	mock.ExpectCommit()
 
 	h := newRateTestHandlers(t, db)
-	req := httptest.NewRequest(http.MethodPut, "/studio/api/producers/5", strings.NewReader(`{"eat":{"продовольствие":600}}`))
+	req := httptest.NewRequest(http.MethodPut, "/studio/api/producers/5", strings.NewReader(`{"eat":{"пища":600}}`))
 	rec := httptest.NewRecorder()
 	h.ProducerByID(rec, req)
 
@@ -226,7 +248,7 @@ func TestStudioProducerTypedWarning(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Len(t, resp.Warnings, 1, "позиция в eat без эффекта → предупреждение (§8.2)")
-	require.Contains(t, resp.Warnings[0], "продовольствие")
+	require.Contains(t, resp.Warnings[0], "пища")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -243,8 +265,8 @@ func TestStudioProducerTypedExitNotBelowEnter(t *testing.T) {
 	} {
 		mock.ExpectQuery(`SELECT params FROM producer_types WHERE id = \$1`).
 			WithArgs(int64(5)).WillReturnRows(sqlmock.NewRows([]string{"params"}).AddRow(nil))
-		mock.ExpectQuery(`SELECT name_norm FROM categories`).
-			WillReturnRows(sqlmock.NewRows([]string{"name_norm"}).AddRow("продовольствие"))
+		mock.ExpectQuery(`SELECT name_norm FROM goods`).
+			WillReturnRows(sqlmock.NewRows([]string{"name_norm"}).AddRow("пища"))
 		mock.ExpectQuery(`SELECT id, name, name_norm, impact, COALESCE\(params->>'curve', ''\), created_at FROM effect_types ORDER BY id`).
 			WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm", "impact", "curve", "created_at"}))
 		h := newRateTestHandlers(t, db)
@@ -264,8 +286,8 @@ func TestStudioProducerTypedNegativeThreshold(t *testing.T) {
 
 	mock.ExpectQuery(`SELECT params FROM producer_types WHERE id = \$1`).
 		WithArgs(int64(5)).WillReturnRows(sqlmock.NewRows([]string{"params"}).AddRow(nil))
-	mock.ExpectQuery(`SELECT name_norm FROM categories`).
-		WillReturnRows(sqlmock.NewRows([]string{"name_norm"}).AddRow("продовольствие"))
+	mock.ExpectQuery(`SELECT name_norm FROM goods`).
+		WillReturnRows(sqlmock.NewRows([]string{"name_norm"}).AddRow("пища"))
 	mock.ExpectQuery(`SELECT id, name, name_norm, impact, COALESCE\(params->>'curve', ''\), created_at FROM effect_types ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm", "impact", "curve", "created_at"}))
 
@@ -286,8 +308,8 @@ func TestStudioProducerTypedPriorityM6(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	mock.ExpectQuery(`SELECT name_norm FROM categories`).
-		WillReturnRows(sqlmock.NewRows([]string{"name_norm"}).AddRow("продовольствие"))
+	mock.ExpectQuery(`SELECT name_norm FROM goods`).
+		WillReturnRows(sqlmock.NewRows([]string{"name_norm"}).AddRow("пища"))
 	mock.ExpectQuery(`SELECT id, name, name_norm, impact, COALESCE\(params->>'curve', ''\), created_at FROM effect_types ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm", "impact", "curve", "created_at"}).
 			AddRow(int64(1), "Голод", "голод", "population_rate", "hunger", time.Now()))
@@ -298,12 +320,12 @@ func TestStudioProducerTypedPriorityM6(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"kind", "parent_id", "category_id", "race_family", "race"}).
 			AddRow("goods", nil, nil, nil, nil))
 	mock.ExpectExec(`UPDATE producer_types SET params = \$1 WHERE id = \$2`).
-		WithArgs(jsonArgContains{parts: []string{`"eat":{"продовольствие":600}`, `"eat_units":"per_day_per_billion"`, `"keep":"x"`}}, int64(5)).
+		WithArgs(jsonArgContains{parts: []string{`"eat":{"пища":600}`, `"eat_units":"per_day_per_billion"`, `"keep":"x"`}}, int64(5)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
 	h := newRateTestHandlers(t, db)
-	body := `{"params":"{\"eat\":{\"старое\":1},\"keep\":\"x\"}","eat":{"продовольствие":600}}`
+	body := `{"params":"{\"eat\":{\"старое\":1},\"keep\":\"x\"}","eat":{"пища":600}}`
 	req := httptest.NewRequest(http.MethodPut, "/studio/api/producers/5", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	h.ProducerByID(rec, req)

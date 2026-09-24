@@ -964,7 +964,15 @@ function renderGraph() {
     ctx.fill(); ctx.stroke();
     ctx.fillStyle = dim ? "#aaa" : "#fff";
     ctx.font = "14px Arial";
-    ctx.fillText(truncPx(g.name, CARD_W - 16, 24), x + 8, y + 18);
+    // номер рецепта — вплотную к имени: имя режется с запасом под тег, а тег
+    // рисуется всегда целиком (у ресурса рецепта нет — RecipeID = 0)
+    const recipeTag = g.recipe_id ? " · рецепт " + g.recipe_id : "";
+    const nameText = truncPx(g.name, CARD_W - 16 - ctx.measureText(recipeTag).width, 24);
+    ctx.fillText(nameText, x + 8, y + 18);
+    if (recipeTag) {
+      ctx.fillStyle = dim ? "#888" : "#bbb";
+      ctx.fillText(recipeTag, x + 8 + ctx.measureText(nameText).width, y + 18);
+    }
     ctx.fillStyle = dim ? "#888" : "#bbb";
     ctx.font = "12px Arial";
     ctx.fillText(truncPx(catName(g.category_id), CARD_W - 16, 22), x + 8, y + 32);

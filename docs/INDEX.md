@@ -79,7 +79,8 @@
 |---|---|---|
 | `docs/ARCHITECTURE.md` | §0 конкурентность (что защищено, что нет), §1–2 карта файлов, §4 миграции БД, §5 карта | коде, безопасности горутин, инцидентах |
 | `docs/DB.md` | БД: таблицы, миграции, baseline, состояние | БД и миграциях |
-| `docs/PITFALLS.md` | Ловушки проекта, проверенные на практике | любой правке рядом с перечисленными местами |
+| `docs/PITFALLS.md` | Ловушки проекта: тонкое оглавление тем | любой правке рядом с перечисленными местами |
+| `docs/pitfalls/{db-shell,go,design,front-ui,misc}.md`, `docs/pitfalls/_archive.md` | Ловушки по темам: БД/шелл, Go и конкурентность, дизайн и числа, фронт и UI, прочее; архив — не читается по умолчанию | нужной теме ловушек; архив — при разборе истории |
 | `docs/DEPLOY.md` | Развёртывание: env, локальный запуск, деплой Amvera, генерация кораблей, VACUUM | развертывании сервера, правках, затрагивающих деплой |
 | `docs/COORDINATION.md` | Реестр занятости файлов при параллельной работе (мягкий локейт) | перед правкой общего файла |
 | `docs/impact_map.json` | Реестр каскадных влияний: «меняем X → смотрим на Y»; ведёт @manager (идея 83a); автосверка — `scripts/check_impact_map.ps1` + `.githooks/post-commit`; кодировка UTF-8 (перекодирован из mojibake, 95b) | правке сущностей с 2+ потребителями (конфиги рас, race_balancer, settlements.race_id, спеки/доки) |
@@ -158,7 +159,7 @@
 | `docs/EPICS.md` | `@manager` (доска прогресса эпиков; чекпоинты — в идеях) |
 | `docs/TAILS.md` | содержание `@manager`, писатель `@dispatcher` (горячий док) |
 | `docs/impact_map.json` | `@manager` (реестр влияний, 83a) |
-| `docs/ARCHITECTURE.md`, `docs/DB.md`, `docs/PITFALLS.md`, `docs/DEPLOY.md` | `@developer` |
+| `docs/ARCHITECTURE.md`, `docs/DB.md`, `docs/PITFALLS.md`, `docs/pitfalls/*`, `docs/DEPLOY.md` | `@developer` |
 | `docs/QA_CHECKLIST.md` | `@manager` (состав критичных точек, даты из отчётов инстансов) |
 | `docs/QA.md`, `docs/QA/checklists/` (журнал прогонов, файл на прогон) | создавший инстанс `@tester` |
 | `docs/COORDINATION.md` | все по ролям (мягкий локейт: каждый отмечает свой участок)

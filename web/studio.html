@@ -124,8 +124,10 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
  .usedin-h{font-size:var(--fs-section);color:#8cf;font-weight:600;letter-spacing:.5px;text-transform:uppercase;margin-bottom:6px}
  .usedin-item{font-size:var(--fs-body);color:#ddd;padding:4px 6px;border-radius:4px;cursor:pointer;word-break:break-word}
  .usedin-item:hover{background:#242424;color:#8cf}
- #report{position:fixed;bottom:10px;right:10px;max-width:420px;background:#1c1c1c;border:1px solid #555;border-radius:8px;padding:10px;font-size:13px;color:#fa0;display:none;z-index:10}
- #report .rline{margin:2px 0}
+  #report{position:fixed;bottom:10px;right:10px;max-width:420px;background:#1c1c1c;border:1px solid #555;border-radius:8px;padding:10px 26px 10px 10px;font-size:13px;color:#fa0;display:none;z-index:10}
+  #report .rline{margin:2px 0}
+  #report .rclose{position:absolute;top:4px;right:6px;background:none;border:none;color:#999;font-size:14px;line-height:1;cursor:pointer;padding:0}
+  #report .rclose:hover{color:#fff}
  .hint{color:#666;font-size:var(--fs-small);margin-top:4px}
  .empty-note{color:#666;font-size:var(--fs-small);padding:6px}
  .overlay{position:absolute;inset:0;display:none;align-items:center;justify-content:center;flex-direction:column;gap:10px;background:#161616cc;color:#ddd;font-size:14px;z-index:5;text-align:center}
@@ -503,6 +505,10 @@ let prodDropHighlight = null; // узел дерева построек под �
 // (prodEatRowsFor = id), иначе пересобирается из params.eat/effects.
 let prodEatRows = null;
 let prodEatRowsFor = null;
+// Редактор «Стадия» (спека 2026-09-23 §11.1 п.3): значения полей порогов живут,
+// пока открыт попап этого типа (prodStageEditFor = id), иначе берутся из params.
+let prodStageEdit = null;
+let prodStageEditFor = null;
 // Типы эффектов для селекта «эффект при нехватке»: отдельный эндпоинт
 // /studio/api/effects (в общем state их нет), кэш на сессию.
 let effectTypes = null;
@@ -534,7 +540,7 @@ async function fetchState() {
     // спека iterC §6.4, эталон index.html:269–273)
     if (state.report && state.report.length) {
       const rj = JSON.stringify(state.report);
-      if (rj !== lastShownReport) { lastShownReport = rj; showReport(state.report); }
+      if (rj !== lastShownReport) { lastShownReport = rj; showReport(state.report, true); }
     } else {
       lastShownReport = "";
     }
@@ -556,10 +562,12 @@ async function fetchState() {
     // отчёт описаний — тост один раз по изменению (спека §9.6)
     if (state.desc_report && state.desc_report.length) {
       const drj = JSON.stringify(state.desc_report);
-      if (drj !== lastShownDescReport) { lastShownDescReport = drj; showReport(state.desc_report); }
+      if (drj !== lastShownDescReport) { lastShownDescReport = drj; showReport(state.desc_report, true); }
     } else {
       lastShownDescReport = "";
     }
+    // ожидание прогона (fill/описания): счётчик секунд в отчёте
+    if (state.generating || state.desc_generating) aiWaitStart(); else aiWaitStop();
     // попап «Описания ИИ» — авто-открытие на новый набор; во время прогона
     // не закрывается, строки/прогресс обновляются опросом (спека §9.4)
     const dprops = state.desc_proposals || [];
@@ -606,12 +614,38 @@ async function fetchResources() {
   // /api/resources остаётся на сервере (обратная совместимость, 99a.3 §8.5);
   // справочник строит список из state.goods — этот вызов не используется.
 }
-function showReport(lines) {
+function showReport(lines, persist) {
   const el = $("report");
-  el.innerHTML = lines.map(l => '<div class="rline">' + esc(l) + '</div>').join("");
+  aiWaitShown = false;
+  el.innerHTML = lines.map(l => '<div class="rline">' + esc(l) + '</div>').join("") +
+    (persist ? '<button class="rclose" onclick="hideReport()" title="скрыть отчёт">×</button>' : "");
   el.style.display = "block";
   clearTimeout(showReport._t);
-  showReport._t = setTimeout(() => el.style.display = "none", 8000);
+  if (!persist) showReport._t = setTimeout(() => el.style.display = "none", 8000);
+}
+function hideReport() { clearTimeout(showReport._t); $("report").style.display = "none"; }
+// Отсчёт ожидания ИИ-прогона (решение создателя 2026-09-24): пока идёт прогон
+// (fill или описания), в отчёте видно «ИИ думает… N с» — долгое ожидание и
+// провал не выглядят как «ничего не произошло». Отчёт прогона не гаснет сам
+// (persist), его снимает следующий отчёт или крестик.
+let aiWaitSince = 0, aiWaitTimer = 0, aiWaitShown = false;
+function aiWaitStart() {
+  if (aiWaitSince) return;
+  aiWaitSince = Date.now();
+  const tick = () => {
+    if (!aiWaitSince) return;
+    showReport(["ИИ думает… " + Math.round((Date.now() - aiWaitSince) / 1000) + " с"], true);
+    aiWaitShown = true;
+  };
+  tick();
+  aiWaitTimer = setInterval(tick, 1000);
+}
+function aiWaitStop() {
+  if (!aiWaitSince) return;
+  clearInterval(aiWaitTimer);
+  aiWaitSince = 0;
+  if (aiWaitShown) hideReport(); // прогон кончился, отчёта нет — снимаем счётчик
+  aiWaitShown = false;
 }
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 
@@ -1765,7 +1799,7 @@ async function api(method, url, body) {
   if (!r.ok) {
     let msg = "ошибка " + r.status;
     try { const e = await r.json(); if (e.error) msg = e.error; } catch (e) {}
-    showReport([msg]);
+    showReport([msg], true);
     return null;
   }
   return r;
@@ -2319,6 +2353,8 @@ function openProdPopup(id) {
   // модель «Потребляет» пересобирается под новый тип (спека 2026-09-23 §11.1)
   prodEatRows = null;
   prodEatRowsFor = null;
+  prodStageEdit = null;
+  prodStageEditFor = null;
   effectTypesFailed = false; // повторная попытка загрузить справочник эффектов
   resetPopupPos();
   $("detailPopup").style.display = "flex";
@@ -2409,6 +2445,7 @@ function renderProdPopup() {
   // «Потребляет» — поля (спека 2026-09-23 §11.1 п.1) и проекция арифметики
   // «на млрд» (§8.1) — только у записи-подтипа (у типа конфигурации нет).
   if (p.parent_id) html += eatBlock(p);
+  html += stageBlock(p); // блок «Стадия» — только у ступени класса без слотов (§11.1 п.3)
   html += prodArithmeticBlock(p);
   html += pblockHtml("Условия работы", spec.conditions);
   html += pblockHtml("Люди", spec.people);
@@ -2805,6 +2842,78 @@ async function saveEatBlock() {
     if (r.norm !== "") eat[r.pos] = Number(r.norm);
   });
   const r = await api("PUT", "/studio/api/producers/" + popupGoodId, {eat, effects});
+  if (r) fetchState(); else renderProdPopup();
+}
+// stageBlock — блок «Стадия» карточки постройки (спека 2026-09-23 §11.1 п.3):
+// [порог входа] → [порог выхода] в людях; у низшей ступени (enter = 0) выход
+// «не читается (пол)»; связка со следующей ступенью — по данным (§11.1);
+// exit ≥ enter — ошибка, сохранение блокировано (§11.2). Только у ступени
+// класса без слотов («Колония») — тот же предикат, что prodSubtypeNoCatRecords.
+function stageBlock(p) {
+  if (!p.parent_id || p.kind !== "goods" || p.category_id != null) return "";
+  const parent = state.producer_types.find(x => x.id === p.parent_id);
+  if (!parent || prodSlots(parent).length !== 0) return "";
+  const st = (p.params && p.params.stage) || {};
+  if (prodStageEditFor !== p.id) {
+    prodStageEdit = {
+      enter: st.enter != null ? String(st.enter) : "",
+      exit: st.exit != null ? String(st.exit) : "",
+    };
+    prodStageEditFor = p.id;
+  }
+  const enter = prodStageEdit.enter, exit = prodStageEdit.exit;
+  const enterNum = enter === "" ? null : Number(enter);
+  const exitNum = exit === "" ? null : Number(exit);
+  let html = '<div class="pblock"><div class="pblock-h">Стадия</div>';
+  html += '<div class="hint">пороги в людях: вход — переход в эту ступень, выход — гистерезис (ниже входа)</div>';
+  html += '<div class="bind-row">' +
+    '<input type="number" min="0" step="any" style="width:120px" value="' + esc(enter) + '" placeholder="порог входа" title="порог входа, чел." onchange="prodStageEnterChange(this.value)">' +
+    '<span style="color:#777">→</span>' +
+    '<input type="number" min="0" step="any" style="width:120px" value="' + esc(exit) + '" placeholder="порог выхода" title="порог выхода, чел. (меньше порога входа)" onchange="prodStageExitChange(this.value)">' +
+    '</div>';
+  if (enterNum === 0) html += '<div class="hint">порог выхода не читается (пол)</div>';
+  if (enterNum != null && exitNum != null && exitNum >= enterNum) {
+    html += '<div class="hint" style="color:#f66">порог выхода должен быть меньше порога входа</div>';
+  }
+  if (enter === "" && exit === "") html += '<div class="hint">заполните хотя бы порог входа</div>';
+  const next = prodNextStage(p);
+  if (next) {
+    html += '<div class="dmeta">следующая ступень: <b>' + esc(next.name) + '</b> (при ' +
+      Number(prodStageEnter(next)).toLocaleString("ru-RU") + ' чел.)</div>';
+  } else {
+    html += '<div class="dmeta">дальше ступеней нет</div>';
+  }
+  html += '</div>';
+  return html;
+}
+// prodStageEnterChange/prodStageExitChange — правка полей блока (§11.1 п.3):
+// значение кладётся в модель попапа и сохраняется (saveStageBlock).
+function prodStageEnterChange(val) {
+  if (!prodStageEdit) prodStageEdit = {enter: "", exit: ""};
+  prodStageEdit.enter = String(val).trim();
+  saveStageBlock();
+}
+function prodStageExitChange(val) {
+  if (!prodStageEdit) prodStageEdit = {enter: "", exit: ""};
+  prodStageEdit.exit = String(val).trim();
+  saveStageBlock();
+}
+// saveStageBlock — запись типизированных порогов stage (PUT /producers/{id},
+// §10): оба поля пусты — не шлём (подсказка в блоке); exit ≥ enter — ошибка
+// §11.2, сохранение блокировано; шлём только заполненные числа. Успех —
+// fetchState (пересчёт порядка и связки), ошибка — перерисовка (как saveEatBlock).
+async function saveStageBlock() {
+  if (!popupGoodId) return;
+  const enter = prodStageEdit ? prodStageEdit.enter : "";
+  const exit = prodStageEdit ? prodStageEdit.exit : "";
+  const enterNum = enter === "" ? null : Number(enter);
+  const exitNum = exit === "" ? null : Number(exit);
+  if (enterNum == null && exitNum == null) { renderProdPopup(); return; }
+  if (enterNum != null && exitNum != null && exitNum >= enterNum) { renderProdPopup(); return; }
+  const stage = {};
+  if (enterNum != null) stage.enter = enterNum;
+  if (exitNum != null) stage.exit = exitNum;
+  const r = await api("PUT", "/studio/api/producers/" + popupGoodId, {stage});
   if (r) fetchState(); else renderProdPopup();
 }
 // prodArithmeticBlock — проекция арифметики «на млрд особей» (спека 2026-09-23
@@ -3256,13 +3365,41 @@ function prodNodeById(id) {
   return state.producer_types.find(p => p.id === Number(m[2]));
 }
 
+// prodStageEnter — нижний порог населения ступени ладдеры (params.stage.enter);
+// нет порога — Infinity (записи без ладдеры уходят в конец, порядок стабилен).
+function prodStageEnter(p) {
+  const v = Number((p.params && p.params.stage || {}).enter);
+  return isFinite(v) ? v : Infinity;
+}
+// prodNextStage — следующая ступень ладдеры: сосед по родителю с минимальным
+// enter, большим своего; null — следующей ступени нет. Связка блока «Стадия»
+// (§11.1 п.3) — по записи, не по имени.
+function prodNextStage(p) {
+  const own = prodStageEnter(p);
+  let next = null;
+  state.producer_types.forEach(s => {
+    if (s.parent_id !== p.parent_id) return;
+    const v = prodStageEnter(s);
+    if (!isFinite(v) || v <= own) return;
+    if (next == null || v < prodStageEnter(next)) next = s;
+  });
+  return next;
+}
+// prodNextStageEnter — нижний порог следующей ступени ладдеры (enter записи
+// prodNextStage); null — следующей ступени нет.
+function prodNextStageEnter(p) {
+  const s = prodNextStage(p);
+  return s ? prodStageEnter(s) : null;
+}
 // prodSubtypeNoCatRecords — подтипы типа БЕЗ товарной категории (класс
-// строения: «Поселение» → «Обычное поселение», итерация 4 §5.3 п.4): у типа
+// строения: «Колония» → «Форпост», итерация 4 §5.3 п.4): у типа
 // нет слотов, значит товарной категории у подтипа нет по определению; ось —
-// только prodVisible (класс строения у постройки есть всегда).
+// только prodVisible (класс строения у постройки есть всегда). Порядок — по
+// нижнему порогу населения ступени (идея 2026-09-24, «само по данным»).
 function prodSubtypeNoCatRecords(t) {
   return state.producer_types.filter(s =>
-    s.parent_id === t.id && s.category_id == null && prodVisible(s));
+    s.parent_id === t.id && s.category_id == null && prodVisible(s))
+    .sort((a, b) => prodStageEnter(a) - prodStageEnter(b));
 }
 
 // buildProdTree — дерево построек (спека §5.2–§5.4): корень → классы

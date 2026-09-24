@@ -214,6 +214,25 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
   #exportStatus button{font-size:12px;background:#2b2b2b;border:1px solid #4a4a4a;color:#ddd;border-radius:6px;padding:4px 8px;cursor:pointer}
   #exportStatus button:hover{background:#363636}
   #exportStatus button:disabled{opacity:.5;cursor:default}
+  /* кнопка импорта снимка контента (спека 2026-09-24 §7, И3) */
+  #importStatus{display:inline-flex;align-items:center}
+  #importStatus button{font-size:12px;background:#2b2b2b;border:1px solid #4a4a4a;color:#ddd;border-radius:6px;padding:4px 8px;cursor:pointer}
+  #importStatus button:hover{background:#363636}
+  #importStatus button:disabled{opacity:.5;cursor:default}
+  /* попап импорта: дифф (сухой прогон) и отчёт (спека 2026-09-24 §7) */
+  #importOverlay{position:absolute;left:0;top:0;right:320px;bottom:0;background:#000a;z-index:10;display:none}
+  #importPopup{position:absolute;left:calc(50% - 160px);top:50%;transform:translate(-50%,-50%);width:min(600px,calc(100% - 48px));max-height:80%;background:#1c1c1c;border:1px solid #555;border-radius:10px;z-index:11;display:none;flex-direction:column;box-shadow:0 8px 32px #000c}
+  #importBody{max-height:60vh;overflow:auto;font-size:13px}
+  #importBody .imp-sec{margin-bottom:8px}
+  #importBody .imp-h{font-weight:600;color:#ddd;margin:6px 0 3px}
+  #importBody .imp-row{color:#bbb;line-height:1.4}
+  #importBody .imp-del{color:#f88}
+  #importBody .imp-block{color:#fa0}
+  #importBody .imp-remap{color:#8cf}
+  #importBody .imp-btns{display:flex;gap:8px;margin-top:12px;justify-content:flex-end}
+  #importBody .imp-btns button{font-size:13px;background:#2b2b2b;border:1px solid #4a4a4a;color:#ddd;border-radius:6px;padding:5px 12px;cursor:pointer}
+  #importBody .imp-btns button:hover{background:#363636}
+  #importBody .imp-btns button:disabled{opacity:.5;cursor:default}
   .popup-head{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid #333;cursor:move;user-select:none;font-size:var(--fs-body);color:#fff;gap:8px}
   .popup-head .ptitle{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-popup-title);font-weight:600}
   .popup-head button{background:none;border:none;color:#999;font-size:20px;cursor:pointer;padding:0 6px;line-height:1}
@@ -286,6 +305,12 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
            контента-на-прод §7, И2): скачивает content/catalog.json. -->
       <span id="exportStatus">
         <button id="btnExportContent" title="Сохранить снимок контента (content/catalog.json) и скачать его">экспорт контента</button>
+      </span>
+      <!-- Импорт снимка контента (спека 2026-09-24-каталог-экспорт-импорт-
+           контента-на-прод §7, И3): два шага — «Проверить» (dry_run) и
+           «Применить»; кнопка активна только при наличии файла снимка. -->
+      <span id="importStatus">
+        <button id="btnImportContent" title="Импорт контента (полная замена)" disabled>импорт контента</button>
       </span>
       <span id="genIndicator"></span>
     </span>
@@ -399,6 +424,13 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
   <div id="detailPopup">
     <div class="popup-head" id="popupHead"><span class="ptitle" id="popupTitle"></span><button id="popupClose" title="закрыть (Esc)">×</button></div>
     <div class="popup-body" id="popupBody"></div>
+  </div>
+  <!-- попап импорта контента (спека 2026-09-24 §7, И3): дифф сухого прогона
+       (режим/создать/обновить/удалить/blocked) и кнопка «Применить» -->
+  <div id="importOverlay"></div>
+  <div id="importPopup">
+    <div class="popup-head" id="importPopupHead"><span class="ptitle">Импорт контента</span><button id="importPopupClose" title="закрыть">×</button></div>
+    <div class="popup-body" id="importBody"></div>
   </div>
   <div id="catOverlay"></div>
   <div id="catPopup">
@@ -2133,7 +2165,116 @@ async function exportContent() {
   a.remove();
   URL.revokeObjectURL(a.href);
   showReport(["Экспорт: сохранено " + total + " записей, файл " + fname], true);
+  refreshImportStatus(); // файл появился → кнопка импорта оживает (баг D1)
   if (btn) btn.disabled = false;
+}
+// ---------- импорт снимка контента (спека 2026-09-24 §5/§7, И3) ----------
+// Два шага: (1) «Проверить» — POST ?dry_run=true, попап-дифф; (2) «Применить» —
+// второе подтверждение, POST без dry_run, попап-отчёт. blocked/unmatched
+// непусты → «Применить» неактивна (удаление живого невозможно в один клик).
+let importDiff = null;
+// sumCounts — сумма чисел секционного map (create/update/created/…).
+function sumCounts(m) {
+  return Object.values(m || {}).reduce((s, n) => s + (typeof n === "number" ? n : 0), 0);
+}
+// refreshImportStatus — наличие файла снимка в репозитории: нет файла → кнопка
+// импорта неактивна с подсказкой (§7).
+async function refreshImportStatus() {
+  const btn = $("btnImportContent");
+  if (!btn) return;
+  const r = await api("GET", "/studio/api/content/status");
+  if (!r) { btn.disabled = true; btn.title = "статус снимка контента недоступен"; return; }
+  let s = null;
+  try { s = await r.json(); } catch (e) {}
+  const hasFile = !!(s && s.file);
+  btn.disabled = !hasFile;
+  btn.title = hasFile
+    ? "Импорт контента (полная замена): сначала проверка (сухой прогон)"
+    : "нет файла снимка (content/catalog.json) — сначала экспорт контента в dev";
+}
+// importContent — шаг 1: сухой прогон и попап-дифф.
+async function importContent() {
+  const btn = $("btnImportContent");
+  if (btn) btn.disabled = true;
+  showReport(["Проверка снимка контента (сухой прогон)…"], true);
+  const r = await api("POST", "/studio/api/content/import?dry_run=true", {});
+  if (!r) { refreshImportStatus(); return; } // guard: api → null (401/ошибка)
+  let diff = null;
+  try { diff = await r.json(); } catch (e) {}
+  if (!diff) { refreshImportStatus(); return; }
+  openImportPopup(diff);
+  refreshImportStatus();
+}
+// openImportPopup — рендер диффа: режим, числа, перечень удаляемых, blocked.
+function openImportPopup(diff) {
+  importDiff = diff;
+  const create = sumCounts(diff.create);
+  const update = sumCounts(diff.update);
+  const del = diff.delete || [];
+  const blocked = diff.blocked || [];
+  const unmatched = diff.unmatched || [];
+  const remap = diff.remap || [];
+  const modeLabel = diff.mode === "bootstrap"
+    ? "bootstrap (накатка по имени, метки переназначаются по файлу)"
+    : (diff.mode || "—");
+  let html = '<div class="imp-sec"><div class="imp-h">Режим сопоставления: ' + esc(modeLabel) + '</div>';
+  html += '<div class="imp-row">создать: ' + create + ' · обновить: ' + update + ' · удалить: ' + del.length + '</div></div>';
+  if (remap.length) {
+    html += '<div class="imp-h">Метки будут переназначены по файлу (' + remap.length + ')</div>';
+    html += remap.slice(0, 100).map(r =>
+      '<div class="imp-row imp-remap">' + esc((r.section || "") + " · " + (r.old_code || "—") + " → " + r.code + " · " + (r.name || "")) + '</div>').join("");
+    if (remap.length > 100) html += '<div class="imp-row">…ещё ' + (remap.length - 100) + '</div>';
+  }
+  if (del.length) {
+    html += '<div class="imp-h">Удалить (нет в файле)</div>';
+    html += del.slice(0, 200).map(d =>
+      '<div class="imp-row imp-del">' + esc((d.section || "") + " · " + (d.code || "—") + " · " + (d.name || "")) + '</div>').join("");
+    if (del.length > 200) html += '<div class="imp-row">…ещё ' + (del.length - 200) + '</div>';
+  }
+  if (blocked.length) {
+    html += '<div class="imp-h">Заблокировано мировыми ссылками</div>';
+    html += blocked.map(b =>
+      '<div class="imp-row imp-block">' + esc((b.section || "") + " · " + (b.code || "—") + " · " + (b.name || "") +
+      " → " + esc(b.ref_table || "") + " × " + b.ref_count) + '</div>').join("");
+  }
+  if (unmatched.length) {
+    html += '<div class="imp-h">Расхождения тождества (unmatched)</div>';
+    html += unmatched.map(u =>
+      '<div class="imp-row imp-block">' + esc((u.section || "") + " · " + (u.name || "")) + '</div>').join("");
+  }
+  const canApply = blocked.length === 0 && unmatched.length === 0;
+  html += '<div class="imp-btns"><button id="importCancelBtn">Отмена</button>' +
+    '<button id="importApplyBtn"' + (canApply ? "" : ' disabled title="есть blocked/unmatched — применение запрещено"') + '>Применить</button></div>';
+  $("importBody").innerHTML = html;
+  $("importCancelBtn").addEventListener("click", closeImportPopup);
+  const applyBtn = $("importApplyBtn");
+  if (applyBtn && canApply) applyBtn.addEventListener("click", applyImportContent);
+  $("importOverlay").style.display = "block";
+  $("importPopup").style.display = "flex";
+}
+function closeImportPopup() {
+  importDiff = null;
+  $("importPopup").style.display = "none";
+  $("importOverlay").style.display = "none";
+}
+// applyImportContent — шаг 2: второе подтверждение (операция пишет в БД, включая
+// удаления) и попап-отчёт.
+async function applyImportContent() {
+  const del = importDiff && importDiff.delete ? importDiff.delete.length : 0;
+  const msg = "Применить импорт контента?" + (del ? "\nУдалений: " + del + " (необратимо без бэкапа)." : "");
+  if (!window.confirm(msg)) return;
+  const applyBtn = $("importApplyBtn");
+  if (applyBtn) applyBtn.disabled = true;
+  showReport(["Применение импорта контента…"], true);
+  const r = await api("POST", "/studio/api/content/import", {});
+  if (!r) { closeImportPopup(); return; } // guard: api → null (ошибка/блок)
+  let rep = null;
+  try { rep = await r.json(); } catch (e) {}
+  closeImportPopup();
+  if (!rep) return;
+  showReport(["Импорт контента: создано " + sumCounts(rep.created) + ", обновлено " +
+    sumCounts(rep.updated) + ", удалено " + sumCounts(rep.deleted)], true);
+  fetchState();
 }
 // Защита несохранённого текста от авто-обновления (спека §9.7): авто-перерисовка
 // пропускается, если фокус в textarea попапа, а значение отличается от модельного.
@@ -4835,6 +4976,10 @@ $("btnAiStart").addEventListener("click", aiStart);
 $("btnAiStop").addEventListener("click", aiStop);
 // кнопка экспорта снимка контента (спека 2026-09-24 §7, И2)
 $("btnExportContent").addEventListener("click", exportContent);
+// кнопка импорта снимка контента (спека 2026-09-24 §7, И3) + закрытие попапа
+$("btnImportContent").addEventListener("click", importContent);
+$("importPopupClose").addEventListener("click", closeImportPopup);
+$("importOverlay").addEventListener("click", closeImportPopup);
 // кнопки вызова форм добавления (ТЗ §7.2): сами формы живут в попапах (#modal),
 // обработчики полей/кнопок навешивает openModal — при загрузке их в DOM нет
 $("btnNewGoodOpen").addEventListener("click", openNewGoodPopup);
@@ -4956,7 +5101,7 @@ if (branch === "producers") {
 renderProdRaceUI(); // переключатель расовости (данные придут с /studio/api/races)
 // старт: авторизация (спека iterC §8.3) → start() = fetchState + интервал;
 // bootstrap — в модуле web/static/js/studio/auth.js (после парсинга документа)
-function start() { fetchState(); }
+function start() { fetchState(); refreshImportStatus(); }
 // первичное центрирование на верхнем тире (если pan уехал от старого широкого канваса)
 window.addEventListener("load", () => setTimeout(() => {
   // если позиция уже сохранялась — оставить как была (решение создателя

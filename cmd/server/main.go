@@ -645,6 +645,12 @@ func main() {
 	// Экспорт снимка контента каталога (спека 2026-09-24-каталог-экспорт-
 	// импорт-контента-на-прод §4/§7, итерация И2): только чтение БД + файл.
 	http.HandleFunc("/studio/api/content/export", auth.AdminAuth(studioHandlers.ContentExport))
+	// Импорт снимка контента (спека 2026-09-24-каталог-экспорт-импорт-контента-
+	// на-прод §5/§7, итерация И3): полная замена по метке с предсчётом мировых
+	// ссылок; `?dry_run=true` — сухой прогон без записи. Статус файла — для
+	// активности кнопки импорта в студии.
+	http.HandleFunc("/studio/api/content/import", auth.AdminAuth(studioHandlers.ContentImport))
+	http.HandleFunc("/studio/api/content/status", auth.AdminAuth(studioHandlers.ContentStatus))
 
 	http.Handle("/studio", noCache(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./web/studio.html")

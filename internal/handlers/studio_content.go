@@ -9,7 +9,9 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -17,147 +19,29 @@ import (
 	"sort"
 	"time"
 
+	"zorion/internal/goodsstudio/contentio"
 	"zorion/internal/repository"
 )
 
-// ContentSnapshot — файл-снимок контента (§4), schema_version отдельный от
-// model.State (§4): порядок полей struct = порядок секций в JSON.
-type ContentSnapshot struct {
-	SchemaVersion    int                      `json:"schema_version"`
-	GeneratedAt      string                   `json:"generated_at"`
-	Source           string                   `json:"source"`
-	Counts           map[string]int           `json:"counts"`
-	Categories       []ContentCategory        `json:"categories"`
-	Goods            []ContentGood            `json:"goods"`
-	Recipes          []ContentRecipe          `json:"recipes"`
-	RecipeComponents []ContentRecipeComponent `json:"recipe_components"`
-	ProducerTypes    []ContentProducerType    `json:"producer_types"`
-	Items            []ContentItem            `json:"items"`
-	ProducerSlots    []ContentProducerSlot    `json:"producer_slots"`
-	ProducerRecipes  []ContentProducerRecipe  `json:"producer_recipes"`
-	ProducerItems    []ContentProducerItem    `json:"producer_items"`
-	EffectTypes      []ContentEffectType      `json:"effect_types"`
-	GenerationConfig ContentGenerationConfig  `json:"generation_config"`
-}
-
-// ContentCategory — категория: идентичность (kind, name_norm); code —
-// семантический (water/gas/…), не метка переноса (§3.4).
-type ContentCategory struct {
-	Name     string `json:"name"`
-	Kind     string `json:"kind"`
-	Code     string `json:"code,omitempty"`
-	IsSystem bool   `json:"is_system"`
-}
-
-// ContentGood — товар/ресурс: category — «голое» имя (резолв по goods.kind,
-// §4); props переносятся дословно; code — обязательная метка (§3).
-type ContentGood struct {
-	Name        string          `json:"name"`
-	Kind        string          `json:"kind"`
-	Category    string          `json:"category"`
-	Description string          `json:"description,omitempty"`
-	Volume      *float64        `json:"volume"`
-	Weight      *float64        `json:"weight"`
-	Props       json.RawMessage `json:"props,omitempty"`
-	Source      string          `json:"source"`
-	Code        string          `json:"code"`
-}
-
-// ContentRecipe — рецепт товара: good — метка товара-выхода.
-type ContentRecipe struct {
-	Good       string `json:"good"`
-	Complexity *int   `json:"complexity"`
-}
-
-// ContentRecipeComponent — позиция состава: good — метка товара рецепта,
-// component — метка составляющей (пусто = пустой слот).
-type ContentRecipeComponent struct {
-	Good          string `json:"good"`
-	Pos           int    `json:"pos"`
-	Component     string `json:"component,omitempty"`
-	Quantity      int    `json:"quantity"`
-	Reason        string `json:"reason,omitempty"`
-	AllowResource bool   `json:"allow_resource"`
-}
-
-// ContentProducerType — тип производителя: parent — метка родителя,
-// category — имя категории (kind=goods).
-type ContentProducerType struct {
-	Name       string          `json:"name"`
-	Kind       string          `json:"kind"`
-	Category   string          `json:"category,omitempty"`
-	Parent     string          `json:"parent,omitempty"`
-	RaceFamily string          `json:"race_family,omitempty"`
-	Race       string          `json:"race,omitempty"`
-	Output     json.RawMessage `json:"output,omitempty"`
-	Input      json.RawMessage `json:"input,omitempty"`
-	Params     json.RawMessage `json:"params,omitempty"`
-	Hidden     bool            `json:"hidden"`
-	Code       string          `json:"code"`
-}
-
-// ContentUnlockCategory — натуральный ключ категории в ссылке предмета (§4):
-// (kind, name) — как у прочих ссылок на categories (§3.4).
-type ContentUnlockCategory struct {
-	Kind string `json:"kind"`
-	Name string `json:"name"`
-}
-
-// ContentUnlock — предмет-рецепт в снимке (§4): producer — метка типа
-// производителя (`producer_types.code`), category — натуральный ключ.
-type ContentUnlock struct {
-	Producer string                `json:"producer"`
-	Category ContentUnlockCategory `json:"category"`
-}
-
-// ContentItem — тип предмета (§4): unlocks несётся по метке/натуральному ключу
-// (НЕ по id: в БД `items.unlocks` хранит внутренние id, они не переносимы,
-// §4/§5 п.6/T15); params — дословно; code — обязательна.
-type ContentItem struct {
-	Name     string          `json:"name"`
-	SlotType string          `json:"slot_type"`
-	Unlocks  []ContentUnlock `json:"unlocks,omitempty"`
-	Params   json.RawMessage `json:"params,omitempty"`
-	Code     string          `json:"code"`
-}
-
-// ContentProducerSlot — слот родителя: parent — метка, category — имя
-// категории (kind='good', §4).
-type ContentProducerSlot struct {
-	Parent     string `json:"parent"`
-	Category   string `json:"category"`
-	RaceFamily string `json:"race_family,omitempty"`
-	Race       string `json:"race,omitempty"`
-	Hidden     bool   `json:"hidden"`
-}
-
-// ContentProducerRecipe — привязка «постройка × рецепт»: producer/good — метки.
-type ContentProducerRecipe struct {
-	Producer string   `json:"producer"`
-	Good     string   `json:"good"`
-	Rate     *float64 `json:"rate"`
-}
-
-// ContentProducerItem — связь «производитель предметов ↔ предмет»: метки.
-type ContentProducerItem struct {
-	Producer     string          `json:"producer"`
-	Item         string          `json:"item"`
-	Requirements json.RawMessage `json:"requirements,omitempty"`
-}
-
-// ContentEffectType — тип эффекта: params дословно; code — обязательна.
-type ContentEffectType struct {
-	Name   string          `json:"name"`
-	Impact string          `json:"impact"`
-	Params json.RawMessage `json:"params,omitempty"`
-	Code   string          `json:"code"`
-}
-
-// ContentGenerationConfig — ссылка-якорь (§1.3): метка записи базового типа
-// поселения (не сырой id); пусто — ключ не задан.
-type ContentGenerationConfig struct {
-	DefaultSettlementTypeID string `json:"default_settlement_type_id"`
-}
+// Типы формата снимка вынесены в пакет contentio (единый источник для экспорта
+// И2 и импорта И3, §4/§5); здесь — алиасы, чтобы существующий код/тесты
+// продолжали ссылаться на handlers.ContentXxx.
+type (
+	ContentSnapshot         = contentio.Snapshot
+	ContentCategory         = contentio.Category
+	ContentGood             = contentio.Good
+	ContentRecipe           = contentio.Recipe
+	ContentRecipeComponent  = contentio.RecipeComponent
+	ContentProducerType     = contentio.ProducerType
+	ContentUnlockCategory   = contentio.UnlockCategory
+	ContentUnlock           = contentio.Unlock
+	ContentItem             = contentio.Item
+	ContentProducerSlot     = contentio.ProducerSlot
+	ContentProducerRecipe   = contentio.ProducerRecipe
+	ContentProducerItem     = contentio.ProducerItem
+	ContentEffectType       = contentio.EffectType
+	ContentGenerationConfig = contentio.GenerationConfig
+)
 
 // contentSource — маркер источника снимка (§4).
 const contentSource = "dev"
@@ -328,6 +212,7 @@ func buildContentSnapshot(rows *repository.ContentExportRows, now time.Time) (*C
 		cpt := ContentProducerType{Name: p.Name, Kind: p.Kind, Hidden: p.Hidden, Code: p.Code.String}
 		if p.CategoryID.Valid {
 			cpt.Category = catName[p.CategoryID.Int64]
+			cpt.CategoryKind = catRef[p.CategoryID.Int64].Kind
 		}
 		if p.ParentID.Valid {
 			cpt.Parent = prodCode[p.ParentID.Int64]
@@ -360,9 +245,10 @@ func buildContentSnapshot(rows *repository.ContentExportRows, now time.Time) (*C
 	snap.ProducerSlots = make([]ContentProducerSlot, 0, len(rows.ProducerSlots))
 	for _, s := range rows.ProducerSlots {
 		cs := ContentProducerSlot{
-			Parent:   prodCode[s.ParentID],
-			Category: catName[s.CategoryID],
-			Hidden:   s.Hidden,
+			Parent:       prodCode[s.ParentID],
+			Category:     catName[s.CategoryID],
+			CategoryKind: catRef[s.CategoryID].Kind,
+			Hidden:       s.Hidden,
 		}
 		if s.RaceFamily.Valid {
 			cs.RaceFamily = s.RaceFamily.String
@@ -504,5 +390,124 @@ func orderProducerTypes(in []repository.ProducerTypeRow) []repository.ProducerTy
 	out := make([]repository.ProducerTypeRow, len(in))
 	copy(out, in)
 	sort.SliceStable(out, func(i, j int) bool { return depth[out[i].ID] < depth[out[j].ID] })
+	return out
+}
+
+// contentSections — обязательные секции снимка (§5 п.1).
+var contentSections = []string{
+	"schema_version", "categories", "goods", "recipes", "recipe_components",
+	"producer_types", "items", "producer_slots", "producer_recipes",
+	"producer_items", "effect_types", "generation_config",
+}
+
+// ContentStatus — GET /studio/api/content/status (§7): есть ли файл-снимок в
+// репозитории (кнопка импорта активна только при нём), размер/дата/counts.
+func (h *StudioHandlers) ContentStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		studioErr(w, "только GET", http.StatusMethodNotAllowed)
+		return
+	}
+	info, err := os.Stat(h.contentPath)
+	if err != nil {
+		studioJSON(w, http.StatusOK, map[string]interface{}{"file": false, "path": h.contentPath})
+		return
+	}
+	resp := map[string]interface{}{
+		"file": true, "path": h.contentPath, "size": info.Size(),
+		"modified_at": info.ModTime().UTC().Format(time.RFC3339),
+	}
+	if data, err := os.ReadFile(h.contentPath); err == nil {
+		var snap ContentSnapshot
+		if json.Unmarshal(data, &snap) == nil {
+			resp["generated_at"] = snap.GeneratedAt
+			resp["counts"] = snap.Counts
+			resp["schema_version"] = snap.SchemaVersion
+		}
+	}
+	studioJSON(w, http.StatusOK, resp)
+}
+
+// ContentImport — POST /studio/api/content/import (§5/§7, И3). Тело —
+// `{}` (взять content/catalog.json с диска) или `{ "snapshot": {...} }`.
+// `?dry_run=true` — сухой прогон (§5.2): дифф без записи.
+func (h *StudioHandlers) ContentImport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		studioErr(w, "только POST", http.StatusMethodNotAllowed)
+		return
+	}
+	dryRun := r.URL.Query().Get("dry_run") == "true" || r.URL.Query().Get("dry_run") == "1"
+
+	var body struct {
+		Snapshot json.RawMessage `json:"snapshot"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		studioErr(w, "тело запроса не разобрано: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	raw := body.Snapshot
+	if len(raw) == 0 {
+		data, err := os.ReadFile(h.contentPath)
+		if err != nil {
+			studioErr(w, "файл снимка не найден ("+h.contentPath+"): загрузите файл или положите его в репозиторий", http.StatusBadRequest)
+			return
+		}
+		raw = data
+	}
+
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		studioErr(w, "снимок не разобран: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	for _, sec := range contentSections {
+		if _, ok := probe[sec]; !ok {
+			studioErr(w, "в снимке нет секции "+sec, http.StatusBadRequest)
+			return
+		}
+	}
+	var snap ContentSnapshot
+	if err := json.Unmarshal(raw, &snap); err != nil {
+		studioErr(w, "снимок не разобран: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	res, err := h.repo.ImportContent(&snap, dryRun)
+	if err != nil {
+		status := http.StatusInternalServerError
+		var ce *repository.ErrCatalog
+		if errors.As(err, &ce) {
+			status = ce.Status
+		}
+		payload := contentImportPayload(res, dryRun)
+		payload["error"] = err.Error()
+		studioJSON(w, status, payload)
+		return
+	}
+	studioJSON(w, http.StatusOK, contentImportPayload(res, dryRun))
+}
+
+// contentImportPayload — тело ответа ручки: для dry_run — дифф (§5.2), для
+// применения — отчёт (§5.5); blocked/unmatched отдаются всегда (UI блокирует
+// «Применить»).
+func contentImportPayload(res *repository.ImportResult, dryRun bool) map[string]interface{} {
+	out := map[string]interface{}{"dry_run": dryRun}
+	if res == nil {
+		return out
+	}
+	out["mode"] = res.Mode
+	if res.Diff != nil {
+		out["create"] = res.Diff.Create
+		out["update"] = res.Diff.Update
+		out["delete"] = res.Diff.Delete
+		out["blocked"] = res.Diff.Blocked
+		out["unmatched"] = res.Diff.Unmatched
+		out["remap"] = res.Diff.Remap
+	}
+	if !dryRun && res.Report != nil {
+		out["created"] = res.Report.Created
+		out["updated"] = res.Report.Updated
+		out["deleted"] = res.Report.Deleted
+		out["warnings"] = res.Report.Warnings
+	}
 	return out
 }

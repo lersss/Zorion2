@@ -123,6 +123,34 @@ assert(html.includes('Пища'), 'presence: ветки видны');
 assert(!html.includes('data-branch-create-form'), 'presence: админ-форм веток нет');
 assert(!html.includes('data-effect-load-form'), 'presence: админ-формы эффектов нет');
 
+// ---------- админская витрина R с составом (идея 2026-09-25) ----------
+const rSettlement = {
+    id: 'sR', race_name: 'Люди', population: 100, stability: 60, r_per_sec: 0.0012,
+    r_breakdown: [
+        { code: 'natural', value: 0.0006 },
+        { code: 'birth', value: -0.0006 },
+        { code: 'heat', value: 0.0006 },
+        { code: 'cold', value: 0 },
+        { code: 'gravity', value: 0 },
+        { code: 'radiation', value: 0 },
+        { code: 'голод', name: 'Голод', value: 0.0006 },
+    ],
+    branches: [], effects: [], log: [],
+};
+state.modalState.role = 'admin';
+const adminRateHtml = tabs.renderSettlements({ id: 'p1', settlements: [rSettlement] });
+assert(adminRateHtml.includes('0,120%/с'), 'admin: модуль суммарного R в процентах (тысячные)');
+assert(adminRateHtml.includes('R суммарный = +0,120%/с (убыль)'), 'admin: тултип — суммарный R со знаком');
+assert(adminRateHtml.includes('Жара: +0,060%/с'), 'admin: тултип — состав по коду heat');
+assert(adminRateHtml.includes('Естественная: +0,060%/с'), 'admin: тултип — состав по коду natural');
+assert(adminRateHtml.includes('Голод: +0,060%/с'), 'admin: тултип — ряд эффекта по имени');
+assert(adminRateHtml.includes('Холод: 0,000%/с'), 'admin: ровно ноль — без знака');
+assert(adminRateHtml.includes('(+ убыль, − рост)'), 'admin: подпись знаков');
+state.modalState.role = 'player';
+const playerRateHtml = tabs.renderSettlements({ id: 'p1', knowledge: { mode: 'presence' }, settlements: [rSettlement] });
+assert(!playerRateHtml.includes('0,120%/с'), 'player: витрины R нет');
+assert(!playerRateHtml.includes('R суммарный'), 'player: тултипа состава нет');
+
 // ---------- renderSettlements: снимок — без эффектов/лога/тренда ----------
 const snapPlanet = { id: 'p1', knowledge: { mode: 'snapshot', snapshot_at: '2026-09-23T14:05:00Z', snapshot_fresh: true }, settlements: [settlement] };
 html = tabs.renderSettlements(snapPlanet);

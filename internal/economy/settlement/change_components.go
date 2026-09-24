@@ -91,22 +91,49 @@ func RadiationChangeRate(rad float64) float64 {
 	return evaluateCurve(c.Nodes, c.Bends, rad)
 }
 
-// EnvComponents — средовая (без эффектов) рекурсивная компонента изменения
-// населения за 1 секунду: R_ест + R_рожд + R_жара + R_холод + R_гравитация +
-// R_радиация. Человеческая модель ИЛИ расовая (RaceID ≠ NULL/"humans" →
-// changeComponentsRace) — вынесено отдельно, чтобы Recompute считал вклад
-// эффектов посегментно через EffectForcePoint, а не через ChangeComponents
-// (иначе двойной учёт, спека 2026-09-22-эффекты-снабжения §5.3).
-func EnvComponents(input PlanetInput) float64 {
+// ComponentContribution — вклад одного компонента R за 1 секунду в разбивке
+// R_total (идея 2026-09-25 «R суммарный с составом»). Code — стабильный код
+// компонента: natural/birth/heat/cold/gravity/radiation (среда). Знак — родной
+// знак R движка: положительный вклад — убыль, отрицательный — рост.
+type ComponentContribution struct {
+	Code  string
+	Value float64
+}
+
+// EnvBreakdown — разбивка средовой (без эффектов) компоненты изменения
+// населения за 1 секунду по рядам (идея 2026-09-25). Единый источник: сумма
+// значений ТОЧНО равна EnvComponents. Человеческая модель — natural/birth/heat/
+// cold/gravity/radiation; расовая (RaceID ≠ NULL/"humans") — natural (нетто
+// репродукции·(1−k)·R_ест) + active-кривые расы heat/cold/gravity/radiation; нет
+// записи расы → фолбэк на человеческую модель (гвард 99.2.23 §3.2).
+func EnvBreakdown(input PlanetInput) []ComponentContribution {
 	if input.RaceID != "" && input.RaceID != "humans" {
-		return changeComponentsRace(input)
+		if rows, ok := raceEnvBreakdown(input); ok {
+			return rows
+		}
 	}
-	return NaturalComponent(input.TemperatureK) +
-		BirthComponent(input.TemperatureK) +
-		HeatTemperatureChangeRate(input.TemperatureK) +
-		ColdChangeRate(input.TemperatureK) +
-		GravityChangeRate(input.GravityG) +
-		RadiationChangeRate(input.CoreRadioactivity)
+	return []ComponentContribution{
+		{Code: "natural", Value: NaturalComponent(input.TemperatureK)},
+		{Code: "birth", Value: BirthComponent(input.TemperatureK)},
+		{Code: "heat", Value: HeatTemperatureChangeRate(input.TemperatureK)},
+		{Code: "cold", Value: ColdChangeRate(input.TemperatureK)},
+		{Code: "gravity", Value: GravityChangeRate(input.GravityG)},
+		{Code: "radiation", Value: RadiationChangeRate(input.CoreRadioactivity)},
+	}
+}
+
+// EnvComponents — средовая (без эффектов) рекурсивная компонента изменения
+// населения за 1 секунду: сумма рядов EnvBreakdown (единый источник, идея
+// 2026-09-25). Человеческая модель ИЛИ расовая (RaceID ≠ NULL/"humans").
+// Вынесено отдельно, чтобы Recompute считал вклад эффектов посегментно через
+// EffectForcePoint, а не через ChangeComponents (иначе двойной учёт, спека
+// 2026-09-22-эффекты-снабжения §5.3).
+func EnvComponents(input PlanetInput) float64 {
+	var sum float64
+	for _, c := range EnvBreakdown(input) {
+		sum += c.Value
+	}
+	return sum
 }
 
 // ChangeComponents — полная рекурсивная компонента изменения населения за
@@ -126,35 +153,33 @@ func ChangeComponents(input PlanetInput) float64 {
 	return r
 }
 
-// changeComponentsRace — расовая R-модель (99.2.23 §3.2):
+// raceEnvBreakdown — расовая R-модель по рядам (99.2.23 §3.2):
 //
-//	R_total_расы = active.reproduction · (1 − k) · R_ест
-//	             + evaluateCurve(active.curves.heat, T°C)
-//	             + evaluateCurve(active.curves.cold, T)
-//	             + evaluateCurve(active.curves.gravity, g)
-//	             + evaluateCurve(active.curves.radiation, rad)
+//	natural = active.reproduction · (1 − k) · R_ест   (нетто репродукции)
+//	heat    = evaluateCurve(active.curves.heat, T°C)
+//	cold    = evaluateCurve(active.curves.cold, T)
+//	gravity = evaluateCurve(active.curves.gravity, g)
+//	radiation = evaluateCurve(active.curves.radiation, rad)
 //
 // Естественная пара — константа (без человеческой рампы [15, 30] °C):
 // R_ест_расы = active.reproduction·R_ест, R_рожд_расы = −k·active.reproduction·R_ест,
-// нетто active.reproduction·(1−k)·R_ест. Resilience уже вшит в Y при
-// генерации — отдельного масштаба в формуле нет. Гвард отсутствия записи:
-// расы нет в расовом store (теоретически невозможно после авто-инициализации;
-// страховка) → человеческая модель + лог-предупреждение (сервер не падает).
-func changeComponentsRace(input PlanetInput) float64 {
+// нетто active.reproduction·(1−k)·R_ест (объединено в ряд natural). Resilience уже
+// вшит в Y при генерации — отдельного масштаба в формуле нет. Гвард отсутствия
+// записи: расы нет в расовом store (теоретически невозможно после
+// авто-инициализации; страховка) → ok=false + лог (сервер не падает),
+// вызывающий берёт человеческую модель.
+func raceEnvBreakdown(input PlanetInput) ([]ComponentContribution, bool) {
 	rc, ok := GetRaceActiveCurves(input.RaceID)
 	if !ok {
 		log.Printf("race balancer: раса %q без записи в store — человеческая модель (гвард 99.2.23 §3.2)", input.RaceID)
-		return NaturalComponent(input.TemperatureK) +
-			BirthComponent(input.TemperatureK) +
-			HeatTemperatureChangeRate(input.TemperatureK) +
-			ColdChangeRate(input.TemperatureK) +
-			GravityChangeRate(input.GravityG) +
-			RadiationChangeRate(input.CoreRadioactivity)
+		return nil, false
 	}
 	netto := rc.Reproduction * (1 - BirthRateCoefficient()) * NaturalChangeRate()
-	return netto +
-		evaluateCurve(rc.Curves["heat"].Nodes, rc.Curves["heat"].Bends, input.TemperatureK-273.15) +
-		evaluateCurve(rc.Curves["cold"].Nodes, rc.Curves["cold"].Bends, input.TemperatureK-273.15) +
-		evaluateCurve(rc.Curves["gravity"].Nodes, rc.Curves["gravity"].Bends, input.GravityG) +
-		evaluateCurve(rc.Curves["radiation"].Nodes, rc.Curves["radiation"].Bends, input.CoreRadioactivity)
+	return []ComponentContribution{
+		{Code: "natural", Value: netto},
+		{Code: "heat", Value: evaluateCurve(rc.Curves["heat"].Nodes, rc.Curves["heat"].Bends, input.TemperatureK-273.15)},
+		{Code: "cold", Value: evaluateCurve(rc.Curves["cold"].Nodes, rc.Curves["cold"].Bends, input.TemperatureK-273.15)},
+		{Code: "gravity", Value: evaluateCurve(rc.Curves["gravity"].Nodes, rc.Curves["gravity"].Bends, input.GravityG)},
+		{Code: "radiation", Value: evaluateCurve(rc.Curves["radiation"].Nodes, rc.Curves["radiation"].Bends, input.CoreRadioactivity)},
+	}, true
 }

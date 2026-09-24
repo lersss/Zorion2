@@ -28,6 +28,9 @@ func snapshotData(at time.Time) map[string]interface{} {
 			map[string]interface{}{
 				"id": "s1", "race_id": "spark", "race_name": "Искры",
 				"population": 876000000, "stability": 69,
+				"r_breakdown": []interface{}{
+					map[string]interface{}{"code": "heat", "value": 0.0001},
+				},
 				"branches": []interface{}{
 					map[string]interface{}{
 						"recipe_id": 73, "recipe_name": "Вода", "complexity": 3,
@@ -145,6 +148,7 @@ func TestStripSnapshotModeFrozenPicture(t *testing.T) {
 	assert.Equal(t, 69, out.Settlements[0].Stability)
 	assert.Nil(t, out.Settlements[0].Effects, "эффектов в снимке нет (§3.1)")
 	assert.Nil(t, out.Settlements[0].Log, "лога в снимке нет (§3.1)")
+	assert.Nil(t, out.Settlements[0].RBreakdown, "r_breakdown в снимке не утекает игроку (идея 2026-09-25)")
 	require.Len(t, out.Settlements[0].Branches, 1, "ветки заморожены")
 	assert.Nil(t, out.Settlements[0].Branches[0].Input)
 	assert.Equal(t, int64(876000000), out.Population, "население — сумма поселений снимка")
@@ -214,6 +218,7 @@ func TestPlayerEffectsDTO(t *testing.T) {
 		ID: "p1",
 		Settlements: []models.Settlement{{
 			ID: "s1", Population: 100,
+			RBreakdown: []models.RComponent{{Code: "heat", Value: 0.0001}},
 			Effects: []models.ActiveEffect{{
 				EffectTypeID: 1, Name: "Голод", Impact: "population_rate",
 				Load: 30, Threshold: 24, Rate: 0.5, W: 1, Enabled: true,
@@ -239,6 +244,7 @@ func TestPlayerEffectsDTO(t *testing.T) {
 		`"load"`, `"load_at"`, `"threshold"`, `"curve"`, `"rate"`, `"w"`,
 		`"source_position"`, `"owner_type"`, `"owner_id"`, `"effect_type_id"`,
 		`"population_exact"`, `"computed_at"`, `"r_per_sec"`, `"lambda_per_hour"`, `"n_dead"`,
+		`"r_breakdown"`,
 	} {
 		assert.NotContains(t, s, forbidden, "внутреннее поле не утекает игроку")
 	}
@@ -278,6 +284,7 @@ func TestPresenceSettlementNoCheckpoints(t *testing.T) {
 			ID: "s1", Population: 876000000, PopulationExact: 876000000.4,
 			Stability: 69, ComputedAt: time.Now(), RPerSec: 0.5,
 			LambdaPerHour: 0.02, NDead: 1,
+			RBreakdown: []models.RComponent{{Code: "heat", Value: 0.0001}},
 			Branches: []models.SettlementBranch{{
 				ID: "b1", RecipeID: 73, RecipeName: "Вода",
 				Output: []models.BranchBufferEntry{{GoodID: 381, Amount: 12.5}},
@@ -290,7 +297,7 @@ func TestPresenceSettlementNoCheckpoints(t *testing.T) {
 	s := string(raw)
 	for _, forbidden := range []string{
 		`"population_exact"`, `"computed_at"`, `"r_per_sec"`, `"lambda_per_hour"`,
-		`"n_dead"`, `"processed_at"`, `"input"`,
+		`"n_dead"`, `"processed_at"`, `"input"`, `"r_breakdown"`,
 	} {
 		assert.NotContains(t, s, forbidden, "чек-точка не утекает игроку")
 	}

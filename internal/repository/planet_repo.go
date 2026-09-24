@@ -561,6 +561,7 @@ func (r *PlanetRepository) syncSettlements(planets []models.Planet) error {
 			s.PopulationExact = res.PopulationExact
 			s.ComputedAt = res.ComputedAt
 			s.RPerSec = res.RPerSec
+			s.RBreakdown = res.RBreakdown
 			s.NDead = res.NDead
 			s.Branches = res.Branches
 			s.Effects = res.Effects

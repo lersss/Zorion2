@@ -562,15 +562,75 @@ function renderResources(planet) {
 // двух серверных снапшотов (modalState.previousSettlementPop, refreshPlanets)
 // — путь для роста и равновесия (рост реализован рождаемостью, 99.2.16).
 // При конфликте живой сигнал снижения приоритетен (не врём в сторону роста).
+// Админам рядом со стрелкой добавляется витрина суммарного R (идея 2026-09-25).
 function settlementTrendArrow(s) {
     const declining = (typeof s.r_per_sec === 'number' && s.r_per_sec > 0) ||
         (typeof s.lambda_per_hour === 'number' && s.lambda_per_hour > 0);
-    if (declining) return ' <span style="color:#f66;" title="Население убывает">↓</span>';
-    const prev = modalState.previousSettlementPop[s.id];
-    if (typeof prev !== 'number' || typeof s.population !== 'number') return '';
-    if (s.population < prev) return ' <span style="color:#f66;" title="Население убывает">↓</span>';
-    if (s.population > prev) return ' <span style="color:#6f6;" title="Население растёт">↑</span>';
-    return ' <span style="color:#888;" title="Без изменений">—</span>';
+    let arrow;
+    if (declining) {
+        arrow = ' <span style="color:#f66;" title="Население убывает">↓</span>';
+    } else {
+        const prev = modalState.previousSettlementPop[s.id];
+        if (typeof prev !== 'number' || typeof s.population !== 'number') {
+            arrow = '';
+        } else if (s.population < prev) {
+            arrow = ' <span style="color:#f66;" title="Население убывает">↓</span>';
+        } else if (s.population > prev) {
+            arrow = ' <span style="color:#6f6;" title="Население растёт">↑</span>';
+        } else {
+            arrow = ' <span style="color:#888;" title="Без изменений">—</span>';
+        }
+    }
+    return arrow + settlementRateInline(s);
+}
+
+// R_BREAKDOWN_LABELS — подписи кодов средовых рядов r_breakdown (идея
+// 2026-09-25). Ряды эффектов подписываются их Name с сервера.
+const R_BREAKDOWN_LABELS = {
+    natural: 'Естественная',
+    birth: 'Рождаемость',
+    heat: 'Жара',
+    cold: 'Холод',
+    gravity: 'Гравитация',
+    radiation: 'Радиация',
+};
+
+// formatRatePercent — доля/сек → модуль в процентах за секунду, тысячные,
+// десятичная запятая: 0.0012 → «0,120%/с».
+function formatRatePercent(v) {
+    return Math.abs(v * 100).toFixed(3).replace('.', ',') + '%/с';
+}
+
+// formatSignedRatePercent — то же со знаком R движка: + убыль, − рост,
+// ноль без знака («0,000%/с»). Знак снимается и у почти-нуля, который при
+// округлении до тысячных даёт «0,000» (иначе «−0,000%/с» читался бы как рост).
+function formatSignedRatePercent(v) {
+    const abs = Math.abs(v * 100).toFixed(3).replace('.', ',');
+    if (abs === '0,000') return '0,000%/с';
+    return (v > 0 ? '+' : '−') + abs + '%/с';
+}
+
+// rBreakdownTitle — многострочный тултип состава R_total (идея 2026-09-25):
+// «R суммарный = …» + состав по рядам + подпись знаков. Значения экранируются,
+// переносы — через &#10;. total — с сервера (s.r_per_sec), клиент R не считает.
+function rBreakdownTitle(rows, total) {
+    const suffix = total > 0 ? ' (убыль)' : (total < 0 ? ' (рост)' : '');
+    const lines = [`R суммарный = ${formatSignedRatePercent(total)}${suffix}`, 'Состав:'];
+    rows.forEach(r => {
+        const label = r.name || R_BREAKDOWN_LABELS[r.code] || r.code || '';
+        lines.push(`${label}: ${formatSignedRatePercent(Number(r.value) || 0)}`);
+    });
+    lines.push('(+ убыль, − рост)');
+    return lines.map(t => escapeHtml(t)).join('&#10;');
+}
+
+// settlementRateInline — админская витрина суммарного R рядом со стрелкой:
+// модуль процента + тултип-состав из r_breakdown. Игроку (и без состава) — пусто.
+function settlementRateInline(s) {
+    if (!isAdmin()) return '';
+    if (!Array.isArray(s.r_breakdown) || s.r_breakdown.length === 0) return '';
+    const total = typeof s.r_per_sec === 'number' ? s.r_per_sec : 0;
+    return ` <span style="color:#94a3b8;" title="${rBreakdownTitle(s.r_breakdown, total)}">${formatRatePercent(total)}</span>`;
 }
 
 // Код причины «Вымерло» → человеческий текст (18b_settlement_log.md, §«Причина»)

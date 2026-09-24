@@ -126,6 +126,10 @@ type OwnerResult struct {
 	PopulationExact float64
 	ComputedAt      time.Time
 	RPerSec         float64
+	// RBreakdown — админская витрина состава R_total (идея 2026-09-25): ряды
+	// среды из settlement.EnvBreakdown + по ряду на эффект (мгновенная сила
+	// последнего сегмента, как lastRate). Сумма значений == RPerSec.
+	RBreakdown []models.RComponent
 	NDead           float64
 	Branches        []models.SettlementBranch
 	Effects         []models.ActiveEffect
@@ -524,6 +528,7 @@ func runOwnerPass(o OwnerSettlement, branches []*branchRecord, stored []storedEf
 		PopulationExact: next,
 		ComputedAt:      now,
 		RPerSec:         rPerSec,
+		RBreakdown:      rBreakdownComponents(input, needs, catalog),
 		NDead:           settlement.NDead,
 		Branches:        branchModels,
 		Effects:         buildEffectModels(o, needs, catalog, now),
@@ -710,6 +715,37 @@ func lastRate(needs settlement.NeedsResult) float64 {
 		if n := len(run.Force); n > 0 {
 			out += run.Force[n-1].Rate
 		}
+	}
+	return out
+}
+
+// rBreakdownComponents — состав R_total для админской витрины (идея 2026-09-25):
+// сначала ряды среды (settlement.EnvBreakdown — единый источник, сумма ==
+// EnvComponents), затем по ряду на эффект — мгновенная сила последнего сегмента
+// нагрузки (та же математика, что lastRate; сумма == lastRate). Code эффекта —
+// name_norm типа, Name — человекочитаемое имя из каталога (effect_types.name,
+// как в buildEffectModels). Инвариант: сумма значений == r_per_sec.
+func rBreakdownComponents(input settlement.PlanetInput, needs settlement.NeedsResult, catalog map[string]effectTypeMeta) []models.RComponent {
+	nameByID := make(map[int64]string, len(catalog))
+	normByID := make(map[int64]string, len(catalog))
+	for norm, m := range catalog {
+		nameByID[m.ID] = m.Name
+		normByID[m.ID] = norm
+	}
+	out := make([]models.RComponent, 0, len(needs.Effects)+6)
+	for _, c := range settlement.EnvBreakdown(input) {
+		out = append(out, models.RComponent{Code: c.Code, Value: c.Value})
+	}
+	for _, run := range needs.Effects {
+		var v float64
+		if n := len(run.Force); n > 0 {
+			v = run.Force[n-1].Rate
+		}
+		out = append(out, models.RComponent{
+			Code:  normByID[run.EffectTypeID],
+			Name:  nameByID[run.EffectTypeID],
+			Value: v,
+		})
 	}
 	return out
 }

@@ -280,6 +280,7 @@ func playerSettlements(in []models.Settlement, arithmeticVisible bool) []models.
 		out[i].PopulationExact = 0
 		out[i].ComputedAt = time.Time{}
 		out[i].RPerSec = 0
+		out[i].RBreakdown = nil
 		out[i].LambdaPerHour = 0
 		out[i].NDead = 0
 		out[i].Effects = effectViews(out[i].Effects)
@@ -348,6 +349,7 @@ func stripSnapshotSettlementSecrets(p *models.Planet) {
 		s.PopulationExact = 0
 		s.ComputedAt = time.Time{}
 		s.RPerSec = 0
+		s.RBreakdown = nil
 		s.LambdaPerHour = 0
 		s.NDead = 0
 		s.Arithmetic = nil

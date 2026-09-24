@@ -5,6 +5,16 @@ import (
 	"time"
 )
 
+// RComponent — ряд админской витрины состава R_total (идея 2026-09-25):
+// Code — код компонента среды (natural/birth/heat/cold/gravity/radiation) или
+// name_norm типа эффекта; Name — человекочитаемое имя (для рядов эффектов).
+// Value — вклад за секунду в родном знаке R движка (+ убыль, − рост).
+type RComponent struct {
+	Code  string  `json:"code"`
+	Name  string  `json:"name,omitempty"`
+	Value float64 `json:"value"`
+}
+
 type Settlement struct {
 	ID              string                `json:"id"`
 	PlanetID        string                `json:"planet_id"`
@@ -14,6 +24,11 @@ type Settlement struct {
 	ComputedAt      time.Time             `json:"computed_at"`            // точка отсчёта Δt для ленивого пересчёта
 	LambdaPerHour   float64               `json:"lambda_per_hour,omitempty"` // λ-компоненты изменения населения за час (холод/гравитация/радиоактивность), для косметической экстраполяции на клиенте (18a)
 	RPerSec         float64               `json:"r_per_sec,omitempty"`       // рекурсивная компонента изменения за 1 секунду (жара, HeatChangeRate); при росте отрицательная (99.2.12)
+	// RBreakdown — админская витрина состава R_total (идея 2026-09-25): по ряду
+	// на компонент. Среда — коды natural/birth/heat/cold/gravity/radiation, ряды
+	// эффектов — человекочитаемый Name (effect_types.name). Знак — родной знак R
+	// движка: + убыль, − рост. Игроку не отдаётся (planet_visibility обнуляет).
+	RBreakdown []RComponent `json:"r_breakdown,omitempty"`
 	NDead           float64               `json:"n_dead,omitempty"`          // порог обнуления, тот же NDead — для той же экстраполяции
 	Log             []SettlementLogEntry  `json:"log,omitempty"`          // последние записи лога (первый тип — «Вымерло»), 18b §«Лог поселения»
 // RaceID — раса поселения (спека 99.2.21 §2.3); пусто = легаси/люди.

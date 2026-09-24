@@ -91,6 +91,11 @@ arrivalObject: null,
     interstellarFlight: null,
     _rafId: null,
     _playersTimer: null, // id setInterval опроса чужих игроков в системе (спека 99.2.27 §5.4)
+    // Одна отложенная проверка прибытия межзвёздного полёта для страницы БЕЗ
+    // карты (админка; баг 2026-09-24): на карте прилёт ловит map/data.js
+    // (checkCompositeArrival → refreshPlanets), вне карты — этот setTimeout на
+    // start_time + duration. Не ежесекундный скан.
+    interstellarArrivalTimer: null,
     dragMoved: false,
     suppressNextClick: false,
     activeTab: 'general', // текущая вкладка карточки планеты, чтобы «Обновить» не сбрасывал на «Общее»
@@ -109,6 +114,23 @@ arrivalObject: null,
 // композитный: это редирект /travel (спека 99.2.30 §3.4/§3.5).
 export function flightModeForSystem() {
     return (modalState.inOwnSystem && !modalState.interstellarFlight) ? 'intra' : 'composite';
+}
+
+// clearArrivedInterstellarFlight — снять устаревший признак межзвёздного полёта,
+// когда по данным системы игрок уже физически здесь (баг 2026-09-24). «Здесь» =
+// сервер отдал in_own_system и позицию orbit/surface (не null: межзвёздный
+// сегмент NULL-ит позицию; не in_flight: активный внутрисистемный сегмент, в т.ч.
+// композитного редиректа в своей системе — пока полёт идёт, режим обязан
+// оставаться 'composite'). Вызывается из refreshPlanets после обновления
+// inOwnSystem/myPosition. Возвращает true, если признак снят.
+export function clearArrivedInterstellarFlight() {
+    if (modalState.inOwnSystem && modalState.myPosition &&
+        modalState.myPosition.status !== 'in_flight') {
+        modalState.interstellarFlight = null;
+        modalState.interstellarFlightName = null;
+        return true;
+    }
+    return false;
 }
 
 export function resetState() {
@@ -153,5 +175,9 @@ export function resetState() {
     if (modalState._playersTimer !== null) {
         clearInterval(modalState._playersTimer);
         modalState._playersTimer = null;
+    }
+    if (modalState.interstellarArrivalTimer !== null) {
+        clearTimeout(modalState.interstellarArrivalTimer);
+        modalState.interstellarArrivalTimer = null;
     }
 }

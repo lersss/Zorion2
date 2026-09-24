@@ -533,7 +533,18 @@ export async function checkCompositeArrival(user) {
     const sign1 = !!(pending && pending.world_id === worldId);
     const sign2 = !!(pos && pos.status === 'in_flight');
     const sign3 = marker === worldId;
-    if (!sign1 && !sign2 && !sign3) return;
+    // Модалка уже открыта на системе прибытия (баг 2026-09-24): простой
+    // межзвёздный полёт к звезде (путь 1) не открывает модалку заново, но уже
+    // открытую — обновляет: refreshPlanets перечитает in_own_system/my_position
+    // и снимет устаревший interstellarFlight (иначе «Лететь» → /travel → сервер
+    // 400 «Вы уже в этой системе»). Признаков композитного маршрута здесь нет —
+    // авто-открытие не делаем, только обновление открытой.
+    const modalOpenHere = !!document.getElementById('system-modal-overlay') &&
+        modalState.worldId === worldId;
+    if (!sign1 && !sign2 && !sign3) {
+        if (modalOpenHere) refreshPlanets();
+        return;
+    }
 
     // Гул полёта через сегменты (99.2.30/99.2.27): маршрут ещё продолжается
     // (намерение — sign1, или внутрисистемный сегмент уже идёт — sign2) — гул

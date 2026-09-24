@@ -1,5 +1,5 @@
 // web/static/js/modal/index.js
-import { modalState, resetState } from './state.js';
+import { modalState, resetState, clearArrivedInterstellarFlight } from './state.js';
 import { drawSystem, objectCanvasPos, orbitalPoint } from './modal_render.js';
 import { computeLayout, getOrbitRadius } from './layout.js';
 import { initEvents } from './events.js';
@@ -113,6 +113,9 @@ export function openSystemModal(worldId, worldName, spectralClass, focusOpts, au
             // системы — надёжный признак; кнопка «Найти меня» в модалке при
             // межзвёздном полёте закроет её и поведёт как кнопка карты.
             modalState.interstellarFlight = (me && me.flight) || null;
+            // Страховка для страницы без карты (админка): одна отложенная
+            // проверка прибытия. На карте — no-op (прилёт ловит map/data.js).
+            scheduleInterstellarArrivalFallback();
             // Имя системы-цели межзвёздного полёта (спека 99.2.30 §6.10):
             // для тултипа композитной кнопки «Маршрут развернётся: полёт к
             // <система>…». Источник — кэш миров карты (state.worlds / flyTo);
@@ -254,6 +257,12 @@ export function refreshPlanets() {
         // Явный признак «своя система» (баг 2026-09-22) — обновляем вместе с
         // позицией: current_world_id == worldId, независимо от my_position.
         modalState.inOwnSystem = !!(data && data.in_own_system);
+        // Межзвёздный полёт (баг 2026-09-24): игрок уже физически в этой системе
+        // (in_own_system + позиция orbit/surface) — снимаем устаревший признак
+        // полёта. Иначе режим остаётся композитным → «Лететь» → /travel → сервер
+        // 400 «Вы уже в этой системе». Данные системы — надёжный источник при
+        // гонке с /me (признак мог не перечитаться: модалку никто не обновлял).
+        clearArrivedInterstellarFlight();
         // Прибытие (запрос создателя 99.2.27): камера мягко центрирует на объект
         // прибытия (позиция orbit = цель полёта), а не «вся система целиком».
         if (wasInFlight && modalState.myPosition && modalState.myPosition.status === 'orbit') {
@@ -277,6 +286,34 @@ export function refreshPlanets() {
         console.error('Error refreshing planets:', error);
         notifyError('Ошибка обновления: ' + error.message);
     });
+}
+
+// scheduleInterstellarArrivalFallback — ОДНА отложенная проверка прибытия
+// межзвёздного полёта для страницы БЕЗ карты (админка: события прилёта карты
+// нет — map/animation.js не работает). Таймер отсчитывается от
+// start_time + duration (не ежесекундный скан); по прибытии перечитываем планеты —
+// refreshPlanets снимает устаревший interstellarFlight (баг 2026-09-24).
+// На карте не планируем: там прилёт ловит map/data.js (checkCompositeArrival →
+// refreshPlanets) — дубля запроса нет. Идемпотентно: перепланирование снимает
+// прошлый таймер (гонка /me и renderModal).
+function scheduleInterstellarArrivalFallback() {
+    if (modalState.interstellarArrivalTimer !== null) {
+        clearTimeout(modalState.interstellarArrivalTimer);
+        modalState.interstellarArrivalTimer = null;
+    }
+    const f = modalState.interstellarFlight;
+    if (!f || typeof f.start_time !== 'number' || typeof f.duration !== 'number') return;
+    if (document.getElementById('mapCanvas')) return; // на карте — событие data.js
+    // +1 с: серверный onArrival может отстать от клиентского таймера.
+    const delay = Math.max(0, f.start_time + f.duration * 1000 - Date.now()) + 1000;
+    modalState.interstellarArrivalTimer = setTimeout(() => {
+        modalState.interstellarArrivalTimer = null;
+        if (!document.getElementById('system-modal-overlay')) return;
+        // Полёт уже снят (успел другой путь) — не перечитываем.
+        if (modalState.interstellarFlight && modalState.interstellarFlight.start_time === f.start_time) {
+            refreshPlanets();
+        }
+    }, delay);
 }
 
 // selectPlanetInModal — выбирает планету по id в правой панели модалки.
@@ -346,6 +383,9 @@ function renderModal(worldId, worldName, spectralClass, data) {
     modalState.role = role;
     modalState.interstellarFlight = interstellarFlight;
     modalState.interstellarFlightName = interstellarFlightName;
+    // Страховка без карты (админка): /me мог вернуться ДО renderModal — таймер
+    // сброшен resetState выше, планируем заново по восстановленному признаку.
+    scheduleInterstellarArrivalFallback();
 
     const planets = Array.isArray(data && data.planets) ? data.planets : [];
     const starType = (data && data.star_type) || 'star';

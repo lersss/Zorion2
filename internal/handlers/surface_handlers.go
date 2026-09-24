@@ -91,10 +91,15 @@ type SurfacePackage struct {
 	// визуальный якорь «я только что сел здесь». Иконка уже резолвлена
 	// (models.ResolveShipIcon: legacy/битая → дефолт), цвет NULL = «Оригинал»;
 	// pose (angle/flip) — из того же реестра, что и остальной визуал корабля.
-	ShipIcon         string  `json:"ship_icon"`
-	ShipColor        *string `json:"ship_color"`
-	ShipAngle        float64 `json:"ship_angle"`
-	ShipFlip         bool    `json:"ship_flip"`
+	ShipIcon  string  `json:"ship_icon"`
+	ShipColor *string `json:"ship_color"`
+	ShipAngle float64 `json:"ship_angle"`
+	ShipFlip  bool    `json:"ship_flip"`
+	// ShipScale — размер корабля в ростах человека (решение создателя
+	// 2026-09-25): клиент умножает на рост игрока. Значение — из реестра
+	// кораблей (models.ShipScaleHuman, дефолт 12); поле аддитивное, старый
+	// клиент его не читает.
+	ShipScale        float64 `json:"ship_scale"`
 	Biome            string  `json:"biome"`
 	BiomeName        string  `json:"biome_name"`
 	BiomeShare       float64 `json:"biome_share"`
@@ -364,6 +369,7 @@ func (h *SurfaceHandlers) buildWalkPackage(p *models.Planet, biome string, pos *
 	// Корабль: резолвим иконку и берём её позу из реестра (ЧК-ship).
 	shipIcon := models.ResolveShipIcon(user.ShipIcon)
 	shipAngle, shipFlip := models.ShipOrientByFile(shipIcon)
+	shipScale := models.ShipScaleHuman(shipIcon)
 	// Рецепт вида (§2.6): резолв на сервере — клиент не читает справочник сам.
 	biomeView, viewSource := cat.ResolveBiomeView(biome)
 
@@ -375,6 +381,7 @@ func (h *SurfaceHandlers) buildWalkPackage(p *models.Planet, biome string, pos *
 		ShipColor:        user.ShipColor,
 		ShipAngle:        shipAngle,
 		ShipFlip:         shipFlip,
+		ShipScale:        shipScale,
 		Biome:            biome,
 		BiomeName:        name,
 		BiomeShare:       biomeShare(p, biome),

@@ -323,6 +323,31 @@ func TestSurfaceLandShipOrientFromRegistry(t *testing.T) {
 	assert.Equal(t, wantFlip, pkg.ShipFlip)
 }
 
+// Размер корабля в пакете (решение создателя 2026-09-25): ship_scale =
+// ShipScaleHuman(резолвленная иконка) — у записей реестра без переопределения
+// дефолт 12; поле аддитивное (старый клиент его не читает).
+func TestSurfaceLandShipScale(t *testing.T) {
+	h, mock := newSurfaceHarness(t)
+	const uid = "11111111-1111-1111-1111-111111111111"
+	const icon = "race_humans_starship.png"
+	biome := testBiomeByCategory(t, "литосфера")
+	data := surfacePlanetData(biome.ID, 100, 288, 1.0, 0, true)
+
+	expectSurfaceUserShip(mock, uid, "w1", orbitPlanetPos, "player", icon, nil)
+	expectIntraWorld(mock, "w1")
+	expectSurfacePlanetsLight(mock, "w1", surfacePlanetRow("pl-1", "w1", "Nemurzan II", data))
+	expectSurfaceUpdate(mock, uid)
+
+	rec := execJSON(h.Land, surfaceLandRequest(uid, "pl-1"))
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	var pkg SurfacePackage
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &pkg))
+	assert.Equal(t, models.ShipScaleHuman(icon), pkg.ShipScale)
+	assert.Equal(t, models.DefaultShipScaleHuman, pkg.ShipScale)
+}
+
 // buildSurfaceSky отдаёт planet_id только у планет (идея 2026-09-22 §8.4):
 // спутникам картинки нет — id пуст, клиент рисует фолбэк-диск.
 func TestBuildSurfaceSkyPlanetID(t *testing.T) {

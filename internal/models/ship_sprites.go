@@ -21,7 +21,18 @@ type ShipSprite struct {
 	Race  string  `json:"race"`            // слаг расы (спека 2026-09-23 §6.2)
 	Angle float64 `json:"angle,omitempty"` // градусы, по часовой, (−180,180]; 0 = нос вправо
 	Flip  bool    `json:"flip,omitempty"`  // зеркало, применяется ДО поворота
+	// ScaleHuman — размер корабля в ростах человека (решение создателя
+	// 2026-09-25): высота отрисовки спрайта / рост игрока. Не задано/0 → дефолт
+	// DefaultShipScaleHuman (см. ShipScaleHuman). Поле — для будущих
+	// переопределений (напр. истребитель меньше носителя); у всех записей
+	// реестра значение пустое, дефолт даёт аксессор.
+	ScaleHuman float64 `json:"scale_human,omitempty"`
 }
+
+// DefaultShipScaleHuman — размер корабля «в натуральную величину» по умолчанию
+// (решение создателя 2026-09-25): 12 ростов человека. Дефолт даёт аксессор
+// ShipScaleHuman — заполнять записи реестра не нужно.
+const DefaultShipScaleHuman = 12.0
 
 // ShipColorPalette — 9 хроматических цветов перекраски (спека §5.5);
 // NULL = «Оригинал» (без перекраски).
@@ -69,6 +80,17 @@ func ShipOrientByFile(file string) (float64, bool) {
 		return s.Angle, s.Flip
 	}
 	return 0, false
+}
+
+// ShipScaleHuman — размер корабля в ростах человека по имени файла (решение
+// создателя 2026-09-25): значение записи реестра, если задано > 0; иначе
+// дефолт DefaultShipScaleHuman (12). Неизвестный/пустой файл → тот же дефолт
+// (фолбэк как у ResolveShipIcon/ShipOrientByFile).
+func ShipScaleHuman(file string) float64 {
+	if s, ok := shipSpriteByFile[file]; ok && s.ScaleHuman > 0 {
+		return s.ScaleHuman
+	}
+	return DefaultShipScaleHuman
 }
 
 // IsValidShipColor — цвет ∈ палитры (для PUT /me/ship-color, спека §7:

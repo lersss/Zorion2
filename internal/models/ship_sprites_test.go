@@ -49,6 +49,24 @@ func TestShipRaceByFile(t *testing.T) {
 	require.False(t, ok)
 }
 
+// ShipScaleHuman — размер корабля в ростах человека (решение создателя
+// 2026-09-25): запись без значения → дефолт 12, значение > 0 → как задано,
+// неизвестный/пустой файл → 12 (тот же фолбэк, что у ResolveShipIcon).
+func TestShipScaleHuman(t *testing.T) {
+	require.Equal(t, 12.0, DefaultShipScaleHuman)
+	require.Equal(t, DefaultShipScaleHuman, ShipScaleHuman("race_humans_starship.png"))
+	require.Equal(t, DefaultShipScaleHuman, ShipScaleHuman(""))
+	require.Equal(t, DefaultShipScaleHuman, ShipScaleHuman("nope.png"))
+
+	// Переопределение и явный ноль: временная запись в индексе (реестр не трогаем).
+	const tmp = "test_scale_ship.png"
+	defer delete(shipSpriteByFile, tmp)
+	shipSpriteByFile[tmp] = ShipSprite{ID: "test_scale", File: tmp, ScaleHuman: 30}
+	require.Equal(t, 30.0, ShipScaleHuman(tmp))
+	shipSpriteByFile[tmp] = ShipSprite{ID: "test_scale", File: tmp, ScaleHuman: 0}
+	require.Equal(t, DefaultShipScaleHuman, ShipScaleHuman(tmp), "ноль → дефолт (условие > 0)")
+}
+
 // Палитра — ровно 9 хроматических цветов (§5.5); вне палитры — невалидно.
 func TestShipColorPalette(t *testing.T) {
 	require.Len(t, ShipColorPalette, 9)

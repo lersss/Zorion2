@@ -4,7 +4,7 @@
 // клиент только отображает формулу от landed_at + hazard.total.
 import {
     PPM, WALK_SPEED, SPRINT_SPEED, JUMP_SPEED,
-    G_CLAMP_MIN, G_CLAMP_MAX, G_EARTH,
+    G_CLAMP_MIN, G_CLAMP_MAX, G_EARTH, PLAYER_H,
 } from './surface_config.js';
 
 function approach(cur, target, maxDelta) {
@@ -20,7 +20,7 @@ export class Player {
         this.vx = 0;
         this.vy = 0;
         this.w = 12;
-        this.h = 28;
+        this.h = PLAYER_H;
         // Спавн — на корке поверхности: центр на h/2+2 выше рельефа. Иначе ноги
         // (th+10) ниже 8-px корки, и игрок проваливается в пещеру под спавном,
         // откуда не выйти (не запираться на спавне, идея 2026-09-21 §4 п.3).

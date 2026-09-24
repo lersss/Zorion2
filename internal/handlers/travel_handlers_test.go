@@ -70,8 +70,9 @@ func TestCalcTravelDuration(t *testing.T) {
 // ==================== ХЕЛПЕРЫ ====================
 
 // newTravelHarness — sqlmock-БД + репозитории + менеджер полётов.
-// Каталог оборудования — дефолты (PITFALLS.md:185): HasEngine/EngineSpeed
-// читают in-memory каталог, без него валидация двигателя всегда false.
+// Каталог оборудования — дефолты (PITFALLS «Go и конкурентность»,
+// docs/pitfalls/go.md): HasEngine/EngineSpeed читают in-memory каталог,
+// без него валидация двигателя всегда false.
 func newTravelHarness(t *testing.T) (*TravelHandlers, *travel.Manager, sqlmock.Sqlmock) {
 	t.Helper()
 	ship.LoadDefaults()

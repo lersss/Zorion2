@@ -12,8 +12,9 @@ import (
 )
 
 func TestShipModelByIDDefaults(t *testing.T) {
-	// Дефолты-страховка (пустая БД): starter (PITFALLS.md:185 — тест
-	// справочника обязан сначала вызвать LoadDefaults).
+	// Дефолты-страховка (пустая БД): starter — тест справочника обязан
+	// сначала вызвать LoadDefaults (PITFALLS «Go и конкурентность»,
+	// docs/pitfalls/go.md).
 	LoadModelDefaults()
 
 	m := ShipModelByID(models.StarterShipModelID)

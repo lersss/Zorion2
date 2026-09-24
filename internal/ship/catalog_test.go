@@ -155,8 +155,9 @@ func TestEngineSpeed(t *testing.T) {
 }
 
 func TestEngineSpeedDefaults(t *testing.T) {
-	// Дефолты-страховка (пустая БД): engine_1 → 0.3 (PITFALLS.md:185 —
-	// тест каталога обязан сначала вызвать LoadDefaults).
+	// Дефолты-страховка (пустая БД): engine_1 → 0.3 — тест каталога обязан
+	// сначала вызвать LoadDefaults (PITFALLS «Go и конкурентность»,
+	// docs/pitfalls/go.md).
 	LoadDefaults()
 
 	require.Equal(t, models.EngineSpeedDefault,

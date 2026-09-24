@@ -345,7 +345,8 @@ func TestUpdateShipColorRejectsGarbage(t *testing.T) {
 // Стартовая комплектация 91a: ship_model (имя модели), ship_catalog (весь
 // каталог, включая engine_1), ship_speed_factor из установленного двигателя.
 func TestGetMeShipSection(t *testing.T) {
-	// Каталог оборудования и модели — дефолты (PITFALLS.md:185).
+	// Каталог оборудования и модели — дефолты (PITFALLS «Go и
+	// конкурентность», docs/pitfalls/go.md).
 	ship.LoadDefaults()
 	ship.LoadModelDefaults()
 

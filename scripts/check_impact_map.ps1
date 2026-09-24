@@ -119,7 +119,7 @@ $exceptions = @(
     'internal/', 'web/', 'cmd/', 'tools/', 'migrations/',
     'docs/QA/checklists/', 'docs/QA_CHECKLIST.md',
     'docs/media/', 'readme.md',
-    'docs/ARCHITECTURE.md', 'docs/PITFALLS.md',
+    'docs/ARCHITECTURE.md', 'docs/PITFALLS.md', 'docs/pitfalls/',
     'docs/COORDINATION.md',
     'docs/CONTRIBUTORS.md',
     'config/goods/',

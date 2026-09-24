@@ -338,6 +338,276 @@ def debris_03(seed):
                    cracks=2), 'debris_03')
 
 
+# --- ЛЁД (§10.4): холодная тоновая подложка, сильнее facet/chip/plate -------------------
+
+ICE_LIGHT = (234, 244, 255)   # #eaf4ff светлая кромка/иней
+ICE_BASE = (169, 198, 220)    # #a9c6dc основа льда
+ICE_SHADOW = (179, 198, 214)  # #b3c6d6 подтон/тень грани
+ICE_DARK = (59, 65, 75)       # #3b414b холодная каверна/трещина
+
+ICE_OUT = r'C:\Zorion2\ai_drafts\belt_asteroids\ice\silhouettes'
+
+
+def save_ice(img, name):
+    os.makedirs(ICE_OUT, exist_ok=True)
+    path = os.path.join(ICE_OUT, name + '.png')
+    img.save(path)
+    print('Saved:', path)
+
+
+def pinch(pts, rng, k=0.62):
+    """Перемычка-«талия»: утопить один угол к центру (друза из сросшихся глыб)."""
+    cx, cy = centroid(pts)
+    i = rng.randrange(len(pts))
+    pts[i] = (cx + (pts[i][0] - cx) * k, cy + (pts[i][1] - cy) * k)
+    return pts
+
+
+def draw_ice_facets(d, pts, rng, count):
+    """Плоские кристаллические грани: треугольники-фаски (не крáтерные дуги)."""
+    cx, cy = centroid(pts)
+    maxr = max(math.hypot(x - cx, y - cy) for x, y in pts)
+    for _ in range(count):
+        ang = rng.uniform(0, 2 * math.pi)
+        r = maxr * rng.uniform(0.10, 0.55)
+        px = cx + math.cos(ang) * r
+        py = cy + math.sin(ang) * r
+        s = maxr * rng.uniform(0.16, 0.34)
+        a0 = rng.uniform(0, 2 * math.pi)
+        tri = [(px + math.cos(a0 + i * 2.1) * s * rng.uniform(0.7, 1.2),
+                py + math.sin(a0 + i * 2.1) * s * rng.uniform(0.7, 1.2)) for i in range(3)]
+        d.polygon(tri, fill=ICE_SHADOW, outline=ICE_DARK, width=rng.choice([3, 4]))
+
+
+def draw_ice_cracks(d, pts, rng, count):
+    """Трещины-кливаж: прямые ломаные (излом), холодно-тёмные."""
+    cx, cy = centroid(pts)
+    maxr = max(math.hypot(x - cx, y - cy) for x, y in pts)
+    for _ in range(count):
+        ang = rng.uniform(0, 2 * math.pi)
+        x0 = cx + math.cos(ang) * maxr * rng.uniform(0.05, 0.30)
+        y0 = cy + math.sin(ang) * maxr * rng.uniform(0.05, 0.30)
+        L = maxr * rng.uniform(0.50, 0.75)
+        x1, y1 = x0 + math.cos(ang) * L, y0 + math.sin(ang) * L
+        ang2 = ang + rng.choice([-1, 1]) * rng.uniform(0.5, 1.1)
+        x2 = x1 + math.cos(ang2) * L * rng.uniform(0.25, 0.5)
+        y2 = y1 + math.sin(ang2) * L * rng.uniform(0.25, 0.5)
+        d.line([(x0, y0), (x1, y1), (x2, y2)], fill=ICE_DARK, width=rng.choice([4, 5, 6]))
+
+
+def draw_ice_plate(d, pts, rng, count):
+    """Крупные плоские грани-плиты: угловатый четырёхугольник (не дуга-крáтер)."""
+    cx, cy = centroid(pts)
+    maxr = max(math.hypot(x - cx, y - cy) for x, y in pts)
+    for _ in range(count):
+        ang = rng.uniform(0, 2 * math.pi)
+        px = cx + math.cos(ang) * maxr * rng.uniform(0.20, 0.50)
+        py = cy + math.sin(ang) * maxr * rng.uniform(0.20, 0.50)
+        s = maxr * rng.uniform(0.26, 0.48)
+        quad = [(px + math.cos(ang + i * 1.57 + rng.uniform(-0.3, 0.3)) * s * rng.uniform(0.7, 1.2),
+                 py + math.sin(ang + i * 1.57 + rng.uniform(-0.3, 0.3)) * s * rng.uniform(0.7, 1.2))
+                for i in range(4)]
+        d.polygon(quad, fill=ICE_SHADOW, outline=ICE_DARK, width=5)
+
+
+def draw_ice_speckles(d, pts, rng, count):
+    """Мелкие «пузырьки»/поры — короткие тёмные точки (не крáтеры с кромкой)."""
+    cx, cy = centroid(pts)
+    maxr = max(math.hypot(x - cx, y - cy) for x, y in pts)
+    for _ in range(count):
+        ang = rng.uniform(0, 2 * math.pi)
+        fr = rng.uniform(0.05, 0.60)
+        px = cx + math.cos(ang) * maxr * fr
+        py = cy + math.sin(ang) * maxr * fr
+        r = maxr * rng.uniform(0.010, 0.028)
+        d.ellipse([px - r, py - r, px + r, py + r], fill=ICE_DARK)
+
+
+def draw_ice_cleavage(d, pts, rng, count):
+    """Кливаж: СЕМЕЙСТВА параллельных прямых хорд (кристаллические плоскости), а не
+    лучи из центра. Даёт Canny внутреннюю структуру, SDXL — плоские грани льда."""
+    cx, cy = centroid(pts)
+    maxr = max(math.hypot(x - cx, y - cy) for x, y in pts)
+    done = 0
+    while done < count:
+        ang = rng.uniform(0, math.pi)
+        nx, ny = -math.sin(ang), math.cos(ang)
+        base = rng.uniform(-0.35, 0.35) * maxr
+        for j in range(rng.randint(1, 3)):
+            off = base + j * maxr * rng.uniform(0.13, 0.26)
+            px, py = cx + nx * off, cy + ny * off
+            L = maxr * rng.uniform(1.2, 1.7)
+            d.line([(px - math.cos(ang) * L, py - math.sin(ang) * L),
+                    (px + math.cos(ang) * L, py + math.sin(ang) * L)],
+                   fill=ICE_DARK if j == 0 else ICE_SHADOW,
+                   width=rng.choice([3, 4, 5]))
+            done += 1
+            if done >= count:
+                break
+
+
+def _as_range(v):
+    return v if isinstance(v, tuple) else (v, v)
+
+
+def draw_ice_body(rng, pts, facets=(3, 5), cracks=(1, 3), speck=17, plates=(0, 1),
+                  cleavage=(5, 8)):
+    """Холодная тоновая подложка: светлая кромка сверху, основа + грани/кливаж/трещины.
+    Лёд светлее камня — читается на тёмном фоне по яркости. Ядро-«подсветку» не
+    запекаем: белое пятно в силуэте SDXL превращает в «дырку» (находка пилота 2026-09-24)."""
+    facets, cracks, plates = _as_range(facets), _as_range(cracks), _as_range(plates)
+    cleavage = _as_range(cleavage)
+    img, d = new_canvas()
+    mask = body_mask(pts)
+    d.polygon(pts, fill=ICE_LIGHT)
+    d.polygon(scale_about(pts, 0.90, dy=12), fill=ICE_BASE)
+    detail = Image.new('RGBA', (SIZE, SIZE), (0, 0, 0, 0))
+    dd = ImageDraw.Draw(detail)
+    draw_ice_cleavage(dd, pts, rng, rng.randint(cleavage[0], cleavage[1]))
+    paste_clipped(img, detail, mask)
+    if plates[1] > 0:
+        detail = Image.new('RGBA', (SIZE, SIZE), (0, 0, 0, 0))
+        dd = ImageDraw.Draw(detail)
+        draw_ice_plate(dd, pts, rng, rng.randint(plates[0], plates[1]))
+        paste_clipped(img, detail, mask)
+    detail = Image.new('RGBA', (SIZE, SIZE), (0, 0, 0, 0))
+    dd = ImageDraw.Draw(detail)
+    draw_ice_facets(dd, pts, rng, rng.randint(facets[0], facets[1]))
+    paste_clipped(img, detail, mask)
+    detail = Image.new('RGBA', (SIZE, SIZE), (0, 0, 0, 0))
+    dd = ImageDraw.Draw(detail)
+    draw_ice_cracks(dd, pts, rng, rng.randint(cracks[0], cracks[1]))
+    draw_ice_speckles(dd, pts, rng, speck)
+    paste_clipped(img, detail, mask)
+    d.line(list(pts) + [pts[0]], fill=ICE_DARK, width=6)
+    return img
+
+
+# 8 форм льда (§10.4; «друза»/«плита»/«осколок-V»/«кристалл»/«сплюснутая друза»/«кливаж»).
+
+def ice_01(seed):
+    """Друза из 2–3 сросшихся глыб: двойная доля с перемычкой."""
+    rng = random.Random(seed)
+    pts = outline(rng, n=11, harmonics=((2, 0.10), (3, 0.11), (5, 0.06)),
+                  bumps=2, dents=2, noise=0.04, facet=0.07)
+    pts = pinch(pts, rng, k=0.55)
+    pts = chaikin(pts, 1)
+    pts = fit(pts, aspect=1.22)
+    save_ice(draw_ice_body(rng, pts, facets=(2, 4), cracks=2, speck=17,
+                           plates=(0, 1), cleavage=(5, 8)), 'ice_01')
+
+
+def ice_02(seed):
+    """Угловатая плита с гранями."""
+    rng = random.Random(seed)
+    pts = outline(rng, n=9, harmonics=((2, 0.09), (3, 0.12), (5, 0.05)),
+                  bumps=2, dents=2, noise=0.03, facet=0.11)
+    pts = fit(pts, aspect=1.45)
+    save_ice(draw_ice_body(rng, pts, facets=(2, 4), cracks=1, speck=13,
+                           plates=(2, 3), cleavage=(6, 9)), 'ice_02')
+
+
+def ice_03(seed):
+    """Вытянутый осколок с V-выломом (chip)."""
+    rng = random.Random(seed)
+    pts = outline(rng, n=10, harmonics=((2, 0.09), (3, 0.10), (5, 0.05)),
+                  bumps=2, dents=2, noise=0.03, facet=0.07)
+    pts = chaikin(pts, 1)
+    pts = chip(pts, rng, span=4, inset=0.52)
+    pts = fit(pts, aspect=1.75)
+    save_ice(draw_ice_body(rng, pts, facets=(2, 3), cracks=2, speck=13,
+                           plates=(0, 1), cleavage=(5, 8)), 'ice_03')
+
+
+def ice_04(seed):
+    """Мелкогранёный «кристалл-картофелина»."""
+    rng = random.Random(seed)
+    pts = outline(rng, n=13, harmonics=((2, 0.11), (3, 0.08), (5, 0.06), (7, 0.04)),
+                  bumps=2, dents=3, noise=0.05, facet=0.06)
+    pts = chaikin(pts, 1)
+    pts = fit(pts, aspect=1.08)
+    save_ice(draw_ice_body(rng, pts, facets=(5, 8), cracks=2, speck=24,
+                           plates=(0, 1), cleavage=(6, 9)), 'ice_04')
+
+
+def ice_05(seed):
+    """Сплюснутая друза с крупными сколами."""
+    rng = random.Random(seed)
+    pts = outline(rng, n=12, harmonics=((2, 0.14), (3, 0.07), (5, 0.05)),
+                  bumps=1, dents=3, noise=0.04, facet=0.08)
+    pts = chaikin(pts, 1)
+    pts = chip(pts, rng, span=4, inset=0.42)
+    pts = chip(pts, rng, span=3, inset=0.34)
+    pts = fit(pts, aspect=1.50)
+    save_ice(draw_ice_body(rng, pts, facets=(2, 4), cracks=2, speck=17,
+                           plates=(0, 1), cleavage=(5, 8)), 'ice_05')
+
+
+def ice_06(seed):
+    """Сросток с трещинами-кливажем (кливаж гуще)."""
+    rng = random.Random(seed)
+    pts = outline(rng, n=11, harmonics=((2, 0.11), (3, 0.10), (5, 0.06), (7, 0.04)),
+                  bumps=2, dents=2, noise=0.04, facet=0.06)
+    pts = pinch(pts, rng, k=0.68)
+    pts = chaikin(pts, 1)
+    pts = fit(pts, aspect=1.20)
+    save_ice(draw_ice_body(rng, pts, facets=(2, 3), cracks=4, speck=17,
+                           plates=(0, 1), cleavage=(8, 11)), 'ice_06')
+
+
+def ice_07(seed):
+    """Угловатый многогранник (прямые рёбра)."""
+    rng = random.Random(seed)
+    pts = outline(rng, n=8, harmonics=((2, 0.09), (3, 0.13), (5, 0.05)),
+                  bumps=2, dents=2, noise=0.02, facet=0.13)
+    pts = fit(pts, aspect=1.30)
+    save_ice(draw_ice_body(rng, pts, facets=(2, 4), cracks=2, speck=11,
+                           plates=(1, 2), cleavage=(6, 9)), 'ice_07')
+
+
+def ice_08(seed):
+    """Удлинённая плита с расколом."""
+    rng = random.Random(seed)
+    pts = outline(rng, n=10, harmonics=((2, 0.12), (3, 0.09), (5, 0.05)),
+                  bumps=2, dents=2, noise=0.03, facet=0.08)
+    pts = chaikin(pts, 1)
+    pts = chip(pts, rng, span=5, inset=0.40)
+    pts = fit(pts, aspect=1.65)
+    save_ice(draw_ice_body(rng, pts, facets=(2, 3), cracks=3, speck=13,
+                           plates=(1, 2), cleavage=(6, 9)), 'ice_08')
+
+
+def ice_debris_01(seed):
+    rng = random.Random(seed)
+    pts = outline(rng, n=8, harmonics=((2, 0.12), (3, 0.10), (5, 0.05)),
+                  bumps=1, dents=2, noise=0.05, facet=0.12)
+    pts = chaikin(pts, 1)
+    pts = fit(pts, aspect=1.30)
+    save_ice(draw_ice_body(rng, pts, facets=(2, 3), cracks=1, speck=7,
+                           plates=(0, 0), cleavage=(4, 6)), 'ice_debris_01')
+
+
+def ice_debris_02(seed):
+    rng = random.Random(seed)
+    pts = outline(rng, n=9, harmonics=((2, 0.11), (3, 0.11), (5, 0.05)),
+                  bumps=2, dents=2, noise=0.05, facet=0.10)
+    pts = chaikin(pts, 1)
+    pts = chip(pts, rng, span=3, inset=0.38)
+    pts = fit(pts, aspect=1.15)
+    save_ice(draw_ice_body(rng, pts, facets=(2, 3), cracks=1, speck=7,
+                           plates=(0, 0), cleavage=(4, 6)), 'ice_debris_02')
+
+
+def ice_debris_03(seed):
+    rng = random.Random(seed)
+    pts = outline(rng, n=8, harmonics=((2, 0.14), (3, 0.09), (5, 0.06)),
+                  bumps=1, dents=2, noise=0.05, facet=0.13)
+    pts = chaikin(pts, 1)
+    pts = fit(pts, aspect=1.40)
+    save_ice(draw_ice_body(rng, pts, facets=(2, 3), cracks=1, speck=7,
+                           plates=(0, 0), cleavage=(4, 6)), 'ice_debris_03')
+
+
 if __name__ == '__main__':
     rock_01(20260923)
     rock_02(20260926)
@@ -350,3 +620,15 @@ if __name__ == '__main__':
     debris_01(20260932)
     debris_02(20260933)
     debris_03(20260934)
+    # Лёд (§10.4) — свои сиды 93xxx
+    ice_01(93001)
+    ice_02(93002)
+    ice_03(93003)
+    ice_04(93004)
+    ice_05(93005)
+    ice_06(93006)
+    ice_07(93007)
+    ice_08(93008)
+    ice_debris_01(93011)
+    ice_debris_02(93012)
+    ice_debris_03(93013)

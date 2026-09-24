@@ -14,15 +14,25 @@
          подсказка у цели, кнопка выхода, легенда управления. -->
     <div id="hud" style="display:none;">
         <div class="hud-left">
-            <div class="hud-mined"><span class="hud-label">Добыто за заход</span> <span id="hud-mined">0 т</span></div>
+            <div class="hud-mined">
+                <span class="hud-label">Добыто за заход</span>
+                <div id="hud-mined-iron" class="hud-buf">Железо Fe: 0 т</div>
+                <div id="hud-mined-ice" class="hud-buf" style="display:none;">Вода неочищенная: 0 т</div>
+            </div>
             <div class="cargo-bar-wrap">
                 <div class="cargo-bar"><div class="cargo-bar-fill" id="cargo-fill"></div></div>
                 <span class="cargo-bar-label" id="cargo-text">—</span>
                 <span id="cargo-full-badge" class="hud-badge" style="display:none;">Полон</span>
             </div>
             <div class="hud-chips">
-                <span id="hud-reserve" class="hud-chip"></span>
-                <span id="hud-belt-class" class="hud-chip"></span>
+                <div class="hud-chip-row">
+                    <span id="hud-reserve" class="hud-chip"></span>
+                    <span id="hud-belt-class" class="hud-chip"></span>
+                </div>
+                <div class="hud-chip-row" id="hud-chips-ice" style="display:none;">
+                    <span id="hud-reserve-ice" class="hud-chip"></span>
+                    <span id="hud-ice-class" class="hud-chip"></span>
+                </div>
             </div>
         </div>
         <div class="hud-center">

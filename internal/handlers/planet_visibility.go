@@ -467,14 +467,24 @@ func stripBeltDetails(b models.Belt, compositionRevealed bool) models.BeltView {
 		// composition: belt_class по composition.iron; remaining_level по
 		// f = iron_remaining/reserve. Точные числа клиенту не отдаются.
 		iron := 0.0
+		ice := 0.0
 		if b.Composition != nil {
 			iron = b.Composition["iron"]
+			ice = b.Composition["ice"]
 		}
 		if iron > 0 {
 			v.BeltClass = beltClassByIron(iron)
 		}
 		if b.IronRemaining != nil {
 			v.RemainingLevel = beltRemainingLevel(*b.IronRemaining, beltReserve(iron))
+		}
+		// Лёд (спека 2026-09-24 §5.7): класс по k_ice и уровень остатка запаса
+		// льда — тот же гейт знания. Точные числа клиенту не отдаются.
+		if ice > 0 {
+			v.IceClass = beltIceClassByIce(ice)
+		}
+		if b.IceRemaining != nil {
+			v.RemainingLevelIce = beltRemainingLevel(*b.IceRemaining, beltIceReserve)
 		}
 	}
 	return v

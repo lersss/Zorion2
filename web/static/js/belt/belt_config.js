@@ -79,6 +79,20 @@ export const ROCK_SPRITES = [
 export const DEBRIS_SPRITES = ['debris_01', 'debris_02', 'debris_03'];
 export const VEIN_SPRITES = ['vein_crack', 'vein_nest', 'vein_seam', 'vein_speck'];
 
+// Ледяные камни (спека 2026-09-24 §9, арт-ТЗ art_belt_asteroids.md §10.9):
+// 8 форм × 2 варианта, 1:1 с индексом a.sprite (0..15), как у rock_*. Непустой
+// список включает реальные ледяные ассеты и выключает плейсхолдер-тинт.
+export const ICE_SPRITES = [
+    'ice_01a', 'ice_01b', 'ice_02a', 'ice_02b',
+    'ice_03a', 'ice_03b', 'ice_04a', 'ice_04b',
+    'ice_05a', 'ice_05b', 'ice_06a', 'ice_06b',
+    'ice_07a', 'ice_07b', 'ice_08a', 'ice_08b',
+];
+// Паттерны блеска руды льда (grayscale-альфа, белый = руда; 1:1 с veinPattern 0..3).
+export const ICE_VEIN_SPRITES = ['ice_vein_frost', 'ice_vein_shard', 'ice_vein_seam', 'ice_vein_speck'];
+// Мелкие ледяные обломки (декор слоя 0.6; 1:1 с индексом обломка 0..2).
+export const ICE_DEBRIS_SPRITES = ['ice_debris_01', 'ice_debris_02', 'ice_debris_03'];
+
 // Палитра сцены — существующие цвета проекта (новых не вводим).
 export const COLORS = {
     bg: '#05070f',
@@ -91,4 +105,8 @@ export const COLORS = {
     particle: '#d1d5db',
     shipFallback: '#e2e8f0',
     shipAccent: '#38bdf8',
+    // Холодная «ледяная семья» проекта (art_belt_asteroids.md §10.2): основа льда
+    // (поверхность, `ice`) и блик руды льда (поверхность, «кристалл»).
+    iceRock: '#a9c6dc',
+    iceGlint: '#9ae6ff',
 };

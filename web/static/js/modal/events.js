@@ -799,6 +799,17 @@ function showPlanetMenu(x, y, planetIndex) {
     openStarMenu(menu);
 }
 
+// beltDepleted — пояс выработан ТОЛЬКО когда выработаны все доступные ресурсы
+// (спека 2026-09-24 §5.4, дельта UI-§15.7): выработанное железо при живом льде
+// вход не закрывает. Поле льда приходит под гейтом знания; нет поля (нет
+// знания/льда) — учитываем только железо (поведение v1).
+function beltDepleted(belt) {
+    if ((belt.remaining_level || '') !== 'выработан') return false;
+    const iceLevel = belt.remaining_level_ice || '';
+    if (iceLevel && iceLevel !== 'выработан') return false;
+    return true;
+}
+
 // showBeltMenu — ПКМ по поясу (ТЗ §9.4): пункты «🚀 Лететь» и «⛏ Добывать» в
 // стиле showPlanetMenu. Состояния согласованы с таблицей «Объекты» (бывшие
 // кнопки строки пояса): «Лететь» — своя система → внутрисистемный полёт,
@@ -902,11 +913,10 @@ export function showBeltMenu(x, y, beltId, worldX, worldY) {
     // когда игрок в этом поясе, запас не выработан и нет активного полёта.
     // Финальный ответ по клику — read-only вердикт + алерт поверх модалки
     // (спека 2026-09-23 §4.2): отказ больше не уводит с карты на belt.html.
-    const level = belt.remaining_level || '';
     let mineTitle = '';
     if (inFlight) mineTitle = 'Вы в полёте — дождитесь прибытия';
     else if (!inThisBelt) mineTitle = 'Сначала долетите до пояса';
-    else if (level === 'выработан') mineTitle = 'Пояс выработан';
+    else if (beltDepleted(belt)) mineTitle = 'Пояс выработан';
     const mineBtn = menuItem(`⛏ <span>Добывать</span>`);
     if (mineTitle) {
         mineBtn.style.cursor = 'not-allowed';
@@ -954,8 +964,7 @@ async function beltMineVerdict(belt) {
     if (!inThisBelt) {
         return { ok: false, title: 'Сначала долетите до пояса', text: 'Подлетите к поясу и попробуйте снова.' };
     }
-    const level = belt.remaining_level || '';
-    if (level === 'выработан') {
+    if (beltDepleted(belt)) {
         return { ok: false, title: 'Пояс выработан', text: 'Добывать здесь больше нечего.' };
     }
     // Пустой `remaining_level` — НЕ запрет захода: запас инициализируется ЛЕНИВО на

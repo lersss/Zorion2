@@ -40,6 +40,8 @@ function cellSeed(seed, cx, cy) {
 
 function lerp(a, b, t) { return a + (b - a) * t; }
 
+const num = (v) => (typeof v === 'number' && isFinite(v) ? v : 0);
+
 function normAngle(a) {
     while (a > Math.PI) a -= 2 * Math.PI;
     while (a < -Math.PI) a += 2 * Math.PI;
@@ -56,8 +58,19 @@ function rollVeins(rng) {
 
 // BeltWorld — сцена захода: пояс (стриминг тел), корабль, эффекты.
 export class BeltWorld {
-    constructor(seed) {
+    constructor(seed, opts) {
+        opts = opts || {};
         this.seed = seed >>> 0;
+        // Состав пояса для типа жил (F2, спека 2026-09-24 §7.3): лёд «жив»
+        // только если ресурс доступен и composition.ice > 0. Иначе тип жилы
+        // не роллится ВООБЩЕ (RNG не тратится) — пояс без льда выглядит ровно
+        // как до фичи (§8.1, ловушка RNG M5).
+        this.iron = num(opts.iron);
+        this.ice = num(opts.ice);
+        this.iceAvailable = !!opts.iceAvailable && this.ice > 0;
+        this.pIce = this.iceAvailable ? this.ice / (this.ice + this.iron) : 0;
+        // Гашение жил выработанного ресурса (§8.1): по ним цель не берётся.
+        this.depletedRes = { iron: false, ice: false };
         this.rng = mulberry32(this.seed);
         this.fx = mulberry32((this.seed ^ 0x9e3779b9) >>> 0);
         this.stars = this._genStars();
@@ -137,6 +150,9 @@ export class BeltWorld {
             b.rotSpeed = (rng() - 0.5) * 2 * C.ASTEROID_SPIN_MAX;
             b.vein = true;
             b.drill = 0;
+            // Тип жилы (F2): ролл ТОЛЬКО при доступном льде — иначе rng() не
+            // вызывается вовсе (инвариант: пояс без льда = до-фичевый мир, §8.1).
+            b.res = (this.iceAvailable && rng() < this.pIce) ? 'ice' : 'iron';
             // Спрайт/руда (арт-ТЗ §4.2): индексы и параметры — из того же rng
             // ячейки (детерминизм; Math.random запрещён). shape[]/glints[] выше
             // остаются фолбэком, если файл спрайта не загрузился.
@@ -180,8 +196,11 @@ export class BeltWorld {
             b.rotSpeed = (rng() - 0.5) * 2 * C.ASTEROID_SPIN_MAX;
             b.vein = false;
             b.drill = 0;
-            // Мелкие обломки — спрайт из DEBRIS_SPRITES (в пилоте файлов нет →
-            // фолбэк-многоугольник); руды у них нет.
+            // Тип обломка (лёд/камень) — ролл только при доступном льде, иначе
+            // rng() не тратится (инвариант «пояс без льда = до-фичевый мир»).
+            b.res = (this.iceAvailable && rng() < this.pIce) ? 'ice' : 'iron';
+            // Мелкие обломки — спрайт из DEBRIS_SPRITES/ICE_DEBRIS_SPRITES (1:1);
+            // руды у них нет.
             b.sprite = Math.floor(rng() * C.DEBRIS_SPRITES.length);
             b.veinPattern = 0;
             b.veinRot = 0;
@@ -444,6 +463,9 @@ export class BeltWorld {
         let best = null;
         let bestT = Infinity;
         for (const a of this.asteroids) {
+            // Жилы выработанного ресурса целью не становятся (§8.1): клиент
+            // «гасит» их, подсказка у цели работает как «нет жилы» (состояние 0).
+            if (a.res && this.depletedRes[a.res]) continue;
             const fx = s.x - a.x;
             const fy = s.y - a.y;
             const b = fx * dx + fy * dy;
@@ -479,6 +501,8 @@ export class BeltWorld {
         if (!target) return;
         target.drill = Math.min(1, target.drill + dt * 0.22);
         const base = Math.atan2(this.ship.y - target.y, this.ship.x - target.x);
+        // Цвет частиц — по ресурсу цели (лёд — холодный блеск, §8.1/§10.9).
+        const pc = target.res === 'ice' ? C.COLORS.iceGlint : C.COLORS.particle;
         for (let i = 0; i < 2; i++) {
             const ang = base + (this.fx() - 0.5) * 0.9;
             const sp = 60 + this.fx() * 90;
@@ -490,6 +514,7 @@ export class BeltWorld {
                 life: 0.35 + this.fx() * 0.3,
                 max: 0.65,
                 r: 1.5 + this.fx() * 2,
+                c: pc,
             });
         }
     }

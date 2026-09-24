@@ -28,6 +28,23 @@ func TestMigrationIronRemaining(t *testing.T) {
 		"без DEFAULT: старый мир не должен молча выглядеть выработанным")
 }
 
+// ==================== МИГРАЦИЯ 000078 (спека 2026-09-24 §4) ====================
+
+// M22: колонка ice_remaining — nullable (NULL двусмыслен: «нет данных о льде»
+// ИЛИ «льда в поясе нет»), CHECK >= 0, без DEFAULT (0 = «выработан» —
+// самостоятельное состояние, а не дефолт).
+func TestMigrationIceRemaining(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "..", "migrations", "000078_belt_ice_remaining.sql"))
+	require.NoError(t, err, "миграция 000078_belt_ice_remaining.sql должна существовать")
+	s := string(src)
+	require.Contains(t, s, "ADD COLUMN IF NOT EXISTS ice_remaining DOUBLE PRECISION")
+	require.Contains(t, s, "CHECK (ice_remaining >= 0)", "инвариант «запас не уходит в минус»")
+	require.NotContains(t, s, "ice_remaining DOUBLE PRECISION NOT NULL",
+		"NULL = «нет данных/льда нет» — колонка nullable")
+	require.NotContains(t, s, "DEFAULT 0",
+		"без DEFAULT: старый мир не должен молча выглядеть выработанным")
+}
+
 // ==================== getStr ====================
 
 func TestGetStr(t *testing.T) {

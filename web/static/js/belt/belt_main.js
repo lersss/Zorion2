@@ -24,14 +24,19 @@ const state = {
     offline: false,
     full: false,
     depleted: false,
-    mined: 0,
+    depletedRes: { iron: false, ice: false },
+    mined: { iron: 0, ice: 0 },
     cargo: { used: 0, total: 0, free: 0 },
-    rateCap: 0,
+    rateCap: { iron: 0, ice: 0 },
     remainingLevel: '',
+    remainingLevelIce: '',
     beltClass: '',
+    iceClass: '',
+    iceAvailable: false,
+    targetRes: 'iron',
     drilling: false,
     lastTarget: null,
-    pending: 0,
+    pending: { iron: 0, ice: 0 },
     lastTime: 0,
     blockedUntil: 0,
     shipSprite: null,
@@ -74,22 +79,51 @@ async function loadShipSprite() {
 }
 
 // ---- HUD ----
-// isCargoFull — «трюм полон» по согласованному условию: груз + буфер ≥ total.
-// Совпадает с серверным full = «свободно − буфер ≤ 0» (осн. §5.3.2/§7), поэтому
-// бейдж «Полон» и блокировка сбора совпадают с заполненной шкалой трюма.
+// isCargoFull — «трюм полон» по согласованному условию: груз + ОБА буфера ≥ total
+// (спека 2026-09-24 §8.2: трюм общий по массе). Совпадает с серверным
+// full = «свободно − (mined + mined_ice) ≤ 0», поэтому бейдж «Полон» и блокировка
+// сбора совпадают с заполненной шкалой трюма.
 function isCargoFull() {
     const total = num(state.cargo.total);
-    return total > 0 && (num(state.cargo.used) + num(state.mined)) >= total - 1e-9;
+    return total > 0
+        && (num(state.cargo.used) + num(state.mined.iron) + num(state.mined.ice)) >= total - 1e-9;
 }
 
 function refreshHUD() {
     ui.updateHUD({
-        mined: state.mined,
+        mined: { iron: num(state.mined.iron), ice: num(state.mined.ice) },
         used: num(state.cargo.used),
         total: num(state.cargo.total),
         remainingLevel: state.remainingLevel,
+        remainingLevelIce: state.remainingLevelIce,
         beltClass: state.beltClass,
+        iceClass: state.iceClass,
+        iceAvailable: state.iceAvailable,
     });
+}
+
+// computeDepletion — уровни выработанности по ресурсам и «пояс выработан»
+// (спека 2026-09-24 §8.1/§10 п.6): пояс считается выработанным только когда
+// выработаны ВСЕ доступные ресурсы. «Нет данных» (пустой уровень) выработанным
+// не считается (NULL ≠ «выработан», осн. §8.4).
+function computeDepletion() {
+    const ironDep = state.remainingLevel === 'выработан';
+    const iceDep = state.iceAvailable && state.remainingLevelIce === 'выработан';
+    state.depletedRes = { iron: ironDep, ice: iceDep };
+    const known = [];
+    if (state.remainingLevel !== '') known.push(ironDep);
+    if (state.iceAvailable && state.remainingLevelIce !== '') known.push(iceDep);
+    state.depleted = known.length > 0 && known.every(Boolean);
+    if (state.world) state.world.depletedRes = state.depletedRes;
+}
+
+// applyDepletion — пересчёт + тосты переходов (по ресурсу и по поясу, §15.6).
+function applyDepletion() {
+    const prev = { iron: state.depletedRes.iron, ice: state.depletedRes.ice, belt: state.depleted };
+    computeDepletion();
+    if (!prev.iron && state.depletedRes.iron) ui.notify('Запас железа выработан');
+    if (!prev.ice && state.depletedRes.ice) ui.notify('Запас льда выработан');
+    if (!prev.belt && state.depleted) ui.notify('Пояс выработан');
 }
 
 function hintHtml(hit, inRange, offBelt) {
@@ -100,7 +134,7 @@ function hintHtml(hit, inRange, offBelt) {
     if (state.depleted) return 'Пояс выработан — добывать больше нечего.';
     if (state.offline) return 'Нет связи — добыча приостановлена';
     if (state.drilling) return '⛏ Добыча идёт…';
-    if (inRange) return 'ЛКМ или [Space] — добыча';
+    if (inRange) return 'ЛКМ или [Space] — добыча ' + (state.targetRes === 'ice' ? 'льда' : 'железа');
     if (hit) return 'Подлетите ближе';
     if (offBelt) return 'Пояс позади — развернитесь к полосе';
     return 'Наведите нос на жилу';
@@ -137,12 +171,15 @@ function frame(now) {
         hit = state.world.rayVein();
         inRange = !!hit && state.world.distToSurface(hit) <= C.EXTRACT_RADIUS;
         target = inRange ? hit : null;
-        const canDrill = !!target && drillHeld(state.input)
+        // Ресурс цели определяет, какой буфер копится и что шлём в collect (§8.2).
+        state.targetRes = (target && target.res) || state.targetRes;
+        const rate = state.rateCap[state.targetRes] || 0;
+        const canDrill = !!target && rate > 0 && drillHeld(state.input)
             && !state.full && !state.depleted && now >= state.blockedUntil;
         if (state.world.collided) state.blockedUntil = now + C.COLLISION_BLOCK_MS;
         state.drilling = canDrill;
         if (canDrill) {
-            state.pending += state.rateCap * dt;
+            state.pending[state.targetRes] += rate * dt;
             state.world.drill(target, dt);
             state.lastTarget = target;
         }
@@ -163,6 +200,7 @@ function frame(now) {
         drilling: state.drilling,
         target,
         depleted: state.depleted,
+        depletedRes: state.depletedRes,
         shipSprite: state.shipSprite,
         shipOrient: state.shipOrient,
         offBelt,
@@ -187,38 +225,51 @@ function setOffline(v) {
     else ui.hidePill();
 }
 
-async function collectTick() {
-    if (!state.running || state.leaving || ui.isPaused()) return;
-    if (state.full || state.depleted) return;
-    const amount = state.pending;
-    if (amount <= 0) return;
-    state.pending = 0;
-    const res = await collect(amount);
-    if (res.status === 401) { window.location.href = '/login-page'; return; }
+// collectOne — один запрос сбора по ресурсу (§5.3, спека 2026-09-24 §8.2):
+// сервер — касса, клиент называет ресурс. Возврат false — прервать цикл (401).
+async function collectOne(resource, amount) {
+    const res = await collect(amount, resource);
+    if (res.status === 401) { window.location.href = '/login-page'; return false; }
     if (!res.ok) {
         // Сеть/5xx — ненавязчивый пилл; буфер не растёт (сервер — касса, §5.4).
-        state.pending += amount;
+        state.pending[resource] += amount;
         setOffline(true);
-        return;
+        return true;
     }
     setOffline(false);
     const d = res.data || {};
-    state.mined = num(d.mined);
-    state.remainingLevel = d.remaining_level || state.remainingLevel;
+    // Ответ несёт оба буфера (абсолютные значения) — читаем оба, не только текущий.
+    state.mined.iron = num(d.mined);
+    state.mined.ice = num(d.mined_ice);
+    if (d.remaining_level) state.remainingLevel = d.remaining_level;
+    if (state.iceAvailable && d.remaining_level_ice) state.remainingLevelIce = d.remaining_level_ice;
     state.cargo.free = num(d.cargo_free);
     state.cargo.used = Math.max(0, num(state.cargo.total) - state.cargo.free);
     state.full = !!d.full || isCargoFull();
-    if (state.remainingLevel === 'выработан' && !state.depleted) {
-        state.depleted = true;
-        ui.notify('Пояс выработан');
+    applyDepletion();
+    if (num(d.granted) > 0) {
+        const at = state.lastTarget || state.world.ship;
+        state.world.addFloater('+' + cargoNum(num(d.granted)) + ' т', at.x, at.y - 24);
     }
     if (state.full && !state.toastFullShown) {
         state.toastFullShown = true;
         ui.notify('Трюм полон — выгрузите груз на корабле');
     }
-    if (num(d.granted) > 0) {
-        const at = state.lastTarget || state.world.ship;
-        state.world.addFloater('+' + cargoNum(num(d.granted)) + ' т', at.x, at.y - 24);
+    return true;
+}
+
+async function collectTick() {
+    if (!state.running || state.leaving || ui.isPaused()) return;
+    if (state.full || state.depleted) return;
+    // Обычно бурят одну жилу — растёт один ресурс; при смене цели за интервал
+    // могут накопиться оба (§8.2): по запросу на каждый непустой буфер.
+    const jobs = [];
+    if (state.pending.iron > 0) jobs.push(['iron', state.pending.iron]);
+    if (state.iceAvailable && state.pending.ice > 0) jobs.push(['ice', state.pending.ice]);
+    if (!jobs.length) return;
+    for (const [res] of jobs) state.pending[res] = 0;
+    for (const [res, amt] of jobs) {
+        if (!await collectOne(res, amt)) return;
     }
 }
 
@@ -317,20 +368,33 @@ async function boot() {
     }
     const pkg = res.data || {};
     state.pkg = pkg;
-    state.mined = num(pkg.mined);
+    state.mined = { iron: num(pkg.mined), ice: num(pkg.mined_ice) };
     // Защитный дефолт: неполный пакет не должен ронять кадр (нет limits/rate_cap).
-    state.rateCap = num(pkg.limits && pkg.limits.rate_cap);
+    state.rateCap = {
+        iron: num(pkg.limits && pkg.limits.rate_cap),
+        ice: num(pkg.limits && pkg.limits.rate_ice),
+    };
     state.cargo = {
         used: num(pkg.cargo && pkg.cargo.used),
         total: num(pkg.cargo && pkg.cargo.total),
         free: num(pkg.cargo && pkg.cargo.free),
     };
     state.remainingLevel = pkg.remaining_level || '';
+    state.remainingLevelIce = pkg.remaining_level_ice || '';
     state.beltClass = pkg.belt_class || '';
+    state.iceClass = pkg.ice_class || '';
+    // Гейт ледяного UI (§15.4): ресурс воды есть → лёд доступен; mined_ice при
+    // resource_ice=null читается как 0 (норма чтения, спека 2026-09-24 §5.7).
+    state.iceAvailable = !!pkg.resource_ice;
     state.full = isCargoFull();
-    state.depleted = state.remainingLevel === 'выработан';
     state.toastFullShown = state.full;
-    state.world = new BeltWorld(num(pkg.seed));
+    state.world = new BeltWorld(num(pkg.seed), {
+        iron: num(pkg.composition_iron),
+        ice: num(pkg.composition_ice),
+        iceAvailable: state.iceAvailable,
+    });
+    state.world.depletedRes = state.depletedRes;
+    computeDepletion();
     window.__beltWorld = state.world; // e2e-снимки (tools/e2e/belt-sprites-shot.js)
     state.camera.x = 0;
     state.camera.y = 0;
@@ -346,8 +410,17 @@ async function boot() {
     ui.setBeltName(pkg.belt_name, pkg.belt_kind);
     refreshHUD();
 
-    if (state.mined > 0) {
-        ui.notify('Сессия добычи возобновлена: в буфере ' + cargoNum(state.mined) + ' т');
+    if (state.mined.iron > 0 || state.mined.ice > 0) {
+        // Тост возобновления (UI-§15.6): части по ресурсам только при наличии
+        // льда и везомого льда; иначе — прежняя формулировка (только железо).
+        if (state.iceAvailable && state.mined.ice > 0) {
+            const parts = [];
+            if (state.mined.iron > 0) parts.push(cargoNum(state.mined.iron) + ' т (Железо Fe)');
+            parts.push(cargoNum(state.mined.ice) + ' т (Вода неочищенная)');
+            ui.notify('Сессия добычи возобновлена: в буфере ' + parts.join(' · '));
+        } else {
+            ui.notify('Сессия добычи возобновлена: в буфере ' + cargoNum(state.mined.iron) + ' т');
+        }
     }
 
     state.running = true;

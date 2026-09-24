@@ -25,8 +25,12 @@ type CurrentPosition struct {
 	// мини-игры добычи — аддитивные ключи позиции (как hp/landed_at у surface).
 	// Mined — буфер захода (т, серверно-авторитетный), указатель: ноль значим и
 	// не теряется omitempty. StartedAt/LastCollectAt — UTC RFC3339.
-	StartedAt     string   `json:"started_at,omitempty"`
-	Mined         *float64 `json:"mined,omitempty"`
+	StartedAt string   `json:"started_at,omitempty"`
+	Mined     *float64 `json:"mined,omitempty"`
+	// MinedIce — второй буфер захода (лёд → «Вода неочищенная», спека
+	// 2026-09-24 §5.7): аддитивный ключ к mined. Указатель: ноль значим и не
+	// теряется omitempty. Норма чтения: отсутствует в старой позиции → 0.
+	MinedIce      *float64 `json:"mined_ice,omitempty"`
 	LastCollectAt string   `json:"last_collect_at,omitempty"`
 	FromType      string   `json:"from_type,omitempty"` // star|planet|satellite|belt (in_flight)
 	FromID        string   `json:"from_id,omitempty"`
@@ -96,6 +100,7 @@ func SurfacePosition(planetID, biome string, hp float64, landedAt time.Time) *Cu
 func MiningPosition(beltID string, startedAt time.Time) *CurrentPosition {
 	t := startedAt.UTC().Format(time.RFC3339)
 	mined := 0.0
+	minedIce := 0.0
 	return &CurrentPosition{
 		Status:     "mining",
 		ObjectType: "belt",
@@ -103,6 +108,7 @@ func MiningPosition(beltID string, startedAt time.Time) *CurrentPosition {
 		Level:      "mining",
 		StartedAt:  t,
 		Mined:      &mined,
+		MinedIce:   &minedIce,
 		// last_collect_at — nano-точность: секундная гранулярность давала бы
 		// Δ ≈ 1 c двум сборам в одну секунду (обход клампа скорости §5.3.1).
 		LastCollectAt: startedAt.UTC().Format(time.RFC3339Nano),

@@ -144,6 +144,79 @@ def vein_speck(seed):
     return to_rgba(soft(layer, 2))
 
 
+# --- Ледяной блеск руды (§10.6): «иней/кристалл», свои сиды 95xxx ----------------------
+
+ICE_OUT = r'C:\Zorion2\ai_drafts\belt_asteroids\ice\veins'
+
+
+def ice_vein_frost(seed):
+    """Иней: тонкая ветвящаяся сетка-морозный узор (из vein_crack, тоньше и ветвистее)."""
+    rng = random.Random(seed)
+    layer = Image.new('L', (S, S), 0)
+    cx, cy = S // 2, S // 2
+    for _ in range(rng.randint(4, 6)):
+        a = rng.uniform(0, 2 * math.pi)
+        r = rng.randint(0, 55)
+        branch(layer, rng, cx + math.cos(a) * r, cy + math.sin(a) * r,
+               rng.uniform(0, 2 * math.pi), rng.randint(80, 140), 3.2, 2, wobble=0.75)
+    return to_rgba(soft(layer, 1, cutoff=20))
+
+
+def ice_vein_shard(seed):
+    """Друза: скопление ярких ромбов-кристаллов + пара связующих жилок."""
+    rng = random.Random(seed)
+    layer = Image.new('L', (S, S), 0)
+    d = ImageDraw.Draw(layer)
+    cx, cy = S // 2, S // 2
+    for _ in range(rng.randint(14, 20)):
+        px = cx + rng.randint(-62, 62)
+        py = cy + rng.randint(-62, 62)
+        r = rng.randint(6, 16)
+        d.polygon([(px, py - r), (px + r * 0.65, py), (px, py + r), (px - r * 0.65, py)],
+                  fill=255)
+    for _ in range(3):
+        branch(layer, rng, cx + rng.randint(-40, 40), cy + rng.randint(-40, 40),
+               rng.uniform(0, 2 * math.pi), rng.randint(45, 80), 2.5, 1)
+    return to_rgba(soft(layer, 1.2, cutoff=18))
+
+
+def ice_vein_seam(seed):
+    """Кристаллический шов: полоса с зубцами-кристаллами (из vein_seam)."""
+    rng = random.Random(seed)
+    layer = Image.new('L', (S, S), 0)
+    d = ImageDraw.Draw(layer)
+    y = S // 2
+    pts = []
+    n = 9
+    for i in range(n + 1):
+        x = MARGIN + (S - 2 * MARGIN) * i / n
+        y = max(MARGIN, min(S - MARGIN, y + rng.randint(-24, 24)))
+        pts.append((x, y))
+    polyline(d, pts, 10.0, 10.0)
+    polyline(d, pts, 5.5, 5.5)
+    for i in range(1, len(pts) - 1):
+        if rng.random() < 0.85:
+            px, py = pts[i]
+            side = rng.choice([-1, 1])
+            ln = rng.randint(12, 30)
+            d.line([(px, py), (px + rng.randint(-6, 6), py + side * ln)],
+                   fill=255, width=rng.choice([3, 4]))
+    return to_rgba(soft(layer, 1.2, cutoff=18))
+
+
+def ice_vein_speck(seed):
+    """Вкрапления инея: мелкая россыпь (тоньше каменной)."""
+    rng = random.Random(seed)
+    layer = Image.new('L', (S, S), 0)
+    d = ImageDraw.Draw(layer)
+    for _ in range(rng.randint(120, 170)):
+        px = rng.randint(MARGIN, S - MARGIN)
+        py = rng.randint(MARGIN, S - MARGIN)
+        r = rng.randint(2, 6)
+        d.ellipse([px - r, py - r, px + r, py + r], fill=rng.choice([255, 230]))
+    return to_rgba(soft(layer, 1, cutoff=16))
+
+
 if __name__ == '__main__':
     os.makedirs(OUT, exist_ok=True)
     for name, fn, seed in [('vein_crack', vein_crack, 40111),
@@ -151,5 +224,14 @@ if __name__ == '__main__':
                            ('vein_seam', vein_seam, 40113),
                            ('vein_speck', vein_speck, 40104)]:
         path = os.path.join(OUT, name + '.png')
+        fn(seed).save(path)
+        print('Saved:', path)
+    # Ледяной блеск (§10.6) — свои сиды 95xxx
+    os.makedirs(ICE_OUT, exist_ok=True)
+    for name, fn, seed in [('ice_vein_frost', ice_vein_frost, 95101),
+                           ('ice_vein_shard', ice_vein_shard, 95102),
+                           ('ice_vein_seam', ice_vein_seam, 95103),
+                           ('ice_vein_speck', ice_vein_speck, 95104)]:
+        path = os.path.join(ICE_OUT, name + '.png')
         fn(seed).save(path)
         print('Saved:', path)

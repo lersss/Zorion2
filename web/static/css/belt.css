@@ -46,8 +46,12 @@ html, body {
 .hud-right { display: flex; align-items: center; gap: 12px; }
 
 .hud-label { color: #94a3b8; font-size: 0.8rem; }
-#hud-mined { color: #fde68a; font-weight: 600; }
 .hud-mined { margin-bottom: 6px; font-size: 0.9rem; }
+/* Буферы по ресурсам (§15.2): две строки «имя: значение». Цвет льда —
+   существующий холодный акцент проекта (#38bdf8), новых цветов нет. */
+.hud-buf { margin-top: 2px; }
+#hud-mined-iron { color: #fde68a; font-weight: 600; }
+#hud-mined-ice { color: #38bdf8; font-weight: 600; }
 
 /* Трюм — единый вид с дашбордом (index.html .cargo-*). */
 .cargo-bar-wrap { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; }
@@ -64,8 +68,10 @@ html, body {
     font-size: 0.72rem;
 }
 
-/* Чипы запаса/класса (§4.3): цвет border/color на rgba-фоне. */
-.hud-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+/* Чипы запаса/класса (§4.3): цвет border/color на rgba-фоне. Две строки —
+   по ресурсу (дельта §15.3): железо и вода. */
+.hud-chips { display: flex; flex-direction: column; gap: 4px; }
+.hud-chip-row { display: flex; flex-wrap: wrap; gap: 6px; }
 .hud-chip {
     background: rgba(15, 23, 42, 0.72);
     border: 1px solid #64748b;

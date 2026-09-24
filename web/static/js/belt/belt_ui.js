@@ -8,19 +8,32 @@ import { cargoMassLabel, cargoPercent, cargoNum } from '../dashboard/cargo.js';
 
 const $ = (id) => document.getElementById(id);
 
-// ---- Цвета чипов (§4.3) — существующие константы проекта ----
+// ---- Цвета чипов (§4.3, дельта §15.3) — существующие константы проекта ----
+// «выработан» — по ресурсу (не «Пояс выработан»: это глобальное состояние §15.5).
 const RESERVE = {
-    'полный': { text: 'Запас пояса: полный', color: '#4ade80' },
-    'истощается': { text: 'Запас пояса: истощается', color: '#facc15' },
-    'выработан': { text: 'Пояс выработан', color: '#ef4444' },
+    'полный': { text: 'Запас железа: полный', color: '#4ade80' },
+    'истощается': { text: 'Запас железа: истощается', color: '#facc15' },
+    'выработан': { text: 'Запас железа: выработан', color: '#ef4444' },
 };
-const RESERVE_NODATA = { text: 'Запас пояса: нет данных', color: '#64748b' };
+const RESERVE_NODATA = { text: 'Запас железа: нет данных', color: '#64748b' };
+const RESERVE_ICE = {
+    'полный': { text: 'Запас льда: полный', color: '#4ade80' },
+    'истощается': { text: 'Запас льда: истощается', color: '#facc15' },
+    'выработан': { text: 'Запас льда: выработан', color: '#ef4444' },
+};
 const BELT_CLASS = {
     'богатый': { text: 'Пояс: богатый', color: '#4ade80' },
     'средний': { text: 'Пояс: средний', color: '#facc15' },
     'бедный': { text: 'Пояс: бедный', color: '#f97316' },
 };
 const CLASS_NODATA = { text: 'Пояс: нет данных', color: '#64748b' };
+const ICE_CLASS = {
+    'богатый': { text: 'Лёд: богатый', color: '#4ade80' },
+    'средний': { text: 'Лёд: средний', color: '#facc15' },
+    'бедный': { text: 'Лёд: бедный', color: '#f97316' },
+};
+
+const num = (v) => (typeof v === 'number' && isFinite(v) ? v : 0);
 
 const KIND_LABELS = {
     asteroid: 'пояс астероидов',
@@ -72,21 +85,30 @@ function setChip(el, info) {
     el.style.borderColor = info.color;
 }
 
-// updateHUD — буфер захода, трюм (полоса/подпись/бейдж «Полон»), чипы запаса и
-// класса (§4.2/§4.3). Данные — серверные (пакет/collect), клиент не считает.
+// updateHUD — буферы захода (железо + вода), трюм (одна шкала по СУММЕ обоих
+// буферов и груза, дельта §15.2), чипы запаса/класса по ресурсу (§15.3).
+// Ледяной UI скрыт целиком, если льда нет (§15.4); при фолбэке железный UI =
+// ровно v1. Данные — серверные (пакет/collect), клиент не считает.
 export function updateHUD(s) {
-    const minedEl = $('hud-mined');
-    if (minedEl) minedEl.textContent = cargoNum(s.mined) + ' т';
+    const minedIron = num(s.mined && s.mined.iron);
+    const minedIce = num(s.mined && s.mined.ice);
+    // Ледяная строка буфера видна при наличии льда; исключение — mined_ice > 0
+    // (защита от потери груза, §15.4), даже если ресурса нет.
+    const showIce = !!s.iceAvailable || minedIce > 0;
 
-    // Шкала трюма = ЗАНЯТОЕ место: груз в трюме + буфер захода (mined), не более
-    // total. Буфер захода тоже занимает место (спека трюма §9.1, осн. §5.3.2):
-    // во время добычи шкала растёт вместе с буфером, а не стоит на нуле.
-    const total = typeof s.total === 'number' && isFinite(s.total) ? s.total : 0;
-    let used = (typeof s.used === 'number' && isFinite(s.used) ? s.used : 0)
-        + (typeof s.mined === 'number' && isFinite(s.mined) ? s.mined : 0);
+    const ironEl = $('hud-mined-iron');
+    if (ironEl) ironEl.textContent = 'Железо Fe: ' + cargoNum(minedIron) + ' т';
+    const iceEl = $('hud-mined-ice');
+    if (iceEl) {
+        iceEl.style.display = showIce ? '' : 'none';
+        if (showIce) iceEl.textContent = 'Вода неочищенная: ' + cargoNum(minedIce) + ' т';
+    }
+
+    // Шкала трюма = ЗАНЯТОЕ место: груз в трюме + ОБА буфера захода, не более
+    // total (масса общая, §15.1/§15.2). Буферы тоже занимают место.
+    const total = num(s.total);
+    let used = num(s.used) + minedIron + minedIce;
     if (used > total) used = total;
-    // «Полон» — согласовано со шкалой: занятое место достигло total
-    // (совпадает с серверным full = «свободно − буфер ≤ 0», осн. §5.3.2).
     const full = total > 0 && used >= total - 1e-9;
 
     const fill = $('cargo-fill');
@@ -101,6 +123,24 @@ export function updateHUD(s) {
 
     setChip($('hud-reserve'), RESERVE[s.remainingLevel] || RESERVE_NODATA);
     setChip($('hud-belt-class'), BELT_CLASS[s.beltClass] || CLASS_NODATA);
+
+    // Ледяные чипы: строка скрыта целиком, если льда нет (§15.3). Внутри —
+    // «нет данных» для льда НЕ показываем (двусмысленно, §15.3): чип без
+    // данных просто не рисуется.
+    const iceChips = $('hud-chips-ice');
+    if (iceChips) iceChips.style.display = s.iceAvailable ? '' : 'none';
+    const resIce = $('hud-reserve-ice');
+    if (resIce) {
+        const info = RESERVE_ICE[s.remainingLevelIce];
+        resIce.style.display = info ? '' : 'none';
+        if (info) setChip(resIce, info);
+    }
+    const clsIce = $('hud-ice-class');
+    if (clsIce) {
+        const info = ICE_CLASS[s.iceClass];
+        clsIce.style.display = info ? '' : 'none';
+        if (info) setChip(clsIce, info);
+    }
 }
 
 // ==================== ПОДСКАЗКА У ЦЕЛИ (§4.4) ====================

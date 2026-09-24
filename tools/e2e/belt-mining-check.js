@@ -4,6 +4,9 @@
 // управление «два стика» (доворот носа к курсору, стрейф, плавная тяга),
 // бурение по наведению носа, Space = ЛКМ, ПКМ подавлена, бесконечный вдоль
 // кольца пояс (стриминг/кап) и рассеивание поперёк за край.
+// Дельта второго ресурса (спека 2026-09-24 §12.2 п.16–22): тип жилы от состава
+// (F2), доля ледяных, ресурс по цели, два буфера + общая шкала трюма, фолбэк
+// resource_ice=null, разметка HUD двух ресурсов.
 //
 // Механика проверяется на реальных модулях сцены (import из served /static),
 // без серверного состояния: детерминированный BeltWorld + ввод. Если заданы
@@ -232,6 +235,160 @@ async function mechanics(page) {
       const mouseChips = (html.match(/data-key="mouse"/g) || []).length;
       rec('19 legend-chips', none && lmbOnly && mouseOnly && fwdOnly && lmbChip && mouseChips === 1,
         `none=${none} lmbOnly=${lmbOnly} mouseOnly=${mouseOnly} fwdOnly=${fwdOnly} lmbChip=${lmbChip} mouseChips=${mouseChips}`);
+    }
+
+    // ==================== ДЕЛЬТА ВТОРОГО РЕСУРСА (лёд, спека 2026-09-24 §12.2 п.16–22) ====================
+    // Состав пояса Койпера: лёд 0.50 / железо 0.04 → P(лёд) = 0.50/0.54 ≈ 0.93.
+    const ICE_OPTS = { ice: 0.50, iron: 0.04, iceAvailable: true };
+    const genVeins = (w, cells) => {
+      const out = [];
+      for (let cx = 0; cx < cells; cx++) for (let cy = -2; cy <= 2; cy++) out.push(...w._genVeins(cx, cy));
+      return out;
+    };
+    // DOM-заглушка HUD (страница /health своих элементов belt.html не имеет).
+    const mkHud = () => {
+      const wrap = document.createElement('div');
+      wrap.innerHTML = `
+        <div class="hud-mined"><div id="hud-mined-iron"></div><div id="hud-mined-ice"></div></div>
+        <div id="cargo-fill"></div><span id="cargo-text"></span><span id="cargo-full-badge"></span>
+        <div id="hud-chips-ice"><span id="hud-reserve"></span><span id="hud-belt-class"></span>
+        <span id="hud-reserve-ice"></span><span id="hud-ice-class"></span></div>`;
+      document.body.appendChild(wrap);
+      return wrap;
+    };
+    const $ = (id) => document.getElementById(id);
+
+    // 16. Ледяные жилы есть и отличимы: при доступном льде есть res='ice';
+    // ICE_SPRITES экспортируется; без льда — только железные (старое поведение).
+    {
+      const ice = genVeins(new W.BeltWorld(301, ICE_OPTS), 40);
+      const iceN = ice.filter((v) => v.res === 'ice').length;
+      const ironN = ice.filter((v) => v.res === 'iron').length;
+      const noIce = genVeins(new W.BeltWorld(301), 40);
+      const noIceN = noIce.filter((v) => v.res === 'ice').length;
+      const allIron = noIce.every((v) => v.res === 'iron');
+      rec('ice-16 vein-type', iceN > 0 && ironN > 0 && noIceN === 0 && allIron && Array.isArray(C.ICE_SPRITES),
+        `ice=${iceN} iron=${ironN} noIceBelt=${noIceN} ICE_SPRITES=${C.ICE_SPRITES.length}`);
+    }
+
+    // 16b. Рендер ледяной и железной жилы не падает; лёд идёт через холодный
+    // тинт (плейсхолдер 4b). Спрайты прогреваются — тинт-путь реально исполняется.
+    {
+      const R = await import('/static/js/belt/belt_render.js');
+      await R.preloadSprites();
+      const cv = document.createElement('canvas'); cv.width = 200; cv.height = 200;
+      const ctx = cv.getContext('2d');
+      const w = new W.BeltWorld(305, ICE_OPTS);
+      const mkVein = (res, x) => ({ x, y: 0, vx: 0, vy: 0, r: 40, rot: 0, rotSpeed: 0, vein: true, res, sprite: 0, veinPattern: 0, veinRot: 0, veinScale: 1, veinRich: 1, shape: [1, 1, 1, 1, 1, 1, 1, 1], glints: [{ x: 0, y: 0, r: 2 }], drill: 0 });
+      w.asteroids.length = 0;
+      w.asteroids.push(mkVein('ice', 0), mkVein('iron', 100));
+      let threw = '';
+      try {
+        R.drawScene(ctx, w, { x: 0, y: 0 }, 200, 200, {
+          drilling: false, target: null, depleted: false, depletedRes: { iron: false, ice: false },
+          shipSprite: null, shipOrient: { angle: 0, flip: false }, offBelt: false, now: 1000, lightX: -0.55, lightY: -0.55,
+        });
+      } catch (e) { threw = e.message; }
+      rec('ice-16b render-no-throw', threw === '', threw || 'ok');
+    }
+
+    // 17. Доля ледяных жил ≈ ice/(ice+iron) (устойчивое окно).
+    {
+      const w = new W.BeltWorld(302, ICE_OPTS);
+      const veins = genVeins(w, 200);
+      const iceN = veins.filter((v) => v.res === 'ice').length;
+      const share = veins.length ? iceN / veins.length : 0;
+      const expected = 0.50 / 0.54;
+      rec('ice-17 ice-share', veins.length > 50 && Math.abs(share - expected) < 0.06,
+        `share=${share.toFixed(3)} expected=${expected.toFixed(3)} n=${veins.length}`);
+    }
+
+    // 18. Ресурс по цели: нос на ледяной жиле → target.res='ice'; на железной →
+    // 'iron'; жила выработанного ресурса целью не берётся (гашение, §8.1).
+    {
+      const w = new W.BeltWorld(303, ICE_OPTS);
+      const mkVein = (res) => ({ x: 500, y: 0, vx: 0, vy: 0, r: 50, rot: 0, rotSpeed: 0, vein: true, res, shape: [1, 1, 1, 1, 1, 1, 1, 1], glints: [], drill: 0 });
+      const iv = mkVein('ice');
+      const fv = mkVein('iron');
+      w.ship.x = 500 - 70; w.ship.y = 0; w.ship.heading = 0; w.ship.angVel = 0;
+      w.asteroids.length = 0; w.asteroids.push(iv);
+      const aimedIce = w.aimedVein();
+      w.asteroids.length = 0; w.asteroids.push(fv);
+      const aimedIron = w.aimedVein();
+      w.asteroids.length = 0; w.asteroids.push(iv);
+      w.depletedRes = { iron: false, ice: true };
+      const aimedDepleted = w.aimedVein();
+      rec('ice-18 target-resource', !!aimedIce && aimedIce.res === 'ice' && !!aimedIron && aimedIron.res === 'iron' && !aimedDepleted,
+        `ice=${!!aimedIce} iron=${!!aimedIron} depleted=${!!aimedDepleted}`);
+    }
+
+    // 18b. Контракт сети: collect(amount, resource) шлёт {amount, resource}
+    // (ресурс называет клиент, спека 2026-09-24 §2.4 R1).
+    {
+      const N = await import('/static/js/belt/belt_net.js');
+      const orig = window.fetch;
+      let cap = null;
+      window.fetch = (url, opts) => {
+        cap = { url, body: JSON.parse(opts.body) };
+        return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve('{}') });
+      };
+      await N.collect(3.5, 'ice');
+      window.fetch = orig;
+      rec('ice-18b collect-resource', !!cap && cap.body.amount === 3.5 && cap.body.resource === 'ice',
+        JSON.stringify(cap && cap.body));
+    }
+
+    // 19. Два буфера в HUD: оба значения видны, чипы льда видны, шкала трюма —
+    // от СУММЫ (груз + железо + вода).
+    {
+      const wrap = mkHud();
+      U.updateHUD({ mined: { iron: 12, ice: 5 }, used: 20, total: 100, remainingLevel: 'полный', remainingLevelIce: 'истощается', beltClass: 'бедный', iceClass: 'богатый', iceAvailable: true });
+      const ironTxt = $('hud-mined-iron').textContent;
+      const iceVis = $('hud-mined-ice').style.display !== 'none';
+      const iceTxt = $('hud-mined-ice').textContent;
+      const cargoTxt = $('cargo-text').textContent;
+      const chipsVis = $('hud-chips-ice').style.display !== 'none';
+      const resIce = $('hud-reserve-ice').textContent;
+      const clsIce = $('hud-ice-class').textContent;
+      rec('ice-19 two-buffers-hud',
+        ironTxt.indexOf('12') >= 0 && iceVis && iceTxt.indexOf('5') >= 0 && iceTxt.indexOf('Вода неочищенная') >= 0
+        && cargoTxt.indexOf('37') >= 0 && chipsVis && resIce.indexOf('льда') >= 0 && clsIce.indexOf('Лёд') >= 0,
+        `iron="${ironTxt}" ice="${iceTxt}" cargo="${cargoTxt}" iceRes="${resIce}" iceCls="${clsIce}"`);
+      wrap.remove();
+    }
+
+    // 20. Фолбэк resource_ice=null: ледяной UI скрыт (буфер+чипы), железо = v1;
+    // мир — только железные жилы.
+    {
+      const wrap = mkHud();
+      U.updateHUD({ mined: { iron: 7, ice: 0 }, used: 0, total: 100, remainingLevel: 'полный', remainingLevelIce: '', beltClass: 'средний', iceClass: '', iceAvailable: false });
+      const iceHidden = $('hud-mined-ice').style.display === 'none';
+      const chipsHidden = $('hud-chips-ice').style.display === 'none';
+      const ironTxt = $('hud-mined-iron').textContent;
+      const allIron = genVeins(new W.BeltWorld(304), 40).every((v) => v.res === 'iron');
+      rec('ice-20 fallback', iceHidden && chipsHidden && ironTxt.indexOf('7') >= 0 && allIron,
+        `iceRowHidden=${iceHidden} chipsHidden=${chipsHidden} iron="${ironTxt}" allIron=${allIron}`);
+      wrap.remove();
+    }
+
+    // 21. Общий трюм: занято = груз + оба буфера; при сумме ≥ total — «Полон».
+    {
+      const wrap = mkHud();
+      U.updateHUD({ mined: { iron: 30, ice: 30 }, used: 40, total: 100, remainingLevel: 'полный', remainingLevelIce: 'полный', beltClass: 'богатый', iceClass: 'богатый', iceAvailable: true });
+      const badge = $('cargo-full-badge').style.display;
+      const txt = $('cargo-text').textContent;
+      const fill = $('cargo-fill').style.width;
+      rec('ice-21 common-cargo-full', badge !== 'none' && txt.indexOf('100') >= 0 && fill === '100%',
+        `badge="${badge}" cargo="${txt}" fill="${fill}"`);
+      wrap.remove();
+    }
+
+    // 22. Разметка belt.html несёт ледяные элементы (контракт HUD-§15.8).
+    {
+      const html = await (await fetch('/belt.html')).text();
+      const need = ['hud-mined-iron', 'hud-mined-ice', 'hud-reserve-ice', 'hud-ice-class', 'hud-chips-ice'];
+      const missing = need.filter((id) => html.indexOf('id="' + id + '"') < 0);
+      rec('ice-22 belt-html-ids', missing.length === 0, missing.length ? 'missing=' + missing.join(',') : 'all present');
     }
 
     return out;

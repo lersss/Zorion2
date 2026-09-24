@@ -137,3 +137,38 @@ func TestBeltKnowledgeGate(t *testing.T) {
 	assert.Equal(t, "богатый", out3[0].BeltClass)
 	assert.Equal(t, "истощается", out3[0].RemainingLevel)
 }
+
+// M34: без знания BeltView не отдаёт ice_class/remaining_level_ice; при знании —
+// отдаёт оба (тот же гейт, что composition/belt_class/remaining_level).
+func TestBeltKnowledgeGateIce(t *testing.T) {
+	ironRem := 300.0
+	iceRem := 20000.0
+	b := models.Belt{
+		ID: "b1", Visible: true,
+		Composition:   map[string]float64{"rock":0.2, "iron":0.3, "ice":0.5},
+		IronRemaining: &ironRem,
+		IceRemaining:  &iceRem,
+	}
+
+	// Без знания — поля льда не отдаются.
+	out := applyBeltVisibility([]models.Belt{b}, false, nil)
+	require.Len(t, out, 1)
+	assert.Empty(t, out[0].IceClass)
+	assert.Empty(t, out[0].RemainingLevelIce)
+
+	// Знание по радару — обе шкалы льда есть.
+	out2 := applyBeltVisibility([]models.Belt{b}, true, nil)
+	require.Len(t, out2, 1)
+	assert.Equal(t, "богатый", out2[0].IceClass, "k_ice = 1")
+	assert.Equal(t, "полный", out2[0].RemainingLevelIce)
+	// Железные шкалы сохранены (имя/смысл не изменены).
+	assert.Equal(t, "богатый", out2[0].BeltClass)
+	assert.Equal(t, "истощается", out2[0].RemainingLevel)
+
+	// Присутствие во время захода — тоже знание.
+	pos := &models.CurrentPosition{Status: "mining", ObjectType: "belt", ObjectID: "b1", Level: "mining"}
+	out3 := applyBeltVisibility([]models.Belt{b}, false, pos)
+	require.Len(t, out3, 1)
+	assert.Equal(t, "богатый", out3[0].IceClass)
+	assert.Equal(t, "полный", out3[0].RemainingLevelIce)
+}

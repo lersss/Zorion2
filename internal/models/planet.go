@@ -151,6 +151,13 @@ type Belt struct {
 	// BeltView несёт только качественный remaining_level; admin видит значение.
 	IronRemaining *float64 `json:"iron_remaining,omitempty"`
 
+	// IceRemaining — запас льда пояса, т (спека 2026-09-24 §4/§5.7): второй
+	// ресурс, по образцу IronRemaining. nil = «нет данных о льде» ИЛИ «льда в
+	// поясе нет» (различие только через Composition["ice"]); 0 = «выработан»;
+	// > 0 = запас. Игроку напрямую не отдаётся — BeltView несёт качественный
+	// remaining_level_ice.
+	IceRemaining *float64 `json:"ice_remaining,omitempty"`
+
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -179,6 +186,11 @@ type BeltView struct {
 	// (тот же гейт, что composition); без знания не отдаются (omitempty).
 	BeltClass      string `json:"belt_class,omitempty"`
 	RemainingLevel string `json:"remaining_level,omitempty"`
+	// IceClass — класс пояса по льду (k_ice, спека 2026-09-24 §5.7);
+	// RemainingLevelIce — уровень остатка запаса льда. Оба — под тем же гейтом
+	// знания, что composition/BeltClass/RemainingLevel.
+	IceClass          string `json:"ice_class,omitempty"`
+	RemainingLevelIce string `json:"remaining_level_ice,omitempty"`
 }
 
 // Biome — биом поверхности планеты (99.2.28 §3.1): объект {form, share},

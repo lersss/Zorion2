@@ -54,12 +54,12 @@ func expectModesWorld(mock sqlmock.Sqlmock, worldID string) {
 
 // expectModesBelts — пустая выборка поясов мира (аддитивная секция).
 func expectModesBelts(mock sqlmock.Sqlmock, worldID string) {
-	mock.ExpectQuery(`SELECT id, world_id, kind, name, orbit_index, radius_au, width_au, mass,\s+body_size_km, composition, visible, data, iron_remaining, created_at, updated_at\s+FROM system_belts\s+WHERE world_id = \$1\s+ORDER BY radius_au ASC`).
+	mock.ExpectQuery(`SELECT id, world_id, kind, name, orbit_index, radius_au, width_au, mass,\s+body_size_km, composition, visible, data, iron_remaining, ice_remaining, created_at, updated_at\s+FROM system_belts\s+WHERE world_id = \$1\s+ORDER BY radius_au ASC`).
 		WithArgs(worldID).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "world_id", "kind", "name", "orbit_index", "radius_au", "width_au",
 			"mass", "body_size_km", "composition", "visible", "data", "iron_remaining",
-			"created_at", "updated_at",
+			"ice_remaining", "created_at", "updated_at",
 		}))
 }
 

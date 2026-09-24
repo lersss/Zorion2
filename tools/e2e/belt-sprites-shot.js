@@ -55,18 +55,25 @@ async function main() {
       const w = window.__beltWorld;
       if (!w) return null;
       const ok = (name) => !!R.getSprite(name);
-      let rockOk = 0, rockFallback = 0, debrisOk = 0, debrisFallback = 0, veinOk = 0, veinFallback = 0;
+      let rockOk = 0, rockFallback = 0, debrisOk = 0, debrisFallback = 0, veinOk = 0, veinFallback = 0, iceOk = 0;
       for (const a of w.asteroids) {
-        if (ok(C.ROCK_SPRITES[a.sprite])) rockOk++; else rockFallback++;
-        if (ok(C.VEIN_SPRITES[a.veinPattern])) veinOk++; else veinFallback++;
+        const rockName = (a.res === 'ice' && C.ICE_SPRITES.length)
+          ? C.ICE_SPRITES[a.sprite % C.ICE_SPRITES.length] : C.ROCK_SPRITES[a.sprite];
+        if (ok(rockName)) rockOk++; else rockFallback++;
+        if (a.res === 'ice') iceOk++;
+        const veinName = (a.res === 'ice' && C.ICE_VEIN_SPRITES.length)
+          ? C.ICE_VEIN_SPRITES[a.veinPattern % C.ICE_VEIN_SPRITES.length] : C.VEIN_SPRITES[a.veinPattern];
+        if (ok(veinName)) veinOk++; else veinFallback++;
       }
       for (const d of w.debris) {
-        if (ok(C.DEBRIS_SPRITES[d.sprite])) debrisOk++; else debrisFallback++;
+        const dName = (d.res === 'ice' && C.ICE_DEBRIS_SPRITES.length)
+          ? C.ICE_DEBRIS_SPRITES[d.sprite % C.ICE_DEBRIS_SPRITES.length] : C.DEBRIS_SPRITES[d.sprite];
+        if (ok(dName)) debrisOk++; else debrisFallback++;
       }
-      return { rockOk, rockFallback, debrisOk, debrisFallback, veinOk, veinFallback };
+      return { rockOk, rockFallback, debrisOk, debrisFallback, veinOk, veinFallback, iceOk };
     });
     if (s) {
-      console.log(`[stats ${label}] rock sprite=${s.rockOk} fallback=${s.rockFallback}`
+      console.log(`[stats ${label}] rock sprite=${s.rockOk} fallback=${s.rockFallback} (ice=${s.iceOk})`
         + ` | debris sprite=${s.debrisOk} fallback=${s.debrisFallback}`
         + ` | vein sprite=${s.veinOk} fallback=${s.veinFallback}`);
     }

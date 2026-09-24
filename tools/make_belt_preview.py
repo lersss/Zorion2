@@ -13,6 +13,32 @@ BG = (5, 7, 15)          # COLORS.bg сцены пояса
 GLINT = (253, 230, 138)  # COLORS.glint
 GOLD = (251, 191, 36)
 
+# Ледяная пачка (§10). Драфты — ai_drafts/belt_asteroids/ice, финал — web/static/sprites/belt.
+ICE_ROOT = os.path.join(ROOT, 'ice')
+ICE_SPR_DRAFT = os.path.join(ICE_ROOT, 'sprites')
+ICE_WEB = r'C:\Zorion2\web\static\sprites\belt'
+ICE_VEIN = os.path.join(ICE_ROOT, 'veins')
+ICE_GLINT = (154, 230, 255)  # COLORS.iceGlint
+
+
+def ice_spr(name):
+    """Файл ледяного спрайта: драфт, иначе финал в web (отдают одно и то же)."""
+    for base in (ICE_SPR_DRAFT, ICE_WEB):
+        p = os.path.join(base, name + '.png')
+        if os.path.exists(p):
+            return p
+    return os.path.join(ICE_WEB, name + '.png')
+
+
+ICE_ROCKS = [(str(i * 2 + 1), 'ice_%02da' % (i + 1), 'плотный') for i in range(8)]
+ICE_ROCKS += [(str(i * 2 + 2), 'ice_%02db' % (i + 1), 'сколотый') for i in range(8)]
+ICE_FORM_NOTE = {1: 'друза из глыб', 2: 'угловатая плита', 3: 'вытянутый осколок V',
+                 4: 'мелкогранёный кристалл', 5: 'сплюснутая друза', 6: 'сросток-кливаж',
+                 7: 'угловатый многогранник', 8: 'плита с расколом'}
+ICE_DEBRIS = [('ID1', 'ice_debris_01'), ('ID2', 'ice_debris_02'), ('ID3', 'ice_debris_03')]
+ICE_VEINS = [('IV1', 'ice_vein_frost', 'иней'), ('IV2', 'ice_vein_shard', 'друза'),
+             ('IV3', 'ice_vein_seam', 'шов'), ('IV4', 'ice_vein_speck', 'вкрапления')]
+
 ROCKS = [(str(i * 2 + 1), 'rock_%02da' % (i + 1), 'пыльная') for i in range(8)]
 ROCKS += [(str(i * 2 + 2), 'rock_%02db' % (i + 1), 'трещиноватая') for i in range(8)]
 ROCKS.sort(key=lambda x: int(x[0]))
@@ -32,12 +58,12 @@ def font(size):
     return ImageFont.load_default()
 
 
-def tinted_vein(rock, vein_path, alpha=0.9):
+def tinted_vein(rock, vein_path, alpha=0.9, tint=GLINT):
     """Руда (тинт glint) поверх камня, ОБРЕЗАННАЯ по альфе камня — как в игре."""
     rock = rock.convert('RGBA')
     v = Image.open(vein_path).convert('RGBA').resize(rock.size, Image.LANCZOS)
     clip = ImageChops.multiply(v.split()[3], rock.split()[3])
-    colored = Image.new('RGBA', rock.size, GLINT + (0,))
+    colored = Image.new('RGBA', rock.size, tint + (0,))
     colored.putalpha(clip.point(lambda x: int(x * alpha)))
     out = rock.copy()
     out.alpha_composite(colored)
@@ -176,7 +202,166 @@ def build_html():
     print('Saved:', path)
 
 
+# --- ледяная пачка (§10.3, §10.7) ------------------------------------------------------
+
+def _tile(path, size, bg=BG):
+    im = Image.open(path).convert('RGBA').resize((size, size), Image.LANCZOS)
+    t = Image.new('RGB', (size, size), bg)
+    t.paste(im, (0, 0), im)
+    return t
+
+
+def build_ice_tint_demos():
+    os.makedirs(os.path.join(ICE_ROOT, 'veins_demo'), exist_ok=True)
+    base = Image.open(ice_spr('ice_01a'))
+    out = []
+    for _n, name, _v in ICE_VEINS:
+        p = os.path.join(ICE_ROOT, 'veins_demo', 'ice_01a_%s.png' % name)
+        tinted_vein(base, os.path.join(ICE_VEIN, name + '.png'), tint=ICE_GLINT).save(p)
+        out.append(p)
+    print('ice vein demos:', len(out))
+
+
+def build_ice_compare():
+    """Сравнительная полоса «камень | лёд» в игровом размере (48/64/128 px)."""
+    pairs = [('rock_01a', 'ice_01a'), ('rock_06b', 'ice_06b'),
+             ('rock_03a', 'ice_03a'), ('rock_08b', 'ice_08b')]
+    f = font(16)
+    for sz in (128, 64, 48):
+        gap = 12
+        W = gap + len(pairs) * (2 * sz + gap)
+        H = sz + 22
+        canvas = Image.new('RGB', (W, H), BG)
+        d = ImageDraw.Draw(canvas)
+        x = gap
+        for rn, inn in pairs:
+            canvas.paste(_tile(os.path.join(SPR, rn + '.png'), sz), (x, 20))
+            canvas.paste(_tile(ice_spr(inn), sz), (x + sz + 2, 20))
+            x += 2 * sz + gap + 2
+        d.text((gap, 3), 'камень | лёд — %d px' % sz, fill=GOLD, font=f)
+        canvas.save(os.path.join(ICE_ROOT, 'compare_%d.png' % sz))
+    print('ice compare: 3 strips')
+
+
+def build_ice_grid():
+    cell, label_h = 300, 30
+    W = cell * 4
+    H = 4 * (cell + label_h) + (64 * 3 + label_h) + (cell + label_h) + (cell + label_h)
+    canvas = Image.new('RGB', (W, H), BG)
+    d = ImageDraw.Draw(canvas)
+    f = font(24)
+
+    for i, (num, name, _v) in enumerate(ICE_ROCKS):
+        spr = Image.open(ice_spr(name)).convert('RGBA')
+        x = (i % 4) * cell + (cell - 256) // 2
+        y = (i // 4) * (cell + label_h) + label_h
+        canvas.paste(spr, (x, y), spr)
+        d.text(((i % 4) * cell + 12, (i // 4) * (cell + label_h) + 4), num, fill=GOLD, font=f)
+
+    y0 = 4 * (cell + label_h)
+    for i, (num, name) in enumerate(ICE_DEBRIS):
+        spr = Image.open(ice_spr(name)).convert('RGBA').resize((64 * 3, 64 * 3), Image.NEAREST)
+        x = i * (64 * 3 + label_h) + 20
+        canvas.paste(spr, (x, y0 + label_h), spr)
+        d.text((x, y0 + 2), '%s (x3)' % num, fill=GOLD, font=f)
+
+    y0 += 64 * 3 + label_h
+    base_ice = Image.open(ice_spr('ice_01a'))
+    for i, (num, name, _vn) in enumerate(ICE_VEINS):
+        x = i * cell + (cell - 256) // 2
+        demo = tinted_vein(base_ice, os.path.join(ICE_VEIN, name + '.png'),
+                           tint=ICE_GLINT).convert('RGBA')
+        tile = Image.new('RGBA', (256, 256), BG + (255,))
+        tile.alpha_composite(demo)
+        canvas.paste(tile.convert('RGB'), (x, y0 + label_h))
+        d.text((i * cell + 12, y0 + 4), num, fill=GOLD, font=f)
+
+    y0 += cell + label_h
+    yy = y0 + label_h
+    for sz in (128, 64):
+        im = Image.open(os.path.join(ICE_ROOT, 'compare_%d.png' % sz)).convert('RGB')
+        canvas.paste(im, (12, yy))
+        yy += im.height + 6
+
+    path = os.path.join(ICE_ROOT, 'preview_grid.png')
+    canvas.save(path)
+    print('Saved:', path)
+
+
+ICE_CSS = """<!DOCTYPE html><html><head><meta charset='utf-8'>
+<title>Zorion — ледяные астероиды пояса (второй ресурс)</title>
+<style>
+ body{background:#080b14;color:#cbd5e1;font-family:Segoe UI,sans-serif;padding:24px}
+ h1{color:#7dd3fc;margin:0 0 6px} h2{color:#a5b4fc;margin:30px 0 10px}
+ .legend{color:#94a3b8;font-size:13px;max-width:1150px;line-height:1.5}
+ .grid{display:flex;gap:12px;flex-wrap:wrap;margin-top:10px}
+ .card{position:relative;background:#0a0e17;border:1px solid #24344d;border-radius:10px;padding:8px;text-align:center}
+ .card img{width:190px;height:190px;display:block}
+ .card.sm img{width:120px;height:120px}
+ .card.sm .veintile{width:120px;height:120px}
+ .num{position:absolute;top:3px;left:9px;color:#fbbf24;font-weight:700;font-size:14px}
+ .nm{color:#cbd5e1;font-size:12px;margin-top:5px}
+ .var{color:#64748b;font-size:11px}
+ .veintile{background:#0a0e17;border:1px dashed #334155;border-radius:8px}
+ .veintile img{width:100%;height:100%}
+ .cmp{display:flex;align-items:center;gap:18px;background:#0a0e17;border:1px solid #24344d;
+      border-radius:10px;padding:12px;margin-top:10px}
+ .cmp img{background:#05070f;border-radius:6px}
+</style></head><body>
+"""
+
+
+def build_ice_html():
+    cards = ''.join(
+        "<div class='card'><div class='num'>%s</div><img src='sprites/%s.png'>"
+        "<div class='nm'>%s</div><div class='var'>%s</div></div>" % (n, s, s, v)
+        for n, s, v in ICE_ROCKS)
+    form_cards = ''.join(
+        "<div class='card sm'><div class='num'>F%d</div><img src='silhouettes/ice_%02d.png'>"
+        "<div class='nm'>%s</div></div>" % (i + 1, i + 1, ICE_FORM_NOTE[i + 1])
+        for i in range(8))
+    deb_cards = ''.join(
+        "<div class='card sm'><div class='num'>%s</div><img src='sprites/%s.png'>"
+        "<div class='nm'>%s</div></div>" % (n, s, n) for n, s in ICE_DEBRIS)
+    vein_cards = ''.join(
+        "<div class='card sm'><div class='num'>%s</div><div class='veintile'>"
+        "<img src='veins/%s.png'></div><div class='nm'>%s</div></div>" % (n, s, v)
+        for n, s, v in ICE_VEINS)
+    vein_tint = ''.join(
+        "<div class='card sm'><div class='num'>%s</div>"
+        "<img src='veins_demo/ice_01a_%s.png'><div class='nm'>%s + iceGlint</div></div>"
+        % (n, s, v) for n, s, v in ICE_VEINS)
+    compare = ''.join(
+        "<div class='cmp'><img src='compare_%d.png'></div>" % sz for sz in (128, 64, 48))
+
+    body = (
+        "<h1>Ледяные астероиды пояса — пачка 4c (8 форм &times; 2 варианта + 3 обломка + 4 паттерна льда)</h1>"
+        "<div class='legend'>Вариант <b>a</b> — плотный лёд (ровнее, светлее), <b>b</b> — сколотый "
+        "(трещины/сколы). Паттерн блеска льда — grayscale-альфа, белый = руда; тинт и свечение "
+        "задаёт код (<code>iceGlint #9ae6ff</code>). Все камни 256&times;256, обломки 64&times;64, "
+        "RGBA, прозрачный фон, без поворота. <b>Отбор:</b> присылайте номера 1&ndash;16 "
+        "(камни), ID1&ndash;ID3 (обломки), IV1&ndash;IV4 (блеск) — оставить / выкинуть / повернуть."
+        "</div>"
+        "<h2>16 ледяных камней (1–16)</h2><div class='grid'>" + cards + "</div>"
+        "<h2>Сравнение «камень | лёд» в игровом размере</h2>" + compare +
+        "<h2>Формы-силуэты (F1–F8)</h2><div class='grid'>" + form_cards + "</div>"
+        "<h2>Мелкие ледяные обломки (ID1–ID3, 64&times;64)</h2><div class='grid'>" + deb_cards + "</div>"
+        "<h2>Ледяной блеск руды — 4 паттерна (IV1–IV4)</h2><div class='grid'>" + vein_cards + "</div>"
+        "<h2>Блеск на льду (тинт iceGlint, обрезан по камню)</h2><div class='grid'>" + vein_tint + "</div>"
+        "</body></html>"
+    )
+    path = os.path.join(ICE_ROOT, 'preview.html')
+    with open(path, 'w', encoding='utf-8') as fh:
+        fh.write(ICE_CSS + body)
+    print('Saved:', path)
+
+
 if __name__ == '__main__':
     build_vein_demos()
     build_grid()
     build_html()
+    if os.path.exists(os.path.join(ICE_ROOT, 'sprites')):
+        build_ice_tint_demos()
+        build_ice_compare()
+        build_ice_grid()
+        build_ice_html()

@@ -37,9 +37,13 @@ export function enter(beltId) {
     return post('/api/belt/mine/enter', { belt_id: beltId });
 }
 
-// collect — событие сбора: amount — сколько клиент «набрал» за интервал (§5.3).
-export function collect(amount) {
-    return post('/api/belt/mine/collect', { amount });
+// collect — событие сбора: amount — сколько клиент «набрал» за интервал (§5.3);
+// resource — какой ресурс бурят: 'iron' | 'ice' (спека 2026-09-24 §2.4 R1).
+// Ресурс называет клиент; опущенный resource сервер читает как железо (v1).
+export function collect(amount, resource) {
+    const body = { amount };
+    if (resource) body.resource = resource;
+    return post('/api/belt/mine/collect', body);
 }
 
 // leave — «вернуться на карту»: буфер захода в трюм, позиция → orbit/belt.

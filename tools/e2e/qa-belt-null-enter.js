@@ -97,7 +97,7 @@ async function main() {
       scene = await page.evaluate(() => {
         const hud = document.getElementById('hud');
         const err = document.getElementById('error');
-        const minedEl = document.getElementById('hud-mined');
+        const minedEl = document.getElementById('hud-mined-iron');
         return {
           hud: !!hud && hud.style.display !== 'none',
           errorShown: !!err && getComputedStyle(err).display !== 'none',
@@ -137,13 +137,25 @@ async function main() {
       await page.mouse.down({ button: 'left' });
       await page.waitForTimeout(4200);
       const minedAfter = await page.evaluate(() => {
-        const el = document.getElementById('hud-mined');
-        return { text: el ? el.textContent.trim() : null, hint: (document.getElementById('hud-hint') || {}).textContent || '' };
+        // Два буфера (железо + вода, дельта §15.2): суммируем «добыто за заход»
+        // по обоим, иначе буря ледяную жилу дал бы ложный 0 по железу.
+        const els = ['hud-mined-iron', 'hud-mined-ice']
+          .map((id) => document.getElementById(id))
+          .filter(Boolean);
+        let tons = 0;
+        for (const el of els) {
+          const mm = el.textContent.replace(',', '.').match(/([0-9.]+)/);
+          if (mm) tons += Number(mm[1]);
+        }
+        return {
+          text: els.map((el) => el.textContent.trim()).join(' | '),
+          hint: (document.getElementById('hud-hint') || {}).textContent || '',
+          tons,
+        };
       });
       await page.mouse.up({ button: 'left' });
       await page.waitForTimeout(300);
-      const m = (minedAfter.text || '').replace(',', '.').match(/([0-9.]+)/);
-      mine = { placed, text: minedAfter.text, hint: minedAfter.hint, tons: m ? Number(m[1]) : 0 };
+      mine = { placed, text: minedAfter.text, hint: minedAfter.hint, tons: minedAfter.tons };
     }
     report('C1 live-mining-grows',
       !!mine && mine.tons > 0,

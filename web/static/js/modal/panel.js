@@ -224,6 +224,24 @@ function reserveLine(level) {
     return `<div style="color:#94a3b8; font-size:0.8rem;">Запас железа: ${escapeHtml(level)}</div>`;
 }
 
+// iceClassChip — чип класса пояса по льду (дельта UI-спеки §15.7): «Лёд: …» из
+// ice_class. Поле приходит под тем же гейтом знания, что железное; НЕТ поля —
+// не показываем вовсе (молчание, О10: «нет данных» намекало бы на лёд).
+function iceClassChip(iceClass) {
+    if (!iceClass) return '';
+    const colors = { 'богатый': '#4ade80', 'средний': '#facc15', 'бедный': '#f97316' };
+    const color = colors[iceClass] || '#64748b';
+    return `<span style="border:1px solid ${color}; color:${color}; background:rgba(15,23,42,0.72); border-radius:10px; padding:1px 8px; font-size:0.72rem;">Лёд: ${escapeHtml(iceClass)}</span>`;
+}
+
+// reserveIceLine — уровень запаса льда в строке пояса (§15.7): виден при знании
+// и наличии поля; иначе не показывается (молчание, §15.3/О10).
+function reserveIceLine(level) {
+    if (!level) return '';
+    if (level === 'выработан') return '<div style="color:#ef4444; font-size:0.8rem;">Запас льда: выработан</div>';
+    return `<div style="color:#94a3b8; font-size:0.8rem;">Запас льда: ${escapeHtml(level)}</div>`;
+}
+
 // beltRow — строка пояса в объединённой таблице «Объекты» (решение создателя
 // 2026-09-22; спека поясов этап 2 §7.1): тип, имя, радиус/протяжённость,
 // типичное тело, масса; при знании — состав. Бейдж «● Вы в поясе»/«⛏ Добываете» —
@@ -254,7 +272,7 @@ function beltRow(b) {
                     <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
                         <div>
                             <div style="font-size:0.9rem;">${capitalize(b.name) || beltKindLabel(b.kind)}${badge}</div>
-                            <div style="color:#888; font-size:0.8rem;">${beltKindLabel(b.kind)} ${beltClassChip(b.belt_class)}</div>
+                            <div style="color:#888; font-size:0.8rem;">${beltKindLabel(b.kind)} ${beltClassChip(b.belt_class)}${iceClassChip(b.ice_class)}</div>
                         </div>
                     </div>
                     <div style="color:#94a3b8; font-size:0.8rem;">
@@ -265,6 +283,7 @@ function beltRow(b) {
                     </div>
                     ${comp}
                     ${reserveLine(b.remaining_level)}
+                    ${reserveIceLine(b.remaining_level_ice)}
                 </div>
             </td>
         </tr>

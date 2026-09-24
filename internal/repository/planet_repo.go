@@ -200,7 +200,7 @@ func (r *PlanetRepository) GetPlanetsLightByWorldID(worldID string) ([]models.Pl
 func (r *PlanetRepository) GetBeltsByWorldID(worldID string) ([]models.Belt, error) {
 	query := `
 		SELECT id, world_id, kind, name, orbit_index, radius_au, width_au, mass,
-		       body_size_km, composition, visible, data, iron_remaining, created_at, updated_at
+		       body_size_km, composition, visible, data, iron_remaining, ice_remaining, created_at, updated_at
 		FROM system_belts
 		WHERE world_id = $1
 		ORDER BY radius_au ASC
@@ -215,12 +215,12 @@ func (r *PlanetRepository) GetBeltsByWorldID(worldID string) ([]models.Belt, err
 	for rows.Next() {
 		var b models.Belt
 		var orbitIndex sql.NullInt64
-		var ironRemaining sql.NullFloat64
+		var ironRemaining, iceRemaining sql.NullFloat64
 		var compJSON, dataJSON []byte
 		if err := rows.Scan(
 			&b.ID, &b.WorldID, &b.Kind, &b.Name, &orbitIndex, &b.RadiusAU,
 			&b.WidthAU, &b.Mass, &b.BodySizeKm, &compJSON, &b.Visible, &dataJSON,
-			&ironRemaining, &b.CreatedAt, &b.UpdatedAt,
+			&ironRemaining, &iceRemaining, &b.CreatedAt, &b.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan belt: %w", err)
 		}
@@ -231,6 +231,10 @@ func (r *PlanetRepository) GetBeltsByWorldID(worldID string) ([]models.Belt, err
 		if ironRemaining.Valid {
 			v := ironRemaining.Float64
 			b.IronRemaining = &v
+		}
+		if iceRemaining.Valid {
+			v := iceRemaining.Float64
+			b.IceRemaining = &v
 		}
 		if len(compJSON) > 0 {
 			if err := json.Unmarshal(compJSON, &b.Composition); err != nil {
@@ -252,18 +256,18 @@ func (r *PlanetRepository) GetBeltsByWorldID(worldID string) ([]models.Belt, err
 func (r *PlanetRepository) GetBeltByID(beltID string) (*models.Belt, error) {
 	query := `
 		SELECT id, world_id, kind, name, orbit_index, radius_au, width_au, mass,
-		       body_size_km, composition, visible, data, iron_remaining, created_at, updated_at
+		       body_size_km, composition, visible, data, iron_remaining, ice_remaining, created_at, updated_at
 		FROM system_belts
 		WHERE id = $1
 	`
 	var b models.Belt
 	var orbitIndex sql.NullInt64
-	var ironRemaining sql.NullFloat64
+	var ironRemaining, iceRemaining sql.NullFloat64
 	var compJSON, dataJSON []byte
 	err := r.db.QueryRow(query, beltID).Scan(
 		&b.ID, &b.WorldID, &b.Kind, &b.Name, &orbitIndex, &b.RadiusAU,
 		&b.WidthAU, &b.Mass, &b.BodySizeKm, &compJSON, &b.Visible, &dataJSON,
-		&ironRemaining, &b.CreatedAt, &b.UpdatedAt,
+		&ironRemaining, &iceRemaining, &b.CreatedAt, &b.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -278,6 +282,10 @@ func (r *PlanetRepository) GetBeltByID(beltID string) (*models.Belt, error) {
 	if ironRemaining.Valid {
 		v := ironRemaining.Float64
 		b.IronRemaining = &v
+	}
+	if iceRemaining.Valid {
+		v := iceRemaining.Float64
+		b.IceRemaining = &v
 	}
 	if len(compJSON) > 0 {
 		if err := json.Unmarshal(compJSON, &b.Composition); err != nil {
@@ -297,15 +305,15 @@ func (r *PlanetRepository) GetBeltByID(beltID string) (*models.Belt, error) {
 // внутри транзакции вызывающего. Не найден — (nil, nil).
 func (r *PlanetRepository) LockBeltForUpdate(tx *sql.Tx, beltID string) (*models.Belt, error) {
 	query := `
-		SELECT id, world_id, kind, name, composition, visible, iron_remaining
+		SELECT id, world_id, kind, name, composition, visible, iron_remaining, ice_remaining
 		FROM system_belts
 		WHERE id = $1 FOR UPDATE
 	`
 	var b models.Belt
 	var compJSON []byte
-	var ironRemaining sql.NullFloat64
+	var ironRemaining, iceRemaining sql.NullFloat64
 	err := tx.QueryRow(query, beltID).Scan(
-		&b.ID, &b.WorldID, &b.Kind, &b.Name, &compJSON, &b.Visible, &ironRemaining,
+		&b.ID, &b.WorldID, &b.Kind, &b.Name, &compJSON, &b.Visible, &ironRemaining, &iceRemaining,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -316,6 +324,10 @@ func (r *PlanetRepository) LockBeltForUpdate(tx *sql.Tx, beltID string) (*models
 	if ironRemaining.Valid {
 		v := ironRemaining.Float64
 		b.IronRemaining = &v
+	}
+	if iceRemaining.Valid {
+		v := iceRemaining.Float64
+		b.IceRemaining = &v
 	}
 	if len(compJSON) > 0 {
 		if err := json.Unmarshal(compJSON, &b.Composition); err != nil {
@@ -334,6 +346,20 @@ func (r *PlanetRepository) SetBeltIronRemaining(tx *sql.Tx, beltID string, value
 	)
 	if err != nil {
 		return fmt.Errorf("failed to set belt iron_remaining: %w", err)
+	}
+	return nil
+}
+
+// SetBeltIceRemaining — запись запаса льда пояса (спека 2026-09-24 §5.7):
+// зеркало SetBeltIronRemaining, ленивая инициализация при первом обращении.
+// Внутри транзакции вызывающего.
+func (r *PlanetRepository) SetBeltIceRemaining(tx *sql.Tx, beltID string, value float64) error {
+	_, err := tx.Exec(
+		`UPDATE system_belts SET ice_remaining = $1, updated_at = NOW() WHERE id = $2`,
+		value, beltID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to set belt ice_remaining: %w", err)
 	}
 	return nil
 }

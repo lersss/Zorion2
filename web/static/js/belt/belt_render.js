@@ -23,7 +23,8 @@ export function getSprite(name) {
 // кадров подменой многоугольников. Возвращает Promise, который резолвится,
 // когда все файлы либо загружены, либо провалились (ошибка → фолбэк).
 export function preloadSprites() {
-    const names = C.ROCK_SPRITES.concat(C.DEBRIS_SPRITES, C.VEIN_SPRITES);
+    const names = C.ROCK_SPRITES.concat(C.DEBRIS_SPRITES, C.VEIN_SPRITES,
+        C.ICE_SPRITES, C.ICE_DEBRIS_SPRITES, C.ICE_VEIN_SPRITES);
     const jobs = names.map((name) => new Promise((resolve) => {
         if (spriteCache.has(name)) { resolve(); return; }
         const img = new Image();
@@ -37,13 +38,15 @@ export function preloadSprites() {
 
 // tintCache — затемнённые копии спрайтов (истощение, арт-ТЗ §4.3): тонировка
 // делается в offscreen-канвасе, где есть только спрайт, — иначе source-atop
-// заливает фон сцены и вокруг камня виден квадрат. Ключ "name|tone".
+// заливает фон сцены и вокруг камня виден квадрат. Ключ "name|color|tone".
+// color — цвет тонировки: тёмный (истощение железа) или холодный (лёд, 4b).
 const tintCache = new Map();
 
-function getTintedSprite(name, tone) {
+function getTintedSprite(name, tone, color) {
     const img = getSprite(name);
     if (!img) return null;
-    const key = name + '|' + tone.toFixed(2);
+    const tint = color || C.COLORS.asteroidDark;
+    const key = name + '|' + tint + '|' + tone.toFixed(2);
     let canvas = tintCache.get(key);
     if (canvas) return canvas;
     canvas = document.createElement('canvas');
@@ -53,7 +56,7 @@ function getTintedSprite(name, tone) {
     c.drawImage(img, 0, 0);
     c.globalCompositeOperation = 'source-atop';
     c.globalAlpha = tone;
-    c.fillStyle = C.COLORS.asteroidDark;
+    c.fillStyle = tint;
     c.fillRect(0, 0, canvas.width, canvas.height);
     tintCache.set(key, canvas);
     return canvas;
@@ -83,7 +86,7 @@ export function drawScene(ctx, world, cam, vw, vh, opts) {
 
     drawParticles(ctx, world.particles, cam, vw, vh);
 
-    if (opts.drilling && opts.target) drawBeam(ctx, world.ship, opts.target, cam, vw, vh);
+    if (opts.drilling && opts.target) drawBeam(ctx, world.ship, opts.target, cam, vw, vh, opts.target.res === 'ice');
     drawAim(ctx, world.ship, cam, vw, vh);
     drawShip(ctx, world.ship, cam, vw, vh, opts);
     if (opts.offBelt) drawOffBelt(ctx, world.ship, cam, vw, vh);
@@ -135,10 +138,26 @@ function drawAsteroid(ctx, a, cam, vw, vh, opts, parallax) {
     const rad = a.r * C.WORLD_SCALE;
     if (p.x < -rad * 2 || p.x > vw + rad * 2 || p.y < -rad * 2 || p.y > vh + rad * 2) return;
 
-    const depleted = !!opts.depleted;
+    // Ресурс тела: 'ice' | 'iron' (лёд — реальный ледяной ассет, 4c).
+    const isIce = a.res === 'ice';
+    // Жила выработанного ресурса (гашение, §8.1) либо весь пояс выработан.
+    const resDepleted = !!(a.vein && opts.depletedRes && opts.depletedRes[a.res]);
+    const depleted = !!opts.depleted || resDepleted;
     const dim = a.drill; // визуальное истощение конкретной жилы
-    const rockName = a.vein ? C.ROCK_SPRITES[a.sprite] : C.DEBRIS_SPRITES[a.sprite];
+    // Реестр: жила → ICE_SPRITES/ROCK_SPRITES, обломок → ICE_DEBRIS_SPRITES/
+    // DEBRIS_SPRITES. iceAsset=true, когда рисуем реальный ледяной ассет — тогда
+    // плейсхолдер-тинт НЕ применяем (иначе двойная синяя заливка, §10.9).
+    let rockName, iceAsset;
+    if (a.vein) {
+        iceAsset = isIce && C.ICE_SPRITES.length > 0;
+        rockName = iceAsset ? C.ICE_SPRITES[a.sprite % C.ICE_SPRITES.length] : C.ROCK_SPRITES[a.sprite];
+    } else {
+        iceAsset = isIce && C.ICE_DEBRIS_SPRITES.length > 0;
+        rockName = iceAsset ? C.ICE_DEBRIS_SPRITES[a.sprite % C.ICE_DEBRIS_SPRITES.length] : C.DEBRIS_SPRITES[a.sprite];
+    }
     const rock = getSprite(rockName);
+    // Фолбэк-лёд (нет ice_*.png): старый rock_*/debris_* + холодный тинт.
+    const iceTint = isIce && !iceAsset;
 
     ctx.save();
     ctx.translate(p.x, p.y);
@@ -150,9 +169,12 @@ function drawAsteroid(ctx, a, cam, vw, vh, opts, parallax) {
         const scale = (rad * 2) / C.SPRITE_LONG_SIDE;
         const size = C.SPRITE_LONG_SIDE * scale;
         // Истощение: помимо гашения руды — тёмная/обесцвеченная тонировка камня
-        // (offscreen-копия, чтобы не залить фон сцены).
-        const tone = depleted ? 0.55 : Math.min(0.45, dim * 0.45);
-        const img = tone > 0.01 ? (getTintedSprite(rockName, tone) || rock) : rock;
+        // (offscreen-копия, чтобы не залить фон сцены). Холодный тинт — ТОЛЬКО
+        // фолбэк-льду без ассета (iceTint); реальный ледяной спрайт не тонируем.
+        let tone = depleted ? 0.55 : Math.min(0.45, dim * 0.45);
+        if (iceTint && !depleted) tone = Math.max(tone, 0.30);
+        const tintColor = iceTint ? C.COLORS.shipAccent : C.COLORS.asteroidDark;
+        const img = tone > 0.01 ? (getTintedSprite(rockName, tone, tintColor) || rock) : rock;
         ctx.drawImage(img, -size / 2, -size / 2, size, size);
     } else {
         // Фолбэк-многоугольник (инвариант §4.5): нет файла/ошибка загрузки.
@@ -167,12 +189,14 @@ function drawAsteroid(ctx, a, cam, vw, vh, opts, parallax) {
             else ctx.lineTo(x, y);
         }
         ctx.closePath();
-        ctx.fillStyle = depleted ? C.COLORS.asteroidDark : (a.vein ? C.COLORS.asteroidVein : C.COLORS.asteroid);
+        ctx.fillStyle = depleted ? C.COLORS.asteroidDark
+            : (isIce ? C.COLORS.iceRock : (a.vein ? C.COLORS.asteroidVein : C.COLORS.asteroid));
         if (dim > 0 && !depleted) ctx.globalAlpha = Math.max(0.55, 1 - dim * 0.4);
+        else if (isIce && !depleted) ctx.globalAlpha = 0.9;
         ctx.fill();
         ctx.globalAlpha = 1;
         ctx.lineWidth = 2;
-        ctx.strokeStyle = C.COLORS.asteroidEdge;
+        ctx.strokeStyle = isIce ? C.COLORS.iceGlint : C.COLORS.asteroidEdge;
         ctx.stroke();
     }
     ctx.restore();
@@ -180,7 +204,11 @@ function drawAsteroid(ctx, a, cam, vw, vh, opts, parallax) {
     // Слой руды (арт-ТЗ §4.3): аддитивно поверх камня, поворот a.rot+veinRot,
     // alpha ∝ veinRich·(1−drill); при выработанном поясе не рисуется.
     if (a.vein && !depleted) {
-        const vein = getSprite(C.VEIN_SPRITES[a.veinPattern]);
+        // Ледяной блеск — из ледяного набора (холодный), иначе каменный (§10.9).
+        const veinName = (isIce && C.ICE_VEIN_SPRITES.length)
+            ? C.ICE_VEIN_SPRITES[a.veinPattern % C.ICE_VEIN_SPRITES.length]
+            : C.VEIN_SPRITES[a.veinPattern];
+        const vein = getSprite(veinName);
         const veinA = a.veinRich * Math.max(0, 1 - dim);
         if (vein && veinA > 0.01) {
             const vs = (rad * 2) / C.SPRITE_LONG_SIDE * a.veinScale;
@@ -262,7 +290,7 @@ function drawAsteroid(ctx, a, cam, vw, vh, opts, parallax) {
         ctx.rotate(a.rot);
         for (const g of a.glints) {
             ctx.globalAlpha = glintA * (0.5 + 0.5 * Math.sin(opts.now * 0.002 + g.x));
-            ctx.fillStyle = C.COLORS.glint;
+            ctx.fillStyle = isIce ? C.COLORS.iceGlint : C.COLORS.glint;
             ctx.beginPath();
             ctx.arc(g.x, g.y, g.r, 0, Math.PI * 2);
             ctx.fill();
@@ -277,7 +305,7 @@ function drawAsteroid(ctx, a, cam, vw, vh, opts, parallax) {
         ctx.translate(p.x, p.y);
         ctx.globalAlpha = 0.9;
         ctx.lineWidth = 2.5;
-        ctx.strokeStyle = C.COLORS.glint;
+        ctx.strokeStyle = isIce ? C.COLORS.iceGlint : C.COLORS.glint;
         ctx.beginPath();
         ctx.arc(0, 0, rad, 0, Math.PI * 2);
         ctx.stroke();
@@ -287,20 +315,20 @@ function drawAsteroid(ctx, a, cam, vw, vh, opts, parallax) {
 }
 
 function drawParticles(ctx, parts, cam, vw, vh) {
-    ctx.fillStyle = C.COLORS.particle;
     for (const p of parts) {
         const s = toScreen(p.x, p.y, cam, vw, vh);
         ctx.globalAlpha = Math.max(0, p.life / p.max);
+        ctx.fillStyle = p.c || C.COLORS.particle;
         ctx.fillRect(s.x - p.r / 2, s.y - p.r / 2, p.r, p.r);
     }
     ctx.globalAlpha = 1;
 }
 
-function drawBeam(ctx, ship, target, cam, vw, vh) {
+function drawBeam(ctx, ship, target, cam, vw, vh, isIce) {
     const a = toScreen(ship.x, ship.y, cam, vw, vh);
     const b = toScreen(target.x, target.y, cam, vw, vh);
     ctx.save();
-    ctx.strokeStyle = C.COLORS.beam;
+    ctx.strokeStyle = isIce ? C.COLORS.iceGlint : C.COLORS.beam;
     ctx.globalAlpha = 0.55 + 0.25 * Math.sin(Date.now() * 0.02);
     ctx.lineWidth = 2;
     ctx.setLineDash([6, 6]);

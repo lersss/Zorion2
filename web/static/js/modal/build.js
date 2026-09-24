@@ -142,53 +142,109 @@ function setStatus(el, text, ok) {
     el.style.color = ok ? '#86efac' : '#f87171';
 }
 
+// getBuildState — состояние панели «Построить» по id планеты. Живёт в
+// modalState.buildForms и переживает перерисовку карточки (автообновление,
+// «Обновить», /me): открыта/закрыта, загруженные опции (без повторного
+// запроса), выбранный тип/владелец/население, результаты поиска, статус,
+// подсветка невалидных полей и скролл списков владельца.
+function getBuildState(planetId) {
+    if (!modalState.buildForms) modalState.buildForms = {};
+    let st = modalState.buildForms[planetId];
+    if (!st) {
+        st = {
+            open: false,
+            loading: false,
+            options: null,
+            ownerType: 'faction',
+            ownerId: '',
+            ownerName: '',
+            searchQuery: '',
+            searchTimer: null,
+            resultsItems: [],
+            typeId: '',
+            population: '',
+            statusText: '',
+            statusColor: '',
+            invalid: {},
+            scrollFaction: 0,
+            scrollResults: 0,
+        };
+        modalState.buildForms[planetId] = st;
+    }
+    return st;
+}
+
+// loadingHtml — заглушка «Загрузка данных формы…» в контейнере панели.
+function loadingHtml() {
+    return '<div style="color:#94a3b8; font-size:0.85rem; padding:6px 0;">Загрузка данных формы…</div>';
+}
+
 // initBuildPanel — включает панель на карточке планеты: кнопка «Построить»
 // раскрывает/сворачивает контейнер, форма грузится лениво при первом открытии.
 // switchTab(planet-карточки) вызывает panel.js — после успеха переключаем на
 // «Поселения»/«Строения» по created.kind (панель остаётся открытой).
+// Состояние формы — в modalState.buildForms (getBuildState): перерисовка панели
+// (баг 2026-09-25) не сбрасывает форму и не перезапрашивает опции.
 export function initBuildPanel(planet, panel, switchTab) {
     if (!isAdmin()) return;
     const btn = panel.querySelector('#build-structure-btn');
     const container = panel.querySelector('[data-build-panel]');
     if (!btn || !container) return;
 
-    const state = {
-        loaded: false, loading: false,
-        typesById: new Map(), ownerType: 'faction', ownerId: '', ownerName: '',
-        searchTimer: null, resultsItems: [],
-    };
+    const st = getBuildState(planet.id);
     const token = () => modalState.authToken || localStorage.getItem('token');
 
+    // Восстановление после перерисовки: открытая панель остаётся раскрытой,
+    // форма — из сохранённых опций (без повторного запроса).
+    container.style.display = st.open ? 'block' : 'none';
+    if (st.open && st.options) renderForm(st.options);
+    else if (st.open && st.loading) container.innerHTML = loadingHtml();
+
     btn.addEventListener('click', () => {
-        if (container.style.display !== 'none') { container.style.display = 'none'; return; }
+        if (container.style.display !== 'none') {
+            container.style.display = 'none';
+            st.open = false;
+            return;
+        }
         container.style.display = 'block';
-        if (!state.loaded && !state.loading) loadOptions();
+        st.open = true;
+        if (!st.options && !st.loading) loadOptions();
     });
 
     function loadOptions() {
-        state.loading = true;
-        container.innerHTML = '<div style="color:#94a3b8; font-size:0.85rem; padding:6px 0;">Загрузка данных формы…</div>';
+        st.loading = true;
+        container.innerHTML = loadingHtml();
         fetch('/admin/planets/' + encodeURIComponent(planet.id) + '/build-options', {
             headers: { 'Authorization': 'Bearer ' + token() }
         }).then(res => {
             if (!res.ok) throw new Error('HTTP ' + res.status);
             return res.json();
         }).then(options => {
-            state.loading = false;
-            state.loaded = true;
-            state.typesById = new Map((options.types || []).map(t => [String(t.id), t]));
-            const def = options.default_owner;
-            state.ownerType = (def && def.owner_type) || 'faction';
-            state.ownerId = (def && def.owner_id) || '';
-            state.ownerName = (def && def.name) || '';
+            st.loading = false;
+            if (!options || typeof options !== 'object') throw new Error('пустой ответ');
+            st.options = options;
+            // Префилл владельца — только если игрок ещё не выбирал (память пуста).
+            if (!st.ownerId && !st.ownerName) {
+                const def = options.default_owner;
+                st.ownerType = (def && def.owner_type) || 'faction';
+                st.ownerId = (def && def.owner_id) || '';
+                st.ownerName = (def && def.name) || '';
+            }
+            // Гвард карточки-сироты (ср. tabs.js:1038, market.js:295): если
+            // панель перерисовали, пока грузились опции, в отсоединённый
+            // контейнер не пишем — кэш опций сохранён, форма отрисуется при
+            // следующей инициализации панели (авто/ручное обновление).
+            if (!container.isConnected) return;
             renderForm(options);
         }).catch(e => {
-            state.loading = false;
+            st.loading = false;
+            if (!container.isConnected) return;
             container.innerHTML = `<div style="color:#f87171; font-size:0.85rem; padding:6px 0;">Не удалось загрузить форму: ${escapeHtml(e.message)}</div>`;
         });
     }
 
     function renderForm(options) {
+        const typesById = new Map((options.types || []).map(t => [String(t.id), t]));
         container.innerHTML = formHtml(options);
         const typeSel = container.querySelector('#build-type');
         const ownerTypeSel = container.querySelector('#build-owner-type');
@@ -200,118 +256,170 @@ export function initBuildPanel(planet, panel, switchTab) {
         const popInput = container.querySelector('#build-population');
         const statusEl = container.querySelector('#build-status');
 
+        // Восстановление сохранённого выбора до навешивания обработчиков.
+        if (typeSel) typeSel.value = st.typeId || '';
+        if (ownerTypeSel) ownerTypeSel.value = st.ownerType || 'faction';
+        if (searchInput) searchInput.value = st.searchQuery || '';
+
         const closeBtn = container.querySelector('#build-close-btn');
-        if (closeBtn) closeBtn.addEventListener('click', () => { container.style.display = 'none'; });
+        if (closeBtn) closeBtn.addEventListener('click', () => {
+            container.style.display = 'none';
+            st.open = false;
+        });
 
         // ---- тип структуры: поле населения видно и предзаполнено только для поселения ----
-        function applyType() {
-            const t = state.typesById.get(typeSel.value);
+        function applyType(keepPopulation) {
+            const t = typesById.get(typeSel.value);
             const isSettlement = !!t && t.target === 'settlement';
             popWrap.style.display = isSettlement ? 'block' : 'none';
             if (isSettlement) {
-                const enter = t.stage && typeof t.stage.enter === 'number' ? t.stage.enter : 0;
-                popInput.value = enter >= 1 ? String(Math.trunc(enter)) : String(options.population_fallback || 1000);
+                if (keepPopulation && st.population !== '') {
+                    popInput.value = st.population;
+                } else {
+                    const enter = t.stage && typeof t.stage.enter === 'number' ? t.stage.enter : 0;
+                    popInput.value = enter >= 1 ? String(Math.trunc(enter)) : String(options.population_fallback || 1000);
+                    st.population = popInput.value;
+                }
             }
         }
-        typeSel.addEventListener('change', () => { clearInvalid(typeSel); applyType(); });
-        applyType();
+        typeSel.addEventListener('change', () => {
+            clearInvalid(typeSel);
+            st.invalid.type = false;
+            st.typeId = typeSel.value;
+            st.population = ''; // смена типа — население по умолчанию нового типа
+            applyType(false);
+        });
+        if (popInput) popInput.addEventListener('input', () => {
+            st.population = popInput.value;
+            clearInvalid(popInput);
+            st.invalid.population = false;
+        });
+        applyType(true);
 
         // ---- владелец: класс → список фракций целиком или поиск игрока/агента ----
         const factionItems = () => (options.factions || []).map(f => ({
             id: f.id, name: f.name, subtitle: f.type, color: f.color
         }));
         function renderOwnerList(wrap, items) {
-            wrap.innerHTML = ownerListHtml(items, state.ownerId);
+            wrap.innerHTML = ownerListHtml(items, st.ownerId);
             wrap.querySelectorAll('[data-owner-pick]').forEach(row => {
                 row.addEventListener('click', () => {
-                    state.ownerId = row.dataset.ownerPick;
-                    state.ownerName = row.dataset.ownerName;
-                    if (state.ownerType === 'faction') renderOwnerList(factionWrap, factionItems());
-                    else renderOwnerList(resultsWrap, state.resultsItems);
+                    st.ownerId = row.dataset.ownerPick;
+                    st.ownerName = row.dataset.ownerName;
+                    st.invalid.owner = false;
+                    if (st.ownerType === 'faction') renderOwnerList(factionWrap, factionItems());
+                    else renderOwnerList(resultsWrap, st.resultsItems);
                 });
             });
+        }
+        function renderResults() {
+            if (st.resultsItems && st.resultsItems.length) renderOwnerList(resultsWrap, st.resultsItems);
+            else resultsWrap.innerHTML = ownerSearchMessageHtml(st.searchQuery, 0);
         }
         function refreshOwnerUi() {
             clearInvalid(factionWrap);
             clearInvalid(searchInput);
-            const isFaction = state.ownerType === 'faction';
+            const isFaction = st.ownerType === 'faction';
             factionWrap.style.display = isFaction ? 'block' : 'none';
             searchWrap.style.display = isFaction ? 'none' : 'block';
-            if (isFaction) {
-                renderOwnerList(factionWrap, factionItems());
-            } else {
-                resultsWrap.innerHTML = ownerSearchMessageHtml('', 0);
-            }
+            if (isFaction) renderOwnerList(factionWrap, factionItems());
+            else renderResults();
         }
         ownerTypeSel.addEventListener('change', () => {
-            state.ownerType = ownerTypeSel.value;
-            state.ownerId = '';
-            state.ownerName = '';
-            state.resultsItems = [];
+            st.ownerType = ownerTypeSel.value;
+            st.ownerId = '';
+            st.ownerName = '';
+            st.resultsItems = [];
+            st.searchQuery = '';
+            st.invalid.owner = false;
             if (searchInput) searchInput.value = '';
             refreshOwnerUi();
         });
         refreshOwnerUi();
+        // Скролл списков владельца переживает перерисовку: пишем позицию на
+        // прокрутке и возвращаем после восстановления списка.
+        if (factionWrap) {
+            factionWrap.addEventListener('scroll', () => { st.scrollFaction = factionWrap.scrollTop; });
+            factionWrap.scrollTop = st.scrollFaction || 0;
+        }
+        if (resultsWrap) {
+            resultsWrap.addEventListener('scroll', () => { st.scrollResults = resultsWrap.scrollTop; });
+            resultsWrap.scrollTop = st.scrollResults || 0;
+        }
 
         // ---- поиск игрока/агента: debounce ~250 мс, минимум 2 символа ----
         async function runOwnerSearch() {
             const q = (searchInput.value || '').trim();
             if (q.length < 2) {
-                state.resultsItems = [];
+                st.resultsItems = [];
                 resultsWrap.innerHTML = ownerSearchMessageHtml(q, 0);
                 return;
             }
             try {
-                const res = await fetch('/admin/owner-candidates?type=' + encodeURIComponent(state.ownerType) +
+                const res = await fetch('/admin/owner-candidates?type=' + encodeURIComponent(st.ownerType) +
                     '&q=' + encodeURIComponent(q), { headers: { 'Authorization': 'Bearer ' + token() } });
                 if (!res.ok) throw new Error('HTTP ' + res.status);
                 const data = await res.json();
-                state.resultsItems = (Array.isArray(data.items) ? data.items : []).map(i => ({
+                st.resultsItems = (Array.isArray(data.items) ? data.items : []).map(i => ({
                     id: i.id, name: i.name, subtitle: i.subtitle
                 }));
-                if (state.resultsItems.length === 0) {
+                if (!resultsWrap.isConnected) return;
+                if (st.resultsItems.length === 0) {
                     resultsWrap.innerHTML = ownerSearchMessageHtml(q, 0);
                     return;
                 }
-                renderOwnerList(resultsWrap, state.resultsItems);
+                renderOwnerList(resultsWrap, st.resultsItems);
             } catch (e) {
+                if (!resultsWrap.isConnected) return;
                 resultsWrap.innerHTML = `<div style="color:#f87171; font-size:0.85rem;">Ошибка поиска: ${escapeHtml(e.message)}</div>`;
             }
         }
         if (searchInput) {
             searchInput.addEventListener('input', () => {
-                if (state.searchTimer) clearTimeout(state.searchTimer);
-                state.searchTimer = setTimeout(runOwnerSearch, 250);
+                st.searchQuery = searchInput.value || '';
+                if (st.searchTimer) clearTimeout(st.searchTimer);
+                st.searchTimer = setTimeout(runOwnerSearch, 250);
             });
         }
 
         // ---- отправка: клиентская проверка до запроса, ошибки — текстом ----
+        // setStatusSt — статус в DOM + память (переживает перерисовку).
+        function setStatusSt(text, ok) {
+            setStatus(statusEl, text, ok);
+            st.statusText = text;
+            st.statusColor = ok ? '#86efac' : '#f87171';
+        }
         const submitBtn = container.querySelector('#build-submit-btn');
         if (submitBtn) submitBtn.addEventListener('click', submit);
 
         async function submit() {
             const typeId = Number(typeSel.value);
-            if (!typeId) { markInvalid(typeSel); setStatus(statusEl, 'Выберите тип структуры'); return; }
-            clearInvalid(typeSel);
-            if (!state.ownerId) {
-                markInvalid(state.ownerType === 'faction' ? factionWrap : searchInput);
-                setStatus(statusEl, 'Выберите владельца');
+            if (!typeId) { markInvalid(typeSel); st.invalid.type = true; setStatusSt('Выберите тип структуры'); return; }
+            clearInvalid(typeSel); st.invalid.type = false;
+            if (!st.ownerId) {
+                markInvalid(st.ownerType === 'faction' ? factionWrap : searchInput);
+                st.invalid.owner = true;
+                setStatusSt('Выберите владельца');
                 return;
             }
-            const t = state.typesById.get(String(typeId));
-            const body = { producer_type_id: typeId, owner_type: state.ownerType, owner_id: state.ownerId };
+            clearInvalid(st.ownerType === 'faction' ? factionWrap : searchInput);
+            st.invalid.owner = false;
+            const t = typesById.get(String(typeId));
+            const body = { producer_type_id: typeId, owner_type: st.ownerType, owner_id: st.ownerId };
             if (t && t.target === 'settlement' && popInput.value !== '') {
                 const pop = Number(popInput.value);
                 if (!Number.isFinite(pop) || pop < 1) {
                     markInvalid(popInput);
-                    setStatus(statusEl, 'Население должно быть больше нуля');
+                    st.invalid.population = true;
+                    setStatusSt('Население должно быть больше нуля');
                     return;
                 }
                 clearInvalid(popInput);
+                st.invalid.population = false;
                 body.population = Math.trunc(pop);
             }
 
-            setStatus(statusEl, 'Построение…');
+            setStatusSt('Построение…');
             // Блокируем кнопку на время запроса: иначе двойной клик создаст две
             // структуры. Возвращаем после ответа (finally — на всех ветках).
             submitBtn.disabled = true;
@@ -324,14 +432,14 @@ export function initBuildPanel(planet, panel, switchTab) {
                         body: JSON.stringify(body)
                     });
                 } catch (e) {
-                    setStatus(statusEl, 'Ошибка сети: ' + e.message);
+                    setStatusSt('Ошибка сети: ' + e.message);
                     return;
                 }
                 if (!res.ok) {
-                    if (res.status === 422) setStatus(statusEl, (await res.text()).trim() || 'Не удалось построить');
-                    else if (res.status === 409) setStatus(statusEl, 'Идёт обслуживание вселенной — попробуйте позже');
-                    else if (res.status === 403) setStatus(statusEl, 'Недостаточно прав');
-                    else setStatus(statusEl, 'Ошибка ' + res.status + ': ' + (await res.text()).trim());
+                    if (res.status === 422) setStatusSt((await res.text()).trim() || 'Не удалось построить');
+                    else if (res.status === 409) setStatusSt('Идёт обслуживание вселенной — попробуйте позже');
+                    else if (res.status === 403) setStatusSt('Недостаточно прав');
+                    else setStatusSt('Ошибка ' + res.status + ': ' + (await res.text()).trim());
                     return;
                 }
 
@@ -344,11 +452,11 @@ export function initBuildPanel(planet, panel, switchTab) {
                 // берём из свежего блока поселений по created.id, не из created.type_name.
                 const fresh = planet.settlements.find(s => s.id === created.id);
                 const actualStage = fresh && fresh.type_name ? fresh.type_name : created.type_name;
-                let line = 'Построено: ' + (actualStage || '—') + ' · владелец ' + (created.owner_name || state.ownerName || '—');
+                let line = 'Построено: ' + (actualStage || '—') + ' · владелец ' + (created.owner_name || st.ownerName || '—');
                 if (fresh && fresh.type_name && created.type_name && fresh.type_name !== created.type_name) {
                     line += ` — ступень пересчитана по населению (запрошен был ${created.type_name})`;
                 }
-                setStatus(statusEl, line, true);
+                setStatusSt(line, true);
                 if (typeof switchTab === 'function') {
                     switchTab(created.kind === 'settlement' ? 'settlements' : 'structures');
                 }
@@ -356,5 +464,14 @@ export function initBuildPanel(planet, panel, switchTab) {
                 submitBtn.disabled = false;
             }
         }
+
+        // ---- восстановление статуса и подсветки невалидных полей ----
+        if (st.statusText) {
+            statusEl.textContent = st.statusText;
+            statusEl.style.color = st.statusColor || '#94a3b8';
+        }
+        if (st.invalid.type) markInvalid(typeSel);
+        if (st.invalid.owner) markInvalid(st.ownerType === 'faction' ? factionWrap : searchInput);
+        if (st.invalid.population) markInvalid(popInput);
     }
 }

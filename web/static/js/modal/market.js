@@ -13,6 +13,7 @@
 import { modalState } from './state.js';
 import { escapeHtml } from './contracts.js';
 import { notifyError, notifySuccess } from '../ui/toast.js';
+import { resolveMarketSlot } from './ui_state.js';
 
 // MODULE_TYPE_LABELS — подписи типов модуля: единственное место, где ключ
 // (equipment.type) превращается в человекочитаемое имя. Неизвестный — как есть.
@@ -153,7 +154,7 @@ export function marketHtml(market, me, selectedSlot) {
         return `<p style="color:#666; text-align:center; padding:20px 0;">На планете нет рынка</p>`;
     }
     const keys = universalSlotKeys(universalSlotCount(me));
-    const sel = (selectedSlot && keys.indexOf(selectedSlot) !== -1) ? selectedSlot : (keys[0] || null);
+    const sel = resolveMarketSlot(keys, selectedSlot);
 
     let html = `<p style="color:#888; font-size:0.9rem; text-transform:uppercase;">Модули</p>`;
     offers.forEach(o => { html += offerCardHtml(o, me, offers, sel, canTrade); });
@@ -257,7 +258,7 @@ async function buyOffer(container, planet, market, me, slot, offerID, btn) {
 // итога) и кнопки «Купить».
 function bindMarket(container, planet, market, me, selectedSlot) {
     const keys = universalSlotKeys(universalSlotCount(me));
-    const sel = (selectedSlot && keys.indexOf(selectedSlot) !== -1) ? selectedSlot : (keys[0] || null);
+    const sel = resolveMarketSlot(keys, selectedSlot);
 
     container.querySelectorAll('[data-market-slot]').forEach(cell => {
         cell.addEventListener('click', () => {
@@ -272,10 +273,22 @@ function bindMarket(container, planet, market, me, selectedSlot) {
     });
 }
 
-// renderInto — перерисовка содержимого витрины с текущим выбором слота.
+// renderInto — перерисовка содержимого витрины с текущим выбором слота. Выбор
+// запоминается по id планеты (баг 2026-09-25: перерисовка карточки сбрасывала
+// слот на первый) — переживает автообновление/«Обновить»/смену вкладки.
 function renderInto(container, planet, market, me, selectedSlot) {
-    container.innerHTML = marketHtml(market, me, selectedSlot);
-    bindMarket(container, planet, market, me, selectedSlot);
+    const keys = universalSlotKeys(universalSlotCount(me));
+    const sel = resolveMarketSlot(keys, selectedSlot);
+    if (!modalState.marketSlots) modalState.marketSlots = {};
+    modalState.marketSlots[planet.id] = sel;
+    container.innerHTML = marketHtml(market, me, sel);
+    bindMarket(container, planet, market, me, sel);
+}
+
+// marketSlotOf — сохранённый выбор слота по id планеты (баг 2026-09-25):
+// после перерисовки карточки витрина открывается на прежнем слоте.
+function marketSlotOf(planetId) {
+    return (modalState.marketSlots && modalState.marketSlots[planetId]) || null;
 }
 
 // initMarket — ленивая загрузка вкладки (вызывается после вставки в DOM):
@@ -304,5 +317,5 @@ export async function initMarket(planet, container) {
     let me = null;
     try { me = await loadMe(); } catch (e) { me = null; }
     if (!container.isConnected) return;
-    renderInto(container, planet, result.market, me, null);
+    renderInto(container, planet, result.market, me, marketSlotOf(planet.id));
 }

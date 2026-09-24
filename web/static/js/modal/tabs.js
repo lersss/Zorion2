@@ -9,6 +9,7 @@ import { renderStructures, initStructures, buildingTypeLabel } from './structure
 import { renderMarket, initMarket } from './market.js';
 import { notifyError, notifySuccess } from '../ui/toast.js';
 import { gameDate } from '../game_date.js';
+import { mergeDetailIds, expandDetailIds } from './ui_state.js';
 
 // ---------- ИСТОРИЯ ФОРМИРОВАНИЯ (Ф4, спека 2026-09-22-облако-этап-2 §6.3) ----------
 
@@ -811,6 +812,9 @@ function initBranchesAdmin(planet, container) {
             sel.innerHTML = list.length
                 ? list.map(r => `<option value="${r.id}">${r.name}</option>`).join('')
                 : '<option value="">ресурсов нет</option>';
+            // Возвращаем сохранённый выбор ресурса после подгрузки опций
+            // (баг 2026-09-25: перерисовка панели сбрасывала выбор).
+            applyAdminFields(container, planet.id, false);
         }).catch(() => {
             if (sel && sel.isConnected) sel.innerHTML = '<option value="">ресурсы недоступны</option>';
         });
@@ -1039,6 +1043,9 @@ function initDepositsAdmin(planet, container) {
         sel.innerHTML = list.length
             ? list.map(r => `<option value="${r.id}">${r.name}</option>`).join('')
             : '<option value="">ресурсов нет</option>';
+        // Возвращаем сохранённый выбор ресурса (баг 2026-09-25): при перерисовке
+        // опции подгружаются заново — значение восстанавливаем после их вставки.
+        applyAdminFields(container, planet.id, false);
     }).catch(() => {
         if (sel && sel.isConnected) sel.innerHTML = '<option value="">ресурсы недоступны</option>';
     });
@@ -1151,14 +1158,14 @@ function initContracts(planet, container) {
 
     const publishBtn = container.querySelector('[data-contract-publish]');
     if (publishBtn) {
-        loadDestWorlds(container);
+        loadDestWorlds(planet, container);
         publishBtn.addEventListener('click', () => publishContract(planet, container));
     }
 }
 
 // loadDestWorlds — список систем для выбора назначения перелёта (§3):
 // GET /worlds (видимость решает сервер, 77a). Текущая система исключается.
-async function loadDestWorlds(container) {
+async function loadDestWorlds(planet, container) {
     const sel = container.querySelector('[data-contract-dest-world]');
     if (!sel) return;
     const token = modalState.authToken || localStorage.getItem('token');
@@ -1170,6 +1177,8 @@ async function loadDestWorlds(container) {
         const list = (Array.isArray(worlds) ? worlds : []).filter(w => w.id !== modalState.worldId);
         sel.innerHTML = '<option value="">система-назначение…</option>' +
             list.map(w => `<option value="${escapeHtml(w.id)}">${escapeHtml(w.name || w.id)}</option>`).join('');
+        // Возвращаем сохранённое назначение после подгрузки опций (баг 2026-09-25).
+        applyAdminFields(container, planet && planet.id, false);
     } catch (e) {
         if (sel.isConnected) sel.innerHTML = '<option value="">системы недоступны</option>';
     }
@@ -1250,10 +1259,155 @@ async function publishContract(planet, container) {
     }
 }
 
+// ---------- НЕРАЗРУШАЮЩАЯ ПЕРЕРИСОВКА ПАНЕЛИ (баг 2026-09-25) ----------
+
+// ADMIN_FORM_FIELDS — поля админ-форм вкладок (залежи/ветки/эффекты/контракты),
+// значения которых переживают перерисовку правой панели.
+//   flat:  { flat, type } — одиночное поле (ключ памяти = селектор);
+//   scope: { scope, idAttr, fields } — повторяющаяся форма (ветки/эффекты на
+//          каждое поселение): ключ = «idAttr:id|field.sel», иначе формы
+//          нескольких поселений перекрывались бы одним ключом.
+// type='value' — input/select; type='text' — строка статуса (textContent + цвет).
+const ADMIN_FORM_FIELDS = [
+    { flat: '#deposit-good-select', type: 'value' },
+    { flat: '#deposit-wealth', type: 'value' },
+    { flat: '#deposit-amount', type: 'value' },
+    { flat: '[data-contract-title]', type: 'value' },
+    { flat: '[data-contract-reward]', type: 'value' },
+    { flat: '[data-contract-dest-world]', type: 'value' },
+    { flat: '#deposit-add-status', type: 'text' },
+    { flat: '[data-contract-publish-status]', type: 'text' },
+    { scope: '[data-branch-create-form]', idAttr: 'branchCreateForm',
+      fields: [{ sel: '[data-branch-recipe]', type: 'value' }] },
+    { scope: '[data-branch-input-form]', idAttr: 'branchInputForm',
+      fields: [{ sel: '[data-branch-input-good]', type: 'value' },
+               { sel: '[data-branch-input-amount]', type: 'value' }] },
+    { scope: '[data-effect-load-form]', idAttr: 'effectLoadForm',
+      fields: [{ sel: '[data-effect-load-type]', type: 'value' },
+               { sel: '[data-effect-load-value]', type: 'value' }] },
+];
+
+// adminFormMemory — память полей админ-форм по id планеты (modalState.adminFormValues).
+function adminFormMemory(planetId) {
+    if (!modalState.adminFormValues) modalState.adminFormValues = {};
+    if (!modalState.adminFormValues[planetId]) modalState.adminFormValues[planetId] = {};
+    return modalState.adminFormValues[planetId];
+}
+
+// adminFieldKey — ключ памяти поля: одиночное — селектор; поле внутри
+// повторяющейся формы — «scopeId:formId|field.sel».
+function adminFieldKey(scopeKey, id, sel) {
+    return scopeKey ? scopeKey + ':' + id + '|' + sel : sel;
+}
+
+// readAdminField/writeAdminField — чтение и возврат значения поля формы
+// (для status — textContent + цвет).
+function readAdminField(el, type) {
+    if (type === 'text') return { text: el.textContent || '', color: el.style.color || '' };
+    return el.value;
+}
+function writeAdminField(el, type, v) {
+    if (type === 'text') {
+        if (v && typeof v === 'object') {
+            el.textContent = v.text || '';
+            if (v.color) el.style.color = v.color;
+        }
+    } else if (typeof v === 'string') {
+        el.value = v;
+    }
+}
+
+// forEachAdminField — пройти поля текущего DOM, вызывая cb(key, el, type).
+// Отсутствующие в рендере поля не посещаются — память/восстановление их не
+// трогают (перерисовка другой вкладки не затирает сохранённое).
+function forEachAdminField(container, includeStatus, cb) {
+    ADMIN_FORM_FIELDS.forEach(spec => {
+        if (spec.flat) {
+            if (!includeStatus && spec.type === 'text') return;
+            const el = container.querySelector(spec.flat);
+            if (el) cb(adminFieldKey(null, null, spec.flat), el, spec.type);
+            return;
+        }
+        container.querySelectorAll(spec.scope).forEach(form => {
+            const id = form.dataset[spec.idAttr] || '';
+            spec.fields.forEach(f => {
+                if (!includeStatus && f.type === 'text') return;
+                const el = form.querySelector(f.sel);
+                if (el) cb(adminFieldKey(spec.idAttr, id, f.sel), el, f.type);
+            });
+        });
+    });
+}
+
+// captureAdminFields — собрать значения полей админ-форм из текущего DOM перед
+// перерисовкой. includeStatus=false — строку статуса не трогаем (при пересборке
+// вкладки действием статус не воскрешаем: «Добавление…» залипло бы).
+export function captureAdminFields(container, planetId, includeStatus) {
+    if (!container || planetId == null) return;
+    const mem = adminFormMemory(planetId);
+    forEachAdminField(container, includeStatus, (key, el, type) => {
+        mem[key] = readAdminField(el, type);
+    });
+}
+
+// applyAdminFields — вернуть значения полей после рендера (includeStatus=false —
+// без строки статуса). Селекты с асинхронными опциями восстанавливаются повторно
+// после их подгрузки (initDepositsAdmin/initBranchesAdmin/loadDestWorlds) — до
+// этого подходящей опции в DOM ещё нет.
+export function applyAdminFields(container, planetId, includeStatus) {
+    if (!container || planetId == null) return;
+    const mem = modalState.adminFormValues && modalState.adminFormValues[planetId];
+    if (!mem) return;
+    forEachAdminField(container, includeStatus, (key, el, type) => {
+        if (Object.prototype.hasOwnProperty.call(mem, key)) writeAdminField(el, type, mem[key]);
+    });
+}
+
+// captureDetails/restoreDetails — раскрытые инлайн-детали (строения, столицы
+// фракций) переживают перерисовку. id — в modalState.expandedBuildings/
+// expandedFactions (логика — ui_state.js). Вызывающий: renderCard (перед
+// вставкой panel.innerHTML; возврат делает renderTabContent) и renderTabContent
+// (переключение вкладок).
+export function captureDetails(root) {
+    if (!root) return;
+    [['data-building-details', 'expandedBuildings'],
+     ['data-faction-details', 'expandedFactions']].forEach(([attr, key]) => {
+        const els = root.querySelectorAll('[' + attr + ']');
+        if (!els.length) return; // вкладка без таких деталей — память не трогаем
+        const present = Array.from(els).map(el => ({
+            id: el.getAttribute(attr),
+            expanded: el.style.display !== 'none',
+        }));
+        modalState[key] = mergeDetailIds(modalState[key], present);
+    });
+}
+
+// restoreDetails — раскрыть сохранённые детали после рендера.
+export function restoreDetails(root) {
+    if (!root) return;
+    [['data-building-details', 'expandedBuildings'],
+     ['data-faction-details', 'expandedFactions']].forEach(([attr, key]) => {
+        const stored = modalState[key] || [];
+        if (!stored.length) return;
+        const els = root.querySelectorAll('[' + attr + ']');
+        if (!els.length) return;
+        const open = new Set(expandDetailIds(stored, Array.from(els).map(el => el.getAttribute(attr))));
+        els.forEach(el => {
+            el.style.display = open.has(el.getAttribute(attr)) ? 'block' : 'none';
+        });
+    });
+}
+
 // ---------- ГЛАВНЫЙ ЭКСПОРТ ----------
 
 // renderTabContent — рендерит контент вкладки в container.
 export function renderTabContent(tab, planet, container) {
+    // Неразрушающая перерисовка (баг 2026-09-25): сохраняем значения полей
+    // админ-форм и раскрытые детали текущего содержимого до замены innerHTML,
+    // возвращаем после рендера (память — modalState).
+    captureAdminFields(container, planet && planet.id, false);
+    captureDetails(container);
+
     switch (tab) {
         case 'general':
             container.innerHTML = renderGeneral(planet);
@@ -1324,6 +1478,11 @@ export function renderTabContent(tab, planet, container) {
             if (details) details.style.display = details.style.display === 'none' ? 'block' : 'none';
         });
     });
+
+    // Возврат сохранённых значений админ-форм и раскрытых деталей. Значения
+    // селектов с асинхронными опциями переприменяются после их подгрузки.
+    applyAdminFields(container, planet && planet.id, false);
+    restoreDetails(container);
 }
 
 // Стиль «Вид с орбиты» (спека 2026-09-20 §6.2): рамка 288px, на узких

@@ -673,13 +673,16 @@ function renderModal(worldId, worldName, spectralClass, data) {
     window.updateRightPanel = (selectedIndex) => {
         // Выбор планеты кликом по канвасу — звук ui_select (только карта).
         if (selectedIndex !== null && selectedIndex !== undefined) playSound('ui_select');
-        renderRightPanel(planets, selectedIndex);
+        // Читаем modalState.planets: refreshPlanets заменяет массив — захваченный
+        // на замыкании снимок устаревал (баг 2026-09-25: клик открывал карточку
+        // по устаревшим данным).
+        renderRightPanel(modalState.planets || [], selectedIndex);
     };
 
     // Глобальная функция для events.js (клик по звезде): карточка звезды
     // убрана (70a) — клик возвращает панель к списку планет.
     window.showStarCard = () => {
-        renderRightPanel(planets, null);
+        renderRightPanel(modalState.planets || [], null);
     };
 
     // Клик по строке таблицы
@@ -687,6 +690,9 @@ function renderModal(worldId, worldName, spectralClass, data) {
         const row = e.target.closest('tr');
         if (row && row.dataset.index !== undefined) {
             const idx = parseInt(row.dataset.index);
+            // Свежий массив (refreshPlanets заменяет modalState.planets) — клик
+            // не должен открывать карточку по устаревшему снимку (баг 2026-09-25).
+            const planets = modalState.planets || [];
             if (!isNaN(idx) && idx >= 0 && idx < planets.length) {
                 if (modalState.selectedPlanetIndex !== idx) {
                     modalState.selectedPlanetIndex = idx;

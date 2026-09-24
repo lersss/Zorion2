@@ -100,8 +100,29 @@ arrivalObject: null,
     suppressNextClick: false,
     activeTab: 'general', // текущая вкладка карточки планеты, чтобы «Обновить» не сбрасывал на «Общее»
     autoRefreshTimer: null, // id setInterval автообновления карточки планеты (отладка, admin.html)
+    // autoRefreshDeferred — тик автообновления пропущен, пока фокус стоял на
+    // редактируемом контроле правой панели (решение создателя 2026-09-25: тик
+    // выбивал курсор/закрывал открытый <select>). Один флаг — очередь не копим;
+    // применяется слушателем focusout при уходе фокуса из панели. Сбрасывается
+    // в resetState (закрытие/пересоздание модалки).
+    autoRefreshDeferred: false,
     previousPopulation: {},  // planetId -> население на прошлый refresh, для стрелочки тренда
-    previousSettlementPop: {}  // settlementId -> население на прошлый refresh, вкладка «Поселения»
+    previousSettlementPop: {}, // settlementId -> население на прошлый refresh, вкладка «Поселения»
+    // --- Неразрушающая перерисовка правой панели (баг 2026-09-25) ---
+    // Состояние интерфейса, которое хранится не в данных, а в DOM/замыканиях:
+    // собирается перед renderCard/renderTabContent и возвращается после, чтобы
+    // автообновление карточки («Обновить», /me, события прилёта) не сбрасывало
+    // форму «Построить», скролл, раскрытые детали, слот магазина и админ-формы.
+    // cardPlanetId — id планеты, карточка которой отрисована в #right-panel
+    // СЕЙЧАС (null — показан список объектов). Захват полей админ-форм идёт под
+    // неё: renderCard при переходе A→B видит в DOM ещё карточку A, а planet.id
+    // уже B — без этого значения переезжали между планетами (ревью 2026-09-25).
+    cardPlanetId: null,
+    expandedBuildings: [],   // id строений с раскрытыми деталями (вкладка «Строения»)
+    expandedFactions: [],    // id фракций с раскрытыми деталями столицы (вкладка «Фракции»)
+    marketSlots: {},         // planetId -> выбранный универсальный слот вкладки «Магазин»
+    buildForms: {},          // planetId -> состояние панели «Построить» (см. build.js)
+    adminFormValues: {}      // planetId -> значения полей админ-форм вкладок (см. tabs.js)
 };
 
 // flightModeForSystem — режим полёта в модалке: 'intra' — своя система
@@ -164,6 +185,15 @@ export function resetState() {
     modalState.interstellarFlight = null;
     modalState.previousPopulation = {};
     modalState.previousSettlementPop = {};
+    // Неразрушающая перерисовка (баг 2026-09-25): при закрытии/пересоздании
+    // модалки память интерфейса правой панели обнуляется.
+    modalState.cardPlanetId = null;
+    modalState.expandedBuildings = [];
+    modalState.expandedFactions = [];
+    modalState.marketSlots = {};
+    modalState.buildForms = {};
+    modalState.adminFormValues = {};
+    modalState.autoRefreshDeferred = false;
     if (modalState._rafId !== null) {
         cancelAnimationFrame(modalState._rafId);
         modalState._rafId = null;

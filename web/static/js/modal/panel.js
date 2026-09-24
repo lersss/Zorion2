@@ -1,11 +1,13 @@
 // web/static/js/modal/panel.js
 import { modalState } from './state.js';
 import { drawSystem } from './modal_render.js';
-import { renderTabContent, renderSatelliteCard, knowledgeMode, marketTabVisible } from './tabs.js';
+import { renderTabContent, renderSatelliteCard, knowledgeMode, marketTabVisible,
+         captureDetails, restoreDetails, captureAdminFields, applyAdminFields } from './tabs.js';
 import { structuresTabVisible } from './structures.js';
 import { buildButtonHtml, buildPanelContainerHtml, initBuildPanel } from './build.js';
 import { planetPopulationAt } from './extrapolate.js';
 import { escapeHtml } from './contracts.js';
+import { isEditableControl } from './ui_state.js';
 
 // Перевод Кельвинов в Цельсии (для таблицы планет). Экспорт — для
 // энциклопедии (86a §5.1.2: окна рас в °C).
@@ -130,16 +132,79 @@ function stopAutoRefresh() {
 // вызывает refreshPlanets(), которая обновляет то, что выбрано в модалке
 // на момент тика, — переключение между планетами внутри модалки не требует
 // перезапуска таймера.
+//
+// Пока фокус стоит на редактируемом контроле правой панели, тик откладывается
+// (решение создателя 2026-09-25): перерисовка выбивала курсор и закрывала
+// открытый нативный <select>. Отложенное применяет onPanelFocusOut.
 function syncAutoRefreshTimer() {
     const enabled = localStorage.getItem(AUTO_REFRESH_PLANET_KEY) === '1';
     if (!enabled) {
         stopAutoRefresh();
         return;
     }
+    ensureFocusWatch(document.getElementById('right-panel'));
     if (modalState.autoRefreshTimer !== null) return;
-    modalState.autoRefreshTimer = setInterval(() => {
-        import('./index.js').then(mod => mod.refreshPlanets());
-    }, 3000);
+    modalState.autoRefreshTimer = setInterval(onAutoRefreshTick, 3000);
+}
+
+// isFocusInPanel — фокус сейчас внутри правой панели (на любом элементе).
+function isFocusInPanel() {
+    const panel = document.getElementById('right-panel');
+    if (!panel) return false;
+    const el = document.activeElement;
+    return !!(el && panel.contains(el));
+}
+
+// isPanelBusy — в форме панели работают: фокус на редактируемом контроле
+// (input/select/textarea/contenteditable). Кнопки/ссылки занятостью не считаем.
+function isPanelBusy() {
+    const panel = document.getElementById('right-panel');
+    if (!panel) return false;
+    const el = document.activeElement;
+    if (!el || !panel.contains(el)) return false;
+    return isEditableControl(el);
+}
+
+// applyDeferredRefresh — применить отложенное авто-обновление. Не применяем,
+// если модалка закрыта или карточка планеты не открыта (нечего обновлять).
+function applyDeferredRefresh() {
+    modalState.autoRefreshDeferred = false;
+    if (!document.getElementById('system-modal-overlay')) return;
+    const idx = modalState.selectedPlanetIndex;
+    if (idx === null || idx === undefined) return;
+    if (!modalState.planets || !modalState.planets[idx]) return;
+    import('./index.js').then(mod => mod.refreshPlanets());
+}
+
+// onPanelFocusOut — делегированный слушатель на #right-panel: по уходу фокуса
+// ИЗ панели применяем отложенное обновление (свежие числа сразу). Переходы
+// фокуса внутри панели (input → кнопка) обновление не запускают.
+function onPanelFocusOut() {
+    // setTimeout(0): даём фокусу «устояться» (focusout летит до focusin цели).
+    setTimeout(() => {
+        if (isFocusInPanel()) return;
+        if (!modalState.autoRefreshDeferred) return;
+        applyDeferredRefresh();
+    }, 0);
+}
+
+// ensureFocusWatch — один делегированный focusout на #right-panel (элемент
+// живёт весь срок модалки; при новом открытии создаётся заново).
+function ensureFocusWatch(panel) {
+    if (!panel || panel.dataset.autoRefreshFocusWatch === '1') return;
+    panel.dataset.autoRefreshFocusWatch = '1';
+    panel.addEventListener('focusout', onPanelFocusOut);
+}
+
+// onAutoRefreshTick — автоматический тик: заняты формой — копим один флаг и не
+// перерисовываем; свободны — обновляем (флаг снимаем, чтобы он не «залип»).
+function onAutoRefreshTick() {
+    if (isPanelBusy()) {
+        modalState.autoRefreshDeferred = true;
+        return;
+    }
+    modalState.autoRefreshDeferred = false;
+    import('./index.js').then(mod => mod.refreshPlanets());
 }
 
 // renderPlanetsList — список объектов системы в правой панели (70a; единая
@@ -151,6 +216,11 @@ export function renderPlanetsList() {
     const panel = document.getElementById('right-panel');
     if (!panel) return;
 
+    // Показан список объектов — карточки планеты в DOM нет (см. cardPlanetId).
+    modalState.cardPlanetId = null;
+
+    // Скролл панели переживает перерисовку (баг 2026-09-25).
+    const prevScroll = panel.scrollTop;
     const planets = (modalState.planets || []).slice();
 
     // Модалка без деталей системы (403, спека 77a §5.5/И11): звезда открыта,
@@ -166,6 +236,7 @@ export function renderPlanetsList() {
                 </p>
             </div>
         `;
+        panel.scrollTop = prevScroll;
         return;
     }
 
@@ -194,6 +265,9 @@ export function renderPlanetsList() {
             import('./events.js').then(m => m.showBeltMenu(e.clientX, e.clientY, beltId));
         });
     });
+
+    // Скролл панели переживает перерисовку (баг 2026-09-25).
+    panel.scrollTop = prevScroll;
 }
 
 // beltKindLabel — человекочитаемый тип пояса (спека поясов этап 2 §7.4).
@@ -454,6 +528,17 @@ function renderCard(panel, planets, selectedIndex) {
         return;
     }
 
+    // Неразрушающая перерисовка (баг 2026-09-25): состояние интерфейса правой
+    // панели собирается ДО замены panel.innerHTML и возвращается ПОСЛЕ рендера
+    // (скролл, раскрытые детали, значения админ-форм со статусом). Форму
+    // «Построить» восстанавливает initBuildPanel из modalState.buildForms.
+    const prevScroll = panel.scrollTop;
+    // Захват — в память планеты, чья карточка сейчас в DOM: при переходе A→B
+    // planet.id уже B, а в панели ещё карточка A (иначе поля A переезжали в B).
+    const capturePlanetId = modalState.cardPlanetId != null ? modalState.cardPlanetId : planet.id;
+    captureAdminFields(panel, capturePlanetId, true);
+    captureDetails(panel);
+
     // Внутрисистемная позиция игрока (спека 99.2.27 §5.11): бейдж «● Вы на
     // орбите» в карточке объекта + строка «Корабли на орбите: N» (§5.12).
     const myPos = modalState.myPosition;
@@ -602,4 +687,12 @@ function renderCard(panel, planets, selectedIndex) {
             }
         });
     }
+
+    // Возврат состояния интерфейса после перерисовки (баг 2026-09-25): значения
+    // админ-форм со статусом, раскрытые детали и скролл панели. Возврат — в
+    // память рендеримой планеты; после рендера она становится текущей карточкой.
+    applyAdminFields(panel, planet.id, true);
+    restoreDetails(panel);
+    panel.scrollTop = prevScroll;
+    modalState.cardPlanetId = planet.id;
 }

@@ -203,24 +203,48 @@ function primCrest(x, l, seed) {
 
 // primSpike — отдельные узкие пики/шпили/иглы: `perRegion` (или `count`) штук на
 // регион, треугольник высоты `h` и полуширины `w`. `taper` заостряет вершину;
-// `cluster` — гипотеза (образцами не задаётся).
+// `cluster` — иглы группируются в кусты/рощи (спека 2026-09-23 §4.7.12), а не
+// стоят поодиночке. Без `cluster` — прежнее поведение (сданное не меняется).
 function primSpike(x, l, seed, region) {
     const R = region || 1400;
     const cntRaw = l.perRegion != null ? l.perRegion : l.count;
     const taper = num(l.taper, 0);
+    const cluster = !!l.cluster;
     const base = Math.floor(x / R);
     let sum = 0;
     // Соседние регионы тоже: пик у границы региона не должен «обрезаться»
     // (иначе разрыв профиля на границе — уклон-скачок).
     for (let rr = base - 1; rr <= base + 1; rr++) {
         const n = Math.max(0, Math.round(primRange(cntRaw, rr, seed ^ 0xd0, 1)));
-        for (let k = 0; k < n; k++) {
-            const idx = rr * 131 + k;
-            const c = rr * R + hash1(idx, seed ^ 0xd1) * R;
-            const h = primRange(l.h, idx, seed ^ 0xd2, 120);
-            const w = primRange(l.w, idx, seed ^ 0xd3, 40);
-            const d = Math.abs(x - c);
-            if (d < w) sum -= h * Math.pow(1 - d / w, 1 + 2 * taper);
+        if (!cluster) {
+            for (let k = 0; k < n; k++) {
+                const idx = rr * 131 + k;
+                const c = rr * R + hash1(idx, seed ^ 0xd1) * R;
+                const h = primRange(l.h, idx, seed ^ 0xd2, 120);
+                const w = primRange(l.w, idx, seed ^ 0xd3, 40);
+                const d = Math.abs(x - c);
+                if (d < w) sum -= h * Math.pow(1 - d / w, 1 + 2 * taper);
+            }
+            continue;
+        }
+        // cluster: `n` игл собираются в несколько кустов-рощ; центры кустов
+        // распределены по региону, иглы теснятся вокруг центра (куст читается
+        // как заросль, а не набор одиночек).
+        const groves = Math.max(1, Math.round(Math.sqrt(n)));
+        const per = Math.ceil(n / groves);
+        for (let g = 0; g < groves; g++) {
+            const gid = rr * 197 + g;
+            const gc = rr * R + ((g + 0.5) / groves) * R
+                + (hash1(gid, seed ^ 0xd4) - 0.5) * (R / groves) * 0.4;
+            for (let k = 0; k < per; k++) {
+                if (g * per + k >= n) break;
+                const idx = gid * 131 + k;
+                const c = gc + (hash1(idx, seed ^ 0xd5) - 0.5) * R * 0.03;
+                const h = primRange(l.h, idx, seed ^ 0xd2, 120);
+                const w = primRange(l.w, idx, seed ^ 0xd3, 40);
+                const d = Math.abs(x - c);
+                if (d < w) sum -= h * Math.pow(1 - d / w, 1 + 2 * taper);
+            }
         }
     }
     return sum;
@@ -268,31 +292,87 @@ function primCarve(x, l, seed) {
 }
 
 // primFan — осыпь/конус выноса: уклон не круче `angleMax` (угол отсыпа), вынос =
-// h / tan(angleMax). `roughness`/`w` — гипотеза (образцы не задают).
+// h / tan(angleMax). `w` (спека 2026-09-23 §4.7.12) — желаемая МИНИМАЛЬНАЯ ширина
+// основания (полная): основание не уже, чем требует угол, угол никогда не круче
+// `angleMax` — `halfW = max(h/tanA, w/2)`. `roughness` — неровность конуса —
+// применяется ТОЛЬКО при явном `w` (гейт совместимости §4.7.13: сданные ЧК0/ЧК1
+// несут инертную `roughness` и без `w` остаются гладкими).
 function primFan(x, l, seed, region) {
     const R = region || 1400;
     const angleMax = num(l.angleMax, 34);
     const tanA = Math.tan(angleMax * Math.PI / 180);
+    const hasW = l.w != null;
+    const rough = hasW ? num(l.roughness, 0) : 0;
     const base = Math.floor(x / R);
     let sum = 0;
     // Соседние регионы — как у spike: конус у границы региона не обрезается.
     for (let rr = base - 1; rr <= base + 1; rr++) {
         const h = primRange(l.h, rr, seed ^ 0x21, 60);
-        const halfW = Math.max(8, h / tanA);
+        const wHalf = hasW ? primRange(l.w, rr, seed ^ 0x24, 0) / 2 : 0;
+        const halfW = Math.max(8, h / tanA, wHalf);
         const c = rr * R + hash1(rr, seed ^ 0x23) * R;
-        const d = Math.abs(x - c);
-        if (d <= halfW) sum -= h * (1 - d / halfW);
+        if (!hasW || rough <= 0) {
+            const d = Math.abs(x - c);
+            if (d <= halfW) sum -= h * (1 - d / halfW);
+            continue;
+        }
+        // Шероховатый конус: несколько апексов внутри основания (верхняя
+        // огибающая через min), каждый слагаемый не круче angleMax — угол
+        // общей формы остаётся в пределах угла отсыпа.
+        const sub = 3;
+        for (let sl = 0; sl < sub; sl++) {
+            const sid = rr * 53 + sl;
+            const hh = h * (0.6 + 0.4 * hash1(sid, seed ^ 0x26));
+            const cc = c + (hash1(sid, seed ^ 0x27) - 0.5) * (halfW * 0.6);
+            const hw = Math.max(8, hh / tanA, wHalf);
+            const dd = Math.abs(x - cc);
+            if (dd <= hw) sum = Math.min(sum, -hh * (1 - dd / hw));
+        }
     }
     return sum;
 }
 
-// primFlow — язык потока (лава/грязь/лёд/сель). Образцами ЧК0 не используется —
-// минимальная реализация (низкочастотный вал), помечена как гипотеза.
+// primFlow — язык потока (лава/грязь/лёд/сель). Новые поля (спека 2026-09-23
+// §4.7.12): `lobes` — число языков-лопастей на период (несколько стекающих
+// языков, а не один вал); `slope` — асимметрия языка: знак = сторона срыва,
+// модуль = крутизна (0 — симметричный вал); `levees` — доля боковых валов-гребней
+// по краям потока. Без этих полей — прежний одиночный низкочастотный вал
+// (сданные ЧК0/ЧК1/ЧК2 не меняются, §4.7.13).
 function primFlow(x, l, seed) {
     const len = primRange(l.len, 0, seed ^ 0x31, 300);
     const w = primRange(l.w, 0, seed ^ 0x32, 120);
-    const n = fbm1(x / len, seed ^ 0x33, 1);
-    return -w * 0.25 * (2 * n - 1);
+    if (l.lobes == null && l.slope == null && l.levees == null) {
+        const n = fbm1(x / len, seed ^ 0x33, 1);
+        return -w * 0.25 * (2 * n - 1);
+    }
+    const amp = w * 0.25;
+    const lobes = Math.max(1, Math.round(primRange(l.lobes, 0, seed ^ 0x34, 1)));
+    const slope = num(l.slope, 0);
+    const levees = Math.max(0, num(l.levees, 0));
+    const ph = x / len;
+    const i = Math.floor(ph);
+    let f = ph - i;
+    if (slope < 0) f = 1 - f;                       // знак — сторона срыва
+    const skew = Math.min(0.8, Math.abs(slope));    // модуль — крутизна асимметрии
+    const half = 0.5 / lobes;
+    // `lobes` языков-лопастей внутри периода: левый склон пологий, правый — срыв
+    // (или наоборот при slope < 0); при skew = 0 языки симметричны. Языки не
+    // доходят до границ периода (профиль 0 на стыке) — период непрерывен.
+    let prof = 0;
+    for (let k = 0; k < lobes; k++) {
+        const c = (k + 0.5) / lobes;
+        const s = f - c;
+        const a = s < 0 ? half : half * (1 - skew);
+        if (a <= 0 || Math.abs(s) >= a) continue;
+        prof = Math.max(prof, 1 - Math.abs(s) / a);
+    }
+    // Боковые валы-гребни по краям потока (f → 0 и f → 1, §4.7.12).
+    if (levees > 0) {
+        const edge = 1 - Math.min(f, 1 - f) / half;
+        if (edge > 0) prof = Math.max(prof, levees * edge);
+    }
+    const rise = amp * (0.75 + 0.5 * hash1(i, seed ^ 0x36));
+    return -rise * prof;
 }
 
 // primHeight — диспетчер примитивов (§3.1). Неизвестный prim → 0 (forward-compat).

@@ -247,6 +247,28 @@ const desertView = {
     check('H6b skew=1 → конечное число', Number.isFinite(ySkew1), String(ySkew1));
 }
 
+// C1 — crystal.glow (§4.7.12): false → матовый (pal.rock); true/undefined →
+// светится (pal.glow, совместимость со сданными §4.7.13).
+{
+    const w = new SurfaceWorld(mkPkg({
+        biome_view: { palette: { base: '#171a20', rock: '#101318', glow: '#6a7f96' } },
+        view_source: 'catalog',
+    }));
+    const rec = () => {
+        const c = { fillStyle: '', strokeStyle: '', lineWidth: 1, seen: [] };
+        const noop = () => {};
+        c.beginPath = noop; c.moveTo = noop; c.lineTo = noop; c.closePath = noop;
+        c.fill = () => { c.seen.push(c.fillStyle); }; c.stroke = noop;
+        return c;
+    };
+    const c1 = rec(); drawDecorPrim(c1, w, { prim: 'crystal', h: 20, glow: false }, 0, 0);
+    const c2 = rec(); drawDecorPrim(c2, w, { prim: 'crystal', h: 20 }, 0, 0);
+    const c3 = rec(); drawDecorPrim(c3, w, { prim: 'crystal', h: 20, glow: true }, 0, 0);
+    check('C1a crystal.glow:false → матовый (pal.rock)', c1.seen[0] === w.palette.rock, String(c1.seen[0]));
+    check('C1b crystal.glow undefined → светится (pal.glow)', c2.seen[0] === w.palette.glow, String(c2.seen[0]));
+    check('C1c crystal.glow:true → светится (pal.glow)', c3.seen[0] === w.palette.glow, String(c3.seen[0]));
+}
+
 const failed = results.filter(r => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} проверок пройдено`);
 if (failed.length) process.exitCode = 1;

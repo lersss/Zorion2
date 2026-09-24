@@ -267,11 +267,96 @@ func TestBiomeViewVerticalBudget(t *testing.T) {
 
 func TestBiomeViewFallbackNoRecipe(t *testing.T) {
 	cat := GetBiomeCatalog()
-	view, source := cat.ResolveBiomeView("лавовые_поля")
+	// ЧК4 (крио) ещё не раскатан — `ледники` остаётся без рецепта.
+	view, source := cat.ResolveBiomeView("ледники")
 	assert.Nil(t, view, "биом без рецепта — вид не отдаётся (клиент по FORMATIONS)")
 	assert.Equal(t, "fallback", source)
 
 	d := cat.ViewDiagnostics()
-	assert.Contains(t, d.Missing, "лавовые_поля", "биомы без рецепта видны в диагностике (§2.7)")
+	assert.Contains(t, d.Missing, "ледники", "биомы без рецепта видны в диагностике (§2.7)")
 	assert.Empty(t, d.Errors, "в заводском справочнике ошибок вида нет")
+}
+
+// ==================== РЕЦЕПТЫ ЧК3 — ВУЛКАНИЗМ (§4.7) ====================
+
+// TestBiomeViewVolcanicResolve — 7 дельт вулканизма (§4.7.4) резолвятся из
+// справочника, палитра совпадает с color (0 предупреждений, §4.7.9 п.4), а
+// новые нормативные параметры движка (§4.7.12) присутствуют в данных.
+func TestBiomeViewVolcanicResolve(t *testing.T) {
+	cat := GetBiomeCatalog()
+	d := cat.ViewDiagnostics()
+	require.Empty(t, d.Errors, "ЧК3: ошибок вида нет")
+	require.Empty(t, d.Warnings, "ЧК3: предупреждений вида нет (palette.base == color)")
+
+	for _, id := range []string{
+		"лавовые_поля", "вулканические_поля", "обсидиановые_поля", "серные_поля",
+		"магмовый_океан", "венерианские_плоскогорья", "криовулканические_поля",
+	} {
+		view, source := cat.ResolveBiomeView(id)
+		require.Equal(t, "catalog", source, "биом %q: рецепт обязан резолвиться", id)
+		require.NotNil(t, view)
+		def := cat.BiomeByID(id)
+		require.NotNil(t, def)
+		base, ok := nestedString(view, "palette", "base")
+		require.True(t, ok, "%q: палитра обязана нести base", id)
+		assert.Equal(t, def.Color, base, "%q: palette.base == color (§4.7.2)", id)
+	}
+
+	// В1: flow читает lobes/slope/levees (канатные потоки, §4.7.12).
+	lav, _ := cat.ResolveBiomeView("лавовые_поля")
+	flow := reliefLayer(lav, "flow")
+	require.NotNil(t, flow, "лавовые_поля: flow-язык")
+	assert.NotNil(t, flow["lobes"], "flow.lobes")
+	assert.NotNil(t, flow["slope"], "flow.slope")
+	assert.Equal(t, 0.25, flow["levees"], "flow.levees")
+
+	// В3: обсидиан — матовые кристаллы (cluster + glow:false).
+	obs, _ := cat.ResolveBiomeView("обсидиановые_поля")
+	spl := reliefLayer(obs, "spike")
+	require.NotNil(t, spl, "обсидиановые_поля: spike")
+	assert.Equal(t, true, spl["cluster"], "spike.cluster (§4.7.12)")
+	assert.Equal(t, false, crystalGlow(obs), "обсидиан: crystal.glow false (матовый)")
+
+	// В2/В6: fan читает w (переключатель детального конуса, §4.7.13).
+	for _, id := range []string{"вулканические_поля", "венерианские_плоскогорья"} {
+		v, _ := cat.ResolveBiomeView(id)
+		fan := reliefLayer(v, "fan")
+		require.NotNil(t, fan, "%q: fan", id)
+		assert.NotNil(t, fan["w"], "%q: fan.w задан", id)
+		assert.NotNil(t, fan["roughness"], "%q: fan.roughness при w", id)
+	}
+
+	// В6: снег отключён, горизонт — свой (2 пояса).
+	ven, _ := cat.ResolveBiomeView("венерианские_плоскогорья")
+	assert.Equal(t, 0.0, ven["snowLine"], "венерианские: snowLine 0 (§4.7.4)")
+	hz, ok := ven["horizon"].(map[string]any)
+	require.True(t, ok, "венерианские: горизонт в дельте")
+	assert.Len(t, asMapList(hz["layers"]), 2, "венерианские: 2 пояса горизонта")
+
+	// Пресет `лавовые` получил горизонт (вставка B, §4.7.1) — наследуют все 6.
+	cryo, _ := cat.ResolveBiomeView("криовулканические_поля")
+	hz2, ok := cryo["horizon"].(map[string]any)
+	require.True(t, ok, "лавовые: горизонт пресета")
+	assert.Len(t, asMapList(hz2["layers"]), 2, "лавовые: 2 пояса")
+}
+
+// reliefLayer — первый слой relief.layers с данным prim.
+func reliefLayer(view map[string]any, prim string) map[string]any {
+	relief, _ := view["relief"].(map[string]any)
+	for _, l := range asMapList(relief["layers"]) {
+		if p, _ := l["prim"].(string); p == prim {
+			return l
+		}
+	}
+	return nil
+}
+
+// crystalGlow — значение glow первой crystal-записи декора (nil, если поля нет).
+func crystalGlow(view map[string]any) any {
+	for _, d := range asMapList(view["decor"]) {
+		if p, _ := d["prim"].(string); p == "crystal" {
+			return d["glow"]
+		}
+	}
+	return nil
 }

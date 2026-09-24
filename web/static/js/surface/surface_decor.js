@@ -151,7 +151,9 @@ function drawLichen(ctx, pal, d, x, gy) {
 
 function drawCrystal(ctx, pal, d, x, gy) {
     const h = d.h, w = h * 0.5;
-    ctx.fillStyle = pal.glow;
+    // glow (спека 2026-09-23 §4.7.12): false — матовый кристалл (обсидиан, В3);
+    // true/undefined — светится (совместимость со сданными, §4.7.13).
+    ctx.fillStyle = d.glow === false ? pal.rock : pal.glow;
     ctx.beginPath();
     ctx.moveTo(x, gy - h);
     ctx.lineTo(x + w, gy - h * 0.35);

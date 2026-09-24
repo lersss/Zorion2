@@ -12,7 +12,7 @@ import "time"
 type ShipModel struct {
 	ID           string                 `json:"id"`
 	Name         string                 `json:"name"`
-	Slots        map[string]interface{} `json:"slots"`         // {"radar":1,"scanner":1,"engine":1,"universal":1}
+	Slots        map[string]interface{} `json:"slots"`         // {"radar":1,"scanner":1,"engine":1,"universal":3}
 	BaseCapacity float64                `json:"base_capacity"` // врождённая ёмкость трюма, тонны (спека трюма §4)
 	CreatedAt    time.Time              `json:"created_at"`
 }
@@ -62,10 +62,13 @@ const EngineSpeedDefault = 0.3
 const StarterShipModelID = "starter"
 
 // StarterCargoModuleID — стартовый грузовой модуль (спека трюма §8.3):
-// выдаётся в универсальный слот, params.capacity = 80 т.
+// выдаётся в первый универсальный слот, params.capacity = 30 т.
 const StarterCargoModuleID = "cargo_1"
 
 // StarterEquipment — JSON-значение users.equipment для нового игрока.
+// Ключи универсальных слотов — universal / universal2 / universal3 (спека
+// трюма §20.2); пустые слоты ключей НЕ получают (отсутствие ключа = пусто,
+// §20.3) — здесь заполнен только первый.
 var StarterEquipment = map[string]interface{}{
 	"radar":     "radar_1",
 	"scanner":   "scanner_1",

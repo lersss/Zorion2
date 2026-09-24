@@ -388,7 +388,7 @@ func TestGetMeShipSection(t *testing.T) {
 	assert.Equal(t, "Грузовой модуль-1", cargoItem["name"])
 	cargoParams, ok := cargoItem["params"].(map[string]interface{})
 	require.True(t, ok)
-	assert.Equal(t, float64(80), cargoParams["capacity"])
+	assert.Equal(t, float64(30), cargoParams["capacity"])
 	engineItem, ok := catalog[1].(map[string]interface{})
 	require.True(t, ok, "сортировка по id: engine_1 второй")
 	assert.Equal(t, "engine_1", engineItem["id"])

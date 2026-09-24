@@ -33,7 +33,7 @@ var defaultEquipment = []models.EquipmentItem{
 	{ID: "engine_1", Type: models.EquipmentTypeEngine, Name: "Двигатель-1",
 		Params: map[string]interface{}{"speed_factor": models.EngineSpeedDefault}},
 	{ID: models.StarterCargoModuleID, Type: models.EquipmentTypeCargo, Name: "Грузовой модуль-1",
-		Params: map[string]interface{}{"capacity": float64(80)}},
+		Params: map[string]interface{}{"capacity": float64(30)}},
 }
 
 // LoadCatalog — читает справочник оборудования из БД. Пустая БД — дефолты.

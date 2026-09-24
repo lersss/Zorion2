@@ -67,7 +67,7 @@ func TestGetCargoHandler(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, 12.0, resp.Limits.Mass.Used)
-	assert.Equal(t, 100.0, resp.Limits.Mass.Total)
+	assert.Equal(t, 50.0, resp.Limits.Mass.Total)
 	require.Len(t, resp.Items, 1)
 	assert.Equal(t, int64(21), resp.Items[0].GoodID)
 	assert.Equal(t, 12.0, resp.Items[0].Mass)

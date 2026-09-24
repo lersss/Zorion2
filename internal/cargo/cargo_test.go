@@ -29,13 +29,13 @@ func newCargoDB(t *testing.T) (*sql.DB, sqlmock.Sqlmock, *Service) {
 	return db, mock, NewService(db)
 }
 
-// loadShip — дефолты ship: starter 20 + cargo_1 80 = 100 т.
+// loadShip — дефолты ship: starter 20 + cargo_1 30 = 50 т.
 func loadShip() {
 	ship.LoadDefaults()
 	ship.LoadModelDefaults()
 }
 
-// T-1: TryAddCargo клампит по свободной ёмкости (§14 п.2): 95/100 и запрос 20
+// T-1: TryAddCargo клампит по свободной ёмкости (§14 п.2): 45/50 и запрос 20
 // → принято 5; остаток у источника не списывается.
 func TestTryAddCargoClamps(t *testing.T) {
 	loadShip()
@@ -51,7 +51,7 @@ func TestTryAddCargoClamps(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"weight"}).AddRow(1.0))
 	mock.ExpectQuery(`SELECT COALESCE\(SUM\(pc\.quantity \* g\.weight\), 0\)`).
 		WithArgs(testUser).
-		WillReturnRows(sqlmock.NewRows([]string{"sum"}).AddRow(95.0))
+		WillReturnRows(sqlmock.NewRows([]string{"sum"}).AddRow(45.0))
 	mock.ExpectExec(`INSERT INTO player_cargo \(user_id, good_id, quantity, updated_at\)`).
 		WithArgs(testUser, int64(21), 5.0).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -59,7 +59,7 @@ func TestTryAddCargoClamps(t *testing.T) {
 
 	accepted, err := svc.TryAddCargo(testUser, 21, 20)
 	require.NoError(t, err)
-	require.Equal(t, 5.0, accepted, "принято ровно свободное (100-95)")
+	require.Equal(t, 5.0, accepted, "принято ровно свободное (50-45)")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -77,7 +77,7 @@ func TestTryAddCargoFullHold(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"weight"}).AddRow(1.0))
 	mock.ExpectQuery(`SELECT COALESCE\(SUM\(pc\.quantity \* g\.weight\), 0\)`).
 		WithArgs(testUser).
-		WillReturnRows(sqlmock.NewRows([]string{"sum"}).AddRow(100.0))
+		WillReturnRows(sqlmock.NewRows([]string{"sum"}).AddRow(50.0))
 	mock.ExpectRollback()
 
 	accepted, err := svc.TryAddCargo(testUser, 21, 20)
@@ -122,7 +122,7 @@ func TestTryAddCargoFractionalWeightStrictInvariant(t *testing.T) {
 	_, mock, svc := newCargoDB(t)
 
 	const weight = 0.3
-	const free = 100.0 // used = 0, total = 100
+	const free = 50.0 // used = 0, total = 50
 
 	mock.ExpectBegin()
 	mock.ExpectQuery(`SELECT ship_model_id, equipment FROM users WHERE id = \$1 FOR UPDATE`).
@@ -289,7 +289,7 @@ func TestViewForm(t *testing.T) {
 
 	view, err := svc.View(testUser)
 	require.NoError(t, err)
-	require.Equal(t, 100.0, view.Limits.Mass.Total, "starter 20 + cargo_1 80")
+	require.Equal(t, 50.0, view.Limits.Mass.Total, "starter 20 + cargo_1 30")
 	require.Equal(t, 12.0, view.Limits.Mass.Used)
 	require.LessOrEqual(t, view.Limits.Mass.Used, view.Limits.Mass.Total)
 	require.Len(t, view.Items, 1)
@@ -302,7 +302,7 @@ func TestViewForm(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// T-5b: пустой трюм — items: [] (не null), used 0 / total 100.
+// T-5b: пустой трюм — items: [] (не null), used 0 / total 50.
 func TestViewEmptyHold(t *testing.T) {
 	loadShip()
 	_, mock, svc := newCargoDB(t)
@@ -318,7 +318,7 @@ func TestViewEmptyHold(t *testing.T) {
 	view, err := svc.View(testUser)
 	require.NoError(t, err)
 	require.Equal(t, 0.0, view.Limits.Mass.Used)
-	require.Equal(t, 100.0, view.Limits.Mass.Total)
+	require.Equal(t, 50.0, view.Limits.Mass.Total)
 	require.NotNil(t, view.Items, "items должен быть массивом, не null")
 	require.Empty(t, view.Items)
 	require.NoError(t, mock.ExpectationsWereMet())

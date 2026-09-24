@@ -13,7 +13,7 @@ import (
 	"zorion/internal/models"
 )
 
-// loadTestCatalogCargo — каталог с грузовым модулем cargo_1 (80 т) и модулем
+// loadTestCatalogCargo — каталог с грузовым модулем cargo_1 (30 т) и модулем
 // с битым params (null) для проверки безопасного чтения.
 func loadTestCatalogCargo(t *testing.T) {
 	t.Helper()
@@ -26,7 +26,7 @@ func loadTestCatalogCargo(t *testing.T) {
 			AddRow("radar_1", "radar", "Радар-1", `{"radius":800}`).
 			AddRow("scanner_1", "scanner", "Сканер-1", `{"depth":"surface","settlements":true}`).
 			AddRow("engine_1", "engine", "Двигатель-1", `{"speed_factor":0.3}`).
-			AddRow("cargo_1", "cargo", "Грузовой модуль-1", `{"capacity":80}`).
+			AddRow("cargo_1", "cargo", "Грузовой модуль-1", `{"capacity":30}`).
 			AddRow("cargo_bad", "cargo", "Грузовой модуль-битый", `null`))
 
 	require.NoError(t, LoadCatalog(db))
@@ -56,10 +56,34 @@ func TestCargoCapacityMass(t *testing.T) {
 			want:      20,
 		},
 		{
-			name:      "стартовый модуль cargo_1 → 20 + 80 = 100 т",
+			name:      "стартовый модуль cargo_1 → 20 + 30 = 50 т",
 			modelID:   models.StarterShipModelID,
 			equipment: map[string]interface{}{"universal": "cargo_1"},
-			want:      100,
+			want:      50,
+		},
+		{
+			name:      "universal2/universal3 = null (пустой слот) → 50 т",
+			modelID:   models.StarterShipModelID,
+			equipment: map[string]interface{}{"universal": "cargo_1", "universal2": nil, "universal3": nil},
+			want:      50,
+		},
+		{
+			name:      "второй модуль в universal2 → 20 + 30 + 30 = 80 т",
+			modelID:   models.StarterShipModelID,
+			equipment: map[string]interface{}{"universal": "cargo_1", "universal2": "cargo_1"},
+			want:      80,
+		},
+		{
+			name:      "третий модуль в universal3 → 20 + 30 + 30 + 30 = 110 т",
+			modelID:   models.StarterShipModelID,
+			equipment: map[string]interface{}{"universal": "cargo_1", "universal2": "cargo_1", "universal3": "cargo_1"},
+			want:      110,
+		},
+		{
+			name:      "не-cargo модуль в universal2 → не учитывается, 50 т",
+			modelID:   models.StarterShipModelID,
+			equipment: map[string]interface{}{"universal": "cargo_1", "universal2": "radar_1"},
+			want:      50,
 		},
 		{
 			name:      "битый params модуля → только врождённая 20 т",
@@ -89,13 +113,13 @@ func TestCargoCapacityMass(t *testing.T) {
 }
 
 func TestCargoCapacityMassDefaults(t *testing.T) {
-	// Дефолты-страховка (пустая БД): starter 20 + cargo_1 80 = 100 т.
+	// Дефолты-страховка (пустая БД): starter 20 + cargo_1 30 = 50 т.
 	LoadDefaults()
 	LoadModelDefaults()
 
-	require.Equal(t, float64(100), CargoCapacityMass(models.StarterShipModelID,
+	require.Equal(t, float64(50), CargoCapacityMass(models.StarterShipModelID,
 		map[string]interface{}{"universal": models.StarterCargoModuleID}),
-		"стартовый модуль из дефолтов → 100 т")
+		"стартовый модуль из дефолтов → 50 т")
 	require.Equal(t, float64(20), CargoCapacityMass(models.StarterShipModelID, nil),
 		"без модуля → врождённая 20 т")
 }

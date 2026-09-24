@@ -22,7 +22,7 @@ func TestShipModelByIDDefaults(t *testing.T) {
 	require.Equal(t, float64(1), m.Slots["radar"])
 	require.Equal(t, float64(1), m.Slots["scanner"])
 	require.Equal(t, float64(1), m.Slots["engine"])
-	require.Equal(t, float64(1), m.Slots["universal"], "один универсальный слот (спека трюма §5)")
+	require.Equal(t, float64(3), m.Slots["universal"], "три универсальных слота (спека трюма §20)")
 	require.Equal(t, float64(20), m.BaseCapacity, "врождённая ёмкость 20 т (спека трюма §5)")
 
 	require.Nil(t, ShipModelByID("nope"), "неизвестная модель → nil")

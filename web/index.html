@@ -36,14 +36,6 @@
             z-index: 2;
         }
         .ship-slot-empty { border-color: #334155; color: #64748b; }
-        .ship-slot-future {
-            min-width: 26px;
-            min-height: 26px;
-            border: 2px dashed #334155;
-            background: transparent;
-            opacity: 0.55;
-            padding: 0;
-        }
         #ship-section-stats { border-top: 1px solid #334155; padding-top: 10px; font-size: 0.85rem; }
         /* Вкладки дашборда (идея 2026-09-18): паттерн админки (.tab-btn/.tab-pane),
            стиль — в тон дашборда (тёмная тема). Активная вкладка — localStorage
@@ -160,7 +152,8 @@
                         <!-- Схематичный силуэт корабля (спека 91a §4.1): кодовая
                              SVG-фигура, без новых ассетов. Ячейки-слоты — HTML
                              поверх силуэта: радар (нос), сканер (центр), двигатель
-                             (корма) + пустые ячейки будущих слотов (по бортам). -->
+                             (корма) + универсальные слоты (по бортам; число — из
+                             ship_model.slots.universal, спека трюма §20.4). -->
                         <svg viewBox="0 0 300 170" style="width:100%; display:block;">
                             <path d="M150 10 L205 55 L205 105 L150 160 L95 105 L95 55 Z" fill="#0f172a" stroke="#475569" stroke-width="2"/>
                             <path d="M150 10 L172 48 L128 48 Z" fill="#1e293b" stroke="#475569" stroke-width="1.5"/>
@@ -172,10 +165,12 @@
                         <div class="ship-slot" id="slot-radar" style="top:6%; left:50%;"></div>
                         <div class="ship-slot" id="slot-scanner" style="top:40%; left:50%;"></div>
                         <div class="ship-slot" id="slot-engine" style="top:74%; left:50%;"></div>
-                        <div class="ship-slot ship-slot-future" style="top:28%; left:16%;"></div>
-                        <div class="ship-slot ship-slot-future" style="top:28%; left:84%;"></div>
-                        <div class="ship-slot ship-slot-future" style="top:52%; left:10%;"></div>
-                        <div class="ship-slot ship-slot-future" style="top:52%; left:90%;"></div>
+                        <!-- Универсальные слоты (спека трюма §20.2/§20.4): ключи
+                             universal / universal2 / universal3; скрыты, пока
+                             число слотов модели меньше — display задаёт JS. -->
+                        <div class="ship-slot" id="slot-universal" style="top:22%; left:16%; display:none;"></div>
+                        <div class="ship-slot" id="slot-universal2" style="top:46%; left:84%; display:none;"></div>
+                        <div class="ship-slot" id="slot-universal3" style="top:70%; left:16%; display:none;"></div>
                     </div>
                     <div id="ship-section-stats"></div>
                 </div>
@@ -357,7 +352,8 @@
         // ==================== РАЗДЕЛ «КОРАБЛЬ» (спека 91a §3–§6) ====================
         // Показывает только установленное (И1): слоты из users.equipment, имена
         // и характеристики — из ship_catalog (с сервера, И2). Каталог «что
-        // бывает» в UI не рисуется; будущие слоты — пустые ячейки без подписей.
+        // бывает» в UI не рисуется; число универсальных слотов — из формы
+        // модели (ship_model.slots.universal, спека трюма §20.4).
 
         // slotDetail — характеристики установленного модуля для ячейки слота.
         function slotDetail(type, item) {
@@ -371,6 +367,8 @@
                 }
                 case 'engine':
                     return 'Скорость: ' + (typeof p.speed_factor === 'number' ? p.speed_factor : '—') + ' сек/px';
+                case 'cargo':
+                    return '+' + (typeof p.capacity === 'number' ? p.capacity : '—') + ' т';
                 default:
                     return '';
             }
@@ -391,19 +389,35 @@
             const nameEl = document.getElementById('shipSectionModelName');
             if (nameEl) nameEl.textContent = (data.ship_model && data.ship_model.name) || '—';
 
-            // Ячейки-слоты на силуэте: радар (нос), сканер (центр), двигатель (корма).
+            // Ячейки-слоты на силуэте: радар (нос), сканер (центр), двигатель
+            // (корма) + универсальные слоты (число — из формы модели).
             const slotDefs = [
-                { key: 'radar', icon: '📡' },
-                { key: 'scanner', icon: '🔭' },
-                { key: 'engine', icon: '⚙️' },
+                { key: 'radar', icon: '📡', type: 'radar' },
+                { key: 'scanner', icon: '🔭', type: 'scanner' },
+                { key: 'engine', icon: '⚙️', type: 'engine' },
             ];
+            // Универсальные слоты: ключи universal / universal2 / universal3
+            // (спека трюма §20.2); число — из ship_model.slots.universal, не хардкод.
+            const universalCount = (data.ship_model && data.ship_model.slots
+                && Number(data.ship_model.slots.universal)) || 0;
+            for (let i = 1; i <= universalCount; i++) {
+                slotDefs.push({
+                    key: i === 1 ? 'universal' : 'universal' + i,
+                    icon: '📦',
+                    type: 'cargo',
+                    cargoOnly: true,
+                });
+            }
             slotDefs.forEach(def => {
                 const el = document.getElementById('slot-' + def.key);
                 if (!el) return;
+                el.style.display = '';
                 el.innerHTML = '';
                 const itemId = equipment[def.key];
                 const item = itemId ? catalogById[itemId] : null;
-                if (item) {
+                // Универсальный слот занят только грузовым модулем (§20.4 п.3).
+                const occupied = item && (!def.cargoOnly || item.type === 'cargo');
+                if (occupied) {
                     el.classList.remove('ship-slot-empty');
                     const icon = document.createElement('div');
                     icon.textContent = def.icon;
@@ -411,7 +425,7 @@
                     name.textContent = item.name;
                     name.style.fontWeight = '600';
                     const detail = document.createElement('div');
-                    detail.textContent = slotDetail(def.key, item);
+                    detail.textContent = slotDetail(def.type, item);
                     detail.style.color = '#94a3b8';
                     el.appendChild(icon);
                     el.appendChild(name);
@@ -426,6 +440,15 @@
                     el.appendChild(name);
                 }
             });
+            // Универсальные ячейки сверх формы модели — скрыть (без пустых дублей).
+            for (let i = universalCount + 1; i <= 3; i++) {
+                const key = i === 1 ? 'universal' : 'universal' + i;
+                const el = document.getElementById('slot-' + key);
+                if (el) {
+                    el.style.display = 'none';
+                    el.innerHTML = '';
+                }
+            }
 
             // Сводные характеристики: радиус радара, возможности сканера, скорость.
             const statsEl = document.getElementById('ship-section-stats');

@@ -304,7 +304,7 @@ func supplyITRunPass(t *testing.T, db *sql.DB, o OwnerSettlement, now time.Time)
 	require.NoError(t, err)
 	stored, err := repo.loadActiveEffects(ctx, []string{o.ID})
 	require.NoError(t, err)
-	run, err := runOwnerPass(o, recs, stored[o.ID], catalog, known, ownerBatchData{}, nil, now)
+	run, err := runOwnerPass(o, recs, stored[o.ID], catalog, known, ownerBatchData{}, nil, now, false)
 	require.NoError(t, err)
 	return run.result, run.deathInput.Effects
 }
@@ -395,6 +395,45 @@ func TestSupplyEffectsIntegrationLoadAccumulation(t *testing.T) {
 	require.InDelta(t, 2.0, res.Effects[0].Load, 1e-9, "ровно 2 часа при w=1 → load = 2")
 	require.InDelta(t, 2.0, supplyITScalarFloat(t, db,
 		`SELECT load FROM active_effects WHERE owner_id = $1`, s1), 1e-9, "нагрузка записана в БД")
+}
+
+// Регресс к идее 2026-09-25 (найдено @tester): первая ПЕРСИСТЕНТНАЯ запись не
+// должна обнулять накопленную нагрузку. Ветка INSERT `activeEffectUpsertSQL`
+// обязана писать вычисленный `load` ($5), а не литерал 0 — иначе «счёт с
+// рождения» держится только на пути «в памяти», и первый чек-поинт (~30 мин)
+// начинает счёт заново. sqlmock семантику INSERT не эмулирует — кейс проверяется
+// на настоящей PostgreSQL (skips без DATABASE_URL). Guard текста SQL без БД —
+// TestActiveEffectUpsertInsertCarriesComputedLoad.
+func TestSupplyEffectsIntegrationFirstPersistKeepsLoad(t *testing.T) {
+	db := supplyITOpenMigrated(t)
+	planetID := supplyITSeedPlanet(t, db)
+	catID := supplyITSeedCategory(t, db, "Продовольствие", "продовольствие")
+	supplyITSeedGood(t, db, "Пища", supplyITPosition, catID)
+
+	// Новорождённое поселение (computed_at == created_at), без сохранённого
+	// базиса нагрузки и без источников: за 2 ч с рождения w=1 → load = 2.
+	computedAt := time.Now().Add(-2 * time.Hour).Truncate(time.Microsecond)
+	s1 := supplyITSeedSettlement(t, db, planetID, 1_000_000, computedAt)
+
+	now := time.Now()
+	res := supplyITSyncRun(t, db, supplyITOwner(s1, planetID, computedAt, 1_000_000), now)
+	require.Len(t, res.Effects, 1)
+	require.InDelta(t, 1.0, res.Effects[0].W, 1e-9, "нет источника → w=1")
+	require.InDelta(t, 2.0, res.Effects[0].Load, 1e-6, "первый проход видит нагрузку с рождения")
+
+	stored := supplyITScalarFloat(t, db, `SELECT load FROM active_effects WHERE owner_id = $1`, s1)
+	require.InDelta(t, 2.0, stored, 1e-6, "INSERT первой строки сохранил вычисленную нагрузку (не 0)")
+	require.Greater(t, stored, 0.0, "нагрузка не обнулена первой персистентной записью")
+	require.Equal(t, int64(1), supplyITScalarInt(t, db,
+		`SELECT COUNT(*) FROM active_effects WHERE owner_id = $1`, s1))
+
+	// Второй проход (+1 ч) продолжает с сохранённого базиса: 2 + 1 = 3 —
+	// счёт не начинается заново.
+	now2 := now.Add(time.Hour)
+	res2 := supplyITSyncRun(t, db, supplyITOwner(s1, planetID, now, 1_000_000), now2)
+	require.InDelta(t, 3.0, res2.Effects[0].Load, 1e-6, "нагрузка продолжается, а не сбрасывается")
+	require.InDelta(t, 3.0, supplyITScalarFloat(t, db,
+		`SELECT load FROM active_effects WHERE owner_id = $1`, s1), 1e-6)
 }
 
 // T4/T6/М2: порог 24 (нулевой префикс) — при load < порога «снят» (сила 0);

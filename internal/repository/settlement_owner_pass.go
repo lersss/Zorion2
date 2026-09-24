@@ -54,11 +54,15 @@ const (
 		JOIN effect_types et ON et.id = ae.effect_type_id
 		WHERE ae.owner_type = 'settlement' AND ae.owner_id = ANY($1)`
 
-	// activeEffectUpsertSQL — INSERT (новая строка: load = 0, load_at = now,
-	// М4) / DO UPDATE (load = load_new, load_at = now) — идемпотентность, §4.5.
+	// activeEffectUpsertSQL — INSERT (новая строка: load = вычисленный,
+	// load_at = базис) / DO UPDATE (load = load_new, load_at = базис) —
+	// идемпотентность, §4.5. Обе ветки пишут ОДНО вычисленное значение ($5):
+	// иначе первая персистентная запись обнуляла бы нагрузку, накопленную с
+	// рождения (решение создателя 2026-09-25). Прежнее М4 «load = 0,
+	// load_at = now» переопределено: поздняя привязка и так даёт вычисленный 0.
 	activeEffectUpsertSQL = `
 		INSERT INTO active_effects (effect_type_id, owner_type, owner_id, owner_settlement_id, source_position, load, load_at)
-		VALUES ($1, 'settlement', $2, $2, $3, 0, $4)
+		VALUES ($1, 'settlement', $2, $2, $3, $5, $4)
 		ON CONFLICT (owner_type, owner_id, effect_type_id)
 		DO UPDATE SET load = $5, load_at = $4, updated_at = NOW()`
 
@@ -300,7 +304,9 @@ func (r *BranchRepository) syncOwner(ctx context.Context, o OwnerSettlement, bra
 		if err != nil {
 			return OwnerResult{}, err
 		}
-		run, err := runOwnerPass(o, branches, stored, catalog, knownPositions, data, deposits, now)
+		// На пути «в памяти» стадия не оценивается (спека 2026-09-23 §4.4):
+		// сброса базиса по стадии нет.
+		run, err := runOwnerPass(o, branches, stored, catalog, knownPositions, data, deposits, now, false)
 		if err != nil {
 			return OwnerResult{}, err
 		}
@@ -358,6 +364,7 @@ func (r *BranchRepository) syncOwner(ctx context.Context, o OwnerSettlement, bra
 	// Оценка стадии — только на персистентном пути, по ХРАНИМОМУ населению, ДО
 	// производства и ДО расчёта потребности (§4.2/§4.4): производство и
 	// население этого прохода считаются по настройкам одной актуальной стадии.
+	basisReset := false
 	if newTypeID, changed := data.ladder.Select(o.SettlementTypeID, float64(population)); changed {
 		if err := r.applyStageTransition(ctx, tx, &o, newTypeID, txRecs, data.types); err != nil {
 			return OwnerResult{}, err
@@ -373,9 +380,13 @@ func (r *BranchRepository) syncOwner(ctx context.Context, o OwnerSettlement, bra
 			return OwnerResult{}, err
 		}
 		stored = nil
+		// Явный признак сброса-по-стадии: базис обнулён намеренно, счёт идёт с
+		// текущего момента — даже если поселение впервые проходит проход и его
+		// чек-точка совпадает с рождением (иначе получило бы старт с created_at).
+		basisReset = true
 	}
 
-	run, err := runOwnerPass(o, txRecs, stored, catalog, knownPositions, data, deposits, now)
+	run, err := runOwnerPass(o, txRecs, stored, catalog, knownPositions, data, deposits, now, basisReset)
 	if err != nil {
 		return OwnerResult{}, err
 	}
@@ -390,8 +401,10 @@ func (r *BranchRepository) syncOwner(ctx context.Context, o OwnerSettlement, bra
 
 // runOwnerPass — производство → потребность → население (без записи): мутирует
 // display-копии веток и собирает данные записи. data — карты пачки (числа
-// скорости пар + набор рецептов стадии, §3.3).
-func runOwnerPass(o OwnerSettlement, branches []*branchRecord, stored []storedEffect, catalog map[string]effectTypeMeta, knownPositions map[string]bool, data ownerBatchData, deposits map[int64][]settlement.DepositLot, now time.Time) (ownerRun, error) {
+// скорости пар + набор рецептов стадии, §3.3). basisReset — явный признак
+// сброса базиса нагрузки сменой стадии в этом же проходе (§5.1 п.5): базис
+// обнулён намеренно, старт счёта — с текущего момента.
+func runOwnerPass(o OwnerSettlement, branches []*branchRecord, stored []storedEffect, catalog map[string]effectTypeMeta, knownPositions map[string]bool, data ownerBatchData, deposits map[int64][]settlement.DepositLot, now time.Time, basisReset bool) (ownerRun, error) {
 	population := float64(o.Population)
 
 	// 1) Производство: снимок выходного буфера O0_b ДО ProcessBranch (finding 6).
@@ -439,12 +452,24 @@ func runOwnerPass(o OwnerSettlement, branches []*branchRecord, stored []storedEf
 		storedLoad[se.effectTypeID] = se.load
 		storedLoadAt[se.effectTypeID] = se.loadAt
 	}
-	// Новая строка (нет базиса) — load = 0, load_at = now → первый интервал
-	// считается с now (М4, §3.2): Δt = 0, накопления нет.
+	// Новая строка (нет сохранённого базиса) — load = 0, а load_at выбирается
+	// явно (решение создателя 2026-09-25, переопределяет М4 для новорождённых):
+	//   - новорождённое поселение (чек-точка ещё не двигалась — computed_at
+	//     совпадает с created_at) и привязка есть с самого появления → счёт с
+	//     created_at (с рождения);
+	//   - иначе (поселение уже пересчитывалось — привязка появилась позже) →
+	//     счёт с now, без бэкдейта к рождению;
+	//   - сброс базиса сменой стадии (basisReset) → всегда с now, даже если
+	//     поселение новорождённое (базис обнулён намеренно).
+	fromBirth := !basisReset && !o.ComputedAt.After(o.CreatedAt)
 	for _, b := range bindings {
 		if _, ok := storedLoadAt[b.EffectTypeID]; !ok {
 			storedLoad[b.EffectTypeID] = 0
-			storedLoadAt[b.EffectTypeID] = now
+			if fromBirth {
+				storedLoadAt[b.EffectTypeID] = o.CreatedAt
+			} else {
+				storedLoadAt[b.EffectTypeID] = now
+			}
 		}
 	}
 	needs := settlement.ComputeNeeds(settlement.NeedsInput{

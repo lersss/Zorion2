@@ -1,7 +1,7 @@
 {
   "_comment": "Реестр каскадных влияний Zorion. Вопрос: «меняем X → смотрим на Y». Ведёт @manager при сдаче фич (идея 83a): дедупликация по entity.id, schema_version растёт только при изменении структуры, updated_at — дата правки. Сущность заводится при ≥2 потребителях или ≥2 влияниях.",
   "schema_version": 1,
-  "updated_at": "2026-09-24",
+  "updated_at": "2026-09-25",
   "entities": [
     {
       "id": "deposits",
@@ -483,7 +483,7 @@
       "id": "goods",
       "type": "table",
       "path": "db:goods (categories/goods)",
-      "note": "каталог товаров/ресурсов в PostgreSQL (миграция 000045, перенос iterA): categories (товарные + 6 ресурсных системных), goods (name_norm UNIQUE, kind, source, volume/weight NOT NULL DEFAULT 1, props JSONB для ресурсов); сид 131 ресурс + 19 категорий (маркер goods_catalog_seed); БД — источник правды (С1); iterC: fill пишет через ApplyProposals (товары source=ai), слой-ресурсы читает admin_resources (props ? 'closes'); 2026-09-21 рецепт-сущность (000055): состав переехал в recipe_components, сложность — в recipes.complexity, колонки goods_slots и goods.tier_override снесены; статусов/скрытия у товара нет (снято 000054); 2026-09-21 описание каталога (000057): goods.description TEXT NULL — одно поле для товаров и ресурсов (игровое + рабочее различение записей, NULL = нет описания), ИИ-потоки описаний (новые составляющие fill / одиночный по кнопке / пакетный порциями по 10), роуты /studio/api/descriptions/*",
+      "note": "каталог товаров/ресурсов в PostgreSQL (миграция 000045, перенос iterA): categories (товарные + 6 ресурсных системных), goods (name_norm UNIQUE, kind, source, volume/weight NOT NULL DEFAULT 1, props JSONB для ресурсов); сид 131 ресурс + 19 категорий (маркер goods_catalog_seed); БД — источник правды (С1); iterC: fill пишет через ApplyProposals (товары source=ai), слой-ресурсы читает admin_resources (props ? 'closes'); 2026-09-21 рецепт-сущность (000055): состав переехал в recipe_components, сложность — в recipes.complexity, колонки goods_slots и goods.tier_override снесены; статусов/скрытия у товара нет (снято 000054); 2026-09-21 описание каталога (000057): goods.description TEXT NULL — одно поле для товаров и ресурсов (игровое + рабочее различение записей, NULL = нет описания), ИИ-потоки описаний (новые составляющие fill / одиночный по кнопке / пакетный порциями по 10), роуты /studio/api/descriptions/*; 2026-09-25 (синхронизация контента dev→прод, миграция 000084, И1): goods.code TEXT NULL — номерная метка переноса (g_NNNN, SEQUENCE+DEFAULT+частичный UNIQUE), альтернатива name_norm/id для межбазового сопоставления",
       "impacts": [
         { "on": "web/studio.html", "kind": "writes", "reason": "студия (UI на /studio) читает/пишет каталог через /studio/api/* (iterB) + попап fill (iterC)" },
         { "on": "94a", "kind": "reads", "reason": "витрина «Реальные вещества» (iterB): real/real_summary/families из goods kind=resource c props ? 'family'; слой/покрытие/gaps — из props ? 'closes' (iterC)" },
@@ -1053,7 +1053,7 @@
       "id": "producer_types",
       "type": "table",
       "path": "db:producer_types (items, producer_items)",
-      "note": "каталог типов производителей/предметов (миграция 000048; 2026-09-21 дерево построек — 000051: parent_id BIGINT NULL REFERENCES producer_types(id) ON DELETE RESTRICT — базовый тип, race TEXT NULL — уровень расы; семейство — race_family F0–F9|robotic; 2026-09-21 слоты — 000052: набор категорий типа = producer_slots, автоматика по имени удалена; 000054 (снятие согласования каталога): статусы сняты, колонка `hidden` ВОЗВРАЩЕНА — скрытие записи-фабрики, вторая ось к producer_slots.hidden; 000055 (рецепты): конкретная фабрика держит набор рецептов — producer_recipes, подмножество рецептов своей категории). Структура дерева: Строения → классы (товары/предметы/энергия/Другие — фиксированные) → типы (parent_id NULL) → подтипы (parent_id задан, категория только у подтипов kind=goods и только при слоте родителя); уникальность подтипа (parent_id, category_id, race_family, race); переименование не рвёт связи (producer_items/producer_recipes по id); 2026-09-24 (потребление по товарам, миграция 000079, спека 2026-09-24-потребление-по-товарам-и-альтернативы §6.2): params.eat/params.effects ключуются ТОВАРОМ (goods.name_norm), не категорией; один товар — одна нужда; eat_units не меняется; целевые params заданы на всей ладдерe класса «Поселение» — eat={пища:600, очищенная вода:20000000}, effects={пища:голод, очищенная вода:жажда}",
+      "note": "каталог типов производителей/предметов (миграция 000048; 2026-09-21 дерево построек — 000051: parent_id BIGINT NULL REFERENCES producer_types(id) ON DELETE RESTRICT — базовый тип, race TEXT NULL — уровень расы; семейство — race_family F0–F9|robotic; 2026-09-21 слоты — 000052: набор категорий типа = producer_slots, автоматика по имени удалена; 000054 (снятие согласования каталога): статусы сняты, колонка `hidden` ВОЗВРАЩЕНА — скрытие записи-фабрики, вторая ось к producer_slots.hidden; 000055 (рецепты): конкретная фабрика держит набор рецептов — producer_recipes, подмножество рецептов своей категории). Структура дерева: Строения → классы (товары/предметы/энергия/Другие — фиксированные) → типы (parent_id NULL) → подтипы (parent_id задан, категория только у подтипов kind=goods и только при слоте родителя); уникальность подтипа (parent_id, category_id, race_family, race); переименование не рвёт связи (producer_items/producer_recipes по id); 2026-09-24 (потребление по товарам, миграция 000079, спека 2026-09-24-потребление-по-товарам-и-альтернативы §6.2): params.eat/params.effects ключуются ТОВАРОМ (goods.name_norm), не категорией; один товар — одна нужда; eat_units не меняется; целевые params заданы на всей ладдерe класса «Поселение» — eat={пища:600, очищенная вода:20000000}, effects={пища:голод, очищенная вода:жажда}; 2026-09-25 (синхронизация контента dev→прод, миграции 000083/000084, И1): producer_types.code TEXT NULL — номерная метка переноса (p_NNNN, SEQUENCE+DEFAULT+частичный UNIQUE); 000083 — канон-имена класса поселения («Поселение»→«Колония», «Аутпост»→«Форпост», «Посёлок»→«Поселение»), data-driven, идемпотентно; items.code/effect_types.code — та же метка (i_/e_)",
       "impacts": [
         { "on": "web/studio.html", "kind": "writes", "reason": "дерево построек на канвасе (ветка «Производители»), попапы детали/создания, переключатель расовости (спека 2026-09-21-студия-дерево-построек), редактор слотов в карточке родителя (спека скрытых)" },
         { "on": "internal/handlers/studio_handlers.go", "kind": "api", "reason": "CRUD producer_types/items + GET /studio/api/races (семейства+расы из internal/races) + POST/PUT/DELETE /studio/api/slots" },
@@ -1950,6 +1950,24 @@
         { "on": "docs/gamedesign/11_markets.md", "kind": "docs", "reason": "пометка: раздел «Модули» витрины реализован" },
         { "on": "docs/GLOSSARY.md", "kind": "docs", "reason": "«Рынок планеты», «Трейд-ин»" },
         { "on": "docs/DB.md", "kind": "docs", "reason": "таблица market_offers + миграция 000081" }
+      ]
+    },
+    {
+      "id": "content_export",
+      "type": "mechanic",
+      "path": "internal/repository/content_export.go",
+      "note": "Перенос КОНТЕНТА (справочников) dev→прод по требованию, кнопкой. И1 (2026-09-25): номерная метка `code` у goods/producer_types/items/effect_types (миграция 000084; SEQUENCE+DEFAULT+бэкфилл+частичный UNIQUE; g_/p_/i_/e_) + канон-имена класса поселения (000083). И2 (2026-09-25, коммит eb8f801): `GET /studio/api/content/export` → файл content/catalog.json (секции топологически по FK, ссылки меткой/натуральным ключом, БЕЗ id; items.unlocks — producer/category метками; якорь default_settlement_type_id меткой; одна tx REPEATABLE READ; запись файла best-effort + скачивание; env CONTENT_CATALOG_PATH; Dockerfile COPY content/). И3 (импорт с полной заменой: «Проверить»→«Применить», удаление «чего нет в файле» с защитой живых связей, бэкап) — впереди",
+      "impacts": [
+        { "on": "producer_types", "kind": "writes", "reason": "роль `code` (метка) — идентичность записи при переносе; И3 читает/пишет по метке" },
+        { "on": "goods", "kind": "writes", "reason": "роль `code` (метка) — идентичность товаров/ресурсов при переносе" },
+        { "on": "internal/handlers/studio_content.go", "kind": "api", "reason": "сборка снимка + ручка export (админ/скайкомпозер)" },
+        { "on": "internal/repository/content_export.go", "kind": "writes", "reason": "чтение секций каталога в одной транзакции (REPEATABLE READ)" },
+        { "on": "web/studio.html", "kind": "writes", "reason": "кнопка «Экспорт» контента; показ метки `code` в карточках (read-only)" },
+        { "on": "Dockerfile", "kind": "affects", "reason": "COPY content/ — канал доставки снимка в образ прода" },
+        { "on": "content/.gitkeep", "kind": "affects", "reason": "каталог снимка (маркер в git; без него COPY content/ падает на чистом клоне)" },
+        { "on": "docs/DEPLOY.md", "kind": "docs", "reason": "env CONTENT_CATALOG_PATH, состав образа, бэкап перед первым импортом" },
+        { "on": "docs/specs/2026-09-24-каталог-экспорт-импорт-контента-на-прод.md", "kind": "docs", "reason": "спека линии (И1/И2 сданы, И3 впереди)" },
+        { "on": "docs/TAILS.md", "kind": "docs", "reason": "хвост 39 (узел реестра) закрыт этой записью; И3 — в EPICS" }
       ]
     }
   ]

@@ -16,6 +16,7 @@ import (
 
 	"zorion/cmd/art-studio/config"
 	"zorion/cmd/art-studio/generator"
+	"zorion/internal/models"
 )
 
 // newShipsTestStudio — Server с подключёнными конфигами кораблей.
@@ -1185,4 +1186,116 @@ func tinyPNG(t *testing.T) []byte {
 		t.Fatalf("png.Encode: %v", err)
 	}
 	return b.Bytes()
+}
+
+// TestShipsIngame — GET /ships/ingame: состав = реестр + нейтральный (117+1),
+// порядок реестра (людской блок первым, нейтральный последним), race_name из
+// config/races.json; angle/flip присутствуют в JSON даже при нулевых значениях
+// (своя DTO, omitempty модели не просачивается).
+func TestShipsIngame(t *testing.T) {
+	srv, _, _ := newShipsTestStudio(t)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/ships/ingame", nil))
+	// указатели: отличают «поле есть со значением 0» от «поля нет» (omitempty)
+	var items []struct {
+		File     string   `json:"file"`
+		ID       string   `json:"id"`
+		Name     string   `json:"name"`
+		Race     string   `json:"race"`
+		RaceName string   `json:"race_name"`
+		Angle    *float64 `json:"angle"`
+		Flip     *bool    `json:"flip"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &items); err != nil {
+		t.Fatalf("json: %v", err)
+	}
+	if want := len(models.RaceShipSprites) + 1; len(items) != want {
+		t.Fatalf("items = %d, want %d", len(items), want)
+	}
+	// первая — людская
+	first := items[0]
+	if first.ID != "race_humans_starship" || first.Race != "humans" || first.RaceName != "Люди" {
+		t.Errorf("first = %+v, want race_humans_starship/humans/Люди", first)
+	}
+	if first.File != "race_humans_starship.png" {
+		t.Errorf("first.File = %q", first.File)
+	}
+	if first.Angle == nil || *first.Angle != 21.1 {
+		t.Errorf("first.Angle = %v, want 21.1", first.Angle)
+	}
+	if first.Flip == nil || *first.Flip {
+		t.Errorf("first.Flip = %v, want false (поле обязано быть)", first.Flip)
+	}
+	// нулевая запись реестра (второй людской корабль): angle/flip в JSON всё равно
+	// есть — иначе клиент не отличит «0°» от «поля нет»
+	zero := items[1]
+	if zero.ID != "race_humans_starship_02" {
+		t.Fatalf("items[1].ID = %q, want race_humans_starship_02", zero.ID)
+	}
+	if zero.Angle == nil || *zero.Angle != 0 {
+		t.Errorf("zero.Angle = %v, want 0 (обязательное поле)", zero.Angle)
+	}
+	if zero.Flip == nil || *zero.Flip {
+		t.Errorf("zero.Flip = %v, want false (обязательное поле)", zero.Flip)
+	}
+	// последняя — нейтральная, раса пустая → race_name пустой
+	last := items[len(items)-1]
+	if last.File != models.NeutralShip.File || last.ID != models.NeutralShip.ID {
+		t.Errorf("last = %+v, want neutral", last)
+	}
+	if last.Race != "" || last.RaceName != "" {
+		t.Errorf("last.Race/RaceName = %q/%q, want пусто", last.Race, last.RaceName)
+	}
+}
+
+// TestShipsIngameImg — GET /ships/ingame/img/<file> отдаёт PNG из папки
+// игровых спрайтов (в тесте — временная).
+func TestShipsIngameImg(t *testing.T) {
+	srv, _, _ := newShipsTestStudio(t)
+	dir := t.TempDir()
+	pngBytes := tinyPNG(t)
+	if err := os.WriteFile(filepath.Join(dir, "neutral.png"), pngBytes, 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	srv.gameSpritesDirPath = dir
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/ships/ingame/img/neutral.png", nil))
+	if rec.Code != 200 {
+		t.Fatalf("code = %d, want 200", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "image/png" {
+		t.Errorf("Content-Type = %q, want image/png", ct)
+	}
+	if !bytes.Equal(rec.Body.Bytes(), pngBytes) {
+		t.Errorf("тело != исходный PNG")
+	}
+}
+
+// TestShipsIngameImgTraversal — выход из папки спрайтов не отдаёт файл снаружи
+// (filepath.Base нейтрализует ../).
+func TestShipsIngameImgTraversal(t *testing.T) {
+	srv, _, _ := newShipsTestStudio(t)
+	base := t.TempDir()
+	dir := filepath.Join(base, "sprites")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	secret := []byte("SECRET-OUTSIDE")
+	if err := os.WriteFile(filepath.Join(base, "secret.png"), secret, 0o644); err != nil {
+		t.Fatalf("WriteFile secret: %v", err)
+	}
+	srv.gameSpritesDirPath = dir
+	for _, u := range []string{
+		"/ships/ingame/img/../secret.png",
+		"/ships/ingame/img/..%5Csecret.png",
+	} {
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, httptest.NewRequest("GET", u, nil))
+		if bytes.Contains(rec.Body.Bytes(), secret) {
+			t.Errorf("%s: отдан файл вне папки спрайтов", u)
+		}
+		if rec.Code == 200 {
+			t.Errorf("%s: code = 200, want не 200", u)
+		}
+	}
 }

@@ -17,6 +17,8 @@ import (
 	"zorion/cmd/art-studio/handlers"
 )
 
+// UI вшит в бинарь (embed): после правки cmd/art-studio/web/index.html студию
+// нужно пересобрать и перезапустить — иначе в браузере останется старая страница.
 //go:embed web/index.html
 var uiFS embed.FS
 

@@ -40,6 +40,8 @@ type Server struct {
 
 	shipsDirPath string // каталог races/ships/ (в тестах — относительный путь)
 	racesPath    string // config/races.json (валидация ключей ships.json; в тестах — относительный)
+
+	gameSpritesDirPath string // каталог игровых спрайтов кораблей (витрина «В игре»; в тестах — относительный)
 }
 
 // NewServer создаёт Server. uiHTML — содержимое web/index.html (embed в main).
@@ -158,6 +160,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/humans/preview", s.handleHumansPreview)
 	mux.HandleFunc("/humans/img/", s.handleHumansImg)
 	mux.HandleFunc("/ships/races", s.handleShipsRaces)
+	mux.HandleFunc("/ships/ingame", s.handleShipsIngame)
+	mux.HandleFunc("/ships/ingame/img/", s.handleShipsIngameImg)
 	mux.HandleFunc("/ships/info", s.handleShipsInfo)
 	mux.HandleFunc("/ships/prompt", s.handleShipsPrompt)
 	mux.HandleFunc("/ships/rebuild", s.handleShipsRebuild)

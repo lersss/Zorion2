@@ -70,7 +70,17 @@
   <button class="tab" id="tabbtn-ref" onclick="showTab('ref')">Эталон</button>
   <button class="tab" id="tabbtn-humans" onclick="showTab('humans')">Люди</button>
   <button class="tab" id="tabbtn-ships" onclick="showTab('ships')">Корабли рас</button>
+  <button class="tab" id="tabbtn-ingame" onclick="showTab('ingame')">В игре</button>
   <button class="tab" id="tabbtn-gallery" onclick="showTab('gallery')">Галерея</button>
+</div>
+
+<div id="tab-ingame" style="display:none">
+  <div class="toolbar">
+    <span style="color:#ddd;font-size:13px">Витрина всех кораблей игрового реестра (только чтение): картинка, имя и пара показа (угол/зеркало) — как в игре.</span>
+    <span id="ingameStatus" style="color:#8cf;font-size:13px"></span>
+  </div>
+  <div class="grid" id="gridIngame"></div>
+  <div id="ingameMissing" style="margin-top:20px"></div>
 </div>
 
 <div id="tab-pool">
@@ -720,6 +730,7 @@ let shipOverride1=false, shipOverride2=false; // override-режим окоше�
 let shipVotes={}; // file → like/dislike/'' (98c, для повторного клика = снять)
 let shipBust=0; // cache-busting кандидатов: растёт на каждый «Сгенерировать» — URL ?t= меняется, браузер не отдаёт закэшированную старую картинку (s01..sNN перезаписываются)
 let shipItems=[]; // последний ответ /ships/list (режим приёмки фильтрует по расе)
+let pendingShipRace=''; // раса из витрины «В игре»: применится в loadShipsRaces после подгрузки опций (без гонки)
 async function loadShipsRaces(){
   const sel=document.getElementById('shipRace');
   const r=await fetch('/ships/races'); const j=await r.json();
@@ -729,8 +740,76 @@ async function loadShipsRaces(){
   sel.innerHTML=h;
   const saved=getUIState('shipRace');
   if(saved && [...sel.options].some(o=>o.value===saved)) sel.value=saved;
+  // отложенный выбор из витрины «В игре»: применяем ПОСЛЕ восстановления опций,
+  // ниже refreshShipsPrompt()/loadShipsList() отработают уже с ним
+  if(pendingShipRace){
+    if([...sel.options].some(o=>o.value===pendingShipRace)) sel.value=pendingShipRace;
+    pendingShipRace='';
+  }
   refreshShipsPrompt();
   loadShipsList();
+}
+// goToRaceShips — переход из витрины «В игре» во вкладку «Корабли рас» с
+// выбранной расой: селект грузится асинхронно, поэтому выбор откладываем в
+// pendingShipRace (применится в loadShipsRaces после подгрузки опций).
+function goToRaceShips(slug){
+  pendingShipRace=slug||'';
+  showTab('ships');
+}
+// loadIngame — витрина «В игре»: тянем /ships/ingame и /ships/races независимо,
+// группируем корабли по расам в порядке реестра (нейтральный — последним),
+// показываем пару (угол/зеркало) через applyOrientToImg; отдельным блоком —
+// расы каталога без корабля. Только чтение; повторный вызов перерисовывает.
+async function loadIngame(){
+  const g=document.getElementById('gridIngame');
+  const st=document.getElementById('ingameStatus');
+  const md=document.getElementById('ingameMissing');
+  if(!g) return;
+  let ships=[], races=[];
+  try{
+    const [rs, rr]=await Promise.all([fetch('/ships/ingame'), fetch('/ships/races')]);
+    ships=await rs.json();
+    const jr=await rr.json();
+    races=jr.races||[];
+  }catch(e){
+    if(st) st.textContent='Ошибка загрузки: '+e.message;
+    return;
+  }
+  if(!Array.isArray(ships)) ships=[];
+  // группировка по расе: порядок появления = порядок реестра (у нейтрального race пустой)
+  const groups=[], byRace={};
+  ships.forEach(it=>{
+    const key=it.race||'';
+    let grp=byRace[key];
+    if(!grp){ grp={key:key, name:it.race_name||'Нейтральный', items:[]}; byRace[key]=grp; groups.push(grp); }
+    grp.items.push(it);
+  });
+  let h=`<div style="flex:0 0 100%;color:#888;font-size:13px">Кораблей в игре: ${ships.length} · групп: ${groups.length}</div>`;
+  groups.forEach(grp=>{
+    h+=`<div style="flex:0 0 100%;margin:14px 0 0;color:#e8a33d;font-size:15px;font-weight:bold">${grp.name} <span style="color:#888;font-weight:normal;font-size:13px">· ${grp.items.length}</span></div>`;
+    grp.items.forEach(it=>{
+      h+=`<div class="cell"><img class="orient" data-a="${it.angle||0}" data-f="${it.flip?1:0}" src="/ships/ingame/img/${it.file}" alt="${it.name}" onclick="window.open('/ships/ingame/img/${it.file}','_blank')">
+      <div class="name">${it.name}</div>
+      <div style="font-size:11px;color:#888">${it.file}</div></div>`;
+    });
+  });
+  g.innerHTML=h;
+  g.querySelectorAll('img.orient').forEach(im=>{ applyOrientToImg(im, parseFloat(im.dataset.a)||0, im.dataset.f==='1'); });
+  // расы каталога без корабля — «что осталось нарисовать»
+  const have={};
+  groups.forEach(grp=>{ if(grp.key) have[grp.key]=true; });
+  const missing=races.filter(r=>!have[r.slug]);
+  if(md){
+    if(missing.length){
+      md.innerHTML=`<div style="color:#c66;font-size:15px;font-weight:bold;margin-bottom:6px">Без корабля: ${missing.length}</div>`
+        +`<div style="display:flex;flex-wrap:wrap;gap:8px">`
+        +missing.map(r=>`<button class="gen" style="background:#a33;padding:6px 10px;font-size:13px" onclick="goToRaceShips('${r.slug}')" title="Открыть вкладку «Корабли рас» с этой расой">${r.name}</button>`).join('')
+        +`</div>`;
+    } else {
+      md.innerHTML='<div style="color:#2a7;font-size:13px">Все расы каталога имеют корабль.</div>';
+    }
+  }
+  if(st) st.textContent='';
 }
 async function refreshShipsPrompt(){
   const race=document.getElementById('shipRace').value;
@@ -1250,17 +1329,20 @@ function showTab(name){
   document.getElementById('tab-ref').style.display = name==='ref' ? '' : 'none';
   document.getElementById('tab-humans').style.display = name==='humans' ? '' : 'none';
   document.getElementById('tab-ships').style.display = name==='ships' ? '' : 'none';
+  document.getElementById('tab-ingame').style.display = name==='ingame' ? '' : 'none';
   document.getElementById('tab-gallery').style.display = name==='gallery' ? '' : 'none';
   document.getElementById('tabbtn-pool').classList.toggle('active', name==='pool');
   document.getElementById('tabbtn-ref').classList.toggle('active', name==='ref');
   document.getElementById('tabbtn-humans').classList.toggle('active', name==='humans');
   document.getElementById('tabbtn-ships').classList.toggle('active', name==='ships');
+  document.getElementById('tabbtn-ingame').classList.toggle('active', name==='ingame');
   document.getElementById('tabbtn-gallery').classList.toggle('active', name==='gallery');
   saveUIState('raceTab', name);
   if(name==='ref') loadRef();
   if(name==='pool') updateVarBtn();
   if(name==='humans') loadHumans();
   if(name==='ships') loadShipsRaces();
+  if(name==='ingame') loadIngame();
   if(name==='gallery') loadGallery();
   schedulePromptUpdate();
 }

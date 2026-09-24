@@ -16,6 +16,7 @@ import (
 
 	"zorion/cmd/art-studio/config"
 	"zorion/cmd/art-studio/generator"
+	"zorion/internal/models"
 )
 
 // --- Вкладка «Корабли рас» (спека 2026-09-20-ships-races-generator §6) ---
@@ -229,6 +230,42 @@ func (s *Server) handleShipsImg(w http.ResponseWriter, r *http.Request) {
 	servePNG(w, fp)
 }
 
+// shipIngameItem — запись витрины «В игре»: корабль игрового реестра.
+// Своя DTO над models.ShipSprite: angle/flip обязаны быть в JSON всегда
+// (в модели omitempty), плюс race_name из config/races.json.
+type shipIngameItem struct {
+	File     string  `json:"file"`
+	ID       string  `json:"id"`
+	Name     string  `json:"name"`
+	Race     string  `json:"race"`
+	RaceName string  `json:"race_name"`
+	Angle    float64 `json:"angle"`
+	Flip     bool    `json:"flip"`
+}
+
+// handleShipsIngame — GET /ships/ingame → [{file, id, name, race, race_name,
+// angle, flip}]: витрина всех кораблей, уже лежащих в игре (реестр
+// models.ShipOptions = RaceShipSprites + NeutralShip; порядок реестра,
+// нейтральный последним). Только чтение.
+func (s *Server) handleShipsIngame(w http.ResponseWriter, r *http.Request) {
+	out := make([]shipIngameItem, 0, len(models.ShipOptions))
+	for _, sp := range models.ShipOptions {
+		out = append(out, shipIngameItem{
+			File: sp.File, ID: sp.ID, Name: sp.Name, Race: sp.Race,
+			RaceName: s.raceNameBySlug[sp.Race], Angle: sp.Angle, Flip: sp.Flip,
+		})
+	}
+	writeJSON(w, out)
+}
+
+// handleShipsIngameImg — GET /ships/ingame/img/<file> → PNG из игровой папки
+// спрайтов. filepath.Base — защита от выхода из папки.
+func (s *Server) handleShipsIngameImg(w http.ResponseWriter, r *http.Request) {
+	fname := filepath.Base(r.URL.Path[len("/ships/ingame/img/"):])
+	fp := filepath.Join(s.gameSpritesDir(), fname)
+	servePNG(w, fp)
+}
+
 // handleShipsAct — GET /ships/act?file=&what=accept|reject|rotate&angle=<deg>|
 // rot90|rot180|flipH|setangle&angle=<abs>|auto|fit → {msg, angle, flip}
 // (спека 2026-09-21 §4.1). Действия ориентации (rotate/rot90/rot180/flipH/
@@ -402,6 +439,16 @@ func (s *Server) shipsDir() string {
 		return s.shipsDirPath
 	}
 	return "docs/gamedesign/races/ships"
+}
+
+// gameSpritesDir — каталог игровых спрайтов кораблей (витрина «В игре»).
+// Поле Server (как shipsDirPath): в тестах переопределяется на относительный
+// путь; имя отличается от shipsDirPath (тот занят каталогом лора).
+func (s *Server) gameSpritesDir() string {
+	if s.gameSpritesDirPath != "" {
+		return s.gameSpritesDirPath
+	}
+	return "web/static/sprites"
 }
 
 // --- Режим приёмки кораблей: подсказка носа, счётчик ---

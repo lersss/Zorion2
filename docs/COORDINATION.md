@@ -54,8 +54,7 @@
 | Файл | Кто правит | До какого коммита |
 |---|---|---|
 | `migrations/000078_belt_ice_remaining.sql`, `internal/models/{current_position,planet}.go`, `internal/repository/planet_repo.go` (+тест), `internal/handlers/{belt_mining_handlers,planet_visibility}.go` (+тесты), `internal/handlers/belt_visibility_test.go` | @developer (подэтап 4a «лёд → Вода неочищенная», спека 2026-09-24) | без коммита (гейт) |
-| `web/studio.html`, `internal/handlers/studio_producer_params.go`, `internal/handlers/studio_handlers.go`, `internal/repository/producer_repository.go` (+тесты) | @developer (эпик «Снабжение форпоста водой»: И2 — селект ТОВАРА в «Потребляет» + валидация позиции-товара) | до коммита И2 |
-| `web/static/js/belt/{belt_config,belt_world,belt_render,belt_net,belt_main,belt_ui}.js`, `web/belt.html`, `web/static/css/belt.css`, `web/static/js/modal/{panel,events}.js`, `tools/e2e/belt-mining-check.js` | @developer (подэтап 4b «клиент: лёд → Вода неочищенная», спека 2026-09-24) | без коммита (гейт) |
+| `web/static/js/belt/{belt_config,belt_world,belt_render,belt_net,belt_main,belt_ui}.js`, `web/belt.html`, `web/static/css/belt.css`, `web/static/js/modal/{panel,events}.js`, `tools/e2e/{belt-mining-check,belt-ice-shot,belt-sprites-shot}.js`, `tools/e2e/qa-belt-null-enter.js` | @developer (подэтапы 4b/4c «лёд → Вода неочищенная»: клиент + ледяные ассеты, спека 2026-09-24) | без коммита (гейт) |
 
 ## Занято ранее (историческое, не блокирует — чистится @manager по мере надобности)
 

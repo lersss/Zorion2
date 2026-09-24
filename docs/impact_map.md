@@ -18,8 +18,8 @@
 | 99_roadmap.md | docs/gamedesign/99_roadmap.md | горячий док: статусы фич §99.2; ведёт @dispatcher по дельтам менеджера (строку добавляет менеджер) |
 | CHANGELOG.md | CHANGELOG.md | горячий док: история релизов/фич; ведёт @dispatcher по дельтам менеджера |
 | 77a | docs/specs/77a-ship-equipment-radar.md | спека «Модель корабля, оборудование и радар — видимость игрока» (77a, 2026-09-17); три сущности: ship_models, equipment, player… |
-| ship_models | db:ship_models | справочник моделей кораблей (id, name, slots JSONB); users.ship_model_id → ship_models.id (000040) |
-| equipment | db:equipment | справочник оборудования (radar/scanner/engine, params JSONB); users.equipment → справочник (000040/000042) |
+| ship_models | db:ship_models | справочник моделей кораблей (id, name, slots JSONB, base_capacity); users.ship_model_id → ship_models.id (000040); дельта трюма 2026-09-24: slots.universal = 3 |
+| equipment | db:equipment | справочник оборудования (radar/scanner/engine/cargo, params JSONB); users.equipment → справочник (000040/000042; cargo_1 — 000068); дельта трюма 2026-09-24: cargo_1 capacity 30 т |
 | player_planet_knowledge | db:player_planet_knowledge | личный каталог знания о планетах (user_id, planet_id, data, scanned_at, source; PK user+planet; протухание 7 дней — статус на ч… |
 | 88a.1 | docs/specs/_archive/88a.1-art-studio-water-f1.md | спека арт-студии: семейство F1 «Водные» (расы 2–4), люди → F0 (88a, 2026-09-17) |
 | 94a | docs/specs/_archive/94a-consumption-catalog.md | спека «Каталог ресурсов + потребление рас» (94a, 2026-09-18): универсальный слой 20 ресурсов, 13 шаблонов хемотипов, мост consu… |

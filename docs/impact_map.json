@@ -258,11 +258,12 @@
       "id": "ship_models",
       "type": "table",
       "path": "db:ship_models",
-      "note": "справочник моделей кораблей (id, name, slots JSONB, base_capacity DOUBLE — врождённая ёмкость трюма, 000068); users.ship_model_id → ship_models.id (000040)",
+      "note": "справочник моделей кораблей (id, name, slots JSONB, base_capacity DOUBLE — врождённая ёмкость трюма, 000068); users.ship_model_id → ship_models.id (000040); дельта трюма 2026-09-24: у стартовой модели slots.universal = 3 (три универсальных слота)",
       "impacts": [
         { "on": "db:users.ship_model_id", "kind": "schema", "reason": "колонка users.ship_model_id ссылается на справочник; смена модели = UPDATE данных" },
         { "on": "internal/ship/catalog.go", "kind": "reads", "reason": "каталог моделей читается сервером (77a)" },
         { "on": "cargo_capacity", "kind": "reads", "reason": "врождённая ёмкость модели base_capacity (трюм, коммит bdc76c7)" },
+        { "on": "web/index.html", "kind": "reads", "reason": "число универсальных слотов (slots.universal) — отрисовка раздела «Корабль» (дельта трюма 2026-09-24)" },
         { "on": "77a", "kind": "duplicates", "reason": "модели и слоты зафиксированы в спеке §2–§3" }
       ]
     },
@@ -270,12 +271,14 @@
       "id": "equipment",
       "type": "table",
       "path": "db:equipment",
-      "note": "справочник оборудования (radar/scanner/engine/cargo, params JSONB); users.equipment → справочник (000040/000042; тип cargo и модуль cargo_1 — миграция 000068, трюм)",
+      "note": "справочник оборудования (radar/scanner/engine/cargo, params JSONB); users.equipment → справочник (000040/000042; тип cargo и модуль cargo_1 — миграция 000068, трюм); дельта трюма 2026-09-24: cargo_1 params.capacity = 30 т (было 80)",
       "impacts": [
         { "on": "db:users.equipment", "kind": "schema", "reason": "колонка users.equipment JSONB хранит установленное оборудование; params = ключ справочника" },
         { "on": "internal/ship/catalog.go", "kind": "reads", "reason": "каталог оборудования читается сервером (77a)" },
         { "on": "cargo_capacity", "kind": "reads", "reason": "params.capacity грузового модуля → ёмкость трюма (трюм, коммит bdc76c7)" },
+        { "on": "web/index.html", "kind": "reads", "reason": "имя и бонус модуля в универсальном слоте раздела «Корабль» (дельта трюма 2026-09-24)" },
         { "on": "migrations/000068_cargo_hold.sql", "kind": "schema", "reason": "CHECK type расширен значением cargo + сид cargo_1 (трюм)" },
+        { "on": "migrations/000080_cargo_hold_delta.sql", "kind": "schema", "reason": "дельта трюма 2026-09-24: cargo_1 capacity 80 → 30 т, три универсальных слота, обрезка перегруза" },
         { "on": "77a", "kind": "duplicates", "reason": "типы и параметры оборудования зафиксированы в спеке §2–§3" }
       ]
     },
@@ -386,7 +389,9 @@
         { "on": "61b", "kind": "reads", "reason": "селектор внешнего вида (сетка + палитра) — вкладка «Внешний вид»" },
         { "on": "web/static/js/dashboard/*.js", "kind": "reads", "reason": "энциклопедия/журнал/разделы рендерятся в дашборд" },
         { "on": "web/static/js/map/ship_sprites.js", "kind": "reads", "reason": "перекраска спрайтов корабля (превью/сетка) из ship_sprites" },
-        { "on": "money_ui", "kind": "reads", "reason": "строка «Счёт: … Cr» в шапке и вкладка «💳 Счёт» (баланс + история, 2026-09-23)" }
+        { "on": "money_ui", "kind": "reads", "reason": "строка «Счёт: … Cr» в шапке и вкладка «💳 Счёт» (баланс + история, 2026-09-23)" },
+        { "on": "ship_models", "kind": "reads", "reason": "число универсальных слотов (slots.universal) — отрисовка универсальных слотов раздела «Корабль» (дельта трюма 2026-09-24)" },
+        { "on": "equipment", "kind": "reads", "reason": "имя/параметры модуля универсального слота (ключи universal/universal2/universal3) — раздел «Корабль» (дельта трюма 2026-09-24)" }
       ]
     },
     {
@@ -1393,19 +1398,20 @@
       "id": "cargo_capacity",
       "type": "mechanic",
       "path": "docs/specs/2026-09-22-трюм-грузоподъёмность-корабля.md",
-      "note": "грузоподъёмность корабля (трюм; спека 2026-09-22-трюм-грузоподъёмность-корабля, реализовано, коммит bdc76c7): ёмкость — производная (ship_models.base_capacity + Σ params.capacity установленных cargo-модулей в универсальном слоте); лимит — только масса (задел под объём вторым лимитом); жёсткий предел с частичной погрузкой; запись — внутренний сервис, единственная player-facing — «груз за борт» POST /api/cargo/jettison; чтение GET /api/cargo + блок «Трюм» в разделе «Корабль» (91a).",
+      "note": "грузоподъёмность корабля (трюм; спека 2026-09-22-трюм-грузоподъёмность-корабля, реализовано, коммит bdc76c7): ёмкость — производная (ship_models.base_capacity + Σ params.capacity установленных cargo-модулей в универсальном слоте); лимит — только масса (задел под объём вторым лимитом); жёсткий предел с частичной погрузкой; запись — внутренний сервис, единственная player-facing — «груз за борт» POST /api/cargo/jettison; чтение GET /api/cargo + блок «Трюм» в разделе «Корабль» (91a). Дельта трюма 2026-09-24 (коммит 86a0412): стартовая ёмкость 50 т (20 врождённых + модуль 30), три универсальных слота, миграция 000080 обрезает перегруженные трюмы.",
       "impacts": [
         { "on": "ship_models", "kind": "reads", "reason": "врождённая ёмкость модели base_capacity" },
         { "on": "equipment", "kind": "reads", "reason": "params.capacity установленных грузовых модулей типа cargo" },
-        { "on": "db:users.equipment", "kind": "reads", "reason": "какие модули стоят в слотах (в т.ч. universal)" },
+        { "on": "db:users.equipment", "kind": "reads", "reason": "какие модули стоят в слотах (в т.ч. universal/universal2/universal3 — три универсальных слота, дельта 2026-09-24)" },
         { "on": "player_cargo", "kind": "reads", "reason": "занятая масса = Σ quantity × goods.weight" },
         { "on": "internal/cargo/cargo.go", "kind": "writes", "reason": "сервис трюма: GetCargo/TryAddCargo/TakeCargo/JettisonCargo/CargoMass (коммит bdc76c7)" },
         { "on": "internal/handlers/cargo_handlers.go", "kind": "api", "reason": "GET /api/cargo, POST /api/cargo/jettison" },
         { "on": "web/static/js/dashboard/cargo.js", "kind": "reads", "reason": "блок «Трюм» в разделе «Корабль» дашборда" },
-        { "on": "belt", "kind": "affects", "reason": "будущее: добыча в поясе кладёт добытое в трюм (первый потребитель)" },
+        { "on": "belt", "kind": "affects", "reason": "добыча в поясе кладёт добытое в трюм; предел стал 50 т (дельта трюма 2026-09-24, было 100 т)" },
         { "on": "internal/handlers/contract_handlers.go", "kind": "affects", "reason": "будущее: требование-окно «трюм N т» в контрактах на перевозку" },
         { "on": "internal/travel/manager.go", "kind": "affects", "reason": "кандидат: скорость от загруженности (77a §1.3) — не сейчас" },
-        { "on": "docs/specs/2026-09-22-трюм-грузоподъёмность-корабля.md", "kind": "duplicates", "reason": "спека-источник (реализована, коммит bdc76c7)" }
+        { "on": "migrations/000080_cargo_hold_delta.sql", "kind": "schema", "reason": "дельта 2026-09-24: cargo_1 80 → 30 т, slots.universal 1 → 3, обрезка перегруженных трюмов" },
+        { "on": "docs/specs/2026-09-22-трюм-грузоподъёмность-корабля.md", "kind": "duplicates", "reason": "спека-источник (реализована, коммит bdc76c7; дельта §20 — коммит 86a0412)" }
       ]
     },
     {

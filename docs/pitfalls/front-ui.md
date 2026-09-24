@@ -279,6 +279,37 @@
   сдвиг на показе); арифметику времени (прогресс полёта, «осталось N»,
   сравнения `Date.now()`) сдвигать нельзя — метки в БД/API реальные.
 
+- **Перерисовка правой панели модалки (`renderCard`) затирает состояние
+  интерфейса, живущее не в `modalState`, а в DOM/замыканиях (баг 2026-09-25).**
+  `panel.innerHTML = …` + `renderTabContent` пересоздают содержимое: форма
+  «Построить» (`modal/build.js`), скролл `#right-panel`, раскрытые инлайн-детали
+  (`[data-building-details]`/`[data-faction-details]`), выбранный слот магазина и
+  поля админ-форм сбрасывались на каждом фоновом обновлении (автообновление
+  карточки `debugAutoRefreshPlanet`, «🔄 Обновить», async `/me`, прилёт). Правило:
+  состояние интерфейса хранить в `modalState` (или модульной памяти, как
+  `depositResourcesCache`) и возвращать после рендера — перерисовка
+  неразрушающая. Механизм: `modalState.buildForms`/`marketSlots`/
+  `adminFormValues`/`expandedBuildings`/`expandedFactions`/`cardPlanetId`, helpers
+  `captureDetails`/`restoreDetails`/`captureAdminFields`/`applyAdminFields`
+  (`modal/tabs.js`) и чистые `mergeDetailIds`/`expandDetailIds`/`resolveMarketSlot`
+  (`modal/ui_state.js`). Захват — ДО `innerHTML` (`renderCard`), возврат — ПОСЛЕ;
+  захват идёт под `modalState.cardPlanetId` (планету, чья карточка сейчас в DOM),
+  возврат — под рендеримую планету: без этого при переходе A→B значения полей A
+  переезжали в память B. Селекты с асинхронными опциями переприменяются после их
+  подгрузки. Тот же приём, что для `activeTab`/`selectedSatellite` (баг
+  2026-09-21). Смежное:
+  `loadOptions` обязан иметь гвард `container.isConnected` (незавершённая загрузка
+  не пишет в отсоединённый контейнер); замыкание на локальный `planets` в
+  `renderModal` устаревает после `refreshPlanets` — читать `modalState.planets`.
+  **Перерисовка при редактировании недопустима** (решение создателя 2026-09-25):
+  сохранение значений само по себе не спасает от выбивания фокуса/каретки и
+  закрытия открытого нативного `<select>`. Пока фокус на редактируемом контроле
+  (`input`/`select`/`textarea`/contenteditable) внутри `#right-panel`,
+  автоматический тик **откладывается** (флаг `modalState.autoRefreshDeferred`,
+  идемпотентно) и применяется один раз делегированным `focusout` при уходе фокуса
+  из панели (`panel.js`, `isEditableControl` в `modal/ui_state.js`). Ручные пути
+  (`refreshPlanets` по кнопке «Обновить»/прилёте/`/me`) обновляют немедленно.
+
 - **`palette.haze` рецепта биома отрисовкой не потребляется — дымка ярусов берёт
   цвет неба/базы (ЧК2 «Мир прогулки», 2026-09-25).** Поле `haze` из палитры вида
   биома (`BiomeDef.view`) не читается клиентом прогулки

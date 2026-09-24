@@ -102,6 +102,7 @@ func (c *BiomeCatalog) resolveBiomeView(b *BiomeDef) (map[string]any, []ViewIssu
 
 // mergeViewMaps — слияние рецепта по трём правилам §2.3: карты — по ключам
 // (рекурсивно), всё остальное (скаляр, список) — перекрытие дельтой целиком.
+// Ловушка: horizon может задаваться в дельте биома, а не только в пресете семейства — семейный горизонт не единственный источник (при отладке ярусов/дальнего плана).
 func mergeViewMaps(preset, delta map[string]any) map[string]any {
 	out := make(map[string]any, len(preset)+len(delta))
 	for k, v := range preset {

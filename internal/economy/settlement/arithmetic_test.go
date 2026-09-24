@@ -75,6 +75,74 @@ func TestComputePositionArithmeticEmpty(t *testing.T) {
 	}
 }
 
+// T12: строка нужды (§10.2) — позиция из effects получает норму и покрытие/
+// дефицит из слоя потребности (w): covered = 1 − w, кламп [0,1]; позиция без
+// эффекта (только источник) нужды не несёт.
+func TestAttachNeedArithmetic(t *testing.T) {
+	positions := ComputePositionArithmetic(1e9,
+		map[string]string{"очищенная вода": "жажда", "вода": "жажда"},
+		map[string]float64{"очищенная вода": 2e7},
+		[]ArithmeticSource{
+			{Position: "очищенная вода", RatePerDayPerBillion: 0},
+			{Position: "вода", RatePerDayPerBillion: 0},
+		})
+	// «вода» в effects есть, но в этот эффект не привязана (нет bindings) —
+	// берём только «очищенную воду» как привязанную позицию.
+	bindings := []NeedsBinding{{
+		Position: "очищенная вода", EffectTypeName: "жажда", EffectTypeID: 5, NormPerDayPerBillion: 2e7,
+	}}
+	effects := []EffectRun{{EffectTypeID: 5, W: 0.58}}
+
+	got := AttachNeedArithmetic(positions, bindings, effects)
+	if len(got) != 2 {
+		t.Fatalf("ожидали 2 позиции, получили %d: %+v", len(got), got)
+	}
+	var water *PositionArithmetic
+	for i := range got {
+		if got[i].Position == "очищенная вода" {
+			water = &got[i]
+		}
+	}
+	if water == nil {
+		t.Fatalf("позиция «очищенная вода» не найдена: %+v", got)
+	}
+	if water.Need != "жажда" || water.Effect != "жажда" {
+		t.Fatalf("нужда позиции: need=%q effect=%q, ждали «жажда»/«жажда»", water.Need, water.Effect)
+	}
+	if d := math.Abs(water.NormPerDayPerBillion - 2e7); d > 1e-9 {
+		t.Fatalf("норма позиции = %v, ждали 2e7", water.NormPerDayPerBillion)
+	}
+	if d := math.Abs(water.DeficitShare - 0.58); d > 1e-9 {
+		t.Fatalf("дефицит = %v, ждали 0.58", water.DeficitShare)
+	}
+	if d := math.Abs(water.CoveredShare - 0.42); d > 1e-9 {
+		t.Fatalf("покрытие = %v, ждали 0.42", water.CoveredShare)
+	}
+	// Позиция без привязки — без нужды (нули).
+	for i := range got {
+		if got[i].Position == "вода" && (got[i].Need != "" || got[i].CoveredShare != 0) {
+			t.Fatalf("позиция без привязки не должна нести нужду: %+v", got[i])
+		}
+	}
+}
+
+// Дефицит клампится в [0,1]: w < 0 → покрытие 1, дефицит 0.
+func TestAttachNeedArithmeticClamp(t *testing.T) {
+	positions := ComputePositionArithmetic(1e9,
+		map[string]string{"пища": "голод"}, nil,
+		[]ArithmeticSource{{Position: "пища", RatePerDayPerBillion: 600}})
+	bindings := []NeedsBinding{{Position: "пища", EffectTypeName: "голод", EffectTypeID: 1, NormPerDayPerBillion: 600}}
+	effects := []EffectRun{{EffectTypeID: 1, W: -0.5}}
+
+	got := AttachNeedArithmetic(positions, bindings, effects)
+	if len(got) != 1 {
+		t.Fatalf("ожидали одну позицию: %+v", got)
+	}
+	if got[0].DeficitShare != 0 || got[0].CoveredShare != 1 {
+		t.Fatalf("кламп: дефицит %v, покрытие %v (ждали 0/1)", got[0].DeficitShare, got[0].CoveredShare)
+	}
+}
+
 // «Забираем» — по ветке: выход × quantity_i; дубликат компонента сводится.
 func TestBranchTakePerDay(t *testing.T) {
 	takes := BranchTakePerDay(600, 1e9, []BranchComponent{

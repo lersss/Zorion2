@@ -41,6 +41,13 @@ func TestSyncSettlementsArithmeticShowcase(t *testing.T) {
 	require.InDelta(t, ownerTestRate, a.ProducedPerDay, 1e-6)
 	require.InDelta(t, settlement.DefaultEatK, a.ConsumedPerDay, 1e-6)
 	require.InDelta(t, ownerTestRate-settlement.DefaultEatK, a.NetPerDay, 1e-6)
+	// Строка нужды (§10.2, T12): ключ/тип = тип эффекта, норма позиции; ветка
+	// покрывает спрос → w=0 → покрытие 1, дефицит 0.
+	require.Equal(t, "голод", a.Need, "нужда позиции = тип эффекта")
+	require.Equal(t, "голод", a.Effect)
+	require.InDelta(t, settlement.DefaultEatK, a.NormPerDayPerBillion, 1e-6, "норма позиции")
+	require.InDelta(t, 1.0, a.CoveredShare, 1e-9, "полное покрытие → покрытие 1")
+	require.InDelta(t, 0.0, a.DeficitShare, 1e-9, "w=0 → дефицит 0")
 
 	require.Len(t, res.Branches, 1)
 	b := res.Branches[0]

@@ -146,28 +146,70 @@ export function branchesBlockHtml(branches, isAdmin, settlementID) {
     return html;
 }
 
+// positionArithmeticRowHtml — строка позиции без нужды (§10.1): производим /
+// потребляем / сверх (отрицательный net → «дефицит <|net|>»).
+function positionArithmeticRowHtml(a) {
+    const net = a.net_per_day;
+    let netHtml;
+    if (typeof net === 'number' && net < 0) {
+        netHtml = `дефицит <strong>${formatCount(Math.abs(net))}</strong>`;
+    } else if (typeof net === 'number') {
+        netHtml = `сверх <strong>+${formatCount(net)}</strong>`;
+    } else {
+        netHtml = `сверх <strong>—</strong>`;
+    }
+    return `<div style="color:#ccc; font-size:0.9rem;">${a.position}: производим <strong>${formatCount(a.produced_per_day)}</strong> · потребляем <strong>${formatCount(a.consumed_per_day)}</strong> · ${netHtml}</div>`;
+}
+
+// needTitle — имя нужды с заглавной (сервер отдаёт name_norm типа эффекта, §10.2).
+function needTitle(key) {
+    return key ? key.charAt(0).toUpperCase() + key.slice(1) : 'Нужда';
+}
+
+// needArithmeticRowHtml — строка нужды (§10.2): итог по типу эффекта — покрытие
+// в процентах и позиции нужды «производим/спрос (дефицит за сутки)» + норма
+// позиции в выбранном масштабе единицы (норма хранится «ед/сутки/млрд»).
+// Population-числа — абсолютные ед/сутки (масштаб к ним не применяется).
+function needArithmeticRowHtml(rows, unitScaleKey) {
+    const first = rows[0] || {};
+    const title = needTitle(first.effect || first.need);
+    const parts = rows.map(a => {
+        const net = a.net_per_day;
+        const deficitDay = (typeof net === 'number' && net < 0) ? Math.abs(net) : 0;
+        let part = `${a.position} ${formatCount(a.produced_per_day)}/${formatCount(a.consumed_per_day)} ед/сут (дефицит ${formatCount(deficitDay)} ед/сут)`;
+        if (a.norm != null) {
+            part += ` · норма ${formatCount(storedToDisplay(a.norm, unitScaleKey))} ${unitScaleDef(unitScaleKey).unit}`;
+        }
+        return part;
+    }).join(' · ');
+    return `<div style="color:#ccc; font-size:0.9rem;">${title} · покрытие <strong>${formatPercent(first.covered_share)}</strong> · ${parts}</div>`;
+}
+
 // settlementArithmeticHtml — блок арифметики поселения на текущем населении
-// (спека 2026-09-23-стадии-поселения §8.2/§11.3): по позициям производим /
-// потребляем / сверх (отрицательный net → «дефицит <|net|>»), ед/сутки —
-// абсолютные, с разделителями разрядов. Масштаб к ним НЕ применяется. Пустой /
-// отсутствующий блок → пустая строка (у player при выключенной настройке и в
-// снимке сервер его чистит).
+// (спека 2026-09-23-стадии-поселения §8.2/§11.3 + спека 2026-09-24 §10.2):
+// строки нужды (итог по эффекту — покрытие и позиции нужды) и строки позиций
+// без нужды (производим / потребляем / сверх). Числа — абсолютные ед/сутки с
+// разделителями разрядов; масштаб единицы применяется только к норме позиции.
+// Пустой / отсутствующий блок → пустая строка (у player при выключенной
+// настройке и в снимке сервер чистит блок вместе со строкой нужды).
 export function settlementArithmeticHtml(settlement) {
     const list = settlement && Array.isArray(settlement.arithmetic) ? settlement.arithmetic : [];
     if (list.length === 0) return '';
+    const unitScaleKey = currentUnitScaleKey();
     let html = `<div style="color:#888; font-size:0.9rem; text-transform:uppercase; margin-top:8px;">Арифметика (на текущем населении, ед/сутки)</div>`;
+    const needs = new Map();
+    const plain = [];
     list.forEach(a => {
-        const net = a.net_per_day;
-        let netHtml;
-        if (typeof net === 'number' && net < 0) {
-            netHtml = `дефицит <strong>${formatCount(Math.abs(net))}</strong>`;
-        } else if (typeof net === 'number') {
-            netHtml = `сверх <strong>+${formatCount(net)}</strong>`;
+        const key = a && a.need;
+        if (key) {
+            if (!needs.has(key)) needs.set(key, []);
+            needs.get(key).push(a);
         } else {
-            netHtml = `сверх <strong>—</strong>`;
+            plain.push(a);
         }
-        html += `<div style="color:#ccc; font-size:0.9rem;">${a.position}: производим <strong>${formatCount(a.produced_per_day)}</strong> · потребляем <strong>${formatCount(a.consumed_per_day)}</strong> · ${netHtml}</div>`;
     });
+    needs.forEach(rows => { html += needArithmeticRowHtml(rows, unitScaleKey); });
+    plain.forEach(a => { html += positionArithmeticRowHtml(a); });
     return html;
 }
 

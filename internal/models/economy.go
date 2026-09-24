@@ -67,11 +67,26 @@ type Settlement struct {
 // SettlementPositionArithmetic — арифметика одной позиции корзины на текущем
 // населении, ед/сутки (спека 2026-09-23-стадии-поселения §8.2). NetPerDay < 0 —
 // дефицит позиции.
+//
+// Строка нужды (§10.2 спеки 2026-09-24-потребление-по-товарам) живёт на этой же
+// позиции: Need/Effect (ключ/тип нужды), CoveredShare/DeficitShare (покрытие/
+// дефицит) и Norm (норма позиции). Поля нужды — внутри блока арифметики
+// намеренно: видимость игроку/снимку чистит блок целиком (strip), без правки
+// занятого planet_visibility.go (§10.3).
 type SettlementPositionArithmetic struct {
-	Position       string  `json:"position"`
-	ProducedPerDay float64 `json:"produced_per_day"`
-	ConsumedPerDay float64 `json:"consumed_per_day"`
-	NetPerDay      float64 `json:"net_per_day"`
+	Position string `json:"position"`
+	// NormPerDayPerBillion — норма позиции, «ед/сутки/млрд» (§10.2). Позиция без
+	// эффекта нормы не несёт (0, ключ не выводится).
+	NormPerDayPerBillion float64 `json:"norm,omitempty"`
+	ProducedPerDay       float64 `json:"produced_per_day"`
+	ConsumedPerDay       float64 `json:"consumed_per_day"`
+	NetPerDay            float64 `json:"net_per_day"`
+	// Need — ключ нужды (= effect_types.name_norm); Effect — тип эффекта. Пусто —
+	// позиция без эффекта (нет нужды). CoveredShare = 1 − DeficitShare (§10.2).
+	Need         string  `json:"need,omitempty"`
+	Effect       string  `json:"effect,omitempty"`
+	CoveredShare float64 `json:"covered_share"`
+	DeficitShare float64 `json:"deficit_share"`
 }
 
 // SettlementStageView — витрина ступени поселения (спека 2026-09-23-стадии-

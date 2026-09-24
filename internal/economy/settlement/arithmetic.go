@@ -11,12 +11,22 @@ package settlement
 import "sort"
 
 // PositionArithmetic — арифметика одной позиции корзины на текущем населении,
-// ед/сутки (§8.2). NetPerDay < 0 — дефицит позиции.
+// ед/сутки (§8.2). NetPerDay < 0 — дефицит позиции. Поля нужды (§10.2)
+// заполняет AttachNeedArithmetic: позиция без эффекта нужды не несёт.
 type PositionArithmetic struct {
-	Position       string
-	ProducedPerDay float64
-	ConsumedPerDay float64
-	NetPerDay      float64
+	Position string
+	// NormPerDayPerBillion — норма позиции (params.eat, «ед/сутки/млрд», §10.2).
+	NormPerDayPerBillion float64
+	ProducedPerDay       float64
+	ConsumedPerDay       float64
+	NetPerDay            float64
+	// Need — ключ нужды (= effect_types.name_norm); Effect — тип эффекта. Пусто —
+	// позиция без эффекта. CoveredShare = 1 − DeficitShare, кламп [0,1]; в
+	// DeficitShare — текущая сила условия w из слоя потребности (§10.2).
+	Need         string
+	Effect       string
+	CoveredShare float64
+	DeficitShare float64
 }
 
 // ArithmeticSource — ветка как источник позиции для арифметики: позиция
@@ -80,6 +90,59 @@ func ComputePositionArithmetic(population float64, effects map[string]string, ea
 		})
 	}
 	return out
+}
+
+// AttachNeedArithmetic — строка нужды (§10.2) на позициях арифметики: позиция,
+// привязанная к эффекту (bindings), получает норму, ключ/тип нужды и покрытие/
+// дефицит по слою потребности (deficit = текущая сила условия w; covered =
+// 1 − w, кламп [0,1]). Позиция без привязки остаётся без нужды. Порядок и число
+// позиций не меняются (нужда живёт на существующих строках — §10.3, очистка
+// блока арифметики убирает её вместе с позициями).
+func AttachNeedArithmetic(positions []PositionArithmetic, bindings []NeedsBinding, effects []EffectRun) []PositionArithmetic {
+	if len(positions) == 0 {
+		return positions
+	}
+	typeByPos := make(map[string]int64, len(bindings))
+	nameByType := make(map[int64]string, len(bindings))
+	normByPos := make(map[string]float64, len(bindings))
+	for _, b := range bindings {
+		typeByPos[b.Position] = b.EffectTypeID
+		nameByType[b.EffectTypeID] = b.EffectTypeName
+		normByPos[b.Position] = b.NormPerDayPerBillion
+	}
+	wByType := make(map[int64]float64, len(effects))
+	for _, e := range effects {
+		wByType[e.EffectTypeID] = e.W
+	}
+	for i := range positions {
+		pos := positions[i].Position
+		typeID, ok := typeByPos[pos]
+		if !ok {
+			continue
+		}
+		name := nameByType[typeID]
+		if name == "" {
+			continue
+		}
+		deficit := clamp01(wByType[typeID])
+		positions[i].NormPerDayPerBillion = normByPos[pos]
+		positions[i].Need = name
+		positions[i].Effect = name
+		positions[i].DeficitShare = deficit
+		positions[i].CoveredShare = clamp01(1 - deficit)
+	}
+	return positions
+}
+
+// clamp01 — доля в [0,1] для показа (покрытие/дефицит, §10.2).
+func clamp01(v float64) float64 {
+	if v < 0 {
+		return 0
+	}
+	if v > 1 {
+		return 1
+	}
+	return v
 }
 
 // BranchTake — компонент «забираем» ветки (расход входа), агрегированный по

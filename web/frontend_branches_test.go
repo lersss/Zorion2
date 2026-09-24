@@ -175,6 +175,24 @@ assert(br.settlementArithmeticHtml({ id: 's1' }) === '', 'нет arithmetic — 
 assert(br.settlementArithmeticHtml({ id: 's1', arithmetic: [] }) === '', 'пустой arithmetic — блока нет');
 assert(br.settlementArithmeticHtml(null) === '', 'нет поселения — блока нет');
 
+// Строка нужды (§10.2, T12): позиция с полем need рисуется итогом по нужде —
+// имя эффекта, покрытие в процентах, позиция «производим/спрос», дефицит за
+// сутки и норма позиции в масштабе. Позиции без нужды остаются строками §10.1.
+const arNeed = br.settlementArithmeticHtml({
+    id: 's1',
+    arithmetic: [
+        { position: 'очищенная вода', norm: 20000000, produced_per_day: 8.4, consumed_per_day: 20, net_per_day: -11.6,
+          need: 'жажда', effect: 'жажда', covered_share: 0.42, deficit_share: 0.58 },
+        { position: 'руда', produced_per_day: 100, consumed_per_day: 0, net_per_day: 100 }
+    ]
+});
+assert(arNeed.includes('Жажда'), 'нужда: имя эффекта с заглавной');
+assert(arNeed.includes('покрытие') && arNeed.includes('42%'), 'нужда: покрытие в процентах');
+assert(arNeed.includes('очищенная вода') && arNeed.includes('8.4/20'), 'нужда: позиция производим/спрос');
+assert(arNeed.includes('дефицит') && arNeed.includes('11.6'), 'нужда: дефицит за сутки');
+assert(arNeed.includes('норма') && arNeed.includes('20 000 000'), 'нужда: норма в масштабе (дефолт «на млрд»)');
+assert(arNeed.includes('руда'), 'нужда: позиция без нужды — обычной строкой §10.1');
+
 // Масштаб единицы (§2.1): применяется ТОЛЬКО к rate (хранимое «ед/сутки/млрд»).
 // Нет localStorage (Node) → дефолт «на млрд»; globalThis.localStorage = 'person'
 // → rate 650 превращается в 0.00000065. Забираем/пороги — абсолютные, без масштаба.

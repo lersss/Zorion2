@@ -489,6 +489,11 @@ func runOwnerPass(o OwnerSettlement, branches []*branchRecord, stored []storedEf
 	rPerSec := settlement.EnvComponents(input) + lastRate(needs)
 	pop := int(math.Round(math.Min(next, settlement.MaxInt4Population)))
 
+	// Витрина арифметики по позициям (§8.2) + строка нужды (§10.2): покрытие/
+	// дефицит берём из слоя потребности (w), привязки дают ключ/тип нужды и норму.
+	arithmetic := settlement.ComputePositionArithmetic(population, o.EffectsByPosition, o.EatByPosition, arithmeticSources)
+	arithmetic = settlement.AttachNeedArithmetic(arithmetic, bindings, needs.Effects)
+
 	res := OwnerResult{
 		Population:      pop,
 		PopulationExact: next,
@@ -497,7 +502,7 @@ func runOwnerPass(o OwnerSettlement, branches []*branchRecord, stored []storedEf
 		NDead:           settlement.NDead,
 		Branches:        branchModels,
 		Effects:         buildEffectModels(o, needs, catalog, now),
-		Arithmetic:      arithmeticModels(settlement.ComputePositionArithmetic(population, o.EffectsByPosition, o.EatByPosition, arithmeticSources)),
+		Arithmetic:      arithmeticModels(arithmetic),
 		Stage:           stageView(data.ladder, o.SettlementTypeID),
 	}
 	return ownerRun{
@@ -555,10 +560,15 @@ func arithmeticModels(in []settlement.PositionArithmetic) []models.SettlementPos
 	out := make([]models.SettlementPositionArithmetic, 0, len(in))
 	for _, a := range in {
 		out = append(out, models.SettlementPositionArithmetic{
-			Position:       a.Position,
-			ProducedPerDay: a.ProducedPerDay,
-			ConsumedPerDay: a.ConsumedPerDay,
-			NetPerDay:      a.NetPerDay,
+			Position:             a.Position,
+			NormPerDayPerBillion: a.NormPerDayPerBillion,
+			ProducedPerDay:       a.ProducedPerDay,
+			ConsumedPerDay:       a.ConsumedPerDay,
+			NetPerDay:            a.NetPerDay,
+			Need:                 a.Need,
+			Effect:               a.Effect,
+			CoveredShare:         a.CoveredShare,
+			DeficitShare:         a.DeficitShare,
 		})
 	}
 	return out

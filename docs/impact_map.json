@@ -1138,14 +1138,14 @@
       "id": "buildings",
       "type": "table",
       "path": "db:buildings",
-      "note": "строения на планете — первая итерация релиза 2 фабрик (миграция 000056, спека 2026-09-21-фабрики-релиз-2-столицы-фракций): (id UUID PK, planet_id UUID NOT NULL FK planets ON DELETE CASCADE, building_type TEXT NOT NULL — свободный ключ, в этой итерации только 'capital', owner_type TEXT NOT NULL CHECK (player/faction/agent), owner_id UUID NOT NULL БЕЗ FK — владелец полиморфный users/factions/npc_agents, created_at/updated_at); индексы idx_buildings_planet_id и частичный UNIQUE uq_buildings_capital_owner (owner_type, owner_id) WHERE building_type='capital' — одна столица на фракцию. Колонки producer_type_id/population/slots/status/data/name отложены до следующих итераций (спека фабрик §3.2). Заполняется идемпотентно (EnsureCapitals, INSERT … WHERE NOT EXISTS … ON CONFLICT DO NOTHING) в джобе генерации фракций",
+      "note": "строения на планете — первая итерация релиза 2 фабрик (миграция 000056, спека 2026-09-21-фабрики-релиз-2-столицы-фракций): (id UUID PK, planet_id UUID NOT NULL FK planets ON DELETE CASCADE, building_type TEXT NOT NULL — свободный ключ, в этой итерации только 'capital', owner_type TEXT NOT NULL CHECK (player/faction/agent), owner_id UUID NOT NULL БЕЗ FK — владелец полиморфный users/factions/npc_agents, created_at/updated_at); индексы idx_buildings_planet_id и частичный UNIQUE uq_buildings_capital_owner (owner_type, owner_id) WHERE building_type='capital' — одна столица на фракцию. Колонка producer_type_id BIGINT NULL REFERENCES producer_types(id) ON DELETE RESTRICT добавлена миграцией 000082 (2026-09-24, «постройка структур на планете», коммит a217171): связь строения с типом дерева производителей; у столиц NULL (ничего не производит). Колонки population/slots/status/data/name отложены до следующих итераций (спека фабрик §3.2). Заполняется идемпотентно (EnsureCapitals, INSERT … WHERE NOT EXISTS … ON CONFLICT DO NOTHING) в джобе генерации фракций; экземпляры строений создаёт и админ-инструмент POST /admin/planets/{id}/structures (structure_build)",
       "impacts": [
         { "on": "db:planets", "kind": "schema", "reason": "planet_id FK ON DELETE CASCADE: удаление планеты/мира (ClearUniverse, RegeneratePlanets, пакман) сносит строения" },
         { "on": "factions", "kind": "reads", "reason": "owner_id = factions.id при owner_type='faction'; planet_id = factions.homeworld_id (FK нет — владелец полиморфный)" },
         { "on": "faction_capital", "kind": "affects", "reason": "столица — экземпляр строения (building_type='capital', тип «другое», producer_type_id отсутствует, ничего не производит)" },
-        { "on": "producer_types", "kind": "affects", "reason": "отложенная связь: buildings.producer_type_id → producer_types(id) появится с производителями (этап 2 п.8–10 спеки фабрик)" },
+        { "on": "producer_types", "kind": "schema", "reason": "buildings.producer_type_id → producer_types(id) ON DELETE RESTRICT добавлена миграцией 000082 (2026-09-24, structure_build); удаление типа, на который ссылается строение, запрещено" },
         { "on": "producer_recipes", "kind": "affects", "reason": "отложенная связь (2026-09-23, шаг 2): когда появится buildings.producer_type_id, набор рецептов постройки станет игроко-видимым («производит» из студии → в мир); понадобится гейт видимости (спека шага 2 §5)" },
-        { "on": "db:settlements", "kind": "affects", "reason": "отложенная связь: владелец поселений и перенос поселения в модель строений (спека фабрик §11.5); в этой итерации поселения владельца НЕ получают" },
+        { "on": "db:settlements", "kind": "affects", "reason": "владелец поселений реализован миграцией 000082 (2026-09-24, structure_ownership); существующие поселения остаются без владельца (решение создателя Г1); перенос поселения в модель строений (спека фабрик §11.5) — по-прежнему отложен" },
         { "on": "internal/handlers/admin_universe.go", "kind": "writes", "reason": "buildings в truncateTables + комментарий каскада (иначе TRUNCATE падает на FK buildings → planets)" },
         { "on": "pacman_job", "kind": "affects", "reason": "каскад worlds → planets → buildings покрывает поедание миров; отдельного шага в джобе не нужно" },
         { "on": "internal/repository/planet_repo.go", "kind": "writes", "reason": "attachFactionsAndBuildings: чтение строений системы в карточку планеты (= ANY($1), два запроса на систему)" },
@@ -1161,7 +1161,7 @@
       "id": "factions",
       "type": "table",
       "path": "db:factions",
-      "note": "NPC-фракции (миграция 004_factions.sql): (id UUID PK, name, type, homeworld_id UUID NOT NULL FK planets ON DELETE CASCADE, strength INT DEFAULT 1, resources JSONB, color, description, created_at/updated_at); индекс idx_factions_homeworld. Генератор internal/generator/faction создаёт 1–3 фракции на планету с населением (случайное имя/тип/цвет). Сущность была в БД и коде, но отсутствовала в реестре — добавлена 2026-09-21",
+      "note": "NPC-фракции (миграция 004_factions.sql): (id UUID PK, name, type, homeworld_id UUID NOT NULL FK planets ON DELETE CASCADE, strength INT DEFAULT 1, resources JSONB, color, description, created_at/updated_at); индекс idx_factions_homeworld. Генератор internal/generator/faction создаёт одну фракцию на расу (race_id; кандидат — поселение с этой расой и population>0; не «1–3 на планету»). Сущность была в БД и коде, но отсутствовала в реестре — добавлена 2026-09-21",
       "impacts": [
         { "on": "internal/handlers/admin_universe.go", "kind": "writes", "reason": "джоб /admin/generate-factions; factions в truncateTables" },
         { "on": "pacman_job", "kind": "affects", "reason": "каскад planets → factions (FK homeworld_id CASCADE) — фракции гибнут с мирами" },
@@ -1179,7 +1179,55 @@
         { "on": "buildings", "kind": "schema", "reason": "столица — запись buildings: planet_id = homeworld_id, owner_type='faction', owner_id=factions.id, building_type='capital'" },
         { "on": "internal/generator/faction", "kind": "writes", "reason": "EnsureCapitals() — идемпотентный проход (INSERT … WHERE NOT EXISTS … ON CONFLICT DO NOTHING)" },
         { "on": "internal/handlers/admin_universe.go", "kind": "affects", "reason": "джоб generate_factions: поле capitals в ответе/логе; гейт Пакмана/универсального мьютекса перенесён ДО ветки total == 0" },
-        { "on": "docs/gamedesign/06_factions.md", "kind": "duplicates", "reason": "новый §6.8 — эталон FAQ (число/место/тип столицы); §6.4.3 «Захват столицы» получил сущность-референт (механика захвата — вне скоупа)" }
+        { "on": "docs/gamedesign/06_factions.md", "kind": "duplicates", "reason": "новый §6.8 — эталон FAQ (число/место/тип столицы); §6.4.3 «Захват столицы» получил сущность-референт (механика захвата — вне скоупа)" },
+        { "on": "settlement_owner_pass", "kind": "affects", "reason": "EnsureSettlementOwners — соседний проход в том же джобе генерации фракций (владелец поселений расы, миграция 000082)" }
+      ]
+    },
+    {
+      "id": "structure_build",
+      "type": "mechanic",
+      "path": "internal/handlers/admin_structures.go",
+      "note": "Инструмент песочницы: админ из карточки планеты (игровой интерфейс, роли admin/skycomposer) ставит любую структуру дерева производителей (спека 2026-09-24-постройка-структур-на-планете, ЧК1, коммит a217171). Класс типа — по корню дерева (якорь generation_config.default_settlement_type_id, рекурсивный обход parent_id): поселение → settlements (+владелец, раса региона, население), остальное → buildings (+producer_type_id). Владелец обязателен (фракция/игрок/агент, валидация существования). Созданное поселение сразу живое (ленивый owner-проход). Ручки: POST /admin/planets/{id}/structures, GET /admin/planets/{id}/build-options, GET /admin/owner-candidates (q ≥ 2). Гейты: 403 (роут), 409 (пакман/universeMutationMu), 422.",
+      "impacts": [
+        { "on": "producer_types", "kind": "reads", "reason": "тип/класс структуры (дерево; корень по якорю; hidden — гейт списка)" },
+        { "on": "settlements", "kind": "writes", "reason": "создание поселения с владельцем, расой региона и населением" },
+        { "on": "buildings", "kind": "writes", "reason": "создание строения с producer_type_id и владельцем" },
+        { "on": "structure_ownership", "kind": "affects", "reason": "владелец, выбранный админом" },
+        { "on": "regions", "kind": "reads", "reason": "раса региона планеты для создаваемого поселения (Р9)" },
+        { "on": "internal/models/planet.go", "kind": "schema", "reason": "PlanetBuilding.producer_type_id/type_name/owner_name в карточке (null у столиц)" },
+        { "on": "web/static/js/modal/panel.js", "kind": "reads", "reason": "кнопка «Построить» в шапке + панель + вкладка «Строения»" },
+        { "on": "web/static/js/modal/tabs.js", "kind": "reads", "reason": "строка владельца в карточке поселения (presence/snapshot/admin)" },
+        { "on": "migrations/000082_structures_owner.sql", "kind": "schema", "reason": "колонки владельца поселений и типа строений" },
+        { "on": "docs/specs/2026-09-24-постройка-структур-на-планете.md", "kind": "duplicates", "reason": "спека-источник (ЧК1)" }
+      ]
+    },
+    {
+      "id": "structure_ownership",
+      "type": "mechanic",
+      "path": "db:settlements",
+      "note": "Владелец у поселений (settlements.owner_type/owner_id) и строений (buildings.owner_type/owner_id); полиморфный (player/faction/agent), пара или NULL. Канон 13_settlements §13.2/GLOSSARY §7 уже говорит «у поселения есть владелец» — реализация 2026-09-24 (миграция 000082, ЧК1, коммит a217171). Существующие поселения остаются без владельца (решение создателя Г1); новые — при постройке и в проходе генератора. Владелец виден игроку при присутствии/снимке (Г2). Владелец — будущий заказчик/плательщик контрактов (ЧК2).",
+      "impacts": [
+        { "on": "settlements", "kind": "schema", "reason": "owner_type/owner_id (000082, nullable, пара или NULL)" },
+        { "on": "buildings", "kind": "schema", "reason": "owner_type/owner_id (000056; заполняется инструментом)" },
+        { "on": "planet_knowledge_snapshot", "kind": "affects", "reason": "owner_name в снимке (Г2): snapshotSettlement.OwnerName" },
+        { "on": "needs_layer", "kind": "affects", "reason": "спрос/дефицит не меняется — владелец на потребление не влияет" },
+        { "on": "money_account", "kind": "affects", "reason": "владелец = кандидат в плательщики контрактов (задел ЧК2)" },
+        { "on": "docs/gamedesign/13_settlements.md", "kind": "duplicates", "reason": "§13.2/§13.4 — канон владельца (уже верен; §13.4 «владелец не кормит напрямую» уточнён)" },
+        { "on": "docs/specs/2026-09-23-контракт-ленивая-доска-пакет-и-снабжение.md", "kind": "duplicates", "reason": "§5.2 «у поселения нет владельца-плательщика» — правится (ЧК2)" }
+      ]
+    },
+    {
+      "id": "settlement_owner_pass",
+      "type": "mechanic",
+      "path": "internal/generator/faction/faction.go",
+      "note": "Проход EnsureSettlementOwners(since) в джобе генерации фракций (миграция 000082, коммит a217171): новым поселениям (created_at >= метка начала генерации) проставляет владельца = фракцию расы поселения. Скоуп — только поселения текущей генерации (решение создателя Г1), легаси не трогает; нет метки generation_started_at → проход не идёт. Идемпотентен в рамках генерации.",
+      "impacts": [
+        { "on": "settlements", "kind": "writes", "reason": "owner_type='faction'/owner_id — только поселениям текущей генерации" },
+        { "on": "factions", "kind": "reads", "reason": "фракция расы поселения (race_id)" },
+        { "on": "internal/generator/faction", "kind": "writes", "reason": "EnsureSettlementOwners после EnsureCapitals" },
+        { "on": "internal/handlers/admin_universe.go", "kind": "affects", "reason": "метка generation_started_at пишется в GeneratePlanets/GenerateRaceSettlements (время БД)" },
+        { "on": "structure_ownership", "kind": "affects", "reason": "источник владельца у сгенерированных поселений" },
+        { "on": "faction_capital", "kind": "affects", "reason": "соседний проход в том же джобе" }
       ]
     },
     {
@@ -1420,7 +1468,7 @@
       "id": "settlements",
       "type": "table",
       "path": "db:settlements",
-      "note": "Поселения на планете (миграции 000018/19/20/21/24/39: planet_id, population, population_exact, stability, race_id, computed_at — ленивый пересчёт населения). Итерация 4 эпика «Экономика поселения» (2026-09-22, миграция 000067): + settlement_type_id BIGINT NULL REFERENCES producer_types(id) ON DELETE RESTRICT — настоящая связь «поселение → его тип» (подтип «Обычное поселение», класс строения без товарной категории), тип несёт структуру норм еды params.eat; бэкфилл существующих поселений; тип проставляется во всех 5 точках создания (генерация миров + админ-инструменты, п.40).",
+      "note": "Поселения на планете (миграции 000018/19/20/21/24/39: planet_id, population, population_exact, stability, race_id, computed_at — ленивый пересчёт населения). Итерация 4 эпика «Экономика поселения» (2026-09-22, миграция 000067): + settlement_type_id BIGINT NULL REFERENCES producer_types(id) ON DELETE RESTRICT — настоящая связь «поселение → его тип» (подтип «Обычное поселение», класс строения без товарной категории), тип несёт структуру норм еды params.eat; бэкфилл существующих поселений; тип проставляется во всех 5 точках создания (генерация миров + админ-инструменты, п.40). Миграция 000082 (2026-09-24, «постройка структур», коммит a217171): + owner_type TEXT NULL CHECK (player/faction/agent), owner_id UUID NULL — владелец поселения (пара или NULL; канон 13_settlements §13.2 уже верен); бэкфилла нет — существующие остаются NULL (решение создателя Г1), владелец проставляется только новым (инструмент structure_build + проход генератора settlement_owner_pass).",
       "impacts": [
         { "on": "producer_types", "kind": "schema", "reason": "FK settlement_type_id → producer_types(id) ON DELETE RESTRICT: удаление типа, на который ссылаются поселения, запрещено (студия отдаёт 409 — DeleteProducerType)" },
         { "on": "settlement_type_consumption", "kind": "affects", "reason": "население поселения определяет объём еды ветки (линейно); тип поселения выбирает норму еды" },

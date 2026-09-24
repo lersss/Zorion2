@@ -64,30 +64,18 @@ func (f *shipFakeComfy) WaitAndDownload(pid, outPath string) (bool, error) {
 	return true, nil
 }
 
-// writeFakeShipPython — фейковый python для джоба кораблей (рецепт 2026-09-21).
-// ВАЖНО: cmd.exe режет аргументы по «=» — фейк учитывает формы:
-//
-//	ship_sprite_cut.py <in> --frame-check --report <json> --margin N --min-elong E
-//	  → %2=in, %3=--frame-check, %5=json; пишем результат frameOk
-//	ship_sprite_cut.py <in> <out> --method hyst ... → %2=in, %3=out; копируем
+// writeFakeShipPython — фейковый python для джоба кораблей (рецепт 2026-09-21),
+// helper-процесс (сам тест-бинарник): ветка --frame-check пишет отчёт кадра,
+// иначе копирует вход в выход. Аргументы эмулируются в fakePythonMain.
 func writeFakeShipPython(t *testing.T, frameOK bool) string {
 	t.Helper()
-	fp := filepath.Join(t.TempDir(), "fake_ship_python.cmd")
-	frame := `{"touch":[],"elong":2.0,"ok":true}`
-	if !frameOK {
-		frame = `{"touch":["left"],"elong":1.0,"ok":false}`
+	t.Setenv(fakePythonEnv, "ship")
+	if frameOK {
+		t.Setenv(fakePythonFrameEnv, "ok")
+	} else {
+		t.Setenv(fakePythonFrameEnv, "bad")
 	}
-	script := "@echo off\r\n" +
-		"if \"%3\"==\"--frame-check\" goto frame\r\n" +
-		"copy %2 %3 >nul 2>&1\r\n" +
-		"exit /b 0\r\n" +
-		":frame\r\n" +
-		"echo " + frame + " > %5\r\n" +
-		"exit /b 0\r\n"
-	if err := os.WriteFile(fp, []byte(script), 0o644); err != nil {
-		t.Fatalf("WriteFile fake python: %v", err)
-	}
-	return fp
+	return fakePythonCmd()
 }
 
 // newShipRunner — Runner с фейковыми Comfy/python и одной расой humans.

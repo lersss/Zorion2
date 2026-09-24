@@ -85,16 +85,13 @@ func newShipsTestStudioTyped(t *testing.T) (*Server, string, string) {
 	return srv, shipsPath, pool
 }
 
-// writeShipFakePy — фейковый python кораблей (frame-check + копия выреза) для
-// handler-тестов генерации.
+// writeShipFakePy — фейковый python кораблей (frame-check + копия выреза,
+// helper-процесс) для handler-тестов генерации.
 func writeShipFakePy(t *testing.T) string {
 	t.Helper()
-	fakePy := filepath.Join(t.TempDir(), "fake_ship_python.cmd")
-	script := "@echo off\r\nif \"%3\"==\"--frame-check\" goto frame\r\ncopy %2 %3 >nul 2>&1\r\nexit /b 0\r\n:frame\r\necho {\"touch\":[],\"elong\":2.0,\"ok\":true} > %5\r\nexit /b 0\r\n"
-	if err := os.WriteFile(fakePy, []byte(script), 0o644); err != nil {
-		t.Fatalf("WriteFile fake python: %v", err)
-	}
-	return fakePy
+	t.Setenv(fakePythonEnv, "ship")
+	t.Setenv(fakePythonFrameEnv, "ok")
+	return fakePythonCmd()
 }
 
 // waitShipsJob — дождаться завершения джоба пула кораблей.
@@ -404,13 +401,7 @@ func TestShipsRebuildAll(t *testing.T) {
 // TestShipsGen — /ships/gen: джоб стартует, кандидаты появляются в пуле.
 func TestShipsGen(t *testing.T) {
 	srv, _, pool := newShipsTestStudio(t)
-	// фейковый python для кораблей (--spec split-форма cmd.exe)
-	fakePy := filepath.Join(t.TempDir(), "fake_ship_python.cmd")
-	script := "@echo off\r\nif \"%3\"==\"--frame-check\" goto frame\r\ncopy %2 %3 >nul 2>&1\r\nexit /b 0\r\n:frame\r\necho {\"touch\":[],\"elong\":2.0,\"ok\":true} > %5\r\nexit /b 0\r\n"
-	if err := os.WriteFile(fakePy, []byte(script), 0o644); err != nil {
-		t.Fatalf("WriteFile fake python: %v", err)
-	}
-	srv.cfg.PythonCmd = fakePy
+	srv.cfg.PythonCmd = writeShipFakePy(t)
 
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/ships/gen?race=humans&n=2", nil))
@@ -697,20 +688,25 @@ func TestShipsActAutoAppliesHint(t *testing.T) {
 }
 
 // writeOrientFake — фейковый python, отдающий отчёт profile_orientation
-// (--orient-only --report <json>) с заданными angle/mirror/ambiguous.
+// (--orient-only --report <json>) с заданными angle/mirror/ambiguous
+// (helper-процесс).
 func writeOrientFake(t *testing.T, angle float64, mirror, ambiguous bool) string {
 	t.Helper()
-	fp := filepath.Join(t.TempDir(), "fake_orient.cmd")
-	body := "@echo off\r\n" +
-		"echo {\"orient\": {\"angle\": " + strconv.FormatFloat(angle, 'g', -1, 64) +
-		", \"mirror\": " + strconv.FormatBool(mirror) +
-		", \"ambiguous\": " + strconv.FormatBool(ambiguous) +
-		", \"reason\": \"sharpness\"}}> \"%5\"\r\n" +
-		"exit /b 0\r\n"
-	if err := os.WriteFile(fp, []byte(body), 0o644); err != nil {
-		t.Fatalf("WriteFile fake: %v", err)
-	}
-	return fp
+	inner := `{"angle": ` + strconv.FormatFloat(angle, 'g', -1, 64) +
+		`, "mirror": ` + strconv.FormatBool(mirror) +
+		`, "ambiguous": ` + strconv.FormatBool(ambiguous) +
+		`, "reason": "sharpness"}`
+	t.Setenv(fakePythonEnv, "orient")
+	t.Setenv(fakePythonOrientEnv, inner)
+	return fakePythonCmd()
+}
+
+// writeSlowOrientFake — «зависший» python (helper-процесс спит дольше
+// shipOrientTimeout): проверка таймаута /ships/auto.
+func writeSlowOrientFake(t *testing.T) string {
+	t.Helper()
+	t.Setenv(fakePythonEnv, "slow")
+	return fakePythonCmd()
 }
 
 // TestShipsAcceptKeepsPixels — приёмка копирует файл байт-в-байт (действия
@@ -862,13 +858,7 @@ func TestShipsAutoTimeout(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(poolDir, "s01.png"), tinyPNG(t), 0o644); err != nil {
 		t.Fatalf("WriteFile s01: %v", err)
 	}
-	fake := filepath.Join(t.TempDir(), "slow_orient.cmd")
-	// >nul 2>&1 — чтобы внук (ping) не держал пайп CombinedOutput открытым
-	// после убийства cmd.exe по таймауту.
-	body := "@echo off\r\nping -n 4 127.0.0.1 >nul 2>&1\r\nexit /b 0\r\n"
-	if err := os.WriteFile(fake, []byte(body), 0o644); err != nil {
-		t.Fatalf("WriteFile fake: %v", err)
-	}
+	fake := writeSlowOrientFake(t)
 	old := shipOrientTimeout
 	shipOrientTimeout = 300 * time.Millisecond
 	defer func() { shipOrientTimeout = old }()
@@ -1029,12 +1019,7 @@ func loadPNG(t *testing.T, path string) image.Image {
 // (мета кандидатов = override, Size = 100).
 func TestShipsGenParams(t *testing.T) {
 	srv, _, pool := newShipsTestStudio(t)
-	fakePy := filepath.Join(t.TempDir(), "fake_ship_python.cmd")
-	script := "@echo off\r\nif \"%3\"==\"--frame-check\" goto frame\r\ncopy %2 %3 >nul 2>&1\r\nexit /b 0\r\n:frame\r\necho {\"touch\":[],\"elong\":2.0,\"ok\":true} > %5\r\nexit /b 0\r\n"
-	if err := os.WriteFile(fakePy, []byte(script), 0o644); err != nil {
-		t.Fatalf("WriteFile fake python: %v", err)
-	}
-	srv.cfg.PythonCmd = fakePy
+	srv.cfg.PythonCmd = writeShipFakePy(t)
 
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/ships/gen?race=humans&n=1&tags=extra+tag&prompt1_override=MANUAL1&prompt2_override=MANUAL2&size=100", nil))

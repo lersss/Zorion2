@@ -7,18 +7,13 @@ import (
 	"testing"
 )
 
-// writeFakeArgDump — фейковый python: пишет все полученные аргументы в файл.
-// Позволяет проверить argv вызова ShipSpriteCut без реального rembg.
+// writeFakeArgDump — фейковый python (helper-процесс): пишет все полученные
+// аргументы в файл. Позволяет проверить argv вызова ShipSpriteCut без rembg.
 func writeFakeArgDump(t *testing.T, dumpPath string) string {
 	t.Helper()
-	fp := filepath.Join(t.TempDir(), "fake_python.cmd")
-	script := "@echo off\r\n" +
-		"echo %* > \"" + dumpPath + "\"\r\n" +
-		"exit /b 0\r\n"
-	if err := os.WriteFile(fp, []byte(script), 0o644); err != nil {
-		t.Fatalf("WriteFile fake python: %v", err)
-	}
-	return fp
+	t.Setenv(fakePythonEnv, "argdump")
+	t.Setenv(fakePythonOutEnv, dumpPath)
+	return fakePythonCmd()
 }
 
 // TestShipSpriteCutUsesRembg — конвейер выреза идёт через `--method rembg`

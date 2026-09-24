@@ -93,14 +93,12 @@ func newTestStudio(t *testing.T) (*Server, *recordingComfy, string) {
 	}
 	pool := t.TempDir()
 	// фейковый python для тестов: копирует inPath → outPath (эмуляция rembg,
-	// чтобы кандидаты доходили до меты ref_cands/meta.json). Ретрай copy:
-	// свежий файл может быть мгновенно недоступен (Defender сканирует) —
-	// copy даёт транзиентный «file not found» (флак TestHandleGenRefRace,
-	// 2026-09-20).
-	fakePy := filepath.Join(t.TempDir(), "fake_python.cmd")
-	if err := os.WriteFile(fakePy, []byte("@echo off\r\nfor /L %%i in (1,1,20) do (\r\n  copy %2 %3 >nul 2>&1\r\n  if exist %3 exit /b 0\r\n  ping -n 1 -w 100 192.0.2.1 >nul\r\n)\r\nexit /b 1\r\n"), 0o644); err != nil {
-		t.Fatalf("WriteFile fake_python: %v", err)
-	}
+	// чтобы кандидаты доходили до меты ref_cands/meta.json). Helper-процесс
+	// (сам тест-бинарник) с ретраями копии: свежий файл может быть мгновенно
+	// недоступен (Defender сканирует) — copy даёт транзиентный «file not found»
+	// (флак TestHandleGenRefRace, 2026-09-20).
+	t.Setenv(fakePythonEnv, "copy")
+	fakePy := fakePythonCmd()
 	cfg := &config.StudioConfig{
 		PoolRoot:   pool,
 		ComfyInput: t.TempDir(),

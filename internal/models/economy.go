@@ -28,6 +28,11 @@ type Settlement struct {
 	SettlementTypeID int64 `json:"type_id,omitempty"`
 	// TypeName — имя типа поселения (JSON-вывод, не колонка БД), как RaceName.
 	TypeName string `json:"type_name,omitempty"`
+	// Stage — витрина ступени (спека 2026-09-23 §11.3): пороги текущей ступени
+	// и вход следующей; nil — тип вне ладдеры (карточка рисует только имя).
+	// Заполняется owner-проходом из уже загруженной ладдеры. Пороги — конфиг,
+	// не тайна: ни presence-, ни snapshot-путь ступень не чистит.
+	Stage *SettlementStageView `json:"stage,omitempty"`
 	// EatByPosition — структура норм еды типа поселения (producer_types.params.eat),
 	// внутреннее поле для слоя потребности (ключ — name_norm ПОЗИЦИИ корзины,
 	// спека 2026-09-22-эффекты-снабжения §4.2); в JSON не выводится (нормы живут
@@ -67,6 +72,15 @@ type SettlementPositionArithmetic struct {
 	ProducedPerDay float64 `json:"produced_per_day"`
 	ConsumedPerDay float64 `json:"consumed_per_day"`
 	NetPerDay      float64 `json:"net_per_day"`
+}
+
+// SettlementStageView — витрина ступени поселения (спека 2026-09-23-стадии-
+// поселения §11.3): пороги в людях. Exit = 0 — порог выхода не читается (пол);
+// NextEnter = 0 — выше текущей ступени нет.
+type SettlementStageView struct {
+	Enter     float64 `json:"enter"`
+	Exit      float64 `json:"exit,omitempty"`
+	NextEnter float64 `json:"next_enter,omitempty"`
 }
 
 // SettlementBranchTake — «забираем» по компоненту рецепта ветки, ед/сутки

@@ -126,6 +126,9 @@ type OwnerResult struct {
 	// Arithmetic — витрина арифметики по позициям на текущем населении
 	// (спека 2026-09-23 §8.1/§8.2).
 	Arithmetic []models.SettlementPositionArithmetic
+	// Stage — витрина ступени поселения (спека 2026-09-23 §11.3): пороги
+	// текущей ступени и вход следующей из ладдеры пачки; тип вне ладдеры → nil.
+	Stage *models.SettlementStageView
 }
 
 // effectTypeMeta — запись каталога типов эффектов (резолв по name_norm).
@@ -493,6 +496,7 @@ func runOwnerPass(o OwnerSettlement, branches []*branchRecord, stored []storedEf
 		Branches:        branchModels,
 		Effects:         buildEffectModels(o, needs, catalog, now),
 		Arithmetic:      arithmeticModels(settlement.ComputePositionArithmetic(population, o.EffectsByPosition, o.EatByPosition, arithmeticSources)),
+		Stage:           stageView(data.ladder, o.SettlementTypeID),
 	}
 	return ownerRun{
 		result:     res,
@@ -528,6 +532,17 @@ func applyOwnerBranch(w *ownerBranchWrite, now time.Time, population float64) {
 	rec.branch.NotInStageSet = w.notInStage
 	rec.branch.Take = branchTakeModels(w, population)
 	rec.branch.DepositShare = settlement.BranchDepositShare(w.produced, rec.components, w.inputBefore, w.input)
+}
+
+// stageView — витрина ступени поселения (спека 2026-09-23 §11.3): пороги
+// текущей ступени и вход следующей из ладдеры пачки. Тип вне ладдеры (0 —
+// легаси/тип без params.stage) → nil: карточка рисует только имя типа.
+func stageView(ladder settlement.StageLadder, typeID int64) *models.SettlementStageView {
+	v, ok := ladder.CurrentView(typeID)
+	if !ok {
+		return nil
+	}
+	return &models.SettlementStageView{Enter: v.Enter, Exit: v.Exit, NextEnter: v.NextEnter}
 }
 
 // arithmeticModels — доменная арифметика позиции → витрина ответа (§8.2).

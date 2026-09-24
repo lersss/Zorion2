@@ -121,3 +121,58 @@ func TestStageLadderEmpty(t *testing.T) {
 		t.Fatalf("Select(пустая ладдера) = (%d,%v), want (148,false)", id, changed)
 	}
 }
+
+// CurrentView — витрина ступени для карточки поселения (спека 2026-09-23
+// §11.3): тип вне ладдеры → витрины нет.
+func TestStageLadderCurrentViewOutside(t *testing.T) {
+	l := NewStageLadder([]Stage{
+		{ID: 148, Enter: 0, Exit: 0},
+		{ID: 200, Enter: 1_000, Exit: 750},
+	})
+	if _, ok := l.CurrentView(999); ok {
+		t.Fatalf("CurrentView(вне ладдеры) ok = true, want false")
+	}
+	if _, ok := NewStageLadder(nil).CurrentView(148); ok {
+		t.Fatalf("CurrentView(пустая ладдера) ok = true, want false")
+	}
+}
+
+// Пол: порог входа 0, порог выхода не читается (0), вход следующей — есть.
+func TestStageLadderCurrentViewFloor(t *testing.T) {
+	l := NewStageLadder([]Stage{
+		{ID: 148, Enter: 0, Exit: 999},
+		{ID: 200, Enter: 1_000, Exit: 750},
+	})
+	v, ok := l.CurrentView(148)
+	if !ok {
+		t.Fatalf("CurrentView(пол) ok = false, want true")
+	}
+	if v.Enter != 0 || v.Exit != 0 {
+		t.Fatalf("пол: Enter/Exit = %v/%v, want 0/0 (Exit не читается)", v.Enter, v.Exit)
+	}
+	if v.NextEnter != 1_000 {
+		t.Fatalf("пол: NextEnter = %v, want 1000", v.NextEnter)
+	}
+}
+
+// Средняя ступень: свои пороги + вход следующей; верхняя — следующей нет.
+func TestStageLadderCurrentViewNext(t *testing.T) {
+	l := NewStageLadder([]Stage{
+		{ID: 148, Enter: 0, Exit: 0},
+		{ID: 200, Enter: 1_000, Exit: 750},
+		{ID: 300, Enter: 10_000, Exit: 7_500},
+	})
+	v, ok := l.CurrentView(200)
+	if !ok {
+		t.Fatalf("CurrentView(средняя) ok = false, want true")
+	}
+	if v.Enter != 1_000 || v.Exit != 750 {
+		t.Fatalf("средняя: Enter/Exit = %v/%v, want 1000/750", v.Enter, v.Exit)
+	}
+	if v.NextEnter != 10_000 {
+		t.Fatalf("средняя: NextEnter = %v, want 10000", v.NextEnter)
+	}
+	if top, _ := l.CurrentView(300); top.NextEnter != 0 {
+		t.Fatalf("верхняя: NextEnter = %v, want 0 (выше нет)", top.NextEnter)
+	}
+}

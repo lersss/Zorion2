@@ -7,11 +7,58 @@
 // Чистые функции без DOM/сети на верхнем уровне: модуль тянется в import-граф
 // админки (modal/tabs.js) и исполняется в Node (web/frontend_branches_test.go).
 
+import { readUnitScale, storedToDisplay, unitScaleDef } from '../unit_scale.js';
+
 // formatAmount — количество: до 2 знаков, без хвостовых нулей (дробные батчи
 // §4.2). Нечисло → '—'.
 function formatAmount(n) {
     if (typeof n !== 'number' || isNaN(n)) return '—';
     return String(Math.round(n * 100) / 100);
+}
+
+// trimZeros — снимает хвостовые нули дробной части ('0.250' → '0.25').
+function trimZeros(s) {
+    return s.indexOf('.') >= 0 ? s.replace(/\.?0+$/, '') : s;
+}
+
+// groupThousands — разделитель разрядов пробелом ('1300' → '1 300').
+function groupThousands(s) {
+    const parts = s.split('.');
+    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+    return parts.join('.');
+}
+
+// formatCount — абсолютное число (ед/сутки или люди): разряды через пробел и
+// разумное число знаков (крупные — целые/1 знак, малые не теряются). Нечисло → '—'.
+function formatCount(n) {
+    if (typeof n !== 'number' || !isFinite(n)) return '—';
+    if (n === 0) return '0';
+    const sign = n < 0 ? '-' : '';
+    const abs = Math.abs(n);
+    let body;
+    if (abs >= 100) {
+        body = trimZeros(abs.toFixed(0));
+    } else if (abs >= 1) {
+        body = trimZeros(abs.toFixed(1));
+    } else {
+        // < 1: держим значащие цифры, чтобы не потерять порядок (0.00000065).
+        const k = Math.min(12, Math.max(2, -Math.floor(Math.log10(abs)) + 2));
+        body = trimZeros(abs.toFixed(k));
+    }
+    if (body === '' || Number(body) === 0) return n.toExponential(2);
+    return sign + groupThousands(body);
+}
+
+// formatPercent — доля 0..1 в проценты с разумным округлением ('0.25' → '25%').
+function formatPercent(share) {
+    if (typeof share !== 'number' || !isFinite(share)) return '—';
+    return trimZeros((share * 100).toFixed(1)) + '%';
+}
+
+// currentUnitScaleKey — выбранный масштаб единицы (ключ gs_unitScale); нет
+// storage (Node) → дефолт «на млрд». Читается один раз на рендер.
+function currentUnitScaleKey() {
+    return readUnitScale(typeof localStorage !== 'undefined' ? localStorage : null);
 }
 
 // bufferRowHtml — строка буфера «имя → количество».
@@ -20,11 +67,37 @@ function bufferRowHtml(entry) {
     return `<div style="color:#ccc;">${name}: <strong>${formatAmount(entry && entry.amount)}</strong></div>`;
 }
 
+// branchArithmeticRowsHtml — строки витрины арифметики ветки (спека
+// 2026-09-23-стадии-поселения §8.2/§11.3): число скорости пары «тип × рецепт»
+// в выбранном масштабе (rate хранится как «ед/сутки/млрд» — §2.1), «забираем»
+// по компонентам рецепта (абсолютные ед/сутки на текущем населении), доля
+// добора из залежей (проценты) и пометка «рецепт не в наборе стадии».
+function branchArithmeticRowsHtml(branch, unitScaleKey) {
+    let html = '';
+    if (branch.rate != null) {
+        const shown = formatCount(storedToDisplay(branch.rate, unitScaleKey));
+        html += `<div style="color:#888; font-size:0.85rem;">скорость (число пары): <strong>${shown}</strong> ${unitScaleDef(unitScaleKey).unit}</div>`;
+    }
+    const take = Array.isArray(branch.take) ? branch.take : [];
+    if (take.length > 0) {
+        const items = take.map(t => `${t.good_name || ('#' + t.good_id)} ×${formatCount(t.per_day)}`).join(' · ');
+        html += `<div style="color:#ccc; font-size:0.85rem;">забираем: <strong>${items}</strong></div>`;
+    }
+    if (branch.deposit_share > 0) {
+        html += `<div style="color:#888; font-size:0.85rem;">из залежи: <strong>${formatPercent(branch.deposit_share)}</strong></div>`;
+    }
+    if (branch.not_in_stage_set) {
+        html += `<div style="color:#facc15; font-size:0.85rem;">рецепт не в наборе стадии (не производит)</div>`;
+    }
+    return html;
+}
+
 // branchBlockHtml — блок одной ветки. Input показывается только админу
 // (isAdmin): входной буфер видит только админ (§6). Выход — «пол» по качеству
 // (поле качества не заводим, §1) — отдельной пометки в блоке нет.
 export function branchBlockHtml(branch, isAdmin) {
     if (!branch) return '';
+    const unitScaleKey = currentUnitScaleKey();
     const title = branch.recipe_name || ('рецепт #' + branch.recipe_id);
     const complexity = branch.complexity ? ` · сложность ${branch.complexity}` : '';
     let html = `
@@ -43,6 +116,7 @@ export function branchBlockHtml(branch, isAdmin) {
     // строку «за проход» показываем всегда.
     html += `<div style="color:#888; font-size:0.85rem; margin-top:6px;">за проход: сделано <strong>${formatAmount(branch.produced || 0)}</strong> · съедено <strong>${formatAmount(branch.eaten || 0)}</strong></div>`;
     html += `<div style="color:#888; font-size:0.85rem;">скорость поедания: <strong>${formatAmount(branch.eaten_rate || 0)}</strong> ед/сек</div>`;
+    html += branchArithmeticRowsHtml(branch, unitScaleKey);
     if (isAdmin) {
         html += `<div style="color:#facc15; font-size:0.85rem; margin-top:6px; text-transform:uppercase;">Вход (виден только админу)</div>`;
         const input = branch.input || [];
@@ -70,6 +144,53 @@ export function branchesBlockHtml(branches, isAdmin, settlementID) {
         list.forEach(b => { html += adminBranchInputFormHtml(b.id); });
     }
     return html;
+}
+
+// settlementArithmeticHtml — блок арифметики поселения на текущем населении
+// (спека 2026-09-23-стадии-поселения §8.2/§11.3): по позициям производим /
+// потребляем / сверх (отрицательный net → «дефицит <|net|>»), ед/сутки —
+// абсолютные, с разделителями разрядов. Масштаб к ним НЕ применяется. Пустой /
+// отсутствующий блок → пустая строка (у player при выключенной настройке и в
+// снимке сервер его чистит).
+export function settlementArithmeticHtml(settlement) {
+    const list = settlement && Array.isArray(settlement.arithmetic) ? settlement.arithmetic : [];
+    if (list.length === 0) return '';
+    let html = `<div style="color:#888; font-size:0.9rem; text-transform:uppercase; margin-top:8px;">Арифметика (на текущем населении, ед/сутки)</div>`;
+    list.forEach(a => {
+        const net = a.net_per_day;
+        let netHtml;
+        if (typeof net === 'number' && net < 0) {
+            netHtml = `дефицит <strong>${formatCount(Math.abs(net))}</strong>`;
+        } else if (typeof net === 'number') {
+            netHtml = `сверх <strong>+${formatCount(net)}</strong>`;
+        } else {
+            netHtml = `сверх <strong>—</strong>`;
+        }
+        html += `<div style="color:#ccc; font-size:0.9rem;">${a.position}: производим <strong>${formatCount(a.produced_per_day)}</strong> · потребляем <strong>${formatCount(a.consumed_per_day)}</strong> · ${netHtml}</div>`;
+    });
+    return html;
+}
+
+// stageRowHtml — строка ступени поселения (спека 2026-09-23-стадии-поселения
+// §11.3): имя типа (стадия не тайна — отдаётся всегда) + пороги. Пороги и
+// близость — люди, абсолютные, с разделителями разрядов (масштаб НЕ
+// применяется). Порог входа — только если объявлен (>0); порог выхода >0 — как
+// есть, иначе «не читается (пол)»; при входе следующей ступени — близость «до
+// следующей» (next_enter − население). Нет имени типа → пустая строка (в снимке
+// тип не замораживается).
+export function stageRowHtml(settlement) {
+    const typeName = settlement && settlement.type_name;
+    if (!typeName) return '';
+    const stage = settlement.stage;
+    let line = `Стадия: <strong>${typeName}</strong>`;
+    if (stage) {
+        if (stage.enter > 0) line += ` · порог входа ${formatCount(stage.enter)}`;
+        line += stage.exit > 0 ? ` · порог выхода ${formatCount(stage.exit)}` : ' · порог выхода не читается (пол)';
+        if (stage.next_enter > 0) {
+            line += ` · до следующей ступени ${formatCount(stage.next_enter - (settlement.population || 0))}`;
+        }
+    }
+    return `<div>${line}</div>`;
 }
 
 // adminCreateBranchFormHtml — форма «создать ветку» (§6): рецепт вводится

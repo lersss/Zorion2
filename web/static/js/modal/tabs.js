@@ -3,7 +3,7 @@ import { populationAt, planetPopulationAt } from './extrapolate.js';
 import { modalState, flightModeForSystem } from './state.js';
 import { getPlanetTexture } from './textures.js';
 import { groupDeposits } from './deposits.js';
-import { branchesBlockHtml, effectsBlockHtml } from './branches.js';
+import { branchesBlockHtml, effectsBlockHtml, stageRowHtml, settlementArithmeticHtml } from './branches.js';
 import { boardHtml, canPublishHere, publishFormHtml, escapeHtml } from './contracts.js';
 import { notifyError, notifySuccess } from '../ui/toast.js';
 import { gameDate } from '../game_date.js';
@@ -683,8 +683,10 @@ function settlementCardHtml(s, i, mode) {
                     <div>Раса: <strong>${s.race_name || 'Люди'}</strong></div>
                     <div>Население: <strong id="pop-${s.id}">${formatNumber(populationAt(s, Date.now()))}</strong>${snapshotMode ? '' : settlementTrendArrow(s)}</div>
                     <div>Стабильность: <strong>${populationAt(s, Date.now()) === 0 ? '—' : (s.stability != null ? s.stability + '%' : '—')}</strong></div>
+                    ${stageRowHtml(s)}
                 </div>
                 ${snapshotMode ? '' : settlementLogRows(s)}
+                ${showEffects ? settlementArithmeticHtml(s) : ''}
                 ${branchesBlockHtml(s.branches, admin, s.id)}
                 ${showEffects ? effectsBlockHtml(s.effects, admin, s.id) : ''}
             </div>`;

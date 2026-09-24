@@ -49,6 +49,36 @@ func NewStageLadder(stages []Stage) StageLadder {
 // Len — число стадий в ладдере.
 func (l StageLadder) Len() int { return len(l.stages) }
 
+// StageView — витрина ступени для карточки поселения (спека 2026-09-23 §11.3):
+// пороги текущей ступени (в людях) и порог входа ближайшей ступени ВЫШЕ.
+// Exit = 0 — порог выхода не читается (пол: низшая ступень ладдеры);
+// NextEnter = 0 — выше текущей ступени нет.
+type StageView struct {
+	Enter     float64
+	Exit      float64
+	NextEnter float64
+}
+
+// CurrentView — витрина ступени типа currentID: пороги текущей ступени и вход
+// следующей ВЫШЕ по ладдере. Тип вне ладдеры → ok=false (витрины нет — карточка
+// рисует только имя типа). Чистая: порядок уже задан NewStageLadder.
+func (l StageLadder) CurrentView(currentID int64) (StageView, bool) {
+	for i, s := range l.stages {
+		if s.ID != currentID {
+			continue
+		}
+		v := StageView{Enter: s.Enter, Exit: s.Exit}
+		if i == 0 {
+			v.Exit = 0 // пол: порог выхода низшей ступени не читается
+		}
+		if i+1 < len(l.stages) {
+			v.NextEnter = l.stages[i+1].Enter
+		}
+		return v, true
+	}
+	return StageView{}, false
+}
+
 // Select — целевая стадия для текущего типа и населения (§4.3, алгоритм N
 // стадий): upTarget — самая высокая стадия, чей вход пройден; downTarget —
 // самая высокая, чей выход ещё держится. Коридор удержания — [upTarget,

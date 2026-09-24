@@ -24,6 +24,11 @@ type InterpolatedPosition struct {
 	// RaceID — раса агента (спека 2026-09-23 §7.2): клиент выбирает корабль
 	// расы (spriteForAgent(race_id, id)); пусто → нейтральный корабль.
 	RaceID string `json:"race_id"`
+	// RaceName — человекочитаемое имя расы агента (для тултипа карты).
+	// Источник — каталог рас (internal/races.ByID(race_id).Name); заполняет
+	// хендлер позиций (в этот пакет каталог рас не тянется). Пусто, если
+	// race_id пуст или раса не найдена.
+	RaceName string `json:"race_name"`
 }
 
 // PositionCache — in-memory snapshot позиций всех агентов (спека §2.2.B).

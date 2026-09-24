@@ -362,11 +362,22 @@ export function showNPCTooltip(agent, screenX, screenY) {
     // worldLabel — название мира из позиции; фолбэк на обрезанный айди, если
     // имени нет (защитно: позиция без мира в сетке не отдаётся — имя есть).
     const worldLabel = (id, name) => name || (id ? id.slice(0, 8) + '…' : '—');
+    // Имя файла корабля агента — только админским ролям (отладка/настройка
+    // кораблей рас); обычным игрокам строку не показываем. Расширение .png не
+    // показываем — это шум в тултипе (решение создателя 2026-09-25).
+    const isAdmin = state.userRole === 'admin' || state.userRole === 'skycomposer';
+    let shipFile = null;
+    if (isAdmin) {
+        const sel = spriteForAgent(agent.race_id, agent.id);
+        shipFile = sel && sel.file ? sel.file.replace(/\.png$/i, '') : null;
+    }
     npcTooltipEl.innerHTML = `
         <div style="font-weight:600;margin-bottom:4px;">👁️ ${escHtml(agent.name || '—')}</div>
         <div>Статус: <b>${escHtml(agent.status || '—')}</b></div>
+        <div>Фракция: ${escHtml(agent.race_name || '—')}</div>
         <div>Текущий мир: ${escHtml(worldLabel(agent.current_world_id, agent.current_world_name))}</div>
         <div>Целевой мир: ${agent.target_world_id ? escHtml(worldLabel(agent.target_world_id, agent.target_world_name)) : '—'}</div>
+        ${isAdmin ? `<div>Корабль: ${escHtml(shipFile || '—')}</div>` : ''}
     `;
     // Смещение от курсора (12px); у правого края — влево, чтобы не уходить за экран.
     const left = screenX + 14 + npcTooltipEl.offsetWidth > window.innerWidth

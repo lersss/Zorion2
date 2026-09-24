@@ -11,6 +11,7 @@ import (
 	"zorion/internal/auth"
 	"zorion/internal/models"
 	"zorion/internal/npc"
+	"zorion/internal/races"
 )
 
 // Positions — GET /api/npc/positions: только агенты в полёте (90a) с x, y,
@@ -33,6 +34,19 @@ func (h *AdminNPCHandlers) Positions(w http.ResponseWriter, r *http.Request) {
 	positions = flying
 	if h.visibility != nil && roleFromContext(r) == string(models.RolePlayer) {
 		positions = h.filterPositionsByVisibility(r, positions)
+	}
+	// Имя расы — поверх снимка менеджера (idle/flying и отфильтрованный
+	// список): источник — каталог рас (имя фракции = имя расы). Пусто, если
+	// race_id пуст или раса не найдена.
+	//
+	// Писать in-place можно только сюда: positions — своя копия (flying и
+	// фильтр видимости создают новые срезы). Срез из manager.Positions() не
+	// мутировать — это разделяемая память под atomic.Pointer, тик читает её
+	// (гонка, AGENTS.md §0).
+	for i := range positions {
+		if race := races.ByID(positions[i].RaceID); race != nil {
+			positions[i].RaceName = race.Name
+		}
 	}
 	writeJSONStatus(w, http.StatusOK, map[string]interface{}{"positions": positions})
 }

@@ -19,6 +19,7 @@ import (
 	"zorion/internal/mapcache"
 	"zorion/internal/models"
 	"zorion/internal/npc"
+	"zorion/internal/races"
 	"zorion/internal/repository"
 	"zorion/internal/ship"
 	"zorion/internal/travel"
@@ -321,6 +322,7 @@ func TestGetPlanetsByWorldIgnitedOutsideRadiusNoScan(t *testing.T) {
 // ==================== /api/npc/positions: ФИЛЬТР ПО РАДИУСУ ====================
 
 func TestNPCPositionsFilteredByRadius(t *testing.T) {
+	require.NoError(t, races.LoadCatalog("../../config/races.json"))
 	ship.LoadDefaults()
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
@@ -337,9 +339,10 @@ func TestNPCPositionsFilteredByRadius(t *testing.T) {
 	h.SetVisibility(v)
 
 	// Агент a1 в (0,0) — в радиусе; a2 в (1000,0) — за радаром. Оба в полёте
-	// (90a): радиус-фильтр проверяется на летящих.
+	// (90a): радиус-фильтр проверяется на летящих. a1 — с расой (race_name
+	// заполняется и для отфильтрованного списка).
 	npcManager.SetPositions([]npc.InterpolatedPosition{
-		{ID: "a1", Name: "Агент1", X: 0, Y: 0, Status: models.NPCAgentStatusFlying, CurrentWorldID: "w1"},
+		{ID: "a1", Name: "Агент1", X: 0, Y: 0, Status: models.NPCAgentStatusFlying, CurrentWorldID: "w1", RaceID: "coastal"},
 		{ID: "a2", Name: "Агент2", X: 1000, Y: 0, Status: models.NPCAgentStatusFlying, CurrentWorldID: "w3"},
 	})
 
@@ -359,6 +362,8 @@ func TestNPCPositionsFilteredByRadius(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Len(t, resp.Positions, 1, "агент за радаром скрыт")
 	require.Equal(t, "a1", resp.Positions[0].ID)
+	require.Equal(t, races.ByID("coastal").Name, resp.Positions[0].RaceName,
+		"race_name проставлен и для отфильтрованного по видимости списка")
 }
 
 // ==================== /api/npc/search: КООРДИНАТЫ СКРЫТЫ ВНЕ РАДИУСА ====================

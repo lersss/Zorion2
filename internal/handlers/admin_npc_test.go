@@ -21,6 +21,7 @@ import (
 	"zorion/internal/mapcache"
 	"zorion/internal/models"
 	"zorion/internal/npc"
+	"zorion/internal/races"
 	"zorion/internal/repository"
 )
 
@@ -723,8 +724,10 @@ func TestAdminNPCPositionsEmpty(t *testing.T) {
 }
 
 // Позиция агента несёт race_id (спека 2026-09-23 §7.2): клиент выбирает
-// корабль расы (spriteForAgent(race_id, id)).
+// корабль расы (spriteForAgent(race_id, id)), плюс человекочитаемое имя расы
+// (race_name) для тултипа карты.
 func TestAdminNPCPositionsCarriesRaceID(t *testing.T) {
+	require.NoError(t, races.LoadCatalog("../../config/races.json"))
 	h, _ := newAdminNPCHarness(t)
 	h.manager.SetPositions([]npc.InterpolatedPosition{
 		{ID: "a1", Status: models.NPCAgentStatusFlying, X: 1, Y: 2, RaceID: "coastal"},
@@ -736,11 +739,39 @@ func TestAdminNPCPositionsCarriesRaceID(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	var resp struct {
 		Positions []struct {
-			ID     string `json:"id"`
-			RaceID string `json:"race_id"`
+			ID       string `json:"id"`
+			RaceID   string `json:"race_id"`
+			RaceName string `json:"race_name"`
 		} `json:"positions"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Len(t, resp.Positions, 1)
 	require.Equal(t, "coastal", resp.Positions[0].RaceID)
+	require.Equal(t, races.ByID("coastal").Name, resp.Positions[0].RaceName,
+		"race_name — имя расы из каталога (имя фракции)")
+}
+
+// Пустой/неизвестный race_id → пустое race_name (не 500 и не мусор).
+func TestAdminNPCPositionsRaceNameEmptyForUnknown(t *testing.T) {
+	require.NoError(t, races.LoadCatalog("../../config/races.json"))
+	h, _ := newAdminNPCHarness(t)
+	h.manager.SetPositions([]npc.InterpolatedPosition{
+		{ID: "a1", Status: models.NPCAgentStatusFlying, X: 1, Y: 2, RaceID: ""},
+		{ID: "a2", Status: models.NPCAgentStatusFlying, X: 3, Y: 4, RaceID: "no_such_race"},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/npc/positions", nil)
+	rec := execJSON(h.Positions, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp struct {
+		Positions []struct {
+			ID       string `json:"id"`
+			RaceName string `json:"race_name"`
+		} `json:"positions"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Positions, 2)
+	require.Empty(t, resp.Positions[0].RaceName, "пустой race_id → пустое race_name")
+	require.Empty(t, resp.Positions[1].RaceName, "неизвестная раса → пустое race_name")
 }

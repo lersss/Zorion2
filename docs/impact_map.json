@@ -1878,6 +1878,31 @@
         { "on": "docs/GLOSSARY.md", "kind": "docs", "reason": "«Позиция потребления» = товар; «Жажда»; норма «ед/сутки/млрд» (§3)" },
         { "on": "docs/gamedesign/13_tiers.md", "kind": "docs", "reason": "§13.10/§13.10.1 — дельта канона «позиция закрывается только своим товаром» (§15)" }
       ]
+    },
+    {
+      "id": "market_offers",
+      "type": "table",
+      "path": "db:market_offers",
+      "note": "Витрина локального рынка планеты (спека 2026-09-24-магазин-модулей-локальный-рынок; ✅ реализовано 2026-09-24, коммит a333827): справочник предложений (миграция 000081) — 4 базовых модуля (kind='module', item_id из equipment, price 3000 Cr, бесконечный запас). Читается витриной GET /api/planets/{id}/market и покупкой POST .../buy (трейд-ин — цена старого модуля из этой же таблицы); не в truncateTables (справочник переживает очистку вселенной).",
+      "impacts": [
+        { "on": "equipment", "kind": "reads", "reason": "item_id → модуль каталога (EquipmentByID); цены живут в market_offers, не в equipment" },
+        { "on": "settlements", "kind": "reads", "reason": "живость поселения (population_exact > 0) — гейт покупки §7.2 п.2; на чтении витрины живость не раскрывается" },
+        { "on": "users.current_position", "kind": "reads", "reason": "can_trade и гейт покупки — присутствие на орбите планеты (инвариант 8)" },
+        { "on": "money_account", "kind": "writes", "reason": "списание «прочей тратой»: balance −amount, withdrawable = LEAST(...) (денежная спека §3.3)" },
+        { "on": "db:money_operations", "kind": "writes", "reason": "журнал покупки kind='purchase' (открытый список kind), balance_after" },
+        { "on": "db:users", "kind": "writes", "reason": "установка модуля в слот users.equipment (jsonb_set); выкупленный модуль исчезает (инвентаря нет)" },
+        { "on": "internal/ship/radar.go", "kind": "affects", "reason": "дельта чтения §9: радар — по типу из любого слота, максимум (не сумма)" },
+        { "on": "internal/ship/catalog.go", "kind": "affects", "reason": "дельта чтения §9: HasScanner/HasEngine — наличие в любом слоте; EngineSpeed v1 не меняется" },
+        { "on": "web/static/js/modal/market.js", "kind": "affects", "reason": "вкладка «Магазин» карточки планеты: витрина/слоты/покупка (§10)" },
+        { "on": "player_planet_knowledge", "kind": "reads", "reason": "гейт витрины знанием: none → 404; settlements_count == 0 → offers:[] (§7.1)" },
+        { "on": "ship_models", "kind": "reads", "reason": "валидация слота: номер ≤ ship_models.slots.universal (starter = 3)" },
+        { "on": "77a", "kind": "affects", "reason": "§4.2 дельта: радиус — по любому слоту, максимум из установленных" },
+        { "on": "91a", "kind": "affects", "reason": "§7.1 дельта: HasScanner/HasEngine — любой слот; EngineSpeed v1 без изменений" },
+        { "on": "docs/specs/2026-09-24-магазин-модулей-локальный-рынок.md", "kind": "docs", "reason": "спека механики (витрина/покупка/числа/UI)" },
+        { "on": "docs/gamedesign/11_markets.md", "kind": "docs", "reason": "пометка: раздел «Модули» витрины реализован" },
+        { "on": "docs/GLOSSARY.md", "kind": "docs", "reason": "«Рынок планеты», «Трейд-ин»" },
+        { "on": "docs/DB.md", "kind": "docs", "reason": "таблица market_offers + миграция 000081" }
+      ]
     }
   ]
 }

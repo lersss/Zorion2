@@ -209,7 +209,7 @@ func buildContentSnapshot(rows *repository.ContentExportRows, now time.Time) (*C
 		snap.RecipeComponents = append(snap.RecipeComponents, cc)
 	}
 	for _, p := range orderProducerTypes(rows.ProducerTypes) {
-		cpt := ContentProducerType{Name: p.Name, Kind: p.Kind, Hidden: p.Hidden, Code: p.Code.String}
+		cpt := ContentProducerType{Name: p.Name, Kind: p.Kind, Hidden: p.Hidden, Section: p.Section.String, Code: p.Code.String}
 		if p.CategoryID.Valid {
 			cpt.Category = catName[p.CategoryID.Int64]
 			cpt.CategoryKind = catRef[p.CategoryID.Int64].Kind

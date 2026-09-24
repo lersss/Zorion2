@@ -173,6 +173,30 @@ func TestBuildContentSnapshotMissingCodeFails(t *testing.T) {
 	require.Contains(t, err.Error(), "метка")
 }
 
+// TestBuildContentSnapshotSection — снимок несёт раздел постройки
+// (producer_types.section, спека 2026-09-25 §4): непустой section попадает в
+// JSON, NULL/пустой — не пишется (omitempty), иначе импорт на проде затирал бы
+// раздел в NULL.
+func TestBuildContentSnapshotSection(t *testing.T) {
+	rows := contentFixture()
+	rows.ProducerTypes[1].Section = sql.NullString{String: "colony", Valid: true}
+	snap, err := buildContentSnapshot(rows, time.Now())
+	require.NoError(t, err)
+
+	var ptypes []ContentProducerType
+	require.NoError(t, json.Unmarshal(mustJSON(t, snap, "producer_types"), &ptypes))
+	// Порядок снимка: p_0001 (Колония, index 1 во входе), p_0002, p_0003.
+	require.Equal(t, "colony", ptypes[0].Section)
+	require.Equal(t, "", ptypes[1].Section)
+
+	data, err := json.Marshal(snap)
+	require.NoError(t, err)
+	out := string(data)
+	require.Contains(t, out, `"section":"colony"`)
+	// Ровно одна запись с разделом: пустой Section не пишется (§4/omitempty).
+	require.Equal(t, 1, strings.Count(out, `"section"`))
+}
+
 // mustJSON — секция снимка как сырой JSON (через повторную маршализацию).
 func mustJSON(t *testing.T, snap *ContentSnapshot, section string) []byte {
 	t.Helper()

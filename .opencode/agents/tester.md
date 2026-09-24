@@ -52,9 +52,9 @@ permission:
    `*rand.Rand`, проверка+действие не атомарно, второй писатель в websocket;
    пустой/невалидный вход, повторные вызовы.
 5. **Эндпоинты** curl'ом, если сервер поднят.
-6. **Перед работой с БД/psql/шеллом/curl — прочитай `docs/PITFALLS.md`** (в т.ч.
-   «Windows-шелл: кодировка cp866/cp1251» — как вызывать psql/curl, `Invoke-RestMethod`,
-   алиас `curl` = `Invoke-WebRequest`).
+6. **Перед работой с БД/psql/шеллом/curl — прочитай `docs/pitfalls/db-shell.md`**
+   (в т.ч. «Windows-шелл: кодировка cp866/cp1251» — как вызывать psql/curl,
+   `Invoke-RestMethod`, алиас `curl` = `Invoke-WebRequest`).
    **SQL к dev-БД — через готовую обёртку `tools/db.ps1`, не сочиняй вызов psql заново:**
    `powershell -File tools/db.ps1 -Sql "SELECT ..."` (`-File q.sql` или stdin).
 

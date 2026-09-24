@@ -460,7 +460,10 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
-let state = {categories:[], goods:[], unused:[], warnings:[], model:"", generating:false};
+let state = {categories:[], goods:[], unused:[], warnings:[], model:"", generating:false,
+  // до первого fetchState читатели (concreteGoodsFactories и пр.) не должны
+  // падать на undefined — держим пустые массивы, а не отсутствующие поля
+  items:[], producer_types:[], producer_slots:[], producer_recipes:[]};
 let selected = null;
 let popupGoodId = null; // товар попапа-детали, отдельно от selected (99a.3 §10.3, вердикт критика С1)
 let tierSel = new Set(); // выбранные тиры-пилюли справочника; пусто = фильтр выключен = все тиры (99a.3-ui §5.3)
@@ -2473,8 +2476,14 @@ function renderProdPopup() {
   // Шапка-блок (спека §4.1): вид/скрытая, родитель, категория, семейство/раса.
   // Подпись вида («товары») — только у записи с товарной категорией.
   html += '<div class="pblock">';
-  html += '<div class="dmeta" style="margin-bottom:0">' + (p.category_id != null ? esc(kindLabel(p.kind)) + ' · ' : '') +
-    '<label style="font-size:13px" title="Не показывать запись-фабрику по умолчанию и не предлагать в лестнице"><input type="checkbox" onchange="saveProdHidden(this.checked)"' + (p.hidden ? ' checked' : '') + '> скрытая</label></div>';
+  html += '<div class="dmeta" style="margin-bottom:0">' + (p.category_id != null ? esc(kindLabel(p.kind)) + ' · ' : '');
+  // Чекбокс «скрытая» — только у конкретной записи-фабрики (hidden — носитель
+  // скрытия записи kind=goods с товарной категорией; у типов/items оси скрытия
+  // нет). id — контракт e2e (studio-hidden-categories-check).
+  if (p.parent_id && p.kind === "goods" && p.category_id != null) {
+    html += '<label style="font-size:13px" title="Не показывать запись-фабрику по умолчанию и не предлагать в лестнице"><input type="checkbox" id="prodHiddenChk" onchange="saveProdHidden(this.checked)"' + (p.hidden ? ' checked' : '') + '> скрытая</label>';
+  }
+  html += '</div>';
   // родитель (дерево построек 2026-09-21 §1.2): подтип → тип-родитель
   if (p.parent_id) {
     const parent = state.producer_types.find(x => x.id === p.parent_id);
@@ -3342,14 +3351,14 @@ function prodCatWinner(t, catID) {
   return recs.reduce((a, b) => prodRecordSpecificity(b) > prodRecordSpecificity(a) ? b : a);
 }
 // prodCatDrawRecords(t, catID) — применяемые записи категории, рисуемые на
-// уровне (спека §5.4/§5.6): скрыто — все (затемнённые); видимо — победитель
-// + скрытые записи; лосеры-видимые не рисуются.
+// уровне (спека скрытых §2.2 п.2, вариант б): скрыто — только скрытые записи +
+// победитель лестницы (затемнённые; видимые менее конкретные НЕ показываем);
+// видимо — победитель + скрытые записи; лосеры-видимые не рисуются.
 function prodCatDrawRecords(t, catID) {
   const recs = prodAppliedRecords(t, catID);
-  if (prodCatHidden(t, catID)) return recs.map(s => ({ref: s, hidden: true}));
   const winner = prodCatWinner(t, catID);
   const out = [];
-  if (winner) out.push({ref: winner, hidden: false});
+  if (winner) out.push({ref: winner, hidden: prodCatHidden(t, catID)});
   recs.forEach(s => {
     if (s.hidden && !(winner && winner.id === s.id)) out.push({ref: s, hidden: true});
   });
@@ -3427,8 +3436,11 @@ function prodNodeVisible(p) {
   if (prodSlots(t).length === 0 && p.category_id == null) return true;
   if (!prodCatInSet(t, p.category_id)) return false; // категория вне набора уровня
   const catHidden = prodCatHidden(t, p.category_id);
-  if (catHidden) return prodShowHidden; // скрыта: без галки ничего, с галкой — все
   const winner = prodCatWinner(t, p.category_id);
+  // скрыта: без галки ничего; с галкой — только скрытые записи + победитель
+  // лестницы (вариант б, спека скрытых §2.2 п.2; видимые менее конкретные
+  // не показываем). Расовость фильтрует набор через prodAppliedRecords.
+  if (catHidden && !prodShowHidden) return false;
   return !!(winner && winner.id === p.id) || !!p.hidden;
 }
 
@@ -3611,13 +3623,15 @@ function buildProdTree() {
         if (!cat) return;
         const recs = prodAppliedRecords(t, catID);
         if (prodCatHidden(t, catID)) {
-          // state 2 «скрыто» (OR осей): без галки ничего; с галкой — затемнённые
-          // карточки всех применяемых записей; записей нет — заглушка (§5.4)
+          // state 2 «скрыто» (OR осей): без галки ничего; с галкой — только
+          // скрытые записи + победитель лестницы (вариант б, спека скрытых
+          // §2.2 п.2; видимые менее конкретные не показываем);
+          // записей нет — заглушка (§5.4)
           if (!prodShowHidden) return;
           if (!recs.length) {
             node.children.push({id: "hstub:" + t.id + ":" + catID, label: cat.name, kind: "hiddenStub", ref: {type: t, catID}, children: []});
           } else {
-            recs.forEach(s => node.children.push(subtypeNode(s, true)));
+            prodCatDrawRecords(t, catID).forEach(d => node.children.push(subtypeNode(d.ref, true)));
           }
         } else {
           // видимо: лестница — победитель + затемнённые скрытые записи;

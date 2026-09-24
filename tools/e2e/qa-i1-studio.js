@@ -105,8 +105,8 @@ async function main() {
   const r7 = await api('PUT', `/studio/api/producers/${TYPE_ID}`, { stage: { enter: 200, exit: 100 } });
   report('A6 exit<enter → 200', r7.status === 200, 'status=' + r7.status);
 
-  // позиция «вода» в eat, но её нет в effects → 200 + предупреждение (не 422)
-  const r8 = await api('PUT', `/studio/api/producers/${TYPE_ID}`, { eat: { 'вода': 700, 'продовольствие': 600 }, effects: { 'продовольствие': 'голод' } });
+  // позиция «очищенная вода» в eat, но её нет в effects → 200 + предупреждение (не 422)
+  const r8 = await api('PUT', `/studio/api/producers/${TYPE_ID}`, { eat: { 'очищенная вода': 700, 'пища': 600 }, effects: { 'пища': 'голод' } });
   const warned = r8.status === 200 && Array.isArray(r8.data && r8.data.warnings) && r8.data.warnings.some(w => /без эффекта/.test(w));
   report('A6 eat-без-эффекта → 200+warning', warned, 'status=' + r8.status + ' warnings=' + JSON.stringify(r8.data && r8.data.warnings));
 
@@ -117,10 +117,13 @@ async function main() {
   report('A7 producer_recipes.rate есть', allHaveRate && !!pr && Number(pr.rate) === 650, `allHaveRate=${allHaveRate} pairRate=${pr && pr.rate}`);
   const pt = (st.producer_types || []).find(p => Number(p.id) === TYPE_ID);
   const par = pt && pt.params || {};
-  const paramsFull = par && par.eat && par.eat_units === 'per_day_per_billion' && par.stage && par.stage.enter === 200 && par.eat['вода'] === 700;
+  const paramsFull = par && par.eat && par.eat_units === 'per_day_per_billion' && par.stage && par.stage.enter === 200 && par.eat['очищенная вода'] === 700;
   report('A7 params целиком (eat/eat_units/stage)', !!paramsFull, 'params=' + JSON.stringify(par));
 
   // ================= A8: браузерный смоук студии =================
+  // пустой ввод темпа: снимем число у пары-якоря (вернёт cleanup), чтобы карточка
+  // показала состояние «без числа — не производит» (иначе все пары заполнены).
+  await api('PUT', `/studio/api/producers/${TYPE_ID}/recipes/${RECIPE_BOUND}`, { rate: null });
   const exe = findExecutable();
   if (!exe) { report('A8 browser', false, 'no Chrome/Edge'); }
   else {
@@ -131,7 +134,7 @@ async function main() {
     const pageErrors = [];
     const badResponses = [];
     page.on('pageerror', (err) => pageErrors.push(String(err && err.stack ? err.stack : err)));
-    page.on('console', (m) => { if (m.type() === 'error') { let loc = ''; try { loc = JSON.stringify(m.location()); } catch (e) {} pageErrors.push('console.error: ' + m.text() + ' @ ' + loc); } });
+    page.on('console', (m) => { if (m.type() === 'error') { let loc = ''; try { loc = JSON.stringify(m.location()); } catch (e) {} if ((loc + m.text()).includes('favicon')) return; pageErrors.push('console.error: ' + m.text() + ' @ ' + loc); } });
     page.on('response', (r) => { if (r.status() >= 400) badResponses.push(r.status() + ' ' + r.url()); });
     page.on('requestfailed', (r) => badResponses.push('FAILED ' + r.url() + ' ' + (r.failure() && r.failure().errorText)));
     try {
@@ -158,12 +161,12 @@ async function main() {
           hasRawJson: !!details,
         };
       });
-      const hasProd = /Производит/.test(ui.text), hasCons = /Потребляет/.test(ui.text);
+      const hasProd = /Производит/i.test(ui.text), hasCons = /Потребляет/i.test(ui.text);
       report('A8 блоки Производит/Потребляет', hasProd && hasCons,
         `hasProd=${hasProd} hasCons=${hasCons} rateField=${ui.hasRateField} rateValues=${JSON.stringify(ui.rateValues)} textLen=${(ui.text || '').length}`);
-      report('A8 пустое число = не производит', ui.hasRateField && ui.rateValues.includes('') && /без числа — не производит/.test(ui.text),
+      report('A8 пустое число = не производит', ui.hasRateField && ui.rateValues.includes('') && /без числа — не производит/i.test(ui.text),
         `rateValues=${JSON.stringify(ui.rateValues)}`);
-      report('A8 предупреждение «позиция без эффекта»', /без эффекта — не потребляется/.test(ui.text), '');
+      report('A8 предупреждение «позиция без эффекта»', /без эффекта — не потребляется/i.test(ui.text), '');
       report('A8 «по умолчанию 600» placeholder', ui.hasDefault600, '');
       report('A8 сырой JSON свёрнут', ui.hasRawJson && ui.rawJsonOpen === false, `hasRawJson=${ui.hasRawJson} open=${ui.rawJsonOpen}`);
       report('A8 консоль без JS-ошибок', pageErrors.length === 0, 'errors=' + pageErrors.length + (pageErrors.length ? ' :: ' + pageErrors[0].slice(0, 200) : '') + ' badResponses=' + JSON.stringify(badResponses));

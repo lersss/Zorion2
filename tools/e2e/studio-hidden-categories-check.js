@@ -84,20 +84,21 @@ async function main() {
   let p40 = st0.producer_types.find(p => p.name === 'Фабрика топлива' && !p.race_family);
   let p43 = st0.producer_types.find(p => p.name === 'Фабрика топлива F1');
   if (!p40) {
-    const r = await api('POST', '/studio/api/producers', { name: 'Фабрика топлива', kind: 'goods', category_id: 8, parent_id: 2, hidden: false });
-    p40 = r.data;
-  } else if (p40.hidden) {
-    await api('PUT', '/studio/api/producers/' + p40.id, { hidden: false });
+    p40 = (await api('POST', '/studio/api/producers', { name: 'Фабрика топлива', kind: 'goods', category_id: 8, parent_id: 2 })).data;
   }
   if (!p43) {
-    const r = await api('POST', '/studio/api/producers', { name: 'Фабрика топлива F1', kind: 'goods', category_id: 8, parent_id: 2, race_family: 'F1', hidden: true });
-    p43 = r.data;
-  } else if (!p43.hidden) {
-    await api('PUT', '/studio/api/producers/' + p43.id, { hidden: true });
+    p43 = (await api('POST', '/studio/api/producers', { name: 'Фабрика топлива F1', kind: 'goods', category_id: 8, parent_id: 2, race_family: 'F1' })).data;
   }
   const ID40 = p40.id, ID43 = p43.id;
   const NODE40 = 'sub:' + ID40, NODE43 = 'sub:' + ID43;
-  report('setup data', 'PASS', `p40=${ID40} hidden=${p40.hidden} | p43=${ID43} hidden=${p43.hidden}`);
+  // скрытость записи-фабрики ставится отдельной ручкой /hidden; тело
+  // POST/PUT /producers поле hidden не принимает (устаревшее ожидание).
+  await api('POST', '/studio/api/producers/' + ID40 + '/hidden', { hidden: false });
+  await api('POST', '/studio/api/producers/' + ID43 + '/hidden', { hidden: true });
+  const stH = (await api('GET', '/studio/api/state')).data;
+  const h40 = (stH.producer_types.find(p => p.id === ID40) || {}).hidden;
+  const h43 = (stH.producer_types.find(p => p.id === ID43) || {}).hidden;
+  report('setup data', 'PASS', `p40=${ID40} hidden=${h40} | p43=${ID43} hidden=${h43}`);
 
   const exe = findExecutable();
   if (!exe) { report('setup browser', 'FAIL', 'no Chrome/Edge found'); return finish(1); }
@@ -190,14 +191,14 @@ async function main() {
     }, { n40: NODE40, n43: NODE43 });
     report('K9 checkbox on F1 shows only hidden', (k9.has43 && k9.n43hidden === true && !k9.has40 && !k9.hasInvite) ? 'PASS' : 'FAIL', JSON.stringify(k9));
 
-    // ============ K10: попап скрытой записи, чекбокс отмечен, снять → PUT → обычная ============
+    // ============ K10: попап скрытой записи, чекбокс отмечен, снять → POST /producers/{id}/hidden → обычная ============
     await page.evaluate((id) => openProdNodePopup(id), NODE43);
     await page.waitForTimeout(300);
     const k10a = await page.evaluate(() => {
       const chk = document.getElementById('prodHiddenChk');
       return { popupOpen: document.getElementById('detailPopup').style.display === 'flex', chkExists: !!chk, chkChecked: chk ? chk.checked : null };
     });
-    // снять чекбокс → saveProdHidden → PUT
+    // снять чекбокс → saveProdHidden → POST /producers/{id}/hidden
     await page.uncheck('#prodHiddenChk');
     await waitFor((id) => { const p = state.producer_types.find(x => x.id === id); return p && p.hidden === false; }, 8000, 'p43 hidden=false after uncheck', ID43);
     const k10b = await page.evaluate(({ id43, n43node }) => {
@@ -209,8 +210,8 @@ async function main() {
     report('K10 popup + uncheck', (k10a.popupOpen && k10a.chkExists && k10a.chkChecked === true && k10b.hidden === false && k10b.nodeHidden === false && k10b.inTree) ? 'PASS' : 'FAIL',
       `popup=${JSON.stringify(k10a)} after=${JSON.stringify(k10b)}`);
     await page.keyboard.press('Escape');
-    // вернуть hidden:true для K12
-    await api('PUT', '/studio/api/producers/' + ID43, { hidden: true });
+    // вернуть hidden:true для K12 (скрытость ставится ручкой /hidden)
+    await api('POST', '/studio/api/producers/' + ID43 + '/hidden', { hidden: true });
     await waitFor((id) => { const p = state.producer_types.find(x => x.id === id); return p && p.hidden === true; }, 8000, 'p43 hidden=true restored', ID43);
 
     // ============ K11: в попапе ТИПА и подтипа items чекбокса НЕТ ============

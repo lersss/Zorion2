@@ -85,9 +85,17 @@ async function main() {
   const st0 = (await api('GET', '/studio/api/state')).data;
   const cleanupSlots = st0.producer_slots.filter(s => s.parent_id === 2 && s.category_id === 8 && s.race_family);
   for (const s of cleanupSlots) await api('DELETE', '/studio/api/slots/' + s.id);
+  // мусор прерванного прогона: универсальный слот «Минералы» (cat=1, resource)
+  // у Фабрики неканоничен (сид даёт только товарные категории) — иначе K7
+  // увидит 14 категорий вместо 13. Канон-каталог не трогаем.
+  const junkSlots = st0.producer_slots.filter(s => s.parent_id === 2 && s.category_id === 1 && !s.race_family);
+  for (const s of junkSlots) await api('DELETE', '/studio/api/slots/' + s.id);
+  // канон: все базовые универсальные слоты Фабрики видимы (прерванные прогоны
+  // могли включить у них hidden — иначе K7 видит не 13 категорий)
+  const baseHidden = st0.producer_slots.filter(s => s.parent_id === 2 && !s.race_family && s.hidden);
+  for (const s of baseHidden) await api('PUT', '/studio/api/slots/' + s.id, { hidden: false });
   const base8 = st0.producer_slots.find(s => s.parent_id === 2 && s.category_id === 8 && !s.race_family);
-  if (base8 && base8.hidden) await api('PUT', '/studio/api/slots/' + base8.id, { hidden: false });
-  report('setup data', 'PASS', `base8=${base8 && base8.id} hidden=${base8 && base8.hidden} cleaned=${cleanupSlots.length}`);
+  report('setup data', 'PASS', `base8=${base8 && base8.id} cleaned=${cleanupSlots.length} junk=${junkSlots.length} baseUnhidden=${baseHidden.length}`);
 
   const exe = findExecutable();
   if (!exe) { report('setup browser', 'FAIL', 'no Chrome/Edge found'); return finish(1); }
@@ -151,7 +159,7 @@ async function main() {
       const rows = [...document.querySelectorAll('#popupBody .pslot')];
       const top = rows.find(r => r.querySelector('.cname') && r.querySelector('.cname').textContent.trim() === 'топливо');
       return {
-        hasSlotEditor: !!document.querySelector('#popupBody .usedin-h'),
+        hasSlotEditor: !!document.querySelector('#popupBody .prod-slots-list'),
         rowFound: !!top,
         inherited: top ? top.textContent.includes('унаследован') : null,
         chk: top ? top.querySelector('input[type=checkbox]').checked : null,
@@ -191,7 +199,7 @@ async function main() {
     await page.waitForTimeout(300);
     const k9b = await page.evaluate(() => ({
       popupTitle: document.getElementById('popupTitle').textContent,
-      hasSlotEditor: !!document.querySelector('#popupBody .usedin-h'),
+      hasSlotEditor: !!document.querySelector('#popupBody .prod-slots-list'),
     }));
     const k9ok = k9.hasStub && k9.kind === 'hiddenStub' && k9b.popupTitle === 'Фабрика' && k9b.hasSlotEditor;
     report('K9 hidden stub + click to parent', k9ok ? 'PASS' : 'FAIL', `stub=${JSON.stringify(k9)} popup=${JSON.stringify(k9b)}`);
@@ -290,11 +298,17 @@ async function main() {
       `chk=${k11a.chk} hint=${JSON.stringify(k11hint)} f1=${JSON.stringify(k11f1)} uni=${JSON.stringify(k11uni)}`);
 
     // ============ K12: select категорий в попапе записи по уровню записи ============
-    // универсальная запись «Фабрика еды» (id=51, cat=7) при уровне UI «Семейство F4»
-    // видит универсальные категории (базу), не F4-набор
+    // универсальная запись «продовольствие» (cat=7) при уровне UI «Семейство F4»
+    // видит универсальные категории (базу), не F4-набор. Берём существующую
+    // запись (жёсткий id=51 устарел; новую не создаём — уникальность подтипа).
+    const stK12 = (await api('GET', '/studio/api/state')).data;
+    let qaFood = stK12.producer_types.find(p => p.parent_id === 2 && p.category_id === 7 && !p.race_family && !p.race);
+    if (!qaFood) qaFood = (await api('POST', '/studio/api/producers', { name: 'QA_Еда', kind: 'goods', category_id: 7, parent_id: 2 })).data;
+    await page.evaluate(() => fetchState());
+    await waitFor((id) => state.producer_types.some(p => p.id === id), 8000, 'record cat7 in state', qaFood.id);
     await page.evaluate(() => { setProdRaceLevel('family'); setProdRaceFamily('F4'); renderAll(); });
     await page.waitForTimeout(300);
-    await page.evaluate(() => openProdPopup(51));
+    await page.evaluate((id) => openProdPopup(id), qaFood.id);
     await page.waitForTimeout(300);
     const k12 = await page.evaluate(() => {
       const sel = document.querySelector('#popupBody .dcat');
@@ -356,25 +370,30 @@ async function main() {
       `afterF5=${JSON.stringify(k14a)} zoompan=${JSON.stringify(k14b)} apiCalls=${apiAfter - apiBefore}`);
 
     // ============ K15: регресс items/energy + приглашение создаёт завод ============
-    // лаборатории (items) видны без оси скрытости
+    // лаборатории (items) — в своём разделе «Лаборатории» (спека 2026-09-25),
+    // проверяем их на полотне этого раздела
+    await page.click('#branchProdLab');
+    await page.waitForTimeout(300);
     const k15a = await page.evaluate(() => {
       const L = prodTreeLayout();
       return { lab6: !!L.pos['sub:6'], lab7: !!L.pos['sub:7'], lab8: !!L.pos['sub:8'] };
     });
-    // приглашение видимого слота создаёт завод (С4 проходит): на universal «топливо» скрыто (K11),
-    // возьмём видимую категорию «химикаты» (10) — приглашение → создание
+    await page.click('#branchProdFactory');
+    await page.waitForTimeout(300);
+    // приглашение видимого слота создаёт завод (С4 проходит): берём видимую
+    // категорию без записей — «оружие» (17); у «химикатов» (10) запись уже есть
     await page.evaluate(() => { setProdRaceLevel('universal'); renderAll(); });
     await page.waitForTimeout(300);
-    await page.evaluate(() => openProdNodePopup('invite:2:10'));
+    await page.evaluate(() => openProdNodePopup('invite:2:17'));
     await page.waitForTimeout(300);
     const k15b = await page.evaluate(() => {
       const inp = document.getElementById('prodCreateName');
       return { modalOpen: document.getElementById('modalOverlay').style.display === 'flex', name: inp ? inp.value : '' };
     });
-    await page.fill('#prodCreateName', 'QA_Завод_химикатов');
+    await page.fill('#prodCreateName', 'QA_Завод_оружия');
     await page.click('#modalBtns button[data-primary]');
-    await waitFor(() => { const p = state.producer_types.find(x => x.name === 'QA_Завод_химикатов'); return !!p; }, 8000, 'factory created');
-    const k15ok = k15a.lab6 && k15a.lab7 && k15a.lab8 && k15b.modalOpen && k15b.name.includes('химикаты');
+    await waitFor(() => { const p = state.producer_types.find(x => x.name === 'QA_Завод_оружия'); return !!p; }, 8000, 'factory created');
+    const k15ok = k15a.lab6 && k15a.lab7 && k15a.lab8 && k15b.modalOpen && k15b.name.includes('оружие');
     report('K15 regression items + invite create', k15ok ? 'PASS' : 'FAIL',
       `labs=${JSON.stringify(k15a)} invite=${JSON.stringify(k15b)}`);
 

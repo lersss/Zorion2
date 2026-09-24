@@ -2,8 +2,8 @@
 // Тесты сидера каталога производителей (спека 2026-09-20-фабрики §10.1 п.2 +
 // 2026-09-21-студия-дерево-построек-канвас §1.4): маркер producer_catalog_seed —
 // пропуск; полный сид — 17 типов производителей (включая «Лабораторию»-родителя,
-// «Фабрику продовольствия»-подтип и 7 подтипов-ступеней «Поселения») + 4 предмета
-// + 4 связи + маркер, всё в одной транзакции.
+// «Фабрику продовольствия»-подтип и 7 подтипов-ступеней класса «Колония», канон
+// 2026-09-24) + 4 предмета + 4 связи + маркер, всё в одной транзакции.
 package goodsstudio
 
 import (
@@ -100,8 +100,8 @@ func TestSeedProducersFull(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// TestSeedProducersContent — состав сида: 17 типов (поселение, 7
-// подтипов-ступеней «Поселения» (Аутпост → … → Экуменополис), фабрика,
+// TestSeedProducersContent — состав сида: 17 типов (класс «Колония», 7
+// подтипов-ступеней (Форпост → Поселение → … → Экуменополис), фабрика,
 // автофабрика, добывающая платформа, энергостанция, лаборатория-родитель,
 // 3 лаборатории-подтипа, фабрика продовольствия), 4 предмета (чертёж,
 // сертификат, модуль, кирка), 4 связи;
@@ -109,7 +109,7 @@ func TestSeedProducersFull(t *testing.T) {
 // дерево построек: лаборатории — подтипы «Лаборатории», фабрика продовольствия
 // — подтип «Фабрики» с категорией, платформа — без категории.
 func TestSeedProducersContent(t *testing.T) {
-	require.Len(t, seedProducers, 17, "поселение, 7 ступеней поселения, фабрика, автофабрика, платформа, станция, лаборатория, 3 лаборатории-подтипа, фабрика продовольствия")
+	require.Len(t, seedProducers, 17, "класс «Колония», 7 ступеней, фабрика, автофабрика, платформа, станция, лаборатория, 3 лаборатории-подтипа, фабрика продовольствия")
 	require.Len(t, seedItems, 4, "чертёж, сертификат анализа, модуль корабля, кирка")
 	require.Len(t, seedProducerItems, 4, "3 лаборатории → предметы + сертификат")
 
@@ -149,12 +149,12 @@ func TestSeedProducersContent(t *testing.T) {
 	require.Equal(t, "", byName["Добывающая платформа"].Category, "платформа — чистый тип уровня 3, без категории")
 	require.Equal(t, "", byName["Лаборатория"].Parent, "лаборатория — тип-родитель")
 
-	// Базовая ступень поселения (спека стадий §4.3, итерации 4 §5.2): подтип
-	// «Поселения» без категории, residual у родителя снят, нормы еды —
+	// Базовая ступень (спека стадий §4.3, итерации 4 §5.2): подтип класса
+	// «Колония» без категории, residual у родителя снят, нормы еды —
 	// структура params.eat, порог — params.stage (пол, enter = 0).
-	require.Equal(t, "{}", byName["Поселение"].Output, "residual у «Поселения» снят (решение п.38)")
-	sub := byName["Аутпост"]
-	require.Equal(t, "Поселение", sub.Parent, "базовая ступень — подтип «Поселения»")
+	require.Equal(t, "{}", byName["Колония"].Output, "residual у класса «Колония» снят (решение п.38)")
+	sub := byName["Форпост"]
+	require.Equal(t, "Колония", sub.Parent, "базовая ступень — подтип класса «Колония»")
 	require.Equal(t, "goods", sub.Kind)
 	require.Equal(t, "", sub.Category, "подтип типа без слотов — без категории (п.37)")
 	require.Equal(t, "{}", sub.Output)
@@ -165,8 +165,8 @@ func TestSeedProducersContent(t *testing.T) {
 }
 
 // TestSeedSettlementStageLadder — сид даёт ровно 7 подтипов-ступеней класса
-// «Поселение» (parent «Поселение») с корректными params.stage (спека стадий
-// §4.3): Аутпост — пол (enter 0, exit не задан), далее enter/exit по таблице,
+// «Колония» (parent «Колония») с корректными params.stage (спека стадий
+// §4.3): Форпост — пол (enter 0, exit не задан), далее enter/exit по таблице,
 // exit = 75 % от enter (зазор гистерезиса exit < enter). Красный на сиде без
 // ступеней.
 func TestSeedSettlementStageLadder(t *testing.T) {
@@ -181,8 +181,8 @@ func TestSeedSettlementStageLadder(t *testing.T) {
 		hasExit bool
 	}
 	want := []ladderEntry{
-		{"Аутпост", 0, 0, false},
-		{"Посёлок", 1000, 750, true},
+		{"Форпост", 0, 0, false},
+		{"Поселение", 1000, 750, true},
 		{"Городок", 10000, 7500, true},
 		{"Город", 100000, 75000, true},
 		{"Мегаполис", 1000000, 750000, true},
@@ -194,17 +194,17 @@ func TestSeedSettlementStageLadder(t *testing.T) {
 	stages := 0
 	for _, p := range seedProducers {
 		byName[p.Name] = p
-		if p.Parent == "Поселение" {
+		if p.Parent == "Колония" {
 			stages++
 		}
 	}
-	require.Equal(t, 7, stages, "класс «Поселение» — ровно 7 подтипов-ступеней")
+	require.Equal(t, 7, stages, "класс «Колония» — ровно 7 подтипов-ступеней")
 
 	for _, w := range want {
 		p, ok := byName[w.name]
 		require.True(t, ok, "в сиде нет ступени %q", w.name)
 		require.Equal(t, "goods", p.Kind)
-		require.Equal(t, "Поселение", p.Parent)
+		require.Equal(t, "Колония", p.Parent)
 		require.Equal(t, "", p.Category, "ступени — без категории")
 		var params struct {
 			Stage *stage `json:"stage"`
@@ -214,11 +214,61 @@ func TestSeedSettlementStageLadder(t *testing.T) {
 		require.NotNil(t, params.Stage.Enter, "ступень %q без enter", w.name)
 		require.Equal(t, w.enter, *params.Stage.Enter, "enter ступени %q", w.name)
 		if !w.hasExit {
-			require.Nil(t, params.Stage.Exit, "у пола (Аутпост) exit не задаётся")
+			require.Nil(t, params.Stage.Exit, "у пола (Форпост) exit не задаётся")
 			continue
 		}
 		require.NotNil(t, params.Stage.Exit, "ступень %q без exit", w.name)
 		require.Equal(t, w.exit, *params.Stage.Exit, "exit ступени %q", w.name)
 		require.Less(t, *params.Stage.Exit, *params.Stage.Enter, "зазор exit < enter (%q)", w.name)
 	}
+}
+
+// TestSeedSettlementFloorStageConstant — резолв generation_config.
+// default_settlement_type_id (SeedProducers) цепляется к ступени-полу по канон-
+// константе settlementFloorStageName: у producer_types нет стабильной колонки
+// code, поэтому имя централизовано в одной константе. Тест стережёт связь —
+// переименование ступени-пола в сиде без правки константы красный («тест на
+// переименование»), а TestSeedProducersFull проверяет, что ключ реально пишется.
+func TestSeedSettlementFloorStageConstant(t *testing.T) {
+	// Канон 2026-09-24: ступень-пол класса «Колония» — «Форпост».
+	require.Equal(t, "Форпост", settlementFloorStageName)
+
+	type stage struct {
+		Enter *float64 `json:"enter"`
+		Exit  *float64 `json:"exit"`
+	}
+
+	var floor []seedProducer
+	for _, p := range seedProducers {
+		if p.Name == settlementFloorStageName {
+			floor = append(floor, p)
+		}
+	}
+	require.Len(t, floor, 1, "в сиде ровно одна ступень с именем константы %q", settlementFloorStageName)
+
+	var params struct {
+		Stage *stage `json:"stage"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(floor[0].Params), &params))
+	require.NotNil(t, params.Stage, "ступень-пол %q несёт params.stage", settlementFloorStageName)
+	require.NotNil(t, params.Stage.Enter, "у ступени-пола задан enter")
+	require.Equal(t, float64(0), *params.Stage.Enter, "ступень-пол — enter 0")
+	require.Nil(t, params.Stage.Exit, "у ступени-пола exit не задаётся")
+	require.Equal(t, "Колония", floor[0].Parent, "ступень-пол принадлежит классу «Колония»")
+
+	// enter = 0 — структурное свойство пола: на ладдере такая ступень одна.
+	roots := 0
+	for _, p := range seedProducers {
+		if p.Parent != "Колония" {
+			continue
+		}
+		var sp struct {
+			Stage *stage `json:"stage"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(p.Params), &sp))
+		if sp.Stage != nil && sp.Stage.Enter != nil && *sp.Stage.Enter == 0 {
+			roots++
+		}
+	}
+	require.Equal(t, 1, roots, "ступень-пол (enter 0) на ладдеры ровно одна")
 }

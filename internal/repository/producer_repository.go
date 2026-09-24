@@ -34,6 +34,9 @@ type ProducerTypeRow struct {
 	// спека 2026-09-21 §2.1, К1); вторая ось — producer_slots.hidden.
 	Hidden    bool
 	CreatedAt time.Time
+	// Code — метка переноса (producer_types.code, спека 2026-09-24 §3.1/§3.3):
+	// справочный неизменный ключ dev↔прод, только чтение.
+	Code sql.NullString
 }
 
 // ProducerSlotRow — слот родителя (спека 2026-09-21-скрытые §1.1): «родитель
@@ -57,6 +60,9 @@ type ItemRow struct {
 	Unlocks   []byte // JSONB
 	Params    []byte // JSONB
 	CreatedAt time.Time
+	// Code — метка переноса (items.code, спека 2026-09-24 §3.1/§3.3): справочный
+	// неизменный ключ dev↔прод, только чтение.
+	Code sql.NullString
 }
 
 // ProducerItemRow — связь «производитель предметов ↔ предмет» (спека §3.1).
@@ -166,7 +172,7 @@ func parentHasSlots(q queryer, parentID int64) (bool, error) {
 // loadProducerTypes — все типы производителей каталога.
 func loadProducerTypes(q queryer) ([]ProducerTypeRow, error) {
 	rows, err := q.Query(
-		`SELECT id, name, kind, category_id, race_family, parent_id, race, output, input, params, hidden, created_at
+		`SELECT id, name, kind, category_id, race_family, parent_id, race, output, input, params, hidden, created_at, code
 		 FROM producer_types ORDER BY id`)
 	if err != nil {
 		return nil, err
@@ -177,7 +183,7 @@ func loadProducerTypes(q queryer) ([]ProducerTypeRow, error) {
 	for rows.Next() {
 		var p ProducerTypeRow
 		if err := rows.Scan(&p.ID, &p.Name, &p.Kind, &p.CategoryID, &p.RaceFamily,
-			&p.ParentID, &p.Race, &p.Output, &p.Input, &p.Params, &p.Hidden, &p.CreatedAt); err != nil {
+			&p.ParentID, &p.Race, &p.Output, &p.Input, &p.Params, &p.Hidden, &p.CreatedAt, &p.Code); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
@@ -209,7 +215,7 @@ func loadProducerSlots(q queryer) ([]ProducerSlotRow, error) {
 // loadItems — все предметы каталога.
 func loadItems(q queryer) ([]ItemRow, error) {
 	rows, err := q.Query(
-		`SELECT id, name, slot_type, unlocks, params, created_at FROM items ORDER BY id`)
+		`SELECT id, name, slot_type, unlocks, params, created_at, code FROM items ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -218,7 +224,7 @@ func loadItems(q queryer) ([]ItemRow, error) {
 	var out []ItemRow
 	for rows.Next() {
 		var it ItemRow
-		if err := rows.Scan(&it.ID, &it.Name, &it.SlotType, &it.Unlocks, &it.Params, &it.CreatedAt); err != nil {
+		if err := rows.Scan(&it.ID, &it.Name, &it.SlotType, &it.Unlocks, &it.Params, &it.CreatedAt, &it.Code); err != nil {
 			return nil, err
 		}
 		out = append(out, it)

@@ -27,14 +27,15 @@ func TestEffectTypes(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	mock.ExpectQuery(`SELECT id, name, name_norm, impact, COALESCE\(params->>'curve', ''\), created_at FROM effect_types ORDER BY id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm", "impact", "curve", "created_at"}).
-			AddRow(int64(1), "Голод", "голод", "population_rate", "hunger", time.Now()))
+	mock.ExpectQuery(`SELECT id, name, name_norm, impact, COALESCE\(params->>'curve', ''\), created_at, code FROM effect_types ORDER BY id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm", "impact", "curve", "created_at", "code"}).
+			AddRow(int64(1), "Голод", "голод", "population_rate", "hunger", time.Now(), "e_0001"))
 	out, err := NewEffectRepository(db).EffectTypes()
 	require.NoError(t, err)
 	require.Len(t, out, 1)
 	require.Equal(t, "голод", out[0].NameNorm)
 	require.Equal(t, "hunger", out[0].Curve)
+	require.Equal(t, "e_0001", out[0].Code.String, "каталог эффектов несёт метку переноса")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

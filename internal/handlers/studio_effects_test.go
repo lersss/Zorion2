@@ -24,9 +24,9 @@ func TestStudioEffectsList(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	mock.ExpectQuery(`SELECT id, name, name_norm, impact, COALESCE\(params->>'curve', ''\), created_at FROM effect_types ORDER BY id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm", "impact", "curve", "created_at"}).
-			AddRow(int64(1), "Голод", "голод", "population_rate", "hunger", time.Now()))
+	mock.ExpectQuery(`SELECT id, name, name_norm, impact, COALESCE\(params->>'curve', ''\), created_at, code FROM effect_types ORDER BY id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm", "impact", "curve", "created_at", "code"}).
+			AddRow(int64(1), "Голод", "голод", "population_rate", "hunger", time.Now(), "e_0001"))
 
 	h := NewStudioHandlers(db, ai.NewClient("http://127.0.0.1:1", "test-model", "build", time.Second, 0), "test-model")
 	req := httptest.NewRequest(http.MethodGet, "/studio/api/effects", nil)
@@ -40,6 +40,7 @@ func TestStudioEffectsList(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	require.Len(t, body.Effects, 1)
 	require.Equal(t, "hunger", body.Effects[0].Curve)
+	require.Equal(t, "e_0001", body.Effects[0].Code, "представление эффекта несёт метку переноса")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

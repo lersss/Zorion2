@@ -21,11 +21,14 @@ type EffectTypeView struct {
 	NameNorm string `json:"name_norm"`
 	Impact   string `json:"impact"`
 	Curve    string `json:"curve"`
+	// Code — метка переноса (effect_types.code, спека 2026-09-24 §3.1/§3.3):
+	// справочная, только чтение; NULL в БД → поле отсутствует (omitempty).
+	Code string `json:"code,omitempty"`
 }
 
 // effectTypeView — EffectTypeRow → EffectTypeView.
 func effectTypeView(e repository.EffectTypeRow) EffectTypeView {
-	return EffectTypeView{ID: e.ID, Name: e.Name, NameNorm: e.NameNorm, Impact: e.Impact, Curve: e.Curve}
+	return EffectTypeView{ID: e.ID, Name: e.Name, NameNorm: e.NameNorm, Impact: e.Impact, Curve: e.Curve, Code: e.Code.String}
 }
 
 // Effects — GET (каталог типов) / POST (создание) /studio/api/effects.

@@ -3,7 +3,7 @@
 // 2026-09-20-фабрики §10.1 п.2 + 2026-09-21-студия-дерево-построек-канвас
 // §1.4): при первом старте (маркер producer_catalog_seed в
 // generation_config) в одной транзакции сеет 17 типов производителей
-// (поселение, 7 подтипов-ступеней класса «Поселение» (Аутпост → Посёлок →
+// (класс «Колония», 7 подтипов-ступеней (Форпост → Поселение →
 // Городок → Город → Мегаполис → Метрополия → Экуменополис), фабрика,
 // автофабрика, добывающая платформа, энергостанция, лаборатория-родитель,
 // 3 лаборатории-подтипа, фабрика продовольствия),
@@ -32,6 +32,18 @@ import (
 // ProducerSeedMarkerKey — ключ маркера сидера производителей в
 // generation_config: payload {"applied_at", "producers", "items", "links"}.
 const ProducerSeedMarkerKey = "producer_catalog_seed"
+
+// settlementFloorStageName — канон-имя ступени-пола ладдеры класса «Колония»
+// (класс — «Колония», ступени — Форпост → Поселение → … → Экуменополис;
+// решение создателя 2026-09-24 «новые канон», идея
+// 2026-09-22-каталог-стабильный-код §8). ЕДИНСТВЕННОЕ место, где резолв
+// generation_config.default_settlement_type_id завязан на имя: у
+// producer_types нет стабильной колонки code (есть только у categories), а
+// связь по сырому литералу имени — хрупкая (переименование ступени уводит
+// ключ). Это компромисс до появления code записи каталога (отдельный шаг
+// дизайна эпика); согласованность константы с сидом стережёт
+// TestSeedSettlementFloorStageConstant.
+const settlementFloorStageName = "Форпост"
 
 // seedProducer — тип производителя сида (спека §2/§4.1 + дерево построек §1.4).
 type seedProducer struct {
@@ -68,11 +80,14 @@ type seedProducerItem struct {
 // (категория продовольствие). Порядок: родители раньше подтипов (parent_id
 // резолвится по имени из уже вставленных).
 var seedProducers = []seedProducer{
-	{Name: "Поселение", Kind: "goods", Output: `{}`, Input: `{"people": {"capacity": 100}}`, Params: `{}`},
-	// Ступени-подтипы класса «Поселение» без категории (спека стадий §4.3,
+	{Name: "Колония", Kind: "goods", Output: `{}`, Input: `{"people": {"capacity": 100}}`, Params: `{}`},
+	// Ступени-подтипы класса «Колония» без категории (спека стадий §4.3,
 	// решения 32/37, спека итерации 4 §5.2): ладдера роста по населению (люди),
 	// пороги — params.stage {enter, exit}, порядок читается по числам порогов.
-	// Базовая ступень «Аутпост» — пол ладдеры (её exit не читается, не задан).
+	// Базовая ступень «Форпост» — пол ладдеры (её exit не читается, не задан).
+	// Канон-имена ступеней (решение создателя 2026-09-24 «новые канон», идея
+	// 2026-09-22-каталог-стабильный-код §8): Форпост → Поселение → Городок →
+	// Город → Мегаполис → Метрополия → Экуменополис.
 	// Нужды (params.eat/effects) задаются на ВСЕХ семи ступенях ладдеры:
 	// позиция — ТОВАР (goods.name_norm), категория-«сахар» снята (спека
 	// 2026-09-24-потребление-по-товарам §6.2/§6.3). Единая единица
@@ -82,13 +97,13 @@ var seedProducers = []seedProducer{
 	// 20000000, решения создателя О4/Р7). Миграция 000079 приводит существующие
 	// БД к тем же params (T16 «сид ↔ миграция»); иначе пилот на свежей БД —
 	// no-op, а переход ступени снимал бы нужду.
-	{Name: "Аутпост", Kind: "goods", Parent: "Поселение", Output: `{}`, Input: `{}`, Params: `{"eat": {"пища": 600, "очищенная вода": 20000000}, "eat_units": "per_day_per_billion", "effects": {"пища": "голод", "очищенная вода": "жажда"}, "stage": {"enter": 0}}`},
-	{Name: "Посёлок", Kind: "goods", Parent: "Поселение", Output: `{}`, Input: `{}`, Params: `{"eat": {"пища": 600, "очищенная вода": 20000000}, "eat_units": "per_day_per_billion", "effects": {"пища": "голод", "очищенная вода": "жажда"}, "stage": {"enter": 1000, "exit": 750}}`},
-	{Name: "Городок", Kind: "goods", Parent: "Поселение", Output: `{}`, Input: `{}`, Params: `{"eat": {"пища": 600, "очищенная вода": 20000000}, "eat_units": "per_day_per_billion", "effects": {"пища": "голод", "очищенная вода": "жажда"}, "stage": {"enter": 10000, "exit": 7500}}`},
-	{Name: "Город", Kind: "goods", Parent: "Поселение", Output: `{}`, Input: `{}`, Params: `{"eat": {"пища": 600, "очищенная вода": 20000000}, "eat_units": "per_day_per_billion", "effects": {"пища": "голод", "очищенная вода": "жажда"}, "stage": {"enter": 100000, "exit": 75000}}`},
-	{Name: "Мегаполис", Kind: "goods", Parent: "Поселение", Output: `{}`, Input: `{}`, Params: `{"eat": {"пища": 600, "очищенная вода": 20000000}, "eat_units": "per_day_per_billion", "effects": {"пища": "голод", "очищенная вода": "жажда"}, "stage": {"enter": 1000000, "exit": 750000}}`},
-	{Name: "Метрополия", Kind: "goods", Parent: "Поселение", Output: `{}`, Input: `{}`, Params: `{"eat": {"пища": 600, "очищенная вода": 20000000}, "eat_units": "per_day_per_billion", "effects": {"пища": "голод", "очищенная вода": "жажда"}, "stage": {"enter": 10000000, "exit": 7500000}}`},
-	{Name: "Экуменополис", Kind: "goods", Parent: "Поселение", Output: `{}`, Input: `{}`, Params: `{"eat": {"пища": 600, "очищенная вода": 20000000}, "eat_units": "per_day_per_billion", "effects": {"пища": "голод", "очищенная вода": "жажда"}, "stage": {"enter": 100000000, "exit": 75000000}}`},
+	{Name: "Форпост", Kind: "goods", Parent: "Колония", Output: `{}`, Input: `{}`, Params: `{"eat": {"пища": 600, "очищенная вода": 20000000}, "eat_units": "per_day_per_billion", "effects": {"пища": "голод", "очищенная вода": "жажда"}, "stage": {"enter": 0}}`},
+	{Name: "Поселение", Kind: "goods", Parent: "Колония", Output: `{}`, Input: `{}`, Params: `{"eat": {"пища": 600, "очищенная вода": 20000000}, "eat_units": "per_day_per_billion", "effects": {"пища": "голод", "очищенная вода": "жажда"}, "stage": {"enter": 1000, "exit": 750}}`},
+	{Name: "Городок", Kind: "goods", Parent: "Колония", Output: `{}`, Input: `{}`, Params: `{"eat": {"пища": 600, "очищенная вода": 20000000}, "eat_units": "per_day_per_billion", "effects": {"пища": "голод", "очищенная вода": "жажда"}, "stage": {"enter": 10000, "exit": 7500}}`},
+	{Name: "Город", Kind: "goods", Parent: "Колония", Output: `{}`, Input: `{}`, Params: `{"eat": {"пища": 600, "очищенная вода": 20000000}, "eat_units": "per_day_per_billion", "effects": {"пища": "голод", "очищенная вода": "жажда"}, "stage": {"enter": 100000, "exit": 75000}}`},
+	{Name: "Мегаполис", Kind: "goods", Parent: "Колония", Output: `{}`, Input: `{}`, Params: `{"eat": {"пища": 600, "очищенная вода": 20000000}, "eat_units": "per_day_per_billion", "effects": {"пища": "голод", "очищенная вода": "жажда"}, "stage": {"enter": 1000000, "exit": 750000}}`},
+	{Name: "Метрополия", Kind: "goods", Parent: "Колония", Output: `{}`, Input: `{}`, Params: `{"eat": {"пища": 600, "очищенная вода": 20000000}, "eat_units": "per_day_per_billion", "effects": {"пища": "голод", "очищенная вода": "жажда"}, "stage": {"enter": 10000000, "exit": 7500000}}`},
+	{Name: "Экуменополис", Kind: "goods", Parent: "Колония", Output: `{}`, Input: `{}`, Params: `{"eat": {"пища": 600, "очищенная вода": 20000000}, "eat_units": "per_day_per_billion", "effects": {"пища": "голод", "очищенная вода": "жажда"}, "stage": {"enter": 100000000, "exit": 75000000}}`},
 	{Name: "Фабрика", Kind: "goods", Output: `{}`, Input: `{"people": {"capacity": 50}, "energy": true, "consumables": []}`, Params: `{"efficiency": 1.0}`},
 	{Name: "Автофабрика", Kind: "goods", Output: `{}`, Input: `{"robots": true, "energy": true, "consumables": ["механика", "электроника"]}`, Params: `{"robot_cost": 100}`},
 	{Name: "Добывающая платформа", Kind: "goods", Output: `{}`, Input: `{"energy": true, "consumables": []}`, Params: `{}`},
@@ -207,14 +222,20 @@ func SeedProducers(db *sql.DB) error {
 	// видит пустые settlements и ключ не ставит — ставит сид. Читает
 	// repository.ResolveDefaultSettlementTypeID. Upsert идемпотентен и живёт в
 	// той же транзакции, что и остальной сид.
-	if id, ok := producerIDs["Аутпост"]; ok {
-		if _, err := tx.Exec(
-			`INSERT INTO generation_config (key, payload) VALUES ($1, to_jsonb($2::bigint))
-			 ON CONFLICT (key) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`,
-			models.DefaultSettlementTypeIDKey, id,
-		); err != nil {
-			return fmt.Errorf("seed producers: default_settlement_type_id: %w", err)
-		}
+	// Ступень-пол берём по канон-константе settlementFloorStageName, а не сырым
+	// литералом: это единственная точка связи с именем (у producer_types нет
+	// колонки code, см. константу). Нет ступени в сиде — ошибка вслух: молчаливый
+	// пропуск оставил бы новые поселения без типа (баг идеи 2026-09-23).
+	floorID, ok := producerIDs[settlementFloorStageName]
+	if !ok {
+		return fmt.Errorf("seed producers: ступень-пол %q не найдена в сиде", settlementFloorStageName)
+	}
+	if _, err := tx.Exec(
+		`INSERT INTO generation_config (key, payload) VALUES ($1, to_jsonb($2::bigint))
+		 ON CONFLICT (key) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`,
+		models.DefaultSettlementTypeIDKey, floorID,
+	); err != nil {
+		return fmt.Errorf("seed producers: default_settlement_type_id: %w", err)
 	}
 
 	// Слоты родителя (спека 2026-09-21-скрытые §1.3, путь 2 — свежие БД):

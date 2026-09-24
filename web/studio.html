@@ -648,6 +648,12 @@ function aiWaitStop() {
   aiWaitShown = false;
 }
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+// codeNote — справочная метка переноса записи каталога (code, спека
+// 2026-09-24-каталог-экспорт… §3.3): только чтение, служит сверке dev↔прод.
+// Пусто — строки нет.
+function codeNote(code) {
+  return code ? '<div class="hint code-note">метка переноса: <code>' + esc(code) + '</code></div>' : '';
+}
 
 // ---------- граф ----------
 // Режимы канваса (99a.3 §5/§6): фокус-подграф по умолчанию, «всё дерево» —
@@ -1634,7 +1640,9 @@ function renderPopup() {
     }
   }
   html += (g.source === "ai" ? ' · ИИ' : g.source === "import" ? ' · импорт' : '');
-  html += '</div></div>';
+  html += '</div>';
+  html += codeNote(g.code); // метка переноса — справочно, только чтение (§3.3)
+  html += '</div>';
   // Состав рецепта (спека §5.2) — только у товаров (ресурс — лист, слотов нет):
   // заполненный и пустой — оба drop-target; обработчики не меняются
   if (!isRes) {
@@ -2434,6 +2442,7 @@ function renderProdPopup() {
     '<option value="">универсальный</option>' + (racesData ? racesData.families.map(f =>
       '<option value="' + f.id + '"' + (f.id === p.race_family ? ' selected' : '') + '>' + esc(familyLabelById(f.id)) + '</option>').join("") : '') +
     '</select> · раса: <select id="popupRaceSel" onchange="popupRaceChanged()">' + prodRaceOptions(p.race) + '</select></div>';
+  html += codeNote(p.code); // метка переноса — справочно, только чтение (§3.3)
   html += '</div>';
   // Производит — у ЛЮБОГО подтипа (спека §4.2): выводы назначенных рецептов
   // (+ «− отвязать») и выходы output; пусто у подтипа — подсказка про
@@ -3868,6 +3877,7 @@ function renderItemPopup() {
   html += '<div class="dmeta">тип слота: <select class="dcat" onchange="changeItemSlot(this.value)">' +
     ["чертёж", "модуль", "инструмент", "сертификат"].map(s => '<option value="' + s + '"' + (s === it.slot_type ? ' selected' : '') + '>' + esc(s) + '</option>').join("") +
     '</select></div>';
+  html += codeNote(it.code); // метка переноса — справочно, только чтение (§3.3)
   html += '<div class="dmeta">unlocks (предмет-рецепт): <textarea id="itemUnlocks" rows="2">' + esc(jsonText(it.unlocks)) + '</textarea></div>';
   html += '<div class="dmeta">params: <textarea id="itemParams" rows="2">' + esc(jsonText(it.params)) + '</textarea></div>';
   html += '<div class="btns"><button class="gen" onclick="saveItemJSON()">сохранить JSON</button></div>';
@@ -4182,6 +4192,7 @@ async function renderEffectPopup() {
     '<div class="cat-row">' +
       '<span class="cname" title="нормализованное имя: ' + esc(e.name_norm) + '">' + esc(e.name) + '</span>' +
       '<span class="ccount" title="impact / curve">' + esc(e.impact) + (e.curve ? ' · ' + esc(e.curve) : ' · без кривой') + '</span>' +
+      (e.code ? '<span class="ccount" title="метка переноса">' + esc(e.code) + '</span>' : '') +
       '<button class="cat-del" onclick="askDeleteEffectType(' + e.id + ')" title="удалить тип эффекта">🗑</button>' +
     '</div>'
   ).join("") || '<div class="empty-note">нет типов эффектов</div>';

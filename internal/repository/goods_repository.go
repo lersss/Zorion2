@@ -1318,7 +1318,7 @@ func loadCategories(q queryer) ([]CategoryRow, error) {
 // рецепта нет, recipe_id/complexity = NULL).
 func loadGoods(q queryer) ([]model.Good, error) {
 	rows, err := q.Query(
-		`SELECT g.id, g.name, g.category_id, g.kind, g.source, r.id, r.complexity, g.created_at, g.volume, g.weight, g.description
+		`SELECT g.id, g.name, g.category_id, g.kind, g.source, r.id, r.complexity, g.created_at, g.volume, g.weight, g.description, g.code
 		 FROM goods g LEFT JOIN recipes r ON r.good_id = g.id
 		 ORDER BY g.id`)
 	if err != nil {
@@ -1334,8 +1334,8 @@ func loadGoods(q queryer) ([]model.Good, error) {
 		var recipeID, complexity sql.NullInt64
 		var createdAt time.Time
 		var volume, weight sql.NullFloat64
-		var description sql.NullString
-		if err := rows.Scan(&id, &g.Name, &catID, &kind, &source, &recipeID, &complexity, &createdAt, &volume, &weight, &description); err != nil {
+		var description, code sql.NullString
+		if err := rows.Scan(&id, &g.Name, &catID, &kind, &source, &recipeID, &complexity, &createdAt, &volume, &weight, &description, &code); err != nil {
 			return nil, err
 		}
 		g.ID = strconv.FormatInt(id, 10)
@@ -1358,6 +1358,7 @@ func loadGoods(q queryer) ([]model.Good, error) {
 			g.Weight = &w
 		}
 		g.Description = description.String
+		g.Code = code.String
 		g.CreatedAt = createdAt.UTC().Format(time.RFC3339)
 		out = append(out, g)
 	}

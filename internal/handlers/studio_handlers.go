@@ -114,6 +114,9 @@ type GoodView struct {
 	Weight         *float64   `json:"weight"`
 	// Description — описание каталога; в ответе всегда есть, NULL в БД → "" (И3).
 	Description string `json:"description"`
+	// Code — метка переноса (goods.code, спека 2026-09-24 §3.1/§3.3): справочная,
+	// только чтение; NULL в БД → поле отсутствует (omitempty).
+	Code string `json:"code,omitempty"`
 }
 
 // RecipeBindingView — привязка рецепта к фабрике (producer_recipes) в
@@ -147,6 +150,9 @@ type ProducerTypeView struct {
 	Params       json.RawMessage `json:"params"`
 	Hidden       bool            `json:"hidden"`
 	Items        []ItemView      `json:"items,omitempty"`
+	// Code — метка переноса (producer_types.code, спека 2026-09-24 §3.1/§3.3):
+	// справочная, только чтение; NULL в БД → поле отсутствует (omitempty).
+	Code string `json:"code,omitempty"`
 }
 
 // ProducerSlotView — слот родителя в представлении состояния (спека скрытых
@@ -172,6 +178,9 @@ type ItemView struct {
 	SlotType string          `json:"slot_type"`
 	Unlocks  json.RawMessage `json:"unlocks"`
 	Params   json.RawMessage `json:"params"`
+	// Code — метка переноса (items.code, спека 2026-09-24 §3.1/§3.3):
+	// справочная, только чтение; NULL в БД → поле отсутствует (omitempty).
+	Code string `json:"code,omitempty"`
 }
 
 // StateView — полное состояние для UI (спека §7, GET /studio/api/state).
@@ -316,6 +325,7 @@ func (h *StudioHandlers) buildStateView(snap *repository.CatalogSnapshot) StateV
 			Volume:         g.Volume,
 			Weight:         g.Weight,
 			Description:    g.Description,
+			Code:           g.Code,
 			Recipe:         []SlotView{},
 		}
 		for _, slot := range g.Recipe {
@@ -345,7 +355,7 @@ func (h *StudioHandlers) buildStateView(snap *repository.CatalogSnapshot) StateV
 	}
 	itemByID := make(map[int64]ItemView, len(snap.Items))
 	for _, it := range snap.Items {
-		iv := ItemView{ID: it.ID, Name: it.Name, SlotType: it.SlotType}
+		iv := ItemView{ID: it.ID, Name: it.Name, SlotType: it.SlotType, Code: it.Code.String}
 		if it.Unlocks != nil {
 			iv.Unlocks = json.RawMessage(it.Unlocks)
 		}
@@ -372,6 +382,7 @@ func (h *StudioHandlers) buildStateView(snap *repository.CatalogSnapshot) StateV
 			Name:   p.Name,
 			Kind:   p.Kind,
 			Hidden: p.Hidden,
+			Code:   p.Code.String,
 		}
 		if p.CategoryID.Valid {
 			id := p.CategoryID.Int64

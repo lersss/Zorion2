@@ -1,7 +1,7 @@
 // internal/goodsstudio/settlement_type_consistency_test.go
 // Критерии T1/T18 спеки 2026-09-22-поселение-потребление-населением-итерация-4
 // (§12): миграция создаёт ровно один дефолтный подтип (базовая ступень
-// «Аутпост») идемпотентно; числа норм `params.eat` в миграции, в Go-сиде и в
+// «Форпост») идемпотентно; числа норм `params.eat` в миграции, в Go-сиде и в
 // константе `DefaultEatK` — ОДНО утверждённое число (расхождение = красный тест).
 package goodsstudio
 
@@ -43,22 +43,23 @@ func findSettlementTypeMigration(t *testing.T) string {
 	return ""
 }
 
-// settlementSeedSubtype — базовая ступень «Аутпост» из сида.
+// settlementSeedSubtype — базовая ступень (пол ладдеры) из сида, по канон-
+// константе settlementFloorStageName (имя ступени-пола — «Форпост»).
 func settlementSeedSubtype(t *testing.T) seedProducer {
 	t.Helper()
 	var found *seedProducer
 	for i := range seedProducers {
-		if seedProducers[i].Name == "Аутпост" {
+		if seedProducers[i].Name == settlementFloorStageName {
 			found = &seedProducers[i]
 		}
 	}
-	require.NotNil(t, found, "в сиде обязана быть ровно одна базовая ступень «Аутпост»")
+	require.NotNil(t, found, "в сиде обязана быть ровно одна базовая ступень %q", settlementFloorStageName)
 	return *found
 }
 
 // T1: миграция несёт связь «поселение → тип» (FK RESTRICT + индекс), снятие
 // residual у родителя, идемпотентный INSERT подтипа и бэкфилл; сид — ровно
-// один подтип под «Поселением» без категории.
+// один подтип под классом «Колония» без категории.
 func TestSettlementTypeMigrationShape(t *testing.T) {
 	mig := findSettlementTypeMigration(t)
 	require.Contains(t, mig, "ALTER TABLE settlements ADD COLUMN settlement_type_id")
@@ -68,7 +69,7 @@ func TestSettlementTypeMigrationShape(t *testing.T) {
 	require.Contains(t, mig, "WHERE settlement_type_id IS NULL", "бэкфилл существующих поселений (T2)")
 
 	sub := settlementSeedSubtype(t)
-	require.Equal(t, "Поселение", sub.Parent)
+	require.Equal(t, "Колония", sub.Parent)
 	require.Equal(t, "goods", sub.Kind)
 	require.Equal(t, "", sub.Category, "подтип типа без слотов — без категории (п.37)")
 }
@@ -120,12 +121,12 @@ func TestSettlementTypeEatKConsistency(t *testing.T) {
 }
 
 // T16/T18 (спека 2026-09-24-потребление-по-товарам §6.2/§6.3): нужда задаётся
-// на КАЖДОЙ ступени ладдеры — иначе переход «Аутпост» → «Посёлок» снимает
+// на КАЖДОЙ ступени ладдеры — иначе переход «Форпост» → «Поселение» снимает
 // нужду воды (поселение «перестаёт пить»). Сид несёт одни и те же
 // params.eat/effects/eat_units на всех семи ступенях; величина нормы от ступени
 // не зависит (О4) — различается только наличие привязки.
 func TestSettlementLadderSeedCarriesNeedParams(t *testing.T) {
-	ladder := []string{"Аутпост", "Посёлок", "Городок", "Город", "Мегаполис", "Метрополия", "Экуменополис"}
+	ladder := []string{"Форпост", "Поселение", "Городок", "Город", "Мегаполис", "Метрополия", "Экуменополис"}
 	byName := map[string]seedProducer{}
 	for _, p := range seedProducers {
 		byName[p.Name] = p

@@ -28,6 +28,9 @@ type EffectTypeRow struct {
 	Impact    string
 	Curve     string
 	CreatedAt time.Time
+	// Code — метка переноса (effect_types.code, спека 2026-09-24 §3.1/§3.3):
+	// справочный неизменный ключ dev↔прод, только чтение.
+	Code sql.NullString
 }
 
 // EffectRepository — доступ к каталогу типов эффектов и действующим эффектам.
@@ -68,7 +71,7 @@ func effectParamsJSON(curve string) string {
 // EffectTypes — каталог типов эффектов (студия, §7.4).
 func (r *EffectRepository) EffectTypes() ([]EffectTypeRow, error) {
 	rows, err := r.db.Query(
-		`SELECT id, name, name_norm, impact, COALESCE(params->>'curve', ''), created_at
+		`SELECT id, name, name_norm, impact, COALESCE(params->>'curve', ''), created_at, code
 		 FROM effect_types ORDER BY id`)
 	if err != nil {
 		return nil, err
@@ -77,7 +80,7 @@ func (r *EffectRepository) EffectTypes() ([]EffectTypeRow, error) {
 	out := []EffectTypeRow{}
 	for rows.Next() {
 		var e EffectTypeRow
-		if err := rows.Scan(&e.ID, &e.Name, &e.NameNorm, &e.Impact, &e.Curve, &e.CreatedAt); err != nil {
+		if err := rows.Scan(&e.ID, &e.Name, &e.NameNorm, &e.Impact, &e.Curve, &e.CreatedAt, &e.Code); err != nil {
 			return nil, err
 		}
 		out = append(out, e)

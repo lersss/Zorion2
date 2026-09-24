@@ -166,9 +166,9 @@ func TestStudioProducerTypedParams(t *testing.T) {
 		WithArgs(int64(5)).WillReturnRows(sqlmock.NewRows([]string{"params"}).AddRow(nil))
 	mock.ExpectQuery(`SELECT name_norm FROM goods`).
 		WillReturnRows(sqlmock.NewRows([]string{"name_norm"}).AddRow("пища"))
-	mock.ExpectQuery(`SELECT id, name, name_norm, impact, COALESCE\(params->>'curve', ''\), created_at FROM effect_types ORDER BY id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm", "impact", "curve", "created_at"}).
-			AddRow(int64(1), "Голод", "голод", "population_rate", "hunger", time.Now()))
+	mock.ExpectQuery(`SELECT id, name, name_norm, impact, COALESCE\(params->>'curve', ''\), created_at, code FROM effect_types ORDER BY id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm", "impact", "curve", "created_at", "code"}).
+			AddRow(int64(1), "Голод", "голод", "population_rate", "hunger", time.Now(), "e_0001"))
 
 	// UpdateProducerType: begin+advisory, SELECT ... FOR UPDATE, UPDATE params.
 	expectStudioMutation(mock)
@@ -225,8 +225,8 @@ func TestStudioProducerTypedWarning(t *testing.T) {
 		WithArgs(int64(5)).WillReturnRows(sqlmock.NewRows([]string{"params"}).AddRow(nil))
 	mock.ExpectQuery(`SELECT name_norm FROM goods`).
 		WillReturnRows(sqlmock.NewRows([]string{"name_norm"}).AddRow("пища"))
-	mock.ExpectQuery(`SELECT id, name, name_norm, impact, COALESCE\(params->>'curve', ''\), created_at FROM effect_types ORDER BY id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm", "impact", "curve", "created_at"}))
+	mock.ExpectQuery(`SELECT id, name, name_norm, impact, COALESCE\(params->>'curve', ''\), created_at, code FROM effect_types ORDER BY id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm", "impact", "curve", "created_at", "code"}))
 
 	expectStudioMutation(mock)
 	mock.ExpectQuery(`SELECT kind, parent_id, category_id, race_family, race FROM producer_types WHERE id = \$1 FOR UPDATE`).
@@ -267,8 +267,8 @@ func TestStudioProducerTypedExitNotBelowEnter(t *testing.T) {
 			WithArgs(int64(5)).WillReturnRows(sqlmock.NewRows([]string{"params"}).AddRow(nil))
 		mock.ExpectQuery(`SELECT name_norm FROM goods`).
 			WillReturnRows(sqlmock.NewRows([]string{"name_norm"}).AddRow("пища"))
-		mock.ExpectQuery(`SELECT id, name, name_norm, impact, COALESCE\(params->>'curve', ''\), created_at FROM effect_types ORDER BY id`).
-			WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm", "impact", "curve", "created_at"}))
+		mock.ExpectQuery(`SELECT id, name, name_norm, impact, COALESCE\(params->>'curve', ''\), created_at, code FROM effect_types ORDER BY id`).
+			WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm", "impact", "curve", "created_at", "code"}))
 		h := newRateTestHandlers(t, db)
 		req := httptest.NewRequest(http.MethodPut, "/studio/api/producers/5", strings.NewReader(body))
 		rec := httptest.NewRecorder()
@@ -288,8 +288,8 @@ func TestStudioProducerTypedNegativeThreshold(t *testing.T) {
 		WithArgs(int64(5)).WillReturnRows(sqlmock.NewRows([]string{"params"}).AddRow(nil))
 	mock.ExpectQuery(`SELECT name_norm FROM goods`).
 		WillReturnRows(sqlmock.NewRows([]string{"name_norm"}).AddRow("пища"))
-	mock.ExpectQuery(`SELECT id, name, name_norm, impact, COALESCE\(params->>'curve', ''\), created_at FROM effect_types ORDER BY id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm", "impact", "curve", "created_at"}))
+	mock.ExpectQuery(`SELECT id, name, name_norm, impact, COALESCE\(params->>'curve', ''\), created_at, code FROM effect_types ORDER BY id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm", "impact", "curve", "created_at", "code"}))
 
 	h := newRateTestHandlers(t, db)
 	req := httptest.NewRequest(http.MethodPut, "/studio/api/producers/5", strings.NewReader(`{"stage":{"enter":-1,"exit":-2}}`))
@@ -310,9 +310,9 @@ func TestStudioProducerTypedPriorityM6(t *testing.T) {
 
 	mock.ExpectQuery(`SELECT name_norm FROM goods`).
 		WillReturnRows(sqlmock.NewRows([]string{"name_norm"}).AddRow("пища"))
-	mock.ExpectQuery(`SELECT id, name, name_norm, impact, COALESCE\(params->>'curve', ''\), created_at FROM effect_types ORDER BY id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm", "impact", "curve", "created_at"}).
-			AddRow(int64(1), "Голод", "голод", "population_rate", "hunger", time.Now()))
+	mock.ExpectQuery(`SELECT id, name, name_norm, impact, COALESCE\(params->>'curve', ''\), created_at, code FROM effect_types ORDER BY id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm", "impact", "curve", "created_at", "code"}).
+			AddRow(int64(1), "Голод", "голод", "population_rate", "hunger", time.Now(), "e_0001"))
 
 	expectStudioMutation(mock)
 	mock.ExpectQuery(`SELECT kind, parent_id, category_id, race_family, race FROM producer_types WHERE id = \$1 FOR UPDATE`).

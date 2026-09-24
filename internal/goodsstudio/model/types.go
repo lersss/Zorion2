@@ -73,6 +73,10 @@ type Good struct {
 	// игровой текст (увидят игроки) + рабочее различение записей в студии; одно
 	// поле для обоих потребителей (И1). Пусто = описания нет; в снимке БД NULL → "".
 	Description string `json:"description,omitempty"`
+	// Code — метка переноса (goods.code, спека 2026-09-24-каталог-экспорт… §3.1/
+	// §3.3): справочный неизменный ключ записи dev↔прод, только чтение. NULL в
+	// БД → "" (omitempty).
+	Code string `json:"code,omitempty"`
 }
 
 // RecipeBinding — привязка рецепта к конкретной фабрике (producer_recipes,

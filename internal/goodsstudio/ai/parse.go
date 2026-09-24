@@ -23,9 +23,14 @@ type FillResponse struct {
 
 // extractJSON — выделение JSON из ответа ИИ: модель может добавить прозу
 // вокруг JSON (приветствие, пояснения). Если прямой разбор не проходит:
-// снимаем ```json-фенсы (если строка с них начинается), затем берём подстроку
-// от первого «{» до последнего «}». Возвращает исходную (сжатую) строку, если
-// JSON не найден, — Unmarshal вернёт ошибку сам.
+// снимаем ```json-фенсы (если строка с них начинается), затем ищем последний
+// сбалансированный JSON-объект, проходящий json.Valid.
+//
+// Прежний способ «от первого { до последнего }» ломался, когда модель сначала
+// рассуждает и цитирует шаблон промпта (тоже валидный JSON): склейка
+// «шаблон-цитата + проза + реальный ответ» не парсилась (баг 2026-09-24).
+// Возвращает исходную (сжатую) строку, если JSON не найден, — Unmarshal вернёт
+// ошибку сам.
 func extractJSON(s string) string {
 	trimmed := strings.TrimSpace(s)
 	if json.Valid([]byte(trimmed)) {
@@ -42,12 +47,58 @@ func extractJSON(s string) string {
 	if json.Valid([]byte(stripped)) {
 		return stripped
 	}
-	start := strings.IndexByte(stripped, '{')
-	end := strings.LastIndexByte(stripped, '}')
-	if start >= 0 && end > start {
-		return stripped[start : end+1]
+	if obj, ok := lastValidJSONObject(stripped); ok {
+		return obj
 	}
+	// JSON не найден: отдаём исходную строку, Unmarshal вернёт ошибку сам.
 	return stripped
+}
+
+// lastValidJSONObject возвращает последний сбалансированный JSON-объект,
+// который проходит json.Valid. Скан по байтам ведёт стек открытых «{» и
+// учитывает строки (кавычки/экранирование), поэтому фигурные скобки и кавычки
+// внутри прозы не сбивают баланс. «Последний» — потому что настоящий ответ
+// идёт после рассуждения и цитаты шаблона (идея 2026-09-24).
+func lastValidJSONObject(s string) (string, bool) {
+	var starts []int
+	inString := false
+	escaped := false
+	found := ""
+	ok := false
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			switch ch {
+			case '\\':
+				escaped = true
+			case '"':
+				inString = false
+			}
+			continue
+		}
+		switch ch {
+		case '"':
+			inString = true
+		case '{':
+			starts = append(starts, i)
+		case '}':
+			if len(starts) == 0 {
+				continue
+			}
+			start := starts[len(starts)-1]
+			starts = starts[:len(starts)-1]
+			candidate := s[start : i+1]
+			if json.Valid([]byte(candidate)) {
+				found = candidate
+				ok = true
+			}
+		}
+	}
+	return found, ok
 }
 
 // ParseFillResponse разбирает сырой текст ответа ИИ. Допускает прозу и обёртку

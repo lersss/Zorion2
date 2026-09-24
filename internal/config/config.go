@@ -110,7 +110,10 @@ func Load() *Config {
 	}
 	ocTimeoutS := os.Getenv("OPENCODE_TIMEOUT_S")
 	if ocTimeoutS == "" {
-		ocTimeoutS = "120"
+		// 45 с на попытку (решение создателя 2026-09-24): зависший отклик
+		// сдаётся за ~минуту, а не за 120 с × попытки (идея «ИИ-прогон не
+		// должен молча виснуть»).
+		ocTimeoutS = "45"
 	}
 	ocTimeout, err := strconv.Atoi(ocTimeoutS)
 	if err != nil {

@@ -1,0 +1,24 @@
+The user is asking me to act as an author of short game item descriptions for a space economy game. This is a content-creation task with strict JSON output format. Let me understand what's being asked:
+
+1. Create a description for a "methane-resource" item (category: Water, type: resource)
+2. 1-2 sentences (no more than 240 characters): what it is and what it's for in-game, in game language, without prices, numbers, characteristics, or brand names
+3. JSON format: `{"items":[{"name":"…","description":"…"}]}`
+
+This is a straightforward content task. I should provide the description directly. Let me create it in Russian since the instructions are in Russian.
+
+The resource is "метан-ресурс" (methane resource), category "Вода" (Water), type "ресурс" (resource).
+
+Let me write a description in game language, 1-2 sentences, no more than 240 characters, without prices, numbers, characteristics, or brand names.
+
+Let me count characters carefully. In Russian.
+
+Example description:
+"Ледяные месторождения метана — ценное сырьё для заправки реакторов и производства топлива. Добывается на холодных планетах и спутниках, где его запасы скрыты под поверхностью."
+
+Let me count: "Ледяные месторождения метана — ценное сырьё для заправки реакторов и производства топлива. Добывается на холодных планетах и спутниках, где его запасы скрыты под поверхностью."
+
+That's around 160 characters, well under 240.
+
+But the category is "Вода" (Water) which is a bit odd for methane, but I'll follow it. Methane hydrates are often associated with water/ice.
+
+I'll output the JSON directly.{"items":[{"name":"метан-ресурс","description":"Ледяные месторождения метана — ценное сырьё для заправки реакторов и производства топлива. Добывается на холодных планетах и спутниках, где его запасы скрыты под поверхностью."}]}

@@ -1,7 +1,7 @@
 // internal/config/config_test.go
 // Тесты конфига opencode (спека переноса-студии-товаров-iterC §4): дефолты
-// из старого config/goods/studio.json (url 127.0.0.1:3456, model
-// opencode/deepseek-v4-flash, timeout 120, retries 2) + env-переопределение.
+// opencode (url 127.0.0.1:3456, model opencode/deepseek-v4-flash, timeout 45 с
+// — решение создателя 2026-09-24, retries 2) + env-переопределение.
 package config
 
 import (
@@ -50,7 +50,7 @@ func TestOpenCodeDefaults(t *testing.T) {
 	require.Equal(t, "http://127.0.0.1:3456", cfg.OpenCodeURL)
 	require.Equal(t, "opencode/deepseek-v4-flash", cfg.OpenCodeModel)
 	require.Equal(t, "build", cfg.OpenCodeAgent)
-	require.Equal(t, 120*time.Second, cfg.OpenCodeTimeout)
+	require.Equal(t, 45*time.Second, cfg.OpenCodeTimeout)
 	require.Equal(t, 2, cfg.OpenCodeMaxRetries)
 	require.Equal(t, 300*time.Second, cfg.OpenCodeStartTimeout)
 }

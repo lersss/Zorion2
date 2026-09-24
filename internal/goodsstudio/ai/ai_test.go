@@ -73,6 +73,18 @@ func TestParseProseNoJSON(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestParseFillReasoningQuotedTemplate — та же беда, что и у описаний
+// (2026-09-24): рассуждение модели цитирует шаблон промпта (валидный JSON) до
+// настоящего ответа. «Заполнить комплектующие» обязано взять объект ответа.
+func TestParseFillReasoningQuotedTemplate(t *testing.T) {
+	raw := "Reasoning: I must output `{\"components\":[{\"name\":\"…\"}]}` and then the answer.\n" +
+		`{"components":[{"name":"Сталь","category":"c3","reason":"основа"}]}`
+	comps, err := ParseFillResponse(raw)
+	require.NoError(t, err)
+	require.Len(t, comps, 1)
+	require.Equal(t, "Сталь", comps[0].Name)
+}
+
 // --- Промпт (99a Пакет 4, п.8: какие пустые слоты допускают ресурсы) ---
 
 // TestPromptAllowResourceSlots — промпт перечисляет слоты с галкой

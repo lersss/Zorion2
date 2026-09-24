@@ -6,6 +6,8 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -412,7 +414,52 @@ func TestStudioDescriptionsFillScopeBatchMode(t *testing.T) {
 	}, 5*time.Second, 10*time.Millisecond)
 }
 
+// TestStudioDescriptionsRunContinuesAfterError — неответ одной порции не
+// обрывает прогон (спека §8.4): строка причины в отчёте, следующая порция
+// обрабатывается, desc_generating снимается (идея 2026-09-24).
+func TestStudioDescriptionsRunContinuesAfterError(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/session":
+			io.WriteString(w, `{"id":"s1"}`)
+		case strings.HasSuffix(r.URL.Path, "/message"):
+			calls++
+			if calls == 1 {
+				io.WriteString(w, `{"info":{"error":{"name":"ProviderAuthError",`+
+					`"data":{"providerID":"gonka","message":"Model access is disabled"}}},"parts":[]}`)
+				return
+			}
+			io.WriteString(w, `{"parts":[{"type":"text",`+
+				`"text":"{\"items\":[{\"name\":\"Товар 11\",\"description\":\"Описание.\"}]}"}]}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	h := NewStudioHandlers(nil, ai.NewClient(srv.URL, "test-model", "build", time.Second, 0), "test-model")
+	// 11 целей → две порции (descBatchSize = 10): первая сдалась, вторая идёт.
+	var targets []ai.DescTarget
+	var ids []int64
+	for i := 1; i <= 11; i++ {
+		targets = append(targets, ai.DescTarget{Name: fmt.Sprintf("Товар %d", i), Category: "c", Kind: "good"})
+		ids = append(ids, int64(i))
+	}
+	require.True(t, h.tryStartDesc(len(targets), false))
+	h.runDescriptions(targets, ids)
+
+	h.fillMu.Lock()
+	defer h.fillMu.Unlock()
+	require.False(t, h.descGenerating, "джоб снимается штатно, ИИ-кнопки разблокируются")
+	require.Equal(t, 11, h.descDone)
+	require.Contains(t, h.descReport[0], "порция 1")
+	require.Contains(t, h.descReport[0], "Model access is disabled")
+	require.Len(t, h.descProposals, 1, "вторая порция обработана")
+}
+
 // --- POST /studio/api/descriptions/apply ---
+
 
 // setDescProposals — прямое наполнение канала описаний (тесты в том же пакете).
 func setDescProposals(h *StudioHandlers, ps []DescProposalView) {

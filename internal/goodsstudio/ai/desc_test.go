@@ -1,11 +1,28 @@
 package ai
 
 import (
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+// TestParseDescriptionResponseReasoningQuotedTemplate — реальный проблемный
+// RAW живого прогона 2026-09-24: модель рассуждает, цитирует шаблон промпта
+// (тоже валидный JSON) и лишь затем отдаёт настоящий ответ. «Первый { … последний }»
+// склеивал шаблон-цитату + прозу + ответ → мусор. Разбор обязан взять валидный
+// объект ответа (фикстура — точная копия %TEMP%\opencode\raw-text.txt).
+func TestParseDescriptionResponseReasoningQuotedTemplate(t *testing.T) {
+	raw, err := os.ReadFile("testdata/problem_desc_raw.txt")
+	require.NoError(t, err)
+
+	items, err := ParseDescriptionResponse(string(raw))
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	require.Equal(t, "метан-ресурс", items[0].Name)
+	require.Contains(t, items[0].Description, "Ледяные месторождения метана")
+}
 
 // TestParseDescriptionResponseValid — валидный JSON разбирается.
 func TestParseDescriptionResponseValid(t *testing.T) {

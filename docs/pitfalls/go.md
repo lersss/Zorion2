@@ -144,6 +144,17 @@
   `.Valid` (как `ship_model_id`). Порядок колонки в SELECT и в `Scan` обязан
   совпадать (в П1 `race_id` — ПОСЛЕ `pending_destination`).
 
+- **Новая колонка в SELECT-загрузчике каталога студии — та же тройная правка
+  sqlmock, что у `users`.** Загрузчики `loadGoods`/`loadProducerTypes`/`loadItems`
+  (`goods_repository.go`, `producer_repository.go`) и
+  `EffectRepository.EffectTypes` кормят `GET /studio/api/state`; их список колонок
+  продублирован в ~40 ожиданиях `ExpectQuery` + `NewRows` + `AddRow` восьми
+  тест-файлов (`studio_handlers_test`, `studio_producers_test`,
+  `studio_descriptions_test`, `goods_repository_test`, `producer_repository_test`,
+  `effect_repository_test`, `studio_effects_test`, `studio_producer_rate_test`).
+  Пустые `NewRows` (без `AddRow`) править не нужно — `Scan` по ним не идёт.
+  Добавление метки `code` (000084, A1/A2) прошло так же.
+
 - **`factions.homeworld_id` — это ПЛАНЕТА, не мир (`REFERENCES planets(id)`).**
   «Мир расы» для агента — мир родной планеты: `JOIN planets p ON
   p.id = f.homeworld_id`, берётся `p.world_id`. Прямой `SELECT race_id,

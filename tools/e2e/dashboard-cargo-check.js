@@ -3,7 +3,7 @@
 // 2026-09-22-трюм-грузоподъёмность-корабля §9.1/§9.3, subtask 3).
 //
 // Two passes:
-//   * real API: empty hold -> bar "0 / 100 т", "Трюм пуст.", no "jettison all" btn;
+//   * real API: empty hold -> bar "0 / 50 т", "Трюм пуст.", no "jettison all" btn;
 //   * populated UI via request interception (there is NO player-facing "add"
 //     handle by design, §9.2): row rendering, stored-XSS name escaped, bar
 //     fill, per-row jettison POST {good_id, quantity}, "jettison all" POST {all:true}.
@@ -126,7 +126,7 @@ async function main() {
       allHidden: !!(document.getElementById('cargoJettisonAllBtn') || {}).hidden,
       rows: document.querySelectorAll('.cargo-row').length,
     }));
-    const ok2 = empty.active && empty.label === '0 / 100 т' && empty.fill === '0%' &&
+    const ok2 = empty.active && empty.label === '0 / 50 т' && empty.fill === '0%' &&
       empty.emptyText.includes('Трюм пуст') && empty.allHidden && empty.rows === 0;
     report('2/5 empty hold (real API)', ok2 ? 'PASS' : 'FAIL', JSON.stringify(empty));
     if (!ok2) return finish(1);
@@ -136,7 +136,7 @@ async function main() {
     // --- Step 3: populated UI (interception; no add-handle by design) ---
     const XSS_NAME = '<img src=x onerror=alert(1)>';
     let mock = {
-      limits: { mass: { used: 40, total: 100 } },
+      limits: { mass: { used: 40, total: 50 } },
       items: [{ good_id: 21, name: XSS_NAME, kind: 'resource', quantity: 40, weight: 1, mass: 40 }],
     };
     const posts = [];
@@ -144,13 +144,13 @@ async function main() {
       const body = JSON.parse(route.request().postData() || '{}');
       posts.push(body);
       if (body.all) {
-        mock = { limits: { mass: { used: 0, total: 100 } }, items: [] };
+        mock = { limits: { mass: { used: 0, total: 50 } }, items: [] };
       } else {
         const it = mock.items[0];
         const left = Math.max(0, it.quantity - body.quantity);
         mock = left <= 0
-          ? { limits: { mass: { used: 0, total: 100 } }, items: [] }
-          : { limits: { mass: { used: left, total: 100 } }, items: [{ ...it, quantity: left, mass: left }] };
+          ? { limits: { mass: { used: 0, total: 50 } }, items: [] }
+          : { limits: { mass: { used: left, total: 50 } }, items: [{ ...it, quantity: left, mass: left }] };
       }
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mock) });
     });
@@ -179,7 +179,7 @@ async function main() {
         nameIsXssText: nameEl ? nameEl.textContent === xssName : false,
       };
     }, XSS_NAME);
-    const ok3 = populated.label === '40 / 100 т' && populated.fill === '40%' &&
+    const ok3 = populated.label === '40 / 50 т' && populated.fill === '80%' &&
       populated.nameIsXssText && populated.nameTagCount === 0 &&
       populated.meta.includes('40 ед.') && populated.meta.includes('40 т') &&
       populated.qtyValue === '40' && populated.allHidden === false && populated.rows === 1;
@@ -199,7 +199,7 @@ async function main() {
     }));
     const rowPost = posts[0] || {};
     const ok4 = rowPost.good_id === 21 && rowPost.quantity === 15 &&
-      afterRow.label === '25 / 100 т' && afterRow.meta.includes('25 ед.') &&
+      afterRow.label === '25 / 50 т' && afterRow.meta.includes('25 ед.') &&
       afterRow.status.includes('сброшен');
     report('4/5 per-row jettison POST', ok4 ? 'PASS' : 'FAIL',
       `post=${JSON.stringify(rowPost)} ui=${JSON.stringify(afterRow)}`);
@@ -214,7 +214,7 @@ async function main() {
       allHidden: document.getElementById('cargoJettisonAllBtn').hidden,
     }));
     const allPost = posts[1] || {};
-    const ok5 = allPost.all === true && afterAll.label === '0 / 100 т' &&
+    const ok5 = allPost.all === true && afterAll.label === '0 / 50 т' &&
       afterAll.emptyText.includes('Трюм пуст') && afterAll.allHidden === true;
     report('5/5 jettison all POST', ok5 ? 'PASS' : 'FAIL',
       `post=${JSON.stringify(allPost)} ui=${JSON.stringify(afterAll)}`);

@@ -73,20 +73,22 @@ var seedProducers = []seedProducer{
 	// решения 32/37, спека итерации 4 §5.2): ладдера роста по населению (люди),
 	// пороги — params.stage {enter, exit}, порядок читается по числам порогов.
 	// Базовая ступень «Аутпост» — пол ладдеры (её exit не читается, не задан).
-	// Прочие params «Аутпоста»: нормы еды — структура params.eat в единой единице
-	// «ед/сутки/млрд» с признаком params.eat_units (спека 2026-09-23 §2.3/§2.5),
-	// ключ — ПОЗИЦИЯ корзины (спека эффектов §7.5/§4.2); число 600 — то же, что
-	// DefaultEatK и результат конверсии 000067/000070×2.4e10 (T18).
-	// params.effects — пилотная привязка «позиция → тип эффекта» (§4.2): иначе
-	// на свежей БД пилот — no-op (миграция 000070 на свежей БД строку «Обычное
-	// поселение» ещё не видит — её создаёт этот сид).
-	{Name: "Аутпост", Kind: "goods", Parent: "Поселение", Output: `{}`, Input: `{}`, Params: `{"eat": {"вода": 600, "пища": 600, "продовольствие": 600}, "eat_units": "per_day_per_billion", "effects": {"продовольствие": "голод"}, "stage": {"enter": 0}}`},
-	{Name: "Посёлок", Kind: "goods", Parent: "Поселение", Output: `{}`, Input: `{}`, Params: `{"stage": {"enter": 1000, "exit": 750}}`},
-	{Name: "Городок", Kind: "goods", Parent: "Поселение", Output: `{}`, Input: `{}`, Params: `{"stage": {"enter": 10000, "exit": 7500}}`},
-	{Name: "Город", Kind: "goods", Parent: "Поселение", Output: `{}`, Input: `{}`, Params: `{"stage": {"enter": 100000, "exit": 75000}}`},
-	{Name: "Мегаполис", Kind: "goods", Parent: "Поселение", Output: `{}`, Input: `{}`, Params: `{"stage": {"enter": 1000000, "exit": 750000}}`},
-	{Name: "Метрополия", Kind: "goods", Parent: "Поселение", Output: `{}`, Input: `{}`, Params: `{"stage": {"enter": 10000000, "exit": 7500000}}`},
-	{Name: "Экуменополис", Kind: "goods", Parent: "Поселение", Output: `{}`, Input: `{}`, Params: `{"stage": {"enter": 100000000, "exit": 75000000}}`},
+	// Нужды (params.eat/effects) задаются на ВСЕХ семи ступенях ладдеры:
+	// позиция — ТОВАР (goods.name_norm), категория-«сахар» снята (спека
+	// 2026-09-24-потребление-по-товарам §6.2/§6.3). Единая единица
+	// «ед/сутки/млрд» с признаком params.eat_units (спека 2026-09-23 §2.3/§2.5):
+	// «пища» → эффект «голод» (норма 600 = DefaultEatK, конверсия
+	// 000067/000070×2.4e10, T18), «очищенная вода» → эффект «жажда» (норма
+	// 20000000, решения создателя О4/Р7). Миграция 000079 приводит существующие
+	// БД к тем же params (T16 «сид ↔ миграция»); иначе пилот на свежей БД —
+	// no-op, а переход ступени снимал бы нужду.
+	{Name: "Аутпост", Kind: "goods", Parent: "Поселение", Output: `{}`, Input: `{}`, Params: `{"eat": {"пища": 600, "очищенная вода": 20000000}, "eat_units": "per_day_per_billion", "effects": {"пища": "голод", "очищенная вода": "жажда"}, "stage": {"enter": 0}}`},
+	{Name: "Посёлок", Kind: "goods", Parent: "Поселение", Output: `{}`, Input: `{}`, Params: `{"eat": {"пища": 600, "очищенная вода": 20000000}, "eat_units": "per_day_per_billion", "effects": {"пища": "голод", "очищенная вода": "жажда"}, "stage": {"enter": 1000, "exit": 750}}`},
+	{Name: "Городок", Kind: "goods", Parent: "Поселение", Output: `{}`, Input: `{}`, Params: `{"eat": {"пища": 600, "очищенная вода": 20000000}, "eat_units": "per_day_per_billion", "effects": {"пища": "голод", "очищенная вода": "жажда"}, "stage": {"enter": 10000, "exit": 7500}}`},
+	{Name: "Город", Kind: "goods", Parent: "Поселение", Output: `{}`, Input: `{}`, Params: `{"eat": {"пища": 600, "очищенная вода": 20000000}, "eat_units": "per_day_per_billion", "effects": {"пища": "голод", "очищенная вода": "жажда"}, "stage": {"enter": 100000, "exit": 75000}}`},
+	{Name: "Мегаполис", Kind: "goods", Parent: "Поселение", Output: `{}`, Input: `{}`, Params: `{"eat": {"пища": 600, "очищенная вода": 20000000}, "eat_units": "per_day_per_billion", "effects": {"пища": "голод", "очищенная вода": "жажда"}, "stage": {"enter": 1000000, "exit": 750000}}`},
+	{Name: "Метрополия", Kind: "goods", Parent: "Поселение", Output: `{}`, Input: `{}`, Params: `{"eat": {"пища": 600, "очищенная вода": 20000000}, "eat_units": "per_day_per_billion", "effects": {"пища": "голод", "очищенная вода": "жажда"}, "stage": {"enter": 10000000, "exit": 7500000}}`},
+	{Name: "Экуменополис", Kind: "goods", Parent: "Поселение", Output: `{}`, Input: `{}`, Params: `{"eat": {"пища": 600, "очищенная вода": 20000000}, "eat_units": "per_day_per_billion", "effects": {"пища": "голод", "очищенная вода": "жажда"}, "stage": {"enter": 100000000, "exit": 75000000}}`},
 	{Name: "Фабрика", Kind: "goods", Output: `{}`, Input: `{"people": {"capacity": 50}, "energy": true, "consumables": []}`, Params: `{"efficiency": 1.0}`},
 	{Name: "Автофабрика", Kind: "goods", Output: `{}`, Input: `{"robots": true, "energy": true, "consumables": ["механика", "электроника"]}`, Params: `{"robot_cost": 100}`},
 	{Name: "Добывающая платформа", Kind: "goods", Output: `{}`, Input: `{"energy": true, "consumables": []}`, Params: `{}`},

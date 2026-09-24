@@ -160,8 +160,8 @@ func TestSeedProducersContent(t *testing.T) {
 	require.Equal(t, "{}", sub.Output)
 	require.Equal(t, "{}", sub.Input)
 	require.Contains(t, sub.Params, `"eat"`, "нормы еды — структура params.eat (п.45)")
-	require.Contains(t, sub.Params, `"вода"`)
 	require.Contains(t, sub.Params, `"пища"`)
+	require.Contains(t, sub.Params, `"очищенная вода"`)
 }
 
 // TestSeedSettlementStageLadder — сид даёт ровно 7 подтипов-ступеней класса

@@ -243,10 +243,10 @@ func TestAttachSettlementsOwnerPass(t *testing.T) {
 
 	settlementRows := sqlmock.NewRows(settlementCols()).
 		AddRow("s1", "p1", 1_000_000_000, float64(1_000_000_000), 85, computedAt, computedAt, computedAt, nil, int64(148), "Обычное поселение",
-			[]byte(`{"продовольствие": 600}`), []byte(`{"продовольствие": "голод"}`))
+			[]byte(`{"пища": 600}`), []byte(`{"пища": "голод"}`))
 	mock.ExpectQuery(settlementsQuery).WithArgs(sqlmock.AnyArg()).WillReturnRows(settlementRows)
 
-	expectOwnerPassWithBranches(mock, ownerBranchRows(computedAt, "продовольствие"), ownerComponentRows(), ownerBufferRows(), nil)
+	expectOwnerPassWithBranches(mock, ownerBranchRows(computedAt, "пища"), ownerComponentRows(), ownerBufferRows(), nil)
 
 	mock.ExpectBegin()
 	mock.ExpectExec(advisoryOwnerLockSQL).WithArgs("s1").WillReturnResult(sqlmock.NewResult(0, 0))
@@ -254,7 +254,7 @@ func TestAttachSettlementsOwnerPass(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"population", "population_exact", "computed_at", "created_at", "race_id", "settlement_type_id"}).
 			AddRow(1_000_000_000, float64(1_000_000_000), computedAt, computedAt, "", int64(148)))
 	mock.ExpectQuery(branchSelectBySettlementForUpdateSQL).WithArgs("s1").
-		WillReturnRows(ownerBranchRows(computedAt, "продовольствие"))
+		WillReturnRows(ownerBranchRows(computedAt, "пища"))
 	mock.ExpectQuery(branchBuffersSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(ownerBufferRows())
 	mock.ExpectQuery(branchComponentsSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(ownerComponentRows())
 	mock.ExpectExec(branchTopUpInputSQL).WithArgs("b1", int64(359)).WillReturnResult(sqlmock.NewResult(0, 0))
@@ -266,7 +266,7 @@ func TestAttachSettlementsOwnerPass(t *testing.T) {
 	// Выход = 0 + batches(24 ч · 27.8/ч) − 0 ≈ 667.2 — ветка не «ест» сама.
 	mock.ExpectExec(branchWriteOutputSQL).WithArgs("b1", int64(378), sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(branchWriteCheckpointSQL).WithArgs(sqlmock.AnyArg(), "b1").WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(activeEffectUpsertSQL).WithArgs(int64(1), "s1", "продовольствие", sqlmock.AnyArg(), amountNear{0.0}).
+	mock.ExpectExec(activeEffectUpsertSQL).WithArgs(int64(1), "s1", "пища", sqlmock.AnyArg(), amountNear{0.0}).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(settlementPopulationWriteSQL).WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "s1").
 		WillReturnResult(sqlmock.NewResult(0, 1))

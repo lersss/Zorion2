@@ -19,6 +19,11 @@ import (
 	"zorion/internal/economy/settlement"
 )
 
+// thirstNormPerDayPerBillion — норма воды, «ед/сутки/млрд» (решение создателя
+// О4/Р7: 20 000 000 = 20 т/сут на 1000 чел «экономного быта», спека
+// 2026-09-24-потребление-по-товарам §6.2/§12.1).
+const thirstNormPerDayPerBillion = 20000000
+
 // findSettlementTypeMigration — текст миграции `*_settlement_type.sql`
 // (номер не фиксируем: файл ищется по суффиксу).
 func findSettlementTypeMigration(t *testing.T) string {
@@ -94,7 +99,11 @@ func TestSettlementTypeEatKConsistency(t *testing.T) {
 			"исторический литерал %q × 2.4·10¹⁰ должен равняться DefaultEatK (=600)", pos)
 	}
 
-	// Сид: сразу 600 в новой единице + признак eat_units (§2.3/§2.5).
+	// Сид: целевые params на ВСЕЙ ладдере (спека 2026-09-24-потребление-по-
+	// товарам §6.2/§6.3): позиция — товар, единица — «ед/сутки/млрд» с
+	// признаком eat_units (§2.3/§2.5). «пища» → норма DefaultEatK (600),
+	// «очищенная вода» → норма жажды 20000000 (О4/Р7); мёртвые
+	// ключи-категории «вода»/«продовольствие» вычищены (О6).
 	sub := settlementSeedSubtype(t)
 	var seedParams struct {
 		Eat      map[string]float64 `json:"eat"`
@@ -102,8 +111,38 @@ func TestSettlementTypeEatKConsistency(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal([]byte(sub.Params), &seedParams))
 	require.Equal(t, "per_day_per_billion", seedParams.EatUnits, "сид несёт признак единицы (§2.5)")
-	for _, pos := range []string{"вода", "пища", "продовольствие"} {
-		require.InDelta(t, settlement.DefaultEatK, seedParams.Eat[pos], 1e-9,
-			"сид: норма %q — сразу в новой единице (=600)", pos)
+	require.InDelta(t, settlement.DefaultEatK, seedParams.Eat["пища"], 1e-9,
+		"сид: норма «пища» — сразу в новой единице (=600)")
+	require.InDelta(t, thirstNormPerDayPerBillion, seedParams.Eat["очищенная вода"], 1e-9,
+		"сид: норма воды — 20000000 ед/сутки/млрд (О4/Р7)")
+	require.NotContains(t, seedParams.Eat, "вода", "мёртвый ключ-категория «вода» вычищен (О6)")
+	require.NotContains(t, seedParams.Eat, "продовольствие", "категория «продовольствие» заменена товаром «пища» (§6.2)")
+}
+
+// T16/T18 (спека 2026-09-24-потребление-по-товарам §6.2/§6.3): нужда задаётся
+// на КАЖДОЙ ступени ладдеры — иначе переход «Аутпост» → «Посёлок» снимает
+// нужду воды (поселение «перестаёт пить»). Сид несёт одни и те же
+// params.eat/effects/eat_units на всех семи ступенях; величина нормы от ступени
+// не зависит (О4) — различается только наличие привязки.
+func TestSettlementLadderSeedCarriesNeedParams(t *testing.T) {
+	ladder := []string{"Аутпост", "Посёлок", "Городок", "Город", "Мегаполис", "Метрополия", "Экуменополис"}
+	byName := map[string]seedProducer{}
+	for _, p := range seedProducers {
+		byName[p.Name] = p
+	}
+	for _, name := range ladder {
+		p, ok := byName[name]
+		require.True(t, ok, "в сиде нет ступени %q", name)
+		var params struct {
+			Eat      map[string]float64 `json:"eat"`
+			Effects  map[string]string  `json:"effects"`
+			EatUnits string             `json:"eat_units"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(p.Params), &params), "ступень %q: params", name)
+		require.Equal(t, "per_day_per_billion", params.EatUnits, "ступень %q: признак единицы", name)
+		require.InDelta(t, settlement.DefaultEatK, params.Eat["пища"], 1e-9, "ступень %q: норма «пища»", name)
+		require.InDelta(t, thirstNormPerDayPerBillion, params.Eat["очищенная вода"], 1e-9, "ступень %q: норма воды", name)
+		require.Equal(t, "голод", params.Effects["пища"], "ступень %q: эффект «пища»", name)
+		require.Equal(t, "жажда", params.Effects["очищенная вода"], "ступень %q: эффект воды", name)
 	}
 }

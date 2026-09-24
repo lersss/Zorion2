@@ -24,30 +24,28 @@ import (
 var ErrBranchNotFound = errors.New("ветка не найдена")
 
 const (
-	// Категория товара-выхода (c.name_norm) — ПОЗИЦИЯ корзины, нужна слою
-	// потребности (§4.2); JOIN categories без фильтра kind (позиция любого
-	// вида, §3.3).
+	// Позиция потребления — name_norm ТОВАРА-выхода (og.name_norm), не
+	// категория: спека 2026-09-24-потребление-по-товарам §7.1 (категория как
+	// ключ снята, §6.1). JOIN categories больше не нужен.
 	branchSelectBySettlementsSQL = `
 		SELECT b.id, b.settlement_id, b.recipe_id, b.processed_at,
-		       r.good_id, og.name, r.complexity, c.name_norm
+		       r.good_id, og.name, r.complexity, og.name_norm
 		FROM settlement_branches b
 		JOIN recipes r ON r.id = b.recipe_id
 		JOIN goods og ON og.id = r.good_id
-		JOIN categories c ON c.id = og.category_id
 		WHERE b.settlement_id = ANY($1)
 		ORDER BY b.created_at ASC, b.id ASC`
 
 	// branchSelectBySettlementForUpdateSQL — ветки ОДНОГО поселения под
 	// блокировкой в owner-транзакции (§4.5): порядок `id` (детерминированный
 	// порядок локов), `FOR UPDATE OF b` — лочатся только строки веток, не
-	// джойны (risk дедлока с DeleteGood). Категория выхода — позиция (§4.2).
+	// джойны (risk дедлока с DeleteGood). Позиция выхода — товар (§7.1).
 	branchSelectBySettlementForUpdateSQL = `
 		SELECT b.id, b.settlement_id, b.recipe_id, b.processed_at,
-		       r.good_id, og.name, r.complexity, c.name_norm
+		       r.good_id, og.name, r.complexity, og.name_norm
 		FROM settlement_branches b
 		JOIN recipes r ON r.id = b.recipe_id
 		JOIN goods og ON og.id = r.good_id
-		JOIN categories c ON c.id = og.category_id
 		WHERE b.settlement_id = $1
 		ORDER BY b.id
 		FOR UPDATE OF b`
@@ -115,10 +113,9 @@ type branchRecord struct {
 	branch       models.SettlementBranch
 	settlementID string
 	outputGoodID int64
-	// outputCategory — name_norm категории товара-выхода: ПОЗИЦИЯ корзины
-	// (спека 2026-09-22-эффекты-снабжения §3.3/§4.2), ключ покрытия слоя
-	// потребности. Пусто, если у категории нет имени (не бывает у сида).
-	outputCategory string
+	// outputPosition — name_norm ТОВАРА-выхода: ПОЗИЦИЯ потребления (спека
+	// 2026-09-24-потребление-по-товарам §7.1), ключ покрытия слоя потребности.
+	outputPosition string
 	components     []settlement.BranchComponent
 }
 
@@ -230,13 +227,13 @@ func loadBranches(ctx context.Context, q branchRowsQueryer, settlementIDs []stri
 }
 
 // scanBranchRow — общий разбор строки ветки (b.id, b.settlement_id, b.recipe_id,
-// b.processed_at, output good_id, output good name, complexity, category name_norm).
+// b.processed_at, output good_id, output good name, complexity, output good name_norm).
 func scanBranchRow(rows *sql.Rows) (*branchRecord, error) {
 	rec := &branchRecord{}
 	var complexity sql.NullInt64
 	if err := rows.Scan(
 		&rec.branch.ID, &rec.settlementID, &rec.branch.RecipeID, &rec.branch.ProcessedAt,
-		&rec.outputGoodID, &rec.branch.RecipeName, &complexity, &rec.outputCategory,
+		&rec.outputGoodID, &rec.branch.RecipeName, &complexity, &rec.outputPosition,
 	); err != nil {
 		return nil, fmt.Errorf("failed to scan branch: %w", err)
 	}

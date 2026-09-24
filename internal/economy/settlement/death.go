@@ -56,28 +56,32 @@ func DeathTime(populationExact float64, r float64, computedAt time.Time, created
 // естественной убыли NaturalComponent) — причина "natural".
 // Коды: heat/cold/gravity_high/gravity_low/radiation/natural.
 // Голод (спека 2026-09-22-эффекты-снабжения-задержка-голод §5.2): вклад
-// эффекта населения — отдельное слагаемое; строго больше всех средовых
-// (в т.ч. среда = 0, эффект > 0) → код "hunger".
+// эффектов населения — отдельное слагаемое; сравнивается с максимумом средовых
+// вкладов по СУММЕ всех эффектов (как раньше effectsRateAt суммировал вклады:
+// «голод» + «жажда» вместе могут пересилить среду, даже если каждый по
+// отдельности её не превышает), а код причины берётся по ДОМИНИРУЮЩЕМУ типу
+// (argmax) — так различаются «голод» и «жажда» (спека 2026-09-24-потребление-
+// по-товарам §8.3: «голод» → "hunger", «жажда» → "thirst").
 // Расовый путь (99.2.23 §4.2): вклады среды — из active-кривых расы
 // (RaceID ≠ NULL/"humans"); механизм argmax не меняется.
 func DeathCause(input PlanetInput) string {
 	cold, heat, gHigh, gLow, rad := envComponentRates(input)
 
-	// Вклад эффекта (спека 2026-09-22-эффекты-снабжения-задержка-голод §5.2):
+	maxEnv := 0.0
+	for _, v := range []float64{cold, heat, gHigh, gLow, rad} {
+		if v > maxEnv {
+			maxEnv = v
+		}
+	}
+
+	// Вклад эффектов (спека 2026-09-22-эффекты-снабжения-задержка-голод §5.2):
 	// death.go считает среду собственной envComponentRates (мимо
-	// ChangeComponents), поэтому вклад эффекта добавляется здесь явно — иначе
-	// голод не попадал бы в причину гибели. Эффект доминирует, если строго
-	// больше всех средовых (среда = 0 и эффект > 0 → тоже эффект) → "hunger".
-	if effect := effectsRateAt(input.Effects, input.AsOf, input.AsOf); effect > 0 {
-		maxEnv := cold
-		for _, v := range []float64{heat, gHigh, gLow, rad, 0} {
-			if v > maxEnv {
-				maxEnv = v
-			}
-		}
-		if effect > maxEnv {
-			return "hunger"
-		}
+	// ChangeComponents), поэтому вклад эффектов добавляется здесь явно — иначе
+	// эффект не попадал бы в причину гибели. Со средой сравнивается СУММА всех
+	// эффектов (среда = 0 и вклад > 0 → тоже эффект); код причины — по
+	// ДОМИНИРУЮЩЕМУ типу (argmax, спека 2026-09-24 §8.3), а не всегда "hunger".
+	if name, _, total, ok := dominantEffect(input.Effects, input.AsOf); ok && total > maxEnv {
+		return effectCauseCode(name)
 	}
 
 	if heat <= 0 && cold <= 0 && gHigh <= 0 && gLow <= 0 && rad <= 0 {
@@ -100,6 +104,51 @@ func DeathCause(input PlanetInput) string {
 		}
 	}
 	return best.code
+}
+
+// effectCauseCode — код причины гибели по name_norm типа эффекта (спека
+// 2026-09-24-потребление-по-товарам §8.3): «жажда» → thirst, «голод» → hunger.
+// Прочий/пустой тип — hunger (поведение до И1b: любой вклад эффекта давал
+// "hunger"; читатели без owner-прохода идентичность не заполняют).
+func effectCauseCode(effectTypeName string) string {
+	if effectTypeName == "жажда" {
+		return "thirst"
+	}
+	return "hunger"
+}
+
+// dominantEffect — разбор эффектов на момент asOf: name/best — доминирующий
+// тип по СУММЕ силы сегментов одного типа (argmax; идентичность —
+// EffectTypeName, §8.3), total — суммарный вклад ВСЕХ типов (то, что раньше
+// давал effectsRateAt и с чем сравнивается среда). При равенстве вкладов
+// выигрывает первый по порядку следования точек — детерминированно: владелец
+// (collectForce) отдаёт эффекты по возрастанию effect_type_id (ComputeNeeds
+// сортирует группы). Нулевой/пустой вклад → ok=false.
+func dominantEffect(effects []EffectForcePoint, asOf time.Time) (name string, best, total float64, ok bool) {
+	var names []string
+	sum := map[string]float64{}
+	for _, p := range effects {
+		rate := p.RateAt(asOf)
+		if rate == 0 {
+			continue
+		}
+		if _, seen := sum[p.EffectTypeName]; !seen {
+			names = append(names, p.EffectTypeName)
+		}
+		sum[p.EffectTypeName] += rate
+	}
+	for _, n := range names {
+		v := sum[n]
+		total += v
+		if v > best {
+			best = v
+			name = n
+		}
+	}
+	if best <= 0 {
+		return "", 0, 0, false
+	}
+	return name, best, total, true
 }
 
 // envComponentRates — вклады среды (жара/холод/гравитация/радиация) по

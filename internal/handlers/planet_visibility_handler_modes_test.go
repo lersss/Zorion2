@@ -81,7 +81,7 @@ func expectModesScan(mock sqlmock.Sqlmock, userID, worldID string) {
 func expectOwnerPassEmptyRegexp(mock sqlmock.Sqlmock) {
 	mock.ExpectQuery(`SELECT id, name, name_norm, impact, COALESCE`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm", "impact", "curve"}))
-	mock.ExpectQuery(`SELECT name_norm FROM categories`).
+	mock.ExpectQuery(`SELECT name_norm FROM goods`).
 		WillReturnRows(sqlmock.NewRows([]string{"name_norm"}))
 	mock.ExpectQuery(`SELECT b\.id.*FROM settlement_branches b`).
 		WithArgs(sqlmock.AnyArg()).

@@ -97,6 +97,75 @@ func TestChangeComponentsRaceIncludesEffect(t *testing.T) {
 	require.InDelta(t, EnvComponents(input)+3e-8, ChangeComponents(input), 1e-15)
 }
 
+// T19 (спека 2026-09-24-потребление-по-товарам §8.3): DeathCause различает
+// ТИП эффекта — «жажда» → thirst, «голод» → hunger; при двух активных эффектах
+// доминирует больший вклад, равенство решает первый по порядку следования
+// (владелец отдаёт эффекты по возрастанию effect_type_id — детерминированно).
+func TestDeathCauseDistinguishesThirstAndHunger(t *testing.T) {
+	t0 := time.Unix(1_700_000_000, 0)
+	comfort := func(effects ...EffectForcePoint) PlanetInput {
+		return PlanetInput{TemperatureK: 293.15, GravityG: 1.0, CoreRadioactivity: 5,
+			Effects: effects, AsOf: t0}
+	}
+	pt := func(name string, rate float64) EffectForcePoint {
+		return EffectForcePoint{Rate: rate, Since: t0, Until: t0, EffectTypeName: name}
+	}
+
+	require.Equal(t, "thirst", DeathCause(comfort(pt("жажда", 1e-2))), "доминирует «жажда» → thirst")
+	require.Equal(t, "hunger", DeathCause(comfort(pt("голод", 1e-2))), "доминирует «голод» → hunger")
+
+	// Два активных эффекта: код — по большему вкладу.
+	require.Equal(t, "thirst", DeathCause(comfort(pt("голод", 1e-3), pt("жажда", 1e-2))),
+		"жажда сильнее → thirst")
+	require.Equal(t, "hunger", DeathCause(comfort(pt("голод", 2e-2), pt("жажда", 1e-2))),
+		"голод сильнее → hunger")
+
+	// Равенство вкладов — первый по порядку следования (детерминированно).
+	require.Equal(t, "thirst", DeathCause(comfort(pt("жажда", 1e-2), pt("голод", 1e-2))))
+	require.Equal(t, "hunger", DeathCause(comfort(pt("голод", 1e-2), pt("жажда", 1e-2))))
+
+	// Эффект слабее среды — причина средовая, тип эффекта не влияет.
+	hot := comfort(pt("жажда", 1e-12))
+	hot.TemperatureK = 400
+	require.Equal(t, "heat", DeathCause(hot))
+}
+
+// Ревью И1b: со средой сравнивается СУММА вкладов ВСЕХ эффектов, а код причины
+// берётся по доминирующему типу (argmax). Два эффекта, каждый ≤ среды, но сумма
+// > среды → причина = доминирующий тип (не средовая); равные вклады решает
+// порядок следования — детерминированно.
+func TestDeathCauseEffectSumExceedsEnv(t *testing.T) {
+	t0 := time.Unix(1_700_000_000, 0)
+	pt := func(name string, rate float64) EffectForcePoint {
+		return EffectForcePoint{Rate: rate, Since: t0, Until: t0, EffectTypeName: name}
+	}
+	// Жара 400 K задаёт средовой вклад heat; эффекты — доли heat: каждый ≤ heat,
+	// но вдвоём пересиливают среду.
+	base := PlanetInput{TemperatureK: 400, GravityG: 1.0, CoreRadioactivity: 5, AsOf: t0}
+	_, heat, _, _, _ := envComponentRates(base)
+	require.Positive(t, heat, "жара даёт средовой вклад")
+
+	// 0.5·heat + 0.6·heat = 1.1·heat > heat, каждый ≤ heat → доминирует «жажда».
+	sumOver := base
+	sumOver.Effects = []EffectForcePoint{pt("голод", heat*0.5), pt("жажда", heat*0.6)}
+	require.Equal(t, "thirst", DeathCause(sumOver),
+		"сумма эффектов > среды → причина по доминирующему типу, не средовая")
+
+	// 0.3·heat + 0.3·heat = 0.6·heat ≤ heat → причина средовая (heat).
+	sumUnder := base
+	sumUnder.Effects = []EffectForcePoint{pt("голод", heat*0.3), pt("жажда", heat*0.3)}
+	require.Equal(t, "heat", DeathCause(sumUnder), "сумма эффектов ≤ среды → причина средовая")
+
+	// Равные вклады при сумме > среды — выигрывает первый по порядку следования.
+	tieThirst := base
+	tieThirst.Effects = []EffectForcePoint{pt("жажда", heat*0.6), pt("голод", heat*0.6)}
+	require.Equal(t, "thirst", DeathCause(tieThirst), "равенство при сумме > среды — первый (жажда)")
+
+	tieHunger := base
+	tieHunger.Effects = []EffectForcePoint{pt("голод", heat*0.6), pt("жажда", heat*0.6)}
+	require.Equal(t, "hunger", DeathCause(tieHunger), "равенство при сумме > среды — первый (голод)")
+}
+
 // T30: скаляр recovery — только для hunger; заводское 0.25.
 func TestComponentScalarHunger(t *testing.T) {
 	defer ResetComponentScalar(HungerCurveKey)

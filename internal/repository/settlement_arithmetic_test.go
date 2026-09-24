@@ -26,7 +26,7 @@ func TestSyncSettlementsArithmeticShowcase(t *testing.T) {
 
 	now := time.Now()
 	processedAt := now.Add(-time.Minute)
-	expectOwnerPassWithBranches(mock, ownerBranchRows(processedAt, "продовольствие"), ownerComponentRows(), ownerBufferRows(), nil)
+	expectOwnerPassWithBranches(mock, ownerBranchRows(processedAt, "пища"), ownerComponentRows(), ownerBufferRows(), nil)
 	mock.ExpectQuery(depositMemorySelectSQL).WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"planet_id", "id", "good_id", "amount"}).AddRow("p1", "dep1", int64(359), 5000.0))
 
@@ -37,7 +37,7 @@ func TestSyncSettlementsArithmeticShowcase(t *testing.T) {
 	res := out["s1"]
 	require.Len(t, res.Arithmetic, 1, "блок арифметики по позиции")
 	a := res.Arithmetic[0]
-	require.Equal(t, "продовольствие", a.Position)
+	require.Equal(t, "пища", a.Position)
 	require.InDelta(t, ownerTestRate, a.ProducedPerDay, 1e-6)
 	require.InDelta(t, settlement.DefaultEatK, a.ConsumedPerDay, 1e-6)
 	require.InDelta(t, ownerTestRate-settlement.DefaultEatK, a.NetPerDay, 1e-6)
@@ -61,7 +61,7 @@ func TestSyncSettlementsRecipeNotInStageSet(t *testing.T) {
 
 	now := time.Now()
 	processedAt := now.Add(-time.Minute)
-	expectOwnerPassWithBranches(mock, ownerBranchRows(processedAt, "продовольствие"), ownerComponentRows(), ownerBufferRows(), nil)
+	expectOwnerPassWithBranches(mock, ownerBranchRows(processedAt, "пища"), ownerComponentRows(), ownerBufferRows(), nil)
 	mock.ExpectQuery(depositMemorySelectSQL).WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"planet_id", "id", "good_id", "amount"}).AddRow("p1", "dep1", int64(359), 5000.0))
 

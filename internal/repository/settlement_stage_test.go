@@ -35,8 +35,8 @@ func stageLadderRows() *sqlmock.Rows {
 // producerTypeStageRows — настройки типов 148/151 (eat/effects).
 func producerTypeStageRows() *sqlmock.Rows {
 	return sqlmock.NewRows([]string{"id", "eat", "effects"}).
-		AddRow(int64(148), []byte(`{"продовольствие":600}`), []byte(`{"продовольствие":"голод"}`)).
-		AddRow(int64(151), []byte(`{"продовольствие":600}`), []byte(`{"продовольствие":"голод"}`))
+		AddRow(int64(148), []byte(`{"пища":600}`), []byte(`{"пища":"голод"}`)).
+		AddRow(int64(151), []byte(`{"пища":600}`), []byte(`{"пища":"голод"}`))
 }
 
 // expectStageBatch — запросы пачки с настроенной ладдерой (148 → 151) и числами
@@ -64,7 +64,7 @@ func TestStageNotEvaluatedOnMemoryPath(t *testing.T) {
 	o := ownerInput(now) // computedAt = now → «в памяти»; население 1e9 выше порога 151
 
 	mock.ExpectQuery(effectTypeCatalogSQL).WillReturnRows(effectTypeRows())
-	mock.ExpectQuery(categoryNamesSQL).WillReturnRows(categoryNameRows())
+	mock.ExpectQuery(goodsNamesSQL).WillReturnRows(goodsNameRows())
 	mock.ExpectQuery(branchSelectBySettlementsSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(emptyBranchRows())
 	mock.ExpectQuery(activeEffectsSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(activeEffectRows())
 	expectStageBatch(mock)
@@ -90,12 +90,12 @@ func TestStageTransitionCreatesMissingBranches(t *testing.T) {
 
 	// Пачка: одна ветка b1 (рецепт 69), хранимый базис нагрузки (сбросится).
 	mock.ExpectQuery(effectTypeCatalogSQL).WillReturnRows(effectTypeRows())
-	mock.ExpectQuery(categoryNamesSQL).WillReturnRows(categoryNameRows())
-	mock.ExpectQuery(branchSelectBySettlementsSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(ownerBranchRows(computedAt, "продовольствие"))
+	mock.ExpectQuery(goodsNamesSQL).WillReturnRows(goodsNameRows())
+	mock.ExpectQuery(branchSelectBySettlementsSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(ownerBranchRows(computedAt, "пища"))
 	mock.ExpectQuery(branchComponentsSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(ownerComponentRows())
 	mock.ExpectQuery(branchBuffersSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(ownerBufferRows())
 	mock.ExpectQuery(activeEffectsSelectSQL).WithArgs(sqlmock.AnyArg()).
-		WillReturnRows(activeEffectRows(int64(1), "продовольствие", 5.0, computedAt, "population_rate", "hunger", "s1"))
+		WillReturnRows(activeEffectRows(int64(1), "пища", 5.0, computedAt, "population_rate", "hunger", "s1"))
 	expectStageBatch(mock)
 
 	// Персистентный путь.
@@ -105,7 +105,7 @@ func TestStageTransitionCreatesMissingBranches(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"population", "population_exact", "computed_at", "created_at", "race_id", "settlement_type_id"}).
 			AddRow(1_000_000_000, float64(1_000_000_000), computedAt, computedAt, "", int64(148)))
 	mock.ExpectQuery(branchSelectBySettlementForUpdateSQL).WithArgs("s1").
-		WillReturnRows(ownerBranchRows(computedAt, "продовольствие"))
+		WillReturnRows(ownerBranchRows(computedAt, "пища"))
 	mock.ExpectQuery(branchBuffersSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(ownerBufferRows())
 	mock.ExpectQuery(branchComponentsSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(ownerComponentRows())
 	mock.ExpectExec(branchTopUpInputSQL).WithArgs("b1", int64(359)).WillReturnResult(sqlmock.NewResult(0, 0))
@@ -132,8 +132,8 @@ func TestStageTransitionCreatesMissingBranches(t *testing.T) {
 	// Перечитать ветки: существующая b1 (69) + доборная b2 (71, свежая).
 	mock.ExpectQuery(branchSelectBySettlementForUpdateSQL).WithArgs("s1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "settlement_id", "recipe_id", "processed_at", "good_id", "name", "complexity", "name_norm"}).
-			AddRow("b1", "s1", int64(69), computedAt, int64(378), "Пища", int64(1), "продовольствие").
-			AddRow("b2", "s1", int64(71), now, int64(380), "Вода", int64(1), "продовольствие"))
+			AddRow("b1", "s1", int64(69), computedAt, int64(378), "Пища", int64(1), "пища").
+			AddRow("b2", "s1", int64(71), now, int64(380), "Вода", int64(1), "пища"))
 	mock.ExpectQuery(branchBuffersSelectSQL).WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"branch_id", "direction", "good_id", "name", "amount"}).
 			AddRow("b1", "output", int64(378), "Пища", 0.0).
@@ -152,7 +152,7 @@ func TestStageTransitionCreatesMissingBranches(t *testing.T) {
 	mock.ExpectExec(branchWriteInputSQL).WithArgs(sqlmock.AnyArg(), "b2", int64(360)).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(branchWriteOutputSQL).WithArgs("b2", int64(380), sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(branchWriteCheckpointSQL).WithArgs(sqlmock.AnyArg(), "b2").WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(activeEffectUpsertSQL).WithArgs(int64(1), "s1", "продовольствие", sqlmock.AnyArg(), sqlmock.AnyArg()).
+	mock.ExpectExec(activeEffectUpsertSQL).WithArgs(int64(1), "s1", "пища", sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(settlementPopulationWriteSQL).WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "s1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -186,12 +186,12 @@ func TestStageTransitionResetsLoadInMemory(t *testing.T) {
 	o := ownerInput(computedAt)
 
 	mock.ExpectQuery(effectTypeCatalogSQL).WillReturnRows(effectTypeRows())
-	mock.ExpectQuery(categoryNamesSQL).WillReturnRows(categoryNameRows())
-	mock.ExpectQuery(branchSelectBySettlementsSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(ownerBranchRows(computedAt, "продовольствие"))
+	mock.ExpectQuery(goodsNamesSQL).WillReturnRows(goodsNameRows())
+	mock.ExpectQuery(branchSelectBySettlementsSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(ownerBranchRows(computedAt, "пища"))
 	mock.ExpectQuery(branchComponentsSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(ownerComponentRows())
 	mock.ExpectQuery(branchBuffersSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(ownerBufferRows())
 	mock.ExpectQuery(activeEffectsSelectSQL).WithArgs(sqlmock.AnyArg()).
-		WillReturnRows(activeEffectRows(int64(1), "продовольствие", 5.0, computedAt, "population_rate", "hunger", "s1"))
+		WillReturnRows(activeEffectRows(int64(1), "пища", 5.0, computedAt, "population_rate", "hunger", "s1"))
 	expectStageBatch(mock)
 
 	mock.ExpectBegin()
@@ -200,7 +200,7 @@ func TestStageTransitionResetsLoadInMemory(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"population", "population_exact", "computed_at", "created_at", "race_id", "settlement_type_id"}).
 			AddRow(1_000_000_000, float64(1_000_000_000), computedAt, computedAt, "", int64(148)))
 	mock.ExpectQuery(branchSelectBySettlementForUpdateSQL).WithArgs("s1").
-		WillReturnRows(ownerBranchRows(computedAt, "продовольствие"))
+		WillReturnRows(ownerBranchRows(computedAt, "пища"))
 	mock.ExpectQuery(branchBuffersSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(ownerBufferRows())
 	mock.ExpectQuery(branchComponentsSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(ownerComponentRows())
 	mock.ExpectExec(branchTopUpInputSQL).WithArgs("b1", int64(359)).WillReturnResult(sqlmock.NewResult(0, 0))
@@ -217,7 +217,7 @@ func TestStageTransitionResetsLoadInMemory(t *testing.T) {
 
 	// Перечитать ветки (буферы обнулены).
 	mock.ExpectQuery(branchSelectBySettlementForUpdateSQL).WithArgs("s1").
-		WillReturnRows(ownerBranchRows(computedAt, "продовольствие"))
+		WillReturnRows(ownerBranchRows(computedAt, "пища"))
 	mock.ExpectQuery(branchBuffersSelectSQL).WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"branch_id", "direction", "good_id", "name", "amount"}).
 			AddRow("b1", "output", int64(378), "Пища", 0.0).
@@ -229,7 +229,7 @@ func TestStageTransitionResetsLoadInMemory(t *testing.T) {
 	mock.ExpectExec(depositWriteAmountSQL).WithArgs(sqlmock.AnyArg(), "dep1").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(branchWriteCheckpointSQL).WithArgs(sqlmock.AnyArg(), "b1").WillReturnResult(sqlmock.NewResult(0, 1))
 	// Строка нагрузки пересоздаётся с load = 0 (сброс в памяти, §5.1 п.5).
-	mock.ExpectExec(activeEffectUpsertSQL).WithArgs(int64(1), "s1", "продовольствие", sqlmock.AnyArg(), amountNear{0.0}).
+	mock.ExpectExec(activeEffectUpsertSQL).WithArgs(int64(1), "s1", "пища", sqlmock.AnyArg(), amountNear{0.0}).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(settlementPopulationWriteSQL).WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "s1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -265,10 +265,10 @@ func TestOrphanCleanupEmptyBindings(t *testing.T) {
 	o.EatByPosition = nil
 
 	mock.ExpectQuery(effectTypeCatalogSQL).WillReturnRows(effectTypeRows())
-	mock.ExpectQuery(categoryNamesSQL).WillReturnRows(categoryNameRows())
+	mock.ExpectQuery(goodsNamesSQL).WillReturnRows(goodsNameRows())
 	mock.ExpectQuery(branchSelectBySettlementsSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(emptyBranchRows())
 	mock.ExpectQuery(activeEffectsSelectSQL).WithArgs(sqlmock.AnyArg()).
-		WillReturnRows(activeEffectRows(int64(1), "продовольствие", 5.0, computedAt, "population_rate", "hunger", "s1"))
+		WillReturnRows(activeEffectRows(int64(1), "пища", 5.0, computedAt, "population_rate", "hunger", "s1"))
 	expectBatchStageQueries(mock) // ладдера пуста — перехода нет
 
 	mock.ExpectBegin()

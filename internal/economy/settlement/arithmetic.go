@@ -20,7 +20,7 @@ type PositionArithmetic struct {
 }
 
 // ArithmeticSource — ветка как источник позиции для арифметики: позиция
-// товара-выхода (categories.name_norm) и число скорости пары (ед/сутки/млрд).
+// товара-выхода (goods.name_norm) и число скорости пары (ед/сутки/млрд).
 type ArithmeticSource struct {
 	Position             string
 	RatePerDayPerBillion float64

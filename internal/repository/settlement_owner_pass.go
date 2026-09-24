@@ -62,8 +62,15 @@ const (
 		ON CONFLICT (owner_type, owner_id, effect_type_id)
 		DO UPDATE SET load = $5, load_at = $4, updated_at = NOW()`
 
-	// categoryNamesSQL — словарь позиций корзины (categories.name_norm, любой kind).
+	// categoryNamesSQL — словарь name_norm категорий (валидация позиций
+	// редактора стадии студии, `CategoryNameNorms`). Позиция потребления
+	// owner-прохода ключуется ТОВАРОМ, не категорией (спека 2026-09-24 §6.1/§9.4).
 	categoryNamesSQL = `SELECT name_norm FROM categories`
+
+	// goodsNamesSQL — словарь позиций-ТОВАРОВ (goods.name_norm): ключ
+	// params.eat/params.effects читается только как товар (спека 2026-09-24
+	// §6.1/§9.4); категория-«сахар» как позиция снята.
+	goodsNamesSQL = `SELECT name_norm FROM goods`
 
 	// producerRatesSelectSQL — пары «тип × рецепт» с числом скорости (спека
 	// 2026-09-23 §3.3 п.3): один запрос на пачку владельцев, карта
@@ -187,7 +194,7 @@ func (r *BranchRepository) SyncSettlements(now time.Time, owners []OwnerSettleme
 	if err != nil {
 		return nil, err
 	}
-	knownPositions, err := r.loadCategoryNames(ctx)
+	knownPositions, err := r.loadGoodNames(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -403,7 +410,7 @@ func runOwnerPass(o OwnerSettlement, branches []*branchRecord, stored []storedEf
 		p := settlement.ProcessBranch(rec.toBranch(population, base, rateValue(rate), deposits), now)
 		sources = append(sources, settlement.NeedsSource{
 			ID:         rec.branch.ID,
-			Position:   rec.outputCategory,
+			Position:   rec.outputPosition,
 			Batches:    p.ProducedLast,
 			DeltaSec:   deltaSec,
 			OutputBase: base,
@@ -415,7 +422,7 @@ func runOwnerPass(o OwnerSettlement, branches []*branchRecord, stored []storedEf
 		// студии; объявленный ноль (0) — создаёт с нулём.
 		if rate != nil {
 			arithmeticSources = append(arithmeticSources, settlement.ArithmeticSource{
-				Position:             rec.outputCategory,
+				Position:             rec.outputPosition,
 				RatePerDayPerBillion: *rate,
 			})
 		}
@@ -473,7 +480,7 @@ func runOwnerPass(o OwnerSettlement, branches []*branchRecord, stored []storedEf
 	input.RaceID = o.RaceID
 	input.Effects = collectForce(needs)
 	// AsOf — точка «текущей силы» для точечных потребителей (DeathCause
-	// читает effectsRateAt(input.Effects, AsOf); ChangeComponents/DeathTime/
+	// читает dominantEffect(input.Effects, AsOf); ChangeComponents/DeathTime/
 	// Projection — p.RateAt(AsOf)). Буква §5.1 (`AsOf = computed_at`) здесь НЕ
 	// подходит: RateAt сегмента полуоткрыт [Since, Until), на computed_at он
 	// вернул бы силу ПЕРВОГО сегмента траектории (нагрузку на начало интервала),
@@ -599,13 +606,15 @@ func branchTakeModels(w *ownerBranchWrite, population float64) []models.Settleme
 }
 
 // buildBindings — привязки «позиция → тип эффекта» по params.effects (§4.2):
-// тип резолвится по name_norm; норма — params.eat[позиция]/DefaultEatK;
-// отсутствующая позиция — лог position_unknown (не тихий no-op, §7.4).
+// позиция — name_norm ТОВАРА (спека 2026-09-24 §6.1/§9.4), категория как
+// позиция снята; тип резолвится по name_norm; норма —
+// params.eat[позиция]/DefaultEatK; отсутствующая позиция — лог
+// position_unknown (не тихий no-op, §7.4).
 func buildBindings(o OwnerSettlement, catalog map[string]effectTypeMeta, knownPositions map[string]bool) []settlement.NeedsBinding {
 	bindings := make([]settlement.NeedsBinding, 0, len(o.EffectsByPosition))
 	for position, typeName := range o.EffectsByPosition {
 		if !knownPositions[position] {
-			log.Printf("⚠️ effect: позиция привязки %q отсутствует в categories — no-op (position_unknown)", position)
+			log.Printf("⚠️ effect: позиция привязки %q отсутствует в товарах — no-op (position_unknown)", position)
 			continue
 		}
 		meta, ok := catalog[typeName]
@@ -615,6 +624,7 @@ func buildBindings(o OwnerSettlement, catalog map[string]effectTypeMeta, knownPo
 		}
 		bindings = append(bindings, settlement.NeedsBinding{
 			Position:             position,
+			EffectTypeName:       typeName,
 			EffectTypeID:         meta.ID,
 			Impact:               meta.Impact,
 			Curve:                meta.Curve,
@@ -807,9 +817,10 @@ func queryEffectTypeCatalog(ctx context.Context, q branchRowsQueryer) (map[strin
 	return out, rows.Err()
 }
 
-// loadCategoryNames — словарь позиций корзины (name_norm категорий, любой kind).
-func (r *BranchRepository) loadCategoryNames(ctx context.Context) (map[string]bool, error) {
-	rows, err := r.db.QueryContext(ctx, categoryNamesSQL)
+// loadGoodNames — словарь позиций-ТОВАРОВ (goods.name_norm): ключ привязок
+// owner-прохода (спека 2026-09-24 §6.1/§9.4).
+func (r *BranchRepository) loadGoodNames(ctx context.Context) (map[string]bool, error) {
+	rows, err := r.db.QueryContext(ctx, goodsNamesSQL)
 	if err != nil {
 		return nil, err
 	}

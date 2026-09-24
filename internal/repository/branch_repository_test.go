@@ -29,10 +29,10 @@ func (m amountNear) Match(v driver.Value) bool {
 }
 
 // ownerBranchRows — ветка b1 (рецепт 69, выход 378 «Пища», сложность 1) с
-// категорией выхода `category` (позиция корзины, §4.2).
-func ownerBranchRows(processedAt time.Time, category string) *sqlmock.Rows {
+// позицией выхода `position` (name_norm ТОВАРА-выхода, §7.1).
+func ownerBranchRows(processedAt time.Time, position string) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{"id", "settlement_id", "recipe_id", "processed_at", "good_id", "name", "complexity", "name_norm"}).
-		AddRow("b1", "s1", int64(69), processedAt, int64(378), "Пища", int64(1), category)
+		AddRow("b1", "s1", int64(69), processedAt, int64(378), "Пища", int64(1), position)
 }
 
 func ownerComponentRows() *sqlmock.Rows {
@@ -47,7 +47,7 @@ func ownerBufferRows() *sqlmock.Rows {
 }
 
 // ownerInput — вход owner-прохода: поселение s1 (1e9, тип ownerTestTypeID) с
-// привязкой позиции «продовольствие» → тип «голод», норма 600 ед/сутки/млрд.
+// привязкой позиции-ТОВАРА «пища» → тип «голод», норма 600 ед/сутки/млрд.
 func ownerInput(computedAt time.Time) OwnerSettlement {
 	return OwnerSettlement{
 		ID:                "s1",
@@ -58,8 +58,8 @@ func ownerInput(computedAt time.Time) OwnerSettlement {
 		CreatedAt:         computedAt,
 		SettlementTypeID:  ownerTestTypeID,
 		Planet:            settlement.PlanetInput{TemperatureK: 288, GravityG: 1.0, CoreRadioactivity: 5},
-		EatByPosition:     map[string]float64{"продовольствие": settlement.DefaultEatK},
-		EffectsByPosition: map[string]string{"продовольствие": "голод"},
+		EatByPosition:     map[string]float64{"пища": settlement.DefaultEatK},
+		EffectsByPosition: map[string]string{"пища": "голод"},
 	}
 }
 
@@ -74,11 +74,11 @@ func TestSyncSettlementsPersistentPath(t *testing.T) {
 
 	now := time.Now()
 	computedAt := now.Add(-time.Hour)
-	// Категория ветки «металлы» — источника позиции «продовольствие» нет →
+	// Позиция ветки «металлы» — источника позиции-товара «пища» нет →
 	// coverage = 0, w = 1 весь час (лог position_no_source) → load = 1; строка
 	// нагрузки уже существует (базис load_at = computedAt).
 	expectOwnerPassWithBranches(mock, ownerBranchRows(computedAt, "металлы"), ownerComponentRows(), ownerBufferRows(),
-		activeEffectRows(int64(1), "продовольствие", 0.0, computedAt, "population_rate", "hunger", "s1"))
+		activeEffectRows(int64(1), "пища", 0.0, computedAt, "population_rate", "hunger", "s1"))
 
 	mock.ExpectBegin()
 	mock.ExpectExec(advisoryOwnerLockSQL).WithArgs("s1").WillReturnResult(sqlmock.NewResult(0, 0))
@@ -95,7 +95,7 @@ func TestSyncSettlementsPersistentPath(t *testing.T) {
 	mock.ExpectExec(branchWriteInputSQL).WithArgs(amountNear{1e15 - 27.8}, "b1", int64(359)).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(branchWriteOutputSQL).WithArgs("b1", int64(378), amountNear{27.8}).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(branchWriteCheckpointSQL).WithArgs(sqlmock.AnyArg(), "b1").WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(activeEffectUpsertSQL).WithArgs(int64(1), "s1", "продовольствие", sqlmock.AnyArg(), amountNear{1.0}).
+	mock.ExpectExec(activeEffectUpsertSQL).WithArgs(int64(1), "s1", "пища", sqlmock.AnyArg(), amountNear{1.0}).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(settlementPopulationWriteSQL).WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "s1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -140,7 +140,7 @@ func TestSyncSettlementsMemoryPathWithBranches(t *testing.T) {
 
 	now := time.Now()
 	processedAt := now.Add(-time.Minute)
-	expectOwnerPassWithBranches(mock, ownerBranchRows(processedAt, "продовольствие"), ownerComponentRows(), ownerBufferRows(), nil)
+	expectOwnerPassWithBranches(mock, ownerBranchRows(processedAt, "пища"), ownerComponentRows(), ownerBufferRows(), nil)
 	// Залежи пути «в памяти» — только чтение.
 	mock.ExpectQuery(depositMemorySelectSQL).WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"planet_id", "id", "good_id", "amount"}).AddRow("p1", "dep1", int64(359), 5000.0))
@@ -160,7 +160,7 @@ func TestSyncSettlementsBasisInvariant(t *testing.T) {
 
 	now := time.Now()
 	computedAt := now.Add(-2 * time.Hour)
-	expectOwnerPassWithBranches(mock, ownerBranchRows(computedAt, "продовольствие"), ownerComponentRows(), ownerBufferRows(), nil)
+	expectOwnerPassWithBranches(mock, ownerBranchRows(computedAt, "пища"), ownerComponentRows(), ownerBufferRows(), nil)
 
 	mock.ExpectBegin()
 	mock.ExpectExec(advisoryOwnerLockSQL).WithArgs("s1").WillReturnResult(sqlmock.NewResult(0, 0))
@@ -168,7 +168,7 @@ func TestSyncSettlementsBasisInvariant(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"population", "population_exact", "computed_at", "created_at", "race_id", "settlement_type_id"}).
 			AddRow(1_000_000_000, float64(1_000_000_000), computedAt, computedAt, "", int64(ownerTestTypeID)))
 	mock.ExpectQuery(branchSelectBySettlementForUpdateSQL).WithArgs("s1").
-		WillReturnRows(ownerBranchRows(computedAt, "продовольствие"))
+		WillReturnRows(ownerBranchRows(computedAt, "пища"))
 	mock.ExpectQuery(branchBuffersSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(ownerBufferRows())
 	mock.ExpectQuery(branchComponentsSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(ownerComponentRows())
 	mock.ExpectExec(branchTopUpInputSQL).WithArgs("b1", int64(359)).WillReturnResult(sqlmock.NewResult(0, 0))
@@ -201,8 +201,8 @@ func TestSyncSettlementsTwoBranchesOneEffect(t *testing.T) {
 	now := time.Now()
 	computedAt := now.Add(-time.Minute) // путь «в памяти» — БД не пишется
 	rows := sqlmock.NewRows([]string{"id", "settlement_id", "recipe_id", "processed_at", "good_id", "name", "complexity", "name_norm"}).
-		AddRow("b1", "s1", int64(69), computedAt, int64(378), "Пища", int64(1), "продовольствие").
-		AddRow("b2", "s1", int64(70), computedAt, int64(379), "Еда", int64(1), "продовольствие")
+		AddRow("b1", "s1", int64(69), computedAt, int64(378), "Пища", int64(1), "пища").
+		AddRow("b2", "s1", int64(70), computedAt, int64(379), "Еда", int64(1), "пища")
 	components := sqlmock.NewRows([]string{"recipe_id", "component_id", "quantity"})
 	buffers := sqlmock.NewRows([]string{"branch_id", "direction", "good_id", "name", "amount"}).
 		AddRow("b1", "output", int64(378), "Пища", 0.0).
@@ -231,7 +231,7 @@ func TestSyncSettlementsRateMissInert(t *testing.T) {
 
 	now := time.Now()
 	computedAt := now.Add(-2 * time.Hour)
-	expectOwnerPassWithBranches(mock, ownerBranchRows(computedAt, "продовольствие"), ownerComponentRows(), ownerBufferRows(), nil)
+	expectOwnerPassWithBranches(mock, ownerBranchRows(computedAt, "пища"), ownerComponentRows(), ownerBufferRows(), nil)
 
 	o := ownerInput(computedAt)
 	o.SettlementTypeID = 999 // пары (999, 69) нет → числа нет → инертна
@@ -242,7 +242,7 @@ func TestSyncSettlementsRateMissInert(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"population", "population_exact", "computed_at", "created_at", "race_id", "settlement_type_id"}).
 			AddRow(1_000_000_000, float64(1_000_000_000), computedAt, computedAt, "", int64(999)))
 	mock.ExpectQuery(branchSelectBySettlementForUpdateSQL).WithArgs("s1").
-		WillReturnRows(ownerBranchRows(computedAt, "продовольствие"))
+		WillReturnRows(ownerBranchRows(computedAt, "пища"))
 	mock.ExpectQuery(branchBuffersSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(ownerBufferRows())
 	mock.ExpectQuery(branchComponentsSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(ownerComponentRows())
 	mock.ExpectExec(branchTopUpInputSQL).WithArgs("b1", int64(359)).WillReturnResult(sqlmock.NewResult(0, 0))
@@ -251,7 +251,7 @@ func TestSyncSettlementsRateMissInert(t *testing.T) {
 	mock.ExpectExec(branchWriteInputSQL).WithArgs(amountNear{1e15}, "b1", int64(359)).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(branchWriteOutputSQL).WithArgs("b1", int64(378), amountNear{0}).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(branchWriteCheckpointSQL).WithArgs(sqlmock.AnyArg(), "b1").WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(activeEffectUpsertSQL).WithArgs(int64(1), "s1", "продовольствие", sqlmock.AnyArg(), sqlmock.AnyArg()).
+	mock.ExpectExec(activeEffectUpsertSQL).WithArgs(int64(1), "s1", "пища", sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(settlementPopulationWriteSQL).WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "s1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -267,4 +267,48 @@ func TestSyncSettlementsRateMissInert(t *testing.T) {
 	require.Zero(t, res.Branches[0].Produced, "числа нет → ветка инертна")
 	require.InDelta(t, 1e15, res.Branches[0].Input[0].Amount, 1e-6, "вход не тронут при промахе числа")
 	require.WithinDuration(t, now, res.Branches[0].ProcessedAt, time.Second, "processed_at продвигается — не застой")
+}
+
+// T20 (спека 2026-09-24-потребление-по-товарам §9.4): позиция-ТОВАР резолвится
+// (не отсекается position_unknown), словарь товаров читается ОДИН раз на пачку
+// (несколько владельцев — один запрос goodsNamesSQL), source_position = ключ товара.
+func TestSyncSettlementsGoodsPositionResolvesOncePerBatch(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
+	require.NoError(t, err)
+	defer db.Close()
+
+	now := time.Now()
+	// goodsNamesSQL ожидается ровно один раз на пачку из двух владельцев.
+	expectOwnerPassNoBranches(mock, nil)
+
+	o1 := ownerInput(now.Add(-time.Minute))
+	o2 := ownerInput(now.Add(-time.Minute))
+	o2.ID = "s2"
+
+	out, err := NewBranchRepository(db).SyncSettlements(now, []OwnerSettlement{o1, o2})
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+	require.Len(t, out["s1"].Effects, 1, "товарный ключ «пища» резолвится (не position_unknown)")
+	require.Len(t, out["s2"].Effects, 1, "второй владелец пачки тоже резолвится")
+	require.Equal(t, "пища", *out["s1"].Effects[0].SourcePosition, "source_position = ключ товара")
+}
+
+// T20/§6.1 (негатив): ключ, совпавший с именем КАТЕГОРИИ, но не товара, —
+// позиция-неизвестна: no-op (привязки нет, категория не подставляется).
+func TestSyncSettlementsCategoryKeyIsNotAPosition(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
+	require.NoError(t, err)
+	defer db.Close()
+
+	now := time.Now()
+	expectOwnerPassNoBranches(mock, nil)
+
+	o := ownerInput(now.Add(-time.Minute))
+	o.EffectsByPosition = map[string]string{"продовольствие": "голод"}
+	o.EatByPosition = map[string]float64{"продовольствие": settlement.DefaultEatK}
+
+	out, err := NewBranchRepository(db).SyncSettlements(now, []OwnerSettlement{o})
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+	require.Empty(t, out["s1"].Effects, "категория — не позиция (position_unknown, no-op)")
 }

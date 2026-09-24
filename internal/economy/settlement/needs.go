@@ -7,8 +7,9 @@
 // эффекта R(load(t)) на сегментах. Производство (ветки) — лишь один из
 // источников покрытия; связь мягкая.
 //
-// Позиция корзины = существующая категория `categories` (любой kind):
-// товар-выход ветки принадлежит позиции через categories.name_norm.
+// Позиция потребления = ТОВАР `goods.name_norm` (спека 2026-09-24-потребление-
+// по-товарам §6.1; категория как ключ снята): товар-выход ветки принадлежит
+// позиции через goods.name_norm.
 // Единицы: `demand`/`p_b` — батч/СЕК; нормы `params.eat` — ед/сутки/млрд →
 // через PerSecond (единая точка конверсии, §2.2); `t*` — СЕКУНДЫ; `load` —
 // сило-часы; `recovery` — сило-часы/час.
@@ -28,7 +29,11 @@ import (
 // (params.eat[position], «ед/сутки/млрд»); записи нет → фолбэк делает
 // вызывающий (DefaultEatK).
 type NeedsBinding struct {
-	Position             string
+	Position string
+	// EffectTypeName — name_norm типа эффекта (идентичность нужды, спека
+	// 2026-09-24 §8.3): проносится в траекторию силы для различения причины
+	// гибели («голод» / «жажда»).
+	EffectTypeName       string
 	EffectTypeID         int64
 	Impact               string
 	Curve                string
@@ -36,7 +41,7 @@ type NeedsBinding struct {
 }
 
 // NeedsSource — ветка как источник покрытия позиции (§4.2): Position —
-// categories.name_norm товара-выхода; Batches — произведено за Δt (batches_b);
+// goods.name_norm товара-выхода; Batches — произведено за Δt (batches_b);
 // DeltaSec — Δt_b в секундах; OutputBase — выходной буфер на processed_at
 // (O0_b, ДО производства, finding 6); Since — момент появления ветки
 // (processed_at_b, §4.3 крайний случай С1): ветка, созданная ВНУТРИ интервала
@@ -116,7 +121,7 @@ func ComputeNeeds(in NeedsInput) NeedsResult {
 	for _, b := range in.Bindings {
 		g := groups[b.EffectTypeID]
 		if g == nil {
-			g = &needsGroup{curve: b.Curve, impact: b.Impact, recovery: in.Recoveries[b.Curve]}
+			g = &needsGroup{name: b.EffectTypeName, curve: b.Curve, impact: b.Impact, recovery: in.Recoveries[b.Curve]}
 			groups[b.EffectTypeID] = g
 			order = append(order, b.EffectTypeID)
 		}
@@ -146,6 +151,7 @@ func ComputeNeeds(in NeedsInput) NeedsResult {
 // active_effects на (владелец, тип), §4.4). recovery — скаляр этой кривой
 // (сило-ч/ч), не общий для всех эффектов.
 type needsGroup struct {
+	name      string
 	curve     string
 	impact    string
 	recovery  float64
@@ -187,9 +193,10 @@ func (g *needsGroup) compute(in NeedsInput, typeID int64) EffectRun {
 		}
 		if fs.Before(fe) {
 			force = append(force, EffectForcePoint{
-				Rate:  effectRateOnSegment(g.impact, g.curve, g.recovery, in, cur, s, fs, fe),
-				Since: fs,
-				Until: fe,
+				Rate:           effectRateOnSegment(g.impact, g.curve, g.recovery, in, cur, s, fs, fe),
+				Since:          fs,
+				Until:          fe,
+				EffectTypeName: g.name,
 			})
 		}
 		runW = s.w

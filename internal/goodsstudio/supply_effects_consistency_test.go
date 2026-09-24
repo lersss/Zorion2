@@ -40,6 +40,26 @@ func findSupplyEffectsMigration(t *testing.T) string {
 	return ""
 }
 
+// findSupplyGoodsMigration — текст миграции `*_supply_goods_positions.sql`
+// (спека 2026-09-24-потребление-по-товарам §6.2; номер не фиксируем — файл
+// ищется по суффиксу).
+func findSupplyGoodsMigration(t *testing.T) string {
+	t.Helper()
+	dir := filepath.Join("..", "..", "migrations")
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name(), "_supply_goods_positions.sql") {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		require.NoError(t, err)
+		return string(b)
+	}
+	t.Fatal("миграция *_supply_goods_positions.sql не найдена")
+	return ""
+}
+
 // T1: миграция создаёт обе таблицы и идемпотентно сеет тип «Голод»;
 // recovery в params НЕ хранится (скаляр Балансировки, §7.1/§7.4).
 func TestSupplyEffectsMigrationShape(t *testing.T) {
@@ -163,9 +183,10 @@ func TestSupplyEffectsMigrationPilotBindingByKey(t *testing.T) {
 	require.Contains(t, sql, `WHERE name_norm = 'обычное поселение'`, "пилотная привязка — к дефолтному типу поселения, не глобально")
 }
 
-// T36 (предусловие пилота): Go-сид несёт ту же привязку для свежей БД —
-// params.effects.продовольствие='голод' и params.eat.продовольствие=DefaultEatK;
-// нормы «вода»/«пища» сохранены (согласовано с миграцией 000067).
+// T16/T36 (спека 2026-09-24-потребление-по-товарам §6.2): Go-сид несёт целевые
+// params для свежей БД — позиция = товар: «пища» → эффект «голод» (норма
+// DefaultEatK), «очищенная вода» → эффект «жажда» (норма 20000000, О3/О4).
+// Мёртвые ключи-категории «вода»/«продовольствие» вычищены (О6).
 func TestSettlementSeedCarriesPilotBinding(t *testing.T) {
 	sub := settlementSeedSubtype(t)
 	var p struct {
@@ -174,10 +195,122 @@ func TestSettlementSeedCarriesPilotBinding(t *testing.T) {
 		EatUnits string             `json:"eat_units"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(sub.Params), &p))
-	require.Equal(t, "голод", p.Effects["продовольствие"], "сид свежей БД несёт пилотную привязку по позиции (§7.5)")
+	require.Equal(t, "голод", p.Effects["пища"], "сид свежей БД несёт привязку «пища» → «голод» (§6.2)")
+	require.Equal(t, "жажда", p.Effects["очищенная вода"], "сид свежей БД несёт привязку воды → «жажда» (О3)")
 	require.Equal(t, "per_day_per_billion", p.EatUnits, "сид пишет норму сразу в новой единице с признаком (§2.5)")
-	require.InDelta(t, settlement.DefaultEatK, p.Eat["продовольствие"], 1e-9)
-	// Нормы итерации 4 не потеряны.
-	require.Contains(t, p.Eat, "вода")
-	require.Contains(t, p.Eat, "пища")
+	require.InDelta(t, settlement.DefaultEatK, p.Eat["пища"], 1e-9)
+	require.InDelta(t, thirstNormPerDayPerBillion, p.Eat["очищенная вода"], 1e-9)
+	require.NotContains(t, p.Eat, "вода", "мёртвый ключ-категория «вода» вычищен (О6)")
+	require.NotContains(t, p.Eat, "продовольствие", "категория «продовольствие» заменена товаром «пища» (§6.2)")
+	require.NotContains(t, p.Effects, "продовольствие", "старая привязка «продовольствие» → «голод» снята (§6.2)")
+}
+
+// applySupplyGoodsParamsModel — модель блока 2 миграции 000079 (спека §6.2):
+// снять категорийные ключи (`effects.продовольствие`, `eat.вода`,
+// `eat.продовольствие`) и записать целевые товарные (`пища`, `очищенная вода`).
+// Вложенные объекты сливаются поуровнево (как `||` с jsonb_build_object) —
+// прочие ключи params (например `stage`) сохраняются.
+func applySupplyGoodsParamsModel(params map[string]interface{}) map[string]interface{} {
+	out := map[string]interface{}{}
+	for k, v := range params {
+		out[k] = v
+	}
+	eff := map[string]interface{}{}
+	if effects, ok := out["effects"].(map[string]interface{}); ok {
+		for k, v := range effects {
+			if k != "продовольствие" {
+				eff[k] = v
+			}
+		}
+	}
+	eff["пища"] = "голод"
+	eff["очищенная вода"] = "жажда"
+	out["effects"] = eff
+
+	eat := map[string]interface{}{}
+	if cur, ok := out["eat"].(map[string]interface{}); ok {
+		for k, v := range cur {
+			if k != "вода" && k != "продовольствие" {
+				eat[k] = v
+			}
+		}
+	}
+	eat["пища"] = float64(600)
+	eat["очищенная вода"] = float64(20000000)
+	out["eat"] = eat
+
+	out["eat_units"] = "per_day_per_billion"
+	return out
+}
+
+// T15/T16: миграция 000079 — целевые params на ВСЕЙ ладдере класса «Поселение»
+// (предикат класса `params ? 'stage'` + parent_id типа-родителя «Поселение», не
+// список имён ступеней — иначе «Мегаполис» выпадал, §6.3); вложенные eat/effects
+// собираются слиянием `||` с объектом-обёрткой (урок 000070); строка каталога
+// «Жажда» — идемпотентно.
+func TestSupplyGoodsMigrationShape(t *testing.T) {
+	sql := stripSQLLineComments(findSupplyGoodsMigration(t))
+
+	// Эффект «Жажда» — своя строка каталога, общая кривая 'hunger' (О3, §8.2).
+	require.Contains(t, sql, `'Жажда', 'жажда', 'population_rate'`)
+	require.Contains(t, sql, `{"curve": "hunger"}`)
+	require.Contains(t, sql, "ON CONFLICT (name_norm) DO NOTHING")
+
+	// Ладдера — предикат класса ПО ДАННЫМ, не по именам ступеней (§6.3).
+	require.Contains(t, sql, "params ? 'stage'")
+	require.Contains(t, sql, "parent_id")
+	require.Contains(t, sql, "name_norm = 'поселение'")
+	require.NotContains(t, sql, "'аутпост'", "имена ступеней в предикате не участвуют (§6.3)")
+	require.NotContains(t, sql, "'мегаполис'", "имена ступеней в предикате не участвуют (§6.3)")
+
+	// Вложенные объекты — слиянием `||` с объектом-обёрткой (урок 000070).
+	require.Contains(t, sql, "jsonb_build_object")
+	require.Contains(t, sql, "COALESCE(pt.params->'effects'")
+	require.Contains(t, sql, "COALESCE(pt.params->'eat'")
+	require.NotContains(t, sql, "jsonb_set", "jsonb_set не создаёт промежуточный объект — молчаливый no-op (000070)")
+	require.NotContains(t, sql, `'{"eat"`, "слияние объекта целиком затирает eat — запрещено (000070)")
+
+	// Ключи: категория «продовольствие» → товар «пища»; «вода» удаляется (О6);
+	// добавляется товар «очищенная вода» + эффект «жажда» (§6.2).
+	require.Contains(t, sql, `'пища', 'голод'`)
+	require.Contains(t, sql, `'очищенная вода', 'жажда'`)
+	require.Contains(t, sql, `- 'продовольствие'`)
+	require.Contains(t, sql, `- 'вода'`)
+	require.Contains(t, sql, `'пища', 600`)
+	require.Contains(t, sql, `'очищенная вода', 20000000`)
+}
+
+// T15: повторный прогон миграции не портит params — те же ключи снимаются, те же
+// значения пишутся (миграция data, не append). Проверяется моделью блока 2 на
+// двух исходных состояниях: «Аутпост» со старыми ключами и «голая» ступень с
+// одним `stage` (верхние ступени ладдеры).
+func TestSupplyGoodsMigrationIdempotent(t *testing.T) {
+	withOldKeys := map[string]interface{}{
+		"eat":       map[string]interface{}{"вода": float64(600), "пища": float64(600), "продовольствие": float64(600)},
+		"effects":   map[string]interface{}{"продовольствие": "голод"},
+		"eat_units": "per_day_per_billion",
+		"stage":     map[string]interface{}{"enter": float64(0)},
+	}
+	bareStage := map[string]interface{}{
+		"stage": map[string]interface{}{"enter": float64(1000), "exit": float64(750)},
+	}
+
+	for name, in := range map[string]map[string]interface{}{"Аутпост": withOldKeys, "ступень": bareStage} {
+		once := applySupplyGoodsParamsModel(in)
+		twice := applySupplyGoodsParamsModel(once)
+		require.Equal(t, once, twice, "%s: повторный прогон не меняет params (идемпотентность)", name)
+
+		eat := once["eat"].(map[string]interface{})
+		require.InDelta(t, settlement.DefaultEatK, eat["пища"], 1e-9)
+		require.InDelta(t, thirstNormPerDayPerBillion, eat["очищенная вода"], 1e-9)
+		require.NotContains(t, eat, "вода", "%s: мёртвый ключ «вода» удалён (О6)", name)
+		require.NotContains(t, eat, "продовольствие", "%s: категория заменена товаром «пища» (§6.2)", name)
+
+		effects := once["effects"].(map[string]interface{})
+		require.Equal(t, "голод", effects["пища"], "%s: привязка «пища» → «голод»", name)
+		require.Equal(t, "жажда", effects["очищенная вода"], "%s: привязка воды → «жажда» (О3)", name)
+		require.NotContains(t, effects, "продовольствие", "%s: старая привязка снята (§6.2)", name)
+
+		require.Contains(t, once, "stage", "%s: прочие ключи params (stage) сохраняются", name)
+	}
 }

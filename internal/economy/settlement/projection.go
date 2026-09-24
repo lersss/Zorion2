@@ -30,6 +30,11 @@ type EffectForcePoint struct {
 	Rate  float64
 	Since time.Time
 	Until time.Time
+	// EffectTypeName — name_norm типа эффекта (идентичность для DeathCause,
+	// спека 2026-09-24-потребление-по-товарам §8.3): по общей кривой «голод» и
+	// «жажда» не различить, поэтому код причины берётся по типу. Заполняет
+	// владелец (owner-проход, collectForce); пусто — фолбэк «hunger».
+	EffectTypeName string
 }
 
 // RateAt — сила сегмента, содержащего t. Сегменты полуоткрытые [Since, Until):

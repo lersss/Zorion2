@@ -162,11 +162,11 @@ func expectPresenceOwnerPassArithmeticBranch(mock sqlmock.Sqlmock, now time.Time
 	mock.ExpectQuery(`SELECT id, name, name_norm, impact, COALESCE\(params->>'curve', ''\) FROM effect_types`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm", "impact", "curve"}).
 			AddRow(int64(1), "Голод", "голод", "population_rate", "hunger"))
-	mock.ExpectQuery(`SELECT name_norm FROM categories`).
-		WillReturnRows(sqlmock.NewRows([]string{"name_norm"}).AddRow("продовольствие"))
+	mock.ExpectQuery(`SELECT name_norm FROM goods`).
+		WillReturnRows(sqlmock.NewRows([]string{"name_norm"}).AddRow("пища"))
 	mock.ExpectQuery(`SELECT b\.id.*FROM settlement_branches b`).WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "settlement_id", "recipe_id", "processed_at", "good_id", "name", "complexity", "name_norm"}).
-			AddRow("b1", "s1", int64(69), now.Add(-time.Minute), int64(378), "Пища", int64(1), "продовольствие"))
+			AddRow("b1", "s1", int64(69), now.Add(-time.Minute), int64(378), "Пища", int64(1), "пища"))
 	mock.ExpectQuery(`SELECT rc\.recipe_id, rc\.component_id, rc\.quantity FROM recipe_components rc`).WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"recipe_id", "component_id", "quantity"}).AddRow(int64(69), int64(359), 1))
 	mock.ExpectQuery(`SELECT bb\.branch_id, bb\.direction, bb\.good_id, g\.name, bb\.amount FROM settlement_branch_buffers bb`).WithArgs(sqlmock.AnyArg()).
@@ -200,7 +200,7 @@ func arithmeticPresenceHandlers(t *testing.T, settingPayload string) (*AdminHand
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows(settlementSelectCols()).
 			AddRow("s1", "p1", 876000000, 876000000.4, 69, nowT, nowT, nowT, "spark", int64(148), "Городок",
-				[]byte(`{"продовольствие":600}`), []byte(`{"продовольствие":"голод"}`)))
+				[]byte(`{"пища":600}`), []byte(`{"пища":"голод"}`)))
 	expectEmptyFactionsBuildings(mock)
 	expectEmptyDeposits(mock)
 	expectModesWorld(mock, "w2")
@@ -233,7 +233,7 @@ func TestGetPlanetsByWorldReadsArithmeticVisibilityTrue(t *testing.T) {
 	require.Len(t, resp.Planets[0].Settlements, 1)
 	s := resp.Planets[0].Settlements[0]
 	require.Len(t, s.Arithmetic, 1, "настройка true → блок арифметики игроку есть")
-	assert.Equal(t, "продовольствие", s.Arithmetic[0].Position)
+	assert.Equal(t, "пища", s.Arithmetic[0].Position)
 	// Население поселения 8.76e8: (650−600) × 0.876 = 43.8 ед/сутки.
 	assert.InDelta(t, 43.8, s.Arithmetic[0].NetPerDay, 1e-3)
 	require.Len(t, s.Branches, 1)

@@ -31,9 +31,9 @@ import (
 	"zorion/migrations"
 )
 
-// supplyITPosition — позиция корзины пилота: категория «продовольствие»
-// (§3.3/§7.5), имя_норм — ключ params.effects/params.eat.
-const supplyITPosition = "продовольствие"
+// supplyITPosition — позиция потребления пилота: name_norm ТОВАРА «пища»
+// (спека 2026-09-24-потребление-по-товарам §6.1/§7.1), ключ params.effects/eat.
+const supplyITPosition = "пища"
 
 // supplyITOpenMigrated — случайная схема с накатанными миграциями; скип без
 // TEST_DATABASE_URL/DATABASE_URL (обычный прогон остаётся зелёным).
@@ -233,13 +233,20 @@ func supplyITSeedBranch(t *testing.T, db *sql.DB, settlementID string, recipeID,
 	return id
 }
 
-// supplyITSeedActiveEffect — хранимый базис нагрузки владельца.
+// supplyITSeedActiveEffect — хранимый базис нагрузки владельца (позиция —
+// товар пилота supplyITPosition).
 func supplyITSeedActiveEffect(t *testing.T, db *sql.DB, settlementID string, typeID int64, load float64, loadAt time.Time) {
+	t.Helper()
+	supplyITSeedActiveEffectPos(t, db, settlementID, typeID, supplyITPosition, load, loadAt)
+}
+
+// supplyITSeedActiveEffectPos — то же с явной позицией (для эффекта «жажда»).
+func supplyITSeedActiveEffectPos(t *testing.T, db *sql.DB, settlementID string, typeID int64, position string, load float64, loadAt time.Time) {
 	t.Helper()
 	supplyITExec(t, db,
 		`INSERT INTO active_effects (effect_type_id, owner_type, owner_id, owner_settlement_id, source_position, load, load_at)
 		 VALUES ($1, 'settlement', $2, $2, $3, $4, $5)`,
-		typeID, settlementID, supplyITPosition, load, loadAt)
+		typeID, settlementID, position, load, loadAt)
 }
 
 // supplyITEffectTypeID — id типа «голод» (сид миграции 000070).
@@ -248,8 +255,8 @@ func supplyITEffectTypeID(t *testing.T, db *sql.DB) int64 {
 	return supplyITScalarInt(t, db, `SELECT id FROM effect_types WHERE name_norm = 'голод'`)
 }
 
-// supplyITOwner — вход owner-прохода: поселение с привязкой позиции
-// «продовольствие» → «голод», норма DefaultEatK; планета-комфорт (среда 0).
+// supplyITOwner — вход owner-прохода: поселение с привязкой позиции-ТОВАРА
+// «пища» → «голод», норма DefaultEatK; планета-комфорт (среда 0).
 func supplyITOwner(settlementID, planetID string, computedAt time.Time, population int) OwnerSettlement {
 	return OwnerSettlement{
 		ID:                settlementID,
@@ -291,7 +298,7 @@ func supplyITRunPass(t *testing.T, db *sql.DB, o OwnerSettlement, now time.Time)
 	repo := NewBranchRepository(db)
 	catalog, err := repo.loadEffectTypeCatalog(ctx)
 	require.NoError(t, err)
-	known, err := repo.loadCategoryNames(ctx)
+	known, err := repo.loadGoodNames(ctx)
 	require.NoError(t, err)
 	recs, err := loadBranches(ctx, db, []string{o.ID})
 	require.NoError(t, err)
@@ -303,15 +310,15 @@ func supplyITRunPass(t *testing.T, db *sql.DB, o OwnerSettlement, now time.Time)
 }
 
 // T31/T36 + T2/T3 + T13: привязка по категории-позиции; полное покрытие → w=0;
-// нет источника → coverage=0, w=1 без падения; две ветки одной позиции → одна
-// строка active_effects; удаление ветки-источника эффект не снимает.
+// нет источника → coverage=0, w=1 без падения; две ветки одного типа эффекта →
+// одна строка active_effects; удаление ветки-источника эффект не снимает.
 func TestSupplyEffectsIntegrationBindingAndDeficitW(t *testing.T) {
 	db := supplyITOpenMigrated(t)
 	planetID := supplyITSeedPlanet(t, db)
 	typeID := supplyITEffectTypeID(t, db)
 
-	catID := supplyITSeedCategory(t, db, "Продовольствие", supplyITPosition)
-	out1 := supplyITSeedGood(t, db, "Пища", "пища", catID)
+	catID := supplyITSeedCategory(t, db, "Продовольствие", "продовольствие")
+	out1 := supplyITSeedGood(t, db, "Пища", supplyITPosition, catID)
 	out2 := supplyITSeedGood(t, db, "Еда", "еда", catID)
 	comp := supplyITSeedGood(t, db, "Мясо", "мясо", catID)
 	r1 := supplyITSeedRecipe(t, db, out1, comp, 1)
@@ -333,20 +340,28 @@ func TestSupplyEffectsIntegrationBindingAndDeficitW(t *testing.T) {
 	// Шаг A: источник есть, числа скорости хватает на спрос → w=0, нагрузка не растёт.
 	nowA := time.Now()
 	resA := supplyITSyncRun(t, db, supplyITOwnerTyped(s1, planetID, t0, 1_000_000, pt), nowA)
-	require.Len(t, resA.Effects, 1, "привязка по категории-позиции → один эффект")
+	require.Len(t, resA.Effects, 1, "привязка по товару-позиции → один эффект")
 	require.InDelta(t, 0.0, resA.Effects[0].W, 1e-9, "полное покрытие → w=0")
 	require.InDelta(t, 0.0, resA.Effects[0].Load, 1e-9, "при w=0 нагрузка не растёт")
 	require.False(t, resA.Effects[0].Enabled, "порог 24 не достигнут")
 	require.Equal(t, int64(1), supplyITScalarInt(t, db, `SELECT COUNT(*) FROM active_effects WHERE owner_id = $1`, s1))
 
-	// Шаг B: вторая ветка/товар ТОЙ ЖЕ позиции → по-прежнему один эффект/строка.
+	// Шаг B: вторая ветка второго товара-позиции ТОГО ЖЕ типа эффекта («голод»):
+	// оба товара привязаны к «голоду», две ветки → по-прежнему один эффект и одна
+	// строка на тип (T13). Случай «две ветки ОДНОЙ позиции» интеграционно не
+	// строится: позиция = goods.name_norm (UNIQUE), на товар один рецепт (UNIQUE
+	// good_id) и одна ветка на (поселение, рецепт) — остаётся юнит-регресс
+	// TestSyncSettlementsTwoBranchesOneEffect.
 	supplyITSeedBranch(t, db, s1, r2, out2, comp, 1e6, 0, nowA)
+	ownerB := supplyITOwnerTyped(s1, planetID, nowA, 1_000_000, pt)
+	ownerB.EffectsByPosition["еда"] = "голод"
+	ownerB.EatByPosition["еда"] = settlement.DefaultEatK
 	nowB := nowA.Add(time.Hour)
-	resB := supplyITSyncRun(t, db, supplyITOwnerTyped(s1, planetID, nowA, 1_000_000, pt), nowB)
-	require.Len(t, resB.Effects, 1, "две ветки одной позиции → один эффект (T13)")
-	require.InDelta(t, 0.0, resB.Effects[0].W, 1e-9, "позиция всё ещё покрыта")
+	resB := supplyITSyncRun(t, db, ownerB, nowB)
+	require.Len(t, resB.Effects, 1, "два источника одного типа эффекта → один эффект (T13)")
+	require.InDelta(t, 0.0, resB.Effects[0].W, 1e-9, "обе позиции покрыты")
 	require.Equal(t, int64(1), supplyITScalarInt(t, db, `SELECT COUNT(*) FROM active_effects WHERE owner_id = $1`, s1),
-		"две ветки одной позиции → одна строка active_effects (T13)")
+		"одна строка active_effects на тип эффекта (T13)")
 
 	// Шаг C: удаляем ВСЕ ветки-источники → привязанная позиция без источника:
 	// coverage=0, w=1, без падения (T31/T36); эффект не снимается (T13).
@@ -366,7 +381,8 @@ func TestSupplyEffectsIntegrationLoadAccumulation(t *testing.T) {
 	db := supplyITOpenMigrated(t)
 	planetID := supplyITSeedPlanet(t, db)
 	typeID := supplyITEffectTypeID(t, db)
-	supplyITSeedCategory(t, db, "Продовольствие", supplyITPosition)
+	catID := supplyITSeedCategory(t, db, "Продовольствие", "продовольствие")
+	supplyITSeedGood(t, db, "Пища", supplyITPosition, catID)
 
 	now := time.Now()
 	computedAt := now.Add(-2 * time.Hour).Truncate(time.Microsecond)
@@ -388,7 +404,8 @@ func TestSupplyEffectsIntegrationThreshold(t *testing.T) {
 	db := supplyITOpenMigrated(t)
 	planetID := supplyITSeedPlanet(t, db)
 	typeID := supplyITEffectTypeID(t, db)
-	supplyITSeedCategory(t, db, "Продовольствие", supplyITPosition)
+	catID := supplyITSeedCategory(t, db, "Продовольствие", "продовольствие")
+	supplyITSeedGood(t, db, "Пища", supplyITPosition, catID)
 
 	now := time.Now()
 	loads := map[string]float64{"low": 23.5, "edge": 24.0, "high": 25.0}
@@ -436,8 +453,8 @@ func TestSupplyEffectsIntegrationRecoveryToZeroAndBasis(t *testing.T) {
 	planetID := supplyITSeedPlanet(t, db)
 	typeID := supplyITEffectTypeID(t, db)
 
-	catID := supplyITSeedCategory(t, db, "Продовольствие", supplyITPosition)
-	outGood := supplyITSeedGood(t, db, "Пища", "пища", catID)
+	catID := supplyITSeedCategory(t, db, "Продовольствие", "продовольствие")
+	outGood := supplyITSeedGood(t, db, "Пища", supplyITPosition, catID)
 	comp := supplyITSeedGood(t, db, "Мясо", "мясо", catID)
 	recipe := supplyITSeedRecipe(t, db, outGood, comp, 1)
 
@@ -477,8 +494,8 @@ func TestSupplyEffectsIntegrationForceWindow(t *testing.T) {
 	planetID := supplyITSeedPlanet(t, db)
 	typeID := supplyITEffectTypeID(t, db)
 
-	catID := supplyITSeedCategory(t, db, "Продовольствие", supplyITPosition)
-	outGood := supplyITSeedGood(t, db, "Пища", "пища", catID)
+	catID := supplyITSeedCategory(t, db, "Продовольствие", "продовольствие")
+	outGood := supplyITSeedGood(t, db, "Пища", supplyITPosition, catID)
 	comp := supplyITSeedGood(t, db, "Мясо", "мясо", catID)
 	recipe := supplyITSeedRecipe(t, db, outGood, comp, 1)
 
@@ -505,8 +522,8 @@ func TestSupplyEffectsIntegrationOutputBufferSingleWrite(t *testing.T) {
 	planetID := supplyITSeedPlanet(t, db)
 	typeID := supplyITEffectTypeID(t, db)
 
-	catID := supplyITSeedCategory(t, db, "Продовольствие", supplyITPosition)
-	outGood := supplyITSeedGood(t, db, "Пища", "пища", catID)
+	catID := supplyITSeedCategory(t, db, "Продовольствие", "продовольствие")
+	outGood := supplyITSeedGood(t, db, "Пища", supplyITPosition, catID)
 	comp := supplyITSeedGood(t, db, "Мясо", "мясо", catID)
 	recipe := supplyITSeedRecipe(t, db, outGood, comp, 1)
 	// Число скорости 333.6 < нормы 600: производство меньше спроса (p/demand =
@@ -555,7 +572,8 @@ func TestSupplyEffectsIntegrationExtinctHunger(t *testing.T) {
 	db := supplyITOpenMigrated(t)
 	planetID := supplyITSeedPlanet(t, db)
 	typeID := supplyITEffectTypeID(t, db)
-	supplyITSeedCategory(t, db, "Продовольствие", supplyITPosition)
+	catID := supplyITSeedCategory(t, db, "Продовольствие", "продовольствие")
+	supplyITSeedGood(t, db, "Пища", supplyITPosition, catID)
 
 	// Малое население, длинный интервал, высокая нагрузка (плато 1e-7/сек) —
 	// население уходит ниже NDead → Recompute возвращает 0 → запись «Вымерло».
@@ -574,4 +592,43 @@ func TestSupplyEffectsIntegrationExtinctHunger(t *testing.T) {
 		SELECT COUNT(*) FROM settlement_log
 		WHERE settlement_id = $1 AND type = 'extinct' AND cause = 'hunger'`, s1),
 		"лог «Вымерло · Голод» (T8)")
+}
+
+// T19 (интеграция, спека 2026-09-24 §8.3): идентичность эффекта доходит от
+// owner-прохода до причины гибели — «жажда» даёт settlement_log.cause='thirst',
+// а не 'hunger' (общая кривая hunger у обоих типов их не различает).
+func TestSupplyEffectsIntegrationExtinctThirst(t *testing.T) {
+	db := supplyITOpenMigrated(t)
+	planetID := supplyITSeedPlanet(t, db)
+	thirstTypeID := supplyITScalarInt(t, db, `SELECT id FROM effect_types WHERE name_norm = 'жажда'`)
+	catID := supplyITSeedCategory(t, db, "Продовольствие", "продовольствие")
+	supplyITSeedGood(t, db, "Очищенная вода", "очищенная вода", catID)
+
+	// Малое население, длинный интервал, высокая нагрузка — обвал ниже NDead.
+	computedAt := time.Now().Add(-300 * 24 * time.Hour).Truncate(time.Microsecond)
+	const pop = 1000
+	s1 := supplyITSeedSettlement(t, db, planetID, pop, computedAt)
+	supplyITSeedActiveEffectPos(t, db, s1, thirstTypeID, "очищенная вода", 1000, computedAt)
+
+	o := supplyITOwner(s1, planetID, computedAt, pop)
+	o.EffectsByPosition = map[string]string{"очищенная вода": "жажда"}
+	o.EatByPosition = map[string]float64{"очищенная вода": settlement.DefaultEatK}
+
+	res := supplyITSyncRun(t, db, o, time.Now())
+	require.Equal(t, 0, res.Population, "население обнулено (вымерло)")
+
+	// Привязка резолвится: эффект — «жажда», позиция — товар «очищенная вода»,
+	// и та же позиция видна в витрине арифметики (спека 2026-09-24 §9.4/§10).
+	require.Len(t, res.Effects, 1, "привязка по товару «очищенная вода» резолвится")
+	require.Equal(t, thirstTypeID, res.Effects[0].EffectTypeID, "эффект — «жажда»")
+	require.Equal(t, "Жажда", res.Effects[0].Name)
+	require.NotNil(t, res.Effects[0].SourcePosition)
+	require.Equal(t, "очищенная вода", *res.Effects[0].SourcePosition)
+	require.Len(t, res.Arithmetic, 1, "позиция-товар в витрине арифметики")
+	require.Equal(t, "очищенная вода", res.Arithmetic[0].Position)
+
+	require.Equal(t, int64(1), supplyITScalarInt(t, db, `
+		SELECT COUNT(*) FROM settlement_log
+		WHERE settlement_id = $1 AND type = 'extinct' AND cause = 'thirst'`, s1),
+		"лог «Вымерло · Жажда» (T19)")
 }

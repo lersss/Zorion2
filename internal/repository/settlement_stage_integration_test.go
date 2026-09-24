@@ -59,9 +59,9 @@ func TestSettlementStageIntegrationAddBranchRace(t *testing.T) {
 		`INSERT INTO producer_types (name, name_norm, kind) VALUES ('Поселение', 'поселение', 'goods') RETURNING id`,
 	).Scan(&rootID))
 	base := supplyITSeedStageType(t, db, "ит-ступень-148", rootID,
-		`{"effects":{"продовольствие":"голод"},"stage":{"enter":0,"exit":0}}`)
+		`{"effects":{"пища":"голод"},"stage":{"enter":0,"exit":0}}`)
 	top := supplyITSeedStageType(t, db, "ит-ступень-151", rootID,
-		`{"effects":{"продовольствие":"голод"},"stage":{"enter":100,"exit":50}}`)
+		`{"effects":{"пища":"голод"},"stage":{"enter":100,"exit":50}}`)
 	supplyITBindRate(t, db, top, recipeID, 660)
 	supplyITSetDefaultSettlementType(t, db, base)
 

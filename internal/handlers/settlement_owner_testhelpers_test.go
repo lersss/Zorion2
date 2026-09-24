@@ -1,8 +1,8 @@
 // internal/handlers/settlement_owner_testhelpers_test.go
 // Общие ожидания owner-прохода поселений для handler-тестов (спека
 // 2026-09-22-эффекты-снабжения-задержка-голод §4.1/§4.5): attachSettlements
-// зовёт SyncSettlements — каталог типов эффектов, словарь категорий, ветки
-// (с категорией выхода) и хранимый базис нагрузки.
+// зовёт SyncSettlements — каталог типов эффектов, словарь ТОВАРОВ, ветки
+// (с товаром-выходом) и хранимый базис нагрузки.
 package handlers
 
 import "github.com/DATA-DOG/go-sqlmock"
@@ -23,22 +23,21 @@ func settlementSelectCols() []string {
 }
 
 // expectOwnerPassEmpty — owner-проход без веток (путь «в памяти»): каталог
-// эффектов, словарь категорий, пустые ветки, хранимая нагрузка.
+// эффектов, словарь товаров, пустые ветки, хранимая нагрузка.
 func expectOwnerPassEmpty(mock sqlmock.Sqlmock) {
 	mock.ExpectQuery(`
 		SELECT id, name, name_norm, impact, COALESCE(params->>'curve', '')
 		FROM effect_types
 	`).WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm", "impact", "curve"}))
 	mock.ExpectQuery(`
-		SELECT name_norm FROM categories
+		SELECT name_norm FROM goods
 	`).WillReturnRows(sqlmock.NewRows([]string{"name_norm"}))
 	mock.ExpectQuery(`
 		SELECT b.id, b.settlement_id, b.recipe_id, b.processed_at,
-		       r.good_id, og.name, r.complexity, c.name_norm
+		       r.good_id, og.name, r.complexity, og.name_norm
 		FROM settlement_branches b
 		JOIN recipes r ON r.id = b.recipe_id
 		JOIN goods og ON og.id = r.good_id
-		JOIN categories c ON c.id = og.category_id
 		WHERE b.settlement_id = ANY($1)
 		ORDER BY b.created_at ASC, b.id ASC
 	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"id", "settlement_id", "recipe_id", "processed_at", "good_id", "name", "complexity", "name_norm"}))

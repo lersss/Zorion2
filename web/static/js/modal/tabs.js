@@ -5,6 +5,7 @@ import { getPlanetTexture } from './textures.js';
 import { groupDeposits } from './deposits.js';
 import { branchesBlockHtml, effectsBlockHtml, stageRowHtml, settlementArithmeticHtml } from './branches.js';
 import { boardHtml, canPublishHere, publishFormHtml, escapeHtml } from './contracts.js';
+import { renderMarket, initMarket } from './market.js';
 import { notifyError, notifySuccess } from '../ui/toast.js';
 import { gameDate } from '../game_date.js';
 
@@ -612,6 +613,19 @@ export function knowledgeMode(planet) {
     if (mode === 'presence' || mode === 'snapshot' || mode === 'scan') return mode;
     // Знание есть, режим не пришёл (старый ответ) — скан-уровень, как раньше.
     return planet && planet.knowledge ? 'scan' : 'none';
+}
+
+// marketTabVisible — видимость вкладки «Магазин» в карточке планеты (спека
+// 2026-09-24-магазин-модулей-локальный-рынок §10). Одна ветка видимости с
+// роутом (§7.1): вкладка есть ⟺ режим знания presence/snapshot/scan И
+// settlements_count > 0. none / settlements_count == 0 — вкладки нет (роут
+// вернул бы 404 или offers:[]). У admin — нет: роут гейтится знанием player'а,
+// админ «видит всё и так», флаг can_trade ему не нужен (§7.1).
+export function marketTabVisible(planet) {
+    const mode = knowledgeMode(planet);
+    if (mode !== 'presence' && mode !== 'snapshot' && mode !== 'scan') return false;
+    const n = planet && planet.knowledge ? Number(planet.knowledge.settlements_count) : 0;
+    return Number.isFinite(n) && n > 0;
 }
 
 // knowledgeStripHtml — плашка знания (§6.1): зелёный ● — только живое (без
@@ -1271,6 +1285,10 @@ export function renderTabContent(tab, planet, container) {
         case 'contracts':
             container.innerHTML = renderContracts(planet);
             initContracts(planet, container);
+            break;
+        case 'market':
+            container.innerHTML = renderMarket(planet);
+            initMarket(planet, container);
             break;
         default:
             container.innerHTML = '<p style="color: #666;">Неизвестная вкладка</p>';

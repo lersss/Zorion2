@@ -51,8 +51,9 @@ building_type='capital'` — одна столица на фракцию; кол
   владелец; кошелёк игрока переживает `ClearUniverse` — `accounts` НЕ в
   `truncateTables`), `money_operations` (журнал движений по счёту, миграция
   `000061`, спека §3.2: `delta`/`balance_after`/`kind` (открытый список:
-  escrow_lock/release/return, contract_work_earn, admin_seed, позже
-  mint/salary/transfer)/`contract_id` без FK (журнал переживает удаление
+  escrow_lock/release/return, contract_work_earn, purchase (покупка в магазине
+  модулей, спека `2026-09-24-магазин-модулей-локальный-рынок` §8), admin_seed,
+  позже mint/salary/transfer)/`contract_id` без FK (журнал переживает удаление
   контракта)/`occurred_at`; индекс `idx_money_operations_owner (owner_type,
   owner_id, occurred_at DESC)`), `contracts` (состояние контракта как сущности,
   миграция `000062`, спека `2026-09-22-контракт-модель-сущности` §4.1: `id`,
@@ -139,6 +140,14 @@ TIMESTAMPTZ `DEFAULT NOW()`; чек-точка **своя** — не `settlement
 (`config/balancer_presets.json` хранит пресеты, включая `hunger`). Таблиц
 потребности/позиции **нет** — спрос/покрытие/дефицит производны (позиция = категория
 `categories`).
+
+`market_offers` (предложения витрины локального рынка планеты, спека
+`2026-09-24-магазин-модулей-локальный-рынок` §5, миграция `000081`): `kind`
+(открытый список разделов, CHECK сужен до `module`), `item_id` — ссылка на
+модуль каталога `equipment` (без FK — каталог in-memory), `price` BIGINT
+CHECK `>= 0`, `params` JSONB NULL, `created_at`; сид — 4 базовых модуля по
+3000 Cr (`ON CONFLICT (id) DO NOTHING`). Каталог-контент, не данные вселенной:
+ClearUniverse его не трогает.
 
 Удалены: `production_units` (легаси 000018-эпохи, снос миграцией `000050`,
 спека `2026-09-20-фабрики` §11.6, решение создателя 3b.6.8), `factories`/
@@ -558,6 +567,14 @@ TIMESTAMPTZ `DEFAULT NOW()`; чек-точка **своя** — не `settlement
   **не** в `truncateTables` (И5, переживает очистку вселенной). Номер `000080`
   забронирован менеджером (`000078` — лёд в поясе, `000079` — потребление по
   товарам, см. выше).
+- `000081` — `000081_market_offers.sql` — витрина локального рынка планеты
+  (спека `2026-09-24-магазин-модулей-локальный-рынок` §5): таблица
+  `market_offers` (`kind` CHECK `'module'`, `item_id`, `price` CHECK `>= 0`,
+  `params` JSONB NULL, `created_at`) + сид 4 базовых модулей
+  (`cargo_1`/`engine_1`/`radar_1`/`scanner_1`) по 3000 Cr,
+  `ON CONFLICT (id) DO NOTHING` — идемпотентно. Каталог-контент, в
+  `truncateTables` не входит. Номер `000081` забронирован менеджером
+  (`docs/COORDINATION.md`).
 - Миграции, вступающие в силу на старте, требуют перезапуска сервера
   (`AGENTS.md` §4 п.13).
 - `VACUUM` внутрь миграции не положить — не работает внутри транзакции

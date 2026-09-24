@@ -1,7 +1,7 @@
 // web/static/js/modal/panel.js
 import { modalState } from './state.js';
 import { drawSystem } from './modal_render.js';
-import { renderTabContent, renderSatelliteCard, knowledgeMode } from './tabs.js';
+import { renderTabContent, renderSatelliteCard, knowledgeMode, marketTabVisible } from './tabs.js';
 import { planetPopulationAt } from './extrapolate.js';
 import { escapeHtml } from './contracts.js';
 
@@ -498,6 +498,7 @@ function renderCard(panel, planets, selectedIndex) {
             <button class="tab-btn" data-tab="settlements" style="background: none; border: none; color: #888; padding: 4px 12px; cursor: pointer; font-size: 0.95rem; border-radius: 4px;">Поселения</button>
             <button class="tab-btn" data-tab="factions" style="background: none; border: none; color: #888; padding: 4px 12px; cursor: pointer; font-size: 0.95rem; border-radius: 4px;">Фракции</button>
             <button class="tab-btn" data-tab="contracts" style="background: none; border: none; color: #888; padding: 4px 12px; cursor: pointer; font-size: 0.95rem; border-radius: 4px;">Задания/Контракты</button>
+            ${marketTabVisible(planet) ? `<button class="tab-btn" data-tab="market" style="background: none; border: none; color: #888; padding: 4px 12px; cursor: pointer; font-size: 0.95rem; border-radius: 4px;">Магазин</button>` : ''}
         </div>
         <div id="tab-content" style="font-size: 1rem; line-height: 1.7;"></div>
     `;
@@ -506,6 +507,10 @@ function renderCard(panel, planets, selectedIndex) {
     const tabContent = panel.querySelector('#tab-content');
 
     function switchTab(tab) {
+        // Вкладка «Магазин» может исчезнуть при обновлении данных (знание
+        // поселений пропало, спека 2026-09-24 §10) — не оставляем игрока на
+        // несуществующей вкладке.
+        if (tab === 'market' && !marketTabVisible(planet)) tab = 'general';
         modalState.activeTab = tab;
         tabBtns.forEach(btn => {
             btn.style.color = btn.dataset.tab === tab ? '#fff' : '#888';

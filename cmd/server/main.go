@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -346,6 +347,11 @@ func main() {
 	surfaceHandlers := handlers.NewSurfaceHandlers(userRepo, worldRepo, planetRepo, intraManager)
 	wsHandler := handlers.NewWebSocketHandler(wsHub)
 	contractHandlers := handlers.NewContractHandlers(contractRepo, planetRepo, userRepo, knowledgeRepo, worldRepo)
+	// Витрина локального рынка планеты (спека 2026-09-24-магазин-модулей-
+	// локальный-рынок §7.1): GET /api/planets/{id}/market.
+	marketHandlers := handlers.NewMarketHandlers(
+		db, repository.NewMarketRepository(db), planetRepo, userRepo, knowledgeRepo, travelManager,
+	)
 	mapCache := mapcache.NewManager()
 	adminHandlers := handlers.NewAdminHandlers(worldRepo, db, mapCache)
 	compatHandlers := handlers.NewCompatibilityHandlers(db)
@@ -426,7 +432,22 @@ func main() {
 	http.HandleFunc("/api/encyclopedia/races", auth.AuthMiddleware(encyclopediaHandlers.GetRaces))
 
 	// API контрактов (спеки 2026-09-22-контракт-*): доска — у планеты, не у мира.
-	http.HandleFunc("/api/planets/", auth.AuthMiddleware(contractHandlers.GetPlanetBoard))
+	// Витрина и покупка рынка (спека 2026-09-24-магазин-модулей-локальный-рынок
+	// §7.1/§7.2) — тот же префикс /api/planets/: диспетчер по второму сегменту
+	// (Go 1.21 mux — один обработчик на поддерево, wildcard-паттернов нет).
+	http.HandleFunc("/api/planets/", auth.AuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		rest := strings.TrimPrefix(r.URL.Path, "/api/planets/")
+		parts := strings.Split(strings.Trim(rest, "/"), "/")
+		if len(parts) >= 2 && parts[1] == "market" {
+			if len(parts) == 3 && parts[2] == "buy" {
+				marketHandlers.BuyMarket(w, r)
+				return
+			}
+			marketHandlers.GetMarket(w, r)
+			return
+		}
+		contractHandlers.GetPlanetBoard(w, r)
+	}))
 	http.HandleFunc("/api/contracts", auth.AuthMiddleware(contractHandlers.CreateContract))
 	http.HandleFunc("/api/contracts/mine", auth.AuthMiddleware(contractHandlers.GetMyContracts))
 	http.HandleFunc("/api/contracts/take", auth.AuthMiddleware(contractHandlers.TakeContract))

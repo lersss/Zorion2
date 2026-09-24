@@ -106,27 +106,35 @@ func EquipmentByID(id string) *models.EquipmentItem {
 }
 
 // HasScanner — установлен ли сканер (спека 77a §6: скан при взгляде на
-// систему в радиусе радара возможен только со сканером).
+// систему в радиусе радара возможен только со сканером). Спека магазина §9
+// (И-М5): валидный сканер ищется по ЛЮБОМУ слоту equipment.
 func HasScanner(userEquipment map[string]interface{}) bool {
-	radarID, _ := userEquipment["scanner"].(string)
-	if radarID == "" {
-		return false
-	}
-	it := EquipmentByID(radarID)
-	return it != nil && it.Type == models.EquipmentTypeScanner
+	return hasType(userEquipment, models.EquipmentTypeScanner)
 }
 
-// HasEngine — установлен ли валидный двигатель (спека 91a §6.1): предмет в
-// слоте engine существует в каталоге и имеет тип engine. Без валидного
-// двигателя полёт для role=player запрещён (валидация /travel); админ/
-// skycomposer — исключение.
+// HasEngine — установлен ли валидный двигатель (спека 91a §6.1): предмет
+// существует в каталоге и имеет тип engine. Без валидного двигателя полёт для
+// role=player запрещён (валидация /travel); админ/skycomposer — исключение.
+// Спека магазина §9 (И-М5): двигатель ищется по ЛЮБОМУ слоту equipment (право
+// полёта); скорость (EngineSpeed) — по-прежнему из легаси-слота engine.
 func HasEngine(userEquipment map[string]interface{}) bool {
-	engineID, _ := userEquipment["engine"].(string)
-	if engineID == "" {
-		return false
+	return hasType(userEquipment, models.EquipmentTypeEngine)
+}
+
+// hasType — есть ли в equipment (любой слот) валидный предмет заданного типа.
+// Спека магазина §9 (И-М5): модуль работает по типу, независимо от слота
+// (легаси-ключи radar/scanner/engine и универсальные universal* равнозначны).
+func hasType(userEquipment map[string]interface{}, typ models.EquipmentType) bool {
+	for _, v := range userEquipment {
+		id, ok := v.(string)
+		if !ok || id == "" {
+			continue
+		}
+		if it := EquipmentByID(id); it != nil && it.Type == typ {
+			return true
+		}
 	}
-	it := EquipmentByID(engineID)
-	return it != nil && it.Type == models.EquipmentTypeEngine
+	return false
 }
 
 // AllEquipment — весь каталог оборудования (для /me.ship_catalog, спека 91a

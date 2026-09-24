@@ -897,18 +897,29 @@ func (h *AdminHandlers) GenerateStatus(w http.ResponseWriter, r *http.Request) {
 // Использует TRUNCATE без CASCADE + явный список таблиц.
 // FK от users снимается на время операции и возвращается назад.
 func (h *AdminHandlers) ClearUniverse(w http.ResponseWriter, r *http.Request) {
+	// Набор джобов — как у StartPacman (8) плюс сам пакман: очистка
+	// TRUNCATE-ит те же таблицы, что пишут эти джобы (AGENTS.md §23), иначе
+	// возможен одновременный снос и запись; с идущим пакманом делит замок
+	// мутаций (ниже).
 	if statusManager.IsRunning(generator.JobGenerateUniverse) ||
 		statusManager.IsRunning(generator.JobGeneratePlanets) ||
 		statusManager.IsRunning(generator.JobRegeneratePlanets) ||
+		statusManager.IsRunning(generator.JobGenerateNPC) ||
+		statusManager.IsRunning(generator.JobHypothesis) ||
+		statusManager.IsRunning(generator.JobGenerateFactions) ||
+		statusManager.IsRunning(generator.JobGenerateRaceSettlements) ||
+		statusManager.IsRunning(generator.JobGenerateSettlements) ||
 		statusManager.IsRunning(generator.JobPacman) {
 		http.Error(w, "Generation is running, cancel it first", http.StatusConflict)
 		return
 	}
 
-	// Разделяемый мьютекс с пакманом (спека 2026-09-20 §2.2): TRUNCATE и
-	// порционный DELETE не пересекаются. Lock занят пакманом → 409.
+	// Разделяемый мьютекс мутаций вселенной (спека 2026-09-20 §2.2): TRUNCATE
+	// и порционный DELETE не пересекаются. Замок делят очистка, пакман,
+	// генерация фракций, залежи, ветки/эффекты поселений, постройки; кто именно
+	// держит — не различаем, сообщение нейтральное.
 	if !universeMutationMu.TryLock() {
-		http.Error(w, "Pacman is eating, stop it first", http.StatusConflict)
+		http.Error(w, "Universe mutation is running, wait for it", http.StatusConflict)
 		return
 	}
 	defer universeMutationMu.Unlock()

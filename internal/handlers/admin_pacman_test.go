@@ -445,6 +445,7 @@ func TestStartPacmanMutexHeld(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.StartPacman(rec, req)
 	require.Equal(t, http.StatusConflict, rec.Code)
+	require.NotContains(t, rec.Body.String(), "Pacman", "текст отказа общего замка не должен упоминать пакман")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -462,7 +463,9 @@ func TestClearUniverseBlockedByPacman(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// ClearUniverse при занятом мьютексе (пакман ест) → 409 «Pacman is eating».
+// ClearUniverse при занятом мьютексе (другая мутация вселенной) → 409 с
+// честным текстом: лживое «Pacman is eating» убрано (замок делят очистка,
+// пакман, фракции, залежи и т.д.).
 func TestClearUniverseMutexHeldByPacman(t *testing.T) {
 	universeMutationMu.Lock()
 	defer universeMutationMu.Unlock()
@@ -475,7 +478,28 @@ func TestClearUniverseMutexHeldByPacman(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.ClearUniverse(rec, req)
 	require.Equal(t, http.StatusConflict, rec.Code)
+	require.NotContains(t, rec.Body.String(), "Pacman", "текст отказа общего замка не должен упоминать пакман")
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// ClearUniverse при идущем смежном джобе (фракции) → 409 «Generation is
+// running» и БД не трогается: очистка TRUNCATE-ит те же таблицы, что пишет
+// джоб (AGENTS.md §23). Набор джобов очистки приведён к набору пакмана (8).
+func TestClearUniverseBlockedByGenerateFactions(t *testing.T) {
+	startJob(t, generator.JobGenerateFactions)
+
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	h := &AdminHandlers{db: db}
+	req := httptest.NewRequest(http.MethodPost, "/admin/clear", nil)
+	rec := httptest.NewRecorder()
+
+	h.ClearUniverse(rec, req)
+	require.Equal(t, http.StatusConflict, rec.Code, "очистка не стартует поверх генерации фракций")
+	require.Contains(t, rec.Body.String(), "Generation is running, cancel it first")
+	require.NoError(t, mock.ExpectationsWereMet(), "до 409 не должно быть запросов к БД")
 }
 
 // Обратное направление: пакман ест → каждый писатель вселенной → 409.

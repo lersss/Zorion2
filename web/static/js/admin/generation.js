@@ -366,6 +366,14 @@ export async function clearSettlements() {
 
 export async function clearUniverse() {
     if (!confirm('Удалить ВСЕ миры?')) return;
+    // Пока запрос очистки в полёте (на большой БД до ~30 с), кнопка неактивна:
+    // повторный клик невозможен из интерфейса (сервер всё равно ответит 409).
+    const btn = document.getElementById('clearUniverseBtn');
+    const originalLabel = btn ? btn.textContent : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = '🗑️ Очищаем…';
+    }
     try {
         const res = await fetchWithAuth('/admin/clear', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
         if (res.ok) {
@@ -378,6 +386,11 @@ export async function clearUniverse() {
         }
     } catch (e) {
         document.getElementById('clearResult').textContent = '❌ ' + e.message;
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = originalLabel;
+        }
     }
 }
 

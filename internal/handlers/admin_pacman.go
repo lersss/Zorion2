@@ -117,7 +117,7 @@ func (h *AdminHandlers) StartPacman(w http.ResponseWriter, r *http.Request) {
 	// порционный DELETE не пересекаются; окно гонки «клик Clear в момент
 	// старта пакмана» закрыто.
 	if !universeMutationMu.TryLock() {
-		http.Error(w, "Pacman is eating, stop it first", http.StatusConflict)
+		http.Error(w, "Universe mutation is running, wait for it", http.StatusConflict)
 		return
 	}
 

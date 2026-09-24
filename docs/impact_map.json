@@ -1180,7 +1180,7 @@
         { "on": "internal/generator/faction", "kind": "writes", "reason": "EnsureCapitals() — идемпотентный проход (INSERT … WHERE NOT EXISTS … ON CONFLICT DO NOTHING)" },
         { "on": "internal/handlers/admin_universe.go", "kind": "affects", "reason": "джоб generate_factions: поле capitals в ответе/логе; гейт Пакмана/универсального мьютекса перенесён ДО ветки total == 0" },
         { "on": "docs/gamedesign/06_factions.md", "kind": "duplicates", "reason": "новый §6.8 — эталон FAQ (число/место/тип столицы); §6.4.3 «Захват столицы» получил сущность-референт (механика захвата — вне скоупа)" },
-        { "on": "settlement_owner_pass", "kind": "affects", "reason": "EnsureSettlementOwners — соседний проход в том же джобе генерации фракций (владелец поселений расы, миграция 000082)" }
+        { "on": "settlement_owner_assign", "kind": "affects", "reason": "EnsureSettlementOwners — соседний проход в том же джобе генерации фракций (владелец поселений расы, миграция 000082)" }
       ]
     },
     {
@@ -1193,7 +1193,7 @@
         { "on": "settlements", "kind": "writes", "reason": "создание поселения с владельцем, расой региона и населением" },
         { "on": "buildings", "kind": "writes", "reason": "создание строения с producer_type_id и владельцем" },
         { "on": "structure_ownership", "kind": "affects", "reason": "владелец, выбранный админом" },
-        { "on": "regions", "kind": "reads", "reason": "раса региона планеты для создаваемого поселения (Р9)" },
+        { "on": "db:regions", "kind": "reads", "reason": "раса региона планеты для создаваемого поселения (Р9)" },
         { "on": "internal/models/planet.go", "kind": "schema", "reason": "PlanetBuilding.producer_type_id/type_name/owner_name в карточке (null у столиц)" },
         { "on": "web/static/js/modal/panel.js", "kind": "reads", "reason": "кнопка «Построить» в шапке + панель + вкладка «Строения»" },
         { "on": "web/static/js/modal/tabs.js", "kind": "reads", "reason": "строка владельца в карточке поселения (presence/snapshot/admin)" },
@@ -1217,7 +1217,7 @@
       ]
     },
     {
-      "id": "settlement_owner_pass",
+      "id": "settlement_owner_assign",
       "type": "mechanic",
       "path": "internal/generator/faction/faction.go",
       "note": "Проход EnsureSettlementOwners(since) в джобе генерации фракций (миграция 000082, коммит a217171): новым поселениям (created_at >= метка начала генерации) проставляет владельца = фракцию расы поселения. Скоуп — только поселения текущей генерации (решение создателя Г1), легаси не трогает; нет метки generation_started_at → проход не идёт. Идемпотентен в рамках генерации.",
@@ -1468,7 +1468,7 @@
       "id": "settlements",
       "type": "table",
       "path": "db:settlements",
-      "note": "Поселения на планете (миграции 000018/19/20/21/24/39: planet_id, population, population_exact, stability, race_id, computed_at — ленивый пересчёт населения). Итерация 4 эпика «Экономика поселения» (2026-09-22, миграция 000067): + settlement_type_id BIGINT NULL REFERENCES producer_types(id) ON DELETE RESTRICT — настоящая связь «поселение → его тип» (подтип «Обычное поселение», класс строения без товарной категории), тип несёт структуру норм еды params.eat; бэкфилл существующих поселений; тип проставляется во всех 5 точках создания (генерация миров + админ-инструменты, п.40). Миграция 000082 (2026-09-24, «постройка структур», коммит a217171): + owner_type TEXT NULL CHECK (player/faction/agent), owner_id UUID NULL — владелец поселения (пара или NULL; канон 13_settlements §13.2 уже верен); бэкфилла нет — существующие остаются NULL (решение создателя Г1), владелец проставляется только новым (инструмент structure_build + проход генератора settlement_owner_pass).",
+      "note": "Поселения на планете (миграции 000018/19/20/21/24/39: planet_id, population, population_exact, stability, race_id, computed_at — ленивый пересчёт населения). Итерация 4 эпика «Экономика поселения» (2026-09-22, миграция 000067): + settlement_type_id BIGINT NULL REFERENCES producer_types(id) ON DELETE RESTRICT — настоящая связь «поселение → его тип» (подтип «Обычное поселение», класс строения без товарной категории), тип несёт структуру норм еды params.eat; бэкфилл существующих поселений; тип проставляется во всех 5 точках создания (генерация миров + админ-инструменты, п.40). Миграция 000082 (2026-09-24, «постройка структур», коммит a217171): + owner_type TEXT NULL CHECK (player/faction/agent), owner_id UUID NULL — владелец поселения (пара или NULL; канон 13_settlements §13.2 уже верен); бэкфилла нет — существующие остаются NULL (решение создателя Г1), владелец проставляется только новым (инструмент structure_build + проход генератора settlement_owner_assign).",
       "impacts": [
         { "on": "producer_types", "kind": "schema", "reason": "FK settlement_type_id → producer_types(id) ON DELETE RESTRICT: удаление типа, на который ссылаются поселения, запрещено (студия отдаёт 409 — DeleteProducerType)" },
         { "on": "settlement_type_consumption", "kind": "affects", "reason": "население поселения определяет объём еды ветки (линейно); тип поселения выбирает норму еды" },

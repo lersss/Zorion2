@@ -267,13 +267,14 @@ func TestBiomeViewVerticalBudget(t *testing.T) {
 
 func TestBiomeViewFallbackNoRecipe(t *testing.T) {
 	cat := GetBiomeCatalog()
-	// ЧК4 (крио) ещё не раскатан — `ледники` остаётся без рецепта.
-	view, source := cat.ResolveBiomeView("ледники")
+	// ЧК4 (крио) раскатан — рецепта по-прежнему нет у водных биомов;
+	// берём `океаны` как стабильный пример.
+	view, source := cat.ResolveBiomeView("океаны")
 	assert.Nil(t, view, "биом без рецепта — вид не отдаётся (клиент по FORMATIONS)")
 	assert.Equal(t, "fallback", source)
 
 	d := cat.ViewDiagnostics()
-	assert.Contains(t, d.Missing, "ледники", "биомы без рецепта видны в диагностике (§2.7)")
+	assert.Contains(t, d.Missing, "океаны", "биомы без рецепта видны в диагностике (§2.7)")
 	assert.Empty(t, d.Errors, "в заводском справочнике ошибок вида нет")
 }
 
@@ -338,6 +339,66 @@ func TestBiomeViewVolcanicResolve(t *testing.T) {
 	hz2, ok := cryo["horizon"].(map[string]any)
 	require.True(t, ok, "лавовые: горизонт пресета")
 	assert.Len(t, asMapList(hz2["layers"]), 2, "лавовые: 2 пояса")
+}
+
+// ==================== РЕЦЕПТЫ ЧК4 — КРИО (§4.8) ====================
+
+// TestBiomeViewCryoResolve — 5 дельт крио (§4.8.4) резолвятся из справочника,
+// палитра совпадает с color (0 предупреждений, §4.8.9 п.4), горизонт `ледяные`
+// (вставка B, §4.8.1) наследуют 4 ледяных биома, а отложенные параметры
+// движка (§4.7.12) присутствуют в данных.
+func TestBiomeViewCryoResolve(t *testing.T) {
+	cat := GetBiomeCatalog()
+	d := cat.ViewDiagnostics()
+	require.Empty(t, d.Errors, "ЧК4: ошибок вида нет")
+	require.Empty(t, d.Warnings, "ЧК4: предупреждений вида нет (palette.base == color)")
+
+	for _, id := range []string{
+		"ледники", "мёрзлые_газы", "сухой_лёд", "инеевые_рощи", "азотно-ледяная_тундра",
+	} {
+		view, source := cat.ResolveBiomeView(id)
+		require.Equal(t, "catalog", source, "биом %q: рецепт обязан резолвиться", id)
+		require.NotNil(t, view)
+		def := cat.BiomeByID(id)
+		require.NotNil(t, def)
+		base, ok := nestedString(view, "palette", "base")
+		require.True(t, ok, "%q: палитра обязана нести base", id)
+		assert.Equal(t, def.Color, base, "%q: palette.base == color (§4.8.2)", id)
+	}
+
+	// Горизонт пресета `ледяные` (вставка B, §4.8.1): 2 пояса у 4 ледяных биомов.
+	for _, id := range []string{"ледники", "мёрзлые_газы", "сухой_лёд", "инеевые_рощи"} {
+		v, _ := cat.ResolveBiomeView(id)
+		hz, ok := v["horizon"].(map[string]any)
+		require.True(t, ok, "%q: горизонт пресета `ледяные`", id)
+		assert.Len(t, asMapList(hz["layers"]), 2, "%q: 2 пояса горизонта", id)
+	}
+
+	// `азотно-ледяная_тундра` — семейство `травяные`, без зелёной травы/кустов
+	// (§4.8.9 п.10); горизонт — семейный `травяные` (2 пояса).
+	tundra, _ := cat.ResolveBiomeView("азотно-ледяная_тундра")
+	assert.Equal(t, "травяные", tundra["family"], "тундра: семейство `травяные` (§4.8.1)")
+	for _, dec := range asMapList(tundra["decor"]) {
+		assert.NotContains(t, []any{"grass", "bush"}, dec["prim"], "тундра: без травы/кустов")
+	}
+	hzT, ok := tundra["horizon"].(map[string]any)
+	require.True(t, ok, "тундра: горизонт семейства `травяные`")
+	assert.Len(t, asMapList(hzT["layers"]), 2, "тундра: 2 пояса горизонта")
+
+	// В1: flow читает lobes/slope/levees (языки льда, §4.7.12).
+	led, _ := cat.ResolveBiomeView("ледники")
+	flow := reliefLayer(led, "flow")
+	require.NotNil(t, flow, "ледники: flow-язык")
+	assert.NotNil(t, flow["lobes"], "flow.lobes")
+	assert.NotNil(t, flow["slope"], "flow.slope")
+	assert.Equal(t, 0.2, flow["levees"], "flow.levees")
+
+	// В5: инеевые рощи — иглы-«стволы» кустами (spike.cluster, §4.8.4).
+	roshcha, _ := cat.ResolveBiomeView("инеевые_рощи")
+	spl := reliefLayer(roshcha, "spike")
+	require.NotNil(t, spl, "инеевые_рощи: spike")
+	assert.Equal(t, true, spl["cluster"], "spike.cluster (§4.7.12)")
+	assert.Equal(t, true, crystalGlow(roshcha), "инеевые_рощи: crystal.glow (§4.8.9 п.11)")
 }
 
 // reliefLayer — первый слой relief.layers с данным prim.

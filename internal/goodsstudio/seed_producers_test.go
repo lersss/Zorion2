@@ -54,7 +54,7 @@ func TestSeedProducersFull(t *testing.T) {
 	// 17 типов производителей (статуса нет — запись живая, hidden из дефолта;
 	// ON CONFLICT DO NOTHING — миграция 000051 могла создать «Лабораторию»).
 	for range seedProducers {
-		mock.ExpectQuery(`INSERT INTO producer_types \(name, name_norm, kind, category_id, race_family, parent_id, race, output, input, params\)\s+VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, \$9, \$10\)\s+ON CONFLICT \(name_norm\) DO NOTHING RETURNING id`).
+		mock.ExpectQuery(`INSERT INTO producer_types \(name, name_norm, kind, category_id, race_family, parent_id, race, output, input, params, section\)\s+VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8, \$9, \$10, \$11\)\s+ON CONFLICT \(name_norm\) DO NOTHING RETURNING id`).
 			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(1)))
 	}
 
@@ -271,4 +271,28 @@ func TestSeedSettlementFloorStageConstant(t *testing.T) {
 		}
 	}
 	require.Equal(t, 1, roots, "ступень-пол (enter 0) на ладдеры ровно одна")
+}
+
+// TestSeedProducersSections — раздел вида постройки в сиде (спека 2026-09-25
+// §4): ровно шесть типов-корней несут section, у подтипов — пусто (NULL).
+// Карта «канон-имя корня → раздел» — та же, что бэкфиллит миграция 000085.
+func TestSeedProducersSections(t *testing.T) {
+	want := map[string]string{
+		"Колония":             "colony",
+		"Фабрика":             "factory",
+		"Автофабрика":         "factory",
+		"Добывающая платформа": "mining",
+		"Энергостанция":       "energy",
+		"Лаборатория":         "lab",
+	}
+
+	got := map[string]string{}
+	for _, p := range seedProducers {
+		if p.Parent != "" {
+			require.Equalf(t, "", p.Section, "подтип %q не несёт раздел (наследуется)", p.Name)
+			continue
+		}
+		got[p.Name] = p.Section
+	}
+	require.Equal(t, want, got, "разделы шести типов-корней")
 }

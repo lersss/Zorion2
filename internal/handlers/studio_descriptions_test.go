@@ -264,7 +264,7 @@ func descSnapshotRows(mock sqlmock.Sqlmock, description interface{}) {
 			AddRow(int64(1), "Корабль", int64(5), "good", "manual", nil, nil, time.Now(), nil, nil, description, "g_0001"))
 	mock.ExpectQuery(`SELECT r\.good_id, c\.pos, c\.component_id, c\.quantity, c\.reason, c\.allow_resource FROM recipe_components c JOIN recipes r ON r\.id = c\.recipe_id ORDER BY r\.good_id, c\.pos`).
 		WillReturnRows(sqlmock.NewRows([]string{"good_id", "pos", "component_id", "quantity", "reason", "allow_resource"}))
-	mock.ExpectQuery(`SELECT id, name, kind, category_id, race_family, parent_id, race, output, input, params, hidden, created_at, code FROM producer_types ORDER BY id`).
+	mock.ExpectQuery(`SELECT id, name, kind, category_id, race_family, parent_id, race, output, input, params, hidden, created_at, code, section FROM producer_types ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "parent_id", "race", "hidden", "output", "input", "params", "status", "created_at"}))
 	mock.ExpectQuery(`SELECT id, name, slot_type, unlocks, params, created_at, code FROM items ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "slot_type", "status", "unlocks", "params", "created_at"}))

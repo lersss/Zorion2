@@ -158,6 +158,10 @@ type ProducerTypeView struct {
 	// Code — метка переноса (producer_types.code, спека 2026-09-24 §3.1/§3.3):
 	// справочная, только чтение; NULL в БД → поле отсутствует (omitempty).
 	Code string `json:"code,omitempty"`
+	// Section — раздел вида постройки (спека 2026-09-25 §5.1): у типа-корня —
+	// colony/factory/lab/mining/energy; NULL → поле отсутствует (omitempty),
+	// клиент относит корень в «Прочее». У подтипов не задаётся (наследуется).
+	Section string `json:"section,omitempty"`
 }
 
 // ProducerSlotView — слот родителя в представлении состояния (спека скрытых
@@ -413,6 +417,9 @@ func (h *StudioHandlers) buildStateView(snap *repository.CatalogSnapshot) StateV
 		}
 		if p.Params != nil {
 			pv.Params = json.RawMessage(p.Params)
+		}
+		if p.Section.Valid {
+			pv.Section = p.Section.String
 		}
 		if items := producerItems[p.ID]; len(items) > 0 {
 			pv.Items = items
@@ -712,10 +719,11 @@ func (h *StudioHandlers) good(w http.ResponseWriter, r *http.Request, id int64) 
 // --- типы производителей (спека 2026-09-20-фабрики §4.1) ---
 
 // Producers — POST /studio/api/producers {name, kind, category_id, parent_id,
-// race_family, race}: создание типа производителя (дерево построек §1.2:
-// категория — только у подтипов kind=goods; parent_id — базовый тип;
+// race_family, race, section}: создание типа производителя (дерево построек
+// §1.2: категория — только у подтипов kind=goods; parent_id — базовый тип;
 // race → race_family по каталогу рас; слот-инвариант С4 — подтип kind=goods
-// требует применяемого слота родителя, §1.4 п.1 спеки скрытых).
+// требует применяемого слота родителя, §1.4 п.1 спеки скрытых). Section
+// (спека 2026-09-25 §5.2) — раздел вида постройки, только у типа-корня.
 func (h *StudioHandlers) Producers(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		studioErr(w, "только POST", http.StatusMethodNotAllowed)
@@ -728,6 +736,7 @@ func (h *StudioHandlers) Producers(w http.ResponseWriter, r *http.Request) {
 		ParentID   *int64  `json:"parent_id"`
 		RaceFamily *string `json:"race_family"`
 		Race       *string `json:"race"`
+		Section    *string `json:"section"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		studioErr(w, "невалидный JSON", http.StatusBadRequest)
@@ -737,7 +746,11 @@ func (h *StudioHandlers) Producers(w http.ResponseWriter, r *http.Request) {
 		writeCatalogErr(w, err)
 		return
 	}
-	p, err := h.repo.CreateProducerType(body.Name, body.Kind, body.CategoryID, body.ParentID, body.RaceFamily, body.Race)
+	if err := validateProducerSection(body.Section, body.ParentID); err != nil {
+		writeCatalogErr(w, err)
+		return
+	}
+	p, err := h.repo.CreateProducerType(body.Name, body.Kind, body.CategoryID, body.ParentID, body.RaceFamily, body.Race, body.Section)
 	if err != nil {
 		writeCatalogErr(w, err)
 		return
@@ -803,6 +816,8 @@ func (h *StudioHandlers) producer(w http.ResponseWriter, r *http.Request, id int
 			Output     *string `json:"output"`
 			Input      *string `json:"input"`
 			Params     *string `json:"params"`
+			// Section — раздел вида постройки (спека 2026-09-25 §5.2): у типа-корня.
+			Section *string `json:"section"`
 			// Типизированные поля редактора стадии (спека 2026-09-23 §10):
 			// eat — позиция → норма (ед/сутки/млрд), effects — позиция → имя
 			// типа эффекта, stage — пороги {enter, exit}. Всё ложится в params.
@@ -815,6 +830,29 @@ func (h *StudioHandlers) producer(w http.ResponseWriter, r *http.Request, id int
 			return
 		}
 		if err := validateRaceFamily(body.Race, body.RaceFamily); err != nil {
+			writeCatalogErr(w, err)
+			return
+		}
+		// Раздел вида постройки (спека 2026-09-25 §5.2): значение из пяти или
+		// пусто; непусто — только у типа-корня. Итоговый родитель: из тела (если
+		// задан), иначе текущий из БД (снятие родителя через API не поддерживается).
+		var sectionParent *int64
+		if body.Section != nil && *body.Section != "" {
+			if body.ParentID != nil {
+				sectionParent = *body.ParentID
+			} else {
+				cur, err := h.repo.ProducerTypeParent(id)
+				if err != nil {
+					writeCatalogErr(w, err)
+					return
+				}
+				if cur.Valid {
+					pid := cur.Int64
+					sectionParent = &pid
+				}
+			}
+		}
+		if err := validateProducerSection(body.Section, sectionParent); err != nil {
 			writeCatalogErr(w, err)
 			return
 		}
@@ -831,7 +869,7 @@ func (h *StudioHandlers) producer(w http.ResponseWriter, r *http.Request, id int
 			paramsArg = &merged
 			warnings = warns
 		}
-		if err := h.repo.UpdateProducerType(id, body.Name, body.CategoryID, body.ParentID, body.RaceFamily, body.Race, body.Output, body.Input, paramsArg); err != nil {
+		if err := h.repo.UpdateProducerType(id, body.Name, body.CategoryID, body.ParentID, body.RaceFamily, body.Race, body.Output, body.Input, paramsArg, body.Section); err != nil {
 			writeCatalogErr(w, err)
 			return
 		}
@@ -1085,6 +1123,31 @@ func validateRaceFamily(race, raceFamily *string) error {
 	return nil
 }
 
+// producerSectionKeys — допустимые разделы вида постройки (спека 2026-09-25
+// §2.2): colony/factory/lab/mining/energy. Список ОТКРЫТЫЙ (данные интерфейса):
+// новый раздел не требует миграции; «Прочее» — виртуальный раздел, в БД не
+// пишется (пусто/NULL).
+var producerSectionKeys = map[string]bool{
+	"colony": true, "factory": true, "lab": true, "mining": true, "energy": true,
+}
+
+// validateProducerSection — валидация section (спека 2026-09-25 §5.2), ЕДИНСТВЕННОЕ
+// место правила: пусто/null допустимо; иное непустое — из producerSectionKeys
+// (иначе 400); непусто у подтипа (parentID != nil) → 400 «только у типа-корня».
+// Репозиторий хранит значение как есть.
+func validateProducerSection(section *string, parentID *int64) error {
+	if section == nil || *section == "" {
+		return nil
+	}
+	if !producerSectionKeys[*section] {
+		return &repository.ErrCatalog{Status: 400, Msg: "неизвестный раздел постройки"}
+	}
+	if parentID != nil {
+		return &repository.ErrCatalog{Status: 400, Msg: "раздел задаётся у типа-корня и наследуется подтипами"}
+	}
+	return nil
+}
+
 // --- предметы (спека 2026-09-20-фабрики §4.2) ---
 
 // Items — POST /studio/api/items {name, slot_type}: создание предмета.
@@ -1187,6 +1250,9 @@ func producerTypeView(p repository.ProducerTypeRow, catName string, items []Item
 	}
 	if p.Params != nil {
 		pv.Params = json.RawMessage(p.Params)
+	}
+	if p.Section.Valid {
+		pv.Section = p.Section.String
 	}
 	if len(items) > 0 {
 		pv.Items = items

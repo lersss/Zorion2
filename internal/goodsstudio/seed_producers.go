@@ -55,6 +55,9 @@ type seedProducer struct {
 	Output     string // JSONB
 	Input      string // JSONB
 	Params     string // JSONB
+	// Section — раздел вида постройки (спека 2026-09-25 §4): colony/factory/
+	// lab/mining/energy; "" = NULL. Только у шести типов-корней, у подтипов NULL.
+	Section string
 }
 
 // seedItem — предмет сида (спека §2/§4.2).
@@ -80,7 +83,7 @@ type seedProducerItem struct {
 // (категория продовольствие). Порядок: родители раньше подтипов (parent_id
 // резолвится по имени из уже вставленных).
 var seedProducers = []seedProducer{
-	{Name: "Колония", Kind: "goods", Output: `{}`, Input: `{"people": {"capacity": 100}}`, Params: `{}`},
+	{Name: "Колония", Kind: "goods", Output: `{}`, Input: `{"people": {"capacity": 100}}`, Params: `{}`, Section: "colony"},
 	// Ступени-подтипы класса «Колония» без категории (спека стадий §4.3,
 	// решения 32/37, спека итерации 4 §5.2): ладдера роста по населению (люди),
 	// пороги — params.stage {enter, exit}, порядок читается по числам порогов.
@@ -104,11 +107,11 @@ var seedProducers = []seedProducer{
 	{Name: "Мегаполис", Kind: "goods", Parent: "Колония", Output: `{}`, Input: `{}`, Params: `{"eat": {"пища": 600, "очищенная вода": 20000000}, "eat_units": "per_day_per_billion", "effects": {"пища": "голод", "очищенная вода": "жажда"}, "stage": {"enter": 1000000, "exit": 750000}}`},
 	{Name: "Метрополия", Kind: "goods", Parent: "Колония", Output: `{}`, Input: `{}`, Params: `{"eat": {"пища": 600, "очищенная вода": 20000000}, "eat_units": "per_day_per_billion", "effects": {"пища": "голод", "очищенная вода": "жажда"}, "stage": {"enter": 10000000, "exit": 7500000}}`},
 	{Name: "Экуменополис", Kind: "goods", Parent: "Колония", Output: `{}`, Input: `{}`, Params: `{"eat": {"пища": 600, "очищенная вода": 20000000}, "eat_units": "per_day_per_billion", "effects": {"пища": "голод", "очищенная вода": "жажда"}, "stage": {"enter": 100000000, "exit": 75000000}}`},
-	{Name: "Фабрика", Kind: "goods", Output: `{}`, Input: `{"people": {"capacity": 50}, "energy": true, "consumables": []}`, Params: `{"efficiency": 1.0}`},
-	{Name: "Автофабрика", Kind: "goods", Output: `{}`, Input: `{"robots": true, "energy": true, "consumables": ["механика", "электроника"]}`, Params: `{"robot_cost": 100}`},
-	{Name: "Добывающая платформа", Kind: "goods", Output: `{}`, Input: `{"energy": true, "consumables": []}`, Params: `{}`},
-	{Name: "Энергостанция", Kind: "energy", Output: `{"energy": 100}`, Input: `{"people": {"capacity": 10}, "fuel": true}`, Params: `{}`},
-	{Name: "Лаборатория", Kind: "items", Output: `{}`, Input: `{"people": {"capacity": 10}, "energy": true, "consumables": []}`, Params: `{}`},
+	{Name: "Фабрика", Kind: "goods", Output: `{}`, Input: `{"people": {"capacity": 50}, "energy": true, "consumables": []}`, Params: `{"efficiency": 1.0}`, Section: "factory"},
+	{Name: "Автофабрика", Kind: "goods", Output: `{}`, Input: `{"robots": true, "energy": true, "consumables": ["механика", "электроника"]}`, Params: `{"robot_cost": 100}`, Section: "factory"},
+	{Name: "Добывающая платформа", Kind: "goods", Output: `{}`, Input: `{"energy": true, "consumables": []}`, Params: `{}`, Section: "mining"},
+	{Name: "Энергостанция", Kind: "energy", Output: `{"energy": 100}`, Input: `{"people": {"capacity": 10}, "fuel": true}`, Params: `{}`, Section: "energy"},
+	{Name: "Лаборатория", Kind: "items", Output: `{}`, Input: `{"people": {"capacity": 10}, "energy": true, "consumables": []}`, Params: `{}`, Section: "lab"},
 	{Name: "Лаборатория космических технологий", Kind: "items", Parent: "Лаборатория", Output: `{"items": ["Модуль корабля"]}`, Input: `{"people": {"capacity": 10}, "energy": true, "consumables": []}`, Params: `{}`},
 	{Name: "Лаборатория экипировки", Kind: "items", Parent: "Лаборатория", Output: `{"items": ["Кирка"]}`, Input: `{"people": {"capacity": 10}, "energy": true, "consumables": []}`, Params: `{}`},
 	{Name: "Исследовательская лаборатория", Kind: "items", Parent: "Лаборатория", Output: `{"items": ["Чертёж", "Сертификат анализа"]}`, Input: `{"people": {"capacity": 10}, "energy": true, "consumables": []}`, Params: `{}`},
@@ -198,11 +201,11 @@ func SeedProducers(db *sql.DB) error {
 		}
 		var id int64
 		err := tx.QueryRow(
-			`INSERT INTO producer_types (name, name_norm, kind, category_id, race_family, parent_id, race, output, input, params)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			`INSERT INTO producer_types (name, name_norm, kind, category_id, race_family, parent_id, race, output, input, params, section)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 			 ON CONFLICT (name_norm) DO NOTHING RETURNING id`,
 			p.Name, graph.NormalizeName(p.Name), p.Kind, catID, nullStr(p.RaceFamily),
-			parentID, nil, p.Output, p.Input, p.Params,
+			parentID, nil, p.Output, p.Input, p.Params, nullStr(p.Section),
 		).Scan(&id)
 		if errors.Is(err, sql.ErrNoRows) {
 			// уже есть (миграция 000051 на свежей БД) — существующий id.

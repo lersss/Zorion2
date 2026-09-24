@@ -137,7 +137,7 @@ async function main() {
     try {
       await page.goto(BASE_URL + '/studio', { waitUntil: 'domcontentloaded', timeout: 30000 });
       await page.waitForFunction(() => { const o = document.getElementById('loadingOverlay'); return o && o.style.display === 'none'; }, null, { timeout: 15000 });
-      await page.click('#branchProducers');
+      await page.click('#branchProdColony'); // раздел построек (спека 2026-09-25): ветка «Производители» снята
       await page.waitForFunction(() => Array.isArray(state.producer_types) && state.producer_types.some(p => Number(p.id) === 148), null, { timeout: 10000 });
       await page.evaluate((id) => openProdPopup(id), TYPE_ID);
       await page.waitForFunction(() => { const e = document.getElementById('detailPopup'); return e && e.style.display !== 'none' && document.querySelector('#popupBody .pblock'); }, null, { timeout: 10000 });

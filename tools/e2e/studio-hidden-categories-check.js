@@ -126,7 +126,7 @@ async function main() {
     // ============ загрузка студии + ветка «Производители» ============
     await page.goto(BASE_URL + '/studio', { waitUntil: 'domcontentloaded', timeout: 30000 });
     await waitFor(() => document.getElementById('loadingOverlay').style.display === 'none', 10000, 'spinner removed');
-    await page.click('#branchProducers');
+    await page.click('#branchProdFactory'); // раздел «Фабрики»: скрипт работает с типом 2 (спека 2026-09-25)
     await waitFor(() => document.getElementById('segProdRace').style.display !== 'none', 5000, 'producers branch active');
     await waitFor(() => state.producer_types.length > 0, 8000, 'producer_types loaded');
 
@@ -267,7 +267,7 @@ async function main() {
     const lsBefore = await page.evaluate(() => localStorage.getItem('gs_prodShowHidden'));
     await page.reload({ waitUntil: 'domcontentloaded' });
     await waitFor(() => document.getElementById('loadingOverlay').style.display === 'none', 10000, 'spinner after reload');
-    await page.click('#branchProducers');
+    await page.click('#branchProdFactory'); // раздел «Фабрики»: скрипт работает с типом 2 (спека 2026-09-25)
     await waitFor(() => document.getElementById('segProdRace').style.display !== 'none', 5000, 'branch after reload');
     const k13a = await page.evaluate(() => ({ checked: document.getElementById('prodShowHidden').checked, ls: localStorage.getItem('gs_prodShowHidden') }));
     // смена галки: zoom/pan не сбрасываются, сервер не дёргается

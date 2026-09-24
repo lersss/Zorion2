@@ -295,8 +295,20 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
     <div class="tool-seg" id="segBranch">
       <span class="seg-label">Раздел</span>
       <button class="branch-btn on" id="branchGoods" title="Товары и ресурсы (граф рецептов)">Товары</button>
-      <button class="branch-btn" id="branchProducers" title="Типы производителей (спека 2026-09-20-фабрики §4.1)">Производители</button>
       <button class="branch-btn" id="branchItems" title="Предметы — единый справочник «что бывает» (§4.2)">Предметы</button>
+    </div>
+    <!-- Разделы построек (спека 2026-09-25-студия-разделы-построек-по-видам §6.1):
+         вместо ветки «Производители» — пять разделов вида + служебный «Прочее»
+         (виден, пока есть корни без раздела). Ряд виден всегда: это точка входа
+         в ветку построек (клик по разделу ставит branch="producers"). -->
+    <div class="tool-seg" id="segBuildings">
+      <span class="seg-label">Постройки</span>
+      <button class="branch-btn" id="branchProdColony" title="Колонии">Колонии</button>
+      <button class="branch-btn" id="branchProdFactory" title="Фабрики и автофабрики">Фабрики</button>
+      <button class="branch-btn" id="branchProdLab" title="Лаборатории">Лаборатории</button>
+      <button class="branch-btn" id="branchProdMining" title="Добывающие платформы">Добывающие</button>
+      <button class="branch-btn" id="branchProdEnergy" title="Энергостанции">Энергостанции</button>
+      <button class="branch-btn" id="branchProdOther" title="Корни без раздела (переименованные/новые)" style="display:none">Прочее</button>
     </div>
   </div>
   <div class="head-row head-tools">
@@ -342,7 +354,7 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
     <button id="btnBulkOpen" title="создать несколько товаров из списка (название | категория | описание)">подгрузка списка</button>
     <button id="btnCatOpen" title="Управление категориями (создание/переименование/удаление)">Категории</button>
     <button id="btnDescBatch" title="ИИ предложит описания всем записям без описания">описания ИИ</button>
-    <button class="gen" id="btnProdNewOpen" title="создать тип производителя">+ тип</button>
+    <button class="gen" id="btnProdNewOpen" title="создать тип постройки">+ тип</button>
     <button class="gen" id="btnItemNewOpen" title="создать предмет">+ предмет</button>
     <button id="btnEffectsOpen" title="Типы эффектов снабжения (нагрузка/кривая/восстановление — в Балансировке)">Эффекты</button>
   </div>
@@ -482,6 +494,10 @@ let pendingCatFilter = localStorage.getItem("gs_catFilter") || "";
 // Раздел студии (спека 2026-09-20-фабрики §4): goods (граф рецептов) /
 // producers (типы производителей) / items (предметы). Сохраняется.
 let branch = localStorage.getItem("gs_branch") || "goods";
+// Активный раздел построек (спека 2026-09-25 §6.6): colony/factory/lab/mining/
+// energy; значение вне списка/отсутствует → colony. Сохраняется; ветка построек
+// технически остаётся branch="producers" (дерево/скоп/M-mode не переписаны).
+let prodSection = localStorage.getItem("gs_prodSection") || "colony";
 // Уровень расовости дерева построек (спека 2026-09-21 §2.4/§5):
 // universal → family (F0–F10) → race (60). Состояние — в localStorage.
 let prodRaceLevel = localStorage.getItem("gs_prodRaceLevel") || "universal";
@@ -1277,14 +1293,19 @@ function centerTop() {
 function centerProdTree() {
   const L = prodTreeLayout();
   const rect = canvas.getBoundingClientRect();
+  // пустой раздел — центрировать нечего
+  if (!Object.keys(L.pos).length) { zoom = 1; panX = 0; panY = 0; saveView(); renderGraph(); return; }
   // maxCols из prodTreeLayout — уже пиксели (правый край дерева + GAP_X),
   // поэтому ширина = maxCols − GAP_X (правый край) − PAD (левый край) + 2·PAD.
   const w = L.maxCols - GAP_X + PAD;
   const h = L.treeH + PAD * 2; // сумма высот рядов дерева
   const nz = Math.max(MIN_ZOOM, Math.min(1, Math.min((rect.width - 40) / w, (rect.height - 40) / h)));
   zoom = Math.max(MIN_ZOOM, Math.min(4, nz));
-  panX = rect.width / 2 - (L.pos["root"].x + CARD_W / 2) * zoom;
-  panY = rect.height / 2 - (L.pos["root"].y + CARD_H / 2) * zoom;
+  // центрируем по границам дерева (верхнего узла-«корня» больше нет)
+  const cx = PAD + Math.max(0, L.maxCols - GAP_X - PAD) / 2;
+  const cy = PAD + L.treeH / 2;
+  panX = rect.width / 2 - cx * zoom;
+  panY = rect.height / 2 - cy * zoom;
   saveView(); renderGraph();
 }
 // centerOn — центрировать вид на товаре (зум сохраняется): выбор из
@@ -1755,7 +1776,7 @@ function renderBindSection(g) {
     const anyBuilding = state.producer_types.some(p => p.parent_id);
     html += '<span class="hint">' + (anyBuilding
       ? 'все постройки уже привязаны'
-      : 'Построек нет — раздел «Производители»') + '</span>';
+      : 'Построек нет — раздел «Постройки»') + '</span>';
   }
   html += '</div>';
   return html;
@@ -2350,10 +2371,12 @@ function renderGoodsSprav() {
 function renderProdSprav() {
   const sc = $("spravList").scrollTop;
   const q = $("spravSearch").value.trim().toLowerCase();
-  // Фильтр по правилу видимости+скрытости дерева (спека скрытых §3.5):
-  // расовость (prodVisible) + скрытость КАТЕГОРИИ-СЛОТА (галка, catHidden) +
+  // Фильтр по правилу раздела+видимости+скрытости дерева (спека скрытых §3.5 +
+  // разделы построек 2026-09-25 §6.3): раздел (тип и его подтипы по prodSectionOf)
+  // + расовость (prodVisible) + скрытость КАТЕГОРИИ-СЛОТА (галка, catHidden) +
   // узел в дереве («клик не повисает», prodNodeVisible) + поиск (AND).
   const list = state.producer_types.filter(p => {
+    if (prodSectionOf(p) !== prodSection) return false;          // раздел (п.0)
     if (!prodVisible(p)) return false;                          // расовость (п.1)
     const t = p.parent_id ? state.producer_types.find(x => x.id === p.parent_id) : null;
     const catHidden = !!(t && t.kind === "goods" && prodCatHidden(t, p.category_id));
@@ -2362,7 +2385,7 @@ function renderProdSprav() {
     if (q && !p.name.toLowerCase().includes(q)) return false;   // поиск (п.4)
     return true;
   });
-  $("spravTitle").textContent = "Производители · " + list.length;
+  $("spravTitle").textContent = "Постройки · " + list.length;
   $("spravList").innerHTML = list.map(p => {
     const t = p.parent_id ? state.producer_types.find(x => x.id === p.parent_id) : null;
     const catHidden = !!(t && t.kind === "goods" && prodCatHidden(t, p.category_id));
@@ -2375,7 +2398,7 @@ function renderProdSprav() {
     (p.hidden ? ' <span class="badge b-hidden" title="запись-фабрика скрыта">скрыта</span>' : '') +
     (catHidden ? ' <span class="badge b-hidden" title="категория скрыта на этом уровне расовости">скрыта</span>' : '') + '</div>' +
     '</div>';
-  }).join("") || '<div class="empty-note">нет типов производителей</div>';
+  }).join("") || '<div class="empty-note">нет типов построек</div>';
   $("spravList").scrollTop = sc;
 }
 function prodClick(id) {
@@ -2472,6 +2495,9 @@ function renderProdPopup() {
         '</select></div>';
     }
   }
+  // Раздел вида постройки (спека 2026-09-25 §6.4): селект у типа-корня,
+  // read-only у подтипа (наследуется от корня).
+  html += prodSectionBlock(p);
   // семейство + раса (спека §5): каскад семейство → расы семейства; запись —
   // через PUT {race_family, race} (соответствие каталогу проверяет сервер)
   html += '<div class="dmeta" style="margin-bottom:0">семейство рас: <select id="popupRaceFamilySel" onchange="popupRaceFamilyChanged()">' +
@@ -3209,7 +3235,7 @@ function askDeleteProducer() {
   const p = state.producer_types.find(x => x.id === popupGoodId);
   if (!p) return;
   openModal(
-    '<h3>Удалить тип производителя</h3>' +
+    '<h3>Удалить тип постройки</h3>' +
     '<div>Удалить тип «' + esc(p.name) + '»? Связи с предметами удалятся.</div>',
     [
       {label: "Удалить", cls: "del", primary: true, action: doDeleteProducer},
@@ -3242,14 +3268,19 @@ async function prodAdd() {
   if (!name) return;
   // «+ тип» создаёт тип (parent_id NULL): категории у типов нет (спека
   // 2026-09-21 §1.2 п.4 — категории живут в подтипах, их заводят через
-  // узлы-приглашения дерева на канвасе).
+  // узлы-приглашения дерева на канвасе). Раздел обязателен (спека 2026-09-25
+  // §6.4): селект предзаполнен активным разделом, «Прочее» в нём нет.
   const body = {name, kind};
+  const sectionEl = $("prodNewSection");
+  if (sectionEl && sectionEl.value) body.section = sectionEl.value;
   // расовость из фильтра шапки — как в узле-приглашении (doProdCreate)
   if (prodRaceLevel === "family") body.race_family = prodRaceFamily;
   if (prodRaceLevel === "race") { body.race_family = raceFamilyOf(prodRace); body.race = prodRace; }
   const r = await api("POST", "/studio/api/producers", body);
   if (!r) return; // ошибка — попап остаётся открытым с введённым именем
   const p = await r.json();
+  // переключиться на раздел созданного корня — запись видна сразу (§6.4)
+  if (p.section) { prodSection = p.section; localStorage.setItem("gs_prodSection", p.section); }
   nameEl.value = "";
   selected = prodNodeId(p);
   closeModal();
@@ -3410,6 +3441,118 @@ function prodNodeById(id) {
   return state.producer_types.find(p => p.id === Number(m[2]));
 }
 
+// ---------- разделы построек (спека 2026-09-25 §6.2) ----------
+// Раздел вида постройки — свойство каталога (producer_types.section), а не
+// сравнение имён: переименование корня привязку не ломает. Список разделов —
+// данные интерфейса (без CHECK в БД); «Прочее» — виртуальный раздел (NULL/
+// неизвестное значение), в БД не пишется. Порядок кнопок задан здесь.
+const PROD_SECTIONS = [
+  {key: "colony", id: "branchProdColony", label: "Колонии", title: "Колонии"},
+  {key: "factory", id: "branchProdFactory", label: "Фабрики", title: "Фабрики и автофабрики"},
+  {key: "lab", id: "branchProdLab", label: "Лаборатории", title: "Лаборатории"},
+  {key: "mining", id: "branchProdMining", label: "Добывающие", title: "Добывающие платформы"},
+  {key: "energy", id: "branchProdEnergy", label: "Энергостанции", title: "Энергостанции"},
+];
+const PROD_SECTION_KEYS = {colony: 1, factory: 1, lab: 1, mining: 1, energy: 1};
+
+// prodSectionLabel — подпись раздела по ключу («Прочее» — служебный/наследие).
+function prodSectionLabel(sec) {
+  const s = PROD_SECTIONS.find(x => x.key === sec);
+  return s ? s.label : "Прочее";
+}
+// prodSectionOf — раздел записи p: у корня — p.section из пяти (иначе "other");
+// у подтипа — раздел его корня по parent_id (наследование, в БД не дублируется).
+function prodSectionOf(p) {
+  if (!p.parent_id) return PROD_SECTION_KEYS[p.section] ? p.section : "other";
+  const root = (state.producer_types || []).find(x => x.id === p.parent_id);
+  return root ? (PROD_SECTION_KEYS[root.section] ? root.section : "other") : "other";
+}
+// prodSectionRoots — типы-корни активного раздела, видимые по расовости (порядок
+// — по заведению, id: дерево не пересортировывает корни).
+function prodSectionRoots() {
+  return (state.producer_types || []).filter(p => !p.parent_id && prodVisible(p) && prodSectionOf(p) === prodSection);
+}
+// renderBuildingsTabsUI — .on у активной кнопки раздела; «Прочее» видно, пока
+// есть корень без раздела. Активен «Прочее», а корней без раздела не осталось —
+// откат на «Колонии» (спека §7): только когда состояние загружено (иначе на
+// старте до fetchState корней ещё нет и сохранённый «Прочее» обнулялся бы).
+// Зовётся из applyBranchUI (в т.ч. до загрузки состояния) — читает producer_types
+// защищённо.
+function renderBuildingsTabsUI() {
+  const roots = state.producer_types || [];
+  const loaded = Array.isArray(state.producer_types);
+  const hasOther = roots.some(p => !p.parent_id && prodSectionOf(p) === "other");
+  if (loaded && prodSection === "other" && !hasOther) {
+    prodSection = "colony";
+    localStorage.setItem("gs_prodSection", prodSection);
+  }
+  // Подсветка активного раздела — только в ветке построек (спека §6.1/§12.1):
+  // на «Товарах»/«Предметах» ряд виден как точка входа, но ни одна кнопка
+  // раздела не активна (ветка построек ещё не выбрана).
+  const inProducers = branch === "producers";
+  PROD_SECTIONS.forEach(s => {
+    const el = $(s.id);
+    if (el) el.classList.toggle("on", inProducers && s.key === prodSection);
+  });
+  const other = $("branchProdOther");
+  if (other) {
+    other.style.display = hasOther ? "" : "none";
+    other.classList.toggle("on", inProducers && prodSection === "other");
+  }
+}
+// setProdSection — переключение раздела (кнопки шапки): ставит техническую ветку
+// branch="producers", сбрасывает выбор/попап, восстанавливает общий zoom/pan
+// группы построек и центрирует полотно (спека §6.6). «Прочее» — полноправный
+// активный раздел (не хранится в БД, но кликается как остальные).
+function setProdSection(key) {
+  if (key !== "other" && !PROD_SECTION_KEYS[key]) key = "colony";
+  prodSection = key;
+  localStorage.setItem("gs_prodSection", key);
+  branch = "producers";
+  localStorage.setItem("gs_branch", "producers");
+  $("branchGoods").classList.toggle("on", false);
+  $("branchItems").classList.toggle("on", false);
+  selected = null;
+  popupGoodId = null;
+  closePopup();
+  zoom = parseFloat(localStorage.getItem("gs_prodZoom") || "1");
+  panX = parseFloat(localStorage.getItem("gs_prodPanX") || "0");
+  panY = parseFloat(localStorage.getItem("gs_prodPanY") || "0");
+  renderAll();
+  centerProdTree();
+}
+// saveProdSection — сохранение раздела типа-корня (карточка, паттерн
+// saveStageBlock): PUT /studio/api/producers/{id} телом {section}; пусто —
+// «— не задан (Прочее)» (сервер пишет NULL). Незнакомое/непустое у подтипа
+// отвергает сервер (400) — карточка перерисовывается.
+async function saveProdSection(val) {
+  if (!popupGoodId) return;
+  const r = await api("PUT", "/studio/api/producers/" + popupGoodId, {section: val || ""});
+  if (r) fetchState(); else renderProdPopup();
+}
+// prodSectionBlock — блок «Раздел» карточки (спека §6.4): у типа-корня — селект
+// из пяти + «— не задан (Прочее)»; у подтипа — только чтение (наследуется).
+function prodSectionBlock(p) {
+  if (!p.parent_id) {
+    const opts = PROD_SECTIONS.map(s =>
+      '<option value="' + s.key + '"' + (p.section === s.key ? ' selected' : '') + '>' + esc(s.title) + '</option>').join("");
+    return '<div class="dmeta">раздел: <select class="dsection" onchange="saveProdSection(this.value)">' +
+      '<option value=""' + (!p.section ? ' selected' : '') + '>— не задан (Прочее)</option>' + opts + '</select></div>';
+  }
+  return '<div class="dmeta">раздел: <b>' + esc(prodSectionLabel(prodSectionOf(p))) + '</b> (наследуется от корня)</div>';
+}
+// prodEmptyStateText — текст пустого состояния раздела (спека §6.5): нет корней
+// / корни есть, но скрыты уровнем расовости / служебное «Прочее».
+function prodEmptyStateText() {
+  const inSection = (state.producer_types || []).filter(p => !p.parent_id && prodSectionOf(p) === prodSection);
+  if (!inSection.length) {
+    if (prodSection === "other") return "Корни без раздела. Откройте карточку типа и выберите раздел.";
+    return "В разделе «" + prodSectionLabel(prodSection) + "» пока нет типов построек. Кнопка «+ тип» создаст тип.";
+  }
+  const hidden = inSection.find(p => !prodVisible(p));
+  return "Тип «" + (hidden ? hidden.name : inSection[0].name) + "» скрыт на выбранном уровне расовости.";
+}
+
 // prodStageEnter — нижний порог населения ступени ладдеры (params.stage.enter);
 // нет порога — Infinity (записи без ладдеры уходят в конец, порядок стабилен).
 function prodStageEnter(p) {
@@ -3447,32 +3590,17 @@ function prodSubtypeNoCatRecords(t) {
     .sort((a, b) => prodStageEnter(a) - prodStageEnter(b));
 }
 
-// buildProdTree — дерево построек (спека §5.2–§5.4): корень → классы
-// (фиксированные узлы UI, не записи БД) → типы (parent_id NULL, по классам
-// через kind) → подтипы + узлы-приглашения. Тип kind=goods раскрывает
-// категории ИЗ СЛОТОВ родителя (применяемые на уровне): вне набора — не
-// рисуется; скрытая категория (OR осей) — state 2 (без галки ничего, с
-// галкой — затемнённые карточки всех применяемых записей или заглушка);
-// видимая — лестница: победитель + затемнённые скрытые записи, приглашение,
-// если записей нет (лосеры-видимые не рисуются). У типа kind=goods БЕЗ слотов
-// вместо категорий рисуются подтипы без товарной категории (§5.3 п.4). Типы
-// items/energy — подтипы как раньше (по prodVisible), без лестницы и оси
-// скрытости.
+// buildProdTree — дерево активного РАЗДЕЛА построек (спека 2026-09-25 §6.3):
+// виртуальный корень → типы-корни раздела (prodSectionRoots: parent_id NULL и
+// prodVisible) → их подтипы. Узлы «Строения» и фиксированные классы сняты —
+// первый ряд это карточки корней (у «Фабрик» — два). Ветки отрисовки категорий
+// из слотов и подтипов без товарной категории — дословно из прежней версии.
 function buildProdTree() {
-  const classes = [
-    {id: "class-goods", label: "Производители товаров", cls: "goods", children: []},
-    {id: "class-items", label: "Производители предметов", cls: "items", children: []},
-    {id: "class-energy", label: "Производители энергии", cls: "energy", children: []},
-    {id: "class-other", label: "Другие", cls: "other", children: []},
-  ];
-  const root = {id: "root", label: "Строения", kind: "root", children: classes};
-  const types = state.producer_types.filter(p => !p.parent_id && prodVisible(p));
+  const root = {id: "sectionRoot", kind: "sectionRoot", label: "", children: []};
   const subtypeNode = (s, isHidden) => ({id: prodNodeId(s), label: s.name, kind: "subtype", ref: s, children: [], hidden: isHidden});
-  types.forEach(t => {
-    const cls = classes.find(c => c.cls === t.kind);
-    if (!cls) return;
+  prodSectionRoots().forEach(t => {
     const node = {id: prodNodeId(t), label: t.name, kind: "type", ref: t, children: []};
-    cls.children.push(node);
+    root.children.push(node);
     if (t.kind === "goods") {
       // Слоты родителя (спека §5.2–§5.4): категории = применяемые слоты на
       // текущем уровне; вне набора — категория не рисуется вовсе.
@@ -3530,12 +3658,13 @@ function prodCardHeight(n) {
   return Math.max(CARD_H, 68 + (lines - 1) * LINE_H + 8);
 }
 
-// prodTreeLayout — раскладка дерева (уровни-ряды, как computeLayout):
-// ширина поддерева = сумма детей, родитель центрируется над детьми.
-// Высота ряда = максимум prodCardHeight карточек ряда (карточки растут от
-// контента), y узла = PAD + сумма высот предыдущих рядов и ROW_GAP.
+// prodTreeLayout — раскладка дерева раздела (спека 2026-09-25 §6.3): первый ряд
+// — карточки корней раздела (детей виртуального корня «sectionRoot»); дальше
+// уровни как раньше. Ширина поддерева = сумма детей, родитель центрируется над
+// детьми; высота ряда = максимум prodCardHeight карточек ряда.
 function prodTreeLayout() {
   const root = buildProdTree();
+  const tops = root.kind === "sectionRoot" ? root.children : [root];
   const cols = {};
   function colsOf(n) {
     if (cols[n.id] !== undefined) return cols[n.id];
@@ -3547,10 +3676,11 @@ function prodTreeLayout() {
   }
   // высота каждого ряда = максимум высот карточек этого ряда
   const rowH = [];
-  (function measure(n, depth) {
+  function measure(n, depth) {
     rowH[depth] = Math.max(rowH[depth] || 0, prodCardHeight(n));
     n.children.forEach(c => measure(c, depth + 1));
-  })(root, 0);
+  }
+  tops.forEach(n => measure(n, 0));
   const rowY = [PAD];
   for (let d = 1; d < rowH.length; d++) rowY[d] = rowY[d - 1] + rowH[d - 1] + ROW_GAP;
   const pos = {}, h = {};
@@ -3563,7 +3693,8 @@ function prodTreeLayout() {
     let cx = x;
     n.children.forEach(c => { place(c, cx, depth + 1); cx += colsOf(c) * (CARD_W + GAP_X); });
   }
-  place(root, PAD, 0);
+  let x = PAD;
+  tops.forEach(n => { place(n, x, 0); x += colsOf(n) * (CARD_W + GAP_X); });
   let treeH = 0;
   rowH.forEach((rh, d) => { treeH += rh + (d ? ROW_GAP : 0); });
   return {root, pos, maxCols, h, treeH};
@@ -3579,19 +3710,31 @@ function renderProdTree() {
   ctx.setTransform(dpr * zoom, 0, 0, dpr * zoom, dpr * panX, dpr * panY);
   ctx.clearRect(-panX/zoom, -panY/zoom, cssW/zoom, cssH/zoom);
   const L = prodTreeLayout();
-  // рёбра (орто)
+  // пустой раздел: текстом по центру (спека §6.5) — нет корней / скрыты расовостью
+  if (!Object.keys(L.pos).length) {
+    ctx.fillStyle = "#aaa";
+    ctx.font = "14px Arial";
+    ctx.textAlign = "center";
+    const cx = (cssW / 2 - panX) / zoom, cy = (cssH / 2 - panY) / zoom;
+    const lines = wrapPx(prodEmptyStateText(), Math.max(140, (cssW - 80) / zoom));
+    lines.forEach((ln, i) => ctx.fillText(ln, cx, cy + (i - (lines.length - 1) / 2) * LINE_H));
+    ctx.textAlign = "start";
+    return;
+  }
+  // рёбра (орто): у виртуального корня (sectionRoot) позиции нет — карточки
+  // корней стоят первым рядом без входящих рёбер.
   ctx.strokeStyle = "#555";
   ctx.lineWidth = 1.5;
   (function edges(n) {
     n.children.forEach(c => {
-      if (L.pos[c.id]) orthoEdge(L.pos[n.id], L.pos[c.id], L.h[n.id]);
+      if (L.pos[n.id] && L.pos[c.id]) orthoEdge(L.pos[n.id], L.pos[c.id], L.h[n.id]);
       edges(c);
     });
   })(L.root);
   // карточки
   (function draw(n) {
     const p = L.pos[n.id];
-    if (!p) return;
+    if (!p) { n.children.forEach(draw); return; }
     const x = p.x, y = p.y;
     const isInvite = n.kind === "invite";
     const isFixed = n.kind === "root" || n.kind === "class";
@@ -3687,8 +3830,9 @@ function prodTreeHitTest(mx, my) {
 }
 
 // openProdNodePopup — попап по узлу дерева (спека §2.5): тип/подтип — деталь
-// (renderProdPopup); узел-приглашение — попап создания; фиксированный узел
-// (корень/класс) — справка «фиксированный узел», «Другие» — пометка «задел».
+// (renderProdPopup); узел-приглашение — попап создания; заглушка скрытой
+// категории — карточка родителя. Узлы «Строения»/классы сняты (спека 2026-09-25
+// §6.3) — неизвестный id получает безопасный fallback.
 function openProdNodePopup(id) {
   const n = prodNodeById(id);
   if (n) { openProdPopup(n.id); return; }
@@ -3706,13 +3850,11 @@ function openProdNodePopup(id) {
     }
     return;
   }
-  const label = id === "root" ? "Строения"
-    : id === "class-other" ? "Другие"
-    : id === "class-goods" ? "Производители товаров"
-    : id === "class-items" ? "Производители предметов" : "Производители энергии";
+  // Служебный fallback: неизвестный узел (после снятия «Строения»/классов
+  // недостижим) — безопасная справка, не редактируется.
   openModal(
-    '<h3>' + esc(label) + '</h3>' +
-    '<div>' + (id === "class-other" ? 'Задел — типы появятся позже.' : 'Фиксированный узел дерева построек (не редактируется).') + '</div>',
+    '<h3>Узел дерева</h3>' +
+    '<div>Узел не редактируется.</div>',
     [{label: "Ок", cls: "", action: closeModal}]
   );
 }
@@ -3964,7 +4106,7 @@ function askDeleteItem() {
   if (!it) return;
   openModal(
     '<h3>Удалить предмет</h3>' +
-    '<div>Удалить предмет «' + esc(it.name) + '»? Связи с производителями удалятся.</div>',
+    '<div>Удалить предмет «' + esc(it.name) + '»? Связи с постройками удалятся.</div>',
     [
       {label: "Удалить", cls: "del", primary: true, action: doDeleteItem},
       {label: "Отмена", cls: "", action: closeModal}
@@ -4055,7 +4197,7 @@ function renderGoodsFactorySel() {
   sel.innerHTML = html;
   if (!facs.length) {
     sel.disabled = true;
-    sel.title = "Конкретных фабрик нет — создайте в разделе «Производители»";
+    sel.title = "Конкретных фабрик нет — создайте в разделе «Постройки»";
     goodsFactory = "";
   } else {
     sel.disabled = false;
@@ -4400,10 +4542,13 @@ function prodRaceLevelHint() {
 // §1.2 п.4 — категории живут в подтипах, их заводят через узлы-приглашения)
 function openProdNewPopup() {
   openModal(
-    '<h3>Новый тип производителя</h3>' +
+    '<h3>Новый тип постройки</h3>' +
     '<form autocomplete="off" onsubmit="return false">' +
     '<input id="prodNewName" type="text" name="studio_new_prod_name" placeholder="имя типа" autocomplete="off">' +
     '<select id="prodNewKind" title="класс выхода"><option value="goods">товары</option><option value="items">предметы</option><option value="energy">энергия</option></select>' +
+    '<select id="prodNewSection" title="раздел постройки — обязателен, «Прочее» не создаётся руками">' +
+      PROD_SECTIONS.map(s => '<option value="' + s.key + '"' + (s.key === (PROD_SECTION_KEYS[prodSection] ? prodSection : "colony") ? ' selected' : '') + '>' + esc(s.title) + '</option>').join("") +
+    '</select>' +
     '<div class="hint">' + esc(prodRaceLevelHint()) + '</div>' +
     '</form>',
     [
@@ -4529,8 +4674,8 @@ function setBranch(b) {
   branch = b;
   localStorage.setItem("gs_branch", b);
   $("branchGoods").classList.toggle("on", b === "goods");
-  $("branchProducers").classList.toggle("on", b === "producers");
   $("branchItems").classList.toggle("on", b === "items");
+  renderBuildingsTabsUI();
   selected = null;
   popupGoodId = null;
   closePopup();
@@ -4563,6 +4708,11 @@ function applyBranchUI() {
   $("canvasWrap").style.display = (isGoods || isProducers) ? "" : "none";
   // переключатель уровня расовости — только ветка «Производители» (спека §5)
   $("segProdRace").style.display = isProducers ? "" : "none";
+  // ряд разделов построек (спека 2026-09-25 §6.1): виден всегда — это точка
+  // входа в ветку построек (клик по разделу ставит branch="producers");
+  // активная кнопка и видимость «Прочее» — renderBuildingsTabsUI.
+  $("segBuildings").style.display = "";
+  renderBuildingsTabsUI();
   $("spravSearch").style.display = (isGoods || isProducers) ? "" : "none";
   // переключатель справочника «Постройки | Товары» — только ветка «Производители»
   // (идея 2026-09-23, шаг 1); фильтры каталога видны на «Товарах» и в режиме
@@ -4681,8 +4831,12 @@ $("btnItemNewOpen").addEventListener("click", openItemNewPopup);
 $("btnTop").addEventListener("click", centerTop);
 // разделы студии (спека 2026-09-20-фабрики §4): переключение веток
 $("branchGoods").addEventListener("click", () => setBranch("goods"));
-$("branchProducers").addEventListener("click", () => setBranch("producers"));
 $("branchItems").addEventListener("click", () => setBranch("items"));
+// разделы построек (спека 2026-09-25 §6.2): клик по разделу входит в ветку
+// построек и ставит активный раздел; «Прочее» — служебный раздел корней без
+// раздела (кнопка видна только при их наличии).
+PROD_SECTIONS.forEach(s => $(s.id).addEventListener("click", () => setProdSection(s.key)));
+$("branchProdOther").addEventListener("click", () => setProdSection("other"));
 // справочник вкладки «Производители»: переключатель «Постройки | Товары»
 // (идея 2026-09-23, шаг 1)
 $("spravModeBuildings").addEventListener("click", () => setSpravMode("buildings"));
@@ -4772,8 +4926,12 @@ updateOverlays(); // спиннер при первичной загрузке (
 applyModeUI();   // видимость топбар-элементов по режиму при старте
 // разделы студии: активная ветка при старте (спека 2026-09-20-фабрики §4)
 $("branchGoods").classList.toggle("on", branch === "goods");
-$("branchProducers").classList.toggle("on", branch === "producers");
 $("branchItems").classList.toggle("on", branch === "items");
+// активный раздел построек: «Прочее» — полноправный активный раздел, остальное
+// неизвестное/пустое → «Колонии» (спека 2026-09-25 §6.6; легаси gs_branch=
+// "producers" открывает «Колонии»)
+if (prodSection !== "other" && !PROD_SECTION_KEYS[prodSection]) prodSection = "colony";
+renderBuildingsTabsUI();
 applyBranchUI();
 // вид канваса по ветке при старте: дерево построек — свой zoom/pan (спека §2.5)
 if (branch === "producers") {

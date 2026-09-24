@@ -76,6 +76,9 @@ async function main() {
   await context.addInitScript((t) => {
     localStorage.setItem('adminToken', t);
     localStorage.setItem('gs_branch', 'producers');
+    // раздел построек (спека 2026-09-25): форма «+ тип» шлёт section; активный
+    // раздел задаём явно — созданные корни видны в дереве этого раздела.
+    localStorage.setItem('gs_prodSection', 'colony');
     localStorage.removeItem('gs_prodRaceLevel');
     localStorage.removeItem('gs_prodRaceFamily');
     localStorage.removeItem('gs_prodRace');
@@ -117,6 +120,9 @@ async function main() {
         await page.waitForSelector('#prodNewName');
       }
       await page.fill('#prodNewName', name);
+      // раздел формы «+ тип» (спека 2026-09-25 §6.4): задаём явно — скрипт не
+      // зависит от активного раздела; «Прочее» в селекте нет.
+      await page.selectOption('#prodNewSection', 'colony').catch(() => {});
       try {
         await page.click('#btnProdAdd', { timeout: 4000 });
       } catch (e) {

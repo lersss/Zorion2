@@ -100,7 +100,7 @@ async function main() {
   try {
     await page.goto(BASE_URL + '/studio', { waitUntil: 'domcontentloaded', timeout: 30000 });
     await waitFor(() => document.getElementById('loadingOverlay').style.display === 'none', 10000, 'spinner');
-    await page.click('#branchProducers');
+    await page.click('#branchProdFactory'); // раздел «Фабрики»: скрипт работает с типом 2 (спека 2026-09-25)
     await waitFor(() => state.producer_slots.length > 0, 8000, 'slots loaded');
 
     // ============ 1. Галка на унаследованном (F4, база visible) → «переопределён» сразу ============

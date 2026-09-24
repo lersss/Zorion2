@@ -74,7 +74,7 @@ async function main() {
 
     // студия стартует во вкладке «Товары» — переключаемся на «Производители»
     // реальной вкладкой, иначе кнопка/форма «+ тип» скрыты (ТЗ §7.2)
-    await page.click('#branchProducers');
+    await page.click('#branchProdColony'); // раздел построек (спека 2026-09-25): ветка «Производители» снята
     await page.waitForSelector('#btnProdNewOpen', { state: 'visible' });
 
     // make(name) — тот же путь, что кнопка «+ тип»: открыть попап формы

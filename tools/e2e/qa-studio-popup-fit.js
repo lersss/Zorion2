@@ -219,7 +219,7 @@ async function main() {
   // свежая страница 1280x800 (без перенесённой перетаскиванием позиции попапа)
   {
     const { context, page } = await openStudio({ w: 1280, h: 800 }, 'regress');
-    await page.evaluate(() => { document.getElementById('branchProducers').click(); });
+    await page.evaluate(() => { document.getElementById('branchProdColony').click(); }); // раздел построек (спека 2026-09-25)
     await page.waitForFunction(() => typeof state !== 'undefined' && Array.isArray(state.producer_types) && state.producer_types.length > 0, null, { timeout: 10000 });
     await page.evaluate(() => openProdPopup(state.producer_types[0].id));
     await page.waitForFunction(() => { const e = document.getElementById('detailPopup'); return e && e.style.display !== 'none'; }, null, { timeout: 10000 });

@@ -48,15 +48,15 @@ func TestCreateProducerType(t *testing.T) {
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_types WHERE parent_id = \$1 AND category_id IS NOT DISTINCT FROM \$2 AND race_family IS NOT DISTINCT FROM \$3 AND race IS NOT DISTINCT FROM \$4\)`).
 		WithArgs(int64(1), int64(3), nil, nil).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-	mock.ExpectQuery(`INSERT INTO producer_types \(name, name_norm, kind, category_id, race_family, parent_id, race\) VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7\) RETURNING id, name, kind, category_id, race_family, parent_id, race, output, input, params, hidden, created_at`).
-		WithArgs("Фабрика продовольствия", "фабрика продовольствия", "goods", int64(3), nil, int64(1), nil).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "parent_id", "race", "output", "input", "params", "hidden", "created_at"}).
-			AddRow(int64(2), "Фабрика продовольствия", "goods", int64(3), nil, int64(1), nil, nil, nil, nil, false, time.Now()))
+	mock.ExpectQuery(`INSERT INTO producer_types \(name, name_norm, kind, category_id, race_family, parent_id, race, section\) VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8\) RETURNING id, name, kind, category_id, race_family, parent_id, race, output, input, params, hidden, created_at, section`).
+		WithArgs("Фабрика продовольствия", "фабрика продовольствия", "goods", int64(3), nil, int64(1), nil, nil).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "parent_id", "race", "output", "input", "params", "hidden", "created_at", "section"}).
+			AddRow(int64(2), "Фабрика продовольствия", "goods", int64(3), nil, int64(1), nil, nil, nil, nil, false, time.Now(), nil))
 	mock.ExpectCommit()
 
 	catID := int64(3)
 	parentID := int64(1)
-	p, err := NewGoodsRepository(db).CreateProducerType("Фабрика продовольствия", "goods", &catID, &parentID, nil, nil)
+	p, err := NewGoodsRepository(db).CreateProducerType("Фабрика продовольствия", "goods", &catID, &parentID, nil, nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), p.ID)
 	require.Equal(t, "goods", p.Kind)
@@ -83,7 +83,7 @@ func TestCreateProducerTypeGoodsNoCategory(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
 	parentID := int64(1)
-	_, err = NewGoodsRepository(db).CreateProducerType("Фабрика", "goods", nil, &parentID, nil, nil)
+	_, err = NewGoodsRepository(db).CreateProducerType("Фабрика", "goods", nil, &parentID, nil, nil, nil)
 	var ce *ErrCatalog
 	require.True(t, errors.As(err, &ce))
 	require.Equal(t, 400, ce.Status)
@@ -100,7 +100,7 @@ func TestCreateProducerTypeGoodsTypeWithCategory(t *testing.T) {
 	expectMutationBegin(mock)
 
 	catID := int64(3)
-	_, err = NewGoodsRepository(db).CreateProducerType("Фабрика", "goods", &catID, nil, nil, nil)
+	_, err = NewGoodsRepository(db).CreateProducerType("Фабрика", "goods", &catID, nil, nil, nil, nil)
 	var ce *ErrCatalog
 	require.True(t, errors.As(err, &ce))
 	require.Equal(t, 400, ce.Status)
@@ -115,7 +115,7 @@ func TestCreateProducerTypeBadKind(t *testing.T) {
 
 	expectMutationBegin(mock)
 
-	_, err = NewGoodsRepository(db).CreateProducerType("Что-то", "other", nil, nil, nil, nil)
+	_, err = NewGoodsRepository(db).CreateProducerType("Что-то", "other", nil, nil, nil, nil, nil)
 	var ce *ErrCatalog
 	require.True(t, errors.As(err, &ce))
 	require.Equal(t, 400, ce.Status)
@@ -148,7 +148,7 @@ func TestCreateProducerTypeDuplicate(t *testing.T) {
 
 	catID := int64(3)
 	parentID := int64(1)
-	_, err = NewGoodsRepository(db).CreateProducerType("Фабрика продовольствия", "goods", &catID, &parentID, nil, nil)
+	_, err = NewGoodsRepository(db).CreateProducerType("Фабрика продовольствия", "goods", &catID, &parentID, nil, nil, nil)
 	var ce *ErrCatalog
 	require.True(t, errors.As(err, &ce))
 	require.Equal(t, 409, ce.Status)
@@ -186,7 +186,7 @@ func TestCreateProducerTypeSubtypeDup(t *testing.T) {
 
 	catID := int64(3)
 	parentID := int64(1)
-	_, err = NewGoodsRepository(db).CreateProducerType("Фабрика продовольствия", "goods", &catID, &parentID, nil, nil)
+	_, err = NewGoodsRepository(db).CreateProducerType("Фабрика продовольствия", "goods", &catID, &parentID, nil, nil, nil)
 	var ce *ErrCatalog
 	require.True(t, errors.As(err, &ce))
 	require.Equal(t, 409, ce.Status)
@@ -205,7 +205,7 @@ func TestCreateProducerTypeSubtypeOfSubtype(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"kind", "parent_id_is_null"}).AddRow("goods", false))
 
 	parentID := int64(2)
-	_, err = NewGoodsRepository(db).CreateProducerType("Ещё фабрика", "goods", nil, &parentID, nil, nil)
+	_, err = NewGoodsRepository(db).CreateProducerType("Ещё фабрика", "goods", nil, &parentID, nil, nil, nil)
 	var ce *ErrCatalog
 	require.True(t, errors.As(err, &ce))
 	require.Equal(t, 400, ce.Status)
@@ -224,7 +224,7 @@ func TestCreateProducerTypeKindMismatch(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"kind", "parent_id_is_null"}).AddRow("items", true))
 
 	parentID := int64(1)
-	_, err = NewGoodsRepository(db).CreateProducerType("Фабрика", "goods", nil, &parentID, nil, nil)
+	_, err = NewGoodsRepository(db).CreateProducerType("Фабрика", "goods", nil, &parentID, nil, nil, nil)
 	var ce *ErrCatalog
 	require.True(t, errors.As(err, &ce))
 	require.Equal(t, 400, ce.Status)
@@ -240,7 +240,7 @@ func TestCreateProducerTypeRaceNoFamily(t *testing.T) {
 	expectMutationBegin(mock)
 
 	race := "humans"
-	_, err = NewGoodsRepository(db).CreateProducerType("Фабрика", "goods", nil, nil, nil, &race)
+	_, err = NewGoodsRepository(db).CreateProducerType("Фабрика", "goods", nil, nil, nil, &race, nil)
 	var ce *ErrCatalog
 	require.True(t, errors.As(err, &ce))
 	require.Equal(t, 400, ce.Status)
@@ -271,7 +271,7 @@ func TestUpdateProducerType(t *testing.T) {
 
 	name := "Автофабрика"
 	input := `{"robots": true}`
-	err = NewGoodsRepository(db).UpdateProducerType(1, &name, nil, nil, nil, nil, nil, &input, nil)
+	err = NewGoodsRepository(db).UpdateProducerType(1, &name, nil, nil, nil, nil, nil, &input, nil, nil)
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -289,7 +289,7 @@ func TestUpdateProducerTypeBadJSON(t *testing.T) {
 			AddRow("goods", nil, nil, nil, nil))
 
 	bad := `{not json`
-	err = NewGoodsRepository(db).UpdateProducerType(1, nil, nil, nil, nil, nil, nil, &bad, nil)
+	err = NewGoodsRepository(db).UpdateProducerType(1, nil, nil, nil, nil, nil, nil, &bad, nil, nil)
 	var ce *ErrCatalog
 	require.True(t, errors.As(err, &ce))
 	require.Equal(t, 400, ce.Status)
@@ -310,7 +310,7 @@ func TestUpdateProducerTypeCategoryOnType(t *testing.T) {
 			AddRow("goods", nil, nil, nil, nil))
 
 	catID := int64(3)
-	err = NewGoodsRepository(db).UpdateProducerType(1, nil, &catID, nil, nil, nil, nil, nil, nil)
+	err = NewGoodsRepository(db).UpdateProducerType(1, nil, &catID, nil, nil, nil, nil, nil, nil, nil)
 	var ce *ErrCatalog
 	require.True(t, errors.As(err, &ce))
 	require.Equal(t, 400, ce.Status)
@@ -339,7 +339,7 @@ func TestUpdateProducerTypeRace(t *testing.T) {
 
 	fam := "F1"
 	race := "humans"
-	err = NewGoodsRepository(db).UpdateProducerType(1, nil, nil, nil, &fam, &race, nil, nil, nil)
+	err = NewGoodsRepository(db).UpdateProducerType(1, nil, nil, nil, &fam, &race, nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -359,7 +359,7 @@ func TestUpdateProducerTypeClearParentRejected(t *testing.T) {
 			AddRow("items", nil, nil, nil, nil))
 
 	var nilParent *int64
-	err = NewGoodsRepository(db).UpdateProducerType(1, nil, nil, &nilParent, nil, nil, nil, nil, nil)
+	err = NewGoodsRepository(db).UpdateProducerType(1, nil, nil, &nilParent, nil, nil, nil, nil, nil, nil)
 	var ce *ErrCatalog
 	require.True(t, errors.As(err, &ce))
 	require.Equal(t, 400, ce.Status)
@@ -389,7 +389,7 @@ func TestUpdateProducerTypeParentWithSubtypes(t *testing.T) {
 
 	newParent := int64(2)
 	parentID := &newParent
-	err = NewGoodsRepository(db).UpdateProducerType(1, nil, nil, &parentID, nil, nil, nil, nil, nil)
+	err = NewGoodsRepository(db).UpdateProducerType(1, nil, nil, &parentID, nil, nil, nil, nil, nil, nil)
 	var ce *ErrCatalog
 	require.True(t, errors.As(err, &ce))
 	require.Equal(t, 409, ce.Status)
@@ -419,7 +419,7 @@ func TestUpdateProducerTypeRenameSubtype(t *testing.T) {
 	mock.ExpectCommit()
 
 	name := "Лаборатория космических технологий"
-	err = NewGoodsRepository(db).UpdateProducerType(6, &name, nil, nil, nil, nil, nil, nil, nil)
+	err = NewGoodsRepository(db).UpdateProducerType(6, &name, nil, nil, nil, nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -458,7 +458,7 @@ func TestUpdateProducerTypeSubtypeTupleConflict(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
 	catID := int64(8)
-	err = NewGoodsRepository(db).UpdateProducerType(15, nil, &catID, nil, nil, nil, nil, nil, nil)
+	err = NewGoodsRepository(db).UpdateProducerType(15, nil, &catID, nil, nil, nil, nil, nil, nil, nil)
 	var ce *ErrCatalog
 	require.True(t, errors.As(err, &ce))
 	require.Equal(t, 409, ce.Status)
@@ -719,9 +719,9 @@ func TestSnapshotWithProducers(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "category_id", "kind", "source", "recipe_id", "complexity", "created_at", "volume", "weight", "description", "code"}))
 	mock.ExpectQuery(`SELECT r\.good_id, c\.pos, c\.component_id, c\.quantity, c\.reason, c\.allow_resource FROM recipe_components c JOIN recipes r ON r\.id = c\.recipe_id ORDER BY r\.good_id, c\.pos`).
 		WillReturnRows(sqlmock.NewRows([]string{"good_id", "pos", "component_id", "quantity", "reason", "allow_resource"}))
-	mock.ExpectQuery(`SELECT id, name, kind, category_id, race_family, parent_id, race, output, input, params, hidden, created_at, code FROM producer_types ORDER BY id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "parent_id", "race", "output", "input", "params", "hidden", "created_at", "code"}).
-			AddRow(int64(1), "Лаборатория исследовательская", "items", nil, nil, nil, nil, []byte(`{"items":["Чертёж"]}`), []byte(`{}`), []byte(`{}`), false, time.Now(), "p_0001"))
+	mock.ExpectQuery(`SELECT id, name, kind, category_id, race_family, parent_id, race, output, input, params, hidden, created_at, code, section FROM producer_types ORDER BY id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "parent_id", "race", "output", "input", "params", "hidden", "created_at", "code", "section"}).
+			AddRow(int64(1), "Лаборатория исследовательская", "items", nil, nil, nil, nil, []byte(`{"items":["Чертёж"]}`), []byte(`{}`), []byte(`{}`), false, time.Now(), "p_0001", "lab"))
 	mock.ExpectQuery(`SELECT id, name, slot_type, unlocks, params, created_at, code FROM items ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "slot_type", "unlocks", "params", "created_at", "code"}).
 			AddRow(int64(1), "Чертёж", "чертёж", []byte(`[]`), []byte(`{}`), time.Now(), "i_0001"))
@@ -740,6 +740,8 @@ func TestSnapshotWithProducers(t *testing.T) {
 	require.Len(t, snap.ProducerTypes, 1)
 	require.Equal(t, "items", snap.ProducerTypes[0].Kind)
 	require.Equal(t, "p_0001", snap.ProducerTypes[0].Code.String, "снимок несёт метку переноса (code)")
+	require.True(t, snap.ProducerTypes[0].Section.Valid, "снимок несёт раздел постройки (section)")
+	require.Equal(t, "lab", snap.ProducerTypes[0].Section.String)
 	require.Len(t, snap.Items, 1)
 	require.Equal(t, "чертёж", snap.Items[0].SlotType)
 	require.Equal(t, "i_0001", snap.Items[0].Code.String, "снимок несёт метку переноса (code)")
@@ -944,7 +946,7 @@ func TestCreateProducerTypeNoSlot(t *testing.T) {
 
 	catID := int64(3)
 	parentID := int64(1)
-	_, err = NewGoodsRepository(db).CreateProducerType("Фабрика продовольствия", "goods", &catID, &parentID, nil, nil)
+	_, err = NewGoodsRepository(db).CreateProducerType("Фабрика продовольствия", "goods", &catID, &parentID, nil, nil, nil)
 	var ce *ErrCatalog
 	require.True(t, errors.As(err, &ce))
 	require.Equal(t, 400, ce.Status)
@@ -980,16 +982,16 @@ func TestCreateProducerTypeFamilySlotOK(t *testing.T) {
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_types WHERE parent_id = \$1 AND category_id IS NOT DISTINCT FROM \$2 AND race_family IS NOT DISTINCT FROM \$3 AND race IS NOT DISTINCT FROM \$4\)`).
 		WithArgs(int64(1), int64(3), "F4", nil).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-	mock.ExpectQuery(`INSERT INTO producer_types \(name, name_norm, kind, category_id, race_family, parent_id, race\) VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7\) RETURNING id, name, kind, category_id, race_family, parent_id, race, output, input, params, hidden, created_at`).
-		WithArgs("Фабрика топлива F4", "фабрика топлива f4", "goods", int64(3), "F4", int64(1), nil).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "parent_id", "race", "output", "input", "params", "hidden", "created_at"}).
-			AddRow(int64(3), "Фабрика топлива F4", "goods", int64(3), "F4", int64(1), nil, nil, nil, nil, false, time.Now()))
+	mock.ExpectQuery(`INSERT INTO producer_types \(name, name_norm, kind, category_id, race_family, parent_id, race, section\) VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8\) RETURNING id, name, kind, category_id, race_family, parent_id, race, output, input, params, hidden, created_at, section`).
+		WithArgs("Фабрика топлива F4", "фабрика топлива f4", "goods", int64(3), "F4", int64(1), nil, nil).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "parent_id", "race", "output", "input", "params", "hidden", "created_at", "section"}).
+			AddRow(int64(3), "Фабрика топлива F4", "goods", int64(3), "F4", int64(1), nil, nil, nil, nil, false, time.Now(), nil))
 	mock.ExpectCommit()
 
 	catID := int64(3)
 	parentID := int64(1)
 	fam := "F4"
-	p, err := NewGoodsRepository(db).CreateProducerType("Фабрика топлива F4", "goods", &catID, &parentID, &fam, nil)
+	p, err := NewGoodsRepository(db).CreateProducerType("Фабрика топлива F4", "goods", &catID, &parentID, &fam, nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, int64(3), p.ID)
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -1023,7 +1025,7 @@ func TestCreateProducerTypeFamilyRecordRacialSlotOnly(t *testing.T) {
 	catID := int64(3)
 	parentID := int64(1)
 	fam := "F4"
-	_, err = NewGoodsRepository(db).CreateProducerType("Фабрика топлива F4", "goods", &catID, &parentID, &fam, nil)
+	_, err = NewGoodsRepository(db).CreateProducerType("Фабрика топлива F4", "goods", &catID, &parentID, &fam, nil, nil)
 	var ce *ErrCatalog
 	require.True(t, errors.As(err, &ce))
 	require.Equal(t, 400, ce.Status)
@@ -1055,7 +1057,7 @@ func TestUpdateProducerTypeFamilyNoSlot(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 
 	fam := "F1"
-	err = NewGoodsRepository(db).UpdateProducerType(15, nil, nil, nil, &fam, nil, nil, nil, nil)
+	err = NewGoodsRepository(db).UpdateProducerType(15, nil, nil, nil, &fam, nil, nil, nil, nil, nil)
 	var ce *ErrCatalog
 	require.True(t, errors.As(err, &ce))
 	require.Equal(t, 400, ce.Status)
@@ -1094,7 +1096,7 @@ func TestUpdateProducerTypeFamilyUniversalSlotOK(t *testing.T) {
 	mock.ExpectCommit()
 
 	fam := "F1"
-	err = NewGoodsRepository(db).UpdateProducerType(15, nil, nil, nil, &fam, nil, nil, nil, nil)
+	err = NewGoodsRepository(db).UpdateProducerType(15, nil, nil, nil, &fam, nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -1538,7 +1540,7 @@ func TestUpdateProducerTypeCategoryBoundOK(t *testing.T) {
 	mock.ExpectCommit()
 
 	catID := int64(8)
-	require.NoError(t, NewGoodsRepository(db).UpdateProducerType(15, nil, &catID, nil, nil, nil, nil, nil, nil))
+	require.NoError(t, NewGoodsRepository(db).UpdateProducerType(15, nil, &catID, nil, nil, nil, nil, nil, nil, nil))
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -1573,7 +1575,7 @@ func TestUpdateProducerTypeCategoryWithBindingOK(t *testing.T) {
 	mock.ExpectCommit()
 
 	catID := int64(8)
-	require.NoError(t, NewGoodsRepository(db).UpdateProducerType(16, nil, &catID, nil, nil, nil, nil, nil, nil))
+	require.NoError(t, NewGoodsRepository(db).UpdateProducerType(16, nil, &catID, nil, nil, nil, nil, nil, nil, nil))
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -1599,14 +1601,14 @@ func TestCreateProducerTypeNoSlotParentNoCategory(t *testing.T) {
 		WithArgs("обычное поселение").
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 	// уникальность кортежа НЕ проверяется (категория пустая) — нет мока
-	mock.ExpectQuery(`INSERT INTO producer_types \(name, name_norm, kind, category_id, race_family, parent_id, race\) VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7\) RETURNING id, name, kind, category_id, race_family, parent_id, race, output, input, params, hidden, created_at`).
-		WithArgs("Обычное поселение", "обычное поселение", "goods", nil, nil, int64(1), nil).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "parent_id", "race", "output", "input", "params", "hidden", "created_at"}).
-			AddRow(int64(9), "Обычное поселение", "goods", nil, nil, int64(1), nil, nil, nil, nil, false, time.Now()))
+	mock.ExpectQuery(`INSERT INTO producer_types \(name, name_norm, kind, category_id, race_family, parent_id, race, section\) VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8\) RETURNING id, name, kind, category_id, race_family, parent_id, race, output, input, params, hidden, created_at, section`).
+		WithArgs("Обычное поселение", "обычное поселение", "goods", nil, nil, int64(1), nil, nil).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "parent_id", "race", "output", "input", "params", "hidden", "created_at", "section"}).
+			AddRow(int64(9), "Обычное поселение", "goods", nil, nil, int64(1), nil, nil, nil, nil, false, time.Now(), nil))
 	mock.ExpectCommit()
 
 	parentID := int64(1)
-	p, err := NewGoodsRepository(db).CreateProducerType("Обычное поселение", "goods", nil, &parentID, nil, nil)
+	p, err := NewGoodsRepository(db).CreateProducerType("Обычное поселение", "goods", nil, &parentID, nil, nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, int64(9), p.ID)
 	require.False(t, p.CategoryID.Valid, "у типа без слотов категории нет")
@@ -1633,7 +1635,7 @@ func TestCreateProducerTypeNoSlotParentWithCategory400(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 	catID := int64(3)
 	parentID := int64(1)
-	_, err = NewGoodsRepository(db).CreateProducerType("Поселение крупное", "goods", &catID, &parentID, nil, nil)
+	_, err = NewGoodsRepository(db).CreateProducerType("Поселение крупное", "goods", &catID, &parentID, nil, nil, nil)
 	var ce *ErrCatalog
 	require.True(t, errors.As(err, &ce))
 	require.Equal(t, 400, ce.Status)
@@ -1661,13 +1663,13 @@ func TestCreateProducerTypeTwoNoCategorySubtypes(t *testing.T) {
 		mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_types WHERE name_norm = \$1\)`).
 			WithArgs(graph.NormalizeName(name)).
 			WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
-		mock.ExpectQuery(`INSERT INTO producer_types \(name, name_norm, kind, category_id, race_family, parent_id, race\) VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7\) RETURNING id, name, kind, category_id, race_family, parent_id, race, output, input, params, hidden, created_at`).
-			WithArgs(name, graph.NormalizeName(name), "goods", nil, nil, int64(1), nil).
-			WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "parent_id", "race", "output", "input", "params", "hidden", "created_at"}).
-				AddRow(int64(9+i), name, "goods", nil, nil, int64(1), nil, nil, nil, nil, false, time.Now()))
+		mock.ExpectQuery(`INSERT INTO producer_types \(name, name_norm, kind, category_id, race_family, parent_id, race, section\) VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8\) RETURNING id, name, kind, category_id, race_family, parent_id, race, output, input, params, hidden, created_at, section`).
+			WithArgs(name, graph.NormalizeName(name), "goods", nil, nil, int64(1), nil, nil).
+			WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "parent_id", "race", "output", "input", "params", "hidden", "created_at", "section"}).
+				AddRow(int64(9+i), name, "goods", nil, nil, int64(1), nil, nil, nil, nil, false, time.Now(), nil))
 		mock.ExpectCommit()
 
-		p, err := NewGoodsRepository(db).CreateProducerType(name, "goods", nil, &parentID, nil, nil)
+		p, err := NewGoodsRepository(db).CreateProducerType(name, "goods", nil, &parentID, nil, nil, nil)
 		require.NoError(t, err)
 		require.False(t, p.CategoryID.Valid)
 	}
@@ -1757,7 +1759,7 @@ func TestUpdateProducerTypeMoveToSlotParentNoCategory400(t *testing.T) {
 
 	newParent := int64(5)
 	parentID := &newParent
-	err = NewGoodsRepository(db).UpdateProducerType(20, nil, nil, &parentID, nil, nil, nil, nil, nil)
+	err = NewGoodsRepository(db).UpdateProducerType(20, nil, nil, &parentID, nil, nil, nil, nil, nil, nil)
 	var ce *ErrCatalog
 	require.True(t, errors.As(err, &ce))
 	require.Equal(t, 400, ce.Status)
@@ -1792,7 +1794,79 @@ func TestUpdateProducerTypeNoSlotParentNoCategoryRename200(t *testing.T) {
 	mock.ExpectCommit()
 
 	name := "Крупное поселение"
-	err = NewGoodsRepository(db).UpdateProducerType(20, &name, nil, nil, nil, nil, nil, nil, nil)
+	err = NewGoodsRepository(db).UpdateProducerType(20, &name, nil, nil, nil, nil, nil, nil, nil, nil)
 	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestCreateProducerTypeSection — создание типа-корня с разделом (спека
+// 2026-09-25 §5.1): INSERT несёт колонку section (значение как есть),
+// RETURNING отдаёт её в ProducerTypeRow. Репозиторий НЕ проверяет список
+// значений и «корень/подтип» — это правило хендлера (§5.2).
+func TestCreateProducerTypeSection(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectMutationBegin(mock)
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM producer_types WHERE name_norm = \$1\)`).
+		WithArgs("колония").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectQuery(`INSERT INTO producer_types \(name, name_norm, kind, category_id, race_family, parent_id, race, section\) VALUES \(\$1, \$2, \$3, \$4, \$5, \$6, \$7, \$8\) RETURNING id, name, kind, category_id, race_family, parent_id, race, output, input, params, hidden, created_at, section`).
+		WithArgs("Колония", "колония", "goods", nil, nil, nil, nil, "colony").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "kind", "category_id", "race_family", "parent_id", "race", "output", "input", "params", "hidden", "created_at", "section"}).
+			AddRow(int64(1), "Колония", "goods", nil, nil, nil, nil, nil, nil, nil, false, time.Now(), "colony"))
+	mock.ExpectCommit()
+
+	section := "colony"
+	p, err := NewGoodsRepository(db).CreateProducerType("Колония", "goods", nil, nil, nil, nil, &section)
+	require.NoError(t, err)
+	require.True(t, p.Section.Valid)
+	require.Equal(t, "colony", p.Section.String)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestUpdateProducerTypeSection — смена раздела (спека 2026-09-25 §5.1):
+// section != nil → UPDATE producer_types SET section; nil = не менять (в
+// кортеж уникальности подтипа раздел не входит).
+func TestUpdateProducerTypeSection(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectMutationBegin(mock)
+	mock.ExpectQuery(`SELECT kind, parent_id, category_id, race_family, race FROM producer_types WHERE id = \$1 FOR UPDATE`).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"kind", "parent_id", "category_id", "race_family", "race"}).
+			AddRow("goods", nil, nil, nil, nil))
+	mock.ExpectExec(`UPDATE producer_types SET section = \$1 WHERE id = \$2`).
+		WithArgs("factory", int64(1)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	section := "factory"
+	require.NoError(t, NewGoodsRepository(db).UpdateProducerType(1, nil, nil, nil, nil, nil, nil, nil, nil, &section))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestUpdateProducerTypeSectionClear — пустая строка section → NULL (снять
+// раздел): nullStrPtr("") → NULL, UPDATE с nil-аргументом.
+func TestUpdateProducerTypeSectionClear(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	expectMutationBegin(mock)
+	mock.ExpectQuery(`SELECT kind, parent_id, category_id, race_family, race FROM producer_types WHERE id = \$1 FOR UPDATE`).
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"kind", "parent_id", "category_id", "race_family", "race"}).
+			AddRow("goods", nil, nil, nil, nil))
+	mock.ExpectExec(`UPDATE producer_types SET section = \$1 WHERE id = \$2`).
+		WithArgs(nil, int64(1)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	section := ""
+	require.NoError(t, NewGoodsRepository(db).UpdateProducerType(1, nil, nil, nil, nil, nil, nil, nil, nil, &section))
 	require.NoError(t, mock.ExpectationsWereMet())
 }

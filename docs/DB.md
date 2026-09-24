@@ -6,7 +6,10 @@
 ## Таблицы
 
 `worlds`, `planets` (JSONB `data`), `locations`, `users`,
-`factions` (NPC-фракции, одна на расу: `race_id`, миграция `000066`), `events`, `settlements`,
+`factions` (NPC-фракции, одна на расу: `race_id`, миграция `000066`), `events`,
+`settlements` (владелец: `owner_type` CHECK (player/faction/agent) + `owner_id`
+UUID, миграция `000082`; пара либо обе NULL, либо обе заданы; бэкфилла нет —
+Г1, у существующих поселений владельца нет),
 `goods_batches`, `planet_resources`, `compatibility_matrix`, `regions`,
 `settlement_log` (лог поселения, миграция `000024`), `npc_agents`
 (NPC-агенты, миграция `000026`, спека `20a.1` §2.1; `race_id` — миграция
@@ -38,8 +41,10 @@ ClearUniverse его не трогает), `recipes`/`recipe_components`/`produc
 (свободный ключ, в первой итерации — `capital`), `owner_type` CHECK
 (player/faction/agent) + `owner_id` (без FK: владелец полиморфный),
 `created_at`/`updated_at`; частичный UNIQUE `(owner_type, owner_id) WHERE
-building_type='capital'` — одна столица на фракцию; колонки
-`producer_type_id`/`population`/`slots`/`status`/`data`/`name` §3.2 спеки фабрик
+building_type='capital'` — одна столица на фракцию; колонка `producer_type_id`
+BIGINT NULL FK → `producer_types(id)` ON DELETE RESTRICT добавлена миграцией
+`000082` (связь строения с типом дерева студии; у столиц `NULL`), колонки
+`population`/`slots`/`status`/`data`/`name` §3.2 спеки фабрик
 отложены до следующих итераций; чистится вместе с мирами; только столицы
   фракций, население/снабжение — потом; таблица — данные вселенной, ClearUniverse
   её TRUNCATE-ит), `accounts` (счёт актора — игрок/фракция/агент, миграция
@@ -575,6 +580,22 @@ ClearUniverse его не трогает.
   `ON CONFLICT (id) DO NOTHING` — идемпотентно. Каталог-контент, в
   `truncateTables` не входит. Номер `000081` забронирован менеджером
   (`docs/COORDINATION.md`).
+- `000082` — `000082_structures_owner.sql` — постройка структур на планете из
+  игрового интерфейса (спека `2026-09-24-постройка-структур-на-планете` §3, ЧК1,
+  коммит `a217171`): владелец поселения — `settlements.owner_type TEXT NULL`
+  (CHECK `IS NULL OR IN ('player','faction','agent')`) + `settlements.owner_id
+  UUID NULL` (пара: `(owner_type IS NULL) = (owner_id IS NULL)`; FK нет —
+  владелец полиморфный, как у `buildings`) + индекс `idx_settlements_owner
+  (owner_type, owner_id) WHERE owner_id IS NOT NULL`; связь строения с деревом
+  типов — `buildings.producer_type_id BIGINT NULL REFERENCES
+  producer_types(id) ON DELETE RESTRICT` (у столиц `NULL`) + индекс
+  `idx_buildings_producer_type_id WHERE producer_type_id IS NOT NULL`.
+  **Бэкфилла владельцев нет** (решение создателя Г1): существующие поселения
+  остаются без владельца; владелец появляется только у новых — при постройке
+  инструментом и при генерации галактики (проход `EnsureSettlementOwners`,
+  `internal/generator/faction/faction.go`). Идемпотентно (`ADD COLUMN IF NOT
+  EXISTS`; CHECK — через `pg_constraint` с `conrelid`). Номер `000082` —
+  после `000081`.
 - Миграции, вступающие в силу на старте, требуют перезапуска сервера
   (`AGENTS.md` §4 п.13).
 - `VACUUM` внутрь миграции не положить — не работает внутри транзакции

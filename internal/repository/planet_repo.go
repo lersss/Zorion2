@@ -425,12 +425,89 @@ func (r *PlanetRepository) loadSettlements(planets []models.Planet) error {
 	if err != nil {
 		return fmt.Errorf("failed to load settlements: %w", err)
 	}
+	// Пакетный резолв имён владельцев (спека 2026-09-24-постройка-структур
+	// §10.3): одна выборка на пачку, не по строке на запись (инвариант 2).
+	refs := make([]ownerRef, 0)
+	for _, settlements := range byPlanet {
+		for j := range settlements {
+			if settlements[j].OwnerID != "" {
+				refs = append(refs, ownerRef{ownerType: settlements[j].OwnerType, ownerID: settlements[j].OwnerID})
+			}
+		}
+	}
+	names, err := resolveOwnerNames(r.db, refs)
+	if err != nil {
+		return err
+	}
 	for i := range planets {
 		settlements := byPlanet[planets[i].ID]
+		for j := range settlements {
+			if settlements[j].OwnerID != "" {
+				settlements[j].OwnerName = names[settlements[j].OwnerType+"|"+settlements[j].OwnerID]
+			}
+		}
 		planets[i].Settlements = settlements
 		planets[i].Habitable = len(settlements) > 0
 	}
 	return nil
+}
+
+// ownerRef — полиморфный владелец (type player/faction/agent + id) для
+// пакетного резолва имени.
+type ownerRef struct {
+	ownerType string
+	ownerID   string
+}
+
+// ownerNamesSelectSQL — пакетный резолв имён владельцев (users.username /
+// factions.name / npc_agents.name) одним запросом UNION ALL (инвариант 2: не по
+// строке на запись). `id::text = ANY(...)` — сравнение без каста uuid:
+// устойчиво к не-UUID значениям и не требует валидного UUID-литерала.
+const ownerNamesSelectSQL = `
+	SELECT 'player', id::text, username FROM users WHERE id::text = ANY($1)
+	UNION ALL
+	SELECT 'faction', id::text, name FROM factions WHERE id::text = ANY($2)
+	UNION ALL
+	SELECT 'agent', id::text, name FROM npc_agents WHERE id::text = ANY($3)`
+
+// resolveOwnerNames — имена владельцев по ссылкам (пакетно, один запрос).
+// Пустой набор ссылок — пустая карта без обращения к БД. Ключ — "type|id".
+func resolveOwnerNames(db *sql.DB, refs []ownerRef) (map[string]string, error) {
+	players := []string{}
+	factions := []string{}
+	agents := []string{}
+	seen := map[string]bool{}
+	for _, ref := range refs {
+		if ref.ownerID == "" || seen[ref.ownerType+"|"+ref.ownerID] {
+			continue
+		}
+		seen[ref.ownerType+"|"+ref.ownerID] = true
+		switch ref.ownerType {
+		case "player":
+			players = append(players, ref.ownerID)
+		case "faction":
+			factions = append(factions, ref.ownerID)
+		case "agent":
+			agents = append(agents, ref.ownerID)
+		}
+	}
+	out := map[string]string{}
+	if len(players)+len(factions)+len(agents) == 0 {
+		return out, nil
+	}
+	rows, err := db.Query(ownerNamesSelectSQL, pqStringArray(players), pqStringArray(factions), pqStringArray(agents))
+	if err != nil {
+		return nil, fmt.Errorf("failed to load owner names: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var ownerType, ownerID, name string
+		if err := rows.Scan(&ownerType, &ownerID, &name); err != nil {
+			return nil, fmt.Errorf("failed to scan owner name: %w", err)
+		}
+		out[ownerType+"|"+ownerID] = name
+	}
+	return out, rows.Err()
 }
 
 // syncSettlements — owner-проход «производство → потребность → население» по
@@ -550,9 +627,14 @@ func (r *PlanetRepository) attachFactionsAndBuildings(planets []models.Planet) e
 		return fmt.Errorf("factions iteration error: %w", err)
 	}
 
+	// Строения: имя типа — LEFT JOIN producer_types (у столиц producer_type_id
+	// NULL → type_name пусто, метка «не производит»); владелец резолвится
+	// пакетно ниже (спека 2026-09-24-постройка-структур §10.3).
 	brows, err := r.db.Query(`
-		SELECT id, planet_id, building_type, owner_type, owner_id
-		FROM buildings WHERE planet_id = ANY($1) ORDER BY building_type ASC, id ASC
+		SELECT b.id, b.planet_id, b.building_type, b.owner_type, b.owner_id, b.producer_type_id, pt.name
+		FROM buildings b
+		LEFT JOIN producer_types pt ON pt.id = b.producer_type_id
+		WHERE b.planet_id = ANY($1) ORDER BY b.building_type ASC, b.id ASC
 	`, pqStringArray(ids))
 	if err != nil {
 		return fmt.Errorf("failed to load buildings: %w", err)
@@ -561,14 +643,50 @@ func (r *PlanetRepository) attachFactionsAndBuildings(planets []models.Planet) e
 	for brows.Next() {
 		var b models.PlanetBuilding
 		var planetID string
-		if err := brows.Scan(&b.ID, &planetID, &b.BuildingType, &b.OwnerType, &b.OwnerID); err != nil {
+		var producerTypeID sql.NullInt64
+		var typeName sql.NullString
+		if err := brows.Scan(&b.ID, &planetID, &b.BuildingType, &b.OwnerType, &b.OwnerID,
+			&producerTypeID, &typeName); err != nil {
 			return fmt.Errorf("failed to scan building: %w", err)
 		}
+		if producerTypeID.Valid {
+			id := producerTypeID.Int64
+			b.ProducerTypeID = &id
+		}
+		b.TypeName = typeName.String
 		if i, ok := index[planetID]; ok {
 			planets[i].Buildings = append(planets[i].Buildings, b)
 		}
 	}
-	return brows.Err()
+	if err := brows.Err(); err != nil {
+		return err
+	}
+
+	// Пакетный резолв имён владельцев строений (одна выборка на пачку).
+	refs := make([]ownerRef, 0)
+	for i := range planets {
+		for j := range planets[i].Buildings {
+			if planets[i].Buildings[j].OwnerID != "" {
+				refs = append(refs, ownerRef{
+					ownerType: planets[i].Buildings[j].OwnerType,
+					ownerID:   planets[i].Buildings[j].OwnerID,
+				})
+			}
+		}
+	}
+	names, err := resolveOwnerNames(r.db, refs)
+	if err != nil {
+		return err
+	}
+	for i := range planets {
+		for j := range planets[i].Buildings {
+			b := &planets[i].Buildings[j]
+			if b.OwnerID != "" {
+				b.OwnerName = names[b.OwnerType+"|"+b.OwnerID]
+			}
+		}
+	}
+	return nil
 }
 
 // attachDeposits — подтягивает залежи планет системы (спека 2026-09-22-

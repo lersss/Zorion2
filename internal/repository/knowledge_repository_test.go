@@ -288,8 +288,8 @@ func TestFixatePresenceWritesSnapshot(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id", "settlement_type_id", "name", "eat", "effects"}))
 	mock.ExpectQuery(`FROM factions WHERE homeworld_id = ANY\(\$1\)`).WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "color", "description", "homeworld_id"}))
-	mock.ExpectQuery(`FROM buildings WHERE planet_id = ANY\(\$1\)`).WithArgs(sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "planet_id", "building_type", "owner_type", "owner_id"}))
+	mock.ExpectQuery(`FROM buildings b[\s\S]*WHERE b\.planet_id = ANY\(\$1\)`).WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "planet_id", "building_type", "owner_type", "owner_id", "producer_type_id", "name"}))
 
 	captured := &captureArg{}
 	mock.ExpectExec(`INSERT INTO player_planet_knowledge.*DO UPDATE SET data = player_planet_knowledge\.data \|\| EXCLUDED\.data`).

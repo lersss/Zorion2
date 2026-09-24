@@ -24,10 +24,12 @@ func expectEmptyFactionsBuildings(mock sqlmock.Sqlmock) {
 	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows(
 		[]string{"id", "name", "type", "color", "description", "homeworld_id"}))
 	mock.ExpectQuery(`
-		SELECT id, planet_id, building_type, owner_type, owner_id
-		FROM buildings WHERE planet_id = ANY($1) ORDER BY building_type ASC, id ASC
+		SELECT b.id, b.planet_id, b.building_type, b.owner_type, b.owner_id, b.producer_type_id, pt.name
+		FROM buildings b
+		LEFT JOIN producer_types pt ON pt.id = b.producer_type_id
+		WHERE b.planet_id = ANY($1) ORDER BY b.building_type ASC, b.id ASC
 	`).WithArgs(sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows(
-		[]string{"id", "planet_id", "building_type", "owner_type", "owner_id"}))
+		[]string{"id", "planet_id", "building_type", "owner_type", "owner_id", "producer_type_id", "name"}))
 }
 
 // expectEmptyDeposits — ожидание attachDeposits (пустая выборка залежей).
@@ -48,10 +50,16 @@ func TestAttachFactionsAndBuildings(t *testing.T) {
 	mock.ExpectQuery(`FROM factions WHERE homeworld_id = ANY\(\$1\) ORDER BY name ASC`).
 		WithArgs(sqlmock.AnyArg()).WillReturnRows(factionRows)
 
-	buildingRows := sqlmock.NewRows([]string{"id", "planet_id", "building_type", "owner_type", "owner_id"}).
-		AddRow("b1", "p1", "capital", "faction", "f1")
-	mock.ExpectQuery(`FROM buildings WHERE planet_id = ANY\(\$1\) ORDER BY building_type ASC, id ASC`).
+	buildingRows := sqlmock.NewRows([]string{"id", "planet_id", "building_type", "owner_type", "owner_id", "producer_type_id", "name"}).
+		AddRow("b1", "p1", "capital", "faction", "f1", nil, nil)
+	mock.ExpectQuery(`FROM buildings b[\s\S]*LEFT JOIN producer_types pt ON pt\.id = b\.producer_type_id[\s\S]*WHERE b\.planet_id = ANY\(\$1\) ORDER BY b\.building_type ASC, b\.id ASC`).
 		WithArgs(sqlmock.AnyArg()).WillReturnRows(buildingRows)
+
+	// Пакетный резолв имени владельца (faction f1 → «Аквилонский Синдикат»).
+	mock.ExpectQuery(`SELECT 'player', id::text, username FROM users WHERE id::text = ANY\(\$1\)[\s\S]*SELECT 'faction'[\s\S]*SELECT 'agent'`).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"type", "id", "name"}).
+			AddRow("faction", "f1", "Аквилонский Синдикат"))
 
 	// Три планеты, выборка — одна на систему (= ANY($1)), не по одной планете.
 	planets := []models.Planet{{ID: "p1"}, {ID: "p2"}, {ID: "p3"}}
@@ -64,6 +72,9 @@ func TestAttachFactionsAndBuildings(t *testing.T) {
 	assert.Equal(t, "capital", planets[0].Buildings[0].BuildingType, "столица фракции")
 	assert.Equal(t, "faction", planets[0].Buildings[0].OwnerType)
 	assert.Equal(t, "f1", planets[0].Buildings[0].OwnerID)
+	assert.Nil(t, planets[0].Buildings[0].ProducerTypeID, "у столицы producer_type_id = NULL (не производит)")
+	assert.Empty(t, planets[0].Buildings[0].TypeName)
+	assert.Equal(t, "Аквилонский Синдикат", planets[0].Buildings[0].OwnerName, "имя владельца резолвится")
 
 	require.Len(t, planets[1].Factions, 1)
 	assert.Equal(t, "Дом Кхари", planets[1].Factions[0].Name)

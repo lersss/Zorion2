@@ -210,7 +210,11 @@ type snapshotSettlement struct {
 	RaceName   string           `json:"race_name"`
 	Population int              `json:"population"`
 	Stability  int              `json:"stability"`
-	Branches   []snapshotBranch `json:"branches"`
+	// OwnerName — владелец поселения, замороженный в снимке (спека
+	// 2026-09-24-постройка-структур §10.3, Г2): иначе игрок в snapshot увидел
+	// бы поселение без владельца. Живой резолв в снимок не подставляется.
+	OwnerName string           `json:"owner_name"`
+	Branches  []snapshotBranch `json:"branches"`
 }
 
 // snapshotBranch — ветка в снимке: рецепт (id/имя/сложность), выход и
@@ -278,6 +282,7 @@ func buildPresenceSnapshot(p *models.Planet, source string, at time.Time) presen
 			RaceName:   s.RaceName,
 			Population: s.Population,
 			Stability:  s.Stability,
+			OwnerName:  s.OwnerName,
 			Branches:   make([]snapshotBranch, 0, len(s.Branches)),
 		}
 		for j := range s.Branches {

@@ -67,7 +67,7 @@ func TestMortalityPreviewComfortablePlanetHasZeroLambda(t *testing.T) {
 	)
 	mock.ExpectQuery(settlementSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(
 		sqlmock.NewRows(settlementSelectCols()).
-			AddRow("s1", "p1", 1_000_000, float64(1_000_000), 60, now, now, now, nil, nil, nil, nil, nil),
+			AddRow("s1", "p1", 1_000_000, float64(1_000_000), 60, now, now, now, nil, nil, nil, nil, nil, nil, nil),
 	)
 	// Owner-проход: веток у поселения s1 нет — путь «в памяти», до чтения лога.
 	expectOwnerPassEmpty(mock)

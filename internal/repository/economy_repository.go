@@ -131,7 +131,7 @@ func (r *EconomyRepository) GetSettlementsByPlanetIDs(planetIDs []string) (map[s
 
 	query := `SELECT s.id, s.planet_id, s.population, s.population_exact, s.stability, s.computed_at,
 	                 s.created_at, s.updated_at, s.race_id, s.settlement_type_id, pt.name,
-	                 pt.params->'eat', pt.params->'effects'
+	                 pt.params->'eat', pt.params->'effects', s.owner_type, s.owner_id
 	          FROM settlements s
 	          LEFT JOIN producer_types pt ON pt.id = s.settlement_type_id
 	          WHERE s.planet_id = ANY($1) ORDER BY s.created_at ASC`
@@ -146,18 +146,24 @@ func (r *EconomyRepository) GetSettlementsByPlanetIDs(planetIDs []string) (map[s
 		var s models.Settlement
 		var raceID, typeName sql.NullString
 		var typeID sql.NullInt64
+		var ownerType, ownerID sql.NullString
 		var eatRaw, effectsRaw []byte
 		if err := rows.Scan(
 			&s.ID, &s.PlanetID, &s.Population,
 			&s.PopulationExact, &s.Stability, &s.ComputedAt,
 			&s.CreatedAt, &s.UpdatedAt, &raceID,
 			&typeID, &typeName, &eatRaw, &effectsRaw,
+			&ownerType, &ownerID,
 		); err != nil {
 			return nil, err
 		}
 		s.RaceID = raceID.String
 		s.SettlementTypeID = typeID.Int64
 		s.TypeName = typeName.String
+		// Владелец nullable (Г1): скан через sql.NullString — прямое Scan в
+		// string на NULL падает; пустой владелец штатен (§10.3).
+		s.OwnerType = ownerType.String
+		s.OwnerID = ownerID.String
 		if len(eatRaw) > 0 {
 			var eat map[string]float64
 			if err := json.Unmarshal(eatRaw, &eat); err != nil {

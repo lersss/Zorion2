@@ -25,6 +25,16 @@ const raceCandidatesPattern = `SELECT s\.race_id, s\.planet_id, s\.population, p
 // (идемпотентность: фракция с таким race_id пропускается).
 const existingRacesPattern = `SELECT race_id FROM factions WHERE race_id IS NOT NULL`
 
+// generationStartPattern — Select метки начала генерации поселений (проход
+// владельцев, спека 2026-09-24-постройка-структур §3.4).
+const generationStartPattern = `SELECT payload FROM generation_config WHERE key = \$1`
+
+// expectNoGenerationStart — метки генерации нет: проход владельцев не
+// выполняется (Г1), UPDATE settlements не ожидается.
+func expectNoGenerationStart(mock sqlmock.Sqlmock) {
+	mock.ExpectQuery(generationStartPattern).WillReturnRows(sqlmock.NewRows([]string{"payload"}))
+}
+
 // raceCandidateRows — пустая выборка кандидатов (колонки как в запросе).
 func raceCandidateRows() *sqlmock.Rows {
 	return sqlmock.NewRows([]string{"race_id", "planet_id", "population", "name", "data"})
@@ -109,6 +119,7 @@ func TestGenerateFactionsOneFactionPerRace(t *testing.T) {
 	expectFactionInsert(mock, "humans", "humans", "p2")
 	expectFactionInsert(mock, "saltfolk", "saltfolk", "p3")
 	mock.ExpectExec(capitalsSQLPattern).WillReturnResult(sqlmock.NewResult(0, 2))
+	expectNoGenerationStart(mock)
 
 	factions, capitals, err := NewGenerator(db, 7).GenerateFactions()
 	require.NoError(t, err)
@@ -131,6 +142,7 @@ func TestGenerateFactionsHomeworldTiebreak(t *testing.T) {
 	mock.ExpectQuery(existingRacesPattern).WillReturnRows(sqlmock.NewRows([]string{"race_id"}))
 	expectFactionInsert(mock, "humans", "humans", "p1")
 	mock.ExpectExec(capitalsSQLPattern).WillReturnResult(sqlmock.NewResult(0, 1))
+	expectNoGenerationStart(mock)
 
 	factions, capitals, err := NewGenerator(db, 7).GenerateFactions()
 	require.NoError(t, err)
@@ -152,6 +164,7 @@ func TestGenerateFactionsIdempotent(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"race_id"}).AddRow("humans"))
 	// INSERT фракции не ожидается: есть фракция с race_id = humans.
 	mock.ExpectExec(capitalsSQLPattern).WillReturnResult(sqlmock.NewResult(0, 0))
+	expectNoGenerationStart(mock)
 
 	factions, capitals, err := NewGenerator(db, 7).GenerateFactions()
 	require.NoError(t, err)
@@ -173,6 +186,7 @@ func TestGenerateFactionsOnlySettledRaces(t *testing.T) {
 	mock.ExpectQuery(existingRacesPattern).WillReturnRows(sqlmock.NewRows([]string{"race_id"}))
 	expectFactionInsert(mock, "humans", "humans", "p1")
 	mock.ExpectExec(capitalsSQLPattern).WillReturnResult(sqlmock.NewResult(0, 1))
+	expectNoGenerationStart(mock)
 
 	factions, capitals, err := NewGenerator(db, 7).GenerateFactions()
 	require.NoError(t, err)
@@ -192,6 +206,7 @@ func TestGenerateFactionsNoRacesStillEnsuresCapitals(t *testing.T) {
 		WillReturnRows(raceCandidateRows())
 	mock.ExpectQuery(existingRacesPattern).WillReturnRows(sqlmock.NewRows([]string{"race_id"}))
 	mock.ExpectExec(capitalsSQLPattern).WillReturnResult(sqlmock.NewResult(0, 0))
+	expectNoGenerationStart(mock)
 
 	factions, capitals, err := NewGenerator(db, 7).GenerateFactions()
 	require.NoError(t, err)

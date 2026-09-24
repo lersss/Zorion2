@@ -22,6 +22,13 @@ const DefaultSettlementTypeIDKey = "default_settlement_type_id"
 // repository.SettlementArithmeticVisibleToPlayer.
 const SettlementArithmeticVisibleKey = "settlement_arithmetic_visible_to_player"
 
+// GenerationStartedAtKey — ключ generation_config с меткой начала генерации
+// поселений (payload — JSON-строка RFC3339 UTC). Пишет GeneratePlanets;
+// читает проход владельцев новых поселений (faction.EnsureSettlementOwners,
+// спека 2026-09-24-постройка-структур §3.4). Нет ключа → проход не выполняется
+// (Г1: легаси-поселения остаются без владельца).
+const GenerationStartedAtKey = "generation_started_at"
+
 // GenerationConfig — строка реестра конфигов генерации (таблица generation_config,
 // спека 99.2.3 §3). Паттерн «JSON-дефолты в коде + override в БД» — как матрица
 // совместимости. Payload — произвольный JSON по ключу.

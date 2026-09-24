@@ -3,12 +3,14 @@ package faction
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand"
 	"sort"
 	"time"
 
 	"github.com/google/uuid"
+	"zorion/internal/models"
 	"zorion/internal/races"
 )
 
@@ -103,6 +105,19 @@ func (g *Generator) GenerateFactions() (int, int, error) {
 	if err != nil {
 		return created, 0, err
 	}
+	// Владельцы новых поселений — фракция их расы (спека
+	// 2026-09-24-постройка-структур §3.4, Р8/Г1). Метки начала генерации нет —
+	// проход не выполняется: легаси-поселения остаются без владельца. Реальный
+	// сбой чтения метки — ошибка, а не тихий no-op (иначе сбой гаснет молча).
+	since, hasMarker, err := g.generationStart()
+	if err != nil {
+		return created, capitals, err
+	}
+	if hasMarker {
+		if _, err := g.EnsureSettlementOwners(since); err != nil {
+			return created, capitals, err
+		}
+	}
 	return created, capitals, nil
 }
 
@@ -167,6 +182,63 @@ func (g *Generator) EnsureCapitals() (int, error) {
 		return 0, err
 	}
 	return int(n), nil
+}
+
+// EnsureSettlementOwners — идемпотентный проход «владелец нового поселения =
+// фракция его расы» (спека 2026-09-24-постройка-структур §3.4, Р8/Г1).
+// Скоуп — ТОЛЬКО поселения текущей генерации (created_at >= since); легаси
+// (created_at < since) остаются без владельца (решение создателя Г1).
+// Нулевой since («метки нет») → UPDATE не выполняется: легаси-владельцы не
+// появляются. Поселения без расы (race_id NULL/пусто) фракции не получают —
+// фракция создаётся по расе. Повторный прогон добивает недостающее
+// (owner_id IS NULL) и идемпотентен. Возвращает число обновлённых поселений.
+func (g *Generator) EnsureSettlementOwners(since time.Time) (int, error) {
+	if since.IsZero() {
+		return 0, nil
+	}
+	res, err := g.db.Exec(`
+		UPDATE settlements s
+		SET owner_type = 'faction', owner_id = f.id, updated_at = NOW()
+		FROM factions f
+		WHERE s.owner_id IS NULL
+		  AND s.created_at >= $1
+		  AND s.race_id IS NOT NULL AND s.race_id <> ''
+		  AND f.race_id = s.race_id`, since)
+	if err != nil {
+		return 0, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return int(n), nil
+}
+
+// generationStart — метка начала текущей генерации поселений из
+// generation_config (ключ models.GenerationStartedAtKey; payload — RFC3339
+// UTC). Нет ключа (sql.ErrNoRows) — это норма: ok=false, проход владельцев не
+// выполняется (Г1). Реальный сбой БД или нечитаемая метка — ошибка, чтобы
+// проход не гас молча. Пишет метку GeneratePlanets/GenerateRaceSettlements.
+func (g *Generator) generationStart() (time.Time, bool, error) {
+	var raw []byte
+	err := g.db.QueryRow(
+		`SELECT payload FROM generation_config WHERE key = $1`, models.GenerationStartedAtKey,
+	).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return time.Time{}, false, nil
+	}
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return time.Time{}, false, fmt.Errorf("generation_started_at: %w", err)
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("generation_started_at: %w", err)
+	}
+	return t, true, nil
 }
 
 func (g *Generator) generateFaction(raceID, planetID, planetName string, planetData map[string]interface{}) *Faction {

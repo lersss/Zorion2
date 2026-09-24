@@ -32,7 +32,7 @@ func TestGetPlanetByID(t *testing.T) {
 	// модели возвращает p0 без убыли, и проверка остаётся точной.
 	freshCheckpoint := now.Add(time.Minute)
 	settlementRows := sqlmock.NewRows(settlementCols()).
-		AddRow("s1", "p1", 1_000_000, float64(1_000_000), 60, freshCheckpoint, now, now, nil, int64(ownerTestTypeID), nil, nil, nil)
+		AddRow("s1", "p1", 1_000_000, float64(1_000_000), 60, freshCheckpoint, now, now, nil, int64(ownerTestTypeID), nil, nil, nil, nil, nil)
 	mock.ExpectQuery(settlementsQuery).WithArgs(sqlmock.AnyArg()).WillReturnRows(settlementRows)
 
 	// Owner-проход: поселение есть, веток нет, Δt ≤ 0 — путь «в памяти», без записи.

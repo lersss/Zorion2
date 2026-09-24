@@ -12,14 +12,14 @@ import "github.com/DATA-DOG/go-sqlmock"
 const settlementSelectSQL = `
 	SELECT s.id, s.planet_id, s.population, s.population_exact, s.stability, s.computed_at,
 	                 s.created_at, s.updated_at, s.race_id, s.settlement_type_id, pt.name,
-	                 pt.params->'eat', pt.params->'effects'
+	                 pt.params->'eat', pt.params->'effects', s.owner_type, s.owner_id
 	          FROM settlements s
 	          LEFT JOIN producer_types pt ON pt.id = s.settlement_type_id
 	          WHERE s.planet_id = ANY($1) ORDER BY s.created_at ASC`
 
-// settlementSelectCols — колонки выборки поселений (13 штук).
+// settlementSelectCols — колонки выборки поселений (15 штук: +владелец).
 func settlementSelectCols() []string {
-	return []string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id", "settlement_type_id", "name", "eat", "effects"}
+	return []string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id", "settlement_type_id", "name", "eat", "effects", "owner_type", "owner_id"}
 }
 
 // expectOwnerPassEmpty — owner-проход без веток (путь «в памяти»): каталог

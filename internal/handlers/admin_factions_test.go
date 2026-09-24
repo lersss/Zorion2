@@ -28,9 +28,9 @@ func expectEmptyFactionsBuildings(mock sqlmock.Sqlmock) {
 	mock.ExpectQuery(`FROM factions WHERE homeworld_id = ANY\(\$1\) ORDER BY name ASC`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "color", "description", "homeworld_id"}))
-	mock.ExpectQuery(`FROM buildings WHERE planet_id = ANY\(\$1\) ORDER BY building_type ASC, id ASC`).
+	mock.ExpectQuery(`FROM buildings b[\s\S]*WHERE b\.planet_id = ANY\(\$1\) ORDER BY b\.building_type ASC, b\.id ASC`).
 		WithArgs(sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "planet_id", "building_type", "owner_type", "owner_id"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "planet_id", "building_type", "owner_type", "owner_id", "producer_type_id", "name"}))
 }
 
 // expectEmptyFactionsBuildingsExact — то же для моков с QueryMatcherEqual
@@ -42,10 +42,12 @@ func expectEmptyFactionsBuildingsExact(mock sqlmock.Sqlmock) {
 	`).WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "type", "color", "description", "homeworld_id"}))
 	mock.ExpectQuery(`
-		SELECT id, planet_id, building_type, owner_type, owner_id
-		FROM buildings WHERE planet_id = ANY($1) ORDER BY building_type ASC, id ASC
+		SELECT b.id, b.planet_id, b.building_type, b.owner_type, b.owner_id, b.producer_type_id, pt.name
+		FROM buildings b
+		LEFT JOIN producer_types pt ON pt.id = b.producer_type_id
+		WHERE b.planet_id = ANY($1) ORDER BY b.building_type ASC, b.id ASC
 	`).WithArgs(sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "planet_id", "building_type", "owner_type", "owner_id"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "planet_id", "building_type", "owner_type", "owner_id", "producer_type_id", "name"}))
 }
 
 // expectEmptyDeposits — ожидание attachDeposits (пустая выборка залежей,
@@ -179,6 +181,9 @@ func TestGenerateFactionsRefreshesRacePool(t *testing.T) {
 	// EnsureCapitals.
 	mock.ExpectExec(`INSERT INTO buildings \(planet_id, building_type, owner_type, owner_id\)`).
 		WillReturnResult(sqlmock.NewResult(1, 1))
+	// Метка начала генерации (проход владельцев): нет ключа → UPDATE не идёт.
+	mock.ExpectQuery(`SELECT payload FROM generation_config WHERE key = \$1`).
+		WillReturnRows(sqlmock.NewRows([]string{"payload"}))
 	// Пул «раса → родной мир» — ТОЛЬКО здесь: после записи фракций, не раньше.
 	mock.ExpectQuery(`SELECT f\.race_id, p\.world_id\s+FROM factions f\s+JOIN planets p ON p\.id = f\.homeworld_id`).
 		WillReturnRows(sqlmock.NewRows([]string{"race_id", "world_id"}).AddRow("humans", "w1"))

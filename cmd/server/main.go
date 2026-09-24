@@ -496,7 +496,11 @@ func main() {
 	http.HandleFunc("/admin/generate-factions", auth.AdminAuth(adminHandlers.GenerateFactions))
 	// Залежи поверхности (спека 2026-09-22-поселение-добыча-сырья-биома-
 	// ленивый-буфер §6): админ-песочница «добавить залежь вручную».
-	http.HandleFunc("/admin/planets/", auth.AdminAuth(adminHandlers.AddDeposit))
+	// Диспетчер /admin/planets/{id}/{action} (спека 2026-09-24-постройка-
+	// структур §5): …/deposits — AddDeposit, …/build-options, …/structures.
+	http.HandleFunc("/admin/planets/", auth.AdminAuth(adminHandlers.HandlePlanetRoute))
+	// Поиск владельца структуры (игрок/агент) для формы «Построить» (§11).
+	http.HandleFunc("/admin/owner-candidates", auth.AdminAuth(adminHandlers.OwnerCandidates))
 	// Ветки поселений (спека 2026-09-22-поселение-ветка-буферы-переработка
 	// §5): админ-ручки «создать ветку» и «добавить ресурсы во входной буфер».
 	// Диспетчер по суффиксу (эффекты снабжения §6 F9): …/branches — AddBranch,

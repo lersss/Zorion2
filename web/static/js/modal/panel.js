@@ -2,6 +2,8 @@
 import { modalState } from './state.js';
 import { drawSystem } from './modal_render.js';
 import { renderTabContent, renderSatelliteCard, knowledgeMode, marketTabVisible } from './tabs.js';
+import { structuresTabVisible } from './structures.js';
+import { buildButtonHtml, buildPanelContainerHtml, initBuildPanel } from './build.js';
 import { planetPopulationAt } from './extrapolate.js';
 import { escapeHtml } from './contracts.js';
 
@@ -486,16 +488,19 @@ function renderCard(panel, planets, selectedIndex) {
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
             <h3 style="margin: 0; font-size: 1.2rem; color: #aaa;">${capitalize(planet.name) || `Планета #${selectedIndex + 1}`}${planet.population ? ` (<span id="planet-pop-num">${formatPopulation(planetPopulationAt(planet, Date.now()))}</span>${snapshotMode ? '' : populationTrendArrow(planet)})` : ''}${orbitBadge}</h3>
             <div style="display:flex; gap:8px;">
+                ${buildButtonHtml()}
                 <button id="refresh-planet-btn" title="Пересчитать население от среды и перезагрузить данные" style="background: #2a2a4a; border: none; color: #aaa; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 0.95rem;">🔄 Обновить</button>
                 <button id="back-to-list-btn" style="background: #2a2a4a; border: none; color: #aaa; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 0.95rem;">← Назад</button>
             </div>
         </div>
         ${shipsLine}
+        ${buildPanelContainerHtml()}
         <div style="display: flex; gap: 8px; margin-bottom: 12px; border-bottom: 1px solid #333; padding-bottom: 8px;">
             <button class="tab-btn" data-tab="general" style="background: none; border: none; color: #888; padding: 4px 12px; cursor: pointer; font-size: 0.95rem; border-radius: 4px;">Общее</button>
             <button class="tab-btn" data-tab="resources" style="background: none; border: none; color: #888; padding: 4px 12px; cursor: pointer; font-size: 0.95rem; border-radius: 4px;">Ресурсы</button>
             <button class="tab-btn" data-tab="deposits" style="background: none; border: none; color: #888; padding: 4px 12px; cursor: pointer; font-size: 0.95rem; border-radius: 4px;">Залежи</button>
             <button class="tab-btn" data-tab="settlements" style="background: none; border: none; color: #888; padding: 4px 12px; cursor: pointer; font-size: 0.95rem; border-radius: 4px;">Поселения</button>
+            ${structuresTabVisible(planet) ? `<button class="tab-btn" data-tab="structures" style="background: none; border: none; color: #888; padding: 4px 12px; cursor: pointer; font-size: 0.95rem; border-radius: 4px;">Строения</button>` : ''}
             <button class="tab-btn" data-tab="factions" style="background: none; border: none; color: #888; padding: 4px 12px; cursor: pointer; font-size: 0.95rem; border-radius: 4px;">Фракции</button>
             <button class="tab-btn" data-tab="contracts" style="background: none; border: none; color: #888; padding: 4px 12px; cursor: pointer; font-size: 0.95rem; border-radius: 4px;">Задания/Контракты</button>
             ${marketTabVisible(planet) ? `<button class="tab-btn" data-tab="market" style="background: none; border: none; color: #888; padding: 4px 12px; cursor: pointer; font-size: 0.95rem; border-radius: 4px;">Магазин</button>` : ''}
@@ -511,6 +516,9 @@ function renderCard(panel, planets, selectedIndex) {
         // поселений пропало, спека 2026-09-24 §10) — не оставляем игрока на
         // несуществующей вкладке.
         if (tab === 'market' && !marketTabVisible(planet)) tab = 'general';
+        // Вкладка «Строения» исчезает без блока buildings (none у player) —
+        // не оставляем игрока на несуществующей вкладке.
+        if (tab === 'structures' && !structuresTabVisible(planet)) tab = 'general';
         modalState.activeTab = tab;
         tabBtns.forEach(btn => {
             btn.style.color = btn.dataset.tab === tab ? '#fff' : '#888';
@@ -562,6 +570,12 @@ function renderCard(panel, planets, selectedIndex) {
             import('./index.js').then(mod => mod.refreshPlanets());
         });
     }
+
+    // Панель «Построить структуру» (админ-инструмент, спека 2026-09-24):
+    // кнопка в шапке + форма между шапкой и вкладками. После успеха
+    // initBuildPanel обновляет planet и переключает вкладку через switchTab
+    // (панель остаётся открытой).
+    initBuildPanel(planet, panel, switchTab);
 
     syncAutoRefreshTimer();
 

@@ -18,7 +18,7 @@ import (
 const settlementsQuery = `
 	SELECT s.id, s.planet_id, s.population, s.population_exact, s.stability, s.computed_at,
 	                 s.created_at, s.updated_at, s.race_id, s.settlement_type_id, pt.name,
-	                 pt.params->'eat', pt.params->'effects'
+	                 pt.params->'eat', pt.params->'effects', s.owner_type, s.owner_id
 	          FROM settlements s
 	          LEFT JOIN producer_types pt ON pt.id = s.settlement_type_id
 	          WHERE s.planet_id = ANY($1) ORDER BY s.created_at ASC`
@@ -36,7 +36,7 @@ const settlementLogQuery = `
 
 // settlementCols — колонки выборки поселений.
 func settlementCols() []string {
-	return []string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id", "settlement_type_id", "name", "eat", "effects"}
+	return []string{"id", "planet_id", "population", "population_exact", "stability", "computed_at", "created_at", "updated_at", "race_id", "settlement_type_id", "name", "eat", "effects", "owner_type", "owner_id"}
 }
 
 // expectEmptySettlementLog — лог поселений пуст.
@@ -65,8 +65,8 @@ func TestGetPlanetsByWorldIDWithSettlements(t *testing.T) {
 	`).WithArgs("w1").WillReturnRows(planetRows)
 
 	settlementRows := sqlmock.NewRows(settlementCols()).
-		AddRow("s1", "p1", 5_000_000, float64(5_000_000), 60, now, now, now, nil, int64(ownerTestTypeID), nil, nil, nil).
-		AddRow("s2", "p1", 8_000_000, float64(8_000_000), 70, now, now, now, nil, int64(ownerTestTypeID), nil, nil, nil)
+		AddRow("s1", "p1", 5_000_000, float64(5_000_000), 60, now, now, now, nil, int64(ownerTestTypeID), nil, nil, nil, nil, nil).
+		AddRow("s2", "p1", 8_000_000, float64(8_000_000), 70, now, now, now, nil, int64(ownerTestTypeID), nil, nil, nil, nil, nil)
 	mock.ExpectQuery(settlementsQuery).WithArgs(sqlmock.AnyArg()).WillReturnRows(settlementRows)
 
 	// Owner-проход: у поселений веток нет и computed_at = now (Δt < порога) —
@@ -148,9 +148,9 @@ func TestGetSettlementsByPlanetIDs(t *testing.T) {
 
 	now := time.Now()
 	rows := sqlmock.NewRows(settlementCols()).
-		AddRow("s1", "p1", 100, float64(100), 50, now, now, now, nil, nil, nil, nil, nil).
-		AddRow("s2", "p2", 200, float64(200), 60, now, now, now, "humans", nil, nil, nil, nil).
-		AddRow("s3", "p1", 300, float64(300), 70, now, now, now, nil, nil, nil, nil, nil)
+		AddRow("s1", "p1", 100, float64(100), 50, now, now, now, nil, nil, nil, nil, nil, nil, nil).
+		AddRow("s2", "p2", 200, float64(200), 60, now, now, now, "humans", nil, nil, nil, nil, nil, nil).
+		AddRow("s3", "p1", 300, float64(300), 70, now, now, now, nil, nil, nil, nil, nil, nil, nil)
 
 	mock.ExpectQuery(settlementsQuery).WithArgs(sqlmock.AnyArg()).WillReturnRows(rows)
 
@@ -197,8 +197,8 @@ func TestGetPlanetsByWorldIDRaceName(t *testing.T) {
 	`).WithArgs("w1").WillReturnRows(planetRows)
 
 	settlementRows := sqlmock.NewRows(settlementCols()).
-		AddRow("s1", "p1", 5_000_000, float64(5_000_000), 60, now, now, now, nil, int64(ownerTestTypeID), nil, nil, nil).
-		AddRow("s2", "p1", 8_000_000, float64(8_000_000), 70, now, now, now, "sulfur_nests", int64(ownerTestTypeID), nil, nil, nil)
+		AddRow("s1", "p1", 5_000_000, float64(5_000_000), 60, now, now, now, nil, int64(ownerTestTypeID), nil, nil, nil, nil, nil).
+		AddRow("s2", "p1", 8_000_000, float64(8_000_000), 70, now, now, now, "sulfur_nests", int64(ownerTestTypeID), nil, nil, nil, nil, nil)
 	mock.ExpectQuery(settlementsQuery).WithArgs(sqlmock.AnyArg()).WillReturnRows(settlementRows)
 
 	expectOwnerPassNoBranches(mock, nil)
@@ -243,7 +243,7 @@ func TestAttachSettlementsOwnerPass(t *testing.T) {
 
 	settlementRows := sqlmock.NewRows(settlementCols()).
 		AddRow("s1", "p1", 1_000_000_000, float64(1_000_000_000), 85, computedAt, computedAt, computedAt, nil, int64(148), "Обычное поселение",
-			[]byte(`{"пища": 600}`), []byte(`{"пища": "голод"}`))
+			[]byte(`{"пища": 600}`), []byte(`{"пища": "голод"}`), nil, nil)
 	mock.ExpectQuery(settlementsQuery).WithArgs(sqlmock.AnyArg()).WillReturnRows(settlementRows)
 
 	expectOwnerPassWithBranches(mock, ownerBranchRows(computedAt, "пища"), ownerComponentRows(), ownerBufferRows(), nil)

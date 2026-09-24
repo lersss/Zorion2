@@ -330,7 +330,7 @@ export function effectsBlockHtml(effects, isAdmin, settlementID) {
 
 // EFFECT_IMPACT_LABELS — словарь подписей вида воздействия (effect_types.impact,
 // §5.4): единственное место перевода ключа в человекочитаемый текст; неизвестный
-// ключ показывается как есть (тот же паттерн, что BUILDING_TYPE_LABELS в tabs.js).
+// ключ показывается как есть (тот же паттерн, что BUILDING_TYPE_LABELS в structures.js).
 const EFFECT_IMPACT_LABELS = {
     population_rate: 'влияет на население'
 };

@@ -200,7 +200,7 @@ func arithmeticPresenceHandlers(t *testing.T, settingPayload string) (*AdminHand
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows(settlementSelectCols()).
 			AddRow("s1", "p1", 876000000, 876000000.4, 69, nowT, nowT, nowT, "spark", int64(148), "Городок",
-				[]byte(`{"пища":600}`), []byte(`{"пища":"голод"}`)))
+				[]byte(`{"пища":600}`), []byte(`{"пища":"голод"}`), nil, nil))
 	expectEmptyFactionsBuildings(mock)
 	expectEmptyDeposits(mock)
 	expectModesWorld(mock, "w2")

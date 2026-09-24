@@ -554,6 +554,14 @@ func (h *AdminHandlers) GeneratePlanets(w http.ResponseWriter, r *http.Request) 
 		}
 		log.Printf("🗑️ GeneratePlanets: удалено старых планет: %d", oldCount)
 
+		// Метка начала генерации поселений (спека 2026-09-24-постройка-структур
+		// §3.4): проход владельцев (faction.EnsureSettlementOwners) берёт только
+		// поселения текущей генерации (created_at >= метки). Старые поселения
+		// удалены clearPlanets, поэтому всё созданное после метки — новое.
+		if err := writeGenerationStartedAt(h.db); err != nil {
+			log.Printf("❌ GeneratePlanets: generation_started_at: %v", err)
+		}
+
 		planetGen := planet.NewGenerator(h.db, 0)
 
 		// Средние числа планет и подкрутка под расу-дома из generation_config
@@ -590,6 +598,22 @@ func (h *AdminHandlers) GeneratePlanets(w http.ResponseWriter, r *http.Request) 
 
 	w.WriteHeader(http.StatusAccepted)
 	w.Write([]byte(`{"status":"started"}`))
+}
+
+// writeGenerationStartedAt — метка начала генерации поселений в
+// generation_config (спека 2026-09-24-постройка-структур §3.4). Время — БД
+// (clock_timestamp()), а не Go: settlements.created_at тоже пишется временем
+// БД, и расхождение часов приложения и сервера БД сместило бы метку так, что
+// проход владельцев (created_at >= since) молча ничего не нашёл бы. Upsert по
+// ключу: повторная генерация перезаписывает метку. Читает проход владельцев
+// (faction.EnsureSettlementOwners); нет ключа — проход не выполняется (Г1).
+func writeGenerationStartedAt(db *sql.DB) error {
+	_, err := db.Exec(`
+		INSERT INTO generation_config (key, payload, updated_at)
+		VALUES ($1, to_jsonb(to_char(clock_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')), NOW())
+		ON CONFLICT (key) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`,
+		models.GenerationStartedAtKey)
+	return err
 }
 
 // clearPlanets — удаляет все планеты и возвращает число удалённых.

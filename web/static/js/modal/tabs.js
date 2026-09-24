@@ -5,6 +5,7 @@ import { getPlanetTexture } from './textures.js';
 import { groupDeposits } from './deposits.js';
 import { branchesBlockHtml, effectsBlockHtml, stageRowHtml, settlementArithmeticHtml } from './branches.js';
 import { boardHtml, canPublishHere, publishFormHtml, escapeHtml } from './contracts.js';
+import { renderStructures, initStructures, buildingTypeLabel } from './structures.js';
 import { renderMarket, initMarket } from './market.js';
 import { notifyError, notifySuccess } from '../ui/toast.js';
 import { gameDate } from '../game_date.js';
@@ -688,6 +689,9 @@ function settlementCardHtml(s, i, mode) {
     const admin = isAdmin();
     const snapshotMode = mode === 'snapshot';
     const showEffects = admin || mode === 'presence';
+    // Владелец (Г2/§10.2): показывается игроку при presence/snapshot вместе с
+    // самим поселением; в scan/none карточки поселений нет вовсе, строки тоже.
+    const showOwner = admin || mode === 'presence' || mode === 'snapshot';
     return `
             <div style="margin: 6px 0; padding: 10px; background:#1a1a2e; border-radius:4px;">
                 <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -695,6 +699,7 @@ function settlementCardHtml(s, i, mode) {
                 </div>
                 <div style="color:#ccc; margin-top:6px;">
                     <div>Раса: <strong>${s.race_name || 'Люди'}</strong></div>
+                    ${showOwner ? `<div>Владелец: <strong>${escapeHtml(s.owner_name || 'NPC (без владельца)')}</strong></div>` : ''}
                     <div>Население: <strong id="pop-${s.id}">${formatNumber(populationAt(s, Date.now()))}</strong>${snapshotMode ? '' : settlementTrendArrow(s)}</div>
                     <div>Стабильность: <strong>${populationAt(s, Date.now()) === 0 ? '—' : (s.stability != null ? s.stability + '%' : '—')}</strong></div>
                     ${stageRowHtml(s)}
@@ -877,18 +882,8 @@ function initEffectsAdmin(planet, container) {
 }
 
 // ---------- ФРАКЦИИ (спека 2026-09-21-фабрики-релиз-2-столицы-фракций §4) ----------
-// BUILDING_TYPE_LABELS — словарь подписей типов строений: единственное место,
-// где ключ (buildings.building_type) превращается в человекочитаемое имя.
-// Неизвестный ключ показывается как есть (выдуманных имён не вводим, §6).
-const BUILDING_TYPE_LABELS = {
-    capital: 'Столица'
-};
-
-// buildingTypeLabel — подпись типа строения по ключу.
-function buildingTypeLabel(type) {
-    if (!type) return '—';
-    return BUILDING_TYPE_LABELS[type] || type;
-}
+// buildingTypeLabel — подпись типа строения (импорт из structures.js: типы
+// строений живут вкладкой «Строения», единственное место словаря).
 
 // factionCapitalHtml — инлайновый раскрывающийся блок деталей столицы
 // (клик по карточке фракции, §4.3): без новых окон и серверных вызовов.
@@ -1278,6 +1273,10 @@ export function renderTabContent(tab, planet, container) {
             initBranchesAdmin(planet, container);
             initEffectsAdmin(planet, container);
             initBuyReport(planet, container);
+            break;
+        case 'structures':
+            container.innerHTML = renderStructures(planet);
+            initStructures(planet, container);
             break;
         case 'factions':
             container.innerHTML = renderFactions(planet);

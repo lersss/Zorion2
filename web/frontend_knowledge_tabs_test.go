@@ -3,7 +3,9 @@
 // орбита-планеты-присутствие-и-снимок §5.1/§6.1/§6.2, этап Э4/T15–T17):
 // knowledgeMode/knowledgeStripHtml (живое/память/устарело/скан/нет),
 // renderSettlements (эффекты только в presence; в snapshot нет эффектов, лога и
-// стрелки тренда), управление «купить отчёт» только по can_buy_report, вкладка
+// стрелки тренда; владелец поселения виден игроку в presence/snapshot — Г2/§10.2
+// спеки 2026-09-24-постройка-структур-на-планете, NULL → «NPC (без владельца)»,
+// в scan/none карточки нет), управление «купить отчёт» только по can_buy_report, вкладка
 // «Фракции» — нейтральное пустое состояние. Паттерн — frontend_modal_sizes_test.go:
 // node исполняет модуль с минимальной заглушкой DOM (tabs.js тянет ui/toast.js).
 package web
@@ -102,7 +104,7 @@ state.modalState.role = 'player';
 
 // ---------- renderSettlements: присутствие — полная карточка ----------
 const settlement = {
-    id: 's1', race_name: 'Люди', population: 100, stability: 60, r_per_sec: 0.5,
+    id: 's1', race_name: 'Люди', owner_name: 'Аквилонский Синдикат', population: 100, stability: 60, r_per_sec: 0.5,
     branches: [{ id: 'b1', recipe_name: 'Пища', output: [{ good_id: 1, good_name: 'Еда', amount: 5 }] }],
     effects: [{ name: 'Голод', impact: 'population_rate', state: 'active' }],
     log: [{ occurred_at: '2026-09-23T14:05:00Z', cause: 'hunger' }]
@@ -111,6 +113,7 @@ const presPlanet = { id: 'p1', knowledge: { mode: 'presence' }, settlements: [se
 let html = tabs.renderSettlements(presPlanet);
 assert(html.includes('● Свежие данные'), 'presence: плашка живого');
 assert(html.includes('Раса:'), 'presence: карточка поселения');
+assert(html.includes('Владелец:') && html.includes('Аквилонский Синдикат'), 'presence: владелец виден игроку (Г2/§10.2)');
 assert(html.includes('Эффекты') && html.includes('Голод'), 'presence: эффекты игроку видны');
 assert(html.includes('влияет на население'), 'presence: подпись impact');
 assert(html.includes('действует'), 'presence: состояние active');
@@ -125,6 +128,7 @@ const snapPlanet = { id: 'p1', knowledge: { mode: 'snapshot', snapshot_at: '2026
 html = tabs.renderSettlements(snapPlanet);
 assert(html.includes('📷 Данные на 23.09.3026, 14:05'), 'snapshot: плашка памяти с датой');
 assert(html.includes('Раса:'), 'snapshot: карточка поселения');
+assert(html.includes('Владелец:') && html.includes('Аквилонский Синдикат'), 'snapshot: владелец из снимка виден игроку (Г2/§10.2)');
 assert(html.includes('Пища'), 'snapshot: ветки (замороженные) видны');
 assert(!html.includes('Эффекты'), 'snapshot: блока эффектов нет');
 assert(!html.includes('влияет на население'), 'snapshot: impact не показан');
@@ -138,8 +142,19 @@ const scanPlanet = { id: 'p1', knowledge: { mode: 'scan', scanned_at: '2026-09-2
 html = tabs.renderSettlements(scanPlanet);
 assert(html.includes('🔍 Данные сканера на 23.09.3026, 14:05'), 'scan: плашка');
 assert(html.includes('Поселения (2)') && html.includes('Детали поселений — купить отчёт'), 'scan: прежний текст деталей');
+assert(!html.includes('Владелец:'), 'scan: карточки поселений нет — строки владельца нет');
 html = tabs.renderSettlements({ id: 'p1' });
 assert(html.includes('Нет данных — купить отчёт'), 'none: прежний текст');
+assert(!html.includes('Владелец:'), 'none: строки владельца нет');
+
+// ---------- владелец поселения (Г2/§10.2): NULL — мягкая формулировка, XSS ----------
+const noOwner = { id: 's2', race_name: 'Люди', population: 50, stability: 50, branches: [], effects: [] };
+const noOwnerHtml = tabs.renderSettlements({ id: 'p1', knowledge: { mode: 'presence' }, settlements: [noOwner] });
+assert(noOwnerHtml.includes('Владелец:') && noOwnerHtml.includes('NPC (без владельца)'), 'presence без владельца: «NPC (без владельца)»');
+const xssOwner = { id: 's3', race_name: 'Люди', owner_name: '<img src=x onerror=alert(1)>', population: 10, stability: 50, branches: [], effects: [] };
+const xssOwnerHtml = tabs.renderSettlements({ id: 'p1', knowledge: { mode: 'presence' }, settlements: [xssOwner] });
+assert(!xssOwnerHtml.includes('<img src=x onerror=alert(1)>'), 'владелец-игрок: тег не вставлен');
+assert(xssOwnerHtml.includes('&lt;img src=x onerror=alert(1)&gt;'), 'владелец-игрок: строка экранирована');
 
 // ---------- управление «купить отчёт» (§5.3/T17) ----------
 assert(tabs.buyReportControlHtml({ can_buy_report: true }).includes('data-buy-report'), 'buy: элемент при can_buy_report');

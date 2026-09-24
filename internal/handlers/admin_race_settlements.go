@@ -112,6 +112,15 @@ func (h *AdminHandlers) GenerateRaceSettlements(w http.ResponseWriter, r *http.R
 		}
 		log.Printf("🗑️ GenerateRaceSettlements: удалено старых поселений рас: %d", oldCount)
 
+		// Метка начала генерации поселений (спека 2026-09-24-постройка-структур
+		// §3.4): фактический создатель поселений рас — этот джоб, поэтому метка
+		// ставится здесь (и в GeneratePlanets — названном спекой вызывающем).
+		// Проход владельцев (faction.EnsureSettlementOwners) берёт только
+		// поселения текущей генерации (created_at >= метки).
+		if err := writeGenerationStartedAt(h.db); err != nil {
+			log.Printf("❌ GenerateRaceSettlements: generation_started_at: %v", err)
+		}
+
 		gen := settlement.NewGenerator(h.db, 0)
 		count, unsettled, err := gen.GenerateRaceSettlements(ctx, cfg, func(processed int) {
 			statusManager.Progress(generator.JobGenerateRaceSettlements, processed)

@@ -261,11 +261,19 @@ type PlanetFaction struct {
 // PlanetBuilding — строение планеты в ответе API (там же §6):
 // id/building_type/owner_type/owner_id. Владелец полиморфный: owner_type —
 // player/faction/agent, owner_id — id владельца (для столицы — factions.id).
+//
+// ProducerTypeID/TypeName/OwnerName — дельта спеки 2026-09-24-постройка-
+// структур §10.3: связь с деревом типов и витринные имена. ProducerTypeID —
+// БЕЗ omitempty: у столиц эмитится null (метка «не производит» отличается от
+// «поля нет», мелочь менеджера).
 type PlanetBuilding struct {
-	ID           string `json:"id"`
-	BuildingType string `json:"building_type"`
-	OwnerType    string `json:"owner_type"`
-	OwnerID      string `json:"owner_id"`
+	ID             string `json:"id"`
+	BuildingType   string `json:"building_type"`
+	OwnerType      string `json:"owner_type"`
+	OwnerID        string `json:"owner_id"`
+	ProducerTypeID *int64 `json:"producer_type_id"`
+	TypeName       string `json:"type_name,omitempty"`
+	OwnerName      string `json:"owner_name,omitempty"`
 }
 
 // PlanetCore — ядро планеты.

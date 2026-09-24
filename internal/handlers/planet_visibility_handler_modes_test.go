@@ -39,7 +39,7 @@ func expectModesSettlements(mock sqlmock.Sqlmock) {
 	mock.ExpectQuery(`SELECT s\.id, s\.planet_id.*FROM settlements s LEFT JOIN producer_types pt.*WHERE s\.planet_id = ANY\(\$1\) ORDER BY s\.created_at ASC`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows(settlementSelectCols()).
-			AddRow("s1", "p1", 876000000, 876000000.4, 69, time.Now(), now(), now(), "spark", nil, nil, nil, nil))
+			AddRow("s1", "p1", 876000000, 876000000.4, 69, time.Now(), now(), now(), "spark", nil, nil, nil, nil, nil, nil))
 }
 
 // expectModesWorld — мир системы (w2, в радиусе радара).

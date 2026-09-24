@@ -28,6 +28,14 @@ type Settlement struct {
 	SettlementTypeID int64 `json:"type_id,omitempty"`
 	// TypeName — имя типа поселения (JSON-вывод, не колонка БД), как RaceName.
 	TypeName string `json:"type_name,omitempty"`
+	// OwnerType/OwnerID — владелец поселения (спека 2026-09-24-постройка-
+	// структур §3.1): player/faction/agent; пусто = владельца нет (легаси/Г1).
+	OwnerType string `json:"owner_type,omitempty"`
+	OwnerID   string `json:"owner_id,omitempty"`
+	// OwnerName — человекочитаемое имя владельца (JSON-вывод, не колонка БД),
+	// резолвится пакетно в attachSettlements (§10.3). Пусто → витрина
+	// «NPC (без владельца)» (§10.2).
+	OwnerName string `json:"owner_name,omitempty"`
 	// Stage — витрина ступени (спека 2026-09-23 §11.3): пороги текущей ступени
 	// и вход следующей; nil — тип вне ладдеры (карточка рисует только имя).
 	// Заполняется owner-проходом из уже загруженной ладдеры. Пороги — конфиг,

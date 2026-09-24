@@ -22,6 +22,18 @@ export function escapeHtml(s) {
         .replace(/"/g, '&quot;');
 }
 
+// safeCssColor — цвет из серверной строки (например, factions.color) перед
+// вставкой в inline-style `background:...`. Пропускаем только #rgb/#rrggbb и
+// rgb()/rgba() с числовыми каналами; всё прочее (в т.ч. CSS-инъекция вида
+// `red; background:url(...)`) заменяется нейтральным серым. escapeHtml тут не
+// спасает: `"` он экранирует, а `;`/`}` в значении ломают свойство.
+export function safeCssColor(color) {
+    const s = String(color == null ? '' : color).trim();
+    const ok = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(s)
+        || /^rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*(?:,\s*(?:\d+(?:\.\d+)?|\.\d+)\s*)?\)$/.test(s);
+    return ok ? s : '#64748b';
+}
+
 // CONTRACT_TYPE_LABELS — словарь подписей типов контракта: единственное место,
 // где ключ (contracts.type) превращается в человекочитаемое имя. Неизвестный
 // ключ показывается как есть (выдуманных имён не вводим).

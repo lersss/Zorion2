@@ -11,16 +11,21 @@ import (
 	"zorion/cmd/art-studio/config"
 )
 
-// findPython — путь к python для скрипта силуэтов: venv студии, затем PATH.
+// findPython — python студии (venv ComfyUI, затем PATH) с зависимостями
+// скрипта силуэтов (PIL); пустая строка — python/зависимости недоступны,
+// пиксельный тест пропускается.
 func findPython() string {
-	candidates := []string{`C:\ComfyUI\venv\Scripts\python.exe`}
-	for _, c := range candidates {
-		if _, err := os.Stat(c); err == nil {
-			return c
-		}
+	var candidates []string
+	if _, err := os.Stat(`C:\ComfyUI\venv\Scripts\python.exe`); err == nil {
+		candidates = append(candidates, `C:\ComfyUI\venv\Scripts\python.exe`)
 	}
 	if p, err := exec.LookPath("python"); err == nil {
-		return p
+		candidates = append(candidates, p)
+	}
+	for _, p := range candidates {
+		if exec.Command(p, "-c", "import PIL").Run() == nil {
+			return p
+		}
 	}
 	return ""
 }

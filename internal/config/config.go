@@ -19,6 +19,7 @@ type Config struct {
 	BalancerPresetsFile          string
 	RaceBalancerFile             string
 	PlanetImageCacheDir          string
+	ContentCatalogPath           string
 	OpenCodeURL                  string
 	OpenCodeModel                string
 	OpenCodeAgent                string
@@ -89,6 +90,14 @@ func Load() *Config {
 		pimgDir = "data/planet_images"
 	}
 
+	// Путь к файлу-снимку контента каталога (спека 2026-09-24 §4/§5): дефолт
+	// content/catalog.json (корень репозитория); env CONTENT_CATALOG_PATH
+	// переопределяет (на проде/локально путь может быть вне read-only config/).
+	cpath := os.Getenv("CONTENT_CATALOG_PATH")
+	if cpath == "" {
+		cpath = "content/catalog.json"
+	}
+
 	// Конфиг opencode — ИИ «заполнить комплектующие» (спека
 	// переноса-студии-товаров-iterC §4): env с дефолтами из старого
 	// config/goods/studio.json (удаляется со старой студией). На проде env
@@ -154,6 +163,7 @@ func Load() *Config {
 		BalancerPresetsFile:          pfile,
 		RaceBalancerFile:             rfile,
 		PlanetImageCacheDir:          pimgDir,
+		ContentCatalogPath:           cpath,
 		OpenCodeURL:                  ocURL,
 		OpenCodeModel:                ocModel,
 		OpenCodeAgent:                ocAgent,

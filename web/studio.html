@@ -210,6 +210,10 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
   #aiStatus button{font-size:12px;background:#2b2b2b;border:1px solid #4a4a4a;color:#ddd;border-radius:6px;padding:4px 8px;cursor:pointer}
   #aiStatus button:hover{background:#363636}
   #aiStatus button:disabled{opacity:.5;cursor:default}
+  #exportStatus{display:inline-flex;align-items:center}
+  #exportStatus button{font-size:12px;background:#2b2b2b;border:1px solid #4a4a4a;color:#ddd;border-radius:6px;padding:4px 8px;cursor:pointer}
+  #exportStatus button:hover{background:#363636}
+  #exportStatus button:disabled{opacity:.5;cursor:default}
   .popup-head{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid #333;cursor:move;user-select:none;font-size:var(--fs-body);color:#fff;gap:8px}
   .popup-head .ptitle{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-popup-title);font-weight:600}
   .popup-head button{background:none;border:none;color:#999;font-size:20px;cursor:pointer;padding:0 6px;line-height:1}
@@ -277,6 +281,11 @@ body{background:#111;color:#e8e8e8;font-family:Arial;margin:0;padding:8px 12px;h
         <span id="aiStatusText">ИИ: проверка…</span>
         <button id="btnAiStart" title="Запустить локальный ИИ-помощник (opencode serve)">запустить</button>
         <button id="btnAiStop" title="Остановить локальный ИИ-помощник">остановить</button>
+      </span>
+      <!-- Экспорт снимка контента (спека 2026-09-24-каталог-экспорт-импорт-
+           контента-на-прод §7, И2): скачивает content/catalog.json. -->
+      <span id="exportStatus">
+        <button id="btnExportContent" title="Сохранить снимок контента (content/catalog.json) и скачать его">экспорт контента</button>
       </span>
       <span id="genIndicator"></span>
     </span>
@@ -2075,6 +2084,33 @@ async function aiAction(path) {
 }
 function aiStart() { aiAction("start"); }
 function aiStop() { aiAction("stop"); }
+// ---------- экспорт снимка контента (спека 2026-09-24 §7, И2) ----------
+// GET /studio/api/content/export: сервер пишет content/catalog.json и отдаёт
+// тот же JSON на скачивание. Браузерное скачивание тела не отдаёт JS, поэтому
+// тянем ответ studioFetch'ем, читаем counts и имя файла из Content-Disposition,
+// скачиваем Blob'ом и показываем отчёт.
+async function exportContent() {
+  const btn = $("btnExportContent");
+  if (btn) btn.disabled = true;
+  const r = await api("GET", "/studio/api/content/export");
+  if (!r) { if (btn) btn.disabled = false; return; } // guard: api вернул null (401/ошибка)
+  const text = await r.text();
+  const cd = r.headers.get("Content-Disposition") || "";
+  const m = /filename="?([^";]+)"?/.exec(cd);
+  const fname = m ? m[1] : "catalog.json";
+  let total = 0;
+  try { const j = JSON.parse(text); total = Object.values(j.counts || {}).reduce((s, n) => s + n, 0); } catch (e) {}
+  const blob = new Blob([text], {type: "application/json;charset=utf-8"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = fname;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(a.href);
+  showReport(["Экспорт: сохранено " + total + " записей, файл " + fname], true);
+  if (btn) btn.disabled = false;
+}
 // Защита несохранённого текста от авто-обновления (спека §9.7): авто-перерисовка
 // пропускается, если фокус в textarea попапа, а значение отличается от модельного.
 function descInputDirty() {
@@ -4633,6 +4669,8 @@ $("btnDescBatch").addEventListener("click", runDescBatch);
 // кнопки локального ИИ-помощника (спека 2026-09-24 §4)
 $("btnAiStart").addEventListener("click", aiStart);
 $("btnAiStop").addEventListener("click", aiStop);
+// кнопка экспорта снимка контента (спека 2026-09-24 §7, И2)
+$("btnExportContent").addEventListener("click", exportContent);
 // кнопки вызова форм добавления (ТЗ §7.2): сами формы живут в попапах (#modal),
 // обработчики полей/кнопок навешивает openModal — при загрузке их в DOM нет
 $("btnNewGoodOpen").addEventListener("click", openNewGoodPopup);

@@ -597,6 +597,9 @@ func main() {
 	// управление-локальным-ии §3): состояние/запуск/остановка opencode serve.
 	// managed — только Windows + loopback + npx; на проде честное «недоступно».
 	studioHandlers.SetAIServe(aiserve.NewManager(cfg.OpenCodeURL, cfg.OpenCodeStartTimeout, aiserve.DefaultLogPath))
+	// Экспорт снимка контента каталога (спека 2026-09-24-каталог-экспорт-
+	// импорт-контента-на-прод §4/§7, И2): путь файла — env CONTENT_CATALOG_PATH.
+	studioHandlers.SetContentExportPath(cfg.ContentCatalogPath)
 	http.HandleFunc("/studio/api/state", auth.AdminAuth(studioHandlers.State))
 	http.HandleFunc("/studio/api/resources", auth.AdminAuth(studioHandlers.Resources))
 	http.HandleFunc("/studio/api/categories", auth.AdminAuth(studioHandlers.Categories))
@@ -639,6 +642,9 @@ func main() {
 	http.HandleFunc("/studio/api/ai/status", auth.AdminAuth(studioHandlers.AIStatus))
 	http.HandleFunc("/studio/api/ai/start", auth.AdminAuth(studioHandlers.AIStart))
 	http.HandleFunc("/studio/api/ai/stop", auth.AdminAuth(studioHandlers.AIStop))
+	// Экспорт снимка контента каталога (спека 2026-09-24-каталог-экспорт-
+	// импорт-контента-на-прод §4/§7, итерация И2): только чтение БД + файл.
+	http.HandleFunc("/studio/api/content/export", auth.AdminAuth(studioHandlers.ContentExport))
 
 	http.Handle("/studio", noCache(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./web/studio.html")

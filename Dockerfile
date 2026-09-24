@@ -12,5 +12,6 @@ WORKDIR /app
 COPY --from=builder /app/server /server
 COPY --from=builder /app/web ./web
 COPY --from=builder /app/config ./config  
+COPY --from=builder /app/content ./content
 EXPOSE 8080
 CMD ["/server"]

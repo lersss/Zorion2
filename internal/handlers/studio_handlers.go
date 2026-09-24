@@ -37,6 +37,10 @@ type StudioHandlers struct {
 	// aiServe — управление локальным ИИ-помощником (спека 2026-09-24 §3);
 	// nil — состояние «недоступен» (тесты/выключено).
 	aiServe aiController
+	// contentPath — путь файла-снимка контента (спека 2026-09-24 §4/§5):
+	// дефолт content/catalog.json; переопределяется SetContentExportPath
+	// (env CONTENT_CATALOG_PATH).
+	contentPath string
 
 	fillMu              sync.Mutex
 	fillGenerating      bool // любой ИИ-джоб студии (И6): fill ИЛИ описания
@@ -60,12 +64,13 @@ type StudioHandlers struct {
 
 func NewStudioHandlers(db *sql.DB, aiClient *ai.Client, aiModel string) *StudioHandlers {
 	return &StudioHandlers{
-		repo:     repository.NewGoodsRepository(db),
-		deposits: repository.NewDepositRepository(db),
-		branches: repository.NewBranchRepository(db),
-		effects:  repository.NewEffectRepository(db),
-		ai:       aiClient,
-		aiModel:  aiModel,
+		repo:        repository.NewGoodsRepository(db),
+		deposits:    repository.NewDepositRepository(db),
+		branches:    repository.NewBranchRepository(db),
+		effects:     repository.NewEffectRepository(db),
+		ai:          aiClient,
+		aiModel:     aiModel,
+		contentPath: "content/catalog.json",
 	}
 }
 

@@ -56,21 +56,23 @@ go run cmd/server/main.go
 # быстрый цикл — всегда
 go test -race -short (go list ./... | Where-Object { $_ -notmatch 'generator[/\\](planet|galaxy)$' })
 
-# тяжёлый генераторный прогон — при правке generator/planet или generator/galaxy, без детектора
+# тяжёлый генераторный прогон — фоном в CI, при правке generator/planet или generator/galaxy, без детектора
 go test ./internal/generator/planet/ ./internal/generator/galaxy/
 ```
 
 `internal/generator/planet` и `internal/generator/galaxy` исключены — в них нет
 потоков, детектору нечего ловить, а прогон дорожает в 7–10 раз (решение создателя
-2026-09-21). Правка трогает эти пакеты — дополнительно обязателен тяжёлый прогон
-`go test ./internal/generator/planet/ ./internal/generator/galaxy/` без `-race`
-(~1 мин).
+2026-09-21). Второй уровень — **тяжёлый генераторный прогон** — выполняет **фоновая проверка
+CI на push** (отдельный джоб «генераторы»); локально он не обязателен и гейт не
+удерживает (решение создателя 2026-09-25). Замер 2026-09-25: планеты ~280 с,
+галактика ~40 с (~5 минут).
 
 `-race` — основной инструмент против риска из раздела 0. Гоняй его, а не рассуждай о гонках.
 
 > `-race` доступен локально (gcc установлен, WinLibs, решение создателя
-> 2026-09-18, идея 93a); CI остаётся отложенным до 1.0. Для прогона с `-race`
-> добавить gcc в PATH текущей сессии (см. `docs/PITFALLS.md`, раздел «БД и шелл»).
+> 2026-09-18, идея 93a); CI заведён 2026-09-22 и с 2026-09-24 зелёный. Для прогона
+> с `-race` добавить gcc в PATH текущей сессии (см. `docs/PITFALLS.md`, раздел
+> «БД и шелл»).
 
 Сборка бинаря: `go build -o zorion-server.exe ./cmd/server` (пакет, а не файл — в `cmd/server` несколько файлов: `main.go` + `bootstrap.go`; сборка одного файла `cmd/server/main.go` даёт `undefined: bootstrapSkycomposer`)
 

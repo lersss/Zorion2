@@ -802,12 +802,12 @@ func TestSurfaceLandViewFallback(t *testing.T) {
 	const uid = "11111111-1111-1111-1111-111111111111"
 	var plain genplanet.BiomeDef
 	for _, b := range genplanet.GetBiomeCatalog().Biomes {
-		if b.Category == "литосфера" && len(b.View) == 0 {
+		if len(b.View) == 0 {
 			plain = b
 			break
 		}
 	}
-	require.NotEmpty(t, plain.ID, "нужен литосферный биом без рецепта")
+	require.NotEmpty(t, plain.ID, "нужен биом без рецепта")
 	data := surfacePlanetData(plain.ID, 100, 288, 1.0, 0, true)
 
 	expectSurfaceUser(mock, uid, "w1", orbitPlanetPos)

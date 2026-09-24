@@ -267,11 +267,11 @@ func TestBiomeViewVerticalBudget(t *testing.T) {
 
 func TestBiomeViewFallbackNoRecipe(t *testing.T) {
 	cat := GetBiomeCatalog()
-	view, source := cat.ResolveBiomeView("кратеры")
+	view, source := cat.ResolveBiomeView("лавовые_поля")
 	assert.Nil(t, view, "биом без рецепта — вид не отдаётся (клиент по FORMATIONS)")
 	assert.Equal(t, "fallback", source)
 
 	d := cat.ViewDiagnostics()
-	assert.Contains(t, d.Missing, "кратеры", "биомы без рецепта видны в диагностике (§2.7)")
+	assert.Contains(t, d.Missing, "лавовые_поля", "биомы без рецепта видны в диагностике (§2.7)")
 	assert.Empty(t, d.Errors, "в заводском справочнике ошибок вида нет")
 }

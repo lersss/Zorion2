@@ -54,6 +54,13 @@
 | Файл | Кто правит | До какого коммита |
 |---|---|---|
 | `cmd/art-studio/{postproc,generator,handlers}/*_test.go` (кроссплатформенные фейковые python вместо `.cmd` — helper-процесс) | @developer (краснота CI, вариант 2) | без коммита (гейты) |
+| `migrations/000085_producer_sections.sql` — занята, закоммичена (разделы построек, коммит `2b32533`) | @developer | коммит `2b32533` |
+| `migrations/000086_*.sql` — **номер забронирован** (внутреннее хранилище: `settlement_storage_cells`, `settlements.storage_size`, снятие `settlement_branch_buffers`); спека `docs/specs/2026-09-25-внутреннее-хранилище-и-рождение-заказов.md` (ЧК2а), миграция ещё не написана | @manager (бронь) | без коммита (дизайн-гейт) |
+| `internal/models/economy.go` — занят (ЧК2а, подэтап 2а: тип `StorageCell`); `internal/repository/storage_cell_repository.go` (новый файл, в реестр не нужен) | @developer | без коммита (гейт) |
+| ЧК2а подэтап 2б (переезд буферов ветки на ячейки): `migrations/000087_retire_branch_buffers.sql`, `internal/models/economy.go`, `internal/repository/{branch_repository,settlement_owner_pass,settlement_stage,knowledge_repository,content_import,storage_cell_repository,producer_repository}.go`, `internal/economy/settlement/{storage,needs}.go`, `internal/handlers/{admin_universe,admin_settlement_branches,admin_settlements,admin_race_settlements,planet_visibility}.go` (+ тесты) | @developer | без коммита (гейт) |
+| ЧК2а подэтап 3а (автор-поселение): `migrations/000088_contract_author_settlement.sql`, `internal/models/contract.go`, `internal/repository/contract_repository.go` (+`contract_repository_test.go`), `internal/integration/contract_author_settlement_test.go`, `docs/{DB,ARCHITECTURE}.md`, `docs/pitfalls/db-shell.md` | @developer | без коммита (гейт) |
+| ЧК2а подэтап 3б (доска и свежесть): `internal/repository/{contract_board_repository,planet_repo,settlement_owner_pass}.go` (+тесты), `internal/handlers/contract_handlers.go`, `internal/integration/contract_author_settlement_test.go` | @developer | без коммита (гейт) |
+| ЧК2а подэтап UI (минимальный UI нового): `internal/models/economy.go`, `internal/repository/{settlement_owner_pass,planet_repo,producer_repository,branch_testhelpers_test,settlement_owner_cells_test}.go`, `internal/handlers/planet_visibility.go` (+`planet_visibility_arithmetic_test.go`, `planet_visibility_handler_modes_test.go`, `settlement_owner_testhelpers_test.go`, `studio_producer_rate_test.go`), `web/static/js/modal/{branches,tabs}.js`, `web/frontend_branches_test.go` | @developer | без коммита (гейт) |
 
 ## Занято ранее (историческое, не блокирует — чистится @manager по мере надобности)
 

@@ -299,6 +299,118 @@ func (h *ContractHandlers) CancelContract(w http.ResponseWriter, r *http.Request
 	writeJSONStatus(w, http.StatusOK, map[string]string{"status": "cancelled"})
 }
 
+// DeliverContract — POST /api/contracts/deliver: точка сдачи supply-контракта
+// с орбиты планеты заказа (спека 2026-09-25-сдача-груза-и-зачёт-ЧК2б §5.1/§6).
+// Проверки до транзакции, затем атомарный Deliver. Surface не подходит, спутник
+// засчитывается как орбита родителя (presencePlanetID, образец canTrade).
+func (h *ContractHandlers) DeliverContract(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(auth.UserIDKey).(string)
+	if !ok || userID == "" {
+		writeJSONError(w, "Не авторизован", http.StatusUnauthorized)
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeJSONError(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		ContractID string `json:"contract_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ContractID == "" {
+		writeJSONError(w, "contract_id обязателен", http.StatusBadRequest)
+		return
+	}
+	user, pos, _, err := h.userRepo.GetByIDWithPosition(userID)
+	if err != nil || user == nil {
+		writeJSONError(w, "Пользователь не найден", http.StatusNotFound)
+		return
+	}
+	if user.Role != models.RolePlayer {
+		writeJSONError(w, "Сдавать груз может только игрок", http.StatusForbidden)
+		return
+	}
+
+	contract, err := h.contractRepo.GetByID(req.ContractID)
+	if err != nil {
+		writeJSONError(w, "Не удалось получить контракт", http.StatusInternalServerError)
+		return
+	}
+	if contract == nil {
+		writeJSONError(w, "Контракт не найден", http.StatusNotFound)
+		return
+	}
+	if contract.Type != models.ContractTypeSupply {
+		writeJSONError(w, "Этот контракт не принимает сдачу груза", http.StatusUnprocessableEntity)
+		return
+	}
+	if contract.AuthorType != models.ContractActorSettlement && contract.AuthorType != models.ContractActorBuilding {
+		writeJSONError(w, "Заказ не принимает сдачу в хранилище", http.StatusUnprocessableEntity)
+		return
+	}
+	if contract.Status != models.ContractStatusTaken {
+		writeJSONError(w, "Контракт уже закрыт или просрочен", http.StatusConflict)
+		return
+	}
+	if contract.ExecutorType == nil || *contract.ExecutorType != models.ContractExecutorPlayer ||
+		contract.ExecutorID == nil || *contract.ExecutorID != userID {
+		writeJSONError(w, "Вы не исполнитель этого контракта", http.StatusForbidden)
+		return
+	}
+
+	// Сперва ленивое истечение (образец CloseTravelArrivals): просроченный
+	// контракт закрывается, залог возвращается автору. Затем статус: если уже не
+	// taken — 409 (гонка со сроком).
+	if _, err := h.contractRepo.ExpireDue(repository.ContractScope{ContractID: req.ContractID}); err != nil {
+		writeJSONError(w, "Не удалось обновить контракт", http.StatusInternalServerError)
+		return
+	}
+	after, err := h.contractRepo.GetByID(req.ContractID)
+	if err != nil {
+		writeJSONError(w, "Не удалось получить контракт", http.StatusInternalServerError)
+		return
+	}
+	if after == nil || after.Status != models.ContractStatusTaken {
+		writeJSONError(w, "Контракт уже закрыт или просрочен", http.StatusConflict)
+		return
+	}
+
+	// Орбита планеты заказа (образец canTrade): только статус orbit, спутник — по
+	// родителю. Surface/орбита другой планеты/звезды/пояс/полёт — 422.
+	if user.CurrentWorldID == nil || pos == nil || pos.Status != "orbit" ||
+		presencePlanetID(pos, *user.CurrentWorldID, h.planetRepo) != contract.PublicationPlanetID {
+		writeJSONError(w, "Сдать можно только с орбиты планеты заказа", http.StatusUnprocessableEntity)
+		return
+	}
+
+	result, err := h.contractRepo.Deliver(userID, req.ContractID)
+	if err != nil {
+		writeDeliverError(w, err)
+		return
+	}
+	writeJSONStatus(w, http.StatusOK, result)
+}
+
+// writeDeliverError — маппинг ошибок точки сдачи в HTTP-коды (§5.3).
+func writeDeliverError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, repository.ErrDeliveryNotAvailable):
+		writeJSONError(w, "Контракт уже закрыт или просрочен", http.StatusConflict)
+	case errors.Is(err, repository.ErrDeliveryAuthorUnsupported),
+		errors.Is(err, repository.ErrDeliveryBuildingUnsupported),
+		errors.Is(err, repository.ErrContractDamaged),
+		errors.Is(err, repository.ErrDeliveryGoodUnavailable),
+		errors.Is(err, repository.ErrDeliveryNoCargo),
+		errors.Is(err, repository.ErrDeliveryNothing):
+		writeJSONError(w, err.Error(), http.StatusUnprocessableEntity)
+	case errors.Is(err, repository.ErrDeliveryStorageCellMissing):
+		writeJSONError(w, "Заказ устарел", http.StatusConflict)
+	case errors.Is(err, repository.ErrDeliveryStorageFull):
+		writeJSONError(w, "Хранилище переполнено", http.StatusConflict)
+	default:
+		writeJSONError(w, "Не удалось сдать груз", http.StatusInternalServerError)
+	}
+}
+
 // createContractReq — тело публикации контракта (игрок и админ-инструмент).
 type createContractReq struct {
 	PlanetID         string                 `json:"planet_id"`

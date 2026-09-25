@@ -159,5 +159,46 @@ eq('publish in flight', c.canPublishHere({ status: 'in_flight', object_type: 'pl
 eq('publish other planet', c.canPublishHere({ status: 'orbit', object_type: 'planet', object_id: 'p2' }, 'p1'), false);
 eq('publish no position', c.canPublishHere(null, 'p1'), false);
 
+// ЧК2б §6: словари типов/авторов знают supply/settlement (иначе сырой ключ).
+eq('type supply', c.contractTypeLabel('supply'), 'Снабжение');
+eq('author settlement', c.authorLabel('settlement'), 'поселение');
+eq('icon settlement', c.authorIcon('settlement'), '🏘');
+
+// «Мои заказы (в работе)» (ЧК2б §6): только мои взятые supply-заказы
+// (executor_type='player'); открытые/перелёты не показываются; кнопка «Сдать»
+// несёт data-contract-deliver с id.
+const mine = c.myWorksHtml([
+    { id: 'w1', type: 'supply', status: 'taken', executor_type: 'player', title: 'Вода', author_type: 'settlement',
+      expires_at: '2026-09-22T15:00:00Z', requirements: [{ kind: 'goods', subject: 'water', op: 'in', quantity: 40 }] },
+    { id: 'w2', type: 'supply', status: 'open', executor_type: null, title: 'Открытый', requirements: [] },
+    { id: 'w3', type: 'travel', status: 'taken', executor_type: 'player', title: 'Перелёт', requirements: [] },
+], now);
+eq('works block header', mine.includes('Мои заказы (в работе)'), true);
+eq('works deliver btn', mine.includes('data-contract-deliver="w1"'), true);
+eq('works remaining', mine.includes('остаток 40 ед.'), true);
+eq('works author readable', mine.includes('поселение'), true);
+eq('works excludes open', mine.includes('data-contract-deliver="w2"'), false);
+eq('works excludes travel', mine.includes('data-contract-deliver="w3"'), false);
+eq('works empty', c.myWorksHtml([], now), '');
+eq('works null', c.myWorksHtml(null, now), '');
+// XSS: заголовок/товар экранируются и в «моих заказах».
+const mineXss = c.myWorksHtml([
+    { id: 'x1', type: 'supply', status: 'taken', executor_type: 'player', title: '<img src=x>', author_type: 'settlement',
+      requirements: [{ kind: 'goods', subject: '<b>w</b>', op: 'in', quantity: 1 }] },
+], now);
+eq('works xss title', mineXss.includes('<img src=x>'), false);
+eq('works xss goods', mineXss.includes('<b>w</b>'), false);
+
+// Тексты сдачи (ЧК2б §6): человеческий результат и разбор {error}.
+eq('deliver partial text', c.deliverResultText({ status: 'taken', delivered: 40, remaining: 60, paid: 400 }),
+    'Сдано 40 ед., остаток требования 60 ед., выплачено 400 кр.');
+eq('deliver full text', c.deliverResultText({ status: 'completed', delivered: 100, remaining: 0, paid: 0 }),
+    'Заказ выполнен: сдано 100 ед.');
+eq('deliver err from body', c.deliverErrorText({ error: 'Сдать можно только с орбиты планеты заказа' }, 422),
+    'Сдать можно только с орбиты планеты заказа');
+eq('deliver err fallback', c.deliverErrorText(null, 409), 'Заказ уже не взят или хранилище недоступно');
+eq('remaining units', c.remainingUnits({ requirements: [{ kind: 'goods', subject: 'w', op: 'in', quantity: 7 }] }), 7);
+eq('remaining none', c.remainingUnits({ requirements: [] }), null);
+
 console.log('CONTRACTS_BOARD_OK');
 `

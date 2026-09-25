@@ -241,11 +241,18 @@ type ContractRepository struct {
 	// boardNeeds — источник нужд планеты для ленивой материализации доски
 	// (§5.1, Поставка 2). v1: nil = нужд нет (см. contract_board_repository.go).
 	boardNeeds boardNeedsFunc
+	// cargo — трюм исполнителя для точки сдачи (Deliver, ЧК2б); nil — сдача
+	// недоступна (не подключён). Узкий структурный интерфейс — без импорта
+	// internal/cargo (цикла нет, спека ЧК2б §3 F1).
+	cargo CargoTaker
 }
 
 func NewContractRepository(db *sql.DB) *ContractRepository {
 	return &ContractRepository{db: db}
 }
+
+// SetCargo подключает трюм к точке сдачи (спека ЧК2б §11 impact map).
+func (r *ContractRepository) SetCargo(c CargoTaker) { r.cargo = c }
 
 // escrowRow — строка RETURNING для возврата/выпуска залога.
 type escrowRow struct {

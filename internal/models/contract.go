@@ -76,6 +76,9 @@ const (
 	ContractLogEscrowLocked   = "escrow_locked"
 	ContractLogEscrowReleased = "escrow_released"
 	ContractLogEscrowReturned = "escrow_returned"
+	// ContractLogDelivered — сдача груза по supply-контракту (спека
+	// 2026-09-25-сдача-груза-и-зачёт-ЧК2б §4/§5.2): data={delivered,remaining,paid,good_id}.
+	ContractLogDelivered = "delivered"
 )
 
 // Причины в contract_log.data.reason (§4.3): expired/cancelled — обычные пути,

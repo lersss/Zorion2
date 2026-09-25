@@ -4,7 +4,7 @@ import { modalState, flightModeForSystem } from './state.js';
 import { getPlanetTexture } from './textures.js';
 import { groupDeposits } from './deposits.js';
 import { branchesBlockHtml, effectsBlockHtml, stageRowHtml, settlementArithmeticHtml, storageBlockHtml } from './branches.js';
-import { boardHtml, canPublishHere, publishFormHtml, escapeHtml } from './contracts.js';
+import { boardHtml, canPublishHere, publishFormHtml, myWorksHtml, deliverResultText, deliverErrorText, escapeHtml } from './contracts.js';
 import { renderStructures, initStructures, buildingTypeLabel } from './structures.js';
 import { renderMarket, initMarket } from './market.js';
 import { notifyError, notifySuccess } from '../ui/toast.js';
@@ -1171,6 +1171,8 @@ function renderContracts(planet) {
         return `<p style="color: #666; text-align: center; padding: 20px 0;">Нет данных — купить отчёт</p>`;
     }
     let html = `<div data-contract-board><p style="color:#666; text-align:center; padding:12px 0;">Загрузка…</p></div>`;
+    // Подблок «Мои заказы (в работе)» (ЧК2б §6) — заполняет loadContracts.
+    html += `<div data-contract-mine></div>`;
     if (canPublishHere(modalState.myPosition, planet.id)) {
         html += publishFormHtml();
     } else {
@@ -1206,6 +1208,25 @@ async function loadContracts(planet, container) {
     board.innerHTML = boardHtml(contracts, Date.now());
     board.querySelectorAll('[data-contract-take]').forEach(btn => {
         btn.addEventListener('click', () => takeContract(planet, container, btn.dataset.contractTake, btn));
+    });
+
+    // «Мои заказы (в работе)» (ЧК2б §6): отдельный серверный источник
+    // GET /api/contracts/mine (знанием планеты не гейтится). Сбой вторичного
+    // блока не роняем тостом — доска важнее.
+    const mineBox = container.querySelector('[data-contract-mine]');
+    if (!mineBox || !mineBox.isConnected) return;
+    let mine = [];
+    try {
+        const res = await fetch('/api/contracts/mine', { headers: { 'Authorization': 'Bearer ' + token } });
+        if (res.ok) {
+            const data = await res.json();
+            mine = Array.isArray(data.contracts) ? data.contracts : [];
+        }
+    } catch (e) { /* вторичный блок: без тоста */ }
+    if (!mineBox.isConnected) return;
+    mineBox.innerHTML = myWorksHtml(mine, Date.now());
+    mineBox.querySelectorAll('[data-contract-deliver]').forEach(btn => {
+        btn.addEventListener('click', () => deliverContract(planet, container, btn.dataset.contractDeliver, btn));
     });
 }
 
@@ -1268,6 +1289,35 @@ async function takeContract(planet, container, contractID, btn) {
     }
     // Доска обновляется после действия — только если вкладка ещё открыта
     // (иначе перезапишем контент другой вкладки).
+    if (container.isConnected && modalState.activeTab === 'contracts') {
+        renderTabContent('contracts', planet, container);
+    }
+}
+
+// deliverContract — POST /api/contracts/deliver (ЧК2б §6): сдача груза по
+// взятому supply-заказу с орбиты планеты заказа. Результат/ошибка — тостом
+// человеческим текстом (deliverResultText/deliverErrorText), затем обновление
+// списка «мои заказы» и доски. Ошибку сервера (JSON {error}) показываем как есть.
+async function deliverContract(planet, container, contractID, btn) {
+    const token = modalState.authToken || localStorage.getItem('token');
+    if (btn) btn.disabled = true;
+    try {
+        const res = await fetch('/api/contracts/deliver', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+            body: JSON.stringify({ contract_id: contractID })
+        });
+        const text = await res.text();
+        let body = null;
+        try { body = JSON.parse(text); } catch (e) { body = text; }
+        if (!res.ok) {
+            notifyError(deliverErrorText(body, res.status));
+        } else {
+            notifySuccess(deliverResultText(body));
+        }
+    } catch (e) {
+        notifyError('Не удалось сдать груз: ' + e.message);
+    }
     if (container.isConnected && modalState.activeTab === 'contracts') {
         renderTabContent('contracts', planet, container);
     }

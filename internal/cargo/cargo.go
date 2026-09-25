@@ -255,6 +255,19 @@ func (s *Service) TryAddCargoTx(tx *sql.Tx, userID string, goodID int64, qty flo
 	return tryAddCargoTx(tx, userID, goodID, qty)
 }
 
+// TakeCargoTx — снятие qty единиц в транзакции вызывающего (спека
+// 2026-09-25-сдача-груза-и-зачёт-ЧК2б §5.2/§12: списание сданного груза в одной
+// транзакции с приходом в ячейку). Обёртка takeTx (не больше, чем есть; строка
+// с нулём удаляется). Сериализацию мутаций трюма одного игрока обеспечивает
+// вызывающий (FOR UPDATE строки users под тем же локом, что TryAddCargo).
+// qty ≤ 0 — no-op. Возвращает фактически снятое количество.
+func (s *Service) TakeCargoTx(tx *sql.Tx, userID string, goodID int64, qty float64) (float64, error) {
+	if qty <= 0 {
+		return 0, nil
+	}
+	return takeTx(tx, userID, goodID, qty, false)
+}
+
 // tryAddCargoTx — тело пополнения (без begin/commit): вызывающий владеет tx.
 func tryAddCargoTx(tx *sql.Tx, userID string, goodID int64, qty float64) (float64, error) {
 	total, err := capacity(tx, userID, true)

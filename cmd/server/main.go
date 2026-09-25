@@ -251,6 +251,9 @@ func main() {
 	// только внутренний сервис (добыча пояса и будущие потребители); игроку
 	// доступны чтение и сброс груза за борт.
 	cargoService := cargo.NewService(db)
+	// Точка сдачи груза (ЧК2б): трюм инъектируется в контракты узким
+	// интерфейсом (CargoTaker) — списание идёт в одной транзакции со сдачей.
+	contractRepo.SetCargo(cargoService)
 
 	// Активные полёты игроков (97a): персистентность в БД — полёт переживает
 	// рестарт сервера. Restore — ДО старта HTTP (гонок нет): прошлые прибытия
@@ -475,6 +478,9 @@ func main() {
 	http.HandleFunc("/api/contracts/mine", auth.AuthMiddleware(contractHandlers.GetMyContracts))
 	http.HandleFunc("/api/contracts/take", auth.AuthMiddleware(contractHandlers.TakeContract))
 	http.HandleFunc("/api/contracts/cancel", auth.AuthMiddleware(contractHandlers.CancelContract))
+	// Точка сдачи груза (спека 2026-09-25-сдача-груза-и-зачёт-ЧК2б): supply-
+	// контракт с орбиты планеты заказа, груз → ячейка хранилища автора.
+	http.HandleFunc("/api/contracts/deliver", auth.AuthMiddleware(contractHandlers.DeliverContract))
 
 	// API планет
 	http.HandleFunc("/api/worlds/", auth.AuthMiddleware(adminHandlers.GetPlanetsByWorld))

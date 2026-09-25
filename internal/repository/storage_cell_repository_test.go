@@ -93,6 +93,30 @@ func TestGetStorageCellsTx(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+// TestGetStorageCellsForUpdateTx — чтение под локом (точка сдачи ЧК2б §5.2):
+// запрос обязан нести FOR UPDATE, иначе конкурентный инкремент ячейки обойдёт
+// кламп 2·cap.
+func TestGetStorageCellsForUpdateTx(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
+	require.NoError(t, err)
+	defer db.Close()
+
+	require.Contains(t, storageCellSelectForUpdateSQL, "FOR UPDATE", "чтение для сдачи обязано лочить строки")
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(storageCellSelectForUpdateSQL).WithArgs("settlement", "s1").
+		WillReturnRows(storageCellTestRows().AddRow(int64(1), "settlement", "s1", int64(359), 1.0, 1.0))
+	mock.ExpectRollback()
+
+	tx, err := db.Begin()
+	require.NoError(t, err)
+	cells, err := NewStorageCellRepository(db).GetStorageCellsForUpdateTx(context.Background(), tx, "settlement", "s1")
+	require.NoError(t, err)
+	require.Len(t, cells, 1)
+	require.NoError(t, tx.Rollback())
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 // TestIncrementStorageCellTx — относительный инкремент: отрицательная дельта
 // (списание) доходит как есть, кламп ≥ 0 зашит в SQL (GREATEST), строка есть.
 func TestIncrementStorageCellTx(t *testing.T) {

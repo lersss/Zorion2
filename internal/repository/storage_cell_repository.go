@@ -42,6 +42,11 @@ const (
 		WHERE owner_type = $1 AND owner_id = $2
 		ORDER BY good_id`
 
+	// storageCellSelectForUpdateSQL — то же чтение под локом строк: точка сдачи
+	// (ЧК2б §5.2 п.5) берёт стабильный amount, конкурентный инкремент/пересчёт
+	// ячейки ждёт на строке — кламп 2·cap не нарушается.
+	storageCellSelectForUpdateSQL = storageCellSelectSQL + " FOR UPDATE"
+
 	// storageCellIncrementSQL — относительный инкремент (delta может быть
 	// отрицательным — списание) с клампом ≥ 0: страховка от гонки/ошибки, CHECK
 	// amount >= 0 не должен падать. updated_at двигается только при изменении
@@ -104,17 +109,25 @@ func NewStorageCellRepository(db *sql.DB) *StorageCellRepository {
 
 // GetStorageCells — ячейки владельца в детерминированном порядке good_id.
 func (r *StorageCellRepository) GetStorageCells(ownerType, ownerID string) ([]models.StorageCell, error) {
-	return queryStorageCells(context.Background(), r.db, ownerType, ownerID)
+	return queryStorageCells(context.Background(), r.db, storageCellSelectSQL, ownerType, ownerID)
 }
 
 // GetStorageCellsTx — то же внутри транзакции (owner-проход §7.1, подэтап 2б).
 func (r *StorageCellRepository) GetStorageCellsTx(ctx context.Context, tx *sql.Tx, ownerType, ownerID string) ([]models.StorageCell, error) {
-	return queryStorageCells(ctx, tx, ownerType, ownerID)
+	return queryStorageCells(ctx, tx, storageCellSelectSQL, ownerType, ownerID)
 }
 
-// queryStorageCells — единый SQL чтения ячеек владельца.
-func queryStorageCells(ctx context.Context, q storageCellRowsQueryer, ownerType, ownerID string) ([]models.StorageCell, error) {
-	rows, err := q.QueryContext(ctx, storageCellSelectSQL, ownerType, ownerID)
+// GetStorageCellsForUpdateTx — ячейки владельца под локом строк: точка сдачи
+// (ЧК2б §5.2 п.5) и любой путь, которому нужен стабильный amount для клампа
+// 2·cap. Конкурентный инкремент/пересчёт ячейки ждёт на строке.
+func (r *StorageCellRepository) GetStorageCellsForUpdateTx(ctx context.Context, tx *sql.Tx, ownerType, ownerID string) ([]models.StorageCell, error) {
+	return queryStorageCells(ctx, tx, storageCellSelectForUpdateSQL, ownerType, ownerID)
+}
+
+// queryStorageCells — единое чтение ячеек владельца по заданному SQL (для точки
+// сдачи — с локом строк, для прочих чтений — без).
+func queryStorageCells(ctx context.Context, q storageCellRowsQueryer, selectSQL, ownerType, ownerID string) ([]models.StorageCell, error) {
+	rows, err := q.QueryContext(ctx, selectSQL, ownerType, ownerID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query storage cells: %w", err)
 	}

@@ -42,6 +42,9 @@ type Server struct {
 	racesPath    string // config/races.json (валидация ключей ships.json; в тестах — относительный)
 
 	gameSpritesDirPath string // каталог игровых спрайтов кораблей (витрина «В игре»; в тестах — относительный)
+
+	shipRegistryPath     string // config/ships_registry.json — реестр кораблей игры (чтение витрины + запись при удалении)
+	acceptedShipsDirPath string // ai_drafts/final_accepted/ships — PNG приёмки + ships_meta.json (удаление)
 }
 
 // NewServer создаёт Server. uiHTML — содержимое web/index.html (embed в main).
@@ -161,6 +164,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/humans/img/", s.handleHumansImg)
 	mux.HandleFunc("/ships/races", s.handleShipsRaces)
 	mux.HandleFunc("/ships/ingame", s.handleShipsIngame)
+	mux.HandleFunc("/ships/ingame/delete", s.handleShipsIngameDelete)
 	mux.HandleFunc("/ships/ingame/img/", s.handleShipsIngameImg)
 	mux.HandleFunc("/ships/info", s.handleShipsInfo)
 	mux.HandleFunc("/ships/prompt", s.handleShipsPrompt)

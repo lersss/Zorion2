@@ -6,6 +6,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -53,6 +54,8 @@ func newShipsTestStudio(t *testing.T) (*Server, string, string) {
 	srv.shipsDirPath = "../../../docs/gamedesign/races/ships"
 	srv.racesPath = "../../../config/races.json"
 	srv.raceNameBySlug = loadRaceNames("../../../config/races.json")
+	srv.shipRegistryPath = "../../../config/ships_registry.json"
+	srv.acceptedShipsDirPath = filepath.Join(pool, "final_accepted", "ships")
 	return srv, shipsPath, pool
 }
 
@@ -1188,12 +1191,55 @@ func tinyPNG(t *testing.T) []byte {
 	return b.Bytes()
 }
 
-// TestShipsIngame — GET /ships/ingame: состав = реестр + нейтральный (117+1),
-// порядок реестра (людской блок первым, нейтральный последним), race_name из
-// config/races.json; angle/flip присутствуют в JSON даже при нулевых значениях
-// (своя DTO, omitempty модели не просачивается).
+// testRegistryShips — минимальный валидный реестр для тестов витрины/удаления:
+// людской блок (default + _02), два корабля расы coastal, нейтральный последним.
+func testRegistryShips() []models.ShipSprite {
+	return []models.ShipSprite{
+		{ID: "race_humans_starship", Name: "Люди · 1", File: "race_humans_starship.png", Race: "humans", Angle: 21.1},
+		{ID: "race_humans_starship_02", Name: "Люди · 2", File: "race_humans_starship_02.png", Race: "humans"},
+		{ID: "race_coastal_01", Name: "Прибрежные · 1", File: "race_coastal_01.png", Race: "coastal"},
+		{ID: "race_coastal_02", Name: "Прибрежные · 2", File: "race_coastal_02.png", Race: "coastal"},
+		{ID: "neutral", Name: "Нейтральный", File: "neutral.png", Race: ""},
+	}
+}
+
+// writeTestShipRegistry — записать temp-реестр кораблей (валидный формат).
+func writeTestShipRegistry(t *testing.T, ships []models.ShipSprite) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "ships_registry.json")
+	data, err := json.Marshal(struct {
+		Version int                 `json:"version"`
+		Ships   []models.ShipSprite `json:"ships"`
+	}{Version: 1, Ships: ships})
+	if err != nil {
+		t.Fatalf("json: %v", err)
+	}
+	if err := os.WriteFile(p, data, 0o644); err != nil {
+		t.Fatalf("WriteFile реестра: %v", err)
+	}
+	return p
+}
+
+// setupDeleteStudio — Server с temp-реестром, temp-папкой спрайтов игры и
+// temp-папкой приёмки; возвращает Server и оба каталога.
+func setupDeleteStudio(t *testing.T, ships []models.ShipSprite) (*Server, string, string) {
+	t.Helper()
+	srv, _, _ := newShipsTestStudio(t)
+	srv.shipRegistryPath = writeTestShipRegistry(t, ships)
+	srv.gameSpritesDirPath = t.TempDir()
+	srv.acceptedShipsDirPath = t.TempDir()
+	return srv, srv.gameSpritesDirPath, srv.acceptedShipsDirPath
+}
+
+// TestShipsIngame — GET /ships/ingame: ответ 1:1 с temp-реестром (состав/порядок
+// из файла, нет жёстких чисел), race_name из config/races.json; angle/flip
+// присутствуют в JSON даже при нулевых значениях (своя DTO, omitempty модели
+// не просачивается). Data-agnostic (M1).
 func TestShipsIngame(t *testing.T) {
 	srv, _, _ := newShipsTestStudio(t)
+	ships := testRegistryShips()
+	srv.shipRegistryPath = writeTestShipRegistry(t, ships)
+
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/ships/ingame", nil))
 	// указатели: отличают «поле есть со значением 0» от «поля нет» (omitempty)
@@ -1209,42 +1255,309 @@ func TestShipsIngame(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &items); err != nil {
 		t.Fatalf("json: %v", err)
 	}
-	if want := len(models.RaceShipSprites) + 1; len(items) != want {
-		t.Fatalf("items = %d, want %d", len(items), want)
+	if len(items) != len(ships) {
+		t.Fatalf("items = %d, want %d", len(items), len(ships))
 	}
-	// первая — людская
-	first := items[0]
-	if first.ID != "race_humans_starship" || first.Race != "humans" || first.RaceName != "Люди" {
-		t.Errorf("first = %+v, want race_humans_starship/humans/Люди", first)
+	raceNames := loadRaceNames("../../../config/races.json")
+	for i, want := range ships {
+		got := items[i]
+		if got.File != want.File || got.ID != want.ID || got.Name != want.Name || got.Race != want.Race {
+			t.Errorf("items[%d] = %+v, want %+v", i, got, want)
+		}
+		if got.RaceName != raceNames[want.Race] {
+			t.Errorf("items[%d].RaceName = %q, want %q", i, got.RaceName, raceNames[want.Race])
+		}
+		if got.Angle == nil || *got.Angle != want.Angle {
+			t.Errorf("items[%d].Angle = %v, want %v (обязательное поле)", i, got.Angle, want.Angle)
+		}
+		if got.Flip == nil || *got.Flip != want.Flip {
+			t.Errorf("items[%d].Flip = %v, want %v (обязательное поле)", i, got.Flip, want.Flip)
+		}
 	}
-	if first.File != "race_humans_starship.png" {
-		t.Errorf("first.File = %q", first.File)
-	}
-	if first.Angle == nil || *first.Angle != 21.1 {
-		t.Errorf("first.Angle = %v, want 21.1", first.Angle)
-	}
-	if first.Flip == nil || *first.Flip {
-		t.Errorf("first.Flip = %v, want false (поле обязано быть)", first.Flip)
-	}
-	// нулевая запись реестра (второй людской корабль): angle/flip в JSON всё равно
-	// есть — иначе клиент не отличит «0°» от «поля нет»
+	// нулевая запись: angle/flip всё равно в JSON — иначе клиент не отличит «0°» от «поля нет»
 	zero := items[1]
 	if zero.ID != "race_humans_starship_02" {
 		t.Fatalf("items[1].ID = %q, want race_humans_starship_02", zero.ID)
 	}
-	if zero.Angle == nil || *zero.Angle != 0 {
-		t.Errorf("zero.Angle = %v, want 0 (обязательное поле)", zero.Angle)
+	if zero.Angle == nil || *zero.Angle != 0 || zero.Flip == nil || *zero.Flip {
+		t.Errorf("items[1] = %+v, want angle 0/flip false (обязательные поля)", zero)
 	}
-	if zero.Flip == nil || *zero.Flip {
-		t.Errorf("zero.Flip = %v, want false (обязательное поле)", zero.Flip)
+}
+
+// TestShipsIngameDelete — POST /ships/ingame/delete: удаляются все четыре
+// артефакта; мета/accepted связываются с игровым PNG по sha256 при разных
+// именах (общее содержимое); ответ с пересчётом и steps.accepted; витрина
+// сразу читает актуальный файл (без пересборки).
+func TestShipsIngameDelete(t *testing.T) {
+	srv, sprites, acc := setupDeleteStudio(t, testRegistryShips())
+	png := tinyPNG(t)
+	if err := os.WriteFile(filepath.Join(sprites, "race_coastal_02.png"), png, 0o644); err != nil {
+		t.Fatalf("WriteFile game PNG: %v", err)
 	}
-	// последняя — нейтральная, раса пустая → race_name пустой
-	last := items[len(items)-1]
-	if last.File != models.NeutralShip.File || last.ID != models.NeutralShip.ID {
-		t.Errorf("last = %+v, want neutral", last)
+	// принятые с ДРУГИМ именем, но тем же содержимым (связывание по sha256),
+	// и дубль того же sha256 — удаляются все совпадения.
+	for _, f := range []string{"race_coastal_2_accept.png", "race_coastal_2b_accept.png"} {
+		if err := os.WriteFile(filepath.Join(acc, f), png, 0o644); err != nil {
+			t.Fatalf("WriteFile accepted %s: %v", f, err)
+		}
 	}
-	if last.Race != "" || last.RaceName != "" {
-		t.Errorf("last.Race/RaceName = %q/%q, want пусто", last.Race, last.RaceName)
+	meta := `[{"file":"race_coastal_2_accept.png","race":"coastal","race_name":"Прибрежные"},` +
+		`{"file":"race_coastal_2b_accept.png","race":"coastal","race_name":"Прибрежные"},` +
+		`{"file":"race_other_01.png","race":"other","race_name":"Прочие"}]`
+	if err := os.WriteFile(filepath.Join(acc, "ships_meta.json"), []byte(meta), 0o644); err != nil {
+		t.Fatalf("WriteFile ships_meta: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest("POST", "/ships/ingame/delete?file=race_coastal_02.png", nil))
+	var resp struct {
+		Ok            bool `json:"ok"`
+		Race          string `json:"race"`
+		ShipsLeft     int    `json:"ships_left"`
+		RaceShipsLeft int    `json:"race_ships_left"`
+		Steps         struct {
+			Registry bool `json:"registry"`
+			Meta     bool `json:"meta"`
+			Accepted bool `json:"accepted"`
+			Sprite   bool `json:"sprite"`
+		} `json:"steps"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("json: %v (%s)", err, rec.Body.String())
+	}
+	if !resp.Ok {
+		t.Fatalf("ok = false: %s", rec.Body.String())
+	}
+	if resp.Race != "coastal" || resp.ShipsLeft != 4 || resp.RaceShipsLeft != 1 {
+		t.Errorf("resp = %+v, want coastal/4/1", resp)
+	}
+	if !resp.Steps.Registry || !resp.Steps.Meta || !resp.Steps.Accepted || !resp.Steps.Sprite {
+		t.Errorf("steps = %+v, want все true", resp.Steps)
+	}
+	// реестр: записи нет
+	reg, err := models.ReadShipRegistry(srv.shipRegistryPath)
+	if err != nil {
+		t.Fatalf("ReadShipRegistry: %v", err)
+	}
+	for _, s := range reg {
+		if s.File == "race_coastal_02.png" {
+			t.Errorf("реестр всё ещё содержит race_coastal_02.png")
+		}
+	}
+	// accepted PNG и связанные записи меты удалены; не связанная запись осталась
+	for _, f := range []string{"race_coastal_2_accept.png", "race_coastal_2b_accept.png"} {
+		if _, err := os.Stat(filepath.Join(acc, f)); err == nil {
+			t.Errorf("accepted PNG %s не удалён", f)
+		}
+	}
+	sm, err := os.ReadFile(filepath.Join(acc, "ships_meta.json"))
+	if err != nil {
+		t.Fatalf("ReadFile ships_meta: %v", err)
+	}
+	var items []struct {
+		File string `json:"file"`
+	}
+	if err := json.Unmarshal(sm, &items); err != nil {
+		t.Fatalf("json meta: %v", err)
+	}
+	if len(items) != 1 || items[0].File != "race_other_01.png" {
+		t.Errorf("мета = %+v, want только race_other_01.png", items)
+	}
+	// игровой PNG удалён
+	if _, err := os.Stat(filepath.Join(sprites, "race_coastal_02.png")); err == nil {
+		t.Errorf("игровой PNG не удалён")
+	}
+	// витрина отдаёт актуальный состав сразу
+	rec2 := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec2, httptest.NewRequest("GET", "/ships/ingame", nil))
+	var got []struct {
+		File string `json:"file"`
+	}
+	if err := json.Unmarshal(rec2.Body.Bytes(), &got); err != nil {
+		t.Fatalf("json: %v", err)
+	}
+	if len(got) != 4 {
+		t.Errorf("витрина после удаления = %d, want 4", len(got))
+	}
+}
+
+// TestShipsIngameDeleteKeepsUnknownMetaField — removeShipsMeta сохраняет ВСЕ поля
+// записи меты, включая неизвестные (будущие): удаляется только связанная запись,
+// у соседней неизвестное поле и точность большого числа (seed) не теряются.
+func TestShipsIngameDeleteKeepsUnknownMetaField(t *testing.T) {
+	srv, sprites, acc := setupDeleteStudio(t, testRegistryShips())
+	png := tinyPNG(t)
+	if err := os.WriteFile(filepath.Join(sprites, "race_coastal_02.png"), png, 0o644); err != nil {
+		t.Fatalf("WriteFile game PNG: %v", err)
+	}
+	// удаляемая запись связана по имени; соседняя несёт неизвестное поле и
+	// большое число (проверка UseNumber: без него float64 потерял бы точность).
+	meta := `[{"file":"race_coastal_02.png","race":"coastal","race_name":"Прибрежные","future_field":"dropped"},` +
+		`{"file":"race_other_01.png","race":"other","race_name":"Прочие","future_field":"keep-me","seed":1700000000000000001}]`
+	if err := os.WriteFile(filepath.Join(acc, "ships_meta.json"), []byte(meta), 0o644); err != nil {
+		t.Fatalf("WriteFile ships_meta: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest("POST", "/ships/ingame/delete?file=race_coastal_02.png", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	sm, err := os.ReadFile(filepath.Join(acc, "ships_meta.json"))
+	if err != nil {
+		t.Fatalf("ReadFile ships_meta: %v", err)
+	}
+	var items []map[string]any
+	if err := json.Unmarshal(sm, &items); err != nil {
+		t.Fatalf("json meta: %v", err)
+	}
+	if len(items) != 1 || items[0]["file"] != "race_other_01.png" {
+		t.Fatalf("мета = %+v, want только race_other_01.png", items)
+	}
+	if items[0]["future_field"] != "keep-me" {
+		t.Errorf("неизвестное поле потеряно: %+v", items[0])
+	}
+	if !strings.Contains(string(sm), "1700000000000000001") {
+		t.Errorf("точность большого seed потеряна: %s", sm)
+	}
+}
+
+// TestShipsIngameDeleteProtected — 409 на нейтральный и людской дефолт, ничего
+// не удаляется.
+func TestShipsIngameDeleteProtected(t *testing.T) {
+	for _, file := range []string{"neutral.png", "race_humans_starship.png"} {
+		srv, sprites, _ := setupDeleteStudio(t, testRegistryShips())
+		png := tinyPNG(t)
+		if err := os.WriteFile(filepath.Join(sprites, file), png, 0o644); err != nil {
+			t.Fatalf("WriteFile %s: %v", file, err)
+		}
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, httptest.NewRequest("POST", "/ships/ingame/delete?file="+file, nil))
+		if rec.Code != http.StatusConflict {
+			t.Errorf("%s: code = %d, want 409", file, rec.Code)
+		}
+		if _, err := os.Stat(filepath.Join(sprites, file)); err != nil {
+			t.Errorf("%s: защищённый PNG удалён", file)
+		}
+		reg, err := models.ReadShipRegistry(srv.shipRegistryPath)
+		if err != nil || len(reg) != len(testRegistryShips()) {
+			t.Errorf("%s: реестр изменился (len=%d, err=%v)", file, len(reg), err)
+		}
+	}
+}
+
+// TestShipsIngameDeleteNothing — 404, когда удалять нечего ни на одном шаге.
+func TestShipsIngameDeleteNothing(t *testing.T) {
+	srv, _, _ := setupDeleteStudio(t, testRegistryShips())
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest("POST", "/ships/ingame/delete?file=race_ghost.png", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("code = %d, want 404: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestShipsIngameDeleteBadRequest — 400: пустое имя и обход пути (в т.ч. %5C).
+func TestShipsIngameDeleteBadRequest(t *testing.T) {
+	srv, _, _ := setupDeleteStudio(t, testRegistryShips())
+	for _, u := range []string{
+		"/ships/ingame/delete?file=",
+		"/ships/ingame/delete?file=../secret.png",
+		"/ships/ingame/delete?file=..%5Csecret.png",
+		"/ships/ingame/delete?file=a%2Fb.png",
+		"/ships/ingame/delete?file=bad%00name.png", // NUL — иначе 500 на шаге спрайта
+		"/ships/ingame/delete?file=bad%0Aname.png", // перевод строки
+	} {
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, httptest.NewRequest("POST", u, nil))
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: code = %d, want 400", u, rec.Code)
+		}
+	}
+}
+
+// TestShipsIngameDeleteMethod — не POST → 405.
+func TestShipsIngameDeleteMethod(t *testing.T) {
+	srv, _, _ := setupDeleteStudio(t, testRegistryShips())
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/ships/ingame/delete?file=race_coastal_02.png", nil))
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("code = %d, want 405", rec.Code)
+	}
+}
+
+// TestShipsIngameDeleteIdempotent — запись реестра уже убрана (частичный сбой),
+// но accepted PNG и мета на месте: повтор не отдаёт 404, а домешивает оставшиеся
+// шаги по имени/хэшу (канал восстановления закрывается).
+func TestShipsIngameDeleteIdempotent(t *testing.T) {
+	var without []models.ShipSprite
+	for _, s := range testRegistryShips() {
+		if s.File != "race_coastal_02.png" {
+			without = append(without, s)
+		}
+	}
+	srv, sprites, acc := setupDeleteStudio(t, without)
+	png := tinyPNG(t)
+	if err := os.WriteFile(filepath.Join(sprites, "race_coastal_02.png"), png, 0o644); err != nil {
+		t.Fatalf("WriteFile game PNG: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(acc, "race_coastal_2_accept.png"), png, 0o644); err != nil {
+		t.Fatalf("WriteFile accepted: %v", err)
+	}
+	meta := `[{"file":"race_coastal_2_accept.png","race":"coastal","race_name":"Прибрежные"}]`
+	if err := os.WriteFile(filepath.Join(acc, "ships_meta.json"), []byte(meta), 0o644); err != nil {
+		t.Fatalf("WriteFile ships_meta: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest("POST", "/ships/ingame/delete?file=race_coastal_02.png", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d, want 200 (домешивание): %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Ok    bool   `json:"ok"`
+		Race  string `json:"race"`
+		Steps struct {
+			Registry bool `json:"registry"`
+			Meta     bool `json:"meta"`
+			Accepted bool `json:"accepted"`
+			Sprite   bool `json:"sprite"`
+		} `json:"steps"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("json: %v", err)
+	}
+	if !resp.Ok || resp.Race != "coastal" {
+		t.Errorf("resp = %+v, want ok/coastal", resp)
+	}
+	if resp.Steps.Registry {
+		t.Errorf("steps.registry = true, want false (записи не было)")
+	}
+	if !resp.Steps.Meta || !resp.Steps.Accepted || !resp.Steps.Sprite {
+		t.Errorf("steps = %+v, want meta/accepted/sprite true", resp.Steps)
+	}
+}
+
+// TestShipsIngameDeleteLastShipAllowed — последний корабль расы удалять МОЖНО
+// (решение В1): успех, race_ships_left = 0.
+func TestShipsIngameDeleteLastShipAllowed(t *testing.T) {
+	ships := []models.ShipSprite{
+		{ID: "race_humans_starship", Name: "Люди · 1", File: "race_humans_starship.png", Race: "humans", Angle: 21.1},
+		{ID: "race_humans_starship_02", Name: "Люди · 2", File: "race_humans_starship_02.png", Race: "humans"},
+		{ID: "race_coastal_01", Name: "Прибрежные · 1", File: "race_coastal_01.png", Race: "coastal"},
+		{ID: "neutral", Name: "Нейтральный", File: "neutral.png", Race: ""},
+	}
+	srv, _, _ := setupDeleteStudio(t, ships)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest("POST", "/ships/ingame/delete?file=race_coastal_01.png", nil))
+	var resp struct {
+		Ok            bool `json:"ok"`
+		ShipsLeft     int  `json:"ships_left"`
+		RaceShipsLeft int  `json:"race_ships_left"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("json: %v (%s)", err, rec.Body.String())
+	}
+	if !resp.Ok || resp.ShipsLeft != 3 || resp.RaceShipsLeft != 0 {
+		t.Errorf("resp = %+v, want ok/3/0", resp)
 	}
 }
 

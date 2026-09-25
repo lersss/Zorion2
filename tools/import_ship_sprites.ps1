@@ -3,21 +3,26 @@
 # и docs/specs/2026-09-23-корабли-рас-раса-агентов-и-игрока.md §6.1 п.5/6):
 # копирует принятые PNG в web/static/sprites/ (сверка по sha256, а НЕ по имени:
 # имена принятых race_<slug>_NN.png и файлов реестра race_<slug>_<word>.png не
-# совпадают), печатает строки реестра RaceShipSprites для вставки ВРУЧНУЮ и отчёт.
-# Реестр скрипт НЕ переписывает.
+# совпадают), а для отсутствующих записей дописывает их в файл реестра
+# config/ships_registry.json (сверка по полю file). Реестр — данные, а не код:
+# скрипт ПИШЕТ его (UTF-8 без BOM), восстанавливая канонический порядок.
 #
 # Фильтр (спека §6.1 п.1–2): импортируются ТОЛЬКО записи ships_meta.json; PNG
 # без записи (сироты) и старые безымянные люди race_humans_01..06.png — не берутся.
-# Порядок строк (спека §6.1 п.6): людской блок первым (тип starship → cruiser →
-# carrier → fighter, внутри типа base → _02 → _03), затем прочие расы в порядке
-# меты. Строка несёт Race (слаг расы из меты).
+# Порядок записей (спека §6.1 п.6 / 2026-09-25 §3.4): людской блок первым (тип
+# starship → cruiser → carrier → fighter, внутри типа base → _02 → _03), затем
+# прочие расы в относительном порядке, нейтральный — последним. Запись несёт
+# Race (слаг расы из меты), Angle/Flip (нормализованный угол).
+#
+# Неизвестные поля существующих записей (в частности scale_human) сохраняются:
+# скрипт не пересобирает записи с нуля, а правит/дополняет их.
 #
 # Гвард orient_meta: пару (A, F) берёт ТОЛЬКО при маркере orient_meta:true;
 # записи без маркера (принятые старым способом — угол уже запечён в пиксели)
-# печатаются как Angle: 0, Flip: false с пометкой «легаси».
+# пишутся как Angle: 0, Flip: false с пометкой «легаси».
 #
 # Идемпотентен: повторный прогон не копирует уже импортированное (сверка по
-# хэшу) и не печатает уже вставленные строки (сверка File по реестру).
+# хэшу) и не добавляет уже вписанные записи (сверка file по реестру).
 #
 # Запуск: powershell -File tools/import_ship_sprites.ps1
 # Параметры -AcceptedDir/-SpritesDir/-Registry переопределяют пути (нужны
@@ -25,7 +30,7 @@
 param(
     [string]$AcceptedDir = 'ai_drafts/final_accepted/ships',
     [string]$SpritesDir = 'web/static/sprites',
-    [string]$Registry = 'internal/models/race_ship_sprites.go'
+    [string]$Registry = 'config/ships_registry.json'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -56,6 +61,26 @@ function Normalize-ShipAngle([double]$a) {
     return $v
 }
 
+# Write-Utf8NoBom — запись файла UTF-8 без BOM (PowerShell 5.1 Set-Content -Encoding
+# UTF8 пишет BOM, Go его не разберёт; загрузчик снимает BOM защитно, но писать
+# чисто — правило).
+function Write-Utf8NoBom([string]$path, [string]$text) {
+    $enc = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($path, $text, $enc)
+}
+
+# --- реестр как данные (config/ships_registry.json) ---
+$registryObj = $null
+if (Test-Path -LiteralPath $Registry) {
+    $regRaw = Get-Content -LiteralPath $Registry -Raw -Encoding UTF8
+    if ($regRaw -and $regRaw.Trim()) { $registryObj = ConvertFrom-Json -InputObject $regRaw }
+}
+$regShips = @()
+if ($registryObj -and $registryObj.ships) { $regShips = @($registryObj.ships) }
+$version = if ($registryObj -and $null -ne $registryObj.version) { $registryObj.version } else { 1 }
+$regByFile = @{}
+foreach ($s in $regShips) { $regByFile[[string]$s.file] = $true }
+
 $metaPath = Join-Path $AcceptedDir 'ships_meta.json'
 if (-not (Test-Path -LiteralPath $metaPath)) {
     Write-Output "нет $metaPath"
@@ -65,7 +90,7 @@ $raw = Get-Content -LiteralPath $metaPath -Raw -Encoding UTF8
 $parsed = ConvertFrom-Json -InputObject $raw
 $records = @($parsed)
 
-# Порядок реестра (спека §6.1 п.6): людской блок первым (тип starship → cruiser →
+# Порядок обхода (спека §6.1 п.6): людской блок первым (тип starship → cruiser →
 # carrier → fighter, внутри типа base → _02 → _03), затем прочие расы в порядке
 # меты. Фильтр (спека §6.1 п.1–2): только записи меты; старые безымянные люди
 # race_humans_01..06.png не импортируются (вытеснены типизированными).
@@ -94,13 +119,7 @@ foreach ($f in Get-ChildItem -LiteralPath $SpritesDir -Filter *.png -File) {
     $hashToName[(Get-Sha256 $f.FullName)] = $f.Name
 }
 
-$registryText = ''
-if (Test-Path -LiteralPath $Registry) { $registryText = Get-Content -LiteralPath $Registry -Raw -Encoding UTF8 }
-function Test-InRegistry([string]$name) {
-    return $registryText -match [regex]::Escape('File: "' + $name + '"')
-}
-
-$already = 0; $copied = 0; $legacy = 0; $rows = 0; $errors = 0; $idx = 0
+$already = 0; $copied = 0; $legacy = 0; $added = 0; $errors = 0; $idx = 0
 foreach ($item in $ordered) {
     $rec = $item.Rec
     $idx++
@@ -143,8 +162,6 @@ foreach ($item in $ordered) {
         $a = 0.0; $f = $false; $legacy++
         Write-Output ("легаси: пара обнулена (ориентация уже в пикселях): " + $file)
     }
-    $aStr = $a.ToString($inv)
-    $fStr = if ($f) { 'true' } else { 'false' }
 
     # Имя корабля — автомат «<имя расы> · <NN>» (NN из имени принятого файла).
     $nn = ''
@@ -152,18 +169,60 @@ foreach ($item in $ordered) {
     if ($m.Success) { $nn = $m.Groups[1].Value } else { $nn = ('{0:D2}' -f $idx) }
     $id = $gameName -replace '\.png$', ''
     $name = ([string]$rec.race_name) + ' · ' + $nn
-
     $race = [string]$rec.race
 
-    if (Test-InRegistry $gameName) { continue }  # строка уже в реестре — не печатаем
-    Write-Output ('{ID: "' + $id + '", Name: "' + $name + '", File: "' + $gameName + '", Race: "' + $race + '", Angle: ' + $aStr + ', Flip: ' + $fStr + '},')
-    $rows++
+    if ($regByFile.ContainsKey($gameName)) { continue }  # запись уже в реестре — не добавляем
+    $newShip = [pscustomobject][ordered]@{
+        id    = $id
+        name  = $name
+        file  = $gameName
+        race  = $race
+        angle = $a
+        flip  = $f
+    }
+    $regShips += $newShip
+    $regByFile[$gameName] = $true
+    $added++
+    Write-Output ("добавлено в реестр: " + $gameName)
+}
+
+# Канонический порядок (спека §3.4): людской блок первым (тип→вариант),
+# остальные — в текущем относительном порядке, нейтральный — последним.
+# Сортировка устойчивая: Order = позиция записи до сортировки (в 5.1 Sort-Object
+# стабильность не гарантирована — задаём ключ явно).
+if ($added -gt 0) {
+    $wrapped = @()
+    $pos = 0
+    foreach ($s in $regShips) {
+        $pos++
+        $file = [string]$s.file
+        $isHuman = ([string]$s.race -eq 'humans')
+        $isNeutral = ([string]$s.race -eq '')
+        $typeIdx = 0; $variant = 0
+        if ($isHuman) {
+            $m = [regex]::Match($file, '^race_humans_([a-z]+?)(?:_(\d+))?\.png$')
+            if ($m.Success) {
+                $typeIdx = [array]::IndexOf($humanTypes, $m.Groups[1].Value)
+                if ($typeIdx -lt 0) { $typeIdx = 999 }
+                $variant = if ($m.Groups[2].Success) { [int]$m.Groups[2].Value } else { 1 }
+            }
+        }
+        $wrapped += [pscustomobject]@{
+            Ship = $s; Neutral = $(if ($isNeutral) { 1 } else { 0 });
+            Human = $(if ($isHuman) { 0 } else { 1 }); TypeIdx = $typeIdx; Variant = $variant; Order = $pos
+        }
+    }
+    $wrapped = @($wrapped | Sort-Object Neutral, Human, TypeIdx, Variant, Order)
+    $outShips = @($wrapped | ForEach-Object { $_.Ship })
+
+    $outObj = [pscustomobject][ordered]@{ version = $version; ships = @($outShips) }
+    Write-Utf8NoBom $Registry (ConvertTo-Json -InputObject $outObj -Depth 10)
 }
 
 Write-Output '---'
 Write-Output ("уже в игре: " + $already)
 Write-Output ("скопировано: " + $copied)
+Write-Output ("добавлено записей в реестр: " + $added)
 Write-Output ("легаси: пара обнулена: " + $legacy)
 Write-Output ("легаси-люди (race_humans_01..06) не импортируются: " + $legacyHumans)
-Write-Output ("нужна строка в реестр: " + $rows)
 if ($errors -gt 0) { Write-Output ("ошибок: " + $errors) }

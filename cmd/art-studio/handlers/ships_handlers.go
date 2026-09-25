@@ -1,9 +1,13 @@
 ﻿package handlers
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/rand"
 	"net/http"
 	"os"
@@ -13,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"zorion/cmd/art-studio/config"
 	"zorion/cmd/art-studio/generator"
@@ -244,12 +249,19 @@ type shipIngameItem struct {
 }
 
 // handleShipsIngame — GET /ships/ingame → [{file, id, name, race, race_name,
-// angle, flip}]: витрина всех кораблей, уже лежащих в игре (реестр
-// models.ShipOptions = RaceShipSprites + NeutralShip; порядок реестра,
-// нейтральный последним). Только чтение.
+// angle, flip}]: витрина всех кораблей, уже лежащих в игре. Реестр читается
+// файлом при запросе (models.ReadShipRegistry), а не из package-переменной:
+// удаление видно в студии сразу, без перезапуска. Состав — ровно содержимое
+// файла (нейтральный последним). Ошибка чтения — 500 с текстом.
 func (s *Server) handleShipsIngame(w http.ResponseWriter, r *http.Request) {
-	out := make([]shipIngameItem, 0, len(models.ShipOptions))
-	for _, sp := range models.ShipOptions {
+	ships, err := models.ReadShipRegistry(s.shipRegistry())
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		writeJSON(w, map[string]string{"error": "реестр кораблей: " + err.Error()})
+		return
+	}
+	out := make([]shipIngameItem, 0, len(ships))
+	for _, sp := range ships {
 		out = append(out, shipIngameItem{
 			File: sp.File, ID: sp.ID, Name: sp.Name, Race: sp.Race,
 			RaceName: s.raceNameBySlug[sp.Race], Angle: sp.Angle, Flip: sp.Flip,
@@ -264,6 +276,322 @@ func (s *Server) handleShipsIngameImg(w http.ResponseWriter, r *http.Request) {
 	fname := filepath.Base(r.URL.Path[len("/ships/ingame/img/"):])
 	fp := filepath.Join(s.gameSpritesDir(), fname)
 	servePNG(w, fp)
+}
+
+// shipDeleteSteps — какие шаги удаления выполнены (ответ /ships/ingame/delete).
+type shipDeleteSteps struct {
+	Registry bool `json:"registry"`
+	Meta     bool `json:"meta"`
+	Accepted bool `json:"accepted"`
+	Sprite   bool `json:"sprite"`
+}
+
+// handleShipsIngameDelete — POST /ships/ingame/delete?file=<name>: физическое
+// удаление одного корабля из игры (спека 2026-09-25 §4): запись реестра →
+// запись ships_meta.json → PNG accepted → PNG игры (последним, инвариант «нет
+// записи реестра без PNG игры»). Мета/accepted связываются с игровым PNG по
+// sha256 (хэш считается ДО удаления), фолбэк по имени. Нейтральный и людской
+// дефолт не удаляются. Операция адресуется именем файла и домешивается: повтор
+// по уже частично удалённому файлу не отдаёт глухой 404.
+func (s *Server) handleShipsIngameDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		writeJSON(w, map[string]interface{}{"ok": false, "error": "только POST"})
+		return
+	}
+	file := r.URL.Query().Get("file")
+	if !validShipDeleteName(file) {
+		w.WriteHeader(http.StatusBadRequest)
+		writeJSON(w, map[string]interface{}{"ok": false, "error": "некорректное имя файла: " + file})
+		return
+	}
+	if file == models.NeutralShip.File || file == models.DefaultHumanShip {
+		w.WriteHeader(http.StatusConflict)
+		writeJSON(w, map[string]interface{}{"ok": false, "error": "защищённый корабль: " + file})
+		return
+	}
+
+	var steps shipDeleteSteps
+	fail := func(step, msg string) {
+		w.WriteHeader(http.StatusInternalServerError)
+		writeJSON(w, map[string]interface{}{"ok": false, "error": msg, "step": step})
+	}
+
+	// sha256 игрового PNG — считается ДО удаления, пока файл на месте (связывание
+	// меты/accepted с игровым именем; при отсутствии файла — фолбэк по имени).
+	gameDir := s.gameSpritesDir()
+	gamePNG := filepath.Join(gameDir, file)
+	gameHash := ""
+	if pathInsideDir(gameDir, gamePNG) {
+		if h, err := fileSHA256(gamePNG); err == nil {
+			gameHash = h
+		}
+	}
+
+	// Известное ограничение (принято в спеке): read-modify-write реестра и меты
+	// не сериализован — при одновременных удалениях возможно lost update.
+	// Студия односеансная, общего лока на файлы не вводим.
+	//
+	// шаг 1: реестр — убрать запись и записать атомарно.
+	ships, err := models.ReadShipRegistry(s.shipRegistry())
+	if err != nil {
+		fail("registry", "реестр кораблей: "+err.Error())
+		return
+	}
+	kept := make([]models.ShipSprite, 0, len(ships))
+	race := ""
+	found := false
+	for _, sp := range ships {
+		if sp.File == file {
+			found = true
+			race = sp.Race
+			continue
+		}
+		kept = append(kept, sp)
+	}
+	if found {
+		data, err := json.MarshalIndent(struct {
+			Version int                 `json:"version"`
+			Ships   []models.ShipSprite `json:"ships"`
+		}{Version: 1, Ships: kept}, "", "  ")
+		if err != nil {
+			fail("registry", "реестр: "+err.Error())
+			return
+		}
+		if err := writeFileAtomic(s.shipRegistry(), data); err != nil {
+			fail("registry", "реестр: "+err.Error())
+			return
+		}
+		steps.Registry = true
+	}
+
+	// шаг 2: запись ships_meta.json, связанная с файлом (по хэшу, фолбэк по имени).
+	accDir := s.acceptedShipsDir()
+	metaRemoved, mrace, err := removeShipsMeta(filepath.Join(accDir, "ships_meta.json"), file, gameHash, accDir)
+	if err != nil {
+		fail("meta", "мета: "+err.Error())
+		return
+	}
+	if metaRemoved {
+		steps.Meta = true
+	}
+	if race == "" {
+		race = mrace
+	}
+
+	// шаг 3: PNG приёмки, связанные с файлом (по хэшу, фолбэк по имени).
+	if removed, err := removeAcceptedPNGs(accDir, file, gameHash); err != nil {
+		fail("accepted", "accepted PNG: "+err.Error())
+		return
+	} else if removed {
+		steps.Accepted = true
+	}
+
+	// шаг 4: PNG игры — последним.
+	if pathInsideDir(gameDir, gamePNG) {
+		if err := os.Remove(gamePNG); err == nil {
+			steps.Sprite = true
+		} else if !os.IsNotExist(err) {
+			fail("sprite", "PNG игры: "+err.Error())
+			return
+		}
+	}
+
+	if !found && !steps.Meta && !steps.Accepted && !steps.Sprite {
+		w.WriteHeader(http.StatusNotFound)
+		writeJSON(w, map[string]interface{}{"ok": false, "error": "удалять нечего: " + file})
+		return
+	}
+
+	raceLeft := 0
+	if race != "" {
+		for _, sp := range kept {
+			if sp.Race == race {
+				raceLeft++
+			}
+		}
+	}
+	writeJSON(w, map[string]interface{}{
+		"ok": true, "file": file, "race": race,
+		"ships_left": len(kept), "race_ships_left": raceLeft,
+		"steps": steps,
+	})
+}
+
+// validShipDeleteName — имя файла пригодно к удалению: непустое, без разделителей
+// пути (в т.ч. декодированного %5C), без обхода (filepath.Base не срезает) и без
+// управляющих символов (в т.ч. NUL): иначе os.Remove на шаге спрайта вернёт
+// «invalid argument» и операция отдаст 500 вместо 400.
+func validShipDeleteName(file string) bool {
+	if file == "" || strings.ContainsAny(file, `/\`) || strings.Contains(file, "..") {
+		return false
+	}
+	if strings.ContainsFunc(file, unicode.IsControl) {
+		return false
+	}
+	return filepath.Base(file) == file
+}
+
+// pathInsideDir — путь p лежит внутри каталога dir (защита шагов 3/4 от обхода).
+func pathInsideDir(dir, p string) bool {
+	d := filepath.Clean(dir)
+	c := filepath.Clean(p)
+	return strings.HasPrefix(c, d+string(os.PathSeparator))
+}
+
+// fileSHA256 — hex-sha256 файла (связывание меты/accepted с игровым PNG).
+func fileSHA256(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// writeFileAtomic — записать файл атомарно: temp в том же каталоге + os.Rename
+// (на Windows os.Rename заменяет существующий файл; при сбое — fallback через
+// .bak, не удаляя целевой файл до успешного повтора).
+func writeFileAtomic(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".ships_tmp_*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		// Прямой rename не прошёл. Целевой файл НЕ удаляем до успешного повтора
+		// (иначе при сбое повтора система осталась бы без файла): отводим его в
+		// path+".bak", ставим tmp на место, при успехе убираем .bak; если повтор
+		// не прошёл — возвращаем .bak на место. Не удалось и это — ошибка, но
+		// данные не потеряны: рабочий файл лежит в path+".bak".
+		bak := path + ".bak"
+		if berr := os.Rename(path, bak); berr != nil {
+			os.Remove(tmpName)
+			return err
+		}
+		if rerr := os.Rename(tmpName, path); rerr != nil {
+			os.Remove(tmpName)
+			if restoreErr := os.Rename(bak, path); restoreErr != nil {
+				return fmt.Errorf("запись %s: повтор rename: %v; возврат .bak: %v", path, rerr, restoreErr)
+			}
+			return rerr
+		}
+		os.Remove(bak)
+	}
+	return nil
+}
+
+// shipLinkedToGame — связана ли запись (мета или PNG приёмки) с игровым файлом:
+// по имени (фолбэк) либо по sha256 (имя приёмки может отличаться от игрового).
+func shipLinkedToGame(name, gameFile, gameHash, acceptedDir string) bool {
+	if name == gameFile {
+		return true
+	}
+	if gameHash == "" {
+		return false
+	}
+	h, err := fileSHA256(filepath.Join(acceptedDir, name))
+	if err != nil {
+		return false
+	}
+	return h == gameHash
+}
+
+// removeShipsMeta — убрать из ships_meta.json записи, связанные с игровым файлом
+// (по sha256, фолбэк по имени). Возвращает «были ли удалены записи», расу первой
+// удалённой записи и ошибку записи. Файла/записей нет — не ошибка.
+func removeShipsMeta(metaPath, gameFile, gameHash, acceptedDir string) (bool, string, error) {
+	data, err := os.ReadFile(metaPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, "", nil
+		}
+		return false, "", err
+	}
+	// Читаем мету как []map[string]any (UseNumber — большие seed не теряют
+	// точность int64), а не как []generator.ShipMetaItem: так сохраняются ВСЕ
+	// поля записи, включая неизвестные (будущие), а не только известные.
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	var items []map[string]any
+	if err := dec.Decode(&items); err != nil {
+		return false, "", err
+	}
+	kept := make([]map[string]any, 0, len(items))
+	removed := false
+	race := ""
+	for _, m := range items {
+		file, _ := m["file"].(string)
+		if shipLinkedToGame(file, gameFile, gameHash, acceptedDir) {
+			removed = true
+			if race == "" {
+				if r, ok := m["race"].(string); ok {
+					race = r
+				}
+			}
+			continue
+		}
+		kept = append(kept, m)
+	}
+	if !removed {
+		return false, "", nil
+	}
+	out, err := json.Marshal(kept)
+	if err != nil {
+		return false, "", err
+	}
+	if err := writeFileAtomic(metaPath, out); err != nil {
+		return false, "", err
+	}
+	return true, race, nil
+}
+
+// removeAcceptedPNGs — удалить PNG приёмки, связанные с игровым файлом (по
+// sha256, фолбэк по имени), только внутри каталога acceptedDir. Возвращает
+// «был ли удалён хотя бы один файл».
+func removeAcceptedPNGs(acceptedDir, gameFile, gameHash string) (bool, error) {
+	entries, err := os.ReadDir(acceptedDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	removed := false
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".png") {
+			continue
+		}
+		if !shipLinkedToGame(e.Name(), gameFile, gameHash, acceptedDir) {
+			continue
+		}
+		p := filepath.Join(acceptedDir, e.Name())
+		if !pathInsideDir(acceptedDir, p) {
+			continue
+		}
+		if err := os.Remove(p); err != nil {
+			if os.IsNotExist(err) {
+				continue // файла уже нет — это не «удалён» (steps.accepted не врёт)
+			}
+			return removed, err
+		}
+		removed = true
+	}
+	return removed, nil
 }
 
 // handleShipsAct — GET /ships/act?file=&what=accept|reject|rotate&angle=<deg>|
@@ -449,6 +777,24 @@ func (s *Server) gameSpritesDir() string {
 		return s.gameSpritesDirPath
 	}
 	return "web/static/sprites"
+}
+
+// shipRegistry — файл реестра кораблей игры (чтение витрины + запись при
+// удалении). Поле Server: в тестах переопределяется на temp-файл.
+func (s *Server) shipRegistry() string {
+	if s.shipRegistryPath != "" {
+		return s.shipRegistryPath
+	}
+	return "config/ships_registry.json"
+}
+
+// acceptedShipsDir — каталог принятых PNG + ships_meta.json (удаление корабля).
+// Поле Server: в тестах переопределяется на temp-каталог.
+func (s *Server) acceptedShipsDir() string {
+	if s.acceptedShipsDirPath != "" {
+		return s.acceptedShipsDirPath
+	}
+	return "ai_drafts/final_accepted/ships"
 }
 
 // --- Режим приёмки кораблей: подсказка носа, счётчик ---

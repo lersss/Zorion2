@@ -1,7 +1,9 @@
 // tools/e2e/ships-ingame-check.js
-// Read-only browser check of the art-studio tab "В игре" (game ship registry
-// showcase, port 8798). Does NOT start/kill the studio and does NOT touch the
-// ships pool / accepted set — it only opens the already-running studio.
+// Browser check of the art-studio tab "В игре" (game ship registry showcase,
+// port 8798). Does NOT start/kill the studio and does NOT touch the ships pool /
+// accepted set — it only opens the already-running studio. Checks the Delete
+// button + confirm, but cancels the dialog: a live ship is never deleted.
+// Expectations are data-agnostic (numbers read from the live endpoints).
 // Run: node ships-ingame-check.js  (from tools/e2e)
 import { chromium } from 'playwright-core';
 import { existsSync, mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
@@ -71,8 +73,17 @@ async function main() {
       return { cls: im.className, transform: getComputedStyle(im).transform };
     });
 
+    // data-agnostic expectations: numbers come from the live endpoints, not hardcoded
+    const live = await page.evaluate(async () => {
+      const ships = await (await fetch('/ships/ingame')).json();
+      const races = ((await (await fetch('/ships/races')).json()).races) || [];
+      const have = new Set((Array.isArray(ships) ? ships : []).map((s) => s.race).filter(Boolean));
+      const missing = races.filter((r) => !have.has(r.slug));
+      return { ships: (Array.isArray(ships) ? ships : []).length, missing: missing.length, missingNames: missing.map((r) => r.name) };
+    });
+
     report('(a) groups drawn, first is humans',
-      grid.groups.length > 0 && /Люди/.test(grid.groups[0].header) && grid.groups[0].count === 12,
+      grid.groups.length > 0 && /Люди/.test(grid.groups[0].header) && grid.groups[0].count > 0,
       'groups=' + grid.groups.length + ' first="' + grid.groups[0].header + '" firstCount=' + (grid.groups[0] || {}).count);
     report('(b) groups have counters (header "· N")',
       grid.groups.length > 0 && grid.groups.every((x) => /·\s*\d+\s*$/.test(x.header)),
@@ -81,7 +92,7 @@ async function main() {
     report('(orientation) transform applied on first card', orientApplied.transform !== 'none',
       JSON.stringify(orientApplied));
 
-    // (d) missing block
+    // (d) missing block — compare against the live catalog, not a hardcoded "3"
     const missing = await page.evaluate(() => {
       const md = document.getElementById('ingameMissing');
       const title = md.querySelector('div') ? md.querySelector('div').textContent.trim() : '';
@@ -90,9 +101,49 @@ async function main() {
       }));
       return { title, btns };
     });
-    report('(d) "Без корабля: 3" with exactly 3 buttons',
-      /Без корабля:\s*3/.test(missing.title) && missing.btns.length === 3,
-      'title="' + missing.title + '" buttons=' + JSON.stringify(missing.btns));
+    const titleN = (missing.title.match(/Без корабля:\s*(\d+)/) || [])[1];
+    const missingOk = live.missing === 0
+      ? (/Все расы каталога имеют корабль/.test(missing.title) && missing.btns.length === 0)
+      : (Number(titleN) === live.missing && missing.btns.length === live.missing);
+    report('(d) "Без корабля" block matches live catalog (N=' + live.missing + ')',
+      missingOk, 'title="' + missing.title + '" buttons=' + missing.btns.length);
+
+    // (delete) every card has an "Удалить" button; the confirm is shown and
+    // cancelling it changes nothing (a live ship is never actually deleted).
+    const beforeDel = await page.evaluate(() => {
+      const cell = document.querySelector('#gridIngame .cell');
+      const fileDiv = cell ? cell.querySelector('div[style*="color:#888"]') : null;
+      const nameDiv = cell ? cell.querySelector('.name') : null;
+      const img = cell ? cell.querySelector('img.orient') : null;
+      return {
+        cells: document.querySelectorAll('#gridIngame .cell').length,
+        withDel: document.querySelectorAll('#gridIngame .cell button.del').length,
+        file: fileDiv ? fileDiv.textContent.trim() : '',
+        name: nameDiv ? nameDiv.textContent.trim() : '',
+        src: img ? img.getAttribute('src') : '',
+      };
+    });
+    const deleteReqs = [];
+    page.on('request', (r) => { if (r.url().includes('/ships/ingame/delete')) deleteReqs.push(r.method() + ' ' + r.url()); });
+    let confirmMsg = null;
+    const onDialog = async (d) => { confirmMsg = d.message(); await d.dismiss(); };
+    page.on('dialog', onDialog);
+    await page.click('#gridIngame .cell button.del', { force: true }).catch(() => {});
+    await page.waitForTimeout(600);
+    page.off('dialog', onDialog);
+    const afterDel = await page.evaluate(() => ({
+      cells: document.querySelectorAll('#gridIngame .cell').length,
+      src: (document.querySelector('#gridIngame .cell img.orient') || {}).getAttribute
+        ? document.querySelector('#gridIngame .cell img.orient').getAttribute('src') : '',
+    }));
+    report('(delete) every card has a "Удалить" button',
+      beforeDel.cells > 0 && beforeDel.withDel === beforeDel.cells,
+      'cells=' + beforeDel.cells + ' withDel=' + beforeDel.withDel);
+    report('(delete) confirm names ship + file, warns about restart; cancel is a no-op',
+      !!confirmMsg && confirmMsg.includes(beforeDel.file) && confirmMsg.includes(beforeDel.name)
+        && /из игры/.test(confirmMsg) && /перезапуска/.test(confirmMsg)
+        && deleteReqs.length === 0 && afterDel.cells === beforeDel.cells && afterDel.src === beforeDel.src,
+      'confirm="' + confirmMsg + '" deleteReqs=' + JSON.stringify(deleteReqs) + ' cells ' + beforeDel.cells + '->' + afterDel.cells);
 
     // item 5: click first missing race -> ships tab + select
     const first = missing.btns[0];
@@ -106,7 +157,8 @@ async function main() {
       selOk = shipsVisible && selValue === first.slug && selValue !== '';
     }
     report('(5) click missing race opens races tab + selects that race',
-      selOk, 'race="' + (first ? first.name : '') + '" expected=' + (first ? first.slug : '') + ' got=' + selValue + ' shipsTabVisible=' + shipsVisible);
+      first ? selOk : live.missing === 0,
+      'race="' + (first ? first.name : '') + '" expected=' + (first ? first.slug : '') + ' got=' + selValue + ' shipsTabVisible=' + shipsVisible + ' missing=' + live.missing);
     report('(5) no JS errors',
       pageErrors.length === 0 && consoleErrors.length === 0,
       'pageErrors=' + JSON.stringify(pageErrors) + ' consoleErrors=' + JSON.stringify(consoleErrors) + ' badResponses=' + JSON.stringify(badResponses));

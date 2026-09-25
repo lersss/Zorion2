@@ -5,8 +5,10 @@
 // (the module touches DOM only in getShipImage/recolorShipSprite, which are not
 // called here). Verifies: determinism, different races -> different ships,
 // races without a pool (cryo_sky/geysers/ice_plankton) and unknown/empty race ->
-// neutral pool, incomplete suffix sets never fall to neutral, and registry-growth
-// stability (adding a variant changes only its slot).
+// neutral pool, incomplete suffix sets never fall to neutral, registry-growth
+// stability (adding a variant changes only its slot) and deletion degradation
+// (spec 2026-09-25-арт-студия-удаление... §6: removing a variant moves only the
+// slots that relied on it, never to neutral while the pool is non-empty).
 // Run: node race-ships-variant-check.js
 import { setShipOptions, spriteForAgent } from '../../web/static/js/map/ship_sprites.js';
 
@@ -92,6 +94,47 @@ for (let i = 0; i < 400; i++) {
 }
 check('growth: stays in race pool', stillPool);
 check('growth: changes only the new slot (~1/9)', changed > 0 && changed <= 90, 'changed=' + changed);
+
+// --- deletion degradation (spec 2026-09-25-арт-студия-удаление... §6, И7) ---
+// Deleting a variant does NOT move slots that still have an exact suffix; only
+// the slots that relied on the removed suffix move (to the smallest survivor).
+// While the race pool is non-empty an agent NEVER falls to the neutral ship.
+function snapshotFiles(race, n) {
+  const m = new Map();
+  for (let i = 0; i < n; i++) m.set('d' + i, spriteForAgent(race, 'd' + i).file);
+  return m;
+}
+
+// (a) remove a middle suffix from a full pool {_01,_02,_03}: only slot 2 moves
+setShipOptions(baseOptions);
+const coastalBefore = snapshotFiles('coastal', 400);
+setShipOptions(baseOptions.filter(o => o.file !== 'race_coastal_02.png'));
+let midExactKept = true, midMovedOk = true, midNoNeutral = true, midMoved = 0;
+for (const [k, b] of coastalBefore) {
+  const a = spriteForAgent('coastal', k).file;
+  if (a === 'neutral.png') midNoNeutral = false;
+  if (b === 'race_coastal_02.png') { midMoved++; if (a !== 'race_coastal_01.png') midMovedOk = false; }
+  else if (a !== b) midExactKept = false;
+}
+check('deletion(middle suffix): exact slots unchanged', midExactKept);
+check('deletion(middle suffix): removed-slot agents -> smallest survivor', midMoved > 0 && midMovedOk, 'moved=' + midMoved);
+check('deletion(middle suffix): never neutral (non-empty pool)', midNoNeutral);
+
+// (b) remove the smallest suffix of a sparse pool {_02,_03}: exact _03 stays,
+// everyone who relied on _02 moves to the new smallest _03
+setShipOptions(baseOptions);
+const ammoniaBefore = snapshotFiles('ammonia', 400);
+setShipOptions(baseOptions.filter(o => o.file !== 'race_ammonia_02.png'));
+let smallExactKept = true, smallMovedOk = true, smallNoNeutral = true, smallMoved = 0;
+for (const [k, b] of ammoniaBefore) {
+  const a = spriteForAgent('ammonia', k).file;
+  if (a === 'neutral.png') smallNoNeutral = false;
+  if (b === 'race_ammonia_02.png') { smallMoved++; if (a !== 'race_ammonia_03.png') smallMovedOk = false; }
+  else if (a !== b) smallExactKept = false;
+}
+check('deletion(smallest suffix): exact _03 slots unchanged', smallExactKept);
+check('deletion(smallest suffix): slots relying on _02 move to new smallest', smallMoved > 0 && smallMovedOk, 'moved=' + smallMoved);
+check('deletion(smallest suffix): never neutral (non-empty pool)', smallNoNeutral);
 
 // --- null when even the neutral pool is missing ---
 setShipOptions([]);

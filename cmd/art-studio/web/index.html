@@ -76,7 +76,7 @@
 
 <div id="tab-ingame" style="display:none">
   <div class="toolbar">
-    <span style="color:#ddd;font-size:13px">Витрина всех кораблей игрового реестра (только чтение): картинка, имя и пара показа (угол/зеркало) — как в игре.</span>
+    <span style="color:#ddd;font-size:13px">Витрина всех кораблей игрового реестра: картинка, имя и пара показа (угол/зеркало) — как в игре. Удаление вступает в силу в игре только после перезапуска сервера игры (не студии).</span>
     <span id="ingameStatus" style="color:#8cf;font-size:13px"></span>
   </div>
   <div class="grid" id="gridIngame"></div>
@@ -759,7 +759,10 @@ function goToRaceShips(slug){
 // loadIngame — витрина «В игре»: тянем /ships/ingame и /ships/races независимо,
 // группируем корабли по расам в порядке реестра (нейтральный — последним),
 // показываем пару (угол/зеркало) через applyOrientToImg; отдельным блоком —
-// расы каталога без корабля. Только чтение; повторный вызов перерисовывает.
+// расы каталога без корабля. Повторный вызов перерисовывает; удаление корабля
+// (deleteIngame, §4.7) тоже перерисовывает — счётчики групп и блок «Без корабля»
+// считаются из групп автоматически.
+let ingameShips=[];
 async function loadIngame(){
   const g=document.getElementById('gridIngame');
   const st=document.getElementById('ingameStatus');
@@ -776,6 +779,7 @@ async function loadIngame(){
     return;
   }
   if(!Array.isArray(ships)) ships=[];
+  ingameShips=ships;
   // группировка по расе: порядок появления = порядок реестра (у нейтрального race пустой)
   const groups=[], byRace={};
   ships.forEach(it=>{
@@ -790,7 +794,8 @@ async function loadIngame(){
     grp.items.forEach(it=>{
       h+=`<div class="cell"><img class="orient" data-a="${it.angle||0}" data-f="${it.flip?1:0}" src="/ships/ingame/img/${it.file}" alt="${it.name}" onclick="window.open('/ships/ingame/img/${it.file}','_blank')">
       <div class="name">${it.name}</div>
-      <div style="font-size:11px;color:#888">${it.file}</div></div>`;
+      <div style="font-size:11px;color:#888">${it.file}</div>
+      <div class="btns"><button class="del" onclick="deleteIngame('${it.file}')">Удалить</button></div></div>`;
     });
   });
   g.innerHTML=h;
@@ -810,6 +815,26 @@ async function loadIngame(){
     }
   }
   if(st) st.textContent='';
+}
+// deleteIngame — удаление корабля из игрового реестра (§4.7): подтверждение с
+// именем и файлом; при ok — полная перерисовка loadIngame() (карточка исчезает,
+// счётчики групп и «Без корабля» пересчитываются); при ошибке — текст в
+// #ingameStatus и БЕЗ перерисовки, чтобы повторное нажатие домешивало оставшиеся
+// шаги удаления (§4.4). Эффект в игре — после перезапуска сервера игры.
+async function deleteIngame(file){
+  const it=ingameShips.find(s=>s.file===file);
+  const name=(it&&it.name)||file;
+  if(!confirm(`Удалить ${name} (${file}) из игры? Действие необратимо (возврат — только git) и вступит в силу в игре после её перезапуска`)) return;
+  const st=document.getElementById('ingameStatus');
+  try{
+    const r=await fetch('/ships/ingame/delete?'+new URLSearchParams({file}),{method:'POST'});
+    const j=await r.json();
+    if(!j.ok){ if(st) st.textContent='Ошибка: '+(j.error||('HTTP '+r.status)); return; }
+    if(st) st.textContent='';
+    loadIngame();
+  }catch(e){
+    if(st) st.textContent='Ошибка: '+e.message;
+  }
 }
 async function refreshShipsPrompt(){
   const race=document.getElementById('shipRace').value;

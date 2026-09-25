@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"zorion/internal/models"
 )
 
 // Кроссплатформенный фейковый python (helper-процесс): роль python исполняет
@@ -26,6 +28,11 @@ const (
 func TestMain(m *testing.M) {
 	if mode := os.Getenv(fakePythonEnv); mode != "" {
 		os.Exit(fakePythonMain(mode))
+	}
+	// Реестр кораблей игры — файл данных (спека 2026-09-25 §3.5): витрина
+	// «В игре» читает непустой реестр.
+	if err := models.LoadShipRegistry("../../../config/ships_registry.json"); err != nil {
+		panic("LoadShipRegistry: " + err.Error())
 	}
 	os.Exit(m.Run())
 }

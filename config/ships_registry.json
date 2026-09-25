@@ -1,0 +1,887 @@
+{
+  "version": 1,
+  "ships": [
+    {
+      "id": "race_humans_starship",
+      "name": "Звёздный корабль (люди)",
+      "file": "race_humans_starship.png",
+      "race": "humans",
+      "angle": 21.1
+    },
+    {
+      "id": "race_humans_starship_02",
+      "name": "Звёздный корабль (люди) · 2",
+      "file": "race_humans_starship_02.png",
+      "race": "humans"
+    },
+    {
+      "id": "race_humans_starship_03",
+      "name": "Звёздный корабль (люди) · 3",
+      "file": "race_humans_starship_03.png",
+      "race": "humans",
+      "angle": -39
+    },
+    {
+      "id": "race_humans_cruiser",
+      "name": "Крейсер (люди)",
+      "file": "race_humans_cruiser.png",
+      "race": "humans",
+      "angle": -31.1
+    },
+    {
+      "id": "race_humans_cruiser_02",
+      "name": "Крейсер (люди) · 2",
+      "file": "race_humans_cruiser_02.png",
+      "race": "humans",
+      "angle": -45,
+      "flip": true
+    },
+    {
+      "id": "race_humans_cruiser_03",
+      "name": "Крейсер (люди) · 3",
+      "file": "race_humans_cruiser_03.png",
+      "race": "humans",
+      "angle": 35,
+      "flip": true
+    },
+    {
+      "id": "race_humans_carrier",
+      "name": "Носитель (люди)",
+      "file": "race_humans_carrier.png",
+      "race": "humans"
+    },
+    {
+      "id": "race_humans_carrier_02",
+      "name": "Носитель (люди) · 2",
+      "file": "race_humans_carrier_02.png",
+      "race": "humans",
+      "angle": -22,
+      "flip": true
+    },
+    {
+      "id": "race_humans_carrier_03",
+      "name": "Носитель (люди) · 3",
+      "file": "race_humans_carrier_03.png",
+      "race": "humans",
+      "angle": -25,
+      "flip": true
+    },
+    {
+      "id": "race_humans_fighter",
+      "name": "Истребитель (люди)",
+      "file": "race_humans_fighter.png",
+      "race": "humans",
+      "angle": 21.1,
+      "flip": true
+    },
+    {
+      "id": "race_humans_fighter_02",
+      "name": "Истребитель (люди) · 2",
+      "file": "race_humans_fighter_02.png",
+      "race": "humans",
+      "angle": -51
+    },
+    {
+      "id": "race_humans_fighter_03",
+      "name": "Истребитель (люди) · 3",
+      "file": "race_humans_fighter_03.png",
+      "race": "humans",
+      "angle": -38,
+      "flip": true
+    },
+    {
+      "id": "race_coastal_01",
+      "name": "Прибрежные",
+      "file": "race_coastal_01.png",
+      "race": "coastal",
+      "angle": -30.2
+    },
+    {
+      "id": "race_sulfur_nests_01",
+      "name": "Серные гнёзда",
+      "file": "race_sulfur_nests_01.png",
+      "race": "sulfur_nests",
+      "angle": -33.7,
+      "flip": true
+    },
+    {
+      "id": "race_silicon_guardians_01",
+      "name": "Кремниевые стражи",
+      "file": "race_silicon_guardians_01.png",
+      "race": "silicon_guardians",
+      "angle": 91.3,
+      "flip": true
+    },
+    {
+      "id": "race_methane_plankton_01",
+      "name": "Метан-планктон",
+      "file": "race_methane_plankton_01.png",
+      "race": "methane_plankton",
+      "angle": 89.2,
+      "flip": true
+    },
+    {
+      "id": "race_ammonia_02",
+      "name": "Аммиачники · 2",
+      "file": "race_ammonia_02.png",
+      "race": "ammonia",
+      "angle": -37,
+      "flip": true
+    },
+    {
+      "id": "race_ammonia_03",
+      "name": "Аммиачники · 3",
+      "file": "race_ammonia_03.png",
+      "race": "ammonia",
+      "angle": -124
+    },
+    {
+      "id": "race_archivists_01",
+      "name": "Архивариусы",
+      "file": "race_archivists_01.png",
+      "race": "archivists",
+      "angle": -47,
+      "flip": true
+    },
+    {
+      "id": "race_archivists_02",
+      "name": "Архивариусы · 2",
+      "file": "race_archivists_02.png",
+      "race": "archivists",
+      "angle": -94
+    },
+    {
+      "id": "race_arks_01",
+      "name": "Ковчеги",
+      "file": "race_arks_01.png",
+      "race": "arks",
+      "angle": -3
+    },
+    {
+      "id": "race_arks_02",
+      "name": "Ковчеги · 2",
+      "file": "race_arks_02.png",
+      "race": "arks",
+      "angle": 25
+    },
+    {
+      "id": "race_ashfolk_01",
+      "name": "Пепельные",
+      "file": "race_ashfolk_01.png",
+      "race": "ashfolk",
+      "angle": -49
+    },
+    {
+      "id": "race_awakened_01",
+      "name": "Пробуждённые",
+      "file": "race_awakened_01.png",
+      "race": "awakened",
+      "angle": -49,
+      "flip": true
+    },
+    {
+      "id": "race_carbonic_03",
+      "name": "Углекислые · 3",
+      "file": "race_carbonic_03.png",
+      "race": "carbonic",
+      "angle": -47
+    },
+    {
+      "id": "race_carbonic_04",
+      "name": "Углекислые · 4",
+      "file": "race_carbonic_04.png",
+      "race": "carbonic",
+      "angle": 124,
+      "flip": true
+    },
+    {
+      "id": "race_coastal_02",
+      "name": "Прибрежные · 2",
+      "file": "race_coastal_02.png",
+      "race": "coastal",
+      "angle": -38
+    },
+    {
+      "id": "race_coastal_03",
+      "name": "Прибрежные · 3",
+      "file": "race_coastal_03.png",
+      "race": "coastal",
+      "angle": -40,
+      "flip": true
+    },
+    {
+      "id": "race_cryo_corals_01",
+      "name": "Крио-кораллы",
+      "file": "race_cryo_corals_01.png",
+      "race": "cryo_corals",
+      "angle": -33,
+      "flip": true
+    },
+    {
+      "id": "race_cryo_corals_02",
+      "name": "Крио-кораллы · 2",
+      "file": "race_cryo_corals_02.png",
+      "race": "cryo_corals",
+      "angle": 180
+    },
+    {
+      "id": "race_cryo_forest_01",
+      "name": "Крио-лесные",
+      "file": "race_cryo_forest_01.png",
+      "race": "cryo_forest",
+      "angle": -36.6
+    },
+    {
+      "id": "race_cryo_forest_02",
+      "name": "Крио-лесные · 2",
+      "file": "race_cryo_forest_02.png",
+      "race": "cryo_forest",
+      "angle": -38.1
+    },
+    {
+      "id": "race_cryo_swarms_01",
+      "name": "Крио-рои",
+      "file": "race_cryo_swarms_01.png",
+      "race": "cryo_swarms",
+      "angle": -6.5
+    },
+    {
+      "id": "race_cryo_swarms_02",
+      "name": "Крио-рои · 2",
+      "file": "race_cryo_swarms_02.png",
+      "race": "cryo_swarms",
+      "angle": 89.6,
+      "flip": true
+    },
+    {
+      "id": "race_crystallites_03",
+      "name": "Кристаллиты · 3",
+      "file": "race_crystallites_03.png",
+      "race": "crystallites",
+      "angle": 91.5,
+      "flip": true
+    },
+    {
+      "id": "race_crystallites_04",
+      "name": "Кристаллиты · 4",
+      "file": "race_crystallites_04.png",
+      "race": "crystallites",
+      "angle": 126.4,
+      "flip": true
+    },
+    {
+      "id": "race_deep_dwellers_01",
+      "name": "Глубинники",
+      "file": "race_deep_dwellers_01.png",
+      "race": "deep_dwellers",
+      "angle": -38
+    },
+    {
+      "id": "race_deep_dwellers_02",
+      "name": "Глубинники · 2",
+      "file": "race_deep_dwellers_02.png",
+      "race": "deep_dwellers",
+      "angle": -54
+    },
+    {
+      "id": "race_deep_sky_01",
+      "name": "Небесные глубокие",
+      "file": "race_deep_sky_01.png",
+      "race": "deep_sky",
+      "angle": 45
+    },
+    {
+      "id": "race_diamond_01",
+      "name": "Алмазные",
+      "file": "race_diamond_01.png",
+      "race": "diamond",
+      "angle": -43.7
+    },
+    {
+      "id": "race_diamond_02",
+      "name": "Алмазные · 2",
+      "file": "race_diamond_02.png",
+      "race": "diamond",
+      "angle": -44.9,
+      "flip": true
+    },
+    {
+      "id": "race_diskfolk_01",
+      "name": "Дисковые",
+      "file": "race_diskfolk_01.png",
+      "race": "diskfolk",
+      "angle": 89.1,
+      "flip": true
+    },
+    {
+      "id": "race_diskfolk_02",
+      "name": "Дисковые · 2",
+      "file": "race_diskfolk_02.png",
+      "race": "diskfolk",
+      "angle": 91.6,
+      "flip": true
+    },
+    {
+      "id": "race_echo_aliens_01",
+      "name": "Эхо чужих",
+      "file": "race_echo_aliens_01.png",
+      "race": "echo_aliens",
+      "angle": -27.1,
+      "flip": true
+    },
+    {
+      "id": "race_echo_aliens_02",
+      "name": "Эхо чужих · 2",
+      "file": "race_echo_aliens_02.png",
+      "race": "echo_aliens",
+      "angle": 2
+    },
+    {
+      "id": "race_forges_01",
+      "name": "Горнила",
+      "file": "race_forges_01.png",
+      "race": "forges",
+      "angle": -91.6
+    },
+    {
+      "id": "race_forges_02",
+      "name": "Горнила · 2",
+      "file": "race_forges_02.png",
+      "race": "forges",
+      "angle": -26.8,
+      "flip": true
+    },
+    {
+      "id": "race_hot_ash_01",
+      "name": "Жаркие пепловые",
+      "file": "race_hot_ash_01.png",
+      "race": "hot_ash",
+      "angle": -49.4
+    },
+    {
+      "id": "race_hot_ash_02",
+      "name": "Жаркие пепловые · 2",
+      "file": "race_hot_ash_02.png",
+      "race": "hot_ash",
+      "angle": -30,
+      "flip": true
+    },
+    {
+      "id": "race_hydrogen_01",
+      "name": "Водородные",
+      "file": "race_hydrogen_01.png",
+      "race": "hydrogen",
+      "angle": 2.5,
+      "flip": true
+    },
+    {
+      "id": "race_ice_herders_01",
+      "name": "Ледяные пастухи",
+      "file": "race_ice_herders_01.png",
+      "race": "ice_herders",
+      "angle": -43.1
+    },
+    {
+      "id": "race_ice_herders_02",
+      "name": "Ледяные пастухи · 2",
+      "file": "race_ice_herders_02.png",
+      "race": "ice_herders",
+      "angle": 88.3,
+      "flip": true
+    },
+    {
+      "id": "race_lava_01",
+      "name": "Лавовые",
+      "file": "race_lava_01.png",
+      "race": "lava",
+      "angle": -45,
+      "flip": true
+    },
+    {
+      "id": "race_lava_02",
+      "name": "Лавовые · 2",
+      "file": "race_lava_02.png",
+      "race": "lava",
+      "angle": -43.7,
+      "flip": true
+    },
+    {
+      "id": "race_magnetophages_01",
+      "name": "Магнитофаги",
+      "file": "race_magnetophages_01.png",
+      "race": "magnetophages",
+      "angle": 3.3,
+      "flip": true
+    },
+    {
+      "id": "race_magnetophages_02",
+      "name": "Магнитофаги · 2",
+      "file": "race_magnetophages_02.png",
+      "race": "magnetophages",
+      "angle": 91
+    },
+    {
+      "id": "race_methane_fungi_01",
+      "name": "Метан-грибницы",
+      "file": "race_methane_fungi_01.png",
+      "race": "methane_fungi",
+      "angle": -43.6
+    },
+    {
+      "id": "race_methane_fungi_02",
+      "name": "Метан-грибницы · 2",
+      "file": "race_methane_fungi_02.png",
+      "race": "methane_fungi",
+      "angle": -98
+    },
+    {
+      "id": "race_methane_plankton_02",
+      "name": "Метан-планктон · 2",
+      "file": "race_methane_plankton_02.png",
+      "race": "methane_plankton",
+      "angle": 24,
+      "flip": true
+    },
+    {
+      "id": "race_methane_plankton_03",
+      "name": "Метан-планктон · 3",
+      "file": "race_methane_plankton_03.png",
+      "race": "methane_plankton",
+      "angle": 5
+    },
+    {
+      "id": "race_microcrack_01",
+      "name": "Микротрещинные",
+      "file": "race_microcrack_01.png",
+      "race": "microcrack",
+      "angle": 94.9,
+      "flip": true
+    },
+    {
+      "id": "race_microcrack_02",
+      "name": "Микротрещинные · 2",
+      "file": "race_microcrack_02.png",
+      "race": "microcrack",
+      "angle": -68.7
+    },
+    {
+      "id": "race_mist_swarms_01",
+      "name": "Туман-рои",
+      "file": "race_mist_swarms_01.png",
+      "race": "mist_swarms",
+      "angle": 116,
+      "flip": true
+    },
+    {
+      "id": "race_mist_swarms_02",
+      "name": "Туман-рои · 2",
+      "file": "race_mist_swarms_02.png",
+      "race": "mist_swarms",
+      "angle": 38.2,
+      "flip": true
+    },
+    {
+      "id": "race_mistfolk_01",
+      "name": "Туманники",
+      "file": "race_mistfolk_01.png",
+      "race": "mistfolk",
+      "angle": 5.1,
+      "flip": true
+    },
+    {
+      "id": "race_mistfolk_02",
+      "name": "Туманники · 2",
+      "file": "race_mistfolk_02.png",
+      "race": "mistfolk",
+      "angle": 31.2
+    },
+    {
+      "id": "race_nether_01",
+      "name": "Преисподние",
+      "file": "race_nether_01.png",
+      "race": "nether",
+      "angle": -43,
+      "flip": true
+    },
+    {
+      "id": "race_nether_02",
+      "name": "Преисподние · 2",
+      "file": "race_nether_02.png",
+      "race": "nether",
+      "angle": 95,
+      "flip": true
+    },
+    {
+      "id": "race_oceanids_01",
+      "name": "Океаниды",
+      "file": "race_oceanids_01.png",
+      "race": "oceanids",
+      "angle": -35.5
+    },
+    {
+      "id": "race_oceanids_02",
+      "name": "Океаниды · 2",
+      "file": "race_oceanids_02.png",
+      "race": "oceanids",
+      "angle": 39
+    },
+    {
+      "id": "race_philosophers_01",
+      "name": "Философы",
+      "file": "race_philosophers_01.png",
+      "race": "philosophers",
+      "angle": 33,
+      "flip": true
+    },
+    {
+      "id": "race_philosophers_02",
+      "name": "Философы · 2",
+      "file": "race_philosophers_02.png",
+      "race": "philosophers",
+      "angle": -44.3,
+      "flip": true
+    },
+    {
+      "id": "race_piezo_minds_01",
+      "name": "Пьезо-разум",
+      "file": "race_piezo_minds_01.png",
+      "race": "piezo_minds",
+      "angle": 38.6
+    },
+    {
+      "id": "race_piezo_minds_02",
+      "name": "Пьезо-разум · 2",
+      "file": "race_piezo_minds_02.png",
+      "race": "piezo_minds",
+      "angle": -88.9
+    },
+    {
+      "id": "race_pulsar_01",
+      "name": "Пульсарные",
+      "file": "race_pulsar_01.png",
+      "race": "pulsar",
+      "angle": -48,
+      "flip": true
+    },
+    {
+      "id": "race_pulsar_02",
+      "name": "Пульсарные · 2",
+      "file": "race_pulsar_02.png",
+      "race": "pulsar",
+      "angle": -15
+    },
+    {
+      "id": "race_radiotolerant_01",
+      "name": "Радиотолерантные",
+      "file": "race_radiotolerant_01.png",
+      "race": "radiotolerant",
+      "angle": 87,
+      "flip": true
+    },
+    {
+      "id": "race_radiotolerant_02",
+      "name": "Радиотолерантные · 2",
+      "file": "race_radiotolerant_02.png",
+      "race": "radiotolerant",
+      "angle": -42.1
+    },
+    {
+      "id": "race_salt_bridge_01",
+      "name": "Маргулы",
+      "file": "race_salt_bridge_01.png",
+      "race": "salt_bridge",
+      "angle": -52
+    },
+    {
+      "id": "race_salt_bridge_02",
+      "name": "Маргулы · 2",
+      "file": "race_salt_bridge_02.png",
+      "race": "salt_bridge",
+      "angle": -71
+    },
+    {
+      "id": "race_saltfolk_01",
+      "name": "Кшарры",
+      "file": "race_saltfolk_01.png",
+      "race": "saltfolk",
+      "angle": -43.4,
+      "flip": true
+    },
+    {
+      "id": "race_saltfolk_02",
+      "name": "Кшарры · 2",
+      "file": "race_saltfolk_02.png",
+      "race": "saltfolk",
+      "angle": 4
+    },
+    {
+      "id": "race_scavengers_01",
+      "name": "Санитары",
+      "file": "race_scavengers_01.png",
+      "race": "scavengers",
+      "angle": -84,
+      "flip": true
+    },
+    {
+      "id": "race_scavengers_02",
+      "name": "Санитары · 2",
+      "file": "race_scavengers_02.png",
+      "race": "scavengers",
+      "angle": -89
+    },
+    {
+      "id": "race_silicate_swarms_01",
+      "name": "Силикатные рои",
+      "file": "race_silicate_swarms_01.png",
+      "race": "silicate_swarms",
+      "angle": -42.8,
+      "flip": true
+    },
+    {
+      "id": "race_silicate_swarms_02",
+      "name": "Силикатные рои · 2",
+      "file": "race_silicate_swarms_02.png",
+      "race": "silicate_swarms",
+      "angle": 89
+    },
+    {
+      "id": "race_silicon_guardians_02",
+      "name": "Кремниевые стражи · 2",
+      "file": "race_silicon_guardians_02.png",
+      "race": "silicon_guardians",
+      "angle": 89.9,
+      "flip": true
+    },
+    {
+      "id": "race_silicon_guardians_03",
+      "name": "Кремниевые стражи · 3",
+      "file": "race_silicon_guardians_03.png",
+      "race": "silicon_guardians",
+      "angle": -87.2
+    },
+    {
+      "id": "race_skyfolk_01",
+      "name": "Небесные",
+      "file": "race_skyfolk_01.png",
+      "race": "skyfolk",
+      "angle": -89
+    },
+    {
+      "id": "race_skyfolk_02",
+      "name": "Небесные · 2",
+      "file": "race_skyfolk_02.png",
+      "race": "skyfolk",
+      "angle": -50,
+      "flip": true
+    },
+    {
+      "id": "race_sleepers_01",
+      "name": "Спящие",
+      "file": "race_sleepers_01.png",
+      "race": "sleepers",
+      "angle": -56,
+      "flip": true
+    },
+    {
+      "id": "race_sleepers_02",
+      "name": "Спящие · 2",
+      "file": "race_sleepers_02.png",
+      "race": "sleepers",
+      "angle": 5.6,
+      "flip": true
+    },
+    {
+      "id": "race_smokers_01",
+      "name": "Курильщики",
+      "file": "race_smokers_01.png",
+      "race": "smokers",
+      "angle": -51,
+      "flip": true
+    },
+    {
+      "id": "race_smokers_02",
+      "name": "Курильщики · 2",
+      "file": "race_smokers_02.png",
+      "race": "smokers",
+      "angle": 147
+    },
+    {
+      "id": "race_spark_01",
+      "name": "Искра",
+      "file": "race_spark_01.png",
+      "race": "spark",
+      "angle": 44
+    },
+    {
+      "id": "race_spark_02",
+      "name": "Искра · 2",
+      "file": "race_spark_02.png",
+      "race": "spark",
+      "angle": 28.7
+    },
+    {
+      "id": "race_star_shepherds_01",
+      "name": "Звёздные пастыри",
+      "file": "race_star_shepherds_01.png",
+      "race": "star_shepherds",
+      "angle": -141
+    },
+    {
+      "id": "race_sublimators_01",
+      "name": "Сублиматоры",
+      "file": "race_sublimators_01.png",
+      "race": "sublimators",
+      "angle": -34,
+      "flip": true
+    },
+    {
+      "id": "race_sulfur_nests_04",
+      "name": "Серные гнёзда · 4",
+      "file": "race_sulfur_nests_04.png",
+      "race": "sulfur_nests",
+      "angle": -48,
+      "flip": true
+    },
+    {
+      "id": "race_sulfur_nests_05",
+      "name": "Серные гнёзда · 5",
+      "file": "race_sulfur_nests_05.png",
+      "race": "sulfur_nests",
+      "angle": 36,
+      "flip": true
+    },
+    {
+      "id": "race_sulfur_steppes_01",
+      "name": "Серные степи",
+      "file": "race_sulfur_steppes_01.png",
+      "race": "sulfur_steppes",
+      "angle": 156,
+      "flip": true
+    },
+    {
+      "id": "race_sulfur_swarms_01",
+      "name": "Серные рои",
+      "file": "race_sulfur_swarms_01.png",
+      "race": "sulfur_swarms",
+      "angle": -139
+    },
+    {
+      "id": "race_sulfur_swarms_02",
+      "name": "Серные рои · 2",
+      "file": "race_sulfur_swarms_02.png",
+      "race": "sulfur_swarms",
+      "angle": 26,
+      "flip": true
+    },
+    {
+      "id": "race_sulfur_wanderers_01",
+      "name": "Серные странники",
+      "file": "race_sulfur_wanderers_01.png",
+      "race": "sulfur_wanderers",
+      "angle": -91
+    },
+    {
+      "id": "race_sulfur_wanderers_02",
+      "name": "Серные странники · 2",
+      "file": "race_sulfur_wanderers_02.png",
+      "race": "sulfur_wanderers",
+      "angle": -13.8
+    },
+    {
+      "id": "race_supercritical_01",
+      "name": "Сверхкритические",
+      "file": "race_supercritical_01.png",
+      "race": "supercritical",
+      "angle": 165,
+      "flip": true
+    },
+    {
+      "id": "race_thermo_swarms_01",
+      "name": "Термо-рои",
+      "file": "race_thermo_swarms_01.png",
+      "race": "thermo_swarms",
+      "angle": -145
+    },
+    {
+      "id": "race_thermo_swarms_02",
+      "name": "Термо-рои · 2",
+      "file": "race_thermo_swarms_02.png",
+      "race": "thermo_swarms",
+      "angle": -141
+    },
+    {
+      "id": "race_tidal_01",
+      "name": "Приливные",
+      "file": "race_tidal_01.png",
+      "race": "tidal",
+      "angle": 40,
+      "flip": true
+    },
+    {
+      "id": "race_tidal_02",
+      "name": "Приливные · 2",
+      "file": "race_tidal_02.png",
+      "race": "tidal",
+      "angle": 106,
+      "flip": true
+    },
+    {
+      "id": "race_volcanites_01",
+      "name": "Вулканиты",
+      "file": "race_volcanites_01.png",
+      "race": "volcanites",
+      "angle": -40.6,
+      "flip": true
+    },
+    {
+      "id": "race_vortex_01",
+      "name": "Вихревые",
+      "file": "race_vortex_01.png",
+      "race": "vortex",
+      "angle": 90
+    },
+    {
+      "id": "race_vortex_02",
+      "name": "Вихревые · 2",
+      "file": "race_vortex_02.png",
+      "race": "vortex",
+      "angle": -14
+    },
+    {
+      "id": "race_world_machines_01",
+      "name": "Миры-машины",
+      "file": "race_world_machines_01.png",
+      "race": "world_machines",
+      "angle": -31,
+      "flip": true
+    },
+    {
+      "id": "race_young_01",
+      "name": "Молодые",
+      "file": "race_young_01.png",
+      "race": "young",
+      "angle": 57
+    },
+    {
+      "id": "race_young_02",
+      "name": "Молодые · 2",
+      "file": "race_young_02.png",
+      "race": "young",
+      "angle": 104.3,
+      "flip": true
+    },
+    {
+      "id": "race_silicon_threads_01",
+      "name": "Кремниевые нити",
+      "file": "race_silicon_threads_01.png",
+      "race": "silicon_threads",
+      "angle": -24.5
+    },
+    {
+      "id": "neutral",
+      "name": "Нейтральный",
+      "file": "neutral.png",
+      "race": ""
+    }
+  ]
+}

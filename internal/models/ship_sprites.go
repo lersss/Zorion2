@@ -1,7 +1,8 @@
 // internal/models/ship_sprites.go
 // Общие определения визуала кораблей (спека 61b §3.2/§5.5): тип записи
 // реестра, палитра перекраски и резолверы ship_icon. Источник имён — расовый
-// реестр RaceShipSprites (race_ship_sprites.go), дефолт — DefaultHumanShip
+// реестр RaceShipSprites (config/ships_registry.json, ship_registry.go),
+// дефолт — DefaultHumanShip
 // (спека 2026-09-23 §8.1, подэтап П4: легаси-реестр из 21 PNG, маппинг
 // SVG→PNG и дефолт-полумесяц выпилены).
 package models
@@ -44,7 +45,7 @@ var ShipColorPalette = []string{
 // ResolveShipIcon — единое правило маппинга ship_icon при чтении (спека
 // 2026-09-23 §8.1, N5): имя ∈ расовый реестр (включая NeutralShip) → как есть;
 // любое другое (легаси-имя, неизвестное, битое, пустое) → DefaultHumanShip.
-// Индекс shipSpriteByFile — расовый (race_ship_sprites.go).
+// Индекс shipSpriteByFile — расовый (ship_registry.go).
 func ResolveShipIcon(icon string) string {
 	if _, ok := shipSpriteByFile[icon]; ok {
 		return icon

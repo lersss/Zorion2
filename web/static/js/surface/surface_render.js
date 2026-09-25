@@ -709,7 +709,9 @@ export function drawShip(ctx, world, camera, vw, vh, pkg, timeMs) {
     const sprite = recolorShipSprite(pkg.ship_icon, pkg.ship_color);
     if (!sprite) return;
     const size = shipDrawSize(pkg);
-    const wx = SHIP_DECOR_X;
+    // Якорь по X — стартовая колонка мира (ЧК6.2 §6.2): корабль стоит у спавна,
+    // который теперь выбирается по §6.2, а не всегда x=0.
+    const wx = (Number.isFinite(world.spawnX) ? world.spawnX : 0) + SHIP_DECOR_X;
     const x = wx - camera.x + vw / 2;
     // Якорь — `floorY` (§5 п.12): корабль стоит/парит над ПОЛОМ (землёй), не на
     // плите-своде и не на terrainHeight (в гроте terrainHeight игнорирует формы).
@@ -787,11 +789,40 @@ function liquidGroups(world, camera, vw, vh, t) {
     return groups;
 }
 
+// drawUnderwater — обзор под водой (§5.3): полноэкранная подкраска fog.color +
+// мягкая виньетка, включается только когда ГОЛОВА в жидкости (`liquidAt(x, headY+1)`),
+// так «лежание на зеркале» не меняет обзор/воздух. Рисуется внутри drawLiquidFront
+// (последним), нового покадрового прохода нет. День/ночь — ×lightMul.
+function drawUnderwater(ctx, world, player, vw, vh, lightMul) {
+    const L = world.liquid;
+    const headY = player.y - player.h / 2;
+    if (world.liquidAt(player.x, headY + 1) === '') return;
+    const lv = world.liquidLevel(player.x);
+    const d = Math.max(0, headY - lv);
+    const scale = Math.max(1, LIQUID_DEFAULTS.depthScale);
+    const fogA = L.fog ? L.fog.alpha : LIQUID_DEFAULTS.fogAlpha;
+    let a = 0.2 + (fogA * 0.8 - 0.2) * Math.min(1, d / scale);
+    a = Math.max(0, Math.min(1, a * lightMul));
+    if (a <= 0) return;
+    const color = L.fog ? L.fog.color : '#123a55';
+    ctx.save();
+    ctx.fillStyle = rgba(color, a);
+    ctx.fillRect(0, 0, vw, vh);
+    // Виньетка (мягкая, без «слепоты»): α от 0 в центре до ≈0.25 по краям.
+    const g = ctx.createRadialGradient(vw / 2, vh / 2, Math.min(vw, vh) * 0.25, vw / 2, vh / 2, Math.max(vw, vh) * 0.75);
+    g.addColorStop(0, rgba(color, 0));
+    g.addColorStop(1, rgba(color, Math.min(0.25, a + 0.06)));
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, vw, vh);
+    ctx.restore();
+}
+
 // drawLiquidFront — фронтальный проход жидкости (§5.1): подводная пелена
-// (утопление декора, N2) → зеркало/волна → блик → кромка-пена. После игрока, до
-// передних слоёв погоды. Пелена рисуется ВСЕГДА и не зависит от положения игрока;
-// над коркой underIce зеркало/блик/пена гасятся (N7) — видны только в полыньях.
-export function drawLiquidFront(ctx, world, camera, vw, vh, env) {
+// (утопление декора, N2) → зеркало/волна → блик → кромка-пена → обзор под водой
+// (§5.3). После игрока, до передних слоёв погоды. Пелена рисуется ВСЕГДА и не
+// зависит от положения игрока; над коркой underIce зеркало/блик/пена гасятся (N7)
+// — видны только в полыньях. `player` — для подводной подкраски (ЧК6.2).
+export function drawLiquidFront(ctx, world, camera, vw, vh, env, player) {
     const L = world.liquid;
     if (!L) return;
     const lightMul = env ? env.lightMul() : 1;
@@ -812,43 +843,47 @@ export function drawLiquidFront(ctx, world, camera, vw, vh, env) {
         }
         ctx.restore();
     }
-    // 2) Зеркало/блик/кромка — только там, где зеркало (вне корки).
+    // 2) Зеркало/блик/кромка — только там, где зеркало (вне корки). Групп нет
+    //    (видны только сухие колонки) — слои пропускаем, подкраска §5.3 уместна.
     const t = (typeof performance !== 'undefined' ? performance.now() : 0) / 1000;
     const groups = liquidGroups(world, camera, vw, vh, t);
-    if (!groups.length) return;
-    ctx.save();
-    ctx.lineJoin = 'round';
-    // Зеркало: линия уровня с волной, темнеет вместе с миром.
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = rgba(L.color, Math.max(0, Math.min(1, 0.85 * lightMul)));
-    for (const grp of groups) {
-        if (grp.length < 2) continue;
-        ctx.beginPath();
-        ctx.moveTo(grp[0].x, grp[0].y);
-        for (let i = 1; i < grp.length; i++) ctx.lineTo(grp[i].x, grp[i].y);
-        ctx.stroke();
-    }
-    // Блик: яркая линия по зеркалу, гаснет ночью (§5.2).
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = rgba(shadeHex(L.color, 1.5), Math.max(0, Math.min(1, 0.55 * lightMul)));
-    for (const grp of groups) {
-        if (grp.length < 2) continue;
-        ctx.beginPath();
-        ctx.moveTo(grp[0].x, grp[0].y - 1);
-        for (let i = 1; i < grp.length; i++) ctx.lineTo(grp[i].x, grp[i].y - 1);
-        ctx.stroke();
-    }
-    // Кромка-пена у пологого берега: там, где колонка затоплена и глубина мала.
-    if (L.surface.foam > 0) {
-        ctx.fillStyle = rgba(shadeHex(L.color, 1.7), Math.max(0, Math.min(0.8, 0.55 * L.surface.foam * (0.4 + 0.6 * lightMul))));
-        const band = Math.max(1, 2 + 4 * L.surface.foam);
+    if (groups.length) {
+        ctx.save();
+        ctx.lineJoin = 'round';
+        // Зеркало: линия уровня с волной, темнеет вместе с миром.
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = rgba(L.color, Math.max(0, Math.min(1, 0.85 * lightMul)));
         for (const grp of groups) {
-            for (const p of grp) {
-                if (p.depth < 30) ctx.fillRect(p.x, p.y, 1, Math.max(1, band * (1 - p.depth / 30)));
+            if (grp.length < 2) continue;
+            ctx.beginPath();
+            ctx.moveTo(grp[0].x, grp[0].y);
+            for (let i = 1; i < grp.length; i++) ctx.lineTo(grp[i].x, grp[i].y);
+            ctx.stroke();
+        }
+        // Блик: яркая линия по зеркалу, гаснет ночью (§5.2).
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = rgba(shadeHex(L.color, 1.5), Math.max(0, Math.min(1, 0.55 * lightMul)));
+        for (const grp of groups) {
+            if (grp.length < 2) continue;
+            ctx.beginPath();
+            ctx.moveTo(grp[0].x, grp[0].y - 1);
+            for (let i = 1; i < grp.length; i++) ctx.lineTo(grp[i].x, grp[i].y - 1);
+            ctx.stroke();
+        }
+        // Кромка-пена у пологого берега: там, где колонка затоплена и глубина мала.
+        if (L.surface.foam > 0) {
+            ctx.fillStyle = rgba(shadeHex(L.color, 1.7), Math.max(0, Math.min(0.8, 0.55 * L.surface.foam * (0.4 + 0.6 * lightMul))));
+            const band = Math.max(1, 2 + 4 * L.surface.foam);
+            for (const grp of groups) {
+                for (const p of grp) {
+                    if (p.depth < 30) ctx.fillRect(p.x, p.y, 1, Math.max(1, band * (1 - p.depth / 30)));
+                }
             }
         }
+        ctx.restore();
     }
-    ctx.restore();
+    // 3) Обзор под водой (§5.3) — последним в проходе.
+    if (player) drawUnderwater(ctx, world, player, vw, vh, lightMul);
 }
 
 // drawLiquidEmissive — свечение жидкости (лава/планктон, §5.2/§5.4) в финальном

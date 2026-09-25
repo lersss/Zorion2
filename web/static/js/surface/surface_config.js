@@ -74,6 +74,23 @@ export const LIQUID_DEFAULTS = {
 // Минимальная ширина полыньи — игрок обязан пролезть (§3.2/N3, сетка безопасности).
 export const LIQUID_POLYNYA_MIN_W = PLAYER_W + 2;
 
+// Плавание и погружение (ЧК6.2 §6.1/§6.2): числа-гипотезы до гейта «офигеть».
+// Гравитация в жидкости ×0.12 — инвариант (Player); здесь — общие константы.
+export const FLOAT_SUBMERGE = 0.25;    // доля роста: центр в равновесии ниже зеркала
+export const BUOY_K = 25;              // 1/с²: жёсткость пружины плавучести
+export const BUOY_DAMP = 10;           // 1/с: гашение вертикали (критическое при K=25)
+export const SWIM_TERM = 8 * PPM;      // px/с: терминал в жидкости (существующий)
+export const SWIM_FACTOR = 0.5;        // доля WALK_SPEED — горизонталь в жидкости
+export const SWIM_ACCEL = 3 * PPM;     // px/с²: ускорение в жидкости (инерция выше земной)
+export const DIVE_SPEED = 2.0 * PPM;   // px/с: скорость погружения при down (кламп сверху)
+export const DIVE_ACCEL = 6 * PPM;     // px/с²: разгон нырка до DIVE_SPEED
+export const ASCEND_SPEED = 2.5 * PPM; // px/с: всплытие «прыжком» (существующее −2.5·PPM)
+// Спавн (§6.2): перебор от x=0 в обе стороны шагом SPAWN_STEP до SPAWN_WINDOW/2,
+// фолбэк — расширенное окно SPAWN_WINDOW_MAX/2.
+export const SPAWN_STEP = 8;           // px: шаг перебора колонок спавна
+export const SPAWN_WINDOW = 2048;      // px: окно поиска (±1024)
+export const SPAWN_WINDOW_MAX = 8192;  // px: расширенное окно (±4096)
+
 // Погода (§7.2): одно явление за 2–4 мин, без урона.
 export const WEATHER_MIN_MS = 120000;
 export const WEATHER_MAX_MS = 240000;

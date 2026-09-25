@@ -16,7 +16,7 @@ const state = {
     world: null,
     player: null,
     camera: { x: 0, y: 0 },
-    input: { left: false, right: false, jump: false, sprint: false },
+    input: { left: false, right: false, jump: false, sprint: false, down: false },
     weather: null,
     weatherCycle: 0,
     forcedWeather: null, // админский выбор погоды: null = «авто» (идея 2026-09-21)
@@ -153,7 +153,7 @@ function frame(now) {
     drawPlayer(ctx, state.player, state.camera, vw, vh, now);
     // Жидкость — фронтальный проход (ЧК6 §5.1): пелена/зеркало/волна/кромка/блик
     // после игрока, до передних слоёв погоды и среды.
-    drawLiquidFront(ctx, state.world, state.camera, vw, vh, state.env);
+    drawLiquidFront(ctx, state.world, state.camera, vw, vh, state.env, state.player);
     drawWeatherFront(ctx, state.world, state.camera, vw, vh, state.weather, state.env);
     drawEnvironmentFront(ctx, state.world, state.camera, vw, vh, state.env);
     // Финальный эмиссивный проход — после переднего тинта среды, чтобы свет
@@ -204,7 +204,7 @@ async function callShip() {
 }
 
 function bindInput() {
-    const map = { ArrowLeft: 'left', ArrowRight: 'right', KeyA: 'left', KeyD: 'right', Space: 'jump', ShiftLeft: 'sprint', ShiftRight: 'sprint' };
+    const map = { ArrowLeft: 'left', ArrowRight: 'right', KeyA: 'left', KeyD: 'right', Space: 'jump', ShiftLeft: 'sprint', ShiftRight: 'sprint', ArrowDown: 'down', KeyS: 'down' };
     window.addEventListener('keydown', (e) => {
         if (e.code === 'Escape') {
             if (state.dead) return;
@@ -212,7 +212,7 @@ function bindInput() {
             return;
         }
         const k = map[e.code];
-        if (k) { state.input[k] = true; if (e.code === 'Space') e.preventDefault(); }
+        if (k) { state.input[k] = true; if (e.code === 'Space' || e.code === 'ArrowDown' || e.code === 'KeyS') e.preventDefault(); }
     });
     window.addEventListener('keyup', (e) => {
         const k = map[e.code];

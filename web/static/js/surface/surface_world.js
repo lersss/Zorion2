@@ -3,7 +3,7 @@
 // (fbm 2 слоя), пещеры (порог 2D-шума), формации по biome_category (В9), декор,
 // жизнь (если life). Детерминирован от seed — один и тот же мир при повторе.
 // Никакого Math.random: локальный PRNG.
-import { CHUNK, CHUNK_TOP_MARGIN, CHUNK_HEIGHT, FORMATIONS, PPM, FLOAT_SPAN, FLOAT_GAP, PLAYER_W, PLAYER_H, LIQUID_MEDIUM_COLORS, LIQUID_DEFAULTS } from './surface_config.js';
+import { CHUNK, CHUNK_TOP_MARGIN, CHUNK_HEIGHT, FORMATIONS, PPM, FLOAT_SPAN, FLOAT_GAP, PLAYER_W, PLAYER_H, LIQUID_MEDIUM_COLORS, LIQUID_DEFAULTS, FLOAT_SUBMERGE, SPAWN_STEP, SPAWN_WINDOW, SPAWN_WINDOW_MAX } from './surface_config.js';
 import { Player } from './surface_player.js';
 
 // mulberry32 — локальный PRNG (не общий Math.random).
@@ -523,6 +523,10 @@ export class SurfaceWorld {
         this._liquidCrust = !!this.liquid && this.liquid.level.mode === 'underIce';
         this._liqColMemo = null;
         this._basinMemo = null;
+        // Стартовая колонка (ЧК6.2 §6.2) не считается здесь: расчёт дорог (форма,
+        // fbm) и не должен попадать в стоимость генерации чанка. `spawnX`/`spawnY`
+        // — ленивые геттеры (мемо); probe-миры выходят из `ensureSpawn` дёшево.
+        this._spawnReady = false;
     }
 
     _formationForRegion(idx) {
@@ -979,7 +983,13 @@ export class SurfaceWorld {
     _fullFieldProbe() {
         const probe = Object.create(this);
         probe._stage2Active = true;
+        // Кэши — ЛОКАЛЬНЫЕ (объект-прототип не должен писать в мемо мира): probe
+        // подменяет `terrainHeight` сеткой, а `liquidAt`/`liquidLevel` физики (ЧК6.2)
+        // пишут в `_liqColMemo`/`_basinMemo`; общий мемо получал бы значения чужой
+        // сетки (дефект порядка запросов колонок, `_LIQUID` недетерминирован).
         probe._formSupport = null;
+        probe._liqColMemo = null;
+        probe._basinMemo = null;
         return probe;
     }
 
@@ -993,7 +1003,10 @@ export class SurfaceWorld {
         const probe = Object.create(this);
         probe.forms = [Object.assign({}, f, { _onlyInstance: inst, _fi: fi })];
         probe._skipEscape = true;
+        // Кэши — локальные (см. `_fullFieldProbe`): probe не пишет в мемо мира.
         probe._formSupport = null;
+        probe._liqColMemo = null;
+        probe._basinMemo = null;
         return probe;
     }
 
@@ -1392,10 +1405,14 @@ export class SurfaceWorld {
     // «верхов» стенок, `_basinRim`); окно `level.window`. Мемо (мир статичен).
     _basinLevel(x) {
         const memo = this._basinMemo || (this._basinMemo = new Map());
-        const key = Math.round(x / 2);
+        const key = Math.floor(x / 2);
         const hit = memo.get(key);
         if (hit !== undefined) return hit;
-        const lv = Math.max(this._basinRim(x, -1), this._basinRim(x, 1));
+        // Уровень считаем на ПРЕДСТАВИТЕЛЕ корзины 2 px (`key*2`), а не на первом
+        // запрошенном x: иначе результат зависел от порядка обхода колонок
+        // (`liquidDepth(x)` ≠ после `liquidDepth(x+1)`) — «нарисовано ≠ плывётся».
+        const bx = key * 2;
+        const lv = Math.max(this._basinRim(bx, -1), this._basinRim(bx, 1));
         if (memo.size > 60000) memo.clear();
         memo.set(key, lv);
         return lv;
@@ -1488,6 +1505,114 @@ export class SurfaceWorld {
     liquidDepth(x) {
         const c = this._liquidCol(Math.floor(x));
         return c ? c.depth : 0;
+    }
+
+    // floatY — линия плавучести (§6.1): координата центра в равновесии «лежу на
+    // воде»; голова — на `h·FLOAT_SUBMERGE` выше зеркала. Одна реализация для
+    // физики (Player) и рендера — второго пути нет.
+    floatY(x) {
+        return this.liquidLevel(x) + PLAYER_H * FLOAT_SUBMERGE;
+    }
+
+    // ==================== СПАВН (ЧК6.2 §6.2) ====================
+    //
+    // spawnX/spawnY — стартовая колонка: «пол выше зеркала» (`floorY < liquidLevel`)
+    // — это и сухой берег, и верх ледовой корки `underIce`; колонка не задета 2D-формами
+    // (`±2·PLAYER_W`, тот же запас, что у worldgen-защиты `_formStage1Ok`); коробка
+    // спавна свободна по `solidAt'`. Вне жидкости (`liquid` null) — x=0 (прежнее
+    // поведение). Фолбэки (§6.2): расширенное окно → зеркало-фолбэк (плавучесть,
+    // `floatY`) → ближайшая колонка по полу. Считается лениво и один раз (мемо).
+
+    // ensureSpawn — посчитать стартовую колонку (мемо). Probe-миры выходимости
+    // (`_skipEscape`/`_stage2Active`) пропускают расчёт: их p.x/p.y всё равно
+    // перезаписываются, а `spawnX` нужен лишь как безопасное число (§6.2).
+    ensureSpawn() {
+        if (this._spawnReady) return;
+        if (this._skipEscape || this._stage2Active || !this.liquid) {
+            this._spawnX = 0;
+            this._spawnY = this.floorY(0) - PLAYER_H / 2 - 2;
+            this._spawnReady = true;
+            return;
+        }
+        const s = this._scanSpawn(SPAWN_WINDOW / 2, false)
+            || this._scanSpawn(SPAWN_WINDOW_MAX / 2, false)
+            || this._scanSpawn(SPAWN_WINDOW_MAX / 2, true)
+            || this._scanFloor(SPAWN_WINDOW_MAX / 2);
+        this._spawnX = s ? s.x : 0;
+        this._spawnY = s ? s.y : (this.floorY(0) - PLAYER_H / 2 - 2);
+        this._spawnReady = true;
+    }
+
+    get spawnX() {
+        this.ensureSpawn();
+        return this._spawnX;
+    }
+
+    get spawnY() {
+        this.ensureSpawn();
+        return this._spawnY;
+    }
+
+    // _scanSpawn — перебор от x=0 в обе стороны шагом SPAWN_STEP. mirror=true —
+    // зеркало-фолбэк (игрок плавает): колонка с водой (или полынья подо льдом) и
+    // без форм, `y = floatY`. Иначе — сухая/корковая колонка с пробой коробки.
+    _scanSpawn(halfWindow, mirror) {
+        for (let d = 0; d <= halfWindow; d += SPAWN_STEP) {
+            for (const x of (d === 0 ? [0] : [d, -d])) {
+                const hit = mirror ? this._spawnMirrorAt(x) : this._spawnDryAt(x);
+                if (hit) return hit;
+            }
+        }
+        return null;
+    }
+
+    _spawnDryAt(x) {
+        if (!(this.floorY(x) < this.liquidLevel(x))) return false;
+        if (!this._columnFormFree(x)) return false;
+        const y = this.floorY(x) - PLAYER_H / 2 - 2;
+        if (!this._spawnBoxFree(x, y)) return false;
+        return { x, y };
+    }
+
+    _spawnMirrorAt(x) {
+        if (!this._columnFormFree(x)) return false;
+        if (this._liquidCrust) {
+            if (!this.polynyaAt(x) || !this._liquidCol(Math.floor(x))) return false;
+        } else if (this.liquidDepth(x) < this.liquid.level.minDepth) {
+            return false;
+        }
+        return { x, y: this.floatY(x) };
+    }
+
+    // _scanFloor — последний фолбэк (§6.2 п.4, гарантии нет): ближайшая колонка по полу.
+    _scanFloor(halfWindow) {
+        for (let d = 0; d <= halfWindow; d += SPAWN_STEP) {
+            for (const x of (d === 0 ? [0] : [d, -d])) {
+                if (this.floorY(x) < this.liquidLevel(x)) return { x, y: this.floorY(x) - PLAYER_H / 2 - 2 };
+            }
+        }
+        return null;
+    }
+
+    // _columnFormFree — ни один интервал 2D-формы не перекрывает `x ± 2·PLAYER_W`
+    // (тот же запас, что у `_formStage1Ok`). Берётся из уже имеющихся интервалов
+    // форм (`_collectFormIntervals`); для колонок без форм условие истинно.
+    _columnFormFree(x) {
+        if (!this.forms) return true;
+        const half = 2 * PLAYER_W;
+        for (let d = -half; d <= half; d += 1) {
+            if (this._collectFormIntervals(x + d, undefined).length) return false;
+        }
+        return true;
+    }
+
+    // _spawnBoxFree — коробка спавна (w×h вокруг центра x,y) свободна по `solidAt'`
+    // (углы + центр), тем же принципом, что `_blockedX`/`_blockedUp`.
+    _spawnBoxFree(x, y) {
+        const hw = PLAYER_W / 2 - 0.5, hh = PLAYER_H / 2 - 0.5;
+        return !(this.solidAt(x - hw, y - hh) || this.solidAt(x + hw, y - hh)
+            || this.solidAt(x - hw, y + hh) || this.solidAt(x + hw, y + hh)
+            || this.solidAt(x, y));
     }
 
     // decorAt — декор колонки: по рецепту вида (если есть) или легаси-фолбэк.

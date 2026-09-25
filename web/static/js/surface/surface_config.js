@@ -8,6 +8,9 @@ export const PPM = 40;                 // пикселей в метре (виз
 // размера корабля на высадке (решение создателя 2026-09-25: ship_scale в ростах
 // человека). Единственный источник — не дублировать 28 в отрисовке.
 export const PLAYER_H = 28;
+// Ширина бокса игрока (surface_player.js: this.w) — для проверки непроходимости
+// 2D-форм (crack2d не должен заглатывать бокс, §5.1 п.5).
+export const PLAYER_W = 12;
 export const WALK_SPEED = 4;           // м/с
 export const SPRINT_SPEED = 7;         // м/с
 export const JUMP_SPEED = 4.5;         // м/с
@@ -18,6 +21,13 @@ export const G_EARTH = 9.81;
 // Мир (§7.2): чанк 256 px, в памяти ±3.
 export const CHUNK = 256;
 export const CHUNK_RADIUS = 3;
+
+// Геометрия растра чанка (surface_render.js, §2.3): единый источник — skyTop
+// (surface_world.js) ищет «поверхность неба» в пределах кадра, tools берут те же
+// числа. Рост CHUNK_TOP_MARGIN 700→1200 (Э3, 2026-09-23) память НЕ меняет
+// (меняется только topY): высота канваса = CHUNK_HEIGHT.
+export const CHUNK_TOP_MARGIN = 1200;
+export const CHUNK_HEIGHT = 1700;
 
 // Общий визуальный масштаб отрисовки (идея 2026-09-22 §8.2): мир и игрок
 // крупнее. Только отрисовка — трансформ камеры в surface_main.js; физика

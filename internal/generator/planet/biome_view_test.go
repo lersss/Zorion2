@@ -163,11 +163,12 @@ func TestBiomeViewBadPrimKind(t *testing.T) {
 func TestBiomeViewPrimitivesRegistry(t *testing.T) {
 	cat := GetBiomeCatalog()
 	kinds := cat.primKindIndex()
-	require.Len(t, kinds, 32, "8 рельефных + 16 декора + лиана (hang) + 3 размещения + 4 поздних 2D")
+	require.Len(t, kinds, 33, "8 рельефных + 16 декора + лиана (hang) + 3 размещения + 5 поздних 2D")
 	assert.Equal(t, "relief1d", kinds["wave"])
 	assert.Equal(t, "decor", kinds["cactus"])
 	assert.Equal(t, "placement", kinds["clustered"])
 	assert.Equal(t, "relief2d", kinds["overhang"])
+	assert.Equal(t, "relief2d", kinds["crater"], "crater зарегистрирован в Э5.2 (§3.1)")
 
 	// Все примитивы в пресетах семейств ссылаются на известный id нужного вида.
 	for _, f := range cat.ViewFamilies {
@@ -261,6 +262,135 @@ func TestBiomeViewVerticalBudget(t *testing.T) {
 		}
 	}
 	assert.True(t, found, "превышение бюджета названо полем relief")
+}
+
+// ==================== 2D-ФОРМЫ Э5.2 (§3.1/§3.5) ====================
+
+// TestBiomeViewFormsResolve — дельты `горы`/`каменные_пустоши` резолвятся из
+// справочника, `relief.forms[].prim` — вид `relief2d`, бюджет с формами проходит
+// (сумма аддитивных несущих, `relief.scale` к формам не применяется), а битый
+// `forms` уводит РОВНО один биом в фолбэк (нефатально, §3.3/§B.1.2).
+func TestBiomeViewFormsResolve(t *testing.T) {
+	cat := GetBiomeCatalog()
+	kinds := cat.primKindIndex()
+	for _, id := range []string{"горы", "каменные_пустоши"} {
+		view, source := cat.ResolveBiomeView(id)
+		require.Equal(t, "catalog", source, "биом %q: рецепт с формами обязан резолвиться", id)
+		relief, ok := view["relief"].(map[string]any)
+		require.True(t, ok, "%q: relief", id)
+		forms := asMapList(relief["forms"])
+		require.NotEmpty(t, forms, "%q: relief.forms (Э5.2, §3.5)", id)
+		for i, f := range forms {
+			prim, _ := f["prim"].(string)
+			assert.Equal(t, "relief2d", kinds[prim], "%q: forms[%d].prim=%q — 2D-форма (§3.1)", id, i, prim)
+		}
+		top, ok := declaredReliefTop(view)
+		require.True(t, ok)
+		assert.GreaterOrEqual(t, top, viewBaseY-viewChunkTopMargin+viewTopSafety,
+			"%q: объявленный профиль с формами в бюджете (top=%.1f)", id, top)
+	}
+	// Целевые операторы Э5.2: природная арка arch=1 (горы) и трещина crack2d.
+	mountains, _ := cat.ResolveBiomeView("горы")
+	assert.NotNil(t, formByPrim(mountains, "overhang", 1), "горы: природная арка overhang arch=1")
+	badlands, _ := cat.ResolveBiomeView("каменные_пустоши")
+	assert.NotNil(t, formByPrim(badlands, "crack2d", 0), "каменные_пустоши: сквозная трещина crack2d")
+
+	// Битый forms (relief1d вместо relief2d) — ровно один биом в фолбэк.
+	mut := *cat
+	mut.Biomes = append([]BiomeDef{}, cat.Biomes...)
+	bi := -1
+	for i := range mut.Biomes {
+		if mut.Biomes[i].ID == "горы" {
+			bi = i
+			break
+		}
+	}
+	require.GreaterOrEqual(t, bi, 0)
+	mut.Biomes[bi].View = map[string]any{
+		"family": "горные",
+		"relief": map[string]any{"forms": []any{map[string]any{"prim": "wave"}}},
+	}
+	_, source := mut.ResolveBiomeView("горы")
+	assert.Equal(t, "fallback", source, "битый forms уводит биом в фолбэк (§3.3)")
+	other, sOther := mut.ResolveBiomeView("каменные_пустоши")
+	require.Equal(t, "catalog", sOther, "битый forms не каскадит на соседний биом")
+	require.NotNil(t, other)
+}
+
+// TestBiomeViewFormsOpeningWarning — `opening` ≤ роста игрока + запас даёт
+// ПРЕДУПРЕЖДЕНИЕ (рецепт применяется, §3.3/M8), а не ошибку; у `arch=0` нет
+// `opening` — предупреждения нет. Бюджет форм — СУММА аддитивных несущих
+// (`arch=1` → opening + h, `arch=0` → h; `crater` → rim), `relief.scale` к
+// формам НЕ применяется (§3.3/§5 п.6), `crack2d` вверх не поднимает.
+func TestBiomeViewFormsOpeningWarning(t *testing.T) {
+	cat := *GetBiomeCatalog()
+	cat.Biomes = append([]BiomeDef{}, cat.Biomes...)
+	cat.Biomes[0].ID = "форма_просвет"
+	cat.Biomes[0].View = map[string]any{
+		"relief": map[string]any{"forms": []any{
+			map[string]any{"prim": "overhang", "arch": float64(1), "h": float64(30), "opening": float64(10)},
+		}},
+	}
+	view, errs, warns := cat.resolveBiomeView(&cat.Biomes[0])
+	require.Empty(t, errs)
+	require.Len(t, warns, 1, "opening ниже роста игрока + запас — предупреждение (§3.3)")
+	assert.Contains(t, warns[0].Field, "opening")
+	assert.NotNil(t, view, "предупреждение нефатально — рецепт применяется")
+
+	// arch=0 без `opening` — предупреждений нет (просвет производен от рельефа).
+	cat.Biomes[0].View = map[string]any{
+		"relief": map[string]any{"forms": []any{
+			map[string]any{"prim": "overhang", "arch": float64(0), "h": float64(30), "reach": float64(50)},
+		}},
+	}
+	_, errs2, warns2 := cat.resolveBiomeView(&cat.Biomes[0])
+	require.Empty(t, errs2)
+	require.Empty(t, warns2)
+
+	// Бюджет: arch=1 → opening + h, crater → rim, crack2d → 0; сумма без scale.
+	view3 := map[string]any{"relief": map[string]any{
+		"scale": float64(0.5),
+		"forms": []any{
+			map[string]any{"prim": "overhang", "arch": float64(1), "h": []any{float64(20), float64(50)}, "opening": []any{float64(80), float64(150)}},
+			map[string]any{"prim": "crater", "rim": float64(25)},
+			map[string]any{"prim": "crack2d", "w": float64(30), "depth": float64(200)},
+		},
+	}}
+	top, ok := declaredReliefTop(view3)
+	require.True(t, ok)
+	// rise 1D = 115·0 + 40·(1−0.7·0) = 40; ·scale 0.5 = 20; формы = (150+50)+25 = 225.
+	assert.InDelta(t, viewBaseY-20-225, top, 1e-9,
+		"бюджет форм — сумма аддитивных, scale к формам не применяется")
+}
+
+// TestBiomeViewFormsDefaultAmp — форма без явных `h`/`opening` берёт ДЕФОЛТЫ
+// клиента (`_collectFormIntervals`, surface_world.js: h → 20, opening → 60),
+// иначе серверный бюджет посчитал бы такую форму за 0, а клиент нарисовал бы её
+// с ненулевой амплитудой (forward-compat, §3.3/§5 п.6).
+func TestBiomeViewFormsDefaultAmp(t *testing.T) {
+	arch1 := map[string]any{"prim": "overhang", "arch": float64(1)}
+	assert.InDelta(t, 60+20, formUpAmp(arch1), 1e-9, "arch=1 без h/opening: opening 60 + h 20")
+
+	arch0 := map[string]any{"prim": "overhang", "arch": float64(0)}
+	assert.InDelta(t, 20, formUpAmp(arch0), 1e-9, "arch=0 без h: h 20")
+
+	zero := map[string]any{"prim": "overhang", "arch": float64(0), "h": float64(0)}
+	assert.InDelta(t, 0, formUpAmp(zero), 1e-9, "явный h=0 остаётся нулём (не дефолт)")
+}
+
+// formByPrim — первая запись relief.forms с данным prim; при arch != 0 — с этим
+// arch (0 = arch не важен: crack2d/шляпа/любой arch=0).
+func formByPrim(view map[string]any, prim string, arch float64) map[string]any {
+	relief, _ := view["relief"].(map[string]any)
+	for _, f := range asMapList(relief["forms"]) {
+		if p, _ := f["prim"].(string); p != prim {
+			continue
+		}
+		if arch == 0 || viewNum(f["arch"], 0) == arch {
+			return f
+		}
+	}
+	return nil
 }
 
 // ==================== ФОЛБЭК БЕЗ РЕЦЕПТА (§2.3) ====================
@@ -430,10 +560,11 @@ func TestBiomeViewExoticResolve(t *testing.T) {
 		assert.Equal(t, def.Color, base, "%q: palette.base == color (§4.9.2)", id)
 	}
 
-	// Реестр: ровно один новый примитив `crystal_tree` (31 → 32, §4.9.4 C).
+	// Реестр: `crystal_tree` (31 → 32, §4.9.4 C) + `crater` (32 → 33, Э5.2 §3.1).
 	kinds := cat.primKindIndex()
-	require.Len(t, kinds, 32, "ЧК5: 32 примитива")
+	require.Len(t, kinds, 33, "ЧК5/Э5.2: 33 примитива")
 	assert.Equal(t, "decor", kinds["crystal_tree"], "crystal_tree — декоративный")
+	assert.Equal(t, "relief2d", kinds["crater"], "crater — 2D-форма (регистрация Э5.2)")
 
 	// Горизонт: пресет `экзотика` (вставка B) наследуют `радиационные_пустоши`
 	// и `химический_иней`; свой горизонт — 6 override-биомов (расклад 6/4, §4.9.1).

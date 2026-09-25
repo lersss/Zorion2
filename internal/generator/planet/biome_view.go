@@ -93,7 +93,9 @@ func (c *BiomeCatalog) resolveBiomeView(b *BiomeDef) (map[string]any, []ViewIssu
 			view = mergeViewMaps(base, view)
 		}
 	}
-	errs = append(errs, c.validateView(b.ID, view)...)
+	vErrs, vWarns := c.validateView(b.ID, view)
+	errs = append(errs, vErrs...)
+	warns = append(warns, vWarns...)
 	if base, ok := nestedString(view, "palette", "base"); ok && b.Color != "" && !strings.EqualFold(base, b.Color) {
 		warns = append(warns, ViewIssue{b.ID, "palette.base", "не совпадает с color (источник истины — color)"})
 	}
@@ -158,13 +160,26 @@ const (
 	// (tools/surface-profile-check.mjs, MIN_OK). До Э5 серверная проверка была
 	// без +24 (запас жил только в тесте) — приводим к общей границе.
 	viewTopSafety = 24.0
+	// viewPlayerH — рост игрока (px), зеркалит PLAYER_H клиента
+	// (web/static/js/surface/surface_config.js). Для сетки безопасности `opening`
+	// (форма `overhang arch=1`, §3.3): просвет ниже роста игрока — предупреждение.
+	viewPlayerH = 28.0
+	// viewFormOpeningSafety — запас сетки безопасности к росту игрока: при
+	// `opening` ≤ viewPlayerH + запас рецепт ПРИМЕНЯЕТСЯ, но выдаётся
+	// предупреждение (§3.3, M8); дизайн-диапазон `opening [50,160]` проход
+	// гарантирует сам, warning достижим только правкой админа ниже порога.
+	viewFormOpeningSafety = 8.0
 )
 
 // declaredReliefTop — верхняя (минимальная по y) точка объявленного профиля:
-// baseY + offset − Σ(амплитуды вверх)·scale. Амплитуды вверх: база (large,
-// 115·ridge), мелкая деталь (40·(1−0.7·flatten)) и слои (amp/h/stepH).
-// Числа зеркалят terrainHeight в surface_world.js (§3.1) — при переносе формулы
-// на стек слоёв (Э3) обновить здесь же.
+// baseY + offset − Σ(амплитуды вверх)·scale − Σ(аддитивные 2D-формы). Амплитуды
+// вверх 1D: база (large, 115·ridge), мелкая деталь (40·(1−0.7·flatten)) и слои
+// (amp/h/stepH). Числа зеркалят terrainHeight в surface_world.js (§3.1) — при
+// переносе формулы на стек слоёв (Э3) обновить здесь же. Формы (Э5, §3.3/§5
+// п.6) — абсолютные px, `relief.scale` к ним НЕ применяется: сумма вкладов
+// аддитивных несущих (`overhang`: arch=1 → opening + h, arch=0 → h; crater → rim),
+// вычитающие (void/crack2d) вверх не поднимают. Иначе свод за верхом растра —
+// твёрдая невидимая земля.
 func declaredReliefTop(view map[string]any) (float64, bool) {
 	relief, ok := view["relief"].(map[string]any)
 	if !ok {
@@ -178,7 +193,45 @@ func declaredReliefTop(view map[string]any) (float64, bool) {
 	for _, l := range asMapList(relief["layers"]) {
 		rise += layerUpAmp(l)
 	}
-	return viewBaseY + viewNum(relief["offset"], 0) - rise*scale, true
+	riseForms := 0.0
+	for _, f := range asMapList(relief["forms"]) {
+		riseForms += formUpAmp(f)
+	}
+	return viewBaseY + viewNum(relief["offset"], 0) - rise*scale - riseForms, true
+}
+
+// formUpAmp — вклад 2D-формы вверх, абсолютные px (§3.3): `overhang` arch=1 →
+// opening + h, arch=0 → h; `crater` → rim; вычитающие (`void`/`crack2d`) — 0.
+// Берётся верх диапазона [lo,hi] (консервативно, единая методология с 1D-слоями).
+func formUpAmp(f map[string]any) float64 {
+	switch prim, _ := f["prim"].(string); prim {
+	case "overhang":
+		// Дефолты — как у клиента (`_collectFormIntervals`, surface_world.js):
+		// overhang.h → 20, overhang.opening → 60. Forward-compat: рецепт без явных
+		// h/opening применяется и рисуется клиентом, поэтому серверный бюджет обязан
+		// считать ТУ ЖЕ амплитуду (иначе форма выше бюджета пройдёт проверку и уйдёт
+		// за верх растра — твёрдая невидимая земля, §3.3/§5 п.6).
+		h := formNum(f, "h", 20)
+		if arch, _ := f["arch"].(float64); arch == 1 {
+			return formNum(f, "opening", 60) + h
+		}
+		return h
+	case "crater":
+		return rangeUpper(f["rim"])
+	default:
+		return 0
+	}
+}
+
+// formNum — верх диапазона [lo,hi] (или число) параметра формы; ключ отсутствует —
+// дефолт клиента (forward-compat, §3.3). Отличие от `rangeUpper` только в ветке
+// «нет ключа»: явный 0 остаётся нулём, отсутствие подставляет дефолт.
+func formNum(f map[string]any, key string, def float64) float64 {
+	v, ok := f[key]
+	if !ok {
+		return def
+	}
+	return rangeUpper(v)
 }
 
 // layerUpAmp — объявленная амплитуда слоя вверх: amp/h/stepH (полуразмах, берём
@@ -205,6 +258,20 @@ func rangeUpper(v any) float64 {
 	return 0
 }
 
+// rangeLower — нижняя граница [lo,hi] или само число (для предупреждения
+// `opening`: проверяется худший случай диапазона).
+func rangeLower(v any) float64 {
+	if f, ok := v.(float64); ok {
+		return f
+	}
+	if a, ok := v.([]any); ok && len(a) == 2 {
+		if lo, ok := a[0].(float64); ok {
+			return lo
+		}
+	}
+	return 0
+}
+
 // viewNum — число из JSON-значения или дефолт.
 func viewNum(v any, def float64) float64 {
 	if f, ok := v.(float64); ok {
@@ -215,11 +282,13 @@ func viewNum(v any, def float64) float64 {
 
 // validateView — проверка рецепта вида (§2.8 п.2). Ошибки (рецепт не
 // применяется): неизвестный примитив / вид блока не совпадает, цвет не
-// #RRGGBB, пустой или перевёрнутый диапазон [lo,hi]. Ссылки проверяются по
-// реестру view_primitives (список — данные, не дублируется в коде).
-func (c *BiomeCatalog) validateView(biomeID string, view map[string]any) []ViewIssue {
+// #RRGGBB, пустой или перевёрнутый диапазон [lo,hi]. Предупреждения (рецепт
+// применяется): `opening` формы `overhang arch=1` ≤ роста игрока + запас —
+// сетка безопасности (§3.3), жёсткой проверкой не является. Ссылки проверяются
+// по реестру view_primitives (список — данные, не дублируется в коде).
+func (c *BiomeCatalog) validateView(biomeID string, view map[string]any) ([]ViewIssue, []ViewIssue) {
 	idx := c.primKindIndex()
-	var errs []ViewIssue
+	var errs, warns []ViewIssue
 	checkPrim := func(field string, m map[string]any, want string) {
 		prim, _ := m["prim"].(string)
 		if prim == "" {
@@ -239,6 +308,18 @@ func (c *BiomeCatalog) validateView(biomeID string, view map[string]any) []ViewI
 	if relief, ok := view["relief"].(map[string]any); ok {
 		for i, l := range asMapList(relief["layers"]) {
 			checkPrim(fmt.Sprintf("relief.layers[%d]", i), l, "relief1d")
+		}
+		// relief.forms — 2D-формы relief2d (§3.1/§3.3): prim обязан иметь
+		// kind="relief2d"; диапазоны [lo,hi] покрыты рекурсивным validateViewRanges.
+		for i, f := range asMapList(relief["forms"]) {
+			checkPrim(fmt.Sprintf("relief.forms[%d]", i), f, "relief2d")
+			if arch, _ := f["arch"].(float64); arch == 1 {
+				if opening, ok := f["opening"]; ok && rangeLower(opening) <= viewPlayerH+viewFormOpeningSafety {
+					warns = append(warns, ViewIssue{biomeID, fmt.Sprintf("relief.forms[%d].opening", i),
+						fmt.Sprintf("просвет %.0f ≤ роста игрока %.0f + запас — игрок может не пройти под аркой (рецепт применяется)",
+							rangeLower(opening), viewPlayerH)})
+				}
+			}
 		}
 	}
 	// decor / hang — декоративные примитивы decor (§3.2).
@@ -289,7 +370,7 @@ func (c *BiomeCatalog) validateView(biomeID string, view map[string]any) []ViewI
 			fmt.Sprintf("объявленный профиль на %.0f px выше запаса вертикали чанка (%.0f px) — увеличьте relief.scale",
 				viewBaseY-viewChunkTopMargin+viewTopSafety-top, viewChunkTopMargin)})
 	}
-	return errs
+	return errs, warns
 }
 
 // validateViewRanges — рекурсивный обход рецепта: любой [lo,hi] из двух чисел

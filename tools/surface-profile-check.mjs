@@ -6,7 +6,9 @@
 //  - P4 carve вычитает (вниз) и имеет борт;
 //  - P5 viewOnly-слой не влияет на terrainHeight, но влияет на viewHeight;
 //  - P6 детерминизм (два прогона — одинаково);
-//  - P7 фолбэк без рецепта (FORMATIONS, физика = отрисовка).
+//  - P7 фолбэк без рецепта (FORMATIONS, физика = отрисовка);
+//  - P8 знак слоя, P9 низ растра, F1–F6/R1 расширение движка ЧК3;
+//  - P10 формы Э5.2: верх твёрдого с формами (арки/нависания) в бюджете растра.
 // Run: node tools/surface-profile-check.mjs
 import { readFileSync } from 'node:fs';
 import { SurfaceWorld, primHeight, hash1 } from '../web/static/js/surface/surface_world.js';
@@ -64,6 +66,8 @@ const MAX_OK = RASTER_BOTTOM - 24;                         // 776
 {
     const samples = [
         'пески_пустыни', 'джунгли', 'леса', 'горы',
+        // Э5.2 — цель форм (нависания/трещины); верх твёрдого с формами — P10.
+        'каменные_пустоши',
         // ЧК3 — вулканизм (§4.7.9 п.3: T-budget зелёный на всех 7).
         'лавовые_поля', 'вулканические_поля', 'обсидиановые_поля', 'серные_поля',
         'магмовый_океан', 'венерианские_плоскогорья', 'криовулканические_поля',
@@ -205,6 +209,27 @@ const MAX_OK = RASTER_BOTTOM - 24;                         // 776
         }
     }
     check(`P9 низ растра: fallback-рельеф ≤ ${MAX_OK}`, gMax <= MAX_OK, `max=${gMax.toFixed(0)} (${who})`);
+}
+
+// P10 — формы Э5.2 (§3.5/§5 п.6): верх твёрдого С ФОРМАМИ (арки/нависания)
+// не выходит за верх растра. Формы — абсолютные px, в бюджет входят суммой
+// (`declaredReliefTop` на сервере; `relief.scale` к формам не применяется).
+// Верх твёрдого = min(профиль отрисовки, «поверхность неба» skyTop).
+{
+    const FORM_TOP_OK = BASEY - TOP_MARGIN + 24;   // −876 (верх растра с запасом)
+    const SEEDS = [1, 7, 42, 1337, 424242, 987654, 20260923, 55555];
+    for (const id of ['горы', 'каменные_пустоши']) {
+        let min = Infinity, minAt = 0, minSeed = 0;
+        for (const seed of SEEDS) {
+            const w = mkWorld(id, { seed });
+            for (let x = -40000; x <= 40000; x += 250) {
+                const top = Math.min(w.viewHeight(x), w.skyTop(x));
+                if (top < min) { min = top; minAt = x; minSeed = seed; }
+            }
+        }
+        check(`P10 T-budget форм ${id} (верх твёрдого ≥ ${FORM_TOP_OK})`, min >= FORM_TOP_OK,
+            `top=${min.toFixed(0)}@${minAt}/s${minSeed}`);
+    }
 }
 
 // ==================== ЧК3: РАСШИРЕНИЕ ДВИЖКА (§4.7.12–§4.7.13) ====================

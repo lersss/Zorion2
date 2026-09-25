@@ -3,7 +3,7 @@
 // (fbm 2 слоя), пещеры (порог 2D-шума), формации по biome_category (В9), декор,
 // жизнь (если life). Детерминирован от seed — один и тот же мир при повторе.
 // Никакого Math.random: локальный PRNG.
-import { CHUNK, FORMATIONS, PPM, FLOAT_SPAN, FLOAT_GAP } from './surface_config.js';
+import { CHUNK, CHUNK_TOP_MARGIN, CHUNK_HEIGHT, FORMATIONS, PPM, FLOAT_SPAN, FLOAT_GAP } from './surface_config.js';
 
 // mulberry32 — локальный PRNG (не общий Math.random).
 export function mulberry32(a) {
@@ -437,6 +437,9 @@ export class SurfaceWorld {
         // caves/float/base) + стек слоёв; `scale` — общий множитель амплитуд.
         const rel = (this.view && this.view.relief) || null;
         this.relief = rel;
+        // 2D-формы (relief.forms, спека Э5 §3.1): список операторов relief2d
+        // (Э5.2 — overhang/crack2d). Нет рецепта/списка — форм нет (фолбэк 1:1).
+        this.forms = (rel && Array.isArray(rel.forms) && rel.forms.length) ? rel.forms : null;
         this.reliefScale = rel ? Math.max(0, num(rel.scale, 1)) : 1;
         const layers = (rel && Array.isArray(rel.layers)) ? rel.layers : null;
         // viewOnly-слои — только отрисовка (viewHeight), физика их не знает (§3.1).
@@ -583,8 +586,14 @@ export class SurfaceWorld {
     // твёрдое из базы — это часть тела, не косметика (S1-bis). Формы (relief2d)
     // сюда не входят — их добавляет formsSolid (§2.2).
     baseSolid(x, y) {
-        const th = this.terrainHeight(x);
-        if (y >= th) return !this.isCave(x, y);
+        return this._baseSolidAt(x, y, this.terrainHeight(x));
+    }
+
+    // _baseSolidAt — база с ПРЕДвычисленным профилем th: без повторного fbm там,
+    // где профиль уже есть (растр/единое поле solidAt). Поведение идентично
+    // `baseSolid` (caveAt(x, y, terrainHeight(x))).
+    _baseSolidAt(x, y, th) {
+        if (y >= th) return !this.caveAt(x, y, th);
         const f = this.formationBlend(x);
         if (f.float) {
             const n = noise2(x * 0.01, y * 0.01, this.seed ^ 0xa5a5);
@@ -595,16 +604,200 @@ export class SurfaceWorld {
         return false;
     }
 
-    // formsSolid — вклад 2D-форм рецепта (relief.forms, §3.1). В Э5.1 форм нет:
-    // функция возвращает false. Точка входа одна — следующие чекпоинты (Э5.2/
-    // Э5.3) добавляют операторы ЗДЕСЬ, а не второй функцией коллизии/растра.
-    formsSolid(_x, _y) {
+    // ==================== 2D-ФОРМЫ (Э5.2, §3) ====================
+    //
+    // formsAdditive/formsSubtractive — вклад 2D-форм рецепта (relief.forms, §3.1)
+    // двух знаков: аддитивные несущие (`overhang`: плита-арка `arch=1` / козырёк
+    // `arch=0`) добавляют материал, вычитающие (`crack2d`) убирают его. Порядок
+    // поля — §2.2: `solidAt = (baseSolid ∨ formsAdditive) ∧ ¬formsSubtractive`.
+    // Инстансы размещаются детерминированно по регионам (как primSpike: соседние
+    // регионы base−1…base+1, только hash1/mulberry32, Math.random запрещён, §5
+    // п.2); формы статичны. `relief.scale` к формам НЕ применяется (абсолютные px).
+
+    // _collectFormIntervals — интервалы ТВЁРДЫХ форм колонки x: [{add, top, bottom}, …].
+    // thx — предвычисленный `terrainHeight(x)` (растр передаёт кэш; физика —
+    // undefined, считается здесь). Один источник геометрии для растра
+    // (`formSpans`) и физики (`formsAdditive`/`formsSubtractive`) — второй
+    // реализации формы нет (§2.1). `crack2d` сюда НЕ входит: решением гейта
+    // 2026-09-25 он переведён в косметику (viewOnly, `crackSpans`) — сквозная
+    // трещина и тёмная расселина в 2D-виде неотличимы, физику не трогаем
+    // (§5.1 п.5, дефект D1). void/crater — Э5.3.
+    _collectFormIntervals(x, thx) {
+        const out = [];
+        const forms = this.forms;
+        if (!forms || !forms.length) return out;
+        if (thx === undefined) thx = this.terrainHeight(x);
+        const R = this.region;
+        const regionBase = Math.floor(x / R);
+        for (let fi = 0; fi < forms.length; fi++) {
+            const f = forms[fi];
+            const prim = f.prim;
+            // Э5.2-операторы; void/crater — Э5.3 (здесь не применяются, §3.4).
+            // crack2d сюда НЕ входит: косметика (`crackSpans`), физику не трогает (D1).
+            if (prim !== 'overhang') continue;
+            const formSalt = Math.imul(fi + 1, 0x9e3779b1) >>> 0;
+            const sBase = (this.seed ^ formSalt) >>> 0;
+            const rawN = f.perRegion != null ? f.perRegion : 1;
+            for (let rr = regionBase - 1; rr <= regionBase + 1; rr++) {
+                const n = Math.max(0, Math.round(primRange(rawN, rr, (sBase ^ 0x0f01) >>> 0, 1)));
+                for (let k = 0; k < n; k++) {
+                    const idx = rr * 131 + k;
+                    const c = rr * R + hash1(idx, (sBase ^ 0x0f02) >>> 0) * R;
+                    if (prim === 'overhang') {
+                        const w = primRange(f.w, idx, (sBase ^ 0x0f03) >>> 0, 40);
+                        const h = primRange(f.h, idx, (sBase ^ 0x0f04) >>> 0, 20);
+                        const taper = Math.max(0, Math.min(0.95, primRange(f.taper, idx, (sBase ^ 0x0f05) >>> 0, 0)));
+                        if (f.arch === 1) {
+                            // Замкнутая арка/плита-свод: висит НАД землёй (§3.2,
+                            // знак исправлен в Э5.2, y растёт вниз): подошва =
+                            // th(x) − opening, верх = th(x) − opening − h_eff;
+                            // `taper` утоньшает плиту к замку (центру пролёта).
+                            if (w <= 0) continue;
+                            const opening = primRange(f.opening, idx, (sBase ^ 0x0f06) >>> 0, 60);
+                            const dx = Math.abs(x - c);
+                            if (dx > w) continue;
+                            const u = dx / w;
+                            const hEff = h * (1 - taper * (1 - u));
+                            out.push({ add: true, top: thx - opening - hEff, bottom: thx - opening });
+                        } else {
+                            // Консоль/козырёк/шляпа: опорная колонка x₀ = c, подошва =
+                            // th(x₀), вынос `reach` в сторону `dir`, `taper` к краю
+                            // (§3.2). Просвета-параметра нет — он производен от
+                            // рельефа под выносом.
+                            const reach = Math.max(1, primRange(f.reach, idx, (sBase ^ 0x0f07) >>> 0, 60));
+                            const dir = f.dir === -1 ? -1 : 1;
+                            const d = (x - c) * dir;
+                            if (d < 0 || d > reach) continue;
+                            // Кэш опорной высоты инстанса: `terrainHeight(c)` — дорогой
+                            // fbm, а столбцов под одним козырьком сотни; без кэша
+                            // генерация чанка взлетает в разы (§2.4, бюджет ≤2×).
+                            const ck = fi + ':' + rr + ':' + k;
+                            const support = this._formSupport || (this._formSupport = new Map());
+                            let th0 = support.get(ck);
+                            if (th0 === undefined) {
+                                th0 = this.terrainHeight(c);
+                                if (support.size > 20000) support.clear();
+                                support.set(ck, th0);
+                            }
+                            const t = d / reach;
+                            const hEff = h * (1 - taper * t);
+                            out.push({ add: true, top: th0 - hEff, bottom: th0 });
+                        }
+                    }
+                }
+            }
+        }
+        return out;
+    }
+
+    // formSpans — интервалы форм колонки для растра (§2.3): {add, sub} или null
+    // (столбец формой не задет). Единственный источник геометрии форм.
+    formSpans(x, thx) {
+        const iv = this._collectFormIntervals(x, thx);
+        if (!iv.length) return null;
+        const add = [], sub = [];
+        for (const it of iv) (it.add ? add : sub).push({ top: it.top, bottom: it.bottom });
+        return { add, sub };
+    }
+
+    // crackSpans — КОСМЕТИЧЕСКИЕ интервалы трещин crack2d колонки (решение гейта
+    // 2026-09-25): тёмный клин поверх рельефа, ВНЕ равенства по твёрдому телу
+    // (§2.1) — физику не трогает (дефект D1: наклонная трещина запирала игрока,
+    // §5.1 п.5). Геометрия та же, что раньше вычитала твёрдое (`w`/`depth`/`taper`/
+    // `tilt`, детерминированно от seed); соль инстанса берётся от индекса формы
+    // `fi`, как в `_collectFormIntervals`, — положение трещин сохранено.
+    crackSpans(x, thx) {
+        const iv = this._collectCrackIntervals(x, thx);
+        return iv.length ? iv : null;
+    }
+
+    _collectCrackIntervals(x, thx) {
+        const out = [];
+        const forms = this.forms;
+        if (!forms || !forms.length) return out;
+        if (thx === undefined) thx = this.terrainHeight(x);
+        const R = this.region;
+        const regionBase = Math.floor(x / R);
+        for (let fi = 0; fi < forms.length; fi++) {
+            const f = forms[fi];
+            if (f.prim !== 'crack2d') continue;
+            const formSalt = Math.imul(fi + 1, 0x9e3779b1) >>> 0;
+            const sBase = (this.seed ^ formSalt) >>> 0;
+            const rawN = f.perRegion != null ? f.perRegion : 1;
+            for (let rr = regionBase - 1; rr <= regionBase + 1; rr++) {
+                const n = Math.max(0, Math.round(primRange(rawN, rr, (sBase ^ 0x0f01) >>> 0, 1)));
+                for (let k = 0; k < n; k++) {
+                    const idx = rr * 131 + k;
+                    const c = rr * R + hash1(idx, (sBase ^ 0x0f02) >>> 0) * R;
+                    // Клин шире вверху, сужение `taper`, наклон `tilt`. Полная ширина
+                    // `w` (без прежнего клампа PLAYER_W−2, ставшего ненужным): форма
+                    // косметична, игрока не заглатывает.
+                    const wFull = primRange(f.w, idx, (sBase ^ 0x0f08) >>> 0, 10);
+                    const depth = Math.max(1, primRange(f.depth, idx, (sBase ^ 0x0f09) >>> 0, 100));
+                    const taper = Math.max(0, Math.min(0.95, primRange(f.taper, idx, (sBase ^ 0x0f0a) >>> 0, 0.5)));
+                    const tiltDeg = primRange(f.tilt, idx, (sBase ^ 0x0f0b) >>> 0, 0);
+                    const tiltSign = hash1(idx, (sBase ^ 0x0f0c) >>> 0) < 0.5 ? -1 : 1;
+                    const a = wFull * 0.5;
+                    const b = a * taper / depth;
+                    const kk = tiltSign * Math.tan(tiltDeg * Math.PI / 180);
+                    const denom = kk - b;
+                    let dyLo, dyHi;
+                    if (Math.abs(denom) < 1e-9) {
+                        // Вертикальные стенки (taper≈0, tilt≈0): ширина постоянна.
+                        if (Math.abs(x - c) >= a) continue;
+                        dyLo = 0;
+                        dyHi = depth;
+                    } else {
+                        // Границы клина в глубину (линейны): |x − c − k·dy| < a − b·dy.
+                        const d1 = (x - c + a) / denom;
+                        const d2 = (x - c - a) / denom;
+                        dyLo = Math.min(d1, d2);
+                        dyHi = Math.max(d1, d2);
+                    }
+                    if (dyHi < 0) continue;
+                    if (dyLo < 0) dyLo = 0;
+                    if (dyHi > depth) dyHi = depth;
+                    if (dyHi <= dyLo) continue;
+                    out.push({ top: thx + dyLo, bottom: thx + dyHi });
+                }
+            }
+        }
+        return out;
+    }
+
+    // formsSolid — аддитивный вклад 2D-форм (прежнее имя контракта §2.1/§3.1).
+    formsSolid(x, y) {
+        return this.formsAdditive(x, y);
+    }
+
+    // formsAdditive/formsSubtractive — точечная проба знака формы (физика).
+    formsAdditive(x, y) {
+        if (!this.forms) return false;
+        const iv = this._collectFormIntervals(x, undefined);
+        for (const it of iv) if (it.add && y >= it.top && y <= it.bottom) return true;
         return false;
     }
 
-    // solidAt — единое поле твёрдости (контракт §2.1).
+    formsSubtractive(x, y) {
+        if (!this.forms) return false;
+        const iv = this._collectFormIntervals(x, undefined);
+        for (const it of iv) if (!it.add && y >= it.top && y <= it.bottom) return true;
+        return false;
+    }
+
+    // solidAt — единое поле твёрдости (контракт §2.1, порядок §2.2: аддитивные →
+    // вычитающие). Нет форм — только база (нулевая цена для прочих биомов).
+    // Формы считаются ОДИН раз на пробу (thx + интервалы: иначе дорогой fbm
+    // множится на число проверок знака — бюджет генерации чанка, §2.4).
     solidAt(x, y) {
-        return this.baseSolid(x, y) || this.formsSolid(x, y);
+        const forms = this.forms;
+        if (!forms) return this.baseSolid(x, y);
+        const thx = this.terrainHeight(x);
+        const iv = this._collectFormIntervals(x, thx);
+        for (const it of iv) if (!it.add && y >= it.top && y <= it.bottom) return false;
+        if (this._baseSolidAt(x, y, thx)) return true;
+        for (const it of iv) if (it.add && y >= it.top && y <= it.bottom) return true;
+        return false;
     }
 
     // isSolid — алиас solidAt (§2.1): прежнее имя сохранено для потребителей
@@ -613,11 +806,12 @@ export class SurfaceWorld {
         return this.solidAt(x, y);
     }
 
-    // columnSpans — аналитические интервалы твёрдого столбца (класс A, §2.3):
+    // columnSpans — аналитические интервалы БАЗЫ столбца (класс A, §2.3):
     // [{top, bottom}, …] сверху вниз. База — интервал [terrainHeight, +∞); полоса
-    // float — отдельный интервал над рельефом. Пещеры — 2D-маска, в интервалы не
-    // сводятся (класс A их не выражает, §A.1) и накладываются поверх. В Э5.1
-    // формами столбцы не задеваются — метод описывает только базу.
+    // float — отдельный интервал над рельефом; последний интервал ВСЕГДА база.
+    // Пещеры — 2D-маска (класс A их не выражает), накладываются поверх. 2D-формы
+    // идут ОТДЕЛЬНЫМ путём (`formSpans`, §2.3 — «задетые формой столбцы»), чтобы
+    // не ломать контракт базы; единственный источник твёрдости — `solidAt`.
     columnSpans(x) {
         const th = this.terrainHeight(x);
         const spans = [{ top: th, bottom: Infinity }];
@@ -631,26 +825,68 @@ export class SurfaceWorld {
         return spans;
     }
 
-    // skyTop — «поверхность неба» (§2.1): минимальный y, где столбец твёрд (верх
-    // твёрдого поля — погода/осадки). В Э5.1 потребителей НЕ переключаем (якоря —
-    // Э5.2/Э5.3, где формы реально меняют верх); функция — часть контракта поля.
+    // skyTop — «поверхность неба» (§2.1): МИНИМАЛЬНЫЙ y в пределах растра, где
+    // solidAt(x,y)=true (верх твёрдого поля, ВКЛЮЧАЯ висящую плиту arch=1 и полосу
+    // float; погода/осадки). Идём от кандидата сверху вниз ДО первой реально твёрдой
+    // точки: зарытый козырёк arch=0 (top НИЖЕ th) верх не занижает — над ним всё
+    // равно твёрдая корка; вскрытая трещиной корка не даёт ложного «твёрдого»
+    // (прежний `it.bottom + 1` мог вернуть воздух). В Э5.2 потребителей НЕ
+    // переключаем (якоря — Э5.3); функция — часть контракта.
     skyTop(x) {
         const th = this.terrainHeight(x);
+        const iv = this.forms ? this._collectFormIntervals(x, th) : null;
+        let top = Infinity;
+        // Висящие аддитивные формы: их верх — граница твёрдого (берём, только если
+        // точка реально твёрдая: вычитающая форма могла её вскрыть). Зарытый
+        // козырёк arch=0 (top НИЖЕ th) станет кандидатом, но его перебьёт твёрдая
+        // корка th — верх ниже неё не опускается.
+        if (iv) for (const it of iv) {
+            if (it.add && it.top < top && this.solidAt(x, it.top)) top = it.top;
+        }
+        // Полоса float: первое твёрдое вниз от её верхней границы (шум).
         const f = this.formationBlend(x);
         if (f.float) {
             for (let wy = th - FLOAT_SPAN; wy < th - FLOAT_GAP; wy += 1) {
-                if (this.solidAt(x, wy)) return wy;
+                if (this.solidAt(x, wy)) { if (wy < top) top = wy; break; }
             }
         }
-        return th; // корка поверхности твёрдая (isCave её не режет, d < 8)
+        // Корка поверхности: твёрдая, если её не вскрыла вычитающая форма
+        // (Э5.3: void/crater). Вскрыта — первая твёрдая точка вниз от вскрытия
+        // (до низа растра, §2.3): прежний `it.bottom + 1` возвращал воздух, если
+        // ниже пещера.
+        if (this.solidAt(x, th)) {
+            if (th < top) top = th;
+        } else {
+            const bottom = this.baseY - CHUNK_TOP_MARGIN + CHUNK_HEIGHT;
+            for (let wy = th; wy <= bottom; wy += 1) {
+                if (this.solidAt(x, wy)) { if (wy < top) top = wy; break; }
+            }
+        }
+        return top === Infinity ? th : top;
     }
 
     // floorY — «пол/опора» (§2.1): верх твёрдого, СВЯЗАННОГО с базой (землёй).
-    // Висящая полоса float и будущие плиты-своды (arch=1) в опору не входят; для
-    // обычной колонки floorY = terrainHeight. Якоря (корабль/фауна/спавн) — Э5.2/
-    // Э5.3; в Э5.1 функция — часть контракта, потребители не переключены.
+    // Висящие плиты (arch=1) и полоса float в опору НЕ входят (арка — не пол под
+    // игроком). КОНТРАКТ: `solidAt(floorY)=true` — вычитающие интервалы
+    // включительны, их `bottom` ещё воздух, поэтому точку доводим до твёрдой
+    // (Э5.2-трещина косметична, но контракт держим и под `void`/`crater` Э5.3).
+    // Для обычной колонки floorY = terrainHeight. Якоря (корабль/фауна/спавн) — Э5.3.
     floorY(x) {
-        return this.terrainHeight(x);
+        const th = this.terrainHeight(x);
+        if (!this.forms) return th;
+        let y = th;
+        const iv = this._collectFormIntervals(x, th);
+        // Вскрывающие базу вычитающие формы (void/crater, Э5.3) опускают опору за
+        // свой низ (интервал включительный: `bottom` — ещё воздух).
+        for (const it of iv) {
+            if (it.add) continue;
+            if (it.top <= y + 1e-9 && it.bottom + 1e-9 > y) y = it.bottom + 1e-9;
+        }
+        if (this.solidAt(x, y)) return y;
+        // Страховка (перекрытие вычитающих форм/пещеры): первая твёрдая точка вниз.
+        const bottom = this.baseY - CHUNK_TOP_MARGIN + CHUNK_HEIGHT;
+        for (let wy = Math.ceil(y); wy <= bottom; wy += 1) if (this.solidAt(x, wy)) return wy;
+        return y;
     }
 
     // decorAt — декор колонки: по рецепту вида (если есть) или легаси-фолбэк.

@@ -2,7 +2,7 @@
 // Отрисовка прогулки (спека 2026-09-21 §7.2): параллакс-небо (только из sky
 // пакета), дальний рельеф, основной рельеф/пещеры (чанки кэшируются), декор,
 // жизнь, игрок, HUD (в surface_ui.js). Canvas 2D. Погода — surface_weather.js.
-import { CHUNK, CHUNK_RADIUS, COLORS, FLOAT_SPAN, FLOAT_GAP, ZOOM, PLAYER_H, SHIP_DECOR_SIZE, SHIP_DECOR_X, SHIP_HOVER_BOTTOM, SHIP_BOB_AMP, SHIP_BOB_PERIOD_MS } from './surface_config.js';
+import { CHUNK, CHUNK_RADIUS, CHUNK_TOP_MARGIN, CHUNK_HEIGHT, COLORS, FLOAT_SPAN, FLOAT_GAP, ZOOM, PLAYER_H, SHIP_DECOR_SIZE, SHIP_DECOR_X, SHIP_HOVER_BOTTOM, SHIP_BOB_AMP, SHIP_BOB_PERIOD_MS } from './surface_config.js';
 import { shade, rgba, horizonHeight } from './surface_world.js';
 import { drawDecorPrim } from './surface_decor.js';
 import { planetTexture } from './surface_net.js';
@@ -15,8 +15,10 @@ import { recolorShipSprite, shipDrawTransform } from '../map/ship_sprites.js';
 // память = (CHUNK+1)·CHUNK_HEIGHT·SS²·4 — от margin НЕ зависит, меняется лишь
 // topY. Низ растра при этом опускается до baseY − margin + CHUNK_HEIGHT = 800;
 // максимум рельефа всех биомов (fallback + рецепты) = 544 — запас 256 px.
-export const CHUNK_TOP_MARGIN = 1200;
-export const CHUNK_HEIGHT = 1700;
+// Геометрия растра — единый источник в `surface_config.js` (skyTop и растр чанка
+// читают одни числа, §2.1/§2.3). Реэкспорт сохраняет прежних потребителей
+// (tools/e2e/surface-*.js импортируют CHUNK_TOP_MARGIN/CHUNK_HEIGHT отсюда).
+export { CHUNK_TOP_MARGIN, CHUNK_HEIGHT };
 
 // Глубинный градиент (объём) привязан к РЕСТ-линии мира (baseY − DEPTH_TOP_MARGIN),
 // а не к верху растра: рост CHUNK_TOP_MARGIN вверх не должен менять затемнение
@@ -136,14 +138,29 @@ export function getChunkCanvas(world, index) {
     // источник верха твёрдого (§2.3); colTh — кэш terrainHeight для маски.
     const colSpans = new Array(CHUNK + 1);
     const colTh = new Array(CHUNK + 2);
-    for (let i = 0; i <= CHUNK; i++) {
-        colSpans[i] = world.columnSpans(baseX + i);
+    const colForms = new Array(CHUNK + 2);
+    const colCracks = new Array(CHUNK + 2);
+    for (let i = 0; i <= CHUNK + 1; i++) {
         colTh[i] = world.terrainHeight(baseX + i);
+        colForms[i] = world.formSpans(baseX + i, colTh[i]);
+        colCracks[i] = world.crackSpans(baseX + i, colTh[i]);
     }
-    colTh[CHUNK + 1] = world.terrainHeight(baseX + CHUNK + 1);
-    // solidAtCol — база по предвычисленному профилю (тот же `solidAt`, но без
-    // повторного terrainHeight на каждую пробу маски).
-    const solidAtCol = (xi, yy) => yy >= colTh[xi] ? !world.caveAt(baseX + xi, yy, colTh[xi]) : world.solidAt(baseX + xi, yy);
+    for (let i = 0; i <= CHUNK; i++) colSpans[i] = world.columnSpans(baseX + i);
+    // solidAtCol — то же поле `solidAt`, но по предвычисленным профилю И интервалам
+    // форм колонки (без повторного terrainHeight на каждую пробу маски). Порядок
+    // форм `(base ∨ add) ∧ ¬sub` тот же, что в `solidAt` (§2.2): без него маска
+    // пещеры красила «воздухом» аддитивную плиту ниже terrainHeight (S1-bis, §2.1).
+    const solidAtCol = (xi, yy) => {
+        const fs = colForms[xi];
+        if (fs) for (const s of fs.sub) if (yy >= s.top && yy <= s.bottom) return false;
+        if (yy >= colTh[xi]) {
+            if (!world.caveAt(baseX + xi, yy, colTh[xi])) return true;
+            if (fs) for (const a of fs.add) if (yy >= a.top && yy <= a.bottom) return true;
+            return false;
+        }
+        if (fs) for (const a of fs.add) if (yy >= a.top && yy <= a.bottom) return true;
+        return world._baseSolidAt(baseX + xi, yy, colTh[xi]);
+    };
 
     // Главный проход — твёрдое тело столбца из интервалов columnSpans (§2.3):
     // база (интервал [terrainHeight, +∞)) плюс косметический верх surfaceY
@@ -159,6 +176,51 @@ export function getChunkCanvas(world, index) {
         const y0 = Math.floor(Math.min(world.surfaceY(wx), baseTop) - topY);
         if (y0 >= CHUNK_HEIGHT) continue;
         ctx.fillRect(lx, Math.max(0, y0), 1, CHUNK_HEIGHT - Math.max(0, y0));
+    }
+
+    // 2D-формы (Э5.2, §2.3): задетые формой столбцы — шаг 1 px и заливка ровно
+    // твёрдого `solidAt` (аддитивные формы красятся, вычитающие — «воздух»).
+    // Столбцы без форм не задеваются — нулевая регрессия ЧК0–ЧК5 (быстрый путь
+    // главного прохода выше). Растр — надмножество твёрдого; поэтому аддитивная
+    // заливка берёт пиксели, ПЕРЕСЕКАЮЩИЕ интервал (floor/floor), а вычитающая
+    // («воздух») — только пиксели, ЦЕЛИКОМ лежащие в интервале (ceil/ceil−1):
+    // воздух не рисуется там, где solidAt=true (консервативность, S1-bis).
+    for (let lx = 0; lx <= CHUNK; lx++) {
+        const fs = colForms[lx];
+        if (!fs) continue;
+        if (fs.add.length) {
+            ctx.fillStyle = rock;
+            for (const a of fs.add) {
+                const ly0 = Math.max(0, Math.floor(a.top - topY));
+                const ly1 = Math.min(CHUNK_HEIGHT - 1, Math.floor(a.bottom - topY));
+                if (ly1 >= ly0) ctx.fillRect(lx, ly0, 1, ly1 - ly0 + 1);
+            }
+        }
+        if (fs.sub.length) {
+            ctx.fillStyle = COLORS.cave;
+            for (const s of fs.sub) {
+                const ly0 = Math.max(0, Math.ceil(s.top - topY));
+                const ly1 = Math.min(CHUNK_HEIGHT - 1, Math.ceil(s.bottom - topY) - 1);
+                if (ly1 >= ly0) ctx.fillRect(lx, ly0, 1, ly1 - ly0 + 1);
+            }
+        }
+    }
+
+    // Косметические трещины crack2d (решение гейта 2026-09-25, дефект D1): тёмный
+    // клин поверх рельефа, физику НЕ трогает (вне равенства по твёрдому телу,
+    // §2.1) — красится после твёрдых интервалов и до пещерной маски. Цвет —
+    // тёмный тон палитры (`palette.dark`), НЕ COLORS.cave: пещерный цвет обязан
+    // остаться признаком вычитания твёрдого, иначе проверка «пещерный цвет на
+    // твёрдом» ложно сработала бы на косметике.
+    ctx.fillStyle = world.hasView ? world.palette.dark : shade(world.color, 0.4);
+    for (let lx = 0; lx <= CHUNK; lx++) {
+        const cs = colCracks[lx];
+        if (!cs) continue;
+        for (const ck of cs) {
+            const ly0 = Math.max(0, Math.floor(ck.top - topY));
+            const ly1 = Math.min(CHUNK_HEIGHT - 1, Math.floor(ck.bottom - topY));
+            if (ly1 >= ly0) ctx.fillRect(lx, ly0, 1, ly1 - ly0 + 1);
+        }
     }
 
     // Пещерная маска — ЧАСТЬ ТВЁРДОГО ТЕЛА, не косметика (S1-bis): isCave
@@ -207,7 +269,9 @@ export function getChunkCanvas(world, index) {
             ys.push(sp.top + FLOAT_EPS);
             let yTop = null, yBottom = null;
             for (const wy of ys) {
-                if (world.solidAt(wx, wy)) {
+                // Полоса `float` — база: 2D-формы красит отдельный проход выше,
+                // здесь они не нужны, а их расчёт удорожал бы скан (§2.4).
+                if (world.baseSolid(wx, wy)) {
                     if (yTop === null) yBottom = wy;
                     yTop = wy;
                 } else if (yTop !== null) {

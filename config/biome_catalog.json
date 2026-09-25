@@ -4,7 +4,14 @@
       "id": "горы",
       "color": "#726c64",
       "view": {
-        "family": "горные"
+        "family": "горные",
+        "relief": {
+          "forms": [
+            { "prim": "overhang", "arch": 1, "perRegion": 2, "w": [80, 150], "h": [26, 50], "opening": [80, 150], "taper": [0.35, 0.65], "dir": 1 },
+            { "prim": "overhang", "arch": 0, "perRegion": 2, "w": [50, 120], "h": [22, 46], "reach": [40, 110], "taper": [0.4, 0.75], "dir": -1 },
+            { "prim": "overhang", "arch": 0, "perRegion": 1, "w": [90, 160], "h": [20, 40], "reach": [50, 120], "taper": [0.5, 0.8], "dir": 1 }
+          ]
+        }
       },
       "name": "Горы",
       "category": "литосфера",
@@ -81,6 +88,12 @@
       "color": "#6b625a",
       "view": {
         "family": "скальные пустоши",
+        "relief": {
+          "forms": [
+            { "prim": "overhang", "arch": 0, "perRegion": 2, "w": [50, 130], "h": [20, 44], "reach": [40, 110], "taper": [0.35, 0.7], "dir": 1 },
+            { "prim": "crack2d", "perRegion": 3, "w": [10, 34], "depth": [100, 360], "taper": [0.4, 0.8], "tilt": [4, 24] }
+          ]
+        },
         "palette": { "base": "#6b625a", "dark": "#3d3833", "light": "#9c9288", "accent": "#8a7f70", "rock": "#4f4841" },
         "decor": [
           { "prim": "rock", "p": 0.060, "h": [8, 30] },
@@ -2521,6 +2534,7 @@
     { "id": "overhang", "kind": "relief2d" },
     { "id": "void", "kind": "relief2d" },
     { "id": "crack2d", "kind": "relief2d" },
-    { "id": "floatband", "kind": "relief2d" }
+    { "id": "floatband", "kind": "relief2d" },
+    { "id": "crater", "kind": "relief2d" }
   ]
 }

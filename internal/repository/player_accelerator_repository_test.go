@@ -50,6 +50,35 @@ func TestPlayerAcceleratorGetStateRow(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+// Reset обнуляет строку пользователя (спека §13); строки нет (0 строк) —
+// не ошибка (идемпотентно).
+func TestPlayerAcceleratorReset(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectExec(`UPDATE player_accelerator SET last_boost_at = NULL, last_cooldown_min = NULL, updated_at = NOW\(\) WHERE user_id = \$1`).
+		WithArgs("u1").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	require.NoError(t, NewPlayerAcceleratorRepository(db).Reset("u1"), "нет строки — не ошибка")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Ошибка БД на Reset → ошибка.
+func TestPlayerAcceleratorResetDBError(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectExec(`UPDATE player_accelerator SET last_boost_at = NULL, last_cooldown_min = NULL, updated_at = NOW\(\) WHERE user_id = \$1`).
+		WithArgs("u1").
+		WillReturnError(errors.New("boom"))
+
+	require.Error(t, NewPlayerAcceleratorRepository(db).Reset("u1"))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 // Первый запуск (строки нет) — ускорение применяется, откат кладётся снимком.
 func TestPlayerAcceleratorApplyBoostFirstRun(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))

@@ -93,6 +93,21 @@
                 <span id="biomeCatalogStatus" class="hint" style="margin:0;align-self:center;">✓ сохранено</span>
             </div>
         </div>
+
+        <!-- Админский сброс своего таймера ускорителя (идея ускорителя §13):
+             наигрыш мини-игры «Прокладка маршрута» без ожидания отката.
+             Доступно обеим админ-ролям (AdminAuth: admin + skycomposer). -->
+        <div class="card" id="acceleratorResetCard">
+            <h2>🚀 Ускоритель перелёта</h2>
+            <p class="hint">
+                Снимает откат и действующее ускорение на вашем аккаунте —
+                чтобы сыграть мини-игру снова, не ожидая таймер.
+            </p>
+            <div class="compact-row">
+                <button class="btn" onclick="resetAcceleratorSelf()">Сбросить мой таймер</button>
+                <span id="acceleratorResetStatus" class="hint" style="margin:0;align-self:center;"></span>
+            </div>
+        </div>
     </div>
 
     <!-- Вкладка: Генерация (подвкладки-кнопки, спека 99.2.3 §2, 71a) -->

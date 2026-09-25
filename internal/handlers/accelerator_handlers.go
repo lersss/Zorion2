@@ -3,8 +3,10 @@ package handlers
 import (
 	"log"
 	"math"
+	"net/http"
 	"time"
 
+	"zorion/internal/auth"
 	"zorion/internal/models"
 	"zorion/internal/repository"
 	"zorion/internal/ship"
@@ -26,6 +28,32 @@ import (
 // Доступность мини-игры — по реестру реализованных игр (§3.4): пока игр нет
 // (ship.AcceleratorGameRegistered), любая валидная запись каталога даёт
 // available=false, reason=unknown_game — честное состояние «игры ещё нет».
+
+// AcceleratorResetSelf — POST /admin/accelerator/reset-self (идея ускорителя
+// §13): админский сброс СОБСТВЕННОГО таймера вызывающего — и отката, и
+// признака «ускорение уже действует» — для наигрыша мини-игры без ожидания
+// отката. Роли (admin + skycomposer) проверяет auth.AdminAuth в main.go.
+func (h *TravelHandlers) AcceleratorResetSelf(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSONError(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
+		return
+	}
+	userID, ok := r.Context().Value(auth.UserIDKey).(string)
+	if !ok || userID == "" {
+		writeJSONError(w, "Не авторизован", http.StatusUnauthorized)
+		return
+	}
+	if h.accelRepo == nil {
+		writeJSONError(w, "Ускоритель недоступен", http.StatusInternalServerError)
+		return
+	}
+	if err := h.accelRepo.Reset(userID); err != nil {
+		log.Printf("⚠️ accelerator reset-self (user %s): %v", userID, err)
+		writeJSONError(w, "Не удалось сбросить таймер ускорителя", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
+}
 
 // acceleratorTravelReason — единый приоритет причин недоступности (§3.4/§4.1):
 // no_module → unknown_game → already_active → too_short → cooldown. Пусто —

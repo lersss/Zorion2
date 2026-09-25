@@ -37,6 +37,18 @@ func (r *PlayerAcceleratorRepository) GetState(userID string) (*models.PlayerAcc
 	return st, nil
 }
 
+// Reset — админский сброс СОБСТВЕННОГО таймера ускорителя вызывающего игрока
+// (идея ускорителя §13): обнуляет откат и признак «ускорение действует»
+// (BoostActive сравнивает last_boost_at со StartTime). Идемпотентно: строки
+// нет → UPDATE не трогает ноль строк, без ошибки.
+func (r *PlayerAcceleratorRepository) Reset(userID string) error {
+	_, err := r.db.Exec(
+		`UPDATE player_accelerator SET last_boost_at = NULL, last_cooldown_min = NULL, updated_at = NOW() WHERE user_id = $1`,
+		userID,
+	)
+	return err
+}
+
 // ApplyBoost — атомарное применение ускорения (спека §4.1 шаг 3). Под row-lock
 // строки отката (FOR UPDATE):
 //   - last_boost_at.UnixMilli() == expectStartTime.UnixMilli() → already_active

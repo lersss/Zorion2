@@ -24,6 +24,7 @@ import {
 import { saveSettlementSettings, updateSettlementNetto } from './settlementSettings.js';
 import { initBiomeCatalog, switchBiomeSub, saveBiomeCatalog, resetBiomeCatalog } from './biomeCatalog.js';
 import { loadResources, toggleAxesCell, toggleRacesCell, switchResSubTab, selectReal, switchRealMode, sortReal } from './resources.js';
+import { resetAcceleratorSelf } from './accelerator.js';
 
 // Глобальные функции для onclick в HTML
 window.adminLogin = adminLogin;
@@ -81,6 +82,7 @@ window.switchResSubTab = switchResSubTab;
 window.selectReal = selectReal;
 window.switchRealMode = switchRealMode;
 window.sortReal = sortReal;
+window.resetAcceleratorSelf = resetAcceleratorSelf;
 
 // goToMap — переход из админки на карту (пожелание 2026-09-19): админский
 // токен — тот же JWT, что и игровой; копируем его в игровой ключ, чтобы

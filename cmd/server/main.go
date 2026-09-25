@@ -520,6 +520,10 @@ func main() {
 	http.HandleFunc("/admin/stats/planets", auth.AdminAuth(adminHandlers.GetPlanetStatsHandler))
 	http.HandleFunc("/admin/generate-status", auth.AdminAuth(adminHandlers.GenerateStatus))
 	http.HandleFunc("/admin/clear", auth.AdminAuth(adminHandlers.ClearUniverse))
+	// Админский сброс СВОЕГО таймера ускорителя (идея ускорителя §13):
+	// наигрыш мини-игры «Прокладка маршрута» без ожидания отката. Роли
+	// admin + skycomposer — штатный AdminAuth.
+	http.HandleFunc("/admin/accelerator/reset-self", auth.AdminAuth(travelHandlers.AcceleratorResetSelf))
 	// Публикация контрактов вручную (фракция/постройка/агент) + отладка
 	// (спека перелёта §3, О-п9). UI — B3, серверная часть — B1.
 	http.HandleFunc("/admin/contracts", auth.AdminAuth(contractHandlers.AdminCreateContract))

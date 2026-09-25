@@ -1,0 +1,88 @@
+<!-- web/route.html -->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Zorion — Прокладка маршрута</title>
+    <link rel="stylesheet" href="/static/css/route.css">
+</head>
+<body>
+    <canvas id="route-canvas"></canvas>
+
+    <!-- HUD (§1): паспорт-полоса (свёрнута по умолчанию), выход, статус-строка,
+         строка обратной связи, панель действий. -->
+    <div id="hud" style="display:none;">
+        <div class="hud-top-wrap">
+            <div class="hud-top">
+                <div id="passport" class="collapsed">
+                    <button id="passport-toggle" class="hud-btn passport-toggle" type="button">Паспорт ⏷</button>
+                    <div id="passport-chips" class="passport-chips"></div>
+                </div>
+                <button id="to-map" class="hud-btn" type="button">← На карту</button>
+            </div>
+            <div id="status-line"></div>
+        </div>
+        <div class="hud-bottom">
+            <div class="hud-feedback">
+                <span id="beacon-count" class="hud-chip"></span>
+                <span id="quality-hint" class="hud-chip"></span>
+            </div>
+            <div class="hud-actions">
+                <button id="undo" class="hud-btn" type="button">↶ Точка назад</button>
+                <button id="boost" class="hud-btn primary" type="button" disabled>Проложить</button>
+            </div>
+            <button id="reset" class="hud-btn wide" type="button">Заново</button>
+        </div>
+    </div>
+
+    <!-- Прелоадер (§2). -->
+    <div id="loading" class="overlay">
+        <div class="panel">
+            <p id="loading-text">Готовим маршрут…</p>
+        </div>
+    </div>
+
+    <!-- Ошибка сети/5xx (§2): «Повторить» + «На карту». -->
+    <div id="error" class="overlay">
+        <div class="panel">
+            <h2>Не удалось открыть маршрут</h2>
+            <p id="error-text"></p>
+            <div class="panel-actions">
+                <button id="error-retry">Повторить</button>
+                <button id="error-map" class="primary">На карту</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Причина недоступности (§2): no_flight/no_module/unknown_game/
+         already_active/too_short/cooldown (+ таймер отката). -->
+    <div id="reason" class="overlay">
+        <div class="panel">
+            <h2 id="reason-title"></h2>
+            <p id="reason-note"></p>
+            <p id="reason-timer" class="timer" style="display:none;"></p>
+            <div class="panel-actions">
+                <button id="reason-map" class="primary">На карту</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Результат (§3.6): класс качества, «Скорость +X %», новый остаток. -->
+    <div id="result" class="overlay">
+        <div class="panel">
+            <h2>Ускорение принято</h2>
+            <p id="result-class" class="result-class"></p>
+            <p id="result-bonus"></p>
+            <p id="result-remaining"></p>
+            <div class="panel-actions">
+                <button id="result-map" class="primary">Вернуться на карту</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" style="display:none;"></div>
+
+    <script type="module" src="/static/js/route/route_game.js"></script>
+</body>
+</html>

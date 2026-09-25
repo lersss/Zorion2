@@ -1,0 +1,152 @@
+/* web/static/css/route.css
+   Стили страницы мини-игры «Прокладка маршрута» (спека
+   2026-09-25-маршрут-мини-игра-интерфейс.md §1–§5). Каркас belt.css/surface.css:
+   существующие классы/константы, safe-area, тач-цели ≥44px, портрет. Новые
+   атмосферные тона живут только в фоне/свечении (рисует canvas), не здесь. */
+* { box-sizing: border-box; }
+
+html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    overflow: hidden;
+    background: #05070f;
+    color: #e2e8f0;
+    font-family: 'Segoe UI', Roboto, system-ui, sans-serif;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+#route-canvas {
+    position: fixed;
+    inset: 0;
+    display: block;
+    touch-action: none; /* палец не скроллит страницу (§5) */
+    cursor: crosshair;
+}
+
+/* ---- HUD ---- */
+#hud {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: calc(env(safe-area-inset-top) + 10px) calc(env(safe-area-inset-right) + 14px)
+        calc(env(safe-area-inset-bottom) + 10px) calc(env(safe-area-inset-left) + 14px);
+    pointer-events: none;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+}
+
+#hud button { pointer-events: auto; }
+
+.hud-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+
+#status-line {
+    margin-top: 8px;
+    text-align: center;
+    color: #fde68a; /* акцент/таймер палитры (§3.1) */
+    font-size: 0.95rem;
+    min-height: 1.2em;
+}
+
+.hud-btn {
+    min-height: 44px; /* тач-цель (§5) */
+    padding: 10px 16px;
+    background: rgba(30, 41, 59, 0.9);
+    border: 1px solid #334155;
+    color: #e2e8f0;
+    border-radius: 10px;
+    font-size: 1rem;
+    cursor: pointer;
+    touch-action: manipulation;
+}
+.hud-btn:hover { background: #334155; }
+.hud-btn:active { background: #475569; }
+.hud-btn:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px; }
+.hud-btn:disabled { opacity: 0.45; cursor: default; }
+.hud-btn.primary { background: #2563eb; border-color: #3b82f6; font-weight: 600; }
+.hud-btn.primary:hover { background: #3b82f6; }
+.hud-btn.primary:disabled { background: #1e293b; border-color: #334155; }
+.hud-btn.wide { width: 100%; }
+.passport-toggle { min-height: 44px; padding: 8px 12px; font-size: 0.85rem; }
+
+/* Паспорт-полоса (§1): свёрнута по умолчанию, чипы — по тапу. */
+#passport { display: flex; flex-direction: column; gap: 6px; max-width: 78vw; }
+.passport-chips { display: none; flex-wrap: wrap; gap: 6px; }
+#passport.open .passport-chips { display: flex; }
+
+.hud-chip {
+    background: rgba(15, 23, 42, 0.72);
+    border: 1px solid #64748b;
+    color: #94a3b8;
+    border-radius: 10px;
+    padding: 3px 8px;
+    font-size: 0.75rem;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.hud-bottom { display: flex; flex-direction: column; gap: 8px; }
+.hud-feedback { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
+.hud-actions { display: flex; gap: 10px; }
+.hud-actions .hud-btn { flex: 1; }
+
+/* ---- Оверлеи ---- */
+.overlay {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(2, 6, 16, 0.78);
+    z-index: 200;
+}
+#loading { z-index: 150; }
+
+.panel {
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 14px;
+    padding: 24px 28px;
+    max-width: 560px;
+    width: calc(100% - 40px);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}
+.panel h2 { margin: 0 0 12px 0; font-size: 1.3rem; }
+.panel p { color: #cbd5e1; line-height: 1.5; }
+.panel .timer { color: #fde047; font-variant-numeric: tabular-nums; font-size: 1.2rem; margin: 6px 0 0; }
+.result-class { color: #4ade80; font-size: 1.15rem; font-weight: 600; margin: 0 0 6px; }
+
+.panel-actions { display: flex; gap: 10px; margin-top: 18px; justify-content: flex-end; }
+
+.overlay button {
+    background: #1e293b;
+    border: 1px solid #334155;
+    color: #e2e8f0;
+    padding: 10px 16px;
+    min-height: 44px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.95rem;
+    touch-action: manipulation;
+}
+.overlay button:hover { background: #334155; }
+.overlay button.primary { background: #2563eb; border-color: #3b82f6; }
+.overlay button.primary:hover { background: #3b82f6; }
+
+/* ---- Тост ---- */
+#toast {
+    position: fixed;
+    left: 50%;
+    bottom: calc(env(safe-area-inset-bottom) + 24px);
+    transform: translateX(-50%);
+    background: #1e293b;
+    border: 1px solid #475569;
+    color: #e2e8f0;
+    padding: 10px 18px;
+    border-radius: 8px;
+    z-index: 210;
+    max-width: 88vw;
+    text-align: center;
+}

@@ -8,6 +8,7 @@ import { drawSky, drawFarRelief, drawHorizon, drawTerrain, drawDecor, drawShip, 
 import { pickWeatherRun, drawWeatherBack, drawWeatherMid, drawWeatherFront, drawEmissive, weatherLabel } from './surface_weather.js';
 import { SurfaceEnvironment, drawEnvironmentBack, drawEnvironmentMid, drawEnvironmentFront } from './surface_environment.js';
 import { Player, serverHp } from './surface_player.js';
+import { Boat, drawBoat } from './surface_boat.js';
 import { land, leave } from './surface_net.js';
 import * as ui from './surface_ui.js';
 
@@ -15,8 +16,9 @@ const state = {
     pkg: null,
     world: null,
     player: null,
+    boat: null,          // лодка-снаряжение (ЧК6.3): одна на игрока, клиентский режим
     camera: { x: 0, y: 0 },
-    input: { left: false, right: false, jump: false, sprint: false, down: false },
+    input: { left: false, right: false, jump: false, sprint: false, down: false, use: false },
     weather: null,
     weatherCycle: 0,
     forcedWeather: null, // админский выбор погоды: null = «авто» (идея 2026-09-21)
@@ -85,6 +87,15 @@ function setEnv(id) {
     ui.setEnvToggleActive(id || '');
 }
 
+// toggleBoat — «использовать» (KeyE, ЧК6.3 §3.2): посадка/выход. Идемпотентность
+// держит `Boat` (флаг `aboard`, одна лодка); не удалось сесть — ничего не
+// происходит (нефатально, §7 режимы отказа).
+function toggleBoat() {
+    if (!state.boat || !state.player) return;
+    if (state.boat.aboard) state.boat.disembark(state.player);
+    else state.boat.board(state.player);
+}
+
 function resize(canvas) {
     // Канвас в device-пикселях (devicePixelRatio) — резкость на HiDPI; логика
     // отрисовки остаётся в CSS-пикселях (vw/vh), базовый масштаб — в frame.
@@ -107,8 +118,17 @@ function frame(now) {
     const dpr = vw > 0 ? canvas.width / vw : 1;
 
     const paused = ui.isPaused();
+    // Действие «использовать» (ЧК6.3 §3.2) — краевое: флаг `use` ставит keydown
+    // (без автоповтора), гасим его в любом кадре (пауза его не «задерживает»).
+    if (state.input.use) {
+        state.input.use = false;
+        if (!paused && !state.dead) toggleBoat();
+    }
     if (!paused && !state.dead) {
-        state.player.update(dt, state.input);
+        // Лодка обходит `Player.update` своим циклом (§2.1 A): ходьба/плавание
+        // (ЧК6.2) не меняются — вне лодки поведение прежнее.
+        if (state.boat && state.boat.aboard) state.boat.update(dt, state.input, state.player);
+        else state.player.update(dt, state.input);
         // Сутки идут только в активной прогулке (как таймер погоды) — elapsed
         // от старта после брифинга, фаза = f(seed, elapsed).
         state.env.elapsed += dt * 1000;
@@ -150,7 +170,9 @@ function frame(now) {
     // Корабль игрока — парящая декорация у точки спавна, позади игрока (ЧК-ship).
     drawShip(ctx, state.world, state.camera, vw, vh, state.pkg, now);
     drawCreatures(ctx, state.world, state.camera, vw, vh, state.player, now);
-    drawPlayer(ctx, state.player, state.camera, vw, vh, now);
+    // Лодка — между фауной и игроком (§3.5): игрок садится поверх корпуса.
+    drawBoat(ctx, state.world, state.camera, vw, vh, state.player, state.boat, now);
+    drawPlayer(ctx, state.player, state.camera, vw, vh, now, state.boat && state.boat.aboard);
     // Жидкость — фронтальный проход (ЧК6 §5.1): пелена/зеркало/волна/кромка/блик
     // после игрока, до передних слоёв погоды и среды.
     drawLiquidFront(ctx, state.world, state.camera, vw, vh, state.env, state.player);
@@ -211,6 +233,9 @@ function bindInput() {
             if (ui.isPaused()) { ui.hidePause(); } else { ui.showPause(() => ui.hidePause(), callShip); }
             return;
         }
+        // «Использовать» (лодка, ЧК6.3 §3.2) — краевое событие: только keydown,
+        // автоповтор (`e.repeat`) игнорируется; флаг гасится в кадре.
+        if (e.code === 'KeyE') { if (!e.repeat) state.input.use = true; return; }
         const k = map[e.code];
         if (k) { state.input[k] = true; if (e.code === 'Space' || e.code === 'ArrowDown' || e.code === 'KeyS') e.preventDefault(); }
     });
@@ -239,6 +264,7 @@ async function boot() {
     state.pkg = res.data;
     state.world = new SurfaceWorld(state.pkg);
     state.player = new Player(state.world, state.pkg.gravity);
+    state.boat = new Boat(state.world);   // лодка «складывается» на старте прогулки (ЧК6.3)
     state.env = new SurfaceEnvironment(state.pkg);
     // e2e-снимки прогулки (tools/e2e/surface-walk-field-check.js, W7): поле и
     // игрок — для проверки реального входа под свод/в грот. Как `__beltWorld`.

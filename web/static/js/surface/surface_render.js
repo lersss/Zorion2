@@ -916,8 +916,10 @@ export function drawLiquidEmissive(ctx, world, camera, vw, vh, env) {
     ctx.restore();
 }
 
-// drawPlayer — игрок (простой силуэт в скафандре).
-export function drawPlayer(ctx, player, camera, vw, vh, timeMs) {
+// drawPlayer — игрок (простой силуэт в скафандре). `aboard` — режим лодки
+// (ЧК6.3 §3.5/F2): пульс-кольцо «я здесь» гасится, иначе оно (R≈h·0.8 ≈ 22–24 px)
+// кроет корпус лодки 34×20; сам игрок рисуется поверх борта как обычно.
+export function drawPlayer(ctx, player, camera, vw, vh, timeMs, aboard) {
     const x = player.x - camera.x + vw / 2;
     const y = player.y - camera.y + vh / 2;
     const bob = player.onGround ? Math.sin(timeMs * 0.01) * Math.min(1.5, Math.abs(player.vx) * 0.05) : 0;
@@ -925,12 +927,14 @@ export function drawPlayer(ctx, player, camera, vw, vh, timeMs) {
     const h = player.h;
     ctx.save();
     ctx.translate(x, y + bob);
-    // Пульс-кольцо «я здесь».
-    ctx.strokeStyle = 'rgba(56,189,248,0.28)';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.arc(0, 0, h * 0.8 + Math.sin(timeMs * 0.004) * 2, 0, Math.PI * 2);
-    ctx.stroke();
+    // Пульс-кольцо «я здесь» (в лодке не рисуем — F2).
+    if (!aboard) {
+        ctx.strokeStyle = 'rgba(56,189,248,0.28)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(0, 0, h * 0.8 + Math.sin(timeMs * 0.004) * 2, 0, Math.PI * 2);
+        ctx.stroke();
+    }
     // Скафандр.
     ctx.fillStyle = COLORS.player;
     ctx.fillRect(-w / 2, -h / 2, w, h);

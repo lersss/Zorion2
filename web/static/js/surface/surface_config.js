@@ -91,6 +91,22 @@ export const SPAWN_STEP = 8;           // px: шаг перебора колон
 export const SPAWN_WINDOW = 2048;      // px: окно поиска (±1024)
 export const SPAWN_WINDOW_MAX = 8192;  // px: расширенное окно (±4096)
 
+// Лодка-снаряжение (ЧК6.3, спека 2026-09-26-мир-прогулки-лодка.md §4):
+// клиентский режим движения `Boat` (отдельный файл surface_boat.js) обходит
+// `Player.update`; числа — гипотезы до гейта «офигеть». Лодка надводная
+// (`y = liquidLevel − BOAT_HULL`), быстрее ходьбы (×BOAT_FACTOR), с инерцией/сносом.
+export const BOAT_W = 34;              // px: ширина корпуса (горизонтальный габарит)
+export const BOAT_HULL = 20;           // px: центр бокса игрока над зеркалом
+export const BOAT_DRAFT = 6;           // px: осадка (нижняя часть ниже зеркала) — только отрисовка
+export const BOAT_FACTOR = 1.6;        // доля WALK_SPEED → 6.4 м/с (лодка моторная, Q2)
+export const BOAT_ACCEL = 4 * PPM;     // px/с²: разгон/торможение при вводе
+export const BOAT_DRAG = 2 * PPM;      // px/с²: пассивный снос без ввода (меньше — «катится»)
+export const BOAT_MIN_DEPTH = 16;      // px: минимальная глубина колонки (посадка/ход)
+export const BOARD_REACH = 14;         // px: зеркало не дальше от стоп игрока для посадки
+export const BOAT_BOB_AMP = 1.5;       // px: вертикальное покачивание (отрисовка)
+export const BOAT_ROCK_AMP = 0.07;     // рад: крен (отрисовка; pivot — линия воды)
+export const BOAT_BOB_PERIOD_MS = 2600;// мс: период покачивания/крена
+
 // Погода (§7.2): одно явление за 2–4 мин, без урона.
 export const WEATHER_MIN_MS = 120000;
 export const WEATHER_MAX_MS = 240000;

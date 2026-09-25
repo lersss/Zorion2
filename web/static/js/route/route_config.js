@@ -27,7 +27,6 @@ export const SPRITE_FREEZE = {
 // Константы серверного поля (§6.6 осн. спеки, сверено по коду).
 export const ENDPOINT_R = 0.06; // endpointCaptureRadius — захват СТАРТА/ФИНИША
 export const MAX_POINTS = 64;   // maxPathPoints — потолок точек полилинии
-export const REF_OVERSHOOT = 1.05; // refOvershoot — для грубой оценки пути
 
 // Палитра: базовые константы проекта + атмосферные тона (§3.1). Новые тона —
 // только фон/туманность/свечение; цвета интерактива не подменяются.
@@ -100,13 +99,6 @@ export function qualityClassWord(q) {
     return 'Маршрут проложен';
 }
 
-// Грубый индикатор длины СЛОВАМИ, без чисел (решение 14).
-export function pathHintWord(ratio) {
-    if (ratio < 0.9) return 'короче эталона';
-    if (ratio <= 1.1) return 'примерно как эталон';
-    return 'длиннее эталона';
-}
-
 // Причины недоступности offer (409, §2) — оверлей-причина.
 export const REASON_OVERLAY = {
     no_flight: { title: 'Сейчас нет активного перелёта', note: 'Откройте карту и начните перелёт' },
@@ -135,7 +127,7 @@ export const REASON_TOAST = {
     cooldown: 'Ускорение перезаряжается',
 };
 
-// ---- Геометрия (общая для рендера, ввода и грубой оценки) ----
+// ---- Геометрия (общая для рендера и ввода) ----
 
 // computeView — квадрат 1:1 (letterbox) в свободной области между HUD.
 export function computeView(vw, vh) {
@@ -178,45 +170,6 @@ export function pointSegDist(p, a, b) {
     return dist(p, { x: a.x + t * dx, y: a.y + t * dy });
 }
 
-// pathEffLen — эффективная длина: сегмент в зоне умножается на её коэффициент
-// (серверная формула §6.3; сам коэффициент в UI не выводим).
-export function pathEffLen(path, zones) {
-    let total = 0;
-    for (let i = 0; i + 1 < path.length; i++) {
-        const seg = dist(path[i], path[i + 1]);
-        let mult = 1;
-        for (const z of zones || []) {
-            if (pointSegDist({ x: z.x, y: z.y }, path[i], path[i + 1]) <= z.r) mult *= z.coefficient;
-        }
-        total += seg * mult;
-    }
-    return total;
-}
-
-// greedyRouteLen — приблизительный эталон (эвристика «ближайший сосед»; сервер
-// при ≤8 маяках делает полный перебор, §6.3) × REF_OVERSHOOT. Точность не
-// требуется — только слова.
-export function greedyRouteLen(field) {
-    const beacons = (field.nodes || []).filter((n) => n.type === 'beacon');
-    const route = [{ x: field.start.x, y: field.start.y }];
-    let cur = route[0];
-    const used = new Set();
-    while (used.size < beacons.length) {
-        let best = -1;
-        let bestD = Infinity;
-        beacons.forEach((n, i) => {
-            if (used.has(i)) return;
-            const d = dist(cur, n);
-            if (d < bestD) { bestD = d; best = i; }
-        });
-        used.add(best);
-        route.push({ x: beacons[best].x, y: beacons[best].y });
-        cur = route[route.length - 1];
-    }
-    route.push({ x: field.finish.x, y: field.finish.y });
-    return REF_OVERSHOOT * pathEffLen(route, field.zones);
-}
-
 // ---- Гейт «Проложить» и статус-строка (чистые функции от state) ----
 
 export function beaconsTotal(field) {
@@ -254,14 +207,6 @@ export function statusText(state, now) {
     if (!finishCaptured(state)) return 'Путь не доходит до ФИНИШа';
     if (remainingNow(state, now) < state.minBoostS) return 'Перелёт уже завершается — ускорить не получится';
     return 'Путь готов';
-}
-
-// pathHint — грубый индикатор длины СЛОВАМИ (без чисел, решение 14).
-export function pathHint(state) {
-    if (state.path.length < 2) return '';
-    const lRef = greedyRouteLen(state.field);
-    if (lRef <= 0) return '';
-    return pathHintWord(pathEffLen(state.path, state.field.zones) / lRef);
 }
 
 // remainWord — остаток в читаемом виде (только после отправки, решение 14).

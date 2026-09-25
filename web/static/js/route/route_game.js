@@ -139,7 +139,6 @@ function updateHud() {
     const now = performance.now();
     $('status-line').textContent = state.message || C.statusText(state, now);
     $('beacon-count').textContent = 'Маяки ' + state.fixedCaptured.size + '/' + C.beaconsTotal(state.field);
-    $('quality-hint').textContent = C.pathHint(state);
     if (!state.submitting) {
         $('boost').textContent = 'Проложить';
         $('boost').disabled = !C.gateReady(state, now);

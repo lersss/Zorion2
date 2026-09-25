@@ -39,8 +39,9 @@ async function main() {
     const consoleErrors = [];
     const badResponses = [];
     page.on('pageerror', (e) => pageErrors.push(String(e && e.message ? e.message : e)));
-    page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text() + ' @' + JSON.stringify(m.location())); });
-    page.on('response', (r) => { if (r.status() >= 400) badResponses.push(r.status() + ' ' + r.url()); });
+    // favicon.ico — шум вне фичи: у студии нет маршрута (404), браузер просит его сам. Не считаем ошибкой.
+    page.on('console', (m) => { if (m.type() === 'error' && !/favicon\.ico/.test(m.text())) consoleErrors.push(m.text() + ' @' + JSON.stringify(m.location())); });
+    page.on('response', (r) => { if (r.status() >= 400 && !/favicon\.ico/.test(r.url())) badResponses.push(r.status() + ' ' + r.url()); });
     page.on('requestfailed', (r) => badResponses.push('FAILED ' + r.url() + ' ' + (r.failure() ? r.failure().errorText : '')));
 
     await page.goto(BASE + '/', { waitUntil: 'domcontentloaded', timeout: 30000 });

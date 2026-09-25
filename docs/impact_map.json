@@ -707,11 +707,27 @@
         { "on": "biome_catalog_seed.json", "kind": "affects", "reason": "заводской сид обязан быть синхронен рабочему справочнику (TestBiomeViewSeedSynced); иначе «Сбросить к заводским» теряет рецепты" },
         { "on": "surface_landing", "kind": "affects", "reason": "пакет высадки несёт резолвленный рецепт (biome_view/view_source/view_version); при высадке вид строится по рецепту, иначе — фолбэк FORMATIONS" },
         { "on": "planet_image", "kind": "affects", "reason": "заполнение color у биома меняет цвет планеты с орбиты (та же палитра) → бамп ImageGenVersion (Э1: v4→v5; ЧК1: v5→v6 под 10 новых color; ЧК2: v6→v7 под 11 новых color; ЧК3: v7→v8 под 7 новых color; ЧК4: v8→v9 под 5 новых color; ЧК5: v9→v10 под 10 новых color), иначе диск-кэш отдаёт старую картинку" },
-        { "on": "web/static/js/surface/surface_world.js", "kind": "reads", "reason": "клиент применяет biome_view только при view_source=catalog и view_version=1, иначе фолбэк; горизонт — horizonHeight (детерминирован от seed). ЧК3: primFlow читает flow.lobes/slope/levees, primSpike — spike.cluster, primFan — fan.w/roughness (угол ≤ angleMax; roughness только при явном w) — дефолты сохраняют вид сданных ЧК0/ЧК1/ЧК2" },
+        { "on": "web/static/js/surface/surface_world.js", "kind": "reads", "reason": "клиент применяет biome_view только при view_source=catalog и view_version=1, иначе фолбэк; горизонт — horizonHeight (детерминирован от seed). ЧК3: primFlow читает flow.lobes/slope/levees, primSpike — spike.cluster, primFan — fan.w/roughness (угол ≤ angleMax; roughness только при явном w) — дефолты сохраняют вид сданных ЧК0/ЧК1/ЧК2. Э5.1 (коммит 5a4a505): terrainHeight/isSolid сведены в единое solidAt (форма — formsSolid/relief.forms, вход сюда); чтение рецепта не меняется" },
         { "on": "web/static/js/surface/surface_render.js", "kind": "reads", "reason": "отрисовка по рецепту: палитра земли/кромка, декор, ярусный горизонт (drawHorizon между drawFarRelief и drawEnvironmentMid)" },
         { "on": "web/static/js/surface/surface_decor.js", "kind": "reads", "reason": "библиотека примитивов декора (16 базовых + композиты oasis/reef/ruins). ЧК3: drawCrystal читает d.glow (false → матовый pal.rock; true/undefined → свечение pal.glow). ЧК5: введён новый примитив crystal_tree (view_primitives 31→32) и drawCrystalTree — ствол-шард + ярусы друз-крон (pal.trunk/dark/light/accent/glow); минерал, вне LIVING_DECOR (на life=false не отбрасывается)" },
         { "on": "internal/handlers/admin_biome_catalog.go", "kind": "affects", "reason": "GET/PATCH обязаны нести и переносить view_families/view_primitives — иначе сохранение из админки (полная замена) стирает рецепты" },
         { "on": "99.2.28", "kind": "affects", "reason": "вид — атрибут биома справочника (§3.1 planets.data.biomes {form, share}); рецепт НЕ читается генератором и не сдвигает RNG" }
+      ]
+    },
+    {
+      "id": "surface_solid_field",
+      "type": "mechanic",
+      "path": "web/static/js/surface/surface_world.js",
+      "note": "Единое поле твёрдости поверхности прогулки (эпик «Мир прогулки», Э5.1, коммит 5a4a505, 2026-09-25). solidAt(x,y) — единственный источник твёрдости для физики и растра: baseSolid (y ≥ terrainHeight, минус isCave, плюс полоса float) ⊕ formsSolid (2D-формы relief.forms: overhang/void/crack2d/crater — Э5.2/Э5.3, в Э5.1 пусто). isSolid — алиас; columnSpans/skyTop/floorY — контракт поля. Растр (surface_render.js getChunkCanvas) идёт от того же поля; пещерная маска консервативна (3×3 только для полностью воздушного блока, граница шаг 1 px); кэш чанков сбрасывается по SS и _viewKey и вытесняется; угловая коллизия бокса 12×28 (числа физики не менялись). Якоря: floorY — корабль/фауна/спавн, skyTop — приземная погода (перенос потребителей в Э5.2/Э5.3). planet_image НЕ затрагивается (2D-формы не видны с орбиты, бамп ImageGenVersion не нужен)",
+      "impacts": [
+        { "on": "web/static/js/surface/surface_player.js", "kind": "affects", "reason": "коллизия читает solidAt (угловая выборка бокса); спавн игрока — floorY(x), не terrainHeight" },
+        { "on": "web/static/js/surface/surface_render.js", "kind": "affects", "reason": "растр идёт от того же поля (columnSpans); корабль на высадке drawShip и фауна — якоря floorY(x); консервативная пещерная маска" },
+        { "on": "web/static/js/surface/surface_world.js", "kind": "affects", "reason": "точки фауны terrainHeight(x) → floorY(x); terrainHeight/isSolid → единое solidAt + relief.forms" },
+        { "on": "surface_weather", "kind": "affects", "reason": "приземные эффекты/точка земли читают верх поля skyTop(x), не terrainHeight" },
+        { "on": "surface_view_recipe", "kind": "reads", "reason": "2D-формы приходят из рецепта relief.forms (relief2d); пусто в Э5.1, заполняется Э5.2/Э5.3" },
+        { "on": "biome_catalog.json", "kind": "affects", "reason": "новые данные relief.forms + регистрация crater (relief2d 4→5) + расширенная валидация" },
+        { "on": "biome_catalog_seed.json", "kind": "affects", "reason": "та же регистрация crater; синхронность копий справочника (TestBiomeViewSeedSynced)" },
+        { "on": "web/static/js/surface/surface_config.js", "kind": "affects", "reason": "константы: минимальный просвет (opening > роста игрока), потолки форм" }
       ]
     },
     {

@@ -756,6 +756,21 @@
       ]
     },
     {
+      "id": "surface_boat",
+      "type": "mechanic",
+      "path": "docs/specs/2026-09-26-мир-прогулки-лодка.md",
+      "note": "Надувная лодка прогулки (эпик «Мир прогулки», ЧК6.3, дизайн 2026-09-26; реализация — впереди). Носитель web/static/js/surface/surface_boat.js ещё не создан, поэтому path — спека (иначе валидатор реестра даст «реестр протух»). Клиентское состояние игрока (одна на игрока, НЕ сущность БД, персиста нет): у зеркала по KeyE игрок садится, плывёт по тому же liquidLevel (y = liquidLevel − BOAT_HULL), быстрее плавания/ходьбы (×BOAT_FACTOR=1.6), с инерцией/сносом, без ныряния; у берега — мягкий стоп. Запрет: лава и underIce (ВКЛЮЧАЯ полыньи — решение создателя 2026-09-26), узкая вода (< BOAT_W). Проба твёрдого — ПОЛНЫЙ СИЛУЭТ «лодка + игрок» (X [x±BOAT_W/2], Y от макушки liquidLevel−34 до низа осадки liquidLevel+BOAT_DRAFT) по solidAt' (единая твёрдость Player, включая лёд underIce). Посадка с пологого берега — поиск dx (|dx| ≤ BOARD_REACH, центральная колонка может быть сухой). Отрисовка drawBoat между drawCreatures и drawPlayer; спрайт 204×120 (6× логического 34×20, линия воды y 84); в режиме лодки drawPlayer гасит пульс-кольцо (F2); лодка накапливает player.distance (HUD пути не замирает). Новые файлы/арт/проверки (surface_boat.js, web/static/sprites/surface/boat/boat.png, tools/surface-boat-check.mjs, tools/e2e/surface-boat-check.js) в реестр не внесены — их ещё нет.",
+      "impacts": [
+        { "on": "surface_liquid", "kind": "reads", "reason": "liquidLevel/liquidAt/_liquidCol/crustAt — уровень и тело; liquid.medium (запрет лавы), liquid.level.mode (запрет underIce, вкл. полыньи)" },
+        { "on": "surface_solid_field", "kind": "reads", "reason": "solidAt' по полному силуэту «лодка + игрок» — «не входит в твёрдое» (та же твёрдость, что у Player, включая лёд)" },
+        { "on": "docs/specs/2026-09-25-мир-прогулки-вода.md", "kind": "affects", "reason": "§7.3 синхронизирован: лодка на underIce (включая полыньи) запрещена (решение создателя 2026-09-26); §7.2 — арт «сейчас»; приложение §A.4 п.21" },
+        { "on": "web/static/js/surface/surface_player.js", "kind": "affects", "reason": "в режиме лодки задаёт player.x/y/vx/facing/distance (сам Player.update не вызывается); вне лодки — без влияния" },
+        { "on": "web/static/js/surface/surface_main.js", "kind": "affects", "reason": "ветка цикла (boat.update вместо player.update), ввод use (KeyE), вызов drawBoat, передача aboard в drawPlayer" },
+        { "on": "web/static/js/surface/surface_render.js", "kind": "affects", "reason": "drawPlayer гасит пульс-кольцо при aboard (F2) — иначе кольцо R≈22–24 кроет лодку 34×20" },
+        { "on": "web/static/js/surface/surface_config.js", "kind": "affects", "reason": "новые аддитивные константы BOAT_W/BOAT_HULL/BOAT_DRAFT/BOAT_FACTOR/BOAT_ACCEL/BOAT_DRAG/BOAT_MIN_DEPTH/BOARD_REACH/BOAT_BOB_AMP/BOAT_ROCK_AMP/BOAT_BOB_PERIOD_MS" }
+      ]
+    },
+    {
       "id": "biome_catalog_seed.json",
       "type": "config",
       "path": "internal/generator/planet/biome_catalog_seed.json",
@@ -2191,10 +2206,10 @@
       "id": "property_ui",
       "type": "mechanic",
       "path": "web/static/js/dashboard/property.js",
-      "note": "Вкладка «🏠 Собственность» дашборда (спека docs/specs/2026-09-26-собственность-игрока-в-дашборде.md, ЧК1+ЧК2, коммит 65d6e8c): список единиц собственности (kind settlement/building, серверные name/subtitle, адрес world/planet, плашка знания) + кнопки «Посмотреть» (ЧК1) и «Перелететь» (ЧК2, стык &fly=1). Гейт по двигателю — hasEngineFromMe по /me. Тонкий HTML (index.html ~908 строк — разметку не растит), модуль Node-безопасен.",
+      "note": "Вкладка «🏠 Собственность» дашборда (спека docs/specs/2026-09-26-собственность-игрока-в-дашборде.md, ЧК1+ЧК2, коммит 65d6e8c): список единиц собственности (kind settlement/building, серверные name/subtitle, адрес world/planet, плашка знания) + кнопки «На карте» и «🚀 Лететь» (стык &fly=1). Гейт по двигателю — hasEngineFromMe по /me. Тонкий HTML (index.html ~908 строк — разметку не растит), модуль Node-безопасен. ЧК3 (коммит be48759, 2026-09-26): компактная двухстрочная строка, отдельный web/static/css/dashboard.css (инлайн-стили убраны), тексты (плашка «Нет данных о планете», «устарело» у сканера), статус маршрута в строке («в пути к…»/«прибыли» из /me).",
       "impacts": [
         { "on": "player_property", "kind": "reads", "reason": "единственный источник — GET /me/property" },
-        { "on": "dashboard_map_deeplink", "kind": "affects", "reason": "«Посмотреть»/«Перелететь» ведут на /map?...&fly=1" },
+        { "on": "dashboard_map_deeplink", "kind": "affects", "reason": "«На карте»/«🚀 Лететь» ведут на /map?...&fly=1" },
         { "on": "money_ui", "kind": "duplicates", "reason": "образец модуля вкладки дашборда (Node-безопасные хелперы + init)" }
       ]
     },

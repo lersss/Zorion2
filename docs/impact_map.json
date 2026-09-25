@@ -1866,12 +1866,13 @@
       "id": "users.ship_icon",
       "type": "table",
       "path": "db:users.ship_icon",
-      "note": "Иконка корабля игрока (миграция 000037; семантика изменена 2026-09-23): имя файла расового реестра. Миграция 000074 переписала старые значения на людской корабль и сменила DEFAULT на race_humans_starship.png; легаси-маппинг удалён (П4).",
+      "note": "Иконка корабля игрока (миграция 000037; семантика изменена 2026-09-23): имя файла расового реестра. Миграция 000074 переписала старые значения на людской корабль и сменила DEFAULT на race_humans_starship.png; легаси-маппинг удалён (П4). Удалённый из реестра файл при чтении тихо подменяется на людской дефолт (2026-09-25).",
       "impacts": [
         { "on": "internal/repository/user_repository.go", "kind": "schema", "reason": "userSelect/GetByID/GetByIDWithPosition/PlayerPositions" },
         { "on": "internal/handlers/auth_handlers.go", "kind": "reads", "reason": "/me (ResolveShipIcon), PUT /me/ship-icon" },
         { "on": "internal/handlers/players_positions.go", "kind": "reads", "reason": "корабль чужих игроков на карте" },
         { "on": "internal/handlers/surface_handlers.go", "kind": "reads", "reason": "ResolveShipIcon + ShipOrientByFile в пакете высадки" },
+        { "on": "internal/handlers/admin_users.go", "kind": "reads", "reason": "ResolveShipIcon в профиле игрока у админа" },
         { "on": "migrations/000074_race_ships.sql", "kind": "schema", "reason": "бэкфилл старых значений + смена DEFAULT" }
       ]
     },
@@ -1879,7 +1880,7 @@
       "id": "ship_options",
       "type": "mechanic",
       "path": "internal/handlers/auth_handlers.go",
-      "note": "Транспорт расового реестра кораблей клиенту (GET /me.ship_options, спека 2026-09-23-корабли-рас-раса-агентов-и-игрока §7.1): {id,name,file,angle,flip} + race; 118 строк (117 расовых + нейтральный). НЕ выпилен — второй источник не заводится.",
+      "note": "Транспорт расового реестра кораблей клиенту (GET /me.ship_options, спека 2026-09-23-корабли-рас-раса-агентов-и-игрока §7.1): {id,name,file,angle,flip} + race; N строк = записи файла реестра `config/ships_registry.json` + нейтральный последним (N меняется после удалений кораблей из студии). НЕ выпилен — второй источник не заводится.",
       "impacts": [
         { "on": "internal/handlers/auth_handlers.go", "kind": "api", "reason": "GET /me.ship_options" },
         { "on": "web/static/js/map/data.js", "kind": "reads", "reason": "индекс для карты" },
@@ -1891,18 +1892,27 @@
     {
       "id": "race_ship_registry",
       "type": "mechanic",
-      "path": "internal/models/race_ship_sprites.go",
-      "note": "Расовый реестр кораблей (спека 2026-09-23-корабли-рас-раса-агентов-и-игрока §6): 117 расовых PNG + NeutralShip; корабль агента — spriteForAgent(race_id, id) (суффиксный выбор варианта, SHIP_VARIANT_SLOTS=9 — гипотеза); корабль игрока — users.ship_icon; легаси-21 выпилен (П4). Палитра 9 цветов — ShipColorPalette.",
+      "path": "config/ships_registry.json",
+      "note": "Расовый реестр кораблей игры (спека 2026-09-23 §6; с 2026-09-25 — реестр-ДАННЫЕ): записи читаются игрой при старте из `config/ships_registry.json` (загрузчик `internal/models/ship_registry.go`; при битом/отсутствующем файле — аварийный минимум `DefaultHumanShip`+`NeutralShip`, не падает). Удаление корабля из игры — арт-студия (вкладка «В игре», `POST /ships/ingame/delete`): по одному снимает запись реестра, PNG игры, PNG accepted и запись `ships_meta.json` (связь по sha256); `neutral.png` и `DefaultHumanShip` неудаляемы, последний корабль расы удалять можно; игрок с удалённым файлом → людской дефолт, агент пустого пула → нейтральный. Корабль агента — spriteForAgent(race_id, id) (суффиксный вариант, SHIP_VARIANT_SLOTS=9 — гипотеза); корабль игрока — users.ship_icon; легаси-21 выпилен (П4). Палитра 9 цветов — ShipColorPalette.",
       "impacts": [
-        { "on": "web/static/js/map/ship_sprites.js", "kind": "affects", "reason": "spriteForAgent/preloadShipSprites/setShipOptions" },
+        { "on": "config/ships_registry.json", "kind": "reads", "reason": "источник реестра: файл данных, читается игрой при старте (LoadShipRegistry)" },
+        { "on": "internal/models/ship_registry.go", "kind": "affects", "reason": "ReadShipRegistry/LoadShipRegistry + валидация + аварийный минимум" },
+        { "on": "web/static/js/map/ship_sprites.js", "kind": "affects", "reason": "spriteForAgent/preloadShipSprites/setShipOptions; удаление варианта сдвигает вид опиравшихся агентов" },
         { "on": "web/static/js/map/npc_agents.js", "kind": "affects", "reason": "передаёт p.race_id в spriteForAgent" },
         { "on": "internal/handlers/auth_handlers.go", "kind": "reads", "reason": "ship_options + валидация PUT /me/ship-icon" },
         { "on": "internal/handlers/surface_handlers.go", "kind": "reads", "reason": "ShipOrientByFile" },
-        { "on": "tools/import_ship_sprites.ps1", "kind": "affects", "reason": "печать строк реестра (порядок: людские первыми)" },
+        { "on": "internal/handlers/admin_users.go", "kind": "reads", "reason": "RandomShipForRace при создании игрока админом + ResolveShipIcon профиля" },
+        { "on": "cmd/server/bootstrap.go", "kind": "reads", "reason": "RandomShipForRace при старте (skycomposer) — до HTTP" },
+        { "on": "cmd/server/main.go", "kind": "affects", "reason": "LoadShipRegistry после config.Load(), до bootstrap" },
+        { "on": "cmd/art-studio/handlers/ships_handlers.go", "kind": "writes", "reason": "витрина «В игре» читает файл (ReadShipRegistry); POST /ships/ingame/delete правит реестр и ships_meta.json" },
+        { "on": "cmd/art-studio/web/index.html", "kind": "affects", "reason": "вкладка «В игре»: сетка по расам, показ пары (angle/flip), кнопка «Удалить»" },
+        { "on": "web/static/sprites", "kind": "affects", "reason": "физическое удаление PNG игры при удалении корабля" },
+        { "on": "ai_drafts/final_accepted/ships", "kind": "affects", "reason": "удаление PNG accepted + записи ships_meta.json (связь по sha256)" },
+        { "on": "users.ship_icon", "kind": "affects", "reason": "удалённый файл → тихая подмена на DefaultHumanShip при чтении" },
+        { "on": "tools/import_ship_sprites.ps1", "kind": "writes", "reason": "пишет файл реестра (JSON, канонический порядок, сохраняет неизвестные поля)" },
         { "on": "docs/gamedesign/21_ships.md", "kind": "docs", "reason": "эталоны В4/В5 переписаны (§21.7) — дельта @dispatcher" },
-        { "on": "docs/specs/2026-09-23-корабли-рас-раса-агентов-и-игрока.md", "kind": "docs", "reason": "спека-источник §6 (расовый реестр, spriteForAgent, вариант B — все 117); приложение — чек-лист потребителей и рёбра" },
-        { "on": "cmd/art-studio/handlers/ships_handlers.go", "kind": "affects", "reason": "витрина «В игре» (2026-09-25): GET /ships/ingame отдаёт реестр (`RaceShipSprites` + `NeutralShip`) как есть, только чтение; добавление/перестановка записей меняет витрину" },
-        { "on": "cmd/art-studio/web/index.html", "kind": "affects", "reason": "вкладка «В игре» (2026-09-25): сетка по расам, показ пары (angle/flip) через `applyOrientToImg`" }
+        { "on": "docs/specs/2026-09-23-корабли-рас-раса-агентов-и-игрока.md", "kind": "docs", "reason": "спека-источник §6; дельта: источник реестра — файл данных, удаление, И7" },
+        { "on": "docs/specs/2026-09-25-арт-студия-удаление-кораблей-из-игры.md", "kind": "docs", "reason": "спека удаления кораблей из игры (вкладка «В игре»)" }
       ]
     },
     {

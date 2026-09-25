@@ -163,7 +163,7 @@ func TestBiomeViewBadPrimKind(t *testing.T) {
 func TestBiomeViewPrimitivesRegistry(t *testing.T) {
 	cat := GetBiomeCatalog()
 	kinds := cat.primKindIndex()
-	require.Len(t, kinds, 31, "8 рельефных + 15 декора + лиана (hang) + 3 размещения + 4 поздних 2D")
+	require.Len(t, kinds, 32, "8 рельефных + 16 декора + лиана (hang) + 3 размещения + 4 поздних 2D")
 	assert.Equal(t, "relief1d", kinds["wave"])
 	assert.Equal(t, "decor", kinds["cactus"])
 	assert.Equal(t, "placement", kinds["clustered"])
@@ -399,6 +399,117 @@ func TestBiomeViewCryoResolve(t *testing.T) {
 	require.NotNil(t, spl, "инеевые_рощи: spike")
 	assert.Equal(t, true, spl["cluster"], "spike.cluster (§4.7.12)")
 	assert.Equal(t, true, crystalGlow(roshcha), "инеевые_рощи: crystal.glow (§4.8.9 п.11)")
+}
+
+// ==================== РЕЦЕПТЫ ЧК5 — ЭКЗОТИКА (§4.9) ====================
+
+// TestBiomeViewExoticResolve — 10 дельт экзотики (§4.9.4, вставка A) резолвятся
+// из справочника, палитра совпадает с color (0 предупреждений, §4.9.9 п.4),
+// горизонт пресета `экзотика` (вставка B, §4.9.1) присутствует у 4 биомов
+// категории, а у 6 override-биомов свой; `crystal_tree` применён ровно у 2 рощ.
+func TestBiomeViewExoticResolve(t *testing.T) {
+	cat := GetBiomeCatalog()
+	d := cat.ViewDiagnostics()
+	require.Empty(t, d.Errors, "ЧК5: ошибок вида нет")
+	require.Empty(t, d.Warnings, "ЧК5: предупреждений вида нет (palette.base == color)")
+
+	exotic := []string{
+		"кристальные_рощи", "кремниевые_рощи", "металлические_щетинные_поля",
+		"карбидно-алмазные_заросли", "струнные_рощи", "радиационные_пустоши",
+		"терминаторная_зона", "пружинная_тундра", "химический_иней",
+		"пещерный_мир_с_потолком",
+	}
+	for _, id := range exotic {
+		view, source := cat.ResolveBiomeView(id)
+		require.Equal(t, "catalog", source, "биом %q: рецепт обязан резолвиться", id)
+		require.NotNil(t, view)
+		def := cat.BiomeByID(id)
+		require.NotNil(t, def)
+		base, ok := nestedString(view, "palette", "base")
+		require.True(t, ok, "%q: палитра обязана нести base", id)
+		assert.Equal(t, def.Color, base, "%q: palette.base == color (§4.9.2)", id)
+	}
+
+	// Реестр: ровно один новый примитив `crystal_tree` (31 → 32, §4.9.4 C).
+	kinds := cat.primKindIndex()
+	require.Len(t, kinds, 32, "ЧК5: 32 примитива")
+	assert.Equal(t, "decor", kinds["crystal_tree"], "crystal_tree — декоративный")
+
+	// Горизонт: пресет `экзотика` (вставка B) наследуют `радиационные_пустоши`
+	// и `химический_иней`; свой горизонт — 6 override-биомов (расклад 6/4, §4.9.1).
+	exoticPresetHorizon := func(id string) string {
+		v, _ := cat.ResolveBiomeView(id)
+		hz, _ := v["horizon"].(map[string]any)
+		layers := asMapList(hz["layers"])
+		require.Len(t, layers, 2, "%q: 2 пояса горизонта", id)
+		prof, _ := layers[0]["profile"].(map[string]any)
+		prim, _ := prof["prim"].(string)
+		return prim
+	}
+	for _, id := range []string{"радиационные_пустоши", "химический_иней"} {
+		assert.Equal(t, "dome", exoticPresetHorizon(id), "%q: горизонт пресета `экзотика` (dome)", id)
+	}
+	// 4 биома наследуют горизонт своего семейства.
+	assert.Equal(t, "crest", exoticPresetHorizon("металлические_щетинные_поля"),
+		"щетинные поля: горизонт `скальные пустоши` (crest)")
+	assert.Equal(t, "wave", exoticPresetHorizon("пружинная_тундра"),
+		"тундра: горизонт `травяные` (wave)")
+	// 6 override — свой горизонт (не семейный).
+	assert.Equal(t, "spike", exoticPresetHorizon("кристальные_рощи"), "рощи: свой горизонта (spike)")
+	assert.Equal(t, "step", exoticPresetHorizon("терминаторная_зона"), "терминатор: свой (step)")
+
+	// 4 «рощи»: `hang: []` — лиан пресета `лесные/чащи` нет; «деревья» — не tree.
+	for _, id := range []string{"кристальные_рощи", "кремниевые_рощи", "карбидно-алмазные_заросли", "струнные_рощи"} {
+		v, _ := cat.ResolveBiomeView(id)
+		assert.Empty(t, asMapList(v["hang"]), "%q: hang заменён (`hang: []`, §4.9.9 п.10)", id)
+		for _, dec := range asMapList(v["decor"]) {
+			assert.NotContains(t, []any{"tree", "conifer", "palm"}, dec["prim"], "%q: без tree/conifer/palm", id)
+		}
+	}
+
+	// `кристальные_рощи` и `карбидно-алмазные_заросли` — с `crystal_tree`;
+	// `кремниевые_рощи`/`струнные_рощи` — без него (§4.9.4, вставка C).
+	for _, id := range []string{"кристальные_рощи", "карбидно-алмазные_заросли"} {
+		v, _ := cat.ResolveBiomeView(id)
+		ct := decorByPrim(v, "crystal_tree")
+		require.NotNil(t, ct, "%q: crystal_tree в декорe", id)
+		assert.NotNil(t, ct["crown"], "%q: crystal_tree.crown", id)
+		assert.NotNil(t, ct["trunkW"], "%q: crystal_tree.trunkW", id)
+		assert.NotNil(t, ct["crownW"], "%q: crystal_tree.crownW", id)
+	}
+	for _, id := range []string{"кремниевые_рощи", "струнные_рощи"} {
+		v, _ := cat.ResolveBiomeView(id)
+		assert.Nil(t, decorByPrim(v, "crystal_tree"), "%q: crystal_tree НЕ применяем (§4.9.4)", id)
+	}
+
+	// `металлические_щетинные_поля`: плотные тонкие spike (cluster), жизни нет.
+	metal, _ := cat.ResolveBiomeView("металлические_щетинные_поля")
+	spl := reliefLayer(metal, "spike")
+	require.NotNil(t, spl, "щетинные поля: spike")
+	assert.Equal(t, true, spl["cluster"], "spike.cluster (§4.7.12)")
+	assert.InDelta(t, 0.0, metal["life_density"], 1e-9, "щетинные поля: life_density 0 (§4.9.9 п.11)")
+
+	// `пружинная_тундра`: равнина семейства `травяные`, трава/кусты, life 0.20.
+	tundra, _ := cat.ResolveBiomeView("пружинная_тундра")
+	assert.Equal(t, "травяные", tundra["family"], "тундра: семейство `травяные`")
+	assert.InDelta(t, 0.20, tundra["life_density"], 1e-9, "тундра: life_density 0.20")
+	assert.NotNil(t, decorByPrim(tundra, "grass"), "тундра: grass")
+	assert.NotNil(t, decorByPrim(tundra, "bush"), "тундра: bush")
+
+	// `пещерный_мир_с_потолком`: временное 1D-чтение — `float: true` (§4.9.6).
+	cave, _ := cat.ResolveBiomeView("пещерный_мир_с_потолком")
+	relief, _ := cave["relief"].(map[string]any)
+	assert.Equal(t, true, relief["float"], "пещера: float true (заготовка свода)")
+}
+
+// decorByPrim — первая запись decor[] с данным prim (nil, если нет).
+func decorByPrim(view map[string]any, prim string) map[string]any {
+	for _, d := range asMapList(view["decor"]) {
+		if p, _ := d["prim"].(string); p == prim {
+			return d
+		}
+	}
+	return nil
 }
 
 // reliefLayer — первый слой relief.layers с данным prim.

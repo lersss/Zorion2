@@ -1656,6 +1656,34 @@
     },
     {
       "id": "кристальные_рощи",
+      "color": "#6e4a8c",
+      "view": {
+        "family": "лесные/чащи",
+        "relief": {
+          "ridge": 0.7, "flatten": 0.4, "offset": -30, "caves": 0.45, "float": false,
+          "layers": [
+            { "prim": "spike", "perRegion": [3, 8], "h": [80, 200], "w": [18, 46], "taper": 0.2, "cluster": true },
+            { "prim": "dome", "lambda": [200, 440], "amp": [30, 70], "squash": 1.5, "share": 0.9 },
+            { "prim": "crest", "lambda": [320, 700], "amp": [30, 90], "sharpness": 0.6, "share": 0.7 },
+            { "prim": "carve", "lambda": [400, 860], "depth": [30, 80], "w": [60, 140], "rim": 0.35, "shape": "U", "share": 0.6 }
+          ]
+        },
+        "palette": { "base": "#6e4a8c", "dark": "#3a2650", "light": "#c9a8e8", "accent": "#9a6ad0", "rock": "#4a3a58", "glow": "#d8a0ff", "trunk": "#5a3a78", "moss": "#5a8a7a" },
+        "decor": [
+          { "prim": "crystal_tree", "p": 0.03, "h": [70, 170], "trunkW": [8, 18], "crown": [2, 4], "crownW": [30, 70], "taper": 0.3, "glow": true },
+          { "prim": "crystal", "p": 0.04, "h": [12, 40], "glow": true },
+          { "prim": "growth", "p": 0.02, "r": [6, 20], "glow": true },
+          { "prim": "rock", "p": 0.02, "h": [6, 20] },
+          { "prim": "debris", "p": 0.01, "h": [4, 12] }
+        ],
+        "hang": [],
+        "placement": { "mode": "clustered", "tile": 300, "gap": 24 },
+        "horizon": { "layers": [
+          { "parallax": 0.5, "profile": { "prim": "spike", "perRegion": [2, 4], "h": [140, 260], "w": [50, 110], "taper": 0.3 }, "fill": "dark", "haze": 0.6, "step": 24 },
+          { "parallax": 0.7, "profile": { "prim": "spike", "perRegion": [3, 6], "h": [100, 200], "w": [40, 90], "taper": 0.35 }, "fill": "dark", "haze": 0.35, "step": 24 }
+        ] },
+        "life_density": 0.05
+      },
       "name": "Кристальные рощи",
       "category": "экзотика",
       "t_min": 200,
@@ -1674,6 +1702,33 @@
     },
     {
       "id": "кремниевые_рощи",
+      "color": "#3f4b5e",
+      "view": {
+        "family": "лесные/чащи",
+        "relief": {
+          "ridge": 0.65, "flatten": 0.42, "offset": -30, "caves": 0.4, "float": false,
+          "layers": [
+            { "prim": "spike", "perRegion": [4, 10], "h": [90, 220], "w": [16, 40], "taper": 0.25, "cluster": true },
+            { "prim": "dome", "lambda": [240, 500], "amp": [26, 60], "squash": 1.5, "share": 0.9 },
+            { "prim": "step", "stepH": [20, 50], "stepW": [160, 340], "jitter": 0.3, "share": 0.7 },
+            { "prim": "carve", "lambda": [420, 880], "depth": [24, 60], "w": [70, 160], "rim": 0.3, "shape": "U", "share": 0.5 }
+          ]
+        },
+        "palette": { "base": "#3f4b5e", "dark": "#222a38", "light": "#9fb4cc", "accent": "#6a8fb0", "rock": "#323c4c", "glow": "#b8d8f0", "trunk": "#2e3846", "moss": "#4a6a5a" },
+        "decor": [
+          { "prim": "crystal", "p": 0.04, "h": [10, 34], "glow": true },
+          { "prim": "growth", "p": 0.03, "r": [6, 18], "glow": true },
+          { "prim": "rock", "p": 0.03, "h": [6, 22] },
+          { "prim": "debris", "p": 0.015, "h": [4, 14] }
+        ],
+        "hang": [],
+        "placement": { "mode": "clustered", "tile": 300, "gap": 24 },
+        "horizon": { "layers": [
+          { "parallax": 0.5, "profile": { "prim": "crest", "lambda": [900, 1500], "amp": [100, 180], "sharpness": 0.7 }, "fill": "dark", "haze": 0.6, "step": 24 },
+          { "parallax": 0.7, "profile": { "prim": "spike", "perRegion": [2, 5], "h": [110, 220], "w": [45, 95], "taper": 0.3 }, "fill": "dark", "haze": 0.35, "step": 24 }
+        ] },
+        "life_density": 0.04
+      },
       "name": "Кремниевые рощи",
       "category": "экзотика",
       "t_min": 300,
@@ -1693,6 +1748,26 @@
     },
     {
       "id": "металлические_щетинные_поля",
+      "color": "#5b6675",
+      "view": {
+        "family": "скальные пустоши",
+        "relief": {
+          "ridge": 0.55, "flatten": 0.4, "offset": -20, "caves": 0.4, "float": false,
+          "layers": [
+            { "prim": "spike", "perRegion": [10, 26], "h": [30, 80], "w": [6, 14], "taper": 0.15, "cluster": true },
+            { "prim": "crest", "lambda": [320, 700], "amp": [20, 50], "sharpness": 0.55, "share": 1.0 },
+            { "prim": "fan", "angleMax": 34, "h": [14, 40], "w": [90, 200], "roughness": 0.3, "share": 0.6 }
+          ]
+        },
+        "palette": { "base": "#5b6675", "dark": "#333a45", "light": "#aab6c4", "accent": "#8fd0e8", "rock": "#454e5c", "glow": "#cfe8f6" },
+        "decor": [
+          { "prim": "crystal", "p": 0.030, "h": [8, 26], "glow": true },
+          { "prim": "rock", "p": 0.030, "h": [6, 22] },
+          { "prim": "debris", "p": 0.020, "h": [4, 14] }
+        ],
+        "placement": { "mode": "clustered", "tile": 320, "gap": 28 },
+        "life_density": 0
+      },
       "name": "Металлические щетинные поля",
       "category": "экзотика",
       "t_min": 100,
@@ -1710,6 +1785,34 @@
     },
     {
       "id": "карбидно-алмазные_заросли",
+      "color": "#2e3a40",
+      "view": {
+        "family": "лесные/чащи",
+        "relief": {
+          "ridge": 0.75, "flatten": 0.35, "offset": -40, "caves": 0.4, "float": false,
+          "layers": [
+            { "prim": "spike", "perRegion": [3, 7], "h": [70, 180], "w": [16, 44], "taper": 0.2, "cluster": true },
+            { "prim": "crest", "lambda": [300, 660], "amp": [40, 110], "sharpness": 0.8, "share": 1.0 },
+            { "prim": "dome", "lambda": [220, 480], "amp": [20, 50], "squash": 1.6, "share": 0.7 },
+            { "prim": "carve", "lambda": [380, 800], "depth": [30, 80], "w": [60, 150], "rim": 0.4, "shape": "V", "share": 0.6 }
+          ]
+        },
+        "palette": { "base": "#2e3a40", "dark": "#141c20", "light": "#d8f4ff", "accent": "#8fe8f0", "rock": "#242e33", "glow": "#eafcff", "trunk": "#1e282c", "moss": "#3a5048" },
+        "decor": [
+          { "prim": "crystal_tree", "p": 0.03, "h": [60, 150], "trunkW": [8, 16], "crown": [2, 4], "crownW": [28, 64], "taper": 0.35, "glow": true },
+          { "prim": "crystal", "p": 0.05, "h": [10, 36], "glow": true },
+          { "prim": "growth", "p": 0.02, "r": [4, 14], "glow": true },
+          { "prim": "rock", "p": 0.03, "h": [6, 22] },
+          { "prim": "debris", "p": 0.02, "h": [4, 14] }
+        ],
+        "hang": [],
+        "placement": { "mode": "clustered", "tile": 280, "gap": 22 },
+        "horizon": { "layers": [
+          { "parallax": 0.5, "profile": { "prim": "crest", "lambda": [800, 1400], "amp": [120, 200], "sharpness": 0.85 }, "fill": "dark", "haze": 0.6, "step": 24 },
+          { "parallax": 0.7, "profile": { "prim": "step", "stepH": [60, 120], "stepW": [400, 760], "jitter": 0.3 }, "fill": "dark", "haze": 0.35, "step": 24 }
+        ] },
+        "life_density": 0.02
+      },
       "name": "Карбидно-алмазные заросли",
       "category": "экзотика",
       "t_min": 1500,
@@ -1727,6 +1830,33 @@
     },
     {
       "id": "струнные_рощи",
+      "color": "#8c3f6a",
+      "view": {
+        "family": "лесные/чащи",
+        "relief": {
+          "ridge": 0.5, "flatten": 0.5, "offset": -20, "caves": 0.35, "float": false,
+          "layers": [
+            { "prim": "spike", "perRegion": [5, 12], "h": [60, 150], "w": [10, 26], "taper": 0.1, "cluster": true },
+            { "prim": "dome", "lambda": [260, 540], "amp": [24, 56], "squash": 1.6, "share": 0.9 },
+            { "prim": "wave", "lambda": [50, 110], "amp": [4, 10], "skew": 0.5, "share": 0.7 },
+            { "prim": "carve", "lambda": [440, 900], "depth": [20, 50], "w": [80, 180], "rim": 0.25, "shape": "U", "share": 0.5 }
+          ]
+        },
+        "palette": { "base": "#8c3f6a", "dark": "#4a1f38", "light": "#e0a8c8", "accent": "#d86aa0", "rock": "#5a3a48", "glow": "#ffb0d8", "trunk": "#6a2f50", "moss": "#6a5a4a" },
+        "decor": [
+          { "prim": "growth", "p": 0.05, "r": [5, 16], "glow": true },
+          { "prim": "crystal", "p": 0.03, "h": [10, 34], "glow": true },
+          { "prim": "rock", "p": 0.02, "h": [5, 18] },
+          { "prim": "lichen", "p": 0.02, "w": [6, 16] }
+        ],
+        "hang": [],
+        "placement": { "mode": "clustered", "tile": 290, "gap": 24 },
+        "horizon": { "layers": [
+          { "parallax": 0.5, "profile": { "prim": "dome", "lambda": [900, 1500], "amp": [50, 100], "squash": 1.6 }, "fill": "dark", "haze": 0.6, "step": 24 },
+          { "parallax": 0.7, "profile": { "prim": "spike", "perRegion": [3, 7], "h": [80, 160], "w": [30, 70], "taper": 0.4 }, "fill": "dark", "haze": 0.35, "step": 24 }
+        ] },
+        "life_density": 0.05
+      },
       "name": "Струнные рощи",
       "category": "экзотика",
       "t_min": 250,
@@ -1744,6 +1874,28 @@
     },
     {
       "id": "радиационные_пустоши",
+      "color": "#93c42e",
+      "view": {
+        "family": "экзотика",
+        "relief": {
+          "ridge": 0.7, "flatten": 0.45, "offset": -30, "caves": 0.5, "float": false,
+          "layers": [
+            { "prim": "crest", "lambda": [300, 700], "amp": [40, 100], "sharpness": 0.6, "share": 1.0 },
+            { "prim": "carve", "lambda": [400, 900], "depth": [30, 90], "w": [90, 220], "rim": 0.3, "shape": "U", "share": 0.8 },
+            { "prim": "fan", "angleMax": 34, "h": [16, 44], "w": [100, 220], "roughness": 0.3, "share": 0.6 },
+            { "prim": "wave", "lambda": [70, 160], "amp": [4, 10], "skew": 0.5, "share": 0.6 }
+          ]
+        },
+        "palette": { "base": "#93c42e", "dark": "#4a6614", "light": "#d8f07a", "accent": "#b8e04a", "rock": "#5a6a34", "glow": "#d8ff6a" },
+        "decor": [
+          { "prim": "crystal", "p": 0.03, "h": [8, 28], "glow": true },
+          { "prim": "rock", "p": 0.04, "h": [6, 24] },
+          { "prim": "debris", "p": 0.02, "h": [4, 14] },
+          { "prim": "lichen", "p": 0.02, "w": [6, 18] }
+        ],
+        "placement": { "mode": "clustered", "tile": 340, "gap": 30 },
+        "life_density": 0.03
+      },
       "name": "Радиационные пустоши",
       "category": "экзотика",
       "t_min": 100,
@@ -1763,6 +1915,31 @@
     },
     {
       "id": "терминаторная_зона",
+      "color": "#4a5a8c",
+      "view": {
+        "family": "экзотика",
+        "relief": {
+          "ridge": 0.45, "flatten": 0.5, "offset": 0, "caves": 0.35, "float": false,
+          "layers": [
+            { "prim": "step", "stepH": [16, 40], "stepW": [180, 400], "jitter": 0.3, "share": 1.0 },
+            { "prim": "carve", "lambda": [400, 880], "depth": [30, 80], "w": [100, 240], "rim": 0.35, "shape": "V", "share": 0.8 },
+            { "prim": "dome", "lambda": [300, 640], "amp": [16, 40], "squash": 1.7, "share": 0.6 },
+            { "prim": "wave", "lambda": [70, 150], "amp": [4, 10], "skew": 0.55, "share": 0.6 }
+          ]
+        },
+        "palette": { "base": "#4a5a8c", "dark": "#232c48", "light": "#a0b4e0", "accent": "#6a86c0", "rock": "#343c58", "glow": "#8fb8f0" },
+        "decor": [
+          { "prim": "crystal", "p": 0.04, "h": [8, 28], "glow": true },
+          { "prim": "rock", "p": 0.03, "h": [6, 22] },
+          { "prim": "debris", "p": 0.02, "h": [4, 14] }
+        ],
+        "placement": { "mode": "clustered", "tile": 330, "gap": 28 },
+        "horizon": { "layers": [
+          { "parallax": 0.5, "profile": { "prim": "step", "stepH": [50, 100], "stepW": [500, 900], "jitter": 0.2 }, "fill": "dark", "haze": 0.6, "step": 24 },
+          { "parallax": 0.7, "profile": { "prim": "crest", "lambda": [600, 1000], "amp": [60, 110], "sharpness": 0.55 }, "fill": "dark", "haze": 0.35, "step": 24 }
+        ] },
+        "life_density": 0.02
+      },
       "name": "Терминаторная зона",
       "category": "экзотика",
       "t_min": 100,
@@ -1780,6 +1957,28 @@
     },
     {
       "id": "пружинная_тундра",
+      "color": "#6f9a5a",
+      "view": {
+        "family": "травяные",
+        "relief": {
+          "ridge": 0.3, "flatten": 0.55, "offset": 0, "caves": 0.3, "float": false,
+          "layers": [
+            { "prim": "wave", "lambda": [160, 340], "amp": [8, 20], "skew": 0.65, "share": 1.0 },
+            { "prim": "dome", "lambda": [320, 660], "amp": [14, 34], "squash": 1.5, "share": 0.9 },
+            { "prim": "step", "stepH": [10, 26], "stepW": [140, 300], "jitter": 0.3, "share": 0.6 },
+            { "prim": "carve", "lambda": [500, 1000], "depth": [16, 40], "w": [90, 200], "rim": 0.25, "shape": "U", "share": 0.5 }
+          ]
+        },
+        "palette": { "base": "#6f9a5a", "dark": "#3a5230", "light": "#b8d89a", "accent": "#8fc46a", "rock": "#5a5e4a", "trunk": "#4a4030", "moss": "#5a8a4a" },
+        "decor": [
+          { "prim": "grass", "p": 0.18, "h": [8, 20], "blades": [5, 9] },
+          { "prim": "bush", "p": 0.05, "h": [6, 16] },
+          { "prim": "lichen", "p": 0.03, "w": [6, 16] },
+          { "prim": "rock", "p": 0.02, "h": [5, 16] }
+        ],
+        "placement": { "mode": "clustered", "tile": 320, "gap": 28 },
+        "life_density": 0.20
+      },
       "name": "Пружинная тундра",
       "category": "экзотика",
       "t_min": 250,
@@ -1801,6 +2000,28 @@
     },
     {
       "id": "химический_иней",
+      "color": "#d4d86a",
+      "view": {
+        "family": "экзотика",
+        "relief": {
+          "ridge": 0.6, "flatten": 0.45, "offset": -20, "caves": 0.4, "float": false,
+          "layers": [
+            { "prim": "step", "stepH": [12, 32], "stepW": [170, 380], "jitter": 0.28, "share": 1.0 },
+            { "prim": "carve", "lambda": [340, 760], "depth": [26, 70], "w": [80, 190], "rim": 0.45, "shape": "U", "share": 0.8 },
+            { "prim": "spike", "perRegion": [2, 6], "h": [30, 90], "w": [12, 32], "taper": 0.25, "cluster": true },
+            { "prim": "dome", "lambda": [300, 640], "amp": [14, 36], "squash": 1.6, "share": 0.6 }
+          ]
+        },
+        "palette": { "base": "#d4d86a", "dark": "#7a8030", "light": "#f4f6c0", "accent": "#b8c44a", "rock": "#8a8a5a", "glow": "#eaf86a" },
+        "decor": [
+          { "prim": "crystal", "p": 0.05, "h": [8, 28], "glow": true },
+          { "prim": "growth", "p": 0.02, "r": [4, 14], "glow": true },
+          { "prim": "rock", "p": 0.03, "h": [5, 18] },
+          { "prim": "debris", "p": 0.015, "h": [4, 12] }
+        ],
+        "placement": { "mode": "clustered", "tile": 320, "gap": 28 },
+        "life_density": 0.02
+      },
       "name": "Химический иней",
       "category": "экзотика",
       "t_min": 150,
@@ -1820,6 +2041,32 @@
     },
     {
       "id": "пещерный_мир_с_потолком",
+      "color": "#555061",
+      "view": {
+        "family": "экзотика",
+        "relief": {
+          "ridge": 0.8, "flatten": 0.3, "offset": -40, "caves": 0.8, "float": true,
+          "layers": [
+            { "prim": "crest", "lambda": [280, 640], "amp": [50, 130], "sharpness": 0.65, "share": 1.0 },
+            { "prim": "spike", "perRegion": [4, 10], "h": [60, 160], "w": [16, 44], "taper": 0.25, "cluster": true },
+            { "prim": "dome", "lambda": [240, 520], "amp": [20, 50], "squash": 1.5, "share": 0.7 },
+            { "prim": "carve", "lambda": [400, 860], "depth": [30, 80], "w": [80, 200], "rim": 0.3, "shape": "U", "share": 0.6 }
+          ]
+        },
+        "palette": { "base": "#555061", "dark": "#2a2733", "light": "#9a92a8", "accent": "#7a708c", "rock": "#3a3644", "glow": "#a8d8c0", "moss": "#4a6a58" },
+        "decor": [
+          { "prim": "crystal", "p": 0.05, "h": [10, 34], "glow": true },
+          { "prim": "growth", "p": 0.04, "r": [6, 20], "glow": true },
+          { "prim": "rock", "p": 0.03, "h": [6, 22] },
+          { "prim": "debris", "p": 0.02, "h": [4, 14] }
+        ],
+        "placement": { "mode": "clustered", "tile": 300, "gap": 24 },
+        "horizon": { "layers": [
+          { "parallax": 0.5, "profile": { "prim": "crest", "lambda": [700, 1200], "amp": [100, 180], "sharpness": 0.6 }, "fill": "dark", "haze": 0.6, "step": 24 },
+          { "parallax": 0.7, "profile": { "prim": "crest", "lambda": [450, 800], "amp": [120, 200], "sharpness": 0.65 }, "fill": "dark", "haze": 0.35, "step": 24 }
+        ] },
+        "life_density": 0.06
+      },
       "name": "Пещерный мир с потолком",
       "category": "экзотика",
       "t_min": 250,
@@ -2240,7 +2487,7 @@
     { "id": "водные/берег", "name": "Водные и берег", "relief": { "ridge": 0.5, "flatten": 0.6, "offset": 60, "caves": 0.6, "float": false, "base": 1.0, "layers": [ { "prim": "wave", "lambda": [200, 420], "amp": [10, 30], "skew": 0.6, "share": 1.0 }, { "prim": "step", "stepH": [20, 50], "stepW": [160, 360], "jitter": 0.25, "share": 0.6 }, { "prim": "carve", "lambda": [600, 1100], "depth": [20, 50], "w": [120, 260], "rim": 0.2, "shape": "U", "share": 0.5 } ] }, "palette": { "base": "#3a6f86", "dark": "#1d3f52", "light": "#7fb6cc", "accent": "#bfe6f2" }, "decor": [ { "prim": "growth", "p": 0.1, "r": [6, 18] }, { "prim": "crystal", "p": 0.02, "h": [6, 18] }, { "prim": "rock", "p": 0.03, "h": [6, 18] } ], "placement": { "mode": "clustered", "tile": 280, "gap": 22 }, "life_density": 0.3 },
     { "id": "лавовые", "name": "Лавовые", "relief": { "ridge": 1.2, "flatten": 0.2, "offset": -60, "caves": 0.6, "float": false, "base": 1.0, "layers": [ { "prim": "flow", "len": [200, 500], "w": [80, 220], "lobes": [2, 4], "slope": 0.4, "share": 0.8 }, { "prim": "dome", "lambda": [200, 420], "amp": [30, 70], "squash": 1.5, "share": 1.0 }, { "prim": "spike", "perRegion": [1, 3], "h": [60, 160], "w": [20, 50], "taper": 0.3 } ] }, "palette": { "base": "#3a2622", "dark": "#1a1210", "light": "#c0522b", "accent": "#ff8a3d", "ember": "#ffb347", "glow": "#ff6a1a" }, "decor": [ { "prim": "vent", "p": 0.03, "h": [10, 30], "plume": false }, { "prim": "rock", "p": 0.05, "h": [8, 26] }, { "prim": "crystal", "p": 0.004, "h": [6, 16] } ], "placement": { "mode": "clustered", "tile": 300, "gap": 28 }, "horizon": { "layers": [ { "parallax": 0.5, "profile": { "prim": "dome", "lambda": [1000, 1600], "amp": [70, 130], "squash": 1.5 }, "fill": "dark", "haze": 0.6, "step": 24 }, { "parallax": 0.7, "profile": { "prim": "spike", "perRegion": [2, 4], "h": [90, 180], "w": [40, 90], "taper": 0.35 }, "fill": "dark", "haze": 0.35, "step": 24 } ] }, "life_density": 0.05 },
     { "id": "ледяные", "name": "Ледяные", "relief": { "ridge": 0.9, "flatten": 0.3, "offset": -30, "caves": 0.5, "float": false, "base": 1.0, "layers": [ { "prim": "crest", "lambda": [300, 700], "amp": [40, 110], "sharpness": 0.65, "share": 1.0 }, { "prim": "carve", "lambda": [500, 1000], "depth": [30, 80], "w": [100, 220], "rim": 0.2, "shape": "U", "share": 0.6 }, { "prim": "step", "stepH": [30, 70], "stepW": [140, 320], "jitter": 0.2, "share": 0.5 } ] }, "palette": { "base": "#cfe2ef", "dark": "#7f9db5", "light": "#f4fbff", "accent": "#a9c6dc", "ice": "#bfe0f2", "snow": "#eef3f7", "snowShade": "#b3c6d6" }, "decor": [ { "prim": "crystal", "p": 0.03, "h": [8, 26] }, { "prim": "rock", "p": 0.02, "h": [6, 18] }, { "prim": "lichen", "p": 0.02, "w": [6, 16] } ], "placement": { "mode": "clustered", "tile": 300, "gap": 26 }, "horizon": { "layers": [ { "parallax": 0.5, "profile": { "prim": "crest", "lambda": [900, 1500], "amp": [80, 150], "sharpness": 0.7 }, "fill": "dark", "haze": 0.6, "step": 24 }, { "parallax": 0.7, "profile": { "prim": "step", "stepH": [50, 100], "stepW": [400, 800], "jitter": 0.25 }, "fill": "dark", "haze": 0.35, "step": 24 } ] }, "life_density": 0.05 },
-    { "id": "экзотика", "name": "Экзотика", "relief": { "ridge": 0.9, "flatten": 0.35, "offset": -40, "caves": 0.7, "float": true, "base": 1.0, "layers": [ { "prim": "spike", "perRegion": [2, 5], "h": [60, 180], "w": [16, 44], "taper": 0.25 }, { "prim": "dome", "lambda": [220, 480], "amp": [24, 60], "squash": 1.5, "share": 1.0 }, { "prim": "carve", "lambda": [500, 1000], "depth": [30, 80], "w": [90, 220], "rim": 0.2, "shape": "U", "share": 0.5 } ] }, "palette": { "base": "#5a3a72", "dark": "#2c1c3c", "light": "#b06ad8", "accent": "#7ce0d0", "glow": "#c86ae0" }, "decor": [ { "prim": "crystal", "p": 0.05, "h": [10, 40], "glow": true }, { "prim": "growth", "p": 0.04, "r": [6, 20], "glow": true }, { "prim": "rock", "p": 0.02, "h": [6, 20] } ], "placement": { "mode": "clustered", "tile": 300, "gap": 26 }, "life_density": 0.1 }
+    { "id": "экзотика", "name": "Экзотика", "relief": { "ridge": 0.9, "flatten": 0.35, "offset": -40, "caves": 0.7, "float": true, "base": 1.0, "layers": [ { "prim": "spike", "perRegion": [2, 5], "h": [60, 180], "w": [16, 44], "taper": 0.25 }, { "prim": "dome", "lambda": [220, 480], "amp": [24, 60], "squash": 1.5, "share": 1.0 }, { "prim": "carve", "lambda": [500, 1000], "depth": [30, 80], "w": [90, 220], "rim": 0.2, "shape": "U", "share": 0.5 } ] }, "palette": { "base": "#5a3a72", "dark": "#2c1c3c", "light": "#b06ad8", "accent": "#7ce0d0", "glow": "#c86ae0" }, "decor": [ { "prim": "crystal", "p": 0.05, "h": [10, 40], "glow": true }, { "prim": "growth", "p": 0.04, "r": [6, 20], "glow": true }, { "prim": "rock", "p": 0.02, "h": [6, 20] } ], "placement": { "mode": "clustered", "tile": 300, "gap": 26 }, "horizon": { "layers": [ { "parallax": 0.5, "profile": { "prim": "dome", "lambda": [1000, 1600], "amp": [80, 140], "squash": 1.6 }, "fill": "dark", "haze": 0.6, "step": 24 }, { "parallax": 0.7, "profile": { "prim": "spike", "perRegion": [3, 6], "h": [100, 200], "w": [40, 90], "taper": 0.3 }, "fill": "dark", "haze": 0.35, "step": 24 } ] }, "life_density": 0.1 }
   ],
   "view_primitives": [
     { "id": "wave", "kind": "relief1d" },
@@ -2267,6 +2514,7 @@
     { "id": "debris", "kind": "decor" },
     { "id": "vent", "kind": "decor" },
     { "id": "liana", "kind": "decor" },
+    { "id": "crystal_tree", "kind": "decor" },
     { "id": "uniform", "kind": "placement" },
     { "id": "clustered", "kind": "placement" },
     { "id": "line", "kind": "placement" },

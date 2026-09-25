@@ -1,11 +1,11 @@
 // web/static/js/surface/surface_decor.js
-// Библиотека декора прогулки (спека 2026-09-23 §3.2): 15 базовых примитивов
+// Библиотека декора прогулки (спека 2026-09-23 §3.2): 16 базовых примитивов
 // (+ лиана и сухая котловина-примета). Каждая функция — чистая отрисовка от
 // готовых параметров записи (h/w разрешены детерминированно в surface_world.js);
 // Math.random нет. Цвета — из палитры биома (world.palette, §3.4), не литералы.
-import { rgba } from './surface_world.js';
+import { rgba, mulberry32 } from './surface_world.js';
 
-// ==================== 15 БАЗОВЫХ ПРИМИТИВОВ ====================
+// ==================== 16 БАЗОВЫХ ПРИМИТИВОВ ====================
 
 function drawTree(ctx, pal, d, x, gy) {
     const h = d.h;
@@ -240,6 +240,65 @@ function drawVent(ctx, pal, d, x, gy) {
     }
 }
 
+// crystal_tree — кристаллическое «дерево» (ЧК5, спека 2026-09-23 §4.9.4,
+// вставка C): ствол-шард + crown ярусов гранёных друз-крон. Минеральный декор
+// (как crystal/rock) — в LIVING_DECOR не входит, гейт жизни не применяется.
+// Детерминизм: локальный mulberry32 от колонки (без Math.random); без
+// shadowBlur и покадровых градиентов.
+function drawCrystalTree(ctx, pal, d, x, gy) {
+    const h = Math.max(10, d.h || 110);
+    const trunkW = Math.max(3, d.trunkW || h * 0.1);
+    const topW = Math.max(1.5, trunkW * (d.taper ?? 0.3));
+    const trunkH = h * 0.58;
+    const topY = gy - trunkH;
+    // ствол — сужающийся к вершине гранёный шард
+    ctx.fillStyle = pal.trunk || pal.dark;
+    ctx.beginPath();
+    ctx.moveTo(x - trunkW / 2, gy);
+    ctx.lineTo(x - topW / 2, topY);
+    ctx.lineTo(x + topW / 2, topY);
+    ctx.lineTo(x + trunkW / 2, gy);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = pal.light;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x - trunkW / 2, gy);
+    ctx.lineTo(x - topW / 2, topY);
+    ctx.lineTo(x + topW / 2, topY);
+    ctx.stroke();
+    // крона — crown ярусов гранёных друз, расходящихся от вершины ствола
+    const crown = Math.max(1, Math.round(d.crown || 3));
+    const crownW = Math.max(8, d.crownW || h * 0.45);
+    const crownH = h - trunkH;
+    const glowOn = d.glow !== false;
+    const glowCol = pal.glow || pal.accent;
+    const rng = mulberry32(((d.col | 0) ^ 0x9e3779b1) >>> 0);
+    for (let i = 0; i < crown; i++) {
+        const y = topY - crownH * ((i + 0.5) / crown);
+        const half = crownW * 0.5 * (0.4 + 0.6 * (1 - i / crown));
+        const shards = 3 + Math.floor(rng() * 3);
+        for (let s = 0; s < shards; s++) {
+            const sx = x + (rng() * 2 - 1) * half;
+            const sw = Math.max(3, half * (0.45 + 0.55 * rng()));
+            const sh = (crownH / crown) * (1.1 + 0.9 * rng());
+            ctx.beginPath();
+            ctx.moveTo(sx, y - sh);
+            ctx.lineTo(sx + sw / 2, y);
+            ctx.lineTo(sx - sw / 2, y);
+            ctx.closePath();
+            if (glowOn) { ctx.fillStyle = rgba(glowCol, 0.35); ctx.fill(); }
+            ctx.fillStyle = pal.accent;
+            ctx.fill();
+            ctx.strokeStyle = pal.light;
+            ctx.beginPath();
+            ctx.moveTo(sx, y - sh);
+            ctx.lineTo(sx, y);
+            ctx.stroke();
+        }
+    }
+}
+
 // ==================== HANG И ПРИМЕТЫ ====================
 
 // liana — свисающая лиана (привязка hang, §3.2): самостоятельная запись или
@@ -276,7 +335,7 @@ const PRIMS = {
     cactus: drawCactus, bush: drawBush, fern: drawFern, grass: drawGrass,
     lichen: drawLichen, crystal: drawCrystal, growth: drawGrowth, rock: drawRock,
     bone: drawBone, debris: drawDebris, vent: drawVent, liana: drawLiana,
-    oasis_dry: drawOasisDry,
+    crystal_tree: drawCrystalTree, oasis_dry: drawOasisDry,
 };
 
 // drawDecorPrim — отрисовка записи декора по prim (§3.2). Неизвестный prim

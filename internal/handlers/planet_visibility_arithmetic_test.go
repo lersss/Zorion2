@@ -157,10 +157,10 @@ func expectPresenceOwnerPassArithmeticBranch(mock sqlmock.Sqlmock, now time.Time
 	mock.ExpectQuery(`SELECT id, name, name_norm, impact, COALESCE\(params->>'curve', ''\) FROM effect_types`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm", "impact", "curve"}).
 			AddRow(int64(1), "Голод", "голод", "population_rate", "hunger"))
-	mock.ExpectQuery(`SELECT id, name, name_norm FROM goods`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm"}).
-			AddRow(int64(378), "Пища", "пища").
-			AddRow(int64(359), "Мясо", "мясо"))
+	mock.ExpectQuery(`SELECT id, name, name_norm, COALESCE\(code, ''\) FROM goods`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm", "code"}).
+			AddRow(int64(378), "Пища", "пища", "g_0131").
+			AddRow(int64(359), "Мясо", "мясо", "g_0130"))
 	mock.ExpectQuery(`SELECT component_id, COUNT\(\*\) FROM recipe_components`).
 		WillReturnRows(sqlmock.NewRows([]string{"component_id", "count"}).AddRow(int64(359), int64(1)))
 	mock.ExpectQuery(`SELECT b\.id.*FROM settlement_branches b`).WithArgs(sqlmock.AnyArg()).
@@ -180,7 +180,8 @@ func expectPresenceOwnerPassArithmeticBranch(mock sqlmock.Sqlmock, now time.Time
 	mock.ExpectQuery(`SELECT planet_id, id, good_id, amount FROM deposits`).WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"planet_id", "id", "good_id", "amount"}))
 	mock.ExpectQuery(`SELECT id, owner_type, owner_id, good_id, amount, cap_share FROM settlement_storage_cells`).WithArgs("settlement", "s1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "owner_type", "owner_id", "good_id", "amount", "cap_share"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "owner_type", "owner_id", "good_id", "amount", "cap_share"}).
+			AddRow(int64(1), "settlement", "s1", int64(378), 12.0, 400.0))
 }
 
 // arithmeticPresenceHandlers — полный путь GET /api/worlds/w2/planets для игрока
@@ -236,6 +237,63 @@ func TestGetPlanetsByWorldReadsArithmeticVisibilityTrue(t *testing.T) {
 	require.Len(t, s.Branches, 1)
 	require.NotNil(t, s.Branches[0].RatePerDayPerBillion)
 	assert.Equal(t, int64(148), s.SettlementTypeID, "стадия остаётся")
+	// T15: блок хранилища игроку под настройкой — с позицией/code товара.
+	require.NotNil(t, s.Storage, "настройка true → storage игроку есть")
+	require.Len(t, s.Storage.Cells, 1)
+	assert.Equal(t, "пища", s.Storage.Cells[0].Position)
+	assert.Equal(t, "g_0131", s.Storage.Cells[0].Code, "T19: code товара в ячейке")
+	assert.Equal(t, "population", s.Storage.Cells[0].NeedKind)
+}
+
+// ==================== T15/T17/T19: видимость блока storage ====================
+
+// storagePlanet — поселение с блоком внутреннего хранилища (T15).
+func storagePlanet() models.Planet {
+	return models.Planet{ID: "p1", Settlements: []models.Settlement{{
+		ID: "s1",
+		Storage: &models.SettlementStorage{Size: 1000, Cells: []models.SettlementStorageCell{{
+			Position: "очищенная вода", GoodID: 422, Code: "g_0135", Amount: 12, Cap: 400,
+			Share: 0.4, NeedKind: "population", Effect: "жажда", Deficit: 388,
+		}}},
+	}}}
+}
+
+// T15: storage идёт по матрице арифметики — presence+настройка отдаёт (включая
+// производственные ячейки), presence+выключено чистит, снимок не несёт.
+func TestStorageVisibilityByMode(t *testing.T) {
+	on := stripPlanetDetails(storagePlanet(), &models.PlanetKnowledgeView{Mode: knowledgeModePresence}, true)
+	require.Len(t, on.Settlements, 1)
+	require.NotNil(t, on.Settlements[0].Storage, "presence + настройка → storage есть")
+	require.Len(t, on.Settlements[0].Storage.Cells, 1)
+
+	off := stripPlanetDetails(storagePlanet(), &models.PlanetKnowledgeView{Mode: knowledgeModePresence}, false)
+	require.Len(t, off.Settlements, 1)
+	require.Nil(t, off.Settlements[0].Storage, "настройка выключена → storage нет")
+
+	// T17: снимок storage не несёт — чистится всегда.
+	snap := stripPlanetDetails(storagePlanet(), &models.PlanetKnowledgeView{Mode: knowledgeModeSnapshot}, true)
+	require.Len(t, snap.Settlements, 1)
+	require.Nil(t, snap.Settlements[0].Storage, "снимок storage не несёт")
+
+	p := storagePlanet()
+	stripSnapshotSettlementSecrets(&p)
+	require.Nil(t, p.Settlements[0].Storage, "stripSnapshotSettlementSecrets всегда чистит storage")
+}
+
+// T15: planetsHaveSettlementArithmetic учитывает Storage — иначе настройка не
+// читается и блок уходит игроку в обход флага.
+func TestPlanetsHaveSettlementArithmeticStorageOnly(t *testing.T) {
+	require.True(t, planetsHaveSettlementArithmetic([]models.Planet{storagePlanet()}),
+		"storage без арифметики — есть что скрывать")
+}
+
+// T19: DTO ячейки несёт `code` (goods.code) — ключ иконок товара.
+func TestStorageCellCodeInJSON(t *testing.T) {
+	b, err := json.Marshal(storagePlanet().Settlements[0])
+	require.NoError(t, err)
+	require.Contains(t, string(b), `"code":"g_0135"`, "T19: code ячейки в JSON")
+	require.Contains(t, string(b), `"need_kind":"population"`)
+	require.Contains(t, string(b), `"storage"`)
 }
 
 // Настройка false: handler читает её из БД и НЕ сериализует блок арифметики и
@@ -252,6 +310,7 @@ func TestGetPlanetsByWorldReadsArithmeticVisibilityFalse(t *testing.T) {
 	require.Len(t, resp.Planets[0].Settlements, 1)
 	s := resp.Planets[0].Settlements[0]
 	assert.Nil(t, s.Arithmetic, "настройка false → блока арифметики нет")
+	assert.Nil(t, s.Storage, "настройка false → блока хранилища нет")
 	require.Len(t, s.Branches, 1)
 	assert.Nil(t, s.Branches[0].RatePerDayPerBillion, "число скорости скрыто")
 	assert.Nil(t, s.Branches[0].Take)

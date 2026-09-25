@@ -283,6 +283,10 @@ func playerSettlements(in []models.Settlement, arithmeticVisible bool) []models.
 		out[i].Effects = effectViews(out[i].Effects)
 		if !arithmeticVisible {
 			out[i].Arithmetic = nil
+			// Блок хранилища идёт по той же настройке, что арифметика (спека
+			// ЧК2а §8, D1): выключено — производственные ячейки (вход рецепта)
+			// игроку не отдаются.
+			out[i].Storage = nil
 			out[i].Branches = copyBranches(out[i].Branches)
 			for j := range out[i].Branches {
 				stripBranchArithmetic(&out[i].Branches[j])
@@ -321,6 +325,11 @@ func planetsHaveSettlementArithmetic(planets []models.Planet) bool {
 	for i := range planets {
 		for j := range planets[i].Settlements {
 			s := &planets[i].Settlements[j]
+			// Storage — тоже витринное поле под настройкой (спека ЧК2а §8):
+			// без него гейт не запросит настройку и блок уйдёт игроку в обход.
+			if s.Storage != nil {
+				return true
+			}
 			if len(s.Arithmetic) > 0 {
 				return true
 			}
@@ -350,6 +359,9 @@ func stripSnapshotSettlementSecrets(p *models.Planet) {
 		s.LambdaPerHour = 0
 		s.NDead = 0
 		s.Arithmetic = nil
+		// Снимок хранилища не несёт (спека ЧК2а §4.4 п.10/§8): свежий запас —
+		// не «картина на момент отлёта». Чистится всегда.
+		s.Storage = nil
 		s.Branches = copyBranches(s.Branches)
 		for j := range s.Branches {
 			stripBranchArithmetic(&s.Branches[j])

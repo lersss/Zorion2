@@ -164,8 +164,8 @@ func TestStudioProducerTypedParams(t *testing.T) {
 	// каталог типов эффектов (для валидации позиций/типов).
 	mock.ExpectQuery(`SELECT params FROM producer_types WHERE id = \$1`).
 		WithArgs(int64(5)).WillReturnRows(sqlmock.NewRows([]string{"params"}).AddRow(nil))
-	mock.ExpectQuery(`SELECT id, name, name_norm FROM goods`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm"}).AddRow(int64(378), "Пища", "пища"))
+	mock.ExpectQuery(`SELECT id, name, name_norm, COALESCE\(code, ''\) FROM goods`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm", "code"}).AddRow(int64(378), "Пища", "пища", "g_0131"))
 	mock.ExpectQuery(`SELECT id, name, name_norm, impact, COALESCE\(params->>'curve', ''\), created_at, code FROM effect_types ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm", "impact", "curve", "created_at", "code"}).
 			AddRow(int64(1), "Голод", "голод", "population_rate", "hunger", time.Now(), "e_0001"))
@@ -203,8 +203,8 @@ func TestStudioProducerTypedCategoryRejected(t *testing.T) {
 	mock.ExpectQuery(`SELECT params FROM producer_types WHERE id = \$1`).
 		WithArgs(int64(5)).WillReturnRows(sqlmock.NewRows([]string{"params"}).AddRow(nil))
 	// словарь товаров не содержит «продовольствие» — это имя категории
-	mock.ExpectQuery(`SELECT id, name, name_norm FROM goods`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm"}).AddRow(int64(378), "Пища", "пища"))
+	mock.ExpectQuery(`SELECT id, name, name_norm, COALESCE\(code, ''\) FROM goods`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm", "code"}).AddRow(int64(378), "Пища", "пища", "g_0131"))
 
 	h := newRateTestHandlers(t, db)
 	req := httptest.NewRequest(http.MethodPut, "/studio/api/producers/5", strings.NewReader(`{"eat":{"продовольствие":600}}`))
@@ -223,8 +223,8 @@ func TestStudioProducerTypedWarning(t *testing.T) {
 
 	mock.ExpectQuery(`SELECT params FROM producer_types WHERE id = \$1`).
 		WithArgs(int64(5)).WillReturnRows(sqlmock.NewRows([]string{"params"}).AddRow(nil))
-	mock.ExpectQuery(`SELECT id, name, name_norm FROM goods`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm"}).AddRow(int64(378), "Пища", "пища"))
+	mock.ExpectQuery(`SELECT id, name, name_norm, COALESCE\(code, ''\) FROM goods`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm", "code"}).AddRow(int64(378), "Пища", "пища", "g_0131"))
 	mock.ExpectQuery(`SELECT id, name, name_norm, impact, COALESCE\(params->>'curve', ''\), created_at, code FROM effect_types ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm", "impact", "curve", "created_at", "code"}))
 
@@ -265,8 +265,8 @@ func TestStudioProducerTypedExitNotBelowEnter(t *testing.T) {
 	} {
 		mock.ExpectQuery(`SELECT params FROM producer_types WHERE id = \$1`).
 			WithArgs(int64(5)).WillReturnRows(sqlmock.NewRows([]string{"params"}).AddRow(nil))
-		mock.ExpectQuery(`SELECT id, name, name_norm FROM goods`).
-			WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm"}).AddRow(int64(378), "Пища", "пища"))
+		mock.ExpectQuery(`SELECT id, name, name_norm, COALESCE\(code, ''\) FROM goods`).
+			WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm", "code"}).AddRow(int64(378), "Пища", "пища", "g_0131"))
 		mock.ExpectQuery(`SELECT id, name, name_norm, impact, COALESCE\(params->>'curve', ''\), created_at, code FROM effect_types ORDER BY id`).
 			WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm", "impact", "curve", "created_at", "code"}))
 		h := newRateTestHandlers(t, db)
@@ -286,8 +286,8 @@ func TestStudioProducerTypedNegativeThreshold(t *testing.T) {
 
 	mock.ExpectQuery(`SELECT params FROM producer_types WHERE id = \$1`).
 		WithArgs(int64(5)).WillReturnRows(sqlmock.NewRows([]string{"params"}).AddRow(nil))
-	mock.ExpectQuery(`SELECT id, name, name_norm FROM goods`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm"}).AddRow(int64(378), "Пища", "пища"))
+	mock.ExpectQuery(`SELECT id, name, name_norm, COALESCE\(code, ''\) FROM goods`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm", "code"}).AddRow(int64(378), "Пища", "пища", "g_0131"))
 	mock.ExpectQuery(`SELECT id, name, name_norm, impact, COALESCE\(params->>'curve', ''\), created_at, code FROM effect_types ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm", "impact", "curve", "created_at", "code"}))
 
@@ -308,8 +308,8 @@ func TestStudioProducerTypedPriorityM6(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	mock.ExpectQuery(`SELECT id, name, name_norm FROM goods`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm"}).AddRow(int64(378), "Пища", "пища"))
+	mock.ExpectQuery(`SELECT id, name, name_norm, COALESCE\(code, ''\) FROM goods`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm", "code"}).AddRow(int64(378), "Пища", "пища", "g_0131"))
 	mock.ExpectQuery(`SELECT id, name, name_norm, impact, COALESCE\(params->>'curve', ''\), created_at, code FROM effect_types ORDER BY id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm", "impact", "curve", "created_at", "code"}).
 			AddRow(int64(1), "Голод", "голод", "population_rate", "hunger", time.Now(), "e_0001"))

@@ -213,3 +213,51 @@ func TestRunOwnerPassT18CombinedGoodNoDoubleCount(t *testing.T) {
 	require.Less(t, run.cellFinals[378], 100+producedB1,
 		"потребители (b2 и население) списали часть ячейки")
 }
+
+// T19/§4.5: owner-проход собирает витрину `storage` — code/position/cap/share/
+// need_kind/effect/deficit, детерминированный порядок по good_id.
+func TestRunOwnerPassStorageView(t *testing.T) {
+	now := time.Now()
+	o, goods, data := cellsPassFixture(now)
+	goods.positionByID = map[int64]string{378: "пища", 359: "мясо"}
+	goods.codeByID = map[int64]string{378: "g_0131", 359: "g_0130"}
+	data.rates[ownerTestTypeID] = map[int64]*float64{69: f64ptr(660)}
+	data.recipes[ownerTestTypeID] = map[int64]bool{69: true}
+	branches := []*branchRecord{
+		{branch: models.SettlementBranch{ID: "b1", RecipeID: 69, ProcessedAt: o.ComputedAt}, outputGoodID: 378, outputPosition: "пища",
+			components: []settlement.BranchComponent{{GoodID: 359, Quantity: 1}}},
+	}
+	// cap_share: мясо 1, пища 3 → доли порога 0.25 / 0.75.
+	cells := []models.StorageCell{{GoodID: 359, Amount: 50, CapShare: 1}, {GoodID: 378, Amount: 100, CapShare: 3}}
+	_, size := storagePlan(o, branches, goods, data)
+
+	run, err := runOwnerPass(o, branches, nil, cellsEffectCatalog(), goods, data, nil, cells, size, now, false)
+	require.NoError(t, err)
+	require.NotNil(t, run.result.Storage, "storage собран")
+	st := run.result.Storage
+	require.Equal(t, size, st.Size)
+	require.Len(t, st.Cells, 2)
+	require.Equal(t, int64(359), st.Cells[0].GoodID, "порядок по good_id")
+	require.Equal(t, int64(378), st.Cells[1].GoodID)
+
+	require.Equal(t, "мясо", st.Cells[0].Position)
+	require.Equal(t, "g_0130", st.Cells[0].Code, "T19: code товара")
+	require.Equal(t, "production", st.Cells[0].NeedKind, "компонент без эффекта — производство")
+	require.Equal(t, "", st.Cells[0].Effect)
+	require.InDelta(t, size*1.0/4.0, st.Cells[0].Cap, 1e-6)
+	require.InDelta(t, 0.25, st.Cells[0].Share, 1e-9)
+	require.InDelta(t, run.cellFinals[359], st.Cells[0].Amount, 1e-9, "amount — итог прохода")
+	require.InDelta(t, settlement.CellDeficit(st.Cells[0].Cap, run.cellFinals[359]), st.Cells[0].Deficit, 1e-9)
+
+	require.Equal(t, "пища", st.Cells[1].Position)
+	require.Equal(t, "g_0131", st.Cells[1].Code)
+	require.Equal(t, "population", st.Cells[1].NeedKind, "позиция с эффектом — население")
+	require.Equal(t, "голод", st.Cells[1].Effect, "effect — name_norm типа эффекта")
+	require.InDelta(t, size*3.0/4.0, st.Cells[1].Cap, 1e-6)
+	require.InDelta(t, 0.75, st.Cells[1].Share, 1e-9)
+}
+
+// storageView пустого набора ячеек → nil (потребностей нет, блока нет).
+func TestStorageViewEmpty(t *testing.T) {
+	require.Nil(t, storageView(goodsCatalog{}, nil, nil, 1000, nil))
+}

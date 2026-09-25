@@ -83,8 +83,39 @@ type Settlement struct {
 	// Админ-вид полный; игроку (presence) — под настройкой видимости, снимок —
 	// блок не несёт (strip всегда чистит, §8.3).
 	Arithmetic []SettlementPositionArithmetic `json:"arithmetic,omitempty"`
-	CreatedAt  time.Time                      `json:"created_at"`
-	UpdatedAt  time.Time                      `json:"updated_at"`
+	// Storage — блок внутреннего хранилища поселения (спека 2026-09-25-
+	// внутреннее-хранилище-и-рождение-заказов §4.5/§8, ЧК2а): размер и ячейки
+	// по товарам. Админ-вид полный; игроку (presence) — под той же настройкой
+	// видимости, что арифметика; снимок блока не несёт (strip всегда чистит).
+	Storage   *SettlementStorage `json:"storage,omitempty"`
+	CreatedAt time.Time          `json:"created_at"`
+	UpdatedAt time.Time          `json:"updated_at"`
+}
+
+// SettlementStorage — витрина внутреннего хранилища поселения (спека
+// 2026-09-25-внутреннее-хранилище-и-рождение-заказов §4.5/§8, ЧК2а): размер
+// (суммарный порог ячеек) и ячейки по товарам. Пороговые суммы нормализованы
+// (§1.3): Σ cap = size.
+type SettlementStorage struct {
+	Size  float64                 `json:"size"`
+	Cells []SettlementStorageCell `json:"cells,omitempty"`
+}
+
+// SettlementStorageCell — ячейка внутреннего хранилища в ответе карточки (§4.5):
+// позиция (goods.name_norm), метка товара `code` (goods.code — ключ иконок клиента,
+// T19), количество и порог, доля порога от размера, вид потребности (population —
+// позиция с эффектом / production — компонент рецепта, §1.4), name_norm типа
+// эффекта (только для population) и складской дефицит (max(0, cap − amount)).
+type SettlementStorageCell struct {
+	Position string  `json:"position"`
+	GoodID   int64   `json:"good_id"`
+	Code     string  `json:"code,omitempty"`
+	Amount   float64 `json:"amount"`
+	Cap      float64 `json:"cap"`
+	Share    float64 `json:"share"`
+	NeedKind string  `json:"need_kind"`
+	Effect   string  `json:"effect,omitempty"`
+	Deficit  float64 `json:"deficit"`
 }
 
 // SettlementPositionArithmetic — арифметика одной позиции корзины на текущем

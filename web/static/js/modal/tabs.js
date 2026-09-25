@@ -3,7 +3,7 @@ import { populationAt, planetPopulationAt } from './extrapolate.js';
 import { modalState, flightModeForSystem } from './state.js';
 import { getPlanetTexture } from './textures.js';
 import { groupDeposits } from './deposits.js';
-import { branchesBlockHtml, effectsBlockHtml, stageRowHtml, settlementArithmeticHtml } from './branches.js';
+import { branchesBlockHtml, effectsBlockHtml, stageRowHtml, settlementArithmeticHtml, storageBlockHtml } from './branches.js';
 import { boardHtml, canPublishHere, publishFormHtml, escapeHtml } from './contracts.js';
 import { renderStructures, initStructures, buildingTypeLabel } from './structures.js';
 import { renderMarket, initMarket } from './market.js';
@@ -767,6 +767,7 @@ function settlementCardHtml(s, i, mode) {
                 </div>
                 ${snapshotMode ? '' : settlementLogRows(s)}
                 ${showEffects ? settlementArithmeticHtml(s) : ''}
+                ${storageBlockHtml(s)}
                 ${branchesBlockHtml(s.branches, admin, s.id)}
                 ${showEffects ? effectsBlockHtml(s.effects, admin, s.id) : ''}
             </div>`;

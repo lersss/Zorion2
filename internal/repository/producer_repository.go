@@ -1208,8 +1208,8 @@ func (r *GoodsRepository) GoodNameNorms() (map[string]bool, error) {
 	out := map[string]bool{}
 	for rows.Next() {
 		var id int64
-		var name, nameNorm string
-		if err := rows.Scan(&id, &name, &nameNorm); err != nil {
+		var name, nameNorm, code string
+		if err := rows.Scan(&id, &name, &nameNorm, &code); err != nil {
 			return nil, err
 		}
 		out[nameNorm] = true

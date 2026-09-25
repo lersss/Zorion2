@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sort"
 	"time"
 
 	"zorion/internal/economy/settlement"
@@ -567,6 +568,7 @@ func (r *PlanetRepository) syncSettlements(planets []models.Planet) error {
 			s.Effects = res.Effects
 			s.Arithmetic = res.Arithmetic
 			s.Stage = res.Stage
+			s.Storage = res.Storage
 			s.RaceName = raceName(s.RaceID)
 			planets[i].Population += int64(s.Population)
 		}
@@ -584,6 +586,46 @@ func (r *PlanetRepository) syncSettlements(planets []models.Planet) error {
 		}
 	}
 	return nil
+}
+
+// SyncPlanetStorageCommitIfChanged — пересчёт хранилища владельческих поселений
+// планеты в режиме commitIfChanged (F1, спека ЧК2а §7 пп.1–2): путь чтения доски
+// видит свежие числа, а не последнюю запись owner-прохода (лаг до 30 мин).
+// Ownerless-поселения пропускаются (N1/§18 п.28). Порядок — settlement_id.
+// Своя транзакция на поселение (внутри SyncSettlementsCommitIfChanged), до
+// транзакции доски — блокировки разведены (§10). planet — уже загруженная
+// планета (физика + поселения), повторный owner-проход не запускается.
+func (r *PlanetRepository) SyncPlanetStorageCommitIfChanged(planet *models.Planet, now time.Time) error {
+	if planet == nil || len(planet.Settlements) == 0 {
+		return nil
+	}
+	input := planetMortalityInput(*planet)
+	owners := make([]OwnerSettlement, 0, len(planet.Settlements))
+	for i := range planet.Settlements {
+		s := planet.Settlements[i]
+		if s.OwnerID == "" {
+			continue
+		}
+		owners = append(owners, OwnerSettlement{
+			ID:                s.ID,
+			PlanetID:          planet.ID,
+			Population:        s.Population,
+			PopulationExact:   s.PopulationExact,
+			ComputedAt:        s.ComputedAt,
+			CreatedAt:         s.CreatedAt,
+			RaceID:            s.RaceID,
+			SettlementTypeID:  s.SettlementTypeID,
+			Planet:            input,
+			EatByPosition:     s.EatByPosition,
+			EffectsByPosition: s.EffectsByPosition,
+		})
+	}
+	if len(owners) == 0 {
+		return nil
+	}
+	sort.Slice(owners, func(i, j int) bool { return owners[i].ID < owners[j].ID })
+	_, err := NewBranchRepository(r.db).SyncSettlementsCommitIfChanged(now, owners)
+	return err
 }
 
 // attachFactionsAndBuildings — подтягивает фракции (по factions.homeworld_id)

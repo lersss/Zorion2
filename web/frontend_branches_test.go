@@ -2,12 +2,13 @@
 // Node-тест клиентского блока ветки/эффектов поселения (спека 2026-09-22-
 // поселение-ветка-буферы-переработка §6/T13 + эффекты-снабжения §6/T14):
 // модуль modal/branches.js исполняется в Node без DOM/сети на верхнем уровне;
-// вход виден только админу, выход — всем; эффекты — только админу; админ-формы
+// буферы ветки сняты (ЧК2а §4.4/§4.5), эффекты — только админу, админ-формы
 // присутствуют. Паттерн — как в frontend_deposits_test.go.
 // Плюс витрина И2.3 (спека 2026-09-23-стадии-поселения §8.2/§11.3): строка
 // ступени (stageRowHtml), блок арифметики по позициям (settlementArithmeticHtml)
 // и новые поля ветки — число скорости/«забираем»/доля залежи/пометка «не в
-// наборе стадии».
+// наборе стадии». Плюс блок «Внутреннее хранилище» (спека ЧК2а §8): ячейки,
+// состояния, сортировка, фолбэк иконки (storageBlockHtml/goodIconHtml).
 package web
 
 import (
@@ -42,26 +43,20 @@ function assert(cond, msg) { if (!cond) throw new Error(msg); }
 
 const b = {
     id: 'b1', recipe_id: 69, recipe_name: 'Пища', complexity: 1,
-    output: [{ good_id: 378, good_name: 'Пища', amount: 30 }],
-    input: [{ good_id: 359, good_name: 'Мясо', amount: 97 }],
     produced: 12, eaten: 5, eaten_rate: 0.25
 };
 
-// Выход виден всем; вход — только админу.
-const admin = br.branchBlockHtml(b, true);
-assert(admin.includes('Пища'), 'admin: имя рецепта');
-assert(admin.includes('Мясо') && admin.includes('97'), 'admin: вход виден');
-const player = br.branchBlockHtml(b, false);
-assert(player.includes('Пища'), 'player: выход виден');
-assert(!player.includes('Мясо'), 'player: вход скрыт');
-
-// Петля потребления (итерация 4 §6/T13): «остаток (осадок)», «сделано» /
-// «съедено» за последний проход и «скорость поедания» (ед/сек).
-assert(admin.includes('остаток (осадок)'), 'admin: выход = остаток (осадок)');
-assert(admin.includes('сделано') && admin.includes('12'), 'admin: сделано за проход');
-assert(admin.includes('съедено') && admin.includes('5'), 'admin: съедено за проход');
-assert(admin.includes('скорость поедания') && admin.includes('0.25') && admin.includes('ед/сек'), 'admin: скорость поедания');
-assert(player.includes('сделано') && player.includes('съедено'), 'player: петля видна и игроку');
+// Буферы ветки сняты моделью (спека ЧК2а §4.4/§4.5): ни «выход · остаток
+// (осадок)», ни админ-блок «Вход» в ветке не рисуются — запас в ячейках
+// хранилища. Петля потребления остаётся.
+const admin = br.branchBlockHtml(b);
+assert(admin.includes('Пища'), 'ветка: имя рецепта');
+assert(!admin.includes('остаток (осадок)'), 'ветка: нет строки «Выход · остаток» (буферы сняты)');
+assert(!admin.includes('Вход (виден только админу)'), 'ветка: нет админ-блока «Вход»');
+assert(!admin.includes('Выход'), 'ветка: нет заголовка «Выход»');
+assert(admin.includes('сделано') && admin.includes('12'), 'ветка: сделано за проход');
+assert(admin.includes('съедено') && admin.includes('5'), 'ветка: съедено за проход');
+assert(admin.includes('скорость поедания') && admin.includes('0.25') && admin.includes('ед/сек'), 'ветка: скорость поедания');
 assert(!/всего/i.test(admin), 'нет слова «всего» — «съедено» за проход, не накопительно');
 
 // Блок всех веток: заголовок + форма создания с id поселения; у player без
@@ -118,10 +113,9 @@ assert(br.effectsBlockHtml([{ name: 'Прочее', impact: 'unknown_key', state
 const b2 = {
     id: 'b2', recipe_id: 70, recipe_name: 'Сплав', complexity: 2,
     rate: 650, not_in_stage_set: true, deposit_share: 0.25,
-    take: [{ good_id: 359, good_name: 'Мясо', per_day: 650 }, { good_id: 12, good_name: 'Вода', per_day: 1300 }],
-    output: [], input: []
+    take: [{ good_id: 359, good_name: 'Мясо', per_day: 650 }, { good_id: 12, good_name: 'Вода', per_day: 1300 }]
 };
-const admin2 = br.branchBlockHtml(b2, true);
+const admin2 = br.branchBlockHtml(b2);
 assert(admin2.includes('скорость (число пары)') && admin2.includes('650'), 'ветка: число скорости пары');
 assert(admin2.includes('ед/сутки / 10⁹'), 'ветка: единица скорости — дефолтный масштаб «на млрд»');
 assert(admin2.includes('забираем') && admin2.includes('Мясо ×650') && admin2.includes('Вода ×1 300'), 'ветка: забираем по компонентам (разряды)');
@@ -129,9 +123,9 @@ assert(admin2.includes('из залежи') && admin2.includes('25%'), 'ветк
 assert(admin2.includes('рецепт не в наборе стадии (не производит)'), 'ветка: пометка не в наборе стадии');
 // Объявленный ноль скорости — строка есть; отсутствие поля — строки нет;
 // признак «не в наборе» не появляется сам по себе.
-assert(br.branchBlockHtml({ id: 'b3', recipe_id: 71, rate: 0 }, true).includes('скорость (число пары)'), 'ветка: объявленный ноль скорости показан');
-assert(!br.branchBlockHtml({ id: 'b4', recipe_id: 72 }, true).includes('скорость (число пары)'), 'ветка: нет числа — нет строки');
-assert(!br.branchBlockHtml({ id: 'b5', recipe_id: 73 }, true).includes('не в наборе'), 'ветка: нет пометки без признака');
+assert(br.branchBlockHtml({ id: 'b3', recipe_id: 71, rate: 0 }).includes('скорость (число пары)'), 'ветка: объявленный ноль скорости показан');
+assert(!br.branchBlockHtml({ id: 'b4', recipe_id: 72 }).includes('скорость (число пары)'), 'ветка: нет числа — нет строки');
+assert(!br.branchBlockHtml({ id: 'b5', recipe_id: 73 }).includes('не в наборе'), 'ветка: нет пометки без признака');
 // Существующие строки не сломаны новой витриной.
 assert(admin2.includes('за проход') && admin2.includes('скорость поедания'), 'ветка: старая петля на месте');
 
@@ -200,16 +194,61 @@ const scaleBranch = {
     id: 'bs', recipe_id: 80, rate: 650, deposit_share: 0.05,
     take: [{ good_id: 9, good_name: 'Руда', per_day: 1000 }]
 };
-const scaleDefault = br.branchBlockHtml(scaleBranch, false);
+const scaleDefault = br.branchBlockHtml(scaleBranch);
 assert(scaleDefault.includes('скорость (число пары): <strong>650</strong> ед/сутки / 10⁹'), 'масштаб «на млрд» (дефолт): rate как есть');
 assert(scaleDefault.includes('Руда ×1 000'), 'масштаб не применяется к забираем (абсолютные ед/сутки)');
 assert(scaleDefault.includes('5%'), 'доля залежи 0.05 → 5%');
 
 globalThis.localStorage = { getItem: () => 'person' };
-const scalePerson = br.branchBlockHtml(scaleBranch, false);
+const scalePerson = br.branchBlockHtml(scaleBranch);
 assert(scalePerson.includes('скорость (число пары): <strong>0.00000065</strong> ед/сутки / 1 чел'), 'масштаб «на 1 чел»: rate 650 → 0.00000065');
 assert(scalePerson.includes('Руда ×1 000'), 'масштаб «на 1 чел»: забираем не масштабируется');
 delete globalThis.localStorage;
+
+// Блок «Внутреннее хранилище» (спека ЧК2а §8, концепт §3): шапка с занятостью,
+// легенда вида нужды, строки с amount/cap, состоянием, полосой и метой; порядок
+// по срочности (population-дефицит → production-дефицит → полные).
+const storage = br.storageBlockHtml({
+    id: 's1',
+    storage: {
+        size: 1000,
+        cells: [
+            { position: 'очищенная вода', good_id: 422, code: 'g_0135', amount: 12, cap: 400, share: 0.4, need_kind: 'population', effect: 'жажда', deficit: 388 },
+            { position: 'вода неочищенная', good_id: 426, code: 'g_0136', amount: 300, cap: 300, share: 0.3, need_kind: 'production', deficit: 0 },
+            { position: 'руда', good_id: 42, code: 'g_0042', amount: 0, cap: 300, share: 0.3, need_kind: 'production', deficit: 300 }
+        ]
+    }
+});
+assert(storage.includes('Внутреннее хранилище'), 'storage: шапка');
+assert(storage.includes('занято 31%') && storage.includes('(312 / 1000)'), 'storage: занято = сумма/размер');
+assert(storage.includes('жизнь (голод/жажда)') && storage.includes('производство (вход)'), 'storage: легенда вида нужды');
+assert(storage.includes('◆ жажда'), 'storage: чип эффекта у нужды населения');
+assert(storage.includes('очищенная вода') && storage.includes('12') && storage.includes('400'), 'storage: имя и amount/cap');
+assert(storage.includes('не хватает 388'), 'storage: состояние недобора');
+assert(storage.includes('✓ полно'), 'storage: состояние «полно»');
+assert(storage.includes('пусто'), 'storage: состояние «пусто»');
+assert(storage.includes('заполнено 3%') && storage.includes('доля 40%'), 'storage: полоса и мета заполнения/доли');
+// Сортировка: вода (population-дефицит) → руда (production-дефицит) → полная.
+const iWater = storage.indexOf('очищенная вода');
+const iOre = storage.indexOf('руда');
+const iRaw = storage.indexOf('вода неочищенная');
+assert(iWater >= 0 && iOre > iWater && iRaw > iOre, 'storage: сортировка по срочности');
+// size = 0 → «порог не задан», полос/состояний от порога нет.
+const noSize = br.storageBlockHtml({ storage: { size: 0, cells: [
+    { position: 'пища', good_id: 378, amount: 5, cap: 0, share: 0, need_kind: 'production', deficit: 0 }
+] } });
+assert(noSize.includes('порог не задан'), 'storage: size=0 → «порог не задан»');
+assert(!noSize.includes('заполнено'), 'storage: size=0 → нет меты полосы');
+assert(!noSize.includes('занято'), 'storage: size=0 → нет процента занятости');
+assert(br.storageBlockHtml({ id: 's2' }) === '', 'storage: нет блока — пусто');
+assert(br.storageBlockHtml(null) === '', 'storage: нет поселения — пусто');
+
+// goodIconHtml (концепт §5.1/§5.3): путь по code + onerror-фолбэк на
+// нейтральный эмодзи; нет code → сразу фолбэк (категорийных эмодзи нет).
+const icon = br.goodIconHtml('g_0018');
+assert(icon.includes('/static/sprites/goods/g_0018.png'), 'иконка: путь по code');
+assert(icon.includes('onerror') && icon.includes('📦'), 'иконка: onerror-фолбэк 📦');
+assert(br.goodIconHtml('').includes('📦'), 'иконка: нет code → нейтральный фолбэк');
 
 console.log('BRANCHES_OK');
 `

@@ -145,11 +145,21 @@ func (h *ContractHandlers) GetPlanetBoard(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Свежесть источника (F1, спека ЧК2а §7 пп.1–2): доска перед материализацией
+	// пересчитывает хранилище владельческих поселений планеты (своя tx на
+	// поселение, до tx доски) — витрина/материализация видят числа на момент
+	// чтения, а не последнюю запись owner-прохода (лаг до 30 мин). Ошибку не
+	// роняем в 5xx: при сбое доска отдаётся по последним сохранённым числам.
+	now := time.Now()
+	if err := h.planetRepo.SyncPlanetStorageCommitIfChanged(planet, now); err != nil {
+		log.Printf("GetPlanetBoard: sync storage (%s): %v", planetID, err)
+	}
+
 	// Ленивая материализация нужд в открытые доли — по кадэнсу (§3.4). Ошибку не
 	// роняем в 5xx: истечение (выше) — обязательный возврат залога, а
 	// материализация — фоновая синхронизация состава витрины; её отказ уже
 	// откатил свою транзакцию, доска остаётся согласованной и отдаётся как есть.
-	if _, err := h.contractRepo.MaterializeBoard(planetID, time.Now()); err != nil {
+	if _, err := h.contractRepo.MaterializeBoard(planetID, now); err != nil {
 		log.Printf("GetPlanetBoard: materialize board (%s): %v", planetID, err)
 	}
 

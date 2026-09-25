@@ -67,11 +67,12 @@ const (
 		ON CONFLICT (owner_type, owner_id, effect_type_id)
 		DO UPDATE SET load = $5, load_at = $4, updated_at = NOW()`
 
-	// goodsNamesSQL — словарь товаров: id, имя и позиция (name_norm). Ключ
+	// goodsNamesSQL — словарь товаров: id, имя, позиция (name_norm) и метка
+	// `code` (стабильный ключ иконок товара, спека ЧК2а §4.5/§8, T19). Ключ
 	// params.eat/params.effects читается только как товар (спека 2026-09-24
 	// §6.1/§9.4); id нужен для ячеек хранилища (позиция → good_id), имя — для
 	// витрины «забираем».
-	goodsNamesSQL = `SELECT id, name, name_norm FROM goods`
+	goodsNamesSQL = `SELECT id, name, name_norm, COALESCE(code, '') FROM goods`
 
 	// recipeComponentOccurrencesSQL — число вхождений товара во ВХОДЫ рецептов
 	// (F3, §1.3): вес ячейки по умолчанию. Один запрос на пачку.
@@ -133,6 +134,10 @@ type OwnerResult struct {
 	// Stage — витрина ступени поселения (спека 2026-09-23 §11.3): пороги
 	// текущей ступени и вход следующей из ладдеры пачки; тип вне ладдеры → nil.
 	Stage *models.SettlementStageView
+	// Storage — витрина внутреннего хранилища (спека ЧК2а §4.5/§8): размер и
+	// ячейки по товарам с порогом/долей/видом нужды/дефицитом. nil — потребностей
+	// нет (ячеек нет).
+	Storage *models.SettlementStorage
 }
 
 // effectTypeMeta — запись каталога типов эффектов (резолв по name_norm).
@@ -188,6 +193,21 @@ type ownerRun struct {
 // поселение — производство веток, слой потребности, нагрузка, пересчёт
 // населения; персистентный путь — одна транзакция под advisory-локом.
 func (r *BranchRepository) SyncSettlements(now time.Time, owners []OwnerSettlement) (map[string]OwnerResult, error) {
+	return r.syncSettlements(now, owners, false)
+}
+
+// SyncSettlementsCommitIfChanged — owner-проход в режиме commitIfChanged (F1,
+// спека ЧК2а §7 пп.1–2): всегда считает, но пишет в БД только если числа
+// изменились (население, нагрузка эффектов, количества ячеек, размер
+// хранилища, набор/веса ячеек). Не изменилось — no-op без записи. Вызывается
+// путём чтения доски ДО её транзакции (свежесть источника).
+func (r *BranchRepository) SyncSettlementsCommitIfChanged(now time.Time, owners []OwnerSettlement) (map[string]OwnerResult, error) {
+	return r.syncSettlements(now, owners, true)
+}
+
+// syncSettlements — общее тело owner-прохода; commitIfChanged — режим записи
+// «только при изменении» (F1).
+func (r *BranchRepository) syncSettlements(now time.Time, owners []OwnerSettlement, commitIfChanged bool) (map[string]OwnerResult, error) {
 	out := make(map[string]OwnerResult, len(owners))
 	if len(owners) == 0 {
 		return out, nil
@@ -249,7 +269,7 @@ func (r *BranchRepository) SyncSettlements(now time.Time, owners []OwnerSettleme
 	data := ownerBatchData{rates: rates, recipes: recipes, types: types, ladder: ladder, occurrences: occurrences}
 
 	for _, o := range owners {
-		res, err := r.syncOwner(ctx, o, bySettlement[o.ID], stored[o.ID], catalog, goods, data, now)
+		res, err := r.syncOwner(ctx, o, bySettlement[o.ID], stored[o.ID], catalog, goods, data, now, commitIfChanged)
 		if err != nil {
 			return nil, err
 		}
@@ -298,11 +318,14 @@ func notInStageSet(recipes map[int64]map[int64]bool, typeID, recipeID int64) boo
 }
 
 // syncOwner — проход по одному поселению: персистентный путь или «в памяти».
-func (r *BranchRepository) syncOwner(ctx context.Context, o OwnerSettlement, branches []*branchRecord, stored []storedEffect, catalog map[string]effectTypeMeta, goods goodsCatalog, data ownerBatchData, now time.Time) (OwnerResult, error) {
+// commitIfChanged (F1) — всегда персистентный путь, но запись только при
+// изменении чисел.
+func (r *BranchRepository) syncOwner(ctx context.Context, o OwnerSettlement, branches []*branchRecord, stored []storedEffect, catalog map[string]effectTypeMeta, goods goodsCatalog, data ownerBatchData, now time.Time, commitIfChanged bool) (OwnerResult, error) {
 	// Персистентный путь, если «событие» наступило хоть у одной чек-точки
 	// владельца (население или ветка): обе продвигаются одним now (§4.5),
-	// поэтому устаревание любой из них требует записи.
-	persistent := now.Sub(o.ComputedAt) >= settlement.MinPersistInterval
+	// поэтому устаревание любой из них требует записи. Режим commitIfChanged
+	// считает всегда (запись — по изменению, ниже).
+	persistent := commitIfChanged || now.Sub(o.ComputedAt) >= settlement.MinPersistInterval
 	for _, b := range branches {
 		if now.Sub(b.branch.ProcessedAt) >= settlement.MinPersistInterval {
 			persistent = true
@@ -376,10 +399,12 @@ func (r *BranchRepository) syncOwner(ctx context.Context, o OwnerSettlement, bra
 	// производства и ДО расчёта потребности (§4.2/§4.4): производство и
 	// население этого прохода считаются по настройкам одной актуальной стадии.
 	basisReset := false
+	stageChanged := false
 	if newTypeID, changed := data.ladder.Select(o.SettlementTypeID, float64(population)); changed {
 		if err := r.applyStageTransition(ctx, tx, &o, newTypeID, txRecs, data.types); err != nil {
 			return OwnerResult{}, err
 		}
+		stageChanged = true
 		// Перечитать ветки: доборные — в составе, ячейки сохранённых обнулены
 		// (§5.1 пп.3–4). Базис нагрузки сброшен и в ПАМЯТИ (§5.1 п.5): stored =
 		// nil → ComputeNeeds получит load = 0, load_at = now в этом же проходе.
@@ -398,14 +423,19 @@ func (r *BranchRepository) syncOwner(ctx context.Context, o OwnerSettlement, bra
 	}
 
 	// Реестр нужд (§4.3): сверка набора ячеек с потребностями (эффекты +
-	// компоненты + выходы веток), веса — по F3. Затем чтение ячеек уже с
-	// созданными строками (базис прохода).
+	// компоненты + выходы веток), веса — по F3. Обычный путь создаёт/добирает
+	// ячейки ДО чтения (базис прохода); режим commitIfChanged читает ячейки
+	// как есть и создаёт недостающие только при изменении (ниже).
 	weights, size := storagePlan(o, txRecs, goods, data)
 	cellsRepo := NewStorageCellRepository(r.db)
-	if err := cellsRepo.EnsureStorageCellsTx(ctx, tx, StorageOwnerSettlement, o.ID, weights); err != nil {
-		return OwnerResult{}, err
+	var cells []models.StorageCell
+	if commitIfChanged {
+		cells, err = cellsRepo.GetStorageCellsTx(ctx, tx, StorageOwnerSettlement, o.ID)
+	} else {
+		if err = cellsRepo.EnsureStorageCellsTx(ctx, tx, StorageOwnerSettlement, o.ID, weights); err == nil {
+			cells, err = cellsRepo.GetStorageCellsTx(ctx, tx, StorageOwnerSettlement, o.ID)
+		}
 	}
-	cells, err := cellsRepo.GetStorageCellsTx(ctx, tx, StorageOwnerSettlement, o.ID)
 	if err != nil {
 		return OwnerResult{}, err
 	}
@@ -414,6 +444,22 @@ func (r *BranchRepository) syncOwner(ctx context.Context, o OwnerSettlement, bra
 	if err != nil {
 		return OwnerResult{}, err
 	}
+
+	if commitIfChanged {
+		var storedSize float64
+		if err := tx.QueryRowContext(ctx, settlementStorageSizeSelectSQL, o.ID).Scan(&storedSize); err != nil {
+			return OwnerResult{}, err
+		}
+		if !stageChanged && !ownerPassChanged(o, run, cells, weights, stored, storedSize) {
+			// Числа не изменились — no-op без записи (F1): чек-точки не
+			// двигаем, пустые строки не плодим. defer tx.Rollback() закроет tx.
+			return run.result, nil
+		}
+		if err := cellsRepo.EnsureStorageCellsTx(ctx, tx, StorageOwnerSettlement, o.ID, weights); err != nil {
+			return OwnerResult{}, err
+		}
+	}
+
 	if err := r.writeOwnerTx(ctx, tx, o, run, now); err != nil {
 		return OwnerResult{}, err
 	}
@@ -421,6 +467,56 @@ func (r *BranchRepository) syncOwner(ctx context.Context, o OwnerSettlement, bra
 		return OwnerResult{}, err
 	}
 	return run.result, nil
+}
+
+// ownerPassChanged — изменились ли числа owner-прохода относительно хранимого
+// состояния (режим commitIfChanged, F1): население/population_exact, размер
+// хранилища, количества ячеек, набор/веса ячеек, нагрузка эффектов. false →
+// запись не нужна (no-op без записи).
+func ownerPassChanged(o OwnerSettlement, run ownerRun, cells []models.StorageCell, weights map[int64]float64, stored []storedEffect, storedSize float64) bool {
+	if run.result.Population != o.Population || run.result.PopulationExact != o.PopulationExact {
+		return true
+	}
+	if run.storageSize != storedSize {
+		return true
+	}
+	// Количества ячеек: итог прохода против базиса (basis = хранимое количество).
+	for gid, final := range run.cellFinals {
+		if final != run.cellBasis[gid] {
+			return true
+		}
+	}
+	// Набор/веса ячеек: недостающая ячейка под потребность, изменившийся вес,
+	// пустая ячейка вне набора (будет удалена) — всё это изменение.
+	cellByGood := make(map[int64]models.StorageCell, len(cells))
+	for _, c := range cells {
+		cellByGood[c.GoodID] = c
+	}
+	for gid, w := range weights {
+		c, ok := cellByGood[gid]
+		if !ok || c.CapShare != w {
+			return true
+		}
+	}
+	for _, c := range cells {
+		if _, ok := weights[c.GoodID]; !ok && c.Amount == 0 {
+			return true
+		}
+	}
+	// Нагрузка эффектов: набор и значения.
+	if len(run.result.Effects) != len(stored) {
+		return true
+	}
+	storedLoad := make(map[int64]float64, len(stored))
+	for _, se := range stored {
+		storedLoad[se.effectTypeID] = se.load
+	}
+	for _, e := range run.result.Effects {
+		if storedLoad[e.EffectTypeID] != e.Load {
+			return true
+		}
+	}
+	return false
 }
 
 // loadStorageCells — ячейки поселения вне транзакции (путь «в памяти»).
@@ -689,6 +785,15 @@ func runOwnerPass(o OwnerSettlement, branches []*branchRecord, stored []storedEf
 	arithmetic := settlement.ComputePositionArithmetic(population, o.EffectsByPosition, o.EatByPosition, arithmeticSources)
 	arithmetic = settlement.AttachNeedArithmetic(arithmetic, bindings, needs.Effects)
 
+	// Вид нужды и эффект ячейки хранилища (T5/§1.4): товар с привязкой эффекта —
+	// потребность населения, иначе — потребность производства.
+	effectByGood := make(map[int64]string, len(bindings))
+	for _, b := range bindings {
+		if gid, ok := goods.byPosition[b.Position]; ok {
+			effectByGood[gid] = b.EffectTypeName
+		}
+	}
+
 	res := OwnerResult{
 		Population:      pop,
 		PopulationExact: next,
@@ -700,6 +805,7 @@ func runOwnerPass(o OwnerSettlement, branches []*branchRecord, stored []storedEf
 		Effects:         buildEffectModels(o, needs, catalog, now),
 		Arithmetic:      arithmeticModels(arithmetic),
 		Stage:           stageView(data.ladder, o.SettlementTypeID),
+		Storage:         storageView(goods, cells, cellFinals, storageSize, effectByGood),
 	}
 	return ownerRun{
 		result:      res,
@@ -759,6 +865,49 @@ func stageView(ladder settlement.StageLadder, typeID int64) *models.SettlementSt
 		return nil
 	}
 	return &models.SettlementStageView{Enter: v.Enter, Exit: v.Exit, NextEnter: v.NextEnter}
+}
+
+// storageView — витрина блока `storage` поселения (спека ЧК2а §4.5/§8): размер,
+// ячейки по товарам с порогом (StorageCaps), долей порога от размера, видом
+// нужды, name_norm эффекта (только population) и складским дефицитом. Порог
+// считается от cap_share самих ячеек (хранимое состояние — источник правды,
+// §1.3); amount — итог прохода (cellFinals), у товара без итога — хранимое
+// количество. Порядок ячеек детерминирован (good_id). nil — ячеек нет.
+func storageView(goods goodsCatalog, cells []models.StorageCell, finals map[int64]float64, size float64, effectByGood map[int64]string) *models.SettlementStorage {
+	if len(cells) == 0 {
+		return nil
+	}
+	weights := make(map[int64]float64, len(cells))
+	for _, c := range cells {
+		weights[c.GoodID] = c.CapShare
+	}
+	caps := settlement.StorageCaps(size, weights)
+	out := &models.SettlementStorage{Size: size, Cells: make([]models.SettlementStorageCell, 0, len(cells))}
+	for _, c := range cells {
+		amount, ok := finals[c.GoodID]
+		if !ok {
+			amount = c.Amount
+		}
+		capValue := caps[c.GoodID]
+		share := 0.0
+		if size > 0 {
+			share = capValue / size
+		}
+		effect := effectByGood[c.GoodID]
+		out.Cells = append(out.Cells, models.SettlementStorageCell{
+			Position: goods.positionByID[c.GoodID],
+			GoodID:   c.GoodID,
+			Code:     goods.codeByID[c.GoodID],
+			Amount:   amount,
+			Cap:      capValue,
+			Share:    share,
+			NeedKind: string(settlement.CellKindFor(effect != "")),
+			Effect:   effect,
+			Deficit:  settlement.CellDeficit(capValue, amount),
+		})
+	}
+	sort.Slice(out.Cells, func(i, j int) bool { return out.Cells[i].GoodID < out.Cells[j].GoodID })
+	return out
 }
 
 // arithmeticModels — доменная арифметика позиции → витрина ответа (§8.2).
@@ -1060,10 +1209,13 @@ func queryEffectTypeCatalog(ctx context.Context, q branchRowsQueryer) (map[strin
 }
 
 // goodsCatalog — словарь товаров: позиция (name_norm) → good_id (ключ привязок
-// owner-прохода, спека 2026-09-24 §6.1/§9.4) и good_id → имя (витрина).
+// owner-прохода, спека 2026-09-24 §6.1/§9.4), good_id → имя (витрина) и
+// обратные карты good_id → позиция/метка `code` (блок storage, §4.5/§8, T19).
 type goodsCatalog struct {
-	byPosition map[string]int64
-	nameByID   map[int64]string
+	byPosition   map[string]int64
+	nameByID     map[int64]string
+	positionByID map[int64]string
+	codeByID     map[int64]string
 }
 
 // loadGoodsCatalog — словарь товаров одним запросом на пачку.
@@ -1073,15 +1225,22 @@ func (r *BranchRepository) loadGoodsCatalog(ctx context.Context) (goodsCatalog, 
 		return goodsCatalog{}, err
 	}
 	defer rows.Close()
-	out := goodsCatalog{byPosition: map[string]int64{}, nameByID: map[int64]string{}}
+	out := goodsCatalog{
+		byPosition:   map[string]int64{},
+		nameByID:     map[int64]string{},
+		positionByID: map[int64]string{},
+		codeByID:     map[int64]string{},
+	}
 	for rows.Next() {
 		var id int64
-		var name, nameNorm string
-		if err := rows.Scan(&id, &name, &nameNorm); err != nil {
+		var name, nameNorm, code string
+		if err := rows.Scan(&id, &name, &nameNorm, &code); err != nil {
 			return goodsCatalog{}, err
 		}
 		out.byPosition[nameNorm] = id
 		out.nameByID[id] = name
+		out.positionByID[id] = nameNorm
+		out.codeByID[id] = code
 	}
 	return out, rows.Err()
 }

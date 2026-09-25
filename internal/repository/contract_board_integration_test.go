@@ -18,6 +18,7 @@ import (
 	"math/rand"
 	"net/url"
 	"os"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -148,6 +149,71 @@ func boardITNeed(buildingID, planetID, goodID string, target, actual float64, ca
 		Capacities: caps,
 		BaseReward: 10,
 	}
+}
+
+// boardITSeedGood — категория + товар, возвращает good_id (FK ячейки).
+func boardITSeedGood(t *testing.T, db *sql.DB, name string) int64 {
+	t.Helper()
+	var catID int64
+	if err := db.QueryRow(
+		`INSERT INTO categories (name, name_norm, kind) VALUES ($1,$2,'good') RETURNING id`,
+		name, name,
+	).Scan(&catID); err != nil {
+		t.Fatalf("insert category: %v", err)
+	}
+	var goodID int64
+	if err := db.QueryRow(
+		`INSERT INTO goods (name, name_norm, category_id, kind) VALUES ($1,$2,$3,'good') RETURNING id`,
+		name, name, catID,
+	).Scan(&goodID); err != nil {
+		t.Fatalf("insert good: %v", err)
+	}
+	return goodID
+}
+
+// boardITSeedSettlement — поселение планеты с владельцем (ownerType пуст —
+// ownerless) и размером хранилища.
+func boardITSeedSettlement(t *testing.T, db *sql.DB, planetID, ownerType, ownerID string, storageSize float64) string {
+	t.Helper()
+	id := uuid.New().String()
+	var ot, oid interface{}
+	if ownerType != "" {
+		ot, oid = ownerType, ownerID
+	}
+	if _, err := db.Exec(`INSERT INTO settlements
+		(id, planet_id, population, population_exact, stability, computed_at, owner_type, owner_id, storage_size)
+		VALUES ($1,$2,10,10,50,NOW(),$3,$4,$5)`, id, planetID, ot, oid, storageSize); err != nil {
+		t.Fatalf("insert settlement: %v", err)
+	}
+	return id
+}
+
+// boardITSeedCell — ячейка хранилища поселения.
+func boardITSeedCell(t *testing.T, db *sql.DB, settlementID string, goodID int64, amount, capShare float64) {
+	t.Helper()
+	if _, err := db.Exec(`INSERT INTO settlement_storage_cells
+		(owner_type, owner_id, good_id, amount, cap_share)
+		VALUES ('settlement', $1, $2, $3, $4)`, settlementID, goodID, amount, capShare); err != nil {
+		t.Fatalf("insert storage cell: %v", err)
+	}
+}
+
+func boardITFloat(t *testing.T, db *sql.DB, query string, args ...interface{}) float64 {
+	t.Helper()
+	var v float64
+	if err := db.QueryRow(query, args...).Scan(&v); err != nil {
+		t.Fatalf("query %q: %v", query, err)
+	}
+	return v
+}
+
+func boardITTime(t *testing.T, db *sql.DB, query string, args ...interface{}) time.Time {
+	t.Helper()
+	var v time.Time
+	if err := db.QueryRow(query, args...).Scan(&v); err != nil {
+		t.Fatalf("query %q: %v", query, err)
+	}
+	return v
 }
 
 func boardITCount(t *testing.T, db *sql.DB, query string, args ...interface{}) int64 {
@@ -501,5 +567,180 @@ func TestMaterializeBoardCancelsDroppedPackageIT(t *testing.T) {
 	if got := boardITStr(t, s.db, `SELECT status FROM contracts WHERE id = $1`, manual.ID); got != models.ContractStatusOpen {
 		t.Fatalf("статус ручного контракта %q, ожидался %q (вне пакета — сверка не трогает)",
 			got, models.ContractStatusOpen)
+	}
+}
+
+// T2a (живая, N1): реальный источник нужд — ячейки владельческих поселений;
+// ownerless-поселение в нужды не входит и заказов не публикует.
+func TestMaterializeBoardRealSourceOwnerlessExcludedIT(t *testing.T) {
+	s := boardITOpenMigrated(t)
+	planetID := boardITSeedPlanet(t, s.db)
+	playerID := uuid.New().String()
+	goodID := boardITSeedGood(t, s.db, "it-good-ownerless")
+
+	ownerless := boardITSeedSettlement(t, s.db, planetID, "", "", 1000)
+	boardITSeedCell(t, s.db, ownerless, goodID, 0, 1)
+	owned := boardITSeedSettlement(t, s.db, planetID, models.AccountOwnerPlayer, playerID, 1000)
+	boardITSeedCell(t, s.db, owned, goodID, 0, 1)
+
+	repo := NewContractRepository(s.db)
+	ok, err := repo.MaterializeBoard(planetID, time.Now())
+	if err != nil || !ok {
+		t.Fatalf("MaterializeBoard: ok=%v err=%v", ok, err)
+	}
+
+	goodStr := strconv.FormatInt(goodID, 10)
+	pkg := supplyPackageKey(planetID, owned, goodStr)
+	if n := boardITCount(t, s.db,
+		`SELECT COUNT(*) FROM contracts WHERE package_key = $1 AND status = 'open'`, pkg); n != 1 {
+		t.Fatalf("открытых долей владельческого пакета %d, ожидалась 1", n)
+	}
+	ownerlessPkg := supplyPackageKey(planetID, ownerless, goodStr)
+	if n := boardITCount(t, s.db,
+		`SELECT COUNT(*) FROM contracts WHERE package_key = $1`, ownerlessPkg); n != 0 {
+		t.Fatalf("ownerless-пакет создан (%d долей) — не должен (N1)", n)
+	}
+}
+
+// T8 (живая, D5): владелец не покрывает пакет → доля публикуется в free-mode
+// (reward = 0, escrow_amount = 0), CHECK не падает, money_operations нет.
+func TestMaterializeBoardFreeModeIT(t *testing.T) {
+	s := boardITOpenMigrated(t)
+	planetID := boardITSeedPlanet(t, s.db)
+	playerID := uuid.New().String()
+	goodID := boardITSeedGood(t, s.db, "it-good-free")
+	owned := boardITSeedSettlement(t, s.db, planetID, models.AccountOwnerPlayer, playerID, 1000)
+	boardITSeedCell(t, s.db, owned, goodID, 0, 1)
+
+	// Счёт владельца с нулевым балансом: ensurePayerAccount его не пересоздаст.
+	if _, err := s.db.Exec(`INSERT INTO accounts (owner_type, owner_id, balance, withdrawable)
+		VALUES ('player', $1, 0, 0)`, playerID); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+
+	repo := NewContractRepository(s.db)
+	if ok, err := repo.MaterializeBoard(planetID, time.Now()); err != nil || !ok {
+		t.Fatalf("MaterializeBoard: ok=%v err=%v", ok, err)
+	}
+
+	pkg := supplyPackageKey(planetID, owned, strconv.FormatInt(goodID, 10))
+	var reward, escrow int64
+	if err := s.db.QueryRow(`SELECT reward, escrow_amount FROM contracts
+		WHERE package_key = $1 AND status = 'open'`, pkg).Scan(&reward, &escrow); err != nil {
+		t.Fatalf("read share: %v", err)
+	}
+	if reward != 0 || escrow != 0 {
+		t.Fatalf("free-mode: reward=%d escrow=%d, ожидалось 0/0", reward, escrow)
+	}
+	if n := boardITCount(t, s.db,
+		`SELECT COUNT(*) FROM money_operations WHERE owner_type='player' AND owner_id=$1`, playerID); n != 0 {
+		t.Fatalf("money_operations владельца %d, ожидалось 0 (free-mode)", n)
+	}
+}
+
+// T9 (живая, N5): при взятой доле пакета новые открытые доли не публикуются.
+func TestMaterializeBoardTakenShareNoNewSharesIT(t *testing.T) {
+	s := boardITOpenMigrated(t)
+	planetID := boardITSeedPlanet(t, s.db)
+	playerID := uuid.New().String()
+	goodID := boardITSeedGood(t, s.db, "it-good-taken")
+	owned := boardITSeedSettlement(t, s.db, planetID, models.AccountOwnerPlayer, playerID, 1000)
+	boardITSeedCell(t, s.db, owned, goodID, 0, 1)
+
+	repo := NewContractRepository(s.db)
+	if ok, err := repo.MaterializeBoard(planetID, time.Now()); err != nil || !ok {
+		t.Fatalf("первая материализация: ok=%v err=%v", ok, err)
+	}
+	pkg := supplyPackageKey(planetID, owned, strconv.FormatInt(goodID, 10))
+	shareID := boardITStr(t, s.db,
+		`SELECT id FROM contracts WHERE package_key = $1 AND status = 'open'`, pkg)
+	executorID := uuid.New().String()
+	if ok, err := repo.Take(shareID, models.ContractExecutorPlayer, executorID, nil); err != nil || !ok {
+		t.Fatalf("Take: ok=%v err=%v", ok, err)
+	}
+	if _, err := s.db.Exec(`DELETE FROM contract_board_state WHERE planet_id = $1`, planetID); err != nil {
+		t.Fatalf("reset board_state: %v", err)
+	}
+	if ok, err := repo.MaterializeBoard(planetID, time.Now()); err != nil || !ok {
+		t.Fatalf("повторная материализация: ok=%v err=%v", ok, err)
+	}
+	if n := boardITCount(t, s.db,
+		`SELECT COUNT(*) FROM contracts WHERE package_key = $1 AND status = 'open'`, pkg); n != 0 {
+		t.Fatalf("открытых долей при взятой %d, ожидалось 0 (N5)", n)
+	}
+}
+
+// T20 (живая, F1): пересчёт хранилища в режиме commitIfChanged пишет при
+// изменении и не пишет при повторе без изменения (computed_at не двигается).
+func TestSyncPlanetStorageCommitIfChangedNoopIT(t *testing.T) {
+	s := boardITOpenMigrated(t)
+	planetID := boardITSeedPlanet(t, s.db)
+	playerID := uuid.New().String()
+	goodID := boardITSeedGood(t, s.db, "it-good-fresh")
+	owned := boardITSeedSettlement(t, s.db, planetID, models.AccountOwnerPlayer, playerID, 0)
+	boardITSeedCell(t, s.db, owned, goodID, 0, 1)
+
+	planetRepo := NewPlanetRepository(s.db)
+	planet, err := planetRepo.GetPlanetByID(planetID)
+	if err != nil || planet == nil {
+		t.Fatalf("GetPlanetByID: %v", err)
+	}
+	now := time.Now()
+	if err := planetRepo.SyncPlanetStorageCommitIfChanged(planet, now); err != nil {
+		t.Fatalf("первый пересчёт: %v", err)
+	}
+	if size := boardITFloat(t, s.db, `SELECT storage_size FROM settlements WHERE id = $1`, owned); size <= 0 {
+		t.Fatalf("storage_size после пересчёта %v, ожидался > 0", size)
+	}
+	computedAt := boardITTime(t, s.db, `SELECT computed_at FROM settlements WHERE id = $1`, owned)
+
+	if err := planetRepo.SyncPlanetStorageCommitIfChanged(planet, now.Add(time.Second)); err != nil {
+		t.Fatalf("повторный пересчёт: %v", err)
+	}
+	computedAt2 := boardITTime(t, s.db, `SELECT computed_at FROM settlements WHERE id = $1`, owned)
+	if !computedAt2.Equal(computedAt) {
+		t.Fatalf("повторный пересчёт записал (computed_at %v → %v) — ожидался no-op", computedAt, computedAt2)
+	}
+}
+
+// T20 (живая, F1): пересчёт хранилища (свой tx) и материализация доски
+// параллельно — блокировки разведены, дедлока нет.
+func TestBoardFreshnessNoDeadlockIT(t *testing.T) {
+	s := boardITOpenMigrated(t)
+	planetID := boardITSeedPlanet(t, s.db)
+	playerID := uuid.New().String()
+	goodID := boardITSeedGood(t, s.db, "it-good-deadlock")
+	owned := boardITSeedSettlement(t, s.db, planetID, models.AccountOwnerPlayer, playerID, 1000)
+	boardITSeedCell(t, s.db, owned, goodID, 0, 1)
+
+	planetRepo := NewPlanetRepository(s.db)
+	repo := NewContractRepository(s.db)
+
+	for i := 0; i < 4; i++ {
+		planet, err := planetRepo.GetPlanetByID(planetID)
+		if err != nil || planet == nil {
+			t.Fatalf("цикл %d: GetPlanetByID: %v", i, err)
+		}
+		if _, err := s.db.Exec(`DELETE FROM contract_board_state WHERE planet_id = $1`, planetID); err != nil {
+			t.Fatalf("цикл %d: reset board_state: %v", i, err)
+		}
+		var wg sync.WaitGroup
+		var syncErr, matErr error
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			syncErr = planetRepo.SyncPlanetStorageCommitIfChanged(planet, time.Now())
+		}()
+		go func() {
+			defer wg.Done()
+			_, matErr = repo.MaterializeBoard(planetID, time.Now())
+		}()
+		wg.Wait()
+		if syncErr != nil {
+			t.Fatalf("цикл %d: пересчёт: %v", i, syncErr)
+		}
+		if matErr != nil {
+			t.Fatalf("цикл %d: материализация: %v", i, matErr)
+		}
 	}
 }

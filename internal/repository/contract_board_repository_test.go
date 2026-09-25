@@ -18,11 +18,13 @@ import (
 
 	"zorion/internal/contracts"
 	"zorion/internal/economy/settlement"
+	"zorion/internal/models"
 )
 
 // boardNeed вЂ” РЅСѓР¶РґР° РѕРґРЅРѕРіРѕ РїР°РєРµС‚Р° (Р°РІС‚РѕСЂ b1, РїР»Р°РЅРµС‚Р° p1, РїРѕР·РёС†РёСЏ g1).
 func boardNeed(target, actual float64, capacities []float64) BoardNeed {
 	return BoardNeed{
+		AuthorType:   models.ContractActorBuilding,
 		AuthorID:     "b1",
 		PlanetID:     "p1",
 		GoodID:       "g1",
@@ -41,6 +43,12 @@ func withNeeds(repo *ContractRepository, needs ...BoardNeed) {
 
 func emptyOpenShares() *sqlmock.Rows {
 	return sqlmock.NewRows([]string{"id", "package_key", "share_index", "quantity"})
+}
+
+// expectNoTakenKeys — взятых долей планеты нет (N5): цель пакета = дефицит.
+func expectNoTakenKeys(mock sqlmock.Sqlmock) {
+	mock.ExpectQuery(`SELECT DISTINCT package_key FROM contracts`).
+		WillReturnRows(sqlmock.NewRows([]string{"package_key"}))
 }
 
 // expectBoardStateNew вЂ” СЃС‚СЂРѕРєРё С‡РµРє-С‚РѕС‡РєРё РЅРµ Р±С‹Р»Рѕ (INSERT Р·Р°С‚СЂРѕРЅСѓР» 1 СЃС‚СЂРѕРєСѓ).
@@ -74,6 +82,9 @@ func expectPublishSupplyShareFor(mock sqlmock.Sqlmock, authorID, goodID string, 
 	mock.ExpectExec(`INSERT INTO accounts`).
 		WithArgs("faction", "f1", int64(1000000000000000)).
 		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(`SELECT balance FROM accounts WHERE owner_type = \$1 AND owner_id = \$2`).
+		WithArgs("faction", "f1").
+		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(int64(1000000000000000)))
 	mock.ExpectExec(`INSERT INTO contracts`).
 		WithArgs(sqlmock.AnyArg(), "supply", "building", authorID, "p1", supplyShareTitle, "", "{}",
 			reward, "regular", reward, int64(0), "deposit", "open", "public", nil, nil,
@@ -82,6 +93,7 @@ func expectPublishSupplyShareFor(mock sqlmock.Sqlmock, authorID, goodID string, 
 	mock.ExpectExec(`INSERT INTO contract_requirements`).
 		WithArgs(sqlmock.AnyArg(), 1, "goods", goodID, "in", nil, nil, sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO contract_log`).WillReturnResult(sqlmock.NewResult(0, 1)) // published
 	mock.ExpectQuery(`WITH acc AS`).
 		WithArgs("faction", "f1", reward).
 		WillReturnRows(sqlmock.NewRows([]string{"balance", "withdrawable", "least"}).
@@ -89,11 +101,34 @@ func expectPublishSupplyShareFor(mock sqlmock.Sqlmock, authorID, goodID string, 
 	mock.ExpectExec(`UPDATE contracts SET escrow_withdrawable`).
 		WithArgs(sqlmock.AnyArg(), withdrawable).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(`INSERT INTO contract_log`).WillReturnResult(sqlmock.NewResult(0, 1)) // published
 	mock.ExpectExec(`INSERT INTO contract_log`).WillReturnResult(sqlmock.NewResult(0, 1)) // escrow_locked
 	mock.ExpectExec(`INSERT INTO money_operations`).
 		WithArgs("faction", "f1", -reward, sqlmock.AnyArg(), "escrow_lock", sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+}
+
+// expectPublishSupplyShareFree — публикация доли в free-mode (§5.5, T8):
+// баланс не покрывает награду → reward = 0, escrow_amount = 0, без lockEscrow,
+// money_op и лога escrow_locked.
+func expectPublishSupplyShareFree(mock sqlmock.Sqlmock, authorID, goodID string) {
+	mock.ExpectQuery(`SELECT owner_type, owner_id FROM buildings WHERE id = \$1`).
+		WithArgs(authorID).
+		WillReturnRows(sqlmock.NewRows([]string{"owner_type", "owner_id"}).AddRow("faction", "f1"))
+	mock.ExpectExec(`INSERT INTO accounts`).
+		WithArgs("faction", "f1", int64(1000000000000000)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(`SELECT balance FROM accounts WHERE owner_type = \$1 AND owner_id = \$2`).
+		WithArgs("faction", "f1").
+		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(int64(0)))
+	mock.ExpectExec(`INSERT INTO contracts`).
+		WithArgs(sqlmock.AnyArg(), "supply", "building", authorID, "p1", supplyShareTitle, "", "{}",
+			int64(0), "regular", int64(0), int64(0), "deposit", "open", "public", nil, nil,
+			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO contract_requirements`).
+		WithArgs(sqlmock.AnyArg(), 1, "goods", goodID, "in", nil, nil, sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO contract_log`).WillReturnResult(sqlmock.NewResult(0, 1)) // published
 }
 
 // T8/T15: РїР»Р°РЅРµС‚Р° Р±РµР· РЅСѓР¶Рґ вЂ” РјР°С‚РµСЂРёР°Р»РёР·Р°С†РёСЏ РЅРµ РґРµР»Р°РµС‚ РќР РћР”РќРћР“Рћ SQL (РґРѕСЃРєР° РєР°Рє
@@ -103,7 +138,9 @@ func TestMaterializeBoardNoNeedsNoSQL(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	ok, err := NewContractRepository(db).MaterializeBoard("p1", time.Now())
+	repo := NewContractRepository(db)
+	withNeeds(repo) // шов пуст — нужд нет
+	ok, err := repo.MaterializeBoard("p1", time.Now())
 	require.NoError(t, err)
 	require.False(t, ok)
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -122,6 +159,7 @@ func TestMaterializeBoardFirstRunIgnoresCadence(t *testing.T) {
 	mock.ExpectBegin()
 	expectBoardStateNew(mock, time.Now()) // СЃС‚СЂРѕРєР° С‚РѕР»СЊРєРѕ С‡С‚Рѕ СЃРѕР·РґР°РЅР°, РЅРѕ РїСЂРѕРіРѕРЅ Р±РµР·СѓСЃР»РѕРІРµРЅ
 	mock.ExpectQuery(`c.publication_planet_id = \$1`).WillReturnRows(emptyOpenShares())
+	expectNoTakenKeys(mock)
 	mock.ExpectExec(`UPDATE contract_board_state SET materialized_at`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
@@ -162,6 +200,7 @@ func TestMaterializeBoardMaterializesWhenCadenceElapsed(t *testing.T) {
 	mock.ExpectBegin()
 	expectBoardStateExisting(mock, time.Now().Add(-2*settlement.MinPersistInterval))
 	mock.ExpectQuery(`c.publication_planet_id = \$1`).WillReturnRows(emptyOpenShares())
+	expectNoTakenKeys(mock)
 	mock.ExpectExec(`UPDATE contract_board_state SET materialized_at`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
@@ -184,6 +223,7 @@ func TestMaterializeBoardPublishesMissingShares(t *testing.T) {
 	mock.ExpectBegin()
 	expectBoardStateNew(mock, time.Now())
 	mock.ExpectQuery(`c.publication_planet_id = \$1`).WillReturnRows(emptyOpenShares())
+	expectNoTakenKeys(mock)
 	expectPublishSupplyShare(mock, reward, 0)
 	mock.ExpectExec(`UPDATE contract_board_state SET materialized_at`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
@@ -209,6 +249,7 @@ func TestMaterializeBoardIgnoresTakenShares(t *testing.T) {
 	expectBoardStateNew(mock, time.Now())
 	// РћС‚РєСЂС‹С‚С‹С… РґРѕР»РµР№ РЅРµС‚ (РІР·СЏС‚Р°СЏ РґРѕР»СЏ вЂ” status='taken', РІ РІС‹Р±РѕСЂРєСѓ РЅРµ РІС…РѕРґРёС‚).
 	mock.ExpectQuery(`WHERE c.status = 'open' AND c.publication_planet_id = \$1`).WillReturnRows(emptyOpenShares())
+	expectNoTakenKeys(mock)
 	expectPublishSupplyShare(mock, reward, 0)
 	mock.ExpectExec(`UPDATE contract_board_state SET materialized_at`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
@@ -234,6 +275,7 @@ func TestMaterializeBoardNoopWhenSharesMatch(t *testing.T) {
 	mock.ExpectQuery(`c.publication_planet_id = \$1`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "package_key", "share_index", "quantity"}).
 			AddRow("c1", "supply:p1:b1:g1", 1, int64(100)))
+	expectNoTakenKeys(mock)
 	mock.ExpectExec(`UPDATE contract_board_state SET materialized_at`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
@@ -258,6 +300,7 @@ func TestMaterializeBoardCancelsWhenDeficitGone(t *testing.T) {
 	mock.ExpectQuery(`c.publication_planet_id = \$1`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "package_key", "share_index", "quantity"}).
 			AddRow("c1", "supply:p1:b1:g1", 1, int64(100)))
+	expectNoTakenKeys(mock)
 	mock.ExpectQuery(`UPDATE contracts SET status = 'cancelled'`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(rowSet6().AddRow("c1", "building", "b1", nil, 500, 0))
@@ -282,33 +325,27 @@ func TestMaterializeBoardCancelsWhenDeficitGone(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// РќРµС…РІР°С‚РєР° СЃСЂРµРґСЃС‚РІ РїСЂРё СЃРїРёСЃР°РЅРёРё Р·Р°Р»РѕРіР° (0 СЃС‚СЂРѕРє) в†’ РѕС‚РєР°С‚ РІСЃРµР№ tx (В§3.3).
-func TestMaterializeBoardRollsBackWhenEscrowFails(t *testing.T) {
+// T8 (D5): владелец не покрывает пакет → доля публикуется в free-mode
+// (reward = 0, escrow_amount = 0), без lockEscrow, money_op и лога escrow_locked.
+func TestMaterializeBoardFreeModeWhenBalanceLow(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
 	defer db.Close()
 
 	repo := NewContractRepository(db)
 	withNeeds(repo, boardNeed(100, 0, []float64{100}))
-	reward := contracts.ShareReward(100, 10)
 
 	mock.ExpectBegin()
 	expectBoardStateNew(mock, time.Now())
 	mock.ExpectQuery(`c.publication_planet_id = \$1`).WillReturnRows(emptyOpenShares())
-	mock.ExpectQuery(`SELECT owner_type, owner_id FROM buildings WHERE id = \$1`).
-		WithArgs("b1").
-		WillReturnRows(sqlmock.NewRows([]string{"owner_type", "owner_id"}).AddRow("faction", "f1"))
-	mock.ExpectExec(`INSERT INTO accounts`).WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectExec(`INSERT INTO contracts`).WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(`INSERT INTO contract_requirements`).WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectQuery(`WITH acc AS`).
-		WithArgs("faction", "f1", reward).
-		WillReturnRows(sqlmock.NewRows([]string{"balance", "withdrawable", "least"}))
-	mock.ExpectRollback()
+	expectNoTakenKeys(mock)
+	expectPublishSupplyShareFree(mock, "b1", "g1")
+	mock.ExpectExec(`UPDATE contract_board_state SET materialized_at`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
 
 	ok, err := repo.MaterializeBoard("p1", time.Now())
-	require.ErrorIs(t, err, ErrInsufficientFunds)
-	require.False(t, ok)
+	require.NoError(t, err)
+	require.True(t, ok)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -349,6 +386,7 @@ func TestMaterializeBoardCancelsPackageDroppedFromNeeds(t *testing.T) {
 	mock.ExpectQuery(`c.publication_planet_id = \$1`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "package_key", "share_index", "quantity"}).
 			AddRow("c1", "supply:p1:b1:g1", 1, int64(100)))
+	expectNoTakenKeys(mock)
 	// Снятие: contracts → accounts, причина superseded.
 	mock.ExpectQuery(`UPDATE contracts SET status = 'cancelled'`).
 		WithArgs(sqlmock.AnyArg()).
@@ -391,6 +429,7 @@ func TestMaterializeBoardIgnoresUnpackagedContracts(t *testing.T) {
 	// Выборка отсекает package_key IS NULL — «ручной» контракт в неё не попадает.
 	mock.ExpectQuery(`WHERE c.status = 'open' AND c.publication_planet_id = \$1\s+AND c.package_key IS NOT NULL`).
 		WillReturnRows(emptyOpenShares())
+	expectNoTakenKeys(mock)
 	mock.ExpectExec(`UPDATE contract_board_state SET materialized_at`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
@@ -429,6 +468,7 @@ func TestMaterializeBoardDeduplicatesNeeds(t *testing.T) {
 	mock.ExpectBegin()
 	expectBoardStateNew(mock, time.Now())
 	mock.ExpectQuery(`c.publication_planet_id = \$1`).WillReturnRows(emptyOpenShares())
+	expectNoTakenKeys(mock)
 	expectPublishSupplyShare(mock, reward, 0) // ровно одна публикация
 	mock.ExpectExec(`UPDATE contract_board_state SET materialized_at`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
@@ -522,5 +562,163 @@ func TestTakeOtherErrorNotMapped(t *testing.T) {
 	_, err = NewContractRepository(db).Take("c1", "player", "u1", nil)
 	require.Error(t, err)
 	require.NotErrorIs(t, err, ErrPackageShareTaken)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// T9 (N5): при взятой доле пакета цель = 0 — новые открытые доли не
+// публикуются, существующие открытые снимаются (superseded, залог возвращён).
+func TestMaterializeBoardTakenShareZeroesTarget(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	repo := NewContractRepository(db)
+	withNeeds(repo, boardNeed(100, 0, []float64{100})) // дефицит 100, но доля взята
+
+	mock.ExpectBegin()
+	expectBoardStateNew(mock, time.Now())
+	mock.ExpectQuery(`c.publication_planet_id = \$1`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "package_key", "share_index", "quantity"}).
+			AddRow("c1", "supply:p1:b1:g1", 1, int64(100)))
+	mock.ExpectQuery(`SELECT DISTINCT package_key FROM contracts`).
+		WillReturnRows(sqlmock.NewRows([]string{"package_key"}).AddRow("supply:p1:b1:g1"))
+	mock.ExpectQuery(`UPDATE contracts SET status = 'cancelled'`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(rowSet6().AddRow("c1", "building", "b1", nil, 500, 0))
+	mock.ExpectQuery(`SELECT owner_type, owner_id FROM buildings WHERE id = \$1`).
+		WithArgs("b1").
+		WillReturnRows(sqlmock.NewRows([]string{"owner_type", "owner_id"}).AddRow("faction", "f1"))
+	mock.ExpectExec(`INSERT INTO accounts`).
+		WithArgs("faction", "f1", int64(1000000000000000)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(`UPDATE accounts\s+SET balance = balance \+ \$3, withdrawable = withdrawable \+ \$4`).
+		WithArgs("faction", "f1", int64(500), int64(0)).
+		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(int64(1000000000000500)))
+	mock.ExpectExec(`INSERT INTO money_operations`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO contract_log`).WillReturnResult(sqlmock.NewResult(0, 1)) // cancelled
+	mock.ExpectExec(`INSERT INTO contract_log`).WillReturnResult(sqlmock.NewResult(0, 1)) // escrow_returned
+	mock.ExpectExec(`UPDATE contract_board_state SET materialized_at`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	ok, err := repo.MaterializeBoard("p1", time.Now())
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// T2a (N1): отказ одной нужды (ErrPayerUnresolved) не роняет публикацию
+// остальных — доска не блокируется молча.
+func TestMaterializeBoardSkipsSoftErrorNeed(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	repo := NewContractRepository(db)
+	bad := boardNeed(100, 0, []float64{100})
+	bad.AuthorID = "b-bad"
+	good := boardNeed(100, 0, []float64{100})
+	good.AuthorID = "b-good"
+	good.GoodID = "g2"
+	withNeeds(repo, bad, good)
+
+	mock.ExpectBegin()
+	expectBoardStateNew(mock, time.Now())
+	mock.ExpectQuery(`c.publication_planet_id = \$1`).WillReturnRows(emptyOpenShares())
+	expectNoTakenKeys(mock)
+	// Плохая нужда: постройка не найдена → ErrPayerUnresolved (мягкая).
+	mock.ExpectQuery(`SELECT owner_type, owner_id FROM buildings WHERE id = \$1`).
+		WithArgs("b-bad").
+		WillReturnRows(sqlmock.NewRows([]string{"owner_type", "owner_id"}))
+	// Хорошая нужда публикуется.
+	expectPublishSupplyShareFor(mock, "b-good", "g2", contracts.ShareReward(100, 10), 0)
+	mock.ExpectExec(`UPDATE contract_board_state SET materialized_at`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	ok, err := repo.MaterializeBoard("p1", time.Now())
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// §6: автор контракта и actor лога берутся из need.AuthorType (settlement),
+// плательщик — владелец поселения.
+func TestMaterializeBoardAuthorFromNeed(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	repo := NewContractRepository(db)
+	need := boardNeed(100, 0, []float64{100})
+	need.AuthorType = models.ContractActorSettlement
+	need.AuthorID = "s1"
+	withNeeds(repo, need)
+	reward := contracts.ShareReward(100, 10)
+
+	mock.ExpectBegin()
+	expectBoardStateNew(mock, time.Now())
+	mock.ExpectQuery(`c.publication_planet_id = \$1`).WillReturnRows(emptyOpenShares())
+	expectNoTakenKeys(mock)
+	mock.ExpectQuery(`SELECT owner_type, owner_id FROM settlements WHERE id = \$1`).
+		WithArgs("s1").
+		WillReturnRows(sqlmock.NewRows([]string{"owner_type", "owner_id"}).AddRow("player", "u1"))
+	mock.ExpectExec(`INSERT INTO accounts`).
+		WithArgs("player", "u1", int64(10000)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(`SELECT balance FROM accounts WHERE owner_type = \$1 AND owner_id = \$2`).
+		WithArgs("player", "u1").
+		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(int64(10000)))
+	mock.ExpectExec(`INSERT INTO contracts`).
+		WithArgs(sqlmock.AnyArg(), "supply", "settlement", "s1", "p1", supplyShareTitle, "", "{}",
+			reward, "regular", reward, int64(0), "deposit", "open", "public", nil, nil,
+			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO contract_requirements`).
+		WithArgs(sqlmock.AnyArg(), 1, "goods", "g1", "in", nil, nil, sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO contract_log`).WillReturnResult(sqlmock.NewResult(0, 1)) // published
+	mock.ExpectQuery(`WITH acc AS`).
+		WithArgs("player", "u1", reward).
+		WillReturnRows(sqlmock.NewRows([]string{"balance", "withdrawable", "least"}).
+			AddRow(int64(10000), 0, 0))
+	mock.ExpectExec(`UPDATE contracts SET escrow_withdrawable`).
+		WithArgs(sqlmock.AnyArg(), 0).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO contract_log`).WillReturnResult(sqlmock.NewResult(0, 1)) // escrow_locked
+	mock.ExpectExec(`INSERT INTO money_operations`).
+		WithArgs("player", "u1", -reward, sqlmock.AnyArg(), "escrow_lock", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`UPDATE contract_board_state SET materialized_at`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	ok, err := repo.MaterializeBoard("p1", time.Now())
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// boardNeedsFor (реальный источник, §1.6/§7 п.3): ячейки владельческих поселений
+// → BoardNeed с порогом StorageCaps; ownerless исключены SQL-предикатом.
+func TestBoardNeedsForRealSource(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectQuery(`FROM settlements s\s+JOIN settlement_storage_cells c`).
+		WithArgs("p1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "storage_size", "good_id", "amount", "cap_share"}).
+			AddRow("s1", 1000.0, int64(10), 0.0, 1.0).
+			AddRow("s1", 1000.0, int64(20), 400.0, 1.0))
+
+	needs, err := NewContractRepository(db).boardNeedsFor("p1")
+	require.NoError(t, err)
+	require.Len(t, needs, 2)
+	require.Equal(t, models.ContractActorSettlement, needs[0].AuthorType)
+	require.Equal(t, "s1", needs[0].AuthorID)
+	require.Equal(t, "10", needs[0].GoodID)
+	require.Equal(t, 500.0, needs[0].Target) // 1000 × 1/2
+	require.Equal(t, 0.0, needs[0].Actual)
+	require.Equal(t, "20", needs[1].GoodID)
+	require.Equal(t, 500.0, needs[1].Target)
+	require.Equal(t, 400.0, needs[1].Actual)
 	require.NoError(t, mock.ExpectationsWereMet())
 }

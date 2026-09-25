@@ -11,8 +11,11 @@ package repository
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
+	"log"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -26,13 +29,12 @@ import (
 // BoardNeed — минимальное описание нужды планеты (§5.1): из неё чистыми
 // функциями internal/contracts строится целевой набор долей пакета.
 //
-// Носителя нужд в v1 физически нет: буферы постройки (buildings.data) отложены
-// до релиза 2 фабрик (§5.1/§5.2/§5.7.1, Поставка 2). Источник нужд
-// инъектируется в ContractRepository (boardNeeds) и по умолчанию пуст — на
-// живых мирах нужд нет, материализация no-op. НЕ добавлять запрос к
-// buildings.data (колонки нет — упадёт рантаймом).
+// Источник нужд в проде — реальный (ячейки внутреннего хранилища поселений
+// планеты, §1.6/§7 п.3); шов boardNeeds остаётся для тестов. НЕ добавлять
+// запрос к buildings.data (колонки нет — упадёт рантаймом).
 type BoardNeed struct {
-	AuthorID     string        // постройка-заказчик (contracts.author_type='building')
+	AuthorType   string        // тип автора-заказчика (contracts.author_type)
+	AuthorID     string        // id автора-заказчика (поселение/постройка)
 	PlanetID     string        // планета застройки (= доска и publication_planet_id)
 	GoodID       string        // позиция нужды (contract_requirements.subject)
 	Target       float64       // целевой уровень буфера
@@ -43,8 +45,23 @@ type BoardNeed struct {
 }
 
 // boardNeedsFunc — источник нужд планеты (шов §5.1, чтобы обеспечить
-// тестируемость). v1: nil = нужд нет (материализация no-op).
+// тестируемость). nil = реальный источник (ячейки хранилища).
 type boardNeedsFunc func(planetID string) ([]BoardNeed, error)
+
+// boardNeedBaseReward — заглушка цены заказа (эталон цены — ЧК2в, §9):
+// ненулевая, чтобы обычный платный путь был задействован.
+const boardNeedBaseReward = 1.0
+
+// boardNeedsSQL — нужды планеты из ячеек хранилища владельческих поселений
+// (§1.6/§7 п.3): ownerless-поселения исключены (N1/§18 п.28). Одна строка на
+// (поселение, товар); storage_size — размер хранилища поселения.
+const boardNeedsSQL = `
+	SELECT s.id, s.storage_size, c.good_id, c.amount, c.cap_share
+	FROM settlements s
+	JOIN settlement_storage_cells c
+	  ON c.owner_type = 'settlement' AND c.owner_id = s.id
+	WHERE s.planet_id = $1 AND s.owner_id IS NOT NULL
+	ORDER BY s.id, c.good_id`
 
 // supplyShareTitle — заголовок публикуемой доли (у доли нет своего названия).
 const supplyShareTitle = "Снабжение"
@@ -82,6 +99,13 @@ const openSharesSQL = `
 		  AND c.package_key IS NOT NULL
 		ORDER BY c.package_key, c.share_index`
 
+// Взятые доли пакетов планеты (§1.7/§5.3, N5): при непустых taken по ключу
+// целевой набор долей пакета = пусто — новые не публикуются, существующие
+// открытые снимаются сверкой. Читается по планете, сгруппировано по package_key.
+const takenPackageKeysSQL = `
+	SELECT DISTINCT package_key FROM contracts
+	WHERE status = 'taken' AND publication_planet_id = $1 AND package_key IS NOT NULL`
+
 // Снятие лишних/устаревших открытых долей: flip open→cancelled (contracts),
 // затем возврат залога автору (accounts) — форма Cancel/sweepEscrow, причина
 // лога 'superseded' (§3.3/§4.4).
@@ -103,6 +127,17 @@ const insertShareContractSQL = `
 
 const setShareWithdrawableSQL = `
 		UPDATE contracts SET escrow_withdrawable = $2 WHERE id = $1`
+
+// payerBalanceSQL — читающая предварительная проверка баланса плательщика ДО
+// INSERT (§5.5): не покрывает награду → free-mode. Счёт уже гарантирован
+// ensurePayerAccount.
+const payerBalanceSQL = `
+		SELECT balance FROM accounts WHERE owner_type = $1 AND owner_id = $2`
+
+// setShareFreeModeSQL — перевод уже вставленной доли в free-mode при гонке
+// (баланс ушёл между чтением и локом, §5.5): эскроу не заперт, счёт не тронут.
+const setShareFreeModeSQL = `
+		UPDATE contracts SET reward = 0, escrow_amount = 0, updated_at = NOW() WHERE id = $1`
 
 // MaterializeBoard — ленивая материализация доски планеты (§3.3): одна
 // транзакция. Возвращает true, если проход выполнен, false — если работа не
@@ -152,19 +187,27 @@ func (r *ContractRepository) MaterializeBoard(planetID string, now time.Time) (b
 	if err != nil {
 		return false, err
 	}
+	// Взятые доли планеты (§1.7/§5.3, N5): по ключу с непустыми taken цель = 0.
+	takenKeys, err := loadTakenPackageKeys(tx, planetID)
+	if err != nil {
+		return false, err
+	}
 
 	// 5. Сверка (§4.4): лишние — отмена, недостающие — публикация. Порядок
 	// захвата внутри обоих шагов contracts → accounts. Обход — по объединению
 	// ключей (целевые пакеты нужд + все ключи открытых долей планеты), в
 	// детерминированном порядке: ключ без нужды даёт пустой целевой набор →
-	// все его открытые доли снимаются.
+	// все его открытые доли снимаются. Ключ с взятой долей тоже даёт пустой
+	// целевой набор (N5): новых долей нет, открытые снимаются.
 	for _, key := range reconcileKeys(pkgs, current) {
 		var target []contracts.Share
 		var need BoardNeed
-		for _, pkg := range pkgs {
-			if pkg.key == key {
-				target, need = pkg.shares, pkg.need
-				break
+		if !takenKeys[key] {
+			for _, pkg := range pkgs {
+				if pkg.key == key {
+					target, need = pkg.shares, pkg.need
+					break
+				}
 			}
 		}
 		cancelIDs, publish := reconcileShares(target, current[key])
@@ -175,6 +218,13 @@ func (r *ContractRepository) MaterializeBoard(planetID string, now time.Time) (b
 		}
 		for _, share := range publish {
 			if err := publishBoardShare(tx, need, key, share, now); err != nil {
+				// «Мягкие» ошибки одной нужды (резолв плательщика, цена,
+				// нехватка средств) не роняют публикацию остальных (N1/T2a):
+				// иначе единичный сбой = молчаливая блокада доски всей планеты.
+				if isSoftBoardPublishError(err) {
+					log.Printf("materialize board: пропуск доли пакета %s: %v", key, err)
+					continue
+				}
 				return false, err
 			}
 		}
@@ -190,13 +240,82 @@ func (r *ContractRepository) MaterializeBoard(planetID string, now time.Time) (b
 	return true, nil
 }
 
-// boardNeedsFor — нужды планеты из инъектированного источника (§5.1). v1 по
-// умолчанию пуст: носителя нужд нет (Поставка 2).
+// boardNeedsFor — нужды планеты: инъектированный шов (тесты) либо реальный
+// источник — ячейки хранилища владельческих поселений планеты (§1.6/§7 п.3).
 func (r *ContractRepository) boardNeedsFor(planetID string) ([]BoardNeed, error) {
-	if r.boardNeeds == nil {
-		return nil, nil
+	if r.boardNeeds != nil {
+		return r.boardNeeds(planetID)
 	}
-	return r.boardNeeds(planetID)
+	return r.loadBoardNeeds(planetID)
+}
+
+// loadBoardNeeds — реальный источник нужд (§1.6/§7 п.3): для каждого
+// владельческого поселения планеты и каждой его ячейки строится BoardNeed.
+// Target — порог ячейки (StorageCaps: size × cap_share/Σcap_share), Actual —
+// количество. Capacities = nil: нарезка под трюмы — гипотеза, калибровка
+// ЧК2в/@balancetester (новая сущность/запрос не вводится). WindowPreset = 0 —
+// существующий дефолт окна (SupplyOfferWindowDefault = 24ч).
+func (r *ContractRepository) loadBoardNeeds(planetID string) ([]BoardNeed, error) {
+	rows, err := r.db.Query(boardNeedsSQL, planetID)
+	if err != nil {
+		return nil, fmt.Errorf("board needs: %w", err)
+	}
+	defer rows.Close()
+
+	type cellRow struct {
+		goodID   int64
+		amount   float64
+		capShare float64
+	}
+	type settRow struct {
+		id    string
+		size  float64
+		cells []cellRow
+	}
+	bySett := map[string]*settRow{}
+	var order []string
+	for rows.Next() {
+		var sid string
+		var size float64
+		var c cellRow
+		if err := rows.Scan(&sid, &size, &c.goodID, &c.amount, &c.capShare); err != nil {
+			return nil, err
+		}
+		s := bySett[sid]
+		if s == nil {
+			s = &settRow{id: sid, size: size}
+			bySett[sid] = s
+			order = append(order, sid)
+		}
+		s.cells = append(s.cells, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	var needs []BoardNeed
+	for _, sid := range order {
+		s := bySett[sid]
+		weights := make(map[int64]float64, len(s.cells))
+		for _, c := range s.cells {
+			weights[c.goodID] = c.capShare
+		}
+		caps := settlement.StorageCaps(s.size, weights)
+		for _, c := range s.cells {
+			needs = append(needs, BoardNeed{
+				AuthorType:   models.ContractActorSettlement,
+				AuthorID:     sid,
+				PlanetID:     planetID,
+				GoodID:       strconv.FormatInt(c.goodID, 10),
+				Target:       caps[c.goodID],
+				Actual:       c.amount,
+				Capacities:   nil,
+				BaseReward:   boardNeedBaseReward,
+				WindowPreset: 0,
+			})
+		}
+	}
+	return needs, nil
 }
 
 // boardPackage — одна нужда, приведённая к пакету (ключ группировки + целевые
@@ -295,6 +414,35 @@ func loadOpenShares(q querier, planetID string) (map[string]map[int]openShare, e
 	return out, rows.Err()
 }
 
+// loadTakenPackageKeys — ключи пакетов планеты, у которых есть взятая доля
+// (§1.7/§5.3, N5). Пустой набор — взятых долей нет.
+func loadTakenPackageKeys(q querier, planetID string) (map[string]bool, error) {
+	rows, err := q.Query(takenPackageKeysSQL, planetID)
+	if err != nil {
+		return nil, fmt.Errorf("materialize board: taken keys: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return nil, err
+		}
+		out[key] = true
+	}
+	return out, rows.Err()
+}
+
+// isSoftBoardPublishError — «мягкая» ошибка публикации доли (N1/T2a): резолв
+// плательщика, цена, нехватка средств. Такие ошибки логируются и пропускаются,
+// не роняя публикацию остальных нужд. Неожиданные SQL-ошибки — «жёсткие»:
+// возвращаются с откатом (порчу БД не маскируем).
+func isSoftBoardPublishError(err error) bool {
+	return errors.Is(err, ErrPayerUnresolved) ||
+		errors.Is(err, ErrInvalidReward) ||
+		errors.Is(err, ErrInsufficientFunds)
+}
+
 // reconcileShares сравнивает целевой набор долей с текущими открытыми долями
 // пакета по ключу (share_index, объём) (§4.4): возвращает id долей на отмену и
 // доли к публикации. Взятые/закрытые сюда не попадают (в current только
@@ -333,14 +481,23 @@ func cancelBoardShares(q querier, ids []string) error {
 
 // publishBoardShare — публикация недостающей доли пакета (образец Publish, но
 // своим порядком §3.3): contracts (INSERT контракта/требования) → accounts
-// (списание залога). Плательщик — владелец постройки (С5), планета публикации —
-// планета застройки (не factions.homeworld_id).
+// (списание залога). Автор и actor лога — из need.AuthorType (§6); плательщик —
+// владелец автора, планета публикации — планета застройки.
+//
+// Бесплатная публикация (§5.5, D5): развилка режима — читающая, ДО INSERT.
+// reward > 0 и баланс не покрывает → free-mode (reward = 0, escrow_amount = 0);
+// reward = 0 изначально → сразу free-mode. Строка вставляется уже с нужными
+// reward/escrow_amount; эскроу/счёт в free-mode не трогаются.
 func publishBoardShare(q querier, need BoardNeed, pkgKey string, share contracts.Share, now time.Time) error {
 	reward := contracts.ShareReward(share.Quantity, need.BaseReward)
-	if reward <= 0 {
+	if reward < 0 {
 		return fmt.Errorf("%w: доля пакета %s", ErrInvalidReward, pkgKey)
 	}
-	ownerType, ownerID, err := resolvePayerAccountQ(q, models.ContractActorBuilding, need.AuthorID)
+	authorType := need.AuthorType
+	if authorType == "" {
+		authorType = models.ContractActorBuilding
+	}
+	ownerType, ownerID, err := resolvePayerAccountQ(q, authorType, need.AuthorID)
 	if err != nil {
 		return err
 	}
@@ -348,11 +505,31 @@ func publishBoardShare(q querier, need BoardNeed, pkgKey string, share contracts
 		return err
 	}
 
+	// Развилка режима ДО INSERT (§5.5): reward > 0 — предварительная проверка
+	// баланса; не покрывает → free-mode. reward = 0 — сразу free-mode.
+	paid := reward > 0
+	if paid {
+		var balance int64
+		err := q.QueryRow(payerBalanceSQL, ownerType, ownerID).Scan(&balance)
+		if err == sql.ErrNoRows {
+			paid = false
+		} else if err != nil {
+			return fmt.Errorf("share balance check: %w", err)
+		} else if balance < reward {
+			paid = false
+		}
+	}
+	escrowAmount := reward
+	if !paid {
+		reward = 0
+		escrowAmount = 0
+	}
+
 	id := uuid.New().String()
 	if _, err := q.Exec(insertShareContractSQL,
-		id, models.ContractTypeSupply, models.ContractActorBuilding, need.AuthorID,
+		id, models.ContractTypeSupply, authorType, need.AuthorID,
 		need.PlanetID, supplyShareTitle, "", "{}", reward, models.ContractFundingRegular,
-		reward, 0, models.EscrowKindDeposit, models.ContractStatusOpen,
+		escrowAmount, 0, models.EscrowKindDeposit, models.ContractStatusOpen,
 		models.ContractVisibilityPublic, nil, nil, pkgKey, share.Index,
 		now.Add(models.SupplyOfferWindow(need.WindowPreset)), now, now,
 	); err != nil {
@@ -363,12 +540,25 @@ func publishBoardShare(q querier, need BoardNeed, pkgKey string, share contracts
 		return fmt.Errorf("insert share requirement: %w", err)
 	}
 
+	actorType, actorID := authorType, need.AuthorID
+	if err := insertContractLog(q, id, models.ContractLogPublished, &actorType, &actorID,
+		map[string]interface{}{}, now); err != nil {
+		return err
+	}
+	if !paid {
+		return nil
+	}
+
 	var balanceAfter, withdrawableAfter, escrowWithdrawable int64
 	err = q.QueryRow(lockEscrowSQL, ownerType, ownerID, reward).
 		Scan(&balanceAfter, &withdrawableAfter, &escrowWithdrawable)
 	if err == sql.ErrNoRows {
-		// 0 строк = нехватка средств → откат всей tx материализации (§3.3).
-		return ErrInsufficientFunds
+		// Гонка: баланс ушёл между чтением и локом (§5.5). Публикуем free-mode:
+		// эскроу не заперт, счёт не трогаем; строку переводим в reward = 0.
+		if _, uerr := q.Exec(setShareFreeModeSQL, id); uerr != nil {
+			return fmt.Errorf("share free-mode fallback: %w", uerr)
+		}
+		return nil
 	}
 	if err != nil {
 		return fmt.Errorf("share escrow lock: %w", err)
@@ -376,12 +566,6 @@ func publishBoardShare(q querier, need BoardNeed, pkgKey string, share contracts
 	_ = withdrawableAfter
 	if _, err := q.Exec(setShareWithdrawableSQL, id, escrowWithdrawable); err != nil {
 		return fmt.Errorf("set share withdrawable: %w", err)
-	}
-
-	actorType, actorID := models.ContractActorBuilding, need.AuthorID
-	if err := insertContractLog(q, id, models.ContractLogPublished, &actorType, &actorID,
-		map[string]interface{}{}, now); err != nil {
-		return err
 	}
 	if err := insertContractLog(q, id, models.ContractLogEscrowLocked, &actorType, &actorID,
 		map[string]interface{}{"amount": reward, "withdrawable": escrowWithdrawable}, now); err != nil {

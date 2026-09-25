@@ -20,13 +20,14 @@ func effectTypeRows() *sqlmock.Rows {
 		AddRow(int64(1), "Голод", "голод", "population_rate", "hunger")
 }
 
-// goodsNameRows — словарь товаров (id, name, name_norm): включает позицию
+// goodsNameRows — словарь товаров (id, name, name_norm, code): включает позицию
 // привязки ownerInput («пища», good 378) и компонент рецепта («мясо», good 359).
+// code — метка товара для иконок блока storage (§4.5/§8, T19).
 func goodsNameRows() *sqlmock.Rows {
-	return sqlmock.NewRows([]string{"id", "name", "name_norm"}).
-		AddRow(int64(378), "Пища", "пища").
-		AddRow(int64(359), "Мясо", "мясо").
-		AddRow(int64(426), "Очищенная вода", "очищенная вода")
+	return sqlmock.NewRows([]string{"id", "name", "name_norm", "code"}).
+		AddRow(int64(378), "Пища", "пища", "g_0131").
+		AddRow(int64(359), "Мясо", "мясо", "g_0130").
+		AddRow(int64(426), "Очищенная вода", "очищенная вода", "g_0135")
 }
 
 // recipeOccurrenceRows — число вхождений товара во входы рецептов (F3):

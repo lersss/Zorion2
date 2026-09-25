@@ -1,8 +1,9 @@
 // web/static/js/modal/branches.js
 // Ветки поселения в карточке планеты (спека 2026-09-22-поселение-ветка-
 // буферы-переработка §6): блок на каждую ветку — имя рецепта/выхода, сложность,
-// выход (товар → количество) виден всем, кто видит детали поселения; вход —
-// только админ. Плюс админ-формы «создать ветку» и «добавить во вход».
+// петля потребления и витрина арифметики. Буферы ветки сняты (спека ЧК2а
+// §4.4/§4.5): запас живёт в ячейках внутреннего хранилища (storageBlockHtml).
+// Плюс админ-формы «создать ветку» и «добавить во вход».
 //
 // Чистые функции без DOM/сети на верхнем уровне: модуль тянется в import-граф
 // админки (modal/tabs.js) и исполняется в Node (web/frontend_branches_test.go).
@@ -61,12 +62,6 @@ function currentUnitScaleKey() {
     return readUnitScale(typeof localStorage !== 'undefined' ? localStorage : null);
 }
 
-// bufferRowHtml — строка буфера «имя → количество».
-function bufferRowHtml(entry) {
-    const name = entry && entry.good_name ? entry.good_name : '#' + (entry && entry.good_id);
-    return `<div style="color:#ccc;">${name}: <strong>${formatAmount(entry && entry.amount)}</strong></div>`;
-}
-
 // branchArithmeticRowsHtml — строки витрины арифметики ветки (спека
 // 2026-09-23-стадии-поселения §8.2/§11.3): число скорости пары «тип × рецепт»
 // в выбранном масштабе (rate хранится как «ед/сутки/млрд» — §2.1), «забираем»
@@ -92,24 +87,18 @@ function branchArithmeticRowsHtml(branch, unitScaleKey) {
     return html;
 }
 
-// branchBlockHtml — блок одной ветки. Input показывается только админу
-// (isAdmin): входной буфер видит только админ (§6). Выход — «пол» по качеству
-// (поле качества не заводим, §1) — отдельной пометки в блоке нет.
-export function branchBlockHtml(branch, isAdmin) {
+// branchBlockHtml — блок одной ветки. Буферы ветки сняты моделью (спека ЧК2а
+// §4.4/§4.5): физический запас живёт в ячейках внутреннего хранилища (блок
+// «Внутреннее хранилище»), строк «выход/остаток» и «вход» в ветке больше нет —
+// один факт в одном месте (концепт §3.3).
+export function branchBlockHtml(branch) {
     if (!branch) return '';
     const unitScaleKey = currentUnitScaleKey();
     const title = branch.recipe_name || ('рецепт #' + branch.recipe_id);
     const complexity = branch.complexity ? ` · сложность ${branch.complexity}` : '';
     let html = `
         <div style="margin:8px 0; padding:10px; background:#14142a; border-radius:4px;">
-            <div><strong>${title}</strong><span style="color:#888;">${complexity}</span></div>
-            <div style="color:#888; font-size:0.85rem; margin-top:6px; text-transform:uppercase;">Выход · остаток (осадок)</div>`;
-    const output = branch.output || [];
-    if (output.length === 0) {
-        html += `<div style="color:#666;">— пусто —</div>`;
-    } else {
-        output.forEach(e => { html += bufferRowHtml(e); });
-    }
+            <div><strong>${title}</strong><span style="color:#888;">${complexity}</span></div>`;
     // Петля потребления (итерация 4 §6): «сделано» и «съедено» за ПОСЛЕДНИЙ
     // проход (не накопительный счётчик) + текущая скорость поедания, ед/сек.
     // Значения — скаляры; 0 приходит отсутствием поля (omitempty), поэтому
@@ -117,15 +106,6 @@ export function branchBlockHtml(branch, isAdmin) {
     html += `<div style="color:#888; font-size:0.85rem; margin-top:6px;">за проход: сделано <strong>${formatAmount(branch.produced || 0)}</strong> · съедено <strong>${formatAmount(branch.eaten || 0)}</strong></div>`;
     html += `<div style="color:#888; font-size:0.85rem;">скорость поедания: <strong>${formatAmount(branch.eaten_rate || 0)}</strong> ед/сек</div>`;
     html += branchArithmeticRowsHtml(branch, unitScaleKey);
-    if (isAdmin) {
-        html += `<div style="color:#facc15; font-size:0.85rem; margin-top:6px; text-transform:uppercase;">Вход (виден только админу)</div>`;
-        const input = branch.input || [];
-        if (input.length === 0) {
-            html += `<div style="color:#666;">— пусто —</div>`;
-        } else {
-            input.forEach(e => { html += bufferRowHtml(e); });
-        }
-    }
     html += `</div>`;
     return html;
 }
@@ -138,7 +118,7 @@ export function branchesBlockHtml(branches, isAdmin, settlementID) {
     if (list.length === 0) {
         html += `<div style="color:#666; font-size:0.85rem;">Веток нет</div>`;
     }
-    list.forEach(b => { html += branchBlockHtml(b, isAdmin); });
+    list.forEach(b => { html += branchBlockHtml(b); });
     if (isAdmin) {
         html += adminCreateBranchFormHtml(settlementID);
         list.forEach(b => { html += adminBranchInputFormHtml(b.id); });
@@ -210,6 +190,110 @@ export function settlementArithmeticHtml(settlement) {
     });
     needs.forEach(rows => { html += needArithmeticRowHtml(rows, unitScaleKey); });
     plain.forEach(a => { html += positionArithmeticRowHtml(a); });
+    return html;
+}
+
+// ---------- ВНУТРЕННЕЕ ХРАНИЛИЩЕ (спека ЧК2а §8, концепт §3) ----------
+
+// goodIconHtml — иконка товара по `code` (концепт §5.1/§5.3): файл
+// /static/sprites/goods/<code>.png с onerror-фолбэком на нейтральный эмодзи
+// (папки спрайтов ещё нет, категорийные эмодзи требуют category_id, которого в
+// DTO нет — будущая визуальная задача). Пустой code → сразу фолбэк.
+export function goodIconHtml(code) {
+    if (!code) return '<span style="margin-right:4px;">📦</span>';
+    const url = '/static/sprites/goods/' + encodeURIComponent(code) + '.png';
+    return `<img src="${url}" alt="" width="20" height="20" style="vertical-align:middle; margin-right:4px;" onerror="this.outerHTML='📦'">`;
+}
+
+// storageKindColor / storageEmptyColor — канал нужды (концепт §4): жизнь —
+// янтарь, производство — сталь; пустая ячейка — приглушённый тон вида.
+function storageKindColor(kind) {
+    return kind === 'population' ? '#fbbf24' : '#7fb3d5';
+}
+
+function storageEmptyColor(kind) {
+    return kind === 'population' ? '#f66' : '#64748b';
+}
+
+// storageRowHtml — строка ячейки (направление A, концепт §3): иконка + имя +
+// чип эффекта (только population) + amount/cap + состояние + полоса amount/cap
+// + мета «заполнено N% · доля M%». hasBars (size > 0) — при нулевом размере
+// полос и состояния от порога нет.
+function storageRowHtml(cell, hasBars) {
+    const kind = cell.need_kind === 'population' ? 'population' : 'production';
+    const color = storageKindColor(kind);
+    const amount = Number(cell.amount) || 0;
+    const cap = Number(cell.cap) || 0;
+    const deficit = Number(cell.deficit) || 0;
+    const icon = goodIconHtml(cell.code);
+    const chip = (kind === 'population' && cell.effect)
+        ? ` <span style="border:1px solid #fbbf24; color:#fbbf24; background:rgba(15,23,42,0.72); border-radius:10px; padding:1px 6px; font-size:0.72rem;">◆ ${cell.effect}</span>`
+        : '';
+    const nums = `<span style="color:#ccc;">${formatAmount(amount)}</span> <span style="color:#888;">/ ${formatAmount(cap)}</span>`;
+    let state = '';
+    if (hasBars) {
+        if (amount === 0) {
+            state = `<span style="color:${storageEmptyColor(kind)};">пусто</span>`;
+        } else if (deficit <= 0) {
+            state = `<span style="color:#4ade80;">✓ полно</span>`;
+        } else {
+            state = `<span style="color:${color};">не хватает ${formatAmount(deficit)}</span>`;
+        }
+    }
+    let bars = '';
+    if (hasBars) {
+        const fillPct = cap > 0 ? Math.min(100, Math.max(0, amount / cap * 100)) : 0;
+        const fillColor = cap > 0 && amount >= cap ? '#4ade80' : color;
+        bars = `<div style="margin-top:2px; background:#2a2a4a; border-radius:4px; height:8px; overflow:hidden;"><div style="width:${trimZeros(fillPct.toFixed(1))}%; height:8px; background:${fillColor};"></div></div>`;
+        bars += `<div style="color:#888; font-size:0.8rem;">заполнено ${formatPercent(cap > 0 ? amount / cap : 0)} · доля ${formatPercent(Number(cell.share) || 0)}</div>`;
+    }
+    return `
+        <div style="margin:6px 0;">
+            <div style="color:#ddd; display:flex; justify-content:space-between; align-items:center; gap:6px;">
+                <span>${icon}${cell.position || ('#' + cell.good_id)}${chip}</span>
+                <span style="white-space:nowrap;">${nums} ${state}</span>
+            </div>
+            ${bars}
+        </div>`;
+}
+
+// storageSort — порядок ячеек по срочности (концепт §3): population-дефицит →
+// production-дефицит → полные; внутри дефицита — по величине (убыв.), полные —
+// по good_id.
+function storageSort(a, b) {
+    const da = Number(a.deficit) || 0;
+    const db = Number(b.deficit) || 0;
+    const ga = da > 0 ? 0 : 1;
+    const gb = db > 0 ? 0 : 1;
+    if (ga !== gb) return ga - gb;
+    if (ga === 0) {
+        const ka = a.need_kind === 'population' ? 0 : 1;
+        const kb = b.need_kind === 'population' ? 0 : 1;
+        if (ka !== kb) return ka - kb;
+        return db - da;
+    }
+    return (Number(a.good_id) || 0) - (Number(b.good_id) || 0);
+}
+
+// storageBlockHtml — блок «Внутреннее хранилище» карточки поселения (спека
+// ЧК2а §8, направление A концепта §3): шапка с занятостью, легенда вида нужды,
+// строки ячеек. size = 0 → «порог не задан», полос нет. Нет блока — пусто
+// (сервер чистит storage у игрока без настройки и в снимке).
+export function storageBlockHtml(settlement) {
+    const st = settlement && settlement.storage;
+    if (!st) return '';
+    const size = Number(st.size) || 0;
+    const cells = Array.isArray(st.cells) ? st.cells : [];
+    const hasBars = size > 0;
+    let sum = 0;
+    cells.forEach(c => { sum += Number(c.amount) || 0; });
+    let header = 'Внутреннее хранилище';
+    header += hasBars
+        ? ` · занято ${Math.round(sum / size * 100)}% (${formatAmount(sum)} / ${formatAmount(size)})`
+        : ' · порог не задан';
+    let html = `<div style="color:#888; font-size:0.9rem; text-transform:uppercase; margin-top:8px;">${header}</div>`;
+    html += `<div style="color:#888; font-size:0.8rem;">● <span style="color:#fbbf24;">жизнь (голод/жажда)</span> · ● <span style="color:#7fb3d5;">производство (вход)</span></div>`;
+    cells.slice().sort(storageSort).forEach(c => { html += storageRowHtml(c, hasBars); });
     return html;
 }
 

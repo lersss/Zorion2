@@ -270,3 +270,12 @@
   новый срез через `flying`/фильтр видимости; тултип агента, 2026-09-25).
   Мутация среза из `manager.Positions()` in-place — гонка с тиком (AGENTS.md §0).
 
+- **Режим `commitIfChanged` owner-прохода (F1, ЧК2а 3б): `EnsureStorageCellsTx`
+  пишет `updated_at` ВСЕГДА (`ON CONFLICT DO UPDATE SET cap_share = EXCLUDED.cap_share,
+  updated_at = NOW()`), даже если вес не изменился.** Поэтому в
+  `syncOwner` (`settlement_owner_pass.go`) её нельзя звать до проверки
+  `ownerPassChanged`: иначе «no-op без записи» на каждом чтении доски превратится
+  в запись. Порядок режима: прочитать ячейки → посчитать `runOwnerPass` → сравнить
+  числа → и только при изменении `EnsureStorageCellsTx` + `writeOwnerTx`. Обычный
+  (не commitIfChanged) путь сохраняет прежний порядок (Ensure до чтения).
+

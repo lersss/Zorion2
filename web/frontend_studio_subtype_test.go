@@ -14,14 +14,60 @@ import (
 	"testing"
 )
 
-// studioHTML читает web/studio.html.
+// studioHTML читает web/studio.html и тела вынесенных классических скриптов
+// студии (/static/js/studio/*.js без type="module") в порядке их подключения —
+// чтобы контрактные проверки видели функции, вынесенные из монолита
+// (рефакторинг студии по блокам, идея 2026-09-25).
 func studioHTML(t *testing.T) string {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(repoRoot(t), "web", "studio.html"))
+	root := repoRoot(t)
+	b, err := os.ReadFile(filepath.Join(root, "web", "studio.html"))
 	if err != nil {
 		t.Fatalf("чтение studio.html: %v", err)
 	}
-	return string(b)
+	src := string(b)
+	for _, p := range studioClassicScripts(src) {
+		body, err := os.ReadFile(filepath.Join(root, "web", filepath.FromSlash(strings.TrimPrefix(p, "/"))))
+		if err != nil {
+			t.Fatalf("чтение %s: %v", p, err)
+		}
+		src += "\n" + string(body)
+	}
+	return src
+}
+
+// studioClassicScripts — src вынесенных классических скриптов студии в порядке
+// подключения в HTML: теги src="/static/js/studio/*.js" без type="module"
+// (модульные, напр. auth.js, инлайновый скрипт не видит — не подключаем).
+func studioClassicScripts(html string) []string {
+	const prefix = `src="/static/js/studio/`
+	var paths []string
+	rest := html
+	for {
+		i := strings.Index(rest, "<script")
+		if i < 0 {
+			break
+		}
+		rest = rest[i:]
+		j := strings.Index(rest, ">")
+		if j < 0 {
+			break
+		}
+		tag, after := rest[:j], rest[j+1:]
+		rest = after
+		if strings.Contains(tag, `type="module"`) {
+			continue
+		}
+		k := strings.Index(tag, prefix)
+		if k < 0 {
+			continue
+		}
+		v := tag[k+len(prefix):]
+		if e := strings.IndexByte(v, '"'); e >= 0 {
+			paths = append(paths, "/static/js/studio/"+v[:e])
+		}
+	}
+	return paths
 }
 
 // jsFuncBody — текст функции name верхнего уровня (от «function name(» до

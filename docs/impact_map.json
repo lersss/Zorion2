@@ -42,10 +42,11 @@
       "id": "settlement_branch_buffers",
       "type": "table",
       "path": "db:settlement_branch_buffers",
-      "note": "записи буферов ветки (миграция 000064, итерация 2): direction input|output, good_id, amount double ≥ 0; UNIQUE (branch_id, direction, good_id); вход видит только админ (stripBranchInputs), выход — часть деталей поселения",
+      "note": "⛔ РЕТАЙРЕНА (миграция 000087, ЧК2а 2026-09-25): RENAME в settlement_branch_buffers_retired, FK/индексы сняты; данные агрегированы в settlement_storage_cells. Живых потребителей нет — вход/выход ветки и питание населения читаются/пишутся в ячейках (internal_storage/owner-проход). Узел оставлен историческим; финальный DROP — отдельной миграцией после проверки.",
       "impacts": [
-        { "on": "settlement_branches", "kind": "schema", "reason": "FK branch_id → settlement_branches(id) ON DELETE CASCADE; чтение = ANY($1) по ветке" },
-        { "on": "goods", "kind": "schema", "reason": "FK good_id → goods(id) ON DELETE CASCADE: удаление записи каталога сносит её остатки из буферов" }
+        { "on": "internal_storage", "kind": "affects", "reason": "ЗАМЕНА: ячейки — единственный физический запас объекта; буферы ветки выведены из обращения (снятые рёбра: settlement_branch_processing → settlement_branch_buffers, needs_layer → settlement_branch_buffers)" },
+        { "on": "settlement_branches", "kind": "schema", "reason": "историческое: FK branch_id → settlement_branches(id) ON DELETE CASCADE (снят при ретайре)" },
+        { "on": "goods", "kind": "schema", "reason": "историческое: FK good_id → goods(id) ON DELETE CASCADE (снят при ретайре)" }
       ]
     },
     {
@@ -718,13 +719,13 @@
       "id": "surface_solid_field",
       "type": "mechanic",
       "path": "web/static/js/surface/surface_world.js",
-      "note": "Единое поле твёрдости поверхности прогулки (эпик «Мир прогулки», Э5.1, коммит 5a4a505, 2026-09-25). solidAt(x,y) — единственный источник твёрдости для физики и растра: baseSolid (y ≥ terrainHeight, минус isCave, плюс полоса float) ⊕ formsSolid (2D-формы relief.forms: overhang/void/crack2d/crater — Э5.2/Э5.3, в Э5.1 пусто). isSolid — алиас; columnSpans/skyTop/floorY — контракт поля. Растр (surface_render.js getChunkCanvas) идёт от того же поля; пещерная маска консервативна (3×3 только для полностью воздушного блока, граница шаг 1 px); кэш чанков сбрасывается по SS и _viewKey и вытесняется; угловая коллизия бокса 12×28 (числа физики не менялись). Якоря: floorY — корабль/фауна/спавн, skyTop — приземная погода (перенос потребителей в Э5.2/Э5.3). planet_image НЕ затрагивается (2D-формы не видны с орбиты, бамп ImageGenVersion не нужен)",
+      "note": "Единое поле твёрдости поверхности прогулки (эпик «Мир прогулки», Э5.1, коммит 5a4a505, 2026-09-25). solidAt(x,y) — единственный источник твёрдости для физики и растра: baseSolid (y ≥ terrainHeight, минус isCave, плюс полоса float) ⊕ formsSolid (2D-формы relief.forms: overhang/void/crack2d/crater — Э5.2/Э5.3, в Э5.1 пусто; Э5.2 (коммит 4fe80d1) — overhang аддитив и косметический crack2d на `горах`/`каменных_пустошах`; crater зарегистрирован 4→5, применение crater — Э5.3). isSolid — алиас; columnSpans/skyTop/floorY — контракт поля. Растр (surface_render.js getChunkCanvas) идёт от того же поля; пещерная маска консервативна (3×3 только для полностью воздушного блока, граница шаг 1 px); кэш чанков сбрасывается по SS и _viewKey и вытесняется; угловая коллизия бокса 12×28 (числа физики не менялись). Якоря: floorY — корабль/фауна/спавн, skyTop — приземная погода (перенос потребителей в Э5.3). planet_image НЕ затрагивается (2D-формы не видны с орбиты, бамп ImageGenVersion не нужен)",
       "impacts": [
         { "on": "web/static/js/surface/surface_player.js", "kind": "affects", "reason": "коллизия читает solidAt (угловая выборка бокса); спавн игрока — floorY(x), не terrainHeight" },
         { "on": "web/static/js/surface/surface_render.js", "kind": "affects", "reason": "растр идёт от того же поля (columnSpans); корабль на высадке drawShip и фауна — якоря floorY(x); консервативная пещерная маска" },
         { "on": "web/static/js/surface/surface_world.js", "kind": "affects", "reason": "точки фауны terrainHeight(x) → floorY(x); terrainHeight/isSolid → единое solidAt + relief.forms" },
         { "on": "surface_weather", "kind": "affects", "reason": "приземные эффекты/точка земли читают верх поля skyTop(x), не terrainHeight" },
-        { "on": "surface_view_recipe", "kind": "reads", "reason": "2D-формы приходят из рецепта relief.forms (relief2d); пусто в Э5.1, заполняется Э5.2/Э5.3" },
+        { "on": "surface_view_recipe", "kind": "reads", "reason": "2D-формы приходят из рецепта relief.forms (relief2d); пусто в Э5.1; заполнено в Э5.2 (горы/каменные_пустоши), далее Э5.3" },
         { "on": "biome_catalog.json", "kind": "affects", "reason": "новые данные relief.forms + регистрация crater (relief2d 4→5) + расширенная валидация" },
         { "on": "biome_catalog_seed.json", "kind": "affects", "reason": "та же регистрация crater; синхронность копий справочника (TestBiomeViewSeedSynced)" },
         { "on": "web/static/js/surface/surface_config.js", "kind": "affects", "reason": "константы: минимальный просвет (opening > роста игрока), потолки форм" }

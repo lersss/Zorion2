@@ -106,6 +106,10 @@
     <header>
       <h1>Учёт агентов</h1>
       <span class="dim" id="project"></span>
+      <span id="tabs">
+        <button id="tab-overview" class="on">Обзор</button>
+        <button id="tab-ideas">Идеи</button>
+      </span>
       <span class="rate" id="rate"></span>
       <span style="flex: 1"></span>
       <span class="zoomctl">
@@ -122,6 +126,7 @@
     </header>
     <p class="note"></p>
 
+    <div id="overview">
     <section class="liveblock">
       <div class="livehead">
         <h2>Активные</h2>
@@ -139,6 +144,9 @@
 
     <h2>Последние сессии</h2>
     <div class="scroll"><table id="active"></table></div>
+    </div>
+
+    <section id="ideas" style="display: none"></section>
 
     <footer>
       Цена и память — по периоду; повторы — за всю сессию; срабатывания сторожа — из его журнала
@@ -606,5 +614,6 @@
         status();
       }, 1000);
     </script>
+    <script type="module" src="/ideas.js"></script>
   </body>
 </html>

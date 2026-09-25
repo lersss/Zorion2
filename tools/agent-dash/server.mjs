@@ -6,6 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createStore, defaultDbPath } from "./stats.mjs";
+import { createIdeas } from "./ideas.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 8790);
@@ -13,6 +14,7 @@ const HOST = process.env.HOST || "127.0.0.1";
 const PROJECT = process.env.PROJECT || "Zorion";
 const DB_PATH = defaultDbPath();
 const CACHE_PATH = process.env.DASH_CACHE || path.join(HERE, ".cache.json");
+const IDEAS_CACHE_PATH = process.env.DASH_IDEAS_CACHE || path.join(HERE, ".ideas-cache.json");
 const JOURNAL_PATH = process.env.GUARD_LOG || path.join(HERE, "..", "..", ".opencode", "loop-guard.log");
 const OVERRIDE_PATH = process.env.GUARD_OVERRIDE || path.join(HERE, "..", "..", ".opencode", "loop-guard.override.json");
 const BATCH = Number(process.env.DASH_BATCH || 10);
@@ -23,6 +25,10 @@ const store = createStore({
   cachePath: CACHE_PATH,
   journalPath: JOURNAL_PATH,
 });
+// Привязка затрат к идеям (идея 100e) — отдельный модуль и отдельный кэш,
+// чтобы тяжёлый проход не тормозил главную страницу. Загружается лениво.
+const ideas = createIdeas({ dbPath: DB_PATH, project: PROJECT, cachePath: IDEAS_CACHE_PATH });
+
 const started = Date.now();
 const { sessions, cached } = store.load();
 
@@ -79,6 +85,21 @@ function sendHtml(res, body) {
     "cache-control": "no-store, no-cache, must-revalidate, max-age=0",
     pragma: "no-cache",
     expires: "0",
+  });
+  res.end(body);
+}
+
+// Клиентскую логику вкладки «Идеи» держим отдельным файлом рядом со страницей.
+function sendJs(res, file) {
+  let body;
+  try {
+    body = fs.readFileSync(file);
+  } catch {
+    return send(res, 404, "text/plain", "нет такого файла");
+  }
+  res.writeHead(200, {
+    "content-type": "text/javascript; charset=utf-8",
+    "cache-control": "no-store, no-cache, must-revalidate, max-age=0",
   });
   res.end(body);
 }
@@ -149,6 +170,21 @@ const server = http.createServer(async (req, res) => {
     report.extensions = activeExtensions();
     return send(res, 200, "application/json", JSON.stringify(report));
   }
+  // Цена идей целиком (идея 100e): отдельно от /api/stats, чтобы тяжёлая
+  // привязка не считалась на каждом 20-секундном обновлении главной.
+  if (url.pathname === "/api/ideas") {
+    const period = url.searchParams.get("period") || "all";
+    const since = periodSince(period);
+    let report;
+    try {
+      report = ideas.report({ since });
+    } catch (e) {
+      return send(res, 500, "application/json", JSON.stringify({ error: e.message }));
+    }
+    report.period = period;
+    report.server = { port: PORT, uptimeSec: Math.round((Date.now() - started) / 1000) };
+    return send(res, 200, "application/json", JSON.stringify(report));
+  }
   if (url.pathname === "/api/extend" && req.method === "POST") {
     const raw = await readBody(req);
     if (raw === null) return send(res, 413, "application/json", JSON.stringify({ error: "тело запроса слишком большое" }));
@@ -208,6 +244,7 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === "/index.html") {
     return sendHtml(res, fs.readFileSync(path.join(HERE, "index.html")));
   }
+  if (url.pathname === "/ideas.js") return sendJs(res, path.join(HERE, "ideas.js"));
   if (url.pathname === "/favicon.ico") return send(res, 204, "image/x-icon", "");
   send(res, 404, "text/plain", "нет такой страницы");
 });
@@ -228,7 +265,9 @@ server.listen(PORT, HOST, () => {
 const shutdown = () => {
   scanning = false;
   store.saveCache();
+  ideas.saveCache();
   store.close();
+  ideas.close();
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 500).unref();
 };

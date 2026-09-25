@@ -6,8 +6,8 @@
 //   * real API: empty property -> empty-state text, tab opens, no JS errors;
 //   * populated UI via request interception (there is NO player-facing "own"
 //     handle by design: owner is set by admin): row render, address, knowledge
-//     badge, "Посмотреть" href;
-//   * "Перелететь" button (ЧК2): active href carries &fly=1; with no engine the
+//     badge, "На карте" href;
+//   * "🚀 Лететь" button (ЧК2): active href carries &fly=1; with no engine the
 //     button is a disabled span with tooltip and no href (§8.4);
 //   * deeplink: click -> /map?system=..&planet=..&wname=.., popup opens for a
 //     cached world, auto-open markers cleared, URL wiped via replaceState;
@@ -164,7 +164,7 @@ async function main() {
 
     // --- Step 3: populated UI via interception (no player-facing own-handle) ---
     // Engine gate (§8.4): pass /me through and pin the engine flag so the
-    // "Перелететь" button state is deterministic (the real starter loadout is not
+    // "🚀 Лететь" button state is deterministic (the real starter loadout is not
     // guaranteed here); mockEngine=false flips it off for step 3b.
     let mockEngine = true;
     await page.route('**/me', async (route) => {
@@ -210,8 +210,8 @@ async function main() {
     const ok3 = listed.rows === 1 &&
       listed.text.includes('Люди') && listed.text.includes('Поселение') &&
       listed.text.includes(worldName + ' › Кеплер-3 b') &&
-      listed.text.includes('Данные на') && listed.text.includes('Посмотреть') &&
-      listed.text.includes('Перелететь') && !listed.flyDisabled &&
+      listed.text.includes('Данные на') && listed.text.includes('На карте') &&
+      listed.text.includes('Лететь') && !listed.flyDisabled &&
       listed.href.startsWith('/map?system=' + encodeURIComponent(propertyItem.world_id)) &&
       listed.flyHref.includes('&fly=1');
     report('3/8 row render + view/fly href', ok3 ? 'PASS' : 'FAIL',
@@ -220,7 +220,7 @@ async function main() {
 
     await page.screenshot({ path: path.join(ARTIFACTS_DIR, 'dashboard-property-list.png') });
 
-    // --- Step 3b: no engine -> "Перелететь" is a disabled span, no href (§8.4) ---
+    // --- Step 3b: no engine -> "🚀 Лететь" is a disabled span, no href (§8.4) ---
     mockEngine = false;
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.click('.tab-btn[data-tab="tab-property"]');

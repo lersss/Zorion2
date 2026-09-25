@@ -1,0 +1,35 @@
+/* web/static/css/dashboard.css
+   Оформление вкладок дашборда игрока (web/index.html). Начато с вкладки
+   «Собственность» (ЧК3, идея 2026-09-25 «Собственность игрока в дашборде» §9.1):
+   стили property-* вынесены из модуля dashboard/property.js в отдельный файл,
+   чтобы страница не росла. Остальные вкладки — позже, отдельной задачей. */
+
+/* Строка собственности — компактная двухстрочная (§9.2). */
+.property-row { padding: 8px 0; border-bottom: 1px solid #1f2a3a; }
+.property-row-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.property-row-name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.property-row-subtitle { color: #94a3b8; font-weight: 400; font-size: 0.8rem; }
+.property-row-actions { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.property-row-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 3px; font-size: 0.8rem; }
+.property-row-address { color: #94a3b8; }
+
+/* Плашка знания — «пилюля» (§9.2). Цвета по режиму. */
+.property-badge { padding: 2px 8px; border-radius: 8px; font-size: 0.78rem; white-space: nowrap; }
+.property-badge-ok { background: rgba(74,222,128,0.12); border: 1px solid rgba(74,222,128,0.4); color: #4ade80; }
+.property-badge-memory { background: rgba(148,163,184,0.10); border: 1px solid rgba(148,163,184,0.35); color: #94a3b8; }
+.property-badge-stale { background: rgba(251,191,36,0.12); border: 1px solid rgba(251,191,36,0.4); color: #fbbf24; }
+.property-badge-none { background: rgba(148,163,184,0.08); border: 1px dashed rgba(148,163,184,0.3); color: #94a3b8; }
+
+/* Статус маршрута (§9.3): «в пути» — спокойный чип, «прибыли» — вспышка. */
+.property-route-chip { padding: 2px 8px; border-radius: 8px; font-size: 0.78rem; white-space: nowrap; background: rgba(59,130,246,0.14); border: 1px solid rgba(59,130,246,0.45); color: #93c5fd; }
+.property-route-arrived { background: rgba(74,222,128,0.16); border-color: rgba(74,222,128,0.5); color: #4ade80; animation: property-arrived-flash 0.8s ease-in-out 5; }
+@keyframes property-arrived-flash { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+/* Иерархия действий (решение менеджера, §9.1): «На карте» — акцент, «Лететь» — тише. */
+.property-row .property-view-btn { background: #3b82f6; }
+.property-row .property-view-btn:hover { background: #2563eb; }
+.property-row .property-fly-btn { background: #334155; }
+.property-row .property-fly-btn:hover { background: #475569; }
+.property-row .property-fly-btn.is-disabled { opacity: 0.5; cursor: not-allowed; }
+
+.property-empty { color: #94a3b8; padding: 6px 0; }

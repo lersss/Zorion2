@@ -121,11 +121,32 @@ check("журнал прочитан, битые строки отмечены",
 check("напоминания про бюджет не считаются вмешательством", agent("tester").guard === 0, JSON.stringify(agent("tester")?.guard));
 check("напоминания про бюджет видны отдельным счётчиком", all.totals.guardReminds === 1, JSON.stringify(all.totals));
 
+check(
+  "токены за всё время: вход/выход/кеш считаются раздельно",
+  all.totals.tokensIn === 70 && all.totals.tokensOut === 5 && all.totals.tokensCache === 66100,
+  JSON.stringify(all.totals)
+);
+check(
+  "токены суммируются по роли",
+  agent("manager").tokensIn === 60 && agent("manager").tokensOut === 3 && agent("manager").tokensCache === 6000,
+  JSON.stringify(agent("manager"))
+);
+check(
+  "кеш роли не смешивается со входом",
+  agent("developer").tokensCache === 60000 && agent("developer").tokensIn === 5,
+  JSON.stringify(agent("developer"))
+);
+
 check("фич в отчёте две", all.features.length === 2, JSON.stringify(all.features.map((f) => f.label)));
 const featureA = all.features.find((f) => f.label === "Фича А");
 const featureB = all.features.find((f) => f.label === "Фича Б");
 check("цена фичи = дерево сессий", featureA.cost === 3.75, JSON.stringify(featureA?.cost));
 check("в фиче видны все роли", featureA.agents.join(",") === "developer,manager,tester", featureA.agents.join(","));
+check(
+  "токены суммируются по дереву фичи",
+  featureA.tokensIn === 40 && featureA.tokensOut === 4 && featureA.tokensCache === 63100,
+  JSON.stringify(featureA)
+);
 check("цена второй фичи", featureB.cost === 3, JSON.stringify(featureB?.cost));
 check("сессия без работы не засоряет список фич", !all.features.some((f) => f.label === "Осиротевшая"), JSON.stringify(all.features.map((f) => f.label)));
 
@@ -148,6 +169,21 @@ const devToday = today.agents.find((a) => a.label === "developer");
 check("срабатывания сторожа режутся по периоду", devToday.guard === 2, JSON.stringify(devToday?.guard));
 check("вчерашний обрыв сессии не попал в «сегодня»", today.totals.guardAborted === 0, JSON.stringify(today.totals));
 check("обрыв сессии виден во «всё время»", all.totals.guardAborted === 1 && all.totals.guardBlocked === 2, JSON.stringify(all.totals));
+check(
+  "токены режутся по периоду: сообщение старого дня не попало в «сегодня»",
+  today.totals.tokensIn === 30 && all.totals.tokensIn === 70,
+  JSON.stringify(today.totals)
+);
+check(
+  "в «сегодня» вход/выход/кеш раздельны",
+  today.totals.tokensOut === 3 && today.totals.tokensCache === 62100,
+  JSON.stringify(today.totals)
+);
+check(
+  "токены роли тоже режутся по периоду",
+  devToday.tokensIn === 5 && devToday.tokensOut === 1 && devToday.tokensCache === 60000,
+  JSON.stringify(devToday)
+);
 
 store.saveCache();
 

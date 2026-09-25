@@ -82,6 +82,7 @@ function newGroup(key, label, agent) {
     cost: 0,
     tokensIn: 0,
     tokensOut: 0,
+    tokensCache: 0,
     turns: 0,
     peak: 0,
     calls: 0,
@@ -97,8 +98,9 @@ function newGroup(key, label, agent) {
 function addTo(g, session, activity, stat, guard) {
   g.sessions += 1;
   g.cost += activity.cost;
-  g.tokensIn += session.tokensIn;
-  g.tokensOut += session.tokensOut;
+  g.tokensIn += activity.tokensIn;
+  g.tokensOut += activity.tokensOut;
+  g.tokensCache += activity.tokensCache;
   g.turns += activity.turns;
   g.peak = Math.max(g.peak, activity.peak);
   g.calls += stat.calls;
@@ -119,6 +121,7 @@ function shrinkGroup(g) {
     cost: round(g.cost),
     tokensIn: g.tokensIn,
     tokensOut: g.tokensOut,
+    tokensCache: g.tokensCache,
     turns: g.turns,
     peak: g.peak,
     calls: g.calls,
@@ -155,8 +158,8 @@ export function createStore({
   const sessionRows = () =>
     db
       .prepare(
-        "SELECT id,parent_id,agent,title,cost,tokens_input,tokens_output,tokens_cache_read," +
-          "time_created,time_updated FROM session WHERE lower(directory) LIKE ?"
+        "SELECT id,parent_id,agent,title,cost,time_created,time_updated FROM session" +
+          " WHERE lower(directory) LIKE ?"
       )
       .all(projectLike);
 
@@ -170,6 +173,9 @@ export function createStore({
   const dayAgg = db.prepare(
     `SELECT strftime('%Y-%m-%d', time_created/1000, 'unixepoch', 'localtime') day,
             COUNT(*) turns, SUM(json_extract(data,'$.cost')) cost,
+            SUM(json_extract(data,'$.tokens.input')) tok_in,
+            SUM(json_extract(data,'$.tokens.output')) tok_out,
+            SUM(json_extract(data,'$.tokens.cache.read')) tok_cache,
             MAX(${CTX}) peak, MAX(time_created) last
      FROM message WHERE session_id=? AND ${AS_ASSISTANT} GROUP BY 1`
   );
@@ -212,8 +218,6 @@ export function createStore({
       agent: r.agent || "—",
       title: r.title || "",
       cost: r.cost || 0,
-      tokensIn: r.tokens_input || 0,
-      tokensOut: r.tokens_output || 0,
       created: r.time_created || 0,
       updated: r.time_updated || 0,
       turns: 0,
@@ -234,6 +238,9 @@ export function createStore({
       s.days.set(r.day, {
         cost: r.cost || 0,
         turns: r.turns || 0,
+        tokIn: r.tok_in || 0,
+        tokOut: r.tok_out || 0,
+        tokCache: r.tok_cache || 0,
         peak: r.peak || 0,
         last: r.last || 0,
       });
@@ -266,6 +273,9 @@ export function createStore({
         `SELECT session_id id,
                 strftime('%Y-%m-%d', time_created/1000, 'unixepoch', 'localtime') day,
                 COUNT(*) turns, SUM(json_extract(data,'$.cost')) cost,
+                SUM(json_extract(data,'$.tokens.input')) tok_in,
+                SUM(json_extract(data,'$.tokens.output')) tok_out,
+                SUM(json_extract(data,'$.tokens.cache.read')) tok_cache,
                 MAX(${CTX}) peak, MAX(time_created) last
          FROM message WHERE ${AS_ASSISTANT} GROUP BY 1, 2`
       )
@@ -276,6 +286,9 @@ export function createStore({
       s.days.set(r.day, {
         cost: r.cost || 0,
         turns: r.turns || 0,
+        tokIn: r.tok_in || 0,
+        tokOut: r.tok_out || 0,
+        tokCache: r.tok_cache || 0,
         peak: r.peak || 0,
         last: r.last || 0,
       });
@@ -321,8 +334,6 @@ export function createStore({
       if (prev.updated !== r.time_updated) {
         prev.updated = r.time_updated;
         prev.cost = r.cost || 0;
-        prev.tokensIn = r.tokens_input || 0;
-        prev.tokensOut = r.tokens_output || 0;
         prev.agent = r.agent || "—";
         prev.title = r.title || "";
         fillDays(prev);
@@ -443,10 +454,29 @@ export function createStore({
   function activityOf(s, sinceDay) {
     if (!sinceDay) {
       let cost = 0;
-      for (const d of s.days.values()) cost += d.cost;
-      return { cost: s.days.size ? cost : s.cost, turns: s.turns, peak: s.peak, last: s.last };
+      let tokensIn = 0;
+      let tokensOut = 0;
+      let tokensCache = 0;
+      for (const d of s.days.values()) {
+        cost += d.cost;
+        tokensIn += d.tokIn;
+        tokensOut += d.tokOut;
+        tokensCache += d.tokCache;
+      }
+      return {
+        cost: s.days.size ? cost : s.cost,
+        tokensIn,
+        tokensOut,
+        tokensCache,
+        turns: s.turns,
+        peak: s.peak,
+        last: s.last,
+      };
     }
     let cost = 0;
+    let tokensIn = 0;
+    let tokensOut = 0;
+    let tokensCache = 0;
     let turns = 0;
     let peak = 0;
     let last = 0;
@@ -455,11 +485,14 @@ export function createStore({
       if (day < sinceDay) continue;
       any = true;
       cost += d.cost;
+      tokensIn += d.tokIn;
+      tokensOut += d.tokOut;
+      tokensCache += d.tokCache;
       turns += d.turns;
       if (d.peak > peak) peak = d.peak;
       if (d.last > last) last = d.last;
     }
-    return any ? { cost, turns, peak, last } : null;
+    return any ? { cost, tokensIn, tokensOut, tokensCache, turns, peak, last } : null;
   }
 
   function report({ since = 0 } = {}) {
@@ -519,6 +552,9 @@ export function createStore({
       totals: {
         sessions: rows.length,
         cost: round(rows.reduce((a, r) => a + r.activity.cost, 0)),
+        tokensIn: rows.reduce((a, r) => a + r.activity.tokensIn, 0),
+        tokensOut: rows.reduce((a, r) => a + r.activity.tokensOut, 0),
+        tokensCache: rows.reduce((a, r) => a + r.activity.tokensCache, 0),
         calls: rows.reduce((a, r) => a + r.stat.calls, 0),
         repeats: rows.reduce((a, r) => a + r.stat.repeats, 0),
         guard: rows.reduce((a, r) => a + r.guard.blocked + r.guard.aborted, 0),

@@ -303,10 +303,10 @@
 
       // Роль — плашкой, название и цена — заметно, чтобы не сливалось с остальным.
       // Повторы и срабатывания сторожа — тоже плашками: сразу видно, где беда.
-      const cell = (col, value) => {
+      const cell = (col, row, value) => {
         if (col.id === "repeats") return `<span class="pill ${value > 100 ? "bad" : value > 0 ? "hi" : ""}">${value || 0}</span>`;
         if (col.id === "guard") return `<span class="pill ${value ? "bad" : ""}">${value || 0}</span>`;
-        if (col.fmt) return col.fmt(value);
+        if (col.fmt) return col.fmt(value, row);
         if (col.id === "agent") return `<span class="role">${esc(value)}</span>`;
         if (col.id === "label") return `<strong>${esc(value)}</strong>`;
         if (col.id === "cost") return `<strong>${money(value)}</strong>`;
@@ -331,6 +331,8 @@
         const t = r.totals;
         const items = [
           ["Потрачено за период", money(t.cost)],
+          ["Токенов за период (вх / вых)", `${tok(t.tokensIn)} / ${tok(t.tokensOut)}`],
+          ["Прочитано из кеша", tok(t.tokensCache)],
           ["Сессий", t.sessions],
           ["Фич", t.features],
           ["Вызовов инструментов", t.calls],
@@ -358,6 +360,8 @@
           { id: "label", title: "Роль" },
           { id: "sessions", title: "Сессий", num: true },
           { id: "cost", title: "Цена", num: true, fmt: money },
+          { id: "tokensIn", title: "Токенов (вх / вых)", num: true, fmt: (v, r) => `${tok(v)} / ${tok(r.tokensOut)}` },
+          { id: "tokensCache", title: "Кеш", num: true, fmt: tok },
           { id: "turns", title: "Ответов", num: true },
           { id: "peak", title: "Пик памяти", num: true, fmt: tok },
           { id: "calls", title: "Вызовов", num: true },
@@ -377,7 +381,7 @@
                 agentCols
                   .map((c) => {
                     const v = a[c.id];
-                    const text = cell(c, v);
+                    const text = cell(c, a, v);
                     return `<td class="${c.num ? "num" : ""} ${c.cls && v ? c.cls : ""}">${text}</td>`;
                   })
                   .join("") +
@@ -391,6 +395,8 @@
           { id: "agents", title: "Роли", fmt: (v) => esc((v || []).join(", ")) },
           { id: "sessions", title: "Сессий", num: true },
           { id: "cost", title: "Цена", num: true, fmt: money },
+          { id: "tokensIn", title: "Токенов (вх / вых)", num: true, fmt: (v, r) => `${tok(v)} / ${tok(r.tokensOut)}` },
+          { id: "tokensCache", title: "Кеш", num: true, fmt: tok },
           { id: "turns", title: "Ответов", num: true },
           { id: "peak", title: "Пик памяти", num: true, fmt: tok },
           { id: "repeats", title: "Повторов", num: true, cls: "hi" },
@@ -409,7 +415,7 @@
                 featCols
                   .map((c) => {
                     const v = f[c.id];
-                    const text = cell(c, v);
+                    const text = cell(c, f, v);
                     return `<td class="${c.num ? "num" : ""} ${c.cls && v ? c.cls : ""}">${text}</td>`;
                   })
                   .join("") +

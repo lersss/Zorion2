@@ -280,6 +280,16 @@ func main() {
 	// (межзвёздная точка — цель-система; внутрисистемная — цель-планета).
 	travelHandlers.SetContracts(contractRepo)
 
+	// Ускоритель перелёта (спека 2026-09-25-ускоритель-и-мини-игра-прокладка-
+	// маршрута, ЧК1): состояние отката игрока + атомарное применение ускорения
+	// (одна транзакция player_flights + player_accelerator). SetBooster включает
+	// Manager.BoostFlight; SetAccelerator — аддитивный блок accelerator в
+	// /travel и /me. Ручки offer/boost появятся вместе с полем/оценкой мини-игры
+	// (ЧК3) — в прод-путь заглушку не ставим.
+	acceleratorRepo := repository.NewPlayerAcceleratorRepository(db)
+	travelManager.SetBooster(acceleratorRepo)
+	travelHandlers.SetAccelerator(acceleratorRepo)
+
 	// Фаза 1: Restore межзвёздных (97a) — onArrival через общий ArrivalHandler
 	// (спека 99.2.30 §4/И6): прибывшие засчитываются сразу (ИП-2 + автостарт
 	// композитного маршрута по намерению), летящие продолжаются с остатка.
@@ -332,6 +342,8 @@ func main() {
 	authHandlers.SetPlanetRepo(planetRepo) // §8.7: пересчёт HP на поверхности в /me
 	// §3.4: ленивая страховка счёта игрока при первом запросе /me.
 	authHandlers.SetAccountRepo(accountRepo)
+	// Спека ускорителя §3.4 (М-4): аддитивный блок accelerator в /me.
+	authHandlers.SetAccelerator(acceleratorRepo)
 	// Деньги игрока (спека 2026-09-22-деньги-и-эскроу §3.2): GET /me/money.
 	moneyHandlers := handlers.NewMoneyHandlers(accountRepo)
 	// Трюм игрока (спека трюма §9): GET /api/cargo + POST /api/cargo/jettison.

@@ -27,6 +27,9 @@ type AuthHandlers struct {
 	// accountRepo — ленивая страховка счёта игрока при первом запросе
 	// (спека 2026-09-22-деньги-и-эскроу §3.4). nil в тестах без денег.
 	accountRepo *repository.AccountRepository
+	// accelRepo — состояние отката ускорителя (спека ускорителя §3.4, М-4):
+	// аддитивный блок accelerator в /me. nil — блока нет (тесты без БД).
+	accelRepo *repository.PlayerAcceleratorRepository
 }
 
 func NewAuthHandlers(userRepo *repository.UserRepository, worldRepo *repository.WorldRepository, travelManager *travel.Manager) *AuthHandlers {
@@ -48,6 +51,13 @@ func (h *AuthHandlers) SetPlanetRepo(repo *repository.PlanetRepository) {
 // конструктора (легаси-тесты).
 func (h *AuthHandlers) SetAccountRepo(repo *repository.AccountRepository) {
 	h.accountRepo = repo
+}
+
+// SetAccelerator — подключение состояния отката ускорителя (спека ускорителя
+// §3.4, М-4): аддитивный блок accelerator в /me. Отдельный сеттер: не менять
+// сигнатуру конструктора (легаси-тесты).
+func (h *AuthHandlers) SetAccelerator(repo *repository.PlayerAcceleratorRepository) {
+	h.accelRepo = repo
 }
 
 // recomputeSurfaceHP — hp на поверхности пересчитывается от landed_at и профиля
@@ -332,6 +342,10 @@ func (h *AuthHandlers) GetMe(w http.ResponseWriter, r *http.Request) {
 		// существующие не меняются; клиент карты распознаёт автостарт
 		// внутрисистемного сегмента по прибытии (M5, §6.8).
 		"pending_destination": pendingDest,
+		// Спека ускорителя §3.4 (М-4): аддитивный блок accelerator — готовность
+		// отката и признак действующего ускорения нужны и вне полёта; cooldown_min
+		// там ПРИМЕНЁННЫЙ (last_cooldown_min), не параметр текущего модуля.
+		"accelerator": acceleratorMeBlock(h.accelRepo, user, h.travelManager.GetFlight(userID), time.Now()),
 	}
 	if ship.HasEngine(user.Equipment) {
 		response["ship_speed_factor"] = ship.EngineSpeed(user.Equipment)

@@ -41,6 +41,9 @@ type TravelHandlers struct {
 	// перелива нет.
 	db           *sql.DB
 	miningBuffer *MiningBuffer
+	// Состояние отката ускорителя (спека ускорителя §3.4): аддитивный блок
+	// accelerator в ответе /travel. Сеттер: main.go; nil — блока нет.
+	accelRepo *repository.PlayerAcceleratorRepository
 }
 
 func NewTravelHandlers(
@@ -83,6 +86,13 @@ func (h *TravelHandlers) SetContracts(contractRepo *repository.ContractRepositor
 func (h *TravelHandlers) SetMiningBuffer(db *sql.DB, mb *MiningBuffer) {
 	h.db = db
 	h.miningBuffer = mb
+}
+
+// SetAccelerator — подключает состояние отката ускорителя (спека ускорителя
+// §3.4): аддитивный блок accelerator в ответе /travel. Сеттер: main.go;
+// nil — блока нет (тесты без БД).
+func (h *TravelHandlers) SetAccelerator(repo *repository.PlayerAcceleratorRepository) {
+	h.accelRepo = repo
 }
 
 // fixateDeparturePresence — фиксация снимка при отлёте (спека 2026-09-23 §3.2,
@@ -132,6 +142,9 @@ type TravelResponse struct {
 	StartX    float64 `json:"start_x"` // стартовая точка сегмента (61a)
 	StartY    float64 `json:"start_y"`
 	StartTime int64   `json:"start_time"` // UnixMilli из фактического полёта
+	// Спека ускорителя §3.4 (М-6): аддитивный блок доступности ускорения —
+	// отдаётся на ОБОИХ путях /travel (оба 202).
+	Accelerator interface{} `json:"accelerator,omitempty"`
 }
 
 // calcTravelDuration вычисляет длительность полёта по расстоянию между мирами:
@@ -352,6 +365,7 @@ func (h *TravelHandlers) StartTravel(w http.ResponseWriter, r *http.Request) {
 			StartY:    flight.StartY,
 			StartTime: flight.StartTime.UnixMilli(),
 		}
+		resp.Accelerator = acceleratorTravelBlock(h.accelRepo, user, flight, time.Now())
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusAccepted)
 		json.NewEncoder(w).Encode(resp)
@@ -465,6 +479,7 @@ func (h *TravelHandlers) StartTravel(w http.ResponseWriter, r *http.Request) {
 		StartY:    newFlight.StartY,
 		StartTime: newFlight.StartTime.UnixMilli(),
 	}
+	resp.Accelerator = acceleratorTravelBlock(h.accelRepo, user, newFlight, time.Now())
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	json.NewEncoder(w).Encode(resp)

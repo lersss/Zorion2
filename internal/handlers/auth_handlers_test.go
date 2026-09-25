@@ -377,21 +377,31 @@ func TestGetMeShipSection(t *testing.T) {
 	assert.Equal(t, float64(1), slots["scanner"])
 	assert.Equal(t, float64(1), slots["engine"])
 
-	// ship_catalog: весь каталог (id/type/name/params), включая engine_1 и
-	// грузовой модуль cargo_1 (спека трюма §8.3).
+	// ship_catalog: весь каталог (id/type/name/params), включая engine_1,
+	// грузовой модуль cargo_1 (спека трюма §8.3) и ускоритель accel_1 (спека
+	// ускорителя §3.1).
 	catalog, ok := resp["ship_catalog"].([]interface{})
 	require.True(t, ok, "ship_catalog должен быть массивом")
-	require.Len(t, catalog, 4, "cargo_1 + engine_1 + radar_1 + scanner_1")
-	cargoItem, ok := catalog[0].(map[string]interface{})
-	require.True(t, ok, "сортировка по id: cargo_1 первый")
+	require.Len(t, catalog, 5, "accel_1 + cargo_1 + engine_1 + radar_1 + scanner_1")
+	accelItem, ok := catalog[0].(map[string]interface{})
+	require.True(t, ok, "сортировка по id: accel_1 первый")
+	assert.Equal(t, "accel_1", accelItem["id"])
+	assert.Equal(t, "accelerator", accelItem["type"])
+	assert.Equal(t, "Ускоритель-1", accelItem["name"])
+	accelParams, ok := accelItem["params"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, "route", accelParams["game"])
+	assert.Equal(t, float64(0.5), accelParams["bonus_max"])
+	cargoItem, ok := catalog[1].(map[string]interface{})
+	require.True(t, ok, "сортировка по id: cargo_1 второй")
 	assert.Equal(t, "cargo_1", cargoItem["id"])
 	assert.Equal(t, "cargo", cargoItem["type"])
 	assert.Equal(t, "Грузовой модуль-1", cargoItem["name"])
 	cargoParams, ok := cargoItem["params"].(map[string]interface{})
 	require.True(t, ok)
 	assert.Equal(t, float64(30), cargoParams["capacity"])
-	engineItem, ok := catalog[1].(map[string]interface{})
-	require.True(t, ok, "сортировка по id: engine_1 второй")
+	engineItem, ok := catalog[2].(map[string]interface{})
+	require.True(t, ok, "сортировка по id: engine_1 третий")
 	assert.Equal(t, "engine_1", engineItem["id"])
 	assert.Equal(t, "engine", engineItem["type"])
 	assert.Equal(t, "Двигатель-1", engineItem["name"])

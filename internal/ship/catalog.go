@@ -34,6 +34,14 @@ var defaultEquipment = []models.EquipmentItem{
 		Params: map[string]interface{}{"speed_factor": models.EngineSpeedDefault}},
 	{ID: models.StarterCargoModuleID, Type: models.EquipmentTypeCargo, Name: "Грузовой модуль-1",
 		Params: map[string]interface{}{"capacity": float64(30)}},
+	{ID: models.StarterAcceleratorID, Type: models.EquipmentTypeAccelerator, Name: "Ускоритель-1",
+		Params: map[string]interface{}{
+			"game":                  AcceleratorGameRoute,
+			"cooldown_min":          float64(25),
+			"bonus_max":             float64(0.50),
+			"min_remaining_offer_s": float64(180),
+			"min_remaining_boost_s": float64(90),
+		}},
 }
 
 // LoadCatalog — читает справочник оборудования из БД. Пустая БД — дефолты.

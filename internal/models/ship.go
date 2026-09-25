@@ -25,6 +25,9 @@ const (
 	EquipmentTypeScanner EquipmentType = "scanner"
 	EquipmentTypeEngine  EquipmentType = "engine"
 	EquipmentTypeCargo   EquipmentType = "cargo" // грузовой модуль (спека трюма §3.5)
+	// Модуль-ускоритель (спека ускорителя §3.1): открывает мини-игру «Прокладка
+	// маршрута», даёт бонус скорости текущего перелёта, ограничен откатом.
+	EquipmentTypeAccelerator EquipmentType = "accelerator"
 )
 
 // EquipmentItem — предмет оборудования из справочника (спека 77a §3.2).
@@ -65,13 +68,19 @@ const StarterShipModelID = "starter"
 // выдаётся в первый универсальный слот, params.capacity = 30 т.
 const StarterCargoModuleID = "cargo_1"
 
+// StarterAcceleratorID — стартовый ускоритель (спека ускорителя §4.3, решение
+// 12): выдаётся новому игроку в выделенный слот accelerator, params.game =
+// "route" («Прокладка маршрута»).
+const StarterAcceleratorID = "accel_1"
+
 // StarterEquipment — JSON-значение users.equipment для нового игрока.
 // Ключи универсальных слотов — universal / universal2 / universal3 (спека
 // трюма §20.2); пустые слоты ключей НЕ получают (отсутствие ключа = пусто,
 // §20.3) — здесь заполнен только первый.
 var StarterEquipment = map[string]interface{}{
-	"radar":     "radar_1",
-	"scanner":   "scanner_1",
-	"engine":    "engine_1",
-	"universal": StarterCargoModuleID,
+	"radar":       "radar_1",
+	"scanner":     "scanner_1",
+	"engine":      "engine_1",
+	"universal":   StarterCargoModuleID,
+	"accelerator": StarterAcceleratorID,
 }

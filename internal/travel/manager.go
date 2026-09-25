@@ -30,11 +30,20 @@ type FlightStore interface {
 	ListAll() ([]models.PlayerFlight, error)
 }
 
+// Booster — применение ускорения перелёта (спека ускорителя §4.1): атомарная
+// транзакция «новый сегмент player_flights + снимок отката player_accelerator»,
+// с гейтами already_active/cooldown под row-lock. Реализация —
+// *repository.PlayerAcceleratorRepository; интерфейс — для юнит-тестов.
+type Booster interface {
+	ApplyBoost(userID string, expectStartTime time.Time, seg models.PlayerFlight, cooldownMin int, now time.Time) (bool, string, error)
+}
+
 // Manager управляет активными полётами.
 type Manager struct {
 	mu      sync.RWMutex
 	flights map[string]*TravelInfo
 	store   FlightStore // персистентность (97a); nil — без БД (юнит-тесты)
+	booster Booster     // ускорение (спека ускорителя); nil — буст отключён
 }
 
 // NewManager создаёт менеджер полётов. store — хранилище активных полётов
@@ -45,6 +54,15 @@ func NewManager(store FlightStore) *Manager {
 		flights: make(map[string]*TravelInfo),
 		store:   store,
 	}
+}
+
+// SetBooster — подключает применение ускорения (спека ускорителя §4.1).
+// Сеттер (не параметр конструктора): репозиторий создаётся в main.go;
+// nil (юнит-тесты без БД) → BoostFlight — no-op (applied=false).
+func (m *Manager) SetBooster(b Booster) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.booster = b
 }
 
 // StartFlight — запускает полёт для пользователя.
@@ -186,6 +204,83 @@ func (m *Manager) CancelFlight(userID string) bool {
 		}
 	}
 	return true
+}
+
+// BoostFlight — атомарная замена сегмента полёта ускорением (спека ускорителя
+// §4.1, единственная новая логика менеджера). Под ОДНИМ захватом m.mu:
+//
+//  1. now = time.Now().Truncate(time.Millisecond) — один усечённый момент на весь
+//     буст (§3.3): StartTime сегмента = player_flights.start_time =
+//     player_accelerator.last_boost_at.
+//  2. Гейты по in-memory сегменту: нет полёта / expectStartTime не совпал /
+//     сегмент уже истёк → (false,"",nil) без списания отката.
+//  3. Транзакция ApplyBoost (row-lock: already_active/cooldown + upsert нового
+//     сегмента и снимка отката). Ошибка БД → (false,"",err), изменения не
+//     применены.
+//  4. applied → in-memory замена: старый CancelChan закрывается, новый
+//     *TravelInfo встаёт в map, горутина прибытия запускается.
+//
+// Порядок «БД → память» (не как в StartFlight): у буста есть цена (откат),
+// поэтому сегмент пишется до памяти — падение между commit и заменой не теряет
+// ускорение (Restore поднимет новый сегмент, И-2); старая горутина строку нового
+// сегмента не удаляет (TOCTOU-фикс 97a).
+func (m *Manager) BoostFlight(
+	userID string,
+	expectStartTime time.Time,
+	x, y float64,
+	newRem time.Duration,
+	cooldownMin int,
+	onArrival func(userID, worldID string),
+) (bool, string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.booster == nil {
+		return false, "", nil
+	}
+
+	now := time.Now().Truncate(time.Millisecond)
+
+	cur, ok := m.flights[userID]
+	if !ok || !cur.StartTime.Equal(expectStartTime) {
+		return false, "", nil
+	}
+	if !now.Before(cur.StartTime.Add(cur.Duration)) {
+		return false, "", nil
+	}
+
+	seg := models.PlayerFlight{
+		UserID:    userID,
+		FromWorld: cur.FromWorld,
+		ToWorld:   cur.ToWorld,
+		StartX:    x,
+		StartY:    y,
+		StartTime: now,
+		ArriveAt:  now.Add(newRem),
+	}
+	applied, reason, err := m.booster.ApplyBoost(userID, expectStartTime, seg, cooldownMin, now)
+	if err != nil {
+		return false, "", err
+	}
+	if !applied {
+		return false, reason, nil
+	}
+
+	close(cur.CancelChan)
+	newFlight := &TravelInfo{
+		UserID:     userID,
+		FromWorld:  cur.FromWorld,
+		ToWorld:    cur.ToWorld,
+		StartX:     x,
+		StartY:     y,
+		StartTime:  now,
+		Duration:   newRem,
+		waitFor:    newRem,
+		CancelChan: make(chan struct{}),
+	}
+	m.flights[userID] = newFlight
+	go runFlight(m, newFlight, onArrival)
+	return true, "", nil
 }
 
 // GetFlight — возвращает информацию о текущем полёте пользователя.

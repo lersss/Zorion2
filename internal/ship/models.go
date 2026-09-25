@@ -24,7 +24,7 @@ var (
 // base_capacity 20 т + три универсальных слота — трюм (спека трюма §5/§8.3, §20).
 var defaultShipModels = []models.ShipModel{
 	{ID: models.StarterShipModelID, Name: "Стартовый разведчик",
-		Slots:        map[string]interface{}{"radar": float64(1), "scanner": float64(1), "engine": float64(1), "universal": float64(3)},
+		Slots:        map[string]interface{}{"radar": float64(1), "scanner": float64(1), "engine": float64(1), "universal": float64(3), "accelerator": float64(1)},
 		BaseCapacity: 20},
 }
 

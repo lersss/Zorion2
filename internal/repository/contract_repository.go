@@ -259,11 +259,16 @@ type escrowRow struct {
 
 // Publish — публикация контракта (draft→open): атомарно вставляет контракт,
 // запирает залог со счёта автора, пишет contract_log (published+escrow_locked)
-// и money_operations('escrow_lock').
+// и money_operations('escrow_lock'). Supply с нулевой наградой публикуется
+// бесплатно: без залога и money_op (escrow_amount = 0, §5.5).
 func (r *ContractRepository) Publish(p PublishContractParams) (*models.Contract, error) {
-	if p.Reward <= 0 {
+	// D5 (спека 2026-09-25-внутреннее-хранилище §5.5): supply с нулевой наградой
+	// публикуется бесплатно (у владельца нет денег — снабжение не встаёт); прочие
+	// типы и отрицательные значения — прежний отказ.
+	if p.Reward < 0 || (p.Reward == 0 && p.Type != models.ContractTypeSupply) {
 		return nil, ErrInvalidReward
 	}
+	paid := p.Reward > 0
 	id := p.ID
 	if id == "" {
 		id = uuid.New().String()
@@ -292,16 +297,21 @@ func (r *ContractRepository) Publish(p PublishContractParams) (*models.Contract,
 		return nil, err
 	}
 
-	var balanceAfter, withdrawableAfter, escrowWithdrawable int64
-	err = tx.QueryRow(lockEscrowSQL, ownerType, ownerID, p.Reward).
-		Scan(&balanceAfter, &withdrawableAfter, &escrowWithdrawable)
-	if err == sql.ErrNoRows {
-		return nil, ErrInsufficientFunds
+	// Бесплатный путь (reward = 0): эскроу не запирается, счёт не трогается —
+	// шаги lockEscrow/money_op пропускаются целиком (§5.5).
+	var balanceAfter, escrowWithdrawable int64
+	if paid {
+		var withdrawableAfter int64
+		err = tx.QueryRow(lockEscrowSQL, ownerType, ownerID, p.Reward).
+			Scan(&balanceAfter, &withdrawableAfter, &escrowWithdrawable)
+		if err == sql.ErrNoRows {
+			return nil, ErrInsufficientFunds
+		}
+		if err != nil {
+			return nil, fmt.Errorf("escrow lock: %w", err)
+		}
+		_ = withdrawableAfter
 	}
-	if err != nil {
-		return nil, fmt.Errorf("escrow lock: %w", err)
-	}
-	_ = withdrawableAfter
 
 	payloadJSON := []byte("{}")
 	if p.Payload != nil {
@@ -341,13 +351,17 @@ func (r *ContractRepository) Publish(p PublishContractParams) (*models.Contract,
 		map[string]interface{}{}, now); err != nil {
 		return nil, err
 	}
-	if err := insertContractLog(tx, id, models.ContractLogEscrowLocked, &actorType, &actorID,
-		map[string]interface{}{"amount": p.Reward, "withdrawable": escrowWithdrawable}, now); err != nil {
-		return nil, err
-	}
-	if err := insertMoneyOp(tx, ownerType, ownerID, -p.Reward, balanceAfter,
-		models.MoneyOpEscrowLock, id, now); err != nil {
-		return nil, err
+	// escrow_locked пишется только при реальном залоге (не врём о залоге в
+	// бесплатной публикации, §5.5); money_op — там же.
+	if paid {
+		if err := insertContractLog(tx, id, models.ContractLogEscrowLocked, &actorType, &actorID,
+			map[string]interface{}{"amount": p.Reward, "withdrawable": escrowWithdrawable}, now); err != nil {
+			return nil, err
+		}
+		if err := insertMoneyOp(tx, ownerType, ownerID, -p.Reward, balanceAfter,
+			models.MoneyOpEscrowLock, id, now); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -731,8 +745,9 @@ func (r *ContractRepository) ListMine(ownerType, ownerID string) ([]*models.Cont
 }
 
 // ResolvePublicationPlanet — место публикации по автору (спека перелёта §3):
-// faction — factions.homeworld_id; building — buildings.planet_id; agent — не
-// поддержан в итерации 1 (у агента нет планетного слоя, только current_world_id)
+// faction — factions.homeworld_id; building — buildings.planet_id; settlement —
+// settlements.planet_id (спека ЧК2а §1.5/§6); agent — не поддержан в итерации 1
+// (у агента нет планетного слоя, только current_world_id)
 // → ErrPublicationPlanetUnresolved. Автор-player резолвится вызывающим по
 // позиции игрока (то же правило, что в игровом пути публикации).
 func (r *ContractRepository) ResolvePublicationPlanet(authorType, authorID string) (string, error) {
@@ -757,6 +772,16 @@ func (r *ContractRepository) ResolvePublicationPlanet(authorType, authorID strin
 			return "", fmt.Errorf("resolve building planet: %w", err)
 		}
 		return planetID, nil
+	case models.ContractActorSettlement:
+		var planetID string
+		err := r.db.QueryRow(`SELECT planet_id FROM settlements WHERE id = $1`, authorID).Scan(&planetID)
+		if err == sql.ErrNoRows {
+			return "", fmt.Errorf("%w: поселение %s не найдено", ErrPublicationPlanetUnresolved, authorID)
+		}
+		if err != nil {
+			return "", fmt.Errorf("resolve settlement planet: %w", err)
+		}
+		return planetID, nil
 	default:
 		return "", fmt.Errorf("%w: автор типа %q", ErrPublicationPlanetUnresolved, authorType)
 	}
@@ -764,7 +789,8 @@ func (r *ContractRepository) ResolvePublicationPlanet(authorType, authorID strin
 
 // resolvePayerAccountQ — резолв плательщика (спека денег §4), глубина 1:
 // player/faction — сам владелец; building → владелец постройки; agent →
-// фракция-владелец. Возвращает (owner_type, owner_id) счёта.
+// фракция-владелец; settlement → владелец поселения, при владельце-агенте —
+// счёт его фракции (D4, спека ЧК2а §1.5/§6). Возвращает (owner_type, owner_id) счёта.
 func resolvePayerAccountQ(q querier, authorType, authorID string) (string, string, error) {
 	switch authorType {
 	case models.ContractActorPlayer:
@@ -800,6 +826,42 @@ func resolvePayerAccountQ(q querier, authorType, authorID string) (string, strin
 			return "", "", fmt.Errorf("%w: у агента %s нет фракции-владельца", ErrPayerUnresolved, authorID)
 		}
 		return models.AccountOwnerFaction, factionID.String, nil
+	case models.ContractActorSettlement:
+		// Автор-поселение: платит его владелец (owner_type/owner_id). Легаси без
+		// владельца (Г1) заказчиком быть не может → ErrPayerUnresolved.
+		var ownerType, ownerID sql.NullString
+		err := q.QueryRow(`SELECT owner_type, owner_id FROM settlements WHERE id = $1`, authorID).
+			Scan(&ownerType, &ownerID)
+		if err == sql.ErrNoRows {
+			return "", "", fmt.Errorf("%w: поселение %s не найдено", ErrPayerUnresolved, authorID)
+		}
+		if err != nil {
+			return "", "", fmt.Errorf("resolve settlement owner: %w", err)
+		}
+		if !ownerType.Valid || !ownerID.Valid {
+			return "", "", fmt.Errorf("%w: у поселения %s нет владельца", ErrPayerUnresolved, authorID)
+		}
+		switch ownerType.String {
+		case models.AccountOwnerPlayer, models.AccountOwnerFaction:
+			return ownerType.String, ownerID.String, nil
+		case models.AccountOwnerAgent:
+			// D4: владелец-агент платит со счёта фракции (своего бюджета у агента нет).
+			var factionID sql.NullString
+			err := q.QueryRow(`SELECT owner_faction_id FROM npc_agents WHERE id = $1`, ownerID.String).
+				Scan(&factionID)
+			if err == sql.ErrNoRows {
+				return "", "", fmt.Errorf("%w: агент %s не найден", ErrPayerUnresolved, ownerID.String)
+			}
+			if err != nil {
+				return "", "", fmt.Errorf("resolve settlement agent owner: %w", err)
+			}
+			if !factionID.Valid {
+				return "", "", fmt.Errorf("%w: у агента %s нет фракции-владельца", ErrPayerUnresolved, ownerID.String)
+			}
+			return models.AccountOwnerFaction, factionID.String, nil
+		default:
+			return "", "", fmt.Errorf("%w: владелец поселения типа %q", ErrPayerUnresolved, ownerType.String)
+		}
 	default:
 		return "", "", fmt.Errorf("%w: неизвестный тип автора %q", ErrPayerUnresolved, authorType)
 	}

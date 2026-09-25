@@ -204,6 +204,18 @@ func (h *AdminHandlers) clearPlanetsOf(worlds []planet.WorldInfo) (int, error) {
 	if err := tx.QueryRow(`SELECT COUNT(*) FROM planets WHERE world_id = ANY($1)`, ids).Scan(&oldCount); err != nil {
 		return 0, err
 	}
+	// Ячейки хранилища поселений пересоздаваемых миров (ЧК2а §4.1): owner_id без
+	// FK на settlements — при DELETE planets поселения уходят каскадом, ячейки
+	// остались бы сиротами. Явный DELETE до удаления планет.
+	if _, err := tx.Exec(`
+		DELETE FROM settlement_storage_cells
+		WHERE owner_type = 'settlement'
+		  AND owner_id IN (
+			SELECT s.id FROM settlements s
+			JOIN planets p ON p.id = s.planet_id
+			WHERE p.world_id = ANY($1))`, ids); err != nil {
+		return 0, err
+	}
 	if _, err := tx.Exec(`DELETE FROM planets WHERE world_id = ANY($1)`, ids); err != nil {
 		return 0, err
 	}

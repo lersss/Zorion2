@@ -161,6 +161,17 @@
   отказ от каскада — осознанное решение (`TRUNCATE`-путь `clearUniverseTx` использует
   временное снятие FK + явный список `truncateTables`, а не `ON DELETE`).
 
+- **Inline CHECK из `CREATE TABLE` получает авто-имя `<таблица>_<колонка>_check`;
+  поздняя миграция снимает его по этому имени (2026-09-25, миграция `000088`).**
+  `contracts.author_type` в `000062` объявлен inline
+  (`author_type TEXT NOT NULL CHECK (...)`) — PG назвал ограничение
+  `contracts_author_type_check`. Чтобы расширить домен идемпотентно, миграция
+  делает `DROP CONSTRAINT IF EXISTS contracts_author_type_check` +
+  `ADD CONSTRAINT ...`. Правило: снимая/меняя inline-CHECK, сначала уточни
+  фактическое `conname` на живой БД (`information_schema.constraint_column_usage`
+  / `pg_get_constraintdef`), а не угадывай; у именованных (`CONSTRAINT <имя>`) —
+  имя своё.
+
 - **Батник в репозитории: файл только CRLF + cp866 (OEM) (2026-09-22).** `cmd.exe` читает
   `.cmd`/`.bat` побайтово в текущей кодовой странице консоли: UTF-8 или LF-переводы строк
   ломают парсинг неочевидно — исполняются обрывки строк (симптом: `'порт' is not recognized

@@ -42,6 +42,9 @@ func TestGenerateSettlementsNotCanceledOnResponse(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
 	// B18: очистка старого слоя экономики перед генерацией (count + delete).
+	// Ячейки хранилища — без FK на settlements: удаляются явно до поселений.
+	mock.ExpectExec(`DELETE FROM settlement_storage_cells WHERE owner_type = 'settlement'`).
+		WillReturnResult(sqlmock.NewResult(0, 0))
 	for _, table := range []string{"settlements"} {
 		mock.ExpectQuery(`SELECT COUNT(*) FROM ` + table).
 			WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
@@ -148,6 +151,8 @@ func TestClearSettlements(t *testing.T) {
 
 	mock.ExpectQuery(`SELECT COUNT(*) FROM settlements`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(3))
+	mock.ExpectExec(`DELETE FROM settlement_storage_cells WHERE owner_type = 'settlement'`).
+		WillReturnResult(sqlmock.NewResult(0, 3))
 	mock.ExpectExec(`DELETE FROM settlements`).
 		WillReturnResult(sqlmock.NewResult(0, 3))
 

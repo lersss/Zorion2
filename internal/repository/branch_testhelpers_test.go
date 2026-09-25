@@ -1,9 +1,10 @@
 // internal/repository/branch_testhelpers_test.go
-// Общие ожидания моков owner-прохода поселения (спека 2026-09-22-эффекты-
-// снабжения-задержка-голод §4.1/§4.5): SyncSettlements зовётся из
-// attachSettlements и читает каталог типов эффектов, словарь ТОВАРОВ, ветки
-// (с товаром-выходом), состав рецептов/буферы и хранимый базис нагрузки до
-// выбора пути.
+// Общие ожидания моков owner-прохода поселения (спека 2026-09-25-внутреннее-
+// хранилище-и-рождение-заказов §4.3/§5.7, ЧК2а): SyncSettlements зовётся из
+// attachSettlements и читает каталог типов эффектов, словарь ТОВАРОВ, число
+// вхождений товара во входы рецептов, ветки (с товаром-выходом), состав
+// рецептов и хранимый базис нагрузки до выбора пути. Физический запас — ячейки
+// settlement_storage_cells, буферов ветки больше нет.
 package repository
 
 import (
@@ -19,12 +20,20 @@ func effectTypeRows() *sqlmock.Rows {
 		AddRow(int64(1), "Голод", "голод", "population_rate", "hunger")
 }
 
-// goodsNameRows — словарь позиций-ТОВАРОВ (goods.name_norm): включает позицию
-// привязки ownerInput («пища»).
+// goodsNameRows — словарь товаров (id, name, name_norm): включает позицию
+// привязки ownerInput («пища», good 378) и компонент рецепта («мясо», good 359).
 func goodsNameRows() *sqlmock.Rows {
-	return sqlmock.NewRows([]string{"name_norm"}).
-		AddRow("пища").
-		AddRow("очищенная вода")
+	return sqlmock.NewRows([]string{"id", "name", "name_norm"}).
+		AddRow(int64(378), "Пища", "пища").
+		AddRow(int64(359), "Мясо", "мясо").
+		AddRow(int64(426), "Очищенная вода", "очищенная вода")
+}
+
+// recipeOccurrenceRows — число вхождений товара во входы рецептов (F3):
+// компонент 359 входит один раз.
+func recipeOccurrenceRows() *sqlmock.Rows {
+	return sqlmock.NewRows([]string{"component_id", "count"}).
+		AddRow(int64(359), int64(1))
 }
 
 // ownerTestTypeID — тип поселения тестов owner-прохода (settlement_type_id).
@@ -44,7 +53,7 @@ func producerRateRows() *sqlmock.Rows {
 
 // emptyProducerTypeRows — выборка настроек типов без строк (ладдера не нужна).
 func emptyProducerTypeRows() *sqlmock.Rows {
-	return sqlmock.NewRows([]string{"id", "eat", "effects"})
+	return sqlmock.NewRows([]string{"id", "eat", "effects", "storage"})
 }
 
 // emptyProducerRateRows — выборка чисел скорости без строк.
@@ -72,12 +81,23 @@ func activeEffectRows(values ...driver.Value) *sqlmock.Rows {
 	return rows
 }
 
-// expectOwnerPassHead — каталог эффектов + словарь товаров (первый шаг
-// SyncSettlements), затем выборка веток. stored == nil — хранимой нагрузки нет.
-// Ладдера стадий пуста (нет ключа базового типа) — переключений нет.
+// storageCellRows — ячейки хранилища (id, owner_type, owner_id, good_id, amount,
+// cap_share); values — шестёрками.
+func storageCellRows(values ...driver.Value) *sqlmock.Rows {
+	rows := sqlmock.NewRows([]string{"id", "owner_type", "owner_id", "good_id", "amount", "cap_share"})
+	for i := 0; i+5 < len(values); i += 6 {
+		rows.AddRow(values[i], values[i+1], values[i+2], values[i+3], values[i+4], values[i+5])
+	}
+	return rows
+}
+
+// expectOwnerPassHead — каталог эффектов + словарь товаров + вхождения во входы
+// рецептов (первые шаги SyncSettlements), затем выборка веток. stored == nil —
+// хранимой нагрузки нет. Ладдера стадий пуста (нет ключа базового типа).
 func expectOwnerPassHead(mock sqlmock.Sqlmock, branchRows *sqlmock.Rows, stored *sqlmock.Rows) {
 	mock.ExpectQuery(effectTypeCatalogSQL).WillReturnRows(effectTypeRows())
 	mock.ExpectQuery(goodsNamesSQL).WillReturnRows(goodsNameRows())
+	mock.ExpectQuery(recipeComponentOccurrencesSQL).WillReturnRows(recipeOccurrenceRows())
 	mock.ExpectQuery(branchSelectBySettlementsSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(branchRows)
 	if stored == nil {
 		stored = activeEffectRows()
@@ -102,20 +122,20 @@ func expectOrphanCleanup(mock sqlmock.Sqlmock, ownerID string, effectTypeIDs []i
 		WillReturnResult(sqlmock.NewResult(0, 0))
 }
 
-// expectOwnerPassNoBranches — owner-проход без веток: ветки пусты, составы и
-// буферы не запрашиваются.
+// expectOwnerPassNoBranches — owner-проход без веток: ветки пусты, составы не
+// запрашиваются.
 func expectOwnerPassNoBranches(mock sqlmock.Sqlmock, stored *sqlmock.Rows) {
 	expectOwnerPassHead(mock, emptyBranchRows(), stored)
 }
 
 // expectOwnerPassWithBranches — owner-проход с ветками: после выборки веток
-// идут состав рецептов и буферы (порядок loadBranches).
-func expectOwnerPassWithBranches(mock sqlmock.Sqlmock, branchRows, componentRows, bufferRows, stored *sqlmock.Rows) {
+// идёт состав рецептов (порядок loadBranches).
+func expectOwnerPassWithBranches(mock sqlmock.Sqlmock, branchRows, componentRows, stored *sqlmock.Rows) {
 	mock.ExpectQuery(effectTypeCatalogSQL).WillReturnRows(effectTypeRows())
 	mock.ExpectQuery(goodsNamesSQL).WillReturnRows(goodsNameRows())
+	mock.ExpectQuery(recipeComponentOccurrencesSQL).WillReturnRows(recipeOccurrenceRows())
 	mock.ExpectQuery(branchSelectBySettlementsSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(branchRows)
 	mock.ExpectQuery(branchComponentsSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(componentRows)
-	mock.ExpectQuery(branchBuffersSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(bufferRows)
 	if stored == nil {
 		stored = activeEffectRows()
 	}

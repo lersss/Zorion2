@@ -241,14 +241,15 @@ func TestTruncateTablesIncludesDeposits(t *testing.T) {
 		"deposits обязана быть в truncateTables (admin_universe.go)")
 }
 
-// T1 (итерация 2): обе таблицы ветки обязаны быть в truncateTables — без
-// settlement_branches упадёт TRUNCATE settlements (FK settlement_id), без
-// settlement_branch_buffers — TRUNCATE на ветке.
+// T1 (итерация 2): таблицы ветки и ячеек хранилища обязаны быть в
+// truncateTables — без settlement_branches упадёт TRUNCATE settlements (FK
+// settlement_id), без settlement_storage_cells — очистка оставит сироты ячеек
+// (FK на settlements нет, §4.1).
 func TestTruncateTablesIncludesSettlementBranches(t *testing.T) {
 	require.Contains(t, truncateTables, "settlement_branches",
 		"settlement_branches обязана быть в truncateTables (FK settlements)")
-	require.Contains(t, truncateTables, "settlement_branch_buffers",
-		"settlement_branch_buffers обязана быть в truncateTables (FK settlement_branches)")
+	require.Contains(t, truncateTables, "settlement_storage_cells",
+		"settlement_storage_cells обязана быть в truncateTables (ячейки без FK на settlements)")
 }
 
 // B12: system_belts обязана быть в truncateTables (спека поясов §4.6: FK

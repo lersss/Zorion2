@@ -251,10 +251,11 @@ func TestCreateStructureSettlement(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"type", "id", "name"}).AddRow("faction", ownerUUID, "Люди"))
 	expectOwnerPassEmptyRegexp(mock)
 	// У поселения есть тип (152) → настройки типа и числа скорости пары.
-	mock.ExpectQuery(`SELECT id, params->'eat', params->'effects' FROM producer_types WHERE id = ANY\(\$1\)`).WithArgs(sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "eat", "effects"}))
+	mock.ExpectQuery(`SELECT id, params->'eat', params->'effects', params->'storage' FROM producer_types WHERE id = ANY\(\$1\)`).WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "eat", "effects", "storage"}))
 	mock.ExpectQuery(`SELECT producer_type_id, recipe_id, rate FROM producer_recipes WHERE producer_type_id = ANY\(\$1\)`).WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"producer_type_id", "recipe_id", "rate"}))
+	expectStorageCellReadRegexp(mock)
 	expectModesSettlementLog(mock)
 	expectEmptyFactionsBuildings(mock)
 

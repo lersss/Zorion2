@@ -37,6 +37,7 @@ func TestGetPlanetByID(t *testing.T) {
 
 	// Owner-проход: поселение есть, веток нет, Δt ≤ 0 — путь «в памяти», без записи.
 	expectOwnerPassNoBranches(mock, nil)
+	mock.ExpectQuery(storageCellSelectSQL).WithArgs("settlement", "s1").WillReturnRows(storageCellRows())
 
 	expectEmptySettlementLog(mock)
 

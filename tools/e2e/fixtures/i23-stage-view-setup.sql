@@ -46,13 +46,14 @@ VALUES ('e0000000-0000-4000-8000-0000000000a2',
 ON CONFLICT DO NOTHING;
 
 -- Вход (Мясо 359) — с запасом, ветка производит; выход (Пища 378) — пуст.
-INSERT INTO settlement_branch_buffers (branch_id, direction, good_id, amount)
-VALUES ('e0000000-0000-4000-8000-0000000000a2', 'input', 359, 1000000)
-ON CONFLICT DO NOTHING;
+-- Ячейки хранилища поселения (буферы ветки ретайрены, 000087).
+INSERT INTO settlement_storage_cells (owner_type, owner_id, good_id, amount, cap_share)
+VALUES ('settlement', 'e0000000-0000-4000-8000-0000000000a1', 359, 1000000, 0)
+ON CONFLICT (owner_type, owner_id, good_id) DO UPDATE SET amount = EXCLUDED.amount;
 
-INSERT INTO settlement_branch_buffers (branch_id, direction, good_id, amount)
-VALUES ('e0000000-0000-4000-8000-0000000000a2', 'output', 378, 0)
-ON CONFLICT DO NOTHING;
+INSERT INTO settlement_storage_cells (owner_type, owner_id, good_id, amount, cap_share)
+VALUES ('settlement', 'e0000000-0000-4000-8000-0000000000a1', 378, 0, 0)
+ON CONFLICT (owner_type, owner_id, good_id) DO NOTHING;
 
 COMMIT;
 

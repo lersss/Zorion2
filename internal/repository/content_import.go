@@ -1183,7 +1183,7 @@ func guardGood(tx *sql.Tx, code, name string, id int64) ([]ImportBlocked, error)
 	return guardRefs(tx, secGoods, code, name, id, []importRefTable{
 		{"deposits", "good_id"},
 		{"player_cargo", "good_id"},
-		{"settlement_branch_buffers", "good_id"},
+		{"settlement_storage_cells", "good_id"},
 	})
 }
 

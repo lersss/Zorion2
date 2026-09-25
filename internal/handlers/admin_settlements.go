@@ -130,6 +130,12 @@ func (h *AdminHandlers) ClearSettlements(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "Failed to count settlements", http.StatusInternalServerError)
 		return
 	}
+	// Ячейки хранилища — без FK на settlements (§4.1): удаляем явно.
+	if _, err := h.db.Exec(`DELETE FROM settlement_storage_cells WHERE owner_type = 'settlement'`); err != nil {
+		log.Printf("❌ ClearSettlements: storage cells delete error: %v", err)
+		http.Error(w, "Failed to clear settlements", http.StatusInternalServerError)
+		return
+	}
 	if _, err := h.db.Exec(`DELETE FROM settlements`); err != nil {
 		log.Printf("❌ ClearSettlements: delete error: %v", err)
 		http.Error(w, "Failed to clear settlements", http.StatusInternalServerError)
@@ -144,6 +150,10 @@ func (h *AdminHandlers) ClearSettlements(w http.ResponseWriter, r *http.Request)
 // clearSettlementsLayer — удаляет поселения (слой экономики, создаваемый
 // GenerateSettlements). Возвращает число удалённых записей.
 func (h *AdminHandlers) clearSettlementsLayer() (int, error) {
+	// Ячейки хранилища — без FK на settlements (§4.1): удаляем явно.
+	if _, err := h.db.Exec(`DELETE FROM settlement_storage_cells WHERE owner_type = 'settlement'`); err != nil {
+		return 0, err
+	}
 	tables := []string{"settlements"}
 	deleted := 0
 	for _, table := range tables {

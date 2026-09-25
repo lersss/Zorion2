@@ -24,6 +24,7 @@ func TestOwnerPassRBreakdownSum(t *testing.T) {
 	o.Planet.TemperatureK = 365 // жара: вклад среды ненулевой
 
 	expectOwnerPassNoBranches(mock, nil)
+	mock.ExpectQuery(storageCellSelectSQL).WithArgs("settlement", "s1").WillReturnRows(storageCellRows())
 
 	out, err := NewBranchRepository(db).SyncSettlements(now, []OwnerSettlement{o})
 	require.NoError(t, err)

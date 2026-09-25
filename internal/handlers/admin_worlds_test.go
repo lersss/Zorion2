@@ -259,6 +259,10 @@ func TestDeleteWorldClearsReferences(t *testing.T) {
 	mock.ExpectExec(`UPDATE users SET pending_destination = NULL\s+WHERE \(pending_destination->>'world_id'\)::uuid = ANY\(\$1\)`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	// Ячейки хранилища поселений мира (ЧК2а §4.1): owner_id без FK — явный DELETE.
+	mock.ExpectExec(`DELETE FROM settlement_storage_cells\s+WHERE owner_type = 'settlement'\s+AND owner_id IN`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 4))
 	// Мир — каскад на планеты и прочее.
 	mock.ExpectExec(`DELETE FROM worlds WHERE id = \$1`).
 		WithArgs("w1").

@@ -19,7 +19,6 @@ package settlement
 
 import (
 	"log"
-	"math"
 	"sort"
 	"time"
 )
@@ -42,19 +41,18 @@ type NeedsBinding struct {
 
 // NeedsSource — ветка как источник покрытия позиции (§4.2): Position —
 // goods.name_norm товара-выхода; Batches — произведено за Δt (batches_b);
-// DeltaSec — Δt_b в секундах; OutputBase — выходной буфер на processed_at
-// (O0_b, ДО производства, finding 6); Since — момент появления ветки
-// (processed_at_b, §4.3 крайний случай С1): ветка, созданная ВНУТРИ интервала
-// [loadAt, now], входит в покрытие только с этого момента (у такой ветки
-// O0_b = 0). Для веток, существовавших на loadAt, Since ≤ loadAt —
-// вклад как весь интервал.
+// DeltaSec — Δt_b в секундах; Since — момент появления ветки (processed_at_b,
+// §4.3 крайний случай С1): ветка, созданная ВНУТРИ интервала [loadAt, now],
+// входит в покрытие только с этого момента. Для веток, существовавших на
+// loadAt, Since ≤ loadAt — вклад как весь интервал. Базис запаса больше не
+// несётся источником (спека 2026-09-25 §5.7, F6): он берётся из ячейки товара
+// один раз на позицию (NeedsInput.BasisByPosition).
 type NeedsSource struct {
-	ID         string
-	Position   string
-	Batches    float64
-	DeltaSec   float64
-	OutputBase float64
-	Since      time.Time
+	ID       string
+	Position string
+	Batches  float64
+	DeltaSec float64
+	Since    time.Time
 }
 
 // NeedsInput — вход слоя потребности. StoredLoad/StoredLoadAt — хранимый базис
@@ -64,16 +62,21 @@ type NeedsSource struct {
 // жёстко hunger: второй эффект со своей кривой не получает чужую скорость
 // восстановления. Нет записи для кривой → 0 («без восстановления», безопасно).
 type NeedsInput struct {
-	Population   float64
-	Bindings     []NeedsBinding
-	Sources      []NeedsSource
-	StoredLoad   map[int64]float64
-	StoredLoadAt map[int64]time.Time
-	Thresholds   map[string]float64
-	Recoveries   map[string]float64
-	ComputedAt   time.Time
-	Now          time.Time
-	CurveLookup  CurveLookup
+	Population float64
+	Bindings   []NeedsBinding
+	Sources    []NeedsSource
+	// BasisByPosition — базис запаса позиции на начало прохода (спека
+	// 2026-09-25 §5.7, F6): количество ячейки товара-выхода, а при конкуренции
+	// потребителей — доля населения alloc_pop (F2). Заменяет прежний
+	// Σ OutputBase по веткам (двойной счёт одного запаса).
+	BasisByPosition map[string]float64
+	StoredLoad      map[int64]float64
+	StoredLoadAt    map[int64]time.Time
+	Thresholds      map[string]float64
+	Recoveries      map[string]float64
+	ComputedAt      time.Time
+	Now             time.Time
+	CurveLookup     CurveLookup
 }
 
 // EffectRun — результат расчёта одного эффекта за проход: новое значение
@@ -90,11 +93,17 @@ type EffectRun struct {
 	Force        []EffectForcePoint
 }
 
-// NeedsResult — выход слоя потребности: эффекты и физическое списание
-// выходных буферов по источникам (batches, единственная точка записи §4.2).
+// NeedsResult — выход слоя потребности: эффекты и физическое списание запаса
+// по источникам (витрина ветки, ∝ Batches) и по позициям (фактическое списание
+// из ячейки, §5.7).
 type NeedsResult struct {
-	Effects       []EffectRun
+	Effects      []EffectRun
+	// DrawnBySource — списание, атрибутированное веткам ∝ Batches (витрина
+	// Eaten ветки, §5.7); физически списывается из общей ячейки.
 	DrawnBySource map[string]float64
+	// DrawnByPosition — фактическое списание из ячейки по позиции (drawn_pop,
+	// §5.7): итог ячейки = basis + ΣProduced − Σconsumed_by_branches − drawn_pop.
+	DrawnByPosition map[string]float64
 }
 
 // wSeg — кусочно-постоянный сегмент силы условия `w` (§4.2).
@@ -109,7 +118,10 @@ type wSeg struct {
 // и кусочная сила R(load(t)). Детерминирован; повторный вызов с тем же базисом
 // даёт тот же результат (независимость от частоты чтения, §4.3).
 func ComputeNeeds(in NeedsInput) NeedsResult {
-	res := NeedsResult{DrawnBySource: map[string]float64{}}
+	res := NeedsResult{
+		DrawnBySource:   map[string]float64{},
+		DrawnByPosition: map[string]float64{},
+	}
 
 	srcByPos := map[string][]NeedsSource{}
 	for _, s := range in.Sources {
@@ -132,11 +144,10 @@ func ComputeNeeds(in NeedsInput) NeedsResult {
 			log.Printf("⚠️ effect: позиция %q без источника покрытия — coverage=0, w=1 (position_no_source)", b.Position)
 		}
 		loadAt := in.StoredLoadAt[b.EffectTypeID]
-		segs, drawn := positionTrajectory(b, in.Population, loadAt, in.Now, sources)
+		segs, drawnTotal := positionTrajectory(b, in.Population, loadAt, in.Now, sources, in.BasisByPosition[b.Position])
 		g.segs = append(g.segs, segs...)
-		for id, v := range drawn {
-			res.DrawnBySource[id] += v
-		}
+		res.DrawnByPosition[b.Position] += drawnTotal
+		attributeDrawn(res.DrawnBySource, sources, drawnTotal)
 	}
 
 	sort.Slice(order, func(i, j int) bool { return order[i] < order[j] })
@@ -237,23 +248,46 @@ func effectRateOnSegment(impact, curve string, recovery float64, in NeedsInput, 
 	return EffectRate(impact, curve, midLoad, in.CurveLookup)
 }
 
-// positionTrajectory — траектория `w(t)` для одной позиции и физическое
-// списание выходных буферов источников (§4.2). Возвращает кусочную `w` на
-// [loadAt, now] и объём, списанный с каждого источника (∝ O0_b).
+// attributeDrawn — атрибуция фактического списания `drawnTotal` веткам-источникам
+// ∝ Batches (витрина Eaten ветки, §5.7): физически списывается из общей ячейки,
+// поэтому это производная, а не физическая атрибуция. Все ветки инертны
+// (Σ Batches = 0) → равные доли.
+func attributeDrawn(out map[string]float64, sources []NeedsSource, drawnTotal float64) {
+	if drawnTotal <= 0 || len(sources) == 0 {
+		return
+	}
+	var sumBatches float64
+	for _, s := range sources {
+		sumBatches += s.Batches
+	}
+	if sumBatches > 0 {
+		for _, s := range sources {
+			out[s.ID] += drawnTotal * s.Batches / sumBatches
+		}
+		return
+	}
+	share := drawnTotal / float64(len(sources))
+	for _, s := range sources {
+		out[s.ID] += share
+	}
+}
+
+// positionTrajectory — траектория `w(t)` для одной позиции и фактическое
+// списание её доли базиса (§4.2/§5.7). Возвращает кусочную `w` на [loadAt, now]
+// и объём, списанный из ячейки (drawn_pop).
 //
 // Интервал разбивается точками появления веток, созданных ВНУТРИ него
 // (Since_b ∈ (loadAt, now), §4.3 крайний случай С1): до своего Since ветка в
 // покрытии не участвует (вклад 0), поэтому `P_sum` — кусочно-постоянная по
-// под-интервалам. На каждом под-интервале базис O0_sum истощается нетто-расходом
-// `demand − P_sum`; исчерпание внутри под-интервала даёт разрыв `t*`. Ветки,
-// существовавшие на loadAt (Since ≤ loadAt), активны весь интервал — их
-// поведение не меняется (один под-интервал [loadAt, now]). Итог — чистая функция
-// от (loadAt, now, набор веток с их Since, буферы).
-func positionTrajectory(b NeedsBinding, population float64, loadAt, now time.Time, sources []NeedsSource) ([]wSeg, map[string]float64) {
-	drawn := map[string]float64{}
+// под-интервалам. На каждом под-интервале базис `basis` (доля населения
+// alloc_pop, F2) истощается нетто-расходом `demand − P_sum`; исчерпание внутри
+// под-интервала даёт разрыв `t*`. Ветки, существовавшие на loadAt
+// (Since ≤ loadAt), активны весь интервал. Итог — чистая функция от
+// (loadAt, now, набор веток с их Since, базис).
+func positionTrajectory(b NeedsBinding, population float64, loadAt, now time.Time, sources []NeedsSource, basis float64) ([]wSeg, float64) {
 	delta := now.Sub(loadAt).Seconds()
 	if delta <= 0 {
-		return nil, drawn
+		return nil, 0
 	}
 
 	demand := PerSecond(b.NormPerDayPerBillion, population) // батч/сек
@@ -274,21 +308,20 @@ func positionTrajectory(b NeedsBinding, population float64, loadAt, now time.Tim
 		}
 	}
 
-	var o0Sum float64
-	for _, s := range sources {
-		o0Sum += math.Max(0, s.OutputBase)
+	if basis < 0 {
+		basis = 0
 	}
 
 	// Спрос нулевой (нет привязки/явный 0 нормы) — дефицита нет весь интервал
-	// (w = 0), буфер не расходуется.
+	// (w = 0), базис не расходуется.
 	if demand <= 0 {
-		return []wSeg{{start: loadAt, end: now, w: 0}}, drawn
+		return []wSeg{{start: loadAt, end: now, w: 0}}, 0
 	}
 
 	// Посегментный проход: на под-интервале [a, e] активны ветки с Since ≤ a;
-	// базис buf истощается нетто-расходом. Буфера нет / исчерпан → w = w1
+	// базис buf истощается нетто-расходом. Базиса нет / исчерпан → w = w1
 	// (текущая выработка minus спрос), пока не появится новая ветка.
-	buf := o0Sum
+	buf := basis
 	segs := make([]wSeg, 0, len(uniq))
 	for i := 0; i+1 < len(uniq); i++ {
 		a, e := uniq[i], uniq[i+1]
@@ -342,28 +375,18 @@ func positionTrajectory(b NeedsBinding, population float64, loadAt, now time.Tim
 	}
 
 	if len(segs) == 0 {
-		return nil, drawn
+		return nil, 0
 	}
 
-	// Списано с буферов за интервал: min(o0Sum, нетто-расход) — остаток базиса
-	// вычитается из суммы; распределение ∝ O0_b (детерминированно). buf — остаток
-	// базиса на end; кламп в [0, o0Sum] (страховка от float-эпсилона).
+	// Списано из ячейки за интервал: базис минус остаток; кламп в [0, basis]
+	// (страховка от float-эпсилона).
 	if buf < 0 {
 		buf = 0
 	}
-	if buf > o0Sum {
-		buf = o0Sum
+	if buf > basis {
+		buf = basis
 	}
-	drawnTotal := o0Sum - buf
-	if o0Sum > 0 && drawnTotal > 0 {
-		for _, s := range sources {
-			base := math.Max(0, s.OutputBase)
-			if base > 0 {
-				drawn[s.ID] = drawnTotal * base / o0Sum
-			}
-		}
-	}
-	return segs, drawn
+	return segs, basis - buf
 }
 
 // mergeTrajectories — объединение кусочных `w` нескольких позиций одного

@@ -81,8 +81,10 @@ func expectModesScan(mock sqlmock.Sqlmock, userID, worldID string) {
 func expectOwnerPassEmptyRegexp(mock sqlmock.Sqlmock) {
 	mock.ExpectQuery(`SELECT id, name, name_norm, impact, COALESCE`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm", "impact", "curve"}))
-	mock.ExpectQuery(`SELECT name_norm FROM goods`).
-		WillReturnRows(sqlmock.NewRows([]string{"name_norm"}))
+	mock.ExpectQuery(`SELECT id, name, name_norm FROM goods`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm"}))
+	mock.ExpectQuery(`SELECT component_id, COUNT\(\*\) FROM recipe_components`).
+		WillReturnRows(sqlmock.NewRows([]string{"component_id", "count"}))
 	mock.ExpectQuery(`SELECT b\.id.*FROM settlement_branches b`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "settlement_id", "recipe_id", "processed_at", "good_id", "name", "complexity", "name_norm"}))
@@ -93,6 +95,14 @@ func expectOwnerPassEmptyRegexp(mock sqlmock.Sqlmock) {
 	// запросы настроек/чисел не идут.
 	mock.ExpectQuery(`SELECT payload FROM generation_config WHERE key = \$1`).
 		WillReturnRows(sqlmock.NewRows([]string{"payload"}))
+}
+
+// expectStorageCellReadRegexp — чтение ячеек хранилища поселения на пути «в
+// памяти» (без записи); ставится после запросов пачки (типы/числа скорости).
+func expectStorageCellReadRegexp(mock sqlmock.Sqlmock) {
+	mock.ExpectQuery(`SELECT id, owner_type, owner_id, good_id, amount, cap_share FROM settlement_storage_cells`).
+		WithArgs("settlement", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "owner_type", "owner_id", "good_id", "amount", "cap_share"}))
 }
 
 // expectModesSettlementLog — пустой лог поселений (owner-проход).
@@ -182,6 +192,7 @@ func TestPresenceModeOnOwnPlanet(t *testing.T) {
 	// Живой путь присутствия: owner-проход поселений (каталог/категории/ветки/
 	// нагрузка) + лог.
 	expectOwnerPassEmptyRegexp(mock)
+	expectStorageCellReadRegexp(mock)
 	expectModesSettlementLog(mock)
 	expectModesKnowledge(mock, userID, "p1", `{"surface_dominant":"горы","settlements_count":1}`, time.Now())
 
@@ -269,6 +280,7 @@ func TestCanBuyReportSatelliteParent(t *testing.T) {
 	expectFindPlanetBySatellite(mock, "w2", "s1", "p1")
 	// Живой путь присутствия (родитель): owner-проход + лог.
 	expectOwnerPassEmptyRegexp(mock)
+	expectStorageCellReadRegexp(mock)
 	expectModesSettlementLog(mock)
 	expectModesKnowledge(mock, userID, "p1", `{"surface_dominant":"горы","settlements_count":1}`, time.Now())
 
@@ -295,6 +307,7 @@ func TestCanBuyReportFalseForAdmin(t *testing.T) {
 	// admin идёт полным путём GetPlanetsByWorldID: owner-проход (живой) + лог,
 	// затем фракции/строения/залежи.
 	expectOwnerPassEmptyRegexp(mock)
+	expectStorageCellReadRegexp(mock)
 	expectModesSettlementLog(mock)
 	expectEmptyFactionsBuildings(mock)
 	expectEmptyDeposits(mock)

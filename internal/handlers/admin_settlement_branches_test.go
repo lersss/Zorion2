@@ -33,8 +33,8 @@ func mockBranchAdvisoryLock(mock sqlmock.Sqlmock) {
 }
 
 // mockBranchLoadRows — ожидания чтения блока веток (loadBranches): ветка +
-// компоненты рецепта + буферы. Возвращает одну ветку «Пища» (s1) с входом
-// Мясо=97 и выходом Пища=30.
+// компоненты рецепта. Возвращает одну ветку «Пища» (s1). Буферов ветки больше
+// нет — запас живёт в ячейках хранилища.
 func mockBranchLoadRows(mock sqlmock.Sqlmock) {
 	mock.ExpectQuery(`FROM settlement_branches b`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "settlement_id", "recipe_id", "processed_at", "good_id", "name", "complexity", "name_norm"}).
@@ -42,10 +42,6 @@ func mockBranchLoadRows(mock sqlmock.Sqlmock) {
 	mock.ExpectQuery(`FROM recipe_components rc`).
 		WillReturnRows(sqlmock.NewRows([]string{"recipe_id", "component_id", "quantity"}).
 			AddRow(int64(69), int64(359), 1))
-	mock.ExpectQuery(`FROM settlement_branch_buffers bb`).
-		WillReturnRows(sqlmock.NewRows([]string{"branch_id", "direction", "good_id", "name", "amount"}).
-			AddRow("b1", "output", int64(378), "Пища", 30.0).
-			AddRow("b1", "input", int64(359), "Мясо", 97.0))
 }
 
 // T2: успешное создание ветки → 200 и блок branches[] с посеянными строками.
@@ -66,13 +62,13 @@ func TestAddBranchHappyPath(t *testing.T) {
 		WithArgs("s1", int64(69)).WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 	mock.ExpectExec(`INSERT INTO settlement_branches`).
 		WillReturnResult(sqlmock.NewResult(1, 1))
-	// CreateBranchTx: посев буферов (компоненты + выход).
+	// CreateBranchTx: авто-создание ячеек (компонент + выход).
 	mock.ExpectQuery(`SELECT component_id FROM recipe_components`).
 		WithArgs(int64(69)).WillReturnRows(sqlmock.NewRows([]string{"component_id"}).AddRow(int64(359)))
-	mock.ExpectExec(`INSERT INTO settlement_branch_buffers`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(`SELECT good_id FROM recipes WHERE id = \$1`).
 		WithArgs(int64(69)).WillReturnRows(sqlmock.NewRows([]string{"good_id"}).AddRow(int64(378)))
-	mock.ExpectExec(`INSERT INTO settlement_branch_buffers`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO settlement_storage_cells`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO settlement_storage_cells`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mockBranchLoadRows(mock)
 	mock.ExpectCommit()
 
@@ -94,8 +90,6 @@ func TestAddBranchHappyPath(t *testing.T) {
 	require.Len(t, body.Branches, 1)
 	assert.Equal(t, int64(69), body.Branches[0].RecipeID)
 	assert.Equal(t, "Пища", body.Branches[0].RecipeName)
-	assert.Len(t, body.Branches[0].Output, 1)
-	assert.Len(t, body.Branches[0].Input, 1)
 }
 
 // T2: поселения нет → 404.
@@ -234,13 +228,18 @@ func TestAddBranchInputHappyPath(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectBegin()
+	// Порядок локов (N4): читающий SELECT settlement_id → LockOwnerTx → LockBranchTx.
+	mock.ExpectQuery(`SELECT settlement_id FROM settlement_branches WHERE id = \$1`).
+		WithArgs("b1").WillReturnRows(sqlmock.NewRows([]string{"settlement_id"}).AddRow("s1"))
+	mockBranchAdvisoryLock(mock)
 	mock.ExpectQuery(`SELECT settlement_id, recipe_id FROM settlement_branches WHERE id = \$1 FOR UPDATE`).
 		WithArgs("b1").WillReturnRows(sqlmock.NewRows([]string{"settlement_id", "recipe_id"}).AddRow("s1", int64(69)))
 	mock.ExpectQuery(`SELECT id, name FROM goods WHERE id = \$1`).
 		WithArgs(int64(359)).WillReturnRows(sqlmock.NewRows([]string{"id", "name"}).AddRow(int64(359), "Мясо"))
 	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM recipe_components WHERE recipe_id = \$1 AND component_id = \$2\)`).
 		WithArgs(int64(69), int64(359)).WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-	mock.ExpectExec(`INSERT INTO settlement_branch_buffers`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO settlement_storage_cells`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`UPDATE settlement_storage_cells`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(`SELECT planet_id FROM settlements WHERE id = \$1`).
 		WithArgs("s1").WillReturnRows(sqlmock.NewRows([]string{"planet_id"}).AddRow("p1"))
 	mockBranchLoadRows(mock)
@@ -285,6 +284,9 @@ func TestAddBranchInputNotComponent(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT settlement_id FROM settlement_branches WHERE id = \$1`).
+		WithArgs("b1").WillReturnRows(sqlmock.NewRows([]string{"settlement_id"}).AddRow("s1"))
+	mockBranchAdvisoryLock(mock)
 	mock.ExpectQuery(`SELECT settlement_id, recipe_id FROM settlement_branches WHERE id = \$1 FOR UPDATE`).
 		WithArgs("b1").WillReturnRows(sqlmock.NewRows([]string{"settlement_id", "recipe_id"}).AddRow("s1", int64(69)))
 	mock.ExpectQuery(`SELECT id, name FROM goods WHERE id = \$1`).
@@ -307,8 +309,8 @@ func TestAddBranchInputBranchNotFound(t *testing.T) {
 	defer db.Close()
 
 	mock.ExpectBegin()
-	mock.ExpectQuery(`SELECT settlement_id, recipe_id FROM settlement_branches WHERE id = \$1 FOR UPDATE`).
-		WithArgs("bX").WillReturnRows(sqlmock.NewRows([]string{"settlement_id", "recipe_id"}))
+	mock.ExpectQuery(`SELECT settlement_id FROM settlement_branches WHERE id = \$1`).
+		WithArgs("bX").WillReturnRows(sqlmock.NewRows([]string{"settlement_id"}))
 	mock.ExpectRollback()
 
 	h := &AdminHandlers{db: db}
@@ -318,39 +320,17 @@ func TestAddBranchInputBranchNotFound(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// T11: stripPlanetDetails обнуляет Input у веток (защита в глубину), даже если
-// ветка оказалась в модели; Output при этом не трогается.
+// T11: stripPlanetDetails не отдаёт поселения игроку без знания (детали скрыты).
 func TestStripPlanetDetailsHidesBranchInput(t *testing.T) {
 	p := models.Planet{
 		Settlements: []models.Settlement{{
 			ID: "s1",
 			Branches: []models.SettlementBranch{{
 				ID: "b1", RecipeID: 69,
-				Output: []models.BranchBufferEntry{{GoodID: 378, Amount: 30}},
-				Input:  []models.BranchBufferEntry{{GoodID: 359, Amount: 97}},
 			}},
 		}},
 	}
 	out := stripPlanetDetails(p, nil, true)
 	// Поселения игроку без знания не отдаются вовсе.
 	require.Nil(t, out.Settlements)
-}
-
-// T11: вход ветки обнуляется до сброса поселений (stripBranchInputs) — защита
-// в глубину; выход (Output) не трогается.
-func TestStripBranchInputsNilsInput(t *testing.T) {
-	p := models.Planet{
-		Settlements: []models.Settlement{{
-			ID: "s1",
-			Branches: []models.SettlementBranch{{
-				ID:     "b1",
-				Output: []models.BranchBufferEntry{{GoodID: 378, Amount: 30}},
-				Input:  []models.BranchBufferEntry{{GoodID: 359, Amount: 97}},
-			}},
-		}},
-	}
-	stripBranchInputs(&p)
-	require.Len(t, p.Settlements[0].Branches, 1)
-	require.Nil(t, p.Settlements[0].Branches[0].Input, "входной буфер должен быть обнулён")
-	require.Len(t, p.Settlements[0].Branches[0].Output, 1, "выход остаётся частью деталей поселения")
 }

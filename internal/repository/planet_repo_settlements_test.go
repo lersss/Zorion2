@@ -72,6 +72,8 @@ func TestGetPlanetsByWorldIDWithSettlements(t *testing.T) {
 	// Owner-проход: у поселений веток нет и computed_at = now (Δt < порога) —
 	// путь «в памяти», записей в БД нет.
 	expectOwnerPassNoBranches(mock, nil)
+	mock.ExpectQuery(storageCellSelectSQL).WithArgs("settlement", "s1").WillReturnRows(storageCellRows())
+	mock.ExpectQuery(storageCellSelectSQL).WithArgs("settlement", "s2").WillReturnRows(storageCellRows())
 	expectEmptySettlementLog(mock)
 
 	expectEmptyFactionsBuildings(mock)
@@ -202,6 +204,8 @@ func TestGetPlanetsByWorldIDRaceName(t *testing.T) {
 	mock.ExpectQuery(settlementsQuery).WithArgs(sqlmock.AnyArg()).WillReturnRows(settlementRows)
 
 	expectOwnerPassNoBranches(mock, nil)
+	mock.ExpectQuery(storageCellSelectSQL).WithArgs("settlement", "s1").WillReturnRows(storageCellRows())
+	mock.ExpectQuery(storageCellSelectSQL).WithArgs("settlement", "s2").WillReturnRows(storageCellRows())
 	expectEmptySettlementLog(mock)
 	expectEmptyFactionsBuildings(mock)
 	expectEmptyDeposits(mock)
@@ -246,7 +250,7 @@ func TestAttachSettlementsOwnerPass(t *testing.T) {
 			[]byte(`{"пища": 600}`), []byte(`{"пища": "голод"}`), nil, nil)
 	mock.ExpectQuery(settlementsQuery).WithArgs(sqlmock.AnyArg()).WillReturnRows(settlementRows)
 
-	expectOwnerPassWithBranches(mock, ownerBranchRows(computedAt, "пища"), ownerComponentRows(), ownerBufferRows(), nil)
+	expectOwnerPassWithBranches(mock, ownerBranchRows(computedAt, "пища"), ownerComponentRows(), nil)
 
 	mock.ExpectBegin()
 	mock.ExpectExec(advisoryOwnerLockSQL).WithArgs("s1").WillReturnResult(sqlmock.NewResult(0, 0))
@@ -255,16 +259,22 @@ func TestAttachSettlementsOwnerPass(t *testing.T) {
 			AddRow(1_000_000_000, float64(1_000_000_000), computedAt, computedAt, "", int64(148)))
 	mock.ExpectQuery(branchSelectBySettlementForUpdateSQL).WithArgs("s1").
 		WillReturnRows(ownerBranchRows(computedAt, "пища"))
-	mock.ExpectQuery(branchBuffersSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(ownerBufferRows())
 	mock.ExpectQuery(branchComponentsSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(ownerComponentRows())
-	mock.ExpectExec(branchTopUpInputSQL).WithArgs("b1", int64(359)).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(depositExtractionSelectSQL).WithArgs("p1", sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "good_id", "amount"}))
+	mock.ExpectExec(storageCellUpsertSQL).WithArgs("settlement", "s1", int64(359), sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(storageCellUpsertSQL).WithArgs("settlement", "s1", int64(378), sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(storageCellsDeleteEmptyOutsideSQL).WithArgs("settlement", "s1", sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(storageCellSelectSQL).WithArgs("settlement", "s1").
+		WillReturnRows(storageCellRows(
+			int64(1), "settlement", "s1", int64(359), 1e15, 1.0,
+			int64(2), "settlement", "s1", int64(378), 0.0, 1.0))
 	// Точные объёмы зависят от миллисекунд между `now` теста и внутренним
 	// `time.Now()` attachSettlements — суммы проверяются по знаку/порядку ниже.
-	mock.ExpectExec(branchWriteInputSQL).WithArgs(sqlmock.AnyArg(), "b1", int64(359)).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(storageCellIncrementSQL).WithArgs("settlement", "s1", sqlmock.AnyArg(), int64(359)).WillReturnResult(sqlmock.NewResult(0, 1))
 	// Выход = 0 + batches(24 ч · 27.8/ч) − 0 ≈ 667.2 — ветка не «ест» сама.
-	mock.ExpectExec(branchWriteOutputSQL).WithArgs("b1", int64(378), sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(storageCellIncrementSQL).WithArgs("settlement", "s1", sqlmock.AnyArg(), int64(378)).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(settlementStorageSizeUpdateSQL).WithArgs("s1", sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(branchWriteCheckpointSQL).WithArgs(sqlmock.AnyArg(), "b1").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(activeEffectUpsertSQL).WithArgs(int64(1), "s1", "пища", sqlmock.AnyArg(), amountNear{0.0}).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -282,7 +292,7 @@ func TestAttachSettlementsOwnerPass(t *testing.T) {
 	require.Len(t, planets[0].Settlements, 1)
 	branches := planets[0].Settlements[0].Branches
 	require.Len(t, branches, 1)
-	require.InDelta(t, 667.2, branches[0].Output[0].Amount, 1.0,
-		"выход = O0_b + batches_b − drawn_b; хвоста eaten в ProcessBranch нет")
+	require.InDelta(t, 667.2, branches[0].Produced, 1.0,
+		"произведено = batches(24 ч · 27.8/ч); хвоста eaten в ProcessBranch нет")
 	require.Zero(t, branches[0].Eaten, "списания нет — позиция покрыта производством")
 }

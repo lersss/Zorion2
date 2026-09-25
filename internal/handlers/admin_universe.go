@@ -59,7 +59,7 @@ func recoverErr(r interface{}) string {
 // с ошибкой "cannot truncate a table referenced in a foreign key
 // constraint". Тогда добавь её в этот список.
 
-const truncateTables = `worlds, locations, planets, contracts, contract_requirements, contract_log, contract_board_state, factions, settlements, settlement_branches, settlement_branch_buffers, active_effects, settlement_log, regions, npc_agents, player_planet_knowledge, buildings, deposits, system_belts, money_operations`
+const truncateTables = `worlds, locations, planets, contracts, contract_requirements, contract_log, contract_board_state, factions, settlements, settlement_branches, settlement_storage_cells, active_effects, settlement_log, regions, npc_agents, player_planet_knowledge, buildings, deposits, system_belts, money_operations`
 
 // clearUniverseTx — очистка внутри уже начатой транзакции.
 // Вызывающий делает Begin/Commit/Rollback.
@@ -644,6 +644,11 @@ func (h *AdminHandlers) clearPlanets() (int, error) {
 		return 0, err
 	}
 	if _, err := tx.Exec(`DELETE FROM system_belts`); err != nil {
+		return 0, err
+	}
+	// Ячейки хранилища поселений (ЧК2а §4.1): owner_id без FK на settlements —
+	// при DELETE planets поселения уходят каскадом, ячейки остались бы сиротами.
+	if _, err := tx.Exec(`DELETE FROM settlement_storage_cells WHERE owner_type = 'settlement'`); err != nil {
 		return 0, err
 	}
 	if _, err := tx.Exec(`DELETE FROM planets`); err != nil {

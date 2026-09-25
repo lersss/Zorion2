@@ -629,6 +629,31 @@ ClearUniverse его не трогает.
   `colony`/`factory`/`lab`/`mining`/`energy`) + бэкфилл 6 канон-корней по
   `name_norm`, идемпотентно. Номер `000085` зафиксирован менеджером (после
   `000084`).
+- `000086` — `000086_settlement_storage_cells.sql` — внутреннее хранилище
+  (спека `2026-09-25-внутреннее-хранилище-и-рождение-заказов` §4.1, ЧК2а,
+  подэтап 2а): у `settlements` — колонка `storage_size DOUBLE PRECISION NOT NULL
+  DEFAULT 0 CHECK (>= 0)`; таблица `settlement_storage_cells` (полиморфный
+  владелец `owner_type`/`owner_id`, `good_id` FK CASCADE, `amount`/`cap_share`
+  CHECK `>= 0`, UNIQUE `(owner_type, owner_id, good_id)`, индексы
+  `idx_storage_cells_owner`/`idx_storage_cells_good`). Идемпотентно.
+- `000087` — `000087_retire_branch_buffers.sql` — переезд механики с буферов
+  ветки на ячейки (та же спека, подэтап 2б): агрегация `settlement_branch_buffers`
+  по `(поселение, товар)` в `settlement_storage_cells`; `cap_share` по F3
+  (ручка `params.storage.shares` > вхождения во входы рецептов, для товара с
+  эффектом — `max(occ,1)`); ретайр буферов — `RENAME` в
+  `settlement_branch_buffers_retired` + снятие FK/индексов (**не DROP** — данные
+  для отката; финальный DROP — отдельной миграцией). Идемпотентно (проверка
+  `to_regclass`). `settlement_storage_cells` — в `truncateTables`
+  (`admin_universe.go`); удаление поселения чистит ячейки явно (FK на
+  `settlements` нет).
+- `000088` — `000088_contract_author_settlement.sql` — автор-поселение контракта
+  (та же спека, подэтап 3а, §1.5/§5.2/§6): `contracts.author_type` CHECK
+  расширен до `('player','faction','building','agent','settlement')`;
+  `contracts_live_has_escrow` ослаблен — `supply` с `reward = 0` публикуется без
+  залога (`escrow_amount = 0`), прочие типы сохраняют запрет. Имя авто-CHECK из
+  `000062` — `contracts_author_type_check` (inline); правится
+  `DROP CONSTRAINT IF EXISTS` + `ADD CONSTRAINT` — идемпотентно.
+  `direct_target_type` не расширяется (M6).
 - Миграции, вступающие в силу на старте, требуют перезапуска сервера
   (`AGENTS.md` §4 п.13).
 - `VACUUM` внутрь миграции не положить — не работает внутри транзакции

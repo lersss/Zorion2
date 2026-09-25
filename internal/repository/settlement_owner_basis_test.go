@@ -33,6 +33,12 @@ func expectOwnerNoBranchPersistentPass(mock sqlmock.Sqlmock, computedAt, created
 			AddRow(1_000_000_000, float64(1_000_000_000), computedAt, createdAt, "", int64(ownerTestTypeID)))
 	mock.ExpectQuery(branchSelectBySettlementForUpdateSQL).WithArgs("s1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "settlement_id", "recipe_id", "processed_at", "good_id", "name", "complexity", "name_norm"}))
+	// Реестр нужд: ячейка позиции-эффекта «пища» (good 378).
+	mock.ExpectExec(storageCellUpsertSQL).WithArgs("settlement", "s1", int64(378), sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(storageCellsDeleteEmptyOutsideSQL).WithArgs("settlement", "s1", sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(storageCellSelectSQL).WithArgs("settlement", "s1").
+		WillReturnRows(storageCellRows(int64(1), "settlement", "s1", int64(378), 0.0, 1.0))
+	mock.ExpectExec(settlementStorageSizeUpdateSQL).WithArgs("s1", sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(activeEffectUpsertSQL).WithArgs(int64(1), "s1", "пища", sqlmock.AnyArg(), amountNear{wantLoad}).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(settlementPopulationWriteSQL).WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "s1").
@@ -103,6 +109,7 @@ func TestOwnerPassNewbornMemoryPathAlive(t *testing.T) {
 	o := ownerInput(createdAt)
 
 	expectOwnerPassNoBranches(mock, nil)
+	mock.ExpectQuery(storageCellSelectSQL).WithArgs("settlement", "s1").WillReturnRows(storageCellRows())
 
 	out, err := NewBranchRepository(db).SyncSettlements(now, []OwnerSettlement{o})
 	require.NoError(t, err)
@@ -169,6 +176,7 @@ func TestOwnerPassNewbornStageTransitionFromNow(t *testing.T) {
 
 	mock.ExpectQuery(effectTypeCatalogSQL).WillReturnRows(effectTypeRows())
 	mock.ExpectQuery(goodsNamesSQL).WillReturnRows(goodsNameRows())
+	mock.ExpectQuery(recipeComponentOccurrencesSQL).WillReturnRows(recipeOccurrenceRows())
 	mock.ExpectQuery(branchSelectBySettlementsSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(emptyBranchRows())
 	mock.ExpectQuery(activeEffectsSelectSQL).WithArgs(sqlmock.AnyArg()).WillReturnRows(activeEffectRows())
 	expectStageBatch(mock)
@@ -181,16 +189,23 @@ func TestOwnerPassNewbornStageTransitionFromNow(t *testing.T) {
 	mock.ExpectQuery(branchSelectBySettlementForUpdateSQL).WithArgs("s1").
 		WillReturnRows(emptyBranchRows())
 
-	// Переход 148 → 151: запись стадии, набор рецептов (пуст), очистка складов.
+	// Переход 148 → 151: запись стадии, набор рецептов (пуст), обнуление ячеек.
 	mock.ExpectExec(settlementTypeWriteSQL).WithArgs(int64(151), "s1").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(settlementRecipesSelectSQL).WithArgs(int64(151)).
 		WillReturnRows(sqlmock.NewRows([]string{"recipe_id", "count"}))
-	mock.ExpectExec(branchBuffersClearSQL).WithArgs("s1").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(storageCellsClearSQL).WithArgs("settlement", "s1").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(activeEffectsClearSQL).WithArgs("s1").WillReturnResult(sqlmock.NewResult(0, 1))
 
 	// Перечитать ветки после перехода (пусто).
 	mock.ExpectQuery(branchSelectBySettlementForUpdateSQL).WithArgs("s1").
 		WillReturnRows(emptyBranchRows())
+
+	// Реестр нужд: ячейка позиции-эффекта «пища» (good 378).
+	mock.ExpectExec(storageCellUpsertSQL).WithArgs("settlement", "s1", int64(378), sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(storageCellsDeleteEmptyOutsideSQL).WithArgs("settlement", "s1", sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(storageCellSelectSQL).WithArgs("settlement", "s1").
+		WillReturnRows(storageCellRows(int64(1), "settlement", "s1", int64(378), 0.0, 1.0))
+	mock.ExpectExec(settlementStorageSizeUpdateSQL).WithArgs("s1", sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
 
 	// Сброс по стадии → load_at = now → нагрузка 0.
 	mock.ExpectExec(activeEffectUpsertSQL).WithArgs(int64(1), "s1", "пища", sqlmock.AnyArg(), amountNear{0.0}).

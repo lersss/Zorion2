@@ -151,6 +151,13 @@ func (h *AdminHandlers) clearRaceSettlementsLayer() (int, error) {
 	if err := h.db.QueryRow(`SELECT COUNT(*) FROM settlements WHERE race_id IS NOT NULL`).Scan(&n); err != nil {
 		return 0, err
 	}
+	// Ячейки хранилища — без FK на settlements (§4.1): удаляем явно.
+	if _, err := h.db.Exec(`
+		DELETE FROM settlement_storage_cells
+		WHERE owner_type = 'settlement'
+		  AND owner_id IN (SELECT id FROM settlements WHERE race_id IS NOT NULL)`); err != nil {
+		return 0, err
+	}
 	if _, err := h.db.Exec(`DELETE FROM settlements WHERE race_id IS NOT NULL`); err != nil {
 		return 0, err
 	}

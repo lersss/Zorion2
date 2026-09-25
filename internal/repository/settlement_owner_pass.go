@@ -14,6 +14,7 @@ import (
 	"database/sql"
 	"log"
 	"math"
+	"sort"
 	"time"
 
 	"github.com/lib/pq"
@@ -66,10 +67,17 @@ const (
 		ON CONFLICT (owner_type, owner_id, effect_type_id)
 		DO UPDATE SET load = $5, load_at = $4, updated_at = NOW()`
 
-	// goodsNamesSQL — словарь позиций-ТОВАРОВ (goods.name_norm): ключ
+	// goodsNamesSQL — словарь товаров: id, имя и позиция (name_norm). Ключ
 	// params.eat/params.effects читается только как товар (спека 2026-09-24
-	// §6.1/§9.4); категория-«сахар» как позиция снята.
-	goodsNamesSQL = `SELECT name_norm FROM goods`
+	// §6.1/§9.4); id нужен для ячеек хранилища (позиция → good_id), имя — для
+	// витрины «забираем».
+	goodsNamesSQL = `SELECT id, name, name_norm FROM goods`
+
+	// recipeComponentOccurrencesSQL — число вхождений товара во ВХОДЫ рецептов
+	// (F3, §1.3): вес ячейки по умолчанию. Один запрос на пачку.
+	recipeComponentOccurrencesSQL = `
+		SELECT component_id, COUNT(*) FROM recipe_components
+		WHERE component_id IS NOT NULL GROUP BY component_id`
 
 	// producerRatesSelectSQL — пары «тип × рецепт» с числом скорости (спека
 	// 2026-09-23 §3.3 п.3): один запрос на пачку владельцев, карта
@@ -80,20 +88,6 @@ const (
 	producerRatesSelectSQL = `
 		SELECT producer_type_id, recipe_id, rate FROM producer_recipes
 		WHERE producer_type_id = ANY($1)`
-
-	branchTopUpInputSQL = `
-		INSERT INTO settlement_branch_buffers (branch_id, direction, good_id, amount)
-		VALUES ($1, 'input', $2, 0) ON CONFLICT (branch_id, direction, good_id) DO NOTHING`
-
-	branchWriteInputSQL = `
-		UPDATE settlement_branch_buffers SET amount = $1, updated_at = NOW()
-		WHERE branch_id = $2 AND direction = 'input' AND good_id = $3`
-
-	branchWriteOutputSQL = `
-		INSERT INTO settlement_branch_buffers (branch_id, direction, good_id, amount)
-		VALUES ($1, 'output', $2, $3)
-		ON CONFLICT (branch_id, direction, good_id)
-		DO UPDATE SET amount = EXCLUDED.amount, updated_at = NOW()`
 
 	branchWriteCheckpointSQL = `
 		UPDATE settlement_branches SET processed_at = $1, updated_at = NOW() WHERE id = $2`
@@ -160,19 +154,19 @@ type storedEffect struct {
 }
 
 // ownerBranchWrite — данные записи по одной ветке (после слоя потребности):
-// плюс витринные поля ветки (число скорости пары, признак «не в наборе стадии»)
-// и снимок входа ДО прохода (для доли добора из залежей, §8.2).
+// плюс витринные поля ветки (число скорости пары, признак «не в наборе стадии»).
+// input — распределённая доля входных ячеек (F2, ДО ProcessBranch), after —
+// остаток доли после производства (для доли добора из залежей, §8.2).
 type ownerBranchWrite struct {
-	rec         *branchRecord
-	input       map[int64]float64
-	deposits    map[int64][]settlement.DepositLot
-	produced    float64
-	drawn       float64
-	output      float64 // итоговый буфер O0_b + batches_b − drawn_b
-	deltaSec    float64
-	rate        *float64
-	notInStage  bool
-	inputBefore map[int64]float64
+	rec        *branchRecord
+	input      map[int64]float64
+	after      map[int64]float64
+	deposits   map[int64][]settlement.DepositLot
+	produced   float64
+	drawn      float64
+	deltaSec   float64
+	rate       *float64
+	notInStage bool
 }
 
 // ownerRun — полный результат owner-прохода (витрина + данные записи).
@@ -181,6 +175,13 @@ type ownerRun struct {
 	writes     []ownerBranchWrite
 	collapsed  bool
 	deathInput settlement.PlanetInput
+	// cellFinals — итоговое количество каждой ячейки за проход (§5.7):
+	// basis + ΣProduced − Σconsumed_by_branches − drawn_pop (кламп ≥ 0).
+	cellFinals map[int64]float64
+	// cellBasis — количество ячейки на начало прохода (для дельты записи).
+	cellBasis map[int64]float64
+	// storageSize — размер хранилища поселения (пишется owner-проходом).
+	storageSize float64
 }
 
 // SyncSettlements — owner-проход по поселениям (§4.1/§4.5): на каждое
@@ -197,7 +198,11 @@ func (r *BranchRepository) SyncSettlements(now time.Time, owners []OwnerSettleme
 	if err != nil {
 		return nil, err
 	}
-	knownPositions, err := r.loadGoodNames(ctx)
+	goods, err := r.loadGoodsCatalog(ctx)
+	if err != nil {
+		return nil, err
+	}
+	occurrences, err := r.loadRecipeComponentOccurrences(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -241,10 +246,10 @@ func (r *BranchRepository) SyncSettlements(now time.Time, owners []OwnerSettleme
 	if err != nil {
 		return nil, err
 	}
-	data := ownerBatchData{rates: rates, recipes: recipes, types: types, ladder: ladder}
+	data := ownerBatchData{rates: rates, recipes: recipes, types: types, ladder: ladder, occurrences: occurrences}
 
 	for _, o := range owners {
-		res, err := r.syncOwner(ctx, o, bySettlement[o.ID], stored[o.ID], catalog, knownPositions, data, now)
+		res, err := r.syncOwner(ctx, o, bySettlement[o.ID], stored[o.ID], catalog, goods, data, now)
 		if err != nil {
 			return nil, err
 		}
@@ -293,7 +298,7 @@ func notInStageSet(recipes map[int64]map[int64]bool, typeID, recipeID int64) boo
 }
 
 // syncOwner — проход по одному поселению: персистентный путь или «в памяти».
-func (r *BranchRepository) syncOwner(ctx context.Context, o OwnerSettlement, branches []*branchRecord, stored []storedEffect, catalog map[string]effectTypeMeta, knownPositions map[string]bool, data ownerBatchData, now time.Time) (OwnerResult, error) {
+func (r *BranchRepository) syncOwner(ctx context.Context, o OwnerSettlement, branches []*branchRecord, stored []storedEffect, catalog map[string]effectTypeMeta, goods goodsCatalog, data ownerBatchData, now time.Time) (OwnerResult, error) {
 	// Персистентный путь, если «событие» наступило хоть у одной чек-точки
 	// владельца (население или ветка): обе продвигаются одним now (§4.5),
 	// поэтому устаревание любой из них требует записи.
@@ -308,9 +313,14 @@ func (r *BranchRepository) syncOwner(ctx context.Context, o OwnerSettlement, bra
 		if err != nil {
 			return OwnerResult{}, err
 		}
+		cells, err := r.loadStorageCells(ctx, o.ID)
+		if err != nil {
+			return OwnerResult{}, err
+		}
+		_, size := storagePlan(o, branches, goods, data)
 		// На пути «в памяти» стадия не оценивается (спека 2026-09-23 §4.4):
-		// сброса базиса по стадии нет.
-		run, err := runOwnerPass(o, branches, stored, catalog, knownPositions, data, deposits, now, false)
+		// сброса базиса по стадии нет; ячейки не пишутся.
+		run, err := runOwnerPass(o, branches, stored, catalog, goods, data, deposits, cells, size, now, false)
 		if err != nil {
 			return OwnerResult{}, err
 		}
@@ -357,9 +367,6 @@ func (r *BranchRepository) syncOwner(ctx context.Context, o OwnerSettlement, bra
 	if err := loadBranchComponentsForRecords(ctx, tx, txRecs); err != nil {
 		return OwnerResult{}, err
 	}
-	if err := topUpBranchInputs(ctx, tx, txRecs); err != nil {
-		return OwnerResult{}, err
-	}
 	deposits, err := loadDepositsForUpdate(ctx, tx, o.PlanetID, allComponentGoodIDs(txRecs))
 	if err != nil {
 		return OwnerResult{}, err
@@ -373,7 +380,7 @@ func (r *BranchRepository) syncOwner(ctx context.Context, o OwnerSettlement, bra
 		if err := r.applyStageTransition(ctx, tx, &o, newTypeID, txRecs, data.types); err != nil {
 			return OwnerResult{}, err
 		}
-		// Перечитать ветки: доборные — в составе, буферы сохранённых обнулены
+		// Перечитать ветки: доборные — в составе, ячейки сохранённых обнулены
 		// (§5.1 пп.3–4). Базис нагрузки сброшен и в ПАМЯТИ (§5.1 п.5): stored =
 		// nil → ComputeNeeds получит load = 0, load_at = now в этом же проходе.
 		txRecs, err = loadSettlementBranchesForUpdate(ctx, tx, o.ID)
@@ -390,11 +397,24 @@ func (r *BranchRepository) syncOwner(ctx context.Context, o OwnerSettlement, bra
 		basisReset = true
 	}
 
-	run, err := runOwnerPass(o, txRecs, stored, catalog, knownPositions, data, deposits, now, basisReset)
+	// Реестр нужд (§4.3): сверка набора ячеек с потребностями (эффекты +
+	// компоненты + выходы веток), веса — по F3. Затем чтение ячеек уже с
+	// созданными строками (базис прохода).
+	weights, size := storagePlan(o, txRecs, goods, data)
+	cellsRepo := NewStorageCellRepository(r.db)
+	if err := cellsRepo.EnsureStorageCellsTx(ctx, tx, StorageOwnerSettlement, o.ID, weights); err != nil {
+		return OwnerResult{}, err
+	}
+	cells, err := cellsRepo.GetStorageCellsTx(ctx, tx, StorageOwnerSettlement, o.ID)
 	if err != nil {
 		return OwnerResult{}, err
 	}
-	if err := writeOwnerTx(ctx, tx, o, run, now); err != nil {
+
+	run, err := runOwnerPass(o, txRecs, stored, catalog, goods, data, deposits, cells, size, now, basisReset)
+	if err != nil {
+		return OwnerResult{}, err
+	}
+	if err := r.writeOwnerTx(ctx, tx, o, run, now); err != nil {
 		return OwnerResult{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -403,30 +423,139 @@ func (r *BranchRepository) syncOwner(ctx context.Context, o OwnerSettlement, bra
 	return run.result, nil
 }
 
-// runOwnerPass — производство → потребность → население (без записи): мутирует
-// display-копии веток и собирает данные записи. data — карты пачки (числа
-// скорости пар + набор рецептов стадии, §3.3). basisReset — явный признак
-// сброса базиса нагрузки сменой стадии в этом же проходе (§5.1 п.5): базис
-// обнулён намеренно, старт счёта — с текущего момента.
-func runOwnerPass(o OwnerSettlement, branches []*branchRecord, stored []storedEffect, catalog map[string]effectTypeMeta, knownPositions map[string]bool, data ownerBatchData, deposits map[int64][]settlement.DepositLot, now time.Time, basisReset bool) (ownerRun, error) {
+// loadStorageCells — ячейки поселения вне транзакции (путь «в памяти»).
+func (r *BranchRepository) loadStorageCells(ctx context.Context, settlementID string) ([]models.StorageCell, error) {
+	return NewStorageCellRepository(r.db).GetStorageCells(StorageOwnerSettlement, settlementID)
+}
+
+// storagePlan — реестр нужд поселения и веса ячеек (F3, §4.3): набор =
+// keys(params.effects) ∪ компоненты рецептов веток ∪ выходы веток (выход
+// приходит в ячейку товара-выхода, §1.2). Вес — GoodWeights (ручка shares >
+// вхождения во входы рецептов, для товара с эффектом — max(occ,1)). Размер —
+// ручка params.storage.size типа текущей ступени, иначе StorageSizeDefault.
+func storagePlan(o OwnerSettlement, branches []*branchRecord, goods goodsCatalog, data ownerBatchData) (map[int64]float64, float64) {
+	needs := map[int64]bool{}
+	for pos := range o.EffectsByPosition {
+		if gid, ok := goods.byPosition[pos]; ok {
+			needs[gid] = true
+		}
+	}
+	for _, rec := range branches {
+		for _, c := range rec.components {
+			needs[c.GoodID] = true
+		}
+		needs[rec.outputGoodID] = true
+	}
+	// occurrences заполняется под КАЖДУЮ потребность (0 у выхода без вхождений):
+	// GoodWeights строит ключи из переданных карт, поэтому выход рецепта обязан
+	// попасть в набор — иначе у него не будет ячейки для прихода (§1.2).
+	occ := map[int64]int{}
+	for g := range needs {
+		occ[g] = data.occurrences[g]
+	}
+	eff := map[int64]bool{}
+	for pos := range o.EffectsByPosition {
+		if gid, ok := goods.byPosition[pos]; ok {
+			eff[gid] = true
+		}
+	}
+	meta := data.types[o.SettlementTypeID]
+	exp := map[int64]float64{}
+	for g, s := range meta.StorageShares {
+		if needs[g] {
+			exp[g] = s
+		}
+	}
+	weights := settlement.GoodWeights(exp, occ, eff)
+	size := meta.StorageSize
+	if size <= 0 {
+		size = settlement.StorageSizeDefault
+	}
+	return weights, size
+}
+
+// runOwnerPass — производство → потребность → население (без записи): собирает
+// данные записи и итоговые количества ячеек. data — карты пачки (числа скорости
+// пар + набор рецептов стадии, §3.3). basisReset — явный признак сброса базиса
+// нагрузки сменой стадии в этом же проходе (§5.1 п.5): базис обнулён намеренно,
+// старт счёта — с текущего момента.
+//
+// Порядок (F2/F4/F6, §5.7/§7.1): базис ячейки берётся ОДИН раз на товар;
+// вход-ячейка делится между потребителями ∝ потребности (F2); ветки стартуют
+// от базиса на начало прохода, свежий выход этого прохода потребителям не виден
+// (F4); итог ячейки = basis + ΣProduced − Σconsumed_by_branches − drawn_pop.
+func runOwnerPass(o OwnerSettlement, branches []*branchRecord, stored []storedEffect, catalog map[string]effectTypeMeta, goods goodsCatalog, data ownerBatchData, deposits map[int64][]settlement.DepositLot, cells []models.StorageCell, storageSize float64, now time.Time, basisReset bool) (ownerRun, error) {
 	population := float64(o.Population)
 
-	// 1) Производство: снимок выходного буфера O0_b ДО ProcessBranch (finding 6).
+	// Базис ячеек на начало прохода (F6): один раз на товар.
+	basis := make(map[int64]float64, len(cells))
+	for _, c := range cells {
+		basis[c.GoodID] = c.Amount
+	}
+
+	// Числовой ключ потребителя-ветки (F2): стабильный порядок по id (UUID) —
+	// тай-брейк AllocateProportional при равных потребностях детерминирован.
+	sortedBranches := append([]*branchRecord(nil), branches...)
+	sort.Slice(sortedBranches, func(i, j int) bool { return sortedBranches[i].branch.ID < sortedBranches[j].branch.ID })
+	branchIndex := make(map[string]int64, len(sortedBranches))
+	for i, rec := range sortedBranches {
+		branchIndex[rec.branch.ID] = int64(i + 1)
+	}
+
+	// 1) Потребности потребителей входных ячеек (F2): ветки-компоненты + население.
+	consumerNeeds := map[int64]map[settlement.Consumer]float64{}
+	addNeed := func(gid int64, c settlement.Consumer, need float64) {
+		if need <= 0 {
+			return
+		}
+		if consumerNeeds[gid] == nil {
+			consumerNeeds[gid] = map[settlement.Consumer]float64{}
+		}
+		consumerNeeds[gid][c] += need
+	}
+	for _, rec := range branches {
+		rate := rateForPair(data.rates, o.SettlementTypeID, rec.branch.RecipeID)
+		if rate == nil {
+			continue // ветка инертна — потребности нет
+		}
+		perSec := settlement.PerSecond(*rate, population)
+		for _, c := range aggregateBranchComponents(rec.components) {
+			addNeed(c.GoodID, settlement.Consumer{Kind: settlement.ConsumerBranch, ID: branchIndex[rec.branch.ID]}, perSec*float64(c.Quantity))
+		}
+	}
+	bindings := buildBindings(o, catalog, goods)
+	for _, b := range bindings {
+		gid, ok := goods.byPosition[b.Position]
+		if !ok {
+			continue
+		}
+		addNeed(gid, settlement.Consumer{Kind: settlement.ConsumerPopulation}, settlement.PerSecond(b.NormPerDayPerBillion, population))
+	}
+	// Деление базиса ∝ потребности (F2): один потребитель → весь базис.
+	alloc := map[int64]map[settlement.Consumer]float64{}
+	for gid, needs := range consumerNeeds {
+		alloc[gid] = settlement.AllocateProportional(basis[gid], needs)
+	}
+
+	// 2) Производство (F4): ветка стартует от базиса на начало прохода; вход —
+	// распределённая доля (F2). Свежий выход этого прохода потребителям не виден.
 	sources := make([]settlement.NeedsSource, 0, len(branches))
 	arithmeticSources := make([]settlement.ArithmeticSource, 0, len(branches))
 	writes := make([]ownerBranchWrite, 0, len(branches))
 	for _, rec := range branches {
-		base := branchOutputAmount(rec.branch.Output, rec.outputGoodID)
 		deltaSec := now.Sub(rec.branch.ProcessedAt).Seconds()
 		rate := rateForPair(data.rates, o.SettlementTypeID, rec.branch.RecipeID)
-		p := settlement.ProcessBranch(rec.toBranch(population, base, rateValue(rate), deposits), now)
+		input := make(map[int64]float64, len(rec.components))
+		for _, c := range aggregateBranchComponents(rec.components) {
+			input[c.GoodID] = alloc[c.GoodID][settlement.Consumer{Kind: settlement.ConsumerBranch, ID: branchIndex[rec.branch.ID]}]
+		}
+		p := settlement.ProcessBranch(rec.toBranch(population, input, basis[rec.outputGoodID], rateValue(rate), deposits), now)
 		sources = append(sources, settlement.NeedsSource{
-			ID:         rec.branch.ID,
-			Position:   rec.outputPosition,
-			Batches:    p.ProducedLast,
-			DeltaSec:   deltaSec,
-			OutputBase: base,
-			Since:      rec.branch.ProcessedAt, // ветка создана внутри [loadAt, now] → покрытие только с Since (§4.3, С1)
+			ID:       rec.branch.ID,
+			Position: rec.outputPosition,
+			Batches:  p.ProducedLast,
+			DeltaSec: deltaSec,
+			Since:    rec.branch.ProcessedAt, // ветка создана внутри [loadAt, now] → покрытие только с Since (§4.3, С1)
 		})
 		// Витрина арифметики: производим по позиции — расчётный выход ветки
 		// (rate × население), независимо от фактического прохода (§8.2). Ветка
@@ -439,16 +568,23 @@ func runOwnerPass(o OwnerSettlement, branches []*branchRecord, stored []storedEf
 			})
 		}
 		writes = append(writes, ownerBranchWrite{
-			rec: rec, input: p.Input, deposits: p.Deposits,
-			produced: p.ProducedLast, output: p.Output, deltaSec: deltaSec,
-			rate:        rate,
-			notInStage:  notInStageSet(data.recipes, o.SettlementTypeID, rec.branch.RecipeID),
-			inputBefore: branchInputAmounts(rec.branch.Input),
+			rec: rec, input: input, after: p.Input, deposits: p.Deposits,
+			produced: p.ProducedLast, deltaSec: deltaSec,
+			rate:       rate,
+			notInStage: notInStageSet(data.recipes, o.SettlementTypeID, rec.branch.RecipeID),
 		})
 	}
 
-	// 2) Потребность: привязки позиций (params.effects) → спрос/покрытие/дефицит.
-	bindings := buildBindings(o, catalog, knownPositions)
+	// 3) Потребность: привязки позиций (params.effects) → спрос/покрытие/дефицит.
+	// Базис позиции для населения — его доля alloc_pop (F2), не Σ OutputBase.
+	basisByPosition := map[string]float64{}
+	for _, b := range bindings {
+		gid, ok := goods.byPosition[b.Position]
+		if !ok {
+			continue
+		}
+		basisByPosition[b.Position] = alloc[gid][settlement.Consumer{Kind: settlement.ConsumerPopulation}]
+	}
 
 	storedLoad := map[int64]float64{}
 	storedLoadAt := map[int64]time.Time{}
@@ -477,29 +613,59 @@ func runOwnerPass(o OwnerSettlement, branches []*branchRecord, stored []storedEf
 		}
 	}
 	needs := settlement.ComputeNeeds(settlement.NeedsInput{
-		Population:   population,
-		Bindings:     bindings,
-		Sources:      sources,
-		StoredLoad:   storedLoad,
-		StoredLoadAt: storedLoadAt,
-		Thresholds:   thresholdsFor(bindings),
-		Recoveries:   recoveriesFor(bindings),
-		ComputedAt:   o.ComputedAt,
-		Now:          now,
-		CurveLookup:  settlement.BalancerCurveLookup,
+		Population:      population,
+		Bindings:        bindings,
+		Sources:         sources,
+		BasisByPosition: basisByPosition,
+		StoredLoad:      storedLoad,
+		StoredLoadAt:    storedLoadAt,
+		Thresholds:      thresholdsFor(bindings),
+		Recoveries:      recoveriesFor(bindings),
+		ComputedAt:      o.ComputedAt,
+		Now:             now,
+		CurveLookup:     settlement.BalancerCurveLookup,
 	})
 
-	// 3) Ветки: итоговый выходной буфер — O0_b + batches_b − drawn_b (§4.2).
+	// 4) Ветки: витрина (Eaten ∝ Batches, §5.7) — физически списывается из ячейки.
 	branchModels := make([]models.SettlementBranch, 0, len(branches))
 	for i := range writes {
 		w := &writes[i]
 		w.drawn = needs.DrawnBySource[w.rec.branch.ID]
-		w.output -= w.drawn
-		applyOwnerBranch(w, now, population)
+		applyOwnerBranch(w, now, population, goods)
 		branchModels = append(branchModels, w.rec.branch)
 	}
 
-	// 4) Население: сила эффекта — кусочной траекторией [computed_at, now) (§5).
+	// 5) Итог ячеек за проход (§5.7): basis + ΣProduced − Σconsumed_by_branches
+	// − drawn_pop; кламп ≥ 0. Базис учтён один раз — двойного счёта нет.
+	cellFinals := make(map[int64]float64, len(basis))
+	for gid, amt := range basis {
+		cellFinals[gid] = amt
+	}
+	for i := range writes {
+		w := &writes[i]
+		cellFinals[w.rec.outputGoodID] += w.produced
+		for _, c := range aggregateBranchComponents(w.rec.components) {
+			consumed := w.input[c.GoodID] - w.after[c.GoodID]
+			if consumed < 0 {
+				consumed = 0
+			}
+			cellFinals[c.GoodID] -= consumed
+		}
+	}
+	for pos, drawn := range needs.DrawnByPosition {
+		gid, ok := goods.byPosition[pos]
+		if !ok {
+			continue
+		}
+		cellFinals[gid] -= drawn
+	}
+	for gid, v := range cellFinals {
+		if v < 0 {
+			cellFinals[gid] = 0
+		}
+	}
+
+	// 6) Население: сила эффекта — кусочной траекторией [computed_at, now) (§5).
 	input := o.Planet
 	input.RaceID = o.RaceID
 	input.Effects = collectForce(needs)
@@ -536,28 +702,41 @@ func runOwnerPass(o OwnerSettlement, branches []*branchRecord, stored []storedEf
 		Stage:           stageView(data.ladder, o.SettlementTypeID),
 	}
 	return ownerRun{
-		result:     res,
-		writes:     writes,
-		collapsed:  o.PopulationExact > settlement.NDead && next == 0,
-		deathInput: input,
+		result:      res,
+		writes:      writes,
+		collapsed:   o.PopulationExact > settlement.NDead && next == 0,
+		deathInput:  input,
+		cellFinals:  cellFinals,
+		cellBasis:   basis,
+		storageSize: storageSize,
 	}, nil
 }
 
-// applyOwnerBranch — вынести результат прохода ветки в display-модель: буферы,
+// aggregateBranchComponents — свёртка компонентов рецепта по good_id (дубликат
+// component_id на разных pos — один компонент с суммарной нормой, §3.2).
+func aggregateBranchComponents(comps []settlement.BranchComponent) []settlement.BranchComponent {
+	if len(comps) == 0 {
+		return nil
+	}
+	idx := make(map[int64]int, len(comps))
+	out := make([]settlement.BranchComponent, 0, len(comps))
+	for _, c := range comps {
+		if i, ok := idx[c.GoodID]; ok {
+			out[i].Quantity += c.Quantity
+			continue
+		}
+		idx[c.GoodID] = len(out)
+		out = append(out, c)
+	}
+	return out
+}
+
+// applyOwnerBranch — вынести результат прохода ветки в display-модель:
 // чек-точка, произведено, списано слоем потребности, витрина арифметики ветки
 // (число скорости пары, признак «не в наборе стадии», «забираем», доля залежи).
-func applyOwnerBranch(w *ownerBranchWrite, now time.Time, population float64) {
+// Буферов у ветки больше нет — запас живёт в ячейках хранилища.
+func applyOwnerBranch(w *ownerBranchWrite, now time.Time, population float64, goods goodsCatalog) {
 	rec := w.rec
-	for i := range rec.branch.Input {
-		if v, ok := w.input[rec.branch.Input[i].GoodID]; ok {
-			rec.branch.Input[i].Amount = v
-		}
-	}
-	for i := range rec.branch.Output {
-		if rec.branch.Output[i].GoodID == rec.outputGoodID {
-			rec.branch.Output[i].Amount = w.output
-		}
-	}
 	rec.branch.ProcessedAt = now
 	rec.branch.Produced = w.produced
 	rec.branch.Eaten = w.drawn
@@ -567,8 +746,8 @@ func applyOwnerBranch(w *ownerBranchWrite, now time.Time, population float64) {
 	}
 	rec.branch.RatePerDayPerBillion = w.rate
 	rec.branch.NotInStageSet = w.notInStage
-	rec.branch.Take = branchTakeModels(w, population)
-	rec.branch.DepositShare = settlement.BranchDepositShare(w.produced, rec.components, w.inputBefore, w.input)
+	rec.branch.Take = branchTakeModels(w, population, goods)
+	rec.branch.DepositShare = settlement.BranchDepositShare(w.produced, rec.components, w.input, w.after)
 }
 
 // stageView — витрина ступени поселения (спека 2026-09-23 §11.3): пороги
@@ -604,20 +783,10 @@ func arithmeticModels(in []settlement.PositionArithmetic) []models.SettlementPos
 	return out
 }
 
-// branchInputAmounts — снимок входного буфера ветки «good_id → amount» ДО
-// прохода (для доли добора из залежей, §8.2).
-func branchInputAmounts(entries []models.BranchBufferEntry) map[int64]float64 {
-	out := make(map[int64]float64, len(entries))
-	for _, e := range entries {
-		out[e.GoodID] = e.Amount
-	}
-	return out
-}
-
 // branchTakeModels — «забираем» по ветке в модель ответа (§8.2): расчётная
-// производная рецепта (выход × quantity_i), имена компонентов — из входного
-// буфера. Числа скорости нет → пусто (выход 0, забирать нечего).
-func branchTakeModels(w *ownerBranchWrite, population float64) []models.SettlementBranchTake {
+// производная рецепта (выход × quantity_i), имена компонентов — из каталога
+// товаров. Числа скорости нет → пусто (выход 0, забирать нечего).
+func branchTakeModels(w *ownerBranchWrite, population float64, goods goodsCatalog) []models.SettlementBranchTake {
 	if w.rate == nil {
 		return nil
 	}
@@ -625,15 +794,11 @@ func branchTakeModels(w *ownerBranchWrite, population float64) []models.Settleme
 	if len(takes) == 0 {
 		return nil
 	}
-	nameByGood := make(map[int64]string, len(w.rec.branch.Input))
-	for _, e := range w.rec.branch.Input {
-		nameByGood[e.GoodID] = e.GoodName
-	}
 	out := make([]models.SettlementBranchTake, 0, len(takes))
 	for _, t := range takes {
 		out = append(out, models.SettlementBranchTake{
 			GoodID:   t.GoodID,
-			GoodName: nameByGood[t.GoodID],
+			GoodName: goods.nameByID[t.GoodID],
 			PerDay:   t.PerDay,
 		})
 	}
@@ -645,10 +810,10 @@ func branchTakeModels(w *ownerBranchWrite, population float64) []models.Settleme
 // позиция снята; тип резолвится по name_norm; норма —
 // params.eat[позиция]/DefaultEatK; отсутствующая позиция — лог
 // position_unknown (не тихий no-op, §7.4).
-func buildBindings(o OwnerSettlement, catalog map[string]effectTypeMeta, knownPositions map[string]bool) []settlement.NeedsBinding {
+func buildBindings(o OwnerSettlement, catalog map[string]effectTypeMeta, goods goodsCatalog) []settlement.NeedsBinding {
 	bindings := make([]settlement.NeedsBinding, 0, len(o.EffectsByPosition))
 	for position, typeName := range o.EffectsByPosition {
-		if !knownPositions[position] {
+		if _, ok := goods.byPosition[position]; !ok {
 			log.Printf("⚠️ effect: позиция привязки %q отсутствует в товарах — no-op (position_unknown)", position)
 			continue
 		}
@@ -790,20 +955,31 @@ func buildEffectModels(o OwnerSettlement, needs settlement.NeedsResult, catalog 
 	return out
 }
 
-// writeOwnerTx — запись owner-прохода одной транзакцией (§4.5): вход/залежи +
-// выходной буфер + UPSERT active_effects (load, load_at = now) + processed_at =
-// now у всех веток + население (computed_at = now) + лог «Вымерло».
-func writeOwnerTx(ctx context.Context, tx *sql.Tx, o OwnerSettlement, run ownerRun, now time.Time) error {
-	for i := range run.writes {
-		w := &run.writes[i]
-		for _, c := range w.rec.components {
-			if _, err := tx.ExecContext(ctx, branchWriteInputSQL, w.input[c.GoodID], w.rec.branch.ID, c.GoodID); err != nil {
-				return err
-			}
+// writeOwnerTx — запись owner-прохода одной транзакцией (§4.5): ячейки
+// хранилища (дельты) + размер + залежи + UPSERT active_effects (load,
+// load_at = now) + processed_at = now у всех веток + население
+// (computed_at = now) + лог «Вымерло».
+func (r *BranchRepository) writeOwnerTx(ctx context.Context, tx *sql.Tx, o OwnerSettlement, run ownerRun, now time.Time) error {
+	cells := NewStorageCellRepository(r.db)
+	goodIDs := make([]int64, 0, len(run.cellFinals))
+	for gid := range run.cellFinals {
+		goodIDs = append(goodIDs, gid)
+	}
+	sort.Slice(goodIDs, func(i, j int) bool { return goodIDs[i] < goodIDs[j] })
+	for _, gid := range goodIDs {
+		delta := run.cellFinals[gid] - run.cellBasis[gid]
+		if delta == 0 {
+			continue
 		}
-		if _, err := tx.ExecContext(ctx, branchWriteOutputSQL, w.rec.branch.ID, w.rec.outputGoodID, w.output); err != nil {
+		if err := cells.IncrementStorageCellTx(ctx, tx, StorageOwnerSettlement, o.ID, gid, delta); err != nil {
 			return err
 		}
+	}
+	if err := cells.SetSettlementStorageSizeTx(ctx, tx, o.ID, run.storageSize); err != nil {
+		return err
+	}
+	for i := range run.writes {
+		w := &run.writes[i]
 		for _, lot := range sortedDepositLots(w.deposits) {
 			amount := lot.Amount
 			if amount < 0 {
@@ -883,21 +1059,49 @@ func queryEffectTypeCatalog(ctx context.Context, q branchRowsQueryer) (map[strin
 	return out, rows.Err()
 }
 
-// loadGoodNames — словарь позиций-ТОВАРОВ (goods.name_norm): ключ привязок
-// owner-прохода (спека 2026-09-24 §6.1/§9.4).
-func (r *BranchRepository) loadGoodNames(ctx context.Context) (map[string]bool, error) {
+// goodsCatalog — словарь товаров: позиция (name_norm) → good_id (ключ привязок
+// owner-прохода, спека 2026-09-24 §6.1/§9.4) и good_id → имя (витрина).
+type goodsCatalog struct {
+	byPosition map[string]int64
+	nameByID   map[int64]string
+}
+
+// loadGoodsCatalog — словарь товаров одним запросом на пачку.
+func (r *BranchRepository) loadGoodsCatalog(ctx context.Context) (goodsCatalog, error) {
 	rows, err := r.db.QueryContext(ctx, goodsNamesSQL)
+	if err != nil {
+		return goodsCatalog{}, err
+	}
+	defer rows.Close()
+	out := goodsCatalog{byPosition: map[string]int64{}, nameByID: map[int64]string{}}
+	for rows.Next() {
+		var id int64
+		var name, nameNorm string
+		if err := rows.Scan(&id, &name, &nameNorm); err != nil {
+			return goodsCatalog{}, err
+		}
+		out.byPosition[nameNorm] = id
+		out.nameByID[id] = name
+	}
+	return out, rows.Err()
+}
+
+// loadRecipeComponentOccurrences — число вхождений товара во входы рецептов
+// (F3, §1.3): вес ячейки по умолчанию. Один запрос на пачку.
+func (r *BranchRepository) loadRecipeComponentOccurrences(ctx context.Context) (map[int64]int, error) {
+	rows, err := r.db.QueryContext(ctx, recipeComponentOccurrencesSQL)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := map[string]bool{}
+	out := map[int64]int{}
 	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
+		var gid int64
+		var n int
+		if err := rows.Scan(&gid, &n); err != nil {
 			return nil, err
 		}
-		out[name] = true
+		out[gid] = n
 	}
 	return out, rows.Err()
 }
@@ -963,7 +1167,7 @@ func (r *BranchRepository) loadActiveEffects(ctx context.Context, ids []string) 
 }
 
 // loadSettlementBranchesForUpdate — ветки одного поселения под блокировкой
-// (порядок id), с буферами.
+// (порядок id). Физический запас — в ячейках хранилища, не в ветке.
 func loadSettlementBranchesForUpdate(ctx context.Context, tx *sql.Tx, settlementID string) ([]*branchRecord, error) {
 	rows, err := tx.QueryContext(ctx, branchSelectBySettlementForUpdateSQL, settlementID)
 	if err != nil {
@@ -971,22 +1175,14 @@ func loadSettlementBranchesForUpdate(ctx context.Context, tx *sql.Tx, settlement
 	}
 	defer rows.Close()
 	var recs []*branchRecord
-	var branchIDs []string
 	for rows.Next() {
 		rec, err := scanBranchRow(rows)
 		if err != nil {
 			return nil, err
 		}
 		recs = append(recs, rec)
-		branchIDs = append(branchIDs, rec.branch.ID)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	if len(recs) == 0 {
-		return nil, nil
-	}
-	if err := attachBranchBuffers(ctx, tx, branchIDs, recs); err != nil {
 		return nil, err
 	}
 	return recs, nil
@@ -1007,24 +1203,6 @@ func loadBranchComponentsForRecords(ctx context.Context, tx *sql.Tx, recs []*bra
 	}
 	for _, rec := range recs {
 		rec.components = comps[rec.branch.RecipeID]
-	}
-	return nil
-}
-
-// topUpBranchInputs — строки входа для текущих заполненных компонентов (T14):
-// новый компонент рецепта без строки дал бы affordable = 0 — ветка молча
-// встала бы. ON CONFLICT DO NOTHING; появление строки — лог.
-func topUpBranchInputs(ctx context.Context, tx *sql.Tx, recs []*branchRecord) error {
-	for _, rec := range recs {
-		for _, c := range rec.components {
-			res, err := tx.ExecContext(ctx, branchTopUpInputSQL, rec.branch.ID, c.GoodID)
-			if err != nil {
-				return err
-			}
-			if n, err := res.RowsAffected(); err == nil && n > 0 {
-				log.Printf("🌿 ветка %s: новый компонент рецепта %d добавлен во вход (0)", rec.branch.ID, c.GoodID)
-			}
-		}
 	}
 	return nil
 }

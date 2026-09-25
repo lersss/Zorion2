@@ -219,8 +219,6 @@ func TestBuildPresenceSnapshotComposition(t *testing.T) {
 				Log:     []models.SettlementLogEntry{{ID: "l1", Type: "extinct"}},
 				Branches: []models.SettlementBranch{{
 					ID: "b1", RecipeID: 73, RecipeName: "Вода", Complexity: 3,
-					Output:   []models.BranchBufferEntry{{GoodID: 381, GoodName: "Питьевая вода", Amount: 12.5}},
-					Input:    []models.BranchBufferEntry{{GoodID: 1, GoodName: "лёд", Amount: 5}},
 					Produced: 12.5, Eaten: 4.0, EatenRate: 0.02,
 				}},
 			},
@@ -250,9 +248,6 @@ func TestBuildPresenceSnapshotComposition(t *testing.T) {
 	require.Equal(t, int64(73), br.RecipeID)
 	require.Equal(t, "Вода", br.RecipeName)
 	require.Equal(t, 3, br.Complexity)
-	require.Len(t, br.Output, 1)
-	require.Equal(t, int64(381), br.Output[0].GoodID)
-	require.Equal(t, 12.5, br.Output[0].Amount)
 	require.Equal(t, 12.5, br.Produced)
 	require.Equal(t, 4.0, br.Eaten)
 	require.Equal(t, 0.02, br.EatenRate)
@@ -265,7 +260,7 @@ func TestBuildPresenceSnapshotComposition(t *testing.T) {
 	s := string(raw)
 	for _, forbidden := range []string{
 		`population_exact`, `computed_at`, `r_per_sec`, `lambda_per_hour`, `n_dead`,
-		`"input"`, `"effects"`, `"log"`,
+		`"input"`, `"output"`, `"effects"`, `"log"`,
 	} {
 		assert.NotContains(t, s, forbidden, "запрещённое поле в снимке: %s", forbidden)
 	}

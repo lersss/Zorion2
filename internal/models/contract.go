@@ -30,12 +30,15 @@ const (
 )
 
 // Типы автора контракта (contracts.author_type, §4.1) — шире buildings.owner_type:
-// добавлен building (заказчик-постройка). Полиморфно, FK нет.
+// добавлены building (заказчик-постройка) и settlement (заказчик-поселение,
+// спека 2026-09-25-внутреннее-хранилище-и-рождение-заказов §1.5). Полиморфно, FK нет.
+// settlement — только для автора; direct_target_type значение не расширяет (M6).
 const (
-	ContractActorPlayer   = "player"
-	ContractActorFaction  = "faction"
-	ContractActorBuilding = "building"
-	ContractActorAgent    = "agent"
+	ContractActorPlayer     = "player"
+	ContractActorFaction    = "faction"
+	ContractActorBuilding   = "building"
+	ContractActorAgent      = "agent"
+	ContractActorSettlement = "settlement"
 )
 
 // Тип исполнителя (contracts.executor_type, §4.1): игрок или NPC-агент.

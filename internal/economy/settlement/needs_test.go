@@ -54,7 +54,7 @@ func needsInput(t0 time.Time, delta time.Duration, population float64, load floa
 // T28/T4: полное отсутствие покрытия (w=1) за час даёт ровно +1 сило-час.
 func TestNeedsUncoveredOneHourAddsOne(t *testing.T) {
 	t0 := time.Unix(1_700_000_000, 0)
-	in := needsInput(t0, time.Hour, 1000, 0, 0.25, NeedsSource{ID: "b1", Position: "продовольствие", Batches: 0, DeltaSec: 3600, OutputBase: 0})
+	in := needsInput(t0, time.Hour, 1000, 0, 0.25, NeedsSource{ID: "b1", Position: "продовольствие", Batches: 0, DeltaSec: 3600})
 	res := ComputeNeeds(in)
 	require.Len(t, res.Effects, 1)
 	require.InDelta(t, 1.0, res.Effects[0].Load, 1e-9, "w=1 за час → +1 сило-час (М1)")
@@ -69,30 +69,32 @@ func TestNeedsCoveredNoLoad(t *testing.T) {
 	demandPerSec := PerSecond(testNorm, 1000) // батч/сек
 	// Производство ровно по спросу за час.
 	batch := demandPerSec * 3600
-	in := needsInput(t0, time.Hour, 1000, 0, 0.25, NeedsSource{ID: "b1", Position: "продовольствие", Batches: batch, DeltaSec: 3600, OutputBase: 0})
+	in := needsInput(t0, time.Hour, 1000, 0, 0.25, NeedsSource{ID: "b1", Position: "продовольствие", Batches: batch, DeltaSec: 3600})
 	res := ComputeNeeds(in)
 	require.InDelta(t, 0.0, res.Effects[0].Load, 1e-12, "покрыто → w=0, нагрузки нет")
 	require.InDelta(t, 0.0, res.Effects[0].W, 1e-12)
 }
 
-// T3: базис исчерпывается за t* (СЕКУНДЫ); списание — ровно O0 за интервал,
-// расход ∝ O0_b при нескольких ветках.
+// T3: базис исчерпывается за t* (СЕКУНДЫ); списание — ровно базис за интервал;
+// витрина ветки — ∝ Batches (при Σ Batches = 0 — равные доли, §5.7).
 func TestNeedsBufferBreakpointSecondsAndProportionalDraw(t *testing.T) {
 	t0 := time.Unix(1_700_000_000, 0)
 	demandPerSec := PerSecond(testNorm, 1000)
-	// Две ветки одной позиции: O0 = 3:1 (1.2e-5 : 4e-6), производство 0.
-	// t* = O0_sum/demand = 1.6e-5/6.944e-9 ≈ 2304 с < 3600.
+	// Базис ячейки = 2304 с спроса; производство 0.
+	// t* = basis/demand = 2304 с < 3600.
 	o1, o2 := demandPerSec*1728, demandPerSec*576 // суммарно 2304 с базиса
 	in := needsInput(t0, time.Hour, 1000, 0, 0,
-		NeedsSource{ID: "b1", Position: "продовольствие", OutputBase: o1},
-		NeedsSource{ID: "b2", Position: "продовольствие", OutputBase: o2},
+		NeedsSource{ID: "b1", Position: "продовольствие"},
+		NeedsSource{ID: "b2", Position: "продовольствие"},
 	)
+	in.BasisByPosition = map[string]float64{"продовольствие": o1 + o2}
 	res := ComputeNeeds(in)
 	// Первые 2304 с w=0, оставшиеся 1296 с w=1 → нагрузка 1296/3600 = 0.36.
 	require.InDelta(t, 1296.0/3600.0, res.Effects[0].Load, 1e-9)
-	// Списано с буферов ровно O0_sum, пропорционально O0_b.
-	require.InDelta(t, o1, res.DrawnBySource["b1"], 1e-15)
-	require.InDelta(t, o2, res.DrawnBySource["b2"], 1e-15)
+	// Списано из ячейки ровно базис; Σ Batches = 0 → равные доли витрины.
+	require.InDelta(t, (o1+o2)/2, res.DrawnBySource["b1"], 1e-15)
+	require.InDelta(t, (o1+o2)/2, res.DrawnBySource["b2"], 1e-15)
+	require.InDelta(t, o1+o2, res.DrawnByPosition["продовольствие"], 1e-15)
 }
 
 // T4/T-AB5: восстановление w=0 идёт со скоростью recovery (сило-ч/ч) и
@@ -194,7 +196,7 @@ func TestNeedsSourceSinceInsideInterval(t *testing.T) {
 	res := ComputeNeeds(needsInput(t0, time.Hour, 1000, 0, 0, newSrc))
 	require.InDelta(t, 0.5, res.Effects[0].Load, 1e-9, "до Since ветки не было → w=1 половину часа")
 	require.InDelta(t, 0.0, res.Effects[0].W, 1e-12, "после Since покрыто → w=0")
-	require.Zero(t, res.DrawnBySource["b_new"], "у новой ветки O0_b = 0")
+	require.Zero(t, res.DrawnBySource["b_new"], "базис ячейки 0 — списывать нечего")
 
 	// Ветка, существовавшая весь интервал, покрывает и первые 30 минут.
 	oldSrc := NeedsSource{ID: "b_old", Position: "продовольствие", Batches: demandPerSec * 3600, DeltaSec: 3600, Since: t0}

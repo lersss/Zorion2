@@ -26,9 +26,10 @@ func TestSyncSettlementsArithmeticShowcase(t *testing.T) {
 
 	now := time.Now()
 	processedAt := now.Add(-time.Minute)
-	expectOwnerPassWithBranches(mock, ownerBranchRows(processedAt, "пища"), ownerComponentRows(), ownerBufferRows(), nil)
+	expectOwnerPassWithBranches(mock, ownerBranchRows(processedAt, "пища"), ownerComponentRows(), nil)
 	mock.ExpectQuery(depositMemorySelectSQL).WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"planet_id", "id", "good_id", "amount"}).AddRow("p1", "dep1", int64(359), 5000.0))
+	mock.ExpectQuery(storageCellSelectSQL).WithArgs("settlement", "s1").WillReturnRows(storageCellRows())
 
 	out, err := NewBranchRepository(db).SyncSettlements(now, []OwnerSettlement{ownerInput(now.Add(-time.Minute))})
 	require.NoError(t, err)
@@ -68,9 +69,10 @@ func TestSyncSettlementsRecipeNotInStageSet(t *testing.T) {
 
 	now := time.Now()
 	processedAt := now.Add(-time.Minute)
-	expectOwnerPassWithBranches(mock, ownerBranchRows(processedAt, "пища"), ownerComponentRows(), ownerBufferRows(), nil)
+	expectOwnerPassWithBranches(mock, ownerBranchRows(processedAt, "пища"), ownerComponentRows(), nil)
 	mock.ExpectQuery(depositMemorySelectSQL).WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"planet_id", "id", "good_id", "amount"}).AddRow("p1", "dep1", int64(359), 5000.0))
+	mock.ExpectQuery(storageCellSelectSQL).WithArgs("settlement", "s1").WillReturnRows(storageCellRows())
 
 	o := ownerInput(now.Add(-time.Minute))
 	o.SettlementTypeID = 999 // пары/набора (999, 69) нет

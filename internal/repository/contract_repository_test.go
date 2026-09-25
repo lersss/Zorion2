@@ -628,4 +628,169 @@ func TestResolvePublicationPlanet(t *testing.T) {
 		require.ErrorIs(t, err, ErrPublicationPlanetUnresolved)
 		require.NoError(t, mock.ExpectationsWereMet())
 	})
+
+	t.Run("поселение — planet_id", func(t *testing.T) {
+		db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+		require.NoError(t, err)
+		defer db.Close()
+		mock.ExpectQuery(`SELECT planet_id FROM settlements WHERE id = \$1`).
+			WithArgs("s1").
+			WillReturnRows(sqlmock.NewRows([]string{"planet_id"}).AddRow("p3"))
+		got, err := NewContractRepository(db).ResolvePublicationPlanet("settlement", "s1")
+		require.NoError(t, err)
+		require.Equal(t, "p3", got)
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+}
+
+// Резолв плательщика-поселения (спека ЧК2а §1.5/§6, T2): владелец player/faction
+// → его счёт; владелец agent → счёт фракции (D4); без владельца → ErrPayerUnresolved.
+func TestResolvePayerSettlement(t *testing.T) {
+	t.Run("владелец-игрок", func(t *testing.T) {
+		db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+		require.NoError(t, err)
+		defer db.Close()
+		mock.ExpectQuery(`SELECT owner_type, owner_id FROM settlements WHERE id = \$1`).
+			WithArgs("s1").
+			WillReturnRows(sqlmock.NewRows([]string{"owner_type", "owner_id"}).AddRow("player", "u1"))
+		ownerType, ownerID, err := resolvePayerAccountQ(db, "settlement", "s1")
+		require.NoError(t, err)
+		require.Equal(t, "player", ownerType)
+		require.Equal(t, "u1", ownerID)
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("владелец-фракция", func(t *testing.T) {
+		db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+		require.NoError(t, err)
+		defer db.Close()
+		mock.ExpectQuery(`SELECT owner_type, owner_id FROM settlements WHERE id = \$1`).
+			WithArgs("s1").
+			WillReturnRows(sqlmock.NewRows([]string{"owner_type", "owner_id"}).AddRow("faction", "f1"))
+		ownerType, ownerID, err := resolvePayerAccountQ(db, "settlement", "s1")
+		require.NoError(t, err)
+		require.Equal(t, "faction", ownerType)
+		require.Equal(t, "f1", ownerID)
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("владелец-агент платит со счёта фракции (D4)", func(t *testing.T) {
+		db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+		require.NoError(t, err)
+		defer db.Close()
+		mock.ExpectQuery(`SELECT owner_type, owner_id FROM settlements WHERE id = \$1`).
+			WithArgs("s1").
+			WillReturnRows(sqlmock.NewRows([]string{"owner_type", "owner_id"}).AddRow("agent", "a1"))
+		mock.ExpectQuery(`SELECT owner_faction_id FROM npc_agents WHERE id = \$1`).
+			WithArgs("a1").
+			WillReturnRows(sqlmock.NewRows([]string{"owner_faction_id"}).AddRow("f1"))
+		ownerType, ownerID, err := resolvePayerAccountQ(db, "settlement", "s1")
+		require.NoError(t, err)
+		require.Equal(t, "faction", ownerType)
+		require.Equal(t, "f1", ownerID)
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("без владельца — ErrPayerUnresolved", func(t *testing.T) {
+		db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+		require.NoError(t, err)
+		defer db.Close()
+		mock.ExpectQuery(`SELECT owner_type, owner_id FROM settlements WHERE id = \$1`).
+			WithArgs("s1").
+			WillReturnRows(sqlmock.NewRows([]string{"owner_type", "owner_id"}).AddRow(nil, nil))
+		_, _, err = resolvePayerAccountQ(db, "settlement", "s1")
+		require.ErrorIs(t, err, ErrPayerUnresolved)
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("поселение не найдено — ErrPayerUnresolved", func(t *testing.T) {
+		db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+		require.NoError(t, err)
+		defer db.Close()
+		mock.ExpectQuery(`SELECT owner_type, owner_id FROM settlements WHERE id = \$1`).
+			WithArgs("s1").
+			WillReturnRows(sqlmock.NewRows([]string{"owner_type", "owner_id"}))
+		_, _, err = resolvePayerAccountQ(db, "settlement", "s1")
+		require.ErrorIs(t, err, ErrPayerUnresolved)
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("владелец-агент без фракции — ErrPayerUnresolved", func(t *testing.T) {
+		db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+		require.NoError(t, err)
+		defer db.Close()
+		mock.ExpectQuery(`SELECT owner_type, owner_id FROM settlements WHERE id = \$1`).
+			WithArgs("s1").
+			WillReturnRows(sqlmock.NewRows([]string{"owner_type", "owner_id"}).AddRow("agent", "a1"))
+		mock.ExpectQuery(`SELECT owner_faction_id FROM npc_agents WHERE id = \$1`).
+			WithArgs("a1").
+			WillReturnRows(sqlmock.NewRows([]string{"owner_faction_id"}).AddRow(nil))
+		_, _, err = resolvePayerAccountQ(db, "settlement", "s1")
+		require.ErrorIs(t, err, ErrPayerUnresolved)
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("неизвестный тип владельца — ErrPayerUnresolved", func(t *testing.T) {
+		db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+		require.NoError(t, err)
+		defer db.Close()
+		mock.ExpectQuery(`SELECT owner_type, owner_id FROM settlements WHERE id = \$1`).
+			WithArgs("s1").
+			WillReturnRows(sqlmock.NewRows([]string{"owner_type", "owner_id"}).AddRow("npc", "n1"))
+		_, _, err = resolvePayerAccountQ(db, "settlement", "s1")
+		require.ErrorIs(t, err, ErrPayerUnresolved)
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
+}
+
+// Бесплатная публикация supply (reward=0, D5/§5.5): без lockEscrow и money_op,
+// escrow_amount = 0, лог только published (escrow_locked не пишется).
+func TestContractPublishSupplyFree(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	const authorID, planetID = "u1", "p1"
+	mock.ExpectBegin()
+	mock.ExpectExec(`INSERT INTO accounts`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO contracts`).
+		WithArgs(sqlmock.AnyArg(), "supply", "player", authorID, planetID, "T", "",
+			sqlmock.AnyArg(), int64(0), "regular", int64(0), int64(0),
+			"deposit", "open", "public", nil, nil, nil, nil,
+			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO contract_log`).WillReturnResult(sqlmock.NewResult(0, 1)) // published
+	mock.ExpectCommit()
+
+	mock.ExpectQuery(contractSelectRe).
+		WillReturnRows(contractRow("c1", "player", authorID, 0, 0))
+	mock.ExpectQuery(`SELECT id, contract_id, pos, kind, subject, op,`).WillReturnRows(emptyRequirementsRows())
+
+	repo := NewContractRepository(db)
+	c, err := repo.Publish(PublishContractParams{
+		Type: "supply", AuthorType: "player", AuthorID: authorID,
+		PublicationPlanetID: planetID, Title: "T", Reward: 0,
+		ExpiresAt: time.Now().Add(time.Hour),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, c)
+	require.Equal(t, int64(0), c.EscrowAmount)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Нулевая/отрицательная награда у не-supply по-прежнему отвергается (D5, §5.5).
+func TestContractPublishNonSupplyZeroRewardRejected(t *testing.T) {
+	db, _, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+
+	repo := NewContractRepository(db)
+	for _, p := range []PublishContractParams{
+		{Type: "travel", AuthorType: "player", AuthorID: "u1", PublicationPlanetID: "p1", Title: "T", Reward: 0},
+		{Type: "supply", AuthorType: "player", AuthorID: "u1", PublicationPlanetID: "p1", Title: "T", Reward: -5},
+	} {
+		p.ExpiresAt = time.Now().Add(time.Hour)
+		_, err := repo.Publish(p)
+		require.ErrorIs(t, err, ErrInvalidReward)
+	}
 }

@@ -225,14 +225,12 @@ func stripPlanetDetails(p models.Planet, view *models.PlanetKnowledgeView, arith
 		// player-safe DTO без нагрузки/порога/силы (§5.4), залежи — активные.
 		// Блок арифметики и новые поля веток — только при включённой настройке
 		// (§8.3 п.4); type_id/type_name стадии остаются всегда.
-		stripBranchInputs(&p)
 		p.Settlements = playerSettlements(p.Settlements, arithmeticVisible)
 		p.Deposits = filterActiveDeposits(p.Deposits)
 	case knowledgeModeSnapshot:
 		// Замороженная картина (§3.1): эффектов и лога нет (в снимок не
-		// замораживаются); вход веток — никогда; блок арифметики не
-		// замораживается — чистится всегда (§8.3 п.5); залежи — как сегодня.
-		stripBranchInputs(&p)
+		// замораживаются); блок арифметики не замораживается — чистится всегда
+		// (§8.3 п.5); залежи — как сегодня.
 		stripSnapshotSettlementSecrets(&p)
 		p.Deposits = filterActiveDeposits(p.Deposits)
 	default:
@@ -241,7 +239,6 @@ func stripPlanetDetails(p models.Planet, view *models.PlanetKnowledgeView, arith
 		p.SurfaceDominant = ""
 		p.SurfaceComposition = nil
 		p.Population = 0
-		stripBranchInputs(&p)
 		p.Settlements = nil
 		if view == nil {
 			p.Factions = nil
@@ -377,19 +374,6 @@ func effectViews(v interface{}) interface{} {
 		out = append(out, models.EffectView{Name: e.Name, Impact: e.Impact, State: state})
 	}
 	return out
-}
-
-// stripBranchInputs — обнуляет входной буфер веток поселений (спека
-// 2026-09-22-поселение-ветка-буферы-переработка §6): вход видит только админ,
-// выход остаётся частью деталей поселения. Защита в глубину — вызывается
-// безусловно в stripPlanetDetails, на случай будущего потребителя, отдающего
-// поселения игроку.
-func stripBranchInputs(p *models.Planet) {
-	for i := range p.Settlements {
-		for j := range p.Settlements[i].Branches {
-			p.Settlements[i].Branches[j].Input = nil
-		}
-	}
 }
 
 // filterActiveDeposits — оставляет залежи с запасом > 0 (спека итерации 3

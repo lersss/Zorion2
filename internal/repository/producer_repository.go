@@ -1207,11 +1207,12 @@ func (r *GoodsRepository) GoodNameNorms() (map[string]bool, error) {
 	defer rows.Close()
 	out := map[string]bool{}
 	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
+		var id int64
+		var name, nameNorm string
+		if err := rows.Scan(&id, &name, &nameNorm); err != nil {
 			return nil, err
 		}
-		out[name] = true
+		out[nameNorm] = true
 	}
 	return out, rows.Err()
 }

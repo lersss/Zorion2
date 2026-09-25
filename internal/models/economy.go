@@ -132,17 +132,15 @@ type SettlementBranchTake struct {
 
 // SettlementBranch — ветка поселения в ответе карточки (спека 2026-09-22-
 // поселение-ветка-буферы-переработка §6): рецепт каталога (имя выхода и
-// сложность), своя чек-точка processed_at, входной и выходной буферы. Входной
-// буфер (Input) отдаётся только админу (§6 — выход вместе с деталями
-// поселения); выход — «пол» по качеству (поле качества не заводим, §1).
+// сложность), своя чек-точка processed_at. Буферы ветки сняты (спека
+// 2026-09-25-внутреннее-хранилище §4.4/§4.5, ЧК2а): физический запас живёт в
+// ячейках внутреннего хранилища поселения, а не в ветке.
 type SettlementBranch struct {
-	ID          string              `json:"id"`
-	RecipeID    int64               `json:"recipe_id"`
-	RecipeName  string              `json:"recipe_name,omitempty"`
-	Complexity  int                 `json:"complexity,omitempty"`
-	ProcessedAt time.Time           `json:"processed_at"`
-	Output      []BranchBufferEntry `json:"output,omitempty"`
-	Input       []BranchBufferEntry `json:"input,omitempty"`
+	ID          string    `json:"id"`
+	RecipeID    int64     `json:"recipe_id"`
+	RecipeName  string    `json:"recipe_name,omitempty"`
+	Complexity  int       `json:"complexity,omitempty"`
+	ProcessedAt time.Time `json:"processed_at"`
 	// Produced — произведено товара-выхода за последний проход переработки
 	// (транзитное, не хранится; спека итерации 4 §6).
 	Produced float64 `json:"produced,omitempty"`
@@ -169,13 +167,19 @@ type SettlementBranch struct {
 	DepositShare float64 `json:"deposit_share,omitempty"`
 }
 
-// BranchBufferEntry — запись буфера ветки «ресурс → количество» (таблица
-// settlement_branch_buffers, §3.1): direction не сериализуется — вход и выход
-// лежат отдельными массивами (Input/Output).
-type BranchBufferEntry struct {
-	GoodID   int64   `json:"good_id"`
-	GoodName string  `json:"good_name"`
-	Amount   float64 `json:"amount"`
+// StorageCell — запись ячейки внутреннего хранилища (таблица
+// settlement_storage_cells, спека 2026-09-25-внутреннее-хранилище-и-рождение-
+// заказов §4.1, ЧК2а): одна на (владелец, товар). Владелец полиморфный —
+// OwnerType `settlement`/`building` (CHECK схемы), OwnerID — id владельца без
+// FK. CapShare — вес/доля ячейки (порог = размер × доля/Σ долей, §1.3); вид
+// потребности и складской дефицит — производные, в записи не хранятся (§4.2).
+type StorageCell struct {
+	ID        int64   `json:"id"`
+	OwnerType string  `json:"owner_type"`
+	OwnerID   string  `json:"owner_id"`
+	GoodID    int64   `json:"good_id"`
+	Amount    float64 `json:"amount"`
+	CapShare  float64 `json:"cap_share"`
 }
 
 // SettlementLogEntry — запись лога поселения (18b_settlement_log.md, §«Лог

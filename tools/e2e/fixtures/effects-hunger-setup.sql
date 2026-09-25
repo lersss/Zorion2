@@ -22,9 +22,12 @@
 -- поселение») и 000070 (каталог эффектов «голод»).
 -- ВНИМАНИЕ: не запускать поверх чужого живого джоба генерации (AGENTS.md §4.16).
 --
--- Чтобы увидеть обратный случай «покрытие → w=0», доложите во вход ветки сырьё:
---   UPDATE settlement_branch_buffers SET amount = 1e6
---    WHERE branch_id = 'e0000000-0000-4000-8000-000000000002' AND direction = 'input';
+-- Чтобы увидеть обратный случай «покрытие → w=0», доложите в ячейку сырья
+-- поселения (внутреннее хранилище, ЧК2а):
+--   UPDATE settlement_storage_cells SET amount = 1e6
+--    WHERE owner_type = 'settlement'
+--      AND owner_id = 'e0000000-0000-4000-8000-000000000001'
+--      AND good_id = (SELECT id FROM goods WHERE name_norm = 'qa голодсырьё');
 
 \set ON_ERROR_STOP on
 BEGIN;
@@ -75,7 +78,8 @@ ON CONFLICT (id) DO UPDATE SET
     settlement_type_id  = EXCLUDED.settlement_type_id,
     updated_at          = NOW();
 
--- Ветка (фиксированный id) + буферы: вход 0 (производство 0), выход 0.
+-- Ветка (фиксированный id) + ячейки хранилища поселения: вход 0 (производство
+-- 0), выход 0. Буферы ветки ретайрены (000087) — запас живёт в ячейках.
 INSERT INTO settlement_branches (id, settlement_id, recipe_id, processed_at)
 SELECT 'e0000000-0000-4000-8000-000000000002',
        'e0000000-0000-4000-8000-000000000001',
@@ -84,15 +88,15 @@ FROM recipes r
 JOIN goods og ON og.id = r.good_id AND og.name_norm = 'qa голодтовар'
 ON CONFLICT DO NOTHING;
 
-INSERT INTO settlement_branch_buffers (branch_id, direction, good_id, amount)
-SELECT 'e0000000-0000-4000-8000-000000000002', 'input', g.id, 0
+INSERT INTO settlement_storage_cells (owner_type, owner_id, good_id, amount, cap_share)
+SELECT 'settlement', 'e0000000-0000-4000-8000-000000000001', g.id, 0, 0
 FROM goods g WHERE g.name_norm = 'qa голодсырьё'
-ON CONFLICT DO NOTHING;
+ON CONFLICT (owner_type, owner_id, good_id) DO NOTHING;
 
-INSERT INTO settlement_branch_buffers (branch_id, direction, good_id, amount)
-SELECT 'e0000000-0000-4000-8000-000000000002', 'output', g.id, 0
+INSERT INTO settlement_storage_cells (owner_type, owner_id, good_id, amount, cap_share)
+SELECT 'settlement', 'e0000000-0000-4000-8000-000000000001', g.id, 0, 0
 FROM goods g WHERE g.name_norm = 'qa голодтовар'
-ON CONFLICT DO NOTHING;
+ON CONFLICT (owner_type, owner_id, good_id) DO NOTHING;
 
 -- Нагрузка выше порога (24): витрина «включён, сила > 0»; живой проход накопит ещё.
 INSERT INTO active_effects (effect_type_id, owner_type, owner_id, owner_settlement_id, source_position, load, load_at)

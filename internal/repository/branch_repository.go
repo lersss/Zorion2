@@ -1,10 +1,12 @@
 // internal/repository/branch_repository.go
 //
 // Ветки поселения (спека 2026-09-22-поселение-ветка-буферы-переработка §3.1/
-// §4/§9): таблица-носитель буферов settlement_branch_buffers, чтение веток и
-// буферов по поселению (`= ANY($1)`), состав рецепта, ленивый синк переработки
-// (tx + FOR UPDATE на строке ветки), создание ветки с посевом буферов,
-// админский инкремент входа и счётчик веток по товару-выходу (§8/T14-О3).
+// §4/§9; внутреннее хранилище — спека 2026-09-25 §4.4, ЧК2а): таблица
+// settlement_branches, чтение веток по поселению (`= ANY($1)`), состав рецепта,
+// ленивый синк переработки (tx + FOR UPDATE на строке ветки), создание ветки с
+// авто-созданием ячеек хранилища (буферы ветки settlement_branch_buffers
+// ретайрены миграцией 000087), админский инкремент входа в общую ячейку
+// поселения и счётчик веток по товару-выходу (§8/T14-О3).
 package repository
 
 import (
@@ -49,13 +51,6 @@ const (
 		WHERE b.settlement_id = $1
 		ORDER BY b.id
 		FOR UPDATE OF b`
-
-	branchBuffersSelectSQL = `
-		SELECT bb.branch_id, bb.direction, bb.good_id, g.name, bb.amount
-		FROM settlement_branch_buffers bb
-		JOIN goods g ON g.id = bb.good_id
-		WHERE bb.branch_id = ANY($1)
-		ORDER BY bb.branch_id, bb.direction, bb.good_id`
 
 	branchComponentsSelectSQL = `
 		SELECT rc.recipe_id, rc.component_id, rc.quantity
@@ -121,14 +116,11 @@ type branchRecord struct {
 
 // toBranch — состояние ветки для чистой функции переработки. deposits —
 // залежи своей планеты по good_id (источник добычи, спека итерации 3 §4).
-// outputAmount — базис выходного буфера ДО производства (O0_b, §4.2).
+// input — распределённая доля входных ячеек компонентов (F2, §5.7); outputAmount
+// — базис ячейки товара-выхода ДО производства (F6, §5.7).
 // ratePerDayPerBillion — число скорости пары «тип поселения × рецепт»
 // (producer_recipes.rate, ед/сутки/млрд; 0 = не объявлено → инертна, §3.2).
-func (rec *branchRecord) toBranch(population float64, outputAmount float64, ratePerDayPerBillion float64, deposits map[int64][]settlement.DepositLot) settlement.Branch {
-	input := make(map[int64]float64, len(rec.branch.Input))
-	for _, e := range rec.branch.Input {
-		input[e.GoodID] = e.Amount
-	}
+func (rec *branchRecord) toBranch(population float64, input map[int64]float64, outputAmount float64, ratePerDayPerBillion float64, deposits map[int64][]settlement.DepositLot) settlement.Branch {
 	return settlement.Branch{
 		Population:           population,
 		RatePerDayPerBillion: ratePerDayPerBillion,
@@ -138,16 +130,6 @@ func (rec *branchRecord) toBranch(population float64, outputAmount float64, rate
 		ProcessedAt:          rec.branch.ProcessedAt,
 		Deposits:             deposits,
 	}
-}
-
-// branchOutputAmount — накопленное количество товара-выхода рецепта.
-func branchOutputAmount(entries []models.BranchBufferEntry, goodID int64) float64 {
-	for _, e := range entries {
-		if e.GoodID == goodID {
-			return e.Amount
-		}
-	}
-	return 0
 }
 
 // --- чтение ---
@@ -193,7 +175,6 @@ func loadBranches(ctx context.Context, q branchRowsQueryer, settlementIDs []stri
 	}
 	var recs []*branchRecord
 	var recipeIDs []int64
-	var branchIDs []string
 	for rows.Next() {
 		rec, err := scanBranchRow(rows)
 		if err != nil {
@@ -202,7 +183,6 @@ func loadBranches(ctx context.Context, q branchRowsQueryer, settlementIDs []stri
 		}
 		recs = append(recs, rec)
 		recipeIDs = appendUniqueInt64(recipeIDs, rec.branch.RecipeID)
-		branchIDs = append(branchIDs, rec.branch.ID)
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
@@ -219,9 +199,6 @@ func loadBranches(ctx context.Context, q branchRowsQueryer, settlementIDs []stri
 	}
 	for _, rec := range recs {
 		rec.components = comps[rec.branch.RecipeID]
-	}
-	if err := attachBranchBuffers(ctx, q, branchIDs, recs); err != nil {
-		return nil, err
 	}
 	return recs, nil
 }
@@ -266,44 +243,6 @@ func loadBranchComponents(ctx context.Context, q branchRowsQueryer, recipeIDs []
 		return nil, fmt.Errorf("components iteration error: %w", err)
 	}
 	return out, nil
-}
-
-// attachBranchBuffers — буферы веток в display-модель (вход/выход раздельно).
-func attachBranchBuffers(ctx context.Context, q branchRowsQueryer, branchIDs []string, recs []*branchRecord) error {
-	if len(branchIDs) == 0 {
-		return nil
-	}
-	byID := make(map[string]*branchRecord, len(recs))
-	for _, rec := range recs {
-		byID[rec.branch.ID] = rec
-	}
-	rows, err := q.QueryContext(ctx, branchBuffersSelectSQL, pqStringArray(branchIDs))
-	if err != nil {
-		return fmt.Errorf("failed to query branch buffers: %w", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var branchID, direction, name string
-		var amount float64
-		var gid int64
-		if err := rows.Scan(&branchID, &direction, &gid, &name, &amount); err != nil {
-			return fmt.Errorf("failed to scan branch buffer: %w", err)
-		}
-		rec := byID[branchID]
-		if rec == nil {
-			continue
-		}
-		e := models.BranchBufferEntry{GoodID: gid, GoodName: name, Amount: amount}
-		if direction == "input" {
-			rec.branch.Input = append(rec.branch.Input, e)
-		} else {
-			rec.branch.Output = append(rec.branch.Output, e)
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("buffers iteration error: %w", err)
-	}
-	return nil
 }
 
 // --- ленивый синк переработки (§4.2/§4.5) ---
@@ -382,10 +321,10 @@ func sortedDepositLots(deposits map[int64][]settlement.DepositLot) []settlement.
 
 // --- запись (админ-ручки) ---
 
-// CreateBranchTx — вставка ветки и посев буферов нулями: по строке input на
-// каждый текущий заполненный компонент рецепта и одна строка output на
-// товар-выход (§5). Компоненты, добавленные в рецепт позже, дополняются при
-// персистентном синке (top-up, §4.2).
+// CreateBranchTx — вставка ветки и идемпотентное авто-создание ячеек хранилища
+// под компоненты рецепта и товар-выход (реестр нужд §4.3): ячейка — единственный
+// физический запас, буферов ветки больше нет. Веса ячеек проставит owner-проход
+// (самолечение, §4.3); здесь важна лишь их наличность.
 func (r *BranchRepository) CreateBranchTx(ctx context.Context, tx *sql.Tx, branchID, settlementID string, recipeID int64) error {
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO settlement_branches (id, settlement_id, recipe_id)
@@ -414,23 +353,17 @@ func (r *BranchRepository) CreateBranchTx(ctx context.Context, tx *sql.Tx, branc
 	}
 	rows.Close()
 
-	for _, gid := range comps {
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO settlement_branch_buffers (branch_id, direction, good_id, amount)
-			VALUES ($1, 'input', $2, 0) ON CONFLICT DO NOTHING`, branchID, gid,
-		); err != nil {
-			return fmt.Errorf("failed to seed input buffer: %w", err)
-		}
-	}
 	var outputGoodID int64
 	if err := tx.QueryRowContext(ctx, `SELECT good_id FROM recipes WHERE id = $1`, recipeID).Scan(&outputGoodID); err != nil {
 		return fmt.Errorf("failed to read recipe output: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO settlement_branch_buffers (branch_id, direction, good_id, amount)
-		VALUES ($1, 'output', $2, 0) ON CONFLICT DO NOTHING`, branchID, outputGoodID,
-	); err != nil {
-		return fmt.Errorf("failed to seed output buffer: %w", err)
+	comps = appendUniqueInt64(comps, outputGoodID)
+
+	cells := NewStorageCellRepository(r.db)
+	for _, gid := range comps {
+		if err := cells.EnsureStorageCellTx(ctx, tx, StorageOwnerSettlement, settlementID, gid); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -461,20 +394,11 @@ func (r *BranchRepository) LockBranchTx(ctx context.Context, tx *sql.Tx, branchI
 	return settlementID, recipeID, nil
 }
 
-// IncrementBranchInputTx — атомарный инкремент входа (upsert под блокировкой
-// ветки, §5): относительный UPDATE — правка админа не теряется синком.
-func (r *BranchRepository) IncrementBranchInputTx(ctx context.Context, tx *sql.Tx, branchID string, goodID int64, amount float64) error {
-	_, err := tx.ExecContext(ctx, `
-		INSERT INTO settlement_branch_buffers (branch_id, direction, good_id, amount)
-		VALUES ($1, 'input', $2, $3)
-		ON CONFLICT (branch_id, direction, good_id)
-		DO UPDATE SET amount = settlement_branch_buffers.amount + EXCLUDED.amount, updated_at = NOW()`,
-		branchID, goodID, amount,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to increment branch input: %w", err)
-	}
-	return nil
+// IncrementSettlementCellTx — атомарный инкремент общей ячейки поселения
+// (админ-ручка входа, §4.4 п.9): вход ветки больше не буфер, а ячейка
+// компонента. Относительный UPDATE — правка админа не теряется owner-проходом.
+func (r *BranchRepository) IncrementSettlementCellTx(ctx context.Context, tx *sql.Tx, settlementID string, goodID int64, amount float64) error {
+	return NewStorageCellRepository(r.db).IncrementStorageCellTx(ctx, tx, StorageOwnerSettlement, settlementID, goodID, amount)
 }
 
 // CountBranchesByGood — число веток с товаром-выходом = goodID во всех мирах

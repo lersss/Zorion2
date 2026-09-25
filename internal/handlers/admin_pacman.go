@@ -495,6 +495,21 @@ func (h *AdminHandlers) clearWorldReferencesForWorlds(tx *sql.Tx, ids []string) 
 	if err := h.clearPendingDestinationsForWorlds(tx, ids); err != nil {
 		return res, err
 	}
+
+	// 4.6. Ячейки внутреннего хранилища поселений удаляемых миров (ЧК2а §4.1):
+	// owner_id полиморфный, FK на settlements нет — при DELETE worlds поселения
+	// уходят каскадом, а ячейки остались бы сиротами. Явный DELETE до удаления
+	// миров (в той же транзакции).
+	if _, err := tx.ExecContext(context.Background(), `
+		DELETE FROM settlement_storage_cells
+		WHERE owner_type = 'settlement'
+		  AND owner_id IN (
+			SELECT s.id FROM settlements s
+			JOIN planets p ON p.id = s.planet_id
+			WHERE p.world_id = ANY($1))`,
+		pq.Array(ids)); err != nil {
+		return res, err
+	}
 	return res, nil
 }
 

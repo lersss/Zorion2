@@ -30,8 +30,12 @@ func expectOwnerPassEmpty(mock sqlmock.Sqlmock) {
 		FROM effect_types
 	`).WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm", "impact", "curve"}))
 	mock.ExpectQuery(`
-		SELECT name_norm FROM goods
-	`).WillReturnRows(sqlmock.NewRows([]string{"name_norm"}))
+		SELECT id, name, name_norm FROM goods
+	`).WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm"}))
+	mock.ExpectQuery(`
+		SELECT component_id, COUNT(*) FROM recipe_components
+		WHERE component_id IS NOT NULL GROUP BY component_id
+	`).WillReturnRows(sqlmock.NewRows([]string{"component_id", "count"}))
 	mock.ExpectQuery(`
 		SELECT b.id, b.settlement_id, b.recipe_id, b.processed_at,
 		       r.good_id, og.name, r.complexity, og.name_norm
@@ -52,4 +56,12 @@ func expectOwnerPassEmpty(mock sqlmock.Sqlmock) {
 	// запросы настроек типов/чисел скорости не идут (пустое объединение).
 	mock.ExpectQuery(`SELECT payload FROM generation_config WHERE key = $1`).
 		WillReturnRows(sqlmock.NewRows([]string{"payload"}))
+	// Путь «в памяти»: чтение ячеек хранилища поселения (без записи).
+	mock.ExpectQuery(`
+		SELECT id, owner_type, owner_id, good_id, amount, cap_share
+		FROM settlement_storage_cells
+		WHERE owner_type = $1 AND owner_id = $2
+		ORDER BY good_id
+	`).WithArgs("settlement", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "owner_type", "owner_id", "good_id", "amount", "cap_share"}))
 }

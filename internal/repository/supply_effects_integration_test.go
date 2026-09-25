@@ -217,7 +217,8 @@ func supplyITSetSettlementType(t *testing.T, db *sql.DB, settlementID string, ty
 	supplyITExec(t, db, `UPDATE settlements SET settlement_type_id = $1 WHERE id = $2`, typeID, settlementID)
 }
 
-// supplyITSeedBranch — ветка с буферами входа (компонент) и выхода (товар-выход).
+// supplyITSeedBranch — ветка + ячейки хранилища поселения: вход (компонент) и
+// выход (товар-выход). Буферов ветки больше нет (ЧК2а).
 func supplyITSeedBranch(t *testing.T, db *sql.DB, settlementID string, recipeID, outputGoodID, componentGoodID int64, input, output float64, processedAt time.Time) string {
 	t.Helper()
 	id := uuid.New().String()
@@ -225,11 +226,15 @@ func supplyITSeedBranch(t *testing.T, db *sql.DB, settlementID string, recipeID,
 		`INSERT INTO settlement_branches (id, settlement_id, recipe_id, processed_at) VALUES ($1, $2, $3, $4)`,
 		id, settlementID, recipeID, processedAt)
 	supplyITExec(t, db,
-		`INSERT INTO settlement_branch_buffers (branch_id, direction, good_id, amount) VALUES ($1, 'input', $2, $3)`,
-		id, componentGoodID, input)
+		`INSERT INTO settlement_storage_cells (owner_type, owner_id, good_id, amount, cap_share)
+		 VALUES ('settlement', $1, $2, $3, 0)
+		 ON CONFLICT (owner_type, owner_id, good_id) DO UPDATE SET amount = EXCLUDED.amount`,
+		settlementID, componentGoodID, input)
 	supplyITExec(t, db,
-		`INSERT INTO settlement_branch_buffers (branch_id, direction, good_id, amount) VALUES ($1, 'output', $2, $3)`,
-		id, outputGoodID, output)
+		`INSERT INTO settlement_storage_cells (owner_type, owner_id, good_id, amount, cap_share)
+		 VALUES ('settlement', $1, $2, $3, 0)
+		 ON CONFLICT (owner_type, owner_id, good_id) DO UPDATE SET amount = EXCLUDED.amount`,
+		settlementID, outputGoodID, output)
 	return id
 }
 
@@ -298,13 +303,19 @@ func supplyITRunPass(t *testing.T, db *sql.DB, o OwnerSettlement, now time.Time)
 	repo := NewBranchRepository(db)
 	catalog, err := repo.loadEffectTypeCatalog(ctx)
 	require.NoError(t, err)
-	known, err := repo.loadGoodNames(ctx)
+	goods, err := repo.loadGoodsCatalog(ctx)
+	require.NoError(t, err)
+	occurrences, err := repo.loadRecipeComponentOccurrences(ctx)
 	require.NoError(t, err)
 	recs, err := loadBranches(ctx, db, []string{o.ID})
 	require.NoError(t, err)
 	stored, err := repo.loadActiveEffects(ctx, []string{o.ID})
 	require.NoError(t, err)
-	run, err := runOwnerPass(o, recs, stored[o.ID], catalog, known, ownerBatchData{}, nil, now, false)
+	cells, err := repo.loadStorageCells(ctx, o.ID)
+	require.NoError(t, err)
+	data := ownerBatchData{occurrences: occurrences}
+	_, size := storagePlan(o, recs, goods, data)
+	run, err := runOwnerPass(o, recs, stored[o.ID], catalog, goods, data, nil, cells, size, now, false)
 	require.NoError(t, err)
 	return run.result, run.deathInput.Effects
 }
@@ -363,9 +374,12 @@ func TestSupplyEffectsIntegrationBindingAndDeficitW(t *testing.T) {
 	require.Equal(t, int64(1), supplyITScalarInt(t, db, `SELECT COUNT(*) FROM active_effects WHERE owner_id = $1`, s1),
 		"одна строка active_effects на тип эффекта (T13)")
 
-	// Шаг C: удаляем ВСЕ ветки-источники → привязанная позиция без источника:
-	// coverage=0, w=1, без падения (T31/T36); эффект не снимается (T13).
+	// Шаг C: удаляем ВСЕ ветки-источники И обнуляем ячейки хранилища →
+	// привязанная позиция без источника и без запаса: coverage=0, w=1, без
+	// падения (T31/T36); эффект не снимается (T13). Ячейка — запас поселения,
+	// а не ветки: без явной очистки накопленный выход продолжал бы покрывать.
 	supplyITExec(t, db, `DELETE FROM settlement_branches WHERE settlement_id = $1`, s1)
+	supplyITExec(t, db, `DELETE FROM settlement_storage_cells WHERE owner_type = 'settlement' AND owner_id = $1`, s1)
 	nowC := nowB.Add(2 * time.Hour)
 	resC := supplyITSyncRun(t, db, supplyITOwnerTyped(s1, planetID, nowB, 1_000_000, pt), nowC)
 	require.Len(t, resC.Effects, 1, "удаление ветки-источника эффект не снимает (T13)")
@@ -580,7 +594,7 @@ func TestSupplyEffectsIntegrationOutputBufferSingleWrite(t *testing.T) {
 	computedAt := now.Add(-time.Hour).Truncate(time.Microsecond)
 	s1 := supplyITSeedSettlement(t, db, planetID, population, computedAt)
 	supplyITSetSettlementType(t, db, s1, pt)
-	branchID := supplyITSeedBranch(t, db, s1, recipe, outGood, comp, 1e6, baseO0, computedAt)
+	supplyITSeedBranch(t, db, s1, recipe, outGood, comp, 1e6, baseO0, computedAt)
 	supplyITSeedActiveEffect(t, db, s1, typeID, 0, computedAt)
 
 	res := supplyITSyncRun(t, db, supplyITOwnerTyped(s1, planetID, computedAt, population, pt), now)
@@ -594,10 +608,9 @@ func TestSupplyEffectsIntegrationOutputBufferSingleWrite(t *testing.T) {
 	want := baseO0 + batches - drawn
 
 	got := supplyITScalarFloat(t, db,
-		`SELECT amount FROM settlement_branch_buffers WHERE branch_id = $1 AND direction = 'output' AND good_id = $2`,
-		branchID, outGood)
-	require.InDelta(t, want, got, 1e-9, "выход = O0_b + batches_b − drawn_b (единственная точка записи, T33)")
-	require.InDelta(t, want, res.Branches[0].Output[0].Amount, 1e-9, "display-буфер = записанный выход")
+		`SELECT amount FROM settlement_storage_cells WHERE owner_type = 'settlement' AND owner_id = $1 AND good_id = $2`,
+		s1, outGood)
+	require.InDelta(t, want, got, 1e-9, "ячейка выхода = O0_b + batches_b − drawn_b (единственная точка записи, T33)")
 	require.InDelta(t, drawn, res.Branches[0].Eaten, 1e-9, "списано слоем потребности ровно drawn_b")
 
 	// Контроль отсутствия двойного учёта: вариант `O0 + 2·batches − drawn` отличим.

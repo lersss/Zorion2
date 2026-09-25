@@ -217,16 +217,17 @@ type snapshotSettlement struct {
 	Branches  []snapshotBranch `json:"branches"`
 }
 
-// snapshotBranch — ветка в снимке: рецепт (id/имя/сложность), выход и
-// последние скаляры «за проход». Входной буфер (Input) не замораживается.
+// snapshotBranch — ветка в снимке: рецепт (id/имя/сложность) и последние
+// скаляры «за проход». Запасы не замораживаются (спека 2026-09-25 §4.4 п.10):
+// буферы ветки сняты, хранилище — как арифметика, в снимок не входит. Старые
+// снимки с полем `output` парсятся без ошибки (неизвестное поле игнорируется).
 type snapshotBranch struct {
-	RecipeID   int64                      `json:"recipe_id"`
-	RecipeName string                     `json:"recipe_name"`
-	Complexity int                        `json:"complexity"`
-	Output     []models.BranchBufferEntry `json:"output"`
-	Produced   float64                    `json:"produced"`
-	Eaten      float64                    `json:"eaten"`
-	EatenRate  float64                    `json:"eaten_rate"`
+	RecipeID   int64   `json:"recipe_id"`
+	RecipeName string  `json:"recipe_name"`
+	Complexity int     `json:"complexity"`
+	Produced   float64 `json:"produced"`
+	Eaten      float64 `json:"eaten"`
+	EatenRate  float64 `json:"eaten_rate"`
 }
 
 // FixatePresence — запись снимка присутствия (спека 2026-09-23 §3, хук для
@@ -291,7 +292,6 @@ func buildPresenceSnapshot(p *models.Planet, source string, at time.Time) presen
 				RecipeID:   b.RecipeID,
 				RecipeName: b.RecipeName,
 				Complexity: b.Complexity,
-				Output:     b.Output,
 				Produced:   b.Produced,
 				Eaten:      b.Eaten,
 				EatenRate:  b.EatenRate,

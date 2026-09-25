@@ -226,7 +226,25 @@ func (h *AdminHandlers) AddBranchInput(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback()
 
 	repo := repository.NewBranchRepository(h.db)
-	settlementID, recipeID, err := repo.LockBranchTx(ctx, tx, branchID)
+	// Порядок локов (N4, §10): читающий SELECT settlement_id (без лока) →
+	// LockOwnerTx (advisory владельца) → LockBranchTx (FOR UPDATE ветки) →
+	// инкремент ячейки. Иначе админ-правка входа гоняется с owner-проходом
+	// (потеря/задвоение инкремента).
+	var settlementID string
+	err = tx.QueryRowContext(ctx, `SELECT settlement_id FROM settlement_branches WHERE id = $1`, branchID).Scan(&settlementID)
+	if errors.Is(err, sql.ErrNoRows) {
+		http.Error(w, "Ветка не найдена", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, "Failed to load branch: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := repo.LockOwnerTx(ctx, tx, settlementID); err != nil {
+		http.Error(w, "Failed to lock settlement: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_, recipeID, err := repo.LockBranchTx(ctx, tx, branchID)
 	if errors.Is(err, repository.ErrBranchNotFound) {
 		http.Error(w, "Ветка не найдена", http.StatusNotFound)
 		return
@@ -269,7 +287,14 @@ func (h *AdminHandlers) AddBranchInput(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := repo.IncrementBranchInputTx(ctx, tx, branchID, goodID, *body.Amount); err != nil {
+	// Вход ветки — общая ячейка поселения (§4.4 п.9): ячейка компонента должна
+	// существовать (её создаёт реестр нужд owner-прохода); страховка — ensure.
+	cells := repository.NewStorageCellRepository(h.db)
+	if err := cells.EnsureStorageCellTx(ctx, tx, repository.StorageOwnerSettlement, settlementID, goodID); err != nil {
+		http.Error(w, "Failed to ensure storage cell: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := repo.IncrementSettlementCellTx(ctx, tx, settlementID, goodID, *body.Amount); err != nil {
 		http.Error(w, "Failed to add input: "+err.Error(), http.StatusInternalServerError)
 		return
 	}

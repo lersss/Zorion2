@@ -38,6 +38,10 @@ func TestClearPlanetsOfUsesPqArray(t *testing.T) {
 	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM planets WHERE world_id = ANY\(\$1\)`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(3))
+	// Ячейки хранилища поселений миров (ЧК2а §4.1): owner_id без FK — явный DELETE.
+	mock.ExpectExec(`DELETE FROM settlement_storage_cells\s+WHERE owner_type = 'settlement'\s+AND owner_id IN`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 3))
 	mock.ExpectExec(`DELETE FROM planets WHERE world_id = ANY\(\$1\)`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 3))
@@ -68,6 +72,9 @@ func TestRegeneratePlanetsDropsBelts(t *testing.T) {
 	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM planets WHERE world_id = ANY\(\$1\)`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectExec(`DELETE FROM settlement_storage_cells\s+WHERE owner_type = 'settlement'\s+AND owner_id IN`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectExec(`DELETE FROM planets WHERE world_id = ANY\(\$1\)`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 0))

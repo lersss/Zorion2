@@ -170,11 +170,16 @@ func expectPacmanBatchAttempt(mock sqlmock.Sqlmock, failWorldsDelete bool, world
 	mock.ExpectExec(`UPDATE users SET pending_destination = NULL\s+WHERE \(pending_destination->>'world_id'\)::uuid = ANY\(\$1\)`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	// 4.6. Возврат залога контрактов съеденных миров (§6.5) — до DELETE.
+	// 4.6. Ячейки хранилища поселений съеденных миров (ЧК2а §4.1): owner_id без
+	// FK — явный DELETE до каскада.
+	mock.ExpectExec(`DELETE FROM settlement_storage_cells\s+WHERE owner_type = 'settlement'\s+AND owner_id IN`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 4))
+	// 4.7. Возврат залога контрактов съеденных миров (§6.5) — до DELETE.
 	mock.ExpectQuery(`UPDATE contracts\s+SET status = CASE WHEN executor_id IS NULL`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "author_type", "author_id", "executor_id", "escrow_amount", "escrow_withdrawable"}))
-	// 4.7. Контракты с мёртвой целью (payload.dest_world_id съеденного мира).
+	// 4.8. Контракты с мёртвой целью (payload.dest_world_id съеденного мира).
 	mock.ExpectQuery(`UPDATE contracts\s+SET status = CASE WHEN executor_id IS NULL`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "author_type", "author_id", "executor_id", "escrow_amount", "escrow_withdrawable"}))

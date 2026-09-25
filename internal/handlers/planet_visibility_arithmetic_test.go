@@ -37,8 +37,6 @@ func settlementArithmeticPlanet() models.Planet {
 					GoodID: 359, GoodName: "Мясо", PerDay: 650,
 				}},
 				DepositShare: 0.25,
-				Output:       []models.BranchBufferEntry{{GoodID: 378, Amount: 12.5}},
-				Input:        []models.BranchBufferEntry{{GoodID: 359, GoodName: "Мясо", Amount: 1000}},
 			}},
 		}},
 	}
@@ -62,7 +60,6 @@ func TestStripPresenceArithmeticVisible(t *testing.T) {
 	assert.InDelta(t, 650, *b.RatePerDayPerBillion, 1e-9)
 	require.Len(t, b.Take, 1, "«забираем» — расчётная производная рецепта")
 	assert.InDelta(t, 650, b.Take[0].PerDay, 1e-9)
-	assert.Nil(t, b.Input, "сырой входной буфер игроку не отдаётся")
 }
 
 // presence + настройка false: блока арифметики и новых полей ветки нет —
@@ -79,7 +76,6 @@ func TestStripPresenceArithmeticHidden(t *testing.T) {
 	assert.False(t, b.NotInStageSet)
 	assert.Nil(t, b.Take, "«забираем» скрыто")
 	assert.Zero(t, b.DepositShare)
-	assert.Nil(t, b.Input)
 }
 
 // snapshot: блок арифметики не замораживается — чистится всегда, даже при
@@ -111,7 +107,6 @@ func TestApplyPlanetVisibilityArithmeticFlag(t *testing.T) {
 	require.Len(t, out[0].Settlements, 1)
 	require.Len(t, out[0].Settlements[0].Arithmetic, 1, "настройка true → игрок видит блок")
 	require.Len(t, out[0].Settlements[0].Branches, 1)
-	assert.Nil(t, out[0].Settlements[0].Branches[0].Input, "входной буфер игроку не отдаётся")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -162,28 +157,30 @@ func expectPresenceOwnerPassArithmeticBranch(mock sqlmock.Sqlmock, now time.Time
 	mock.ExpectQuery(`SELECT id, name, name_norm, impact, COALESCE\(params->>'curve', ''\) FROM effect_types`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm", "impact", "curve"}).
 			AddRow(int64(1), "Голод", "голод", "population_rate", "hunger"))
-	mock.ExpectQuery(`SELECT name_norm FROM goods`).
-		WillReturnRows(sqlmock.NewRows([]string{"name_norm"}).AddRow("пища"))
+	mock.ExpectQuery(`SELECT id, name, name_norm FROM goods`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "name_norm"}).
+			AddRow(int64(378), "Пища", "пища").
+			AddRow(int64(359), "Мясо", "мясо"))
+	mock.ExpectQuery(`SELECT component_id, COUNT\(\*\) FROM recipe_components`).
+		WillReturnRows(sqlmock.NewRows([]string{"component_id", "count"}).AddRow(int64(359), int64(1)))
 	mock.ExpectQuery(`SELECT b\.id.*FROM settlement_branches b`).WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "settlement_id", "recipe_id", "processed_at", "good_id", "name", "complexity", "name_norm"}).
 			AddRow("b1", "s1", int64(69), now.Add(-time.Minute), int64(378), "Пища", int64(1), "пища"))
 	mock.ExpectQuery(`SELECT rc\.recipe_id, rc\.component_id, rc\.quantity FROM recipe_components rc`).WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"recipe_id", "component_id", "quantity"}).AddRow(int64(69), int64(359), 1))
-	mock.ExpectQuery(`SELECT bb\.branch_id, bb\.direction, bb\.good_id, g\.name, bb\.amount FROM settlement_branch_buffers bb`).WithArgs(sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"branch_id", "direction", "good_id", "name", "amount"}).
-			AddRow("b1", "output", int64(378), "Пища", 0.0).
-			AddRow("b1", "input", int64(359), "Мясо", 1e15))
 	mock.ExpectQuery(`SELECT ae\.effect_type_id.*FROM active_effects ae`).WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"effect_type_id", "source_position", "load", "load_at", "impact", "curve", "owner_id"}))
 	mock.ExpectQuery(`SELECT payload FROM generation_config WHERE key = \$1`).WithArgs(models.DefaultSettlementTypeIDKey).
 		WillReturnRows(sqlmock.NewRows([]string{"payload"}))
-	mock.ExpectQuery(`SELECT id, params->'eat', params->'effects' FROM producer_types WHERE id = ANY\(\$1\)`).WithArgs(sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "eat", "effects"}).
-			AddRow(int64(148), []byte(`{"продовольствие":600}`), []byte(`{"продовольствие":"голод"}`)))
+	mock.ExpectQuery(`SELECT id, params->'eat', params->'effects', params->'storage' FROM producer_types WHERE id = ANY\(\$1\)`).WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "eat", "effects", "storage"}).
+			AddRow(int64(148), []byte(`{"продовольствие":600}`), []byte(`{"продовольствие":"голод"}`), nil))
 	mock.ExpectQuery(`SELECT producer_type_id, recipe_id, rate FROM producer_recipes WHERE producer_type_id = ANY\(\$1\)`).WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"producer_type_id", "recipe_id", "rate"}).AddRow(int64(148), int64(69), 650.0))
 	mock.ExpectQuery(`SELECT planet_id, id, good_id, amount FROM deposits`).WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"planet_id", "id", "good_id", "amount"}))
+	mock.ExpectQuery(`SELECT id, owner_type, owner_id, good_id, amount, cap_share FROM settlement_storage_cells`).WithArgs("settlement", "s1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "owner_type", "owner_id", "good_id", "amount", "cap_share"}))
 }
 
 // arithmeticPresenceHandlers — полный путь GET /api/worlds/w2/planets для игрока
@@ -238,7 +235,6 @@ func TestGetPlanetsByWorldReadsArithmeticVisibilityTrue(t *testing.T) {
 	assert.InDelta(t, 43.8, s.Arithmetic[0].NetPerDay, 1e-3)
 	require.Len(t, s.Branches, 1)
 	require.NotNil(t, s.Branches[0].RatePerDayPerBillion)
-	assert.Nil(t, s.Branches[0].Input, "сырой входной буфер игроку не отдаётся")
 	assert.Equal(t, int64(148), s.SettlementTypeID, "стадия остаётся")
 }
 
@@ -259,6 +255,5 @@ func TestGetPlanetsByWorldReadsArithmeticVisibilityFalse(t *testing.T) {
 	require.Len(t, s.Branches, 1)
 	assert.Nil(t, s.Branches[0].RatePerDayPerBillion, "число скорости скрыто")
 	assert.Nil(t, s.Branches[0].Take)
-	assert.Nil(t, s.Branches[0].Input)
 	assert.Equal(t, int64(148), s.SettlementTypeID, "стадия (type_id) остаётся")
 }

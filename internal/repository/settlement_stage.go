@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"strconv"
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
@@ -46,7 +47,7 @@ const (
 	// (params.stage) здесь не читаются — ладдеру строит отдельный предикат
 	// класса (settlementStageLadderSQL), дублировать их незачем.
 	producerTypesSelectSQL = `
-		SELECT id, params->'eat', params->'effects'
+		SELECT id, params->'eat', params->'effects', params->'storage'
 		FROM producer_types WHERE id = ANY($1)`
 
 	// settlementTypeWriteSQL — запись стадии в строку под FOR UPDATE (§5.1 п.1).
@@ -62,13 +63,6 @@ const (
 		LEFT JOIN recipe_components rc ON rc.recipe_id = pr.recipe_id AND rc.component_id IS NOT NULL
 		WHERE pr.producer_type_id = $1
 		GROUP BY pr.recipe_id ORDER BY pr.recipe_id`
-
-	// branchBuffersClearSQL — склады очищаются при переходе (§5.1 п.4): все
-	// буферы обеих сторон у всех веток поселения (строки не удаляются — состав
-	// строк добирает существующий topUpBranchInputs).
-	branchBuffersClearSQL = `
-		UPDATE settlement_branch_buffers SET amount = 0, updated_at = NOW()
-		WHERE branch_id IN (SELECT id FROM settlement_branches WHERE settlement_id = $1)`
 
 	// activeEffectsClearSQL — сброс базиса нагрузки владельца при переходе
 	// (§5.1 п.5, в БД). В памяти сброс делает вызов: stored = nil.
@@ -86,22 +80,34 @@ const (
 )
 
 // producerTypeMeta — настройки типа поселения из producer_types (§3.3 п.3):
-// нормы (params.eat) и привязки (params.effects) по позициям. После перехода
-// стадии проход берёт настройки НОВОГО типа.
+// нормы (params.eat), привязки (params.effects) по позициям и ручки хранилища
+// (params.storage: size — база размера, shares — явные доли ячеек, F3). После
+// перехода стадии проход берёт настройки НОВОГО типа.
 type producerTypeMeta struct {
 	EatByPosition     map[string]float64
 	EffectsByPosition map[string]string
+	StorageSize       float64
+	StorageShares     map[int64]float64
+}
+
+// storageJSON — params.storage типа поселения: size (база размера хранилища) и
+// shares (карта good_id → доля, F3).
+type storageJSON struct {
+	Size   *float64           `json:"size"`
+	Shares map[string]float64 `json:"shares"`
 }
 
 // ownerBatchData — данные, загруженные ОДИН раз на пачку поселений (§3.3):
 // числа скорости пар «тип × рецепт» (rates; nil = число не объявлено), набор
 // рецептов стадии (recipes — признак «не в наборе», §3.5), настройки типов
-// (объединение «владельцы ∪ ладдера») и ладдера стадий.
+// (объединение «владельцы ∪ ладдера»), ладдера стадий и число вхождений товара
+// во входы рецептов (occurrences — вес ячейки по F3).
 type ownerBatchData struct {
-	rates   map[int64]map[int64]*float64
-	recipes map[int64]map[int64]bool
-	types   map[int64]producerTypeMeta
-	ladder  settlement.StageLadder
+	rates       map[int64]map[int64]*float64
+	recipes     map[int64]map[int64]bool
+	types       map[int64]producerTypeMeta
+	ladder      settlement.StageLadder
+	occurrences map[int64]int
 }
 
 // stageJSON — params.stage в БД: пороги входа/выхода (в людях).
@@ -221,8 +227,8 @@ func (r *BranchRepository) loadProducerTypes(ctx context.Context, typeIDs []int6
 	defer rows.Close()
 	for rows.Next() {
 		var id int64
-		var eatRaw, effectsRaw []byte
-		if err := rows.Scan(&id, &eatRaw, &effectsRaw); err != nil {
+		var eatRaw, effectsRaw, storageRaw []byte
+		if err := rows.Scan(&id, &eatRaw, &effectsRaw, &storageRaw); err != nil {
 			return nil, err
 		}
 		meta := producerTypeMeta{}
@@ -234,6 +240,25 @@ func (r *BranchRepository) loadProducerTypes(ctx context.Context, typeIDs []int6
 		if len(effectsRaw) > 0 {
 			if err := json.Unmarshal(effectsRaw, &meta.EffectsByPosition); err != nil {
 				return nil, err
+			}
+		}
+		if len(storageRaw) > 0 && string(storageRaw) != "null" {
+			var st storageJSON
+			if err := json.Unmarshal(storageRaw, &st); err != nil {
+				return nil, err
+			}
+			if st.Size != nil {
+				meta.StorageSize = *st.Size
+			}
+			if len(st.Shares) > 0 {
+				meta.StorageShares = make(map[int64]float64, len(st.Shares))
+				for k, v := range st.Shares {
+					gid, err := strconv.ParseInt(k, 10, 64)
+					if err != nil {
+						continue
+					}
+					meta.StorageShares[gid] = v
+				}
 			}
 		}
 		out[id] = meta
@@ -292,7 +317,10 @@ func (r *BranchRepository) applyStageTransition(ctx context.Context, tx *sql.Tx,
 		log.Printf("🌿 стадия %d: поселению %s добавлена ветка рецепта %d (переход стадии)", newTypeID, o.ID, rc.recipeID)
 	}
 
-	if _, err := tx.ExecContext(ctx, branchBuffersClearSQL, o.ID); err != nil {
+	// Склады очищаются при переходе (§5.1 п.4, §5.6): ячейки хранилища
+	// поселения обнуляются (строки сохраняются — остаток реального запаса);
+	// размер и веса пересчитает owner-проход по F3.
+	if err := NewStorageCellRepository(r.db).ClearStorageCellsTx(ctx, tx, StorageOwnerSettlement, o.ID); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, activeEffectsClearSQL, o.ID); err != nil {

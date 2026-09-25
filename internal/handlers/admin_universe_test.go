@@ -213,6 +213,9 @@ func TestClearPlanets(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(42))
 	mock.ExpectExec(`DELETE FROM system_belts`).
 		WillReturnResult(sqlmock.NewResult(0, 7))
+	// Ячейки хранилища поселений (ЧК2а §4.1): owner_id без FK — явный DELETE.
+	mock.ExpectExec(`DELETE FROM settlement_storage_cells WHERE owner_type = 'settlement'`).
+		WillReturnResult(sqlmock.NewResult(0, 5))
 	mock.ExpectExec(`DELETE FROM planets`).
 		WillReturnResult(sqlmock.NewResult(0, 42))
 	mock.ExpectCommit()
@@ -271,6 +274,7 @@ func TestTruncateTablesCoverMigrationFK(t *testing.T) {
 	reRef := regexp.MustCompile(`(?i)REFERENCES (\w+)`)
 	reDrop := regexp.MustCompile(`(?i)DROP TABLE IF EXISTS (\w+)`)
 	reAlterRef := regexp.MustCompile(`(?i)ALTER TABLE (\w+)[\s\S]*?REFERENCES (\w+)`)
+	reRename := regexp.MustCompile(`(?i)ALTER TABLE (\w+) RENAME TO (\w+)`)
 
 	for _, m := range migs {
 		b, err := os.ReadFile(filepath.Join("..", "..", "migrations", m.name))
@@ -300,6 +304,27 @@ func TestTruncateTablesCoverMigrationFK(t *testing.T) {
 		// ALTER TABLE ... ADD ... REFERENCES (например, users → worlds).
 		for _, a := range reAlterRef.FindAllStringSubmatch(src, -1) {
 			refs[a[1]] = append(refs[a[1]], a[2])
+		}
+
+		// ALTER TABLE ... RENAME TO ... (ретайр таблицы): переносим имя и ссылки.
+		for _, r := range reRename.FindAllStringSubmatch(src, -1) {
+			old, renamed := r[1], r[2]
+			if existing[old] {
+				delete(existing, old)
+				existing[renamed] = true
+			}
+			if rs, ok := refs[old]; ok {
+				delete(refs, old)
+				refs[renamed] = rs
+			}
+		}
+	}
+
+	// Ретаиренные таблицы (RENAME ... _retired) выведены из обращения: FK сняты
+	// в той же миграции, но статический разбор этого не видит — исключаем их.
+	for t := range existing {
+		if strings.HasSuffix(t, "_retired") {
+			delete(existing, t)
 		}
 	}
 

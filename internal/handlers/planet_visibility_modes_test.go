@@ -82,8 +82,6 @@ func TestStripPresenceModeFullDetails(t *testing.T) {
 			Log: []models.SettlementLogEntry{{ID: "l1", Type: "extinct"}},
 			Branches: []models.SettlementBranch{{
 				ID: "b1", RecipeID: 73, RecipeName: "Вода",
-				Output: []models.BranchBufferEntry{{GoodID: 381, GoodName: "Вода", Amount: 12.5}},
-				Input:  []models.BranchBufferEntry{{GoodID: 1, GoodName: "лёд", Amount: 5}},
 			}},
 			Effects: []models.ActiveEffect{{
 				EffectTypeID: 1, Name: "Голод", Impact: "population_rate",
@@ -108,7 +106,6 @@ func TestStripPresenceModeFullDetails(t *testing.T) {
 	assert.Equal(t, 876000000, s.Population)
 	assert.Equal(t, 69, s.Stability)
 	require.Len(t, s.Branches, 1, "ветки видны")
-	assert.Nil(t, s.Branches[0].Input, "вход ветки скрыт (§5.4/§15)")
 	require.Len(t, s.Log, 1, "лог вымирания виден при присутствии")
 	require.Len(t, out.Factions, 1)
 	require.Len(t, out.Buildings, 1)
@@ -150,7 +147,6 @@ func TestStripSnapshotModeFrozenPicture(t *testing.T) {
 	assert.Nil(t, out.Settlements[0].Log, "лога в снимке нет (§3.1)")
 	assert.Nil(t, out.Settlements[0].RBreakdown, "r_breakdown в снимке не утекает игроку (идея 2026-09-25)")
 	require.Len(t, out.Settlements[0].Branches, 1, "ветки заморожены")
-	assert.Nil(t, out.Settlements[0].Branches[0].Input)
 	assert.Equal(t, int64(876000000), out.Population, "население — сумма поселений снимка")
 	require.Len(t, out.Factions, 1)
 	require.Len(t, out.Buildings, 1)
@@ -287,7 +283,6 @@ func TestPresenceSettlementNoCheckpoints(t *testing.T) {
 			RBreakdown: []models.RComponent{{Code: "heat", Value: 0.0001}},
 			Branches: []models.SettlementBranch{{
 				ID: "b1", RecipeID: 73, RecipeName: "Вода",
-				Output: []models.BranchBufferEntry{{GoodID: 381, Amount: 12.5}},
 			}},
 		}},
 	}

@@ -284,11 +284,11 @@ func main() {
 	travelHandlers.SetContracts(contractRepo)
 
 	// Ускоритель перелёта (спека 2026-09-25-ускоритель-и-мини-игра-прокладка-
-	// маршрута, ЧК1): состояние отката игрока + атомарное применение ускорения
-	// (одна транзакция player_flights + player_accelerator). SetBooster включает
-	// Manager.BoostFlight; SetAccelerator — аддитивный блок accelerator в
-	// /travel и /me. Ручки offer/boost появятся вместе с полем/оценкой мини-игры
-	// (ЧК3) — в прод-путь заглушку не ставим.
+	// маршрута, ЧК1/ЧК3): состояние отката игрока + атомарное применение
+	// ускорения (одна транзакция player_flights + player_accelerator). SetBooster
+	// включает Manager.BoostFlight; SetAccelerator — аддитивный блок accelerator
+	// в /travel и /me. Ручки offer/boost (ЧК3) — на TravelHandlers: у них уже
+	// есть worldRepo/planetRepo/accelRepo и ArrivalHandler-колбэк.
 	acceleratorRepo := repository.NewPlayerAcceleratorRepository(db)
 	travelManager.SetBooster(acceleratorRepo)
 	travelHandlers.SetAccelerator(acceleratorRepo)
@@ -435,6 +435,10 @@ func main() {
 	http.HandleFunc("/worlds/", auth.AuthMiddleware(worldHandlers.GetWorld))
 	http.HandleFunc("/travel", auth.AuthMiddleware(travelHandlers.StartTravel))
 	http.HandleFunc("/api/intrasystem-flight", auth.AuthMiddleware(intrasystemHandlers.StartIntraFlight))
+	// Мини-игра «Прокладка маршрута» (спека ускорителя §3.4, ЧК3): предложение
+	// и применение ускорения текущего межзвёздного сегмента.
+	http.HandleFunc("/api/accelerator/offer", auth.AuthMiddleware(travelHandlers.AcceleratorOffer))
+	http.HandleFunc("/api/accelerator/boost", auth.AuthMiddleware(travelHandlers.AcceleratorBoost))
 	http.HandleFunc("/api/surface/land", auth.AuthMiddleware(surfaceHandlers.Land))
 	http.HandleFunc("/api/surface/leave", auth.AuthMiddleware(surfaceHandlers.Leave))
 	// Добыча в поясе малых тел (спека 2026-09-22-пояса-малых-тел-этап-3-добыча

@@ -44,6 +44,9 @@ type TravelHandlers struct {
 	// Состояние отката ускорителя (спека ускорителя §3.4): аддитивный блок
 	// accelerator в ответе /travel. Сеттер: main.go; nil — блока нет.
 	accelRepo *repository.PlayerAcceleratorRepository
+	// Состояние сегментной задачи мини-игры v9 «Планшет» (спека ускорителя
+	// §14.1): доска/секрет/импульсы. Сеттер: main.go; nil — ручек доски нет.
+	routePuzzleRepo *repository.RoutePuzzleRepository
 }
 
 func NewTravelHandlers(
@@ -93,6 +96,13 @@ func (h *TravelHandlers) SetMiningBuffer(db *sql.DB, mb *MiningBuffer) {
 // nil — блока нет (тесты без БД).
 func (h *TravelHandlers) SetAccelerator(repo *repository.PlayerAcceleratorRepository) {
 	h.accelRepo = repo
+}
+
+// SetRoutePuzzle — подключает состояние сегментной задачи «Прокладка
+// маршрута» v9 (спека ускорителя §14.1): доска offer и разведка scan.
+// Сеттер: main.go; nil — ручек доски нет.
+func (h *TravelHandlers) SetRoutePuzzle(repo *repository.RoutePuzzleRepository) {
+	h.routePuzzleRepo = repo
 }
 
 // fixateDeparturePresence — фиксация снимка при отлёте (спека 2026-09-23 §3.2,

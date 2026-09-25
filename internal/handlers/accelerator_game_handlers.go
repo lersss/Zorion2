@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"math"
 	"net/http"
@@ -17,26 +18,13 @@ import (
 
 // accelerator_game_handlers.go — ручки мини-игры «Прокладка маршрута»
 // (спека 2026-09-25-ускоритель-и-мини-игра-прокладка-маршрута §3.4/§4.1, ЧК3):
-// GET /api/accelerator/offer и POST /api/accelerator/boost.
+// GET /api/accelerator/offer (доска v9, см. accelerator_grid_handlers.go) и
+// POST /api/accelerator/boost (старая v1-модель, подэтап B).
 //
 // Поле/паспорт/оценка — производные (§6.1/§5.3): поле считается из seed
 // hash(from,to) и дальности СЕГМЕНТА (старт сегмента → цель), не из «живого»
-// остатка/прогресса, поэтому offer и boost строят одно и то же поле. Расчёт
-// P/bonus/newRem — в хендлере (оркестрация С-1), менеджер лишь атомарно
-// заменяет сегмент под своим локом.
-
-// acceleratorOfferResponse — контракт offer (§3.4): без прогноза прибытия и
-// числа секунд результата (решение 14); remaining_s — верхний уровень (в
-// паспорт не входит).
-type acceleratorOfferResponse struct {
-	Fingerprint        string             `json:"fingerprint"`
-	Game               string             `json:"game"`
-	Passport           routegame.Passport `json:"passport"`
-	Field              routegame.Field    `json:"field"`
-	RemainingS         int                `json:"remaining_s"`
-	MinRemainingBoostS int                `json:"min_remaining_boost_s"`
-	CooldownRemainingS *int64             `json:"cooldown_remaining_s"`
-}
+// остатка/прогресса. Расчёт P/bonus/newRem — в хендлере (оркестрация С-1),
+// менеджер лишь атомарно заменяет сегмент под своим локом.
 
 // acceleratorBoostRequest — тело POST /api/accelerator/boost (§3.4):
 // fingerprint текущего сегмента + полилиния пути в поле [0,1]².
@@ -128,7 +116,7 @@ func (h *TravelHandlers) AcceleratorOffer(w http.ResponseWriter, r *http.Request
 		writeAcceleratorRefusal(w, http.StatusConflict, "no_flight", 0)
 		return
 	}
-	if h.accelRepo == nil || h.worldRepo == nil {
+	if h.accelRepo == nil || h.worldRepo == nil || h.routePuzzleRepo == nil {
 		writeJSONError(w, "Ускоритель недоступен", http.StatusInternalServerError)
 		return
 	}
@@ -165,12 +153,27 @@ func (h *TravelHandlers) AcceleratorOffer(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	passport, field := acceleratorSegmentView(flight, from, target, h.acceleratorBelts(flight.ToWorld))
+	// Доска v9 «Планшет» (§14): публичный слой поля текущего сегмента. Строка
+	// player_route_puzzle создаётся/пересоздаётся при смене сегмента.
+	dist := acceleratorSegmentDist(flight, target)
+	passport := routegame.BuildPassport(dist, *from, *target, visibleBelts(h.acceleratorBelts(flight.ToWorld)))
+	st, field, err := h.acceleratorGridPuzzle(userID, flight, dist, passport)
+	if err != nil {
+		if errors.Is(err, errGridNoField) {
+			writeAcceleratorRefusal(w, http.StatusConflict, "no_field", cooldownLeft)
+			return
+		}
+		log.Printf("⚠️ accelerator offer: puzzle (user %s): %v", userID, err)
+		writeJSONError(w, "Не удалось собрать доску", http.StatusInternalServerError)
+		return
+	}
 	writeJSON(w, acceleratorOfferResponse{
 		Fingerprint:        acceleratorFingerprint(flight),
 		Game:               cfg.Game,
 		Passport:           passport,
-		Field:              field,
+		Board:              acceleratorGridBoard(field),
+		PingsLeft:          st.PingsLeft,
+		Revealed:           acceleratorRevealedList(st.Revealed),
 		RemainingS:         int(flightRemaining(flight, now).Seconds()),
 		MinRemainingBoostS: cfg.MinRemainingBoostS,
 		CooldownRemainingS: cooldownPtr(cooldownLeft),

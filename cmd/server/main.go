@@ -292,6 +292,9 @@ func main() {
 	acceleratorRepo := repository.NewPlayerAcceleratorRepository(db)
 	travelManager.SetBooster(acceleratorRepo)
 	travelHandlers.SetAccelerator(acceleratorRepo)
+	// Сегментная задача доски v9 «Планшет» (спека ускорителя §14.1):
+	// player_route_puzzle — доска/секрет/импульсы offer и scan.
+	travelHandlers.SetRoutePuzzle(repository.NewRoutePuzzleRepository(db))
 
 	// Фаза 1: Restore межзвёздных (97a) — onArrival через общий ArrivalHandler
 	// (спека 99.2.30 §4/И6): прибывшие засчитываются сразу (ИП-2 + автостарт
@@ -444,6 +447,9 @@ func main() {
 	// и применение ускорения текущего межзвёздного сегмента.
 	http.HandleFunc("/api/accelerator/offer", auth.AuthMiddleware(travelHandlers.AcceleratorOffer))
 	http.HandleFunc("/api/accelerator/boost", auth.AuthMiddleware(travelHandlers.AcceleratorBoost))
+	// Разведка секторов доски v9 (спека ускорителя §14.4): вскрытие сектора
+	// серверным secret со списанием импульса.
+	http.HandleFunc("/api/accelerator/scan", auth.AuthMiddleware(travelHandlers.AcceleratorScan))
 	http.HandleFunc("/api/surface/land", auth.AuthMiddleware(surfaceHandlers.Land))
 	http.HandleFunc("/api/surface/leave", auth.AuthMiddleware(surfaceHandlers.Leave))
 	// Добыча в поясе малых тел (спека 2026-09-22-пояса-малых-тел-этап-3-добыча

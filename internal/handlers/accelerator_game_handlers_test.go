@@ -84,6 +84,7 @@ func newAccelGameHarness(t *testing.T) (*TravelHandlers, *travel.Manager, sqlmoc
 	h := NewTravelHandlers(repository.NewWorldRepository(db), repository.NewUserRepository(db), tm)
 	h.SetIntrasystemAutostart(repository.NewPlanetRepository(db), repository.NewKnowledgeRepository(db))
 	h.SetAccelerator(repository.NewPlayerAcceleratorRepository(db))
+	h.SetRoutePuzzle(repository.NewRoutePuzzleRepository(db))
 	return h, tm, mock
 }
 
@@ -183,45 +184,61 @@ func TestAcceleratorOfferTooShort(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// Доступно → 200 с полем/паспортом; поле не зависит от remaining (два вызова
-// с изменившимся остатком дают один JSON).
-func TestAcceleratorOfferAvailableAndFieldStable(t *testing.T) {
+// Доступно → 200 с доской v9/паспортом; доска не зависит от remaining (два
+// вызова с изменившимся остатком дают одну доску), скрытые слои не утекают.
+func TestAcceleratorOfferAvailableAndBoardStable(t *testing.T) {
 	h, tm, mock := newAccelGameHarness(t)
 	const userID = "u1"
 	tm.StartFlight(userID, "w1", "w2", 0, 0, time.Hour, nil)
 	flight := tm.GetFlight(userID)
+	hash := acceleratorSegmentHash(flight)
+	secret := []byte("accelerator-grid-test-secret-0001")
+	field := accelGridTestField(t, flight, secret, 10, accelGridTestPassport())
+	layoutJSON := accelGridTestLayoutJSON(t, field)
 
 	expectAccelState(mock, userID, nil, nil)
 	expectAccelGameUser(mock, userID, "w1")
 	expectWorld(mock, "w2", 10, 0)
 	expectWorld(mock, "w1", 0, 0)
 	expectBelts(mock, "w2")
+	expectRoutePuzzle(mock, userID, hash, secret, layoutJSON, []byte("[]"), 2)
 
 	rec := execJSON(h.AcceleratorOffer, accelOfferRequest(userID))
 	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Скрытые слои не отдаются: secret/realized/якоря/содержимое секторов.
+	body := rec.Body.String()
+	for _, leak := range []string{"secret", "realized", "l_naive", "l_safe", "l_risk", "vis_path", "l0_cells", "\"content\""} {
+		require.NotContains(t, body, leak, "утечка скрытого слоя: %s", leak)
+	}
+
 	var first acceleratorOfferResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &first))
-
 	require.Equal(t, acceleratorFingerprint(flight), first.Fingerprint)
 	require.Equal(t, "route", first.Game)
 	require.Equal(t, 90, first.MinRemainingBoostS)
 	require.Equal(t, 10.0, first.Passport.Dist, "dist — от старта сегмента до цели")
-	require.NotEmpty(t, first.Field.Nodes, "поле с маяками")
+	require.Equal(t, 2, first.PingsLeft)
+	require.Len(t, first.Board.Visible, first.Board.N*first.Board.N)
+	require.NotEmpty(t, first.Board.Beacons, "поле с маяками")
+	require.NotEmpty(t, first.Board.Sectors, "публичные секторы с σ")
+	require.Empty(t, first.Revealed)
 	require.GreaterOrEqual(t, first.RemainingS, 3500)
 	require.Nil(t, first.CooldownRemainingS)
 
-	// Повторный вызов спустя время: поле — та же чистая функция seed+dist.
+	// Повторный вызов спустя время: доска — та же чистая функция seed+secret+dist.
 	time.Sleep(5 * time.Millisecond)
 	expectAccelState(mock, userID, nil, nil)
 	expectAccelGameUser(mock, userID, "w1")
 	expectWorld(mock, "w2", 10, 0)
 	expectWorld(mock, "w1", 0, 0)
 	expectBelts(mock, "w2")
+	expectRoutePuzzle(mock, userID, hash, secret, layoutJSON, []byte("[]"), 2)
 	rec = execJSON(h.AcceleratorOffer, accelOfferRequest(userID))
 	require.Equal(t, http.StatusOK, rec.Code)
 	var second acceleratorOfferResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &second))
-	require.Equal(t, first.Field, second.Field, "поле не зависит от живого remaining")
+	require.Equal(t, first.Board, second.Board, "доска не зависит от живого remaining")
 	require.LessOrEqual(t, second.RemainingS, first.RemainingS, "остаток не растёт")
 	require.NoError(t, mock.ExpectationsWereMet())
 }

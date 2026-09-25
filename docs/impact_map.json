@@ -2003,6 +2003,146 @@
         { "on": "docs/specs/2026-09-24-каталог-экспорт-импорт-контента-на-прод.md", "kind": "docs", "reason": "спека линии (И1/И2 сданы, И3 впереди)" },
         { "on": "docs/TAILS.md", "kind": "docs", "reason": "хвост 39 (узел реестра) закрыт этой записью; И3 — в EPICS" }
       ]
+    },
+    {
+      "id": "contracts",
+      "type": "table",
+      "path": "db:contracts",
+      "note": "Контракты (миграция 000062): state-сущность — статус, тип (travel/supply), автор (player/faction/building/agent/settlement), executor, эскроу (escrow_amount/escrow_withdrawable; ЧК2б: escrow_amount — остаток залога к выплате), package_key/share_index (пакет долей), expires_at. author_type='settlement' добавлен 000088 (ЧК2а). Долг реестра С8 закрыт.",
+      "impacts": [
+        { "on": "accounts", "kind": "affects", "reason": "эскроу: lock при публикации, release исполнителю при завершении, return автору при отмене/провале/протухании (порядок захвата contracts → accounts)" },
+        { "on": "player_cargo", "kind": "reads", "reason": "сдача груза (contract_delivery) проверяет/списывает товар требования из трюма" },
+        { "on": "settlement_storage_cells", "kind": "writes", "reason": "сдача груза зачисляет привезённое в ячейку хранилища поселения-автора" },
+        { "on": "contract_board_materialization", "kind": "writes", "reason": "ленивое рождение/сверка открытых долей пакета" },
+        { "on": "docs/specs/2026-09-23-контракт-ленивая-доска-пакет-и-снабжение.md", "kind": "docs", "reason": "модель контракта/пакета/эскроу (§4); дельта ЧК2б §5.7 (частичная сдача, приход в ячейку)" },
+        { "on": "docs/specs/2026-09-25-сдача-груза-и-зачёт-ЧК2б.md", "kind": "docs", "reason": "точка сдачи (ЧК2б)" }
+      ]
+    },
+    {
+      "id": "contract_requirements",
+      "type": "table",
+      "path": "db:contract_requirements",
+      "note": "Требования контракта (000062, §4.2): kind (axis/goods/gear), subject (для supply — good_id строкой), op ('in'), quantity BIGINT. Сдача (ЧК2б) уменьшает quantity — остаток требования.",
+      "impacts": [
+        { "on": "contracts", "kind": "schema", "reason": "FK contract_id → contracts ON DELETE CASCADE" },
+        { "on": "goods", "kind": "reads", "reason": "subject требования supply = good_id товара-нужды" },
+        { "on": "contract_delivery", "kind": "writes", "reason": "частичная сдача уменьшает quantity" }
+      ]
+    },
+    {
+      "id": "contract_log",
+      "type": "table",
+      "path": "db:contract_log",
+      "note": "Журнал жизни контракта (000062 §4.3): FK на contracts намеренно нет (переживает удаление). Типы: published/taken/completed/cancelled/expired/failed/escrow_locked/escrow_released/escrow_returned/delivered (delivered — ЧК2б).",
+      "impacts": [
+        { "on": "contracts", "kind": "reads", "reason": "лог ссылается на contract_id без FK (архив)" }
+      ]
+    },
+    {
+      "id": "contract_board_state",
+      "type": "table",
+      "path": "db:contract_board_state",
+      "note": "Чек-точка ленивой материализации доски планеты (000071): planet_id → planets CASCADE, materialized_at + updated_at. Кадэнс MinPersistInterval (30 мин).",
+      "impacts": [
+        { "on": "db:planets", "kind": "schema", "reason": "FK planet_id → planets ON DELETE CASCADE; в truncateTables" },
+        { "on": "contract_board_materialization", "kind": "writes", "reason": "INSERT ... ON CONFLICT DO NOTHING + FOR UPDATE + touch materialized_at" }
+      ]
+    },
+    {
+      "id": "contract_board_materialization",
+      "type": "mechanic",
+      "path": "internal/repository/contract_board_repository.go",
+      "note": "Ленивое рождение/сверка открытых долей пакета при чтении доски (ЧК2а): нужды планеты из ячеек хранилища владельческих поселений (ownerless исключены), нарезка дефицита, «доля в работе → новых нет», бесплатная публикация supply-0, свежесть (пересчёт хранилища до tx доски). Порядок локов contract_board_state → contracts → accounts.",
+      "impacts": [
+        { "on": "contracts", "kind": "writes", "reason": "публикует/снимает открытые доли пакета (open↔cancelled, superseded)" },
+        { "on": "contract_board_state", "kind": "writes", "reason": "чек-точка кадэнса" },
+        { "on": "internal_storage", "kind": "reads", "reason": "складской дефицит свежих ячеек — вход нужд доски" },
+        { "on": "settlement_owner_pass", "kind": "invokes", "reason": "F1: доска вызывает пересчёт хранилища поселений планеты до материализации" },
+        { "on": "accounts", "kind": "writes", "reason": "залог публикуемой доли и возврат залога снятой" },
+        { "on": "contract_delivery", "kind": "affects", "reason": "пока доля taken — новых долей пакета нет (цель = 0)" }
+      ]
+    },
+    {
+      "id": "settlement_storage_cells",
+      "type": "table",
+      "path": "db:settlement_storage_cells",
+      "note": "Ячейки внутреннего хранилища (000086, ЧК2а): полиморфный владелец owner_type('settlement'|'building')/owner_id, good_id → goods CASCADE, amount ≥0, cap_share (вес/доля). Один товар — одна ячейка. Замена ретайренных settlement_branch_buffers.",
+      "impacts": [
+        { "on": "goods", "kind": "schema", "reason": "FK good_id → goods ON DELETE CASCADE" },
+        { "on": "internal_storage", "kind": "writes", "reason": "носитель запаса, которым управляет слой хранилища (owner-проход/сдача/админ-ручка входа)" },
+        { "on": "contract_delivery", "kind": "writes", "reason": "сдача зачисляет привезённый груз в ячейку владельца" }
+      ]
+    },
+    {
+      "id": "internal_storage",
+      "type": "mechanic",
+      "path": "internal/economy/settlement/storage.go",
+      "note": "Внутреннее хранилище постройки (ЧК2а): ячейки по товарам, порог cap = size × cap_share/Σcap_share (StorageCaps), складской дефицит max(0, cap−amount), вес ячейки ∝ вхождениям товара во входы рецептов (F3), размер — ручка студии по типу/ступени (от населения не зависит).",
+      "impacts": [
+        { "on": "settlement_storage_cells", "kind": "writes", "reason": "пороги/веса/остатки ячеек (owner-проход, сдача, переход ступени)" },
+        { "on": "needs_layer", "kind": "affects", "reason": "население ест из ячейки (источник покрытия/базиса), при конкуренции — из своей доли ∝ потребности (F2)" },
+        { "on": "settlement_branch_processing", "kind": "affects", "reason": "вход/выход ветки читаются/пишутся в ячейках; вход-ячейка делится ∝ потребности, выход виден со следующего пересчёта (F4)" },
+        { "on": "contract_board_materialization", "kind": "affects", "reason": "складской дефицит ячейки — источник нужд доски" },
+        { "on": "producer_types", "kind": "reads", "reason": "params.storage.size/shares — база/доли" },
+        { "on": "recipes", "kind": "reads", "reason": "F3: вес ячейки = число вхождений товара во входы рецептов" }
+      ]
+    },
+    {
+      "id": "board_needs_source",
+      "type": "mechanic",
+      "path": "internal/repository/contract_board_repository.go",
+      "note": "Источник нужд доски (ЧК2а): владельческие поселения планеты + свежие ячейки → BoardNeed(AuthorType=settlement, Target=cap, Actual=amount). Ownerless исключены; свежесть — пересчёт хранилища до tx доски.",
+      "impacts": [
+        { "on": "internal_storage", "kind": "reads", "reason": "складской дефицит ячейки — вход нужды" },
+        { "on": "contract_board_materialization", "kind": "affects", "reason": "наполняет target пакета; при taken цель = 0" },
+        { "on": "settlement_owner_pass", "kind": "invokes", "reason": "F1: пересчёт хранилища перед материализацией" }
+      ]
+    },
+    {
+      "id": "contract_actor_settlement",
+      "type": "mechanic",
+      "path": "internal/models/contract.go",
+      "note": "Автор контракта «поселение» (ЧК2а): author_type='settlement' (CHECK расширен 000088), плательщик — владелец поселения (settlements.owner_type/owner_id; агент → счёт фракции), планета публикации — settlements.planet_id. direct_target_type не расширяется.",
+      "impacts": [
+        { "on": "db:settlements", "kind": "reads", "reason": "владелец-плательщик и планета публикации автора" },
+        { "on": "contracts", "kind": "schema", "reason": "CHECK author_type включает settlement" },
+        { "on": "accounts", "kind": "affects", "reason": "резолв плательщика: settlement → owner → счёт; agent → owner_faction_id → счёт фракции" }
+      ]
+    },
+    {
+      "id": "contract_delivery",
+      "type": "mechanic",
+      "path": "internal/repository/contract_delivery.go",
+      "note": "Точка сдачи груза (ЧК2б): POST /api/contracts/deliver с орбиты планеты заказа; списание из player_cargo → приход в ячейку хранилища автора → пропорциональная выплата из эскроу (escrow_amount = остаток) / полное закрытие через completeTx; delivered = min(трюм, остаток требования, 2·cap − amount); одна транзакция, порядок contracts → contract_requirements → users → player_cargo → settlement_storage_cells → accounts.",
+      "impacts": [
+        { "on": "contracts", "kind": "writes", "reason": "taken→completed (полное закрытие) / уменьшение escrow_amount при частичной сдаче" },
+        { "on": "contract_requirements", "kind": "writes", "reason": "уменьшение quantity (остаток требования)" },
+        { "on": "player_cargo", "kind": "writes", "reason": "списание ровно сданного объёма (единицы, масса — goods.weight)" },
+        { "on": "settlement_storage_cells", "kind": "writes", "reason": "приход в ячейку владельца-автора" },
+        { "on": "accounts", "kind": "writes", "reason": "выплата исполнителю частями / полная через completeTx; нулевой op у бесплатного supply" },
+        { "on": "contract_log", "kind": "writes", "reason": "лог delivered + completed/escrow_released" },
+        { "on": "contract_board_materialization", "kind": "affects", "reason": "после сдачи дефицит падает → следующий проход доски снимает/пересчитывает доли" },
+        { "on": "needs_layer", "kind": "affects", "reason": "рост ячейки → покрытие нужды → эффект снимается" },
+        { "on": "docs/specs/2026-09-25-сдача-груза-и-зачёт-ЧК2б.md", "kind": "docs", "reason": "спека ЧК2б" }
+      ]
+    },
+    {
+      "id": "accounts",
+      "type": "table",
+      "path": "db:accounts",
+      "note": "Счета владельцев (деньги/эскроу, 000061): owner_type/owner_id, balance, withdrawable. Эскроу контрактов — здесь. Долг реестра С8 закрыт.",
+      "impacts": [
+        { "on": "contracts", "kind": "affects", "reason": "залог живого контракта (lock/release/return)" }
+      ]
+    },
+    {
+      "id": "money_operations",
+      "type": "table",
+      "path": "db:money_operations",
+      "note": "Журнал движения по счетам (000061): owner_type/owner_id, delta, balance_after, kind, contract_id. Долг реестра С8 закрыт.",
+      "impacts": [
+        { "on": "accounts", "kind": "reads", "reason": "balance_after — после операции" }
+      ]
     }
   ]
 }

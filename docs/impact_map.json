@@ -2057,7 +2057,7 @@
         { "on": "contracts", "kind": "writes", "reason": "публикует/снимает открытые доли пакета (open↔cancelled, superseded)" },
         { "on": "contract_board_state", "kind": "writes", "reason": "чек-точка кадэнса" },
         { "on": "internal_storage", "kind": "reads", "reason": "складской дефицит свежих ячеек — вход нужд доски" },
-        { "on": "settlement_owner_pass", "kind": "invokes", "reason": "F1: доска вызывает пересчёт хранилища поселений планеты до материализации" },
+        { "on": "settlement_owner_pass", "kind": "affects", "reason": "F1: доска вызывает пересчёт хранилища поселений планеты до материализации" },
         { "on": "accounts", "kind": "writes", "reason": "залог публикуемой доли и возврат залога снятой" },
         { "on": "contract_delivery", "kind": "affects", "reason": "пока доля taken — новых долей пакета нет (цель = 0)" }
       ]
@@ -2095,7 +2095,7 @@
       "impacts": [
         { "on": "internal_storage", "kind": "reads", "reason": "складской дефицит ячейки — вход нужды" },
         { "on": "contract_board_materialization", "kind": "affects", "reason": "наполняет target пакета; при taken цель = 0" },
-        { "on": "settlement_owner_pass", "kind": "invokes", "reason": "F1: пересчёт хранилища перед материализацией" }
+        { "on": "settlement_owner_pass", "kind": "affects", "reason": "F1: пересчёт хранилища перед материализацией" }
       ]
     },
     {

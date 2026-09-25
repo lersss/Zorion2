@@ -13,6 +13,9 @@ import { startFlightHum, playArrival } from '../ui/sound.js';
 // Подпись баланса в шапке карты (идея 2026-09-23 §5.1): единый форматтер
 // «… Cr» из модуля денег — второй форматтер не заводим.
 import { moneyLabel } from '../dashboard/money.js';
+// Стык «дашборд → карта» (спека собственности §7.2, С3): при явном intent'е
+// отложенные авто-открыватели подавляются — флаг живёт в map/deeplink.js.
+import { shouldSuppressAutoOpen } from './deeplink.js';
 
 // Размер ячейки кластеризации на экране, в пикселях.
 export const CLUSTER_CELL_PX = 40;
@@ -479,12 +482,20 @@ export async function loadUserData(force = false) {
                 console.warn('loadUserData: не удалось восстановить полёт — миры from/to не загрузились');
             }
         }
+        // Спека deeplink «дашборд → карта» (§7.2, С3): явный переход важнее
+        // неявных авто-открывателей — при наличии intent'а они подавляются, а
+        // оба маркера чистятся (сам полёт серверный, теряется только автопопап).
+        const suppressAutoOpen = shouldSuppressAutoOpen();
+        if (suppressAutoOpen) {
+            sessionStorage.removeItem('compositeRoute');
+            sessionStorage.removeItem('beltReturn');
+        }
         // Спека 99.2.30 §6.8 (триггер B): возврат/рефреш — первый loadUserData.
         // Распознавание автостарта композитного маршрута: маркер compositeRoute
         // совпал с current_world_id (автостарт идёт или завершён) → автооткрытие
         // модалки; маркер есть, но полёта к нему нет и мир не совпал → маркер
         // устарел (игрок явно ушёл от маршрута).
-        if (!currentWorldIdLoaded && user.current_world_id) {
+        if (!currentWorldIdLoaded && !suppressAutoOpen && user.current_world_id) {
             const marker = sessionStorage.getItem('compositeRoute');
             if (marker) {
                 const enRoute = user.flight && user.flight.to === marker;
@@ -502,7 +513,7 @@ export async function loadUserData(force = false) {
         // открываем попап системы игрока (он остался на орбите пояса). Метку
         // стираем в любом случае: не совпала с current_world_id — устарела.
         // Обычный заход на карту метки не имеет → попап не открывается сам.
-        if (!currentWorldIdLoaded) {
+        if (!currentWorldIdLoaded && !suppressAutoOpen) {
             const beltReturn = sessionStorage.getItem('beltReturn');
             if (beltReturn) {
                 sessionStorage.removeItem('beltReturn');

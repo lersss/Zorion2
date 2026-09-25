@@ -137,6 +137,7 @@
             <button class="tab-btn" data-tab="tab-graphics">⚙️ Графика</button>
             <button class="tab-btn" data-tab="tab-stats">📊 Статистика</button>
             <button class="tab-btn" data-tab="tab-encyclopedia">📖 Энциклопедия</button>
+            <button class="tab-btn" data-tab="tab-property">🏠 Собственность</button>
             <button class="tab-btn" data-tab="tab-account">💳 Счёт</button>
         </div>
 
@@ -312,6 +313,8 @@
                 <div id="money-status" class="money-status">⏳ Загрузка…</div>
             </div>
         </div>
+
+        <div class="tab-pane" id="tab-property"></div>
     </div>
 
     <script type="module">
@@ -320,6 +323,7 @@
         import { initGraphicsSettings } from '/static/js/dashboard/graphics.js';
         import { initCargo } from '/static/js/dashboard/cargo.js';
         import { initMoney } from '/static/js/dashboard/money.js';
+        import { initProperty } from '/static/js/dashboard/property.js';
 
         // orientCssTransform — CSS-трансформ показа пары (A, F) (спека §6.2):
         // A=0 → rotate(0) scaleX(F); A≠0 → scale(0.707) rotate(A) scaleX(F)
@@ -857,6 +861,10 @@
         // Блок «Счёт» (идея 2026-09-23 §5.1/§5.2): баланс в шапке + история
         // операций во вкладке «💳 Счёт» (GET /me/money).
         initMoney();
+        // Вкладка «🏠 Собственность» (спека 2026-09-26 §6.2): список владений
+        // игрока (GET /me/property) — загрузка при открытии вкладки и по
+        // visibilitychange.
+        initProperty();
         // Вкладка «⚙️ Графика» (идея 2026-09-22): контролы читают/пишут
         // localStorage; карта миров читает те же ключи.
         initGraphicsSettings();

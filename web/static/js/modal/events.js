@@ -666,6 +666,40 @@ function showCompanionMenu(x, y, starIndex) {
     openStarMenu(menu);
 }
 
+// flyToPlanet — общее действие «лететь к планете» (меню планеты + стык
+// «дашборд → карта», спека собственности §8.2/§8.4): один предикат режима
+// (flightModeForSystem) и те же обёртки, что у пункта «🚀 Лететь». Возврат:
+// false — отказ (тост показан, старт не делался), true — отказов не было,
+// старт передан обёрткам (startIntraFlight/startCompositeFlight). Режим: своя
+// система — внутрисистемный старт (99.2.27), чужая/активный межзвёздный —
+// композитный маршрут (99.2.30). Низкоуровневый startFlight не зовём — теряются
+// маркер compositeRoute/закрытие модалки/слежение (С5).
+export async function flyToPlanet(planetId) {
+    const planet = (modalState.planets || []).find(p => p.id === planetId);
+    if (!planet) {
+        notifyError('Планета не найдена — возможно, система изменилась');
+        return false;
+    }
+    // Без двигателя полёт невозможен (спека 91a §6.1): блокируем с подсказкой;
+    // сервер валидирует тоже (админ/skycomposer — исключение).
+    if (!modalState.hasEngine) {
+        notifyError('Двигатель не установлен — полёт невозможен');
+        return false;
+    }
+    const myPos = modalState.myPosition;
+    if (myPos && (myPos.status === 'orbit' || myPos.status === 'surface') &&
+        myPos.object_type === 'planet' && myPos.object_id === planetId) {
+        notifyError('Вы уже у этой планеты');
+        return false;
+    }
+    if (flightModeForSystem() === 'intra') {
+        await startIntraFlight('planet', planetId);
+    } else {
+        await startCompositeFlight('planet', planetId);
+    }
+    return true;
+}
+
 // showPlanetMenu — ПКМ по планете на канвасе (спека 99.2.27 §5.5 + 99.2.30
 // §6.1, решение создателя 2026-09-21 «как на карте»): пункт «🚀 Лететь» —
 // своя система (my_position != null) — внутрисистемный полёт на орбиту планеты
@@ -674,17 +708,13 @@ function showCompanionMenu(x, y, starIndex) {
 // закрывается, карта ведёт корабль). Пункт скрыт если: уже на орбите этой
 // планеты, цель = активный полёт, летим ОТ неё, активный межзвёздный в своей
 // системе (иначе старт даст 400 «Вы в межзвёздном полёте»). Без двигателя —
-// пункт есть, клик → тост (как ПКМ звезды).
+// пункт есть, клик → тост (как ПКМ звезды). Само действие и гейты — flyToPlanet.
 function showPlanetMenu(x, y, planetIndex) {
     hideStarMenu(); // скрыть предыдущее меню сразу (паттерн showStarMenu)
     const planet = (modalState.planets || [])[planetIndex];
     if (!planet) return;
 
     const myPos = modalState.myPosition;
-    // «Своя система» — явный флаг сервера (flightModeForSystem); при
-    // межзвёздном полёте в своей системе это композитный редирект, не intra
-    // (баг 2026-09-22: не выводить из my_position != null).
-    const intra = flightModeForSystem() === 'intra';
     let onThisOrbit = false;
     let onThisSurface = false;
     if (myPos) {
@@ -749,17 +779,10 @@ function showPlanetMenu(x, y, planetIndex) {
         const btn = menuItem(`🚀 <span>Лететь</span>`);
         btn.addEventListener('click', async () => {
             hideStarMenu();
-            // Без двигателя полёт невозможен (спека 91a §6.1): блокируем с
-            // подсказкой; сервер валидирует тоже (админ/skycomposer — исключение).
-            if (!modalState.hasEngine) {
-                notifyError('Двигатель не установлен — полёт невозможен');
-                return;
-            }
-            if (intra) {
-                await startIntraFlight('planet', planet.id);
-            } else {
-                await startCompositeFlight('planet', planet.id);
-            }
+            // Общее действие «лететь к планете» (дедупликация с deeplink ЧК2):
+            // гейты (нет планеты/нет двигателя/уже на месте) и выбор режима —
+            // внутри flyToPlanet.
+            await flyToPlanet(planet.id);
         });
         menu.appendChild(btn);
     }

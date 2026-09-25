@@ -15,6 +15,9 @@ import { initSoundToggle, startFlightHum, activateSound } from './ui/sound.js';
 import { initEntitySearch } from './search.js';
 import { formatZoom } from './map/utils.js';
 import { startNPCLoop, initNPCSearch } from './map/npc_agents.js';
+// Стык «дашборд → карта» (спека собственности §7.2): разбор intent'а до
+// loadUserData + открытие попапа после loadClusters.
+import { parseIntent, handleDashboardDeepLink } from './map/deeplink.js';
 
 // --- Восстановление вьюпорта из sessionStorage ---
 function restoreViewport() {
@@ -37,6 +40,11 @@ function restoreViewport() {
 // --- Инициализация карты ---
 async function initMap() {
     resizeCanvas();
+
+    // 0. Стык «дашборд → карта» (спека собственности §7.2, С3): разбираем
+    // location.search ДО loadUserData — явный intent подавляет отложенные
+    // авто-открыватели (compositeRoute/beltReturn). Нет system — no-op.
+    parseIntent();
 
     // 1. Пользователь (current_world_id, ship_icon/ship_color, реестр спрайтов).
     await loadUserData();
@@ -99,6 +107,11 @@ async function initMap() {
             centerOnAgent();
         }
     }
+
+    // 4. Попап по deeplink «дашборд → карта» (спека собственности §7.2):
+    // после наполнения кэша миров (loadClusters) открываем систему с фокусом
+    // на планете; intent потребляется, URL затирается. Нет intent'а — no-op.
+    await handleDashboardDeepLink();
 }
 
 function init() {

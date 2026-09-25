@@ -83,6 +83,10 @@ export function openSystemModal(worldId, worldName, spectralClass, focusOpts, au
     // блокируется. starInfo приходит с карты (state.hasEngine); админка/
     // неизвестно — true (админ летает всегда, сервер валидирует тоже).
     modalState.hasEngine = starInfo ? !!starInfo.hasEngine : true;
+    // meLoaded (спека собственности §8.2): свежий цикл ожидания /me на каждое
+    // открытие модалки — interstellarFlight/режим полёта заполняются ниже
+    // асинхронно; deeplink ЧК2 по этому флагу ждёт готовности режима.
+    modalState.meLoaded = false;
     // Спрайт игрока для маркера «я здесь»/корабля в полёте (спека 99.2.27
     // §5.8/§5.11): та же иконка/цвет, что на карте; админка/неизвестно —
     // пусто (фолбэк-примитив, И4).
@@ -106,6 +110,9 @@ export function openSystemModal(worldId, worldName, spectralClass, focusOpts, au
             return res.json();
         })
         .then(me => {
+            // /me отработал — снимаем ожидание ЧК2 (§8.2) даже при пустом
+            // ответе: дальше работают дефолты, вечного ожидания нет.
+            modalState.meLoaded = true;
             if (!me) return;
             modalState.shipIcon = me.ship_icon || '';
             modalState.shipColor = me.ship_color || null;
@@ -144,7 +151,11 @@ export function openSystemModal(worldId, worldName, spectralClass, focusOpts, au
                 renderRightPanel(modalState.planets, modalState.selectedPlanetIndex);
             }
         })
-        .catch(() => { /* тихий сбой: остаётся фолбэк-примитив (И4) */ });
+        .catch(() => {
+            // Тихий сбой /me тоже снимает ожидание ЧК2 (§8.2): остаётся
+            // фолбэк-примитив (И4), вечного ожидания нет.
+            modalState.meLoaded = true;
+        });
 
     fetch(`/api/worlds/${worldId}/planets`, {
         headers: { 'Authorization': 'Bearer ' + token }
@@ -377,12 +388,19 @@ function renderModal(worldId, worldName, spectralClass, data) {
     // сохраняем и восстанавливаем (имя цели — для тултипа композитной кнопки).
     const interstellarFlight = modalState.interstellarFlight;
     const interstellarFlightName = modalState.interstellarFlightName;
+    // meLoaded (спека собственности §8.2): /me тоже асинхронный и мог вернуться
+    // ДО renderModal — resetState сбросил бы флаг, и deeplink ЧК2 ждал бы
+    // заполнения interstellarFlight впустую (таймаут 5 с, режим полёта мог
+    // остаться 'intra'). Та же гонка, что у role/interstellarFlight — сохраняем
+    // и восстанавливаем.
+    const meLoaded = modalState.meLoaded;
     resetState();
     modalState.shipIcon = shipIcon;
     modalState.shipColor = shipColor;
     modalState.role = role;
     modalState.interstellarFlight = interstellarFlight;
     modalState.interstellarFlightName = interstellarFlightName;
+    modalState.meLoaded = meLoaded;
     // Страховка без карты (админка): /me мог вернуться ДО renderModal — таймер
     // сброшен resetState выше, планируем заново по восстановленному признаку.
     scheduleInterstellarArrivalFallback();

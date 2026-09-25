@@ -72,6 +72,12 @@ arrivalObject: null,
     role: null,
     hasEngine: true, // установлен ли двигатель игрока (спека 91a §6.1): без него
                      // «Перелететь» из модалки блокируется; true = админка/не загружено
+    // meLoaded — /me уже отработал для текущего открытия модалки (спека
+    // собственности §8.2): interstellarFlight заполняется асинхронно из /me, и
+    // до его прихода flightModeForSystem() может ошибочно выбрать 'intra'.
+    // Открытие модалки сбрасывает флаг (свежий цикл ожидания); deeplink ЧК2 по
+    // нему ждёт готовности режима полёта.
+    meLoaded: false,
     // Внутрисистемная позиция игрока (спека 99.2.27 §4.4): my_position из
     // /api/worlds/{id}/planets; null = игрок не в этой системе. При активном
     // внутрисистемном полёте — {status:'in_flight', from, to, start_time, arrive_at}.
@@ -175,6 +181,7 @@ export function resetState() {
     modalState.authToken = null;
     modalState.role = null;
     modalState.restricted = false;
+    modalState.meLoaded = false;
     modalState.belts = [];
     modalState.myPosition = null;
     modalState.inOwnSystem = false;

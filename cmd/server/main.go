@@ -349,6 +349,11 @@ func main() {
 	authHandlers.SetAccelerator(acceleratorRepo)
 	// Деньги игрока (спека 2026-09-22-деньги-и-эскроу §3.2): GET /me/money.
 	moneyHandlers := handlers.NewMoneyHandlers(accountRepo)
+	// Собственность игрока (спека 2026-09-26-собственность-игрока-в-дашборде
+	// §5): GET /me/property — свои поселения/строения по owner_id из JWT.
+	propertyHandlers := handlers.NewPropertyHandlers(
+		repository.NewPropertyRepository(db), userRepo, planetRepo,
+	)
 	// Трюм игрока (спека трюма §9): GET /api/cargo + POST /api/cargo/jettison.
 	cargoHandlers := handlers.NewCargoHandlers(cargoService)
 	// Внутрисистемные полёты (спека 99.2.27 §4.1): POST /api/intrasystem-flight.
@@ -448,6 +453,7 @@ func main() {
 	http.HandleFunc("/api/belt/mine/leave", auth.AuthMiddleware(beltMiningHandlers.Leave))
 	http.HandleFunc("/me", auth.AuthMiddleware(authHandlers.GetMe))
 	http.HandleFunc("/me/money", auth.AuthMiddleware(moneyHandlers.GetMyMoney))
+	http.HandleFunc("/me/property", auth.AuthMiddleware(propertyHandlers.GetMyProperty))
 	http.HandleFunc("/me/ship-icon", auth.AuthMiddleware(authHandlers.UpdateShipIcon))
 	http.HandleFunc("/me/ship-color", auth.AuthMiddleware(authHandlers.UpdateShipColor))
 

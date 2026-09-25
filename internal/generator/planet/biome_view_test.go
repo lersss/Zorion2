@@ -235,7 +235,7 @@ func TestBiomeViewVerticalBudget(t *testing.T) {
 		require.Equal(t, "catalog", source, "образец %q обязан резолвиться", id)
 		top, ok := declaredReliefTop(v)
 		require.True(t, ok)
-		assert.GreaterOrEqual(t, top, viewBaseY-viewChunkTopMargin, "%s: объявленный профиль в бюджете", id)
+		assert.GreaterOrEqual(t, top, viewBaseY-viewChunkTopMargin+viewTopSafety, "%s: объявленный профиль в бюджете", id)
 	}
 
 	cat := *real

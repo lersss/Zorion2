@@ -414,6 +414,11 @@ export class SurfaceWorld {
         this.view = (pkg.biome_view && pkg.view_source === 'catalog'
             && pkg.view_version === VIEW_SCHEMA_VERSION) ? pkg.biome_view : null;
         this.hasView = !!this.view;
+        // _viewKey — идентичность рецепта для сброса кэша чанков (§2.5): версия
+        // схемы + хеш relief. Правка рецепта (hot-reload) меняет ключ — старый
+        // растр не переиспользуется. Рецепт — константа мира (в сессии не меняется).
+        const relKey = (this.view && this.view.relief) || null;
+        this._viewKey = (pkg.view_version || 0) + ':' + keySeed(relKey ? JSON.stringify(relKey) : '');
         this.palette = resolvePalette(this.view, this.color);
         this.placement = (this.view && this.view.placement) || null;
         const rawDecor = (this.view && Array.isArray(this.view.decor)) ? this.view.decor : [];
@@ -550,8 +555,12 @@ export class SurfaceWorld {
         return n * 0.7 + n2 * 0.3;
     }
 
-    isCave(x, y) {
-        const d = y - this.terrainHeight(x);
+    // caveAt — isCave с ЗАРАНЕЕ вычисленным профилем th: растр (консервативная
+    // маска) вызывает её на каждую пробу и не должен пересчитывать terrainHeight
+    // (fbm) в цикле — иначе шаг 1 px у границы пещеры упирается в бюджет
+    // генерации чанка. Поведение идентично `isCave(x, y)`.
+    caveAt(x, y, th) {
+        const d = y - th;
         if (d < 8) return false; // тонкая корка поверхности держит игрока
         const f = this.formationBlend(x);
         const threshold = 0.66 - 0.10 * f.caves;
@@ -559,7 +568,21 @@ export class SurfaceWorld {
         return this.caveValue(x, y) > threshold - depthBonus;
     }
 
-    isSolid(x, y) {
+    isCave(x, y) {
+        return this.caveAt(x, y, this.terrainHeight(x));
+    }
+
+    // ==================== ПОЛЕ ТВЁРДОСТИ (Э5.1, §2) ====================
+    //
+    // solidAt — ЕДИНСТВЕННЫЙ источник твёрдости (§2.1): база ⊕ формы. И физика
+    // (Player), и растр чанка читают только его — второй реализации коллизии/
+    // растеризации нет. В Э5.1 формы пусты → поле равно текущему миру 1:1.
+
+    // baseSolid — базовое твёрдое тело: профиль без пещер (`y ≥ terrainHeight`)
+    // плюс полоса парящей породы (float). Пещеры (`isCave`, 2D-шум) ВЫЧИТАЮТ
+    // твёрдое из базы — это часть тела, не косметика (S1-bis). Формы (relief2d)
+    // сюда не входят — их добавляет formsSolid (§2.2).
+    baseSolid(x, y) {
         const th = this.terrainHeight(x);
         if (y >= th) return !this.isCave(x, y);
         const f = this.formationBlend(x);
@@ -570,6 +593,64 @@ export class SurfaceWorld {
             if (n > 0.72 && y > th - FLOAT_SPAN && y < th - FLOAT_GAP) return true;
         }
         return false;
+    }
+
+    // formsSolid — вклад 2D-форм рецепта (relief.forms, §3.1). В Э5.1 форм нет:
+    // функция возвращает false. Точка входа одна — следующие чекпоинты (Э5.2/
+    // Э5.3) добавляют операторы ЗДЕСЬ, а не второй функцией коллизии/растра.
+    formsSolid(_x, _y) {
+        return false;
+    }
+
+    // solidAt — единое поле твёрдости (контракт §2.1).
+    solidAt(x, y) {
+        return this.baseSolid(x, y) || this.formsSolid(x, y);
+    }
+
+    // isSolid — алиас solidAt (§2.1): прежнее имя сохранено для потребителей
+    // (растр, тесты, инструменты), реализация одна.
+    isSolid(x, y) {
+        return this.solidAt(x, y);
+    }
+
+    // columnSpans — аналитические интервалы твёрдого столбца (класс A, §2.3):
+    // [{top, bottom}, …] сверху вниз. База — интервал [terrainHeight, +∞); полоса
+    // float — отдельный интервал над рельефом. Пещеры — 2D-маска, в интервалы не
+    // сводятся (класс A их не выражает, §A.1) и накладываются поверх. В Э5.1
+    // формами столбцы не задеваются — метод описывает только базу.
+    columnSpans(x) {
+        const th = this.terrainHeight(x);
+        const spans = [{ top: th, bottom: Infinity }];
+        const f = this.formationBlend(x);
+        if (f.float) {
+            // Границы полосы — те же константы, что у физики (FLOAT_SPAN/GAP):
+            // интервал очерчивает диапазон сканирования, твёрдость внутри решает
+            // `solidAt` (шум).
+            spans.unshift({ top: th - FLOAT_SPAN, bottom: th - FLOAT_GAP, float: true });
+        }
+        return spans;
+    }
+
+    // skyTop — «поверхность неба» (§2.1): минимальный y, где столбец твёрд (верх
+    // твёрдого поля — погода/осадки). В Э5.1 потребителей НЕ переключаем (якоря —
+    // Э5.2/Э5.3, где формы реально меняют верх); функция — часть контракта поля.
+    skyTop(x) {
+        const th = this.terrainHeight(x);
+        const f = this.formationBlend(x);
+        if (f.float) {
+            for (let wy = th - FLOAT_SPAN; wy < th - FLOAT_GAP; wy += 1) {
+                if (this.solidAt(x, wy)) return wy;
+            }
+        }
+        return th; // корка поверхности твёрдая (isCave её не режет, d < 8)
+    }
+
+    // floorY — «пол/опора» (§2.1): верх твёрдого, СВЯЗАННОГО с базой (землёй).
+    // Висящая полоса float и будущие плиты-своды (arch=1) в опору не входят; для
+    // обычной колонки floorY = terrainHeight. Якоря (корабль/фауна/спавн) — Э5.2/
+    // Э5.3; в Э5.1 функция — часть контракта, потребители не переключены.
+    floorY(x) {
+        return this.terrainHeight(x);
     }
 
     // decorAt — декор колонки: по рецепту вида (если есть) или легаси-фолбэк.

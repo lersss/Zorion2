@@ -152,6 +152,12 @@ func nestedString(m map[string]any, path ...string) (string, bool) {
 const (
 	viewBaseY          = 300.0
 	viewChunkTopMargin = 1200.0
+	// viewTopSafety — запас до верхней границы растра (спека Э5 §3.3/§6 п.6):
+	// объявленный профиль обязан быть НЕ выше `baseY − CHUNK_TOP_MARGIN + 24`;
+	// тот же запас применяет рантайм-тест T-budget
+	// (tools/surface-profile-check.mjs, MIN_OK). До Э5 серверная проверка была
+	// без +24 (запас жил только в тесте) — приводим к общей границе.
+	viewTopSafety = 24.0
 )
 
 // declaredReliefTop — верхняя (минимальная по y) точка объявленного профиля:
@@ -278,10 +284,10 @@ func (c *BiomeCatalog) validateView(biomeID string, view map[string]any) []ViewI
 	// Диапазоны [lo,hi] — lo ≤ hi (обход всего рецепта).
 	errs = append(errs, validateViewRanges(biomeID, "", view)...)
 	// Бюджет вертикали (§6 п.6): объявленный профиль не выходит за верх растра.
-	if top, ok := declaredReliefTop(view); ok && top < viewBaseY-viewChunkTopMargin {
+	if top, ok := declaredReliefTop(view); ok && top < viewBaseY-viewChunkTopMargin+viewTopSafety {
 		errs = append(errs, ViewIssue{biomeID, "relief",
 			fmt.Sprintf("объявленный профиль на %.0f px выше запаса вертикали чанка (%.0f px) — увеличьте relief.scale",
-				viewBaseY-viewChunkTopMargin-top, viewChunkTopMargin)})
+				viewBaseY-viewChunkTopMargin+viewTopSafety-top, viewChunkTopMargin)})
 	}
 	return errs
 }

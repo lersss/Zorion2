@@ -40,7 +40,38 @@ export class Player {
     }
 
     solidAt(px, py) {
-        return this.world.isSolid(px, py);
+        return this.world.solidAt(px, py);
+    }
+
+    // Угловая коллизия (§5 п.4): выборка бокса w×h углами + центром вместо
+    // точечной пробы. Числа (PPM/скорости/гравитация/w/h) не меняются — меняется
+    // только выборка. SKIN — микро-отступ боковых проб, чтобы корпус, стоящий
+    // вплотную к стене, не «прилипал» к её грани (стена и точка кромки — не
+    // перекрытие).
+    // Горизонталь: верх бокса (голова/грудь) + центр; НИЗ не выбирается — кромка
+    // стопы на склоне всегда чуть в земле, это не стена, а подъём (его разрешает
+    // вертикаль); полная выборка бокса запирала бы игрока на любом подъёме.
+    _blockedX(nx) {
+        const hw = this.w * 0.5, hh = this.h * 0.5;
+        return this.solidAt(nx - hw, this.y - hh)
+            || this.solidAt(nx + hw, this.y - hh)
+            || this.solidAt(nx - hw, this.y - hh * 0.5)
+            || this.solidAt(nx + hw, this.y - hh * 0.5)
+            || this.solidAt(nx, this.y - hh * 0.5);
+    }
+
+    // Опора (падение): оба нижних угла + центр низа — корпус опирается на склон,
+    // а не проваливается углом в породу; при опоре точка кромки не считается
+    // (SKIN), иначе стойка вплотную к стене «поднимала» бы игрока по её грани.
+    _blockedDown() {
+        const hw = this.w * 0.5 - 0.5, by = this.y + this.h * 0.5;
+        return this.solidAt(this.x - hw, by) || this.solidAt(this.x + hw, by) || this.solidAt(this.x, by);
+    }
+
+    // Потолок (подъём): оба верхних угла + центр верха — удар в тонкий свод/потолок.
+    _blockedUp() {
+        const hw = this.w * 0.5 - 0.5, ty = this.y - this.h * 0.5;
+        return this.solidAt(this.x - hw, ty) || this.solidAt(this.x + hw, ty) || this.solidAt(this.x, ty);
     }
 
     update(dt, input) {
@@ -60,28 +91,28 @@ export class Player {
 
         if (this.vx !== 0) this.facing = this.vx > 0 ? 1 : -1;
 
-        // Горизонталь: стена — отказ, иначе движение.
+        // Горизонталь: стена — отказ, иначе движение (угловая выборка бокса, §5 п.4).
         const nx = this.x + this.vx * dt;
-        if (!this.solidAt(nx + this.facing * this.w * 0.5, this.y)) {
+        if (!this._blockedX(nx)) {
             this.distance += Math.abs(nx - this.x);
             this.x = nx;
         } else {
             this.vx = 0;
         }
 
-        // Вертикаль: падение/подъём с разрешением столкновений.
+        // Вертикаль: падение/подъём с разрешением столкновений (кромки бокса).
         this.y += this.vy * dt;
-        if (this.vy >= 0 && this.solidAt(this.x, this.y + this.h * 0.5)) {
+        if (this.vy >= 0 && this._blockedDown()) {
             let guard = 0;
-            while (this.solidAt(this.x, this.y + this.h * 0.5) && guard++ < 64) this.y -= 1;
+            while (this._blockedDown() && guard++ < 64) this.y -= 1;
             this.vy = 0;
             this.onGround = true;
         } else {
             this.onGround = false;
         }
-        if (this.vy < 0 && this.solidAt(this.x, this.y - this.h * 0.5)) {
+        if (this.vy < 0 && this._blockedUp()) {
             let guard = 0;
-            while (this.solidAt(this.x, this.y - this.h * 0.5) && guard++ < 64) this.y += 1;
+            while (this._blockedUp() && guard++ < 64) this.y += 1;
             this.vy = 0;
         }
 

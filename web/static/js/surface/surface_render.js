@@ -100,10 +100,12 @@ function drawSnowBand(ctx, world, baseX, topY) {
 // getChunkCanvas — лениво отрисованный чанк (кэш). Рельеф + пещеры.
 export function getChunkCanvas(world, index) {
     const ss = chunkSupersample();
-    // Смена DPR/зума → растр чанка в прежнем разрешении невалиден: сброс кэша.
-    if (!world._chunkCache || world._chunkSS !== ss) {
+    // Сброс кэша при смене SS (DPR/зум) И идентичности рецепта (_viewKey, §2.5):
+    // правка рецепта вида (relief/версия) иначе показала бы старый растр чанка.
+    if (!world._chunkCache || world._chunkSS !== ss || world._chunkViewKey !== world._viewKey) {
         world._chunkCache = new Map();
         world._chunkSS = ss;
+        world._chunkViewKey = world._viewKey;
     }
     const cached = world._chunkCache.get(index);
     if (cached) return cached;
@@ -129,55 +131,92 @@ export function getChunkCanvas(world, index) {
     // прежний затемнённый biome_color (фолбэк 1:1).
     const rock = world.hasView ? world.palette.base : shade(world.color, 0.62);
 
+    // Профиль и интервалы — один раз на колонку (иначе terrainHeight считается
+    // несколько раз: главный проход, float, маска пещеры). `columnSpans` — единый
+    // источник верха твёрдого (§2.3); colTh — кэш terrainHeight для маски.
+    const colSpans = new Array(CHUNK + 1);
+    const colTh = new Array(CHUNK + 2);
+    for (let i = 0; i <= CHUNK; i++) {
+        colSpans[i] = world.columnSpans(baseX + i);
+        colTh[i] = world.terrainHeight(baseX + i);
+    }
+    colTh[CHUNK + 1] = world.terrainHeight(baseX + CHUNK + 1);
+    // solidAtCol — база по предвычисленному профилю (тот же `solidAt`, но без
+    // повторного terrainHeight на каждую пробу маски).
+    const solidAtCol = (xi, yy) => yy >= colTh[xi] ? !world.caveAt(baseX + xi, yy, colTh[xi]) : world.solidAt(baseX + xi, yy);
+
+    // Главный проход — твёрдое тело столбца из интервалов columnSpans (§2.3):
+    // база (интервал [terrainHeight, +∞)) плюс косметический верх surfaceY
+    // (viewOnly-рябь, §2.1). Для столбца без форм/пещер это один fillRect;
+    // второго пути («залить эвристикой от surfaceY вниз») нет — верх твёрдого
+    // берётся из поля.
     ctx.fillStyle = rock;
     for (let lx = 0; lx <= CHUNK; lx++) {
         const wx = baseX + lx;
-        // Верх отрисовки — surfaceY (физический профиль ∪ viewOnly-рябь, §3.1/§6 п.4):
-        // растр — надмножество твёрдой области, физика по terrainHeight.
-        const th = world.surfaceY(wx);
-        const y0 = Math.floor(th - topY);
+        const spans = colSpans[lx];
+        const baseTop = spans[spans.length - 1].top; // база — последний интервал
+        // Растр — надмножество твёрдой области: верх = min(видовой верх, верх базы).
+        const y0 = Math.floor(Math.min(world.surfaceY(wx), baseTop) - topY);
         if (y0 >= CHUNK_HEIGHT) continue;
         ctx.fillRect(lx, Math.max(0, y0), 1, CHUNK_HEIGHT - Math.max(0, y0));
     }
 
-    // Пещеры — грубая маска (шаг 3 px, иначе дорого).
+    // Пещерная маска — ЧАСТЬ ТВЁРДОГО ТЕЛА, не косметика (S1-bis): isCave
+    // вычитает твёрдое из solidAt, маска — проявление этого вычитания. Растр
+    // консервативен: «воздух» красится только там, где solidAt=false. 3×3-блок
+    // допустим, только если ВЕСЬ блок воздух; на границе пещеры — шаг 1 px
+    // (твёрдая точка у границы не перекрывается пещерой = «невидимая стена»).
     ctx.fillStyle = COLORS.cave;
     for (let lx = 0; lx < CHUNK; lx += 3) {
         const wx = baseX + lx;
-        const th = world.terrainHeight(wx);
+        const th = colTh[lx];
         for (let ly = 0; ly < CHUNK_HEIGHT; ly += 3) {
             const wy = topY + ly;
-            if (wy < th + 6) continue;
-            if (world.isCave(wx, wy)) ctx.fillRect(lx, ly, 3, 3);
+            if (wy < th + 6) continue;      // корка поверхности держит игрока
+            if (!world.caveAt(wx, wy, th)) continue;
+            let allAir = true;
+            for (let dx = 0; dx < 3 && allAir; dx++) {
+                for (let dy = 0; dy < 3; dy++) {
+                    if (solidAtCol(lx + dx, wy + dy)) { allAir = false; break; }
+                }
+            }
+            if (allAir) { ctx.fillRect(lx, ly, 3, 3); continue; }
+            // Граница пещеры — шаг 1 px: красим ровно воздушные точки блока.
+            for (let dx = 0; dx < 3; dx++) {
+                for (let dy = 0; dy < 3; dy++) {
+                    if (!solidAtCol(lx + dx, wy + dy)) ctx.fillRect(lx + dx, ly + dy, 1, 1);
+                }
+            }
         }
     }
 
-    // Парящие камни/арки (float-формации): красим там, где физика (isSolid)
-    // считает породу твёрдой (идея 2026-09-21 §2.1). Растр — НАДМНОЖЕСТВО
-    // твёрдой области: шаг по x — 1 px (прежние 3 px блоками 3×3 оставляли
-    // непокрашенной левую кромку твёрдой области до 3 px — игрок упирался в
-    // невидимую стену), по y — FLOAT_STEP_Y с запасом FLOAT_BLEED. Высота
-    // полосы (FLOAT_GAP..FLOAT_SPAN) — те же константы, что у физики.
+    // Парящая порода (float) — частный случай интервалов columnSpans (Э5.1):
+    // интервал [th−FLOAT_SPAN, th−FLOAT_GAP] очерчивает полосу, твёрдость внутри
+    // решает `solidAt` (шум). Растр — НАДМНОЖЕСТВО твёрдой области: шаг по x —
+    // 1 px, по y — FLOAT_STEP_Y с запасом FLOAT_BLEED (прежние 3×3 оставляли
+    // непокрашенную кромку до 3 px — игрок упирался в невидимую стену, идея §2.1).
     ctx.fillStyle = rock;
     for (let lx = 0; lx <= CHUNK; lx++) {
         const wx = baseX + lx;
-        const th = world.terrainHeight(wx);
-        // Сэмплы полосы сверху вниз: сетка FLOAT_STEP_Y + проба у нижней
-        // границы (сетка туда не попадает из-за сдвига FLOAT_EPS).
-        const ys = [];
-        for (let wy = th - FLOAT_GAP - FLOAT_EPS; wy >= th - FLOAT_SPAN + FLOAT_EPS; wy -= FLOAT_STEP_Y) ys.push(wy);
-        ys.push(th - FLOAT_SPAN + FLOAT_EPS);
-        let yTop = null, yBottom = null;
-        for (const wy of ys) {
-            if (world.isSolid(wx, wy)) {
-                if (yTop === null) yBottom = wy;
-                yTop = wy;
-            } else if (yTop !== null) {
-                fillFloatRun(ctx, lx, yTop, yBottom, topY);
-                yTop = null;
+        for (const sp of colSpans[lx]) {
+            if (sp.bottom === Infinity) continue; // базу красит главный проход
+            // Сэмплы полосы снизу вверх: сетка FLOAT_STEP_Y + проба у верхней
+            // границы (сетка туда не попадает из-за сдвига FLOAT_EPS).
+            const ys = [];
+            for (let wy = sp.bottom - FLOAT_EPS; wy >= sp.top + FLOAT_EPS; wy -= FLOAT_STEP_Y) ys.push(wy);
+            ys.push(sp.top + FLOAT_EPS);
+            let yTop = null, yBottom = null;
+            for (const wy of ys) {
+                if (world.solidAt(wx, wy)) {
+                    if (yTop === null) yBottom = wy;
+                    yTop = wy;
+                } else if (yTop !== null) {
+                    fillFloatRun(ctx, lx, yTop, yBottom, topY);
+                    yTop = null;
+                }
             }
+            if (yTop !== null) fillFloatRun(ctx, lx, yTop, yBottom, topY);
         }
-        if (yTop !== null) fillFloatRun(ctx, lx, yTop, yBottom, topY);
     }
 
     // Глубинный градиент (объём) — source-atop: ложится ТОЛЬКО на уже нарисованное
@@ -436,6 +475,14 @@ export function drawTerrain(ctx, world, camera, vw, vh) {
         const sy = topY - camera.y + vh / 2;
         // Растр чанка суперсэмплен — рисуем в логическом размере: апскейла нет.
         ctx.drawImage(canvas, sx, sy, CHUNK + 1, CHUNK_HEIGHT);
+    }
+    // Вытеснение кэша: держим только чанки видимого окна (± запас). Канвас ~7 МБ
+    // при SS=2, без вытеснения память растёт с пройденным путём (хвост эпика).
+    if (world._chunkCache && world._chunkCache.size) {
+        const keep = radius + 1;
+        for (const key of world._chunkCache.keys()) {
+            if (key < centerChunk - keep || key > centerChunk + keep) world._chunkCache.delete(key);
+        }
     }
 }
 

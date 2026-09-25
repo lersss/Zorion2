@@ -119,6 +119,11 @@
         <div id="flight-boost">
             <button id="flight-boost-btn" type="button">Ускорить</button>
             <div id="flight-boost-note"></div>
+            <!-- Админский сброс таймера ускорителя (идея ускорителя §13):
+                 видна только ролям admin/skycomposer и только в полёте;
+                 видимость задаёт flight.js. -->
+            <button id="flight-accel-reset" type="button" hidden>Сбросить таймер</button>
+            <div id="flight-accel-reset-status"></div>
         </div>
     </div>
     <div id="canvas-wrapper">

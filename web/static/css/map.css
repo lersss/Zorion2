@@ -313,6 +313,34 @@ canvas {
     font-size: 0.72rem;
     line-height: 1.25;
 }
+/* Админский сброс таймера ускорителя (идея ускорителя §13): вторичная кнопка
+   под основной; панель имеет pointer-events:none — кнопке возвращаем auto. */
+#flight-accel-reset {
+    pointer-events: auto;
+    width: 100%;
+    min-height: 32px;
+    padding: 6px 10px;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    background: #1e293b;
+    color: #cbd5e1;
+    font-family: inherit;
+    font-size: 0.78rem;
+    cursor: pointer;
+    touch-action: manipulation;
+    -webkit-user-select: none;
+    user-select: none;
+}
+#flight-accel-reset:disabled {
+    color: #64748b;
+    cursor: default;
+}
+#flight-accel-reset-status {
+    pointer-events: none;
+    color: #94a3b8;
+    font-size: 0.72rem;
+    line-height: 1.25;
+}
 
 /* ==================== ФИЛЬТРЫ ==================== */
 

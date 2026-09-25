@@ -5,6 +5,7 @@
 import { state, elements } from './config.js';
 import { draw } from './map_render.js';
 import { fetchWorldByID, handleUnauthorized, resetFlightReloadTimer, loadUserData } from './data.js';
+import { isAdminRole } from '../auth.js';
 import { notifyError } from '../ui/toast.js';
 import { playSound, startFlightHum, playArrival } from '../ui/sound.js';
 
@@ -59,6 +60,8 @@ let boostWired = false; // обработчик клика навешен оди
 let boostLast = null;   // последнее отрисованное состояние (не трогаем DOM без нужды)
 let meRefreshPending = false;
 let accelAutoRefreshDone = false; // авто-refresh на истёкший откат — однократно (защита от цикла /me)
+let accelResetWired = false; // обработчик клика «Сбросить таймер» навешен один раз
+let accelResetBusy = false;  // запрос сброса в полёте — защита от двойного клика
 
 // fmtMMSS — секунды в «mm:ss» (таймер отката; спека §2/§4.4).
 function fmtMMSS(sec) {
@@ -172,6 +175,60 @@ function boostButtonState() {
     return meBoostState();
 }
 
+// ==================== СБРОС ТАЙМЕРА УСКОРИТЕЛЯ (админ, идея ускорителя §13) ====================
+
+// accelResetStatus — короткий статус под кнопкой сброса («Сброшено»/«Ошибка»).
+function accelResetStatus(text) {
+    const el = document.getElementById('flight-accel-reset-status');
+    if (el) el.textContent = text || '';
+}
+
+// resetAccelTimer — POST /admin/accelerator/reset-self (роли admin/skycomposer —
+// серверная AdminAuth): снимает откат и признак «ускорение уже действует» на
+// своём аккаунте. Успех → перечитываем /me (loadUserData(true)) и сбрасываем
+// устаревший блок /travel (state.accel), чтобы кнопка «Ускорить» обновилась.
+async function resetAccelTimer() {
+    if (accelResetBusy) return;
+    const token = localStorage.getItem('token');
+    if (!token) {
+        handleUnauthorized();
+        return;
+    }
+    const btn = document.getElementById('flight-accel-reset');
+    accelResetBusy = true;
+    if (btn) btn.disabled = true;
+    accelResetStatus('Сбрасываем…');
+    try {
+        const res = await fetch('/admin/accelerator/reset-self', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + token }
+        });
+        if (res.status === 401 || res.status === 403) {
+            handleUnauthorized();
+            return;
+        }
+        if (!res.ok) {
+            notifyError('Не удалось сбросить таймер ускорителя');
+            accelResetStatus('Ошибка');
+            return;
+        }
+        // Блок из /travel устарел (active/откат сняты) — дальше состояние берём
+        // из свежего /me (meBoostState), иначе old state.accel перекрыл бы его.
+        state.accel = null;
+        state.accelCooldownUntil = 0;
+        accelAutoRefreshDone = false;
+        await loadUserData(true);
+        renderFlightBoost();
+        accelResetStatus('Сброшено');
+    } catch (e) {
+        notifyError('Не удалось сбросить таймер ускорителя');
+        accelResetStatus('Ошибка');
+    } finally {
+        accelResetBusy = false;
+        if (btn) btn.disabled = false;
+    }
+}
+
 // renderFlightBoost — отрисовать блок #flight-boost по текущему состоянию.
 export function renderFlightBoost() {
     const wrap = document.getElementById('flight-boost');
@@ -183,17 +240,27 @@ export function renderFlightBoost() {
     const text = st.text || '';
     const noteText = st.note || '';
     const disabled = !!st.disabled;
+    // Кнопка сброса — админский инструмент: только админским ролям и в полёте.
+    const showReset = isAdminRole(state.userRole) && state.isFlying;
     if (show && !boostWired) {
         btn.addEventListener('click', () => { window.location.href = '/route.html'; });
         boostWired = true;
     }
+    const resetBtn = document.getElementById('flight-accel-reset');
+    if (resetBtn && showReset && !accelResetWired) {
+        resetBtn.addEventListener('click', resetAccelTimer);
+        accelResetWired = true;
+    }
     const last = boostLast;
     if (last && last.show === show && last.text === text
-        && last.note === noteText && last.disabled === disabled) {
+        && last.note === noteText && last.disabled === disabled
+        && last.showReset === showReset) {
         return;
     }
-    boostLast = { show, text, note: noteText, disabled };
+    boostLast = { show, text, note: noteText, disabled, showReset };
     wrap.classList.toggle('visible', show);
+    if (resetBtn) resetBtn.hidden = !showReset;
+    if (!showReset) accelResetStatus('');
     if (!show) {
         note.textContent = '';
         return;

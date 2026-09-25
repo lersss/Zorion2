@@ -54,6 +54,26 @@ export const SHIP_BOB_PERIOD_MS = 3200;
 export const FLOAT_SPAN = 260;
 export const FLOAT_GAP = 48;
 
+// Слой жидкости (спека 2026-09-25 ЧК6 §3–§5): вода/метан/аммиак/CO₂/лава.
+// Дефолты полей `liquid` применяются, если рецепт (или сервер) поле не прислал;
+// источник истины — данные биома (§4.2). Цвета сред — конвенция §3.4 (фолбэк).
+export const LIQUID_MEDIUM_COLORS = {
+    'вода': '#2a7fd0', 'метан': '#2fbfa8', 'аммиак': '#d98cc8', 'co2': '#d8c04a', 'лава': '#ff6a1a',
+};
+export const LIQUID_DEFAULTS = {
+    offset: 60,            // px; режим global/underIce — смещение зеркала от baseY (§3.2, M1)
+    minDepth: 8,           // px; лужа мельче — не жидкость
+    maxDepth: 0,           // px; 0 = без предела
+    iceH: 24,              // px; режим underIce — толщина корки
+    window: 400,           // px; режим basin — окно скана уровня
+    polynya: { gap: 480, w: [14, 28] },   // px; underIce — окна без корки (§3.2/N3)
+    surface: { alpha: 0.62, foam: 0.5, wave: { lambda: [180, 360], amp: [1.5, 4], speed: 16 } },
+    fogAlpha: 0.5,
+    depthScale: 320,       // px; глубина, на которой вода выходит на fog.alpha («плотнее с глубиной»)
+};
+// Минимальная ширина полыньи — игрок обязан пролезть (§3.2/N3, сетка безопасности).
+export const LIQUID_POLYNYA_MIN_W = PLAYER_W + 2;
+
 // Погода (§7.2): одно явление за 2–4 мин, без урона.
 export const WEATHER_MIN_MS = 120000;
 export const WEATHER_MAX_MS = 240000;

@@ -108,7 +108,8 @@ func TestAdminBiomeCatalogViewSectionsRoundTrip(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	require.Len(t, got.ViewFamilies, 9, "9 семейств вида (§3.5)")
 	require.GreaterOrEqual(t, len(got.ViewPrimitives), 26, "реестр примитивов вида")
-	require.NotEmpty(t, got.ViewDiagnostics.Missing, "биомы без рецепта видны (§2.7)")
+	require.NotNil(t, got.ViewDiagnostics.Missing, "диагностика вида в ответе (§2.7)")
+	require.Empty(t, got.ViewDiagnostics.Missing, "ЧК6: рецепт есть у всех биомов")
 
 	// Правка одного color биома — секции вида обязаны уцелеть.
 	cat := catalogCopy(t)

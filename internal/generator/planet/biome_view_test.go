@@ -397,15 +397,237 @@ func formByPrim(view map[string]any, prim string, arch float64) map[string]any {
 
 func TestBiomeViewFallbackNoRecipe(t *testing.T) {
 	cat := GetBiomeCatalog()
-	// ЧК4 (крио) раскатан — рецепта по-прежнему нет у водных биомов;
-	// берём `океаны` как стабильный пример.
+	// ЧК6 раскатана — рецепт есть у ВСЕХ биомов, включая категорию «вода».
 	view, source := cat.ResolveBiomeView("океаны")
-	assert.Nil(t, view, "биом без рецепта — вид не отдаётся (клиент по FORMATIONS)")
-	assert.Equal(t, "fallback", source)
+	require.Equal(t, "catalog", source, "ЧК6: океаны резолвятся из справочника")
+	require.NotNil(t, view)
 
 	d := cat.ViewDiagnostics()
-	assert.Contains(t, d.Missing, "океаны", "биомы без рецепта видны в диагностике (§2.7)")
+	assert.Empty(t, d.Missing, "ЧК6: биомов без рецепта не осталось")
 	assert.Empty(t, d.Errors, "в заводском справочнике ошибок вида нет")
+
+	// Фолбэк без рецепта — синтетический биом без view.
+	mut := *cat
+	mut.Biomes = append([]BiomeDef{}, cat.Biomes...)
+	mut.Biomes[0].ID = "без_рецепта"
+	mut.Biomes[0].View = nil
+	v, s := mut.ResolveBiomeView("без_рецепта")
+	assert.Nil(t, v, "биом без рецепта — вид не отдаётся (клиент по FORMATIONS)")
+	assert.Equal(t, "fallback", s)
+}
+
+// ==================== ЧК6 — ВОДА: ПРИЗНАК И РЕЗОЛВ (§4.1/§3.5) ====================
+
+// TestBiomeViewLiquidResolve — у 10 биомов категории «вода» и `магмового_океана`
+// жидкость присутствует (explicit — `liquid` в дельте); у сухих биомов
+// (`коралловые_рифы`/`инеевые_рощи`/`пещерный_мир_с_потолком`/`струнные_рощи`/
+// `пружинная_тундра`) её нет — `liquid_medium` сам жидкость не включает (§4.1).
+func TestBiomeViewLiquidResolve(t *testing.T) {
+	cat := GetBiomeCatalog()
+	waterMedium := map[string]string{
+		"океаны": "вода", "озёра_реки": "вода", "мелководья_заливные": "вода",
+		"планктонные_моря": "вода", "термальные_террасы": "вода",
+		"метановые_моря": "метан", "углеводородные_равнины": "метан",
+		"аммиачные_крио-океаны": "аммиак", "co2_океаны": "co2", "подлёдные_океаны": "вода",
+	}
+	var water []string
+	for id := range waterMedium {
+		water = append(water, id)
+	}
+	for _, id := range water {
+		def := cat.BiomeByID(id)
+		require.NotNil(t, def, "биом %q", id)
+		assert.Equal(t, "вода", def.Category, "%q: категория вода", id)
+		assert.NotEmpty(t, def.Color, "%q: биомный color заполнен (§4.6)", id)
+		_, has := def.View["liquid"]
+		assert.True(t, has, "%q: liquid задан в ДЕЛЬТЕ биома (K1, не пресет)", id)
+
+		liq, src := cat.ResolveBiomeLiquid(id)
+		require.NotNil(t, liq, "%q: жидкость обязана быть", id)
+		assert.Equal(t, LiquidSourceExplicit, src, "%q: explicit побеждает category (N5)", id)
+		assert.Equal(t, waterMedium[id], liq["medium"], "%q: medium из дельты", id)
+		assert.True(t, liquidMedia[liq["medium"].(string)], "%q: среда из перечня", id)
+	}
+
+	// `магмовый_океан` (категория вулканизм) — явная лава (§4.4).
+	magma, src := cat.ResolveBiomeLiquid("магмовый_океан")
+	require.NotNil(t, magma, "магмовый_океан: жидкость обязана быть")
+	assert.Equal(t, LiquidSourceExplicit, src)
+	assert.Equal(t, "лава", magma["medium"])
+
+	// Сухие биомы: ни категории «вода», ни liquid в дельте.
+	for _, id := range []string{
+		"коралловые_рифы", "инеевые_рощи", "пещерный_мир_с_потолком",
+		"струнные_рощи", "пружинная_тундра",
+	} {
+		liq, src := cat.ResolveBiomeLiquid(id)
+		assert.Nil(t, liq, "%q: жидкости нет", id)
+		assert.Empty(t, src, "%q: источника нет", id)
+	}
+
+	// Пресет `водные/берег` несёт только horizon — liquid-дефолта нет (K1).
+	for _, f := range cat.ViewFamilies {
+		if id, _ := f["id"].(string); id == "водные/берег" {
+			_, hasLiquid := f["liquid"]
+			assert.False(t, hasLiquid, "пресет водные/берег не несёт liquid (K1)")
+			_, hasHorizon := f["horizon"]
+			assert.True(t, hasHorizon, "пресет водные/берег несёт горизонт (§A.2.12)")
+		}
+	}
+}
+
+// TestBiomeViewLiquidPriority — приоритет `explicit > category` (N5): биом
+// «вода» БЕЗ дельта-liquid → category-фолбэк (дефолт категории, offset 170);
+// наличие `liquid` в дельте → explicit; `liquid_medium` категорию не меняет.
+func TestBiomeViewLiquidPriority(t *testing.T) {
+	cat := *GetBiomeCatalog()
+	cat.Biomes = append([]BiomeDef{}, cat.Biomes...)
+
+	cat.Biomes[0].ID = "вода_без_жидкости"
+	cat.Biomes[0].Category = "вода"
+	cat.Biomes[0].LiquidMedium = "вода"
+	cat.Biomes[0].View = nil
+	liq, src := cat.ResolveBiomeLiquid("вода_без_жидкости")
+	require.NotNil(t, liq, "фолбэк категории «вода» даёт жидкость")
+	assert.Equal(t, LiquidSourceCategory, src)
+	assert.Equal(t, "вода", liq["medium"])
+	lvl, _ := liq["level"].(map[string]any)
+	require.NotNil(t, lvl)
+	assert.Equal(t, "global", lvl["mode"])
+	assert.InDelta(t, liquidCategoryFallbackOffset, viewNum(lvl["offset"], 0), 1e-9,
+		"«дефолт категории» 170, не дефолт схемы 60 (M1)")
+
+	// explicit приоритетен над категорией (даже при ином liquid_medium).
+	cat.Biomes[0].LiquidMedium = "метан"
+	cat.Biomes[0].View = map[string]any{"liquid": map[string]any{
+		"medium": "вода", "level": map[string]any{"mode": "global", "offset": float64(30)},
+	}}
+	liq2, src2 := cat.ResolveBiomeLiquid("вода_без_жидкости")
+	require.NotNil(t, liq2)
+	assert.Equal(t, LiquidSourceExplicit, src2, "explicit побеждает category (N5)")
+	assert.Equal(t, "вода", liq2["medium"], "medium из дельты, не из liquid_medium")
+
+	// liquid_medium сам по себе жидкость НЕ включает (решение 4).
+	cat.Biomes[1].ID = "вулкан_с_жидкой_средой"
+	cat.Biomes[1].Category = "вулканизм"
+	cat.Biomes[1].LiquidMedium = "вода"
+	cat.Biomes[1].View = nil
+	liq3, src3 := cat.ResolveBiomeLiquid("вулкан_с_жидкой_средой")
+	assert.Nil(t, liq3, "liquid_medium сам по себе жидкость не включает")
+	assert.Empty(t, src3)
+}
+
+// TestBiomeViewLiquidValidation — нефатальная проверка `liquid` (§4.8):
+// ошибки уводят один биом в фолбэк (каталог жив), предупреждения — рецепт
+// применяется; диагностика называет биом и поле.
+func TestBiomeViewLiquidValidation(t *testing.T) {
+	cat := *GetBiomeCatalog()
+	cat.Biomes = append([]BiomeDef{}, cat.Biomes...)
+
+	// Ошибки: среда/режим/цвета/alpha/отрицательные/полынья/бюджет.
+	cat.Biomes[0].ID = "битая_жидкость"
+	cat.Biomes[0].View = map[string]any{"liquid": map[string]any{
+		"medium":  "кислота",
+		"color":   "не-цвет",
+		"glow":    "тоже-нет",
+		"fog":     map[string]any{"color": "нет", "alpha": float64(2)},
+		"surface": map[string]any{"alpha": float64(-1), "foam": float64(2)},
+		"level": map[string]any{
+			"mode": "нет", "iceH": float64(-1), "offset": float64(-1), "window": float64(-1),
+			"polynya": map[string]any{"gap": float64(0), "w": []any{float64(-1), float64(2)}},
+		},
+	}}
+	require.NoError(t, cat.Validate(), "жидкость НЕ входит в Validate() (§4.8)")
+	_, source := cat.ResolveBiomeView("битая_жидкость")
+	assert.Equal(t, "fallback", source, "ошибка жидкости → фолбэк одного биома")
+	other, sOther := cat.ResolveBiomeView("пески_пустыни")
+	require.Equal(t, "catalog", sOther, "ошибка жидкости не каскадит на соседний биом")
+	require.NotNil(t, other)
+
+	d := cat.ViewDiagnostics()
+	fields := map[string]bool{}
+	for _, e := range d.Errors {
+		if e.Biome == "битая_жидкость" {
+			fields[e.Field] = true
+		}
+	}
+	for _, f := range []string{
+		"liquid.medium", "liquid.level.mode", "liquid.color", "liquid.glow",
+		"liquid.fog.color", "liquid.fog.alpha", "liquid.surface.alpha", "liquid.surface.foam",
+		"liquid.level.iceH", "liquid.level.offset", "liquid.level.window",
+		"liquid.level.polynya.gap", "liquid.level.polynya.w",
+	} {
+		assert.True(t, fields[f], "ошибка названа полем %s", f)
+	}
+
+	// Предупреждения: color == palette.base; underIce без iceH/polynya.
+	cat = *GetBiomeCatalog()
+	cat.Biomes = append([]BiomeDef{}, cat.Biomes...)
+	cat.Biomes[1].ID = "вода_предупреждения"
+	cat.Biomes[1].Category = "вода"
+	cat.Biomes[1].Color = "#123456"
+	cat.Biomes[1].View = map[string]any{
+		"palette": map[string]any{"base": "#123456"},
+		"liquid": map[string]any{
+			"medium": "вода", "color": "#123456",
+			"level": map[string]any{"mode": "underIce", "offset": float64(30)},
+		},
+	}
+	view, errs, warns := cat.resolveBiomeView(&cat.Biomes[1])
+	require.Empty(t, errs, "предупреждения нефатальны")
+	require.NotNil(t, view, "рецепт применяется при предупреждении")
+	wf := map[string]bool{}
+	for _, w := range warns {
+		wf[w.Field] = true
+	}
+	assert.True(t, wf["liquid.color"], "color совпал с palette.base — предупреждение")
+	assert.True(t, wf["liquid.level.iceH"], "underIce без iceH — предупреждение")
+	assert.True(t, wf["liquid.level.polynya"], "underIce без polynya — предупреждение")
+
+	// maxDepth ∈ (0,minDepth) — предупреждение; дефолт maxDepth 0 — без него (M2).
+	cat.Biomes[2].ID = "вода_глубина"
+	cat.Biomes[2].Category = "вода"
+	cat.Biomes[2].View = map[string]any{"liquid": map[string]any{
+		"medium": "вода",
+		"level":  map[string]any{"mode": "basin", "minDepth": float64(20), "maxDepth": float64(5)},
+	}}
+	_, errs2, warns2 := cat.resolveBiomeView(&cat.Biomes[2])
+	require.Empty(t, errs2)
+	found := false
+	for _, w := range warns2 {
+		if w.Field == "liquid.level.maxDepth" {
+			found = true
+		}
+	}
+	assert.True(t, found, "maxDepth < minDepth — предупреждение (M2)")
+
+	cat.Biomes[2].View = map[string]any{"liquid": map[string]any{
+		"medium": "вода",
+		"level":  map[string]any{"mode": "basin", "minDepth": float64(20)},
+	}}
+	_, errs3, warns3 := cat.resolveBiomeView(&cat.Biomes[2])
+	require.Empty(t, errs3)
+	for _, w := range warns3 {
+		assert.NotEqual(t, "liquid.level.maxDepth", w.Field, "дефолт maxDepth 0 — без предупреждения")
+	}
+
+	// Полынья непролазного окна (underIce) — предупреждение (N3).
+	cat.Biomes[3].ID = "вода_полынья"
+	cat.Biomes[3].Category = "вода"
+	cat.Biomes[3].View = map[string]any{"liquid": map[string]any{
+		"medium": "вода",
+		"level": map[string]any{"mode": "underIce", "offset": float64(30), "iceH": float64(26),
+			"polynya": map[string]any{"gap": float64(480), "w": []any{float64(10), float64(20)}}},
+	}}
+	_, errs4, warns4 := cat.resolveBiomeView(&cat.Biomes[3])
+	require.Empty(t, errs4)
+	foundPoly := false
+	for _, w := range warns4 {
+		if w.Field == "liquid.level.polynya.w" {
+			foundPoly = true
+		}
+	}
+	assert.True(t, foundPoly, "полынья уже игрока — предупреждение (N3)")
 }
 
 // ==================== РЕЦЕПТЫ ЧК3 — ВУЛКАНИЗМ (§4.7) ====================

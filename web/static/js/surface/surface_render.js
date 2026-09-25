@@ -2,8 +2,8 @@
 // Отрисовка прогулки (спека 2026-09-21 §7.2): параллакс-небо (только из sky
 // пакета), дальний рельеф, основной рельеф/пещеры (чанки кэшируются), декор,
 // жизнь, игрок, HUD (в surface_ui.js). Canvas 2D. Погода — surface_weather.js.
-import { CHUNK, CHUNK_RADIUS, CHUNK_TOP_MARGIN, CHUNK_HEIGHT, COLORS, FLOAT_SPAN, FLOAT_GAP, ZOOM, PLAYER_H, SHIP_DECOR_SIZE, SHIP_DECOR_X, SHIP_HOVER_BOTTOM, SHIP_BOB_AMP, SHIP_BOB_PERIOD_MS } from './surface_config.js';
-import { shade, rgba, horizonHeight } from './surface_world.js';
+import { CHUNK, CHUNK_RADIUS, CHUNK_TOP_MARGIN, CHUNK_HEIGHT, COLORS, FLOAT_SPAN, FLOAT_GAP, ZOOM, PLAYER_H, SHIP_DECOR_SIZE, SHIP_DECOR_X, SHIP_HOVER_BOTTOM, SHIP_BOB_AMP, SHIP_BOB_PERIOD_MS, LIQUID_DEFAULTS } from './surface_config.js';
+import { shade, shadeHex, parseHex, rgba, horizonHeight, liquidWave } from './surface_world.js';
 import { drawDecorPrim } from './surface_decor.js';
 import { planetTexture } from './surface_net.js';
 import { recolorShipSprite, shipDrawTransform } from '../map/ship_sprites.js';
@@ -99,6 +99,52 @@ function drawSnowBand(ctx, world, baseX, topY) {
     }
 }
 
+// mixHex — линейная смесь двух hex-цветов (t=0 → a, t=1 → b).
+function mixHex(a, b, t) {
+    const ca = parseHex(a), cb = parseHex(b);
+    const f = (x, y) => Math.round(x + (y - x) * t);
+    const to = (v) => f(v).toString(16).padStart(2, '0');
+    return '#' + to(ca.r) + to(cb.r) + to(ca.g) + to(cb.g) + to(ca.b) + to(cb.b);
+}
+
+// drawLiquidBody — тело жидкости и ледовая корка в канвас чанка (ЧК6 §5.1/§5.2).
+// Тело `[liquidLevel, liquidLevel+depth]` полупрозрачно; глубже — плотнее (цвет
+// тянется к `fog.color`, α к `fog.alpha`) — так читается глубина. Корка underIce
+// — непрозрачная плита `[lv−iceH, lv]` над зеркалом (вне полыней), часть слоя
+// земли. Глубинный градиент ниже тонирует и воду (source-atop).
+function drawLiquidBody(ctx, world, baseX, topY) {
+    const L = world.liquid;
+    if (!L) return;
+    const fogColor = L.fog ? L.fog.color : '#0b2036';
+    const fogAlpha = L.fog ? L.fog.alpha : L.surface.alpha;
+    const scale = Math.max(1, LIQUID_DEFAULTS.depthScale);
+    for (let lx = 0; lx <= CHUNK; lx++) {
+        const c = world._liquidCol(baseX + lx);
+        if (!c) continue;
+        const frac = Math.min(1, c.depth / scale);
+        const col = mixHex(L.color, fogColor, frac);
+        const alpha = Math.max(0, Math.min(1, L.surface.alpha + (fogAlpha - L.surface.alpha) * frac));
+        const y0 = Math.max(0, Math.floor(c.lv - topY));
+        const y1 = Math.min(CHUNK_HEIGHT - 1, Math.floor(c.lv + c.depth - topY));
+        if (y1 < y0) continue;
+        ctx.fillStyle = rgba(col, alpha);
+        ctx.fillRect(lx, y0, 1, y1 - y0 + 1);
+    }
+    if (world._liquidCrust) {
+        const ice = L.ice || (world.palette && world.palette.ice) || '#a9c6dc';
+        ctx.fillStyle = ice;
+        for (let lx = 0; lx <= CHUNK; lx++) {
+            const top = world.crustTop(baseX + lx);
+            if (top === null) continue;
+            const c = world._liquidCol(baseX + lx);
+            if (!c) continue;
+            const y0 = Math.max(0, Math.floor(top - topY));
+            const y1 = Math.min(CHUNK_HEIGHT - 1, Math.floor(c.lv - topY));
+            if (y1 >= y0) ctx.fillRect(lx, y0, 1, y1 - y0 + 1);
+        }
+    }
+}
+
 // getChunkCanvas — лениво отрисованный чанк (кэш). Рельеф + пещеры.
 export function getChunkCanvas(world, index) {
     const ss = chunkSupersample();
@@ -151,6 +197,9 @@ export function getChunkCanvas(world, index) {
     // форм `(base ∨ add) ∧ ¬sub` тот же, что в `solidAt` (§2.2): без него маска
     // пещеры красила «воздухом» аддитивную плиту ниже terrainHeight (S1-bis, §2.1).
     const solidAtCol = (xi, yy) => {
+        // Корка underIce — часть эффективного поля (ЧК6 §3.3): маска пещер не
+        // красит «воздухом» ледовую плиту. Вне underIce — no-op.
+        if (world.crustAt(baseX + xi, yy)) return true;
         const fs = colForms[xi];
         if (fs) for (const s of fs.sub) if (yy >= s.top && yy <= s.bottom) return false;
         if (yy >= colTh[xi]) {
@@ -282,6 +331,11 @@ export function getChunkCanvas(world, index) {
             if (yTop !== null) fillFloatRun(ctx, lx, yTop, yBottom, topY);
         }
     }
+
+    // Слой жидкости (ЧК6 §5.1): тело жидкости запекается в канвас земли — ПОСЛЕ
+    // твёрдого тела, ДО глубинного градиента (градиент тонирует и воду). Отдельного
+    // `drawLiquidBack` нет; анимируется только фронтальное зеркало (`drawLiquidFront`).
+    drawLiquidBody(ctx, world, baseX, topY);
 
     // Глубинный градиент (объём) — source-atop: ложится ТОЛЬКО на уже нарисованное
     // (рельеф/пещеры/парящая порода), небо остаётся прозрачным. Так канвас чанка
@@ -709,6 +763,122 @@ export function drawCreatures(ctx, world, camera, vw, vh, player, timeMs) {
             ctx.fill();
         }
     }
+}
+
+// ==================== СЛОЙ ЖИДКОСТИ — ФРОНТ (ЧК6 §5.1/§5.2) ====================
+
+// liquidGroups — непрерывные группы точек зеркала (разрыв на сухих колонках и
+// над коркой underIce, где зеркало гасится, N7). Точка: {x, y, depth} в экранных
+// координатах. Волна — `liquidWave` (тот же примитив `wave`, §5.2).
+function liquidGroups(world, camera, vw, vh, t) {
+    const L = world.liquid;
+    const left = camera.x - vw / 2, right = camera.x + vw / 2;
+    const x0 = Math.floor(left) - 1, x1 = Math.ceil(right) + 1;
+    const groups = [];
+    let g = null;
+    for (let wx = x0; wx <= x1; wx++) {
+        const c = world._liquidCol(wx);
+        const on = c && !world.crustAt(wx, c.lv);
+        if (!on) { if (g) { groups.push(g); g = null; } continue; }
+        const wy = c.lv + liquidWave(world.seed, L.surface.wave, wx, t);
+        const p = { x: wx - camera.x + vw / 2, y: wy - camera.y + vh / 2, depth: c.depth };
+        if (!g) { g = [p]; groups.push(g); } else g.push(p);
+    }
+    return groups;
+}
+
+// drawLiquidFront — фронтальный проход жидкости (§5.1): подводная пелена
+// (утопление декора, N2) → зеркало/волна → блик → кромка-пена. После игрока, до
+// передних слоёв погоды. Пелена рисуется ВСЕГДА и не зависит от положения игрока;
+// над коркой underIce зеркало/блик/пена гасятся (N7) — видны только в полыньях.
+export function drawLiquidFront(ctx, world, camera, vw, vh, env) {
+    const L = world.liquid;
+    if (!L) return;
+    const lightMul = env ? env.lightMul() : 1;
+    const left = camera.x - vw / 2, right = camera.x + vw / 2;
+    const x0 = Math.floor(left) - 2, x1 = Math.ceil(right) + 2;
+    // 1) Подводная пелена (N2): fog.color, α = fog.alpha·0.35 — по телу воды
+    //    [liquidLevel, bedY]; тонирует декор ниже ватерлинии, независимо от игрока.
+    //    Модулируется слоем суток (§10: блик и пелена читают lightMul).
+    if (L.fog) {
+        ctx.save();
+        ctx.fillStyle = rgba(L.fog.color, Math.max(0, Math.min(1, L.fog.alpha * 0.35 * lightMul)));
+        for (let wx = x0; wx <= x1; wx++) {
+            const c = world._liquidCol(wx);
+            if (!c) continue;
+            const y0 = c.lv - camera.y + vh / 2;
+            const y1 = c.lv + c.depth - camera.y + vh / 2;
+            ctx.fillRect(wx - camera.x + vw / 2, y0, 1, Math.max(1, y1 - y0));
+        }
+        ctx.restore();
+    }
+    // 2) Зеркало/блик/кромка — только там, где зеркало (вне корки).
+    const t = (typeof performance !== 'undefined' ? performance.now() : 0) / 1000;
+    const groups = liquidGroups(world, camera, vw, vh, t);
+    if (!groups.length) return;
+    ctx.save();
+    ctx.lineJoin = 'round';
+    // Зеркало: линия уровня с волной, темнеет вместе с миром.
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = rgba(L.color, Math.max(0, Math.min(1, 0.85 * lightMul)));
+    for (const grp of groups) {
+        if (grp.length < 2) continue;
+        ctx.beginPath();
+        ctx.moveTo(grp[0].x, grp[0].y);
+        for (let i = 1; i < grp.length; i++) ctx.lineTo(grp[i].x, grp[i].y);
+        ctx.stroke();
+    }
+    // Блик: яркая линия по зеркалу, гаснет ночью (§5.2).
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = rgba(shadeHex(L.color, 1.5), Math.max(0, Math.min(1, 0.55 * lightMul)));
+    for (const grp of groups) {
+        if (grp.length < 2) continue;
+        ctx.beginPath();
+        ctx.moveTo(grp[0].x, grp[0].y - 1);
+        for (let i = 1; i < grp.length; i++) ctx.lineTo(grp[i].x, grp[i].y - 1);
+        ctx.stroke();
+    }
+    // Кромка-пена у пологого берега: там, где колонка затоплена и глубина мала.
+    if (L.surface.foam > 0) {
+        ctx.fillStyle = rgba(shadeHex(L.color, 1.7), Math.max(0, Math.min(0.8, 0.55 * L.surface.foam * (0.4 + 0.6 * lightMul))));
+        const band = Math.max(1, 2 + 4 * L.surface.foam);
+        for (const grp of groups) {
+            for (const p of grp) {
+                if (p.depth < 30) ctx.fillRect(p.x, p.y, 1, Math.max(1, band * (1 - p.depth / 30)));
+            }
+        }
+    }
+    ctx.restore();
+}
+
+// drawLiquidEmissive — свечение жидкости (лава/планктон, §5.2/§5.4) в финальном
+// эмиссивном порядке (после переднего ночного тинта): самосветящаяся линия зеркала
+// + мягкий ореол. Лава светится всегда; планктон — сильнее ночью.
+export function drawLiquidEmissive(ctx, world, camera, vw, vh, env) {
+    const L = world.liquid;
+    if (!L || !L.glow) return;
+    const nightFactor = env ? env.nightFactor() : 1;
+    const boost = L.medium === 'лава' ? 1 : (0.4 + 0.6 * nightFactor);
+    const t = (typeof performance !== 'undefined' ? performance.now() : 0) / 1000;
+    const groups = liquidGroups(world, camera, vw, vh, t);
+    if (!groups.length) return;
+    ctx.save();
+    ctx.lineJoin = 'round';
+    ctx.globalCompositeOperation = 'lighter';
+    const widths = [7, 3.5, 1.5];
+    const alphas = [0.10, 0.22, 0.5];
+    for (let k = 0; k < widths.length; k++) {
+        ctx.lineWidth = widths[k];
+        ctx.strokeStyle = rgba(L.glow, Math.max(0, Math.min(1, alphas[k] * boost)));
+        for (const grp of groups) {
+            if (grp.length < 2) continue;
+            ctx.beginPath();
+            ctx.moveTo(grp[0].x, grp[0].y);
+            for (let i = 1; i < grp.length; i++) ctx.lineTo(grp[i].x, grp[i].y);
+            ctx.stroke();
+        }
+    }
+    ctx.restore();
 }
 
 // drawPlayer — игрок (простой силуэт в скафандре).

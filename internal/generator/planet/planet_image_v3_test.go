@@ -463,9 +463,9 @@ func TestCacheKeyVersion(t *testing.T) {
 
 	// Версия генератора в ключе (S1): смена версии → новый ключ.
 	require.Contains(t, kHonest, ImageGenVersion, "версия генератора в ключе")
-	// ЧК5: 10 новых color биомов экзотики меняют картинку с орбиты — бамп
-	// v9 → v10 обязателен, иначе диск-кэш отдаёт старый цвет (§4.9.8).
-	require.Equal(t, "v10", ImageGenVersion, "ЧК5: ImageGenVersion v10")
+	// ЧК6: 10 новых color биомов воды меняют картинку с орбиты — бамп
+	// v10 → v11 обязателен, иначе диск-кэш отдаёт старый цвет (§4.6).
+	require.Equal(t, "v11", ImageGenVersion, "ЧК6: ImageGenVersion v11")
 	other := fmt.Sprintf("%d|%s|%s|%s", imageSeed("p1"), ImageModeHonest, ImageSizeSmall, "v2")
 	require.NotEqual(t, kHonest, other, "смена версии → новый ключ")
 }

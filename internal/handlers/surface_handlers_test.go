@@ -820,20 +820,49 @@ func TestSurfaceLandCarriesBiomeView(t *testing.T) {
 	assert.Equal(t, biome.Color, pkg.BiomeColor)
 }
 
+// Водный биом → аддитивный слой жидкости в пакете (ЧК6 §3.5): liquid + источник
+// `explicit` (liquid в дельте биома приоритетнее категории).
+func TestSurfaceLandCarriesLiquid(t *testing.T) {
+	h, mock := newSurfaceHarness(t)
+	const uid = "11111111-1111-1111-1111-111111111111"
+	biome := testBiomeByCategory(t, "вода")
+	require.NotEmpty(t, biome.View["liquid"], "первый водный биом несёт liquid в дельте")
+	data := surfacePlanetData(biome.ID, 100, 288, 1.0, 0, true)
+
+	expectSurfaceUser(mock, uid, "w1", orbitPlanetPos)
+	expectIntraWorld(mock, "w1")
+	expectSurfacePlanetsLight(mock, "w1", surfacePlanetRow("pl-1", "w1", "X", data))
+	expectSurfaceUpdate(mock, uid)
+
+	rec := execJSON(h.Land, surfaceLandRequest(uid, "pl-1"))
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var pkg SurfacePackage
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &pkg))
+	require.NotNil(t, pkg.Liquid, "резолвленный слой жидкости в пакете")
+	assert.Equal(t, genplanet.LiquidSourceExplicit, pkg.LiquidSource)
+	assert.Equal(t, biome.LiquidMedium, pkg.Liquid["medium"])
+	_, hasLevel := pkg.Liquid["level"]
+	assert.True(t, hasLevel, "уровень жидкости в пакете")
+}
+
 // Биом без рецепта → фолбэк вида: biome_view пусто, view_source = "fallback"
 // (клиент работает по FORMATIONS/LIFE_DENSITY, поведение 1:1).
 func TestSurfaceLandViewFallback(t *testing.T) {
 	h, mock := newSurfaceHarness(t)
 	const uid = "11111111-1111-1111-1111-111111111111"
-	var plain genplanet.BiomeDef
-	for _, b := range genplanet.GetBiomeCatalog().Biomes {
-		if len(b.View) == 0 {
-			plain = b
-			break
-		}
-	}
-	require.NotEmpty(t, plain.ID, "нужен биом без рецепта")
-	data := surfacePlanetData(plain.ID, 100, 288, 1.0, 0, true)
+	// ЧК6: рецепт есть у всех биомов — добавляем в справочник биом без view,
+	// чтобы проверить фолбэк вида в пакете (данные-зависимый случай).
+	cat := genplanet.SeedBiomeCatalog()
+	cat.Biomes = append(cat.Biomes, genplanet.BiomeDef{
+		ID: "без_рецепта", Name: "Без рецепта", Category: "экзотика",
+		Bands: []string{"у"}, WeightBase: 1, Albedo: 0.2,
+	})
+	require.NoError(t, genplanet.RebuildBiomeCatalog(cat))
+	t.Cleanup(genplanet.ResetBiomeCatalogToSeed)
+
+	const plainID = "без_рецепта"
+	data := surfacePlanetData(plainID, 100, 288, 1.0, 0, true)
 
 	expectSurfaceUser(mock, uid, "w1", orbitPlanetPos)
 	expectIntraWorld(mock, "w1")

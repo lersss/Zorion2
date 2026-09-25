@@ -17,6 +17,25 @@ import (
 // §2.6): клиент умеет игнорировать незнакомую версию.
 const ViewSchemaVersion = 1
 
+// LiquidSourceExplicit / LiquidSourceCategory — источник признака жидкости
+// (спека ЧК6 «вода» §4.1, N5): "explicit" — ключ liquid в ДЕЛЬТЕ биома
+// (приоритет); "category" — фолбэк биома категории «вода» без дельта-liquid.
+const (
+	LiquidSourceExplicit = "explicit"
+	LiquidSourceCategory = "category"
+)
+
+// liquidCategoryFallbackOffset — «дефолт категории» (M1, §4.1): смещение зеркала
+// для биома «вода» БЕЗ дельта-liquid (поведение сегодняшнего waterY). Не путать
+// с дефолтом схемы level.offset = 60 (§3.2) и примером 30 («океаны», §A.2).
+const liquidCategoryFallbackOffset = 170.0
+
+// liquidMedia — допустимые среды жидкости (§3.4).
+var liquidMedia = map[string]bool{"вода": true, "метан": true, "аммиак": true, "co2": true, "лава": true}
+
+// liquidLevelModes — допустимые режимы уровня жидкости (§3.2).
+var liquidLevelModes = map[string]bool{"global": true, "basin": true, "underIce": true}
+
 // ViewPrimitive — запись реестра view_primitives (§2.1): id примитива и его
 // вид — ровно четыре: relief1d / relief2d / decor / placement.
 type ViewPrimitive struct {
@@ -71,6 +90,48 @@ func (c *BiomeCatalog) ResolveBiomeView(biomeID string) (map[string]any, string)
 		return nil, "fallback"
 	}
 	return view, "catalog"
+}
+
+// ResolveBiomeLiquid — резолвленный слой жидкости биома и источник признака
+// (спека ЧК6 §4.1/§3.5). Самостоятельный резолв вида (для тестов/точечных
+// читателей); пакет прогулки зовёт `LiquidFromResolvedView` с уже резолвленным
+// видом, чтобы не резолвить дважды.
+func (c *BiomeCatalog) ResolveBiomeLiquid(biomeID string) (map[string]any, string) {
+	b := c.BiomeByID(biomeID)
+	if b == nil {
+		return nil, ""
+	}
+	view, source := c.ResolveBiomeView(biomeID)
+	if source != "catalog" {
+		view = nil // фолбэк вида: explicit-liquid не отдаём (§4.8)
+	}
+	return LiquidFromResolvedView(b, view)
+}
+
+// LiquidFromResolvedView — слой жидкости по УЖЕ резолвленному виду биома и её
+// источник (§4.1/§3.5): explicit — `liquid` в резолвленном виде (рецепт валиден,
+// `view` не nil); category — фолбэк биома категории «вода» без дельта-liquid
+// (medium из liquid_medium, иначе «вода», уровень global на «дефолте категории»
+// 170). Пусто — жидкости нет. `liquid_medium` сам жидкость НЕ включает (решение 4).
+// Второго резолва вида здесь нет — вид передаёт вызывающий (пакет: `ResolveBiomeView`).
+func LiquidFromResolvedView(b *BiomeDef, view map[string]any) (map[string]any, string) {
+	if b == nil {
+		return nil, ""
+	}
+	if liq, ok := view["liquid"].(map[string]any); ok && len(liq) > 0 {
+		return liq, LiquidSourceExplicit
+	}
+	if b.Category == "вода" {
+		medium := b.LiquidMedium
+		if medium == "" {
+			medium = "вода"
+		}
+		return map[string]any{
+			"medium": medium,
+			"level":  map[string]any{"mode": "global", "offset": liquidCategoryFallbackOffset},
+		}, LiquidSourceCategory
+	}
+	return nil, ""
 }
 
 // resolveBiomeView — слияние пресета семейства и дельты биома (§2.3) +
@@ -169,6 +230,10 @@ const (
 	// (web/static/js/surface/surface_config.js). Для сетки безопасности `opening`
 	// (форма `overhang arch=1`, §3.3): просвет ниже роста игрока — предупреждение.
 	viewPlayerH = 28.0
+	// viewPlayerW — ширина игрока (px), зеркалит PLAYER_W клиента
+	// (web/static/js/surface/surface_config.js). Для сетки безопасности полыньи
+	// `level.polynya` (ЧК6 §3.2/N3): окно уже игрока — предупреждение.
+	viewPlayerW = 12.0
 	// viewFormOpeningSafety — запас сетки безопасности к росту игрока: при
 	// `opening` ≤ viewPlayerH + запас рецепт ПРИМЕНЯЕТСЯ, но выдаётся
 	// предупреждение (§3.3, M8); дизайн-диапазон `opening [50,160]` проход
@@ -404,6 +469,10 @@ func (c *BiomeCatalog) validateView(biomeID string, view map[string]any) ([]View
 			}
 		}
 	}
+	// Слой жидкости (ЧК6 §4.8) — отдельный проход, тоже нефатальный.
+	lErrs, lWarns := validateLiquid(biomeID, view)
+	errs = append(errs, lErrs...)
+	warns = append(warns, lWarns...)
 	// Диапазоны [lo,hi] — lo ≤ hi (обход всего рецепта).
 	errs = append(errs, validateViewRanges(biomeID, "", view)...)
 	// Бюджет вертикали (§6 п.6): объявленный профиль не выходит за верх растра.
@@ -422,6 +491,136 @@ func (c *BiomeCatalog) validateView(biomeID string, view map[string]any) ([]View
 				bottom-bottomLimit, bottomLimit)})
 	}
 	return errs, warns
+}
+
+// validateLiquid — нефатальная проверка слоя жидкости (ЧК6 §4.8). Ошибки (рецепт
+// биома → фолбэк): неизвестная среда; режим уровня вне global|basin|underIce;
+// цвета color/glow/fog.color не #RRGGBB; alpha/foam вне [0,1]; отрицательные
+// iceH/offset/minDepth/window; polynya.gap ≤ 0 или polynya.w не диапазон/пуст/
+// w_min ≤ 0; выход зеркала/корки за бюджет вертикали чанка. Предупреждения
+// (рецепт применяется): color == palette.base; maxDepth ∈ (0,minDepth); underIce
+// без iceH > 0; underIce без polynya или окно непролазно (w_min < PLAYER_W+2);
+// polynya.w_max > gap. Диагностика называет биом и поле (§4.8).
+func validateLiquid(biomeID string, view map[string]any) ([]ViewIssue, []ViewIssue) {
+	liquid, ok := view["liquid"].(map[string]any)
+	if !ok || len(liquid) == 0 {
+		return nil, nil
+	}
+	var errs, warns []ViewIssue
+	medium, _ := liquid["medium"].(string)
+	if !liquidMedia[medium] {
+		errs = append(errs, ViewIssue{biomeID, "liquid.medium",
+			fmt.Sprintf("неизвестная среда %q (допустимы вода/метан/аммиак/co2/лава)", medium)})
+	}
+	if s, ok := liquid["color"].(string); ok {
+		if _, ok := parseHexColor(s); !ok {
+			errs = append(errs, ViewIssue{biomeID, "liquid.color", fmt.Sprintf("цвет %q — не #RRGGBB", s)})
+		}
+	}
+	if s, ok := liquid["glow"].(string); ok {
+		if _, ok := parseHexColor(s); !ok {
+			errs = append(errs, ViewIssue{biomeID, "liquid.glow", fmt.Sprintf("цвет %q — не #RRGGBB", s)})
+		}
+	}
+	if fog, ok := liquid["fog"].(map[string]any); ok {
+		if s, ok := fog["color"].(string); ok {
+			if _, ok := parseHexColor(s); !ok {
+				errs = append(errs, ViewIssue{biomeID, "liquid.fog.color", fmt.Sprintf("цвет %q — не #RRGGBB", s)})
+			}
+		}
+		if a, ok := fog["alpha"].(float64); ok && (a < 0 || a > 1) {
+			errs = append(errs, ViewIssue{biomeID, "liquid.fog.alpha", fmt.Sprintf("alpha %g вне [0,1]", a)})
+		}
+	}
+	if surf, ok := liquid["surface"].(map[string]any); ok {
+		for _, k := range []string{"alpha", "foam"} {
+			if a, ok := surf[k].(float64); ok && (a < 0 || a > 1) {
+				errs = append(errs, ViewIssue{biomeID, "liquid.surface." + k, fmt.Sprintf("%g вне [0,1]", a)})
+			}
+		}
+	}
+	// Предупреждение «color = palette.base» (слишком блёклая вода) — сетка (§4.8).
+	if base, ok := nestedString(view, "palette", "base"); ok && base != "" {
+		if c, ok := liquid["color"].(string); ok && strings.EqualFold(c, base) {
+			warns = append(warns, ViewIssue{biomeID, "liquid.color", "совпадает с palette.base — вода слишком блёклая"})
+		}
+	}
+	lvl, _ := liquid["level"].(map[string]any)
+	if lvl == nil {
+		return errs, warns
+	}
+	mode, _ := lvl["mode"].(string)
+	if !liquidLevelModes[mode] {
+		errs = append(errs, ViewIssue{biomeID, "liquid.level.mode",
+			fmt.Sprintf("режим %q вне global|basin|underIce", mode)})
+	}
+	for _, k := range []string{"iceH", "offset", "minDepth", "window"} {
+		if v, ok := lvl[k].(float64); ok && v < 0 {
+			errs = append(errs, ViewIssue{biomeID, "liquid.level." + k, fmt.Sprintf("%s %g < 0", k, v)})
+		}
+	}
+	// M2: предупреждаем только при явном maxDepth > 0 (дефолт 0 = без предела).
+	if maxD := viewNum(lvl["maxDepth"], 0); maxD > 0 {
+		if minD := viewNum(lvl["minDepth"], 0); maxD < minD {
+			warns = append(warns, ViewIssue{biomeID, "liquid.level.maxDepth",
+				fmt.Sprintf("maxDepth %g < minDepth %g", maxD, minD)})
+		}
+	}
+	if mode == "underIce" && viewNum(lvl["iceH"], 0) <= 0 {
+		warns = append(warns, ViewIssue{biomeID, "liquid.level.iceH", "underIce без iceH > 0 — корки нет"})
+	}
+	if pol, ok := lvl["polynya"].(map[string]any); ok {
+		gap := viewNum(pol["gap"], 0)
+		if gap <= 0 {
+			errs = append(errs, ViewIssue{biomeID, "liquid.level.polynya.gap", fmt.Sprintf("gap %g ≤ 0", gap)})
+		}
+		wMin, wMax, okW := rangeBoundsAny(pol["w"])
+		switch {
+		case !okW:
+			errs = append(errs, ViewIssue{biomeID, "liquid.level.polynya.w", "w — не диапазон [lo,hi]"})
+		case wMin <= 0:
+			errs = append(errs, ViewIssue{biomeID, "liquid.level.polynya.w", fmt.Sprintf("w_min %g ≤ 0", wMin)})
+		default:
+			if mode == "underIce" && wMin < viewPlayerW+2 {
+				warns = append(warns, ViewIssue{biomeID, "liquid.level.polynya.w",
+					fmt.Sprintf("окно %.0f ≤ PLAYER_W+2 = %.0f — игрок может не пролезть", wMin, viewPlayerW+2)})
+			}
+			if gap > 0 && wMax > gap {
+				warns = append(warns, ViewIssue{biomeID, "liquid.level.polynya.w",
+					fmt.Sprintf("w_max %.0f > gap %.0f — окна сливаются (клампится к gap)", wMax, gap)})
+			}
+		}
+	} else if mode == "underIce" {
+		warns = append(warns, ViewIssue{biomeID, "liquid.level.polynya", "underIce без polynya — нет входа под лёд"})
+	}
+	// Бюджет вертикали (ЧК6 §4.8, зеркало Э5 §3.3): зеркало и верх корки в растре.
+	if mode == "global" || mode == "underIce" {
+		mirror := viewBaseY + viewNum(lvl["offset"], 60)
+		top := mirror
+		if mode == "underIce" {
+			top = mirror - viewNum(lvl["iceH"], 0)
+		}
+		topLimit := viewBaseY - viewChunkTopMargin + viewTopSafety
+		bottomLimit := viewBaseY + viewChunkHeight - viewChunkTopMargin - viewTopSafety
+		if top < topLimit {
+			errs = append(errs, ViewIssue{biomeID, "liquid.level",
+				fmt.Sprintf("зеркало/корка на %.0f px выше запаса вертикали чанка (%.0f px)", topLimit-top, viewChunkTopMargin)})
+		}
+		if mirror > bottomLimit {
+			errs = append(errs, ViewIssue{biomeID, "liquid.level",
+				fmt.Sprintf("зеркало на %.0f px ниже низа растра чанка (%.0f px)", mirror-bottomLimit, bottomLimit)})
+		}
+	}
+	return errs, warns
+}
+
+// rangeBoundsAny — [lo,hi] из значения-диапазона (ok=false, если не диапазон).
+func rangeBoundsAny(v any) (lo, hi float64, ok bool) {
+	a, ok := v.([]any)
+	if !ok {
+		return 0, 0, false
+	}
+	return rangeBounds(a)
 }
 
 // validateViewRanges — рекурсивный обход рецепта: любой [lo,hi] из двух чисел

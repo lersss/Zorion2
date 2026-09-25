@@ -3,7 +3,7 @@
 // (fbm 2 слоя), пещеры (порог 2D-шума), формации по biome_category (В9), декор,
 // жизнь (если life). Детерминирован от seed — один и тот же мир при повторе.
 // Никакого Math.random: локальный PRNG.
-import { CHUNK, CHUNK_TOP_MARGIN, CHUNK_HEIGHT, FORMATIONS, PPM, FLOAT_SPAN, FLOAT_GAP, PLAYER_W, PLAYER_H } from './surface_config.js';
+import { CHUNK, CHUNK_TOP_MARGIN, CHUNK_HEIGHT, FORMATIONS, PPM, FLOAT_SPAN, FLOAT_GAP, PLAYER_W, PLAYER_H, LIQUID_MEDIUM_COLORS, LIQUID_DEFAULTS } from './surface_config.js';
 import { Player } from './surface_player.js';
 
 // mulberry32 — локальный PRNG (не общий Math.random).
@@ -87,6 +87,64 @@ function resolveRange(v, col, seed, def) {
         return v[0] + hash1(col, seed) * (v[1] - v[0]);
     }
     return def;
+}
+
+// polyW — диапазон ширины полыньи [lo,hi] с дефолтом (§3.2).
+function polyW(v) {
+    const def = LIQUID_DEFAULTS.polynya.w;
+    if (Array.isArray(v) && v.length === 2 && typeof v[0] === 'number' && typeof v[1] === 'number') return [v[0], v[1]];
+    if (typeof v === 'number') return [v, v];
+    return [def[0], def[1]];
+}
+
+// liquidColorFor — цвет жидкости: явный `liquid.color`, иначе оттенок среды (§3.4).
+// Источник истины — данные биома; палитра сред — фолбэк, не второй реестр.
+function liquidColorFor(medium, color) {
+    if (typeof color === 'string' && color) return color;
+    return LIQUID_MEDIUM_COLORS[medium] || LIQUID_MEDIUM_COLORS['вода'];
+}
+
+// resolveLiquid — нормализация слоя жидкости из пакета (спека ЧК6 §3.4/§3.5):
+// топ-уровневое `liquid` (серверный резолв), иначе `liquid` внутри biome_view
+// (фолбэк). null — жидкости нет (старый пакет/сухой биом). Числа — с дефолтами
+// LIQUID_DEFAULTS (§4.2).
+function resolveLiquid(pkg, view) {
+    const src = (pkg && pkg.liquid) || (view && view.liquid) || null;
+    if (!src || typeof src !== 'object') return null;
+    const medium = typeof src.medium === 'string' ? src.medium : '';
+    if (!medium) return null;
+    const D = LIQUID_DEFAULTS;
+    const lvl = src.level || {};
+    const surf = src.surface || {};
+    const wave = surf.wave || {};
+    const poly = lvl.polynya || D.polynya;
+    const mode = (lvl.mode === 'basin' || lvl.mode === 'underIce') ? lvl.mode : 'global';
+    return {
+        medium,
+        color: liquidColorFor(medium, src.color),
+        glow: (typeof src.glow === 'string' && src.glow) ? src.glow : null,
+        ice: (typeof src.ice === 'string' && src.ice) ? src.ice : null,
+        fog: (src.fog && typeof src.fog === 'object' && (src.fog.color || src.fog.alpha != null))
+            ? { color: src.fog.color || '#123a55', alpha: num(src.fog.alpha, D.fogAlpha) } : null,
+        level: {
+            mode,
+            offset: num(lvl.offset, D.offset),
+            minDepth: num(lvl.minDepth, D.minDepth),
+            maxDepth: num(lvl.maxDepth, D.maxDepth),
+            iceH: num(lvl.iceH, D.iceH),
+            window: num(lvl.window, D.window),
+            polynya: { gap: Math.max(1, num(poly.gap, D.polynya.gap)), w: polyW(poly.w) },
+        },
+        surface: {
+            alpha: Math.max(0, Math.min(1, num(surf.alpha, D.surface.alpha))),
+            foam: Math.max(0, Math.min(1, num(surf.foam, D.surface.foam))),
+            wave: {
+                lambda: num(wave.lambda, D.surface.wave.lambda),
+                amp: num(wave.amp, D.surface.wave.amp),
+                speed: num(wave.speed, D.surface.wave.speed),
+            },
+        },
+    };
 }
 
 // LIVING_DECOR — примитивы, изображающие жизнь (§3.2). На безжизненной планете
@@ -397,6 +455,14 @@ export function horizonHeight(prim, params, x, seed) {
     return primHeight(prim, x, params || {}, seed, 1400);
 }
 
+// liquidWave — смещение зеркала жидкости волной (ЧК6 §5.2): тот же примитив
+// `wave`, что и рельеф (§3.1) — второй формы нет; прокрутка по времени t·speed,
+// детерминированно от seed (Math.random запрещён, §9 п.7).
+export function liquidWave(seed, wave, x, t) {
+    const params = { prim: 'wave', lambda: wave.lambda, amp: wave.amp, skew: 0.6 };
+    return primWave(x - t * (wave.speed || 0), params, (seed ^ 0x71e1) >>> 0);
+}
+
 export class SurfaceWorld {
     constructor(pkg) {
         this.seed = (pkg.seed | 0) >>> 0;
@@ -450,6 +516,13 @@ export class SurfaceWorld {
         // шкалы высот в прогулке нет — линия относительная (осознанное отклонение).
         this.snowLine = (this.view && typeof this.view.snowLine === 'number') ? this.view.snowLine : null;
         this.snowLineShadow = num(this.view && this.view.snowLineShadow, 0.85);
+        // Слой жидкости (ЧК6 §3): резолвленный рецепт из пакета (топ-уровневое
+        // `liquid`, иначе — `liquid` внутри biome_view). null — жидкости нет
+        // (сухой биом/старый пакет → прежний вид 1:1). Мир статичен: мемо колонок.
+        this.liquid = resolveLiquid(pkg, this.view);
+        this._liquidCrust = !!this.liquid && this.liquid.level.mode === 'underIce';
+        this._liqColMemo = null;
+        this._basinMemo = null;
     }
 
     _formationForRegion(idx) {
@@ -1151,6 +1224,9 @@ export class SurfaceWorld {
     // Формы считаются ОДИН раз на пробу (thx + интервалы: иначе дорогой fbm
     // множится на число проверок знака — бюджет генерации чанка, §2.4).
     solidAt(x, y) {
+        // Корка underIce — часть эффективного поля `solidAt'` (ЧК6 §3.3): ледовая
+        // плита несущая, по ней ходят. Вне underIce `crustAt` — no-op (нулевая цена).
+        if (this.crustAt(x, y)) return true;
         const forms = this.forms;
         if (!forms) return this.baseSolid(x, y);
         const thx = this.terrainHeight(x);
@@ -1226,10 +1302,17 @@ export class SurfaceWorld {
                 if (this.solidAt(x, wy)) { if (wy < top) top = wy; break; }
             }
         }
+        // Корка underIce — верх неба над водой (§3.2): погода ложится на лёд;
+        // над полыньёй корки нет — верх падает к грунту/полу.
+        const cr = this.crustTop(x);
+        if (cr !== null && cr < top) top = cr;
         return top === Infinity ? th : top;
     }
 
-    // floorY — «пол/опора» (§2.1): верх твёрдого, СВЯЗАННОГО с базой (землёй).
+    // _groundFloorY — «пол/опора» БЕЗ ледовой корки (§2.1): верх твёрдого,
+    // СВЯЗАННОГО с базой (землёй). Публичный `floorY` добавляет корку underIce
+    // (ЧК6 §3.2): по ней ходят, её верх = опора; `bedY` (дно жидкости) — этот,
+    // без корки (N1).
     // Висящие плиты (overhang arch=1) и полоса float в опору НЕ входят (арка — не
     // пол под игроком), а КРЕПЛЁННЫЕ к базе аддитивные формы (вал `crater`,
     // козырёк arch=0 в опорной колонке) поднимают опору (S4): интервал считаем
@@ -1238,7 +1321,7 @@ export class SurfaceWorld {
     // КОНТРАКТ: `solidAt(floorY)=true` — вычитающие интервалы включительны, их
     // `bottom` ещё воздух, поэтому точку доводим до твёрдой. Для обычной колонки
     // floorY = terrainHeight. Якоря (корабль/фауна/спавн) — §5 п.12.
-    floorY(x) {
+    _groundFloorY(x) {
         const th = this.terrainHeight(x);
         if (!this.forms) return th;
         let y = th;
@@ -1265,6 +1348,146 @@ export class SurfaceWorld {
         const bottom = this.baseY - CHUNK_TOP_MARGIN + CHUNK_HEIGHT;
         for (let wy = y; wy <= bottom; wy += 1) if (this.solidAt(x, wy)) return wy;
         return y;
+    }
+
+    // ==================== СЛОЙ ЖИДКОСТИ (ЧК6, §3) ====================
+    //
+    // Жидкость — ОТДЕЛЬНЫЙ слой, не твёрдость: `liquidAt` ∩ `solidAt' = ∅` (кроме
+    // корки underIce — единственного места, где слой меняет твёрдость, §3.3).
+    // Одна реализация уровня (`liquidLevel`) читается и физикой, и отрисовкой (§9 п.3).
+
+    // floorY — «пол/опора» (§2.1 + ЧК6 §3.2): на underIce опора — верх ледовой
+    // корки (по ней ходят, она несущая), иначе — верх грунта (без корки).
+    floorY(x) {
+        const cr = this.crustTop(x);
+        if (cr !== null) return cr;
+        return this._groundFloorY(x);
+    }
+
+    // polynyaAt — полынья underIce (окно без корки, вход под лёд; §3.2/N3):
+    // детерминирована от seed (`hash1`/`hash2`), ширина `w ≥ PLAYER_W+2` задана
+    // данными. Вне underIce полыней нет.
+    polynyaAt(x) {
+        if (!this._liquidCrust) return false;
+        const p = this.liquid.level.polynya;
+        const wMin = Math.min(p.w[0], p.w[1]);
+        const wMax = Math.max(p.w[0], p.w[1]);
+        const n = Math.floor(x / p.gap);
+        const pos = n * p.gap + hash1(n, (this.seed ^ 0x7011) >>> 0) * Math.max(0, p.gap - wMax);
+        const w = wMin + hash2(n, 0, (this.seed ^ 0x7022) >>> 0) * Math.max(0, wMax - wMin);
+        return x >= pos && x < pos + w;
+    }
+
+    // liquidLevel — уровень зеркала (§3.2): global/underIce — `baseY + offset`
+    // (константа); basin — уровень локальной впадины. Infinity — жидкости нет.
+    liquidLevel(x) {
+        const L = this.liquid;
+        if (!L) return Infinity;
+        if (L.level.mode === 'basin') return this._basinLevel(x);
+        return this.baseY + L.level.offset;
+    }
+
+    // _basinLevel — уровень впадины (§3.2/M7): заполняем до низшей точки перелива —
+    // вода поднимается над полом `floorY` до НИЗШЕЙ из двух стенок чаши (max двух
+    // «верхов» стенок, `_basinRim`); окно `level.window`. Мемо (мир статичен).
+    _basinLevel(x) {
+        const memo = this._basinMemo || (this._basinMemo = new Map());
+        const key = Math.round(x / 2);
+        const hit = memo.get(key);
+        if (hit !== undefined) return hit;
+        const lv = Math.max(this._basinRim(x, -1), this._basinRim(x, 1));
+        if (memo.size > 60000) memo.clear();
+        memo.set(key, lv);
+        return lv;
+    }
+
+    // _basinRim — ВЕРХ стенки чаши в сторону dir: минимум `floorY` по окну window
+    // (y растёт вниз, поэтому верх = минимальный y). Уровень — НИЗШАЯ из двух
+    // стенок (max двух «верхов»), см. `_basinLevel`. Окно включает саму x: на
+    // монотонном склоне сторона «вниз» даёт `floorY(x)` → сухо.
+    _basinRim(x, dir) {
+        const win = this.liquid.level.window;
+        const step = 4;
+        let m = this.floorY(x);
+        for (let d = step; d <= win; d += step) {
+            const cur = this.floorY(x + dir * d);
+            if (cur < m) m = cur;
+        }
+        return m;
+    }
+
+    // crustTop — верх ледовой корки underIce (§3.2): `liquidLevel − iceH` на
+    // затопленной колонке вне полыньи; null — корки нет. Корка исключена из
+    // `bedY` (N1), но входит в `floorY`/`skyTop`/`solidAt'`.
+    crustTop(x) {
+        if (!this._liquidCrust) return null;
+        const c = this._liquidCol(Math.floor(x));
+        if (!c || this.polynyaAt(x)) return null;
+        return c.lv - this.liquid.level.iceH;
+    }
+
+    // crustAt — точка внутри корки underIce (твёрдая плита, §3.2): полоса
+    // [liquidLevel − iceH, liquidLevel] вне полыней. Флаг `_inCrust` отключает
+    // корку при вычислении дна (`bedY`), чтобы не было рекурсии.
+    crustAt(x, y) {
+        if (!this._liquidCrust || this._inCrust) return false;
+        const c = this._liquidCol(Math.floor(x));
+        if (!c || this.polynyaAt(x)) return false;
+        return y >= c.lv - this.liquid.level.iceH && y <= c.lv;
+    }
+
+    // bedY — дно жидкости (§3.1): верх грунта, СВЯЗАННОГО с базой, ниже зеркала;
+    // корка underIce в bedY НЕ входит (N1) — её верх = `floorY`. = пол без корки.
+    bedY(x) {
+        if (!this.liquid) return Infinity;
+        if (!this._liquidCrust) return this._groundFloorY(x);
+        this._inCrust = true;
+        const bd = this._groundFloorY(x);
+        this._inCrust = false;
+        return bd;
+    }
+
+    // _liquidCol — кэш колонки жидкости {lv, depth, bd} (мир статичен; растр и
+    // фронтальный проход зовут многократно). null — жидкости в колонке нет
+    // (сухо/лужа мельче `minDepth`). Ключ — целый x (1-px разрешение).
+    _liquidCol(xi) {
+        const L = this.liquid;
+        if (!L) return null;
+        const memo = this._liqColMemo || (this._liqColMemo = new Map());
+        let c = memo.get(xi);
+        if (c !== undefined) return c;
+        const lv = this.liquidLevel(xi);
+        if (lv === Infinity) {
+            c = null;
+        } else {
+            const bd = this.bedY(xi);
+            const raw = Math.max(0, bd - lv);
+            const depth = L.level.maxDepth > 0 ? Math.min(raw, L.level.maxDepth) : raw;
+            c = depth >= L.level.minDepth ? { lv, bd, depth } : null;
+        }
+        if (memo.size > 40000) memo.clear();
+        memo.set(xi, c);
+        return c;
+    }
+
+    // liquidAt — жидкость в точке (§3.1): `liquidLevel ≤ y ≤ bedY` ∧ ¬`solidAt'`,
+    // где `solidAt' = solidAt ∨ crust`. Вода не внутри камня/корки; «ходьба по
+    // воде» невозможна. Возвращает имя среды или "" (нет жидкости).
+    liquidAt(x, y) {
+        const L = this.liquid;
+        if (!L) return '';
+        const c = this._liquidCol(Math.floor(x));
+        if (!c) return '';
+        if (y < c.lv || y > c.lv + c.depth) return '';
+        if (this.solidAt(x, y)) return '';
+        return L.medium;
+    }
+
+    // liquidDepth — глубина жидкости колонки (§3.1): max(0, bedY − liquidLevel),
+    // урезанная `maxDepth`; 0 — сухо.
+    liquidDepth(x) {
+        const c = this._liquidCol(Math.floor(x));
+        return c ? c.depth : 0;
     }
 
     // decorAt — декор колонки: по рецепту вида (если есть) или легаси-фолбэк.

@@ -109,9 +109,14 @@ type SurfacePackage struct {
 	// Рецепт вида биома (спека 2026-09-23 §2.6): аддитивные поля. biome_view —
 	// резолвленный рецепт (пусто → клиент по фолбэку FORMATIONS/LIFE_DENSITY);
 	// view_source — "catalog"|"fallback"; view_version — версия схемы рецепта.
-	BiomeView     map[string]any `json:"biome_view,omitempty"`
-	ViewSource    string         `json:"view_source"`
-	ViewVersion   int            `json:"view_version"`
+	BiomeView   map[string]any `json:"biome_view,omitempty"`
+	ViewSource  string         `json:"view_source"`
+	ViewVersion int            `json:"view_version"`
+	// Слой жидкости (спека 2026-09-25 ЧК6 §3.5): аддитивное резолвленное поле
+	// (medium/color/level/surface/fog/ice) + источник признака (explicit|category).
+	// Пусто → жидкости нет. Клиент читает отсюда (не из справочника).
+	Liquid        map[string]any `json:"liquid,omitempty"`
+	LiquidSource  string         `json:"liquid_source"`
 	Seed          uint32         `json:"seed"`
 	Life          bool           `json:"life"`
 	Gravity       float64        `json:"gravity"`
@@ -372,6 +377,9 @@ func (h *SurfaceHandlers) buildWalkPackage(p *models.Planet, biome string, pos *
 	shipScale := models.ShipScaleHuman(shipIcon)
 	// Рецепт вида (§2.6): резолв на сервере — клиент не читает справочник сам.
 	biomeView, viewSource := cat.ResolveBiomeView(biome)
+	// Слой жидкости (ЧК6 §3.5): резолв на сервере, приоритет explicit > category.
+	// Вид уже резолвлен выше — второго резолва нет (`biomeView` nil при фолбэке).
+	liquidView, liquidSource := planet.LiquidFromResolvedView(def, biomeView)
 
 	return SurfacePackage{
 		PlanetID:         p.ID,
@@ -391,6 +399,8 @@ func (h *SurfaceHandlers) buildWalkPackage(p *models.Planet, biome string, pos *
 		BiomeView:        biomeView,
 		ViewSource:       viewSource,
 		ViewVersion:      planet.ViewSchemaVersion,
+		Liquid:           liquidView,
+		LiquidSource:     liquidSource,
 		Seed:             surfaceSeed(p.ID, biome),
 		Life:             p.Life,
 		Gravity:          p.Gravity,

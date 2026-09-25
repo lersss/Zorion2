@@ -190,6 +190,12 @@ func runFlight(m *Manager, flight *TravelInfo, onArrival func(userID, worldID st
 // полёт был активен. Чистит БД (97a, критик, мелкое 5) — под локом,
 // чтобы не удалить строку нового полёта, стартовавшего между
 // разблокировкой и DELETE.
+//
+// Запись убирается из map ВМЕСТЕ с close под ОДНИМ локом: иначе повторный
+// CancelFlight/StartFlight/BoostFlight закрыл бы уже закрытый CancelChan
+// («close of closed channel» — паника, Go убивает процесс, §0). Горутина
+// runFlight при пробуждении увидит запись удалённой (cur != flight) и не
+// тронет ни map, ни строку БД.
 func (m *Manager) CancelFlight(userID string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -197,7 +203,8 @@ func (m *Manager) CancelFlight(userID string) bool {
 	if !ok {
 		return false
 	}
-	close(f.CancelChan) // runFlight проснётся, удалит полёт, onArrival не вызовет
+	delete(m.flights, userID)
+	close(f.CancelChan) // runFlight проснётся, запись уже удалена, onArrival не вызовет
 	if m.store != nil {
 		if err := m.store.Delete(userID); err != nil {
 			log.Printf("⚠️ travel: cancel delete flight (user %s): %v", userID, err)

@@ -19,11 +19,12 @@ import (
 const AcceleratorGameRoute = "route"
 
 // acceleratorGames — реестр мини-игр, которые СЕРВЕР умеет проводить (§6).
-// ЧК1: реестр пуст — мини-игра не реализована, поэтому игра из каталога не
-// предлагается (`available=false`, reason=unknown_game), хотя `accel_1` валиден.
-// ЧК3 добавит сюда AcceleratorGameRoute — гейт доступности включится сам, без
-// правки блоков /travel и /me (чтение реестра из горутин-обработчиков).
-var acceleratorGames = []string{}
+// ЧК3 зарегистрировал «Прокладку маршрута» (AcceleratorGameRoute) — гейт
+// доступности включается сам, без правки блоков /travel и /me (чтение реестра
+// из горутин-обработчиков): валидный `accel_1` даёт available по состоянию
+// сегмента, а не unknown_game. Запись в каталоге с незарегистрированной игрой
+// по-прежнему даёт unknown_game.
+var acceleratorGames = []string{AcceleratorGameRoute}
 
 // AcceleratorGameRegistered — сервер умеет проводить эту мини-игру (§3.4):
 // незарегистрированная игра даёт `unknown_game` независимо от записи в каталоге.

@@ -1,9 +1,10 @@
 // internal/handlers/accelerator_block_test.go
 // Тесты блока accelerator в контрактах /travel и /me (спека ускорителя §3.4,
 // ЧК1): приоритет причин no_module → unknown_game → already_active → too_short
-// → cooldown, признак active (UnixMilli), применённый откат в /me. В ЧК1
-// мини-игра не зарегистрирована (реестр ship пуст) → available=false,
-// reason=unknown_game у валидного модуля.
+// → cooldown, признак active (UnixMilli), применённый откат в /me. С ЧК3 игра
+// route зарегистрирована (ship.AcceleratorGameRegistered) → валидный `accel_1`
+// даёт available по состоянию сегмента; ветку unknown_game держит фиктивное
+// имя игры в TestAcceleratorTravelReason.
 package handlers
 
 import (
@@ -55,24 +56,24 @@ func TestAcceleratorTravelBlockNoModule(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// ЧК1: мини-игра не зарегистрирована (реестр ship пуст) → валидный модуль есть,
-// но игра не предлагается: available=false, reason=unknown_game («игры ещё нет»).
-func TestAcceleratorTravelBlockUnknownGame(t *testing.T) {
+// ЧК3: игра route зарегистрирована → валидный модуль при доступном сегменте
+// даёт available=true (не unknown_game).
+func TestAcceleratorTravelBlockAvailable(t *testing.T) {
 	repo, _ := accelRepoMock(t, [2]interface{}{nil, nil})
 	flight := &travel.TravelInfo{StartTime: time.Now(), Duration: time.Hour}
 
 	m := accelBlockMap(t, acceleratorTravelBlock(repo, accelUser(map[string]interface{}{"accelerator": "accel_1"}), flight, time.Now()))
-	require.Equal(t, false, m["available"])
-	require.Equal(t, "unknown_game", m["reason"])
+	require.Equal(t, true, m["available"])
+	require.NotContains(t, m, "reason")
 	require.Equal(t, "accel_1", m["module_id"])
 	require.Equal(t, "route", m["game"])
 	require.Equal(t, false, m["active"])
 	require.Nil(t, m["cooldown_remaining_s"])
 }
 
-// Даже при действующем ускорении и идущем откате незарегистрированная игра
-// остаётся недоступной, но `active` и таймер отката отдаются (их читает клиент).
-func TestAcceleratorTravelBlockUnknownGameActive(t *testing.T) {
+// Действующее ускорение на сегменте → available=false, reason=already_active;
+// `active` и таймер отката отдаются (их читает клиент).
+func TestAcceleratorTravelBlockAlreadyActive(t *testing.T) {
 	start := time.Now().Truncate(time.Millisecond)
 	repo, _ := accelRepoMock(t, [2]interface{}{start, 25})
 	flight := &travel.TravelInfo{StartTime: start, Duration: time.Hour}
@@ -80,13 +81,14 @@ func TestAcceleratorTravelBlockUnknownGameActive(t *testing.T) {
 	m := accelBlockMap(t, acceleratorTravelBlock(repo, accelUser(map[string]interface{}{"accelerator": "accel_1"}), flight, time.Now()))
 	require.Equal(t, true, m["active"])
 	require.Equal(t, false, m["available"])
-	require.Equal(t, "unknown_game", m["reason"])
+	require.Equal(t, "already_active", m["reason"])
 	require.NotNil(t, m["cooldown_remaining_s"])
 }
 
 // Приоритет причин (§3.4/§4.1): no_module → unknown_game → already_active →
 // too_short → cooldown. gameRegistered вынесен параметром, чтобы проверить ветки
-// при реализованной игре: в ЧК1 реестр пуст — их перекрывает unknown_game.
+// при реализованной игре; ветка unknown_game — на фиктивном имени игры
+// (AcceleratorGameRegistered("fake_game") == false).
 func TestAcceleratorTravelReason(t *testing.T) {
 	now := time.Now()
 	long := &travel.TravelInfo{StartTime: now, Duration: time.Hour}
@@ -104,7 +106,7 @@ func TestAcceleratorTravelReason(t *testing.T) {
 	}{
 		{"no_module", false, true, true, false, long, 0, "no_module"},
 		{"invalid_params", true, false, true, false, long, 0, "unknown_game"},
-		{"game_not_registered", true, true, false, true, long, 0, "unknown_game"},
+		{"unknown_game (фиктивная игра)", true, true, ship.AcceleratorGameRegistered("fake_game"), true, long, 0, "unknown_game"},
 		{"already_active", true, true, true, true, long, 0, "already_active"},
 		{"too_short", true, true, true, false, short, 0, "too_short"},
 		{"no_flight", true, true, true, false, nil, 0, "too_short"},

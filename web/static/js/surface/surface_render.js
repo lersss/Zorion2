@@ -302,7 +302,11 @@ export function getChunkCanvas(world, index) {
     ctx.fillStyle = world.hasView ? world.palette.light : shade(world.color, 1.15);
     for (let lx = 0; lx <= CHUNK; lx++) {
         const wx = baseX + lx;
-        const ly = Math.floor(world.surfaceY(wx) - topY);
+        // Кромка — по верху твёрдого: столбцы с формами (грот/чаша/вал) берут
+        // `floorY` (пол/вал), иначе кромка висела бы на уровне исходной земли
+        // поперёк выреза. Столбцы без форм — прежний `surfaceY` (нулевая регрессия).
+        const ey = colForms[lx] ? world.floorY(wx) : world.surfaceY(wx);
+        const ly = Math.floor(ey - topY);
         if (ly >= 0 && ly < CHUNK_HEIGHT) ctx.fillRect(lx, ly, 1, 2);
     }
 
@@ -653,7 +657,9 @@ export function drawShip(ctx, world, camera, vw, vh, pkg, timeMs) {
     const size = shipDrawSize(pkg);
     const wx = SHIP_DECOR_X;
     const x = wx - camera.x + vw / 2;
-    const gy = world.terrainHeight(wx) - camera.y + vh / 2;
+    // Якорь — `floorY` (§5 п.12): корабль стоит/парит над ПОЛОМ (землёй), не на
+    // плите-своде и не на terrainHeight (в гроте terrainHeight игнорирует формы).
+    const gy = world.floorY(wx) - camera.y + vh / 2;
     const bob = Math.sin((timeMs || 0) * 2 * Math.PI / SHIP_BOB_PERIOD_MS) * SHIP_BOB_AMP;
     const orient = { angle: Number(pkg.ship_angle) || 0, flip: !!pkg.ship_flip };
     const t = shipDrawTransform(0, orient);
@@ -689,7 +695,8 @@ export function drawCreatures(ctx, world, camera, vw, vh, player, timeMs) {
             }
             const sx = x - camera.x + vw / 2;
             if (sx < -40 || sx > vw + 40) continue;
-            const sy = world.terrainHeight(x) - camera.y + vh / 2;
+            // Якорь — `floorY` (§5 п.12): фауна на полу грота, не на потолке.
+            const sy = world.floorY(x) - camera.y + vh / 2;
             const size = c.behavior === 'juvenile' ? c.size * 0.6 : c.size;
             const body = `hsl(${Math.floor(c.hue * 360)},45%,${world.life ? 55 : 40}%)`;
             ctx.fillStyle = body;

@@ -160,6 +160,11 @@ const (
 	// (tools/surface-profile-check.mjs, MIN_OK). До Э5 серверная проверка была
 	// без +24 (запас жил только в тесте) — приводим к общей границе.
 	viewTopSafety = 24.0
+	// viewChunkHeight — высота растра чанка (px), зеркалит CHUNK_HEIGHT клиента
+	// (web/static/js/surface/surface_config.js). Низ растра = baseY + CHUNK_HEIGHT
+	// − CHUNK_TOP_MARGIN = baseY + 500; бюджет низа с запасом viewTopSafety —
+	// `baseY + CHUNK_HEIGHT − CHUNK_TOP_MARGIN − 24` = baseY + 476 (спека Э5 §3.3).
+	viewChunkHeight = 1700.0
 	// viewPlayerH — рост игрока (px), зеркалит PLAYER_H клиента
 	// (web/static/js/surface/surface_config.js). Для сетки безопасности `opening`
 	// (форма `overhang arch=1`, §3.3): просвет ниже роста игрока — предупреждение.
@@ -198,6 +203,42 @@ func declaredReliefTop(view map[string]any) (float64, bool) {
 		riseForms += formUpAmp(f)
 	}
 	return viewBaseY + viewNum(relief["offset"], 0) - rise*scale - riseForms, true
+}
+
+// declaredReliefBottom — нижняя (максимальная по y) точка объявленного профиля
+// с 2D-формами (спека Э5 §3.3, зеркало верхнего): `baseY + offset + Σ(глубины
+// вычитающих)`. Вычитающие формы (`void.depth`, впадина `crater.depth`) опускают
+// пол; аддитивные (`overhang`, `crater.rim`) вниз не опускают. 1D-профиль вниз
+// (амплитуда `rise·scale`) здесь НЕ суммируется: его нижняя граница уже
+// проверяется рантайм-тестом T-budget на клиенте (tools/surface-profile-check.mjs,
+// P1/P9), а консервативная сумма пиков 1D отвергла бы валидный
+// `пещерный_мир_с_потолком` (см. formUpAmp). Проверяется против низа растра
+// `baseY + CHUNK_HEIGHT − CHUNK_TOP_MARGIN − 24` = baseY + 476.
+func declaredReliefBottom(view map[string]any) (float64, bool) {
+	relief, ok := view["relief"].(map[string]any)
+	if !ok {
+		return 0, false
+	}
+	downForms := 0.0
+	for _, f := range asMapList(relief["forms"]) {
+		downForms += formDownAmp(f)
+	}
+	return viewBaseY + viewNum(relief["offset"], 0) + downForms, true
+}
+
+// formDownAmp — вклад 2D-формы вниз, абсолютные px (§3.3): `void` → depth,
+// `crater` → depth (впадина); аддитивные и косметический `crack2d` — 0. Берётся
+// верх диапазона [lo,hi]; ключ отсутствует — дефолт клиента (`_voidColumn`:
+// depth → 40; `_craterColumn`: depth → 60) — forward-compat.
+func formDownAmp(f map[string]any) float64 {
+	switch prim, _ := f["prim"].(string); prim {
+	case "void":
+		return formNum(f, "depth", 40)
+	case "crater":
+		return formNum(f, "depth", 60)
+	default:
+		return 0
+	}
 }
 
 // formUpAmp — вклад 2D-формы вверх, абсолютные px (§3.3): `overhang` arch=1 →
@@ -282,7 +323,8 @@ func viewNum(v any, def float64) float64 {
 
 // validateView — проверка рецепта вида (§2.8 п.2). Ошибки (рецепт не
 // применяется): неизвестный примитив / вид блока не совпадает, цвет не
-// #RRGGBB, пустой или перевёрнутый диапазон [lo,hi]. Предупреждения (рецепт
+// #RRGGBB, пустой или перевёрнутый диапазон [lo,hi], выход за бюджет вертикали
+// сверху/снизу. Предупреждения (рецепт
 // применяется): `opening` формы `overhang arch=1` ≤ роста игрока + запас —
 // сетка безопасности (§3.3), жёсткой проверкой не является. Ссылки проверяются
 // по реестру view_primitives (список — данные, не дублируется в коде).
@@ -369,6 +411,15 @@ func (c *BiomeCatalog) validateView(biomeID string, view map[string]any) ([]View
 		errs = append(errs, ViewIssue{biomeID, "relief",
 			fmt.Sprintf("объявленный профиль на %.0f px выше запаса вертикали чанка (%.0f px) — увеличьте relief.scale",
 				viewBaseY-viewChunkTopMargin+viewTopSafety-top, viewChunkTopMargin)})
+	}
+	// Бюджет низа (Э5 §3.3, зеркало): вычитающие формы не уводят пол ниже растра.
+	// Граница — фактический низ растра с запасом (`baseY + CHUNK_HEIGHT −
+	// CHUNK_TOP_MARGIN − viewTopSafety` = baseY + 476), её и печатаем в сообщении.
+	bottomLimit := viewBaseY + viewChunkHeight - viewChunkTopMargin - viewTopSafety
+	if bottom, ok := declaredReliefBottom(view); ok && bottom > bottomLimit {
+		errs = append(errs, ViewIssue{biomeID, "relief",
+			fmt.Sprintf("объявленный пол на %.0f px ниже низа растра чанка (%.0f px) — уменьшите глубину вычитающих форм",
+				bottom-bottomLimit, bottomLimit)})
 	}
 	return errs, warns
 }

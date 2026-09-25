@@ -405,7 +405,9 @@ function horizonY(world, camera, vh) {
 }
 
 function groundY(world, wx, camera, vh) {
-    return world.terrainHeight(wx) - camera.y + vh / 2;
+    // Якорь приземных эффектов — `skyTop` (§5 п.12): «поверхность неба» (низ
+    // плиты/вал/верх свода) — осадки ложатся на кровлю, внутрь полости не сыплются.
+    return world.skyTop(wx) - camera.y + vh / 2;
 }
 
 function slantDir(p) {
@@ -492,8 +494,8 @@ function drawStreaks(ctx, world, camera, p, belt, beltIndex, tSec, win) {
     }
 }
 
-// drawClumps — рваные клочья тумана: привязка к земле по terrainHeight (§5.1 п.6),
-// в горах выше (смещение к склону), марево — к линии горизонта.
+// drawClumps — рваные клочья тумана: привязка к «поверхности неба» skyTop (§5.1
+// п.6/§5 п.12), в горах выше (смещение к склону), марево — к линии горизонта.
 function drawClumps(ctx, world, camera, vw, vh, p, belt, beltIndex, tSec) {
     const S = belt.tile, par = belt.parallax;
     const wind = windOffset(p, tSec);
@@ -515,7 +517,7 @@ function drawClumps(ctx, world, camera, vw, vh, p, belt, beltIndex, tSec) {
             const sx = sx0 + kx * S;
             let cy;
             if (p.horizon) cy = hy + (hg - 0.5) * 2 * (p.jitter || 2);
-            else cy = world.terrainHeight(sx - vw / 2 + camera.x) + groundOff + (hg - 0.5) * 20;
+            else cy = world.skyTop(sx - vw / 2 + camera.x) + groundOff + (hg - 0.5) * 20;
             drawClump(ctx, sx, cy, w, h, col, alpha);
         }
     }
@@ -552,7 +554,8 @@ function drawBelt(ctx, world, camera, p, belt, beltIndex, tSec, vw, vh) {
 }
 
 // ==================== ПРИЗЕМНЫЕ ЭФФЕКТЫ (§5.1 п.6, §6.3) ====================
-// Всё считается по world.terrainHeight(wx) — экранный Y для земли запрещён.
+// Всё считается по world.skyTop(wx) — экранный Y для земли запрещён, а якорь —
+// «поверхность неба» (§5 п.12): на биомах со сводом осадки ложатся на кровлю.
 
 function snowGround(ctx, world, camera, vw, vh, p, tSec) {
     const win = viewWindow(vw, vh);
@@ -560,7 +563,7 @@ function snowGround(ctx, world, camera, vw, vh, p, tSec) {
     const col = particleRgb(p);
     const step = 16;
     const alpha = lerp(p.ground.alpha[0], p.ground.alpha[1], 0.5);
-    // Позёмка — низкие штрихи вдоль terrainHeight.
+    // Позёмка — низкие штрихи вдоль «поверхности неба» (skyTop, §5 п.12).
     ctx.strokeStyle = rgbaCss(col, alpha);
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -578,7 +581,7 @@ function snowGround(ctx, world, camera, vw, vh, p, tSec) {
     ctx.fillStyle = rgbaCss(col, alpha * 0.8);
     for (let sx = win.x0; sx <= win.x1; sx += 24) {
         const wx = sx - vw / 2 + camera.x;
-        const th0 = world.terrainHeight(wx - 10), th1 = world.terrainHeight(wx), th2 = world.terrainHeight(wx + 10);
+        const th0 = world.skyTop(wx - 10), th1 = world.skyTop(wx), th2 = world.skyTop(wx + 10);
         if (th1 <= th0 && th1 <= th2) {
             const gy = th1 - camera.y + vh / 2;
             ctx.beginPath();
@@ -608,7 +611,7 @@ function dustGround(ctx, world, camera, vw, vh, p, tSec) {
     const win = viewWindow(vw, vh);
     const col = particleRgb(p);
     const alpha = lerp(p.ground.alpha[0], p.ground.alpha[1], 0.5);
-    // «Юбка» песка — плотная полоса вдоль terrainHeight.
+    // «Юбка» песка — плотная полоса вдоль skyTop (§5 п.12).
     ctx.strokeStyle = rgbaCss(col, alpha);
     ctx.lineWidth = 22;
     ctx.lineCap = 'round';

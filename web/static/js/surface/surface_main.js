@@ -235,6 +235,9 @@ async function boot() {
     state.world = new SurfaceWorld(state.pkg);
     state.player = new Player(state.world, state.pkg.gravity);
     state.env = new SurfaceEnvironment(state.pkg);
+    // e2e-снимки прогулки (tools/e2e/surface-walk-field-check.js, W7): поле и
+    // игрок — для проверки реального входа под свод/в грот. Как `__beltWorld`.
+    window.__surface = state;
 
     const canvas = document.getElementById('surface-canvas');
     resize(canvas);

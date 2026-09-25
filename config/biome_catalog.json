@@ -54,6 +54,10 @@
       "view": {
         "family": "скальные пустоши",
         "relief": {
+          "caves": 0.3,
+          "forms": [
+            { "prim": "crater", "perRegion": 1, "d": [250, 500], "depth": [40, 80], "rim": [10, 22], "wallDeg": [26, 34], "talus": [0.5, 0.9] }
+          ],
           "layers": [
             { "prim": "crest", "lambda": [340, 760], "amp": [40, 100], "sharpness": 0.55, "share": 1.0 },
             { "prim": "carve", "lambda": [400, 900], "depth": [50, 130], "w": [90, 200], "rim": 0.35, "shape": "U", "share": 0.8 },
@@ -395,6 +399,9 @@
       "view": {
         "family": "лавовые",
         "relief": {
+          "forms": [
+            { "prim": "void", "shape": "tube", "open": true, "perRegion": 2, "w": [70, 140], "depth": [50, 110] }
+          ],
           "layers": [
             { "prim": "flow", "len": [220, 520], "w": [90, 240], "lobes": [2, 4], "slope": 0.35, "levees": 0.25, "share": 0.9 },
             { "prim": "dome", "lambda": [180, 400], "amp": [30, 70], "squash": 1.6, "share": 1.0 },
@@ -545,6 +552,9 @@
         "family": "лавовые",
         "relief": {
           "ridge": 0.6, "flatten": 0.5, "offset": 0, "caves": 0.2, "float": false,
+          "forms": [
+            { "prim": "void", "shape": "tube", "open": true, "perRegion": 2, "w": [70, 140], "depth": [50, 110] }
+          ],
           "layers": [
             { "prim": "step", "stepH": [16, 40], "stepW": [180, 420], "jitter": 0.25, "share": 1.0 },
             { "prim": "flow", "len": [260, 620], "w": [100, 260], "lobes": [2, 5], "slope": 0.25, "share": 0.8 },
@@ -2059,6 +2069,10 @@
         "family": "экзотика",
         "relief": {
           "ridge": 0.8, "flatten": 0.3, "offset": -40, "caves": 0.8, "float": true,
+          "forms": [
+            { "prim": "overhang", "arch": 1, "perRegion": 2, "w": [90, 150], "h": [26, 50], "opening": [70, 120], "taper": [0.3, 0.55], "dir": 1 },
+            { "prim": "void", "shape": "grotto", "open": true, "perRegion": 2, "w": [80, 150], "depth": [24, 60] }
+          ],
           "layers": [
             { "prim": "crest", "lambda": [280, 640], "amp": [50, 130], "sharpness": 0.65, "share": 1.0 },
             { "prim": "spike", "perRegion": [4, 10], "h": [60, 160], "w": [16, 44], "taper": 0.25, "cluster": true },

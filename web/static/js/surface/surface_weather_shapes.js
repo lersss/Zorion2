@@ -40,7 +40,9 @@ function horizonY(world, camera, vh) {
 }
 
 function groundY(world, wx, camera, vh) {
-    return world.terrainHeight(wx) - camera.y + vh / 2;
+    // Якорь приземных эффектов — `skyTop` (§5 п.12): «поверхность неба» (низ
+    // плиты/вал/верх свода) — осадки ложатся на кровлю, внутрь полости не сыплются.
+    return world.skyTop(wx) - camera.y + vh / 2;
 }
 
 // windOffset — тот же снос, что у базовых поясов (§5.1 п.5 пакета 1): интеграл
@@ -361,7 +363,7 @@ export function drawPelletGround(ctx, world, camera, vw, vh, p) {
         const hp = hash1(i, (seed ^ (0x6a17 ^ 0x1234)) >>> 0);
         const x = win.x0 + h * (win.x1 - win.x0);
         const wx = x - vw / 2 + camera.x;
-        const th0 = world.terrainHeight(wx - 8), th1 = world.terrainHeight(wx), th2 = world.terrainHeight(wx + 8);
+        const th0 = world.skyTop(wx - 8), th1 = world.skyTop(wx), th2 = world.skyTop(wx + 8);
         if (!(th1 <= th0 && th1 <= th2)) continue;
         const gy = th1 - camera.y + vh / 2;
         const size = rnd(G.size, hp);
@@ -419,7 +421,8 @@ export function drawAsh(ctx, world, camera, vw, vh, p, belt, beltIndex, tSec, wi
     }
 }
 
-// drawAshGround — тёмный налёт/полоса у terrainHeight; у «влажного» — потёки.
+// drawAshGround — тёмный налёт/полоса у «поверхности неба» skyTop (§5 п.12);
+// у «влажного» — потёки.
 export function drawAshGround(ctx, world, camera, vw, vh, p) {
     const A = p.ash;
     if (!A || !A.groundBand) return;
@@ -431,7 +434,7 @@ export function drawAshGround(ctx, world, camera, vw, vh, p) {
     for (let sx = win.x0; sx <= win.x1; sx += step) {
         const wx = sx - vw / 2 + camera.x;
         const h0 = hash1(Math.floor(wx / step), (seed ^ 0x4a11) >>> 0);
-        const gy = world.terrainHeight(wx) - camera.y + vh / 2;
+        const gy = world.skyTop(wx) - camera.y + vh / 2;
         const h = rnd(band.h, h0);
         ctx.fillStyle = rgbaCss(col, rnd(band.alpha, h0));
         ctx.fillRect(sx, gy - h * 0.4, step + 1, h);
@@ -443,7 +446,7 @@ export function drawAshGround(ctx, world, camera, vw, vh, p) {
             const wx = sx - vw / 2 + camera.x;
             const h0 = hash1(Math.floor(wx / step), (seed ^ 0x7e11) >>> 0);
             if (h0 < 0.5) continue;
-            const gy = world.terrainHeight(wx) - camera.y + vh / 2;
+            const gy = world.skyTop(wx) - camera.y + vh / 2;
             ctx.beginPath();
             ctx.moveTo(sx, gy - 2);
             ctx.lineTo(sx + (h0 - 0.5) * 6, gy + 10 + h0 * 18);

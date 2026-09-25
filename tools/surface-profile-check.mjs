@@ -8,7 +8,8 @@
 //  - P6 детерминизм (два прогона — одинаково);
 //  - P7 фолбэк без рецепта (FORMATIONS, физика = отрисовка);
 //  - P8 знак слоя, P9 низ растра, F1–F6/R1 расширение движка ЧК3;
-//  - P10 формы Э5.2: верх твёрдого с формами (арки/нависания) в бюджете растра.
+//  - P10/P11 формы Э5.2/Э5.3: верх (арки/нависания/свод/вал) и НИЗ (пол вычитающих
+//    форм — гроты/трубки/впадины crater) твёрдого в бюджете растра (две стороны).
 // Run: node tools/surface-profile-check.mjs
 import { readFileSync } from 'node:fs';
 import { SurfaceWorld, primHeight, hash1 } from '../web/static/js/surface/surface_world.js';
@@ -211,14 +212,14 @@ const MAX_OK = RASTER_BOTTOM - 24;                         // 776
     check(`P9 низ растра: fallback-рельеф ≤ ${MAX_OK}`, gMax <= MAX_OK, `max=${gMax.toFixed(0)} (${who})`);
 }
 
-// P10 — формы Э5.2 (§3.5/§5 п.6): верх твёрдого С ФОРМАМИ (арки/нависания)
-// не выходит за верх растра. Формы — абсолютные px, в бюджет входят суммой
-// (`declaredReliefTop` на сервере; `relief.scale` к формам не применяется).
-// Верх твёрдого = min(профиль отрисовки, «поверхность неба» skyTop).
+// P10 — формы Э5.2/Э5.3 (§3.5/§3.6/§5 п.6): верх твёрдого С ФОРМАМИ (арки/нависания,
+// плита-свод, вал crater) не выходит за верх растра. Формы — абсолютные px, в бюджет
+// входят суммой (`declaredReliefTop` на сервере; `relief.scale` к формам не
+// применяется). Верх твёрдого = min(профиль отрисовки, «поверхность неба» skyTop).
 {
     const FORM_TOP_OK = BASEY - TOP_MARGIN + 24;   // −876 (верх растра с запасом)
     const SEEDS = [1, 7, 42, 1337, 424242, 987654, 20260923, 55555];
-    for (const id of ['горы', 'каменные_пустоши']) {
+    for (const id of ['горы', 'каменные_пустоши', 'пещерный_мир_с_потолком', 'лавовые_поля', 'магмовый_океан', 'кратеры']) {
         let min = Infinity, minAt = 0, minSeed = 0;
         for (const seed of SEEDS) {
             const w = mkWorld(id, { seed });
@@ -229,6 +230,27 @@ const MAX_OK = RASTER_BOTTOM - 24;                         // 776
         }
         check(`P10 T-budget форм ${id} (верх твёрдого ≥ ${FORM_TOP_OK})`, min >= FORM_TOP_OK,
             `top=${min.toFixed(0)}@${minAt}/s${minSeed}`);
+    }
+}
+
+// P11 — НИЗ бюджета с формами Э5.3 (§3.3/§5 п.6): вычитающие формы (`void`,
+// впадина `crater`) опускают ПОЛ ниже `terrainHeight`; пол не выходит за низ растра
+// (`baseY + 476`). Зеркало P10 (верх): замер по `floorY` — реальный пол/опора, а не
+// объявленная сумма. Аддитивные формы вниз не опускают.
+{
+    const FORM_BOTTOM_OK = RASTER_BOTTOM - 24;   // 776 (низ растра с запасом)
+    const SEEDS = [1, 7, 42, 1337, 424242, 987654, 20260923, 55555];
+    for (const id of ['пещерный_мир_с_потолком', 'лавовые_поля', 'магмовый_океан', 'кратеры']) {
+        let max = -Infinity, maxAt = 0, maxSeed = 0;
+        for (const seed of SEEDS) {
+            const w = mkWorld(id, { seed });
+            for (let x = -40000; x <= 40000; x += 5) {
+                const y = w.floorY(x);
+                if (y > max) { max = y; maxAt = x; maxSeed = seed; }
+            }
+        }
+        check(`P11 T-budget низа ${id} (пол ≤ ${FORM_BOTTOM_OK})`, max <= FORM_BOTTOM_OK,
+            `floor=${max.toFixed(0)}@${maxAt}/s${maxSeed}`);
     }
 }
 

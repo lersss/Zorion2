@@ -633,6 +633,121 @@ func TestBiomeViewExoticResolve(t *testing.T) {
 	assert.Equal(t, true, relief["float"], "пещера: float true (заготовка свода)")
 }
 
+// ==================== 2D-ФОРМЫ Э5.3 — ГРОТЫ И СВОДЫ (§3.4/§3.6) ====================
+
+// TestBiomeViewSculptFormsResolve — дельты Э5.3 (`пещерный_мир_с_потолком`,
+// `лавовые_поля`, `магмовый_океан`, `кратеры`) резолвятся, `relief.forms[].prim` —
+// вид `relief2d`, бюджет вертикали С ДВУХ СТОРОН проходит (верх — сумма аддитивных,
+// низ — сумма глубин вычитающих), сплошной `float`-потолок сохранён, а битый `forms`
+// уводит РОВНО один биом в фолбэк (нефатально, §3.3/§B.1.3).
+func TestBiomeViewSculptFormsResolve(t *testing.T) {
+	cat := GetBiomeCatalog()
+	kinds := cat.primKindIndex()
+	topOK := viewBaseY - viewChunkTopMargin + viewTopSafety
+	bottomOK := viewBaseY + viewChunkHeight - viewChunkTopMargin - viewTopSafety
+
+	for _, id := range []string{"пещерный_мир_с_потолком", "лавовые_поля", "магмовый_океан", "кратеры"} {
+		view, source := cat.ResolveBiomeView(id)
+		require.Equal(t, "catalog", source, "биом %q: рецепт с формами обязан резолвиться", id)
+		relief, ok := view["relief"].(map[string]any)
+		require.True(t, ok, "%q: relief", id)
+		forms := asMapList(relief["forms"])
+		require.NotEmpty(t, forms, "%q: relief.forms (Э5.3, §3.6)", id)
+		for i, f := range forms {
+			prim, _ := f["prim"].(string)
+			assert.Equal(t, "relief2d", kinds[prim], "%q: forms[%d].prim=%q — 2D-форма (§3.1)", id, i, prim)
+		}
+		top, ok := declaredReliefTop(view)
+		require.True(t, ok)
+		assert.GreaterOrEqual(t, top, topOK, "%q: верх твёрдого в бюджете (top=%.1f)", id, top)
+		bottom, ok := declaredReliefBottom(view)
+		require.True(t, ok)
+		assert.LessOrEqual(t, bottom, bottomOK, "%q: низ твёрдого в бюджете (bottom=%.1f)", id, bottom)
+	}
+
+	// Целевые операторы: свод+ниша у пещерного мира, трубки у лавы/магмы, чаша у кратеров.
+	cave, _ := cat.ResolveBiomeView("пещерный_мир_с_потолком")
+	relief, _ := cave["relief"].(map[string]any)
+	assert.Equal(t, true, relief["float"], "пещерный мир: сплошной float-потолок сохранён (§3.4)")
+	assert.NotNil(t, formByPrim(cave, "overhang", 1), "пещерный мир: плита-свод overhang arch=1")
+	assert.NotNil(t, formByPrim(cave, "void", 0), "пещерный мир: неглубокая ниша void")
+
+	for _, id := range []string{"лавовые_поля", "магмовый_океан"} {
+		v, _ := cat.ResolveBiomeView(id)
+		assert.NotNil(t, formByPrim(v, "void", 0), "%q: лавовая трубка void (Э5.3)", id)
+	}
+	cr, _ := cat.ResolveBiomeView("кратеры")
+	assert.NotNil(t, formByPrim(cr, "crater", 0), "кратеры: кольцевая чаша crater")
+
+	// Битый forms (relief1d вместо relief2d) — ровно один биом в фолбэк.
+	mut := *cat
+	mut.Biomes = append([]BiomeDef{}, cat.Biomes...)
+	bi := -1
+	for i := range mut.Biomes {
+		if mut.Biomes[i].ID == "кратеры" {
+			bi = i
+			break
+		}
+	}
+	require.GreaterOrEqual(t, bi, 0)
+	mut.Biomes[bi].View = map[string]any{
+		"family": "скальные пустоши",
+		"relief": map[string]any{"forms": []any{map[string]any{"prim": "wave"}}},
+	}
+	_, source := mut.ResolveBiomeView("кратеры")
+	assert.Equal(t, "fallback", source, "битый forms уводит биом в фолбэк (§3.3)")
+	other, sOther := mut.ResolveBiomeView("лавовые_поля")
+	require.Equal(t, "catalog", sOther, "битый forms не каскадит на соседний биом")
+	require.NotNil(t, other)
+}
+
+// TestBiomeViewDeclaredReliefBottom — низ бюджета (§3.3): сумма глубин вычитающих
+// форм (`void.depth`, впадина `crater.depth`) поверх `baseY + offset`; аддитивные
+// (`overhang`, `crater.rim`) и косметический `crack2d` вниз не опускают; дефолты
+// клиента (void.depth 40, crater.depth 60) учтены forward-compat; превышение низа
+// уводит биом в фолбэк.
+func TestBiomeViewDeclaredReliefBottom(t *testing.T) {
+	view := map[string]any{"relief": map[string]any{
+		"offset": float64(10),
+		"forms": []any{
+			map[string]any{"prim": "void", "depth": []any{float64(50), float64(110)}},
+			map[string]any{"prim": "crater", "depth": []any{float64(60), float64(140)}, "rim": float64(34)},
+			map[string]any{"prim": "overhang", "arch": float64(1), "h": float64(30), "opening": float64(80)},
+			map[string]any{"prim": "crack2d", "depth": float64(300)},
+		},
+	}}
+	bottom, ok := declaredReliefBottom(view)
+	require.True(t, ok)
+	// 300 + 10 + 110 + 140 = 560 (overhang/crack2d вниз не опускают).
+	assert.InDelta(t, viewBaseY+10+110+140, bottom, 1e-9, "низ = baseY + offset + Σ глубин вычитающих")
+
+	// Дефолты клиента: void без depth → 40, crater без depth → 60.
+	def := map[string]any{"relief": map[string]any{
+		"forms": []any{map[string]any{"prim": "void"}, map[string]any{"prim": "crater"}},
+	}}
+	db, ok := declaredReliefBottom(def)
+	require.True(t, ok)
+	assert.InDelta(t, viewBaseY+40+60, db, 1e-9, "void.depth 40, crater.depth 60 (дефолты клиента)")
+
+	// Превышение низа — ошибка вида, биом в фолбэк.
+	cat := *GetBiomeCatalog()
+	cat.Biomes = append([]BiomeDef{}, cat.Biomes...)
+	cat.Biomes[0].ID = "бездонный_колодец"
+	cat.Biomes[0].View = map[string]any{
+		"relief": map[string]any{"forms": []any{map[string]any{"prim": "void", "depth": float64(9000)}}},
+	}
+	_, source := cat.ResolveBiomeView("бездонный_колодец")
+	assert.Equal(t, "fallback", source, "пол ниже растра → фолбэк биома (§3.3)")
+	d := cat.ViewDiagnostics()
+	found := false
+	for _, e := range d.Errors {
+		if e.Biome == "бездонный_колодец" && e.Field == "relief" {
+			found = true
+		}
+	}
+	assert.True(t, found, "превышение низа названо полем relief")
+}
+
 // decorByPrim — первая запись decor[] с данным prim (nil, если нет).
 func decorByPrim(view map[string]any, prim string) map[string]any {
 	for _, d := range asMapList(view["decor"]) {

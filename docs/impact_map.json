@@ -1,7 +1,7 @@
 {
   "_comment": "Реестр каскадных влияний Zorion. Вопрос: «меняем X → смотрим на Y». Ведёт @manager при сдаче фич (идея 83a): дедупликация по entity.id, schema_version растёт только при изменении структуры, updated_at — дата правки. Сущность заводится при ≥2 потребителях или ≥2 влияниях.",
   "schema_version": 1,
-  "updated_at": "2026-09-25",
+  "updated_at": "2026-09-26",
   "entities": [
     {
       "id": "deposits",
@@ -300,7 +300,8 @@
         { "on": "internal/handlers/planet_handler.go", "kind": "reads", "reason": "режимы presence/snapshot/scan, ленивый скан, флаг can_buy_report" },
         { "on": "internal/models/knowledge.go", "kind": "duplicates", "reason": "поля mode/snapshot_at/snapshot_fresh и контракт data.snapshot (спека 2026-09-23 §5.2)" },
         { "on": "planet_knowledge_snapshot", "kind": "affects", "reason": "снимок живёт полем data.snapshot этой записи (одна строка на игрок × планета)" },
-        { "on": "docs/specs/2026-09-23-орбита-планеты-присутствие-и-снимок.md", "kind": "docs", "reason": "спека-источник §3.3/§8.2 (реализована, коммит 86c620c)" }
+        { "on": "docs/specs/2026-09-23-орбита-планеты-присутствие-и-снимок.md", "kind": "docs", "reason": "спека-источник §3.3/§8.2 (реализована, коммит 86c620c)" },
+        { "on": "player_property", "kind": "reads", "reason": "новый пакетный потребитель знания (режим строки вкладки собственности): смена формата data/snapshot меняет плашку знания" }
       ]
     },
     {
@@ -1195,7 +1196,8 @@
         { "on": "web/static/js/modal/tabs.js", "kind": "reads", "reason": "вкладка «Фракции» карточки планеты: список фракций + строка столицы + клик-раскрытие владельца" },
         { "on": "migrations/000056_create_buildings.sql", "kind": "writes", "reason": "создание таблицы buildings и двух индексов" },
         { "on": "docs/DB.md", "kind": "docs", "reason": "таблица buildings, миграция 000056 — дельта при сдаче" },
-        { "on": "docs/specs/2026-09-21-фабрики-релиз-2-столицы-фракций.md", "kind": "duplicates", "reason": "спека-источник: модель §2, генерация §3, показ §4, видимость §5" }
+        { "on": "docs/specs/2026-09-21-фабрики-релиз-2-столицы-фракций.md", "kind": "duplicates", "reason": "спека-источник: модель §2, генерация §3, показ §4, видимость §5" },
+        { "on": "player_property", "kind": "reads", "reason": "новый потребитель выдачи «мои строения» (GET /me/property, спека собственности 2026-09-26): смена схемы/семантики owner_type/owner_id меняет список собственности" }
       ]
     },
     {
@@ -1254,7 +1256,8 @@
         { "on": "needs_layer", "kind": "affects", "reason": "спрос/дефицит не меняется — владелец на потребление не влияет" },
         { "on": "money_account", "kind": "affects", "reason": "владелец = кандидат в плательщики контрактов (задел ЧК2)" },
         { "on": "docs/gamedesign/13_settlements.md", "kind": "duplicates", "reason": "§13.2/§13.4 — канон владельца (уже верен; §13.4 «владелец не кормит напрямую» уточнён)" },
-        { "on": "docs/specs/2026-09-23-контракт-ленивая-доска-пакет-и-снабжение.md", "kind": "duplicates", "reason": "§5.2 «у поселения нет владельца-плательщика» — правится (ЧК2)" }
+        { "on": "docs/specs/2026-09-23-контракт-ленивая-доска-пакет-и-снабжение.md", "kind": "duplicates", "reason": "§5.2 «у поселения нет владельца-плательщика» — правится (ЧК2)" },
+        { "on": "player_property", "kind": "affects", "reason": "новый потребитель владельца-игрока (вкладка «Собственность»); расширение типов владения расширит выдачу" }
       ]
     },
     {
@@ -1782,7 +1785,8 @@
         { "on": "internal/handlers/planet_handler.go", "kind": "reads", "reason": "режим присутствия, ленивый скан, флаг can_buy_report" },
         { "on": "web/static/js/modal/tabs.js", "kind": "reads", "reason": "плашки знания (§6.1), дата снимка, управление «купить отчёт»" },
         { "on": "internal/models/knowledge.go", "kind": "duplicates", "reason": "поля mode/snapshot_at/snapshot_fresh — контракт выдачи снимка" },
-        { "on": "docs/specs/2026-09-23-орбита-планеты-присутствие-и-снимок.md", "kind": "docs", "reason": "спека-источник §3 (реализована, коммит 86c620c)" }
+        { "on": "docs/specs/2026-09-23-орбита-планеты-присутствие-и-снимок.md", "kind": "docs", "reason": "спека-источник §3 (реализована, коммит 86c620c)" },
+        { "on": "player_property", "kind": "reads", "reason": "новый потребитель режима snapshot (плашка «Данные на <дата>» в списке собственности)" }
       ]
     },
     {
@@ -2162,6 +2166,48 @@
       "note": "Журнал движения по счетам (000061): owner_type/owner_id, delta, balance_after, kind, contract_id. Долг реестра С8 закрыт.",
       "impacts": [
         { "on": "accounts", "kind": "reads", "reason": "balance_after — после операции" }
+      ]
+    },
+    {
+      "id": "player_property",
+      "type": "mechanic",
+      "path": "internal/handlers/property_handlers.go",
+      "note": "Список собственности игрока в дашборде (спека docs/specs/2026-09-26-собственность-игрока-в-дашборде.md, ЧК1+ЧК2, коммит 65d6e8c): read-модель GET /me/property — поселения и строения с owner_type='player' по owner_id из JWT, пакетно (без per-planet резолва видимости), имена планеты/системы, пакетное чтение знания (режим presence/snapshot/scan/none) в property_repository.go. Миграция 000090 — обычный индекс idx_buildings_owner. Новых сущностей владения нет.",
+      "impacts": [
+        { "on": "settlements", "kind": "reads", "reason": "«мои поселения»: owner_type='player' AND owner_id=<id из JWT>" },
+        { "on": "buildings", "kind": "reads", "reason": "«мои строения»: owner_type='player' AND owner_id=<id из JWT>" },
+        { "on": "structure_ownership", "kind": "affects", "reason": "читает владельца-игрока; расширение типов владения расширит выдачу" },
+        { "on": "player_planet_knowledge", "kind": "reads", "reason": "режим строки (presence/snapshot/scan/none) — пакетное чтение в property_repository.go" },
+        { "on": "planet_knowledge_snapshot", "kind": "reads", "reason": "замороженный снимок даёт режим snapshot и дату в плашке" },
+        { "on": "db:planets", "kind": "reads", "reason": "имя планеты для адреса строки" },
+        { "on": "db:worlds", "kind": "reads", "reason": "имя системы для адреса строки" },
+        { "on": "docs/specs/2026-09-26-собственность-игрока-в-дашборде.md", "kind": "duplicates", "reason": "спека-источник §4–§5 (реализована ЧК1+ЧК2, коммит 65d6e8c)" }
+      ]
+    },
+    {
+      "id": "property_ui",
+      "type": "mechanic",
+      "path": "web/static/js/dashboard/property.js",
+      "note": "Вкладка «🏠 Собственность» дашборда (спека docs/specs/2026-09-26-собственность-игрока-в-дашборде.md, ЧК1+ЧК2, коммит 65d6e8c): список единиц собственности (kind settlement/building, серверные name/subtitle, адрес world/planet, плашка знания) + кнопки «Посмотреть» (ЧК1) и «Перелететь» (ЧК2, стык &fly=1). Гейт по двигателю — hasEngineFromMe по /me. Тонкий HTML (index.html ~908 строк — разметку не растит), модуль Node-безопасен.",
+      "impacts": [
+        { "on": "player_property", "kind": "reads", "reason": "единственный источник — GET /me/property" },
+        { "on": "dashboard_map_deeplink", "kind": "affects", "reason": "«Посмотреть»/«Перелететь» ведут на /map?...&fly=1" },
+        { "on": "money_ui", "kind": "duplicates", "reason": "образец модуля вкладки дашборда (Node-безопасные хелперы + init)" }
+      ]
+    },
+    {
+      "id": "dashboard_map_deeplink",
+      "type": "mechanic",
+      "path": "web/static/js/map/deeplink.js",
+      "note": "Стык «дашборд → карта» (спека docs/specs/2026-09-26-собственность-игрока-в-дашборде.md §3/§7.2, ЧК1+ЧК2, коммит 65d6e8c): по /map?system=&planet=&wname= карта открывает попап системы; явный intent подавляет отложенные авто-открыватели (compositeRoute/beltReturn) и чистит маркеры; URL затирается (replaceState). Без статических импортов (тяжёлый граф карты/модалки — динамически). ЧК2: &fly=1 доводит до планеты существующей обёрткой flyToPlanet после готовности попапа (флаг meLoaded).",
+      "impacts": [
+        { "on": "web/static/js/modal/index.js", "kind": "affects", "reason": "openSystemModal по URL-параметру — новый вход у попапа; смена его контракта/флагов ломает deeplink" },
+        { "on": "web/static/js/modal/events.js", "kind": "affects", "reason": "запуск маршрута через общий хелпер flyToPlanet (startIntraFlight/startCompositeFlight)" },
+        { "on": "99.2.30", "kind": "affects", "reason": "композитный маршрут: /travel + destination-планета (сценарий «Перелететь» из чужой системы)" },
+        { "on": "99.2.27", "kind": "affects", "reason": "внутрисистемный старт (своя система) через тот же хелпер" },
+        { "on": "IntrasystemManager", "kind": "affects", "reason": "серверная сторона внутрисистемного полёта при fly=1" },
+        { "on": "web/static/js/map/config.js", "kind": "reads", "reason": "кэш миров карты (state.worlds) — разрешение мира и starInfo попапа" },
+        { "on": "property_ui", "kind": "affects", "reason": "обратный ход: изменение контракта стыка ломает кнопки вкладки собственности" }
       ]
     }
   ]

@@ -411,7 +411,9 @@ ClearUniverse его не трогает.
   + владелец-фракция, спека `2026-09-21-фабрики-релиз-2-столицы-фракций` §2,
   2026-09-21): `id`/`planet_id` FK CASCADE/`building_type`/
   `owner_type`+`owner_id` NOT NULL/`created_at`/`updated_at`; индексы
-  `idx_buildings_planet_id` и частичный UNIQUE на столицу фракции. `buildings`
+  `idx_buildings_planet_id` и частичный UNIQUE на столицу фракции; позже
+  добавлен обычный `idx_buildings_owner` `(owner_type, owner_id)` (`000090`).
+  `buildings`
   добавлена в `truncateTables` (`admin_universe.go`) — иначе `TRUNCATE`
   падает на FK `buildings → planets`. Номер `000056`: `000055` занята
   рецептами студии (спека `2026-09-21-рецепт-сущность-и-граф-фабрики` §3);
@@ -654,6 +656,13 @@ ClearUniverse его не трогает.
   `000062` — `contracts_author_type_check` (inline); правится
   `DROP CONSTRAINT IF EXISTS` + `ADD CONSTRAINT` — идемпотентно.
   `direct_target_type` не расширяется (M6).
+- `000090` — `000090_buildings_owner_index.sql` — индекс владельца строений под
+  вкладку «Собственность игрока» (спека
+  `2026-09-26-собственность-игрока-в-дашборде` §4.4, ЧК1): **обычный** индекс
+  `idx_buildings_owner (owner_type, owner_id)` — без частичного предиката:
+  `buildings.owner_id` `NOT NULL` (`000056`), `WHERE owner_id IS NOT NULL`
+  вырожден; частичный `idx_settlements_owner` (`000082`) осмыслен, т.к. там
+  `owner_id` nullable. Идемпотентно (`CREATE INDEX IF NOT EXISTS`).
 - Миграции, вступающие в силу на старте, требуют перезапуска сервера
   (`AGENTS.md` §4 п.13).
 - `VACUUM` внутрь миграции не положить — не работает внутри транзакции

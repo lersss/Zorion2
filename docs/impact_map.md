@@ -1,6 +1,6 @@
 # Реестр каскадных влияний — индекс
 
-> Компактный обзор docs/impact_map.json (126 сущностей, ~760 связей, ~162 КБ — целиком НЕ читать). Вопрос реестра: «меняем X → смотрим на Y». Ведёт @manager при сдаче фич (идея 83a); валидатор — scripts/check_impact_map.ps1 после каждого коммита.
+> Компактный обзор docs/impact_map.json (147 сущностей, ~1030 связей, ~348 КБ — целиком НЕ читать). Вопрос реестра: «меняем X → смотрим на Y». Ведёт @manager при сдаче фич (идея 83a); валидатор — scripts/check_impact_map.ps1 после каждого коммита.
 
 **Как читать:** нужна сущность — ищи её id/path в docs/impact_map.json через grep (одна сущность + её impacts[], ~1–3 КБ), целиком json не читай. Связанные сущности — по on-ссылкам (id или путь).
 
@@ -88,3 +88,6 @@
 | surface_weather | docs/specs/2026-09-22-погода-поверхности-вид-и-физика.md | погода прогулки (2026-09-22, daafb02/0115e25): 11 явлений + 6 вариантов, выбор из осей планеты, три прохода + эмиссивный |
 | surface_environment | docs/specs/2026-09-22-второй-пакет-погоды-поверхности.md | слой среды прогулки — сутки/светило/звёзды (2026-09-22, 0115e25): цикл f(seed,elapsed), lightMul, три прохода |
 | biome_catalog_seed.json | internal/generator/planet/biome_catalog_seed.json | заводской сид справочника биомов (go:embed): старт store и «Сбросить к заводским»; обязан быть синхронен config/biome_catalog.json (TestBiomeViewSeedSync) |
+| player_property | internal/handlers/property_handlers.go | список собственности игрока в дашборде (спека 2026-09-26-собственность-игрока-в-дашборде, ЧК1+ЧК2, коммит 65d6e8c): read-модель GET /me/property — поселения и строения owner_type='player' по owner_id из JWT, пакетно (без per-planet резолва видимости); имена планеты/системы; пакетное чтение знания (presence/snapshot/scan/none); миграция 000090 — индекс idx_buildings_owner |
+| property_ui | web/static/js/dashboard/property.js | вкладка «🏠 Собственность» дашборда (спека 2026-09-26, ЧК1+ЧК2, коммит 65d6e8c): список единиц + «Посмотреть» (ЧК1) и «Перелететь» (стык &fly=1, ЧК2); гейт по двигателю — hasEngineFromMe по /me; тонкий HTML (index.html ~908 строк не растёт), модуль Node-безопасен |
+| dashboard_map_deeplink | web/static/js/map/deeplink.js | стык «дашборд → карта» (спека 2026-09-26 §3/§7.2, ЧК1+ЧК2, коммит 65d6e8c): /map?system=&planet= открывает попап системы; явный intent подавляет авто-открыватели (compositeRoute/beltReturn) и чистит URL; &fly=1 доводит до планеты хелпером flyToPlanet после готовности попапа (флаг meLoaded); без статических импортов |

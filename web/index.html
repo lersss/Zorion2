@@ -171,6 +171,10 @@
                         <div class="ship-slot" id="slot-universal" style="top:22%; left:16%; display:none;"></div>
                         <div class="ship-slot" id="slot-universal2" style="top:46%; left:84%; display:none;"></div>
                         <div class="ship-slot" id="slot-universal3" style="top:70%; left:16%; display:none;"></div>
+                        <!-- Слот «Ускоритель» (ЧК3, спека ускорителя §4.4): верх-право,
+                             свободное место (радар — центр-нос, универсальные — борта).
+                             Скрыт, пока модуль не установлен — «не установлен» не показываем. -->
+                        <div class="ship-slot" id="slot-accelerator" style="top:6%; left:84%; display:none;"></div>
                     </div>
                     <div id="ship-section-stats"></div>
                 </div>
@@ -374,6 +378,61 @@
             }
         }
 
+        // ==================== ЯЧЕЙКА «УСКОРИТЕЛЬ» (ЧК3, спека ускорителя §4.4) ====================
+        // Крупный индикатор состояния: «Готов» / «Ускорение действует» /
+        // «Откат mm:ss». Источники: /me.ship_catalog (имя/параметры модуля) +
+        // /me.accelerator (active/ready, применённый cooldown_min). Досчёт
+        // отката — локальный, от cooldown_remaining_s; один интервал, без утечек.
+        let accelState = null; // { active, ready, until }
+        let accelTimer = null; // id setInterval локального таймера отката
+
+        function stopAccelTimer() {
+            if (accelTimer !== null) {
+                clearInterval(accelTimer);
+                accelTimer = null;
+            }
+        }
+
+        function startAccelTimer() {
+            if (accelTimer === null) {
+                accelTimer = setInterval(renderAcceleratorIndicator, 1000);
+            }
+        }
+
+        function fmtAccelMMSS(sec) {
+            const s = Math.max(0, Math.round(sec));
+            return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+        }
+
+        function renderAcceleratorIndicator() {
+            const el = document.getElementById('slot-accelerator-state');
+            if (!el || !accelState) return;
+            if (accelState.active) {
+                el.textContent = 'Ускорение действует';
+                el.style.color = '#60a5fa';
+                stopAccelTimer();
+                return;
+            }
+            if (!accelState.ready) {
+                const left = accelState.until
+                    ? Math.max(0, Math.ceil((accelState.until - Date.now()) / 1000))
+                    : 0;
+                if (left > 0) {
+                    el.textContent = 'Откат ' + fmtAccelMMSS(left);
+                    el.style.color = '#fde047';
+                    startAccelTimer();
+                    return;
+                }
+                // Локально откат истёк — уточняем у сервера (перерисует раздел).
+                stopAccelTimer();
+                loadUser();
+                return;
+            }
+            el.textContent = 'Готов';
+            el.style.color = '#4ade80';
+            stopAccelTimer();
+        }
+
         function renderShipSection(data) {
             const catalog = Array.isArray(data.ship_catalog) ? data.ship_catalog : [];
             const catalogById = {};
@@ -448,6 +507,44 @@
                     el.style.display = 'none';
                     el.innerHTML = '';
                 }
+            }
+
+            // Ячейка «Ускоритель» (ЧК3, спека ускорителя §4.4): скрыта, если
+            // модуль не установлен («не установлен» для неё не показываем).
+            // Индикатор: active → «Ускорение действует»; !ready → «Откат mm:ss»
+            // (локальный досчёт); иначе «Готов». Данные — /me.ship_catalog + /me.accelerator.
+            const accelEl = document.getElementById('slot-accelerator');
+            const accelItem = equipment.accelerator ? catalogById[equipment.accelerator] : null;
+            if (accelEl && accelItem) {
+                accelEl.style.display = '';
+                accelEl.innerHTML = '';
+                const icon = document.createElement('div');
+                icon.textContent = '⚡';
+                const accelName = document.createElement('div');
+                accelName.textContent = accelItem.name;
+                accelName.style.fontWeight = '600';
+                const indicator = document.createElement('div');
+                indicator.id = 'slot-accelerator-state';
+                indicator.style.color = '#94a3b8';
+                accelEl.appendChild(icon);
+                accelEl.appendChild(accelName);
+                accelEl.appendChild(indicator);
+                const a = data.accelerator || {};
+                accelState = {
+                    active: !!a.active,
+                    ready: a.ready !== false,
+                    until: (typeof a.cooldown_remaining_s === 'number' && a.cooldown_remaining_s > 0)
+                        ? Date.now() + a.cooldown_remaining_s * 1000
+                        : 0,
+                };
+                renderAcceleratorIndicator();
+            } else {
+                if (accelEl) {
+                    accelEl.style.display = 'none';
+                    accelEl.innerHTML = '';
+                }
+                accelState = null;
+                stopAccelTimer();
             }
 
             // Сводные характеристики: радиус радара, возможности сканера, скорость.
@@ -747,6 +844,12 @@
         setRedrawCallback(renderShipGrid);
 
         loadUser();
+        // Возврат во вкладку — перечитать /me: индикатор ускорителя мог
+        // измениться (спека ускорителя §4.4). loadUser перерисует раздел,
+        // таймер отката пересоздаст renderShipSection.
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') loadUser();
+        });
         loadShipSelector();
         loadEncyclopedia();
         // Блок «Трюм» (спека трюма §9.3): загрузка GET /api/cargo + сброс.

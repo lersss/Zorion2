@@ -15,6 +15,17 @@ export const state = {
     flyStartTime: 0,
     flyStartX: null,   // стартовая точка сегмента (61a): при редиректе — точка P
     flyStartY: null,
+    // Ускоритель в панели полёта (ЧК3, спека ускорителя §3.4/§4.4).
+    // accel — блок accelerator из ответа /travel (свежий, оба пути 202);
+    // accelMe — блок accelerator из /me (нужен вне свежего /travel: возврат
+    // с карты/после мини-игры); shipCatalog — /me.ship_catalog (параметры
+    // текущего модуля: min_remaining_offer_s и т.п.). *Until — якоря локального
+    // досчёта отката: момент, вычисленный из cooldown_remaining_s на клиенте.
+    accel: null,
+    accelMe: null,
+    shipCatalog: [],
+    accelCooldownUntil: 0,
+    accelMeCooldownUntil: 0,
     selectedWorldId: null,
     hoveredWorldId: null,
     isDragging: false,

@@ -273,6 +273,46 @@ canvas {
     background: linear-gradient(90deg, #4a9eff, #60a5fa);
     transition: width 0.3s linear;
 }
+/* Блок ускорителя в панели полёта (ЧК3, спека ускорителя §4.4).
+   Панель имеет pointer-events:none — кнопке возвращаем auto, иначе не кликается. */
+#flight-boost {
+    display: none;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 2px;
+}
+#flight-boost.visible {
+    display: flex;
+}
+#flight-boost-btn {
+    pointer-events: auto;
+    width: 100%;
+    min-height: 44px;
+    padding: 10px 12px;
+    border: 1px solid #334155;
+    border-radius: 10px;
+    background: linear-gradient(90deg, #2563eb, #3b82f6);
+    color: #ffffff;
+    font-family: inherit;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    touch-action: manipulation;
+    -webkit-user-select: none;
+    user-select: none;
+}
+#flight-boost-btn:disabled {
+    background: #1e293b;
+    color: #94a3b8;
+    border-color: #334155;
+    cursor: default;
+}
+#flight-boost-note {
+    pointer-events: none;
+    color: #94a3b8;
+    font-size: 0.72rem;
+    line-height: 1.25;
+}
 
 /* ==================== ФИЛЬТРЫ ==================== */
 

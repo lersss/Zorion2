@@ -113,6 +113,13 @@
         <div class="fp-bar">
             <div id="flightBar"></div>
         </div>
+        <!-- Блок ускорителя (ЧК3, спека ускорителя §4.4): кнопка входа в мини-игру
+             «Прокладка маршрута» + строка состояния. Скрыт, пока /travel или /me
+             не сообщили модуль/причину — видимость задаёт flight.js. -->
+        <div id="flight-boost">
+            <button id="flight-boost-btn" type="button">Ускорить</button>
+            <div id="flight-boost-note"></div>
+        </div>
     </div>
     <div id="canvas-wrapper">
         <canvas id="mapCanvas"></canvas>

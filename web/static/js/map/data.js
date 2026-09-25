@@ -437,6 +437,16 @@ export async function loadUserData(force = false) {
         // загрузка карты не блокировалась вторым запросом.
         loadAccountBalance(token);
 
+        // Блок ускорителя из /me (ЧК3, спека §3.4): заполняется из ответа
+        // ВСЕГДА, не только при восстановлении полёта — состояние модуля/отката
+        // нужно панели полёта и вне полёта, а refreshMeForBoost опирается на
+        // свежие данные. cooldown_remaining_s — якорь локального таймера отката.
+        state.accelMe = user.accelerator || null;
+        state.shipCatalog = shipCatalog;
+        state.accelMeCooldownUntil = (state.accelMe && state.accelMe.cooldown_remaining_s > 0)
+            ? Date.now() + state.accelMe.cooldown_remaining_s * 1000
+            : 0;
+
         // Восстановление полёта после рефреша (идея 42a): сервер помнит
         // полёт в travel.Manager, /me отдаёт его в user.flight. Восстанавливаем
         // state.* — панель (main.js) и animationLoop подхватят как обычный полёт.

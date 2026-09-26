@@ -26,6 +26,7 @@ const state = {
     revealed: [], pingsLeft: 0, selectedSector: null, scanBusy: false,
     remainingS: 0, remainingAt: 0, minBoostS: 0,
     submitting: false, finished: false, confirming: false, confirmTimer: null, resultFx: null,
+    highlight: null,
     shipSprite: null, shipName: '', shipColor: null, shipOrient: { angle: 0, flip: false },
     bg: null, chosen: {}, seed: 0, reduced: false, view: null,
     message: '', tickTimer: null,
@@ -202,9 +203,10 @@ async function submit() {
         state.finished = true;
         const bonus = num(res.data.bonus);
         state.resultFx = { at: performance.now(), bonus };
+        state.highlight = null;
         playSound(bonus < 0 ? 'ui_error' : 'ui_success');
         updateHud();
-        UI.showResult(bonus, num(res.data.remaining_s), res.data.breakdown);
+        UI.showResult(bonus, num(res.data.remaining_s), res.data.breakdown, resultHandlers);
         return;
     }
     // Отказ после отправки — возврат в «готовое», путь сохраняем (§3).
@@ -239,6 +241,16 @@ function frame(now) {
 const sectorHandlers = {
     onScan: () => { scan(); },
     onClose: () => { state.selectedSector = null; UI.renderSectorCard(state, sectorHandlers); },
+};
+
+// resultHandlers — подсветка клеток строки разбора (§4.7.1): тап по строке
+// зажигает связанные клетки на доске, null — снять. Рисует route_render.
+const resultHandlers = {
+    onHighlight: (cells, color) => {
+        state.highlight = (cells && cells.length)
+            ? { cells: new Set(cells), color: color || C.COLORS.capture }
+            : null;
+    },
 };
 
 function selectSector(cell, si) {
@@ -311,6 +323,7 @@ async function boot() {
         captured: new Set(), flash: new Map(), heat: [],
         selectedSector: null, scanBusy: false,
         message: '', finished: false, submitting: false, confirming: false, resultFx: null,
+        highlight: null,
     });
     initBackground(state);
     prepareBoard(state);

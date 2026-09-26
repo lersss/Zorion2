@@ -5,8 +5,8 @@
 // оценка/вскрытие пути.
 //
 // Объекты поля: mud, lane, gate (toll), current_oneway, dead_end_lane,
-// one_shot_bridge, bottleneck. Секторы несут ПУБЛИЧНУЮ подпись σ ∈ {тихая,
-// средняя, шумная} и скрытое содержимое (jackpot/lure/trap/decoy/unstable/empty).
+// one_shot_bridge, bottleneck. Секторы несут ПУБЛИЧНУЮ подпись σ ∈ {Тихий,
+// Ровный, Гулкий} и скрытое содержимое (jackpot/lure/trap/decoy/unstable/empty).
 //
 // Разделение слоёв: видимый (маяки, объекты, клетки и подписи секторов)
 // выводится из seed; скрытое содержимое секторов — из secret (см.
@@ -99,14 +99,17 @@ const (
 	GridSigNoisy
 )
 
+// String — player-facing гулкость σ (§1 интерфейсной спеки / §14.12):
+// Тихий / Ровный / Гулкий. Стабильные значения строки — для сторонних
+// потребителей поля (клиент имеет свои метки).
 func (s GridSectorSig) String() string {
 	switch s {
 	case GridSigNoisy:
-		return "шумная"
+		return "Гулкий"
 	case GridSigMedium:
-		return "средняя"
+		return "Ровный"
 	default:
-		return "тихая"
+		return "Тихий"
 	}
 }
 
@@ -151,18 +154,20 @@ const (
 	GridSurroundCurrent
 )
 
+// String — player-facing окружение сектора (§1 интерфейсной спеки / §14.12):
+// Ничего / Кордон / Обрыв / Мгла / Течение.
 func (s GridSectorSurround) String() string {
 	switch s {
 	case GridSurroundGate:
-		return "шлюз"
+		return "Кордон"
 	case GridSurroundDeadEnd:
-		return "тупик"
+		return "Обрыв"
 	case GridSurroundMud:
-		return "топь"
+		return "Мгла"
 	case GridSurroundCurrent:
-		return "течение"
+		return "Течение"
 	default:
-		return "пусто"
+		return "Ничего"
 	}
 }
 
@@ -706,6 +711,7 @@ func (f GridField) bonusPathGrid(path []int) float64 {
 const (
 	GridReasonTooFewCells     = "too_few_cells"
 	GridReasonCellOutOfBounds = "cell_out_of_bounds"
+	GridReasonStepTooSmall    = "step_too_small"
 	GridReasonNotAdjacent     = "not_adjacent"
 	GridReasonStartMismatch   = "start_mismatch"
 	GridReasonFinishMismatch  = "finish_mismatch"
@@ -731,6 +737,15 @@ func EvaluateGridPath(field GridField, cells []int) (bonus float64, valid bool, 
 	}
 	if cells[len(cells)-1] != field.Finish {
 		return 0, false, GridReasonFinishMismatch
+	}
+	// Минимальный шаг пути (анти-бот, §6.6): соседние клетки обязаны быть
+	// различны — «дребезг» в одной клетке (шаг < 1 клетки) отклоняется своим
+	// кодом до проверки 4-связности. Честное рисование по клеткам такого пути
+	// не даёт (клиент дедуплицирует точки).
+	for t := 1; t < len(cells); t++ {
+		if cells[t] == cells[t-1] {
+			return 0, false, GridReasonStepTooSmall
+		}
 	}
 	for t := 1; t < len(cells); t++ {
 		if !field.adjacent4(cells[t-1], cells[t]) {

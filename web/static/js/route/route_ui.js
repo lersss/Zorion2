@@ -5,7 +5,7 @@
 // (§4.7). Числа механики сюда не попадают — исключение только результат после
 // отправки (bonus со знаком, §4.7): до отправки чисел/вердикта/оптимума нет.
 import * as C from './route_config.js';
-import { factorGlyph } from './route_figures.js';
+import { factorGlyph, factorColor } from './route_figures.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -115,7 +115,9 @@ export function renderSectorCard(state, handlers) {
 
 // showResult — оверлей результата (§4.7): bonus СО ЗНАКОМ (в т. ч. отрицательный),
 // процент, новый остаток, качественные слова и разбор по факторам (§4.7.1).
-export function showResult(bonus, remainingS, breakdown) {
+// handlers.onHighlight(cells, color) — подсветка клеток по тапу строки разбора
+// (null — снять); тап по фону оверлея снимает подсветку.
+export function showResult(bonus, remainingS, breakdown, handlers) {
     const b = Number(bonus) || 0;
     const neg = b < 0;
     $('result-title').textContent = neg ? 'Перелёт стал длиннее' : 'Ускорение принято';
@@ -125,15 +127,38 @@ export function showResult(bonus, remainingS, breakdown) {
     $('result-remaining').textContent = 'Осталось ~' + C.remainWord(remainingS);
     const panel = $('result').querySelector('.panel');
     if (panel) panel.classList.toggle('result-negative', neg);
-    renderBreakdown(breakdown);
-    $('result').style.display = 'flex';
+    const overlay = $('result');
+    overlay.onclick = (e) => {
+        if (e.target === overlay) clearHighlight(handlers);
+    };
+    renderBreakdown(breakdown, handlers);
+    overlay.style.display = 'flex';
 }
 
 // ---- Разбор по факторам (§4.7.1) ----
 
+// clearHighlight — снять подсветку клеток: класс `.on` со строк + колбэк (null).
+function clearHighlight(handlers) {
+    const el = $('result-breakdown');
+    if (el) {
+        for (const r of el.querySelectorAll('.bd-row.on')) {
+            r.classList.remove('on');
+            r.setAttribute('aria-pressed', 'false');
+        }
+    }
+    if (handlers && handlers.onHighlight) handlers.onHighlight(null);
+}
+
 // factorRow — строка фактора: глиф (тем же кодом, что метки курса/содержимое) +
 // имя + полоса тяжести (только ошибки, без цифр) + «×N» (число случаев, не цена).
-function factorRow(it) {
+// Есть клетки (`cells`, дедуплицированные) → строка интерактивна (§4.7.1):
+// тап/Enter подсвечивает клетки на доске, повторный тап снимает.
+function factorRow(it, handlers) {
+    const cells = [];
+    const seen = new Set();
+    for (const c of Array.isArray(it.cells) ? it.cells : []) {
+        if (Number.isInteger(c) && c >= 0 && !seen.has(c)) { seen.add(c); cells.push(c); }
+    }
     const row = document.createElement('div');
     row.className = 'bd-row';
     const glyph = document.createElement('canvas');
@@ -167,13 +192,36 @@ function factorRow(it) {
     cnt.textContent = '\u00d7' + count;
     cnt.setAttribute('aria-label', count + ' случаев');
     row.appendChild(cnt);
+
+    if (cells.length) {
+        row.classList.add('interactive');
+        row.setAttribute('role', 'button');
+        row.tabIndex = 0;
+        row.setAttribute('aria-pressed', 'false');
+        const toggle = () => {
+            if (row.classList.contains('on')) {
+                row.classList.remove('on');
+                row.setAttribute('aria-pressed', 'false');
+                if (handlers && handlers.onHighlight) handlers.onHighlight(null);
+            } else {
+                clearHighlight(null);
+                row.classList.add('on');
+                row.setAttribute('aria-pressed', 'true');
+                if (handlers && handlers.onHighlight) handlers.onHighlight(cells, factorColor(it.code));
+            }
+        };
+        row.addEventListener('click', toggle);
+        row.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
+        });
+    }
     return row;
 }
 
 // renderBreakdown — наполняет #result-breakdown (§4.7.1): группы error→gain→
 // neutral; пустой массив → «Чистый курс»; нет поля → блок скрыт; непустой, но
 // все коды неизвестны → скрыт; неизвестный code — игнор. Цен/итогов/процентов нет.
-function renderBreakdown(breakdown) {
+function renderBreakdown(breakdown, handlers) {
     const el = $('result-breakdown');
     if (!el) return;
     el.innerHTML = '';
@@ -203,7 +251,7 @@ function renderBreakdown(breakdown) {
         h.className = 'bd-group-title';
         h.textContent = C.BREAKDOWN_GROUPS[g];
         sec.appendChild(h);
-        for (const it of items) sec.appendChild(factorRow(it));
+        for (const it of items) sec.appendChild(factorRow(it, handlers));
         el.appendChild(sec);
     }
     el.hidden = false;

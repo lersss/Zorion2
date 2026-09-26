@@ -200,6 +200,12 @@ func TestGridEvaluate_PathValidity(t *testing.T) {
 	check("finish_mismatch", []int{f.Start, f.Start + 1}, GridReasonFinishMismatch)
 	check("not_adjacent", []int{f.Start, f.Start + 2, f.Finish}, GridReasonNotAdjacent)
 
+	// Минимальный шаг (анти-бот §6.6): та же клетка дважды подряд → step_too_small.
+	if dup := f.staircaseGrid(f.Start, f.Finish); len(dup) >= 2 {
+		dup = append([]int{dup[0], dup[1]}, dup[1:]...)
+		check("step_too_small", dup, GridReasonStepTooSmall)
+	}
+
 	// Лестница Start→Finish проходит не все маяки → beacon_missing.
 	stair := f.staircaseGrid(f.Start, f.Finish)
 	onPath := map[int]bool{}

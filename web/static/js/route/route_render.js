@@ -148,6 +148,7 @@ function drawBoard(ctx, st, view, now) {
     drawGrid(ctx, view);
     drawPath(ctx, st, view);
     drawHeat(ctx, st, view, now);
+    drawHighlight(ctx, st, view, now);
     drawResultFx(ctx, st, view, now);
     drawFinish(ctx, st, view, now);
     drawStart(ctx, st, view);
@@ -329,6 +330,25 @@ function drawPath(ctx, st, view) {
         ctx.setLineDash([]);
         ctx.fillStyle = C.COLORS.path;
         ctx.beginPath(); ctx.arc(st.drag.x, st.drag.y, 3, 0, TAU); ctx.fill();
+    }
+    ctx.restore();
+}
+
+// drawHighlight — кайма клеток строки разбора результата (§4.7.1): тап по
+// строке подсвечивает связанные клетки цветом фактора; повторный тап/тап по
+// фону снимает. Пульсация — «дыхание»; reduced-motion → статично.
+function drawHighlight(ctx, st, view, now) {
+    const h = st.highlight;
+    if (!h || !h.cells || !h.cells.size) return;
+    const pulse = st.reduced ? 0.9 : 0.55 + 0.45 * Math.sin(now * 0.005);
+    const lw = Math.max(2, view.size / view.n * 0.09);
+    ctx.save();
+    ctx.strokeStyle = hA(h.color || C.COLORS.capture, 0.35 + 0.6 * pulse);
+    ctx.lineWidth = lw;
+    ctx.lineJoin = 'round';
+    for (const c of h.cells) {
+        const r = cellRect(view, c);
+        ctx.strokeRect(r.x + lw / 2, r.y + lw / 2, r.w - lw, r.h - lw);
     }
     ctx.restore();
 }

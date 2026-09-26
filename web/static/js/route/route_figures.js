@@ -449,6 +449,17 @@ export function heatGlyph(ctx, x, y, cell, kind, pulse) {
     ctx.restore();
 }
 
+// factorColor — цвет каймы подсветки клеток разбора (§4.7.1): тот же цвет, что
+// у глифа фактора. Секторные факторы — цвет содержимого (sectorRim), прочие —
+// цвет метки курса (heatColor); новые события — мягкий акцент.
+export function factorColor(code) {
+    const g = C.FACTOR_GLYPHS[code];
+    if (!g) return C.COLORS.capture;
+    if (g.via === 'heat') return heatColor(g.kind);
+    if (g.via === 'content') return sectorRim(g.kind);
+    return code === 'ping_wasted' ? C.COLORS.empty : C.COLORS.captureSoft;
+}
+
 // factorGlyph — глиф строки разбора (§4.7.1): переиспользует метку курса
 // (heatGlyph) или содержимое сектора (contentGlyph); события revisit/overshoot/
 // ping_wasted рисуются собственным кодом — на доске их нет (§12.14).

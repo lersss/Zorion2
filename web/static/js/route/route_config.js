@@ -8,13 +8,15 @@ export const SPRITE_BASE = '/static/sprites/route/';
 
 // Пулы вариантов (визуальный раздел спеки §12.4): вариант выбирается случайно на
 // запуск (режим наигрыша); заморозка — одно имя на тип в SPRITE_FREEZE.
+// Рабочие (замороженные) варианты — `*_01`; прочие варианты пула лежат в
+// `sprites/route/_pool/` и в предзагрузку не попадают (сцена не падает без них).
 export const POOLS = {
-    star_core: ['star_core_01', 'star_core_02', 'star_core_03', 'star_core_04', 'star_core_05'],
-    black_hole: ['black_hole_01', 'black_hole_02', 'black_hole_03'],
-    beacon: ['beacon_01', 'beacon_02', 'beacon_03', 'beacon_04'],
-    false_signal: ['false_signal_01', 'false_signal_02', 'false_signal_03', 'false_signal_04'],
-    hazard_cloud: ['hazard_cloud_01', 'hazard_cloud_02', 'hazard_cloud_03'],
-    nebula_bg: ['nebula_bg_01', 'nebula_bg_02', 'nebula_bg_03'],
+    star_core: ['star_core_01'],
+    black_hole: ['black_hole_01'],
+    beacon: ['beacon_01'],
+    false_signal: ['false_signal_01'],
+    hazard_cloud: ['hazard_cloud_01'],
+    nebula_bg: ['nebula_bg_01'],
 };
 
 // Заморозка после выбора победителей пула: type → имя файла пула. Выбор

@@ -18,7 +18,11 @@ const EDGE_PATHS = [process.env.EDGE_PATH, 'C:\\Program Files (x86)\\Microsoft\\
 const PASSWORD = 'qa-i1-' + Date.now();
 const TYPE_ID = 148;      // тип поселения («Деревня»), пара 148×{69,73}
 const RECIPE_BOUND = 69;  // привязанный рецепт
-const RECIPE_FREE = 71;   // рецепт есть, но к 148 не привязан → 409
+// Рецепт «есть, но к 148 не привязан → 409» (A6 r3): id не зашиваем — в dev-БД
+// рецепта 71 нет, и сервер честно отдаёт 404 (ложный FAIL, хвост №68). Значение
+// резолвится из БД ниже; нет подходящего — временная фикстура (убирается в конце).
+let recipeFree = 0;
+let fixtureRecipe = 0;
 
 const results = [];
 function report(step, ok, detail) {
@@ -83,6 +87,17 @@ async function main() {
   const origParams = JSON.parse(origParamsText);
   const origRates = psqlRun(`SELECT producer_type_id||'|'||recipe_id||'|'||COALESCE(rate::text,'NULL') FROM producer_recipes WHERE producer_type_id IN (148,151) ORDER BY producer_type_id, recipe_id;\n`, 'qa-i1-origrate.sql');
 
+  // Предпосылка A6 r3 (хвост №68): рецепт существует, но пары с 148 нет → 409.
+  // Ищем такой рецепт в БД (id 71 в dev-БД отсутствует — 404 был ложным FAIL);
+  // нет подходящего — заводим временную фикстуру, её уберём в cleanup.
+  recipeFree = Number(psqlRun(`SELECT r.id FROM recipes r WHERE NOT EXISTS (SELECT 1 FROM producer_recipes pr WHERE pr.producer_type_id=${TYPE_ID} AND pr.recipe_id=r.id) ORDER BY r.id LIMIT 1;\n`, 'qa-i1-freerecipe.sql'));
+  if (!recipeFree) {
+    const freeGood = Number(psqlRun(`SELECT g.id FROM goods g WHERE NOT EXISTS (SELECT 1 FROM recipes r WHERE r.good_id=g.id) ORDER BY g.id LIMIT 1;\n`, 'qa-i1-freegood.sql'));
+    fixtureRecipe = Number(psqlRun(`INSERT INTO recipes (good_id) VALUES (${freeGood}) RETURNING id;\n`, 'qa-i1-fixture.sql'));
+    recipeFree = fixtureRecipe;
+  }
+  report('setup рецепт без пары (409)', recipeFree > 0, 'recipeFree=' + recipeFree + (fixtureRecipe ? ' (фикстура)' : ''));
+
   // ================= A6: API студии =================
   const r1 = await api('PUT', `/studio/api/producers/${TYPE_ID}/recipes/${RECIPE_BOUND}`, { rate: 650 });
   report('A6 rate=650 → 200', r1.status === 200, 'status=' + r1.status);
@@ -90,8 +105,8 @@ async function main() {
   const r2 = await api('PUT', `/studio/api/producers/${TYPE_ID}/recipes/${RECIPE_BOUND}`, { rate: -5 });
   report('A6 rate<0 → 422', r2.status === 422, 'status=' + r2.status);
 
-  const r3 = await api('PUT', `/studio/api/producers/${TYPE_ID}/recipes/${RECIPE_FREE}`, { rate: 100 });
-  report('A6 пара нет → 409', r3.status === 409, 'status=' + r3.status);
+  const r3 = await api('PUT', `/studio/api/producers/${TYPE_ID}/recipes/${recipeFree}`, { rate: 100 });
+  report('A6 пара нет → 409', r3.status === 409, 'status=' + r3.status + ' recipe=' + recipeFree);
 
   const r4 = await api('PUT', `/studio/api/producers/999999/recipes/${RECIPE_BOUND}`, { rate: 100 });
   report('A6 нет типа → 404', r4.status === 404, 'status=' + r4.status);
@@ -189,6 +204,8 @@ async function main() {
     const back = psqlRun(`SELECT params::text FROM producer_types WHERE id=${TYPE_ID};\n`, 'qa-i1-back.sql');
     report('cleanup restore', back.replace(/\s/g, '') === JSON.stringify(origParams).replace(/\s/g, ''), 'restored');
     psqlRun(`DELETE FROM users WHERE id='${admin.uid}';\n`, 'qa-i1-deluser.sql');
+    // Временная фикстура A6 r3 (если заводили) — убрать, каталог не ломать.
+    if (fixtureRecipe) psqlRun(`DELETE FROM recipes WHERE id=${fixtureRecipe};\n`, 'qa-i1-delfixture.sql');
   } catch (e) {
     report('cleanup', false, String(e && e.message ? e.message : e));
   }

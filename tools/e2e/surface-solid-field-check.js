@@ -123,15 +123,29 @@ async function main() {
       }
 
       // Стоимость генерации чанка (без кэша): свежий мир на каждый замер.
+      // Хвост №77: первый чанк свежего мира платит РАЗОВУЮ (на мир) цену фильтра
+      // выходимости вычитающих форм (мемо `_formOk`/`_formStage1`, §3.6) — это не
+      // цена «на чанк», а её доля относительно растра зависит от машины (растр
+      // против JS-симуляции), из-за чего отношение ≤2× ловило дрейф, а S4b/S4c
+      // флейкали на первом прогоне. Поэтому меряем устойчивую стоимость «на чанк»:
+      // каждый свежий мир отдаёт ОКНО чанков (регион форм R=1400 ≈ 6 чанков по 256),
+      // первый чанк уходит на разогрев фильтра этого мира, а результат — МЕДИАНА по
+      // мирам (устойчива к выбросам GC/планировщика; среднее их ловило).
       function timing(seed, over, n) {
         // Прогрев (JIT/аллокация канваса) вне замера — первый чанк завышает среднее.
         { const w = new SurfaceWorld({ seed, biome_color: '#8a7a6a', life: false, biome: 'qa', ...over }); getChunkCanvas(w, 0); }
-        const t0 = performance.now();
+        const WINDOW = 8; // > R/CHUNK: окно пересекает регион форм
+        const samples = [];
         for (let k = 0; k < n; k++) {
           const w = new SurfaceWorld({ seed: seed + 1 + k, biome_color: '#8a7a6a', life: false, biome: 'qa', ...over });
-          getChunkCanvas(w, 0);
+          getChunkCanvas(w, 0); // разовая цена фильтра этого мира — вне замера
+          const t0 = performance.now();
+          for (let j = 1; j <= WINDOW; j++) getChunkCanvas(w, j);
+          samples.push((performance.now() - t0) / WINDOW);
+          w._chunkCache = null; // освободить канвасы мира до следующей итерации
         }
-        return (performance.now() - t0) / n;
+        samples.sort((a, b) => a - b);
+        return samples[Math.floor(samples.length / 2)];
       }
 
       const rows = [];
@@ -169,13 +183,13 @@ async function main() {
         total += cTotal; miss += cMiss; cave += cCave;
       }
 
-      const genMsFallback = timing(424242, { biome_category: 'экзотика' }, 24);
+      const genMsFallback = timing(424242, { biome_category: 'экзотика' }, 12);
       // S4 — БЕЗформенный рецепт: формы меряет S4b, чтобы S4 и S4b не дублировались.
       const formless = views.find((v) => {
         const rel = v.view && v.view.relief;
         return !(rel && Array.isArray(rel.forms) && rel.forms.length);
       }) || views[0];
-      const genMsRecipe = views.length ? timing(424242, { biome: formless.id, biome_category: formless.category, biome_color: formless.color, view_source: 'catalog', view_version: 1, biome_view: formless.view }, 24) : null;
+      const genMsRecipe = views.length ? timing(424242, { biome: formless.id, biome_category: formless.category, biome_color: formless.color, view_source: 'catalog', view_version: 1, biome_view: formless.view }, 12) : null;
       // Э5.2: перф генерации чанка на целевых биомах с 2D-формами (бюджет ≤2× baseline, §5 п.7).
       const formsMs = {};
       // База бюджета форм (§5 п.7) — ТОТ ЖЕ рецепт без `relief.forms`. Fallback
@@ -186,10 +200,10 @@ async function main() {
         // Э5.2 (надёжность/арка/трещина) + Э5.3 (void/crater — фильтр выходимости).
         if (!['горы', 'каменные_пустоши', 'пещерный_мир_с_потолком', 'лавовые_поля', 'магмовый_океан', 'кратеры'].includes(bv.id)) continue;
         const over = { biome: bv.id, biome_category: bv.category, biome_color: bv.color, view_source: 'catalog', view_version: 1 };
-        formsMs[bv.id] = timing(424242, { ...over, biome_view: bv.view }, 24);
+        formsMs[bv.id] = timing(424242, { ...over, biome_view: bv.view }, 12);
         const vNo = JSON.parse(JSON.stringify(bv.view));
         if (vNo.relief) vNo.relief.forms = [];
-        noFormsMs[bv.id] = timing(424242, { ...over, biome_view: vNo }, 24);
+        noFormsMs[bv.id] = timing(424242, { ...over, biome_view: vNo }, 12);
       }
       // S6 — ВЫХОДИМОСТЬ вычитающих форм Э5.3 (§3.6): перебор инстансов `void`/`crater`
       // на реальных биомах-целях, независимая симуляция `Player` из наихудших точек

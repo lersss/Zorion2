@@ -1,17 +1,17 @@
 // web/static/js/route/route_render.js
 // Отрисовка мини-игры «Прокладка маршрута» на доске v9 «Планшет» (спека
 // 2026-09-25-маршрут-мини-игра-интерфейс.md §7.4). Слои: фон (код) → доска n×n
-// 1:1 (клетки/объекты/секторы — код) → путь и метки «жара» → спрайты ядра сцены
-// (ФИНИШ, маяки, СТАРТ). Спрайт НЕ несёт игровой истины: цены/τ/содержимое —
+// 1:1 (клетки/объекты/секторы — код) → путь и метки курса → спрайты ядра сцены
+// (Цель, маяки, Старт). Спрайт НЕ несёт игровой истины: цены/τ/содержимое —
 // только код. reduced-motion → без пульсов/дрейфа.
 import * as C from './route_config.js';
 import { cellCenter } from './route_board.js';
 import { drawResultFx } from './route_effects.js';
 import { getSprite, tintedSprite, bloomSprite } from './route_sprites.js';
 import {
-    TAU, hA, radial, ring, roundRect, heatColor, heatMark, turnNotch,
+    TAU, hA, radial, ring, roundRect, heatGlyph, contentGlyph,
     figWall, figMud, figLane, figWarm, figBottleneck, figGate, figBridge, figChevron,
-    figDeadEnd, sectorDensity, sectorRim, beaconRings, beaconSquare, startTriangle,
+    figDeadEnd, sectorDensity, sectorRim, sectorRimDash, beaconRings, beaconSquare, startTriangle,
 } from './route_figures.js';
 import { shipDrawTransform } from '../map/ship_sprites.js';
 import { CONFIG } from '../config.js';
@@ -157,8 +157,8 @@ function drawBoard(ctx, st, view, now) {
     ctx.strokeRect(x0 + 0.75, y0 + 0.75, size - 1.5, size - 1.5);
 }
 
-// drawCells — видимая фактура клеток: топь/стена (visible > 1) тёплые плотные,
-// русло (visible < 1) холодное светлое. Чисел цены в UI нет.
+// drawCells — видимая фактура клеток: Мгла/Помехи (visible > 1) тёплые плотные,
+// Трасса (visible < 1) холодное светлое. Чисел цены в UI нет.
 function drawCells(ctx, view, idx) {
     const n = view.n;
     const total = n * n;
@@ -170,7 +170,7 @@ function drawCells(ctx, view, idx) {
         if (idx.lane.has(c) || (v < 1 && v > 0)) { figLane(ctx, r); continue; }
         if (v > 1) figWarm(ctx, r);
     }
-    // узкие проходы — светлая щель в стене
+    // Разрывы — светлая щель в помехах
     for (const c of idx.bottleneck) figBottleneck(ctx, cellRect(view, c));
 }
 
@@ -190,8 +190,8 @@ function drawBridges(ctx, view, idx) {
     for (const c of idx.bridge) figBridge(ctx, cellRect(view, c));
 }
 
-// drawDeadEnds — тупиковые русла: кайма + «стоп»-маркер; спрайт false_signal —
-// маркер сломанного маяка у тупика/обманки (решение создателя 2026-09-26).
+// drawDeadEnds — Обрывы: кайма + «стоп»-маркер; спрайт false_signal —
+// маркер сломанного маяка у Обрыва/Миража (решение создателя 2026-09-26).
 function drawDeadEnds(ctx, st, view, idx) {
     const img = getSprite(st.chosen && st.chosen.false_signal);
     for (const c of idx.deadEnd) figDeadEnd(ctx, cellRect(view, c), img);
@@ -242,14 +242,26 @@ function drawSectors(ctx, st, view, now) {
             for (const c of cells) { const r = cellRect(view, c); ctx.fillRect(r.x, r.y, r.w, r.h); }
         }
         ctx.restore();
-        // Кайма сектора: при вскрытии — по содержимому (unstable красный,
-        // jackpot/lure золотой), иначе нейтральная (σ плотностью, но не цветом).
+        // Кайма сектора: при вскрытии — по содержимому (опасность красная,
+        // находки золотые, нейтральные стальные), иначе нейтральная (σ плотностью).
         const rim = sectorRim(content);
+        const rimDash = sectorRimDash(content);
         ctx.save();
         ctx.strokeStyle = hA(rim, content ? 0.9 : 0.45);
         ctx.lineWidth = content ? 1.6 : 1;
+        if (rimDash) ctx.setLineDash(rimDash);
         for (const c of cells) { const r = cellRect(view, c); ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1); }
+        ctx.setLineDash([]);
         ctx.restore();
+        // Центральный глиф содержимого (§12.9) — только после вскрытия.
+        let cxm = 0, cym = 0;
+        for (const c of cells) { const r = cellRect(view, c); cxm += r.x + r.w / 2; cym += r.y + r.h / 2; }
+        cxm /= cells.length; cym /= cells.length;
+        const cellSize = view.size / view.n;
+        if (content) {
+            const pulse = st.reduced ? 1 : 0.7 + 0.3 * Math.sin(now * 0.004 + si);
+            contentGlyph(ctx, cxm, cym, cellSize, content, pulse);
+        }
         // Выбранный сектор (§4.3): пунктирная кайма + клетки подсвечены.
         if (st.selectedSector === si) {
             ctx.save();
@@ -259,14 +271,14 @@ function drawSectors(ctx, st, view, now) {
             for (const c of cells) { const r = cellRect(view, c); ctx.strokeRect(r.x + 1.5, r.y + 1.5, r.w - 3, r.h - 3); }
             ctx.restore();
         }
-        drawSectorLabel(ctx, view, cells, sec, content);
+        drawSectorLabel(ctx, view, cells, sec, content, content ? cellSize * 0.62 : 0);
     });
 }
 
-function drawSectorLabel(ctx, view, cells, sec, content) {
+function drawSectorLabel(ctx, view, cells, sec, content, dy) {
     let cx = 0, cy = 0;
     for (const c of cells) { const r = cellRect(view, c); cx += r.x + r.w / 2; cy += r.y + r.h / 2; }
-    cx /= cells.length; cy /= cells.length;
+    cx /= cells.length; cy = cy / cells.length + (dy || 0);
     const text = content ? C.contentLabel(content) : 'σ: ' + C.sigLabel(sec.sig);
     ctx.save();
     ctx.font = '600 11px "Segoe UI", Roboto, system-ui, sans-serif';
@@ -286,7 +298,7 @@ function drawSectorLabel(ctx, view, cells, sec, content) {
     ctx.restore();
 }
 
-// ---- Путь и «жар» ----
+// ---- Путь и метки курса ----
 
 function drawPath(ctx, st, view) {
     const path = st.path || [];
@@ -321,7 +333,7 @@ function drawPath(ctx, st, view) {
     ctx.restore();
 }
 
-// drawHeat — точечные локальные метки «жара» (§4.6): без тотала и шкалы.
+// drawHeat — микро-глифы меток курса (§4.6/§12.10): без тотала, шкалы и чисел.
 function drawHeat(ctx, st, view, now) {
     const heat = st.heat || [];
     if (!heat.length) return;
@@ -335,8 +347,7 @@ function drawHeat(ctx, st, view, now) {
         const r = cellRect(view, cell);
         kinds.forEach((kind, k) => {
             const pulse = st.reduced ? 0.85 : 0.6 + 0.4 * Math.sin(now * 0.004 + cell + k);
-            if (kind === 'turn') { turnNotch(ctx, r, heatColor(kind), pulse); return; }
-            heatMark(ctx, r.x + r.w * (0.5 + (k % 2 ? 0.22 : -0.22)), r.y + r.h * 0.22, cs, kind, pulse);
+            heatGlyph(ctx, r.x + r.w * (0.22 + 0.22 * (k % 4)), r.y + r.h * 0.22, cs, kind, pulse);
         });
     }
 }

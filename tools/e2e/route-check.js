@@ -427,11 +427,14 @@ async function main() {
     const statusBefore = await page.$eval('#status-line', (el) => el.textContent);
     await page.click('#legend-toggle');
     await sleep(250);
+    // 24 mini-figures = landmarks 3 + field 8 + sector(1) + sig row(3) + marks 9;
+    // all four groups collapsed by default (§4.9/§9 step 6), no colour swatches.
     const legend = await page.evaluate(() => {
       const pop = document.getElementById('legend-popup');
-      const list = document.getElementById('legend-list');
       const close = document.getElementById('legend-close');
       const figs = Array.from(document.querySelectorAll('.legend-fig'));
+      const groups = Array.from(document.querySelectorAll('.legend-group'));
+      const bodies = groups.map((g) => g.querySelector('.legend-group-body'));
       let painted = 0;
       for (const cv of figs) {
         const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
@@ -439,10 +442,11 @@ async function main() {
       }
       return {
         shown: pop.style.display === 'flex',
-        scrollable: list.scrollHeight > list.clientHeight + 2,
         rows: figs.length,
         painted,
-        groupCount: document.querySelectorAll('.legend-group-title').length,
+        groupCount: groups.length,
+        collapsed: bodies.length === 4 && bodies.every((b) => b && b.hidden) &&
+          groups.every((g) => g.querySelector('.legend-group-title').getAttribute('aria-expanded') === 'false'),
         closeH: close ? Math.round(close.getBoundingClientRect().height) : -1,
         swatches: document.querySelectorAll('.legend-swatch').length,
         text: pop.textContent,
@@ -450,10 +454,25 @@ async function main() {
     });
     await page.screenshot({ path: path.join(ARTIFACTS_DIR, 'route-legend.png') });
 
+    // Expand the first collapsed group by tap; it must open with its positions.
+    await page.click('.legend-group-title');
+    await sleep(150);
+    const expanded = await page.evaluate(() => {
+      const title = document.querySelector('.legend-group-title');
+      const body = document.querySelector('.legend-group-body');
+      return {
+        open: !body.hidden,
+        aria: title.getAttribute('aria-expanded') === 'true',
+        rowsInGroup: body.querySelectorAll('.legend-row').length,
+      };
+    });
+    await page.screenshot({ path: path.join(ARTIFACTS_DIR, 'route-legend-open.png') });
+
     const legendLeak = noLeak(legend.text);
-    const legendOk = legend.shown && legend.scrollable && legend.rows >= 30 &&
-      legend.painted === legend.rows && legend.groupCount === 4 &&
-      legend.closeH >= MIN_TOUCH && legend.swatches === 0 && legendLeak.length === 0;
+    const legendOk = legend.shown && legend.rows === 24 && legend.painted === legend.rows &&
+      legend.groupCount === 4 && legend.collapsed && legend.closeH >= MIN_TOUCH &&
+      legend.swatches === 0 && legendLeak.length === 0 &&
+      expanded.open && expanded.aria && expanded.rowsInGroup === 3;
 
     // Frozen input while open: dispatch the full valid path straight on the canvas.
     await dispatchDrag(page, rect, view, chain);
@@ -472,8 +491,9 @@ async function main() {
     if (restoredOk) await page.click('#reset');
     await sleep(150);
     report('STEP 2b legend', (legendOk && frozenOk && popupHidden && restoredOk) ? 'PASS' : 'FAIL',
-      'shown=' + legend.shown + ' scroll=' + legend.scrollable + ' rows=' + legend.rows +
-      ' painted=' + legend.painted + ' groups=' + legend.groupCount + ' closeH=' + legend.closeH +
+      'shown=' + legend.shown + ' rows=' + legend.rows +
+      ' painted=' + legend.painted + ' groups=' + legend.groupCount + ' collapsed=' + legend.collapsed +
+      ' open=' + expanded.open + ' inGroup=' + expanded.rowsInGroup + ' closeH=' + legend.closeH +
       ' swatch=' + legend.swatches + ' leak=' + (legendLeak.join(',') || 'none') +
       ' frozen=' + frozenOk + ' closed=' + popupHidden + ' restored=' + restoredOk);
     if (!(legendOk && frozenOk && popupHidden && restoredOk)) return finish(1);

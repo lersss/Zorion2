@@ -32,17 +32,23 @@ export const COLORS = {
     boardBg: '#0b1220',
     grid: 'rgba(51, 65, 85, 0.4)',
     lane: '#38bdf8',
-    mud: '#8b5cf6',
+    mud: '#7e22ce',
+    mudGrain: '#c084fc',
     wall: '#334155',
     wallDark: '#1e293b',
-    gate: '#f97316',
-    bridge: '#22d3ee',
-    current: '#38bdf8',
-    deadEnd: '#ef4444',
-    bottleneck: '#e2e8f0',
-    sector: '#6366f1',
+    wallLine: '#475569',
+    gate: '#fb923c',
+    bridge: '#f0abfc',
+    current: '#2dd4bf',
+    deadEnd: '#f43f5e',
+    bottleneck: '#cbd5e1',
+    sector: '#7c8db5',
     unstable: '#ef4444',
-    jackpot: '#fde047',
+    jackpot: '#facc15',
+    lure: '#facc15',
+    decoy: '#94a3b8',
+    empty: '#64748b',
+    heatCost: '#f59e0b',
     path: '#60a5fa',
     pathFree: 'rgba(96, 165, 250, 0.35)',
     capture: '#fde047',
@@ -59,25 +65,37 @@ export const COLORS = {
 // dir — вектор шеврона течения: 0:+i, 1:−i, 2:+j, 3:−j.
 export const DIR_VECTORS = [{ di: 1, dj: 0 }, { di: -1, dj: 0 }, { di: 0, dj: 1 }, { di: 0, dj: -1 }];
 
-// ---- Словари объектов доски (§7.5) ----
+// ---- Словари объектов доски (§7.5, космический словарь §14.12) ----
 
-export const SIG_LABELS = { 0: 'тихая', 1: 'средняя', 2: 'шумная' };
-export const SURROUND_LABELS = { 0: 'пусто', 1: 'шлюз', 2: 'тупик', 3: 'топь', 4: 'течение' };
+export const SIG_LABELS = { 0: 'Тихий', 1: 'Ровный', 2: 'Гулкий' };
+export const SURROUND_LABELS = { 0: 'Ничего', 1: 'Кордон', 2: 'Обрыв', 3: 'Мгла', 4: 'Течение' };
 export const CONTENT_LABELS = {
-    jackpot: 'Джекпот · дешёвый срез',
-    lure: 'Приманка · дешёвый срез',
-    trap: 'Капкан · очень дорого',
-    decoy: 'Обманка · дорого',
-    unstable: 'Нестабильность · помеха',
-    empty: 'Пусто',
+    jackpot: 'Просвет',
+    lure: 'Зов',
+    trap: 'Воронка',
+    decoy: 'Мираж',
+    unstable: 'Сбой',
+    empty: 'Вакуум',
 };
 export const RISK_BY_SIG = { 0: 'низкий', 1: 'средний', 2: 'высокий' };
+// Ключи — сырые значения board.mode с сервера (не менять); игроку показывается
+// метка чипа (§14.12.6).
 export const MODE_LABELS = {
-    'русла': 'русла',
-    'течения': 'течения',
-    'шлюзы': 'шлюзы',
-    'тупики/обманки': 'тупики/обманки',
-    'топь': 'топь',
+    'русла': 'Трассы',
+    'течения': 'Течения',
+    'шлюзы': 'Кордоны',
+    'тупики/обманки': 'Обрывы и миражи',
+    'топь': 'Мгла',
+};
+
+// MARK_LABELS — метки курса (§4.6), тексты без чисел. Метка dead_end — «Тупиковый
+// ход» (объект dead_end_lane — «Обрыв»), чтобы одно слово не стояло в двух группах.
+export const MARK_LABELS = {
+    mud: 'Сопротивление', wall: 'Сопротивление',
+    turn: 'Манёвр', dead_end: 'Тупиковый ход',
+    current_against: 'Встречный поток', current_along: 'Попутный поток',
+    hazard: 'Сбой', jackpot: 'Находка',
+    gate_twice: 'Повторный кордон', bridge_twice: 'Повторный тоннель',
 };
 
 export function modeLabel(mode) { return MODE_LABELS[mode] || mode || '—'; }
@@ -163,58 +181,49 @@ export function passportChips(p, board) {
         out.push(chip(tempWord(p.from.temperature) + ' → ' + tempWord(p.to.temperature)));
     }
     out.push(chip('Маяки ' + ((b.beacons || []).length) + ' · Секторы ' + ((b.sectors || []).length) +
-        ' · Топь ' + ((b.mud || []).length) + ' · Русла ' + ((b.lane || []).length)));
+        ' · Мгла ' + ((b.mud || []).length) + ' · Трассы ' + ((b.lane || []).length)));
     if (p && p.destination_belts && p.destination_belts.length) out.push(chip('Пояс: ' + beltWord(p.destination_belts[0])));
     return out.join('');
 }
 
-// LEGEND_GROUPS — разделы попапа-легенды (§4.9).
+// LEGEND_GROUPS — четыре свёрнутые группы попапа-легенды (§4.9): от «зачем летим»
+// к «что на курсе». Все свёрнуты по умолчанию (раскрывашки — route_legend).
 export const LEGEND_GROUPS = [
-    { id: 'field', title: 'Блоки поля' },
     { id: 'landmark', title: 'Ориентиры' },
+    { id: 'field', title: 'Поле' },
     { id: 'sector', title: 'Секторы' },
-    { id: 'other', title: 'Прочее на доске' },
+    { id: 'marks', title: 'Метки курса' },
 ];
 
-// LEGEND_ITEMS — вся азбука доски для попапа-легенды (§4.9): для каждой позиции
+// LEGEND_ITEMS — азбука доски для попапа-легенды (§4.9): для каждой позиции
 // {id, group, name, meaning} — название и одна строка смысла человеческим языком,
-// без цветов и чисел механики. Мини-фигура рисуется тем же кодом, что доска
-// (route_figures.drawLegendFigure), — не спрайт и не цветной свотч. Легенда
-// статична и не раскрывает состояние текущей партии.
+// без цветов и чисел механики. id из LEGEND_ITEMS → фигура (route_figures.drawLegendFigure),
+// мини-фигура рисуется тем же кодом, что доска, — не спрайт и не цветной свотч.
+// Путь/предпросмотр и вскрытое содержимое в легенду не входят (§4.9): название
+// находки игрок читает в карточке сектора. Легенда статична (не состояние партии).
 export const LEGEND_ITEMS = [
-    { id: 'lane', group: 'field', name: 'Русло', meaning: 'Дешёвый участок поля — вести путь по нему выгоднее.' },
-    { id: 'mud', group: 'field', name: 'Топь', meaning: 'Вязкий участок: проход по нему стоит дорого.' },
-    { id: 'wall', group: 'field', name: 'Стена', meaning: 'Плотный участок: пройти можно, но это очень дорого.' },
-    { id: 'bottleneck', group: 'field', name: 'Узкий проход', meaning: 'Щель между стенами — единственное удобное место для пути.' },
-    { id: 'gate', group: 'field', name: 'Шлюз (платный)', meaning: 'За вход берут плату, а повторный вход обходится дороже.' },
-    { id: 'bridge', group: 'field', name: 'Мост (разовый)', meaning: 'Первый проход дешёвый, повторный — дорогой.' },
-    { id: 'current_along', group: 'field', name: 'Течение по курсу', meaning: 'Плыть по течению — путь дешевле.' },
-    { id: 'current_against', group: 'field', name: 'Течение против', meaning: 'Плыть против течения — путь дороже.' },
-    { id: 'dead_end', group: 'field', name: 'Тупик', meaning: 'Тупиковое русло: заход в него — ошибка маршрута.' },
-    { id: 'start', group: 'landmark', name: 'СТАРТ (корабль)', meaning: 'Клетка корабля: путь начинается отсюда.' },
-    { id: 'beacon', group: 'landmark', name: 'Маяк', meaning: 'Обязательная точка: маяк должен лежать на пути.' },
-    { id: 'finish', group: 'landmark', name: 'ФИНИШ', meaning: 'Звезда назначения: сюда путь должен прийти.' },
-    { id: 'sig_quiet', group: 'sector', name: 'Сектор · тихая σ', meaning: 'Спокойный сектор: риск помехи при разведке низкий.' },
-    { id: 'sig_mid', group: 'sector', name: 'Сектор · средняя σ', meaning: 'Риск помехи при разведке средний.' },
-    { id: 'sig_loud', group: 'sector', name: 'Сектор · шумная σ', meaning: 'Шумный сектор: риск помехи при разведке высокий.' },
-    { id: 'jackpot', group: 'sector', name: 'Джекпот', meaning: 'Вскрытый сектор: очень выгодный срез пути.' },
-    { id: 'lure', group: 'sector', name: 'Приманка', meaning: 'Вскрытый сектор: дешёвый срез — но не всё так просто.' },
-    { id: 'trap', group: 'sector', name: 'Капкан', meaning: 'Вскрытый сектор: проход через него очень дорог.' },
-    { id: 'decoy', group: 'sector', name: 'Обманка', meaning: 'Вскрытый сектор: дорогой участок пути.' },
-    { id: 'unstable', group: 'sector', name: 'Нестабильность', meaning: 'Вскрытый сектор: помеха — подход и клетки дорожают.' },
-    { id: 'empty', group: 'sector', name: 'Пусто', meaning: 'Вскрытый сектор: ничего особенного.' },
-    { id: 'path', group: 'other', name: 'Путь', meaning: 'Проложенная цепочка клеток от СТАРТА к ФИНИШУ.' },
-    { id: 'turn', group: 'other', name: 'Излом', meaning: 'Поворот пути отмечен засечкой-уголком.' },
-    { id: 'preview', group: 'other', name: 'Предпросмотр', meaning: 'Бледная «резинка» от конца пути к пальцу.' },
-    { id: 'heat_cost', group: 'other', name: 'Метка «дорого»', meaning: 'Клетка пути обходится дорого.' },
-    { id: 'heat_turn', group: 'other', name: 'Метка «излом»', meaning: 'На пути поворот.' },
-    { id: 'heat_dead_end', group: 'other', name: 'Метка «тупик»', meaning: 'Путь заходит в тупиковое русло.' },
-    { id: 'heat_against', group: 'other', name: 'Метка «против течения»', meaning: 'Путь идёт против течения.' },
-    { id: 'heat_gate_twice', group: 'other', name: 'Метка «шлюз дважды»', meaning: 'Через шлюз путь проходит повторно.' },
-    { id: 'heat_bridge_twice', group: 'other', name: 'Метка «мост дважды»', meaning: 'По мосту путь проходит повторно.' },
-    { id: 'heat_hazard', group: 'other', name: 'Метка «помеха»', meaning: 'Путь идёт через вскрытую нестабильность.' },
-    { id: 'heat_along', group: 'other', name: 'Метка «по течению»', meaning: 'Путь идёт по течению — это выгодно.' },
-    { id: 'heat_jackpot', group: 'other', name: 'Метка «выгодно»', meaning: 'На пути вскрытая выгодная клетка.' },
+    { id: 'start', group: 'landmark', name: 'Старт', meaning: 'Твой корабль; отсюда начинается курс.' },
+    { id: 'beacon', group: 'landmark', name: 'Маяк', meaning: 'Обязательная точка курса: без него маршрут не примут.' },
+    { id: 'finish', group: 'landmark', name: 'Цель', meaning: 'Звезда перелёта — куда ведёт курс.' },
+    { id: 'lane', group: 'field', name: 'Трасса', meaning: 'Прочищенный участок: лететь по нему дёшево и быстро.' },
+    { id: 'mud', group: 'field', name: 'Мгла', meaning: 'Плотная мгла: корабль вязнет, каждый шаг дорог.' },
+    { id: 'wall', group: 'field', name: 'Помехи', meaning: 'Помехи в гиперпространстве: пройти можно, но крайне дорого.' },
+    { id: 'bottleneck', group: 'field', name: 'Разрыв', meaning: 'Узкая щель в помехах — единственный путь на ту сторону.' },
+    { id: 'current', group: 'field', name: 'Течение', meaning: 'Направленный поток: по нему — дешевле, против — дорого.' },
+    { id: 'gate', group: 'field', name: 'Кордон', meaning: 'На входе останавливают: каждый вход стоит времени.' },
+    { id: 'bridge', group: 'field', name: 'Тоннель', meaning: 'Разовый проход: первый раз дёшево, повторно — дорого.' },
+    { id: 'dead_end', group: 'field', name: 'Обрыв', meaning: 'Ложное ответвление: упирается в никуда, придётся возвращаться.' },
+    { id: 'sector', group: 'sector', name: 'Сектор', meaning: 'Область с неизвестным содержимым: видна только гулкость.' },
+    { id: 'sig', group: 'sector', name: 'Гулкость', sigRow: true, meaning: 'Эфир сектора: Тихий / Ровный / Гулкий — риск сорвать поле.' },
+    { id: 'mark_resistance', group: 'marks', name: MARK_LABELS.mud, meaning: 'Клетка тормозит корабль: каждый такой шаг съедает время.' },
+    { id: 'mark_turn', group: 'marks', name: MARK_LABELS.turn, meaning: 'Смена курса: каждый поворот стоит времени.' },
+    { id: 'mark_dead_end', group: 'marks', name: MARK_LABELS.dead_end, meaning: 'Курс зашёл в ответвление без выхода — придётся возвращаться.' },
+    { id: 'mark_against', group: 'marks', name: MARK_LABELS.current_against, meaning: 'Идёшь против течения: медленно и дорого.' },
+    { id: 'mark_along', group: 'marks', name: MARK_LABELS.current_along, meaning: 'Течение несёт корабль: этот шаг дешевле.' },
+    { id: 'mark_hazard', group: 'marks', name: MARK_LABELS.hazard, meaning: 'Зонд разворошил поле: клетка и подходы к ней дороже.' },
+    { id: 'mark_jackpot', group: 'marks', name: MARK_LABELS.jackpot, meaning: 'Вскрытый сектор с дешёвым срезом на курсе — выигрыш времени.' },
+    { id: 'mark_gate_twice', group: 'marks', name: MARK_LABELS.gate_twice, meaning: 'Через этот кордон уже шёл: второй вход снова стоит времени.' },
+    { id: 'mark_bridge_twice', group: 'marks', name: MARK_LABELS.bridge_twice, meaning: 'Тоннель разовый: повторный проход дорог.' },
 ];
 
 // ---- Причины отказов (§3, §8): сырой текст ответа в UI не подставляем ----
@@ -235,8 +244,8 @@ export const REASON_TOAST = {
     too_few_cells: 'Слишком короткий путь',
     cell_out_of_bounds: 'Клетка вне доски',
     not_adjacent: 'Путь разрывается — ведите путь заново',
-    start_mismatch: 'Путь не начинается от СТАРТА',
-    finish_mismatch: 'Путь не доходит до ФИНИШа',
+    start_mismatch: 'Курс не начинается от Старта',
+    finish_mismatch: 'Курс не доходит до Цели',
     beacon_missing: 'Не все маяки на пути',
     changed: 'Маршрут изменился — вернитесь на карту',
     too_short: 'Перелёт слишком короткий',

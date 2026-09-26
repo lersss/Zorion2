@@ -1,7 +1,7 @@
 // web/static/js/route/route_ui.js
 // DOM/HUD и оверлеи мини-игры «Прокладка маршрута» (спека
 // 2026-09-25-маршрут-мини-игра-интерфейс.md §2–§4): паспорт/режим/легенда,
-// карточка сектора с разведкой (§4.3), тост, оверлеи причины (§3) и результата
+// карточка сектора с зондированием (§4.3), тост, оверлеи причины (§3) и результата
 // (§4.7). Числа механики сюда не попадают — исключение только результат после
 // отправки (bonus со знаком, §4.7): до отправки чисел/вердикта/оптимума нет.
 import * as C from './route_config.js';
@@ -65,7 +65,7 @@ export function buildMode(state) {
     el.style.display = '';
 }
 
-// ---- Карточка сектора (§4.3): σ, окружение, риск, «Разведать» / «Уже вскрыт» ----
+// ---- Карточка сектора (§4.3): σ, окружение, риск, «Зондировать» / «Уже вскрыт» ----
 
 function revealedContent(state, si) {
     const r = (state.revealed || []).find((x) => x.sector === si);
@@ -90,7 +90,7 @@ export function renderSectorCard(state, handlers) {
         const can = state.pingsLeft > 0 && !busy;
         actions = '<button class="hud-btn" data-act="close">Закрыть</button>' +
             '<button class="hud-btn primary" data-act="scan"' + (can ? '' : ' disabled') + '>' +
-            (busy ? 'Разведываю…' : 'Разведать') + '</button>';
+            (busy ? 'Зондирую…' : 'Зондировать') + '</button>';
     }
     const title = content
         ? C.contentLabel(content)
@@ -100,7 +100,7 @@ export function renderSectorCard(state, handlers) {
         (content ? ' · Уже вскрыт' : '') + '</div>' +
         '<div class="sector-title">' + title + '</div>' +
         (content ? '' : '<p class="sector-risk">Риск помехи: ' + C.riskBySig(sec.sig) + '</p>') +
-        (content ? '' : '<p class="sector-risk">Импульсов: ' + state.pingsLeft + ' · разведка стоит 1 импульс</p>') +
+        (content ? '' : '<p class="sector-risk">Импульсов: ' + state.pingsLeft + ' · зондирование стоит 1 импульс</p>') +
         '<div class="sector-actions">' + actions + '</div>';
     el.style.display = '';
     el.onclick = (e) => {

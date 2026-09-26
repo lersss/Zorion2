@@ -99,7 +99,7 @@ html, body {
 .hud-chip.mode-chip { color: #fde68a; border-color: #64748b; }
 .legend-toggle { min-height: 44px; padding: 8px 12px; font-size: 0.8rem; }
 
-/* Карточка сектора (§4.3): σ, окружение, риск, «Разведать». */
+/* Карточка сектора (§4.3): σ, окружение, риск, «Зондировать». */
 .sector-card {
     background: rgba(15, 23, 42, 0.94);
     border: 1px solid #334155;
@@ -158,13 +158,48 @@ html, body {
     padding: 4px calc(env(safe-area-inset-right) + 16px)
         calc(env(safe-area-inset-bottom) + 16px) calc(env(safe-area-inset-left) + 16px);
 }
-.legend-group { margin-top: 12px; }
+/* Группы-раскрывашки (§4.9): все свёрнуты, заголовок — кнопка с тач-целью ≥44. */
+.legend-group { border-top: 1px solid rgba(51, 65, 85, 0.5); }
+.legend-group:first-child { border-top: none; }
 .legend-group-title {
-    margin: 0 0 6px;
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: #94a3b8;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    width: 100%;
+    min-height: 44px;
+    margin: 0;
+    padding: 10px 2px;
+    background: transparent;
+    border: 0;
+    color: #e2e8f0;
+    font: inherit;
+    font-size: 0.95rem;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+    touch-action: manipulation;
+}
+.legend-group-title:active { color: #94a3b8; }
+.legend-group-title:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px; }
+.legend-chevron {
+    flex: 0 0 auto;
+    width: 10px;
+    height: 10px;
+    border-right: 2px solid #94a3b8;
+    border-bottom: 2px solid #94a3b8;
+    transform: rotate(45deg);
+    transition: transform 0.15s ease;
+}
+.legend-group-title[aria-expanded="true"] .legend-chevron { transform: rotate(-135deg); }
+.legend-group-body[hidden] { display: none; }
+.legend-group-body { padding-bottom: 4px; }
+/* σ — одним рядом «Тихий / Ровный / Гулкий» (§12.11). */
+.legend-sig-row { display: flex; gap: 10px; align-items: flex-start; }
+.legend-sig-cell { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.legend-sig-cap { font-size: 0.75rem; color: #94a3b8; }
+@media (prefers-reduced-motion: reduce) {
+    .legend-chevron { transition: none; }
 }
 .legend-row { display: flex; align-items: center; gap: 12px; padding: 6px 0; min-height: 44px; }
 .legend-fig {

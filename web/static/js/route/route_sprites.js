@@ -17,7 +17,7 @@ function pickVariant(type) {
     return pool[Math.floor(Math.random() * pool.length)];
 }
 
-// pickSprites — вариант на каждый тип; ФИНИШ берёт пул по типу звезды
+// pickSprites — вариант на каждый тип; Цель берёт пул по типу звезды
 // (black_hole → black_hole_*, иначе star_core_*), поэтому прелоад ≤6 PNG.
 export function pickSprites(finishStarType) {
     chosen = {};

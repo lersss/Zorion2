@@ -39,43 +39,126 @@ export function ring(ctx, x, y, r, color, a, w, dash) {
 
 // ---- Блоки поля: одна клетка (rect r) ----
 
+// lensLine — продольная сужающаяся линия (линза) от x0 к x1 в y, макс. полуширина hw.
+function lensLine(ctx, x0, x1, y, hw, steps) {
+    ctx.beginPath();
+    for (let k = 0; k <= steps; k++) {
+        const t = k / steps;
+        const h = Math.sin(Math.PI * t) * hw;
+        ctx.lineTo(x0 + (x1 - x0) * t, y - h);
+    }
+    for (let k = steps; k >= 0; k--) {
+        const t = k / steps;
+        const h = Math.sin(Math.PI * t) * hw;
+        ctx.lineTo(x0 + (x1 - x0) * t, y + h);
+    }
+    ctx.closePath();
+    ctx.fill();
+}
+
+// hatch — семейство косых штрихов под angDeg с шагом step и пунктиром dash.
+function hatch(ctx, r, angDeg, step, dash, phase) {
+    const rad = angDeg * Math.PI / 180;
+    const dx = Math.cos(rad);
+    const dy = Math.sin(rad);
+    const diag = Math.hypot(r.w, r.h);
+    ctx.setLineDash(dash);
+    for (let t = -diag + phase; t <= diag; t += step) {
+        const cx = r.x + r.w / 2 - dy * t;
+        const cy = r.y + r.h / 2 + dx * t;
+        ctx.beginPath();
+        ctx.moveTo(cx - dx * diag, cy - dy * diag);
+        ctx.lineTo(cx + dx * diag, cy + dy * diag);
+        ctx.stroke();
+    }
+    ctx.setLineDash([]);
+}
+
+// figWall — «шумовая решётка» (§12.13): плотная тёмная подложка + две семьи
+// перекрещенных штрихов ±60° с разрывами (фаза от координаты клетки) + крапины.
 export function figWall(ctx, r) {
     ctx.fillStyle = C.COLORS.wallDark;
     ctx.fillRect(r.x, r.y, r.w, r.h);
-    ctx.strokeStyle = hA(C.COLORS.wall, 0.9);
+    const phase = ((Math.round(r.x) * 5 + Math.round(r.y) * 11) % 7);
+    ctx.save();
+    ctx.beginPath(); ctx.rect(r.x, r.y, r.w, r.h); ctx.clip();
+    ctx.strokeStyle = hA(C.COLORS.wallLine, 0.9);
     ctx.lineWidth = 1;
-    for (let k = -r.h; k < r.w; k += 6) {
-        ctx.beginPath(); ctx.moveTo(r.x + k, r.y + r.h); ctx.lineTo(r.x + k + r.h, r.y); ctx.stroke();
+    hatch(ctx, r, 60, 7, [3, 3], phase);
+    hatch(ctx, r, -60, 7, [2, 5], phase);
+    ctx.fillStyle = hA(C.COLORS.wallLine, 0.6);
+    for (let k = 0; k < 4; k++) {
+        const px = r.x + ((k * 11 + 5 + phase) % Math.max(4, r.w - 4)) + 2;
+        const py = r.y + ((k * 7 + 9 + phase) % Math.max(4, r.h - 4)) + 2;
+        ctx.fillRect(px, py, 1.5, 1.5);
     }
+    ctx.restore();
 }
 
+// figMud — вязкая туманность: тёмное ядро + мягкое свечение + крупинки (§12.2).
 export function figMud(ctx, r) {
-    ctx.fillStyle = hA(C.COLORS.mud, 0.28);
+    const s = Math.min(r.w, r.h);
+    ctx.fillStyle = hA(C.COLORS.mud, 0.3);
     ctx.fillRect(r.x, r.y, r.w, r.h);
-    ctx.fillStyle = hA(C.COLORS.mud, 0.5);
-    for (let k = 0; k < 4; k++) {
+    radial(ctx, r.x + r.w / 2, r.y + r.h / 2, s * 0.55, C.COLORS.mud, 0.4);
+    ctx.fillStyle = hA(C.COLORS.mudGrain, 0.8);
+    const grains = 4 + (((Math.round(r.x) + Math.round(r.y)) % 3));
+    for (let k = 0; k < grains; k++) {
         const px = r.x + ((k * 7 + 3) % Math.max(4, r.w - 4)) + 2;
         const py = r.y + ((k * 5 + 4) % Math.max(4, r.h - 4)) + 2;
         ctx.fillRect(px, py, 1.6, 1.6);
     }
 }
 
+// figLane — «струи потока» (§12.13): тихая заливка + 3 продольные непрерывные
+// сужающиеся линии + светлое ядро; без рамки, пунктира и диагоналей.
 export function figLane(ctx, r) {
-    ctx.fillStyle = hA(C.COLORS.lane, 0.16);
+    const s = Math.min(r.w, r.h);
+    ctx.fillStyle = hA(C.COLORS.lane, 0.11);
     ctx.fillRect(r.x, r.y, r.w, r.h);
+    ctx.save();
+    ctx.fillStyle = hA(C.COLORS.lane, 0.85);
+    const x0 = r.x + s * 0.1;
+    const x1 = r.x + s * 0.9;
+    const hw = Math.max(0.8, s * 0.028);
+    for (const f of [0.28, 0.5, 0.72]) lensLine(ctx, x0, x1, r.y + s * f, hw, 12);
+    ctx.strokeStyle = hA(C.COLORS.lane, 0.55);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(r.x + s * 0.16, r.y + s * 0.5);
+    ctx.lineTo(r.x + s * 0.84, r.y + s * 0.5);
+    ctx.stroke();
+    ctx.restore();
 }
 
-// figWarm — дорогая клетка (visible > 1), кроме топи/стены.
+// figWarm — дорогая клетка (visible > 1), кроме Мглы/Помех.
 export function figWarm(ctx, r) {
     ctx.fillStyle = hA(C.COLORS.warning, 0.16);
     ctx.fillRect(r.x, r.y, r.w, r.h);
 }
 
+// figBottleneck — «ворота»: две скобки + светлая вертикальная щель (§12.2).
 export function figBottleneck(ctx, r) {
+    ctx.save();
     ctx.fillStyle = hA(C.COLORS.bottleneck, 0.55);
-    ctx.fillRect(r.x + r.w * 0.3, r.y + r.h * 0.1, r.w * 0.4, r.h * 0.8);
+    ctx.fillRect(r.x + r.w * 0.42, r.y + r.h * 0.06, r.w * 0.16, r.h * 0.88);
+    ctx.strokeStyle = hA(C.COLORS.bottleneck, 0.9);
+    ctx.lineWidth = Math.max(1.4, r.w * 0.08);
+    ctx.lineCap = 'round';
+    const lx = r.x + r.w * 0.3;
+    const rx = r.x + r.w * 0.7;
+    const y0 = r.y + r.h * 0.14;
+    const y1 = r.y + r.h * 0.86;
+    ctx.beginPath();
+    ctx.moveTo(lx + r.w * 0.08, y0); ctx.lineTo(lx, y0); ctx.lineTo(lx, y1); ctx.lineTo(lx + r.w * 0.08, y1);
+    ctx.moveTo(rx - r.w * 0.08, y0); ctx.lineTo(rx, y0); ctx.lineTo(rx, y1); ctx.lineTo(rx - r.w * 0.08, y1);
+    ctx.moveTo(r.x + r.w * 0.5, r.y + r.h * 0.16); ctx.lineTo(r.x + r.w * 0.5, r.y + r.h * 0.3);
+    ctx.moveTo(r.x + r.w * 0.5, r.y + r.h * 0.7); ctx.lineTo(r.x + r.w * 0.5, r.y + r.h * 0.84);
+    ctx.stroke();
+    ctx.restore();
 }
 
+// figGate — кордон: створка + ромб оплаты + двойная поперечная полоса (§12.2).
 export function figGate(ctx, r) {
     ctx.save();
     ctx.strokeStyle = hA(C.COLORS.gate, 0.95);
@@ -84,24 +167,40 @@ export function figGate(ctx, r) {
     ctx.moveTo(r.x + r.w * 0.5, r.y + r.h * 0.06);
     ctx.lineTo(r.x + r.w * 0.5, r.y + r.h * 0.94);
     ctx.stroke();
+    ctx.fillStyle = hA(C.COLORS.gate, 0.85);
+    ctx.fillRect(r.x + r.w * 0.16, r.y + r.h * 0.4, r.w * 0.68, r.h * 0.06);
+    ctx.fillRect(r.x + r.w * 0.16, r.y + r.h * 0.54, r.w * 0.68, r.h * 0.06);
     ctx.fillStyle = hA(C.COLORS.gate, 0.95);
-    ctx.beginPath();
-    ctx.arc(r.x + r.w * 0.5, r.y + r.h * 0.5, Math.max(1.6, r.w * 0.09), 0, TAU);
+    const d = Math.max(2.2, r.w * 0.12);
+    diamondPath(ctx, r.x + r.w * 0.5, r.y + r.h * 0.5, d);
     ctx.fill();
     ctx.restore();
 }
 
+// figBridge — тоннель: перила + пунктирная настилка (§12.2).
 export function figBridge(ctx, r) {
     ctx.save();
     ctx.fillStyle = hA(C.COLORS.bridge, 0.28);
     ctx.fillRect(r.x + r.w * 0.08, r.y + r.h * 0.34, r.w * 0.84, r.h * 0.32);
+    const y0 = r.y + r.h * 0.34;
+    const y1 = r.y + r.h * 0.66;
     ctx.strokeStyle = hA(C.COLORS.bridge, 0.9);
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(r.x + r.w * 0.08, y0); ctx.lineTo(r.x + r.w * 0.92, y0);
+    ctx.moveTo(r.x + r.w * 0.08, y1); ctx.lineTo(r.x + r.w * 0.92, y1);
+    ctx.stroke();
     ctx.lineWidth = 1.2;
-    ctx.strokeRect(r.x + r.w * 0.08, r.y + r.h * 0.34, r.w * 0.84, r.h * 0.32);
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(r.x + r.w * 0.08, (y0 + y1) / 2);
+    ctx.lineTo(r.x + r.w * 0.92, (y0 + y1) / 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
     ctx.restore();
 }
 
-// figChevron — шевроны течения по dir (0:+i,1:−i,2:+j,3:−j).
+// figChevron — шевроны течения по dir (0:+i,1:−i,2:+j,3:−j) + пунктирные хвосты.
 export function figChevron(ctx, r, dir, alpha) {
     const v = C.DIR_VECTORS[dir];
     if (!v) return;
@@ -122,10 +221,22 @@ export function figChevron(ctx, r, dir, alpha) {
         ctx.lineTo(cx + hx * 0.5 + px * off, cy + hy * 0.5 + py * off);
         ctx.stroke();
     }
+    ctx.setLineDash([3, 3]);
+    ctx.lineWidth = 1.2;
+    ctx.strokeStyle = hA(C.COLORS.current, alpha * 0.7);
+    for (const off of [-0.45, 0.45]) {
+        const bx = cx - hx * 0.6 + px * off;
+        const by = cy - hy * 0.6 + py * off;
+        ctx.beginPath();
+        ctx.moveTo(bx, by);
+        ctx.lineTo(bx - hx * 0.7, by - hy * 0.7);
+        ctx.stroke();
+    }
+    ctx.setLineDash([]);
     ctx.restore();
 }
 
-// figDeadEnd — тупиковое русло: кайма + «стоп»-маркер (или спрайт false_signal).
+// figDeadEnd — обрыв: кайма + «стоп»-маркер (или спрайт false_signal).
 export function figDeadEnd(ctx, r, img) {
     ctx.save();
     ctx.strokeStyle = hA(C.COLORS.deadEnd, 0.9);
@@ -146,66 +257,196 @@ export function figDeadEnd(ctx, r, img) {
 
 export function sectorDensity(sig) { return [0.20, 0.32, 0.46][sig] || 0.3; }
 
+// sectorRim — цвет каймы сектора по содержимому (§12.9): опасность трап/сбой
+// красная, находки золотые, нейтральные мираже/вакуум стальные.
 export function sectorRim(content) {
-    if (content === 'unstable') return C.COLORS.unstable;
+    if (content === 'trap' || content === 'unstable') return C.COLORS.unstable;
     if (content === 'jackpot' || content === 'lure') return C.COLORS.jackpot;
+    if (content === 'decoy') return C.COLORS.decoy;
+    if (content === 'empty') return C.COLORS.empty;
     return C.COLORS.sector;
 }
 
-// figSector — одна клетка сектора-облака: заливка по σ + кайма по содержимому.
+// sectorRimDash — пунктир каймы (пульс у Сбоя, пунктир у Зова/Миража), §12.9.
+export function sectorRimDash(content) {
+    if (content === 'unstable') return [3, 2];
+    if (content === 'lure' || content === 'decoy') return [4, 3];
+    return null;
+}
+
+// sigTexture — σ-текстура сектора (§12.2): 3 / 5 дуг, у Гулкого — 8 хаотичных штрихов.
+function sigTexture(ctx, r, sig) {
+    const n = [3, 5, 8][sig] || 3;
+    const s = Math.min(r.w, r.h);
+    ctx.save();
+    ctx.strokeStyle = hA(C.COLORS.sector, 0.5);
+    ctx.lineWidth = 1;
+    if (sig >= 2) {
+        for (let k = 0; k < n; k++) {
+            const x0 = r.x + ((k * 13 + 5) % Math.max(4, r.w - 6)) + 3;
+            const y0 = r.y + ((k * 7 + 3) % Math.max(4, r.h - 6)) + 3;
+            ctx.beginPath();
+            ctx.moveTo(x0, y0);
+            ctx.lineTo(x0 + (k % 2 ? 7 : -6), y0 + (k % 3 ? 5 : -4));
+            ctx.stroke();
+        }
+    } else {
+        for (let k = 0; k < n; k++) {
+            ctx.beginPath();
+            ctx.arc(r.x + r.w / 2, r.y + r.h / 2, s * (0.18 + k * 0.1), Math.PI * 0.15, Math.PI * 0.85);
+            ctx.stroke();
+        }
+    }
+    ctx.restore();
+}
+
+// figSector — одна клетка сектора-облака: заливка по σ + σ-текстура + кайма и
+// центральный глиф по содержимому (глиф — только после вскрытия, §12.9).
 export function figSector(ctx, r, sig, content) {
     ctx.save();
     ctx.fillStyle = C.COLORS.sector;
     ctx.globalAlpha = sectorDensity(sig);
     ctx.fillRect(r.x, r.y, r.w, r.h);
     ctx.restore();
+    sigTexture(ctx, r, sig);
     ctx.save();
     ctx.strokeStyle = hA(sectorRim(content), content ? 0.9 : 0.45);
     ctx.lineWidth = content ? 1.6 : 1;
+    const dash = sectorRimDash(content);
+    if (dash) ctx.setLineDash(dash);
     ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
+    ctx.setLineDash([]);
     ctx.restore();
-    if (content === 'unstable') heatMark(ctx, r.x + r.w / 2, r.y + r.h / 2, r.w, 'hazard', 1);
-    else if (content === 'jackpot' || content === 'lure') heatMark(ctx, r.x + r.w / 2, r.y + r.h / 2, r.w, 'jackpot', 1);
+    if (content) contentGlyph(ctx, r.x + r.w / 2, r.y + r.h / 2, r.w, content, 1);
 }
 
-// ---- Локальный «жар» (§4.6): форма метки одна, раскладку задаёт вызывающий ----
+// ---- Глиф содержимого сектора (§12.9): свой силуэт у каждого содержимого ----
 
-const HEAT_COLORS = {
-    mud: C.COLORS.mud, wall: C.COLORS.wall, gate: C.COLORS.gate, gate_twice: C.COLORS.gate,
-    bridge: C.COLORS.bridge, bridge_twice: C.COLORS.bridge, dead_end: C.COLORS.deadEnd,
-    current_against: C.COLORS.deadEnd, current_along: C.COLORS.bridge,
-    hazard: C.COLORS.unstable, jackpot: C.COLORS.jackpot, turn: C.COLORS.captureSoft,
-};
+// diamondPath — ромб как путь (вызывающий сам решает fill/stroke).
+function diamondPath(ctx, x, y, r) {
+    ctx.beginPath();
+    ctx.moveTo(x, y - r); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r); ctx.lineTo(x - r, y);
+    ctx.closePath();
+}
 
-export function heatColor(kind) { return HEAT_COLORS[kind] || C.COLORS.capture; }
-
-// turnNotch — засечка-уголок излома в клетке r.
-export function turnNotch(ctx, r, color, pulse) {
+export function contentGlyph(ctx, x, y, cell, content, pulse) {
+    const a = pulse == null ? 1 : pulse;
+    const r = Math.max(3, cell * 0.22);
     ctx.save();
-    ctx.strokeStyle = hA(color, pulse);
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(r.x + r.w * 0.2, r.y + r.h * 0.8);
-    ctx.lineTo(r.x + r.w * 0.2, r.y + r.h * 0.5);
-    ctx.lineTo(r.x + r.w * 0.5, r.y + r.h * 0.5);
-    ctx.stroke();
-    ctx.restore();
-}
-
-// heatMark — точка-маркер «жара» (для *_twice — с кольцом) в точке (x,y).
-export function heatMark(ctx, x, y, cell, kind, pulse) {
-    const color = heatColor(kind);
-    ctx.fillStyle = hA(color, 0.9 * pulse);
-    ctx.beginPath();
-    ctx.arc(x, y, Math.max(2, cell * 0.08), 0, TAU);
-    ctx.fill();
-    if (kind === 'gate_twice' || kind === 'bridge_twice') {
-        ctx.strokeStyle = hA(color, 0.9);
-        ctx.lineWidth = 1.4;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    if (content === 'jackpot') {
+        ctx.strokeStyle = hA(C.COLORS.jackpot, 0.95 * a);
+        ctx.lineWidth = Math.max(1.6, cell * 0.06);
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + dx * r, y + dy * r); ctx.stroke();
+        }
+    } else if (content === 'lure') {
+        ctx.strokeStyle = hA(C.COLORS.jackpot, 0.95 * a);
+        ctx.lineWidth = Math.max(1.4, cell * 0.05);
+        diamondPath(ctx, x, y, r); ctx.stroke();
+        diamondPath(ctx, x, y, r * 0.55); ctx.stroke();
+    } else if (content === 'trap') {
+        ctx.strokeStyle = hA(C.COLORS.unstable, 0.95 * a);
+        ctx.lineWidth = Math.max(1.6, cell * 0.06);
         ctx.beginPath();
-        ctx.arc(x, y, Math.max(3.4, cell * 0.15), 0, TAU);
+        ctx.moveTo(x - r, y - r); ctx.lineTo(x + r, y + r);
+        ctx.moveTo(x + r, y - r); ctx.lineTo(x - r, y + r);
+        ctx.stroke();
+    } else if (content === 'decoy') {
+        ctx.strokeStyle = hA(C.COLORS.decoy, 0.9 * a);
+        ctx.lineWidth = Math.max(1.4, cell * 0.05);
+        ctx.beginPath(); ctx.arc(x, y, r, Math.PI * 0.25, Math.PI * 1.75); ctx.stroke();
+    } else if (content === 'unstable') {
+        ctx.strokeStyle = hA(C.COLORS.unstable, 0.95 * a);
+        ctx.lineWidth = Math.max(1.6, cell * 0.06);
+        ctx.beginPath();
+        ctx.moveTo(x - r * 0.5, y - r); ctx.lineTo(x + r * 0.2, y - r * 0.1);
+        ctx.lineTo(x - r * 0.2, y + r * 0.1); ctx.lineTo(x + r * 0.5, y + r);
         ctx.stroke();
     }
+    ctx.restore();
+}
+
+// ---- Метки курса (§12.10): у каждой свой микро-глиф; цвет — вспомогательный ----
+
+const MARK_COLORS = {
+    mud: C.COLORS.heatCost, wall: C.COLORS.heatCost,
+    gate: C.COLORS.gate, gate_twice: C.COLORS.gate,
+    bridge: C.COLORS.bridge, bridge_twice: C.COLORS.bridge,
+    current_against: C.COLORS.unstable, current_along: C.COLORS.current,
+    dead_end: C.COLORS.deadEnd, turn: C.COLORS.captureSoft,
+    hazard: C.COLORS.unstable, jackpot: C.COLORS.jackpot,
+};
+
+export function heatColor(kind) { return MARK_COLORS[kind] || C.COLORS.capture; }
+
+// heatGlyph — микро-глиф метки курса в точке (x,y) (§12.10); размер ≈0.22·cell,
+// толщина штриха ≥1.4 px. pulse — «дыхание» метки (reduced-motion → статично).
+export function heatGlyph(ctx, x, y, cell, kind, pulse) {
+    const a = pulse == null ? 1 : pulse;
+    const col = heatColor(kind);
+    const r = Math.max(3, cell * 0.22);
+    ctx.save();
+    ctx.strokeStyle = hA(col, 0.9 * a);
+    ctx.fillStyle = hA(col, 0.9 * a);
+    ctx.lineWidth = Math.max(1.4, cell * 0.045);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    if (kind === 'mud' || kind === 'wall') {
+        for (const oy of [-r * 0.35, r * 0.35]) {
+            ctx.beginPath();
+            ctx.moveTo(x - r, y + oy);
+            ctx.quadraticCurveTo(x - r * 0.5, y + oy - r * 0.5, x, y + oy);
+            ctx.quadraticCurveTo(x + r * 0.5, y + oy + r * 0.5, x + r, y + oy);
+            ctx.stroke();
+        }
+    } else if (kind === 'gate') {
+        diamondPath(ctx, x, y, r); ctx.stroke();
+    } else if (kind === 'gate_twice') {
+        ctx.beginPath();
+        ctx.moveTo(x - r * 0.35, y - r); ctx.lineTo(x - r * 0.35, y + r);
+        ctx.moveTo(x + r * 0.35, y - r); ctx.lineTo(x + r * 0.35, y + r);
+        ctx.stroke();
+    } else if (kind === 'bridge') {
+        ctx.setLineDash([2.5, 2.5]);
+        ctx.beginPath(); ctx.moveTo(x - r, y); ctx.lineTo(x + r, y); ctx.stroke();
+        ctx.setLineDash([]);
+    } else if (kind === 'bridge_twice') {
+        ctx.setLineDash([2.5, 2.5]);
+        ctx.beginPath();
+        ctx.moveTo(x - r, y - r * 0.4); ctx.lineTo(x + r, y - r * 0.4);
+        ctx.moveTo(x - r, y + r * 0.4); ctx.lineTo(x + r, y + r * 0.4);
+        ctx.stroke();
+        ctx.setLineDash([]);
+    } else if (kind === 'current_against') {
+        ctx.beginPath();
+        ctx.moveTo(x - r * 0.7, y - r * 0.6); ctx.lineTo(x, y); ctx.lineTo(x - r * 0.7, y + r * 0.6);
+        ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x + r * 0.9, y - r * 0.9); ctx.lineTo(x - r * 0.1, y + r * 0.1); ctx.stroke();
+    } else if (kind === 'current_along') {
+        ctx.beginPath();
+        ctx.moveTo(x - r * 0.7, y - r * 0.6); ctx.lineTo(x, y); ctx.lineTo(x - r * 0.7, y + r * 0.6);
+        ctx.stroke();
+    } else if (kind === 'dead_end') {
+        ctx.fillRect(x - r, y - r * 0.3, r * 2, r * 0.6);
+    } else if (kind === 'turn') {
+        ctx.beginPath();
+        ctx.moveTo(x - r * 0.6, y + r * 0.5);
+        ctx.lineTo(x - r * 0.6, y - r * 0.3);
+        ctx.lineTo(x + r * 0.5, y - r * 0.3);
+        ctx.stroke();
+    } else if (kind === 'hazard') {
+        ctx.beginPath();
+        ctx.moveTo(x - r * 0.5, y - r); ctx.lineTo(x + r * 0.2, y - r * 0.1);
+        ctx.lineTo(x - r * 0.2, y + r * 0.1); ctx.lineTo(x + r * 0.5, y + r);
+        ctx.stroke();
+    } else if (kind === 'jackpot') {
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + dx * r, y + dy * r); ctx.stroke();
+        }
+    }
+    ctx.restore();
 }
 
 // ---- Ориентиры: кодовые фигуры (легенда — не спрайт) ----
@@ -264,106 +505,36 @@ export function figStar(ctx, r) {
     ctx.restore();
 }
 
-// ---- Прочее: путь, излом, предпросмотр ----
-
-export function figPathSample(ctx, r, withTurn) {
-    const w = Math.max(3, Math.min(r.w, r.h) * 0.22);
-    const xm = r.x + r.w * 0.5;
-    const y1 = r.y + r.h * 0.78;
-    const y2 = r.y + r.h * 0.42;
-    ctx.save();
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.strokeStyle = C.COLORS.path;
-    ctx.lineWidth = w;
-    ctx.beginPath();
-    ctx.moveTo(r.x + r.w * 0.1, y1);
-    ctx.lineTo(xm, y1);
-    ctx.lineTo(xm, y2);
-    ctx.lineTo(r.x + r.w * 0.9, y2);
-    ctx.stroke();
-    ctx.restore();
-    if (withTurn) turnNotch(ctx, r, C.COLORS.captureSoft, 1);
-}
-
-export function figPreviewSample(ctx, r) {
-    ctx.save();
-    ctx.strokeStyle = C.COLORS.pathFree;
-    ctx.lineWidth = Math.max(2, Math.min(r.w, r.h) * 0.12);
-    ctx.setLineDash([6, 6]);
-    ctx.beginPath();
-    ctx.moveTo(r.x + r.w * 0.15, r.y + r.h * 0.7);
-    ctx.lineTo(r.x + r.w * 0.85, r.y + r.h * 0.3);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.fillStyle = C.COLORS.path;
-    ctx.beginPath();
-    ctx.arc(r.x + r.w * 0.85, r.y + r.h * 0.3, 3, 0, TAU);
-    ctx.fill();
-    ctx.restore();
-}
-
 // ---- Диспетчер мини-фигур легенды (§4.9): id из LEGEND_ITEMS → фигура ----
 
 export function drawLegendFigure(ctx, id, r) {
+    const cx = r.x + r.w / 2;
+    const cy = r.y + r.h / 2;
     switch (id) {
+        case 'start': figStart(ctx, r); break;
+        case 'beacon': figBeacon(ctx, r); break;
+        case 'finish': figStar(ctx, r); break;
         case 'lane': figLane(ctx, r); break;
         case 'mud': figMud(ctx, r); break;
         case 'wall': figWall(ctx, r); break;
         case 'bottleneck': figBottleneck(ctx, r); break;
+        case 'current': figChevron(ctx, r, 0, 0.9); break;
         case 'gate': figGate(ctx, r); break;
         case 'bridge': figBridge(ctx, r); break;
-        case 'current_along':
-            figChevron(ctx, r, 0, 0.85);
-            heatMark(ctx, r.x + r.w * 0.5, r.y + r.h * 0.2, r.w, 'current_along', 1);
-            break;
-        case 'current_against':
-            figChevron(ctx, r, 0, 0.85);
-            heatMark(ctx, r.x + r.w * 0.5, r.y + r.h * 0.2, r.w, 'current_against', 1);
-            break;
         case 'dead_end': figDeadEnd(ctx, r, null); break;
-        case 'start': figStart(ctx, r); break;
-        case 'beacon': figBeacon(ctx, r); break;
-        case 'finish': figStar(ctx, r); break;
+        case 'sector': figSector(ctx, r, 1, null); break;
         case 'sig_quiet': figSector(ctx, r, 0, null); break;
         case 'sig_mid': figSector(ctx, r, 1, null); break;
         case 'sig_loud': figSector(ctx, r, 2, null); break;
-        case 'jackpot': figSector(ctx, r, 1, 'jackpot'); break;
-        case 'lure': figSector(ctx, r, 1, 'lure'); break;
-        case 'trap': figSector(ctx, r, 1, 'trap'); break;
-        case 'decoy': figSector(ctx, r, 1, 'decoy'); break;
-        case 'unstable': figSector(ctx, r, 2, 'unstable'); break;
-        case 'empty': figSector(ctx, r, 0, 'empty'); break;
-        case 'path': figPathSample(ctx, r, false); break;
-        case 'turn': figPathSample(ctx, r, true); break;
-        case 'preview': figPreviewSample(ctx, r); break;
-        case 'heat_cost':
-            heatMark(ctx, r.x + r.w / 2, r.y + r.h / 2, r.w, 'mud', 1);
-            break;
-        case 'heat_turn':
-            turnNotch(ctx, r, heatColor('turn'), 1);
-            break;
-        case 'heat_dead_end':
-            heatMark(ctx, r.x + r.w / 2, r.y + r.h / 2, r.w, 'dead_end', 1);
-            break;
-        case 'heat_against':
-            heatMark(ctx, r.x + r.w / 2, r.y + r.h / 2, r.w, 'current_against', 1);
-            break;
-        case 'heat_gate_twice':
-            heatMark(ctx, r.x + r.w / 2, r.y + r.h / 2, r.w, 'gate_twice', 1);
-            break;
-        case 'heat_bridge_twice':
-            heatMark(ctx, r.x + r.w / 2, r.y + r.h / 2, r.w, 'bridge_twice', 1);
-            break;
-        case 'heat_hazard':
-            heatMark(ctx, r.x + r.w / 2, r.y + r.h / 2, r.w, 'hazard', 1);
-            break;
-        case 'heat_along':
-            heatMark(ctx, r.x + r.w / 2, r.y + r.h / 2, r.w, 'current_along', 1);
-            break;
-        case 'heat_jackpot':
-            heatMark(ctx, r.x + r.w / 2, r.y + r.h / 2, r.w, 'jackpot', 1);
-            break;
+        case 'mark_resistance': heatGlyph(ctx, cx, cy, r.w, 'mud', 1); break;
+        case 'mark_turn': heatGlyph(ctx, cx, cy, r.w, 'turn', 1); break;
+        case 'mark_dead_end': heatGlyph(ctx, cx, cy, r.w, 'dead_end', 1); break;
+        case 'mark_against': heatGlyph(ctx, cx, cy, r.w, 'current_against', 1); break;
+        case 'mark_along': heatGlyph(ctx, cx, cy, r.w, 'current_along', 1); break;
+        case 'mark_hazard': heatGlyph(ctx, cx, cy, r.w, 'hazard', 1); break;
+        case 'mark_jackpot': heatGlyph(ctx, cx, cy, r.w, 'jackpot', 1); break;
+        case 'mark_gate_twice': heatGlyph(ctx, cx, cy, r.w, 'gate_twice', 1); break;
+        case 'mark_bridge_twice': heatGlyph(ctx, cx, cy, r.w, 'bridge_twice', 1); break;
         default: break;
     }
 }

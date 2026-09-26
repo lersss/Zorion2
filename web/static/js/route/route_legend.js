@@ -1,9 +1,11 @@
 // web/static/js/route/route_legend.js
 // Попап-легенда мини-игры «Прокладка маршрута» (спека
 // 2026-09-25-маршрут-мини-игра-интерфейс.md §4.9): открывается кнопкой «Легенда»,
-// содержит ВСЮ азбуку доски — каждая позиция нарисована мини-фигурой тем же
-// кодом, что доска (route_figures.drawLegendFigure), + название + строка смысла.
-// Статичная общая справка: не раскрывает состояние текущей партии, чисел нет.
+// содержит азбуку доски ЧЕТЫРЬМЯ СВЁРНУТЫМИ группами — Ориентиры / Поле / Секторы /
+// Метки курса. Каждая позиция нарисована мини-фигурой тем же кодом, что доска
+// (route_figures.drawLegendFigure), + название + строка смысла. Путь/предпросмотр и
+// вскрытое содержимое в легенду не входят (§4.9) — название находки в карточке
+// сектора. Статичная справка: не раскрывает состояние партии, чисел нет.
 // Закрытие: «✕» / тап по фону / Esc; звук открытия/закрытия не играется.
 import * as C from './route_config.js';
 import { drawLegendFigure } from './route_figures.js';
@@ -14,7 +16,7 @@ let open = false;
 
 export function isLegendOpen() { return open; }
 
-// makeFigure — мини-фигура позиции на отдельном canvas (DPR ≤2).
+// makeFigure — мини-фигура позиции на отдельном canvas (DPR ≤2, подложка #0b1220).
 function makeFigure(id) {
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     const cv = document.createElement('canvas');
@@ -30,7 +32,52 @@ function makeFigure(id) {
     return cv;
 }
 
-// buildLegend — дом попапа: группы азбуки из LEGEND_ITEMS (§4.9).
+function legendText(it) {
+    const text = document.createElement('div');
+    text.className = 'legend-text';
+    const name = document.createElement('div');
+    name.className = 'legend-name';
+    name.textContent = it.name;
+    const meaning = document.createElement('div');
+    meaning.className = 'legend-meaning';
+    meaning.textContent = it.meaning;
+    text.appendChild(name);
+    text.appendChild(meaning);
+    return text;
+}
+
+// sigRow — ряд гулкости: три фигуры (Тихий / Ровный / Гулкий) в одной строке (§4.9/§12.11).
+function sigRow() {
+    const row = document.createElement('div');
+    row.className = 'legend-sig-row';
+    for (const [id, cap] of [['sig_quiet', C.SIG_LABELS[0]], ['sig_mid', C.SIG_LABELS[1]], ['sig_loud', C.SIG_LABELS[2]]]) {
+        const cell = document.createElement('div');
+        cell.className = 'legend-sig-cell';
+        cell.appendChild(makeFigure(id));
+        const label = document.createElement('span');
+        label.className = 'legend-sig-cap';
+        label.textContent = cap;
+        cell.appendChild(label);
+        row.appendChild(cell);
+    }
+    return row;
+}
+
+function buildRow(it) {
+    const row = document.createElement('div');
+    row.className = 'legend-row';
+    row.appendChild(it.sigRow ? sigRow() : makeFigure(it.id));
+    row.appendChild(legendText(it));
+    return row;
+}
+
+function toggleGroup(title, body) {
+    const openNow = title.getAttribute('aria-expanded') === 'true';
+    title.setAttribute('aria-expanded', openNow ? 'false' : 'true');
+    body.hidden = openNow;
+}
+
+// buildLegend — дом попапа: четыре свёрнутые группы азбуки из LEGEND_ITEMS (§4.9).
 export function buildLegend() {
     const list = $('legend-list');
     if (!list) return;
@@ -40,27 +87,25 @@ export function buildLegend() {
         if (!items.length) continue;
         const sec = document.createElement('section');
         sec.className = 'legend-group';
-        const title = document.createElement('h3');
+
+        const title = document.createElement('button');
+        title.type = 'button';
         title.className = 'legend-group-title';
-        title.textContent = g.title;
+        title.setAttribute('aria-expanded', 'false');
+        title.appendChild(document.createTextNode(g.title));
+        const chevron = document.createElement('span');
+        chevron.className = 'legend-chevron';
+        chevron.setAttribute('aria-hidden', 'true');
+        title.appendChild(chevron);
         sec.appendChild(title);
-        for (const it of items) {
-            const row = document.createElement('div');
-            row.className = 'legend-row';
-            row.appendChild(makeFigure(it.id));
-            const text = document.createElement('div');
-            text.className = 'legend-text';
-            const name = document.createElement('div');
-            name.className = 'legend-name';
-            name.textContent = it.name;
-            const meaning = document.createElement('div');
-            meaning.className = 'legend-meaning';
-            meaning.textContent = it.meaning;
-            text.appendChild(name);
-            text.appendChild(meaning);
-            row.appendChild(text);
-            sec.appendChild(row);
-        }
+
+        const body = document.createElement('div');
+        body.className = 'legend-group-body';
+        body.hidden = true;
+        for (const it of items) body.appendChild(buildRow(it));
+        sec.appendChild(body);
+
+        title.addEventListener('click', () => toggleGroup(title, body));
         list.appendChild(sec);
     }
 }

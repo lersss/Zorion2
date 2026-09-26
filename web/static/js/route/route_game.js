@@ -1,7 +1,7 @@
 // web/static/js/route/route_game.js
 // Точка входа страницы мини-игры «Прокладка маршрута» на доске v9 «Планшет»
 // (спека 2026-09-25-маршрут-мини-игра-интерфейс.md §7.7): boot → offer →
-// доска/HUD → ввод по клеткам → разведка импульсом (scan) → гейт «Проложить» →
+// доска/HUD → ввод по клеткам → зондирование импульсом (scan) → гейт «Проложить» →
 // двухтапное подтверждение → boost → результат (в т. ч. отрицательный). Точный
 // прогноз (ETA/секунды/q/bonus) до отправки нигде не показывается (решение 14);
 // температура — только °C. DOM/оверлеи — в route_ui.js.
@@ -85,16 +85,16 @@ function statusText(now) {
     const b = state.board;
     if (!b) return '';
     const path = state.path;
-    if (!path.length) return 'Ведите путь от СТАРТА к звёзде-ФИНИШУ';
-    if (path[0] !== b.start) return 'Путь должен начинаться от СТАРТА';
+    if (!path.length) return 'Ведите курс от корабля к Цели';
+    if (path[0] !== b.start) return 'Курс должен начинаться от Старта';
     const miss = missingBeacons();
     if (miss > 0) return 'Не хватает ' + miss + ' маяков';
-    if (path[path.length - 1] !== b.finish) return 'Путь не доходит до ФИНИШа';
+    if (path[path.length - 1] !== b.finish) return 'Курс не доходит до Цели';
     if (remaining(now) < state.minBoostS) return 'Перелёт уже завершается — ускорить не получится';
-    return 'Путь готов';
+    return 'Курс готов';
 }
 
-// refresh — пересчёт захваченных маяков, «жара» трассы, счётчиков, гейта, статуса.
+// refresh — пересчёт захваченных маяков, меток курса, счётчиков, гейта, статуса.
 function refresh() {
     if (!state.board) return;
     if (state.path.length) state.message = '';
@@ -131,7 +131,7 @@ function updateHud() {
     }
 }
 
-// ---- Разведка/отправка (§4.3/§4.4/§4.7) ----
+// ---- Зондирование/отправка (§4.3/§4.4/§4.7) ----
 
 // handleFailure — единая развязка отказов (§8): оверлей-причина для гейтов
 // доступности, тост — для прочих кодов/сети. Сырой текст ответа не показываем.
@@ -163,7 +163,7 @@ async function scan() {
         playSound('ui_open');
         state.heat = stepHeat(state.board, state.path, state.revealed);
     } else {
-        handleFailure(res, 'Не удалось разведать');
+        handleFailure(res, 'Не удалось зондировать');
     }
     updateHud();
     UI.renderSectorCard(state, sectorHandlers);
@@ -322,7 +322,7 @@ async function boot() {
     window.addEventListener('resize', () => resize(canvas));
     bindPointer(canvas, state, () => state.view, {
         onChange: refresh,
-        onStartFail: () => { state.message = 'Начните путь от СТАРТА'; updateHud(); },
+        onStartFail: () => { state.message = 'Начните курс от Старта'; updateHud(); },
         onSelectSector: selectSector,
         isFrozen: () => state.submitting || state.finished || state.scanBusy || isLegendOpen(),
     });

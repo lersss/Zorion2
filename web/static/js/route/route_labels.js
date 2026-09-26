@@ -247,6 +247,7 @@ export const REASON_OVERLAY = {
 export const REASON_TOAST = {
     too_few_cells: 'Слишком короткий путь',
     cell_out_of_bounds: 'Клетка вне доски',
+    step_too_small: 'Путь повторяет клетку — ведите без повторов',
     not_adjacent: 'Путь разрывается — ведите путь заново',
     start_mismatch: 'Курс не начинается от Старта',
     finish_mismatch: 'Курс не доходит до Цели',

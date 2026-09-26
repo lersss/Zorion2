@@ -4,36 +4,21 @@
 // 1:1 (клетки/объекты/секторы — код) → путь и метки курса → спрайты ядра сцены
 // (Цель, маяки, Старт). Спрайт НЕ несёт игровой истины: цены/τ/содержимое —
 // только код. reduced-motion → без пульсов/дрейфа.
+//
+// Фон — route_render_background.js, спрайты ядра — route_render_core.js,
+// геометрия клетки — route_render_geom.js; здесь оркестратор и доска.
 import * as C from './route_config.js';
 import { cellCenter } from './route_board.js';
 import { drawResultFx } from './route_effects.js';
-import { getSprite, tintedSprite, bloomSprite } from './route_sprites.js';
+import { getSprite, tintedSprite } from './route_sprites.js';
 import {
-    TAU, hA, radial, ring, roundRect, heatGlyph, contentGlyph,
+    TAU, hA, roundRect, heatGlyph, contentGlyph,
     figWall, figMud, figLane, figWarm, figBottleneck, figGate, figBridge, figChevron,
-    figDeadEnd, sectorDensity, sectorRim, sectorRimDash, beaconRings, beaconSquare, startTriangle,
+    figDeadEnd, sectorDensity, sectorRim, sectorRimDash,
 } from './route_figures.js';
-import { shipDrawTransform } from '../map/ship_sprites.js';
-import { CONFIG } from '../config.js';
-
-// Цвет/оттенок звезды — из map/utils.js (формулу не дублируем). map/config.js
-// читает DOM на верхнем уровне, а на route его нет, — создаём скрытый шов-канвас
-// перед динамическим импортом (маршрут карту не рисует).
-let getStarShade = null;
-try {
-    if (!document.getElementById('mapCanvas')) {
-        const shim = document.createElement('canvas');
-        shim.id = 'mapCanvas'; shim.style.display = 'none';
-        document.documentElement.appendChild(shim);
-    }
-    ({ getStarShade } = await import('../map/utils.js'));
-} catch (e) { getStarShade = null; }
-
-const starColor = (s) => {
-    if (getStarShade) return getStarShade(s.spectral_class, s.temperature, s.star_type);
-    const c = CONFIG.map.starColors;
-    return (s.star_type && c[s.star_type]) || c[s.spectral_class] || c.default;
-};
+import { cellRect } from './route_render_geom.js';
+import { drawBackground, drawVignette } from './route_render_background.js';
+import { drawFinish, drawStart, drawBeacons } from './route_render_core.js';
 
 // initBackground — детерминированный от seed фон (звёзды/пыль/яркие/туманности).
 export function initBackground(st) {
@@ -80,53 +65,6 @@ export function drawScene(ctx, st, view, vw, vh, now) {
     if (st.bg) drawBackground(ctx, st.bg, st.chosen, st.reduced, vw, vh, now);
     drawVignette(ctx, vw, vh);
     if (st.board) drawBoard(ctx, st, view, now);
-}
-
-function drawBackground(ctx, b, chosen, reduced, vw, vh, now) {
-    const t = reduced ? 0 : now;
-    const neb = getSprite(chosen && chosen.nebula_bg);
-    for (const n of b.neb) {
-        const x = n.nx * vw + (reduced ? 0 : Math.sin(t * 0.00003 + n.ph) * 14);
-        const y = n.ny * vh + (reduced ? 0 : Math.cos(t * 0.000025 + n.ph) * 12);
-        const r = Math.max(vw, vh) * n.s * 0.7;
-        ctx.save();
-        ctx.globalCompositeOperation = 'lighter';
-        ctx.globalAlpha = n.a;
-        if (neb) { ctx.translate(x, y); ctx.rotate(n.rot); ctx.drawImage(tintedSprite(neb, n.c), -r, -r, r * 2, r * 2); }
-        else radial(ctx, x, y, r, n.c, 0.5);
-        ctx.restore();
-    }
-    for (const s of b.stars) {
-        ctx.globalAlpha = s.a * (0.75 + 0.25 * Math.sin(t * 0.001 * s.tw + s.ph));
-        ctx.fillStyle = s.c;
-        ctx.fillRect(s.x * vw + (reduced ? 0 : Math.sin(t * 0.000004 * s.tw + s.ph) * 3 * s.par), s.y * vh, s.s, s.s);
-    }
-    ctx.globalAlpha = 1;
-    for (const d of b.dust) radial(ctx, d.x * vw, d.y * vh, d.r * Math.max(vw, vh), '#7882a0', d.a);
-    ctx.fillStyle = '#e2e8f0'; ctx.globalAlpha = 0.85;
-    ctx.strokeStyle = 'rgba(226,232,240,0.3)'; ctx.lineWidth = 1;
-    for (const s of b.bright) {
-        const x = s.x * vw;
-        const y = s.y * vh;
-        ctx.fillRect(x - 1, y - 1, 2.4, 2.4);
-        ctx.beginPath(); ctx.moveTo(x - 9, y); ctx.lineTo(x + 9, y);
-        ctx.moveTo(x, y - 9); ctx.lineTo(x, y + 9); ctx.stroke();
-    }
-    ctx.globalAlpha = 1;
-}
-
-function drawVignette(ctx, vw, vh) {
-    const g = ctx.createRadialGradient(vw / 2, vh / 2, Math.min(vw, vh) * 0.3, vw / 2, vh / 2, Math.max(vw, vh) * 0.75);
-    g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,0.45)');
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, vw, vh);
-}
-
-function cellRect(view, cell) {
-    const cs = view.size / view.n;
-    const i = cell % view.n;
-    const j = (cell / view.n) | 0;
-    return { x: view.x0 + i * cs, y: view.y0 + j * cs, w: cs, h: cs };
 }
 
 // ---- Доска ----
@@ -370,76 +308,4 @@ function drawHeat(ctx, st, view, now) {
             heatGlyph(ctx, r.x + r.w * (0.22 + 0.22 * (k % 4)), r.y + r.h * 0.22, cs, kind, pulse);
         });
     }
-}
-
-// ---- Спрайты ядра сцены ----
-
-function drawFinish(ctx, st, view, now) {
-    const f = cellCenter(view, st.board.finish);
-    const to = (st.passport && st.passport.to) || {};
-    const black = to.star_type === 'black_hole';
-    const base = view.size / view.n;
-    const r = base * 0.9 * (st.reduced ? 1 : 1 + 0.06 * Math.sin(now * 0.0015));
-    const img = getSprite(st.chosen && (black ? st.chosen.black_hole : st.chosen.star_core));
-    if (black) {
-        radial(ctx, f.x, f.y, r * 1.5, C.COLORS.voidHalo, 0.7);
-        if (img) {
-            bloomSprite(ctx, img, f.x, f.y, r * 1.8, 0);
-            ctx.fillStyle = '#02030a';
-            ctx.beginPath(); ctx.arc(f.x, f.y, r * 0.36, 0, TAU); ctx.fill();
-            ctx.globalAlpha = 1;
-        } else ring(ctx, f.x, f.y, r * 0.8, C.COLORS.warmHalo, 1, 2);
-        return;
-    }
-    const col = starColor(to);
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    radial(ctx, f.x, f.y, r * 1.5, col, 0.5);
-    if (img) bloomSprite(ctx, img, f.x, f.y, r * 1.8, 0.25);
-    ctx.restore();
-    if (!img) radial(ctx, f.x, f.y, r * 0.9, col, 1);
-}
-
-function drawStart(ctx, st, view) {
-    const s = cellCenter(view, st.board.start);
-    const base = view.size / view.n;
-    const r = base * 0.7;
-    if (st.shipSprite) {
-        const tf = shipDrawTransform(0, st.shipOrient);
-        const sz = r * 1.7;
-        ctx.save();
-        ctx.translate(s.x, s.y); ctx.rotate(tf.rotate); ctx.scale(tf.scaleX, tf.scaleY);
-        ctx.drawImage(st.shipSprite, -sz / 2, -sz / 2, sz, sz);
-        ctx.restore();
-    } else {
-        startTriangle(ctx, s.x, s.y, r, C.COLORS.cold);
-    }
-    ring(ctx, s.x, s.y, base * 0.46, C.COLORS.cold, 0.6, 1.2);
-}
-
-function drawBeacons(ctx, st, view, now) {
-    const b = st.board;
-    const img = getSprite(st.chosen && st.chosen.beacon);
-    const base = view.size / view.n;
-    for (const c of b.beacons || []) {
-        const p = cellCenter(view, c);
-        const captured = st.captured.has(c);
-        const sz = base * 0.8;
-        const pulse = st.reduced ? 0.6 : (now % 1600) / 1600;
-        beaconRings(ctx, p.x, p.y, base, pulse, captured);
-        if (captured) drawCaptureFlash(ctx, p, base * 0.42, st.flash.get(c), now);
-        if (img) {
-            ctx.save(); ctx.globalCompositeOperation = 'lighter'; bloomSprite(ctx, img, p.x, p.y, sz, captured ? 0.35 : 0.2); ctx.restore();
-        } else {
-            beaconSquare(ctx, p.x, p.y, captured);
-        }
-    }
-}
-
-// drawCaptureFlash — вспышка захвата маяка 180 мс + кольцо-разлёт 400 мс.
-function drawCaptureFlash(ctx, p, r, flash, now) {
-    if (flash == null) return;
-    const dt = now - flash;
-    if (dt < 180) radial(ctx, p.x, p.y, r * 1.8, C.COLORS.captureSoft, 0.8 * (1 - dt / 180));
-    else if (dt < 580) ring(ctx, p.x, p.y, r * (1 + (dt - 180) / 400 * 1.2), C.COLORS.captureSoft, 0.7 * (1 - (dt - 180) / 400), 2);
 }

@@ -7,14 +7,8 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
-	"log"
-	"net/http"
-	"sort"
-	"time"
 
-	"zorion/internal/auth"
 	"zorion/internal/models"
-	"zorion/internal/repository"
 	"zorion/internal/routegame"
 	"zorion/internal/ship"
 	"zorion/internal/travel"
@@ -36,6 +30,10 @@ import (
 // отрицательной), а не параметр модуля: ship.AcceleratorBonus и
 // params.bonus_max в v9 НЕ участвуют. Оставлены по развилке создателя —
 // прогрессия модуля (§14.14 спеки ускорителя), прод-путей на них нет.
+//
+// Файл держит сегмент/задачу (seed, hash, puzzle); DTO — в
+// accelerator_grid_dto.go, публичная доска — accelerator_grid_board.go,
+// ручка разведки — accelerator_grid_scan.go.
 
 // acceleratorGridPings — импульсы разведки на сегмент (§14.4 R3; значение
 // эталонного харнесса v9 — DefaultV9Config.Pings). На будущее — параметр тира
@@ -48,82 +46,6 @@ const acceleratorPuzzleKind = ship.AcceleratorGameRoute
 // errGridNoField — поле сегмента не удалось собрать за отведённые попытки
 // (гейт §14.2 L_naive > L_safe не выполнен): offer/scan отвечают отказом.
 var errGridNoField = errors.New("routegame: no acceptable grid field")
-
-// acceleratorOfferResponse — контракт offer (§3.4/§14.8): публичная доска v9 +
-// импульсы и вскрытые секторы; прежние верхние поля сохранены. Без прогноза
-// прибытия и секунд результата (решение 14). Скрытые слои не отдаются.
-type acceleratorOfferResponse struct {
-	Fingerprint        string                `json:"fingerprint"`
-	Game               string                `json:"game"`
-	Passport           routegame.Passport    `json:"passport"`
-	Board              acceleratorBoard      `json:"board"`
-	PingsLeft          int                   `json:"pings_left"`
-	Revealed           []acceleratorRevealed `json:"revealed"`
-	RemainingS         int                   `json:"remaining_s"`
-	MinRemainingBoostS int                   `json:"min_remaining_boost_s"`
-	CooldownRemainingS *int64                `json:"cooldown_remaining_s"`
-}
-
-// acceleratorBoard — публичный слой поля v9 (§14.8): геометрия, объекты и
-// подписи секторов. Цены клеток — в Visible (n×n). Реализованный слой и
-// содержимое секторов НЕ входят.
-type acceleratorBoard struct {
-	N          int                  `json:"n"`
-	Start      int                  `json:"start"`
-	Finish     int                  `json:"finish"`
-	Beacons    []int                `json:"beacons"`
-	Visible    []float64            `json:"visible"`
-	Lane       []int                `json:"lane"`
-	Wall       []int                `json:"wall"`
-	Mud        []int                `json:"mud"`
-	Gate       []int                `json:"gate"`
-	Bridge     []int                `json:"bridge"`
-	Current    []acceleratorCurrent `json:"current"`
-	DeadEnd    []int                `json:"dead_end"`
-	Bottleneck []int                `json:"bottleneck"`
-	Sectors    []acceleratorSector  `json:"sectors"`
-	Mode       string               `json:"mode"`
-}
-
-// acceleratorCurrent — одностороннее течение: клетка и направление (0=+i, 1=−i,
-// 2=+j, 3=−j).
-type acceleratorCurrent struct {
-	Cell int `json:"cell"`
-	Dir  int `json:"dir"`
-}
-
-// acceleratorSector — публичный вид сектора: клетки, подпись σ и видимое
-// окружение. Скрытого содержимого нет.
-type acceleratorSector struct {
-	Cells        []int  `json:"cells"`
-	Sig          int    `json:"sig"`           // 0 Тихий, 1 Ровный, 2 Гулкий
-	SigName      string `json:"sig_name"`      // «Тихий»/«Ровный»/«Гулкий»
-	Surround     int    `json:"surround"`      // 0 Ничего, 1 Кордон, 2 Обрыв, 3 Мгла, 4 Течение
-	SurroundName string `json:"surround_name"` // «Ничего»/«Кордон»/«Обрыв»/«Мгла»/«Течение»
-}
-
-// acceleratorRevealed — вскрытый сектор (элемент revealed из БД).
-type acceleratorRevealed struct {
-	Sector  int    `json:"sector"`
-	Content string `json:"content"`
-}
-
-// acceleratorScanRequest — тело POST /api/accelerator/scan: fingerprint
-// текущего сегмента + индекс сектора.
-type acceleratorScanRequest struct {
-	Fingerprint string `json:"fingerprint"`
-	Sector      int    `json:"sector"`
-}
-
-// acceleratorScanResponse — результат вскрытия: содержимое сектора, остаток
-// импульсов и актуальный список вскрытых.
-type acceleratorScanResponse struct {
-	Fingerprint string                `json:"fingerprint"`
-	Sector      int                   `json:"sector"`
-	Content     string                `json:"content"`
-	PingsLeft   int                   `json:"pings_left"`
-	Revealed    []acceleratorRevealed `json:"revealed"`
-}
 
 // acceleratorSegmentSeed — seed поля сегмента: hash(from,to) + start_time
 // (§14.1: поле честно разное от перелёта, start_time в seed).
@@ -219,186 +141,4 @@ func acceleratorNewPuzzleField(flight *travel.TravelInfo, dist float64, passport
 		}
 	}
 	return nil, routegame.GridField{}, false
-}
-
-// acceleratorGridBoard — публичный слой поля. Клетки объектов — срезами в
-// детерминированном порядке (map'ы RNG-нестабильны, JSON должен быть стабилен);
-// цены — в Visible.
-func acceleratorGridBoard(field routegame.GridField) acceleratorBoard {
-	b := acceleratorBoard{
-		N:          field.N,
-		Start:      field.Start,
-		Finish:     field.Finish,
-		Beacons:    append([]int{}, field.Beacons...),
-		Visible:    append([]float64{}, field.Visible...),
-		Lane:       gridCellList(field.Lane),
-		Wall:       gridCellList(field.Wall),
-		Mud:        gridMudCellList(field.Mud),
-		Gate:       gridCellList(field.Gate),
-		Bridge:     gridCellList(field.Bridge),
-		DeadEnd:    gridCellList(field.DeadEnd),
-		Bottleneck: gridCellList(field.Bottleneck),
-		Sectors:    make([]acceleratorSector, 0, len(field.Sectors)),
-		Mode:       field.Mode,
-	}
-	for c, d := range field.CurrentDir {
-		b.Current = append(b.Current, acceleratorCurrent{Cell: c, Dir: d})
-	}
-	sort.Slice(b.Current, func(i, j int) bool { return b.Current[i].Cell < b.Current[j].Cell })
-	for _, s := range field.Sectors {
-		b.Sectors = append(b.Sectors, acceleratorSector{
-			Cells:        append([]int{}, s.Cells...),
-			Sig:          int(s.Sig),
-			SigName:      s.Sig.String(),
-			Surround:     int(s.Surround),
-			SurroundName: s.Surround.String(),
-		})
-	}
-	return b
-}
-
-// gridCellList — ключи map[int]bool отсортированным срезом (стабильный JSON).
-func gridCellList(m map[int]bool) []int {
-	out := make([]int, 0, len(m))
-	for c := range m {
-		out = append(out, c)
-	}
-	sort.Ints(out)
-	return out
-}
-
-// gridMudCellList — клетки топи (цена — в Visible) отсортированным срезом.
-func gridMudCellList(m map[int]float64) []int {
-	out := make([]int, 0, len(m))
-	for c := range m {
-		out = append(out, c)
-	}
-	sort.Ints(out)
-	return out
-}
-
-// acceleratorRevealedList — revealed из БД в список вскрытых; пусто/битый JSON
-// → пустой не-nil список (клиент получает []).
-func acceleratorRevealedList(raw []byte) []acceleratorRevealed {
-	out := make([]acceleratorRevealed, 0)
-	if len(raw) == 0 {
-		return out
-	}
-	var parsed []acceleratorRevealed
-	if err := json.Unmarshal(raw, &parsed); err != nil || parsed == nil {
-		return out
-	}
-	return parsed
-}
-
-// AcceleratorScan — POST /api/accelerator/scan (§14.4): вскрыть сектор серверным
-// secret (RevealGridSector) и атомарно списать импульс (Repository.Reveal).
-// Гейты — как у offer/boost (нет полёта, модуль/игра, active, fingerprint), но
-// БЕЗ порогов остатка и отката: разведка их не тратит. Импульсов нет → 409.
-func (h *TravelHandlers) AcceleratorScan(w http.ResponseWriter, r *http.Request) {
-	userID, ok := r.Context().Value(auth.UserIDKey).(string)
-	if !ok || userID == "" {
-		writeJSONError(w, "Не авторизован", http.StatusUnauthorized)
-		return
-	}
-	var req acceleratorScanRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSONError(w, "Некорректный запрос", http.StatusBadRequest)
-		return
-	}
-	now := time.Now()
-	if !h.allowAccelRequest(userID, now) {
-		writeAcceleratorRefusal(w, http.StatusTooManyRequests, "rate_limited", 0)
-		return
-	}
-	flight := h.travelManager.GetFlight(userID)
-	if flight == nil {
-		writeAcceleratorRefusal(w, http.StatusConflict, "no_flight", 0)
-		return
-	}
-	if h.accelRepo == nil || h.worldRepo == nil || h.routePuzzleRepo == nil {
-		writeJSONError(w, "Ускоритель недоступен", http.StatusInternalServerError)
-		return
-	}
-	if req.Fingerprint != acceleratorFingerprint(flight) {
-		writeAcceleratorRefusal(w, http.StatusConflict, "changed", 0)
-		return
-	}
-	state, err := h.accelRepo.GetState(userID)
-	if err != nil {
-		log.Printf("⚠️ accelerator scan: state (user %s): %v", userID, err)
-		writeJSONError(w, "Не удалось прочитать состояние ускорителя", http.StatusInternalServerError)
-		return
-	}
-	cooldownLeft := models.CooldownRemaining(state.LastBoostAt, state.LastCooldownMin, now)
-	user, err := h.userRepo.GetByID(userID)
-	if err != nil || user == nil {
-		writeJSONError(w, "Пользователь не найден", http.StatusNotFound)
-		return
-	}
-	_, cfg, found, valid := ship.AcceleratorModule(user.Equipment)
-	// Разведка не тратит ни остаток, ни откат — единый гейт берётся без порогов
-	// (minRemainingS=0, checkCooldown=false) при общем порядке причин §3.4/§4.1.
-	if reason := acceleratorTravelReason(found, valid, ship.AcceleratorGameRegistered(cfg.Game), models.BoostActive(state.LastBoostAt, flight.StartTime), 0, 0, cooldownLeft, false); reason != "" {
-		writeAcceleratorRefusal(w, http.StatusConflict, reason, cooldownLeft)
-		return
-	}
-	target, err := h.worldRepo.GetByID(flight.ToWorld)
-	if err != nil || target == nil {
-		writeJSONError(w, "Мир назначения не найден", http.StatusNotFound)
-		return
-	}
-	from, err := h.worldRepo.GetByID(flight.FromWorld)
-	if err != nil || from == nil {
-		writeJSONError(w, "Мир отправления не найден", http.StatusNotFound)
-		return
-	}
-	_, st, _, err := h.acceleratorGridSegment(userID, flight, from, target)
-	if err != nil {
-		if errors.Is(err, errGridNoField) {
-			writeAcceleratorRefusal(w, http.StatusConflict, "no_field", cooldownLeft)
-			return
-		}
-		log.Printf("⚠️ accelerator scan: puzzle (user %s): %v", userID, err)
-		writeJSONError(w, "Не удалось получить доску", http.StatusInternalServerError)
-		return
-	}
-	var layout routegame.GridLayout
-	if err := json.Unmarshal(st.Layout, &layout); err != nil {
-		log.Printf("⚠️ accelerator scan: layout (user %s): %v", userID, err)
-		writeJSONError(w, "Не удалось прочитать доску", http.StatusInternalServerError)
-		return
-	}
-	if req.Sector < 0 || req.Sector >= len(layout.Sectors) {
-		writeAcceleratorRefusal(w, http.StatusBadRequest, "bad_sector", cooldownLeft)
-		return
-	}
-	content, err := routegame.RevealGridSector(st.Secret, layout, req.Sector)
-	if err != nil {
-		log.Printf("⚠️ accelerator scan: reveal (user %s, sector %d): %v", userID, req.Sector, err)
-		writeJSONError(w, "Не удалось вскрыть сектор", http.StatusInternalServerError)
-		return
-	}
-	contentJSON, err := json.Marshal(content)
-	if err != nil {
-		writeJSONError(w, "Не удалось вскрыть сектор", http.StatusInternalServerError)
-		return
-	}
-	revealed, pingsLeft, err := h.routePuzzleRepo.Reveal(context.Background(), userID, acceleratorPuzzleKind, req.Sector, string(contentJSON))
-	if errors.Is(err, repository.ErrNoPingsLeft) {
-		writeAcceleratorRefusal(w, http.StatusConflict, "no_pings", cooldownLeft)
-		return
-	}
-	if err != nil {
-		log.Printf("⚠️ accelerator scan: reveal db (user %s): %v", userID, err)
-		writeJSONError(w, "Не удалось списать импульс", http.StatusInternalServerError)
-		return
-	}
-	writeJSON(w, acceleratorScanResponse{
-		Fingerprint: acceleratorFingerprint(flight),
-		Sector:      req.Sector,
-		Content:     content,
-		PingsLeft:   pingsLeft,
-		Revealed:    acceleratorRevealedList(revealed),
-	})
 }

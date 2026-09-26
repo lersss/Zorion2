@@ -179,6 +179,17 @@ func (h *TravelHandlers) acceleratorGridPuzzle(userID string, flight *travel.Tra
 	return st, field, nil
 }
 
+// acceleratorGridSegment — общая сборка сегмента для offer/scan/boost: паспорт
+// (dist — от старта сегмента до цели; пояса — только видимые) и
+// детерминированное поле v9 из seed сегмента + серверного secret/layout задачи
+// (acceleratorGridPuzzle). Единая точка, чтобы offer/scan/boost не разъехались.
+func (h *TravelHandlers) acceleratorGridSegment(userID string, flight *travel.TravelInfo, from, to *models.World) (routegame.Passport, *models.RoutePuzzle, routegame.GridField, error) {
+	dist := acceleratorSegmentDist(flight, to)
+	passport := routegame.BuildPassport(dist, *from, *to, visibleBelts(h.acceleratorBelts(flight.ToWorld)))
+	st, field, err := h.acceleratorGridPuzzle(userID, flight, dist, passport)
+	return passport, st, field, err
+}
+
 // acceleratorNewPuzzleField — новый secret и поле под него (до 8 попыток:
 // гейт §14.2 зависит от содержимого секторов, а оно — от secret; при неудаче
 // берём другой secret).
@@ -330,9 +341,7 @@ func (h *TravelHandlers) AcceleratorScan(w http.ResponseWriter, r *http.Request)
 		writeJSONError(w, "Мир отправления не найден", http.StatusNotFound)
 		return
 	}
-	dist := acceleratorSegmentDist(flight, target)
-	passport := routegame.BuildPassport(dist, *from, *target, visibleBelts(h.acceleratorBelts(flight.ToWorld)))
-	st, _, err := h.acceleratorGridPuzzle(userID, flight, dist, passport)
+	_, st, _, err := h.acceleratorGridSegment(userID, flight, from, target)
 	if err != nil {
 		if errors.Is(err, errGridNoField) {
 			writeAcceleratorRefusal(w, http.StatusConflict, "no_field", cooldownLeft)
@@ -349,10 +358,7 @@ func (h *TravelHandlers) AcceleratorScan(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if req.Sector < 0 || req.Sector >= len(layout.Sectors) {
-		writeJSONStatus(w, http.StatusBadRequest, map[string]interface{}{
-			"available": false,
-			"reason":    "bad_sector",
-		})
+		writeAcceleratorRefusal(w, http.StatusBadRequest, "bad_sector", cooldownLeft)
 		return
 	}
 	content, err := routegame.RevealGridSector(st.Secret, layout, req.Sector)
@@ -368,11 +374,7 @@ func (h *TravelHandlers) AcceleratorScan(w http.ResponseWriter, r *http.Request)
 	}
 	revealed, pingsLeft, err := h.routePuzzleRepo.Reveal(context.Background(), userID, acceleratorPuzzleKind, req.Sector, string(contentJSON))
 	if errors.Is(err, repository.ErrNoPingsLeft) {
-		writeJSONStatus(w, http.StatusConflict, map[string]interface{}{
-			"available":  false,
-			"reason":     "no_pings",
-			"pings_left": 0,
-		})
+		writeAcceleratorRefusal(w, http.StatusConflict, "no_pings", cooldownLeft)
 		return
 	}
 	if err != nil {

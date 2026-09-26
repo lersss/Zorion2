@@ -524,6 +524,9 @@ func (h *TravelHandlers) cancelAtomicWithBuffer(userID string, dest *models.Pend
 // (main.go) — автостарт работает и для восстановленного после рестарта
 // межзвёздного полёта (И6, §7.2 DoD «рестарт → автостарт по прибытии»).
 func (h *TravelHandlers) ArrivalHandler(uid, worldID string) {
+	// Задача сегмента мини-игры живёт при полёте (player_route_puzzle, §14.1):
+	// прибытие её снимает, чтобы старая доска/разведка не перешли на новый сегмент.
+	h.clearRoutePuzzle(uid)
 	// Дефенсив (пакман, спека 2026-09-20 §7.2): цель съедена между
 	// запросом и прибытием — обнуляем current_world_id/current_position
 	// вместо FK-violation (users.current_world_id → worlds NO ACTION).

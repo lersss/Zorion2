@@ -202,7 +202,9 @@ func TestAcceleratorScanNoPings(t *testing.T) {
 	m := decodeMap(t, rec)
 	require.Equal(t, false, m["available"])
 	require.Equal(t, "no_pings", m["reason"])
-	require.Equal(t, float64(0), m["pings_left"])
+	require.Contains(t, m, "cooldown_remaining_s", "отказ в единой форме writeAcceleratorRefusal")
+	require.Nil(t, m["cooldown_remaining_s"])
+	require.NotContains(t, m, "pings_left")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -221,7 +223,9 @@ func TestAcceleratorScanBadSector(t *testing.T) {
 	rec := execJSON(h.AcceleratorScan, newAccelScanRequest(userID, acceleratorFingerprint(flight), len(field.Sectors)))
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	m := decodeMap(t, rec)
+	require.Equal(t, false, m["available"])
 	require.Equal(t, "bad_sector", m["reason"])
+	require.Contains(t, m, "cooldown_remaining_s", "отказ в единой форме writeAcceleratorRefusal")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

@@ -1,18 +1,16 @@
 // internal/handlers/accelerator_game_handlers_test.go
-// Тесты ручек мини-игры «Прокладка маршрута» (спека
-// 2026-09-25-ускоритель-и-мини-игра-прокладка-маршрута §3.4/§4.1, ЧК3, §9):
-// offer (доступность, порог показа, field/passport, детерминизм поля) и boost
-// (порог отправки, fingerprint, невалидный путь, мир-цель, отказы Booster без
-// списания), контракт 409 без field/passport.
+// Тесты ручки GET /api/accelerator/offer — доска v9 «Планшет» (спека
+// 2026-09-25-ускоритель-и-мини-игра-прокладка-маршрута §14.8): доступность,
+// порог показа, контракт 409 без board/passport, детерминизм доски и отсутствие
+// утечки скрытого слоя. Тесты boost/scan — accelerator_grid_boost_test.go и
+// accelerator_grid_handlers_test.go.
 package handlers
 
 import (
 	"database/sql"
 	"encoding/json"
-	"math"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -21,7 +19,6 @@ import (
 
 	"zorion/internal/models"
 	"zorion/internal/repository"
-	"zorion/internal/routegame"
 	"zorion/internal/ship"
 	"zorion/internal/travel"
 )
@@ -93,42 +90,12 @@ func accelOfferRequest(userID string) *http.Request {
 	return withUserID(httptest.NewRequest(http.MethodGet, "/api/accelerator/offer", nil), userID)
 }
 
-// newAccelBoostRequest — POST /api/accelerator/boost с телом {fingerprint, path}.
-func newAccelBoostRequest(userID, fingerprint string, path []routegame.Point) *http.Request {
-	body, err := json.Marshal(acceleratorBoostRequest{Fingerprint: fingerprint, Path: path})
-	if err != nil {
-		panic(err)
-	}
-	req := httptest.NewRequest(http.MethodPost, "/api/accelerator/boost", strings.NewReader(string(body)))
-	req.Header.Set("Content-Type", "application/json")
-	return withUserID(req, userID)
-}
-
 // decodeMap — тело ответа как объект.
 func decodeMap(t *testing.T, rec *httptest.ResponseRecorder) map[string]interface{} {
 	t.Helper()
 	var m map[string]interface{}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m))
 	return m
-}
-
-// accelTestField — то же поле, что строит сервер: seed hash(from,to) + дальность
-// от старта сегмента до цели + паспорт из тех же миров/поясов.
-func accelTestField(from, to *models.World, startX, startY float64, belts []models.Belt) routegame.Field {
-	dist := math.Hypot(to.CoordX-startX, to.CoordY-startY)
-	passport := routegame.BuildPassport(dist, *from, *to, visibleBelts(belts))
-	return routegame.GenerateField(routegame.HashSeed(from.ID, to.ID), dist, passport)
-}
-
-// accelPathThroughBeacons — валидный путь СТАРТ → все маяки → ФИНИШ.
-func accelPathThroughBeacons(field routegame.Field) []routegame.Point {
-	path := []routegame.Point{field.Start}
-	for _, n := range field.Nodes {
-		if n.Type == "beacon" {
-			path = append(path, routegame.Point{X: n.X, Y: n.Y})
-		}
-	}
-	return append(path, field.Finish)
 }
 
 // ==================== OFFER ====================
@@ -241,206 +208,4 @@ func TestAcceleratorOfferAvailableAndBoardStable(t *testing.T) {
 	require.Equal(t, first.Board, second.Board, "доска не зависит от живого remaining")
 	require.LessOrEqual(t, second.RemainingS, first.RemainingS, "остаток не растёт")
 	require.NoError(t, mock.ExpectationsWereMet())
-}
-
-// ==================== BOOST ====================
-
-// Устаревший fingerprint (разворот/перебазирование) → 409 changed, Booster не вызван.
-func TestAcceleratorBoostFingerprintChanged(t *testing.T) {
-	h, tm, mock := newAccelGameHarness(t)
-	const userID = "u1"
-	tm.StartFlight(userID, "w1", "w2", 0, 0, time.Hour, nil)
-	old := tm.GetFlight(userID)
-	b := &accelFakeBooster{applied: true}
-	tm.SetBooster(b)
-
-	rec := execJSON(h.AcceleratorBoost, newAccelBoostRequest(userID, "w1:w2:0", nil))
-	require.Equal(t, http.StatusConflict, rec.Code)
-	m := decodeMap(t, rec)
-	require.Equal(t, "changed", m["reason"])
-	require.Equal(t, 0, b.calls)
-	require.Same(t, old, tm.GetFlight(userID), "сегмент не менялся")
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
-// Ускорение уже действует на сегменте → 409 already_active без списания.
-func TestAcceleratorBoostAlreadyActive(t *testing.T) {
-	h, tm, mock := newAccelGameHarness(t)
-	const userID = "u1"
-	tm.StartFlight(userID, "w1", "w2", 0, 0, time.Hour, nil)
-	flight := tm.GetFlight(userID)
-	b := &accelFakeBooster{applied: true}
-	tm.SetBooster(b)
-
-	expectAccelState(mock, userID, flight.StartTime, 25)
-	expectAccelGameUser(mock, userID, "w1")
-
-	rec := execJSON(h.AcceleratorBoost, newAccelBoostRequest(userID, acceleratorFingerprint(flight), nil))
-	require.Equal(t, http.StatusConflict, rec.Code)
-	m := decodeMap(t, rec)
-	require.Equal(t, "already_active", m["reason"])
-	require.Equal(t, 0, b.calls)
-	require.Same(t, flight, tm.GetFlight(userID))
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
-// Остаток ниже порога ОТПРАВКИ → 409 too_short без списания (мир-цель уже загружен).
-func TestAcceleratorBoostTooShort(t *testing.T) {
-	h, tm, mock := newAccelGameHarness(t)
-	const userID = "u1"
-	tm.StartFlight(userID, "w1", "w2", 0, 0, 60*time.Second, nil)
-	flight := tm.GetFlight(userID)
-	b := &accelFakeBooster{applied: true}
-	tm.SetBooster(b)
-
-	expectAccelState(mock, userID, nil, nil)
-	expectAccelGameUser(mock, userID, "w1")
-	expectWorld(mock, "w2", 10, 0)
-
-	rec := execJSON(h.AcceleratorBoost, newAccelBoostRequest(userID, acceleratorFingerprint(flight), nil))
-	require.Equal(t, http.StatusConflict, rec.Code)
-	m := decodeMap(t, rec)
-	require.Equal(t, "too_short", m["reason"])
-	require.Equal(t, 0, b.calls)
-	require.Same(t, flight, tm.GetFlight(userID))
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
-// Модуля нет → 409 no_module (доступность не нужна, но сегмент не трогаем).
-func TestAcceleratorBoostNoModule(t *testing.T) {
-	h, tm, mock := newAccelGameHarness(t)
-	const userID = "u1"
-	tm.StartFlight(userID, "w1", "w2", 0, 0, time.Hour, nil)
-	flight := tm.GetFlight(userID)
-	b := &accelFakeBooster{applied: true}
-	tm.SetBooster(b)
-
-	expectAccelState(mock, userID, nil, nil)
-	expectUser(mock, userID, "w1") // оборудование без ускорителя
-
-	rec := execJSON(h.AcceleratorBoost, newAccelBoostRequest(userID, acceleratorFingerprint(flight), nil))
-	require.Equal(t, http.StatusConflict, rec.Code)
-	m := decodeMap(t, rec)
-	require.Equal(t, "no_module", m["reason"])
-	require.Equal(t, 0, b.calls)
-	require.Same(t, flight, tm.GetFlight(userID))
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
-// Мир-цель съеден пакманом → 404 без списания.
-func TestAcceleratorBoostTargetEaten(t *testing.T) {
-	h, tm, mock := newAccelGameHarness(t)
-	const userID = "u1"
-	tm.StartFlight(userID, "w1", "w2", 0, 0, time.Hour, nil)
-	flight := tm.GetFlight(userID)
-	b := &accelFakeBooster{applied: true}
-	tm.SetBooster(b)
-
-	expectAccelState(mock, userID, nil, nil)
-	expectAccelGameUser(mock, userID, "w1")
-	expectWorldMissing(mock, "w2")
-
-	rec := execJSON(h.AcceleratorBoost, newAccelBoostRequest(userID, acceleratorFingerprint(flight), nil))
-	require.Equal(t, http.StatusNotFound, rec.Code)
-	require.Equal(t, 0, b.calls)
-	require.Same(t, flight, tm.GetFlight(userID))
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
-// Невалидный путь (пропущены маяки) → 400 с кодом EvaluatePath, без списания.
-func TestAcceleratorBoostInvalidPath(t *testing.T) {
-	h, tm, mock := newAccelGameHarness(t)
-	const userID = "u1"
-	tm.StartFlight(userID, "w1", "w2", 0, 0, time.Hour, nil)
-	flight := tm.GetFlight(userID)
-	b := &accelFakeBooster{applied: true}
-	tm.SetBooster(b)
-
-	expectAccelState(mock, userID, nil, nil)
-	expectAccelGameUser(mock, userID, "w1")
-	expectWorld(mock, "w2", 10, 0)
-	expectWorld(mock, "w1", 0, 0)
-	expectBelts(mock, "w2")
-
-	field := accelTestField(&models.World{ID: "w1"}, &models.World{ID: "w2", CoordX: 10}, 0, 0, nil)
-	require.NotEmpty(t, field.Nodes)
-	// Путь только СТАРТ → ФИНИШ: обязательные маяки не захвачены.
-	badPath := []routegame.Point{field.Start, field.Finish}
-
-	rec := execJSON(h.AcceleratorBoost, newAccelBoostRequest(userID, acceleratorFingerprint(flight), badPath))
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-	m := decodeMap(t, rec)
-	require.Equal(t, false, m["available"])
-	require.Equal(t, "beacon_not_captured", m["reason"])
-	require.NotContains(t, m, "cooldown_remaining_s")
-	require.Equal(t, 0, b.calls)
-	require.Same(t, flight, tm.GetFlight(userID))
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
-// Успех: сервер пересобрал ТО ЖЕ поле (путь из offer-поля проходит), сегмент
-// сокращён, выигрыш зафиксирован.
-func TestAcceleratorBoostSuccess(t *testing.T) {
-	h, tm, mock := newAccelGameHarness(t)
-	const userID = "u1"
-	tm.StartFlight(userID, "w1", "w2", 0, 0, time.Hour, nil)
-	flight := tm.GetFlight(userID)
-	b := &accelFakeBooster{applied: true}
-	tm.SetBooster(b)
-
-	expectAccelState(mock, userID, nil, nil)
-	expectAccelGameUser(mock, userID, "w1")
-	expectWorld(mock, "w2", 10, 0)
-	expectWorld(mock, "w1", 0, 0)
-	expectBelts(mock, "w2")
-
-	field := accelTestField(&models.World{ID: "w1"}, &models.World{ID: "w2", CoordX: 10}, 0, 0, nil)
-	rec := execJSON(h.AcceleratorBoost, newAccelBoostRequest(userID, acceleratorFingerprint(flight), accelPathThroughBeacons(field)))
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp acceleratorBoostResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	require.GreaterOrEqual(t, resp.Quality, 0.0)
-	require.LessOrEqual(t, resp.Quality, 1.0)
-	require.GreaterOrEqual(t, resp.Bonus, ship.AcceleratorBonusMin)
-	require.LessOrEqual(t, resp.Bonus, 0.50)
-	require.Greater(t, resp.RemainingS, 0)
-	require.Less(t, resp.RemainingS, 3600, "сегмент сокращён")
-
-	boosted := tm.GetFlight(userID)
-	require.NotNil(t, boosted)
-	require.Less(t, boosted.Duration, time.Hour, "остаток сегмента уменьшился")
-	require.Equal(t, "w2", boosted.ToWorld, "цель не изменилась")
-	require.Equal(t, 1, b.calls)
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
-// Отказы Booster (already_active/cooldown) → 409 без замены сегмента.
-func TestAcceleratorBoostBoosterRefusal(t *testing.T) {
-	for _, reason := range []string{"already_active", "cooldown"} {
-		t.Run(reason, func(t *testing.T) {
-			h, tm, mock := newAccelGameHarness(t)
-			const userID = "u1"
-			tm.StartFlight(userID, "w1", "w2", 0, 0, time.Hour, nil)
-			flight := tm.GetFlight(userID)
-			b := &accelFakeBooster{applied: false, reason: reason}
-			tm.SetBooster(b)
-
-			expectAccelState(mock, userID, nil, nil)
-			expectAccelGameUser(mock, userID, "w1")
-			expectWorld(mock, "w2", 10, 0)
-			expectWorld(mock, "w1", 0, 0)
-			expectBelts(mock, "w2")
-
-			field := accelTestField(&models.World{ID: "w1"}, &models.World{ID: "w2", CoordX: 10}, 0, 0, nil)
-			rec := execJSON(h.AcceleratorBoost, newAccelBoostRequest(userID, acceleratorFingerprint(flight), accelPathThroughBeacons(field)))
-			require.Equal(t, http.StatusConflict, rec.Code)
-			m := decodeMap(t, rec)
-			require.Equal(t, false, m["available"])
-			require.Equal(t, reason, m["reason"])
-			require.Equal(t, 1, b.calls)
-			require.Same(t, flight, tm.GetFlight(userID), "сегмент не заменён")
-			require.NoError(t, mock.ExpectationsWereMet())
-		})
-	}
 }

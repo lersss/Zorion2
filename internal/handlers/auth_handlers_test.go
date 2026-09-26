@@ -52,6 +52,10 @@ func TestGetMeWithActiveFlight(t *testing.T) {
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows(authUserCols).
 			AddRow(userID, "bob", "hash", nil, nil, nil, "ship_strela.svg", nil, nil, nil, "player", now(), now(), nil, nil, nil))
+	// Названия концов полёта (хвост 87) — подробная проверка в
+	// TestGetMeFlightWorldNames, здесь только ожидания запросов.
+	expectFlightWorld(mock, "w-from", "Земля")
+	expectFlightWorld(mock, "w-to", "Кеплер-22")
 
 	// Полёт с часовой длительностью — не завершится во время теста.
 	tm.StartFlight(userID, "w-from", "w-to", 10.5, 20.5, time.Hour, nil)
@@ -126,6 +130,82 @@ func TestGetMeWithoutFlight(t *testing.T) {
 	var resp map[string]interface{}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Nil(t, resp["flight"], "без полёта flight должен быть null")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// ==================== /me: НАЗВАНИЯ МИРОВ ПОЛЁТА (хвост 87) ====================
+
+// expectFlightWorld — мир для /me с заданным именем: подсказка шапки печатает
+// название конца полёта, а не внутренний id (from_name/to_name).
+func expectFlightWorld(mock sqlmock.Sqlmock, id, name string) {
+	mock.ExpectQuery(`SELECT id, name, coord_x, coord_y, COALESCE\(spectral_class,''\), temperature, star_type, system_type, stellar_mods, stellar_mass, age, created_at, updated_at FROM worlds WHERE id = \$1`).
+		WithArgs(id).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "name", "coord_x", "coord_y", "spectral_class", "temperature",
+			"star_type", "system_type", "stellar_mods", "stellar_mass", "age",
+			"created_at", "updated_at",
+		}).AddRow(id, name, 0, 0, "G", 5772, "star", "single", nil, nil, nil, now(), now()))
+}
+
+// Полёт отдаёт названия обоих концов: игрок в шапке видит «Земля → Кеплер-22».
+// Мир отправления = текущий мир игрока, его имя уже прочитано для
+// current_world_name — второй SELECT не делается.
+func TestGetMeFlightWorldNames(t *testing.T) {
+	h, mock, tm := newAuthHandlersHarness(t)
+
+	userID := "44444444-4444-4444-4444-444444444444"
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination, race_id FROM users WHERE id = \$1`).
+		WithArgs(userID).
+		WillReturnRows(sqlmock.NewRows(authUserCols).
+			AddRow(userID, "bob", "hash", nil, nil, "w-from", "ship_strela.svg", nil, nil, nil, "player", now(), now(), nil, nil, nil))
+	expectFlightWorld(mock, "w-from", "Земля")   // current_world_name
+	expectFlightWorld(mock, "w-to", "Кеплер-22") // to_name
+
+	tm.StartFlight(userID, "w-from", "w-to", 10.5, 20.5, time.Hour, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/me", nil)
+	rec := execJSON(h.GetMe, withUserID(req, userID))
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	flight, ok := resp["flight"].(map[string]interface{})
+	require.True(t, ok, "/me должен вернуть flight объектом")
+	// Существующие поля не меняются (их читают карта, модалка и дашборд).
+	assert.Equal(t, "w-from", flight["from"])
+	assert.Equal(t, "w-to", flight["to"])
+	assert.Equal(t, "Земля", flight["from_name"])
+	assert.Equal(t, "Кеплер-22", flight["to_name"])
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Мир удалён/перегенерирован — полёт в /me остаётся, а название пустое:
+// клиент откатывается на id из from/to (прежнее поведение), не выдумывает имя.
+func TestGetMeFlightWorldNameMissing(t *testing.T) {
+	h, mock, tm := newAuthHandlersHarness(t)
+
+	userID := "55555555-5555-5555-5555-555555555555"
+	mock.ExpectQuery(`SELECT id, username, password_hash, email, agent_id, current_world_id, ship_icon, ship_color, ship_model_id, equipment, role, created_at, updated_at, current_position, pending_destination, race_id FROM users WHERE id = \$1`).
+		WithArgs(userID).
+		WillReturnRows(sqlmock.NewRows(authUserCols).
+			AddRow(userID, "bob", "hash", nil, nil, nil, "ship_strela.svg", nil, nil, nil, "player", now(), now(), nil, nil, nil))
+	expectWorldMissing(mock, "w-gone")
+	expectFlightWorld(mock, "w-to", "Кеплер-22")
+
+	tm.StartFlight(userID, "w-gone", "w-to", 0, 0, time.Hour, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/me", nil)
+	rec := execJSON(h.GetMe, withUserID(req, userID))
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	flight, ok := resp["flight"].(map[string]interface{})
+	require.True(t, ok, "/me должен вернуть flight объектом и при удалённом мире")
+	assert.Equal(t, "w-gone", flight["from"])
+	assert.Equal(t, "w-to", flight["to"])
+	assert.Equal(t, "", flight["from_name"], "удалённого мира нет — название пустое, клиент откатится на id")
+	assert.Equal(t, "Кеплер-22", flight["to_name"])
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

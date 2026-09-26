@@ -588,6 +588,16 @@
             });
         }
 
+        // Статус полёта (спека 86a §4.1): /me.flight — {from, to, ...} или
+        // null = «на месте». Печатаем НАЗВАНИЯ миров (from_name/to_name, хвост
+        // 87) — игрок не должен видеть служебные идентификаторы; названия нет
+        // (старый сервер, мир удалён) — откат на id из from/to, как было раньше.
+        function flightStatusText(flight) {
+            if (!flight) return 'На месте';
+            const worldLabel = (name, id) => (typeof name === 'string' && name) ? name : (id || '—');
+            return `🚀 В полёте: ${worldLabel(flight.from_name, flight.from)} → ${worldLabel(flight.to_name, flight.to)}`;
+        }
+
         async function loadUser() {
             const token = localStorage.getItem('token');
             if (!token) return;
@@ -601,15 +611,7 @@
                 setShipOptions(data.ship_options);
                 document.getElementById('agentName').textContent = data.username || 'Искатель';
                 document.getElementById('currentWorld').textContent = data.current_world_name || '—';
-                // Статус полёта (спека 86a §4.1): /me.flight — {from, to, ...}
-                // (from/to — id миров) или null = «на месте».
-                const flight = data.flight;
-                const flightEl = document.getElementById('flightStatus');
-                if (flight) {
-                    flightEl.textContent = `🚀 В полёте: ${flight.from} → ${flight.to}`;
-                } else {
-                    flightEl.textContent = 'На месте';
-                }
+                document.getElementById('flightStatus').textContent = flightStatusText(data.flight);
                 // Корабль-превью в шапке (спрайт + цвет из /me).
                 const previewWrap = document.getElementById('shipPreview');
                 if (previewWrap) {

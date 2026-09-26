@@ -82,6 +82,20 @@ func (h *AuthHandlers) recomputeSurfaceHP(pos *models.CurrentPosition, worldID s
 	pos.HP = &hp
 }
 
+// worldNameByID — имя мира по id для /me. Best-effort: мир удалён перегенерацией
+// или не найден → пустая строка (клиент откатывается на id из from/to — прежнее
+// поведение, а не выдуманное имя).
+func (h *AuthHandlers) worldNameByID(id string) string {
+	if id == "" {
+		return ""
+	}
+	world, err := h.worldRepo.GetByID(id)
+	if err != nil || world == nil {
+		return ""
+	}
+	return world.Name
+}
+
 type RegisterRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
@@ -278,9 +292,20 @@ func (h *AuthHandlers) GetMe(w http.ResponseWriter, r *http.Request) {
 	// восстанавливает состояние после рефреша. Полёта нет — null.
 	var flight interface{}
 	if f := h.travelManager.GetFlight(userID); f != nil {
+		// Хвост 87: названия концов полёта (from_name/to_name) — в шапке
+		// игрок видит «В полёте: Земля → Кеплер-22», а не внутренние id.
+		// from/to остаются как были: их читают карта, модалка и дашборд.
+		// Мир отправления = текущий мир игрока, его имя уже прочитано для
+		// current_world_name — повторного SELECT нет.
+		fromName := currentWorldName
+		if f.FromWorld != worldID {
+			fromName = h.worldNameByID(f.FromWorld)
+		}
 		flight = map[string]interface{}{
 			"from":       f.FromWorld,
 			"to":         f.ToWorld,
+			"from_name":  fromName,
+			"to_name":    h.worldNameByID(f.ToWorld),
 			"start_time": f.StartTime.UnixMilli(),
 			"duration":   int(f.Duration.Seconds()),
 			"start_x":    f.StartX,

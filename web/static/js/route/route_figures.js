@@ -450,35 +450,71 @@ export function heatGlyph(ctx, x, y, cell, kind, pulse) {
 }
 
 // factorGlyph — глиф строки разбора (§4.7.1): переиспользует метку курса
-// (heatGlyph) или содержимое сектора (contentGlyph); для revisit/overshoot —
-// фолбэк-код до глифов @gdesigner (на доске эти события не рисуются).
+// (heatGlyph) или содержимое сектора (contentGlyph); события revisit/overshoot/
+// ping_wasted рисуются собственным кодом — на доске их нет (§12.14).
 export function factorGlyph(ctx, x, y, cell, code) {
     const g = C.FACTOR_GLYPHS[code];
     if (!g) return;
     if (g.via === 'heat') { heatGlyph(ctx, x, y, cell, g.kind, 1); return; }
     if (g.via === 'content') { contentGlyph(ctx, x, y, cell, g.kind, 1); return; }
     const r = Math.max(3, cell * 0.22);
+    const s = Math.max(1.4, cell * 0.045);
+    const d = Math.max(1.2, r * 0.24);
     ctx.save();
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     if (code === 'revisit') {
-        // Петля — разомкнутое кольцо со стрелкой (фолбэк).
+        // Петля (§12.14): кольцо-возврат 300° с разрывом 60° сверху + наконечник + точка-ось.
         ctx.strokeStyle = hA(C.COLORS.captureSoft, 0.9);
-        ctx.lineWidth = Math.max(1.4, cell * 0.05);
-        ctx.beginPath(); ctx.arc(x, y, r, Math.PI * 0.35, Math.PI * 1.75); ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(x - r * 0.05, y - r); ctx.lineTo(x + r * 0.55, y - r * 0.7);
-        ctx.stroke();
+        ctx.fillStyle = hA(C.COLORS.captureSoft, 0.9);
+        ctx.lineWidth = s;
+        const th0 = Math.PI * 1.67;
+        const th1 = Math.PI * 3.33;
+        ctx.beginPath(); ctx.arc(x, y, r, th0, th1); ctx.stroke();
+        const ex = x + r * Math.cos(th1);
+        const ey = y + r * Math.sin(th1);
+        const back = Math.atan2(-Math.cos(th1), Math.sin(th1)); // обратная касательная
+        for (const da of [-Math.PI / 6, Math.PI / 6]) {
+            ctx.beginPath();
+            ctx.moveTo(ex, ey);
+            ctx.lineTo(ex + r * 0.55 * Math.cos(back + da), ey + r * 0.55 * Math.sin(back + da));
+            ctx.stroke();
+        }
+        ctx.beginPath(); ctx.arc(x, y, d, 0, TAU); ctx.fill();
     } else if (code === 'overshoot') {
-        // Перелёт Цели — стрелка, минующая точку-звезду (фолбэк).
-        ctx.strokeStyle = hA(C.COLORS.cold, 0.9);
-        ctx.lineWidth = Math.max(1.4, cell * 0.05);
-        ctx.beginPath(); ctx.moveTo(x - r, y); ctx.lineTo(x + r, y); ctx.stroke();
+        // Перелёт Цели (§12.14): вытянутая U-шпилька с разворотом 180° + наконечник влево + точка-цель.
+        ctx.strokeStyle = hA(C.COLORS.captureSoft, 0.9);
+        ctx.fillStyle = hA(C.COLORS.captureSoft, 0.9);
+        ctx.lineWidth = s;
         ctx.beginPath();
-        ctx.moveTo(x + r * 0.3, y - r * 0.5); ctx.lineTo(x + r, y); ctx.lineTo(x + r * 0.3, y + r * 0.5);
+        ctx.moveTo(x - r * 0.45, y - r * 0.5);
+        ctx.lineTo(x + r * 0.55, y - r * 0.5);
         ctx.stroke();
-        ctx.fillStyle = hA(C.COLORS.capture, 0.95);
-        ctx.beginPath(); ctx.arc(x - r * 0.55, y, Math.max(1.2, r * 0.22), 0, TAU); ctx.fill();
+        ctx.beginPath();
+        ctx.arc(x + r * 0.55, y, r * 0.5, -Math.PI / 2, Math.PI / 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x + r * 0.55, y + r * 0.5);
+        ctx.lineTo(x - r * 0.06, y + r * 0.5);
+        ctx.moveTo(x - r * 0.06, y + r * 0.16);
+        ctx.lineTo(x - r * 0.48, y + r * 0.5);
+        ctx.lineTo(x - r * 0.06, y + r * 0.84);
+        ctx.stroke();
+        ctx.beginPath(); ctx.arc(x - r * 0.78, y, d, 0, TAU); ctx.fill();
+    } else if (code === 'ping_wasted') {
+        // Зонд впустую (§12.14): точка-источник + две пунктирные вложенные дуги.
+        ctx.strokeStyle = hA(C.COLORS.empty, 0.9);
+        ctx.fillStyle = hA(C.COLORS.empty, 0.9);
+        ctx.lineWidth = s;
+        ctx.beginPath(); ctx.arc(x, y, d, 0, TAU); ctx.fill();
+        const a70 = Math.PI * 70 / 180;
+        const a40 = Math.PI * 40 / 180;
+        ctx.setLineDash([2.5, 2.5]);
+        ctx.beginPath(); ctx.arc(x, y, r * 0.65, -a70, a70); ctx.stroke();
+        ctx.strokeStyle = hA(C.COLORS.empty, 0.5);
+        ctx.setLineDash([2.5, 3.5]);
+        ctx.beginPath(); ctx.arc(x, y, r * 1.05, -a40, a40); ctx.stroke();
+        ctx.setLineDash([]);
     }
     ctx.restore();
 }

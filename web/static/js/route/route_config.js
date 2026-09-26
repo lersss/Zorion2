@@ -128,8 +128,8 @@ export const FACTOR_LABELS = {
 
 // FACTOR_GLYPHS — code → глиф строки разбора (§4.7.1/§12.10): via 'heat' —
 // метка курса (heatGlyph), via 'content' — содержимое сектора (contentGlyph),
-// via 'new' — фолбэк-глиф до глифов @gdesigner (revisit/overshoot). Цвет берётся
-// внутри глифа (MARK_COLORS/COLORS), свотч не рисуется.
+// via 'new' — собственный глиф-фактор (§12.14: revisit/overshoot/ping_wasted).
+// Цвет берётся внутри глифа (MARK_COLORS/COLORS), свотч не рисуется.
 export const FACTOR_GLYPHS = {
     turn_cost: { via: 'heat', kind: 'turn' },
     revisit: { via: 'new' },
@@ -145,7 +145,7 @@ export const FACTOR_GLYPHS = {
     trap_entered_known: { via: 'content', kind: 'trap' },
     decoy_penalty: { via: 'content', kind: 'decoy' },
     lure_missed: { via: 'content', kind: 'lure' },
-    ping_wasted: { via: 'content', kind: 'empty' },
+    ping_wasted: { via: 'new' },
     ping_destabilize: { via: 'heat', kind: 'hazard' },
     find_used: { via: 'content', kind: 'jackpot' },
     current_along: { via: 'heat', kind: 'current_along' },

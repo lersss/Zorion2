@@ -276,7 +276,7 @@ web/static/js/
     │                        клик → мини-панель, WS npc_arrivals_batch → тост
     ├── navigation.js      — centerOnAgent
     ├── animation.js       — animationLoop (только во время полёта)
-    ├── starfield.js       — фон «звёздное небо» (спека 30c.1): offscreen-тайл, параллакс
+    ├── starfield.js         — фон «звёздное небо» (спека 30c.1): offscreen-тайл, параллакс
     ├── deeplink.js        — стык «дашборд → карта» (спека `2026-09-26-…`): разбор `/map?system=…&planet=…`, подавление авто-открывателей, попап
     └── utils.js           — worldToCanvas, getStarColor
 ```
@@ -286,6 +286,12 @@ web/static/js/
 `cargo.js` (трюм), `graphics.js` (графика), `encyclopedia.js`.
 
 Админка — `web/static/js/admin/`: вкладка «NPC» — `npc.js` (спека 20a.1 §6, регистрация в `tabs.js`/`main.js`).
+
+Авторизация клиента (разлогин на проде, идея `2026-09-27_разлогин-на-проде`): ядро —
+`web/static/js/auth.js` (`validateToken` возвращает `reason: invalid|unavailable`),
+адаптеры `web/static/js/admin/auth.js` и `web/static/js/studio/auth.js`, переход «в
+админку» — `goToAdmin` в `web/static/js/main.js`; контракт-тест
+`web/frontend_auth_logout_test.go`.
 
 **Как работает карта (серверная кластеризация):**
 - Клиент присылает `x_min/x_max/y_min/y_max/cell` в `/api/worlds/filter`.

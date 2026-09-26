@@ -122,6 +122,28 @@ CASCADE. Итерация 3 (добыча из залежи) — без мигр
 универсальном слоте. `player_cargo` **не** входит в `truncateTables` — состояние игрока,
 переживает очистку вселенной (§3.5).
 
+`player_accelerator` (состояние отката ускорителя перелёта, спека
+`2026-09-25-ускоритель-и-мини-игра-прокладка-маршрута` §3.3, миграция `000089`):
+`user_id` UUID PK FK → `users` ON DELETE CASCADE; `last_boost_at` TIMESTAMPTZ NULL
+— время последнего использования; `last_cooldown_min` INT NULL — снимок
+**применённого** отката, минуты (смена модуля на ходу не укорачивает и не
+сбрасывает уже запущенный откат); `updated_at` TIMESTAMPTZ NOT NULL DEFAULT NOW().
+Признак «ускорение действует» — производная
+(`flight.StartTime.UnixMilli() == last_boost_at.UnixMilli()`), отдельной колонки
+нет. Откат — атрибут игрока, общий на игрока, реальное время, переживает рестарт;
+**не** входит в `truncateTables` (переживает очистку вселенной).
+
+`player_route_puzzle` (состояние сегментной задачи мини-игры «Прокладка маршрута»,
+спека `2026-09-25-ускоритель-и-мини-игра-прокладка-маршрута` §14.1, миграция
+`000091`): PK `(user_id, kind)`; `user_id` UUID FK → `users` ON DELETE CASCADE;
+`kind` (вид задачи, v1 — `route`); `segment_hash` BYTEA — привязка к сегменту
+перелёта; `secret` BYTEA / `layout` JSONB — детерминированное поле (`secret`
+серверный и `layout` клиенту не отдаются); `revealed` JSONB NOT NULL DEFAULT
+`'[]'` — вскрытые секторы; `pings_left` INT — остаток импульсов разведки;
+`created_at` TIMESTAMPTZ DEFAULT NOW(). Владелец — игрок; расширяемость — `kind`
++ объекты в JSONB; живёт при сегменте `player_flights`, переживает рестарт;
+**не** входит в `truncateTables` (состояние игрока).
+
 `contract_board_state` (чек-точка ленивой материализации доски планеты, спека
 `2026-09-23-контракт-ленивая-доска-пакет-и-снабжение` §3.1, миграция `000071`):
 `planet_id` UUID PK FK → `planets` ON DELETE CASCADE, `materialized_at`/`updated_at`
@@ -656,6 +678,16 @@ ClearUniverse его не трогает.
   `000062` — `contracts_author_type_check` (inline); правится
   `DROP CONSTRAINT IF EXISTS` + `ADD CONSTRAINT` — идемпотентно.
   `direct_target_type` не расширяется (M6).
+- `000089` — `000089_accelerator.sql` — ускоритель перелёта, модуль корабля
+  (спека `2026-09-25-ускоритель-и-мини-игра-прокладка-маршрута` §3.1–§3.3, ЧК1,
+  коммит `d71d932`): `equipment.type` CHECK += `accelerator`; запись каталога
+  `accel_1` (`params.game='route'`, `cooldown_min=25`, `bonus_max=0.50`, пороги
+  `min_remaining_offer_s=180`/`min_remaining_boost_s=90`,
+  `ON CONFLICT (id) DO NOTHING`); `ship_models.slots` стартовой модели +=
+  `accelerator:1`; бэкфилл `users.equipment` — стартовый модуль новым и тем, у
+  кого ключа нет/пуст; таблица `player_accelerator` (состояние отката; **не** в
+  `truncateTables`). Идемпотентно. Номер `000088` занят параллельной линией
+  (`000088_contract_author_settlement.sql`) — взят следующий свободный `000089`.
 - `000090` — `000090_buildings_owner_index.sql` — индекс владельца строений под
   вкладку «Собственность игрока» (спека
   `2026-09-26-собственность-игрока-в-дашборде` §4.4, ЧК1): **обычный** индекс
@@ -663,6 +695,13 @@ ClearUniverse его не трогает.
   `buildings.owner_id` `NOT NULL` (`000056`), `WHERE owner_id IS NOT NULL`
   вырожден; частичный `idx_settlements_owner` (`000082`) осмыслен, т.к. там
   `owner_id` nullable. Идемпотентно (`CREATE INDEX IF NOT EXISTS`).
+- `000091` — `000091_player_route_puzzle.sql` — состояние сегментной задачи
+  мини-игры «Прокладка маршрута» (модель v9 «Планшет», спека
+  `2026-09-25-ускоритель-и-мини-игра-прокладка-маршрута` §14.1): таблица
+  `player_route_puzzle` (PK `(user_id, kind)`; `segment_hash`, `secret`, `layout`,
+  `revealed`, `pings_left`; FK `users` ON DELETE CASCADE; **не** в
+  `truncateTables` — состояние игрока). Идемпотентно (`CREATE TABLE IF NOT
+  EXISTS`). Номер `000091` — после `000090`.
 - Миграции, вступающие в силу на старте, требуют перезапуска сервера
   (`AGENTS.md` §4 п.13).
 - `VACUUM` внутрь миграции не положить — не работает внутри транзакции

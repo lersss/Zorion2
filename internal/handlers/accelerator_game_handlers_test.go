@@ -115,6 +115,26 @@ func TestAcceleratorOfferNoFlight(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+// Анти-бот (§6.6): сверх частоты ручка отвечает 429 rate_limited — до полёта и
+// БД. Второй запрос того же игрока в том же всплеске блокируется.
+func TestAcceleratorOfferRateLimited(t *testing.T) {
+	h, _, mock := newAccelGameHarness(t)
+	const userID = "u1"
+	h.accelRate = newAcceleratorRateLimiter(0, 1)
+
+	rec := execJSON(h.AcceleratorOffer, accelOfferRequest(userID))
+	require.Equal(t, http.StatusConflict, rec.Code)
+	require.Equal(t, "no_flight", decodeMap(t, rec)["reason"], "первый запрос лимитер пропускает")
+
+	rec = execJSON(h.AcceleratorOffer, accelOfferRequest(userID))
+	require.Equal(t, http.StatusTooManyRequests, rec.Code)
+	m := decodeMap(t, rec)
+	require.Equal(t, false, m["available"])
+	require.Equal(t, "rate_limited", m["reason"])
+	require.Nil(t, m["cooldown_remaining_s"])
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 // Идущий откат (остаток больше порога показа) → 409 cooldown.
 func TestAcceleratorOfferCooldown(t *testing.T) {
 	h, tm, mock := newAccelGameHarness(t)

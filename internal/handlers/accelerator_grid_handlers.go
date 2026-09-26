@@ -95,10 +95,10 @@ type acceleratorCurrent struct {
 // окружение. Скрытого содержимого нет.
 type acceleratorSector struct {
 	Cells        []int  `json:"cells"`
-	Sig          int    `json:"sig"`           // 0 тихая, 1 средняя, 2 шумная
-	SigName      string `json:"sig_name"`      // «тихая»/«средняя»/«шумная»
-	Surround     int    `json:"surround"`      // 0 пусто, 1 шлюз, 2 тупик, 3 топь, 4 течение
-	SurroundName string `json:"surround_name"` // «пусто»/«шлюз»/«тупик»/«топь»/«течение»
+	Sig          int    `json:"sig"`           // 0 Тихий, 1 Ровный, 2 Гулкий
+	SigName      string `json:"sig_name"`      // «Тихий»/«Ровный»/«Гулкий»
+	Surround     int    `json:"surround"`      // 0 Ничего, 1 Кордон, 2 Обрыв, 3 Мгла, 4 Течение
+	SurroundName string `json:"surround_name"` // «Ничего»/«Кордон»/«Обрыв»/«Мгла»/«Течение»
 }
 
 // acceleratorRevealed — вскрытый сектор (элемент revealed из БД).
@@ -143,40 +143,53 @@ func acceleratorSegmentHash(flight *travel.TravelInfo) []byte {
 // и layout, revealed сброшен, импульсы = acceleratorGridPings). Возвращает
 // строку и детерминированное поле (пересобрано из seed+secret — то же, что
 // сохранено, переживает рестарт). Секрет — только серверный, клиенту не идёт.
+//
+// Смена сегмента идёт через Repository.Ensure (условный upsert + перечитывание):
+// конкурентные запросы одного игрока (гонка Get+Replace) сходятся к одной
+// строке-победителю, и поле пересобирается из ЕЁ secret — одна доска (§14.1).
 func (h *TravelHandlers) acceleratorGridPuzzle(userID string, flight *travel.TravelInfo, dist float64, passport routegame.Passport) (*models.RoutePuzzle, routegame.GridField, error) {
 	ctx := context.Background()
 	hash := acceleratorSegmentHash(flight)
+	seed := acceleratorSegmentSeed(flight)
 	st, err := h.routePuzzleRepo.Get(ctx, userID, acceleratorPuzzleKind)
 	if err != nil {
 		return nil, routegame.GridField{}, err
 	}
 	if st != nil && bytes.Equal(st.SegmentHash, hash) {
-		field, ok := routegame.GenerateGridField(acceleratorSegmentSeed(flight), st.Secret, dist, passport)
+		field, ok := routegame.GenerateGridField(seed, st.Secret, dist, passport)
 		if !ok {
 			return nil, routegame.GridField{}, errGridNoField
 		}
 		return st, field, nil
 	}
-	secret, field, ok := acceleratorNewPuzzleField(flight, dist, passport)
+	secret, candidate, ok := acceleratorNewPuzzleField(flight, dist, passport)
 	if !ok {
 		return nil, routegame.GridField{}, errGridNoField
 	}
-	layout, err := json.Marshal(field.Layout())
+	layout, err := json.Marshal(candidate.Layout())
 	if err != nil {
 		return nil, routegame.GridField{}, err
 	}
-	st = &models.RoutePuzzle{
+	canonical, err := h.routePuzzleRepo.Ensure(ctx, &models.RoutePuzzle{
 		UserID:      userID,
 		Kind:        acceleratorPuzzleKind,
 		SegmentHash: hash,
 		Secret:      secret,
 		Layout:      layout,
 		PingsLeft:   acceleratorGridPings,
-	}
-	if err := h.routePuzzleRepo.Replace(ctx, st); err != nil {
+	})
+	if err != nil {
 		return nil, routegame.GridField{}, err
 	}
-	return st, field, nil
+	if canonical == nil || !bytes.Equal(canonical.SegmentHash, hash) {
+		// Параллельный запрос успел сменить сегмент — доска текущего не собрана.
+		return nil, routegame.GridField{}, errGridNoField
+	}
+	field, ok := routegame.GenerateGridField(seed, canonical.Secret, dist, passport)
+	if !ok {
+		return nil, routegame.GridField{}, errGridNoField
+	}
+	return canonical, field, nil
 }
 
 // acceleratorGridSegment — общая сборка сегмента для offer/scan/boost: паспорт
@@ -293,6 +306,10 @@ func (h *TravelHandlers) AcceleratorScan(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	now := time.Now()
+	if !h.allowAccelRequest(userID, now) {
+		writeAcceleratorRefusal(w, http.StatusTooManyRequests, "rate_limited", 0)
+		return
+	}
 	flight := h.travelManager.GetFlight(userID)
 	if flight == nil {
 		writeAcceleratorRefusal(w, http.StatusConflict, "no_flight", 0)
@@ -319,16 +336,10 @@ func (h *TravelHandlers) AcceleratorScan(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	_, cfg, found, valid := ship.AcceleratorModule(user.Equipment)
-	if !found {
-		writeAcceleratorRefusal(w, http.StatusConflict, "no_module", cooldownLeft)
-		return
-	}
-	if !valid || !ship.AcceleratorGameRegistered(cfg.Game) {
-		writeAcceleratorRefusal(w, http.StatusConflict, "unknown_game", cooldownLeft)
-		return
-	}
-	if models.BoostActive(state.LastBoostAt, flight.StartTime) {
-		writeAcceleratorRefusal(w, http.StatusConflict, "already_active", cooldownLeft)
+	// Разведка не тратит ни остаток, ни откат — единый гейт берётся без порогов
+	// (minRemainingS=0, checkCooldown=false) при общем порядке причин §3.4/§4.1.
+	if reason := acceleratorTravelReason(found, valid, ship.AcceleratorGameRegistered(cfg.Game), models.BoostActive(state.LastBoostAt, flight.StartTime), 0, 0, cooldownLeft, false); reason != "" {
+		writeAcceleratorRefusal(w, http.StatusConflict, reason, cooldownLeft)
 		return
 	}
 	target, err := h.worldRepo.GetByID(flight.ToWorld)

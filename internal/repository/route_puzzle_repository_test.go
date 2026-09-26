@@ -1,7 +1,7 @@
 // internal/repository/route_puzzle_repository_test.go
 // Тесты репозитория состояния сегментной задачи «Прокладка маршрута» (спека
-// ускорителя §14.1): Get (строки нет / строка), Replace upsert сбросом
-// revealed, Reveal (успех и гейт «нет импульсов»), Delete.
+// ускорителя §14.1): Get (строки нет / строка), Ensure (условный upsert +
+// перечитывание), Reveal (успех и гейт «нет импульсов»), Delete.
 package repository
 
 import (
@@ -59,8 +59,10 @@ func TestRoutePuzzleGetRow(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// Replace — upsert всей строки; revealed в SQL всегда сбрасывается в '[]'.
-func TestRoutePuzzleReplaceUpsert(t *testing.T) {
+// Ensure — условный upsert (обновляет только при смене segment_hash) +
+// перечитывание КАНОНИЧЕСКОЙ строки (фикс гонки Get+Replace, спека ускорителя
+// §14.1): конкурентные запросы одного игрока получают одну доску.
+func TestRoutePuzzleEnsureUpsertAndReread(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
 	require.NoError(t, err)
 	defer db.Close()
@@ -74,20 +76,30 @@ func TestRoutePuzzleReplaceUpsert(t *testing.T) {
 			layout = EXCLUDED.layout,
 			revealed = '[]'::jsonb,
 			pings_left = EXCLUDED.pings_left,
-			created_at = NOW()`)).
+			created_at = NOW()
+		WHERE player_route_puzzle.segment_hash IS DISTINCT FROM EXCLUDED.segment_hash`)).
 		WithArgs("u1", "route", []byte{0x0a}, []byte{0x0b}, []byte(`{"w":2}`), 5).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
-	err = NewRoutePuzzleRepository(db).Replace(context.Background(), &models.RoutePuzzle{
+	created := now()
+	mock.ExpectQuery(regexp.QuoteMeta(routePuzzleGetQuery)).
+		WithArgs("u1", "route").
+		WillReturnRows(sqlmock.NewRows([]string{"user_id", "kind", "segment_hash", "secret", "layout", "revealed", "pings_left", "created_at"}).
+			AddRow("u1", "route", []byte{0x0a}, []byte{0x0b}, []byte(`{"w":2}`), []byte(`[]`), 5, created))
+
+	st, err := NewRoutePuzzleRepository(db).Ensure(context.Background(), &models.RoutePuzzle{
 		UserID:      "u1",
 		Kind:        "route",
 		SegmentHash: []byte{0x0a},
 		Secret:      []byte{0x0b},
 		Layout:      []byte(`{"w":2}`),
-		Revealed:    []byte(`[{"sector":1}]`), // игнорируется: новый сегмент стирает вскрытие
 		PingsLeft:   5,
 	})
 	require.NoError(t, err)
+	require.NotNil(t, st)
+	require.Equal(t, []byte{0x0a}, st.SegmentHash)
+	require.Equal(t, 5, st.PingsLeft)
+	require.Equal(t, []byte(`[]`), st.Revealed)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

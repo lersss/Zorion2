@@ -438,11 +438,11 @@ func TestAcceleratorBoostRecreatesStalePuzzle(t *testing.T) {
 	expectWorld(mock, "w2", 10, 0)
 	expectWorld(mock, "w1", 0, 0)
 	expectBelts(mock, "w2")
+	canonSecret := []byte("accelerator-grid-test-secret-0001")
+	canonField := accelGridTestField(t, flight, canonSecret, 10, accelGridTestPassport())
 	expectRoutePuzzle(mock, userID, []byte("stale-segment-hash"), []byte("old-secret"), []byte("{}"),
 		[]byte(`[{"sector":1,"content":"unstable"}]`), 0)
-	mock.ExpectExec(`INSERT INTO player_route_puzzle`).
-		WithArgs(userID, "route", acceleratorSegmentHash(flight), sqlmock.AnyArg(), sqlmock.AnyArg(), acceleratorGridPings).
-		WillReturnResult(sqlmock.NewResult(1, 1))
+	expectRoutePuzzleEnsure(mock, userID, acceleratorSegmentHash(flight), canonSecret, accelGridTestLayoutJSON(t, canonField), []byte("[]"), acceleratorGridPings)
 
 	rec := execJSON(h.AcceleratorBoost, newAccelBoostRequest(userID, acceleratorFingerprint(flight), []int{0}))
 	require.Equal(t, http.StatusBadRequest, rec.Code)
@@ -471,5 +471,22 @@ func TestArrivalHandlerClearsRoutePuzzle(t *testing.T) {
 	expectClearPendingDestination(mock, userID)
 
 	h.ArrivalHandler(userID, target)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Анти-бот (§6.6): сверх частоты boost отвечает 429 rate_limited.
+func TestAcceleratorBoostRateLimited(t *testing.T) {
+	h, _, mock := newAccelGameHarness(t)
+	const userID = "u1"
+	h.accelRate = newAcceleratorRateLimiter(0, 1)
+
+	rec := execJSON(h.AcceleratorBoost, newAccelBoostRequest(userID, "x", nil))
+	require.Equal(t, http.StatusConflict, rec.Code)
+	require.Equal(t, "no_flight", decodeMap(t, rec)["reason"], "первый запрос лимитер пропускает")
+
+	rec = execJSON(h.AcceleratorBoost, newAccelBoostRequest(userID, "x", nil))
+	require.Equal(t, http.StatusTooManyRequests, rec.Code)
+	m := decodeMap(t, rec)
+	require.Equal(t, "rate_limited", m["reason"])
 	require.NoError(t, mock.ExpectationsWereMet())
 }

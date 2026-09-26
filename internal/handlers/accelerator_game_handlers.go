@@ -85,6 +85,10 @@ func (h *TravelHandlers) AcceleratorOffer(w http.ResponseWriter, r *http.Request
 		return
 	}
 	now := time.Now()
+	if !h.allowAccelRequest(userID, now) {
+		writeAcceleratorRefusal(w, http.StatusTooManyRequests, "rate_limited", 0)
+		return
+	}
 	flight := h.travelManager.GetFlight(userID)
 	if flight == nil {
 		writeAcceleratorRefusal(w, http.StatusConflict, "no_flight", 0)
@@ -110,7 +114,7 @@ func (h *TravelHandlers) AcceleratorOffer(w http.ResponseWriter, r *http.Request
 	_, cfg, found, valid := ship.AcceleratorModule(user.Equipment)
 	cooldownLeft := models.CooldownRemaining(state.LastBoostAt, state.LastCooldownMin, now)
 	active := models.BoostActive(state.LastBoostAt, flight.StartTime)
-	reason := acceleratorTravelReason(found, valid, ship.AcceleratorGameRegistered(cfg.Game), active, flight, cfg, cooldownLeft, now)
+	reason := acceleratorTravelReason(found, valid, ship.AcceleratorGameRegistered(cfg.Game), active, flightRemaining(flight, now), cfg.MinRemainingOfferS, cooldownLeft, true)
 	if reason != "" {
 		writeAcceleratorRefusal(w, http.StatusConflict, reason, cooldownLeft)
 		return

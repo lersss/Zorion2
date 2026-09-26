@@ -47,7 +47,18 @@ type TravelHandlers struct {
 	// Состояние сегментной задачи мини-игры v9 «Планшет» (спека ускорителя
 	// §14.1): доска/секрет/импульсы. Сеттер: main.go; nil — ручек доски нет.
 	routePuzzleRepo *repository.RoutePuzzleRepository
+	// Per-user token-bucket ручек offer/scan/boost (анти-бот, спека ускорителя
+	// §6.6). Один на процесс; создаётся в конструкторе.
+	accelRate *acceleratorRateLimiter
 }
+
+// Частота ручек мини-игры ускорителя на игрока (анти-бот, §6.6): ёмкость burst
+// покрывает честный сеанс (offer + пара scan + boost), дальше — 1 обращение в
+// секунду.
+const (
+	acceleratorRatePerSec = 1.0
+	acceleratorRateBurst  = 10.0
+)
 
 func NewTravelHandlers(
 	worldRepo *repository.WorldRepository,
@@ -58,6 +69,7 @@ func NewTravelHandlers(
 		worldRepo:     worldRepo,
 		userRepo:      userRepo,
 		travelManager: travelManager,
+		accelRate:     newAcceleratorRateLimiter(acceleratorRatePerSec, acceleratorRateBurst),
 	}
 }
 

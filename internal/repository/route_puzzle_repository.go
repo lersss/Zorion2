@@ -44,9 +44,15 @@ func (r *RoutePuzzleRepository) Get(ctx context.Context, userID, kind string) (*
 	return st, nil
 }
 
-// Replace — upsert всей строки под новый сегмент: новый secret/layout/
-// pings_left, revealed сбрасывается в '[]' (старое вскрытие не переносится).
-func (r *RoutePuzzleRepository) Replace(ctx context.Context, state *models.RoutePuzzle) error {
+// Ensure — атомарно привести строку задачи к сегменту state: вставить новую
+// (или заменить устаревшую по segment_hash) и вернуть КАНОНИЧЕСКУЮ строку из
+// БД. Фикс гонки Get+Replace (спека ускорителя §14.1): конкурентные запросы
+// одного игрока при смене сегмента могли получить разные secret → разные доски.
+// Условие `segment_hash IS DISTINCT FROM EXCLUDED.segment_hash` + row-lock PG
+// делают первое обновление победителем (второй ждёт и его WHERE уже не проходит),
+// поэтому все читают перечитыванием одну строку с одним secret. revealed
+// сбрасывается — вскрытие старого сегмента не переносится.
+func (r *RoutePuzzleRepository) Ensure(ctx context.Context, state *models.RoutePuzzle) (*models.RoutePuzzle, error) {
 	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO player_route_puzzle (user_id, kind, segment_hash, secret, layout, revealed, pings_left, created_at)
 		VALUES ($1, $2, $3, $4, $5, '[]'::jsonb, $6, NOW())
@@ -56,10 +62,14 @@ func (r *RoutePuzzleRepository) Replace(ctx context.Context, state *models.Route
 			layout = EXCLUDED.layout,
 			revealed = '[]'::jsonb,
 			pings_left = EXCLUDED.pings_left,
-			created_at = NOW()`,
+			created_at = NOW()
+		WHERE player_route_puzzle.segment_hash IS DISTINCT FROM EXCLUDED.segment_hash`,
 		state.UserID, state.Kind, state.SegmentHash, state.Secret, state.Layout, state.PingsLeft,
 	)
-	return err
+	if err != nil {
+		return nil, err
+	}
+	return r.Get(ctx, state.UserID, state.Kind)
 }
 
 // Reveal — атомарно вскрыть сектор: списать 1 импульс (только если

@@ -88,33 +88,36 @@ func TestAcceleratorTravelBlockAlreadyActive(t *testing.T) {
 // Приоритет причин (§3.4/§4.1): no_module → unknown_game → already_active →
 // too_short → cooldown. gameRegistered вынесен параметром, чтобы проверить ветки
 // при реализованной игре; ветка unknown_game — на фиктивном имени игры
-// (AcceleratorGameRegistered("fake_game") == false).
+// (AcceleratorGameRegistered("fake_game") == false). Хелпер — единый источник
+// причин для offer/boost/scan: порог остатка и проверка отката параметрами.
 func TestAcceleratorTravelReason(t *testing.T) {
-	now := time.Now()
-	long := &travel.TravelInfo{StartTime: now, Duration: time.Hour}
-	short := &travel.TravelInfo{StartTime: now, Duration: 60 * time.Second}
-	cfg := ship.AcceleratorConfig{MinRemainingOfferS: 180}
+	long := time.Hour
+	short := 60 * time.Second
 
 	cases := []struct {
 		name           string
 		found, valid   bool
 		gameRegistered bool
 		active         bool
-		flight         *travel.TravelInfo
+		remaining      time.Duration
+		minRemainingS  int
 		cooldown       time.Duration
+		checkCooldown  bool
 		want           string
 	}{
-		{"no_module", false, true, true, false, long, 0, "no_module"},
-		{"invalid_params", true, false, true, false, long, 0, "unknown_game"},
-		{"unknown_game (фиктивная игра)", true, true, ship.AcceleratorGameRegistered("fake_game"), true, long, 0, "unknown_game"},
-		{"already_active", true, true, true, true, long, 0, "already_active"},
-		{"too_short", true, true, true, false, short, 0, "too_short"},
-		{"no_flight", true, true, true, false, nil, 0, "too_short"},
-		{"cooldown", true, true, true, false, long, time.Minute, "cooldown"},
-		{"available", true, true, true, false, long, 0, ""},
+		{"no_module", false, true, true, false, long, 180, 0, true, "no_module"},
+		{"invalid_params", true, false, true, false, long, 180, 0, true, "unknown_game"},
+		{"unknown_game (фиктивная игра)", true, true, ship.AcceleratorGameRegistered("fake_game"), true, long, 180, 0, true, "unknown_game"},
+		{"already_active", true, true, true, true, long, 180, 0, true, "already_active"},
+		{"too_short", true, true, true, false, short, 180, 0, true, "too_short"},
+		{"no_remaining", true, true, true, false, 0, 180, 0, true, "too_short"},
+		{"cooldown", true, true, true, false, long, 180, time.Minute, true, "cooldown"},
+		{"available", true, true, true, false, long, 180, 0, true, ""},
+		{"boost_no_cooldown", true, true, true, false, long, 90, time.Minute, false, ""},
+		{"scan_skips_thresholds", true, true, true, false, 0, 0, time.Minute, false, ""},
 	}
 	for _, c := range cases {
-		got := acceleratorTravelReason(c.found, c.valid, c.gameRegistered, c.active, c.flight, cfg, c.cooldown, now)
+		got := acceleratorTravelReason(c.found, c.valid, c.gameRegistered, c.active, c.remaining, c.minRemainingS, c.cooldown, c.checkCooldown)
 		require.Equalf(t, c.want, got, "reason %q", c.name)
 	}
 }

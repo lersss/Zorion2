@@ -55,6 +55,16 @@ func expectRoutePuzzle(mock sqlmock.Sqlmock, userID string, hash, secret, layout
 			AddRow(userID, "route", hash, secret, layout, revealed, pings, now()))
 }
 
+// expectRoutePuzzleEnsure — ожидание Repository.Ensure при смене сегмента:
+// условный upsert (secret/layout кандидата — произвольны) + перечитывание
+// КАНОНИЧЕСКОЙ строки (тот же secret, что возвращает SELECT).
+func expectRoutePuzzleEnsure(mock sqlmock.Sqlmock, userID string, hash, secret, layout, revealed []byte, pings int) {
+	mock.ExpectExec(`INSERT INTO player_route_puzzle`).
+		WithArgs(userID, "route", hash, sqlmock.AnyArg(), sqlmock.AnyArg(), acceleratorGridPings).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	expectRoutePuzzle(mock, userID, hash, secret, layout, revealed, pings)
+}
+
 // newAccelScanRequest — POST /api/accelerator/scan с телом {fingerprint, sector}.
 func newAccelScanRequest(userID, fingerprint string, sector int) *http.Request {
 	body, err := json.Marshal(acceleratorScanRequest{Fingerprint: fingerprint, Sector: sector})
@@ -93,11 +103,12 @@ func TestAcceleratorOfferRecreatesPuzzleOnSegmentChange(t *testing.T) {
 	expectWorld(mock, "w2", 10, 0)
 	expectWorld(mock, "w1", 0, 0)
 	expectBelts(mock, "w2")
-	// Старая строка другого сегмента → Replace (новый secret/layout, revealed='[]').
+	// Старая строка другого сегмента → Ensure (новый secret/layout, revealed='[]');
+	// канонический secret победителя гонки детерминированно даёт принятое поле.
+	canonSecret := []byte("accelerator-grid-test-secret-0001")
+	canonField := accelGridTestField(t, flight, canonSecret, 10, accelGridTestPassport())
 	expectRoutePuzzle(mock, userID, []byte("stale-segment-hash"), []byte("old-secret"), []byte("{}"), []byte(`[{"sector":3,"content":"trap"}]`), 0)
-	mock.ExpectExec(`INSERT INTO player_route_puzzle`).
-		WithArgs(userID, "route", acceleratorSegmentHash(flight), sqlmock.AnyArg(), sqlmock.AnyArg(), acceleratorGridPings).
-		WillReturnResult(sqlmock.NewResult(1, 1))
+	expectRoutePuzzleEnsure(mock, userID, acceleratorSegmentHash(flight), canonSecret, accelGridTestLayoutJSON(t, canonField), []byte("[]"), acceleratorGridPings)
 
 	rec := execJSON(h.AcceleratorOffer, accelOfferRequest(userID))
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -250,6 +261,23 @@ func TestAcceleratorScanNoFlight(t *testing.T) {
 	require.Equal(t, http.StatusConflict, rec.Code)
 	m := decodeMap(t, rec)
 	require.Equal(t, "no_flight", m["reason"])
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Анти-бот (§6.6): сверх частоты scan отвечает 429 rate_limited.
+func TestAcceleratorScanRateLimited(t *testing.T) {
+	h, _, mock := newAccelGameHarness(t)
+	const userID = "u1"
+	h.accelRate = newAcceleratorRateLimiter(0, 1)
+
+	rec := execJSON(h.AcceleratorScan, newAccelScanRequest(userID, "x", 0))
+	require.Equal(t, http.StatusConflict, rec.Code)
+	require.Equal(t, "no_flight", decodeMap(t, rec)["reason"], "первый запрос лимитер пропускает")
+
+	rec = execJSON(h.AcceleratorScan, newAccelScanRequest(userID, "x", 0))
+	require.Equal(t, http.StatusTooManyRequests, rec.Code)
+	m := decodeMap(t, rec)
+	require.Equal(t, "rate_limited", m["reason"])
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

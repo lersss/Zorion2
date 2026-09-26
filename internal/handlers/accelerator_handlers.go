@@ -55,11 +55,16 @@ func (h *TravelHandlers) AcceleratorResetSelf(w http.ResponseWriter, r *http.Req
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
-// acceleratorTravelReason — единый приоритет причин недоступности (§3.4/§4.1):
-// no_module → unknown_game → already_active → too_short → cooldown. Пусто —
-// доступно. gameRegistered — сервер умеет проводить игру из params.game; в ЧК1
-// игр не зарегистрировано, поэтому валидный модуль даёт unknown_game.
-func acceleratorTravelReason(found, valid, gameRegistered, active bool, flight *travel.TravelInfo, cfg ship.AcceleratorConfig, cooldownLeft time.Duration, now time.Time) string {
+// acceleratorTravelReason — ЕДИНЫЙ источник порядка причин недоступности
+// ускорителя (§3.4/§4.1): no_module → unknown_game → already_active → too_short
+// → cooldown. Пусто — доступно. Хелпер используют блоки /travel и /me, offer,
+// boost и scan — один порядок и одинаковые коды отказов:
+//   - offer/available: minRemainingS = cfg.MinRemainingOfferS, checkCooldown=true;
+//   - boost: minRemainingS = cfg.MinRemainingBoostS, checkCooldown=false (откат
+//     проверяет ApplyBoost под локом, §4.1 шаг 8);
+//   - scan: minRemainingS = 0, checkCooldown=false (разведка не тратит ни
+//     остаток, ни откат).
+func acceleratorTravelReason(found, valid, gameRegistered, active bool, remaining time.Duration, minRemainingS int, cooldownLeft time.Duration, checkCooldown bool) string {
 	switch {
 	case !found:
 		return "no_module"
@@ -67,9 +72,9 @@ func acceleratorTravelReason(found, valid, gameRegistered, active bool, flight *
 		return "unknown_game"
 	case active:
 		return "already_active"
-	case flight == nil || flightRemaining(flight, now) < time.Duration(cfg.MinRemainingOfferS)*time.Second:
+	case minRemainingS > 0 && remaining < time.Duration(minRemainingS)*time.Second:
 		return "too_short"
-	case cooldownLeft > 0:
+	case checkCooldown && cooldownLeft > 0:
 		return "cooldown"
 	}
 	return ""
@@ -91,7 +96,11 @@ func acceleratorTravelBlock(repo *repository.PlayerAcceleratorRepository, user *
 	id, cfg, found, valid := ship.AcceleratorModule(user.Equipment)
 	cooldownLeft := models.CooldownRemaining(state.LastBoostAt, state.LastCooldownMin, now)
 	active := flight != nil && models.BoostActive(state.LastBoostAt, flight.StartTime)
-	reason := acceleratorTravelReason(found, valid, ship.AcceleratorGameRegistered(cfg.Game), active, flight, cfg, cooldownLeft, now)
+	var remaining time.Duration
+	if flight != nil {
+		remaining = flightRemaining(flight, now)
+	}
+	reason := acceleratorTravelReason(found, valid, ship.AcceleratorGameRegistered(cfg.Game), active, remaining, cfg.MinRemainingOfferS, cooldownLeft, true)
 
 	out := map[string]interface{}{
 		"available": reason == "",

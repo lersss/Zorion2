@@ -98,6 +98,10 @@ func (h *TravelHandlers) AcceleratorBoost(w http.ResponseWriter, r *http.Request
 		return
 	}
 	now := time.Now()
+	if !h.allowAccelRequest(userID, now) {
+		writeAcceleratorRefusal(w, http.StatusTooManyRequests, "rate_limited", 0)
+		return
+	}
 
 	// Шаг 1: нет полёта.
 	flight := h.travelManager.GetFlight(userID)
@@ -129,20 +133,13 @@ func (h *TravelHandlers) AcceleratorBoost(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Гейт модуля — тот же приоритет, что у available (§3.4).
+	// Гейт модуля/активности — тот же источник, что у offer/scan (§3.4/§4.1),
+	// ещё без порога остатка: порог ОТПРАВКИ проверяется после мира-цели (§4.1
+	// шаги 4–5). Откат проверяет ApplyBoost под локом (шаг 8) — checkCooldown=false.
+	remaining := flightRemaining(flight, now)
 	_, cfg, found, valid := ship.AcceleratorModule(user.Equipment)
-	if !found {
-		writeAcceleratorRefusal(w, http.StatusConflict, "no_module", cooldownLeft)
-		return
-	}
-	if !valid || !ship.AcceleratorGameRegistered(cfg.Game) {
-		writeAcceleratorRefusal(w, http.StatusConflict, "unknown_game", cooldownLeft)
-		return
-	}
-
-	// Шаг 3: ускорение уже действует на сегменте — откат не тратится.
-	if models.BoostActive(state.LastBoostAt, flight.StartTime) {
-		writeAcceleratorRefusal(w, http.StatusConflict, "already_active", cooldownLeft)
+	if reason := acceleratorTravelReason(found, valid, ship.AcceleratorGameRegistered(cfg.Game), models.BoostActive(state.LastBoostAt, flight.StartTime), remaining, 0, cooldownLeft, false); reason != "" {
+		writeAcceleratorRefusal(w, http.StatusConflict, reason, cooldownLeft)
 		return
 	}
 
@@ -154,9 +151,8 @@ func (h *TravelHandlers) AcceleratorBoost(w http.ResponseWriter, r *http.Request
 	}
 
 	// Шаг 5: порог ОТПРАВКИ (не показа) — откат не тратится.
-	remaining := flightRemaining(flight, now)
-	if remaining < time.Duration(cfg.MinRemainingBoostS)*time.Second {
-		writeAcceleratorRefusal(w, http.StatusConflict, "too_short", cooldownLeft)
+	if reason := acceleratorTravelReason(found, valid, ship.AcceleratorGameRegistered(cfg.Game), false, remaining, cfg.MinRemainingBoostS, cooldownLeft, false); reason != "" {
+		writeAcceleratorRefusal(w, http.StatusConflict, reason, cooldownLeft)
 		return
 	}
 

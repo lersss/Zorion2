@@ -10,8 +10,9 @@
 <body>
     <canvas id="route-canvas"></canvas>
 
-    <!-- HUD (§1): паспорт-полоса (свёрнута по умолчанию), выход, статус-строка,
-         строка обратной связи, панель действий. -->
+    <!-- HUD v9 «Планшет» (§2/§7.3): паспорт-полоса + чип режима + статус-строка
+         сверху; строка обратной связи (маяки/импульсы/легенда) + карточка
+         сектора + панель действий + «Проложить» снизу. -->
     <div id="hud" style="display:none;">
         <div class="hud-top-wrap">
             <div class="hud-top">
@@ -21,28 +22,38 @@
                 </div>
                 <button id="to-map" class="hud-btn" type="button">← На карту</button>
             </div>
+            <div class="hud-chips">
+                <span id="mode-chip" class="hud-chip" style="display:none;"></span>
+            </div>
             <div id="status-line"></div>
         </div>
         <div class="hud-bottom">
+            <!-- Карточка сектора (§4.3): σ, окружение, риск, «Разведать» — C2.
+                 Пока заглушка скрыта, разметка заложена. -->
+            <div id="sector-card" class="sector-card" style="display:none;"></div>
+            <!-- Легенда объектов доски (§4.9) — свёрнута по умолчанию. -->
+            <div id="legend" class="legend" style="display:none;"></div>
             <div class="hud-feedback">
                 <span id="beacon-count" class="hud-chip"></span>
+                <span id="pings-count" class="hud-chip"></span>
+                <button id="legend-toggle" class="hud-btn legend-toggle" type="button">Легенда ⏷</button>
             </div>
             <div class="hud-actions">
-                <button id="undo" class="hud-btn" type="button">↶ Точка назад</button>
-                <button id="boost" class="hud-btn primary" type="button" disabled>Проложить</button>
+                <button id="undo" class="hud-btn" type="button">↶ Шаг назад</button>
+                <button id="reset" class="hud-btn" type="button">Заново</button>
             </div>
-            <button id="reset" class="hud-btn wide" type="button">Заново</button>
+            <button id="boost" class="hud-btn primary wide" type="button" disabled>Проложить</button>
         </div>
     </div>
 
-    <!-- Прелоадер (§2). -->
+    <!-- Прелоадер (§3). -->
     <div id="loading" class="overlay">
         <div class="panel">
             <p id="loading-text">Готовим маршрут…</p>
         </div>
     </div>
 
-    <!-- Ошибка сети/5xx (§2): «Повторить» + «На карту». -->
+    <!-- Ошибка сети/5xx (§3): «Повторить» + «На карту». -->
     <div id="error" class="overlay">
         <div class="panel">
             <h2>Не удалось открыть маршрут</h2>
@@ -54,8 +65,8 @@
         </div>
     </div>
 
-    <!-- Причина недоступности (§2): no_flight/no_module/unknown_game/
-         already_active/too_short/cooldown (+ таймер отката). -->
+    <!-- Причина недоступности (§3): no_flight/no_module/unknown_game/
+         already_active/too_short/cooldown/no_field (+ таймер отката). -->
     <div id="reason" class="overlay">
         <div class="panel">
             <h2 id="reason-title"></h2>
@@ -67,16 +78,20 @@
         </div>
     </div>
 
-    <!-- Результат (§3.6): класс качества, «Скорость +X %», новый остаток. -->
+    <!-- Результат (§4.7): bonus со знаком (в т. ч. отрицательный), новый остаток,
+         качественные слова; #result-breakdown зарезервирован и скрыт. -->
     <div id="result" class="overlay">
         <div class="panel">
-            <h2>Ускорение принято</h2>
+            <h2 id="result-title">Ускорение принято</h2>
             <p id="result-class" class="result-class"></p>
             <p id="result-bonus"></p>
             <p id="result-remaining"></p>
             <div class="panel-actions">
                 <button id="result-map" class="primary">Вернуться на карту</button>
             </div>
+            <div class="result-divider"></div>
+            <!-- Разбор по 16 факторам — отдельный чекпоинт (скрыт). -->
+            <div id="result-breakdown" hidden></div>
         </div>
     </div>
 

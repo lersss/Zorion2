@@ -1,44 +1,36 @@
 // web/static/js/route/route_game.js
-// Точка входа страницы мини-игры «Прокладка маршрута» (спека
-// 2026-09-25-маршрут-мини-игра-интерфейс.md): boot → offer → поле/HUD → ввод →
-// «Проложить» → результат. Точный прогноз (ETA/секунды/q/bonus) до отправки
-// нигде не показывается (решение 14); температура — только °C. Сеть: offer/boost.
+// Точка входа страницы мини-игры «Прокладка маршрута» на доске v9 «Планшет»
+// (спека 2026-09-25-маршрут-мини-игра-интерфейс.md §7.7): boot → offer → доска/
+// HUD → ввод по клеткам → гейт «Проложить». Отправка (boost), разведка (scan) и
+// результат — подэтап C2; здесь только доска, ввод, путь и гейт. Точный прогноз
+// (ETA/секунды/q/bonus) до отправки нигде не показывается (решение 14);
+// температура — только °C. Сеть: offer + /me.
 import * as C from './route_config.js';
+import { beaconsOnPath, stepHeat, rebuildPath } from './route_board.js';
 import { chosenSprites, preloadSprites } from './route_sprites.js';
-import { drawScene, initBackground } from './route_render.js';
+import { drawScene, initBackground, prepareBoard } from './route_render.js';
 import { bindPointer } from './route_input.js';
 import { activateSound, playSound } from '../ui/sound.js';
 import { setShipOptions, recolorShipSprite, shipOrientFor } from '../map/ship_sprites.js';
 
 const $ = (id) => document.getElementById(id);
 const num = (v) => (typeof v === 'number' && isFinite(v) ? v : 0);
-const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g,
-    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-let toastTimer = null;
 
 const state = {
-    fingerprint: '', field: null, passport: null,
-    path: [], drag: null, dragging: false,
-    captured: new Set(), fixedCaptured: new Set(), falseHit: new Set(), flash: new Map(),
+    fingerprint: '', board: null, boardIndex: null, passport: null, mode: '',
+    path: [], waypoints: [], dragging: false, drag: null,
+    captured: new Set(), flash: new Map(), heat: [],
+    revealed: [], pingsLeft: 0,
     remainingS: 0, remainingAt: 0, minBoostS: 0,
-    submitting: false, finished: false, boost: null,
+    submitting: false, finished: false,
     shipSprite: null, shipName: '', shipColor: null, shipOrient: { angle: 0, flip: false },
     bg: null, chosen: {}, seed: 0, reduced: false, view: null,
-    zoneHit: new Set(), cooldownTimer: null, tickTimer: null, message: '', lastLen: 0,
+    message: '', cooldownTimer: null, tickTimer: null,
 };
 
 function prefersReduced() {
     try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; }
     catch (e) { return false; }
-}
-
-function notify(msg) {
-    const el = $('toast');
-    if (!el) return;
-    el.textContent = msg;
-    el.style.display = 'block';
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { el.style.display = 'none'; }, 3000);
 }
 
 // ---- Переходы/оверлеи ----
@@ -71,13 +63,6 @@ function showReason(reason, cooldownS) {
     $('reason').style.display = 'flex';
 }
 
-function showResult(d) {
-    $('result-class').textContent = C.qualityClassWord(d.quality);
-    $('result-bonus').textContent = 'Скорость перелёта +' + Math.round(num(d.bonus) * 100) + ' %';
-    $('result-remaining').textContent = 'Осталось ~' + C.remainWord(num(d.remaining_s));
-    $('result').style.display = 'flex';
-}
-
 // ---- Сеть ----
 function token() { return localStorage.getItem('token') || sessionStorage.getItem('token'); }
 async function request(path, opts) {
@@ -90,11 +75,6 @@ async function request(path, opts) {
     } catch (e) { return { ok: false, status: 0, data: null, error: 'Не удалось связаться с сервером' }; }
 }
 const getOffer = () => request('/api/accelerator/offer', { headers: { Authorization: 'Bearer ' + token() } });
-const postBoost = (body) => request('/api/accelerator/boost', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token() },
-    body: JSON.stringify(body),
-});
 
 async function loadShip() {
     const res = await request('/me', { headers: { Authorization: 'Bearer ' + token() } });
@@ -106,103 +86,85 @@ async function loadShip() {
     state.shipSprite = recolorShipSprite(state.shipName, state.shipColor);
 }
 
-// ---- Захват узлов/зон ----
-function pathWithFree() {
-    const pts = state.path.slice();
-    if (state.dragging && state.drag) pts.push(state.drag);
-    return pts;
+// ---- Логика доски/гейта (§4.4/§4.5) ----
+function remaining(now) {
+    return Math.max(0, state.remainingS - (now - state.remainingAt) / 1000);
+}
+function beaconsTotal() { return (state.board && state.board.beacons ? state.board.beacons.length : 0); }
+function missingBeacons() { return Math.max(0, beaconsTotal() - state.captured.size); }
+
+function gateReady(now) {
+    const b = state.board;
+    if (!b || state.submitting || state.finished) return false;
+    const path = state.path;
+    if (!path.length) return false;
+    if (path[0] !== b.start) return false;
+    if (path[path.length - 1] !== b.finish) return false;
+    if (state.captured.size !== beaconsTotal()) return false;
+    return remaining(now) >= state.minBoostS;
 }
 
+// statusText — первая невыполненная причина (§4.5).
+function statusText(now) {
+    const b = state.board;
+    if (!b) return '';
+    const path = state.path;
+    if (!path.length) return 'Ведите путь от СТАРТА к звёзде-ФИНИШУ';
+    if (path[0] !== b.start) return 'Путь должен начинаться от СТАРТА';
+    const miss = missingBeacons();
+    if (miss > 0) return 'Не хватает ' + miss + ' маяков';
+    if (path[path.length - 1] !== b.finish) return 'Путь не доходит до ФИНИШа';
+    if (remaining(now) < state.minBoostS) return 'Перелёт уже завершается — ускорить не получится';
+    return 'Путь готов';
+}
+
+// refresh — пересчёт захваченных маяков, «жара» трассы, счётчиков, гейта, статуса.
 function refresh() {
-    if (!state.field) return;
+    if (!state.board) return;
     if (state.path.length) state.message = '';
-    const pts = pathWithFree();
-    const display = C.nodeSet(state.field, pts, 'beacon');
-    for (const i of display) {
-        if (!state.captured.has(i)) { state.flash.set(i, performance.now()); playSound('ui_select'); }
+    const onPath = beaconsOnPath(state.board, state.path);
+    const now = performance.now();
+    for (const c of onPath) {
+        if (!state.captured.has(c)) { state.flash.set(c, now); playSound('ui_select'); }
     }
-    state.captured = display;
-    state.fixedCaptured = C.nodeSet(state.field, state.path, 'beacon');
-    const fset = C.nodeSet(state.field, pts, 'false_signal');
-    for (const i of fset) {
-        if (!state.falseHit.has(i)) { state.falseHit.add(i); notify('Это ложный сигнал'); }
-    }
-    const zset = C.zoneSet(state.field, pts);
-    for (const i of zset) if (!state.zoneHit.has(i)) playSound('ui_error');
-    state.zoneHit = zset;
-    if (state.path.length > state.lastLen) playSound('ui_open');
-    state.lastLen = state.path.length;
+    state.captured = new Set(onPath);
+    state.heat = stepHeat(state.board, state.path, state.revealed);
     updateHud();
 }
 
+// pingsDots — импульсы точками (осталось). Знаменателя offer не даёт.
+function pingsDots() { return '●'.repeat(Math.max(0, state.pingsLeft)); }
+
 function updateHud() {
     const now = performance.now();
-    $('status-line').textContent = state.message || C.statusText(state, now);
-    $('beacon-count').textContent = 'Маяки ' + state.fixedCaptured.size + '/' + C.beaconsTotal(state.field);
+    $('status-line').textContent = state.message || statusText(now);
+    $('beacon-count').textContent = 'Маяки ' + state.captured.size + '/' + beaconsTotal();
+    $('pings-count').textContent = 'Импульсы ' + (pingsDots() || '—');
     if (!state.submitting) {
         $('boost').textContent = 'Проложить';
-        $('boost').disabled = !C.gateReady(state, now);
+        $('boost').disabled = !gateReady(now);
     }
 }
 
-// ---- HUD паспорта ----
-const chip = (t) => '<span class="hud-chip">' + esc(t) + '</span>';
+// ---- HUD паспорта/режима/легенды ----
 function buildPassport() {
-    const p = state.passport;
-    const nodes = state.field.nodes || [];
-    const falseN = nodes.filter((n) => n.type === 'false_signal').length;
-    const out = [];
-    if (p && p.from && p.to) {
-        out.push(chip('🛰 ' + C.distanceWord(p.dist)));
-        out.push(chip(C.starClassWord(p.from) + ' → ' + C.starClassWord(p.to) + ' · ' + C.systemWord(p.to)));
-        out.push(chip(C.tempWord(p.from.temperature) + ' → ' + C.tempWord(p.to.temperature)));
-    }
-    out.push(chip('Маяки ' + C.beaconsTotal(state.field) + ' · Ложные ' + falseN + ' · Зоны ' + (state.field.zones || []).length));
-    if (p && p.destination_belts && p.destination_belts.length) out.push(chip('Пояс: ' + C.beltWord(p.destination_belts[0])));
-    $('passport-chips').innerHTML = out.join('');
+    $('passport-chips').innerHTML = C.passportChips(state.passport, state.board);
 }
 
-// ---- Отправка ----
-// toastForRefusal — человеческий текст отказа boost. Для refusal-тела (есть
-// reason) сырой текст ответа не показываем; для cooldown добавляем таймер mm:ss.
-function cooldownClock(s) {
-    const left = Math.max(0, Math.round(num(s)));
-    return Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0');
+function buildMode() {
+    const el = $('mode-chip');
+    if (!el) return;
+    if (!state.mode) { el.style.display = 'none'; return; }
+    el.textContent = 'Режим: ' + C.modeLabel(state.mode);
+    el.style.display = '';
 }
-function toastForRefusal(reason, data, fallback) {
-    if (!reason) return fallback || 'Не удалось ускорить';
-    const base = C.REASON_TOAST[reason] || 'Не удалось ускорить';
-    if (reason === 'cooldown' && data && data.cooldown_remaining_s != null) {
-        return base + ' · Откат ' + cooldownClock(data.cooldown_remaining_s);
-    }
-    return base;
-}
-function setBusy(busy) {
-    state.submitting = busy;
-    $('boost').textContent = busy ? 'Прокладываю…' : 'Проложить';
-    $('boost').disabled = busy || !C.gateReady(state, performance.now());
-    $('undo').disabled = busy || state.finished;
-    $('reset').disabled = busy || state.finished;
-}
-async function submit() {
-    if (!C.gateReady(state, performance.now())) return;
-    setBusy(true);
-    const res = await postBoost({ fingerprint: state.fingerprint, path: state.path });
-    if (res.status === 401) { window.location.href = '/login-page'; return; }
-    if (res.ok) {
-        playSound('ui_success');
-        state.finished = true;
-        state.boost = { t0: performance.now(), dur: 1000 };
-        setBusy(false);
-        showResult(res.data || {});
-        return;
-    }
-    setBusy(false);
-    const reason = res.data && res.data.reason;
-    if (reason === 'already_active' || reason === 'no_flight') { showReason(reason, null); return; }
-    playSound('ui_error');
-    notify(toastForRefusal(reason, res.data, res.error));
-    refresh();
+
+function buildLegend() {
+    const el = $('legend');
+    if (!el) return;
+    el.innerHTML = C.LEGEND_ITEMS.map((it) =>
+        '<span class="legend-item"><span class="legend-swatch" style="background:' + it.color +
+        ';"></span>' + it.label + '</span>').join('');
 }
 
 // ---- Кадр/окно ----
@@ -214,14 +176,14 @@ function resize(canvas) {
     canvas.style.height = window.innerHeight + 'px';
 }
 function frame(now) {
-    if (!state.field) return;
+    if (!state.board) return;
     if (!state.shipSprite && state.shipName) state.shipSprite = recolorShipSprite(state.shipName, state.shipColor);
     const canvas = $('route-canvas');
     const ctx = canvas.getContext('2d');
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const dpr = canvas.width / vw || 1;
-    state.view = C.computeView(vw, vh);
+    state.view = C.computeView(vw, vh, state.board.n);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     drawScene(ctx, state, state.view, vw, vh, now);
     requestAnimationFrame(frame);
@@ -235,18 +197,25 @@ function bindUi() {
         $('passport-toggle').textContent = el.classList.contains('open') ? 'Паспорт ⏶' : 'Паспорт ⏷';
     };
     $('to-map').onclick = toMap;
+    $('legend-toggle').onclick = () => {
+        const el = $('legend');
+        const open = el.style.display !== 'none';
+        el.style.display = open ? 'none' : 'grid';
+        $('legend-toggle').textContent = open ? 'Легенда ⏷' : 'Легенда ⏶';
+    };
     $('reset').onclick = () => {
         if (state.submitting || state.finished) return;
-        state.path = []; state.drag = null; state.dragging = false;
-        state.falseHit.clear(); state.zoneHit.clear(); state.message = '';
+        state.path = []; state.waypoints = []; state.drag = null; state.dragging = false;
+        state.message = '';
         refresh();
     };
     $('undo').onclick = () => {
-        if (state.submitting || state.finished || !state.path.length) return;
-        state.path.pop(); state.dragging = false; state.drag = null;
+        if (state.submitting || state.finished || !state.waypoints.length) return;
+        state.waypoints.pop(); state.dragging = false; state.drag = null;
+        state.path = rebuildPath(state.board, state.waypoints);
         refresh();
     };
-    $('boost').onclick = () => { if (!state.submitting) submit(); };
+    // «Проложить» (отправка) — подэтап C2; в C1 кнопка только отражает гейт.
     $('error-retry').onclick = () => { hideError(); boot(); };
     $('error-map').onclick = toMap;
     $('reason-map').onclick = toMap;
@@ -261,6 +230,7 @@ async function boot() {
     hideHud();
     showLoading('Готовим маршрут…');
     loadShip();
+    buildLegend();
     const res = await getOffer();
     if (res.status === 401) { window.location.href = '/login-page'; return; }
     if (res.status === 409) {
@@ -276,31 +246,39 @@ async function boot() {
         return;
     }
     const d = res.data || {};
+    const board = d.board || null;
     Object.assign(state, {
-        fingerprint: d.fingerprint || '', passport: d.passport || null, field: d.field || null,
-        seed: d.field ? num(d.field.seed) : 0, remainingS: num(d.remaining_s), remainingAt: performance.now(),
-        minBoostS: num(d.min_remaining_boost_s), path: [], drag: null, dragging: false,
-        captured: new Set(), fixedCaptured: new Set(), falseHit: new Set(), zoneHit: new Set(),
-        flash: new Map(), boost: null, finished: false, submitting: false,
+        fingerprint: d.fingerprint || '', board, passport: d.passport || null,
+        mode: (board && board.mode) || '',
+        seed: board ? num(C.hashSeed(d.fingerprint || '')) : 0,
+        remainingS: num(d.remaining_s), remainingAt: performance.now(),
+        minBoostS: num(d.min_remaining_boost_s),
+        revealed: Array.isArray(d.revealed) ? d.revealed : [],
+        pingsLeft: num(d.pings_left),
+        path: [], waypoints: [], drag: null, dragging: false,
+        captured: new Set(), flash: new Map(), heat: [],
+        message: '', finished: false, submitting: false,
     });
     initBackground(state);
+    prepareBoard(state);
     await preloadSprites(state.passport && state.passport.to && state.passport.to.star_type);
     state.chosen = chosenSprites();
     const canvas = $('route-canvas');
     resize(canvas);
+    state.view = C.computeView(window.innerWidth, window.innerHeight, board ? board.n : 0);
     window.addEventListener('resize', () => resize(canvas));
-    bindPointer(canvas, state, () => state.view || C.computeView(window.innerWidth, window.innerHeight), {
+    bindPointer(canvas, state, () => state.view, {
         onChange: refresh,
         onStartFail: () => { state.message = 'Начните путь от СТАРТА'; updateHud(); },
-        onTooMany: () => notify(C.REASON_TOAST.too_many_points),
         isFrozen: () => state.submitting || state.finished,
     });
     hideLoading();
+    buildMode();
     buildPassport();
     showHud();
     refresh();
     clearInterval(state.tickTimer);
-    state.tickTimer = setInterval(refresh, 500);
+    state.tickTimer = setInterval(() => { updateHud(); });
     requestAnimationFrame(frame);
 }
 

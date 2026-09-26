@@ -88,9 +88,47 @@ html, body {
 }
 
 .hud-bottom { display: flex; flex-direction: column; gap: 8px; }
-.hud-feedback { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
+.hud-feedback { display: flex; justify-content: center; align-items: center; gap: 8px; flex-wrap: wrap; }
 .hud-actions { display: flex; gap: 10px; }
 .hud-actions .hud-btn { flex: 1; }
+
+/* Чип режима задачи (§2 п.2) — виден всегда, задаёт ожидание задачи. */
+.hud-chips { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.hud-chip.mode-chip { color: #fde68a; border-color: #64748b; }
+.legend-toggle { min-height: 44px; padding: 8px 12px; font-size: 0.8rem; }
+
+/* Карточка сектора (§4.3): σ, окружение, риск, «Разведать». */
+.sector-card {
+    background: rgba(15, 23, 42, 0.94);
+    border: 1px solid #334155;
+    border-radius: 12px;
+    padding: 10px 12px;
+    pointer-events: auto;
+}
+.sector-card .sector-head { font-size: 0.8rem; color: #94a3b8; }
+.sector-card .sector-title { font-size: 0.95rem; font-weight: 600; margin: 2px 0 6px; }
+.sector-card .sector-risk { font-size: 0.8rem; color: #cbd5e1; margin: 0 0 8px; }
+.sector-card .sector-actions { display: flex; gap: 8px; }
+.sector-card .sector-actions .hud-btn { flex: 1; }
+
+/* Легенда объектов доски (§4.9) — свёрнута по умолчанию. */
+.legend {
+    background: rgba(15, 23, 42, 0.92);
+    border: 1px solid #334155;
+    border-radius: 12px;
+    padding: 10px 12px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 5px 12px;
+    pointer-events: auto;
+}
+.legend-item { display: flex; align-items: center; gap: 7px; font-size: 0.78rem; color: #cbd5e1; }
+.legend-swatch { width: 12px; height: 12px; border-radius: 3px; flex: 0 0 auto; }
+.legend-swatch.outline { background: transparent; border: 2px solid; }
+
+/* Зарезервированное место под разбор результата (§10). */
+.result-divider { border-top: 1px solid #334155; margin: 16px 0 0; }
+#result-breakdown { color: #94a3b8; font-size: 0.85rem; }
 
 /* ---- Оверлеи ---- */
 .overlay {

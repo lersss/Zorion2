@@ -1,76 +1,66 @@
 // web/static/js/route/route_input.js
-// Ввод мини-игры «Прокладка маршрута» (спека
-// 2026-09-25-маршрут-мини-игра-интерфейс.md §3.1): Pointer Events, тач и мышь
-// равнозначны, `touch-action:none` на канвасе (CSS). Первая точка обязана
-// попасть в радиус СТАРТА; первая вершина притягивается к СТАРТУ, последняя —
-// к ФИНИШУ; координаты клипаются к [0,1]². Потолок точек — MAX_POINTS.
-import * as C from './route_config.js';
+// Ввод мини-игры «Прокладка маршрута» на доске v9 (спека
+// 2026-09-25-маршрут-мини-игра-интерфейс.md §4.1/§7.6): Pointer Events по
+// клеткам, тач и мышь равнозначны (`touch-action:none` на канвасе — CSS).
+// Палец задаёт waypoints-клетки; цепочка между ними достраивается 4-связно
+// (rebuildPath). Первый тап обязан попасть в клетку СТАРТА.
+import { cellAtPoint, rebuildPath } from './route_board.js';
 
-// MIN_STEP — минимальный шаг между вершинами (§3.1, осн. §6.6): тап по месту
-// последней вершины (в т.ч. по СТАРТУ сразу после pointerdown) не дублирует её.
-const MIN_STEP = 0.005;
-
-function clamp01(v) {
-    return v < 0 ? 0 : v > 1 ? 1 : v;
-}
-
-// toField — экранная точка → нормализованное поле [0,1]², клип по квадрату.
-function toField(ev, view, rect) {
-    return {
-        x: clamp01((ev.clientX - rect.left - view.x0) / view.size),
-        y: clamp01((ev.clientY - rect.top - view.y0) / view.size),
-    };
-}
-
-// addVertex — вершина при отпускании: в радиусе ФИНИША притягивается ровно к нему.
-function addVertex(state, p, handlers) {
-    if (state.path.length >= C.MAX_POINTS) {
-        handlers.onTooMany();
-        return;
-    }
-    let v = { x: p.x, y: p.y };
-    if (C.dist(p, state.field.finish) <= C.ENDPOINT_R) {
-        v = { x: state.field.finish.x, y: state.field.finish.y };
-    }
-    const last = state.path[state.path.length - 1];
-    if (last && C.dist(last, v) < MIN_STEP) return;
-    state.path.push(v);
+// addWaypoint — добавить клетку-waypoint, если она не совпадает с последней;
+// пересобрать цепочку пути. Возвращает true, если путь изменился.
+function addWaypoint(state, cell) {
+    const wp = state.waypoints;
+    if (wp.length && wp[wp.length - 1] === cell) return false;
+    wp.push(cell);
+    state.path = rebuildPath(state.board, wp);
+    return true;
 }
 
 // bindPointer — обработчики канваса. handlers: { onChange, onStartFail,
-// onTooMany, isFrozen }. onChange зовётся на фиксацию вершины/старт/отмену.
+// isFrozen }. onChange зовётся на каждое изменение пути.
 export function bindPointer(canvas, state, viewFn, handlers) {
+    const frozen = () => !!(handlers && handlers.isFrozen && handlers.isFrozen());
     const rect = () => canvas.getBoundingClientRect();
-    const frozen = () => !!(handlers.isFrozen && handlers.isFrozen());
+    const cellAt = (e) => {
+        const r = rect();
+        return cellAtPoint(viewFn(), e.clientX - r.left, e.clientY - r.top);
+    };
+    const pointAt = (e) => {
+        const r = rect();
+        return { x: e.clientX - r.left, y: e.clientY - r.top };
+    };
 
     canvas.addEventListener('pointerdown', (e) => {
         if (frozen()) return;
+        const cell = cellAt(e);
+        if (cell < 0) return; // вне доски — клип
         e.preventDefault();
-        const p = toField(e, viewFn(), rect());
-        if (state.path.length === 0) {
-            if (C.dist(p, state.field.start) > C.ENDPOINT_R) {
-                handlers.onStartFail();
-                return;
-            }
-            state.path.push({ x: state.field.start.x, y: state.field.start.y });
+        if (!state.waypoints.length) {
+            if (cell !== state.board.start) { handlers.onStartFail(); return; }
+            addWaypoint(state, cell);
+        } else {
+            addWaypoint(state, cell);
         }
-        state.drag = p;
         state.dragging = true;
+        state.drag = pointAt(e);
         try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* без захвата */ }
         handlers.onChange();
     });
 
     canvas.addEventListener('pointermove', (e) => {
         if (!state.dragging || frozen()) return;
-        state.drag = toField(e, viewFn(), rect());
+        const cell = cellAt(e);
+        state.drag = pointAt(e);
+        if (cell < 0) return;
+        if (addWaypoint(state, cell)) handlers.onChange();
     });
 
     canvas.addEventListener('pointerup', (e) => {
         if (!state.dragging || frozen()) return;
-        const p = toField(e, viewFn(), rect());
+        const cell = cellAt(e);
+        if (cell >= 0 && addWaypoint(state, cell)) handlers.onChange();
         state.dragging = false;
         state.drag = null;
-        addVertex(state, p, handlers);
         handlers.onChange();
     });
 

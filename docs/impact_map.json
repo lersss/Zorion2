@@ -11,7 +11,9 @@
       "impacts": [
         { "on": "equipment", "kind": "reads", "reason": "модуль ищется по типу accelerator в equipment/слотах users.equipment (AcceleratorModule)" },
         { "on": "ship_models", "kind": "schema", "reason": "выделенный слот accelerator у стартовой модели (ship_models.slots)" },
-        { "on": "travel_boost", "kind": "affects", "reason": "модуль разрешает ускорение и открывает предложение игры (offer/boost)" }
+        { "on": "travel_boost", "kind": "affects", "reason": "модуль разрешает ускорение и открывает предложение игры (offer/boost)" },
+        { "on": "docs/specs/2026-09-25-ускоритель-и-мини-игра-прокладка-маршрута.md", "kind": "docs", "reason": "спека линии (модель v9 — §14); закрыта 2026-09-26" },
+        { "on": "docs/specs/2026-09-25-маршрут-мини-игра-интерфейс.md", "kind": "docs", "reason": "интерфейс доски v9 (mobile-first); закрыта 2026-09-26" }
       ]
     },
     {

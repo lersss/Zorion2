@@ -17,11 +17,12 @@ export const POOLS = {
     nebula_bg: ['nebula_bg_01', 'nebula_bg_02', 'nebula_bg_03'],
 };
 
-// Заморозка после выбора создателя: type → имя файла пула. null = наигрыш
-// (случайный вариант на запуск); иначе — фиксированный вариант (§12.4).
+// Заморозка после выбора победителей пула: type → имя файла пула. Выбор
+// делегирован создателем визуальному дизайнеру (2026-09-26), победители — `_01`
+// на каждый тип (§12.4). null = наигрыш (случайный вариант на запуск).
 export const SPRITE_FREEZE = {
-    star_core: null, black_hole: null, beacon: null,
-    false_signal: null, hazard_cloud: null, nebula_bg: null,
+    star_core: 'star_core_01', black_hole: 'black_hole_01', beacon: 'beacon_01',
+    false_signal: 'false_signal_01', hazard_cloud: 'hazard_cloud_01', nebula_bg: 'nebula_bg_01',
 };
 
 // Палитра: базовые константы проекта + доска v9 (§7.5, §12.2). Зарезервированные

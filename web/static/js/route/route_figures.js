@@ -449,6 +449,40 @@ export function heatGlyph(ctx, x, y, cell, kind, pulse) {
     ctx.restore();
 }
 
+// factorGlyph — глиф строки разбора (§4.7.1): переиспользует метку курса
+// (heatGlyph) или содержимое сектора (contentGlyph); для revisit/overshoot —
+// фолбэк-код до глифов @gdesigner (на доске эти события не рисуются).
+export function factorGlyph(ctx, x, y, cell, code) {
+    const g = C.FACTOR_GLYPHS[code];
+    if (!g) return;
+    if (g.via === 'heat') { heatGlyph(ctx, x, y, cell, g.kind, 1); return; }
+    if (g.via === 'content') { contentGlyph(ctx, x, y, cell, g.kind, 1); return; }
+    const r = Math.max(3, cell * 0.22);
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    if (code === 'revisit') {
+        // Петля — разомкнутое кольцо со стрелкой (фолбэк).
+        ctx.strokeStyle = hA(C.COLORS.captureSoft, 0.9);
+        ctx.lineWidth = Math.max(1.4, cell * 0.05);
+        ctx.beginPath(); ctx.arc(x, y, r, Math.PI * 0.35, Math.PI * 1.75); ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x - r * 0.05, y - r); ctx.lineTo(x + r * 0.55, y - r * 0.7);
+        ctx.stroke();
+    } else if (code === 'overshoot') {
+        // Перелёт Цели — стрелка, минующая точку-звезду (фолбэк).
+        ctx.strokeStyle = hA(C.COLORS.cold, 0.9);
+        ctx.lineWidth = Math.max(1.4, cell * 0.05);
+        ctx.beginPath(); ctx.moveTo(x - r, y); ctx.lineTo(x + r, y); ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x + r * 0.3, y - r * 0.5); ctx.lineTo(x + r, y); ctx.lineTo(x + r * 0.3, y + r * 0.5);
+        ctx.stroke();
+        ctx.fillStyle = hA(C.COLORS.capture, 0.95);
+        ctx.beginPath(); ctx.arc(x - r * 0.55, y, Math.max(1.2, r * 0.22), 0, TAU); ctx.fill();
+    }
+    ctx.restore();
+}
+
 // ---- Ориентиры: кодовые фигуры (легенда — не спрайт) ----
 
 export function startTriangle(ctx, x, y, r, color) {

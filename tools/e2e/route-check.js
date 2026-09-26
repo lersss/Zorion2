@@ -547,6 +547,93 @@ async function main() {
     await page.screenshot({ path: path.join(ARTIFACTS_DIR, 'route-result-negative.png') });
     await page.unroute('**/api/accelerator/boost');
 
+    // ---------------- STEP 3b: breakdown with factors (stubbed) ----------------
+    // Proves the factor rows: groups error->gain->neutral, glyph+name, severity
+    // pip (no digits) only on errors, "xN" case counts, unknown code ignored.
+    await page.route('**/api/accelerator/boost', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          bonus: 0.34, remaining_s: 1200,
+          breakdown: [
+            { code: 'ping_destabilize', group: 'error', severity: 3, count: 1, cells: [42] },
+            { code: 'mud_cost', group: 'error', severity: 1, count: 3, cells: [7, 8, 17] },
+            { code: 'find_used', group: 'gain', severity: 0, count: 1, cells: [60] },
+            { code: 'wall_cost', group: 'neutral', severity: 0, count: 2, cells: [11, 20] },
+            { code: 'unknown_future_code', group: 'error', severity: 2, count: 5, cells: [] },
+          ],
+        }),
+      });
+    });
+    await page.goto(BASE_URL + '/route.html', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await waitHud(page);
+    await dragPath(page, rect, view, chain);
+    const bdGate = await waitGate(page);
+    await twoTapBoost(page);
+    await sleep(300);
+    const bd = await page.evaluate(() => {
+      const el = document.getElementById('result-breakdown');
+      const groups = Array.from(el.querySelectorAll('.bd-group'));
+      const rows = Array.from(el.querySelectorAll('.bd-row'));
+      const pips = Array.from(el.querySelectorAll('.bd-pips'));
+      return {
+        visible: el.hidden === false,
+        clean: !!el.querySelector('.bd-clean'),
+        groups: groups.map((g) => g.querySelector('.bd-group-title').textContent),
+        rows: rows.length,
+        rowText: rows.map((r) => r.textContent).join(' | '),
+        pips: pips.length,
+        pipsDigits: pips.some((p) => /\d/.test(p.textContent)),
+        count: (el.textContent.match(/\u00d7/g) || []).length,
+        text: el.textContent,
+      };
+    });
+    const groupsOrder = bd.groups.join('>') === 'Ошибки>Находки>Не ошибка';
+    const bdOk = bdGate && bd.visible && !bd.clean && groupsOrder && bd.rows === 4 &&
+      bd.pips === 2 && !bd.pipsDigits && bd.count === 4 &&
+      bd.rowText.indexOf('\u00d73') >= 0 && bd.rowText.indexOf('Сопротивление') >= 0 &&
+      bd.rowText.indexOf('Помехи') >= 0 && bd.text.indexOf('unknown_future_code') < 0 &&
+      !/\d+\s*%/.test(bd.text);
+    report('STEP 3b breakdown', bdOk ? 'PASS' : 'FAIL',
+      'gate=' + bdGate + ' visible=' + bd.visible + ' groups="' + bd.groups.join(',') +
+      '" rows=' + bd.rows + ' pips=' + bd.pips + ' pipsDigits=' + bd.pipsDigits +
+      ' count=' + bd.count + ' text="' + bd.text + '"');
+    if (!bdOk) return finish(1);
+    await page.screenshot({ path: path.join(ARTIFACTS_DIR, 'route-breakdown.png') });
+    await page.unroute('**/api/accelerator/boost');
+
+    // ---------------- STEP 3c: empty breakdown -> "Чистый курс" (stubbed) ----------------
+    await page.route('**/api/accelerator/boost', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ bonus: 0.2, remaining_s: 900, breakdown: [] }),
+      });
+    });
+    await page.goto(BASE_URL + '/route.html', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await waitHud(page);
+    await dragPath(page, rect, view, chain);
+    const cleanGate = await waitGate(page);
+    await twoTapBoost(page);
+    await sleep(300);
+    const clean = await page.evaluate(() => {
+      const el = document.getElementById('result-breakdown');
+      return {
+        visible: el.hidden === false,
+        clean: !!el.querySelector('.bd-clean'),
+        text: el.textContent,
+        rows: el.querySelectorAll('.bd-row').length,
+      };
+    });
+    const cleanOk = cleanGate && clean.visible && clean.clean && clean.rows === 0 &&
+      clean.text.indexOf('Чистый курс') >= 0;
+    report('STEP 3c clean course', cleanOk ? 'PASS' : 'FAIL',
+      'gate=' + cleanGate + ' visible=' + clean.visible + ' clean=' + clean.clean +
+      ' rows=' + clean.rows + ' text="' + clean.text + '"');
+    if (!cleanOk) return finish(1);
+    await page.unroute('**/api/accelerator/boost');
+
     // ---------------- STEP 4: real scan (ping -1) ----------------
     await page.goto(BASE_URL + '/route.html', { waitUntil: 'domcontentloaded', timeout: 30000 });
     await waitHud(page);
@@ -603,6 +690,7 @@ async function main() {
       bonus: document.getElementById('result-bonus').textContent,
       remaining: document.getElementById('result-remaining').textContent,
       breakdownHidden: document.getElementById('result-breakdown').hidden === true,
+      breakdownText: document.getElementById('result-breakdown').textContent,
     }));
     const b = body ? Number(body.bonus) : NaN;
     const negB = b < 0;
@@ -610,13 +698,18 @@ async function main() {
       : realView.title.indexOf('Ускорение принято') >= 0;
     const signOk = isFinite(b) &&
       realView.bonus.indexOf((negB ? '\u2212' : '+') + Math.round(Math.abs(b) * 100) + ' %') >= 0;
+    // Server always sends breakdown (array; may be empty -> "Чистый курс"): the
+    // block must be revealed after a successful boost.
+    const bdFromServer = Array.isArray(body && body.breakdown);
+    const bdShown = realView.breakdownHidden === false;
     const submitOk = realGate && resp && resp.status() === 200 && realView.shown &&
-      titleOk && signOk && realView.remaining.indexOf('Осталось') >= 0 && realView.breakdownHidden;
+      titleOk && signOk && realView.remaining.indexOf('Осталось') >= 0 && bdFromServer && bdShown;
     report('STEP 5 submit', submitOk ? 'PASS' : 'FAIL',
       'gate=' + realGate + ' uiSubmit=' + !!(resp && resp.status() === 200) +
       ' http=' + (resp && resp.status()) + ' body=' + JSON.stringify(body) +
       ' title="' + realView.title + '" bonusText="' + realView.bonus + '"' +
-      ' breakdownHidden=' + realView.breakdownHidden);
+      ' bdFromServer=' + bdFromServer + ' bdShown=' + bdShown +
+      ' bdText="' + realView.breakdownText + '"');
     if (!submitOk) return finish(1);
     await page.screenshot({ path: path.join(ARTIFACTS_DIR, 'route-result.png') });
 

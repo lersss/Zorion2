@@ -204,7 +204,7 @@ async function submit() {
         state.resultFx = { at: performance.now(), bonus };
         playSound(bonus < 0 ? 'ui_error' : 'ui_success');
         updateHud();
-        UI.showResult(bonus, num(res.data.remaining_s));
+        UI.showResult(bonus, num(res.data.remaining_s), res.data.breakdown);
         return;
     }
     // Отказ после отправки — возврат в «готовое», путь сохраняем (§3).

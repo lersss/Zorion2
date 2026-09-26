@@ -5,6 +5,7 @@
 // (§4.7). Числа механики сюда не попадают — исключение только результат после
 // отправки (bonus со знаком, §4.7): до отправки чисел/вердикта/оптимума нет.
 import * as C from './route_config.js';
+import { factorGlyph } from './route_figures.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -113,8 +114,8 @@ export function renderSectorCard(state, handlers) {
 }
 
 // showResult — оверлей результата (§4.7): bonus СО ЗНАКОМ (в т. ч. отрицательный),
-// процент, новый остаток, качественные слова. #result-breakdown остаётся скрытым.
-export function showResult(bonus, remainingS) {
+// процент, новый остаток, качественные слова и разбор по факторам (§4.7.1).
+export function showResult(bonus, remainingS, breakdown) {
     const b = Number(bonus) || 0;
     const neg = b < 0;
     $('result-title').textContent = neg ? 'Перелёт стал длиннее' : 'Ускорение принято';
@@ -124,6 +125,86 @@ export function showResult(bonus, remainingS) {
     $('result-remaining').textContent = 'Осталось ~' + C.remainWord(remainingS);
     const panel = $('result').querySelector('.panel');
     if (panel) panel.classList.toggle('result-negative', neg);
-    $('result-breakdown').hidden = true; // разбор по 16 факторам — отдельный чекпоинт
+    renderBreakdown(breakdown);
     $('result').style.display = 'flex';
+}
+
+// ---- Разбор по факторам (§4.7.1) ----
+
+// factorRow — строка фактора: глиф (тем же кодом, что метки курса/содержимое) +
+// имя + полоса тяжести (только ошибки, без цифр) + «×N» (число случаев, не цена).
+function factorRow(it) {
+    const row = document.createElement('div');
+    row.className = 'bd-row';
+    const glyph = document.createElement('canvas');
+    glyph.className = 'bd-glyph';
+    glyph.width = 30;
+    glyph.height = 30;
+    glyph.setAttribute('aria-hidden', 'true');
+    factorGlyph(glyph.getContext('2d'), 15, 15, 26, it.code);
+    row.appendChild(glyph);
+
+    const name = document.createElement('span');
+    name.className = 'bd-name';
+    name.textContent = C.factorName(it.code, it.group);
+    row.appendChild(name);
+
+    if (it.group === 'error' && Number(it.severity) > 0) {
+        const pips = document.createElement('span');
+        pips.className = 'bd-pips';
+        pips.setAttribute('aria-label', 'значимость ' + it.severity + ' из 4');
+        for (let k = 0; k < 4; k++) {
+            const p = document.createElement('i');
+            p.className = 'bd-pip' + (k < it.severity ? ' on' : '');
+            pips.appendChild(p);
+        }
+        row.appendChild(pips);
+    }
+
+    const count = Number(it.count) || 0;
+    const cnt = document.createElement('span');
+    cnt.className = 'bd-count';
+    cnt.textContent = '\u00d7' + count;
+    cnt.setAttribute('aria-label', count + ' случаев');
+    row.appendChild(cnt);
+    return row;
+}
+
+// renderBreakdown — наполняет #result-breakdown (§4.7.1): группы error→gain→
+// neutral; пустой массив → «Чистый курс»; нет поля → блок скрыт; непустой, но
+// все коды неизвестны → скрыт; неизвестный code — игнор. Цен/итогов/процентов нет.
+function renderBreakdown(breakdown) {
+    const el = $('result-breakdown');
+    if (!el) return;
+    el.innerHTML = '';
+    if (!Array.isArray(breakdown)) { el.hidden = true; return; }
+    if (breakdown.length === 0) {
+        el.hidden = false;
+        const clean = document.createElement('div');
+        clean.className = 'bd-clean';
+        clean.textContent = 'Чистый курс';
+        el.appendChild(clean);
+        return;
+    }
+    const groups = new Map(C.BREAKDOWN_ORDER.map((g) => [g, []]));
+    for (const it of breakdown) {
+        if (!it || !C.factorName(it.code, it.group)) continue;
+        const g = groups.has(it.group) ? it.group : 'neutral';
+        groups.get(g).push(it);
+    }
+    const total = C.BREAKDOWN_ORDER.reduce((n, g) => n + groups.get(g).length, 0);
+    if (total === 0) { el.hidden = true; return; }
+    for (const g of C.BREAKDOWN_ORDER) {
+        const items = groups.get(g);
+        if (!items.length) continue;
+        const sec = document.createElement('div');
+        sec.className = 'bd-group bd-group-' + g;
+        const h = document.createElement('h3');
+        h.className = 'bd-group-title';
+        h.textContent = C.BREAKDOWN_GROUPS[g];
+        sec.appendChild(h);
+        for (const it of items) sec.appendChild(factorRow(it));
+        el.appendChild(sec);
+    }
+    el.hidden = false;
 }

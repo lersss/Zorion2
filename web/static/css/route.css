@@ -212,9 +212,48 @@ html, body {
 .legend-name { font-size: 0.95rem; font-weight: 600; color: #e2e8f0; }
 .legend-meaning { font-size: 0.8rem; color: #94a3b8; line-height: 1.35; }
 
-/* Зарезервированное место под разбор результата (§10). */
+/* Разбор по факторам в результате (§4.7.1): шапка и кнопка закреплены,
+   скроллится ТОЛЬКО #result-breakdown; строки — тач-цель ≥44px. */
 .result-divider { border-top: 1px solid #334155; margin: 16px 0 0; }
-#result-breakdown { color: #94a3b8; font-size: 0.85rem; }
+#result .panel {
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 24px);
+}
+#result-breakdown {
+    color: #cbd5e1;
+    font-size: 0.9rem;
+    margin-top: 12px;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+.bd-group { margin: 0 0 10px; }
+.bd-group-title {
+    margin: 6px 0 4px;
+    font-size: 0.8rem;
+    color: #94a3b8;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+}
+.bd-row { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.bd-glyph { flex: 0 0 auto; width: 30px; height: 30px; }
+.bd-name { flex: 1 1 auto; min-width: 0; color: #e2e8f0; line-height: 1.3; }
+.bd-pips { flex: 0 0 auto; display: inline-flex; gap: 3px; }
+.bd-pip { width: 4px; height: 14px; border-radius: 2px; background: rgba(148, 163, 184, 0.35); }
+.bd-pip.on { background: #f59e0b; }
+.bd-count { flex: 0 0 auto; color: #94a3b8; font-variant-numeric: tabular-nums; }
+.bd-clean { color: #4ade80; min-height: 44px; display: flex; align-items: center; gap: 8px; }
+.bd-clean::before { content: '\2713'; font-weight: 700; }
+@media (max-width: 480px) {
+    #result { align-items: flex-end; }
+    #result .panel {
+        border-radius: 14px 14px 0 0;
+        max-height: calc(78dvh - env(safe-area-inset-top));
+    }
+}
 
 /* ---- Оверлеи ---- */
 .overlay {

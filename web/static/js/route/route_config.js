@@ -99,6 +99,71 @@ export const MARK_LABELS = {
     gate_twice: 'Повторный кордон', bridge_twice: 'Повторный тоннель',
 };
 
+// ---- Разбор по факторам (§4.7.1/осн. §14.13) ----
+
+// FACTOR_LABELS — имена факторов разбора по коду (§4.7.1; осн. §14.13.3/§14.13.4).
+// Имена mud_cost («Сопротивление») и wall_cost («Помехи») разведены (критик #5):
+// два разных фактора не должны давать одну строку с одним заголовком.
+export const FACTOR_LABELS = {
+    turn_cost: 'Манёвр',
+    revisit: 'Петля',
+    overshoot: 'Перелёт Цели',
+    mud_cost: 'Сопротивление',
+    mud_entry_repeat: 'Повторная мгла',
+    gate_reentry: 'Повторный кордон',
+    gate_useless: 'Кордон впустую',
+    bridge_reuse: 'Повторный тоннель',
+    dead_end: 'Срыв',
+    current_against: 'Встречный поток',
+    hidden_trap: 'Воронка — слепой срез',
+    trap_entered_known: 'Воронка — знал и полез',
+    decoy_penalty: 'Мираж',
+    lure_missed: 'Зов прозеван',
+    ping_wasted: 'Зонд впустую',
+    ping_destabilize: 'Сбой',
+    find_used: 'Находка',
+    current_along: 'Попутный поток',
+    wall_cost: 'Помехи',
+};
+
+// FACTOR_GLYPHS — code → глиф строки разбора (§4.7.1/§12.10): via 'heat' —
+// метка курса (heatGlyph), via 'content' — содержимое сектора (contentGlyph),
+// via 'new' — фолбэк-глиф до глифов @gdesigner (revisit/overshoot). Цвет берётся
+// внутри глифа (MARK_COLORS/COLORS), свотч не рисуется.
+export const FACTOR_GLYPHS = {
+    turn_cost: { via: 'heat', kind: 'turn' },
+    revisit: { via: 'new' },
+    overshoot: { via: 'new' },
+    mud_cost: { via: 'heat', kind: 'mud' },
+    mud_entry_repeat: { via: 'heat', kind: 'mud' },
+    gate_reentry: { via: 'heat', kind: 'gate_twice' },
+    gate_useless: { via: 'heat', kind: 'gate' },
+    bridge_reuse: { via: 'heat', kind: 'bridge_twice' },
+    dead_end: { via: 'heat', kind: 'dead_end' },
+    current_against: { via: 'heat', kind: 'current_against' },
+    hidden_trap: { via: 'content', kind: 'trap' },
+    trap_entered_known: { via: 'content', kind: 'trap' },
+    decoy_penalty: { via: 'content', kind: 'decoy' },
+    lure_missed: { via: 'content', kind: 'lure' },
+    ping_wasted: { via: 'content', kind: 'empty' },
+    ping_destabilize: { via: 'heat', kind: 'hazard' },
+    find_used: { via: 'content', kind: 'jackpot' },
+    current_along: { via: 'heat', kind: 'current_along' },
+    wall_cost: { via: 'heat', kind: 'wall' },
+};
+
+// BREAKDOWN_GROUPS — ключи сервера → заголовки; BREAKDOWN_ORDER — порядок
+// отображения (§4.7.1: ошибки → находки → не ошибка).
+export const BREAKDOWN_GROUPS = { error: 'Ошибки', gain: 'Находки', neutral: 'Не ошибка' };
+export const BREAKDOWN_ORDER = ['error', 'gain', 'neutral'];
+
+// factorName — имя с вариантом группы (ping_destabilize при neutral —
+// «Сбой — в стороне»); неизвестный code → null (строку не рисуем).
+export function factorName(code, group) {
+    if (code === 'ping_destabilize' && group === 'neutral') return 'Сбой — в стороне';
+    return FACTOR_LABELS[code] || null;
+}
+
 export function modeLabel(mode) { return MODE_LABELS[mode] || mode || '—'; }
 export function sigLabel(sig) { return SIG_LABELS[sig] || '—'; }
 export function surroundLabel(s) { return SURROUND_LABELS[s] || '—'; }

@@ -32,11 +32,13 @@ type acceleratorBoostRequest struct {
 }
 
 // acceleratorBoostResponse — результат применения ускорения (§4.1 шаг 9):
-// бонус модели (может быть отрицательным) и новый остаток сегмента. Поля
-// старой шкалы (`quality`) убраны — с кривой v9 смысла не несут.
+// бонус модели (может быть отрицательным), новый остаток сегмента и
+// аддитивный разбор по факторам (§14.13.5). Поля старой шкалы (`quality`)
+// убраны — с кривой v9 смысла не несут.
 type acceleratorBoostResponse struct {
-	Bonus      float64 `json:"bonus"`
-	RemainingS int     `json:"remaining_s"`
+	Bonus      float64                `json:"bonus"`
+	RemainingS int                    `json:"remaining_s"`
+	Breakdown  []routegame.GridFactor `json:"breakdown"`
 }
 
 // acceleratorUnstableSectors — индексы вскрытых `unstable`-секторов из revealed
@@ -48,6 +50,19 @@ func acceleratorUnstableSectors(revealed []byte) []int {
 	for _, r := range acceleratorRevealedList(revealed) {
 		if r.Content == unstable {
 			out = append(out, r.Sector)
+		}
+	}
+	return out
+}
+
+// acceleratorRevealedContents — revealed из БД в карту sector → content для
+// разбора по факторам (§14.13.5). Неизвестный content пропускается; повтор
+// сектора перезаписывает значение (set-семантика).
+func acceleratorRevealedContents(raw []byte) map[int]routegame.GridSectorContent {
+	out := make(map[int]routegame.GridSectorContent)
+	for _, r := range acceleratorRevealedList(raw) {
+		if c, ok := routegame.GridSectorContentFromString(r.Content); ok {
+			out[r.Sector] = c
 		}
 	}
 	return out
@@ -177,6 +192,10 @@ func (h *TravelHandlers) AcceleratorBoost(w http.ResponseWriter, r *http.Request
 		})
 		return
 	}
+	// Разбор по факторам (§14.13): называется, что случилось на курсе; на bonus
+	// и применение не влияет. Поле аддитивное — старый клиент читает только
+	// bonus/remaining_s.
+	breakdown := routegame.ExplainGridPath(field, req.Path, acceleratorRevealedContents(st.Revealed))
 	// bonus может быть отрицательным (низ шкалы ≈ −0.20): перелёт удлиняется.
 	newRem := time.Duration(float64(remaining) / (1 + bonus))
 
@@ -204,5 +223,6 @@ func (h *TravelHandlers) AcceleratorBoost(w http.ResponseWriter, r *http.Request
 	writeJSON(w, acceleratorBoostResponse{
 		Bonus:      bonus,
 		RemainingS: int(newRem.Seconds()),
+		Breakdown:  breakdown,
 	})
 }

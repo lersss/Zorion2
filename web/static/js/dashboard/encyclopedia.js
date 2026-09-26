@@ -15,7 +15,15 @@ import { renderRacesSection } from './races_section.js';
 // Знаменатели «открыто X из Y» (спека 86a §4.2): константы фронт-реестров.
 const RACES_TOTAL = 60; // каталог config/races.json
 const EXOTIC_TOTAL = EXOTIC_STAR_TYPES.length; // 4
-const PLANETS_TOTAL = PLANET_TYPE_ORDER.length; // 9
+const PLANETS_TOTAL = PLANET_TYPE_ORDER.length; // 13
+
+// openPlanetTypes — числитель «открыто X из Y» по типам ПЛАНЕТ. Считаем по
+// реестру, а не по журналу: журнал может знать тип, которого в реестре нет, —
+// тогда счётчик показывал больше, чем открытых карточек (хвост №9).
+function openPlanetTypes(journal) {
+    const seen = new Set(journal.seenPlanetTypes || []);
+    return PLANET_TYPE_ORDER.filter((t) => seen.has(t)).length;
+}
 
 // SPECTRAL_CLASSES — порядок 10 классов O–Y (getSpectralInfo).
 const SPECTRAL_CLASSES = ['O', 'B', 'A', 'F', 'G', 'K', 'M', 'L', 'T', 'Y'];
@@ -31,7 +39,7 @@ export function renderStats(container, journal) {
         ['Полётов', String(journal.flights || 0)],
         ['Расы', `${openRaces} из ${RACES_TOTAL}`],
         ['Экзотические звёзды', `${(journal.seenStarTypes || []).length} из ${EXOTIC_TOTAL}`],
-        ['Типы планет', `${(journal.seenPlanetTypes || []).length} из ${PLANETS_TOTAL}`],
+        ['Типы планет', `${openPlanetTypes(journal)} из ${PLANETS_TOTAL}`],
         ['Ресурсы', 'заготовка'],
         ['Корабли', 'заготовка'],
         ['Лор', 'заготовка'],
@@ -60,7 +68,7 @@ export function renderEncyclopedia(container, racesData, journal) {
             <div id="enc-stars"></div>
         </div>
         <div class="enc-section">
-            <h3>🪐 Планеты <span style="font-size:0.75rem; color:#94a3b8;">(${(journal.seenPlanetTypes || []).length} из ${PLANETS_TOTAL})</span></h3>
+            <h3>🪐 Планеты <span style="font-size:0.75rem; color:#94a3b8;">(${openPlanetTypes(journal)} из ${PLANETS_TOTAL})</span></h3>
             <div id="enc-planets"></div>
         </div>
         <div class="enc-section">
@@ -137,8 +145,8 @@ function renderStars(container, journal) {
 
 // ==================== ПЛАНЕТЫ (§5.3) ====================
 
-// renderPlanets — 9 типов сразу (имя, иконка, однострочник); карточка типа —
-// по первому посещению (journal.seenPlanetTypes).
+// renderPlanets — все типы реестра сразу (имя, иконка, однострочник); карточка
+// типа — по первому посещению (journal.seenPlanetTypes).
 function renderPlanets(container, journal) {
     const seen = new Set(journal.seenPlanetTypes || []);
     const cards = PLANET_TYPE_ORDER.map(type => {

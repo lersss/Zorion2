@@ -60,9 +60,10 @@ export function record(opts) {
     if (opts.starType && EXOTIC_STAR_TYPES.includes(opts.starType)) {
         j.seenStarTypes = pushUnique(j.seenStarTypes, opts.starType);
     }
-    // Типы планет — только из реестра энциклопедии (9 типов, §5.3.1):
-    // генератор знает и «мёртвая» (classify.go:18), её в реестре нет —
-    // внереестровые типы не пишем, иначе счётчик «X из 9» врёт (гейт 3, 86a).
+    // Типы планет — только из реестра энциклопедии (13 типов, §5.3.1):
+    // внереестровые типы не пишем, иначе счётчик «X из 13» врёт (гейт 3, 86a).
+    // Тип, которого в реестре нет, — контент-гэп реестра, а не повод писать
+    // его в журнал: сначала дописываем тип в planet_types.js.
     (opts.planetTypes || []).forEach(t => {
         if (PLANET_TYPE_INFO[t]) j.seenPlanetTypes = pushUnique(j.seenPlanetTypes, t);
     });

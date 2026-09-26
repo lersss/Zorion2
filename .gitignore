@@ -51,3 +51,6 @@ tools/e2e/node_modules/
 tools/e2e/artifacts/
 # Скриншоты прогонов внешнего вида звёзд (star-visuals-shot.js)
 tools/e2e/out/
+
+# Превью спрайтов маршрута (просмотровальные листы ComfyUI, в игре не нужны)
+web/static/sprites/route/_preview/

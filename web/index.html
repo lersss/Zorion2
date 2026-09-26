@@ -765,7 +765,7 @@
                 body: JSON.stringify({ ship_icon: file })
             })
             .then(async res => {
-                if (res.status === 401 || res.status === 403) {
+                if (res.status === 401) {
                     redirectToLogin();
                     return;
                 }
@@ -804,7 +804,7 @@
                 body: JSON.stringify({ ship_color: color })
             })
             .then(async res => {
-                if (res.status === 401 || res.status === 403) {
+                if (res.status === 401) {
                     redirectToLogin();
                     return;
                 }
@@ -900,6 +900,10 @@
         // ('token') не пересекается с админским ('adminToken').
         document.getElementById('logoutBtn').addEventListener('click', () => {
             localStorage.removeItem('token');
+            // Выход из игры = выход и из студии/админки: вход один на браузер,
+            // иначе вход студии (adminToken, до 24 ч) пережил бы выход и следующий
+            // аккаунт в этом браузере получил бы чужую админку (идея 2026-09-27).
+            localStorage.removeItem('adminToken');
             localStorage.removeItem('shipIcon');
             localStorage.removeItem('shipColor');
             window.location.href = '/login-page';

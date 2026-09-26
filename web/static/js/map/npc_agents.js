@@ -52,7 +52,7 @@ export async function loadNPCPositions() {
         const res = await fetch('/api/npc/positions', {
             headers: { 'Authorization': 'Bearer ' + token }
         });
-        if (res.status === 401 || res.status === 403) {
+        if (res.status === 401) {
             handleUnauthorized();
             return;
         }
@@ -458,7 +458,7 @@ async function searchNPCAgent(q) {
         const res = await fetch('/api/npc/search?q=' + encodeURIComponent(q), {
             headers: { 'Authorization': 'Bearer ' + token }
         });
-        if (res.status === 401 || res.status === 403) {
+        if (res.status === 401) {
             handleUnauthorized();
             return;
         }

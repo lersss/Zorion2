@@ -88,9 +88,9 @@ export function moneyItemsHtml(ops) {
 }
 
 // initMoney — связывает шапку и карточку «Счёт» с API: один GET /me/money,
-// баланс в шапку и в сводку, история в список. 401/403 — чистим токен и
-// уходим на вход; прочие ошибки не ломают страницу (§5.3). DOM — лениво
-// (Node-безопасно).
+// баланс в шапку и в сводку, история в список. 401 — чистим токен и уходим на
+// вход; 403 («нельзя») — вход оставляем, причину показываем в статусе; прочие
+// ошибки не ломают страницу (§5.3). DOM — лениво (Node-безопасно).
 export function initMoney() {
     const doc = globalThis.document;
     if (!doc) return;
@@ -111,12 +111,27 @@ export function initMoney() {
         if (globalThis.location) globalThis.location.href = '/login-page';
     };
 
+    // forbiddenText — причина отказа 403 из тела ответа (идея 2026-09-27 П-1).
+    async function forbiddenText(res) {
+        try {
+            const d = await res.json();
+            if (d && d.error) return d.error;
+        } catch (_) { /* тело не JSON */ }
+        return 'Доступ запрещён';
+    }
+
     async function load() {
         const t = token();
         if (!t) return;
         try {
             const res = await fetch('/me/money', { headers: { 'Authorization': 'Bearer ' + t } });
-            if (res.status === 401 || res.status === 403) { redirectToLogin(); return; }
+            if (res.status === 401) { redirectToLogin(); return; }
+            if (res.status === 403) {
+                // 403 — «нельзя», а не «вход мёртв» (идея 2026-09-27 П-1): вход
+                // оставляем, причину из тела ответа показываем в статусе блока.
+                setStatus('❌ ' + await forbiddenText(res));
+                return;
+            }
             if (!res.ok) throw new Error('Не удалось загрузить счёт');
             const data = await res.json();
             const label = moneyLabel(data && data.balance);

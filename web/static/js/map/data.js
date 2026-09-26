@@ -54,7 +54,7 @@ async function loadAccountBalance(token) {
         const res = await fetch('/me/money', {
             headers: { 'Authorization': 'Bearer ' + token }
         });
-        if (res.status === 401 || res.status === 403) {
+        if (res.status === 401) {
             handleUnauthorized();
             return;
         }
@@ -73,8 +73,9 @@ let lastFetchedBounds = null;
 
 // ==================== АВТОРИЗАЦИЯ ====================
 
-// handleUnauthorized — универсальный обработчик 401/403.
-// Чистит токен и редиректит на логин (защита от зацикливания).
+// handleUnauthorized — универсальный обработчик протухшего входа (401).
+// Чистит токен и редиректит на логин (защита от зацикливания). 403 сюда НЕ
+// ведёт: «нельзя» — не значит «вход мёртв» (идея 2026-09-27 П-1).
 export function handleUnauthorized() {
     localStorage.removeItem('token');
     if (window.location.pathname !== '/login-page') {
@@ -169,7 +170,7 @@ export async function loadClusters(boundsOverride = null) {
         const res = await fetch(url, {
             headers: { 'Authorization': 'Bearer ' + token }
         });
-        if (res.status === 401 || res.status === 403) {
+        if (res.status === 401) {
             handleUnauthorized();
             return;
         }
@@ -244,7 +245,7 @@ async function loadRegions() {
         const res = await fetch('/api/regions', {
             headers: { 'Authorization': 'Bearer ' + token }
         });
-        if (res.status === 401 || res.status === 403) {
+        if (res.status === 401) {
             handleUnauthorized();
             return;
         }
@@ -347,7 +348,7 @@ export async function loadPlayerPositions() {
         const res = await fetch('/api/players/positions', {
             headers: { 'Authorization': 'Bearer ' + token }
         });
-        if (res.status === 401 || res.status === 403) {
+        if (res.status === 401) {
             handleUnauthorized();
             return;
         }
@@ -380,7 +381,7 @@ export async function loadUserData(force = false) {
         const res = await fetch('/me', {
             headers: { 'Authorization': 'Bearer ' + token }
         });
-        if (res.status === 401 || res.status === 403) {
+        if (res.status === 401) {
             handleUnauthorized();
             return;
         }

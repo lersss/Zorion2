@@ -19,6 +19,15 @@ import { startNPCLoop, initNPCSearch } from './map/npc_agents.js';
 // loadUserData + открытие попапа после loadClusters.
 import { parseIntent, handleDashboardDeepLink } from './map/deeplink.js';
 
+// goToAdmin — переход в админку/студию: подставляем свой вход как админский
+// токен, но НЕ затираем уже выданный adminToken (идея 2026-09-27 П-3): если
+// админка/студия уже выдала свой токен, он остаётся в силе.
+function goToAdmin() {
+    const t = localStorage.getItem('token');
+    if (t && !localStorage.getItem('adminToken')) localStorage.setItem('adminToken', t);
+    window.location.href = '/admin';
+}
+
 // --- Восстановление вьюпорта из sessionStorage ---
 function restoreViewport() {
     try {
@@ -146,11 +155,7 @@ function init() {
     // копируется в админский ключ — тот же JWT, что и у админки. ---
     const adminNavBtn = document.getElementById('adminNavBtn');
     if (adminNavBtn) {
-        adminNavBtn.addEventListener('click', () => {
-            const t = localStorage.getItem('token');
-            if (t) localStorage.setItem('adminToken', t);
-            window.location.href = '/admin';
-        });
+        adminNavBtn.addEventListener('click', goToAdmin);
     }
 
     // --- Автоматическое применение фильтров ---

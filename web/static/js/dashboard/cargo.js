@@ -91,6 +91,10 @@ export function initCargo() {
     };
     const setStatus = (text) => { if (statusEl) statusEl.textContent = text; };
     const redirectToLogin = () => {
+        // 401 — вход недействителен: токен снимаем, как в money.js/property.js
+        // (иначе мёртвый токен остаётся в браузере — Н-1 QA 2026-09-27).
+        const ls = globalThis.localStorage;
+        if (ls) ls.removeItem('token');
         if (globalThis.location) globalThis.location.href = '/login-page';
     };
 
@@ -109,7 +113,8 @@ export function initCargo() {
         if (!t) return;
         try {
             const res = await fetch('/api/cargo', { headers: { 'Authorization': 'Bearer ' + t } });
-            if (res.status === 401 || res.status === 403) { redirectToLogin(); return; }
+            if (res.status === 401) { redirectToLogin(); return; }
+            if (res.status === 403) throw new Error(await forbiddenText(res));
             if (!res.ok) throw new Error('Не удалось загрузить трюм');
             render(await res.json());
             setStatus('');
@@ -117,6 +122,16 @@ export function initCargo() {
             setStatus('❌ ' + e.message);
             itemsEl.innerHTML = '<div class="cargo-empty">Не удалось загрузить трюм.</div>';
         }
+    }
+
+    // forbiddenText — причина отказа 403 из тела ответа (идея 2026-09-27 П-1):
+    // «нельзя» — не значит «вход мёртв», вход оставляем, показываем причину.
+    async function forbiddenText(res) {
+        try {
+            const d = await res.json();
+            if (d && d.error) return d.error;
+        } catch (_) { /* тело не JSON */ }
+        return 'Доступ запрещён';
     }
 
     // jettison — единственная player-facing запись (§7.1): POST, ответ — трюм.
@@ -130,7 +145,7 @@ export function initCargo() {
                 headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + t },
                 body: JSON.stringify(body),
             });
-            if (res.status === 401 || res.status === 403) { redirectToLogin(); return; }
+            if (res.status === 401) { redirectToLogin(); return; }
             if (!res.ok) {
                 let msg = 'Не удалось сбросить груз';
                 try { const d = await res.json(); if (d && d.error) msg = d.error; } catch (_) { /* тело не JSON */ }

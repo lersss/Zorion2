@@ -18,12 +18,19 @@ function showStudioLogin(msg) {
 function hideStudioLogin() { document.getElementById("studioLoginOverlay").style.display = "none"; }
 
 // ensureStudioAuth — проверка токена и роли на старте (паттерн ensureAdminAuth):
-// нет токена / 401 / роль player → оверлей логина. Сервер всё равно проверяет
-// роль на каждой /studio/api/* ручке — это UX, не защита.
+// нет токена / 401 / роль player → стираем токен и оверлей логина. Проверить не
+// удалось (5xx/504/обрыв — reason 'unavailable') — вход НЕ трогаем и оверлей НЕ
+// показываем: сеть не должна выкидывать из студии (идея 2026-09-27 П-2).
+// Сервер всё равно проверяет роль на каждой /studio/api/* ручке — это UX, не защита.
 window.ensureStudioAuth = async function () {
     if (!getToken()) { showStudioLogin(); return false; }
     const v = await validateToken();
     if (!v.ok) {
+        if (v.reason === 'unavailable') {
+            // Отчёт студии, а не оверлей входа: вход сохранён, войти заново не нужно.
+            window.showReport(["Сервер недоступен — вход сохранён, обновите страницу"]);
+            return false;
+        }
         clearToken();
         showStudioLogin();
         return false;

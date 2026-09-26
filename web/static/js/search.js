@@ -68,7 +68,7 @@ async function runSearch(input, dropdown) {
             `/api/entities/search?q=${encodeURIComponent(q)}&limit=${MAX_RESULTS}`,
             { headers: { 'Authorization': 'Bearer ' + token } }
         );
-        if (res.status === 401 || res.status === 403) {
+        if (res.status === 401) {
             handleUnauthorized();
             return;
         }

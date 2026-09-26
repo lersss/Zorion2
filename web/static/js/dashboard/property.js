@@ -211,8 +211,9 @@ export function propertyItemsHtml(items, opts) {
 // initProperty — связывает вкладку с API (§6.2): загрузка при открытии вкладки
 // (клик по .tab-btn[data-tab="tab-property"]) и один раз при старте, если вкладка
 // активна из localStorage; повтор — по visibilitychange (игрок вернулся в окно).
-// Один in-flight запрос: повторный клик не плодит запросы. 401/403 — чистим
-// токен и уходим на вход; прочие ошибки — текст в панели, страница жива. Статус
+// Один in-flight запрос: повторный клик не плодит запросы. 401 — чистим
+// токен и уходим на вход; 403 («нельзя») — вход оставляем, причину показываем
+// в панели; прочие ошибки — текст в панели, страница жива. Статус
 // маршрута пересчитывается на каждой загрузке из того же /me (§9.3): пока полёт
 // активен — чип «в пути» (+ время прилёта), по прилёте — вспышка «прибыли» ~4 с.
 // DOM — лениво (Node-безопасно).
@@ -305,7 +306,7 @@ export function initProperty() {
         meLoading = (async () => {
             try {
                 const res = await fetch('/me', { headers: { 'Authorization': 'Bearer ' + t } });
-                if (res.status === 401 || res.status === 403) { redirectToLogin(); return null; }
+                if (res.status === 401) { redirectToLogin(); return null; }
                 if (!res.ok) return null;
                 return await res.json();
             } catch (e) {
@@ -327,7 +328,14 @@ export function initProperty() {
             const me = await fetchMe();
             const hasEngine = hasEngineFromMe(me);
             const res = await fetch('/me/property', { headers: { 'Authorization': 'Bearer ' + t } });
-            if (res.status === 401 || res.status === 403) { redirectToLogin(); return; }
+            if (res.status === 401) { redirectToLogin(); return; }
+            if (res.status === 403) {
+                // 403 — «нельзя», а не «вход мёртв» (идея 2026-09-27 П-1): вход
+                // оставляем, причину из тела ответа показываем в панели.
+                let msg = 'Доступ запрещён';
+                try { const d = await res.json(); if (d && d.error) msg = d.error; } catch (_) { /* тело не JSON */ }
+                throw new Error(msg);
+            }
             if (!res.ok) throw new Error('Не удалось загрузить собственность. Обновите вкладку.');
             const data = await res.json();
             lastItems = data && data.items;

@@ -15,15 +15,20 @@ export function clearToken() { adminToken = ''; localStorage.removeItem(TOKEN_KE
 export function isAdminRole(role) { return ADMIN_ROLES.includes(role); }
 
 // validateToken — GET /me с Bearer → {ok, role} (без UI).
+// reason: 'invalid' — вход недействителен (401 или токена нет), вызывающий
+// стирает токен и просит войти; 'unavailable' — проверить не удалось (403/5xx/
+// 504/обрыв/таймаут), вход трогать нельзя (идея 2026-09-27 П-2: сеть не должна
+// выкидывать из игры).
 export async function validateToken() {
-    if (!adminToken) return { ok: false, role: null };
+    if (!adminToken) return { ok: false, role: null, reason: 'invalid' };
     try {
         const res = await fetch('/me', { headers: { Authorization: 'Bearer ' + adminToken } });
-        if (!res.ok) return { ok: false, role: null };
+        if (res.status === 401) return { ok: false, role: null, reason: 'invalid' };
+        if (!res.ok) return { ok: false, role: null, reason: 'unavailable' };
         const me = await res.json();
         return { ok: true, role: me.role };
     } catch (e) {
-        return { ok: false, role: null };
+        return { ok: false, role: null, reason: 'unavailable' };
     }
 }
 

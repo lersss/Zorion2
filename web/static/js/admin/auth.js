@@ -18,8 +18,10 @@ export function setAfterLogin(fn) { afterLoginCallback = fn; }
 export function getAdminRole() { return adminRole; }
 export function getAdminToken() { return getToken(); }
 
-// ensureAdminAuth — проверка токена и роли на старте. Нет валидного токена
-// или роль player — показываем оверлей логина и возвращаем false.
+// ensureAdminAuth — проверка токена и роли на старте. Вход недействителен
+// (401/нет токена) или роль player — стираем токен и показываем оверлей логина.
+// Проверить не удалось (5xx/504/обрыв — reason 'unavailable') — вход НЕ трогаем
+// и оверлей НЕ показываем: сеть не должна выкидывать (идея 2026-09-27 П-2).
 // Сервер всё равно проверяет роль на каждой /admin/* ручке — это UX, не защита.
 export async function ensureAdminAuth() {
     if (!getToken()) {
@@ -27,14 +29,22 @@ export async function ensureAdminAuth() {
         return false;
     }
     const v = await validateToken();
-    if (!v.ok || !isAdminRole(v.role)) {
-        clearToken();
-        showLoginOverlay();
+    if (v.ok && isAdminRole(v.role)) {
+        adminRole = v.role;
+        hideLoginOverlay();
+        return true;
+    }
+    if (v.reason === 'unavailable') {
+        // Проверить не удалось (5xx/504/обрыв) — «вход мёртв» не доказано:
+        // токен НЕ стираем и оверлей НЕ показываем (идея 2026-09-27 П-2).
+        // Подсказка «обновите страницу» — из состояния выводит перезагрузка.
+        notifyError('Сервер недоступен — вход сохранён, обновите страницу');
         return false;
     }
-    adminRole = v.role;
-    hideLoginOverlay();
-    return true;
+    // 401 или роль player — токен для админки бесполезен: стираем (прежнее).
+    clearToken();
+    showLoginOverlay();
+    return false;
 }
 
 // adminLogin — вход по обычному логину/паролю.

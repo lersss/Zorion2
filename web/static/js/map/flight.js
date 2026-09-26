@@ -203,12 +203,18 @@ async function resetAccelTimer() {
             method: 'POST',
             headers: { 'Authorization': 'Bearer ' + token }
         });
-        if (res.status === 401 || res.status === 403) {
+        if (res.status === 401) {
             handleUnauthorized();
             return;
         }
         if (!res.ok) {
-            notifyError('Не удалось сбросить таймер ускорителя');
+            // 403 «недостаточно прав» — это «нельзя», а не «вход мёртв»
+            // (идея 2026-09-27 П-1): вход оставляем, причину показываем.
+            let msg = 'Не удалось сбросить таймер ускорителя';
+            if (res.status === 403) {
+                try { const d = await res.json(); if (d && d.error) msg = d.error; } catch (_) { /* тело не JSON */ }
+            }
+            notifyError(msg);
             accelResetStatus('Ошибка');
             return;
         }

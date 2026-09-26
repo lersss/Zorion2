@@ -270,51 +270,62 @@ $("branchProdOther").addEventListener("click", () => setProdSection("other"));
 // (идея 2026-09-23, шаг 1)
 $("spravModeBuildings").addEventListener("click", () => setSpravMode("buildings"));
 $("spravModeGoods").addEventListener("click", () => setSpravMode("goods"));
+// Перетаскивание попапа за заголовок (деталь/категории/эффекты — общий приём).
+// Старт берёт ВИЗУАЛЬНУЮ позицию через getBoundingClientRect: offsetLeft/Top —
+// это раскладка ДО transform:translate(-50%,-50%), поэтому по ним попап скакал
+// в момент снятия transform (идея 2026-09-26). Движение удерживает попап в
+// области канваса #canvasWrap, не давая улететь за экран.
+function startPopupDrag(ev, p, closeBtn) {
+  if (ev.target === closeBtn) return null;
+  const r = p.getBoundingClientRect();
+  const pr = (p.offsetParent || document.body).getBoundingClientRect();
+  const wrap = $("canvasWrap");
+  p.style.transform = "none";
+  p.style.left = (r.left - pr.left) + "px";
+  p.style.top = (r.top - pr.top) + "px";
+  return {
+    dx: ev.clientX - r.left, dy: ev.clientY - r.top,
+    pl: pr.left, pt: pr.top,
+    area: {left: wrap.offsetLeft, top: wrap.offsetTop, right: wrap.offsetLeft + wrap.offsetWidth, bottom: wrap.offsetTop + wrap.offsetHeight}
+  };
+}
+function movePopupDrag(ev, p, d) {
+  if (!d) return;
+  // попап влезает в канвас — границы канваса; шире области — границы окна
+  // (иначе он «прилипал» бы к левому краю и терял дельту drag)
+  const fitsX = p.offsetWidth <= d.area.right - d.area.left;
+  const fitsY = p.offsetHeight <= d.area.bottom - d.area.top;
+  const loX = fitsX ? d.area.left : -d.pl;
+  const hiX = fitsX ? d.area.right - p.offsetWidth : window.innerWidth - p.offsetWidth - d.pl;
+  const loY = fitsY ? d.area.top : -d.pt;
+  const hiY = fitsY ? d.area.bottom - p.offsetHeight : window.innerHeight - p.offsetHeight - d.pt;
+  const left = ev.clientX - d.dx - d.pl;
+  const top = ev.clientY - d.dy - d.pt;
+  p.style.left = Math.min(Math.max(left, Math.min(loX, hiX)), Math.max(loX, hiX)) + "px";
+  p.style.top = Math.min(Math.max(top, Math.min(loY, hiY)), Math.max(loY, hiY)) + "px";
+}
+let popupDrag = null, catPopupDrag = null, effPopupDrag = null;
 // попап-деталь: закрытие (крестик/подложка), перетаскивание за заголовок
 $("popupClose").addEventListener("click", closePopup);
 $("detailOverlay").addEventListener("click", closePopup);
-let popupDrag = null;
 $("popupHead").addEventListener("mousedown", ev => {
-  if (ev.target === $("popupClose")) return;
-  popupDrag = {dx: ev.clientX - $("detailPopup").offsetLeft, dy: ev.clientY - $("detailPopup").offsetTop};
-  ev.preventDefault();
+  popupDrag = startPopupDrag(ev, $("detailPopup"), $("popupClose"));
+  if (popupDrag) ev.preventDefault();
 });
-window.addEventListener("mousemove", ev => {
-  if (!popupDrag) return;
-  const p = $("detailPopup");
-  p.style.left = (ev.clientX - popupDrag.dx) + "px";
-  p.style.top = (ev.clientY - popupDrag.dy) + "px";
-  p.style.transform = "none";
-});
-window.addEventListener("mouseup", () => { popupDrag = null; catPopupDrag = null; effPopupDrag = null; });
+window.addEventListener("mousemove", ev => movePopupDrag(ev, $("detailPopup"), popupDrag));
+window.addEventListener("mouseup", () => { popupDrag = catPopupDrag = effPopupDrag = null; });
 // попап категорий: закрытие (крестик/подложка), перетаскивание за заголовок
-let catPopupDrag = null;
 $("catPopupHead").addEventListener("mousedown", ev => {
-  if (ev.target === $("catPopupClose")) return;
-  catPopupDrag = {dx: ev.clientX - $("catPopup").offsetLeft, dy: ev.clientY - $("catPopup").offsetTop};
-  ev.preventDefault();
+  catPopupDrag = startPopupDrag(ev, $("catPopup"), $("catPopupClose"));
+  if (catPopupDrag) ev.preventDefault();
 });
-window.addEventListener("mousemove", ev => {
-  if (!catPopupDrag) return;
-  const p = $("catPopup");
-  p.style.left = (ev.clientX - catPopupDrag.dx) + "px";
-  p.style.top = (ev.clientY - catPopupDrag.dy) + "px";
-  p.style.transform = "none";
-});
+window.addEventListener("mousemove", ev => movePopupDrag(ev, $("catPopup"), catPopupDrag));
 // попап «Эффекты»: перетаскивание за заголовок (по образцу попапа категорий)
-let effPopupDrag = null;
 $("effPopupHead").addEventListener("mousedown", ev => {
-  if (ev.target === $("effPopupClose")) return;
-  effPopupDrag = {dx: ev.clientX - $("effPopup").offsetLeft, dy: ev.clientY - $("effPopup").offsetTop};
-  ev.preventDefault();
+  effPopupDrag = startPopupDrag(ev, $("effPopup"), $("effPopupClose"));
+  if (effPopupDrag) ev.preventDefault();
 });
-window.addEventListener("mousemove", ev => {
-  if (!effPopupDrag) return;
-  const p = $("effPopup");
-  p.style.left = (ev.clientX - effPopupDrag.dx) + "px";
-  p.style.top = (ev.clientY - effPopupDrag.dy) + "px";
-  p.style.transform = "none";
-});
+window.addEventListener("mousemove", ev => movePopupDrag(ev, $("effPopup"), effPopupDrag));
 
 // localStorage: переключатели применяются при старте
 $("showResources").checked = localStorage.getItem("gs_showResources") === "1";
@@ -339,6 +350,13 @@ function togglePanel() {
   // (создатель 2026-09-19: «кнопка должна вытягивать канвас, иначе зачем она нужна»)
   $("canvasWrap").classList.toggle("expanded", collapsed);
   $("detailOverlay").classList.toggle("expanded", collapsed);
+  // попапы центрируются по канвасу: при свёрнутой панели центр — по всей ширине
+  $("detailPopup").classList.toggle("expanded", collapsed);
+  $("catPopup").classList.toggle("expanded", collapsed);
+  $("effPopup").classList.toggle("expanded", collapsed);
+  $("proposalsPopup").classList.toggle("expanded", collapsed);
+  $("descPopup").classList.toggle("expanded", collapsed);
+  $("importPopup").classList.toggle("expanded", collapsed);
   centerTop(); // пересчёт размеров канваса + перерисовка
 }
 $("panelToggle").addEventListener("click", togglePanel);
@@ -346,6 +364,12 @@ if (localStorage.getItem("gs_panelCollapsed") === "1") {
   $("right").classList.add("collapsed");
   $("canvasWrap").classList.add("expanded");
   $("detailOverlay").classList.add("expanded");
+  $("detailPopup").classList.add("expanded");
+  $("catPopup").classList.add("expanded");
+  $("effPopup").classList.add("expanded");
+  $("proposalsPopup").classList.add("expanded");
+  $("descPopup").classList.add("expanded");
+  $("importPopup").classList.add("expanded");
   $("panelToggle").textContent = "▶";
 }
 // при изменении размера окна — пересчитать граф (canvas теперь 100% ширины)

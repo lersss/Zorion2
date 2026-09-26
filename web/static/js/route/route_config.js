@@ -168,19 +168,53 @@ export function passportChips(p, board) {
     return out.join('');
 }
 
-// LEGEND_ITEMS — список объектов доски для легенды (§4.9).
+// LEGEND_GROUPS — разделы попапа-легенды (§4.9).
+export const LEGEND_GROUPS = [
+    { id: 'field', title: 'Блоки поля' },
+    { id: 'landmark', title: 'Ориентиры' },
+    { id: 'sector', title: 'Секторы' },
+    { id: 'other', title: 'Прочее на доске' },
+];
+
+// LEGEND_ITEMS — вся азбука доски для попапа-легенды (§4.9): для каждой позиции
+// {id, group, name, meaning} — название и одна строка смысла человеческим языком,
+// без цветов и чисел механики. Мини-фигура рисуется тем же кодом, что доска
+// (route_figures.drawLegendFigure), — не спрайт и не цветной свотч. Легенда
+// статична и не раскрывает состояние текущей партии.
 export const LEGEND_ITEMS = [
-    { label: 'маяк', color: '#fde047' },
-    { label: 'финиш', color: '#e2e8f0' },
-    { label: 'русло', color: '#38bdf8' },
-    { label: 'топь', color: '#8b5cf6' },
-    { label: 'стена', color: '#334155' },
-    { label: 'шлюз (платный)', color: '#f97316' },
-    { label: 'мост (разовый)', color: '#22d3ee' },
-    { label: 'течение', color: '#38bdf8' },
-    { label: 'тупик', color: '#ef4444' },
-    { label: 'узкий проход', color: '#e2e8f0' },
-    { label: 'сектор σ', color: '#6366f1' },
+    { id: 'lane', group: 'field', name: 'Русло', meaning: 'Дешёвый участок поля — вести путь по нему выгоднее.' },
+    { id: 'mud', group: 'field', name: 'Топь', meaning: 'Вязкий участок: проход по нему стоит дорого.' },
+    { id: 'wall', group: 'field', name: 'Стена', meaning: 'Плотный участок: пройти можно, но это очень дорого.' },
+    { id: 'bottleneck', group: 'field', name: 'Узкий проход', meaning: 'Щель между стенами — единственное удобное место для пути.' },
+    { id: 'gate', group: 'field', name: 'Шлюз (платный)', meaning: 'За вход берут плату, а повторный вход обходится дороже.' },
+    { id: 'bridge', group: 'field', name: 'Мост (разовый)', meaning: 'Первый проход дешёвый, повторный — дорогой.' },
+    { id: 'current_along', group: 'field', name: 'Течение по курсу', meaning: 'Плыть по течению — путь дешевле.' },
+    { id: 'current_against', group: 'field', name: 'Течение против', meaning: 'Плыть против течения — путь дороже.' },
+    { id: 'dead_end', group: 'field', name: 'Тупик', meaning: 'Тупиковое русло: заход в него — ошибка маршрута.' },
+    { id: 'start', group: 'landmark', name: 'СТАРТ (корабль)', meaning: 'Клетка корабля: путь начинается отсюда.' },
+    { id: 'beacon', group: 'landmark', name: 'Маяк', meaning: 'Обязательная точка: маяк должен лежать на пути.' },
+    { id: 'finish', group: 'landmark', name: 'ФИНИШ', meaning: 'Звезда назначения: сюда путь должен прийти.' },
+    { id: 'sig_quiet', group: 'sector', name: 'Сектор · тихая σ', meaning: 'Спокойный сектор: риск помехи при разведке низкий.' },
+    { id: 'sig_mid', group: 'sector', name: 'Сектор · средняя σ', meaning: 'Риск помехи при разведке средний.' },
+    { id: 'sig_loud', group: 'sector', name: 'Сектор · шумная σ', meaning: 'Шумный сектор: риск помехи при разведке высокий.' },
+    { id: 'jackpot', group: 'sector', name: 'Джекпот', meaning: 'Вскрытый сектор: очень выгодный срез пути.' },
+    { id: 'lure', group: 'sector', name: 'Приманка', meaning: 'Вскрытый сектор: дешёвый срез — но не всё так просто.' },
+    { id: 'trap', group: 'sector', name: 'Капкан', meaning: 'Вскрытый сектор: проход через него очень дорог.' },
+    { id: 'decoy', group: 'sector', name: 'Обманка', meaning: 'Вскрытый сектор: дорогой участок пути.' },
+    { id: 'unstable', group: 'sector', name: 'Нестабильность', meaning: 'Вскрытый сектор: помеха — подход и клетки дорожают.' },
+    { id: 'empty', group: 'sector', name: 'Пусто', meaning: 'Вскрытый сектор: ничего особенного.' },
+    { id: 'path', group: 'other', name: 'Путь', meaning: 'Проложенная цепочка клеток от СТАРТА к ФИНИШУ.' },
+    { id: 'turn', group: 'other', name: 'Излом', meaning: 'Поворот пути отмечен засечкой-уголком.' },
+    { id: 'preview', group: 'other', name: 'Предпросмотр', meaning: 'Бледная «резинка» от конца пути к пальцу.' },
+    { id: 'heat_cost', group: 'other', name: 'Метка «дорого»', meaning: 'Клетка пути обходится дорого.' },
+    { id: 'heat_turn', group: 'other', name: 'Метка «излом»', meaning: 'На пути поворот.' },
+    { id: 'heat_dead_end', group: 'other', name: 'Метка «тупик»', meaning: 'Путь заходит в тупиковое русло.' },
+    { id: 'heat_against', group: 'other', name: 'Метка «против течения»', meaning: 'Путь идёт против течения.' },
+    { id: 'heat_gate_twice', group: 'other', name: 'Метка «шлюз дважды»', meaning: 'Через шлюз путь проходит повторно.' },
+    { id: 'heat_bridge_twice', group: 'other', name: 'Метка «мост дважды»', meaning: 'По мосту путь проходит повторно.' },
+    { id: 'heat_hazard', group: 'other', name: 'Метка «помеха»', meaning: 'Путь идёт через вскрытую нестабильность.' },
+    { id: 'heat_along', group: 'other', name: 'Метка «по течению»', meaning: 'Путь идёт по течению — это выгодно.' },
+    { id: 'heat_jackpot', group: 'other', name: 'Метка «выгодно»', meaning: 'На пути вскрытая выгодная клетка.' },
 ];
 
 // ---- Причины отказов (§3, §8): сырой текст ответа в UI не подставляем ----

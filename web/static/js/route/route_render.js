@@ -6,7 +6,13 @@
 // только код. reduced-motion → без пульсов/дрейфа.
 import * as C from './route_config.js';
 import { cellCenter } from './route_board.js';
+import { drawResultFx } from './route_effects.js';
 import { getSprite, tintedSprite, bloomSprite } from './route_sprites.js';
+import {
+    TAU, hA, radial, ring, roundRect, heatColor, heatMark, turnNotch,
+    figWall, figMud, figLane, figWarm, figBottleneck, figGate, figBridge, figChevron,
+    figDeadEnd, sectorDensity, sectorRim, beaconRings, beaconSquare, startTriangle,
+} from './route_figures.js';
 import { shipDrawTransform } from '../map/ship_sprites.js';
 import { CONFIG } from '../config.js';
 
@@ -23,8 +29,6 @@ try {
     ({ getStarShade } = await import('../map/utils.js'));
 } catch (e) { getStarShade = null; }
 
-const TAU = Math.PI * 2;
-const hA = C.hexA;
 const starColor = (s) => {
     if (getStarShade) return getStarShade(s.spectral_class, s.temperature, s.star_type);
     const c = CONFIG.map.starColors;
@@ -111,14 +115,6 @@ function drawBackground(ctx, b, chosen, reduced, vw, vh, now) {
     ctx.globalAlpha = 1;
 }
 
-// radial — радиальный градиент цвета в прозрачность.
-function radial(ctx, x, y, r, color, a) {
-    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-    g.addColorStop(0, hA(color, a)); g.addColorStop(1, hA(color, 0));
-    ctx.fillStyle = g;
-    ctx.fillRect(x - r, y - r, r * 2, r * 2);
-}
-
 function drawVignette(ctx, vw, vh) {
     const g = ctx.createRadialGradient(vw / 2, vh / 2, Math.min(vw, vh) * 0.3, vw / 2, vh / 2, Math.max(vw, vh) * 0.75);
     g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,0.45)');
@@ -152,6 +148,7 @@ function drawBoard(ctx, st, view, now) {
     drawGrid(ctx, view);
     drawPath(ctx, st, view);
     drawHeat(ctx, st, view, now);
+    drawResultFx(ctx, st, view, now);
     drawFinish(ctx, st, view, now);
     drawStart(ctx, st, view);
     drawBeacons(ctx, st, view, now);
@@ -167,125 +164,37 @@ function drawCells(ctx, view, idx) {
     const total = n * n;
     for (let c = 0; c < total; c++) {
         const r = cellRect(view, c);
-        if (idx.wall.has(c)) {
-            ctx.fillStyle = C.COLORS.wallDark;
-            ctx.fillRect(r.x, r.y, r.w, r.h);
-            ctx.strokeStyle = hA(C.COLORS.wall, 0.9);
-            ctx.lineWidth = 1;
-            for (let k = -r.h; k < r.w; k += 6) {
-                ctx.beginPath(); ctx.moveTo(r.x + k, r.y + r.h); ctx.lineTo(r.x + k + r.h, r.y); ctx.stroke();
-            }
-            continue;
-        }
+        if (idx.wall.has(c)) { figWall(ctx, r); continue; }
         const v = idx.visible[c];
-        if (idx.mud.has(c)) {
-            ctx.fillStyle = hA(C.COLORS.mud, 0.28);
-            ctx.fillRect(r.x, r.y, r.w, r.h);
-            ctx.fillStyle = hA(C.COLORS.mud, 0.5);
-            for (let k = 0; k < 4; k++) {
-                const px = r.x + ((k * 7 + 3) % Math.max(4, r.w - 4)) + 2;
-                const py = r.y + ((k * 5 + 4) % Math.max(4, r.h - 4)) + 2;
-                ctx.fillRect(px, py, 1.6, 1.6);
-            }
-            continue;
-        }
-        if (idx.lane.has(c) || (v < 1 && v > 0)) {
-            ctx.fillStyle = hA(C.COLORS.lane, 0.16);
-            ctx.fillRect(r.x, r.y, r.w, r.h);
-            continue;
-        }
-        if (v > 1) {
-            ctx.fillStyle = hA(C.COLORS.warning, 0.16);
-            ctx.fillRect(r.x, r.y, r.w, r.h);
-        }
+        if (idx.mud.has(c)) { figMud(ctx, r); continue; }
+        if (idx.lane.has(c) || (v < 1 && v > 0)) { figLane(ctx, r); continue; }
+        if (v > 1) figWarm(ctx, r);
     }
     // узкие проходы — светлая щель в стене
-    for (const c of idx.bottleneck) {
-        const r = cellRect(view, c);
-        ctx.fillStyle = hA(C.COLORS.bottleneck, 0.55);
-        ctx.fillRect(r.x + r.w * 0.3, r.y + r.h * 0.1, r.w * 0.4, r.h * 0.8);
-    }
+    for (const c of idx.bottleneck) figBottleneck(ctx, cellRect(view, c));
 }
 
 // drawCurrents — шевроны течения по dir (0:+i,1:−i,2:+j,3:−j).
 function drawCurrents(ctx, view, idx, now, reduced) {
-    ctx.save();
-    ctx.lineWidth = Math.max(1.4, view.size / view.n * 0.09);
-    ctx.lineCap = 'round';
     for (const [cell, dir] of idx.current) {
-        const r = cellRect(view, cell);
-        const cx = r.x + r.w / 2;
-        const cy = r.y + r.h / 2;
-        const v = C.DIR_VECTORS[dir];
-        if (!v) continue;
-        const len = r.w * 0.28;
         const ph = reduced ? 0 : Math.sin(now * 0.003 + cell) * 0.5 + 0.5;
-        ctx.strokeStyle = hA(C.COLORS.current, 0.35 + 0.4 * ph);
-        const hx = v.di * len;
-        const hy = v.dj * len;
-        const px = v.dj * len * 0.7;
-        const py = v.di * len * 0.7;
-        for (const off of [-0.5, 0.5]) {
-            ctx.beginPath();
-            ctx.moveTo(cx - hx + px * off, cy - hy + py * off);
-            ctx.lineTo(cx + hx * 0.5 + px * off, cy + hy * 0.5 + py * off);
-            ctx.stroke();
-        }
+        figChevron(ctx, cellRect(view, cell), dir, 0.35 + 0.4 * ph);
     }
-    ctx.restore();
 }
 
 function drawGates(ctx, view, idx) {
-    for (const c of idx.gate) {
-        const r = cellRect(view, c);
-        ctx.save();
-        ctx.strokeStyle = hA(C.COLORS.gate, 0.95);
-        ctx.lineWidth = Math.max(2, r.w * 0.14);
-        ctx.beginPath();
-        ctx.moveTo(r.x + r.w * 0.5, r.y + r.h * 0.06);
-        ctx.lineTo(r.x + r.w * 0.5, r.y + r.h * 0.94);
-        ctx.stroke();
-        ctx.fillStyle = hA(C.COLORS.gate, 0.95);
-        ctx.beginPath();
-        ctx.arc(r.x + r.w * 0.5, r.y + r.h * 0.5, Math.max(1.6, r.w * 0.09), 0, TAU);
-        ctx.fill();
-        ctx.restore();
-    }
+    for (const c of idx.gate) figGate(ctx, cellRect(view, c));
 }
 
 function drawBridges(ctx, view, idx) {
-    for (const c of idx.bridge) {
-        const r = cellRect(view, c);
-        ctx.save();
-        ctx.fillStyle = hA(C.COLORS.bridge, 0.28);
-        ctx.fillRect(r.x + r.w * 0.08, r.y + r.h * 0.34, r.w * 0.84, r.h * 0.32);
-        ctx.strokeStyle = hA(C.COLORS.bridge, 0.9);
-        ctx.lineWidth = 1.2;
-        ctx.strokeRect(r.x + r.w * 0.08, r.y + r.h * 0.34, r.w * 0.84, r.h * 0.32);
-        ctx.restore();
-    }
+    for (const c of idx.bridge) figBridge(ctx, cellRect(view, c));
 }
 
 // drawDeadEnds — тупиковые русла: кайма + «стоп»-маркер; спрайт false_signal —
 // маркер сломанного маяка у тупика/обманки (решение создателя 2026-09-26).
 function drawDeadEnds(ctx, st, view, idx) {
     const img = getSprite(st.chosen && st.chosen.false_signal);
-    for (const c of idx.deadEnd) {
-        const r = cellRect(view, c);
-        ctx.save();
-        ctx.strokeStyle = hA(C.COLORS.deadEnd, 0.9);
-        ctx.lineWidth = Math.max(1.4, r.w * 0.08);
-        ctx.strokeRect(r.x + 1.5, r.y + 1.5, r.w - 3, r.h - 3);
-        const sz = r.w * 0.5;
-        if (img) {
-            ctx.globalAlpha = 0.75;
-            ctx.drawImage(img, r.x + r.w / 2 - sz / 2, r.y + r.h / 2 - sz / 2, sz, sz);
-        } else {
-            ctx.fillStyle = C.COLORS.deadEnd;
-            ctx.fillRect(r.x + r.w * 0.3, r.y + r.h * 0.42, r.w * 0.4, r.h * 0.16);
-        }
-        ctx.restore();
-    }
+    for (const c of idx.deadEnd) figDeadEnd(ctx, cellRect(view, c), img);
 }
 
 function drawGrid(ctx, view) {
@@ -321,7 +230,7 @@ function drawSectors(ctx, st, view, now) {
             cx += r.x + r.w / 2; cy += r.y + r.h / 2;
         }
         ctx.clip();
-        const dens = [0.20, 0.32, 0.46][sec.sig] || 0.3;
+        const dens = sectorDensity(sec.sig);
         const content = rx.get(si);
         ctx.globalAlpha = dens;
         if (img) {
@@ -335,13 +244,21 @@ function drawSectors(ctx, st, view, now) {
         ctx.restore();
         // Кайма сектора: при вскрытии — по содержимому (unstable красный,
         // jackpot/lure золотой), иначе нейтральная (σ плотностью, но не цветом).
-        const rim = content === 'unstable' ? C.COLORS.unstable
-            : (content === 'jackpot' || content === 'lure') ? C.COLORS.jackpot : C.COLORS.sector;
+        const rim = sectorRim(content);
         ctx.save();
         ctx.strokeStyle = hA(rim, content ? 0.9 : 0.45);
         ctx.lineWidth = content ? 1.6 : 1;
         for (const c of cells) { const r = cellRect(view, c); ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1); }
         ctx.restore();
+        // Выбранный сектор (§4.3): пунктирная кайма + клетки подсвечены.
+        if (st.selectedSector === si) {
+            ctx.save();
+            ctx.strokeStyle = hA('#e2e8f0', 0.95);
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 4]);
+            for (const c of cells) { const r = cellRect(view, c); ctx.strokeRect(r.x + 1.5, r.y + 1.5, r.w - 3, r.h - 3); }
+            ctx.restore();
+        }
         drawSectorLabel(ctx, view, cells, sec, content);
     });
 }
@@ -359,8 +276,7 @@ function drawSectorLabel(ctx, view, cells, sec, content) {
     ctx.fillStyle = hA('#0f172a', 0.82);
     roundRect(ctx, cx - w / 2, cy - h / 2, w, h, 6);
     ctx.fill();
-    ctx.strokeStyle = hA(content === 'unstable' ? C.COLORS.unstable
-        : (content === 'jackpot' || content === 'lure') ? C.COLORS.jackpot : C.COLORS.sector, 0.9);
+    ctx.strokeStyle = hA(sectorRim(content), 0.9);
     ctx.lineWidth = 1;
     ctx.stroke();
     ctx.fillStyle = '#e2e8f0';
@@ -378,7 +294,10 @@ function drawPath(ctx, st, view) {
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     if (path.length) {
-        ctx.strokeStyle = C.COLORS.path;
+        // После отправки тон пути — по знаку bonus (§4.7): зелёный/янтарный.
+        ctx.strokeStyle = st.resultFx
+            ? (st.resultFx.bonus < 0 ? C.COLORS.warning : C.COLORS.success)
+            : C.COLORS.path;
         ctx.lineWidth = Math.max(3, view.size / view.n * 0.22);
         ctx.beginPath();
         for (let k = 0; k < path.length; k++) {
@@ -412,44 +331,14 @@ function drawHeat(ctx, st, view, now) {
         byCell.get(m.cell).push(m.kind);
     }
     const cs = view.size / view.n;
-    const colr = {
-        mud: C.COLORS.mud, wall: C.COLORS.wall, gate: C.COLORS.gate, gate_twice: C.COLORS.gate,
-        bridge: C.COLORS.bridge, bridge_twice: C.COLORS.bridge, dead_end: C.COLORS.deadEnd,
-        current_against: C.COLORS.deadEnd, current_along: C.COLORS.bridge,
-        hazard: C.COLORS.unstable, jackpot: C.COLORS.jackpot, turn: C.COLORS.captureSoft,
-    };
-    ctx.save();
     for (const [cell, kinds] of byCell) {
         const r = cellRect(view, cell);
         kinds.forEach((kind, k) => {
-            const color = colr[kind] || C.COLORS.capture;
-            const ox = r.x + r.w * (0.5 + (k % 2 ? 0.22 : -0.22));
-            const oy = r.y + r.h * 0.22;
             const pulse = st.reduced ? 0.85 : 0.6 + 0.4 * Math.sin(now * 0.004 + cell + k);
-            if (kind === 'turn') {
-                ctx.strokeStyle = hA(color, pulse);
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.moveTo(r.x + r.w * 0.2, r.y + r.h * 0.8);
-                ctx.lineTo(r.x + r.w * 0.2, r.y + r.h * 0.5);
-                ctx.lineTo(r.x + r.w * 0.5, r.y + r.h * 0.5);
-                ctx.stroke();
-                return;
-            }
-            ctx.fillStyle = hA(color, 0.9 * pulse);
-            ctx.beginPath();
-            ctx.arc(ox, oy, Math.max(2, cs * 0.08), 0, TAU);
-            ctx.fill();
-            if (kind === 'gate_twice' || kind === 'bridge_twice') {
-                ctx.strokeStyle = hA(color, 0.9);
-                ctx.lineWidth = 1.4;
-                ctx.beginPath();
-                ctx.arc(ox, oy, Math.max(3.4, cs * 0.15), 0, TAU);
-                ctx.stroke();
-            }
+            if (kind === 'turn') { turnNotch(ctx, r, heatColor(kind), pulse); return; }
+            heatMark(ctx, r.x + r.w * (0.5 + (k % 2 ? 0.22 : -0.22)), r.y + r.h * 0.22, cs, kind, pulse);
         });
     }
-    ctx.restore();
 }
 
 // ---- Спрайты ядра сцены ----
@@ -492,9 +381,7 @@ function drawStart(ctx, st, view) {
         ctx.drawImage(st.shipSprite, -sz / 2, -sz / 2, sz, sz);
         ctx.restore();
     } else {
-        ctx.save(); ctx.translate(s.x, s.y); ctx.fillStyle = C.COLORS.cold;
-        ctx.beginPath(); ctx.moveTo(r * 0.9, 0); ctx.lineTo(-r * 0.6, -r * 0.7); ctx.lineTo(-r * 0.6, r * 0.7);
-        ctx.closePath(); ctx.fill(); ctx.restore();
+        startTriangle(ctx, s.x, s.y, r, C.COLORS.cold);
     }
     ring(ctx, s.x, s.y, base * 0.46, C.COLORS.cold, 0.6, 1.2);
 }
@@ -508,16 +395,12 @@ function drawBeacons(ctx, st, view, now) {
         const captured = st.captured.has(c);
         const sz = base * 0.8;
         const pulse = st.reduced ? 0.6 : (now % 1600) / 1600;
-        ring(ctx, p.x, p.y, base * 0.42 * (0.6 + 0.6 * pulse), C.COLORS.capture, 0.5 * (1 - pulse), 2);
-        ring(ctx, p.x, p.y, base * 0.42, C.COLORS.capture, captured ? 0.95 : 0.7, 1.2);
+        beaconRings(ctx, p.x, p.y, base, pulse, captured);
         if (captured) drawCaptureFlash(ctx, p, base * 0.42, st.flash.get(c), now);
         if (img) {
             ctx.save(); ctx.globalCompositeOperation = 'lighter'; bloomSprite(ctx, img, p.x, p.y, sz, captured ? 0.35 : 0.2); ctx.restore();
         } else {
-            ctx.globalAlpha = captured ? 1 : 0.9;
-            ctx.fillStyle = C.COLORS.capture;
-            ctx.fillRect(p.x - 3, p.y - 3, 6, 6);
-            ctx.globalAlpha = 1;
+            beaconSquare(ctx, p.x, p.y, captured);
         }
     }
 }
@@ -528,24 +411,4 @@ function drawCaptureFlash(ctx, p, r, flash, now) {
     const dt = now - flash;
     if (dt < 180) radial(ctx, p.x, p.y, r * 1.8, C.COLORS.captureSoft, 0.8 * (1 - dt / 180));
     else if (dt < 580) ring(ctx, p.x, p.y, r * (1 + (dt - 180) / 400 * 1.2), C.COLORS.captureSoft, 0.7 * (1 - (dt - 180) / 400), 2);
-}
-
-// roundRect — скруглённый прямоугольник (без ctx.roundRect ради совместимости).
-function roundRect(ctx, x, y, w, h, r) {
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + h, r);
-    ctx.arcTo(x + w, y + h, x, y + h, r);
-    ctx.arcTo(x, y + h, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
-    ctx.closePath();
-}
-
-// ring — окружность (цвет/alpha/толщина/штрих).
-function ring(ctx, x, y, r, color, a, w, dash) {
-    ctx.strokeStyle = hA(color, a);
-    ctx.lineWidth = w;
-    if (dash) ctx.setLineDash(dash);
-    ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.stroke();
-    if (dash) ctx.setLineDash([]);
 }

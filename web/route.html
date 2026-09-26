@@ -23,20 +23,18 @@
                 <button id="to-map" class="hud-btn" type="button">← На карту</button>
             </div>
             <div class="hud-chips">
-                <span id="mode-chip" class="hud-chip" style="display:none;"></span>
+                <span id="mode-chip" class="hud-chip mode-chip" style="display:none;"></span>
             </div>
             <div id="status-line"></div>
         </div>
         <div class="hud-bottom">
             <!-- Карточка сектора (§4.3): σ, окружение, риск, «Разведать» — C2.
-                 Пока заглушка скрыта, разметка заложена. -->
+                 Содержимое строится route_ui.renderSectorCard. -->
             <div id="sector-card" class="sector-card" style="display:none;"></div>
-            <!-- Легенда объектов доски (§4.9) — свёрнута по умолчанию. -->
-            <div id="legend" class="legend" style="display:none;"></div>
             <div class="hud-feedback">
                 <span id="beacon-count" class="hud-chip"></span>
                 <span id="pings-count" class="hud-chip"></span>
-                <button id="legend-toggle" class="hud-btn legend-toggle" type="button">Легенда ⏷</button>
+                <button id="legend-toggle" class="hud-btn legend-toggle" type="button">Легенда</button>
             </div>
             <div class="hud-actions">
                 <button id="undo" class="hud-btn" type="button">↶ Шаг назад</button>
@@ -96,6 +94,18 @@
     </div>
 
     <div id="toast" style="display:none;"></div>
+
+    <!-- Попап-легенда (§4.9): вся азбука доски мини-фигурами (route_legend.js).
+         Фон-затемнение — часть #legend-popup; тап по нему закрывает попап. -->
+    <div id="legend-popup" class="legend-popup" role="dialog" aria-modal="true" aria-label="Легенда доски">
+        <div class="legend-panel">
+            <div class="legend-head">
+                <h2>Легенда</h2>
+                <button id="legend-close" class="hud-btn legend-close" type="button" aria-label="Закрыть">✕</button>
+            </div>
+            <div id="legend-list" class="legend-list"></div>
+        </div>
+    </div>
 
     <script type="module" src="/static/js/route/route_game.js"></script>
 </body>

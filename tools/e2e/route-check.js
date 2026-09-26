@@ -1,7 +1,13 @@
 // tools/e2e/route-check.js
-// Real browser e2e smoke for the accelerator mini-game "Route plotting"
-// (main spec docs/specs/2026-09-25-ускоритель-и-мини-игра-прокладка-маршрута.md
-// §9 steps 1-8; UI spec docs/specs/2026-09-25-маршрут-мини-игра-интерфейс.md §6.6).
+// Real browser e2e smoke for the accelerator mini-game "Route plotting" on the
+// v9 board (UI spec docs/specs/2026-09-25-маршрут-мини-игра-интерфейс.md §9).
+//
+// Flow: register -> start a long interplanetary flight -> /route.html board ->
+// legend popup (§4.9) -> tap a sector + scan (ping -1) -> draw a 4-connected cell
+// path (START -> all beacons -> FINISH) by pointer drag -> two-tap confirm ->
+// boost -> result.
+// A separate step stubs the boost response with a negative bonus to prove the
+// "Перелёт стал длиннее" / negative-percent UI (spec §4.7/§9 step 4).
 //
 // Mobile viewport 390x844, system Chrome/Edge via playwright-core (no browser
 // download), throwaway user via /register (QA_TOKEN overrides the login).
@@ -9,9 +15,7 @@
 // Run:  cd tools/e2e; npm.cmd i; node route-check.js
 // Env:  BASE_URL (default http://localhost:8080), QA_TOKEN, CHROME_PATH, EDGE_PATH.
 //
-// Output is ASCII on purpose (Windows PowerShell cp866 breaks Cyrillic). Step 7
-// (server restart mid-flight) is an explicit SKIP: restarting the shared dev
-// server would break every other agent's session.
+// Output is ASCII on purpose (Windows PowerShell cp866 breaks Cyrillic).
 //
 // Exit code: 0 = PASS/SKIP only, 1 = any FAIL.
 import { chromium } from 'playwright-core';
@@ -27,22 +31,74 @@ const ARTIFACTS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'a
 const CHROME_PATHS = [process.env.CHROME_PATH, 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'].filter(Boolean);
 const EDGE_PATHS = [process.env.EDGE_PATH, 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe'].filter(Boolean);
 
-// Acceptance range for the segment shrink after one boost (spec §8): a +10%..+50%
-// speed bonus means newRem/remaining = 1/(1+bonus) in [2/3, 10/11] -> decrease
-// 9%..33%. A little slack covers the few seconds between offer and submit.
-const DECREASE_MIN = 0.08;
-const DECREASE_MAX = 0.35;
-
 const VIEWPORT = { width: 390, height: 844 };
-const MIN_TOUCH = 44; // safe mobile touch target (UI spec §5)
+const MIN_TOUCH = 44; // safe mobile touch target (UI spec §6)
 
-// computeView is duplicated from web/static/js/route/route_config.js (field
-// [0,1]^2 -> letterbox square in CSS px). Keep in sync: a mismatch here would
-// draw the path outside the real field and the server would reject it.
-function computeView(vw, vh) {
-  const avail = Math.max(120, vh - 150 - 190);
+// computeView is duplicated from web/static/js/route/route_config.js (letterbox
+// square in CSS px). Keep in sync: a mismatch would draw the path outside the
+// real board and the server would reject it. top/bottom reserve HUD areas.
+function computeView(vw, vh, n) {
+  const top = 118;
+  const bottom = 232;
+  const avail = Math.max(120, vh - top - bottom);
   const size = Math.max(120, Math.min(vw - 24, avail));
-  return { x0: (vw - size) / 2, y0: 150 + Math.max(0, (avail - size) / 2), size };
+  return { x0: (vw - size) / 2, y0: top + Math.max(0, (avail - size) / 2), size, n: n || 0 };
+}
+
+function cellCenter(view, cell) {
+  const cs = view.size / view.n;
+  const i = cell % view.n;
+  const j = (cell / view.n) | 0;
+  return { x: view.x0 + (i + 0.5) * cs, y: view.y0 + (j + 0.5) * cs };
+}
+
+// bfsPath - shortest 4-connected chain from `from` to `to` (all cells passable).
+function bfsPath(n, from, to) {
+  if (from === to) return [from];
+  const prev = new Array(n * n).fill(-2);
+  prev[from] = -1;
+  const q = [from];
+  for (let h = 0; h < q.length; h++) {
+    const c = q[h];
+    if (c === to) break;
+    const i = c % n;
+    const j = (c / n) | 0;
+    const nb = [];
+    if (i > 0) nb.push(c - 1);
+    if (i < n - 1) nb.push(c + 1);
+    if (j > 0) nb.push(c - n);
+    if (j < n - 1) nb.push(c + n);
+    for (const x of nb) if (prev[x] === -2) { prev[x] = c; q.push(x); }
+  }
+  if (prev[to] === -2) return null;
+  const out = [];
+  let c = to;
+  while (c !== -1) { out.push(c); c = prev[c]; }
+  return out.reverse();
+}
+
+// routeCells - START -> all beacons (nearest-first) -> FINISH, concatenated
+// shortest paths (any 4-connected chain visiting all beacons is server-valid;
+// the order only affects quality). Revisits are allowed by the server.
+function routeCells(n, start, beacons, finish) {
+  let chain = [start];
+  let cur = start;
+  const left = beacons.slice();
+  while (left.length) {
+    let bi = 0;
+    let bp = null;
+    let bl = Infinity;
+    left.forEach((b, i) => {
+      const p = bfsPath(n, cur, b);
+      if (p && p.length < bl) { bl = p.length; bi = i; bp = p; }
+    });
+    const b = left.splice(bi, 1)[0];
+    for (const c of (bp || []).slice(1)) chain.push(c);
+    cur = b;
+  }
+  const fp = bfsPath(n, cur, finish);
+  if (fp) for (const c of fp.slice(1)) chain.push(c);
+  return chain;
 }
 
 const results = [];
@@ -72,7 +128,7 @@ async function api(p, token, opts = {}) {
   }
 }
 
-// registerAndLogin — unique throwaway user (map-check.js precedent). There is no
+// registerAndLogin - unique throwaway user (map-check.js precedent). There is no
 // self-delete endpoint, so the user is left behind but clearly prefixed.
 async function registerAndLogin() {
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -93,7 +149,7 @@ async function registerAndLogin() {
   throw new Error('register: name collision after 3 attempts');
 }
 
-// clusterWorlds — single-star clusters from /api/worlds/filter around origin.
+// clusterWorlds - single-star clusters from /api/worlds/filter around origin.
 async function clusterWorlds(token, origin) {
   const R = 7000;
   const params = new URLSearchParams({
@@ -106,7 +162,7 @@ async function clusterWorlds(token, origin) {
   return r.data;
 }
 
-// findFarWorld — closest single world at distance [minD, maxD] from origin,
+// findFarWorld - closest single world at distance [minD, maxD] from origin,
 // excluding ids. Null when nothing suitable exists (caller reports SKIP).
 function findFarWorld(clusters, origin, exclude, minD, maxD) {
   let best = null;
@@ -119,40 +175,104 @@ function findFarWorld(clusters, origin, exclude, minD, maxD) {
   return best;
 }
 
-// greedyOrder — nearest-neighbour beacon order (same heuristic as
-// route_config.greedyRouteLen). Visiting every beacon is what the server checks;
-// the order only improves quality.
-function greedyOrder(start, beacons) {
-  const left = beacons.slice();
-  const order = [];
-  let cur = start;
-  while (left.length) {
-    let bi = 0, bd = Infinity;
-    left.forEach((b, i) => {
-      const d = Math.hypot(b.x - cur.x, b.y - cur.y);
-      if (d < bd) { bd = d; bi = i; }
-    });
-    const b = left.splice(bi, 1)[0];
-    order.push(b);
-    cur = b;
-  }
-  return order;
-}
-
-// tap — one Pointer Events click on the canvas (pointerdown + pointerup at the
-// same point). The game fixes a vertex on pointerup; the first tap must land in
-// the START capture radius.
-async function tap(page, x, y) {
-  await page.mouse.move(x, y);
-  await page.mouse.down();
-  await page.mouse.up();
-  await page.waitForTimeout(45);
+// noLeak - keys of the forbidden pre-submit data found in the HUD text.
+function noLeak(hudText) {
+  const leaked = [];
+  if (/\d+\s*сек/i.test(hudText)) leaked.push('seconds');
+  if (/\d+\s*мин/i.test(hudText)) leaked.push('minutes');
+  if (/\bETA\b/i.test(hudText)) leaked.push('eta');
+  if (/\bbonus\b/i.test(hudText)) leaked.push('bonus');
+  if (/\bq\b/.test(hudText)) leaked.push('q');
+  if (/\d+\s*%/.test(hudText)) leaked.push('percent');
+  if (/Скорость\s*[+−-]/i.test(hudText)) leaked.push('speed');
+  if (/Осталось/.test(hudText)) leaked.push('remaining');
+  if (/оптимум/i.test(hudText)) leaked.push('optimum');
+  if (/итог/i.test(hudText)) leaked.push('verdict');
+  return leaked;
 }
 
 let browser = null;
 async function finish(code) {
   if (browser) await browser.close().catch(() => {});
   process.exit(code);
+}
+
+async function viewAndRect(page, board) {
+  const geom = await page.evaluate(() => ({ vw: window.innerWidth, vh: window.innerHeight }));
+  const view = computeView(geom.vw, geom.vh, board.n);
+  const rect = await page.$eval('#route-canvas', (c) => {
+    const r = c.getBoundingClientRect();
+    return { left: r.left, top: r.top };
+  });
+  return { view, rect, geom };
+}
+
+// dragPath - pointer drag through every cell of the chain (real UI drawing).
+async function dragPath(page, rect, view, chain) {
+  const pt = (cell) => {
+    const p = cellCenter(view, cell);
+    return { x: rect.left + p.x, y: rect.top + p.y };
+  };
+  const first = pt(chain[0]);
+  await page.mouse.move(first.x, first.y);
+  await page.mouse.down();
+  for (const cell of chain) {
+    const p = pt(cell);
+    await page.mouse.move(p.x, p.y, { steps: 1 });
+  }
+  await page.mouse.up();
+  await sleep(200);
+}
+
+// dispatchDrag - pointer events fired straight on the canvas (bypasses the popup
+// hit-testing). Used to prove the board input is frozen while the legend is open:
+// if the freeze works, the full valid path never registers.
+async function dispatchDrag(page, rect, view, chain) {
+  const points = chain.map((cell) => {
+    const p = cellCenter(view, cell);
+    return { x: rect.left + p.x, y: rect.top + p.y };
+  });
+  await page.evaluate((pts) => {
+    const c = document.getElementById('route-canvas');
+    const fire = (type, p, buttons) => c.dispatchEvent(new PointerEvent(type, {
+      bubbles: true, cancelable: true, clientX: p.x, clientY: p.y,
+      pointerId: 1, pointerType: 'mouse', buttons,
+    }));
+    fire('pointerdown', pts[0], 1);
+    for (const p of pts) fire('pointermove', p, 1);
+    fire('pointerup', pts[pts.length - 1], 0);
+  }, points);
+  await sleep(200);
+}
+
+async function waitHud(page) {
+  await page.waitForFunction(() => {
+    const el = document.getElementById('hud');
+    return el && el.style.display !== 'none';
+  }, { timeout: 30000 });
+  await sleep(600);
+}
+
+async function waitGate(page) {
+  return page.waitForFunction(() => {
+    const b = document.getElementById('boost');
+    return b && !b.disabled;
+  }, { timeout: 10000 }).then(() => true).catch(() => false);
+}
+
+// twoTapBoost - two-tap confirmation (§4.4) with the boost response awaited.
+// opts.midSubmit runs after the confirming tap, before the response is awaited -
+// lets a test observe the "Прокладываю…" submitting state (§3/§7.3).
+async function twoTapBoost(page, opts = {}) {
+  const respP = page.waitForResponse((r) => r.url().includes('/api/accelerator/boost'), { timeout: 15000 }).catch(() => null);
+  await page.click('#boost');
+  await page.waitForFunction(() => {
+    const b = document.getElementById('boost');
+    return b && b.textContent.indexOf('Проложить?') >= 0;
+  }, { timeout: 3000 }).catch(() => null);
+  await page.click('#boost');
+  if (opts.midSubmit) await opts.midSubmit();
+  return respP;
 }
 
 async function main() {
@@ -176,13 +296,12 @@ async function main() {
     }
   }
 
-  let me = null;
   const meRes = await api('/me', token);
   if (meRes.status !== 200 || !meRes.data) {
     report('STEP 1', 'FAIL', 'GET /me HTTP ' + meRes.status);
     return finish(1);
   }
-  me = meRes.data;
+  const me = meRes.data;
   if (!me.current_world_id) {
     report('STEP 1', 'FAIL', 'no current_world_id');
     return finish(1);
@@ -202,7 +321,7 @@ async function main() {
     return finish(1);
   }
   // Distance >= 900 px at starter speed_factor 0.3 -> ~270 s, i.e. remaining >=
-  // min_remaining_offer_s (180). Upper bound keeps the field at 3 beacons.
+  // min_remaining_offer_s (180). Upper bound keeps the field small.
   const target1 = findFarWorld(clusters, origin, new Set([me.current_world_id]), 900, 5000);
   if (!target1) {
     report('STEP 1', 'SKIP', 'no single star at 900..5000 px from the spawn world');
@@ -239,66 +358,56 @@ async function main() {
   const context = await browser.newContext({ viewport: VIEWPORT });
   await context.addInitScript((t) => { localStorage.setItem('token', t); }, token);
   const page = await context.newPage();
-
   const pageErrors = [];
   page.on('pageerror', (err) => pageErrors.push(String(err && err.message ? err.message : err)));
 
   try {
-    // ---------------- STEP 2: route.html renders the field, no result leak ----------------
-    await page.goto(BASE_URL + '/route.html', { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForFunction(() => {
-      const el = document.getElementById('hud');
-      return el && el.style.display !== 'none';
-    }, { timeout: 30000 });
-    await sleep(900); // settle the render loop
+    const offerRes = await api('/api/accelerator/offer', token);
+    const offer = offerRes.data;
+    if (offerRes.status !== 200 || !offer || !offer.board) {
+      report('offer', 'FAIL', 'HTTP ' + offerRes.status + ' reason=' + (offer && offer.reason));
+      return finish(1);
+    }
+    const board = offer.board;
+    const chain = routeCells(board.n, board.start, board.beacons || [], board.finish);
+    const chainValid = chain.length >= 2 && chain[0] === board.start &&
+      chain[chain.length - 1] === board.finish &&
+      (board.beacons || []).every((b) => chain.includes(b));
+    console.log('board: n=' + board.n + ' beacons=' + (board.beacons || []).length +
+      ' sectors=' + (board.sectors || []).length + ' mode=' + board.mode +
+      ' chain=' + chain.length + ' valid=' + chainValid);
 
+    // ---------------- STEP 2: board renders, no result leak ----------------
+    await page.goto(BASE_URL + '/route.html', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await waitHud(page);
     const state2 = await page.evaluate(() => {
       const canvas = document.getElementById('route-canvas');
       const img = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
       let nonEmpty = 0;
       for (let i = 3; i < img.length; i += 4) if (img[i] > 0) nonEmpty++;
-      const hud = document.getElementById('hud');
       return {
         path: location.pathname,
         nonEmpty,
         cw: canvas.width,
         ch: canvas.height,
-        hudText: hud ? hud.textContent : '',
+        hudText: document.getElementById('hud').textContent,
         resultShown: document.getElementById('result').style.display === 'flex',
       };
     });
-
-    const leaked = [];
-    if (/\d+\s*сек/i.test(state2.hudText)) leaked.push('seconds');
-    if (/\d+\s*мин/i.test(state2.hudText)) leaked.push('minutes');
-    if (/\bETA\b/i.test(state2.hudText)) leaked.push('eta');
-    if (/\bbonus\b/i.test(state2.hudText)) leaked.push('bonus');
-    if (/\bq\b/i.test(state2.hudText)) leaked.push('q');
-    if (/Скорость\s*\+/i.test(state2.hudText)) leaked.push('speed+');
-    if (/\d+\s*%/.test(state2.hudText)) leaked.push('percent');
-    if (/Осталось/.test(state2.hudText)) leaked.push('remaining');
-
+    const leaked2 = noLeak(state2.hudText);
     const errs2 = pageErrors.slice();
     const ok2 = state2.path !== '/login-page' && state2.nonEmpty > 0 &&
-      !state2.resultShown && leaked.length === 0 && errs2.length === 0;
-    report('STEP 2', ok2 ? 'PASS' : 'FAIL',
+      !state2.resultShown && leaked2.length === 0 && errs2.length === 0;
+    report('STEP 2 board', ok2 ? 'PASS' : 'FAIL',
       'canvas=' + state2.cw + 'x' + state2.ch + ' px=' + state2.nonEmpty +
-      ' resultShown=' + state2.resultShown + ' leak=' + (leaked.join(',') || 'none') +
+      ' resultShown=' + state2.resultShown + ' leak=' + (leaked2.join(',') || 'none') +
       ' pageErrors=' + errs2.length + (errs2.length ? ' first: ' + errs2[0] : ''));
     if (!ok2) return finish(1);
 
-    await page.screenshot({ path: path.join(ARTIFACTS_DIR, 'route-field.png') });
-
-    // ---------------- STEP 8: mobile viewport, safe-area, touch targets ----------------
-    const geom = await page.evaluate(() => ({ vw: window.innerWidth, vh: window.innerHeight }));
-    const view = computeView(geom.vw, geom.vh);
-    const rect = await page.$eval('#route-canvas', (c) => {
-      const r = c.getBoundingClientRect();
-      return { left: r.left, top: r.top };
-    });
+    // Mobile geometry + touch targets.
+    const { view, rect, geom } = await viewAndRect(page, board);
     const fieldInside = view.x0 >= 0 && view.y0 >= 0 &&
       view.x0 + view.size <= geom.vw + 1 && view.y0 + view.size <= geom.vh + 1;
-
     const targets = await page.evaluate((ids) => {
       const out = {};
       for (const id of ids) {
@@ -309,180 +418,210 @@ async function main() {
       return out;
     }, ['boost', 'undo', 'reset', 'to-map']);
     const targetsOk = Object.keys(targets).every((k) => targets[k] >= MIN_TOUCH);
+    report('STEP 2 mobile', (fieldInside && targetsOk) ? 'PASS' : 'FAIL',
+      'viewport=' + geom.vw + 'x' + geom.vh + ' board=' + Math.round(view.x0) + ',' + Math.round(view.y0) +
+      ' size=' + Math.round(view.size) + ' inside=' + fieldInside + ' targets=' + JSON.stringify(targets));
+    if (!(fieldInside && targetsOk)) return finish(1);
 
-    // Drawing works: tap START, then the first beacon -> at least one beacon captured.
-    const offerForGeom = await api('/api/accelerator/offer', token);
-    const field8 = offerForGeom.data && offerForGeom.data.field;
-    let drawOk = false;
-    let drawDetail = 'no offer field';
-    if (field8) {
-      const sx = (p) => rect.left + view.x0 + p.x * view.size;
-      const sy = (p) => rect.top + view.y0 + p.y * view.size;
-      const beacon0 = (field8.nodes || []).find((n) => n.type === 'beacon');
-      await tap(page, sx(field8.start), sy(field8.start));
-      if (beacon0) await tap(page, sx(beacon0), sy(beacon0));
-      await sleep(120);
-      const after = await page.$eval('#beacon-count', (el) => el.textContent);
-      drawOk = /Маяки\s+[1-9]/.test(after);
-      drawDetail = 'beacon-count="' + after.trim() + '"';
-      await page.click('#reset');
-      await sleep(120);
-      const cleared = await page.$eval('#beacon-count', (el) => el.textContent);
-      if (drawOk && !/Маяки\s+0/.test(cleared)) { drawOk = false; drawDetail += ' reset="' + cleared.trim() + '"'; }
-    }
-    const ok8 = fieldInside && targetsOk && drawOk;
-    report('STEP 8', ok8 ? 'PASS' : 'FAIL',
-      'viewport=' + geom.vw + 'x' + geom.vh + ' field=' + Math.round(view.x0) + ',' + Math.round(view.y0) +
-      ' size=' + Math.round(view.size) + ' inside=' + fieldInside +
-      ' targets=' + JSON.stringify(targets) + ' draw=' + drawDetail);
-    if (!ok8) return finish(1);
-
-    // ---------------- STEP 3: draw a valid path, submit via UI, verify shrink + active ----------------
-    // Fresh offer: field + fingerprint + remaining just before the submit.
-    const offerRes = await api('/api/accelerator/offer', token);
-    const offer = offerRes.data;
-    if (offerRes.status !== 200 || !offer || !offer.field) {
-      report('STEP 3', 'FAIL', 'offer HTTP ' + offerRes.status + ' reason=' + (offer && offer.reason));
-      return finish(1);
-    }
-    const field = offer.field;
-    const beforeRemaining = offer.remaining_s;
-    const beacons = (field.nodes || []).filter((n) => n.type === 'beacon');
-    const fieldPath = [{ x: field.start.x, y: field.start.y }]
-      .concat(greedyOrder(field.start, beacons).map((b) => ({ x: b.x, y: b.y })))
-      .concat([{ x: field.finish.x, y: field.finish.y }]);
-
-    // Real UI drawing: one Pointer Events tap per vertex (beacons are far enough
-    // apart that MIN_STEP never drops one).
-    const sx = (p) => rect.left + view.x0 + p.x * view.size;
-    const sy = (p) => rect.top + view.y0 + p.y * view.size;
-    for (const p of fieldPath) await tap(page, sx(p), sy(p));
+    // ---------------- STEP 2b: legend popup (§4.9 / §9 step 6) ----------------
+    const statusBefore = await page.$eval('#status-line', (el) => el.textContent);
+    await page.click('#legend-toggle');
     await sleep(250);
-
-    const gateReady = await page.$eval('#boost', (b) => !b.disabled);
-    let uiSubmit = false;
-    let statusBoost = 0;
-    let boostReason = '';
-    let afterRemaining = null;
-    if (gateReady) {
-      const respWait = page.waitForResponse((r) => r.url().includes('/api/accelerator/boost'), { timeout: 8000 }).catch(() => null);
-      await page.click('#boost');
-      const resp = await respWait;
-      if (resp) {
-        statusBoost = resp.status();
-        const d = await resp.json().catch(() => null);
-        if (statusBoost === 200 && d) { uiSubmit = true; afterRemaining = d.remaining_s; }
-        else boostReason = (d && d.reason) || '';
+    const legend = await page.evaluate(() => {
+      const pop = document.getElementById('legend-popup');
+      const list = document.getElementById('legend-list');
+      const close = document.getElementById('legend-close');
+      const figs = Array.from(document.querySelectorAll('.legend-fig'));
+      let painted = 0;
+      for (const cv of figs) {
+        const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+        for (let i = 3; i < d.length; i += 4) { if (d[i] > 0) { painted++; break; } }
       }
-    }
-    if (!uiSubmit) {
-      // Fallback per task: the path itself is valid; if the UI plumbing did not
-      // submit, apply through the API and mark UI-submit as not covered.
-      const fb = await api('/api/accelerator/boost', token, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fingerprint: offer.fingerprint, path: fieldPath }),
-      });
-      statusBoost = fb.status;
-      if (fb.status === 200 && fb.data) afterRemaining = fb.data.remaining_s;
-      else boostReason = (fb.data && fb.data.reason) || '';
-    }
+      return {
+        shown: pop.style.display === 'flex',
+        scrollable: list.scrollHeight > list.clientHeight + 2,
+        rows: figs.length,
+        painted,
+        groupCount: document.querySelectorAll('.legend-group-title').length,
+        closeH: close ? Math.round(close.getBoundingClientRect().height) : -1,
+        swatches: document.querySelectorAll('.legend-swatch').length,
+        text: pop.textContent,
+      };
+    });
+    await page.screenshot({ path: path.join(ARTIFACTS_DIR, 'route-legend.png') });
 
+    const legendLeak = noLeak(legend.text);
+    const legendOk = legend.shown && legend.scrollable && legend.rows >= 30 &&
+      legend.painted === legend.rows && legend.groupCount === 4 &&
+      legend.closeH >= MIN_TOUCH && legend.swatches === 0 && legendLeak.length === 0;
+
+    // Frozen input while open: dispatch the full valid path straight on the canvas.
+    await dispatchDrag(page, rect, view, chain);
+    const frozenState = await page.evaluate(() => ({
+      boostDisabled: document.getElementById('boost').disabled,
+      status: document.getElementById('status-line').textContent,
+    }));
+    const frozenOk = frozenState.boostDisabled && frozenState.status === statusBefore;
+
+    // Close via the "X" button; board input works again, then clear the path.
+    await page.click('#legend-close');
+    await sleep(150);
+    const popupHidden = await page.$eval('#legend-popup', (el) => el.style.display === 'none');
+    await dragPath(page, rect, view, chain);
+    const restoredOk = await waitGate(page);
+    if (restoredOk) await page.click('#reset');
+    await sleep(150);
+    report('STEP 2b legend', (legendOk && frozenOk && popupHidden && restoredOk) ? 'PASS' : 'FAIL',
+      'shown=' + legend.shown + ' scroll=' + legend.scrollable + ' rows=' + legend.rows +
+      ' painted=' + legend.painted + ' groups=' + legend.groupCount + ' closeH=' + legend.closeH +
+      ' swatch=' + legend.swatches + ' leak=' + (legendLeak.join(',') || 'none') +
+      ' frozen=' + frozenOk + ' closed=' + popupHidden + ' restored=' + restoredOk);
+    if (!(legendOk && frozenOk && popupHidden && restoredOk)) return finish(1);
+
+    // ---------------- STEP 3: negative result UI (boost response stubbed) ----------------
+    // The stub holds the response briefly so the test can observe the "Прокладываю…"
+    // submitting state (§3/§7.3): button text + disabled while the request is in flight.
+    await page.route('**/api/accelerator/boost', async (route) => {
+      await sleep(700);
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ bonus: -0.12, remaining_s: 180 }),
+      });
+    });
+    await dragPath(page, rect, view, chain);
+    const negGate = await waitGate(page);
+    await page.screenshot({ path: path.join(ARTIFACTS_DIR, 'route-board.png') });
+    let submitState = { text: '', disabled: false };
+    const respNeg = negGate ? await twoTapBoost(page, {
+      midSubmit: async () => {
+        await sleep(150);
+        submitState = await page.evaluate(() => {
+          const b = document.getElementById('boost');
+          return { text: b ? b.textContent : '', disabled: b ? b.disabled : false };
+        });
+      },
+    }) : null;
+    const negData = respNeg ? await respNeg.json().catch(() => null) : null;
+    await sleep(300);
+    const negView = await page.evaluate(() => ({
+      shown: document.getElementById('result').style.display === 'flex',
+      title: document.getElementById('result-title').textContent,
+      bonus: document.getElementById('result-bonus').textContent,
+      klass: document.getElementById('result-class').textContent,
+      remaining: document.getElementById('result-remaining').textContent,
+      breakdownHidden: document.getElementById('result-breakdown').hidden === true,
+    }));
+    const submittingOk = submitState.text.indexOf('Прокладываю') >= 0 && submitState.disabled === true;
+    const negOk = negGate && respNeg && respNeg.status() === 200 && negView.shown &&
+      negView.title.indexOf('Перелёт стал длиннее') >= 0 &&
+      negView.bonus.indexOf('\u2212' + '12 %') >= 0 &&
+      negView.bonus.indexOf('перелёт удлинился') >= 0 &&
+      negView.remaining.indexOf('Осталось') >= 0 && negView.breakdownHidden && submittingOk;
+    report('STEP 3 negative', negOk ? 'PASS' : 'FAIL',
+      'gate=' + negGate + ' http=' + (respNeg && respNeg.status()) + ' body=' + JSON.stringify(negData) +
+      ' title="' + negView.title + '" bonus="' + negView.bonus + '" klass="' + negView.klass +
+      '" remaining="' + negView.remaining + '" breakdownHidden=' + negView.breakdownHidden +
+      ' submitting="' + submitState.text + '" disabled=' + submitState.disabled);
+    if (!negOk) return finish(1);
+    await page.screenshot({ path: path.join(ARTIFACTS_DIR, 'route-result-negative.png') });
+    await page.unroute('**/api/accelerator/boost');
+
+    // ---------------- STEP 4: real scan (ping -1) ----------------
+    await page.goto(BASE_URL + '/route.html', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await waitHud(page);
+    await dragPath(page, rect, view, chain);
+    const realGate = await waitGate(page);
+
+    const sector0 = (board.sectors && board.sectors[0]) || null;
+    let scanOk = false;
+    let scanDetail = 'no sector';
+    if (sector0 && sector0.cells && sector0.cells.length) {
+      const p = cellCenter(view, sector0.cells[0]);
+      await page.mouse.click(rect.left + p.x, rect.top + p.y);
+      await sleep(200);
+      const cardBefore = await page.evaluate(() => {
+        const el = document.getElementById('sector-card');
+        return { shown: el.style.display !== 'none', text: el.textContent };
+      });
+      const scanRespP = page.waitForResponse((r) => r.url().includes('/api/accelerator/scan'), { timeout: 10000 }).catch(() => null);
+      await page.click('#sector-card [data-act="scan"]');
+      const scanResp = await scanRespP;
+      const scanData = scanResp ? await scanResp.json().catch(() => null) : null;
+      await sleep(250);
+      const after = await page.evaluate(() => ({
+        card: document.getElementById('sector-card').textContent,
+        pings: document.getElementById('pings-count').textContent,
+      }));
+      const pingsLeft = scanData && scanData.pings_left;
+      const content = scanData && scanData.content;
+      const contentShown = !!(content && after.card.indexOf('вскрыт') >= 0);
+      scanOk = scanResp && scanResp.status() === 200 && pingsLeft === offer.pings_left - 1 &&
+        contentShown && (after.pings.indexOf('●') >= 0);
+      scanDetail = 'cardBefore=' + cardBefore.shown + ' http=' + (scanResp && scanResp.status()) +
+        ' pings ' + offer.pings_left + '->' + pingsLeft + ' content=' + content +
+        ' contentShown=' + contentShown + ' hudPings="' + after.pings.trim() + '"';
+      await page.screenshot({ path: path.join(ARTIFACTS_DIR, 'route-scan.png') });
+    }
+    report('STEP 4 scan', scanOk ? 'PASS' : 'FAIL', scanDetail);
+    if (!scanOk) return finish(1);
+
+    // No leak after scan, still before submit.
+    const hudBefore = await page.$eval('#hud', (el) => el.textContent);
+    const leaked4 = noLeak(hudBefore);
+    report('STEP 4 no-leak', leaked4.length === 0 ? 'PASS' : 'FAIL',
+      'leak=' + (leaked4.join(',') || 'none'));
+    if (leaked4.length) return finish(1);
+
+    // ---------------- STEP 5: real two-tap submit -> result ----------------
+    const resp = realGate ? await twoTapBoost(page) : null;
+    const body = resp ? await resp.json().catch(() => null) : null;
+    await sleep(400);
+    const realView = await page.evaluate(() => ({
+      shown: document.getElementById('result').style.display === 'flex',
+      title: document.getElementById('result-title').textContent,
+      bonus: document.getElementById('result-bonus').textContent,
+      remaining: document.getElementById('result-remaining').textContent,
+      breakdownHidden: document.getElementById('result-breakdown').hidden === true,
+    }));
+    const b = body ? Number(body.bonus) : NaN;
+    const negB = b < 0;
+    const titleOk = negB ? realView.title.indexOf('Перелёт стал длиннее') >= 0
+      : realView.title.indexOf('Ускорение принято') >= 0;
+    const signOk = isFinite(b) &&
+      realView.bonus.indexOf((negB ? '\u2212' : '+') + Math.round(Math.abs(b) * 100) + ' %') >= 0;
+    const submitOk = realGate && resp && resp.status() === 200 && realView.shown &&
+      titleOk && signOk && realView.remaining.indexOf('Осталось') >= 0 && realView.breakdownHidden;
+    report('STEP 5 submit', submitOk ? 'PASS' : 'FAIL',
+      'gate=' + realGate + ' uiSubmit=' + !!(resp && resp.status() === 200) +
+      ' http=' + (resp && resp.status()) + ' body=' + JSON.stringify(body) +
+      ' title="' + realView.title + '" bonusText="' + realView.bonus + '"' +
+      ' breakdownHidden=' + realView.breakdownHidden);
+    if (!submitOk) return finish(1);
+    await page.screenshot({ path: path.join(ARTIFACTS_DIR, 'route-result.png') });
+
+    // Flight state on the server: the boost is applied and active.
     const meAfter = await api('/me', token);
     const activeAfter = !!(meAfter.data && meAfter.data.accelerator && meAfter.data.accelerator.active);
-    const decrease = (typeof afterRemaining === 'number' && beforeRemaining > 0)
-      ? (beforeRemaining - afterRemaining) / beforeRemaining : null;
-    const shrinkOk = decrease !== null && decrease >= DECREASE_MIN && decrease <= DECREASE_MAX;
-    const ok3 = afterRemaining !== null && shrinkOk && activeAfter;
-    report('STEP 3', ok3 ? 'PASS' : 'FAIL',
-      'uiSubmit=' + uiSubmit + (uiSubmit ? '' : ' (UI-submit NOT covered: fallback API)') +
-      ' pathPoints=' + fieldPath.length + ' gate=' + gateReady +
-      ' remaining ' + beforeRemaining + 's -> ' + afterRemaining + 's decrease=' +
-      (decrease === null ? 'n/a' : Math.round(decrease * 100) + '%') +
-      ' active=' + activeAfter + ' boostHTTP=' + statusBoost + ' reason=' + (boostReason || '-'));
-    if (!ok3) return finish(1);
+    report('STEP 6 applied', activeAfter ? 'PASS' : 'FAIL',
+      'accelerator.active=' + activeAfter + ' duration=' + (meAfter.data && meAfter.data.flight && meAfter.data.flight.duration));
+    if (!activeAfter) return finish(1);
 
-    if (uiSubmit) {
-      await sleep(500);
-      await page.screenshot({ path: path.join(ARTIFACTS_DIR, 'route-result.png') });
-    }
-
-    // ---------------- STEP 4: repeat in the same segment is refused ----------------
+    // ---------------- STEP 7: same segment -> offer refused (already_active) ----------------
     await page.goto(BASE_URL + '/route.html', { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForFunction(() => {
       const el = document.getElementById('reason');
       return el && el.style.display === 'flex';
     }, { timeout: 20000 });
-    const reason4 = await page.evaluate(() => ({
+    const reason7 = await page.evaluate(() => ({
       title: document.getElementById('reason-title').textContent,
-      note: document.getElementById('reason-note').textContent,
       loadingHidden: document.getElementById('loading').style.display === 'none',
     }));
-    const titleOk = reason4.title.indexOf('Ускорение уже действует') >= 0;
-    const ok4 = titleOk && activeAfter && reason4.loadingHidden;
-    report('STEP 4', ok4 ? 'PASS' : 'FAIL',
-      'reasonTitleMatch=' + titleOk + ' note=' + (reason4.note ? 'yes' : 'no') +
-      ' loadingHidden=' + reason4.loadingHidden);
-    if (!ok4) return finish(1);
-
-    // ---------------- STEP 6: back on the map the boosted segment + button state ----------------
-    // Run before STEP 5: a reversal would reset `active`.
-    const pageMap = await context.newPage();
-    pageMap.on('pageerror', (err) => pageErrors.push('map: ' + String(err && err.message ? err.message : err)));
-    let ok6 = false;
-    let step6Detail = '';
-    try {
-      await pageMap.goto(BASE_URL + '/map', { waitUntil: 'domcontentloaded', timeout: 30000 });
-      await pageMap.waitForSelector('#flight-panel.flying', { timeout: 30000 });
-      await pageMap.waitForFunction(() => {
-        const b = document.getElementById('flight-boost-btn');
-        return b && b.textContent.indexOf('Ускорение уже действует') >= 0;
-      }, { timeout: 30000 });
-      const btn6 = await pageMap.$eval('#flight-boost-btn', (b) => ({ text: b.textContent, disabled: b.disabled }));
-      const meMap = await api('/me', token);
-      const flight = meMap.data && meMap.data.flight;
-      const startChanged = flight && flight.start_time !== (travel1.data && travel1.data.start_time);
-      const shorter = flight && typeof flight.duration === 'number' &&
-        flight.duration < (travel1.data && travel1.data.duration) &&
-        (afterRemaining === null || Math.abs(flight.duration - afterRemaining) <= 1);
-      ok6 = btn6.disabled === true && startChanged === true && shorter === true;
-      step6Detail = 'btnDisabled=' + btn6.disabled + ' btnTextMatch=' + (btn6.text.indexOf('Ускорение уже действует') >= 0) +
-        ' startChanged=' + startChanged + ' dur=' + (flight && flight.duration) +
-        ' (was ' + (travel1.data && travel1.data.duration) + ', boosted ' + afterRemaining + ')';
-      await pageMap.screenshot({ path: path.join(ARTIFACTS_DIR, 'route-map-boost.png') });
-    } catch (err) {
-      step6Detail = 'map/button: ' + String(err && err.message ? err.message : err);
-    }
-    report('STEP 6', ok6 ? 'PASS' : 'FAIL', step6Detail);
-    if (!ok6) return finish(1);
-    await pageMap.close();
-
-    // ---------------- STEP 5: reversal (new /travel) resets `active` ----------------
-    // Other far world (different from both the current target and the origin).
-    const target2 = findFarWorld(clusters, origin, new Set([me.current_world_id, target1.sid]), 900, 6000);
-    if (!target2) {
-      report('STEP 5', 'SKIP', 'no second single star for a reversal; button-ready-after-cooldown not covered');
-    } else {
-      const travel2 = await api('/travel', token, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ world_id: target2.sid }),
-      });
-      const meRev = await api('/me', token);
-      const activeRev = !!(meRev.data && meRev.data.accelerator && meRev.data.accelerator.active);
-      const offerRev = await api('/api/accelerator/offer', token);
-      const revReason = (offerRev.data && offerRev.data.reason) || ('HTTP ' + offerRev.status);
-      const ok5 = travel2.status === 202 && activeRev === false;
-      // "Button available again after the cooldown" is not reachable here: the
-      // cooldown is 25 min, so offer stays refused with `cooldown`/`too_short`.
-      report('STEP 5', ok5 ? 'PASS' : 'FAIL',
-        'reversal=' + target2.name + ' travelHTTP=' + travel2.status + ' active=' + activeRev +
-        ' offerReason=' + revReason + ' [button-ready-after-cooldown NOT covered: cooldown 25 min]');
-      if (!ok5) return finish(1);
-    }
-
-    // ---------------- STEP 7: server restart mid-flight (explicit SKIP) ----------------
-    report('STEP 7', 'SKIP', 'server restart mid-flight would drop the shared dev server (97a row check done by Go tests)');
+    const ok7 = reason7.title.indexOf('Ускорение уже действует') >= 0 && reason7.loadingHidden;
+    report('STEP 7 already_active', ok7 ? 'PASS' : 'FAIL',
+      'titleOk=' + (reason7.title.indexOf('Ускорение уже действует') >= 0) +
+      ' loadingHidden=' + reason7.loadingHidden);
+    if (!ok7) return finish(1);
   } catch (err) {
     report('run', 'FAIL', String(err && err.message ? err.message : err));
     return finish(1);

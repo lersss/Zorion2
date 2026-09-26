@@ -68,6 +68,8 @@ html, body {
 .hud-btn.primary { background: #2563eb; border-color: #3b82f6; font-weight: 600; }
 .hud-btn.primary:hover { background: #3b82f6; }
 .hud-btn.primary:disabled { background: #1e293b; border-color: #334155; }
+/* Двухтапное подтверждение (§4.4): «Проложить?» — предупреждающий тон. */
+.hud-btn.primary.confirm { background: #b45309; border-color: #f59e0b; }
 .hud-btn.wide { width: 100%; }
 .passport-toggle { min-height: 44px; padding: 8px 12px; font-size: 0.85rem; }
 
@@ -111,20 +113,69 @@ html, body {
 .sector-card .sector-actions { display: flex; gap: 8px; }
 .sector-card .sector-actions .hud-btn { flex: 1; }
 
-/* Легенда объектов доски (§4.9) — свёрнута по умолчанию. */
-.legend {
-    background: rgba(15, 23, 42, 0.92);
-    border: 1px solid #334155;
-    border-radius: 12px;
-    padding: 10px 12px;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 5px 12px;
-    pointer-events: auto;
+/* Попап-легенда (§4.9): модальная панель поверх игры со всей азбукой доски.
+   Скролл в списке, закреплённая шапка с «✕», safe-area, тач-цели ≥44px. */
+.legend-popup {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: flex-end;
+    justify-content: center;
+    background: rgba(2, 6, 16, 0.78);
+    z-index: 180;
 }
-.legend-item { display: flex; align-items: center; gap: 7px; font-size: 0.78rem; color: #cbd5e1; }
-.legend-swatch { width: 12px; height: 12px; border-radius: 3px; flex: 0 0 auto; }
-.legend-swatch.outline { background: transparent; border: 2px solid; }
+@media (prefers-reduced-motion: no-preference) {
+    .legend-popup { animation: legendFade 0.15s ease-out; }
+}
+@keyframes legendFade { from { opacity: 0; } to { opacity: 1; } }
+.legend-panel {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: 560px;
+    max-height: calc(100% - env(safe-area-inset-top) - 12px);
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 14px 14px 0 0;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}
+.legend-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex: 0 0 auto;
+    padding: calc(env(safe-area-inset-top) + 10px) calc(env(safe-area-inset-right) + 12px) 10px
+        calc(env(safe-area-inset-left) + 16px);
+    border-bottom: 1px solid #334155;
+}
+.legend-head h2 { margin: 0; font-size: 1.1rem; }
+.legend-close { min-width: 44px; min-height: 44px; padding: 6px 12px; font-size: 1rem; }
+.legend-list {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+    padding: 4px calc(env(safe-area-inset-right) + 16px)
+        calc(env(safe-area-inset-bottom) + 16px) calc(env(safe-area-inset-left) + 16px);
+}
+.legend-group { margin-top: 12px; }
+.legend-group-title {
+    margin: 0 0 6px;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #94a3b8;
+}
+.legend-row { display: flex; align-items: center; gap: 12px; padding: 6px 0; min-height: 44px; }
+.legend-fig {
+    flex: 0 0 auto;
+    border-radius: 8px;
+    background: #0b1220;
+    border: 1px solid rgba(51, 65, 85, 0.6);
+}
+.legend-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.legend-name { font-size: 0.95rem; font-weight: 600; color: #e2e8f0; }
+.legend-meaning { font-size: 0.8rem; color: #94a3b8; line-height: 1.35; }
 
 /* Зарезервированное место под разбор результата (§10). */
 .result-divider { border-top: 1px solid #334155; margin: 16px 0 0; }
@@ -155,6 +206,9 @@ html, body {
 .panel p { color: #cbd5e1; line-height: 1.5; }
 .panel .timer { color: #fde047; font-variant-numeric: tabular-nums; font-size: 1.2rem; margin: 6px 0 0; }
 .result-class { color: #4ade80; font-size: 1.15rem; font-weight: 600; margin: 0 0 6px; }
+/* Отрицательный итог (§4.7): тёплый/янтарный тон, не зелёный. */
+.panel.result-negative .result-class { color: #f59e0b; }
+.panel.result-negative h2 { color: #fbbf24; }
 
 .panel-actions { display: flex; gap: 10px; margin-top: 18px; justify-content: flex-end; }
 

@@ -23,6 +23,10 @@ const todayNoon = new Date(new Date().setHours(12, 0, 0, 0)).getTime();
 const yesterdayNoon = todayNoon - 24 * 3600 * 1000;
 const todayMidnight = new Date(new Date().setHours(0, 0, 0, 0)).getTime();
 
+// Курс go/zen в рублях — совпадает со значением по умолчанию DASH_USD_RUB.
+// В тестах тестовые сообщения — это go/zen: их цена = cost × R.
+const R = 129;
+
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-dash-"));
 const dbPath = path.join(dir, "fake.db");
 const db = new DatabaseSync(dbPath);
@@ -51,6 +55,8 @@ const message = (id, sessionID, at, cost, input, cacheRead) =>
       JSON.stringify({
         role: "assistant",
         cost,
+        providerID: "opencode-go",
+        modelID: "deepseek-v4.1-flash",
         tokens: { input, output: 1, reasoning: 0, cache: { read: cacheRead, write: 0 } },
       })
     );
@@ -107,10 +113,10 @@ check("тяжёлые счётчики досчитаны", scan.done === 5 && s
 
 const all = store.report({});
 const agent = (name) => all.agents.find((a) => a.label === name);
-check("цена всего сходится", all.totals.cost === 6.75, JSON.stringify(all.totals.cost));
-check("цена менеджера", agent("manager").cost === 6, JSON.stringify(agent("manager")?.cost));
-check("цена разработчика", agent("developer").cost === 0.5);
-check("цена тестера", agent("tester").cost === 0.25);
+check("цена всего сходится", all.totals.cost === 6.75 * R, JSON.stringify(all.totals.cost));
+check("цена менеджера", agent("manager").cost === 6 * R, JSON.stringify(agent("manager")?.cost));
+check("цена разработчика", agent("developer").cost === 0.5 * R);
+check("цена тестера", agent("tester").cost === 0.25 * R);
 check("сессий по ролям: 3 у менеджера", agent("manager").sessions === 3, JSON.stringify(agent("manager")?.sessions));
 check("пик памяти по роли — максимум сессии", agent("developer").peak === 60005, JSON.stringify(agent("developer")?.peak));
 check("повторы считаются сверх трёх", agent("developer").repeats === 3, JSON.stringify(agent("developer")?.repeats));
@@ -140,14 +146,14 @@ check(
 check("фич в отчёте две", all.features.length === 2, JSON.stringify(all.features.map((f) => f.label)));
 const featureA = all.features.find((f) => f.label === "Фича А");
 const featureB = all.features.find((f) => f.label === "Фича Б");
-check("цена фичи = дерево сессий", featureA.cost === 3.75, JSON.stringify(featureA?.cost));
+check("цена фичи = дерево сессий", featureA.cost === 3.75 * R, JSON.stringify(featureA?.cost));
 check("в фиче видны все роли", featureA.agents.join(",") === "developer,manager,tester", featureA.agents.join(","));
 check(
   "токены суммируются по дереву фичи",
   featureA.tokensIn === 40 && featureA.tokensOut === 4 && featureA.tokensCache === 63100,
   JSON.stringify(featureA)
 );
-check("цена второй фичи", featureB.cost === 3, JSON.stringify(featureB?.cost));
+check("цена второй фичи", featureB.cost === 3 * R, JSON.stringify(featureB?.cost));
 check("сессия без работы не засоряет список фич", !all.features.some((f) => f.label === "Осиротевшая"), JSON.stringify(all.features.map((f) => f.label)));
 
 const today = store.report({ since: todayMidnight });
@@ -161,7 +167,7 @@ const workRow = all.active.find((a) => a.id === "s1");
 check("поле workMs есть в записи активной сессии", all.active.every((a) => typeof a.workMs === "number"), JSON.stringify(all.active.map((a) => [a.id, a.workMs])));
 check("пауза больше 10 минут обрезается до 10 минут", workRow?.workMs === 600000, JSON.stringify(workRow?.workMs));
 check("у сессии с одним сообщением активное время ноль", liveRow?.workMs === 0, JSON.stringify(liveRow?.workMs));
-check("период «сегодня» режет по дням", Math.abs(today.totals.cost - 2.75) < 1e-9, JSON.stringify(today.totals.cost));
+check("период «сегодня» режет по дням", Math.abs(today.totals.cost - 2.75 * R) < 1e-9, JSON.stringify(today.totals.cost));
 check("в периоде «сегодня» три сессии", today.totals.sessions === 3, JSON.stringify(today.totals.sessions));
 check("вчерашняя фича не попала в «сегодня»", !today.features.some((f) => f.label === "Фича Б"), JSON.stringify(today.features.map((f) => f.label)));
 check("в «сегодня» только активные роли", today.agents.length === 3, JSON.stringify(today.agents.map((a) => a.label)));
@@ -191,7 +197,7 @@ const store2 = createStore({ dbPath, project: "Zorion", cachePath, journalPath, 
 const loaded2 = store2.load();
 check("кэш ускоряет второй запуск", loaded2.cached === 5, JSON.stringify(loaded2));
 const all2 = store2.report({});
-check("из кэша цифры те же", all2.totals.cost === 6.75 && all2.totals.repeats === 3, JSON.stringify(all2.totals));
+check("из кэша цифры те же", all2.totals.cost === 6.75 * R && all2.totals.repeats === 3, JSON.stringify(all2.totals));
 
 check("день считается по локальной дате", dayKey(todayNoon) === dayKey(todayMidnight) && dayKey(todayNoon) !== dayKey(yesterdayNoon), dayKey(todayNoon) + " / " + dayKey(yesterdayNoon));
 
@@ -213,7 +219,7 @@ writer.prepare("INSERT INTO message VALUES (?,?,?,?,?)").run(
   "s6",
   nowMs,
   nowMs,
-  JSON.stringify({ role: "assistant", cost: 4, tokens: { input: 10, output: 1, cache: { read: 640000 } } })
+  JSON.stringify({ role: "assistant", cost: 4, providerID: "opencode-go", modelID: "deepseek-v4.1-flash", tokens: { input: 10, output: 1, cache: { read: 640000 } } })
 );
 writer.prepare("UPDATE session SET time_updated=?, cost=5 WHERE id='s4'").run(nowMs);
 writer.prepare("INSERT INTO message VALUES (?,?,?,?,?)").run(
@@ -221,7 +227,7 @@ writer.prepare("INSERT INTO message VALUES (?,?,?,?,?)").run(
   "s4",
   nowMs,
   nowMs,
-  JSON.stringify({ role: "assistant", cost: 2, tokens: { input: 10, output: 1, cache: { read: 100000 } } })
+  JSON.stringify({ role: "assistant", cost: 2, providerID: "opencode-go", modelID: "deepseek-v4.1-flash", tokens: { input: 10, output: 1, cache: { read: 100000 } } })
 );
 // Пять одинаковых вызовов только что — это повторы «в рамках текущей задачи».
 for (let i = 0; i < 5; i++) {
@@ -239,7 +245,7 @@ writer.close();
 const after = store2.report({});
 const fresh = (after.active || []).find((a) => a.id === "s6");
 check("новая сессия появляется без перезапуска", !!fresh && fresh.live === true, JSON.stringify(after.active.map((a) => a.id)));
-check("у новой сессии видна цена и память", !!fresh && fresh.cost === 4 && fresh.peak === 640010, JSON.stringify(fresh));
+check("у новой сессии видна цена и память", !!fresh && fresh.cost === 4 * R && fresh.peak === 640010, JSON.stringify(fresh));
 check("повторы считаются в рамках текущей задачи", fresh.recentRepeats === 2 && fresh.recentCalls === 5, JSON.stringify(fresh));
 check("в записи указано, за что считали", fresh.recentLabel === "за 15 мин", JSON.stringify(fresh.recentLabel));
 
@@ -262,7 +268,7 @@ check(
   JSON.stringify(freshTask)
 );
 const s4 = after.features.find((f) => f.label === "Фича Б");
-check("дописанная цена подхватывается", s4.cost === 5, JSON.stringify(s4?.cost));
+check("дописанная цена подхватывается", s4.cost === 5 * R, JSON.stringify(s4?.cost));
 check("дописанная память подхватывается", s4.peak === 100010, JSON.stringify(s4?.peak));
 
 // Часовой расход: своя точка фильтра, чтобы не мешали сессии основной проверки.
@@ -272,7 +278,7 @@ const outsideHour = Date.now() - 90 * 60 * 1000;
 const rateMessage = (id, at, cost) =>
   rateDb
     .prepare("INSERT INTO message VALUES (?,?,?,?,?)")
-    .run(id, "r1", at, at, JSON.stringify({ role: "assistant", cost, tokens: { input: 1, output: 1, cache: { read: 0 } } }));
+    .run(id, "r1", at, at, JSON.stringify({ role: "assistant", cost, providerID: "opencode-go", modelID: "deepseek-v4.1-flash", tokens: { input: 1, output: 1, cache: { read: 0 } } }));
 rateDb
   .prepare("INSERT INTO session VALUES (?,?,?,?,0,?,?,?,?,?,?)")
   .run("r1", null, "developer", "Часовой расход", 0, 0, 0, outsideHour, insideHour, "C:\\rate-test");
@@ -282,10 +288,40 @@ rateDb.close();
 
 const rateStore = createStore({ dbPath, project: "rate-test", refreshGapMs: 0 });
 const rateReport = rateStore.report({});
-check("часовой расход — только свежие траты", Math.abs(rateReport.rate.perHour - 3) < 1e-9, JSON.stringify(rateReport.rate));
+check("часовой расход — только свежие траты", Math.abs(rateReport.rate.perHour - 3 * R) < 1e-9, JSON.stringify(rateReport.rate));
 check("окно часового расхода — час", rateReport.rate.windowMin === 60, JSON.stringify(rateReport.rate));
 check("часовой расход есть в обычном отчёте", typeof all.rate.perHour === "number", JSON.stringify(all.rate));
 rateStore.close();
+
+// Валютный учёт — гибрид: go/zen — из цены в БД × курс R; proxyapi — из токенов
+// по рублёвой таблице (у старых сессий opencode пишет 0); gonka — без цены, остаётся 0.
+const curDb = new DatabaseSync(dbPath);
+const curAt = Date.now();
+const mkS = (id, title) =>
+  curDb
+    .prepare("INSERT INTO session VALUES (?,?,?,?,0,?,?,?,?,?,?)")
+    .run(id, null, "manager", title, 0, 1, 1, curAt, curAt, "C:\\Zorion2");
+const mkM = (id, sid, data) =>
+  curDb.prepare("INSERT INTO message VALUES (?,?,?,?,?)").run(id, sid, curAt, curAt, JSON.stringify(data));
+mkS("sz", "Zen-история");
+mkS("sp", "Proxy-история");
+mkS("sn", "Gonka-история");
+mkS("sr", "Proxy-с-рассуждением");
+mkM("mz1", "sz", { role: "assistant", cost: 0.5, providerID: "opencode-go", modelID: "deepseek-v4.1-flash", tokens: { input: 1, output: 1, cache: { read: 0 } } });
+mkM("mp1", "sp", { role: "assistant", cost: 0, providerID: "proxyapi", modelID: "qwen/qwen3.8-flash", tokens: { input: 1000, output: 0, cache: { read: 16000 } } });
+// reasoning тарифицируется как выход: (1000*20 + (2000+3000)*65)/1M = 0.345 → 0.35
+mkM("mr1", "sr", { role: "assistant", cost: 0, providerID: "proxyapi", modelID: "qwen/qwen3.8-flash", tokens: { input: 1000, output: 2000, reasoning: 3000, cache: { read: 0 } } });
+mkM("mn1", "sn", { role: "assistant", cost: 0, providerID: "gonka", modelID: "deepseek-ai/DeepSeek-V4-Flash-0731", tokens: { input: 5000, output: 500, cache: { read: 0 } } });
+curDb.close();
+const curStore = createStore({ dbPath, project: "Zorion", refreshGapMs: 0 });
+const curReport = curStore.report({});
+const curS = (id) => curReport.active.find((a) => a.id === id);
+check("go/zen: цена из БД × курс R", curS("sz")?.cost === 0.5 * R, JSON.stringify(curS("sz")?.cost));
+// proxyapi: (1000*20 + 16000*2.5)/1M = 0.06 (округляется до копеек)
+check("proxyapi: цена считается из токенов по рублёвой таблице", Math.abs(curS("sp")?.cost - 0.06) < 1e-9, JSON.stringify(curS("sp")?.cost));
+check("proxyapi: токены рассуждения считаются как выходные", Math.abs(curS("sr")?.cost - 0.35) < 1e-9, JSON.stringify(curS("sr")?.cost));
+check("gonka: без заданной цены остаётся нулём", curS("sn")?.cost === 0, JSON.stringify(curS("sn")?.cost));
+curStore.close();
 
 store.close();
 store2.close();

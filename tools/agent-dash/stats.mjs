@@ -12,6 +12,46 @@ const AS_ASSISTANT = "data LIKE '%\"role\":\"assistant\"%'";
 const AS_TOOL = "data LIKE '%\"type\":\"tool\"%'";
 const CTX = "(json_extract(data,'$.tokens.input') + json_extract(data,'$.tokens.cache.read'))";
 
+// Валютный учёт — всё в рублях, гибрид:
+//  - proxyapi: у старых сессий цена в БД 0 (цены в конфиге тогда ещё не было),
+//    поэтому считаем сами из токенов по рублёвой таблице (ввод/выход/кеш за 1М).
+//    Токены рассуждения (reasoning) opencode тарифицирует по цене выхода —
+//    с ними расчёт сходится с ценой opencode до 1e-15;
+//  - go/zen/google: opencode пишет цену из справочника models.dev (доллары) —
+//    переводим в рубли по курсу DASH_USD_RUB (по умолчанию 129);
+//  - gonka/gigachat/ollama: цены не задаём — у них в БД 0, остаются 0 (гонка отдельно).
+const USD_RUB = Number(process.env.DASH_USD_RUB || 129);
+
+// Рублёвые цены proxyapi за 1М токенов: [ввод, вывод, чтение кеша].
+const PROXY_RUB = {
+  "deepseek/deepseek-v4.1-flash": [41.05, 168.42, 0.81],
+  "deepseek/deepseek-v4-flash-0731": [60, 180, 6],
+  "z-ai/glm-5.2": [125, 450, 31],
+  "minimax/minimax-m3": [41.05, 168.42, 8.11],
+  "qwen/qwen3.8-flash": [20, 65, 2.5],
+  "meta/muse-spark-1.3-contributor": [13.68, 27.37, 0.27],
+  "xiaomi/mimo-v2.6-flash": [18.95, 37.89, 0.38],
+};
+
+// SQL-выражение цены сообщения в рублях (в агрегатах по дням/сессиям).
+const COST = (ref) => {
+  const e = (x) => `json_extract(${ref},'$.${x}')`;
+  const px = (dim) =>
+    `CASE ${e("modelID")} ` +
+    Object.entries(PROXY_RUB)
+      .map(([m, p]) => `WHEN '${m}' THEN ${p[dim]}`)
+      .join(" ") +
+    " ELSE 0 END";
+  const tokens =
+    `${e("tokens.input")} * ${px(0)} + ` +
+    `(${e("tokens.output")} + COALESCE(${e("tokens.reasoning")},0)) * ${px(1)} + ` +
+    `${e("tokens.cache.read")} * ${px(2)}`;
+  return (
+    `CASE WHEN ${e("providerID")}='proxyapi' THEN (${tokens})/1e6 ` +
+    `ELSE ${e("cost")} * ${USD_RUB} END`
+  );
+};
+
 export function defaultDbPath() {
   if (process.env.OPENCODE_DB) return process.env.OPENCODE_DB;
   const home = process.env.USERPROFILE || process.env.HOME || "";
@@ -165,14 +205,14 @@ export function createStore({
 
   // Расход в час — настоящие деньги за последнее окно (по отметкам сообщений).
   const windowCost = db.prepare(
-    `SELECT SUM(json_extract(m.data,'$.cost')) cost FROM message m
+    `SELECT SUM(${COST("m.data")}) cost FROM message m
      JOIN session s ON s.id = m.session_id
      WHERE m.time_created >= ? AND lower(s.directory) LIKE ?`
   );
 
   const dayAgg = db.prepare(
     `SELECT strftime('%Y-%m-%d', time_created/1000, 'unixepoch', 'localtime') day,
-            COUNT(*) turns, SUM(json_extract(data,'$.cost')) cost,
+            COUNT(*) turns, SUM(${COST("data")}) cost,
             SUM(json_extract(data,'$.tokens.input')) tok_in,
             SUM(json_extract(data,'$.tokens.output')) tok_out,
             SUM(json_extract(data,'$.tokens.cache.read')) tok_cache,
@@ -272,7 +312,7 @@ export function createStore({
       .prepare(
         `SELECT session_id id,
                 strftime('%Y-%m-%d', time_created/1000, 'unixepoch', 'localtime') day,
-                COUNT(*) turns, SUM(json_extract(data,'$.cost')) cost,
+                COUNT(*) turns, SUM(${COST("data")}) cost,
                 SUM(json_extract(data,'$.tokens.input')) tok_in,
                 SUM(json_extract(data,'$.tokens.output')) tok_out,
                 SUM(json_extract(data,'$.tokens.cache.read')) tok_cache,

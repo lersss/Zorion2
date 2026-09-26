@@ -11,6 +11,38 @@ import { dayKey } from "./stats.mjs";
 
 const round = (v) => Math.round(v * 100) / 100;
 
+// Валютный учёт — как в stats.mjs, гибрид: proxyapi считаем из токенов по
+// рублёвой таблице (у старых сессий цена в БД 0), остальные (go/zen/google) — из
+// цены в БД (доллары models.dev) × курс DASH_USD_RUB (по умолчанию 129);
+// gonka/gigachat/ollama цен не задаём — у них 0.
+const USD_RUB = Number(process.env.DASH_USD_RUB || 129);
+const PROXY_RUB = {
+  "deepseek/deepseek-v4.1-flash": [41.05, 168.42, 0.81],
+  "deepseek/deepseek-v4-flash-0731": [60, 180, 6],
+  "z-ai/glm-5.2": [125, 450, 31],
+  "minimax/minimax-m3": [41.05, 168.42, 8.11],
+  "qwen/qwen3.8-flash": [20, 65, 2.5],
+  "meta/muse-spark-1.3-contributor": [13.68, 27.37, 0.27],
+  "xiaomi/mimo-v2.6-flash": [18.95, 37.89, 0.38],
+};
+const COST = (ref) => {
+  const e = (x) => `json_extract(${ref},'$.${x}')`;
+  const px = (dim) =>
+    `CASE ${e("modelID")} ` +
+    Object.entries(PROXY_RUB)
+      .map(([m, p]) => `WHEN '${m}' THEN ${p[dim]}`)
+      .join(" ") +
+    " ELSE 0 END";
+  const tokens =
+    `${e("tokens.input")} * ${px(0)} + ` +
+    `(${e("tokens.output")} + COALESCE(${e("tokens.reasoning")},0)) * ${px(1)} + ` +
+    `${e("tokens.cache.read")} * ${px(2)}`;
+  return (
+    `CASE WHEN ${e("providerID")}='proxyapi' THEN (${tokens})/1e6 ` +
+    `ELSE ${e("cost")} * ${USD_RUB} END`
+  );
+};
+
 // Файл идеи — это `…/docs/gamedesign/ideas/<имя>.md`.
 const IDEA_RE = /[\\/]docs[\\/]gamedesign[\\/]ideas[\\/][^\\/]+\.md$/i;
 // Дата-названные файлы (2026-09-25_…) не склеиваются — ключ = полное имя.
@@ -71,7 +103,7 @@ export function createIdeas({ dbPath, project = "Zorion", cachePath = null, refr
   const dayAgg = db.prepare(
     `SELECT session_id id,
             strftime('%Y-%m-%d', time_created/1000, 'unixepoch', 'localtime') day,
-            COUNT(*) turns, SUM(json_extract(data,'$.cost')) cost,
+            COUNT(*) turns, SUM(${COST("data")}) cost,
             SUM(json_extract(data,'$.tokens.input')) tok_in,
             SUM(json_extract(data,'$.tokens.output')) tok_out,
             SUM(json_extract(data,'$.tokens.cache.read')) tok_cache,
@@ -89,7 +121,7 @@ export function createIdeas({ dbPath, project = "Zorion", cachePath = null, refr
   );
   const dayAggOfSession = db.prepare(
     `SELECT strftime('%Y-%m-%d', time_created/1000, 'unixepoch', 'localtime') day,
-            COUNT(*) turns, SUM(json_extract(data,'$.cost')) cost,
+            COUNT(*) turns, SUM(${COST("data")}) cost,
             SUM(json_extract(data,'$.tokens.input')) tok_in,
             SUM(json_extract(data,'$.tokens.output')) tok_out,
             SUM(json_extract(data,'$.tokens.cache.read')) tok_cache,

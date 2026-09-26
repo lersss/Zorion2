@@ -22,6 +22,10 @@ const todayNoon = new Date(new Date().setHours(12, 0, 0, 0)).getTime();
 const yesterdayNoon = todayNoon - 24 * 3600 * 1000;
 const todayMidnight = new Date(new Date().setHours(0, 0, 0, 0)).getTime();
 
+// Курс go/zen в рублях (как DASH_USD_RUB по умолчанию). Тестовые сообщения —
+// это go/zen, их цена = cost × R.
+const R = 129;
+
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-dash-ideas-"));
 const dbPath = path.join(dir, "fake.db");
 const db = new DatabaseSync(dbPath);
@@ -44,7 +48,7 @@ const message = (id, sessionID, at, cost) =>
       sessionID,
       at,
       at,
-      JSON.stringify({ role: "assistant", cost, tokens: { input: 1, output: 1, cache: { read: 0 } } })
+      JSON.stringify({ role: "assistant", cost, providerID: "opencode-go", modelID: "deepseek-v4.1-flash", tokens: { input: 1, output: 1, cache: { read: 0 } } })
     );
 let partNo = 0;
 const filePart = (sessionID, tool, filePath) =>
@@ -124,10 +128,10 @@ check("дата-названные не схлопнулись в «2026»", !al
 
 check("склейка семей: у линии 96 несколько файлов", line("96").files.length === 3, JSON.stringify(line("96").files));
 check("название линии — номер и число файлов", /^№96 · 3 файла$/.test(line("96").label), line("96").label);
-check("цена линии 96 = дерево целиком", line("96").cost === 3, JSON.stringify(line("96").cost));
+check("цена линии 96 = дерево целиком", line("96").cost === 3 * R, JSON.stringify(line("96").cost));
 check("в линии 96 видны роли", line("96").agents.join(",") === "developer,manager", line("96").agents.join(","));
-check("цена линии 100 = свои сессии + смесь", line("100").cost === 5, JSON.stringify(line("100").cost));
-check("цена дата-линии", line("2026-09-25_идея-один").cost === 0.25, JSON.stringify(line("2026-09-25_идея-один").cost));
+check("цена линии 100 = свои сессии + смесь", line("100").cost === 5 * R, JSON.stringify(line("100").cost));
+check("цена дата-линии", line("2026-09-25_идея-один").cost === 0.25 * R, JSON.stringify(line("2026-09-25_идея-один").cost));
 
 // Приоритет созданного файла: у «Смеси» по одному файлу в 96 и 100, создан в 100.
 const mix = line("100").sessionRows.find((s) => s.id === "smix");
@@ -139,25 +143,25 @@ check("разрез по ролям внутри линии 100", line("100").by
 
 check("непривязанное дерево видно", all.unattached.some((u) => u.label === "Разговор без идеи"), JSON.stringify(all.unattached.map((u) => u.label)));
 const un = all.unattached.find((u) => u.label === "Разговор без идеи");
-check("в непривязанном цена сохранена", un.cost === 1.5, JSON.stringify(un?.cost));
+check("в непривязанном цена сохранена", un.cost === 1.5 * R, JSON.stringify(un?.cost));
 check("текст с упоминанием файла идеи не привязывает сессию", !all.lines.some((l) => l.sessionRows.some((s) => s.id === "sun")), JSON.stringify(all.lines.map((l) => l.sessionRows.map((s) => s.id))));
 
 check("сумма линий и непривязанных = общая цена", Math.abs(all.totals.attributed + all.totals.unattached - all.totals.cost) < 1e-9, JSON.stringify(all.totals));
-check("общая цена сходится с суммой сообщений", all.totals.cost === 9.75, JSON.stringify(all.totals));
+check("общая цена сходится с суммой сообщений", all.totals.cost === 9.75 * R, JSON.stringify(all.totals));
 
 // Нарезка цены по периоду: вчерашние траты не попадают в «сегодня».
 const today = store.report({ since: todayMidnight });
-check("нарезка по периоду: линия 100 сегодня без вчерашних денег", today.lines.find((l) => l.key === "100").cost === 2, JSON.stringify(today.lines.find((l) => l.key === "100")?.cost));
-check("нарезка по периоду: линия 96 не изменилась", today.lines.find((l) => l.key === "96").cost === 3);
-check("нарезка по периоду: общая цена только за сегодня", today.totals.cost === 6.75, JSON.stringify(today.totals.cost));
-check("нарезка по периоду: непривязанные тоже режутся", today.totals.unattached === 1.5, JSON.stringify(today.totals.unattached));
+check("нарезка по периоду: линия 100 сегодня без вчерашних денег", today.lines.find((l) => l.key === "100").cost === 2 * R, JSON.stringify(today.lines.find((l) => l.key === "100")?.cost));
+check("нарезка по периоду: линия 96 не изменилась", today.lines.find((l) => l.key === "96").cost === 3 * R);
+check("нарезка по периоду: общая цена только за сегодня", today.totals.cost === 6.75 * R, JSON.stringify(today.totals.cost));
+check("нарезка по периоду: непривязанные тоже режутся", today.totals.unattached === 1.5 * R, JSON.stringify(today.totals.unattached));
 
 // Кэш: повторный проход берёт привязку из файла, цифры те же.
 check("кэш привязки записан", fs.existsSync(cachePath));
 const store2 = createIdeas({ dbPath, project: "Zorion", cachePath, refreshGapMs: 0 });
 const again = store2.report({});
 check("из кэша линии те же", again.lines.map((l) => l.key).sort().join(",") === all.lines.map((l) => l.key).sort().join(","), JSON.stringify(again.lines.map((l) => l.key)));
-check("из кэша цена та же", again.totals.cost === 9.75, JSON.stringify(again.totals));
+check("из кэша цена та же", again.totals.cost === 9.75 * R, JSON.stringify(again.totals));
 
 // Догрузка изменившейся сессии: новая правка идеи подхватывается без полного прохода.
 const w = new DatabaseSync(dbPath);
@@ -173,6 +177,19 @@ w.prepare("UPDATE session SET time_updated=? WHERE id='sdate'").run(todayNoon + 
 w.close();
 const after = store2.report({});
 check("изменившаяся сессия перечитана и получила новую семью", after.lines.some((l) => l.key === "2026-09-25_идея-один" && l.also.some((x) => x.startsWith("77a"))), JSON.stringify(after.lines.find((l) => l.key === "2026-09-25_идея-один")?.also));
+
+// Валютный учёт proxyapi (как в stats.mjs): из токенов по рублёвой таблице,
+// токены рассуждения — по цене выхода. Дерево без файлов идей — непривязанное.
+const w2 = new DatabaseSync(dbPath);
+w2.prepare("INSERT INTO session VALUES (?,?,?,?,0,?,?,?)").run("sproxy", null, "manager", "Proxy-идея", todayNoon, todayNoon, "C:\\Zorion2");
+// (1000*20 + (2000+3000)*65)/1M = 0.345 → 0.35
+w2.prepare("INSERT INTO message VALUES (?,?,?,?,?)").run("mproxy", "sproxy", todayNoon, todayNoon, JSON.stringify({ role: "assistant", cost: 0, providerID: "proxyapi", modelID: "qwen/qwen3.8-flash", tokens: { input: 1000, output: 2000, reasoning: 3000, cache: { read: 0 } } }));
+w2.close();
+const store3 = createIdeas({ dbPath, project: "Zorion", cachePath: path.join(dir, "cur.json"), refreshGapMs: 0 });
+const cur = store3.report({});
+const proxyLine = cur.unattached.find((u) => u.label === "Proxy-идея");
+check("proxyapi: цена идеи считается из токенов с рассуждением как выходом", Math.abs((proxyLine?.cost || 0) - 0.35) < 1e-9, JSON.stringify(proxyLine?.cost));
+store3.close();
 
 store.close();
 store2.close();

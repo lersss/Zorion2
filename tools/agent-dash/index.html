@@ -172,7 +172,7 @@
         deltas: new Map(),
       };
 
-      const money = (v) => "$" + (v < 10 ? v.toFixed(2) : v.toFixed(1));
+      const money = (v) => (v < 10 ? v.toFixed(2) : v.toFixed(1)) + " ₽";
       const tok = (v) => (v >= 1e6 ? (v / 1e6).toFixed(1) + "M" : v >= 1000 ? Math.round(v / 1000) + "k" : String(v || 0));
       const when = (ms) => {
         if (!ms) return "—";

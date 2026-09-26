@@ -172,7 +172,10 @@
         deltas: new Map(),
       };
 
-      const money = (v) => (v < 10 ? v.toFixed(2) : v.toFixed(1)) + " ₽";
+      // Одна и та же функция, что на вкладке «Идеи» (ideas.js, `money`): те же
+      // символ и то же округление, иначе сумма строк «Идей» не сходится с общей
+      // карточкой (хвост №67). Два знака после запятой.
+      const money = (v) => (Number(v) || 0).toFixed(2) + " ₽";
       const tok = (v) => (v >= 1e6 ? (v / 1e6).toFixed(1) + "M" : v >= 1000 ? Math.round(v / 1000) + "k" : String(v || 0));
       const when = (ms) => {
         if (!ms) return "—";

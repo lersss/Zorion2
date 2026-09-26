@@ -386,8 +386,6 @@ export function createIdeas({ dbPath, project = "Zorion", cachePath = null, refr
 
     const lines = new Map();
     const unattached = [];
-    let attrCost = 0;
-    let unattachedCost = 0;
     let totalSessions = 0;
 
     for (const root of sessions) {
@@ -426,11 +424,9 @@ export function createIdeas({ dbPath, project = "Zorion", cachePath = null, refr
 
       // Дерево без затронутых файлов идей → «Непривязанные» (деньги не теряем).
       if (!fams.size) {
-        unattachedCost += treeCost;
         unattached.push(makeUnattached(root, treeAct, treeCost));
         continue;
       }
-      attrCost += treeCost;
 
       // Семья с максимумом затронутых файлов; при равенстве — где файл создан.
       let best = null;
@@ -479,15 +475,23 @@ export function createIdeas({ dbPath, project = "Zorion", cachePath = null, refr
 
     if (cacheDirty) saveCache();
 
+    // Итоги — суммами ПОКАЗАННЫХ значений. Строки и непривязанные деревья
+    // печатаются с округлением до копеек (round в cost), поэтому итог считаем
+    // сложением уже округлённых чисел: иначе на экране сумма строк не равна
+    // карточке «Цена идей» (хвост №67, находка прогона @tester 2026-09-27).
+    // Каждое дерево входит ровно в одну линию, поэтому attributed = Σ строк.
+    const attributed = round(lineList.reduce((a, l) => a + l.cost, 0));
+    const unattachedTotal = round(unattached.reduce((a, u) => a + u.cost, 0));
+
     return {
       generatedAt: Date.now(),
       project,
       since,
       sinceDay,
       totals: {
-        cost: round(attrCost + unattachedCost),
-        attributed: round(attrCost),
-        unattached: round(unattachedCost),
+        cost: round(attributed + unattachedTotal),
+        attributed,
+        unattached: unattachedTotal,
         lines: lineList.length,
         unattachedTrees: unattached.length,
         sessions: totalSessions,

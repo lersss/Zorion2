@@ -153,6 +153,50 @@ async function main() {
         }
       }
 
+      // --- подлёдные БЕЗ арок: нырок в полынье → выход на лёд/сушу пешком (хвост №84) ---
+      // Пробо-мир без 2D-форм (каменных арок): в обычном мире арки уводят игрока по
+      // верху плиты, в воду он сам не попадает, и «подо льдом пешком» недостижимо
+      // (замер @tester 2026-09-27). Здесь игрок ныряет в полынье и обязан выйти.
+      {
+        const noforms = JSON.parse(JSON.stringify(bv['подлёдные_океаны']));
+        noforms.view.relief = { ...(noforms.view.relief || {}), forms: [] };
+        const w = mk(noforms, 424242);
+        const iceWindow = (from = 8, to = 40000) => {
+          let a = -1;
+          for (let x = from; x < to; x++) {
+            if (w.polynyaAt(x)) { if (a < 0) a = x; }
+            else if (a >= 0) return { a, b: x - 1, mid: (a + x - 1) / 2 };
+          }
+          return null;
+        };
+        const shoreDir = (x) => {
+          let r = -1, l = -1;
+          for (let i = Math.floor(x) + 1; i < 40000; i++) if (!w._liquidCol(i)) { r = i; break; }
+          for (let i = Math.floor(x) - 1; i >= 0; i--) if (!w._liquidCol(i)) { l = i; break; }
+          if (r >= 0 && l < 0) return 1;
+          if (l >= 0 && r < 0) return -1;
+          return r - x <= x - l ? 1 : -1;
+        };
+        const win = iceWindow();
+        const lv = w.liquidLevel(win.mid);
+        const dir = shoreDir(win.mid);
+        const p = new Player(w, 1);
+        p.x = win.mid; p.vx = 0; p.vy = 0; p.onGround = false; p.y = lv - 50;
+        let entered = false;
+        for (let i = 0; i < 400; i++) { p.update(1 / 60, NO); if (w.liquidAt(p.x, p.y) !== '') { entered = true; break; } }
+        const onIce = () => p.onGround && w.crustAt(p.x, p.y + p.h / 2 + 1.5);
+        const onLand = () => p.onGround && !w._liquidCol(Math.floor(p.x)) && !w.crustAt(p.x, p.y + p.h / 2 + 1.5);
+        let iceAt = -1, landAt = -1, iceX = 0, landX = 0;
+        for (let i = 0; i < 60 * 90; i++) {
+          const inLiq = w.liquidAt(p.x, p.y) !== '';
+          p.update(1 / 60, { ...NO, jump: inLiq, [dir > 0 ? 'right' : 'left']: true });
+          if (iceAt < 0 && onIce()) { iceAt = i; iceX = p.x; }
+          if (landAt < 0 && onLand()) { landAt = i; landX = p.x; break; }
+        }
+        res.iceEnterNoForms = entered; res.iceWin = win; res.iceDir = dir;
+        res.iceOnIceAt = iceAt; res.iceIceX = iceX; res.iceLandAt = landAt; res.iceLandX = landX;
+      }
+
       return res;
     }, Object.fromEntries(views.map((v) => [v.id, v])));
 
@@ -167,7 +211,12 @@ async function main() {
       `throw=${out.frontUnder.threw || 'нет'} paintedUnder=${out.frontUnder.painted} paintedAbove=${out.frontAbove.painted} headUnder=${out.headUnderProbe}`);
     report('W6 подлёдные: вход через полынью (liquidAt под коркой)', out.iceEnter === true,
       `px=${out.icePx} y=${Number(out.iceY).toFixed(1)} lv=${Number(out.iceLv).toFixed(1)}`);
-    report('W7 0 pageerror', pageErrors.length === 0, pageErrors.slice(0, 2).join(' | '));
+    report('W7 подлёдные без арок: нырок в полынье → выход на лёд и сушу пешком (без лодки)',
+      out.iceEnterNoForms === true && out.iceLandAt >= 0,
+      `вход=${out.iceEnterNoForms} окно=[${out.iceWin.a}..${out.iceWin.b}] dir=${out.iceDir > 0 ? '+' : '-'} ` +
+      `лёд@${out.iceOnIceAt < 0 ? 'нет' : (out.iceOnIceAt / 60).toFixed(2) + 'с'} ` +
+      `суша@${out.iceLandAt < 0 ? 'нет' : (out.iceLandAt / 60).toFixed(2) + 'с x=' + out.iceLandX.toFixed(1)}`);
+    report('W8 0 pageerror', pageErrors.length === 0, pageErrors.slice(0, 2).join(' | '));
   } finally {
     await browser.close();
   }

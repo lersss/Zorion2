@@ -305,13 +305,15 @@ SurfaceWorld.prototype._fullFieldProbe = function() {
     probe._stage2Active = true;
     // Кэши — ЛОКАЛЬНЫЕ (объект-прототип не должен писать в мемо мира): probe
     // подменяет `terrainHeight` сеткой, а `liquidAt`/`liquidLevel` физики (ЧК6.2)
-    // пишут в `_liqColMemo`/`_basinMemo`; общий мемо получал бы значения чужой
+    // пишут в `_liqColMemo`/`_basinMemo`/`_polyMemo`; общий мемо получал бы значения чужой
     // сетки (дефект порядка запросов колонок, `_LIQUID` недетерминирован).
     probe._formSupport = null;
     probe._liqColMemo = null;
     probe._basinMemo = null;
+    probe._polyMemo = null;
     return probe;
-};
+}
+;
 
     // _probeFor — probe-мир выходимости: ТОЛЬКО один инстанс формы, без фильтра
     // (`_skipEscape`). Исходный индекс формы (`_fi`) переносится явно, чтобы соль
@@ -327,8 +329,10 @@ SurfaceWorld.prototype._probeFor = function(fi, f, inst) {
     probe._formSupport = null;
     probe._liqColMemo = null;
     probe._basinMemo = null;
+    probe._polyMemo = null;
     return probe;
-};
+}
+;
 
     // _simulateEscape — выходимость инстанса (§3.6): probe-мир с ТОЛЬКО этим
     // инстансом (плюс прочие формы рецепта, `_skipEscape`), реальная физика Player

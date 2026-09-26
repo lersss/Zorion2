@@ -105,9 +105,15 @@ function wetColumns(w, from, to, step = 1) {
     const w = mkWorld('подлёдные_океаны');
     check('L4a underIce: режим underIce, корка активна', w.liquid.level.mode === 'underIce' && w._liquidCrust === true);
     const lv = w.liquidLevel(0);
-    // Первая колонка с коркой.
+    // Первая колонка с ПЛАВУЮЧЕЙ коркой (под плитой — вода). Село лёд на дно — другое
+    // состояние той же колонки (хвост №84: просвет подо льдом либо 0, либо ≥ роста),
+    // его проверяет S15a в surface-swim-check.mjs; здесь берём колонку, где модель
+    // «плита над водой» не менялась, чтобы L4c–L4g держали исходный смысл.
     let crustX = -1;
-    for (let x = 0; x < 6000; x++) if (w.crustTop(x) !== null) { crustX = x; break; }
+    for (let x = 0; x < 6000; x++) {
+        if (w.crustTop(x) === null) continue;
+        if (w.crustBottom(x) < w.bedY(x)) { crustX = x; break; }
+    }
     check('L4b underIce: корка есть на затопленной колонке', crustX >= 0, `x=${crustX}`);
     if (crustX >= 0) {
         const top = w.crustTop(crustX);

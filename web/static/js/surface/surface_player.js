@@ -41,6 +41,23 @@ export class Player {
         return this.world.solidAt(px, py);
     }
 
+    // _ascendSpeed — скорость всплытия «прыжком» в жидкости (§6.1). Под коркой
+    // `underIce` штатного ASCEND_SPEED не хватает, чтобы выйти из полыньи на лёд:
+    // баллистический подъём ≈13 px < толщины корки `iceH` (26 px), кромка выше
+    // головы — выхода пешком нет (замер @tester 2026-09-27, хвост №84). Поэтому в
+    // подлёдной воде прыжок подбирается под высоту корки и гравитацию планеты так,
+    // чтобы центр поднялся над зеркалом на `iceH + h` (перескок плиты с запасом):
+    // `v = √(2·g·(iceH + h + запас))` — вершина подъёма не зависит от g (на тяжёлых
+    // планетах прыжок сильнее, подъём тот же).
+    // Вне `underIce` — прежнее ASCEND_SPEED, прочие биомы не затронуты (§9 п.17).
+    _ascendSpeed() {
+        const L = this.world.liquid;
+        if (!L || !L.level || L.level.mode !== 'underIce') return ASCEND_SPEED;
+        const iceH = L.level.iceH || 0;
+        const rise = iceH + this.h + 8;   // корка + рост игрока + запас на бокс
+        return Math.sqrt(2 * this.gravity * PPM * rise);
+    }
+
     // Угловая коллизия (§5 п.4): выборка бокса w×h углами + центром вместо
     // точечной пробы. Числа (PPM/скорости/гравитация/w/h) не меняются — меняется
     // только выборка. SKIN — микро-отступ боковых проб, чтобы корпус, стоящий
@@ -118,7 +135,7 @@ export class Player {
                 let a = G;
                 if (!this.onGround) a += BUOY_K * (this.world.floatY(this.x) - this.y) - BUOY_DAMP * this.vy;
                 this.vy += a * dt;
-                if (input.jump) this.vy = -ASCEND_SPEED;
+                if (input.jump) this.vy = -this._ascendSpeed();
             }
             if (this.vy > SWIM_TERM) this.vy = SWIM_TERM;
             else if (this.vy < -SWIM_TERM) this.vy = -SWIM_TERM;

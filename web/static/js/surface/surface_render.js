@@ -111,7 +111,8 @@ function mixHex(a, b, t) {
 // Тело `[liquidLevel, liquidLevel+depth]` полупрозрачно; глубже — плотнее (цвет
 // тянется к `fog.color`, α к `fog.alpha`) — так читается глубина. Корка underIce
 // — непрозрачная плита `[lv−iceH, lv]` над зеркалом (вне полыней), часть слоя
-// земли. Глубинный градиент ниже тонирует и воду (source-atop).
+// земли. Глубинный градиент ниже тонирует и воду (source-atop). Низ плиты —
+// `crustBottom`: плавучий лёд кончается зеркалом, севший на дно — дном.
 function drawLiquidBody(ctx, world, baseX, topY) {
     const L = world.liquid;
     if (!L) return;
@@ -136,10 +137,11 @@ function drawLiquidBody(ctx, world, baseX, topY) {
         for (let lx = 0; lx <= CHUNK; lx++) {
             const top = world.crustTop(baseX + lx);
             if (top === null) continue;
-            const c = world._liquidCol(baseX + lx);
-            if (!c) continue;
+            // Низ плиты — `crustBottom`: у севшего на дно льда он равен `bedY`, и
+            // плита закрывает мелководье (воду сверху уже нарисовали, лёд её кроет).
+            const bot = world.crustBottom(baseX + lx);
             const y0 = Math.max(0, Math.floor(top - topY));
-            const y1 = Math.min(CHUNK_HEIGHT - 1, Math.floor(c.lv - topY));
+            const y1 = Math.min(CHUNK_HEIGHT - 1, Math.floor(bot - topY));
             if (y1 >= y0) ctx.fillRect(lx, y0, 1, y1 - y0 + 1);
         }
     }

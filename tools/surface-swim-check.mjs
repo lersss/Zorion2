@@ -303,9 +303,17 @@ const NO = { left: false, right: false, jump: false, sprint: false, down: false 
 }
 
 // ==================== S13: подлёдное запирание (seed 777001, §6.6) ====================
-// Регресс BUG-1: нырок в полынье → под коркой → игрок НЕ запирается (проходит прежний
-// лок x≈966.3) и может вернуться в полынь (выход есть, §3.2/§6.6). До фикса головы
-// в твёрдом `_blockedX` запирал бокс, а `_blockedUp` при `vy ≥ 0` не срабатывал.
+// Регресс BUG-1: нырок в полынье → под коркой → игрок НЕ запирается и может вернуться
+// в полынь (выход есть, §3.2/§6.6). До фикса головы в твёрдом `_blockedX` запирал бокс,
+// а `_blockedUp` при `vy ≥ 0` не срабатывал.
+//
+// ПОЧЕМУ УШЛО ОЖИДАНИЕ `xRight > 972` (хвост №84): оно кодировало ПРОХОДИМОСТЬ
+// мелководья — «игрок проплывает мимо прежнего лока 966.3», т.е. что подо льдом есть
+// щель уже габарита. По решению создателя такой щели не бывает: там, где воды под
+// коркой меньше `LIQUID_ICE_CLEAR_MIN`, лёд САДИТСЯ НА ДНО и прохода нет вовсе
+// (твёрдая плита до дна), поэтому упереться в лёд штатно — не запирание. Инвариант
+// §6.6 остаётся и проверяется: выход через полынью есть, и под коркой игрок нигде не
+// остаётся в полосе уже роста (обе стороны заблокированы быть не могут).
 {
     const w = mkWorld('подлёдные_океаны', { seed: 777001 });
     let px = -1;
@@ -320,11 +328,12 @@ const NO = { left: false, right: false, jump: false, sprint: false, down: false 
     sim(p, { ...NO, down: true }, 200);
     for (let i = 0; i < 2400; i++) p.update(1 / 60, { ...NO, down: true, right: true });
     const xRight = p.x;
+    const gapRight = underIceGap(w, xRight);
     for (let i = 0; i < 2400; i++) p.update(1 / 60, { ...NO, down: true, left: true });
     const backExit = w.polynyaAt(p.x) || w.liquidAt(p.x, p.y) !== '';
     check('S13 underIce seed 777001: под коркой не запирается, выход через полынью',
-        xRight > 972 && backExit,
-        `polyX=${px} -> right=${xRight.toFixed(1)} (прежний лок 966.3) -> back=${p.x.toFixed(1)} poly=${w.polynyaAt(p.x)} inLiq=${w.liquidAt(p.x, p.y)}`);
+        backExit && (gapRight === 0 || gapRight >= PLAYER_H),
+        `polyX=${px} -> right=${xRight.toFixed(1)} (просвет ${gapRight} px: 0 = лёд на дне) -> back=${p.x.toFixed(1)} poly=${w.polynyaAt(p.x)} inLiq=${w.liquidAt(p.x, p.y)}`);
 }
 
 // ==================== S14: независимость от порядка запросов колонок (OBS-1) ====================
@@ -357,6 +366,246 @@ const NO = { left: false, right: false, jump: false, sprint: false, down: false 
     }
     check('S14 liquidAt/liquidDepth/bedY не зависят от порядка запросов колонок',
         bad === 0, firstDiff || 'чисто (прогрев соседа не меняет колонку)');
+}
+
+// ==================== S15: подлёдная щель уже габарита (хвост №84) ====================
+// Инвариант: под коркой подлёдной колонки свободно по вертикали либо 0 (лёд сел на
+// дно — мелководье, входа нет), либо ≥ PLAYER_H (реально проходимо). Промежуточных
+// значений быть не может: в щели уже роста игрок переходит в режим плавания, но
+// бокс (28 px) не проходит ни в одну сторону — колонка-ловушка. Проверяем на
+// нескольких seed и по двум входам: полынья (вход под лёд) и сама корка.
+//
+// Все измерения — по ПУБЛИЧНОМУ API (crustTop/crustAt/bedY/liquidLevel/polynyaAt),
+// чтобы тетст не зависел от внутренних кэшей колонок.
+const ICE_SEEDS = [777001, 424242, 991];
+const ICE_SAMPLE = 3000;   // px колонок от x=0 (шаг 1)
+
+// _freeRows — сколько ЦЕЛЫХ px между `lo` (низ льда/зеркала) и `hi` (дно) свободно.
+// Бокс игрока меряется целыми px, поэтому и полосу меряем целыми: дробный остаток дна
+// (0.37 px) не «просвет» — иначе севший на дно лёд дал бы «щель 0.37 px».
+function _freeRows(lo, hi) {
+    return Math.max(0, Math.ceil(hi) - 1 - Math.floor(lo));
+}
+// iceGap — свободная по вертикали полоса под коркой: px между низом льда и `bedY`.
+// null — колонка без корки (полынья/мелководье без льда), там полосу меряет
+// underIceGap. 0 — лёд сел на дно.
+function iceGap(w, x) {
+    const top = w.crustTop(x);
+    if (top === null) return null;
+    const bd = w.bedY(x);
+    let bot = null;
+    for (let y = Math.floor(top); y <= bd; y++) if (w.crustAt(x, y)) bot = y;
+    return bot === null ? 0 : _freeRows(bot, bd);
+}
+// underIceGap — та же полоса для ЛЮБОЙ колонки underIce: под полыньей льда нет,
+// значит низ «льда» = зеркало, полоса = глубина воды от зеркала до дна.
+function underIceGap(w, x) {
+    if (w.crustTop(x) !== null) return iceGap(w, x);
+    if (w.polynyaAt(x)) return _freeRows(w.liquidLevel(x), w.bedY(x));
+    return 0;
+}
+
+// S15a — под коркой нет щели уже габарита игрока.
+{
+    let cols = 0, bad = 0, shallow = 0, worst = null;
+    for (const seed of ICE_SEEDS) {
+        const w = mkWorld('подлёдные_океаны', { seed });
+        for (let x = 0; x < ICE_SAMPLE; x++) {
+            if (w.crustTop(x) === null) continue;
+            const g = iceGap(w, x);
+            cols++;
+            if (g > 0 && g < PLAYER_H) shallow++;   // ровно эти колонки меняет фикс
+            if (g !== 0 && g < PLAYER_H) {
+                bad++;
+                if (!worst || g < worst.g) worst = { seed, x, g };
+            }
+        }
+    }
+    check('S15a underIce: под коркой просвет 0 или ≥ PLAYER_H (щели-ловушки нет)',
+        bad === 0,
+        `колонок с коркой=${cols}, промежуточных (0<g<${PLAYER_H})=${bad} [станет лёд на дне: ${shallow}]` +
+        (worst ? `, худшая seed${worst.seed}/x${worst.x}: ${worst.g.toFixed(1)} px` : ''));
+}
+
+// S15b — полынья засчитывается только над проходимой водой: окно без льда, где воды
+// меньше габарита, — не вход под лёд, а яма (в воде прыжок запрещён — из неё не
+// выбраться), а при сухом дне — сухая дыра в плите.
+{
+    let cols = 0, bad = 0, worst = null;
+    for (const seed of ICE_SEEDS) {
+        const w = mkWorld('подлёдные_океаны', { seed });
+        for (let x = 0; x < ICE_SAMPLE; x++) {
+            if (!w.polynyaAt(x)) continue;
+            const g = _freeRows(w.liquidLevel(x), w.bedY(x));
+            cols++;
+            if (g < PLAYER_H) {
+                bad++;
+                if (!worst || g < worst.g) worst = { seed, x, g };
+            }
+        }
+    }
+    check('S15b underIce: полынья только над проходимой водой (≥ PLAYER_H)',
+        bad === 0,
+        `окон полыньи=${cols}, непроходимых=${bad}` +
+        (worst ? `, худшая seed${worst.seed}/x${worst.x}: ${worst.g.toFixed(1)} px` : ''));
+}
+
+// S15c — физика: нырок в полынью и попытка уйти в обе стороны не оставляет игрока в
+// щели уже габарита (состояние «оба направления заблокированы»). Прежний фикс
+// S13 чинит только толчок головой; сама щель оставалась ловушкой.
+{
+    let tries = 0, bad = 0, worst = null;
+    for (const seed of [777001, 424242]) {
+        const w = mkWorld('подлёдные_океаны', { seed });
+        let taken = 0;
+        for (let x = 8; x < 40000 - 8 && taken < 20; x++) {
+            if (!w.polynyaAt(x) || !w._liquidCol(x)) continue;
+            let room = true;
+            for (let d = -7; d <= 7; d++) if (!w.polynyaAt(x + d)) { room = false; break; }
+            if (!room) continue;
+            const p = new Player(w, 1);
+            p.x = x; p.vx = 0; p.vy = 0; p.onGround = false; p.y = w.liquidLevel(x) + 20;
+            sim(p, { ...NO, down: true }, 200);
+            for (let i = 0; i < 2400; i++) p.update(1 / 60, { ...NO, down: true, right: true });
+            for (let i = 0; i < 2400; i++) p.update(1 / 60, { ...NO, down: true, left: true });
+            const g = underIceGap(w, p.x);
+            tries++; taken++;
+            if (g !== 0 && g < PLAYER_H) {
+                bad++;
+                if (!worst || g < worst.g) worst = { seed, x: p.x, g, y: p.y };
+            }
+        }
+    }
+    check('S15c underIce: после нырка и ухода в обе стороны игрок не в щели (оба направления не блокированы)',
+        bad === 0,
+        `полыней проверено=${tries}, застряли в щели=${bad}` +
+        (worst ? `, худшая seed${worst.seed}/x${worst.x.toFixed(1)}: ${worst.g.toFixed(1)} px` : ''));
+}
+
+// ==================== S16: выход из воды на лёд без лодки (хвост №84, §6.6) ====================
+// Спека §6.6: «выход — только через полыньи», проверка e2e — «нырнуть в полынье,
+// проплыть под коркой, ВЫЙТИ в полынью». Значит выход из воды под коркой должен быть
+// без лодки.
+//
+// Замер @tester 2026-09-27: штатное всплытие «прыжком» (ASCEND_SPEED ≈ 2.5 м/с →
+// баллистический подъём ≈13 px) ниже корки `iceH` = 26 px — кромка выше головы,
+// пешком/прыжком из воды не выйти (ловушка). Фикс: в подлёдной воде скорость прыжка
+// подбирается под `iceH` и гравитацию (`Player._ascendSpeed`) — перескок плиты.
+//
+// Пробо-мир БЕЗ 2D-форм: каменные арки уводят игрока по верху плиты, и в воду он сам
+// не попадает (кейс тогда недостижим в обычном мире, замер @tester). Здесь игрок
+// ныряет в полынье и обязан вернуться на лёд/сушу пешком.
+// (кромка-ступень не нужна — см. S16 ниже)
+
+// mkIceNoForms — подлёдный мир БЕЗ 2D-форм (каменных арок): кейс «подо льдом».
+function mkIceNoForms(seed) {
+    const view = resolveView('подлёдные_океаны');
+    view.relief = { ...(view.relief || {}), forms: [] };
+    return mkWorld('подлёдные_океаны', { seed, biome_view: view });
+}
+// iceWindow — границы первого окна полыньи (публичный API `polynyaAt`).
+function iceWindow(w, from = 8, to = 40000) {
+    let a = -1;
+    for (let x = from; x < to; x++) {
+        if (w.polynyaAt(x)) { if (a < 0) a = x; }
+        else if (a >= 0) return { a, b: x - 1, mid: (a + x - 1) / 2 };
+    }
+    return null;
+}
+// shoreDir — сторона, где вода кончается (берег): вода подо льдом до края не
+// доходит — игрок идёт к берегу по пласту/краю.
+function shoreDir(w, x) {
+    let r = -1, l = -1;
+    for (let i = Math.floor(x) + 1; i < 40000; i++) if (!w._liquidCol(i)) { r = i; break; }
+    for (let i = Math.floor(x) - 1; i >= 0; i--) if (!w._liquidCol(i)) { l = i; break; }
+    if (r >= 0 && l < 0) return 1;
+    if (l >= 0 && r < 0) return -1;
+    return r - x <= x - l ? 1 : -1;
+}
+
+// onIce — игрок стоит на льду: опора есть, стопа (+запас на зазор разрешения
+// коллизий) внутри корки. Держать `jump` только пока в воде: иначе на льду
+// срабатывает обычный прыжок и `onGround` гаснет (bunny-hop) — тогда лёд не засечь.
+function onIce(w, p) {
+    return p.onGround && w.crustAt(p.x, p.y + p.h / 2 + 1.5);
+}
+function onLand(w, p) {
+    return p.onGround && !w._liquidCol(Math.floor(p.x)) && !w.crustAt(p.x, p.y + p.h / 2 + 1.5);
+}
+// escapeTrack — из воды в полынье игрок выбирается на лёд и доходит до суши пешком:
+// «плыть к берегу + всплывать» (естественное действие), прыжок — только в воде.
+function escapeTrack(w, g) {
+    const win = iceWindow(w);
+    const lv = w.liquidLevel(win.mid);
+    const dir = shoreDir(w, win.mid);
+    const p = new Player(w, g);
+    p.x = win.mid; p.y = lv + 9; p.vx = 0; p.vy = 0; p.onGround = false;
+    let iceAt = -1, landAt = -1, iceX = 0, landX = 0;
+    for (let i = 0; i < 60 * 90; i++) {
+        const inLiq = w.liquidAt(p.x, p.y) !== '';
+        p.update(1 / 60, { ...NO, jump: inLiq, [dir > 0 ? 'right' : 'left']: true });
+        if (iceAt < 0 && onIce(w, p)) { iceAt = i; iceX = p.x; }
+        if (landAt < 0 && onLand(w, p)) { landAt = i; landX = p.x; break; }
+    }
+    return { win, dir, iceAt, iceX, landAt, landX };
+}
+
+// S16a — из воды под коркой игрок ВЫЛЕЗАЕТ на лёд (без лодки, §6.6).
+{
+    const w = mkIceNoForms(424242);
+    const r = escapeTrack(w, 1);
+    check('S16a underIce: из воды под коркой игрок вылезает на лёд (без лодки)',
+        r.iceAt >= 0,
+        `окно=[${r.win.a}..${r.win.b}] dir=${r.dir > 0 ? '+' : '-'} ` +
+        (r.iceAt < 0 ? 'НЕ ВЫШЕЛ' : `на лёд через ${(r.iceAt / 60).toFixed(2)} с, x=${r.iceX.toFixed(1)}`));
+}
+
+// S16b — с льда игрок доходит до СУШИ пешком (выход из «подо льдом» полный, §6.6).
+{
+    const w = mkIceNoForms(424242);
+    const r = escapeTrack(w, 1);
+    check('S16b underIce: выйдя на лёд, игрок доходит до суши пешком (без лодки)',
+        r.landAt >= 0,
+        `лёд через ${r.iceAt < 0 ? 'НЕ ВЫШЕЛ' : (r.iceAt / 60).toFixed(2) + ' с'}, ` +
+        `суша через ${r.landAt < 0 ? 'НЕ ДОШЁЛ' : (r.landAt / 60).toFixed(2) + ' с'}, x=${r.landX.toFixed(1)}`);
+}
+
+// S16c — выход на сушу пешком не зависит от гравитации планеты (клип 0.2–2.5 g):
+// прыжок в воде подобран под `g`, иначе на тяжёлых планетах подъём короче корки.
+{
+    const rows = [];
+    let bad = 0;
+    for (const g of [0.2, 1, 2.5]) {
+        const w = mkIceNoForms(424242);
+        const r = escapeTrack(w, g);
+        rows.push(`g=${g}: ${r.iceAt < 0 ? 'лёд НЕ ВЫШЕЛ' : 'лёд@' + (r.iceAt / 60).toFixed(2) + 'с'}/${r.landAt < 0 ? 'суша НЕ ДОШЁЛ' : 'суша@' + (r.landAt / 60).toFixed(2) + 'с'}`);
+        if (r.landAt < 0) bad++;
+    }
+    check('S16c underIce: выход на сушу пешком не зависит от гравитации (0.2/1/2.5 g)',
+        bad === 0, rows.join('; '));
+}
+
+// S16d — замер высоты: прыжок в полынье поднимает стопы ВЫШЕ верха корки (иначе
+// выхода нет). Числа для отчёта: `iceH`, подъём от зеркала.
+{
+    const w = mkIceNoForms(424242);
+    const win = iceWindow(w);
+    const lv = w.liquidLevel(win.mid);
+    const top = w.crustTop(win.a - 5);   // верх корки рядом с окном полыньи
+    const p = new Player(w, 1);
+    p.x = win.mid; p.y = lv + 9; p.vx = 0; p.vy = 0; p.onGround = false;
+    let minY = p.y;
+    for (let i = 0; i < 300; i++) {
+        const inLiq = w.liquidAt(p.x, p.y) !== '';
+        p.update(1 / 60, { ...NO, jump: inLiq });
+        if (p.y < minY) minY = p.y;
+    }
+    const feetApex = minY + p.h / 2;
+    check('S16d underIce: стопы на всплытии поднимаются выше верха корки (выход возможен)',
+        feetApex < top,
+        `lv=${lv.toFixed(0)} верх корки=${top.toFixed(0)} (iceH=${(lv - top).toFixed(0)} px); ` +
+        `стопы на всплытии=${feetApex.toFixed(1)} — на ${(top - feetApex).toFixed(1)} px выше кромки, ` +
+        `подъём от зеркала=${(lv - feetApex).toFixed(1)} px`);
 }
 
 const failed = results.filter((r) => !r.ok);

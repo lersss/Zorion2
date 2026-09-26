@@ -63,6 +63,7 @@ export class SurfaceWorld {
         this._liquidCrust = !!this.liquid && this.liquid.level.mode === 'underIce';
         this._liqColMemo = null;
         this._basinMemo = null;
+        this._polyMemo = null;
         // Стартовая колонка (ЧК6.2 §6.2) не считается здесь: расчёт дорог (форма,
         // fbm) и не должен попадать в стоимость генерации чанка. `spawnX`/`spawnY`
         // — ленивые геттеры (мемо); probe-миры выходят из `ensureSpawn` дёшево.

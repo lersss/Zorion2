@@ -1,11 +1,18 @@
 # Реестр каскадных влияний — индекс
 
-> Компактный обзор docs/impact_map.json (147 сущностей, ~1030 связей, ~348 КБ — целиком НЕ читать). Вопрос реестра: «меняем X → смотрим на Y». Ведёт @manager при сдаче фич (идея 83a); валидатор — scripts/check_impact_map.ps1 после каждого коммита.
+> Компактный обзор docs/impact_map.json (155 сущностей, ~1050 связей, ~365 КБ — целиком НЕ читать). Вопрос реестра: «меняем X → смотрим на Y». Ведёт @manager при сдаче фич (идея 83a); валидатор — scripts/check_impact_map.ps1 после каждого коммита.
 
 **Как читать:** нужна сущность — ищи её id/path в docs/impact_map.json через grep (одна сущность + её impacts[], ~1–3 КБ), целиком json не читай. Связанные сущности — по on-ссылкам (id или путь).
 
 | id | path | что это |
 |---|---|---|
+| accelerator | internal/ship/accelerator.go | модуль-ускоритель корабля (§3.1): тип `accelerator`, выделенный слот, `params.game/cooldown_min/min_remaining_*`; в v9 награду задаёт кривая модели (`bonus_max`/`AcceleratorBonus` не участвуют) |
+| player_accelerator | db:player_accelerator | состояние отката ускорителя (000089): `last_boost_at`/`last_cooldown_min`; переживает рестарт, НЕ в truncateTables |
+| player_route_puzzle | db:player_route_puzzle | сегментная задача мини-игры v9 (000091): `secret`/`layout`/`revealed`/`pings_left`/`segment_hash`; клиенту не отдаётся, НЕ в truncateTables |
+| route_game | internal/routegame/ | игра «Прокладка маршрута» v9: поле 10×10, объекты, секторы σ, разведка импульсом, оценка пути и бонус (может быть отрицательным); клиент `web/route.html` + `web/static/js/route/*` |
+| route_breakdown | internal/routegame/grid_explain.go | разбор по факторам (§14.13): `ExplainGridPath` (16 ошибок + gain/neutral), аддитивное поле `breakdown` в ответе `boost`, не влияет на `bonus`, до отправки не отдаётся |
+| travel_passport | internal/routegame/passport.go | паспорт перелёта (§5): производная из открытых данных (дальность, класс/тип/температура концов, пояса); задаёт сложность поля |
+| travel_boost | internal/travel/manager.go | серверное ускорение: `BoostFlight` перебазирует сегмент (новая точка старта/остаток), одно ускорение на сегмент, сброс при развороте/прибытии; списывает откат |
 | race_lore.json | config/race_lore.json | лор рас (86a §5.1.1): старые поля character/how_live/why/coexistence/origin + новые поля карточки 99.2.26 (kind/niche/size_indi… |
 | races.json | config/races.json | каталог 60 рас (50 био + 10 роботов): окна opt/surv, атрибуты, потребление 13 осей, forage, home, bulge |
 | race_balancer.json | config/race_balancer.json | R-кривые рас: factory (снимок из карточки) + active (настроенная), card_hash; env RACE_BALANCER_FILE |

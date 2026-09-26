@@ -4,6 +4,77 @@
   "updated_at": "2026-09-26",
   "entities": [
     {
+      "id": "accelerator",
+      "type": "mechanic",
+      "path": "internal/ship/accelerator.go",
+      "note": "Модуль-ускоритель корабля (спека 2026-09-25-ускоритель-и-мини-игра-прокладка-маршрута.md §3.1; внедрение v9 — Э1-A 32073ae, Э1-B 46453f3): тип оборудования accelerator, выделенный слот, params.game/cooldown_min/bonus_max/min_remaining_offer_s/min_remaining_boost_s; открывает мини-игру. В v9 награду задаёт кривая модели — bonus_max/AcceleratorBonus не участвуют.",
+      "impacts": [
+        { "on": "equipment", "kind": "reads", "reason": "модуль ищется по типу accelerator в equipment/слотах users.equipment (AcceleratorModule)" },
+        { "on": "ship_models", "kind": "schema", "reason": "выделенный слот accelerator у стартовой модели (ship_models.slots)" },
+        { "on": "travel_boost", "kind": "affects", "reason": "модуль разрешает ускорение и открывает предложение игры (offer/boost)" }
+      ]
+    },
+    {
+      "id": "player_accelerator",
+      "type": "table",
+      "path": "db:player_accelerator",
+      "note": "Состояние отката ускорителя на игрока (миграция 000089): last_boost_at, last_cooldown_min, updated_at; переживает рестарт, НЕ в truncateTables.",
+      "impacts": [
+        { "on": "travel_boost", "kind": "affects", "reason": "active/cooldown читаются и пишутся при ускорении (BoostActive/CooldownRemaining/ApplyBoost)" }
+      ]
+    },
+    {
+      "id": "player_route_puzzle",
+      "type": "table",
+      "path": "db:player_route_puzzle",
+      "note": "Сегментная задача мини-игры v9 «Планшет» (миграция 000091): secret/layout (клиенту не отдаются), revealed, pings_left, segment_hash; привязана к сегменту player_flights; НЕ в truncateTables.",
+      "impacts": [
+        { "on": "player_flights", "kind": "reads", "reason": "segment_hash = sha256(fingerprint from/to/start_time): состояние живёт на сегмент перелёта" },
+        { "on": "route_game", "kind": "affects", "reason": "offer/scan/boost читают и меняют доску, вскрытие и импульсы" }
+      ]
+    },
+    {
+      "id": "route_game",
+      "type": "mechanic",
+      "path": "internal/routegame/",
+      "note": "Мини-игра «Прокладка маршрута» v9 «Планшет» (спека 2026-09-25-ускоритель-… §14; внедрение — Э1-A 32073ae, Э1-B 46453f3, Э3 0f16f62, Э6 a8983ff): поле 10×10, объекты, секторы с σ, разведка импульсом, оценка пути и бонус (может быть отрицательным). Клиент: web/route.html + web/static/js/route/*.",
+      "impacts": [
+        { "on": "player_route_puzzle", "kind": "reads", "reason": "доска/секрет/импульсы задачи сегмента" },
+        { "on": "travel_passport", "kind": "reads", "reason": "паспорт перелёта задаёт сложность поля" },
+        { "on": "travel_boost", "kind": "affects", "reason": "оценка пути даёт bonus для перебазирования сегмента" }
+      ]
+    },
+    {
+      "id": "route_breakdown",
+      "type": "mechanic",
+      "path": "internal/routegame/grid_explain.go",
+      "note": "Разбор по факторам (спека §14.13; внедрение — Э6 a8983ff): ExplainGridPath — чистая функция, 16 ошибок + gain/neutral; аддитивное поле breakdown в ответе boost; НЕ влияет на bonus; до отправки не отдаётся.",
+      "impacts": [
+        { "on": "route_game", "kind": "reads", "reason": "детекция по полю, пути и revealed" },
+        { "on": "route_game", "kind": "affects", "reason": "расширяет ответ boost полем breakdown (клиентский #result-breakdown)" }
+      ]
+    },
+    {
+      "id": "travel_passport",
+      "type": "mechanic",
+      "path": "internal/routegame/passport.go",
+      "note": "Паспорт перелёта (спека §5): производная из открытых данных (дальность, класс/тип/температура концов, пояса системы назначения); без массы/возраста/региона.",
+      "impacts": [
+        { "on": "route_game", "kind": "affects", "reason": "сложность поля зависит от паспорта (BuildPassport)" }
+      ]
+    },
+    {
+      "id": "travel_boost",
+      "type": "mechanic",
+      "path": "internal/travel/manager.go",
+      "note": "Серверное ускорение межзвёздного перелёта (спека §4/§7; внедрение — Э1-A/B): BoostFlight перебазирует сегмент (новая точка старта, новый остаток, откат); одно активное ускорение на сегмент, сброс при развороте/прибытии.",
+      "impacts": [
+        { "on": "player_flights", "kind": "affects", "reason": "перебазирование сегмента: StartX/StartY/StartTime/Duration" },
+        { "on": "player_accelerator", "kind": "affects", "reason": "списание отката при применении" },
+        { "on": "player_route_puzzle", "kind": "affects", "reason": "сброс задачи сегмента при прибытии/развороте" }
+      ]
+    },
+    {
       "id": "deposits",
       "type": "table",
       "path": "db:deposits",

@@ -176,14 +176,38 @@ function applyDeferredRefresh() {
     import('./index.js').then(mod => mod.refreshPlanets());
 }
 
+// resolveDeferredRefresh — единая чистая логика отложенного авто-обновления
+// карточки планеты (баг №48). action: 'tick' — тик автообновления (busy —
+// фокус на редактируемом контроле), 'focusout' — уход фокуса из панели (busy —
+// фокус всё ещё в панели), 'manual' — ручное «Обновить». Возвращает 'refresh'
+// (запросить данные), 'defer' (копить флаг) или 'none'. Флаг одноразовый.
+export function resolveDeferredRefresh(state, action, busy) {
+    if (action === 'tick') {
+        if (busy) { state.autoRefreshDeferred = true; return 'defer'; }
+        state.autoRefreshDeferred = false;
+        return 'refresh';
+    }
+    if (action === 'focusout') {
+        if (busy || !state.autoRefreshDeferred) return 'none';
+        state.autoRefreshDeferred = false;
+        return 'refresh';
+    }
+    if (action === 'manual') {
+        // Свежие данные придут этим же запросом — отложенный тик снимаем, иначе
+        // уход фокуса из удаляемого при перерисовке поля запустит второй запрос.
+        state.autoRefreshDeferred = false;
+        return 'refresh';
+    }
+    return 'none';
+}
+
 // onPanelFocusOut — делегированный слушатель на #right-panel: по уходу фокуса
 // ИЗ панели применяем отложенное обновление (свежие числа сразу). Переходы
 // фокуса внутри панели (input → кнопка) обновление не запускают.
 function onPanelFocusOut() {
     // setTimeout(0): даём фокусу «устояться» (focusout летит до focusin цели).
     setTimeout(() => {
-        if (isFocusInPanel()) return;
-        if (!modalState.autoRefreshDeferred) return;
+        if (resolveDeferredRefresh(modalState, 'focusout', isFocusInPanel()) !== 'refresh') return;
         applyDeferredRefresh();
     }, 0);
 }
@@ -199,11 +223,7 @@ function ensureFocusWatch(panel) {
 // onAutoRefreshTick — автоматический тик: заняты формой — копим один флаг и не
 // перерисовываем; свободны — обновляем (флаг снимаем, чтобы он не «залип»).
 function onAutoRefreshTick() {
-    if (isPanelBusy()) {
-        modalState.autoRefreshDeferred = true;
-        return;
-    }
-    modalState.autoRefreshDeferred = false;
+    if (resolveDeferredRefresh(modalState, 'tick', isPanelBusy()) !== 'refresh') return;
     import('./index.js').then(mod => mod.refreshPlanets());
 }
 
@@ -652,6 +672,7 @@ function renderCard(panel, planets, selectedIndex) {
     const refreshBtn = panel.querySelector('#refresh-planet-btn');
     if (refreshBtn) {
         refreshBtn.addEventListener('click', () => {
+            resolveDeferredRefresh(modalState, 'manual');
             import('./index.js').then(mod => mod.refreshPlanets());
         });
     }

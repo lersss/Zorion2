@@ -124,7 +124,8 @@ $exceptions = @(
     'docs/CONTRIBUTORS.md',
     'config/goods/',
     'AGENTS.md', 'docs/INDEX.md',
-    'go.mod', 'go.sum', '.gitignore'
+    'go.mod', 'go.sum', '.gitignore',
+    '.gitattributes'
 )
 
 $changedFiles = @()

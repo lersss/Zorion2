@@ -16,13 +16,13 @@ SurfaceWorld.prototype.solidAt = function(x, y) {
     if (this._baseSolidAt(x, y, thx)) return true;
     for (const it of iv) if (it.add && y >= it.top && y <= it.bottom) return true;
     return false;
-};
+};
 
     // isSolid — алиас solidAt (§2.1): прежнее имя сохранено для потребителей
     // (растр, тесты, инструменты), реализация одна.
 SurfaceWorld.prototype.isSolid = function(x, y) {
     return this.solidAt(x, y);
-};
+};
 
     // columnSpans — аналитические интервалы БАЗЫ столбца (класс A, §2.3):
     // [{top, bottom}, …] сверху вниз. База — интервал [terrainHeight, +∞); полоса
@@ -41,7 +41,7 @@ SurfaceWorld.prototype.columnSpans = function(x) {
         spans.unshift({ top: th - FLOAT_SPAN, bottom: th - FLOAT_GAP, float: true });
     }
     return spans;
-};
+};
 
     // skyTop — «поверхность неба» (§2.1): МИНИМАЛЬНЫЙ y в пределах растра, где
     // solidAt(x,y)=true (верх твёрдого поля, ВКЛЮЧАЯ висящую плиту arch=1, вал
@@ -88,7 +88,7 @@ SurfaceWorld.prototype.skyTop = function(x) {
     const cr = this.crustTop(x);
     if (cr !== null && cr < top) top = cr;
     return top === Infinity ? th : top;
-};
+};
 
     // _groundFloorY — «пол/опора» БЕЗ ледовой корки (§2.1): верх твёрдого,
     // СВЯЗАННОГО с базой (землёй). Публичный `floorY` добавляет корку underIce
@@ -129,5 +129,4 @@ SurfaceWorld.prototype._groundFloorY = function(x) {
     const bottom = this.baseY - CHUNK_TOP_MARGIN + CHUNK_HEIGHT;
     for (let wy = y; wy <= bottom; wy += 1) if (this.solidAt(x, wy)) return wy;
     return y;
-};
-
+};

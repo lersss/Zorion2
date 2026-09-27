@@ -13,7 +13,7 @@ SurfaceWorld.prototype.floorY = function(x) {
     const cr = this.crustTop(x);
     if (cr !== null) return cr;
     return this._groundFloorY(x);
-};
+};
 
     // _polyWindow — ОКНО полыньи периода `n` (или null), уже приведённое к воде.
     // Номинальное окно [pos, pos+w) детерминировано от seed (`hash1`/`hash2`, §3.2/N3)
@@ -57,7 +57,7 @@ SurfaceWorld.prototype.polynyaAt = function(x) {
     if (!this._liquidCrust) return false;
     const win = this._polyWindow(Math.floor(x / this.liquid.level.polynya.gap));
     return win !== null && x >= win.x && x < win.x + win.w;
-};
+};
 
     // liquidLevel — уровень зеркала (§3.2): global/underIce — `baseY + offset`
     // (константа); basin — уровень локальной впадины. Infinity — жидкости нет.
@@ -66,7 +66,7 @@ SurfaceWorld.prototype.liquidLevel = function(x) {
     if (!L) return Infinity;
     if (L.level.mode === 'basin') return this._basinLevel(x);
     return this.baseY + L.level.offset;
-};
+};
 
     // _basinLevel — уровень впадины (§3.2/M7): заполняем до низшей точки перелива —
     // вода поднимается над полом `floorY` до НИЗШЕЙ из двух стенок чаши (max двух
@@ -84,7 +84,7 @@ SurfaceWorld.prototype._basinLevel = function(x) {
     if (memo.size > 60000) memo.clear();
     memo.set(key, lv);
     return lv;
-};
+};
 
     // _basinRim — ВЕРХ стенки чаши в сторону dir: минимум `floorY` по окну window
     // (y растёт вниз, поэтому верх = минимальный y). Уровень — НИЗШАЯ из двух
@@ -99,7 +99,7 @@ SurfaceWorld.prototype._basinRim = function(x, dir) {
         if (cur < m) m = cur;
     }
     return m;
-};
+};
     // _iceBottom — НИЗ ледовой корки подлёдной колонки `c` (`_liquidCol`, несёт `bd`).
     // Плавучий лёд — низ на зеркале. Мелководье (просвет между зеркалом и дном меньше
     // `LIQUID_ICE_CLEAR_MIN`) — лёд СЕЛ НА ДНО: низ = `bedY`, воды в колонке не
@@ -152,7 +152,7 @@ SurfaceWorld.prototype.bedY = function(x) {
     const bd = this._groundFloorY(x);
     this._inCrust = false;
     return bd;
-};
+};
 
     // _liquidCol — кэш колонки жидкости {lv, depth, bd} (мир статичен; растр и
     // фронтальный проход зовут многократно). null — жидкости в колонке нет
@@ -175,7 +175,7 @@ SurfaceWorld.prototype._liquidCol = function(xi) {
     if (memo.size > 40000) memo.clear();
     memo.set(xi, c);
     return c;
-};
+};
 
     // liquidAt — жидкость в точке (§3.1): `liquidLevel ≤ y ≤ bedY` ∧ ¬`solidAt'`,
     // где `solidAt' = solidAt ∨ crust`. Вода не внутри камня/корки; «ходьба по
@@ -188,19 +188,18 @@ SurfaceWorld.prototype.liquidAt = function(x, y) {
     if (y < c.lv || y > c.lv + c.depth) return '';
     if (this.solidAt(x, y)) return '';
     return L.medium;
-};
+};
 
     // liquidDepth — глубина жидкости колонки (§3.1): max(0, bedY − liquidLevel),
     // урезанная `maxDepth`; 0 — сухо.
 SurfaceWorld.prototype.liquidDepth = function(x) {
     const c = this._liquidCol(Math.floor(x));
     return c ? c.depth : 0;
-};
+};
 
     // floatY — линия плавучести (§6.1): координата центра в равновесии «лежу на
     // воде»; голова — на `h·FLOAT_SUBMERGE` выше зеркала. Одна реализация для
     // физики (Player) и рендера — второго пути нет.
 SurfaceWorld.prototype.floatY = function(x) {
     return this.liquidLevel(x) + PLAYER_H * FLOAT_SUBMERGE;
-};
-
+};

@@ -63,7 +63,7 @@ SurfaceWorld.prototype._collectFormIntervals = function(x, thx) {
         }
     }
     return out;
-};
+};
 
     // _formColumn — интервалы одной ИНСТАНСИ формы в колонке x. Общая геометрия
     // боевого поля и probe-симуляции выходимости (`_onlyInstance`).
@@ -114,7 +114,7 @@ SurfaceWorld.prototype._formColumn = function(out, f, fi, sBase, inst, x, thx) {
         return;
     }
     this._craterColumn(out, f, sBase, inst, x, thx);
-};
+};
 
     // _voidColumn — вычитающий `void` (Э5.3, §3.6): открытая ниша/чаша/трубка.
     // `w` — ПОЛУширина; профиль `1 − smoothstep(0,1,u)` даёт плоское дно и
@@ -137,7 +137,7 @@ SurfaceWorld.prototype._voidColumn = function(out, f, sBase, inst, x, thx) {
     }
     if (cut <= 0) return;
     out.push({ add: false, top: thx, bottom: thx + cut });
-};
+};
 
     // _craterColumn — `crater` (Э5.3, M9): одна запись даёт вал (аддитив) и
     // впадину (вычитающая). Фактическую геометрию чаши задают `depth` + `wallDeg`
@@ -186,7 +186,7 @@ SurfaceWorld.prototype._craterColumn = function(out, f, sBase, inst, x, thx) {
         const raise = rim * (1 - smoothstep(0, 1, s));
         if (raise > 0) out.push({ add: true, top: thx - raise, bottom: thx });
     }
-};
+};
 
     // _formFootprint — горизонтальный полуразмер формы от центра инстанса
     // (void: `w`; crater: `dEff/2`). Для защиты спавна (§3.6) и стартов симуляции.
@@ -202,7 +202,7 @@ SurfaceWorld.prototype._formFootprint = function(f, sBase, inst) {
         return Math.max(dRaw, 2 * (rim + wallRun)) / 2;
     }
     return 0;
-};
+};
 
     // _formInstanceOk — можно ли применять инстанс вычитающей формы (§3.6). Две
     // ступени (дефект D1 прогона @tester Э5.3): (1) ПООДИНОЧНАЯ — защита спавна
@@ -237,7 +237,7 @@ SurfaceWorld.prototype._formInstanceOk = function(fi, f, sBase, inst) {
     if (cache.size > 40000) cache.clear();
     cache.set(key, ok);
     return ok;
-};
+};
 
     // _hasSubtractiveNeighbor — есть ли ДРУГОЙ инстанс вычитающей формы (`void`/
     // `crater`), чей вырез СОПРИКАСАЕТСЯ с вырезом этой формы (расстояние центров
@@ -268,7 +268,7 @@ SurfaceWorld.prototype._hasSubtractiveNeighbor = function(fi, inst, fp) {
         }
     }
     return false;
-};
+};
 
     // _formStage1Ok — первая ступень (§3.6): защита спавна + сетка узкого прохода +
     // выходимость на поле с ОДНОЙ этой формой. Мемо отдельно от `_formOk`: значение
@@ -294,7 +294,7 @@ SurfaceWorld.prototype._formStage1Ok = function(fi, f, sBase, inst) {
     if (cache.size > 40000) cache.clear();
     cache.set(key, ok);
     return ok;
-};
+};
 
     // _fullFieldProbe — поле ОКРЕСТНОСТИ для ступени 2 (§2.1): все формы рецепта
     // (аддитивные — всегда; вычитающие — только прошедшие поодиночную ступень),
@@ -459,7 +459,7 @@ SurfaceWorld.prototype._simulateEscape = function(f, fi, sBase, inst, field, fra
         if (!escaped) return false;
     }
     return true;
-};
+};
 
     // formSpans — интервалы форм колонки для растра (§2.3): {add, sub} или null
     // (столбец формой не задет). Единственный источник геометрии форм.
@@ -469,7 +469,7 @@ SurfaceWorld.prototype.formSpans = function(x, thx) {
     const add = [], sub = [];
     for (const it of iv) (it.add ? add : sub).push({ top: it.top, bottom: it.bottom });
     return { add, sub };
-};
+};
 
     // crackSpans — КОСМЕТИЧЕСКИЕ интервалы трещин crack2d колонки (решение гейта
     // 2026-09-25): тёмный клин поверх рельефа, ВНЕ равенства по твёрдому телу
@@ -480,7 +480,7 @@ SurfaceWorld.prototype.formSpans = function(x, thx) {
 SurfaceWorld.prototype.crackSpans = function(x, thx) {
     const iv = this._collectCrackIntervals(x, thx);
     return iv.length ? iv : null;
-};
+};
 
 SurfaceWorld.prototype._collectCrackIntervals = function(x, thx) {
     const out = [];
@@ -534,12 +534,12 @@ SurfaceWorld.prototype._collectCrackIntervals = function(x, thx) {
         }
     }
     return out;
-};
+};
 
     // formsSolid — аддитивный вклад 2D-форм (прежнее имя контракта §2.1/§3.1).
 SurfaceWorld.prototype.formsSolid = function(x, y) {
     return this.formsAdditive(x, y);
-};
+};
 
     // formsAdditive/formsSubtractive — точечная проба знака формы (физика).
 SurfaceWorld.prototype.formsAdditive = function(x, y) {
@@ -547,12 +547,11 @@ SurfaceWorld.prototype.formsAdditive = function(x, y) {
     const iv = this._collectFormIntervals(x, undefined);
     for (const it of iv) if (it.add && y >= it.top && y <= it.bottom) return true;
     return false;
-};
+};
 
 SurfaceWorld.prototype.formsSubtractive = function(x, y) {
     if (!this.forms) return false;
     const iv = this._collectFormIntervals(x, undefined);
     for (const it of iv) if (!it.add && y >= it.top && y <= it.bottom) return true;
     return false;
-};
-
+};

@@ -6,7 +6,7 @@ import { SurfaceWorld } from './surface_world_core.js';
 SurfaceWorld.prototype.decorAt = function(x) {
     if (this.hasView) return this._viewDecorAt(x);
     return this._legacyDecorAt(x);
-};
+};
 
     // _viewDecorAt — декор по рецепту (§3.2/§3.3): правила размещения
     // uniform/clustered, плотность life_density (доля кластерных колонок),
@@ -66,7 +66,7 @@ SurfaceWorld.prototype._viewDecorAt = function(x) {
         }
     }
     return out;
-};
+};
 
     // _legacyDecorAt — прежний декор по категории (фолбэк 1:1, §2.3/§6 п.10).
 SurfaceWorld.prototype._legacyDecorAt = function(x) {
@@ -86,7 +86,7 @@ SurfaceWorld.prototype._legacyDecorAt = function(x) {
     if (r < 0.02) return { kind: 'lichen', h: 4 + hash1(col, 0x73) * 6 };
     if (r < 0.03) return { kind: 'rock', h: 6 + hash1(col, 0x74) * 14 };
     return null;
-};
+};
 
     // rareDecorAt — редкая декорация-находка (любопытство, §9/§3.3): ≥1 на
     // участок landmark.perRegion (по умолчанию 6000 px); вид — landmark.prim
@@ -102,7 +102,7 @@ SurfaceWorld.prototype.rareDecorAt = function(x) {
     const kinds = ['окаменелость', 'кристалл', 'обломок'];
     const kind = kinds[Math.floor(hash1(i, this.seed ^ 0xbeef) * kinds.length) % kinds.length];
     return { kind, x: cx };
-};
+};
 
     // creaturesFor — животные чанка (не бой, §7.3): 2–3 поведения. Якорь —
     // `floorY` (§5 п.12): в гроте/под сводом фауна стоит на полу, не на потолке.
@@ -125,4 +125,4 @@ SurfaceWorld.prototype.creaturesFor = function(chunkIndex) {
         });
     }
     return out;
-};
+};

@@ -122,8 +122,8 @@ function measure(page) {
       w: Math.round(r.width), h: Math.round(r.height),
       cx: Math.round(r.left + r.width / 2), cy: Math.round(r.top + r.height / 2),
       mainTop: Math.round(main.top), mainBottom: Math.round(main.bottom),
-      mainCx: Math.round(main.left + main.width / 2), mainCy: Math.round(main.top + main.height / 2),
       cwLeft: Math.round(cw.left), cwRight: Math.round(cw.right), cwTop: Math.round(cw.top), cwBottom: Math.round(cw.bottom),
+      cwCx: Math.round(cw.left + cw.width / 2), cwCy: Math.round(cw.top + cw.height / 2),
       innerW: window.innerWidth, innerH: window.innerHeight,
       styleLeft: p.style.left, styleTop: p.style.top, styleTransform: p.style.transform,
       title: document.getElementById('popupTitle').textContent,
@@ -131,9 +131,11 @@ function measure(page) {
   });
 }
 function inWindow(m) { return m.top >= 0 && m.bottom <= m.innerH && m.left >= 0 && m.right <= m.innerW; }
-function centeredInMain(m) { return Math.abs(m.cx - m.mainCx) <= 2 && Math.abs(m.cy - m.mainCy) <= 2; }
+// База отсчёта — область канваса #canvasWrap, а не #main (хвост 12: попапы
+// центрируются по канвасу через --panel; центр #detailPopup = центр канваса).
+function centeredInCanvas(m) { return Math.abs(m.cx - m.cwCx) <= 2 && Math.abs(m.cy - m.cwCy) <= 2; }
 function fmt(m) {
-  return `top=${m.top} bottom=${m.bottom} left=${m.left} right=${m.right} h=${m.h} w=${m.w} inner=${m.innerW}x${m.innerH} center=(${m.cx},${m.cy}) mainCenter=(${m.mainCx},${m.mainCy})`;
+  return `top=${m.top} bottom=${m.bottom} left=${m.left} right=${m.right} h=${m.h} w=${m.w} inner=${m.innerW}x${m.innerH} center=(${m.cx},${m.cy}) canvasCenter=(${m.cwCx},${m.cwCy})`;
 }
 
 // Перетащить попап за шапку к правому-нижнему краю окна.
@@ -141,8 +143,10 @@ async function dragToBottomRight(page) {
   const g = await page.evaluate(() => {
     const b = document.getElementById('detailPopup').getBoundingClientRect();
     const h = document.getElementById('popupHead').getBoundingClientRect();
+    const w = document.getElementById('canvasWrap').getBoundingClientRect();
     return { left: Math.round(b.left), top: Math.round(b.top), right: Math.round(b.right), bottom: Math.round(b.bottom),
-      headX: Math.round(h.left + 40), headY: Math.round(h.top + h.height / 2), innerW: window.innerWidth, innerH: window.innerHeight };
+      headX: Math.round(h.left + 40), headY: Math.round(h.top + h.height / 2), innerW: window.innerWidth, innerH: window.innerHeight,
+      wrapLeft: Math.round(w.left), wrapTop: Math.round(w.top), wrapRight: Math.round(w.right), wrapBottom: Math.round(w.bottom) };
   });
   const dx = Math.max(40, (g.innerW - 10) - g.right);   // гарантированно вправо
   const dy = Math.max(0, (g.innerH - 10) - g.bottom);   // вниз, если есть место
@@ -157,7 +161,8 @@ async function dragToBottomRight(page) {
     return { left: Math.round(b.left), top: Math.round(b.top), right: Math.round(b.right), bottom: Math.round(b.bottom),
       styleLeft: p.style.left, styleTop: p.style.top, styleTransform: p.style.transform };
   });
-  return { before: { left: g.left, top: g.top, right: g.right, bottom: g.bottom }, after: a, dx: a.left - g.left, dy: a.top - g.top };
+  return { before: { left: g.left, top: g.top, right: g.right, bottom: g.bottom }, after: a, dx: a.left - g.left, dy: a.top - g.top,
+    want: { dx, dy }, wrap: { left: g.wrapLeft, top: g.wrapTop, right: g.wrapRight, bottom: g.wrapBottom } };
 }
 
 async function main() {
@@ -180,19 +185,28 @@ async function main() {
   let m1 = null;
   if (o1.ok) {
     m1 = await measure(page);
-    report('1 попап по центру и в окне', inWindow(m1) && centeredInMain(m1), `title="${m1.title}" ${fmt(m1)} inWindow=${inWindow(m1)} centered=${centeredInMain(m1)}`);
+    report('1 попап по центру и в окне', inWindow(m1) && centeredInCanvas(m1), `title="${m1.title}" ${fmt(m1)} inWindow=${inWindow(m1)} centered=${centeredInCanvas(m1)}`);
     await page.screenshot({ path: path.join(ARTIFACTS_DIR, 'qa-studio-popreset-02-item1.png') });
   } else {
     report('1 попап по центру и в окне', false, o1.reason);
   }
 
   // ---- item 2: перетащить к правому-нижнему краю ----
-  let drag = null;
+  // Хвост 12: попап клампится областью канваса #canvasWrap (movePopupDrag),
+  // поэтому жёсткие «≥30/≥20 px» недостижимы — попап почти всю ширину канваса
+  // занимает, свободный ход ~23 px. Честная проверка: реальный сдвиг равен
+  // min(запрошенный drag, свободный ход) в пределах ±2 px (то есть попап
+  // действительно поехал и остановился у границы канваса).
+  let drag = null, dragMovedOk = false;
   if (m1) {
     drag = await dragToBottomRight(page);
-    const moved = Math.abs(drag.dx) >= 30 || Math.abs(drag.dy) >= 20;
-    report('2 перетаскивание смещает попап', moved,
-      `before=(${drag.before.left},${drag.before.top}) after=(${drag.after.left},${drag.after.top}) d=(${drag.dx},${drag.dy}) inlineLeft="${drag.after.styleLeft}" inlineTop="${drag.after.styleTop}"`);
+    const freeX = Math.max(0, drag.wrap.right - drag.before.right);
+    const freeY = Math.max(0, drag.wrap.bottom - drag.before.bottom);
+    const expDx = Math.min(drag.want.dx, freeX);
+    const expDy = Math.min(drag.want.dy, freeY);
+    dragMovedOk = (drag.dx > 0 || drag.dy > 0) && Math.abs(drag.dx - expDx) <= 2 && Math.abs(drag.dy - expDy) <= 2;
+    report('2 перетаскивание смещает попап', dragMovedOk,
+      `before=(${drag.before.left},${drag.before.top}) after=(${drag.after.left},${drag.after.top}) d=(${drag.dx},${drag.dy}) ожид=(${expDx},${expDy}) free=(${freeX},${freeY}) inlineLeft="${drag.after.styleLeft}" inlineTop="${drag.after.styleTop}"`);
     await page.screenshot({ path: path.join(ARTIFACTS_DIR, 'qa-studio-popreset-03-dragged.png') });
   } else {
     report('2 перетаскивание смещает попап', false, 'нет открытого попапа');
@@ -206,8 +220,8 @@ async function main() {
     if (o3.ok) {
       const m3 = await measure(page);
       const same = Math.abs(m3.left - m1.left) <= 2 && Math.abs(m3.top - m1.top) <= 2 && Math.abs(m3.right - m1.right) <= 2 && Math.abs(m3.bottom - m1.bottom) <= 2;
-      report('3 повторное открытие снова по центру', same && inWindow(m3) && centeredInMain(m3),
-        `reopen top=${m3.top} bottom=${m3.bottom} left=${m3.left} right=${m3.right} (было top=${m1.top} left=${m1.left}); equals=${same} inWindow=${inWindow(m3)} centered=${centeredInMain(m3)} inlineLeft="${m3.styleLeft}" inlineTop="${m3.styleTop}"`);
+      report('3 повторное открытие снова по центру', same && inWindow(m3) && centeredInCanvas(m3),
+        `reopen top=${m3.top} bottom=${m3.bottom} left=${m3.left} right=${m3.right} (было top=${m1.top} left=${m1.left}); equals=${same} inWindow=${inWindow(m3)} centered=${centeredInCanvas(m3)} inlineLeft="${m3.styleLeft}" inlineTop="${m3.styleTop}"`);
       await page.screenshot({ path: path.join(ARTIFACTS_DIR, 'qa-studio-popreset-04-reopened.png') });
     } else {
       report('3 повторное открытие снова по центру', false, o3.reason);
@@ -242,9 +256,9 @@ async function main() {
         m4 = await measure(page);
       }
     }
-    const ok4 = !!m4 && inWindow(m4) && centeredInMain(m4) && m4.title === otherName;
+    const ok4 = !!m4 && inWindow(m4) && centeredInCanvas(m4) && m4.title === otherName;
     report('4 другое открытие — снова по центру', ok4,
-      `drag2 d=(${drag2.dx},${drag2.dy}); открыт товар "${otherName}" via ${how}; title="${m4 ? m4.title : '-'}" ${m4 ? fmt(m4) : 'нет замера'} inWindow=${m4 ? inWindow(m4) : '-'} centered=${m4 ? centeredInMain(m4) : '-'} inlineLeft="${m4 ? m4.styleLeft : '-'}"`);
+      `drag2 d=(${drag2.dx},${drag2.dy}); открыт товар "${otherName}" via ${how}; title="${m4 ? m4.title : '-'}" ${m4 ? fmt(m4) : 'нет замера'} inWindow=${m4 ? inWindow(m4) : '-'} centered=${m4 ? centeredInCanvas(m4) : '-'} inlineLeft="${m4 ? m4.styleLeft : '-'}"`);
     await page.screenshot({ path: path.join(ARTIFACTS_DIR, 'qa-studio-popreset-05-other.png') });
   }
 
@@ -274,7 +288,7 @@ async function main() {
     const prodOk = mp.top >= 0 && mp.bottom <= mp.innerH && mp.left >= 0 && mp.right <= mp.innerW;
     const catOk = mc.top >= 0 && mc.bottom <= mc.innerH && mc.left >= 0 && mc.right <= mc.innerW;
     const effOk = me.top >= 0 && me.bottom <= me.innerH && me.left >= 0 && me.right <= me.innerW;
-    const dragOk = !!drag && (Math.abs(drag.dx) >= 30 || Math.abs(drag.dy) >= 20);
+    const dragOk = dragMovedOk;
     report('5 регресс: drag/постройка/категории/эффекты', dragOk && prodOk && catOk && effOk,
       `drag=${dragOk} (item2 d=(${drag ? drag.dx : '-'},${drag ? drag.dy : '-'})); producer "${mp.title}" top=${mp.top} bottom=${mp.bottom} left=${mp.left} right=${mp.right} inner=${mp.innerW}x${mp.innerH} ok=${prodOk}; catPopup top=${mc.top} bottom=${mc.bottom} left=${mc.left} right=${mc.right} ok=${catOk}; effPopup top=${me.top} bottom=${me.bottom} left=${me.left} right=${me.right} ok=${effOk}`);
   }

@@ -27,6 +27,24 @@ function findExecutable() {
   for (const p of EDGE_PATHS) if (existsSync(p)) return p;
   return null;
 }
+// rejectOutliers — устойчивое чтение детекта: отбрасывает единичные выбросы по
+// расстоянию от медианы. Шкала разброса — MAD, при нулевой MAD — IQR/1.349
+// (нормальный эквивалент), но не меньше 1 px. Порог 4·scale: настоящий разброс
+// расширяет саму шкалу и НЕ срезается (одиночная дрожь визора ~1–2 px проходит),
+// а один битый кадр детекта (декор/анимация) отсекается. Слишком узкий остаток —
+// возвращаем исходный ряд (фильтровать нечего).
+function rejectOutliers(vals) {
+  if (vals.length < 4) return vals;
+  const sorted = [...vals].sort((a, b) => a - b);
+  const med = sorted[(sorted.length - 1) >> 1];
+  const absDev = sorted.map(v => Math.abs(v - med)).sort((a, b) => a - b);
+  const mad = absDev[(absDev.length - 1) >> 1];
+  const q = (p) => { const idx = (sorted.length - 1) * p, lo = Math.floor(idx), hi = Math.ceil(idx); return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo); };
+  const iqr = q(0.75) - q(0.25);
+  const scale = Math.max(mad, iqr / 1.349, 1);
+  const kept = vals.filter(v => Math.abs(v - med) <= 4 * scale);
+  return kept.length >= 2 ? kept : vals;
+}
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 // psqlRun — psql c SQL из файла (PITFALLS: unicode-аргументы через -c ломаются;
@@ -243,12 +261,25 @@ async function main() {
     report('11 HUD показывает здоровье', /100\s*\/\s*100/.test(hpText), 'hp-text="' + hpText + '"');
 
     // --- ходьба ---
-    await page.keyboard.down('ArrowRight');
-    await page.waitForTimeout(1600);
-    await page.keyboard.up('ArrowRight');
-    const dist = await page.evaluate(() => document.getElementById('hud-distance').textContent);
-    const distM = parseInt(dist, 10);
-    report('10f персонаж идёт (счётчик пути растёт)', distM > 1, 'distance="' + dist + '"');
+    // 10f: hud-distance обновляется в каждом кадре rAF (surface_main.js
+    // updateHUD), а старт движения/ввод могут не попасть в первый кадр —
+    // одиночное чтение гналось со счётчиком и давало «0 м» (флак, хвост №104).
+    // Держим ArrowRight и поллим путь до порога (до 6 с), при неудаче — одна
+    // повторная попытка. Суть не ослабляется: путь обязан реально набегать.
+    await page.bringToFront();
+    let walked = false, dist = '0 м';
+    for (let attempt = 0; attempt < 2 && !walked; attempt++) {
+      await page.keyboard.down('ArrowRight');
+      walked = await page.waitForFunction(() => {
+        const m = parseInt(document.getElementById('hud-distance').textContent, 10);
+        return Number.isFinite(m) && m > 1;
+      }, null, { timeout: 6000 }).then(() => true).catch(() => false);
+      await page.keyboard.up('ArrowRight');
+      dist = await page.evaluate(() => document.getElementById('hud-distance').textContent);
+      if (!walked) await page.waitForTimeout(300);
+    }
+    report('10f персонаж идёт (счётчик пути растёт)', walked,
+      'distance="' + dist + '" (порог >1 м, поллинг до 6 с/попытка)');
 
     // --- прыжок: визор игрока (#38bdf8) выше базовой позиции ---
     // Детект устойчив к двум аффинным модификаторам кадра: пелене погоды
@@ -337,28 +368,58 @@ async function main() {
     // базовые 2 px (калибровка на 1×) умножаем на фактический ZOOM.
     const ZOOM = await page.evaluate(async () => (await import('/static/js/surface/surface_config.js')).ZOOM);
     await page.waitForTimeout(900); // vx -> 0, камера стабилизировалась
-    // Эталон тела — в покое, до прыжка: первый цвет корпуса, дающий непустой
-    // детект визора (пороги детекта не трогаем). Ни один не сработал — берём
-    // самый яркий: тест честно упадёт на -1.
-    const candidates = await readBodyCandidates();
-    let body = null;
-    for (const cand of candidates) {
-      if ((await visorY(ZOOM, cand)) > 0) { body = cand; break; }
+    // Стабилизация таргета (10g): детект визора не всегда попадает с первой пробы —
+    // анимация погоды/камеры даёт кадр без полосы визора (idleY=-1, флак), а
+    // изолированный битый кадр давал ложную дрожь (idleRange=52 при пороге
+    // 2·ZOOM≈3.6). Ограниченно (до 8 с) перечитываем эталон тела и набираем серию
+    // покоя; берём первый таргет с устойчивыми валидными чтениями. Пороги детекта
+    // не трогаем — суть проверки (прыжок реально поднимает визор) сохраняется.
+    // Кандидат принимается, только если его «визор» лежит в полосе игрока (чуть
+    // выше центра камеры py = dpr·vh·(0.5+0.08·Z)): иначе яркий декор/террейн
+    // давал ложный «визор» в стороне (idleY=546 вместо ~500) и прыжок не ловился.
+    const pyExpected = await page.evaluate((Z) => {
+      const c = document.getElementById('surface-canvas');
+      return (c.width / window.innerWidth) * window.innerHeight * (0.5 + 0.08 * Z);
+    }, ZOOM);
+    const inPlayerBand = (v) => v > 0 && v < pyExpected && v > pyExpected - 80;
+    let body = null, idleValid = [];
+    const acqDeadline = Date.now() + 8000;
+    while (Date.now() < acqDeadline) {
+      const candidates = await readBodyCandidates();
+      let cand = null;
+      for (const c of candidates) { if (inPlayerBand(await visorY(ZOOM, c))) { cand = c; break; } }
+      if (!cand) { await page.waitForTimeout(100); continue; }
+      const series = [];
+      for (let i = 0; i < 12; i++) { await page.waitForTimeout(25); series.push(await visorY(ZOOM, cand)); }
+      const valid = series.filter(v => v > 0);
+      if (valid.length >= 6) { body = cand; idleValid = valid; break; }
+      await page.waitForTimeout(100);
     }
-    if (!body) body = candidates[0];
-    const idle = [];
-    for (let i = 0; i < 12; i++) { await page.waitForTimeout(25); idle.push(await visorY(ZOOM, body)); }
-    const idleValid = idle.filter(v => v > 0);
-    const idleMin = idleValid.length ? Math.min(...idleValid) : -1;
-    const idleMax = idleValid.length ? Math.max(...idleValid) : -1;
+    if (!body) { const c = await readBodyCandidates(); body = c[0]; } // таргет не найден — честный -1 ниже
+    // 10g: единичный битый кадр детекта давал ложную дрожь визора. Режем
+    // изолированные выбросы устойчивым чтением (см. rejectOutliers).
+    const idleBounded = rejectOutliers(idleValid);
+    const idleMin = idleBounded.length ? Math.min(...idleBounded) : -1;
+    const idleMax = idleBounded.length ? Math.max(...idleBounded) : -1;
     const idleRange = idleMax - idleMin;
-    await page.keyboard.down('Space');
-    const samples = [];
-    for (let i = 0; i < 50; i++) { await page.waitForTimeout(16); samples.push(await visorY(ZOOM, body)); }
-    await page.keyboard.up('Space');
-    const valid = samples.filter(v => v > 0);
-    const jumpMin = valid.length ? Math.min(...valid) : -1;
-    const rise = idleMin - jumpMin;
+    // Прыжок: держим Space и поллим подъём визора. Одна попытка может не
+    // сработать (игрок в воздухе на кромке / ввод не попал в кадр) — повторяем
+    // до 3 попыток, пока визор РЕАЛЬНО не поднимется выше покоя (>3 px).
+    let jumpMin = -1, rise = 0;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await page.keyboard.down('Space');
+      let localMin = Infinity, got = 0;
+      for (let i = 0; i < 50; i++) {
+        await page.waitForTimeout(16);
+        const v = await visorY(ZOOM, body);
+        if (v > 0) { got++; if (v < localMin) localMin = v; }
+      }
+      await page.keyboard.up('Space');
+      if (got > 0) jumpMin = jumpMin < 0 ? localMin : Math.min(jumpMin, localMin);
+      rise = idleMin > 0 && jumpMin > 0 ? idleMin - jumpMin : 0;
+      if (rise > 3) break;
+      await page.waitForTimeout(400); // дать игроку приземлиться
+    }
     report('10g персонаж прыгает (визор поднимается)', idleMin > 0 && jumpMin > 0 && idleRange <= 2 * ZOOM && rise > 3,
       'idleY=' + idleMin.toFixed(1) + ' idleRange=' + idleRange.toFixed(1) + ' max=' + (2 * ZOOM).toFixed(1) + ' jumpMinY=' + jumpMin.toFixed(1) + ' rise=' + rise.toFixed(1));
 

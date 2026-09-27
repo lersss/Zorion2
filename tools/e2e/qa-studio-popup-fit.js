@@ -151,7 +151,19 @@ async function item456(page, vp, tag) {
     `title="${m.title}" headTop=${m.headTop} headBottom=${m.headBottom} close=${m.closeW}x${m.closeH} innerH=${m.innerH}; bodyScrollH=${m.bodyScrollH} > bodyClientH=${m.bodyClientH} => scrolls=${scrolls}; delBottom=${scrolled.delBottom} bodyBottom=${scrolled.bodyBottom} innerH=${scrolled.innerH} => delReachable=${delReachable}`);
 
   // --- item 5: перетаскивание за шапку ---
-  const before = await page.evaluate(() => { const r = document.getElementById('detailPopup').getBoundingClientRect(); return { top: Math.round(r.top), left: Math.round(r.left) }; });
+  // Хвост 12: попап центрируется по канвасу #canvasWrap и занимает почти всю его
+  // ширину (912 из ~936 px на 1280×800) — свободный ход от центра ~24 px по X,
+  // поэтому жёсткий порог «≥30 px по X» физически недостижим (movePopupDrag
+  // клампит попап границами канваса). Честная проверка: попап РЕАЛЬНО сдвинулся в
+  // сторону drag'а на min(запрос, свободный ход) в пределах ±2 px и остался внутри
+  // области канваса. Запрос drag'а — 70 px по X / 45 px по Y.
+  const want = { dx: 70, dy: 45 };
+  const before = await page.evaluate(() => {
+    const p = document.getElementById('detailPopup').getBoundingClientRect();
+    const w = document.getElementById('canvasWrap').getBoundingClientRect();
+    return { top: Math.round(p.top), left: Math.round(p.left), right: Math.round(p.right), bottom: Math.round(p.bottom),
+      wLeft: Math.round(w.left), wTop: Math.round(w.top), wRight: Math.round(w.right), wBottom: Math.round(w.bottom) };
+  });
   const headBox = await page.evaluate(() => {
     const r = document.getElementById('popupHead').getBoundingClientRect();
     // точка в шапке, но левее крестика
@@ -159,13 +171,19 @@ async function item456(page, vp, tag) {
   });
   await page.mouse.move(headBox.x, headBox.y);
   await page.mouse.down();
-  await page.mouse.move(headBox.x + 70, headBox.y + 45, { steps: 8 });
+  await page.mouse.move(headBox.x + want.dx, headBox.y + want.dy, { steps: 8 });
   await page.mouse.up();
   await page.waitForTimeout(150);
-  const after = await page.evaluate(() => { const r = document.getElementById('detailPopup').getBoundingClientRect(); return { top: Math.round(r.top), left: Math.round(r.left) }; });
-  const moved = Math.abs(after.left - before.left) >= 30 && Math.abs(after.top - before.top) >= 20;
+  const after = await page.evaluate(() => { const p = document.getElementById('detailPopup').getBoundingClientRect(); return { top: Math.round(p.top), left: Math.round(p.left), right: Math.round(p.right), bottom: Math.round(p.bottom) }; });
+  const freeX = Math.max(0, before.wRight - before.right);
+  const freeY = Math.max(0, before.wBottom - before.bottom);
+  const expDx = Math.min(want.dx, freeX);
+  const expDy = Math.min(want.dy, freeY);
+  const realDx = after.left - before.left, realDy = after.top - before.top;
+  const withinCanvas = after.left >= before.wLeft - 1 && after.top >= before.wTop - 1 && after.right <= before.wRight + 1 && after.bottom <= before.wBottom + 1;
+  const moved = (realDx !== 0 || realDy !== 0) && Math.abs(realDx - expDx) <= 2 && Math.abs(realDy - expDy) <= 2 && withinCanvas;
   report(`5 перетаскивание за шапку [${tag}]`, moved,
-    `before=(${before.left},${before.top}) after=(${after.left},${after.top}) d=(${after.left - before.left},${after.top - before.top})`);
+    `before=(${before.left},${before.top}) after=(${after.left},${after.top}) d=(${realDx},${realDy}) ожид=(min(${want.dx},freeX=${freeX})=${expDx},min(${want.dy},freeY=${freeY})=${expDy}) withinCanvas=${withinCanvas}`);
   return { m };
 }
 
@@ -246,8 +264,11 @@ async function main() {
   }
 
   // --- item 7: консоль/сеть ---
-  report('7 консоль без JS-ошибок и ответов >=400', consoleProblems.length === 0,
-    'problems=' + consoleProblems.length + (consoleProblems.length ? ' :: ' + consoleProblems.slice(0, 3).join(' | ') : ''));
+  // favicon.ico сервером не отдаётся (404) — это не ошибка JS/сети приложения;
+  // тот же 404 отфильтрован по образцу qa-studio-popup-reset.js.
+  const bad = consoleProblems.filter(s => !/favicon\.ico/.test(s));
+  report('7 консоль без JS-ошибок и ответов >=400', bad.length === 0,
+    'problems=' + bad.length + (bad.length ? ' :: ' + bad.slice(0, 3).join(' | ') : '') + ' (favicon-404 отфильтрован: ' + (consoleProblems.length - bad.length) + ')');
 
   // cleanup
   try { psqlRun(`DELETE FROM users WHERE id='${admin.uid}';\n`, 'qa-popfit-deluser.sql'); } catch (e) {}

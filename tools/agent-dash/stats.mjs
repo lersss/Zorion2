@@ -113,11 +113,12 @@ function loadJournal(journalPath) {
   return { byId, lines, bad };
 }
 
-function newGroup(key, label, agent) {
+function newGroup(key, label, agent, project) {
   return {
     key,
     label,
     agent,
+    project,
     sessions: 0,
     cost: 0,
     tokensIn: 0,
@@ -157,6 +158,7 @@ function shrinkGroup(g) {
     key: g.key,
     label: g.label,
     agent: g.agent,
+    project: g.project,
     sessions: g.sessions,
     cost: round(g.cost),
     tokensIn: g.tokensIn,
@@ -176,7 +178,6 @@ function shrinkGroup(g) {
 
 export function createStore({
   dbPath,
-  project = "Zorion",
   cachePath = null,
   journalPath = null,
   refreshGapMs = 8000,
@@ -185,7 +186,6 @@ export function createStore({
 } = {}) {
   const db = new DatabaseSync(dbPath, { readOnly: true });
   const cache = readCache(cachePath);
-  const projectLike = "%" + String(project).toLowerCase() + "%";
 
   let sessions = [];
   let byId = new Map();
@@ -198,16 +198,15 @@ export function createStore({
   const sessionRows = () =>
     db
       .prepare(
-        "SELECT id,parent_id,agent,title,cost,time_created,time_updated FROM session" +
-          " WHERE lower(directory) LIKE ?"
+        "SELECT id,parent_id,agent,title,cost,time_created,time_updated,directory FROM session"
       )
-      .all(projectLike);
+      .all();
 
   // Расход в час — настоящие деньги за последнее окно (по отметкам сообщений).
   const windowCost = db.prepare(
     `SELECT SUM(${COST("m.data")}) cost FROM message m
      JOIN session s ON s.id = m.session_id
-     WHERE m.time_created >= ? AND lower(s.directory) LIKE ?`
+     WHERE m.time_created >= ?`
   );
 
   const dayAgg = db.prepare(
@@ -251,6 +250,12 @@ export function createStore({
      ) WHERE dt IS NOT NULL`
   );
 
+  // Короткое имя проекта — последний сегмент пути (любые разделители). Пусто → «—».
+  function projectName(directory) {
+    const parts = String(directory || "").split(/[\\/]/).filter(Boolean);
+    return parts.length ? parts[parts.length - 1] : "—";
+  }
+
   function newSession(r) {
     return {
       id: r.id,
@@ -260,6 +265,8 @@ export function createStore({
       cost: r.cost || 0,
       created: r.time_created || 0,
       updated: r.time_updated || 0,
+      directory: r.directory || "",
+      project: projectName(r.directory),
       turns: 0,
       peak: 0,
       last: r.time_updated || 0,
@@ -548,8 +555,9 @@ export function createStore({
 
     const agentMap = new Map();
     for (const { s, activity, stat, guard } of rows) {
-      let g = agentMap.get(s.agent);
-      if (!g) agentMap.set(s.agent, (g = newGroup(s.agent, s.agent, s.agent)));
+      const key = s.agent + "|" + s.project;
+      let g = agentMap.get(key);
+      if (!g) agentMap.set(key, (g = newGroup(key, s.agent, s.agent, s.project)));
       addTo(g, s, activity, stat, guard.blocked + guard.aborted);
     }
 
@@ -562,7 +570,7 @@ export function createStore({
         for (const k of children.get(x.id) || []) walk(k);
       };
       walk(root);
-      const g = newGroup(root.id, root.title, root.agent);
+      const g = newGroup(root.id, root.title, root.agent, root.project);
       for (const x of tree) {
         const activity = activityOf(x, sinceDay);
         if (!activity) continue;
@@ -573,7 +581,7 @@ export function createStore({
     }
 
     const now = Date.now();
-    const rateCost = windowCost.get(now - rateWindowMs, projectLike)?.cost || 0;
+    const rateCost = windowCost.get(now - rateWindowMs)?.cost || 0;
     const agentList = [...agentMap.values()]
       .map(shrinkGroup)
       .sort((x, y) => y.cost - x.cost);
@@ -581,7 +589,7 @@ export function createStore({
 
     return {
       generatedAt: now,
-      project,
+      project: "все проекты",
       since,
       sinceDay,
       scanning: {
@@ -617,6 +625,7 @@ export function createStore({
             id: s.id,
             agent: s.agent,
             title: s.title,
+            project: s.project,
             parent: s.parentID ? byId.get(s.parentID)?.title || "" : "",
             cost: round(activity.cost),
             peak: activity.peak,

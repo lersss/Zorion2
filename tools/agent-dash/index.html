@@ -274,6 +274,7 @@
               <div class="l1">
                 <span class="role">${esc(a.agent)}</span>
                 <span class="title" title="${esc(titleHint(a))}">${esc(shortTitle(a.title))}</span>
+                <span class="pill">${esc(a.project)}</span>
               </div>
               <div class="l2">
                 <span class="mem">${tok(a.peak)}</span>
@@ -360,7 +361,7 @@
       function render() {
         const r = state.report;
         if (!r) return;
-        document.getElementById("project").textContent = r.project + " · период " + (r.period === "today" ? "сегодня" : r.period === "7" ? "7 дней" : "всё время");
+        document.getElementById("project").textContent = r.project + " — период " + (r.period === "today" ? "сегодня" : r.period === "7" ? "7 дней" : "всё время");
         const rate = r.rate || { perHour: 0, windowMin: 60 };
         const rateEl = document.getElementById("rate");
         rateEl.textContent = money(rate.perHour) + "/ч";
@@ -369,6 +370,7 @@
 
         const agentCols = [
           { id: "label", title: "Роль" },
+          { id: "project", title: "Проект" },
           { id: "sessions", title: "Сессий", num: true },
           { id: "cost", title: "Цена", num: true, fmt: money },
           { id: "tokensIn", title: "Токенов (вх / вых)", num: true, fmt: (v, r) => `${tok(v)} / ${tok(r.tokensOut)}` },
@@ -403,6 +405,7 @@
 
         const featCols = [
           { id: "label", title: "Фича" },
+          { id: "project", title: "Проект" },
           { id: "agents", title: "Роли", fmt: (v) => esc((v || []).join(", ")) },
           { id: "sessions", title: "Сессий", num: true },
           { id: "cost", title: "Цена", num: true, fmt: money },
@@ -438,6 +441,7 @@
         const activeCols = [
           { id: "agent", title: "Роль" },
           { id: "title", title: "Сессия" },
+          { id: "project", title: "Проект" },
           { id: "parent", title: "Фича" },
           { id: "cost", title: "Цена", num: true, fmt: money },
           { id: "peak", title: "Пик памяти", num: true, fmt: tok },

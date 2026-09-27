@@ -104,7 +104,7 @@ fs.writeFileSync(
 );
 
 const cachePath = path.join(dir, "cache.json");
-const store = createStore({ dbPath, project: "Zorion", cachePath, journalPath, refreshGapMs: 0 });
+const store = createStore({ dbPath, cachePath, journalPath, refreshGapMs: 0 });
 const loaded = store.load();
 check("загружены все сессии проекта", loaded.sessions === 5, JSON.stringify(loaded));
 
@@ -156,6 +156,11 @@ check(
 check("цена второй фичи", featureB.cost === 3 * R, JSON.stringify(featureB?.cost));
 check("сессия без работы не засоряет список фич", !all.features.some((f) => f.label === "Осиротевшая"), JSON.stringify(all.features.map((f) => f.label)));
 
+check("в отчёте видны все проекты", all.project === "все проекты", all.project);
+check("в записи активной сессии есть проект", all.active.find((a) => a.id === "s1")?.project === "Zorion2", JSON.stringify(all.active.map((a) => [a.id, a.project])));
+check("роль в отчёте несёт проект", agent("manager").project === "Zorion2", JSON.stringify(agent("manager")?.project));
+check("фича в отчёте несёт проект", featureA.project === "Zorion2", JSON.stringify(featureA?.project));
+
 const today = store.report({ since: todayMidnight });
 const liveRow = today.active.find((a) => a.id === "s2");
 check("активная сессия попадает в верхний блок", !!liveRow && liveRow.live === true, JSON.stringify(today.active.map((a) => [a.id, a.live])));
@@ -193,7 +198,7 @@ check(
 
 store.saveCache();
 
-const store2 = createStore({ dbPath, project: "Zorion", cachePath, journalPath, refreshGapMs: 0 });
+const store2 = createStore({ dbPath, cachePath, journalPath, refreshGapMs: 0 });
 const loaded2 = store2.load();
 check("кэш ускоряет второй запуск", loaded2.cached === 5, JSON.stringify(loaded2));
 const all2 = store2.report({});
@@ -271,8 +276,17 @@ const s4 = after.features.find((f) => f.label === "Фича Б");
 check("дописанная цена подхватывается", s4.cost === 5 * R, JSON.stringify(s4?.cost));
 check("дописанная память подхватывается", s4.peak === 100010, JSON.stringify(s4?.peak));
 
-// Часовой расход: своя точка фильтра, чтобы не мешали сессии основной проверки.
-const rateDb = new DatabaseSync(dbPath);
+// Часовой расход: отдельное хранилище — фильтра по проекту больше нет, поэтому
+// свежие траты чужих сессий в общий отчёт не подмешиваются.
+const rateDbPath = path.join(dir, "rate.db");
+const rateDb = new DatabaseSync(rateDbPath);
+rateDb.exec(`
+  CREATE TABLE session (id text PRIMARY KEY, parent_id text, agent text, title text,
+    cost real DEFAULT 0, tokens_input integer DEFAULT 0, tokens_output integer DEFAULT 0,
+    tokens_cache_read integer DEFAULT 0, time_created integer, time_updated integer, directory text);
+  CREATE TABLE message (id text PRIMARY KEY, session_id text, time_created integer, time_updated integer, data text);
+  CREATE TABLE part (id text PRIMARY KEY, message_id text, session_id text, time_created integer, time_updated integer, data text);
+`);
 const insideHour = Date.now() - 20 * 60 * 1000;
 const outsideHour = Date.now() - 90 * 60 * 1000;
 const rateMessage = (id, at, cost) =>
@@ -281,16 +295,30 @@ const rateMessage = (id, at, cost) =>
     .run(id, "r1", at, at, JSON.stringify({ role: "assistant", cost, providerID: "opencode-go", modelID: "deepseek-v4.1-flash", tokens: { input: 1, output: 1, cache: { read: 0 } } }));
 rateDb
   .prepare("INSERT INTO session VALUES (?,?,?,?,0,?,?,?,?,?,?)")
-  .run("r1", null, "developer", "Часовой расход", 0, 0, 0, outsideHour, insideHour, "C:\\rate-test");
+  .run("r1", null, "developer", "Часовой расход", 0, 0, 0, outsideHour, insideHour, "C:\\Users\\admin\\Desktop\\backend");
 rateMessage("rm1", insideHour, 3);
 rateMessage("rm2", outsideHour, 10);
+// Вторая сессия той же роли в другом проекте: ключ группировки — роль + проект.
+rateDb
+  .prepare("INSERT INTO session VALUES (?,?,?,?,0,?,?,?,?,?,?)")
+  .run("r2", null, "developer", "Та же роль в Zorion", 0, 0, 0, outsideHour, insideHour, "C:\\Zorion2");
 rateDb.close();
 
-const rateStore = createStore({ dbPath, project: "rate-test", refreshGapMs: 0 });
+const rateStore = createStore({ dbPath: rateDbPath, refreshGapMs: 0 });
 const rateReport = rateStore.report({});
 check("часовой расход — только свежие траты", Math.abs(rateReport.rate.perHour - 3 * R) < 1e-9, JSON.stringify(rateReport.rate));
 check("окно часового расхода — час", rateReport.rate.windowMin === 60, JSON.stringify(rateReport.rate));
 check("часовой расход есть в обычном отчёте", typeof all.rate.perHour === "number", JSON.stringify(all.rate));
+check(
+  "сессия из чужой папки попадает в отчёт и несёт имя проекта",
+  rateReport.active.find((a) => a.id === "r1")?.project === "backend",
+  JSON.stringify(rateReport.active.map((a) => [a.id, a.project]))
+);
+check(
+  "роли разных проектов не смешиваются в группе",
+  rateReport.agents.filter((g) => g.label === "developer").map((g) => g.project).sort().join(",") === "Zorion2,backend",
+  JSON.stringify(rateReport.agents.map((g) => [g.label, g.project]))
+);
 rateStore.close();
 
 // Валютный учёт — гибрид: go/zen — из цены в БД × курс R; proxyapi — из токенов
@@ -313,7 +341,7 @@ mkM("mp1", "sp", { role: "assistant", cost: 0, providerID: "proxyapi", modelID: 
 mkM("mr1", "sr", { role: "assistant", cost: 0, providerID: "proxyapi", modelID: "qwen/qwen3.8-flash", tokens: { input: 1000, output: 2000, reasoning: 3000, cache: { read: 0 } } });
 mkM("mn1", "sn", { role: "assistant", cost: 0, providerID: "gonka", modelID: "deepseek-ai/DeepSeek-V4-Flash-0731", tokens: { input: 5000, output: 500, cache: { read: 0 } } });
 curDb.close();
-const curStore = createStore({ dbPath, project: "Zorion", refreshGapMs: 0 });
+const curStore = createStore({ dbPath, refreshGapMs: 0 });
 const curReport = curStore.report({});
 const curS = (id) => curReport.active.find((a) => a.id === id);
 check("go/zen: цена из БД × курс R", curS("sz")?.cost === 0.5 * R, JSON.stringify(curS("sz")?.cost));

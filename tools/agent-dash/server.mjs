@@ -21,7 +21,6 @@ const BATCH = Number(process.env.DASH_BATCH || 10);
 
 const store = createStore({
   dbPath: DB_PATH,
-  project: PROJECT,
   cachePath: CACHE_PATH,
   journalPath: JOURNAL_PATH,
 });
@@ -34,7 +33,7 @@ const { sessions, cached } = store.load();
 
 console.log(`хранилище: ${DB_PATH}`);
 console.log(`журнал сторожа: ${JOURNAL_PATH}`);
-console.log(`проект: ${PROJECT} · сессий: ${sessions} · из кэша: ${cached}`);
+console.log(`проект: все · сессий: ${sessions} · из кэша: ${cached}`);
 
 // Тяжёлые счётчики досчитываются в фоне порциями, чтобы сервис отвечал сразу.
 // Проход не выключается: сессии, которые работают прямо сейчас, попадают в

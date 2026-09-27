@@ -243,9 +243,9 @@ function drawVent(ctx, pal, d, x, gy) {
 // crystal_tree — кристаллическое «дерево» (ЧК5, спека 2026-09-23 §4.9.4,
 // вставка C): ствол-шард + crown ярусов гранёных друз-крон. Минеральный декор
 // (как crystal/rock) — в LIVING_DECOR не входит, гейт жизни не применяется.
-// Детерминизм: локальный mulberry32 от колонки (без Math.random); без
-// shadowBlur и покадровых градиентов.
-function drawCrystalTree(ctx, pal, d, x, gy) {
+// Детерминизм: локальный mulberry32 от колонки и мирового seed (без
+// Math.random); без shadowBlur и покадровых градиентов.
+function drawCrystalTree(ctx, pal, d, x, gy, seed) {
     const h = Math.max(10, d.h || 110);
     const trunkW = Math.max(3, d.trunkW || h * 0.1);
     const topW = Math.max(1.5, trunkW * (d.taper ?? 0.3));
@@ -273,7 +273,7 @@ function drawCrystalTree(ctx, pal, d, x, gy) {
     const crownH = h - trunkH;
     const glowOn = d.glow !== false;
     const glowCol = pal.glow || pal.accent;
-    const rng = mulberry32(((d.col | 0) ^ 0x9e3779b1) >>> 0);
+    const rng = mulberry32((((d.col | 0) ^ (seed | 0) ^ 0x9e3779b1)) >>> 0);
     for (let i = 0; i < crown; i++) {
         const y = topY - crownH * ((i + 0.5) / crown);
         const half = crownW * 0.5 * (0.4 + 0.6 * (1 - i / crown));
@@ -343,5 +343,5 @@ const PRIMS = {
 export function drawDecorPrim(ctx, world, d, x, gy) {
     const fn = PRIMS[d.prim];
     if (!fn) return;
-    fn(ctx, world.palette, d, x, gy);
+    fn(ctx, world.palette, d, x, gy, world.seed);
 }

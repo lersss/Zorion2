@@ -269,6 +269,28 @@ const desertView = {
     check('C1c crystal.glow:true → светится (pal.glow)', c3.seen[0] === w.palette.glow, String(c3.seen[0]));
 }
 
+// CT — хвост №59: рисунок crystal_tree завязан на мировой seed (§4.9.4):
+// тот же мир + колонка → тот же рисунок; разные миры на одной колонке → разный.
+{
+    const drawCT = (seed) => {
+        const seq = [];
+        const noop = () => {};
+        const ctx = {
+            fillStyle: '', strokeStyle: '', lineWidth: 1,
+            beginPath: noop, closePath: noop, quadraticCurveTo: noop, fillRect: noop,
+            moveTo: (x, y) => seq.push('M' + x.toFixed(3) + ',' + y.toFixed(3)),
+            lineTo: (x, y) => seq.push('L' + x.toFixed(3) + ',' + y.toFixed(3)),
+            fill: () => seq.push('F' + ctx.fillStyle),
+            stroke: () => seq.push('S' + ctx.strokeStyle),
+        };
+        const w = new SurfaceWorld(mkPkg({ seed, biome_view: { palette: { base: '#171a20' } }, view_source: 'catalog' }));
+        drawDecorPrim(ctx, w, { prim: 'crystal_tree', h: 110, col: 12345, crown: 4 }, 0, 0);
+        return seq.join('|');
+    };
+    check('CT1 crystal_tree: тот же мир + колонка → тот же рисунок', drawCT(424242) === drawCT(424242));
+    check('CT2 crystal_tree: разные миры на одной колонке → разный рисунок', drawCT(424242) !== drawCT(777777));
+}
+
 const failed = results.filter(r => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} проверок пройдено`);
 if (failed.length) process.exitCode = 1;

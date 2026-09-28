@@ -182,6 +182,23 @@ function horizonY(world, camera, vh) {
     return world.farHeight(camera.x * 0.35) - camera.y * 0.35 + vh * 0.35;
 }
 
+// TINT_FADE_PX — высота полосы растушёвки тинта у горизонта (гипотеза; подобрано
+// на глаз). Жёсткая заливка от horizonY при малом свете (ночь/рассвет/закат)
+// читалась швом поперёк экрана.
+const TINT_FADE_PX = 40;
+
+// fillTintBelowHorizon — тинт ниже горизонта с растушёвкой: от нулевой
+// прозрачности выше horizonY к рабочей альфе на нём (дальше градиент держит
+// конечный цвет). Цвет — как rgbaRgb (clamp альфы там же).
+function fillTintBelowHorizon(ctx, vw, vh, hy, color, alpha) {
+    const top = hy - TINT_FADE_PX;
+    const grad = ctx.createLinearGradient(0, top, 0, hy);
+    grad.addColorStop(0, rgbaRgb(color, 0));
+    grad.addColorStop(1, rgbaRgb(color, alpha));
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, top, vw, vh - top);
+}
+
 // drawEnvironmentBack — после неба, до погодного back: звёзды. Небо НЕ темнит —
 // палитра темнеет один раз в drawSky (один источник цвета).
 export function drawEnvironmentBack(ctx, world, camera, vw, vh, env, weather) {
@@ -198,8 +215,7 @@ export function drawEnvironmentMid(ctx, world, camera, vw, vh, env) {
     const alpha = 1 - Math.pow(env.lightMul(), ENV.worldTint.wMid);
     if (alpha <= 0.001) return;
     const hy = horizonY(world, camera, vh);
-    ctx.fillStyle = rgbaRgb(env.tint, alpha);
-    ctx.fillRect(0, hy, vw, vh);
+    fillTintBelowHorizon(ctx, vw, vh, hy, env.tint, alpha);
 }
 
 // drawEnvironmentFront — после погодного front: тинт ниже горизонта, alpha = 1 − lightMul
@@ -209,6 +225,5 @@ export function drawEnvironmentFront(ctx, world, camera, vw, vh, env) {
     const alpha = 1 - env.lightMul();
     if (alpha <= 0.001) return;
     const hy = horizonY(world, camera, vh);
-    ctx.fillStyle = rgbaRgb(env.tint, alpha);
-    ctx.fillRect(0, hy, vw, vh);
+    fillTintBelowHorizon(ctx, vw, vh, hy, env.tint, alpha);
 }

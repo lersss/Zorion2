@@ -222,6 +222,9 @@ async function callShip() {
         ui.notify('Не удалось вызвать корабль: ' + res.error);
         return;
     }
+    // Одноразовый маркер для карты (хендофф 2026-09-28): игрок на орбите
+    // планеты прогулки, карта откроет попап системы с фокусом на ней.
+    try { sessionStorage.setItem('surfaceReturn', String(state.pkg.planet_id)); } catch (e) {}
     window.location.href = '/map';
 }
 

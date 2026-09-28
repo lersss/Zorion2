@@ -122,7 +122,9 @@ function showTooltip(cluster) {
     elements.tooltipType.textContent = 'Тип: ' + tooltipStarType(cluster.stype, spec);
     elements.tooltipLevel.textContent = 'Уровень: ' + level;
     elements.tooltipFlyBtn.dataset.worldId = cluster.sid;
-    elements.tooltipFlyBtn.style.display = '';
+    // Кнопка «Лететь» в свою же звезду бессмысленна (простой /travel → сервер
+    // 400 «Already in this world»), прячем как модалка (66a).
+    elements.tooltipFlyBtn.style.display = cluster.sid === state.currentWorldId ? 'none' : '';
     elements.tooltip.classList.add('active');
 }
 
@@ -400,31 +402,35 @@ function showWorldMenu(x, y, worldId, name) {
     title.textContent = name;
     menu.appendChild(title);
 
-    const flyBtn = document.createElement('div');
-    flyBtn.style.cssText = `
-        padding: 8px 10px;
-        cursor: pointer;
-        border-radius: 6px;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-    `;
-    flyBtn.innerHTML = `🚀 <span>Лететь</span>`;
-    flyBtn.addEventListener('mouseenter', () => { flyBtn.style.background = '#2a2a44'; });
-    flyBtn.addEventListener('mouseleave', () => { flyBtn.style.background = 'none'; });
-    flyBtn.addEventListener('click', async () => {
-        hideWorldMenu();
-        // Без двигателя полёт невозможен (спека 91a §6.1): блокируем с
-        // подсказкой; сервер валидирует тоже (админ/skycomposer — исключение).
-        if (!state.hasEngine) {
-            notifyError('Двигатель не установлен — полёт невозможен');
-            return;
-        }
-        const token = localStorage.getItem('token');
-        await startFlight(worldId, token);
-        draw();
-    });
-    menu.appendChild(flyBtn);
+    // Пункт «Лететь» в свою же звезду бессмыслен (простой /travel → сервер
+    // 400 «Already in this world»), прячем как модалка (66a).
+    if (worldId !== state.currentWorldId) {
+        const flyBtn = document.createElement('div');
+        flyBtn.style.cssText = `
+            padding: 8px 10px;
+            cursor: pointer;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        `;
+        flyBtn.innerHTML = `🚀 <span>Лететь</span>`;
+        flyBtn.addEventListener('mouseenter', () => { flyBtn.style.background = '#2a2a44'; });
+        flyBtn.addEventListener('mouseleave', () => { flyBtn.style.background = 'none'; });
+        flyBtn.addEventListener('click', async () => {
+            hideWorldMenu();
+            // Без двигателя полёт невозможен (спека 91a §6.1): блокируем с
+            // подсказкой; сервер валидирует тоже (админ/skycomposer — исключение).
+            if (!state.hasEngine) {
+                notifyError('Двигатель не установлен — полёт невозможен');
+                return;
+            }
+            const token = localStorage.getItem('token');
+            await startFlight(worldId, token);
+            draw();
+        });
+        menu.appendChild(flyBtn);
+    }
 
     openWorldMenu(menu);
 }

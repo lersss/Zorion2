@@ -490,6 +490,7 @@ export async function loadUserData(force = false) {
         if (suppressAutoOpen) {
             sessionStorage.removeItem('compositeRoute');
             sessionStorage.removeItem('beltReturn');
+            sessionStorage.removeItem('surfaceReturn');
         }
         // Спека 99.2.30 §6.8 (триггер B): возврат/рефреш — первый loadUserData.
         // Распознавание автостарта композитного маршрута: маркер compositeRoute
@@ -520,6 +521,19 @@ export async function loadUserData(force = false) {
                 sessionStorage.removeItem('beltReturn');
                 if (user.current_world_id && beltReturn === user.current_world_id) {
                     checkBeltReturn(user);
+                }
+            }
+        }
+        // Возврат с прогулки (хендофф 2026-09-28): страница прогулки перед уходом
+        // на карту ставит метку surfaceReturn = planet_id — открываем попап
+        // системы игрока с фокусом на планете прогулки (он вернулся на её орбиту).
+        // Метку стираем в любом случае: не понадобилась — устарела.
+        if (!currentWorldIdLoaded && !suppressAutoOpen) {
+            const surfaceReturn = sessionStorage.getItem('surfaceReturn');
+            if (surfaceReturn) {
+                sessionStorage.removeItem('surfaceReturn');
+                if (user.current_world_id) {
+                    checkSurfaceReturn(user, surfaceReturn);
                 }
             }
         }
@@ -650,6 +664,32 @@ async function checkBeltReturn(user) {
     if (document.getElementById('system-modal-overlay') && modalState.worldId === worldId) return;
     if (document.getElementById('system-modal-overlay')) closeModal();
     openSystemModal(worldId, worldName, world ? world.spectral_class : '', {}, null, {
+        hasEngine: state.hasEngine,
+        shipIcon: state.userShipIcon,
+        shipColor: state.userShipColor,
+    });
+}
+
+// checkSurfaceReturn — возврат с прогулки (хендофф 2026-09-28): страница прогулки
+// ставит перед уходом метку surfaceReturn = planet_id. Открываем попап системы
+// игрока с фокусом на планете прогулки (он остался на её орбите; фокус — как
+// ветка orbit/surface в checkCompositeArrival). Без тоста/гула — это не прибытие.
+// Метку стирает loadUserData до вызова.
+async function checkSurfaceReturn(user, planetId) {
+    const worldId = user && user.current_world_id;
+    if (!worldId) return;
+    let world = state.worlds.find(w => w.id === worldId);
+    if (!world) {
+        const token = localStorage.getItem('token');
+        world = await fetchWorldByID(worldId, token);
+        if (world) state.worlds.push(world);
+    }
+    const worldName = world ? world.name : '—';
+    const focusOpts = planetId ? { planetId: String(planetId) } : {};
+    // Модалка уже открыта на этой системе — не переоткрывать.
+    if (document.getElementById('system-modal-overlay') && modalState.worldId === worldId) return;
+    if (document.getElementById('system-modal-overlay')) closeModal();
+    openSystemModal(worldId, worldName, world ? world.spectral_class : '', focusOpts, null, {
         hasEngine: state.hasEngine,
         shipIcon: state.userShipIcon,
         shipColor: state.userShipColor,

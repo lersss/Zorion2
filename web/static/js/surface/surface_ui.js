@@ -59,6 +59,7 @@ export function showBriefing(pkg, handlers) {
         <p style="margin:10px 0;">Планета: <strong>${pkg.planet_name || ''}</strong> · гравитация ${(pkg.gravity || 0).toFixed(2)} g · температура ${fmtTemp(pkg.temperature - 273.15)}</p>
         <p style="margin:6px 0; color:#94a3b8;">Профиль опасности:</p>
         <p style="margin:4px 0 12px 0;">${axes}</p>
+        <p style="margin:8px 0; color:#94a3b8; font-size:0.9rem;">Управление: ← → / A D — ходьба · Space — прыжок · Shift — бег · ↓ / S — нырять в воде · Esc — пауза</p>
         <p style="margin:8px 0; color:${verdictColor}; font-weight:600;">Скафандр: ${verdict.text}</p>
         <p style="margin:8px 0; color:#94a3b8; font-size:0.9rem;">${pkg.life ? 'На планете есть жизнь — присмотритесь.' : 'Мир стерилен: тишина, ветер, пыль.'}</p>
     `;

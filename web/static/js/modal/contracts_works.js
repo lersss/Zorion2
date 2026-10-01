@@ -40,8 +40,14 @@ function goodsQtyText(qty) {
 }
 
 // goodsLineHtml — строка товара заказа: «Пища · осталось 500 ед. · в трюме 12 ед.».
-// cargo — карта cargoByGoodId; cargo === null (груз не читали) → «в трюме» не
-// выводим вовсе. Название экранируется: good_name приходит из каталога товаров.
+// cargo — карта cargoByGoodId. Правило «в трюме»: его наличие решает ФАКТ
+// загрузки карты, а не наличие товара в ней (идея
+// 2026-10-01_сдача-груза-не-по-роли, правка гейта): cargo === null (груз не
+// читали — сбой запроса/не загружали) → число не выводим, «молчание» честно
+// значит «не знаю»; cargo прочитан (пустая карта валидна) → печатаем число
+// всегда, включая 0: отсутствие товара в прочитанном трюме и есть точный ноль,
+// и игрок с пустым трюем видит «в трюме 0 ед.», а не строку без числа.
+// Название экранируется: good_name приходит из каталога товаров.
 export function goodsLineHtml(req, cargo) {
     if (!req) return '';
     const name = escapeHtml(req.good_name || 'товар без названия');
@@ -49,7 +55,7 @@ export function goodsLineHtml(req, cargo) {
     if (req.quantity != null) parts.push('осталось ' + goodsQtyText(req.quantity) + ' ед.');
     if (cargo) {
         const qty = cargo.get(Number(req.subject));
-        if (qty != null) parts.push('в трюме ' + goodsQtyText(qty) + ' ед.');
+        parts.push('в трюме ' + goodsQtyText(qty != null ? qty : 0) + ' ед.');
     }
     return parts.length ? name + ' · ' + parts.join(' · ') : name;
 }

@@ -201,12 +201,13 @@ const mineNoCargo = w.myWorksHtml([
 ], now, null);
 eq('works no cargo number', mineNoCargo.includes('в трюме'), false);
 eq('works no cargo keeps rest', mineNoCargo.includes('Пища · осталось 40 ед.'), true);
-// Пустая карта (груз прочитан, но товара в трюме нет — как на живом клиенте,
-// где cargoByGoodId вернул пустое) — тоже молчит, а не «в трюме 0 ед.».
-eq('works empty cargo map', w.myWorksHtml([
+// Карта прочитана, но товара в трюме нет (пустой трюм — как на живом клиенте,
+// где cargoByGoodId вернул пустое) → печатаем точный ноль, а не молчим:
+// игрок должен видеть, что везти нечего (правка гейта 2026-10-01).
+eq('works empty cargo map is zero', w.myWorksHtml([
     { id: 'w1', type: 'supply', status: 'taken', executor_type: 'player', title: 'Вода', author_type: 'settlement',
       requirements: [{ kind: 'goods', subject: '378', op: 'in', quantity: 40, good_name: 'Пища' }] },
-], now, w.cargoByGoodId([])).includes('в трюме'), false);
+], now, w.cargoByGoodId([])).includes('Пища · осталось 40 ед. · в трюме 0 ед.'), true);
 // Нет названия в каталоге — читаемая заглушка вместо внутреннего good_id.
 const mineNoName = w.myWorksHtml([
     { id: 'w1', type: 'supply', status: 'taken', executor_type: 'player', title: 'Вода', author_type: 'settlement',

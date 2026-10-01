@@ -992,6 +992,11 @@ func scanContracts(rows *sql.Rows) ([]*models.Contract, error) {
 
 // attachRequirements — догружает требования для набора контрактов одним
 // запросом (без N+1). contract_id::text = ANY(text[]) — без угадывания типа.
+// LEFT JOIN goods даёт good_name (идея 2026-10-01_сдача-груза-не-по-роли ЧК1):
+// subject у goods-требования — внутренний good_id строкой, игроку не для
+// показа. CASE ограничивает подстановку name требованиями kind='goods' (у
+// gear-требований subject — не goods.id, join по строке мог бы совпасть с
+// каталогом и подменить смысл строки).
 func attachRequirements(q querier, contracts []*models.Contract) error {
 	if len(contracts) == 0 {
 		return nil
@@ -1002,10 +1007,13 @@ func attachRequirements(q querier, contracts []*models.Contract) error {
 		ids = append(ids, c.ID)
 		index[c.ID] = c
 	}
-	rows, err := q.Query(`SELECT id, contract_id, pos, kind, subject, op,
-			threshold_num, threshold_text, quantity
-		FROM contract_requirements WHERE contract_id::text = ANY($1)
-		ORDER BY contract_id, pos`, pq.Array(ids))
+	rows, err := q.Query(`SELECT r.id, r.contract_id, r.pos, r.kind, r.subject, r.op,
+			r.threshold_num, r.threshold_text, r.quantity,
+			CASE WHEN r.kind = 'goods' THEN g.name END
+		FROM contract_requirements r
+		LEFT JOIN goods g ON g.id::text = r.subject
+		WHERE r.contract_id::text = ANY($1)
+		ORDER BY r.contract_id, r.pos`, pq.Array(ids))
 	if err != nil {
 		return fmt.Errorf("attach requirements: %w", err)
 	}
@@ -1015,8 +1023,9 @@ func attachRequirements(q querier, contracts []*models.Contract) error {
 		var tn sql.NullFloat64
 		var tt sql.NullString
 		var qty sql.NullInt64
+		var goodName sql.NullString
 		if err := rows.Scan(&req.ID, &req.ContractID, &req.Pos, &req.Kind, &req.Subject, &req.Op,
-			&tn, &tt, &qty); err != nil {
+			&tn, &tt, &qty, &goodName); err != nil {
 			return err
 		}
 		if tn.Valid {
@@ -1027,6 +1036,9 @@ func attachRequirements(q querier, contracts []*models.Contract) error {
 		}
 		if qty.Valid {
 			req.Quantity = &qty.Int64
+		}
+		if goodName.Valid {
+			req.GoodName = goodName.String
 		}
 		if c := index[req.ContractID]; c != nil {
 			c.Requirements = append(c.Requirements, req)

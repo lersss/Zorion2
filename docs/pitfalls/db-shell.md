@@ -300,6 +300,20 @@
   КАНОНИЧЕСКОГО `secret`»; симптом пропуска — расхождение доски клиента и
   серверной оценки пути (`boost` собирает поле из чужого `secret`).
 
+- **Имя товара в требованиях контракта — `LEFT JOIN goods` + `CASE`, не INNER
+  JOIN (идея `2026-10-01_сдача-груза-не-по-роли`, ЧК1).** У goods-требования
+  `contract_requirements.subject` — это `good_id` **строкой** (uuid-контракт без
+  FK на каталог), поэтому догрузка имени (`attachRequirements`,
+  `internal/repository/contract_repository.go`) джойнит по
+  `g.id::text = r.subject`. Две ловушки: (1) INNER JOIN молча **терял бы
+  gear-требования** (`subject='speed_factor'` в каталоге не совпадает, но при
+  будущем числовом gear-ключе мог бы) — только LEFT; (2) имя подставляется под
+  `CASE WHEN r.kind = 'goods' THEN g.name END`, иначе колонка заполнялась бы
+  именем товара у не-goods строки. Колонка приходит NULL — `sql.NullString`,
+  в JSON `good_name` с `omitempty` (у gear-требования поля нет). Проверено
+  живым API: `GET /api/planets/{id}/contracts` отдаёт `"good_name":"Пища"`
+  рядом с `"subject":"378"`.
+
 - **Дамп `pg_dump -t` по контентным таблицам каталога не восстановим в чистую БД
   (2026-09-25).** `pg_dump -t goods -t producer_types … -t effect_types` несёт
   `DEFAULT catalog_next_code(...)` (миграция `000084`), но `-t` не тянет

@@ -8,6 +8,7 @@
 package repository
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -47,8 +48,14 @@ func contractRowPkg(id, authorType, authorID string, escrowAmount, escrowWithdra
 }
 
 func emptyRequirementsRows() *sqlmock.Rows {
+	return requirementRows()
+}
+
+// requirementRows — выборка contract_requirements с догруженным именем товара
+// (good_name, идея 2026-10-01_сдача-груза-не-по-роли ЧК1).
+func requirementRows() *sqlmock.Rows {
 	return sqlmock.NewRows([]string{"id", "contract_id", "pos", "kind", "subject", "op",
-		"threshold_num", "threshold_text", "quantity"})
+		"threshold_num", "threshold_text", "quantity", "good_name"})
 }
 
 func rowSet6() *sqlmock.Rows {
@@ -91,7 +98,7 @@ func TestContractPublishLocksEscrow(t *testing.T) {
 	// Publish в конце читает контракт обратно (GetByID).
 	mock.ExpectQuery(contractSelectRe).
 		WillReturnRows(contractRow("c1", "player", authorID, 500, 50))
-	mock.ExpectQuery(`SELECT id, contract_id, pos, kind, subject, op,`).WillReturnRows(emptyRequirementsRows())
+	mock.ExpectQuery(`SELECT r.id, r.contract_id, r.pos, r.kind, r.subject, r.op,`).WillReturnRows(emptyRequirementsRows())
 
 	repo := NewContractRepository(db)
 	c, err := repo.Publish(PublishContractParams{
@@ -204,7 +211,7 @@ func TestContractGetByIDPackageFields(t *testing.T) {
 	mock.ExpectQuery(contractSelectRe).
 		WithArgs("c1").
 		WillReturnRows(contractRowPkg("c1", "building", "b1", 500, 0, &pkg, &share))
-	mock.ExpectQuery(`SELECT id, contract_id, pos, kind, subject, op,`).
+	mock.ExpectQuery(`SELECT r.id, r.contract_id, r.pos, r.kind, r.subject, r.op,`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(emptyRequirementsRows())
 
@@ -218,6 +225,36 @@ func TestContractGetByIDPackageFields(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+// goods-требование отдаёт имя товара good_name (идея
+// 2026-10-01_сдача-груза-не-по-роли ЧК1): subject у goods — внутренний good_id
+// строкой, в JSON контракта попадает читаемое имя.
+func TestContractGetByIDRequirementGoodName(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer db.Close()
+
+	mock.ExpectQuery(contractSelectRe).WithArgs("c1").
+		WillReturnRows(contractRow("c1", "settlement", "s1", 500, 0))
+	mock.ExpectQuery(`(?s)SELECT r\.id, r\.contract_id.*LEFT JOIN goods`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(requirementRows().
+			AddRow(int64(9), "c1", 0, "goods", "378", "in", nil, nil, int64(500), "Пища").
+			AddRow(int64(10), "c1", 1, "gear", "speed_factor", "le", 0.3, nil, nil, nil))
+
+	c, err := NewContractRepository(db).GetByID("c1")
+	require.NoError(t, err)
+	require.NotNil(t, c)
+	require.Len(t, c.Requirements, 2)
+	require.Equal(t, "Пища", c.Requirements[0].GoodName)
+	require.Equal(t, int64(500), *c.Requirements[0].Quantity)
+	require.Empty(t, c.Requirements[1].GoodName, "gear-требование имени товара не получает")
+
+	body, err := json.Marshal(c)
+	require.NoError(t, err)
+	require.Contains(t, string(body), `"good_name":"Пища"`)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 // Контракт вне пакета (перелёт, ручная публикация): package_key/share_index NULL.
 func TestContractGetByIDNoPackageFields(t *testing.T) {
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
@@ -227,7 +264,7 @@ func TestContractGetByIDNoPackageFields(t *testing.T) {
 	mock.ExpectQuery(contractSelectRe).
 		WithArgs("c1").
 		WillReturnRows(contractRow("c1", "player", "u1", 500, 0))
-	mock.ExpectQuery(`SELECT id, contract_id, pos, kind, subject, op,`).
+	mock.ExpectQuery(`SELECT r.id, r.contract_id, r.pos, r.kind, r.subject, r.op,`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(emptyRequirementsRows())
 
@@ -764,7 +801,7 @@ func TestContractPublishSupplyFree(t *testing.T) {
 
 	mock.ExpectQuery(contractSelectRe).
 		WillReturnRows(contractRow("c1", "player", authorID, 0, 0))
-	mock.ExpectQuery(`SELECT id, contract_id, pos, kind, subject, op,`).WillReturnRows(emptyRequirementsRows())
+	mock.ExpectQuery(`SELECT r.id, r.contract_id, r.pos, r.kind, r.subject, r.op,`).WillReturnRows(emptyRequirementsRows())
 
 	repo := NewContractRepository(db)
 	c, err := repo.Publish(PublishContractParams{

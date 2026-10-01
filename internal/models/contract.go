@@ -143,7 +143,10 @@ type Contract struct {
 
 // ContractRequirement — строка требований контракта (contract_requirements,
 // §4.2). Интервал выражается двумя односторонними строками. ThresholdNum —
-// в K (в UI — °C, §7).
+// в K (в UI — °C, §7). GoodName — имя товара из goods для kind='goods'
+// (идея 2026-10-01_сдача-груза-не-по-роли ЧК1): Subject для goods — внутренний
+// good_id строкой, игроку его показывать нечего; пусто, если товара в каталоге
+// нет или требование не goods.
 type ContractRequirement struct {
 	ID            int64    `json:"id"`
 	ContractID    string   `json:"contract_id"`
@@ -154,6 +157,7 @@ type ContractRequirement struct {
 	ThresholdNum  *float64 `json:"threshold_num,omitempty"`
 	ThresholdText *string  `json:"threshold_text,omitempty"`
 	Quantity      *int64   `json:"quantity,omitempty"`
+	GoodName      string   `json:"good_name,omitempty"`
 }
 
 // TravelContractRef — лёгкая ссылка на открытый перелёт для планировщика NPC

@@ -28,33 +28,58 @@ import (
 	"zorion/internal/models"
 )
 
-// Ошибки точки сдачи — маппятся хендлером в HTTP-коды (§5.3).
+// Ошибки точки сдачи — маппятся хендлером в HTTP-коды (§5.3). Тексты,
+// которые хендлер отдаёт игроку как есть (422-группа), начинаются с заглавной
+// буквы: тост читается как предложение, а не как продолжение строки.
 var (
 	// ErrDeliveryNotAvailable — под локом контракт не supply/taken/не свой/истёк:
 	// гонка с истечением или другой сдачей. 409.
 	ErrDeliveryNotAvailable = errors.New("контракт недоступен для сдачи")
 	// ErrDeliveryAuthorUnsupported — автор без хранилища (player/faction). 422.
-	ErrDeliveryAuthorUnsupported = errors.New("заказ не принимает сдачу в хранилище")
+	ErrDeliveryAuthorUnsupported = errors.New("Заказ не принимает сдачу в хранилище")
 	// ErrDeliveryBuildingUnsupported — автор-строение: источника размера
 	// хранилища и реестра ячеек у строений сегодня нет (заказов от строений тоже
 	// нет — задел, §0 п.15). Честный отказ вместо ложного «хранилище
 	// переполнено» (size = 0 давал бы 409). 422.
-	ErrDeliveryBuildingUnsupported = errors.New("сдача от строений пока не поддерживается")
+	ErrDeliveryBuildingUnsupported = errors.New("Сдача от строений пока не поддерживается")
 	// ErrContractDamaged — не ровно одно goods-требование (0/несколько) либо
 	// битые данные требования (quantity, subject). 422, fail-closed.
-	ErrContractDamaged = errors.New("контракт повреждён")
+	ErrContractDamaged = errors.New("Контракт повреждён")
 	// ErrDeliveryGoodUnavailable — битый вес товара (weight <= 0). 422.
-	ErrDeliveryGoodUnavailable = errors.New("товар недоступен для сдачи")
-	// ErrDeliveryNoCargo — нужного товара в трюме нет. 422.
-	ErrDeliveryNoCargo = errors.New("в трюме нет нужного товара")
+	ErrDeliveryGoodUnavailable = errors.New("Товар недоступен для сдачи")
+	// ErrDeliveryNoCargo — якорь отказа «в трюме нет нужного товара» (422).
+	// Игроку показывается конкретизированный текст с названием товара и
+	// остатком (deliveryNoCargoError), этот sentinel — только для errors.Is и
+	// маппинга в 422.
+	ErrDeliveryNoCargo = errors.New("В трюме нет нужного товара")
 	// ErrDeliveryStorageCellMissing — ячейки владельца по товару нет (вне
 	// реестра нужд / удалена). 409, fail-closed (авто-создания ячейки нет, T14).
 	ErrDeliveryStorageCellMissing = errors.New("заказ устарел")
 	// ErrDeliveryStorageFull — двойной порог ячейки (2·cap) достигнут. 409.
 	ErrDeliveryStorageFull = errors.New("хранилище переполнено")
 	// ErrDeliveryNothing — сдавать нечего (delivered <= 0). 422.
-	ErrDeliveryNothing = errors.New("нечего сдавать")
+	ErrDeliveryNothing = errors.New("Нечего сдавать")
 )
+
+// deliveryNoCargoError — отказ «в трюме нет нужного товара», названный именем
+// товара и остатком требования (идея 2026-10-01_сдача-груза-не-по-роли ЧК3):
+// вместо «в трюме нет нужного товара» игрок видит, чего не хватает и сколько
+// ещё сдать. Unwrap до ErrDeliveryNoCargo — маппинг в HTTP 422 и errors.Is
+// для вызывающих не меняются.
+type deliveryNoCargoError struct {
+	goodName  string
+	remaining int64
+}
+
+func (e *deliveryNoCargoError) Error() string {
+	name := e.goodName
+	if name == "" {
+		name = "нужного товара"
+	}
+	return fmt.Sprintf("В трюме нет товара «%s», а по заказу осталось сдать %d ед.", name, e.remaining)
+}
+
+func (e *deliveryNoCargoError) Unwrap() error { return ErrDeliveryNoCargo }
 
 // CargoTaker — узкий интерфейс трюма (метод *cargo.Service.TakeCargoTx),
 // инъектируется в ContractRepository (SetCargo), чтобы пакет repository не
@@ -107,8 +132,10 @@ const (
 		ORDER BY pos
 		FOR UPDATE`
 
-	// deliveryGoodWeightSQL — вес товара требования (§5.2 п.3).
-	deliveryGoodWeightSQL = `SELECT weight FROM goods WHERE id = $1`
+	// deliveryGoodSQL — имя и вес товара требования (§5.2 п.3; имя — для
+	// читаемого отказа «в трюме нет», идея 2026-10-01_сдача-груза-не-по-роли
+	// ЧК3).
+	deliveryGoodSQL = `SELECT name, weight FROM goods WHERE id = $1`
 
 	// deliveryStorageSizeSQL — размер хранилища автора-поселения (§5.2 п.5).
 	deliveryStorageSizeSQL = `SELECT storage_size FROM settlements WHERE id = $1`
@@ -201,9 +228,10 @@ func (r *ContractRepository) Deliver(executorID, contractID string) (*DeliveryRe
 		return nil, ErrContractDamaged
 	}
 
-	// 3. Вес товара (единицы — операционные, масса — страховка канона, F7).
+	// 3. Имя и вес товара (единицы — операционные, масса — страховка канона, F7).
+	var goodName string
 	var weight float64
-	err = tx.QueryRow(deliveryGoodWeightSQL, goodID).Scan(&weight)
+	err = tx.QueryRow(deliveryGoodSQL, goodID).Scan(&goodName, &weight)
 	if err == sql.ErrNoRows {
 		return nil, ErrDeliveryGoodUnavailable
 	}
@@ -221,13 +249,13 @@ func (r *ContractRepository) Deliver(executorID, contractID string) (*DeliveryRe
 	var have float64
 	err = tx.QueryRow(lockDeliveryCargoSQL, executorID, goodID).Scan(&have)
 	if err == sql.ErrNoRows {
-		return nil, ErrDeliveryNoCargo
+		return nil, &deliveryNoCargoError{goodName: goodName, remaining: remaining}
 	}
 	if err != nil {
 		return nil, fmt.Errorf("deliver: чтение трюма: %w", err)
 	}
 	if have <= deliveryEpsilon {
-		return nil, ErrDeliveryNoCargo
+		return nil, &deliveryNoCargoError{goodName: goodName, remaining: remaining}
 	}
 
 	// 5. Ячейки владельца под локом + двойной порог целевой ячейки.

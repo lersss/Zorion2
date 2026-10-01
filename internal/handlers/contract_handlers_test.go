@@ -72,7 +72,7 @@ func contractRows(id, status, visibility string, escrow int64) *sqlmock.Rows {
 // contractReqRows — пустая выборка contract_requirements.
 func contractReqRows() *sqlmock.Rows {
 	return sqlmock.NewRows([]string{"id", "contract_id", "pos", "kind", "subject", "op",
-		"threshold_num", "threshold_text", "quantity"})
+		"threshold_num", "threshold_text", "quantity", "good_name"})
 }
 
 // expectContractGetByID — чтение контракта после публикации (GetByID + требования).
@@ -80,7 +80,7 @@ func expectContractGetByID(mock sqlmock.Sqlmock, row *sqlmock.Rows) {
 	mock.ExpectQuery(`SELECT id, type, author_type, author_id, publication_planet_id`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(row)
-	mock.ExpectQuery(`SELECT id, contract_id, pos, kind, subject, op,`).
+	mock.ExpectQuery(`SELECT r.id, r.contract_id, r.pos, r.kind, r.subject, r.op,`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(contractReqRows())
 }
@@ -161,7 +161,7 @@ func TestContractBoardAdminBypassLazyExpiry(t *testing.T) {
 	mock.ExpectQuery(`FROM contracts\s+WHERE publication_planet_id = \$1 AND status = 'open' AND expires_at > NOW\(\) AND visibility = 'public'`).
 		WithArgs("p1").
 		WillReturnRows(contractRows("c1", "open", "public", 500))
-	mock.ExpectQuery(`SELECT id, contract_id, pos, kind, subject, op,`).
+	mock.ExpectQuery(`SELECT r.id, r.contract_id, r.pos, r.kind, r.subject, r.op,`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(contractReqRows())
 
@@ -466,8 +466,8 @@ func contractRowsTravel(id, status, payload string) *sqlmock.Rows {
 // contractReqRowsGear — одно требование снаряжения (kind='gear').
 func contractReqRowsGear(contractID, subject, op string, threshold float64) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{"id", "contract_id", "pos", "kind", "subject", "op",
-		"threshold_num", "threshold_text", "quantity"}).
-		AddRow(int64(1), contractID, 1, "gear", subject, op, threshold, nil, nil)
+		"threshold_num", "threshold_text", "quantity", "good_name"}).
+		AddRow(int64(1), contractID, 1, "gear", subject, op, threshold, nil, nil, nil)
 }
 
 // timeArg — sqlmock-матчер: аргумент — time.Time (перебазирование срока).
@@ -497,7 +497,7 @@ func expectContractGetByIDWithReq(mock sqlmock.Sqlmock, row, reqs *sqlmock.Rows)
 	mock.ExpectQuery(`SELECT id, type, author_type, author_id, publication_planet_id`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(row)
-	mock.ExpectQuery(`SELECT id, contract_id, pos, kind, subject, op,`).
+	mock.ExpectQuery(`SELECT r.id, r.contract_id, r.pos, r.kind, r.subject, r.op,`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(reqs)
 }
@@ -852,7 +852,7 @@ func TestContractBoardShowsPackageFields(t *testing.T) {
 	mock.ExpectQuery(`FROM contracts\s+WHERE publication_planet_id = \$1 AND status = 'open' AND expires_at > NOW\(\) AND visibility = 'public'`).
 		WithArgs("p1").
 		WillReturnRows(contractSupplyRows("c1", "open"))
-	mock.ExpectQuery(`SELECT id, contract_id, pos, kind, subject, op,`).
+	mock.ExpectQuery(`SELECT r.id, r.contract_id, r.pos, r.kind, r.subject, r.op,`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(contractReqRows())
 

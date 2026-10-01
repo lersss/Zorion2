@@ -21,6 +21,7 @@ func TestContractsBoardInNode(t *testing.T) {
 	}
 	root := "file:///" + filepath.ToSlash(repoRoot(t))
 	script := strings.Replace(contractsBoardScript, "__CONTRACTS__", root+"/web/static/js/modal/contracts.js", 1)
+	script = strings.Replace(script, "__WORKS__", root+"/web/static/js/modal/contracts_works.js", 1)
 	cmd := exec.Command(node, "--input-type=module", "--eval", script)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -33,6 +34,7 @@ func TestContractsBoardInNode(t *testing.T) {
 
 const contractsBoardScript = `
 const c = await import(new URL("__CONTRACTS__").href);
+const w = await import(new URL("__WORKS__").href);
 
 function eq(name, got, want) {
     const a = JSON.stringify(got), b = JSON.stringify(want);
@@ -59,15 +61,21 @@ eq('req ge', c.requirementText({ kind: 'gear', subject: 'speed_factor', op: 'ge'
     'двигатель не медленнее 0.3');
 eq('req text fallback', c.requirementText({ kind: 'cargo', threshold_text: 'трюм 10 т' }), 'трюм 10 т');
 eq('req null', c.requirementText(null), '');
-// Требование-поставка (kind='goods', §4.2): позиция и объём доли (quantity).
-eq('req goods', c.requirementText({ kind: 'goods', subject: 'ore', op: 'in', quantity: 10 }), 'ore: 10 ед.');
-eq('req goods no qty', c.requirementText({ kind: 'goods', subject: 'ore', op: 'in' }), 'ore');
+// Требование-поставка (kind='goods', §4.2): объём доли (quantity) и название
+// товара. good_name (идея 2026-10-01_сдача-груза-не-по-роли ЧК1) предпочитается
+// внутреннему subject; без него — прежнее поведение (старый контракт без JOIN).
+eq('req goods', c.requirementText({ kind: 'goods', subject: 'ore', op: 'in', quantity: 10 }), 'товар без названия: 10 ед.');
+eq('req goods named', c.requirementText({ kind: 'goods', subject: '378', op: 'in', quantity: 10, good_name: 'Пища' }),
+    'Пища: 10 ед.');
+eq('req goods no name', c.requirementText({ kind: 'goods', subject: '378', op: 'in', quantity: 10 }), 'товар без названия: 10 ед.');
+eq('req goods no qty', c.requirementText({ kind: 'goods', subject: 'ore', op: 'in' }), 'товар без названия');
+eq('req goods no qty name', c.requirementText({ kind: 'goods', subject: 'ore', op: 'in', good_name: 'Руда' }), 'Руда');
 // Позиция-доля экранируется и здесь (stored XSS через subject).
 eq('req goods escaped', c.requirementText({ kind: 'goods', subject: '<img src=x>', op: 'in', quantity: 1 }),
-    '&lt;img src=x&gt;: 1 ед.');
+    'товар без названия: 1 ед.');
 // quantity тоже экранируется (дисциплина модуля: все строки с сервера).
 eq('req goods qty escaped', c.requirementText({ kind: 'goods', subject: 'ore', op: 'in', quantity: '<b>9</b>' }),
-    'ore: &lt;b&gt;9&lt;/b&gt; ед.');
+    'товар без названия: &lt;b&gt;9&lt;/b&gt; ед.');
 
 // «Осталось N» от expires_at (§2.1). now — миллисекунды.
 const now = Date.parse('2026-09-22T12:00:00Z');
@@ -117,7 +125,8 @@ eq('both shares in one block',
     gStart >= 0 && tStart > gStart &&
     grouped.slice(gStart, tStart).includes('data-contract-take="s1"') &&
     grouped.slice(gStart, tStart).includes('data-contract-take="s2"'), true);
-eq('share sizes shown', grouped.includes('ore: 10 ед.') && grouped.includes('ore: 5 ед.'), true);
+eq('share sizes shown', grouped.includes('товар без названия: 10 ед.') && grouped.includes('товар без названия: 5 ед.'), true);
+eq('group no internal good_id', grouped.includes('>ore'), false);
 eq('share reward shown', grouped.includes('100') && grouped.includes('50'), true);
 eq('share term shown', grouped.includes('осталось 3 ч'), true);
 // Контракт без пакета — плоско: без обёртки группы.
@@ -166,39 +175,70 @@ eq('icon settlement', c.authorIcon('settlement'), '🏘');
 
 // «Мои заказы (в работе)» (ЧК2б §6): только мои взятые supply-заказы
 // (executor_type='player'); открытые/перелёты не показываются; кнопка «Сдать»
-// несёт data-contract-deliver с id.
-const mine = c.myWorksHtml([
+// несёт data-contract-deliver с id. Строка товара — название (good_name),
+// «осталось N» и «в трюме M» из cargo (идея 2026-10-01_сдача-груза-не-по-роли).
+const cargo = w.cargoByGoodId([{ good_id: 378, quantity: 12 }]);
+const mine = w.myWorksHtml([
     { id: 'w1', type: 'supply', status: 'taken', executor_type: 'player', title: 'Вода', author_type: 'settlement',
-      expires_at: '2026-09-22T15:00:00Z', requirements: [{ kind: 'goods', subject: 'water', op: 'in', quantity: 40 }] },
+      expires_at: '2026-09-22T15:00:00Z',
+      requirements: [{ kind: 'goods', subject: '378', op: 'in', quantity: 40, good_name: 'Пища' }] },
     { id: 'w2', type: 'supply', status: 'open', executor_type: null, title: 'Открытый', requirements: [] },
     { id: 'w3', type: 'travel', status: 'taken', executor_type: 'player', title: 'Перелёт', requirements: [] },
-], now);
+], now, cargo);
 eq('works block header', mine.includes('Мои заказы (в работе)'), true);
 eq('works deliver btn', mine.includes('data-contract-deliver="w1"'), true);
-eq('works remaining', mine.includes('остаток 40 ед.'), true);
+eq('works goods line', mine.includes('Пища · осталось 40 ед. · в трюме 12 ед.'), true);
+eq('works no internal id', mine.includes('товар 378'), false);
 eq('works author readable', mine.includes('поселение'), true);
 eq('works excludes open', mine.includes('data-contract-deliver="w2"'), false);
 eq('works excludes travel', mine.includes('data-contract-deliver="w3"'), false);
-eq('works empty', c.myWorksHtml([], now), '');
-eq('works null', c.myWorksHtml(null, now), '');
+eq('works empty', w.myWorksHtml([], now, cargo), '');
+eq('works null', w.myWorksHtml(null, now, cargo), '');
+// Груз не читали (cargo === null) — «в трюме» не выводим: молчаливое «0» врало бы.
+const mineNoCargo = w.myWorksHtml([
+    { id: 'w1', type: 'supply', status: 'taken', executor_type: 'player', title: 'Вода', author_type: 'settlement',
+      requirements: [{ kind: 'goods', subject: '378', op: 'in', quantity: 40, good_name: 'Пища' }] },
+], now, null);
+eq('works no cargo number', mineNoCargo.includes('в трюме'), false);
+eq('works no cargo keeps rest', mineNoCargo.includes('Пища · осталось 40 ед.'), true);
+// Пустая карта (груз прочитан, но товара в трюме нет — как на живом клиенте,
+// где cargoByGoodId вернул пустое) — тоже молчит, а не «в трюме 0 ед.».
+eq('works empty cargo map', w.myWorksHtml([
+    { id: 'w1', type: 'supply', status: 'taken', executor_type: 'player', title: 'Вода', author_type: 'settlement',
+      requirements: [{ kind: 'goods', subject: '378', op: 'in', quantity: 40, good_name: 'Пища' }] },
+], now, w.cargoByGoodId([])).includes('в трюме'), false);
+// Нет названия в каталоге — читаемая заглушка вместо внутреннего good_id.
+const mineNoName = w.myWorksHtml([
+    { id: 'w1', type: 'supply', status: 'taken', executor_type: 'player', title: 'Вода', author_type: 'settlement',
+      requirements: [{ kind: 'goods', subject: '378', op: 'in', quantity: 40 }] },
+], now, cargo);
+eq('works unnamed good', mineNoName.includes('товар без названия'), true);
+eq('works unnamed no id', mineNoName.includes('378'), false);
+// Карта трюма: строки без числовых good_id/quantity пропускаются, дробные — как есть.
+eq('cargo map get', cargo.get(378), 12);
+eq('cargo map junk', w.cargoByGoodId([{ good_id: 'x' }, { good_id: 5 }, null, { good_id: 7, quantity: 1.25 }]).get(7), 1.25);
+eq('cargo map null', w.cargoByGoodId(null).size, 0);
 // XSS: заголовок/товар экранируются и в «моих заказах».
-const mineXss = c.myWorksHtml([
+const mineXss = w.myWorksHtml([
     { id: 'x1', type: 'supply', status: 'taken', executor_type: 'player', title: '<img src=x>', author_type: 'settlement',
-      requirements: [{ kind: 'goods', subject: '<b>w</b>', op: 'in', quantity: 1 }] },
-], now);
+      requirements: [{ kind: 'goods', subject: '<b>w</b>', op: 'in', quantity: 1, good_name: '<b>w</b>' }] },
+], now, null);
 eq('works xss title', mineXss.includes('<img src=x>'), false);
 eq('works xss goods', mineXss.includes('<b>w</b>'), false);
 
 // Тексты сдачи (ЧК2б §6): человеческий результат и разбор {error}.
-eq('deliver partial text', c.deliverResultText({ status: 'taken', delivered: 40, remaining: 60, paid: 400 }),
+eq('deliver partial text', w.deliverResultText({ status: 'taken', delivered: 40, remaining: 60, paid: 400 }),
     'Сдано 40 ед., остаток требования 60 ед., выплачено 400 кр.');
-eq('deliver full text', c.deliverResultText({ status: 'completed', delivered: 100, remaining: 0, paid: 0 }),
+eq('deliver full text', w.deliverResultText({ status: 'completed', delivered: 100, remaining: 0, paid: 0 }),
     'Заказ выполнен: сдано 100 ед.');
-eq('deliver err from body', c.deliverErrorText({ error: 'Сдать можно только с орбиты планеты заказа' }, 422),
+eq('deliver err from body', w.deliverErrorText({ error: 'Сдать можно только с орбиты планеты заказа' }, 422),
     'Сдать можно только с орбиты планеты заказа');
-eq('deliver err fallback', c.deliverErrorText(null, 409), 'Заказ уже не взят или хранилище недоступно');
-eq('remaining units', c.remainingUnits({ requirements: [{ kind: 'goods', subject: 'w', op: 'in', quantity: 7 }] }), 7);
-eq('remaining none', c.remainingUnits({ requirements: [] }), null);
+// Отказ сдачи с названием товара (ЧК3) доходит до игрока как есть.
+eq('deliver err no cargo', w.deliverErrorText({ error: 'В трюме нет товара «Пища», а по заказу осталось сдать 40 ед.' }, 422),
+    'В трюме нет товара «Пища», а по заказу осталось сдать 40 ед.');
+eq('deliver err fallback', w.deliverErrorText(null, 409), 'Заказ уже не взят или хранилище недоступно');
+eq('remaining units', w.remainingUnits({ requirements: [{ kind: 'goods', subject: 'w', op: 'in', quantity: 7 }] }), 7);
+eq('remaining none', w.remainingUnits({ requirements: [] }), null);
 
 console.log('CONTRACTS_BOARD_OK');
 `

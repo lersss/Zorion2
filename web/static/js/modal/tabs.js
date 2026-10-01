@@ -4,7 +4,8 @@ import { modalState, flightModeForSystem } from './state.js';
 import { getPlanetTexture } from './textures.js';
 import { groupDeposits } from './deposits.js';
 import { branchesBlockHtml, effectsBlockHtml, stageRowHtml, settlementArithmeticHtml, storageBlockHtml } from './branches.js';
-import { boardHtml, canPublishHere, publishFormHtml, myWorksHtml, deliverResultText, deliverErrorText, escapeHtml } from './contracts.js';
+import { boardHtml, canPublishHere, publishFormHtml, escapeHtml } from './contracts.js';
+import { myWorksHtml, deliverResultText, deliverErrorText, cargoByGoodId } from './contracts_works.js';
 import { renderStructures, initStructures, buildingTypeLabel } from './structures.js';
 import { renderMarket, initMarket } from './market.js';
 import { notifyError, notifySuccess } from '../ui/toast.js';
@@ -1224,7 +1225,22 @@ async function loadContracts(planet, container) {
         }
     } catch (e) { /* вторичный блок: без тоста */ }
     if (!mineBox.isConnected) return;
-    mineBox.innerHTML = myWorksHtml(mine, Date.now());
+    // Числа трюма для строк «в трюме» (идея 2026-10-01_сдача-груза-не-по-роли
+    // ЧК2): один GET /api/cargo на открытие блока, без поллинга (груз между
+    // открытиями вкладки меняется редко, а блок и так перечитывается заново).
+    // Сбой/пустой ответ — просто не показываем «в трюме»: молчаливое «0» врало бы.
+    let cargo = null;
+    if (mine.length > 0) {
+        try {
+            const res = await fetch('/api/cargo', { headers: { 'Authorization': 'Bearer ' + token } });
+            if (res.ok) {
+                const data = await res.json();
+                cargo = cargoByGoodId(data && data.items);
+            }
+        } catch (e) { /* вторичные числа: без тоста */ }
+    }
+    if (!mineBox.isConnected) return;
+    mineBox.innerHTML = myWorksHtml(mine, Date.now(), cargo);
     mineBox.querySelectorAll('[data-contract-deliver]').forEach(btn => {
         btn.addEventListener('click', () => deliverContract(planet, container, btn.dataset.contractDeliver, btn));
     });

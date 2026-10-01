@@ -144,8 +144,8 @@ func expectDeliverSuccess(mock sqlmock.Sqlmock) {
 			AddRow("settlement", "s1", int64(1000), int64(0), "regular"))
 	mock.ExpectQuery(`SELECT id, subject, quantity`).WithArgs("c1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "subject", "quantity"}).AddRow(int64(7), "426", int64(40)))
-	mock.ExpectQuery(`SELECT weight FROM goods`).WithArgs(int64(426)).
-		WillReturnRows(sqlmock.NewRows([]string{"weight"}).AddRow(0.5))
+	mock.ExpectQuery(`SELECT name, weight FROM goods`).WithArgs(int64(426)).
+		WillReturnRows(sqlmock.NewRows([]string{"name", "weight"}).AddRow("Вода", 0.5))
 	mock.ExpectExec(`SELECT 1 FROM users WHERE id = \$1 FOR UPDATE`).WithArgs("u1").
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(`SELECT quantity FROM player_cargo`).WithArgs("u1", int64(426)).
@@ -263,6 +263,41 @@ func TestDeliverContractExpiredAfterDue(t *testing.T) {
 	h.DeliverContract(rec, req)
 
 	require.Equal(t, http.StatusConflict, rec.Code, "body=%s", rec.Body.String())
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestDeliverContractNoCargoReadable (идея 2026-10-01_сдача-груза-не-по-роли ЧК3):
+// пустой трюм — 422 с текстом, который называет товар и остаток требования
+// («в трюме нет нужного товара» игроку ничего не объяснял).
+func TestDeliverContractNoCargoReadable(t *testing.T) {
+	h, mock := newDeliverHarness(t)
+
+	expectSurfaceUserRole(mock, "u1", "w1", contractPlanetPos, "player")
+	expectContractGetByID(mock, contractDeliverRow("c1", "supply", "taken", "settlement", "s1", "player", "u1"))
+	expectDeliverExpireDueNoop(mock)
+	expectContractGetByID(mock, contractDeliverRow("c1", "supply", "taken", "settlement", "s1", "player", "u1"))
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT author_type, author_id, escrow_amount`).WithArgs("c1", "u1").
+		WillReturnRows(sqlmock.NewRows([]string{"author_type", "author_id", "escrow_amount", "escrow_withdrawable", "funding"}).
+			AddRow("settlement", "s1", int64(1000), int64(0), "regular"))
+	mock.ExpectQuery(`SELECT id, subject, quantity`).WithArgs("c1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "subject", "quantity"}).AddRow(int64(7), "426", int64(40)))
+	mock.ExpectQuery(`SELECT name, weight FROM goods`).WithArgs(int64(426)).
+		WillReturnRows(sqlmock.NewRows([]string{"name", "weight"}).AddRow("Вода", 0.5))
+	mock.ExpectExec(`SELECT 1 FROM users WHERE id = \$1 FOR UPDATE`).WithArgs("u1").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(`SELECT quantity FROM player_cargo`).WithArgs("u1", int64(426)).
+		WillReturnRows(sqlmock.NewRows([]string{"quantity"}))
+	mock.ExpectRollback()
+
+	req := withUserID(httptest.NewRequest(http.MethodPost, "/api/contracts/deliver",
+		strings.NewReader(`{"contract_id":"c1"}`)), "u1")
+	rec := httptest.NewRecorder()
+	h.DeliverContract(rec, req)
+
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, "body=%s", rec.Body.String())
+	require.Contains(t, rec.Body.String(), "В трюме нет товара «Вода», а по заказу осталось сдать 40 ед.")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

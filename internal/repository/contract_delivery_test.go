@@ -58,7 +58,7 @@ const (
 	deliverReqLockRe      = `(?s)SELECT id, subject, quantity\s+FROM contract_requirements\s+WHERE contract_id = \$1 AND kind = 'goods' AND op = 'in'`
 	deliverUsersLockRe    = `SELECT 1 FROM users WHERE id = \$1 FOR UPDATE`
 	deliverCargoLockRe    = `(?s)SELECT quantity FROM player_cargo WHERE user_id = \$1 AND good_id = \$2 FOR UPDATE`
-	deliverWeightRe       = `SELECT weight FROM goods WHERE id = \$1`
+	deliverWeightRe       = `SELECT name, weight FROM goods WHERE id = \$1`
 	deliverCellIncRe      = `(?s)UPDATE settlement_storage_cells\s+SET amount = GREATEST\(0, amount \+ \$3\)`
 	deliverReqZeroRe      = `UPDATE contract_requirements SET quantity = 0 WHERE id = \$1`
 	deliverReqDecRe       = `(?s)UPDATE contract_requirements SET quantity = quantity - \$2 WHERE id = \$1`
@@ -91,7 +91,7 @@ func expectDeliverPrelude(mock sqlmock.Sqlmock, have float64) {
 	mock.ExpectQuery(deliverReqLockRe).WithArgs("c1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "subject", "quantity"}).AddRow(int64(7), "426", int64(40)))
 	mock.ExpectQuery(deliverWeightRe).WithArgs(int64(426)).
-		WillReturnRows(sqlmock.NewRows([]string{"weight"}).AddRow(0.5))
+		WillReturnRows(sqlmock.NewRows([]string{"name", "weight"}).AddRow("Вода", 0.5))
 	mock.ExpectExec(deliverUsersLockRe).WithArgs("u1").
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(deliverCargoLockRe).WithArgs("u1", int64(426)).
@@ -155,7 +155,7 @@ func TestDeliverPartialProportionalPayment(t *testing.T) {
 	mock.ExpectQuery(deliverReqLockRe).WithArgs("c1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "subject", "quantity"}).AddRow(int64(7), "426", int64(100)))
 	mock.ExpectQuery(deliverWeightRe).WithArgs(int64(426)).
-		WillReturnRows(sqlmock.NewRows([]string{"weight"}).AddRow(0.5))
+		WillReturnRows(sqlmock.NewRows([]string{"name", "weight"}).AddRow("Вода", 0.5))
 	mock.ExpectExec(deliverUsersLockRe).WithArgs("u1").WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(deliverCargoLockRe).WithArgs("u1", int64(426)).
 		WillReturnRows(sqlmock.NewRows([]string{"quantity"}).AddRow(40.0))
@@ -198,7 +198,7 @@ func TestDeliverClampToDoubleCap(t *testing.T) {
 	mock.ExpectQuery(deliverReqLockRe).WithArgs("c1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "subject", "quantity"}).AddRow(int64(7), "426", int64(1000)))
 	mock.ExpectQuery(deliverWeightRe).WithArgs(int64(426)).
-		WillReturnRows(sqlmock.NewRows([]string{"weight"}).AddRow(0.5))
+		WillReturnRows(sqlmock.NewRows([]string{"name", "weight"}).AddRow("Вода", 0.5))
 	mock.ExpectExec(deliverUsersLockRe).WithArgs("u1").WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(deliverCargoLockRe).WithArgs("u1", int64(426)).
 		WillReturnRows(sqlmock.NewRows([]string{"quantity"}).AddRow(500.0))
@@ -241,7 +241,7 @@ func TestDeliverPartialThenFull(t *testing.T) {
 	mock.ExpectQuery(deliverReqLockRe).WithArgs("c1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "subject", "quantity"}).AddRow(int64(7), "426", int64(100)))
 	mock.ExpectQuery(deliverWeightRe).WithArgs(int64(426)).
-		WillReturnRows(sqlmock.NewRows([]string{"weight"}).AddRow(0.5))
+		WillReturnRows(sqlmock.NewRows([]string{"name", "weight"}).AddRow("Вода", 0.5))
 	mock.ExpectExec(deliverUsersLockRe).WithArgs("u1").WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(deliverCargoLockRe).WithArgs("u1", int64(426)).
 		WillReturnRows(sqlmock.NewRows([]string{"quantity"}).AddRow(40.0))
@@ -274,7 +274,7 @@ func TestDeliverPartialThenFull(t *testing.T) {
 	mock.ExpectQuery(deliverReqLockRe).WithArgs("c1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "subject", "quantity"}).AddRow(int64(7), "426", int64(60)))
 	mock.ExpectQuery(deliverWeightRe).WithArgs(int64(426)).
-		WillReturnRows(sqlmock.NewRows([]string{"weight"}).AddRow(0.5))
+		WillReturnRows(sqlmock.NewRows([]string{"name", "weight"}).AddRow("Вода", 0.5))
 	mock.ExpectExec(deliverUsersLockRe).WithArgs("u1").WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(deliverCargoLockRe).WithArgs("u1", int64(426)).
 		WillReturnRows(sqlmock.NewRows([]string{"quantity"}).AddRow(60.0))
@@ -316,7 +316,7 @@ func TestDeliverFreeSupplyZeroEscrow(t *testing.T) {
 		mock.ExpectQuery(deliverReqLockRe).WithArgs("c1").
 			WillReturnRows(sqlmock.NewRows([]string{"id", "subject", "quantity"}).AddRow(int64(7), "426", int64(10)))
 		mock.ExpectQuery(deliverWeightRe).WithArgs(int64(426)).
-			WillReturnRows(sqlmock.NewRows([]string{"weight"}).AddRow(0.5))
+			WillReturnRows(sqlmock.NewRows([]string{"name", "weight"}).AddRow("Вода", 0.5))
 		mock.ExpectExec(deliverUsersLockRe).WithArgs("u1").WillReturnResult(sqlmock.NewResult(0, 0))
 		mock.ExpectQuery(deliverCargoLockRe).WithArgs("u1", int64(426)).
 			WillReturnRows(sqlmock.NewRows([]string{"quantity"}).AddRow(10.0))
@@ -354,7 +354,7 @@ func TestDeliverFreeSupplyZeroEscrow(t *testing.T) {
 		mock.ExpectQuery(deliverReqLockRe).WithArgs("c1").
 			WillReturnRows(sqlmock.NewRows([]string{"id", "subject", "quantity"}).AddRow(int64(7), "426", int64(40)))
 		mock.ExpectQuery(deliverWeightRe).WithArgs(int64(426)).
-			WillReturnRows(sqlmock.NewRows([]string{"weight"}).AddRow(0.5))
+			WillReturnRows(sqlmock.NewRows([]string{"name", "weight"}).AddRow("Вода", 0.5))
 		mock.ExpectExec(deliverUsersLockRe).WithArgs("u1").WillReturnResult(sqlmock.NewResult(0, 0))
 		mock.ExpectQuery(deliverCargoLockRe).WithArgs("u1", int64(426)).
 			WillReturnRows(sqlmock.NewRows([]string{"quantity"}).AddRow(10.0))
@@ -381,6 +381,8 @@ func TestDeliverFreeSupplyZeroEscrow(t *testing.T) {
 }
 
 // TestDeliverNoCargo (T5): товара требования в трюме нет — 422-ошибка, откат.
+// Идея 2026-10-01_сдача-груза-не-по-роли ЧК3: текст называет товар и остаток,
+// а не «в трюме нет нужного товара»; errors.Is на ErrDeliveryNoCargo сохранён.
 func TestDeliverNoCargo(t *testing.T) {
 	repo, mock, _ := newDeliveryHarness(t)
 	mock.ExpectBegin()
@@ -389,7 +391,7 @@ func TestDeliverNoCargo(t *testing.T) {
 	mock.ExpectQuery(deliverReqLockRe).WithArgs("c1").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "subject", "quantity"}).AddRow(int64(7), "426", int64(40)))
 	mock.ExpectQuery(deliverWeightRe).WithArgs(int64(426)).
-		WillReturnRows(sqlmock.NewRows([]string{"weight"}).AddRow(0.5))
+		WillReturnRows(sqlmock.NewRows([]string{"name", "weight"}).AddRow("Вода", 0.5))
 	mock.ExpectExec(deliverUsersLockRe).WithArgs("u1").WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(deliverCargoLockRe).WithArgs("u1", int64(426)).
 		WillReturnRows(sqlmock.NewRows([]string{"quantity"}))
@@ -397,6 +399,22 @@ func TestDeliverNoCargo(t *testing.T) {
 
 	_, err := repo.Deliver("u1", "c1")
 	require.ErrorIs(t, err, ErrDeliveryNoCargo)
+	require.EqualError(t, err, "В трюме нет товара «Вода», а по заказу осталось сдать 40 ед.",
+		"игрок видит конкретный текст: название товара и остаток требования")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestDeliverNoCargoZeroQuantity: товар в трюме есть, но нулевой — тот же
+// конкретизированный отказ (иначе «в трюме нет» пришлось бы ловить в двух местах).
+func TestDeliverNoCargoZeroQuantity(t *testing.T) {
+	repo, mock, _ := newDeliveryHarness(t)
+	mock.ExpectBegin()
+	expectDeliverPrelude(mock, 0)
+	mock.ExpectRollback()
+
+	_, err := repo.Deliver("u1", "c1")
+	require.ErrorIs(t, err, ErrDeliveryNoCargo)
+	require.Contains(t, err.Error(), "Вода")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

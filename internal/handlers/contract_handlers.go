@@ -303,6 +303,7 @@ func (h *ContractHandlers) CancelContract(w http.ResponseWriter, r *http.Request
 // с орбиты планеты заказа (спека 2026-09-25-сдача-груза-и-зачёт-ЧК2б §5.1/§6).
 // Проверки до транзакции, затем атомарный Deliver. Surface не подходит, спутник
 // засчитывается как орбита родителя (presencePlanetID, образец canTrade).
+// Условие сдачи — исполнитель контракта; роль аккаунта не проверяется.
 func (h *ContractHandlers) DeliverContract(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(auth.UserIDKey).(string)
 	if !ok || userID == "" {
@@ -323,10 +324,6 @@ func (h *ContractHandlers) DeliverContract(w http.ResponseWriter, r *http.Reques
 	user, pos, _, err := h.userRepo.GetByIDWithPosition(userID)
 	if err != nil || user == nil {
 		writeJSONError(w, "Пользователь не найден", http.StatusNotFound)
-		return
-	}
-	if user.Role != models.RolePlayer {
-		writeJSONError(w, "Сдавать груз может только игрок", http.StatusForbidden)
 		return
 	}
 

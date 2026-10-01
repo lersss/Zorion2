@@ -130,18 +130,86 @@ func TestDeliverContractGates(t *testing.T) {
 	}
 }
 
-// TestDeliverContractRoleForbidden: роль не player → 403 (до чтения контракта).
-func TestDeliverContractRoleForbidden(t *testing.T) {
-	h, mock := newDeliverHarness(t)
-	expectSurfaceUserRole(mock, "u1", "w1", contractPlanetPos, "admin")
+// expectDeliverSuccess — полный успешный путь сдачи: гейты (контракт, истечение,
+// орбита) + атомарный Deliver. Роль аккаунта в цепочке не участвует — условие
+// сдачи «исполнитель — ты» (идея 2026-10-01_сдача-груза-не-по-роли).
+func expectDeliverSuccess(mock sqlmock.Sqlmock) {
+	expectContractGetByID(mock, contractDeliverRow("c1", "supply", "taken", "settlement", "s1", "player", "u1"))
+	expectDeliverExpireDueNoop(mock)
+	expectContractGetByID(mock, contractDeliverRow("c1", "supply", "taken", "settlement", "s1", "player", "u1"))
 
-	req := withUserID(httptest.NewRequest(http.MethodPost, "/api/contracts/deliver",
-		strings.NewReader(`{"contract_id":"c1"}`)), "u1")
-	rec := httptest.NewRecorder()
-	h.DeliverContract(rec, req)
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT author_type, author_id, escrow_amount`).WithArgs("c1", "u1").
+		WillReturnRows(sqlmock.NewRows([]string{"author_type", "author_id", "escrow_amount", "escrow_withdrawable", "funding"}).
+			AddRow("settlement", "s1", int64(1000), int64(0), "regular"))
+	mock.ExpectQuery(`SELECT id, subject, quantity`).WithArgs("c1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "subject", "quantity"}).AddRow(int64(7), "426", int64(40)))
+	mock.ExpectQuery(`SELECT weight FROM goods`).WithArgs(int64(426)).
+		WillReturnRows(sqlmock.NewRows([]string{"weight"}).AddRow(0.5))
+	mock.ExpectExec(`SELECT 1 FROM users WHERE id = \$1 FOR UPDATE`).WithArgs("u1").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(`SELECT quantity FROM player_cargo`).WithArgs("u1", int64(426)).
+		WillReturnRows(sqlmock.NewRows([]string{"quantity"}).AddRow(100.0))
+	mock.ExpectQuery(`SELECT id, owner_type, owner_id, good_id, amount, cap_share`).WithArgs("settlement", "s1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "owner_type", "owner_id", "good_id", "amount", "cap_share"}).
+			AddRow(int64(1), "settlement", "s1", int64(426), 0.0, 1.0))
+	mock.ExpectQuery(`SELECT storage_size FROM settlements`).WithArgs("s1").
+		WillReturnRows(sqlmock.NewRows([]string{"storage_size"}).AddRow(1000.0))
+	mock.ExpectExec(`UPDATE settlement_storage_cells`).WithArgs("settlement", "s1", 40.0, int64(426)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`UPDATE contract_requirements SET quantity = 0`).WithArgs(int64(7)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(`UPDATE contracts\s+SET status = 'completed'`).WithArgs("c1", "u1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "author_type", "author_id", "executor_type", "executor_id",
+			"escrow_amount", "escrow_withdrawable", "funding"}).
+			AddRow("c1", "settlement", "s1", "player", "u1", int64(1000), int64(0), "regular"))
+	mock.ExpectExec(`INSERT INTO accounts`).WithArgs("player", "u1", int64(0)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(`UPDATE accounts\s+SET balance = balance`).WithArgs("player", "u1", int64(1000), int64(0)).
+		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(1000))
+	mock.ExpectExec(`INSERT INTO money_operations`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO contract_log`).WillReturnResult(sqlmock.NewResult(0, 1)) // completed
+	mock.ExpectExec(`INSERT INTO contract_log`).WillReturnResult(sqlmock.NewResult(0, 1)) // escrow_released
+	mock.ExpectExec(`INSERT INTO contract_log`).WillReturnResult(sqlmock.NewResult(0, 1)) // delivered
+	mock.ExpectCommit()
+}
 
-	require.Equal(t, http.StatusForbidden, rec.Code)
-	require.NoError(t, mock.ExpectationsWereMet())
+// TestDeliverContractIgnoresRole: условие сдачи — исполнитель контракта, а не роль
+// аккаунта (идея 2026-10-01_сдача-груза-не-по-роли): admin/skycomposer, играющие за
+// свой аккаунт (на орбите планеты заказа, контракт взят на себя), сдают груз так же,
+// как player. Чужой контракт по-прежнему отклоняется (403).
+func TestDeliverContractIgnoresRole(t *testing.T) {
+	for _, role := range []string{"player", "admin", "skycomposer"} {
+		t.Run("сдача проходит: "+role, func(t *testing.T) {
+			h, mock := newDeliverHarness(t)
+			expectSurfaceUserRole(mock, "u1", "w1", contractPlanetPos, role)
+			expectDeliverSuccess(mock)
+
+			req := withUserID(httptest.NewRequest(http.MethodPost, "/api/contracts/deliver",
+				strings.NewReader(`{"contract_id":"c1"}`)), "u1")
+			rec := httptest.NewRecorder()
+			h.DeliverContract(rec, req)
+
+			require.Equal(t, http.StatusOK, rec.Code, "body=%s", rec.Body.String())
+			require.Contains(t, rec.Body.String(), `"status":"completed"`)
+			require.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+
+	t.Run("чужой контракт — admin отклонён", func(t *testing.T) {
+		h, mock := newDeliverHarness(t)
+		expectSurfaceUserRole(mock, "u1", "w1", contractPlanetPos, "admin")
+		expectContractGetByID(mock, contractDeliverRow("c1", "supply", "taken", "settlement", "s1", "player", "u2"))
+
+		req := withUserID(httptest.NewRequest(http.MethodPost, "/api/contracts/deliver",
+			strings.NewReader(`{"contract_id":"c1"}`)), "u1")
+		rec := httptest.NewRecorder()
+		h.DeliverContract(rec, req)
+
+		require.Equal(t, http.StatusForbidden, rec.Code, "body=%s", rec.Body.String())
+		require.Contains(t, rec.Body.String(), "не исполнитель")
+		require.NoError(t, mock.ExpectationsWereMet())
+	})
 }
 
 // TestDeliverContractNotOnOrbit (T3): surface и чужая планета/звезда → 422.
@@ -229,44 +297,7 @@ func TestDeliverContractSuccess(t *testing.T) {
 	h, mock := newDeliverHarness(t)
 
 	expectSurfaceUserRole(mock, "u1", "w1", contractPlanetPos, "player")
-	expectContractGetByID(mock, contractDeliverRow("c1", "supply", "taken", "settlement", "s1", "player", "u1"))
-	expectDeliverExpireDueNoop(mock)
-	expectContractGetByID(mock, contractDeliverRow("c1", "supply", "taken", "settlement", "s1", "player", "u1"))
-
-	mock.ExpectBegin()
-	mock.ExpectQuery(`SELECT author_type, author_id, escrow_amount`).WithArgs("c1", "u1").
-		WillReturnRows(sqlmock.NewRows([]string{"author_type", "author_id", "escrow_amount", "escrow_withdrawable", "funding"}).
-			AddRow("settlement", "s1", int64(1000), int64(0), "regular"))
-	mock.ExpectQuery(`SELECT id, subject, quantity`).WithArgs("c1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "subject", "quantity"}).AddRow(int64(7), "426", int64(40)))
-	mock.ExpectQuery(`SELECT weight FROM goods`).WithArgs(int64(426)).
-		WillReturnRows(sqlmock.NewRows([]string{"weight"}).AddRow(0.5))
-	mock.ExpectExec(`SELECT 1 FROM users WHERE id = \$1 FOR UPDATE`).WithArgs("u1").
-		WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectQuery(`SELECT quantity FROM player_cargo`).WithArgs("u1", int64(426)).
-		WillReturnRows(sqlmock.NewRows([]string{"quantity"}).AddRow(100.0))
-	mock.ExpectQuery(`SELECT id, owner_type, owner_id, good_id, amount, cap_share`).WithArgs("settlement", "s1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "owner_type", "owner_id", "good_id", "amount", "cap_share"}).
-			AddRow(int64(1), "settlement", "s1", int64(426), 0.0, 1.0))
-	mock.ExpectQuery(`SELECT storage_size FROM settlements`).WithArgs("s1").
-		WillReturnRows(sqlmock.NewRows([]string{"storage_size"}).AddRow(1000.0))
-	mock.ExpectExec(`UPDATE settlement_storage_cells`).WithArgs("settlement", "s1", 40.0, int64(426)).
-		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(`UPDATE contract_requirements SET quantity = 0`).WithArgs(int64(7)).
-		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectQuery(`UPDATE contracts\s+SET status = 'completed'`).WithArgs("c1", "u1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "author_type", "author_id", "executor_type", "executor_id",
-			"escrow_amount", "escrow_withdrawable", "funding"}).
-			AddRow("c1", "settlement", "s1", "player", "u1", int64(1000), int64(0), "regular"))
-	mock.ExpectExec(`INSERT INTO accounts`).WithArgs("player", "u1", int64(0)).
-		WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectQuery(`UPDATE accounts\s+SET balance = balance`).WithArgs("player", "u1", int64(1000), int64(0)).
-		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(1000))
-	mock.ExpectExec(`INSERT INTO money_operations`).WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(`INSERT INTO contract_log`).WillReturnResult(sqlmock.NewResult(0, 1)) // completed
-	mock.ExpectExec(`INSERT INTO contract_log`).WillReturnResult(sqlmock.NewResult(0, 1)) // escrow_released
-	mock.ExpectExec(`INSERT INTO contract_log`).WillReturnResult(sqlmock.NewResult(0, 1)) // delivered
-	mock.ExpectCommit()
+	expectDeliverSuccess(mock)
 
 	req := withUserID(httptest.NewRequest(http.MethodPost, "/api/contracts/deliver",
 		strings.NewReader(`{"contract_id":"c1"}`)), "u1")

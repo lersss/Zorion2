@@ -10,6 +10,7 @@ import { SurfaceEnvironment, drawEnvironmentBack, drawEnvironmentMid, drawEnviro
 import { Player, serverHp } from './surface_player.js';
 import { Boat, drawBoat } from './surface_boat.js';
 import { land, leave } from './surface_net.js';
+import { returnToMap } from './surface_return.js';
 import * as ui from './surface_ui.js';
 
 const state = {
@@ -209,7 +210,7 @@ async function onDeath() {
     state.running = false;
     const res = await leave();
     const cause = (res.ok && res.data && res.data.cause) ? res.data.cause : 'среда';
-    ui.showDeath(cause, () => { window.location.href = '/map'; });
+    ui.showDeath(cause, () => returnToMap(state.pkg.planet_id));
 }
 
 async function callShip() {
@@ -222,10 +223,9 @@ async function callShip() {
         ui.notify('Не удалось вызвать корабль: ' + res.error);
         return;
     }
-    // Одноразовый маркер для карты (хендофф 2026-09-28): игрок на орбите
-    // планеты прогулки, карта откроет попап системы с фокусом на ней.
-    try { sessionStorage.setItem('surfaceReturn', String(state.pkg.planet_id)); } catch (e) {}
-    window.location.href = '/map';
+    // Уход на карту с одноразовым маркером возврата — общий для «вызова корабля»
+    // и смерти (surface_return.js).
+    returnToMap(state.pkg.planet_id);
 }
 
 function bindInput() {

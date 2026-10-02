@@ -5,22 +5,31 @@ function token() {
     return localStorage.getItem('token') || sessionStorage.getItem('token');
 }
 
+// post — единственная сетевая точка land/leave. Отклонение от fetch (обрыв
+// связи, offline) НЕ пробрасывается: возвращается обычный `!res.ok` со статусом
+// 0, иначе исключение уходит в вызывающий код мимо его ветки `!res.ok` —
+// при смерти прогулки страница замирает без экрана смерти и без пути назад
+// (идея 2026-10-02, МЧК1б). Ответы 4xx/5xx не меняются.
 async function post(path, body) {
-    const res = await fetch(path, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + token(),
-        },
-        body: body ? JSON.stringify(body) : undefined,
-    });
-    const text = await res.text();
-    let data = null;
-    try { data = text ? JSON.parse(text) : null; } catch (e) { data = { error: text }; }
-    if (!res.ok) {
-        return { ok: false, status: res.status, error: (data && data.error) || text || 'Ошибка сервера' };
+    try {
+        const res = await fetch(path, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + token(),
+            },
+            body: body ? JSON.stringify(body) : undefined,
+        });
+        const text = await res.text();
+        let data = null;
+        try { data = text ? JSON.parse(text) : null; } catch (e) { data = { error: text }; }
+        if (!res.ok) {
+            return { ok: false, status: res.status, error: (data && data.error) || text || 'Ошибка сервера' };
+        }
+        return { ok: true, status: res.status, data };
+    } catch (e) {
+        return { ok: false, status: 0, error: 'Сеть недоступна' };
     }
-    return { ok: true, status: res.status, data };
 }
 
 // land — высадка (идемпотентно: повторный вызов возвращает тот же биом).

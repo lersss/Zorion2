@@ -1,0 +1,38 @@
+name: Deploy
+
+# Автосборка и публикация образа игры на push в master (вариант A переезда,
+# 2026-10-06). GitHub собирает образ по Dockerfile и кладёт его в реестр
+# ghcr.io/lersss/zorion2:latest; сервер (skylab.ru) забирает готовый образ
+# сам (watchtower). Сервер на сборку не тратит ресурсы.
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    name: build · push to GHCR
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/lersss/zorion2:latest
+            ghcr.io/lersss/zorion2:${{ github.sha }}

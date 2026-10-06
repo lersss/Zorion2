@@ -1,0 +1,89 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: zorion_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: zorion
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: zorion
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zorion -d zorion"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - zorion
+
+  redis:
+    image: redis:7-alpine
+    container_name: zorion_redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - zorion
+
+  app:
+    image: ghcr.io/lersss/zorion2:latest
+    container_name: zorion_app
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+    env_file:
+      - .env
+    environment:
+      SERVER_PORT: "8080"
+      DATABASE_URL: postgres://zorion:${POSTGRES_PASSWORD}@postgres:5432/zorion?sslmode=disable
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - app_data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - zorion
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: zorion_caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+    networks:
+      - zorion
+
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: zorion_watchtower
+    restart: unless-stopped
+    environment:
+      DOCKER_API_VERSION: "1.44"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --label-enable --interval 60 --cleanup
+    networks:
+      - zorion
+
+volumes:
+  pg_data:
+  app_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  zorion:

@@ -4,8 +4,8 @@
 > История — в `CHANGELOG.md` и git. План — у создателя и в `docs/gamedesign/99_roadmap.md`.
 > Стек/структура/команды — `AGENTS.md`; карта доков — `docs/INDEX.md`; БД — `docs/DB.md`; ловушки — `docs/PITFALLS.md`.
 
-**Обновлено:** 2026-09-28 · **Ветка:** master · **Remote:** `github.com/lersss/Zorion2`
-**Состояние:** прод на Amvera (`https://zorion-game-skycomposer.amvera.io/`, `/status` → All systems ready); локально `go build`/`vet`/`test` зелёные, `-race` доступен (93a); dev-БД (факт 2026-09-22, `tools/db.ps1`): 10 000 звёзд, ~40 000 планет, ~36 000 поселений, 78 600 залежей, 3 000 NPC, 529 юзеров, 38 изученных планет.
+**Обновлено:** 2026-10-07 · **Ветка:** master · **Remote:** `github.com/lersss/Zorion2`
+**Состояние:** прод на собственном сервере `https://skylab.ru` (Docker + Caddy, HTTPS Let's Encrypt; Amvera остановлена 2026-10-07); локально `go build`/`vet`/`test` зелёные, `-race` доступен (93a); dev-БД (факт 2026-09-22, `tools/db.ps1`): 10 000 звёзд, ~40 000 планет, ~36 000 поселений, 78 600 залежей, 3 000 NPC, 529 юзеров, 38 изученных планет.
 
 ## Баги
 

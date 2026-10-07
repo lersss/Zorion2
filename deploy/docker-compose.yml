@@ -3,10 +3,35 @@ services:
     image: postgres:15-alpine
     container_name: zorion_postgres
     restart: unless-stopped
+    command:
+      - postgres
+      - -c
+      - shared_buffers=1GB
+      - -c
+      - effective_cache_size=2304MB
+      - -c
+      - work_mem=16MB
+      - -c
+      - maintenance_work_mem=256MB
+      - -c
+      - wal_buffers=32MB
+      - -c
+      - min_wal_size=1GB
+      - -c
+      - max_wal_size=4GB
+      - -c
+      - checkpoint_completion_target=0.9
+      - -c
+      - checkpoint_timeout=15min
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - effective_io_concurrency=200
     environment:
       POSTGRES_USER: zorion
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: zorion
+    mem_limit: 2200m
     volumes:
       - pg_data:/var/lib/postgresql/data
     healthcheck:
@@ -35,6 +60,7 @@ services:
     restart: unless-stopped
     labels:
       com.centurylinklabs.watchtower.enable: "true"
+    mem_limit: 2600m
     env_file:
       - .env
     environment:
